@@ -2,11 +2,11 @@
 
 Quick-reference action items. Full details in [PLAN.md](PLAN.md).
 
-**Last updated**: 2026-02-25
+**Last updated**: 2026-02-26
 
 ---
 
-## Immediate
+## Phase 0 — Foundation (Complete)
 
 - [x] ~~**Rotate Databricks token**~~ — Done
 - [x] ~~**Rename local folder**~~ — Done
@@ -15,32 +15,19 @@ Quick-reference action items. Full details in [PLAN.md](PLAN.md).
 - [x] ~~**Configure Terraform state backend**~~ — S3 bucket `karstenskyt-terraform-state`, native S3 locking
 - [x] ~~**Run `terraform init`**~~ — Successful
 - [x] ~~**Run `terraform plan`**~~ — 16 resources, 0 errors
-- [ ] **Initial git commit + push** to `karstenskyt/luxury-lakehouse`
+- [x] ~~**Initial git commit + push**~~ — Commit `5995bee`, pushed to `karstenskyt/luxury-lakehouse`
 
-## Phase 0 — Remaining Items
+## Phase 1 — Serverless Infrastructure (Complete)
 
-| Item | Status | Blocker |
-|------|--------|---------|
-| Databricks workspace | **Done** — `https://dbc-48322be9-16be.cloud.databricks.com` | — |
-| Databricks token | Done (needs rotation) | — |
-| Unity Catalog metastore | **Done** — auto-created (`metastore_aws_us_east_1`) | — |
-| Terraform state backend | **Done** — `karstenskyt-terraform-state` + native S3 locking | — |
-| IAM role extension for Databricks | Not needed for Phase 0-1 | Future: Phase 2 if S3 access needed |
-| Terraform init + plan | **Done** — 16 resources, 0 errors | — |
-| Databricks CLI install | Not started | Can use `pip install databricks-cli` via uv |
-| Initial push to GitHub | Not started | Ready now |
-
-## Phase 1 — Serverless Infrastructure (IaC)
-
-- [ ] `terraform apply` — workspace module (Unity Catalog + soccer_analytics catalog)
-- [ ] `terraform apply` — catalog module (bronze, silver, gold schemas)
-- [ ] `terraform apply` — sql_warehouse module (Serverless SQL, 2X-Small, auto-stop 10min)
-- [ ] `terraform apply` — lakebase module (PostgreSQL 17, scale-to-zero)
-- [ ] `terraform apply` — workflows module (ingestion job, paused in dev)
-- [ ] `terraform apply` — synced_tables module (Gold > Lakebase sync)
-- [ ] `terraform apply` — app module (Streamlit Databricks App)
+- [x] ~~`terraform apply` — workspace module~~ — Unity Catalog `soccer_analytics` (created via SQL + imported; Default Storage workaround)
+- [x] ~~`terraform apply` — catalog module~~ — bronze, silver, gold schemas
+- [x] ~~`terraform apply` — sql_warehouse module~~ — Serverless SQL, 2X-Small, auto-stop 10min
+- [x] ~~`terraform apply` — lakebase module~~ — PostgreSQL 17, CU_1 capacity
+- [x] ~~`terraform apply` — workflows module~~ — Ingestion job (paused in dev)
+- [x] ~~`terraform apply` — app module~~ — Streamlit Databricks App
+- [ ] `terraform apply` — synced_tables module — Deferred to Phase 3 (requires gold-layer tables)
 - [ ] Verify all resources in Databricks UI
-- [ ] Run `/final-review` + regenerate C4 diagrams
+- [x] ~~Run `/final-review` + regenerate C4 diagrams~~
 
 ## Phase 2 — Data Ingestion
 
@@ -88,6 +75,12 @@ Quick-reference action items. Full details in [PLAN.md](PLAN.md).
 | Databricks workspace URL | `https://dbc-48322be9-16be.cloud.databricks.com` |
 | Databricks tier | Premium (14-day free trial) |
 | Unity Catalog metastore | `metastore_aws_us_east_1` (auto-created) |
+| Unity Catalog | `soccer_analytics` (Default Storage) |
+| SQL Warehouse ID | `6c3b36ca64d183fe` |
+| Lakebase instance | `soccer-analytics-lakebase-dev` |
+| Lakebase DNS (RW) | `instance-f9ffeb4b-6f4b-4fd6-9287-335d745ce173.database.cloud.databricks.com` |
+| Ingestion job ID | `240279916175143` |
+| Streamlit App URL | `https://soccer-analytics-dashboard-dev-7474660814094441.aws.databricksapps.com` |
 | GitHub repo | `karstenskyt/luxury-lakehouse` (private) |
 | Monthly budget | Under $100 |
 | Terraform state bucket | `karstenskyt-terraform-state` (S3 native locking) |

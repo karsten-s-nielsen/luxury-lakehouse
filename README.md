@@ -80,12 +80,12 @@ luxury-lakehouse/
 
 ## Status
 
-**Phase 0: Foundation** — Workspace provisioned, Terraform scaffolded, `terraform plan` clean. See [PLAN.md](PLAN.md) for the full implementation plan.
+**Phase 1: Infrastructure Deployed** — 8 Databricks resources provisioned via `terraform apply`. See [PLAN.md](PLAN.md) for the full implementation plan.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| 0 | Foundation & Prerequisites | In Progress |
-| 1 | Serverless Infrastructure (Terraform) | Scaffolded |
+| 0 | Foundation & Prerequisites | Complete |
+| 1 | Serverless Infrastructure (Terraform) | Complete |
 | 2 | Data Ingestion (StatsBomb, Metrica, Wyscout) | Scaffolded |
 | 3 | Transformation (dbt on Databricks) | Scaffolded |
 | 4 | Zero-ETL Synchronization (Synced Tables → Lakebase) | Scaffolded |
@@ -110,7 +110,7 @@ luxury-lakehouse/
 
 ## License
 
-TBD
+[MIT](LICENSE)
 
 ---
 

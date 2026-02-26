@@ -26,6 +26,7 @@
 resource "databricks_database_synced_database_table" "fct_shots" {
   name                   = "${var.catalog_name}.gold.fct_shots_synced"
   database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
 
   spec = {
     source_table_full_name = "${var.catalog_name}.gold.fct_shots"
@@ -37,6 +38,7 @@ resource "databricks_database_synced_database_table" "fct_shots" {
 resource "databricks_database_synced_database_table" "fct_passes" {
   name                   = "${var.catalog_name}.gold.fct_passes_synced"
   database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
 
   spec = {
     source_table_full_name = "${var.catalog_name}.gold.fct_passes"
@@ -48,6 +50,7 @@ resource "databricks_database_synced_database_table" "fct_passes" {
 resource "databricks_database_synced_database_table" "fct_player_stats" {
   name                   = "${var.catalog_name}.gold.fct_player_stats_synced"
   database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
 
   spec = {
     source_table_full_name = "${var.catalog_name}.gold.fct_player_stats"
@@ -59,6 +62,7 @@ resource "databricks_database_synced_database_table" "fct_player_stats" {
 resource "databricks_database_synced_database_table" "fct_match_summary" {
   name                   = "${var.catalog_name}.gold.fct_match_summary_synced"
   database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
 
   spec = {
     source_table_full_name = "${var.catalog_name}.gold.fct_match_summary"
@@ -70,6 +74,7 @@ resource "databricks_database_synced_database_table" "fct_match_summary" {
 resource "databricks_database_synced_database_table" "fct_player_embeddings" {
   name                   = "${var.catalog_name}.gold.fct_player_embeddings_synced"
   database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
 
   spec = {
     source_table_full_name = "${var.catalog_name}.gold.fct_player_embeddings"
@@ -83,6 +88,7 @@ resource "databricks_database_synced_database_table" "fct_player_embeddings" {
 resource "databricks_database_synced_database_table" "dim_players" {
   name                   = "${var.catalog_name}.gold.dim_players_synced"
   database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
 
   spec = {
     source_table_full_name = "${var.catalog_name}.gold.dim_players"
@@ -94,6 +100,7 @@ resource "databricks_database_synced_database_table" "dim_players" {
 resource "databricks_database_synced_database_table" "dim_teams" {
   name                   = "${var.catalog_name}.gold.dim_teams_synced"
   database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
 
   spec = {
     source_table_full_name = "${var.catalog_name}.gold.dim_teams"
@@ -105,6 +112,7 @@ resource "databricks_database_synced_database_table" "dim_teams" {
 resource "databricks_database_synced_database_table" "dim_competitions" {
   name                   = "${var.catalog_name}.gold.dim_competitions_synced"
   database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
 
   spec = {
     source_table_full_name = "${var.catalog_name}.gold.dim_competitions"

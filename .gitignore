@@ -19,6 +19,9 @@ ENV/
 # IDE
 .idea/
 .vscode/
+
+# Claude Code (machine-specific settings)
+.claude/
 *.swp
 *.swo
 *~

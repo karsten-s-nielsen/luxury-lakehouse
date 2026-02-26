@@ -23,4 +23,11 @@ resource "databricks_catalog" "soccer_analytics" {
     environment = var.environment
     managed_by  = "terraform"
   }
+
+  # Default Storage catalogs are created via SQL (CREATE CATALOG) and imported
+  # into state. The storage_root is Databricks-managed and must not trigger
+  # replacement — the Databricks API cannot recreate Default Storage catalogs.
+  lifecycle {
+    ignore_changes = [storage_root]
+  }
 }
