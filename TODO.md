@@ -26,7 +26,7 @@ Quick-reference action items. Full details in [PLAN.md](PLAN.md).
 - [x] ~~`terraform apply` — workflows module~~ — Ingestion job (paused in dev)
 - [x] ~~`terraform apply` — app module~~ — Streamlit Databricks App
 - [ ] `terraform apply` — synced_tables module — Deferred to Phase 3 (requires gold-layer tables)
-- [ ] Verify all resources in Databricks UI
+- [x] ~~Verify all resources in Databricks UI~~ — 8/8 confirmed via REST API
 - [x] ~~Run `/final-review` + regenerate C4 diagrams~~
 
 ## Phase 2 — Data Ingestion
