@@ -1,0 +1,18 @@
+[sqlfluff]
+dialect = databricks
+templater = jinja
+max_line_length = 120
+
+# Excluded rules:
+#   LT01: aligned column aliases (project convention)
+#   ST06: column ordering preference
+#   ST11: unused joins (false positives with scaffolded TODOs)
+#   AM02: UNION vs UNION ALL (explicit when needed)
+#   RF04: keyword-as-identifier (e.g. "comment")
+#   AL01: implicit/explicit table aliasing
+#   TMP:  jinja template variable errors (dbt macros unavailable to linter)
+#   PRS:  parsing errors from jinja template issues
+exclude_rules = LT01, ST06, ST11, AM02, RF04, AL01, TMP, PRS
+
+[sqlfluff:templater:jinja]
+apply_dbt_builtins = true

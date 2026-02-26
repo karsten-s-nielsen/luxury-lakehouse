@@ -1,0 +1,219 @@
+version: 2
+
+models:
+  # ── Fact Tables ───────────────────────────────────────────────────────
+
+  - name: fct_shots
+    description: >
+      Gold-layer shot fact table with xG features. Contains every shot from
+      all data sources with computed geometry features (distance to goal,
+      shot angle), StatsBomb xG where available, and categorical features
+      for ML model training. One row per shot.
+    columns:
+      - name: shot_id
+        description: Unique shot identifier (surrogate key)
+        data_tests:
+          - unique
+          - not_null
+      - name: match_id
+        description: Foreign key to fct_match_summary
+        data_tests:
+          - not_null
+      - name: player_id
+        description: Foreign key to dim_players
+      - name: team_id
+        description: Foreign key to dim_teams
+      - name: statsbomb_xg
+        description: StatsBomb xG value (NULL for non-StatsBomb data)
+      - name: distance_to_goal
+        description: Euclidean distance from shot location to goal center (yards)
+      - name: shot_angle
+        description: Angle subtended at the goal posts (radians)
+      - name: data_source
+        description: Data provider (statsbomb, wyscout)
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['statsbomb', 'wyscout']
+
+  - name: fct_passes
+    description: >
+      Gold-layer pass fact table with progressive pass identification.
+      Contains every pass from all sources with pass metrics, progressive
+      pass flag, and pass network building blocks. One row per pass.
+    columns:
+      - name: pass_id
+        description: Unique pass identifier (surrogate key)
+        data_tests:
+          - unique
+          - not_null
+      - name: match_id
+        description: Foreign key to fct_match_summary
+        data_tests:
+          - not_null
+      - name: player_id
+        description: Foreign key to dim_players
+      - name: is_progressive
+        description: Whether the pass moved the ball significantly closer to goal
+      - name: pass_outcome
+        description: Pass result (Complete, Incomplete, Out, etc.)
+      - name: data_source
+        description: Data provider (statsbomb, wyscout)
+        data_tests:
+          - not_null
+
+  - name: fct_player_stats
+    description: >
+      Per-90-minute player aggregation table. Contains rolling and seasonal
+      statistics normalized to per-90 rates for fair comparison across
+      players with different minutes played. One row per player per
+      competition per season.
+    columns:
+      - name: player_stats_id
+        description: Surrogate key (player_id + competition_id + season_id)
+        data_tests:
+          - unique
+          - not_null
+      - name: player_id
+        description: Foreign key to dim_players
+        data_tests:
+          - not_null
+      - name: minutes_played
+        description: Total minutes played
+      - name: goals_per_90
+        description: Goals scored per 90 minutes
+      - name: assists_per_90
+        description: Assists per 90 minutes
+      - name: xg_per_90
+        description: Expected goals per 90 minutes
+      - name: passes_per_90
+        description: Total passes attempted per 90 minutes
+      - name: progressive_passes_per_90
+        description: Progressive passes per 90 minutes
+
+  - name: fct_match_summary
+    description: >
+      Match-level aggregate metrics. Contains one row per match with
+      team-level statistics including xG, possession percentage, pass
+      completion rate, shot counts, and other summary metrics.
+    columns:
+      - name: match_id
+        description: Primary key — unique match identifier
+        data_tests:
+          - unique
+          - not_null
+      - name: competition_id
+        description: Foreign key to dim_competitions
+      - name: home_team_id
+        description: Foreign key to dim_teams
+      - name: away_team_id
+        description: Foreign key to dim_teams
+      - name: home_xg
+        description: Total home team expected goals
+      - name: away_xg
+        description: Total away team expected goals
+      - name: home_possession_pct
+        description: Home team possession percentage
+      - name: home_pass_completion_pct
+        description: Home team pass completion percentage
+
+  - name: fct_tracking_frames
+    description: >
+      Pitch control metrics derived from Metrica tracking data. Contains
+      spatial analysis outputs including Voronoi-based pitch control values,
+      player speeds, and formation snapshots. One row per player per frame.
+    columns:
+      - name: tracking_id
+        description: Primary key from stg_metrica__tracking
+        data_tests:
+          - unique
+          - not_null
+      - name: match_id
+        description: Match identifier
+        data_tests:
+          - not_null
+      - name: pitch_control_value
+        description: >
+          Pitch control probability [0,1] at this player's location.
+          Computed using Fernandez & Bornn (2018) model.
+      - name: speed
+        description: Player speed in m/s
+
+  - name: fct_player_embeddings
+    description: >
+      Player movement pattern embeddings for similarity search.
+      Contains dense vector representations of player behavior derived
+      from tracking data, suitable for pgvector nearest-neighbor queries.
+      One row per player per match.
+    columns:
+      - name: embedding_id
+        description: Surrogate key (player_id + match_id)
+        data_tests:
+          - unique
+          - not_null
+      - name: player_id
+        description: Foreign key to dim_players
+        data_tests:
+          - not_null
+      - name: match_id
+        description: Match identifier
+      - name: embedding_vector
+        description: >
+          Dense float array representing player movement patterns.
+          Generated by an external ML model and loaded back into the warehouse.
+
+  # ── Dimension Tables ──────────────────────────────────────────────────
+
+  - name: dim_players
+    description: >
+      Player dimension table. Deduplicated player master data combining
+      information from all data sources. One row per unique player.
+    columns:
+      - name: player_id
+        description: Primary key — canonical player identifier
+        data_tests:
+          - unique
+          - not_null
+      - name: player_name
+        description: Player display name
+        data_tests:
+          - not_null
+      - name: primary_position
+        description: Most common playing position
+
+  - name: dim_teams
+    description: >
+      Team dimension table. Deduplicated team master data from all
+      data sources. One row per unique team.
+    columns:
+      - name: team_id
+        description: Primary key — canonical team identifier
+        data_tests:
+          - unique
+          - not_null
+      - name: team_name
+        description: Team display name
+        data_tests:
+          - not_null
+      - name: country
+        description: Team country
+
+  - name: dim_competitions
+    description: >
+      Competition dimension table. Combines competition metadata from
+      StatsBomb and Wyscout sources with seed data enrichment.
+      One row per unique competition.
+    columns:
+      - name: competition_id
+        description: Primary key — canonical competition identifier
+        data_tests:
+          - unique
+          - not_null
+      - name: competition_name
+        description: Competition display name
+        data_tests:
+          - not_null
+      - name: country
+        description: Country where the competition is held
+      - name: gender
+        description: Gender category (male, female)

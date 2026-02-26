@@ -1,0 +1,13 @@
+competition_id,competition_name,country,gender
+11,La Liga,Spain,male
+2,Premier League,England,male
+12,Serie A,Italy,male
+9,Bundesliga,Germany,male
+7,Ligue 1,France,male
+37,FA Women's Super League,England,female
+72,Women's World Cup,International,female
+43,FIFA World Cup,International,male
+3,Champions League,Europe,male
+55,European Championship,Europe,male
+49,NWSL,United States,female
+53,UEFA Women's Euro,Europe,female

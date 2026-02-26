@@ -1,0 +1,62 @@
+version: 2
+
+sources:
+  - name: wyscout
+    description: >
+      Wyscout public event data ingested into the bronze layer. Contains
+      match events from five major European leagues (2017/18 season) with
+      event coordinates on a percentage-based pitch system (0-100).
+    database: soccer_analytics
+    schema: bronze
+    loader: aws_lambda
+
+    tables:
+      - name: wyscout_events
+        description: >
+          Raw Wyscout event data. Each row is a match event with nested
+          tags (outcome indicators), positions (start/end coordinates),
+          and player/team references. Coordinates use a 0-100 percentage
+          system that must be scaled to 120x80 for cross-source analysis.
+        columns:
+          - name: eventId
+            description: Unique event identifier
+          - name: matchId
+            description: Foreign key to wyscout_matches
+          - name: eventName
+            description: Event type name (Pass, Shot, Duel, Free Kick, etc.)
+          - name: subEventName
+            description: Sub-event type (Simple pass, Head shot, etc.)
+          - name: playerId
+            description: Player performing the event
+          - name: teamId
+            description: Team performing the event
+          - name: matchPeriod
+            description: Match period (1H, 2H, E1, E2, P)
+          - name: eventSec
+            description: Event timestamp in seconds from period start
+          - name: positions
+            description: >
+              JSON array with start and end positions.
+              Each position has x (0-100) and y (0-100) as percentages.
+          - name: tags
+            description: >
+              JSON array of tag objects with id field.
+              Tag IDs encode event outcomes (e.g. 101=Goal, 1801=Accurate).
+
+      - name: wyscout_matches
+        description: >
+          Wyscout match metadata. One row per match with competition,
+          season, team, and basic match info.
+        columns:
+          - name: matchId
+            description: Primary key — unique match identifier
+          - name: competitionId
+            description: Competition identifier
+          - name: seasonId
+            description: Season identifier
+          - name: dateutc
+            description: Match date in UTC
+          - name: teamsData
+            description: >
+              JSON object with home/away team data including
+              formation, score, and team identifiers.

@@ -1,0 +1,26 @@
+position_id,position_name,position_group
+1,Goalkeeper,Goalkeeper
+2,Right Back,Defender
+3,Right Center Back,Defender
+4,Center Back,Defender
+5,Left Center Back,Defender
+6,Left Back,Defender
+7,Right Wing Back,Defender
+8,Left Wing Back,Defender
+9,Right Defensive Midfield,Midfielder
+10,Center Defensive Midfield,Midfielder
+11,Left Defensive Midfield,Midfielder
+12,Right Midfield,Midfielder
+13,Right Center Midfield,Midfielder
+14,Center Midfield,Midfielder
+15,Left Center Midfield,Midfielder
+16,Left Midfield,Midfielder
+17,Right Wing,Forward
+18,Right Attacking Midfield,Midfielder
+19,Center Attacking Midfield,Midfielder
+20,Left Attacking Midfield,Midfielder
+21,Left Wing,Forward
+22,Right Center Forward,Forward
+23,Striker,Forward
+24,Left Center Forward,Forward
+25,Secondary Striker,Forward

@@ -1,0 +1,33 @@
+name: dbt CI
+
+on:
+  pull_request:
+    paths:
+      - "dbt_project/**"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: dbt deps
+        working-directory: dbt_project
+        run: uv run dbt deps
+
+      - name: dbt parse (validate SQL)
+        working-directory: dbt_project
+        run: uv run dbt parse
+        env:
+          DBT_PROFILES_DIR: .
+          # CI target uses in-memory DuckDB for syntax validation only
+          # Full build against Databricks happens in staging/prod

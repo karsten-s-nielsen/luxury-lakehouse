@@ -1,0 +1,30 @@
+# ── Databricks Profile ──────────────────────────────────────────────────
+# Copy this file to ~/.dbt/profiles.yml and fill in your credentials.
+# NEVER commit the real profiles.yml — it contains secrets.
+#
+# To find your http_path:
+#   Databricks workspace → SQL Warehouses → <your warehouse> → Connection Details
+#
+# To generate a token:
+#   Databricks workspace → User Settings → Developer → Access Tokens → Generate New Token
+
+databricks:
+  target: dev
+  outputs:
+    dev:
+      type: databricks
+      catalog: soccer_analytics
+      schema: dev
+      host: "{{ env_var('DATABRICKS_HOST') }}"          # e.g. adb-1234567890.1.azuredatabricks.net
+      http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}" # e.g. /sql/1.0/warehouses/abc123
+      token: "{{ env_var('DATABRICKS_TOKEN') }}"
+      threads: 4
+
+    prod:
+      type: databricks
+      catalog: soccer_analytics
+      schema: gold
+      host: "{{ env_var('DATABRICKS_HOST') }}"
+      http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"
+      token: "{{ env_var('DATABRICKS_TOKEN') }}"
+      threads: 8

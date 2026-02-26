@@ -1,0 +1,19 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Module: Synced Tables — Input Variables
+# ──────────────────────────────────────────────────────────────────────────────
+
+variable "catalog_name" {
+  description = "Unity Catalog name containing the gold-layer source tables"
+  type        = string
+}
+
+variable "database_instance_name" {
+  description = "Name of the Lakebase database instance to sync into"
+  type        = string
+}
+
+variable "environment" {
+  description = "Deployment environment (dev, staging, prod)"
+  type        = string
+  default     = "dev"
+}

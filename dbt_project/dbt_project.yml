@@ -1,0 +1,47 @@
+name: soccer_analytics
+version: '1.0.0'
+config-version: 2
+
+profile: databricks
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+seed-paths: ["seeds"]
+analysis-paths: ["analyses"]
+snapshot-paths: ["snapshots"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+# ── Model Materializations ─────────────────────────────────────────────
+# Staging  → views in the silver schema (lightweight, always fresh)
+# Intermediate → ephemeral (CTEs inlined into downstream models)
+# Marts    → tables in the gold schema (query-optimized, materialized)
+models:
+  soccer_analytics:
+    staging:
+      +materialized: view
+      +schema: silver
+      +tags: ["staging"]
+    intermediate:
+      +materialized: ephemeral
+      +tags: ["intermediate"]
+    marts:
+      +materialized: table
+      +schema: gold
+      +tags: ["marts"]
+
+seeds:
+  soccer_analytics:
+    +schema: silver
+
+vars:
+  # Standard pitch dimensions used across macros (StatsBomb coordinate system)
+  pitch_length: 120
+  pitch_width: 80
+  # Goal center coordinates (center of the goal line)
+  goal_x: 120
+  goal_y: 40

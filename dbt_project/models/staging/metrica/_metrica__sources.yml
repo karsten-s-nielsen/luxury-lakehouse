@@ -1,0 +1,70 @@
+version: 2
+
+sources:
+  - name: metrica
+    description: >
+      Metrica Sports sample tracking and event data ingested into the bronze
+      layer. Contains high-frequency (25 fps) positional tracking data for
+      all players and the ball, plus synchronized event data.
+    database: soccer_analytics
+    schema: bronze
+    loader: aws_lambda
+
+    tables:
+      - name: metrica_tracking
+        description: >
+          Raw positional tracking data at 25 frames per second. Each row
+          represents one frame containing x/y coordinates for every tracked
+          player on both teams plus the ball. Coordinates are normalized
+          to [0, 1] range (pitch proportion) — must be scaled to
+          StatsBomb-compatible 120x80 for cross-source analysis.
+        columns:
+          - name: period
+            description: Match half (1 or 2)
+          - name: frame
+            description: Frame number within the period (25 fps)
+          - name: timestamp
+            description: Timestamp in seconds from period start
+          - name: ball_x
+            description: Ball x-coordinate (0-1 normalized)
+          - name: ball_y
+            description: Ball y-coordinate (0-1 normalized)
+          - name: home_players
+            description: >
+              JSON object with player tracking data for home team.
+              Keys are player IDs, values are {x, y} coordinate objects.
+          - name: away_players
+            description: >
+              JSON object with player tracking data for away team.
+              Keys are player IDs, values are {x, y} coordinate objects.
+
+      - name: metrica_events
+        description: >
+          Metrica event data synchronized with tracking frames. Each row
+          is a match event (pass, shot, etc.) with start/end frames
+          that link to the tracking data.
+        columns:
+          - name: event_id
+            description: Unique event identifier
+          - name: type
+            description: Event type (PASS, SHOT, BALL LOST, etc.)
+          - name: subtype
+            description: Event subtype (HEAD-Loss, GOAL-Loss, etc.)
+          - name: period
+            description: Match half
+          - name: start_frame
+            description: Frame number when event started
+          - name: end_frame
+            description: Frame number when event ended
+          - name: start_x
+            description: Starting x-coordinate (0-1 normalized)
+          - name: start_y
+            description: Starting y-coordinate (0-1 normalized)
+          - name: end_x
+            description: Ending x-coordinate (0-1 normalized)
+          - name: end_y
+            description: Ending y-coordinate (0-1 normalized)
+          - name: team
+            description: Team performing the event (Home or Away)
+          - name: player
+            description: Player identifier (e.g. Player1, Player11)

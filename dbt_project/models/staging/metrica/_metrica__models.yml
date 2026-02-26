@@ -1,0 +1,77 @@
+version: 2
+
+models:
+  - name: stg_metrica__tracking
+    description: >
+      Parsed and normalized Metrica Sports tracking data. Explodes the
+      per-frame JSON into individual player rows, scales coordinates
+      from [0,1] normalized to 120x80 pitch coordinates for compatibility
+      with StatsBomb data. One row per player per frame.
+    columns:
+      - name: tracking_id
+        description: Surrogate key (match_id + period + frame + player_id)
+        data_tests:
+          - unique
+          - not_null
+      - name: match_id
+        description: Match identifier (derived from file/batch metadata)
+        data_tests:
+          - not_null
+      - name: period
+        description: Match half (1 or 2)
+      - name: frame
+        description: Frame number within the period
+      - name: timestamp_seconds
+        description: Timestamp in seconds from period start
+      - name: player_id
+        description: Player identifier
+      - name: team
+        description: Team affiliation (home or away)
+      - name: x
+        description: X coordinate scaled to 120-yard pitch
+      - name: y
+        description: Y coordinate scaled to 80-yard pitch
+      - name: ball_x
+        description: Ball X coordinate scaled to 120-yard pitch
+      - name: ball_y
+        description: Ball Y coordinate scaled to 80-yard pitch
+
+  - name: stg_metrica__events
+    description: >
+      Cleaned Metrica Sports event data with coordinates scaled to the
+      120x80 coordinate system. Linked to tracking frames for spatial
+      context. One row per event.
+    columns:
+      - name: event_id
+        description: Unique event identifier
+        data_tests:
+          - unique
+          - not_null
+      - name: match_id
+        description: Match identifier
+        data_tests:
+          - not_null
+      - name: event_type
+        description: Event type (PASS, SHOT, BALL LOST, etc.)
+        data_tests:
+          - not_null
+      - name: event_subtype
+        description: Event subtype for more granular classification
+      - name: period
+        description: Match half
+      - name: start_frame
+        description: Tracking frame when event started
+      - name: end_frame
+        description: Tracking frame when event ended
+      - name: start_x
+        description: Starting X coordinate (120-yard scale)
+      - name: start_y
+        description: Starting Y coordinate (80-yard scale)
+      - name: end_x
+        description: Ending X coordinate (120-yard scale)
+      - name: end_y
+        description: Ending Y coordinate (80-yard scale)
+      - name: team
+        description: Team performing the event
+      - name: player_id
+        description: Player identifier

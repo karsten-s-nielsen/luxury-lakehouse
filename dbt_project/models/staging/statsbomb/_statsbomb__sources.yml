@@ -1,0 +1,74 @@
+version: 2
+
+sources:
+  - name: statsbomb
+    description: >
+      StatsBomb open data ingested into the bronze layer. Contains detailed
+      event-level soccer data including shots, passes, carries, pressures,
+      and 360 freeze-frame data with player positions at the moment of each event.
+    database: soccer_analytics
+    schema: bronze
+    loader: aws_lambda  # Ingested via Lambda from StatsBomb open-data GitHub repo
+
+    tables:
+      - name: statsbomb_events
+        description: >
+          Raw event stream for each match. Each row is a single on-ball or
+          off-ball event (pass, shot, carry, duel, etc.) with deeply nested
+          JSON containing event-specific attributes, location arrays, and
+          related events.
+        columns:
+          - name: id
+            description: Unique event UUID assigned by StatsBomb
+          - name: match_id
+            description: Foreign key to statsbomb_matches
+          - name: type
+            description: JSON object with id and name of event type (e.g. Shot, Pass)
+          - name: location
+            description: Array of [x, y] pitch coordinates (120x80 system)
+          - name: timestamp
+            description: Match clock timestamp (HH:MM:SS.sss)
+
+      - name: statsbomb_matches
+        description: >
+          Match metadata including competition, season, teams, managers,
+          referees, and match dates. One row per match.
+        columns:
+          - name: match_id
+            description: Primary key — unique match identifier
+          - name: competition
+            description: JSON object with competition_id and competition_name
+          - name: season
+            description: JSON object with season_id and season_name
+          - name: home_team
+            description: JSON object with team id, name, and country
+          - name: away_team
+            description: JSON object with team id, name, and country
+
+      - name: statsbomb_lineups
+        description: >
+          Squad lineups for each match. Each row contains a team's full lineup
+          with nested player arrays including positions, jersey numbers, and
+          substitution information.
+        columns:
+          - name: match_id
+            description: Foreign key to statsbomb_matches
+          - name: team_id
+            description: StatsBomb team identifier
+          - name: team_name
+            description: Team display name
+          - name: lineup
+            description: JSON array of player objects with positions and cards
+
+      - name: statsbomb_360
+        description: >
+          StatsBomb 360 freeze-frame data. Contains positional snapshots of
+          all visible players at the moment of each event. Enables pitch
+          control and spatial analysis models.
+        columns:
+          - name: event_uuid
+            description: Foreign key to statsbomb_events.id
+          - name: freeze_frame
+            description: >
+              JSON array of player positions — each with location [x,y],
+              teammate (boolean), and actor (boolean)

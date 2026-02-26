@@ -1,0 +1,136 @@
+version: 2
+
+models:
+  - name: stg_statsbomb__events
+    description: >
+      Flattened and cleaned StatsBomb event data. Extracts key fields from
+      nested JSON structures, converts location arrays to separate x/y
+      columns, and standardizes timestamps. One row per event.
+    columns:
+      - name: event_id
+        description: Unique event identifier (UUID from StatsBomb)
+        data_tests:
+          - unique
+          - not_null
+      - name: match_id
+        description: Foreign key to stg_statsbomb__matches
+        data_tests:
+          - not_null
+      - name: event_type
+        description: Event type name (Shot, Pass, Carry, Duel, etc.)
+        data_tests:
+          - not_null
+      - name: team_id
+        description: Team performing the event
+      - name: player_id
+        description: Player performing the event
+      - name: location_x
+        description: X coordinate on pitch (0-120)
+      - name: location_y
+        description: Y coordinate on pitch (0-80)
+      - name: minute
+        description: Match minute
+      - name: second
+        description: Match second
+      - name: period
+        description: Match period (1=first half, 2=second half, etc.)
+      - name: timestamp
+        description: Precise event timestamp within the match
+
+  - name: stg_statsbomb__shots
+    description: >
+      Shot-specific extraction from StatsBomb events. Includes shot outcome,
+      technique, body part, freeze frame data, and StatsBomb's own xG value.
+      One row per shot event.
+    columns:
+      - name: event_id
+        description: Unique shot event identifier
+        data_tests:
+          - unique
+          - not_null
+      - name: match_id
+        description: Foreign key to stg_statsbomb__matches
+        data_tests:
+          - not_null
+      - name: player_id
+        description: Shooter player ID
+        data_tests:
+          - not_null
+      - name: statsbomb_xg
+        description: StatsBomb expected goals value for this shot
+      - name: shot_outcome
+        description: Outcome of the shot (Goal, Saved, Off T, Blocked, etc.)
+      - name: shot_technique
+        description: Technique used (Normal, Volley, Half Volley, etc.)
+      - name: shot_body_part
+        description: Body part used (Right Foot, Left Foot, Head)
+      - name: location_x
+        description: X coordinate of shot location
+      - name: location_y
+        description: Y coordinate of shot location
+      - name: end_location_x
+        description: X coordinate where the shot ended
+      - name: end_location_y
+        description: Y coordinate where the shot ended
+
+  - name: stg_statsbomb__matches
+    description: >
+      Cleaned match metadata from StatsBomb. Extracts competition, season,
+      team, and manager information from nested JSON objects.
+      One row per match.
+    columns:
+      - name: match_id
+        description: Primary key — unique match identifier
+        data_tests:
+          - unique
+          - not_null
+      - name: competition_id
+        description: Competition identifier
+        data_tests:
+          - not_null
+      - name: season_id
+        description: Season identifier
+        data_tests:
+          - not_null
+      - name: home_team_id
+        description: Home team identifier
+      - name: away_team_id
+        description: Away team identifier
+      - name: match_date
+        description: Date the match was played
+      - name: home_score
+        description: Final home team score
+      - name: away_score
+        description: Final away team score
+
+  - name: stg_statsbomb__lineups
+    description: >
+      Flattened lineup data from StatsBomb. Explodes the nested lineup JSON
+      array so each row represents one player in one match.
+      One row per player per match.
+    columns:
+      - name: lineup_id
+        description: Surrogate key (match_id + team_id + player_id)
+        data_tests:
+          - unique
+          - not_null
+      - name: match_id
+        description: Foreign key to stg_statsbomb__matches
+        data_tests:
+          - not_null
+      - name: team_id
+        description: Team identifier
+        data_tests:
+          - not_null
+      - name: player_id
+        description: Player identifier
+        data_tests:
+          - not_null
+      - name: player_name
+        description: Player display name
+      - name: jersey_number
+        description: Player jersey number for this match
+      - name: position_id
+        description: Starting position ID (can be mapped via position_mapping seed)
+      - name: position_name
+        description: Starting position name

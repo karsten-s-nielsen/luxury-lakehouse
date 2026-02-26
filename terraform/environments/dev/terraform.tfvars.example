@@ -1,0 +1,18 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Example Variable Values — Dev Environment
+# ──────────────────────────────────────────────────────────────────────────────
+# Copy this file to terraform.tfvars and fill in real values:
+#
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# NEVER commit terraform.tfvars — it contains secrets.
+# ──────────────────────────────────────────────────────────────────────────────
+
+environment = "dev"
+aws_region  = "us-east-1"
+
+# Databricks workspace URL (no trailing slash)
+databricks_host = "https://dbc-XXXXXXXX-XXXX.cloud.databricks.com"
+
+# Personal access token — generate at Settings > Developer > Access Tokens
+databricks_token = "dapi00000000000000000000000000000000"
