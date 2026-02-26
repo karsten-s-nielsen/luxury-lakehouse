@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
+
 from ingestion.utils import (
     configure_logging,
     fetch_url,

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import pandas as pd
+
 from ingestion.statsbomb import _serialize_json_columns
 
 

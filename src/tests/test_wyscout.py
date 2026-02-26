@@ -9,6 +9,7 @@ import pathlib
 import zipfile
 
 import pandas as pd
+
 from ingestion.wyscout import (
     _download_and_extract_zip,
     _load_all_competitions,
