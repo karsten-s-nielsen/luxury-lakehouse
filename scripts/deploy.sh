@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────────────────────
+# deploy.sh — Build, upload wheel, apply Terraform, and trigger ingestion job
+# ──────────────────────────────────────────────────────────────────────────────
+# Usage:
+#   AWS_PROFILE=devops-agent ./scripts/deploy.sh
+#
+# Prerequisites:
+#   1. Databricks CLI configured:
+#        databricks configure --host https://dbc-48322be9-16be.cloud.databricks.com
+#      (generates ~/.databrickscfg with a personal access token)
+#
+#   2. Terraform variables set (via terraform.tfvars or env vars):
+#        TF_VAR_databricks_host=https://dbc-48322be9-16be.cloud.databricks.com
+#        TF_VAR_databricks_token=<your-token>
+#
+#   3. AWS credentials available (AWS_PROFILE=devops-agent or environment vars)
+# ──────────────────────────────────────────────────────────────────────────────
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+WHEEL_NAME="luxury_lakehouse-0.1.0-py3-none-any.whl"
+WHEEL_PATH="$PROJECT_ROOT/dist/$WHEEL_NAME"
+VOLUME_PATH="/Volumes/soccer_analytics/bronze/libs"
+JOB_ID="240279916175143"
+
+echo "=== Phase 2 Deployment: Data Ingestion ==="
+echo ""
+
+# ── Step 1: Build the wheel ──────────────────────────────────────────────────
+
+echo "Step 1: Building wheel..."
+cd "$PROJECT_ROOT"
+uv build
+echo "  ✓ Built $WHEEL_NAME"
+echo ""
+
+# ── Step 2: Upload wheel to UC Volume ────────────────────────────────────────
+
+echo "Step 2: Uploading wheel to Databricks UC Volume..."
+echo "  Target: $VOLUME_PATH/$WHEEL_NAME"
+
+# Remove old version if present, then upload new one
+databricks fs rm "$VOLUME_PATH/$WHEEL_NAME" 2>/dev/null || true
+databricks fs cp "$WHEEL_PATH" "$VOLUME_PATH/$WHEEL_NAME"
+echo "  ✓ Uploaded to $VOLUME_PATH/$WHEEL_NAME"
+echo ""
+
+# ── Step 3: Terraform apply (creates Volume + updates job) ───────────────────
+
+echo "Step 3: Running terraform apply..."
+cd "$PROJECT_ROOT/terraform/environments/dev"
+terraform init -upgrade
+terraform apply -auto-approve
+echo "  ✓ Terraform applied"
+echo ""
+
+# ── Step 4: Trigger the ingestion job ────────────────────────────────────────
+
+echo "Step 4: Triggering ingestion job ($JOB_ID)..."
+RUN_ID=$(databricks jobs run-now --job-id "$JOB_ID" --output json | python -c "import sys,json; print(json.load(sys.stdin)['run_id'])")
+echo "  ✓ Job triggered — Run ID: $RUN_ID"
+echo ""
+
+# ── Step 5: Monitor ──────────────────────────────────────────────────────────
+
+echo "Step 5: Monitoring job run..."
+echo "  Databricks UI: https://dbc-48322be9-16be.cloud.databricks.com/#job/$JOB_ID/run/$RUN_ID"
+echo ""
+echo "  Waiting for completion (Ctrl+C to stop monitoring)..."
+databricks runs get --run-id "$RUN_ID" --output json | python -c "
+import sys, json, time
+run = json.load(sys.stdin)
+state = run.get('state', {})
+print(f\"  Status: {state.get('life_cycle_state', 'UNKNOWN')} / {state.get('result_state', 'PENDING')}\")
+"
+
+echo ""
+echo "=== Deployment script complete ==="
+echo ""
+echo "Next steps:"
+echo "  1. Wait for all 3 tasks (statsbomb, metrica, wyscout) to complete"
+echo "  2. Verify bronze tables:"
+echo "     databricks sql exec --warehouse-id 6c3b36ca64d183fe \\"
+echo "       --sql \"SELECT 'statsbomb_events' AS tbl, COUNT(*) AS n FROM soccer_analytics.bronze.statsbomb_events"
+echo "              UNION ALL SELECT 'statsbomb_matches', COUNT(*) FROM soccer_analytics.bronze.statsbomb_matches"
+echo "              UNION ALL SELECT 'statsbomb_competitions', COUNT(*) FROM soccer_analytics.bronze.statsbomb_competitions"
+echo "              UNION ALL SELECT 'statsbomb_lineups', COUNT(*) FROM soccer_analytics.bronze.statsbomb_lineups"
+echo "              UNION ALL SELECT 'statsbomb_360', COUNT(*) FROM soccer_analytics.bronze.statsbomb_360"
+echo "              UNION ALL SELECT 'metrica_tracking', COUNT(*) FROM soccer_analytics.bronze.metrica_tracking"
+echo "              UNION ALL SELECT 'metrica_events', COUNT(*) FROM soccer_analytics.bronze.metrica_events"
+echo "              UNION ALL SELECT 'wyscout_events', COUNT(*) FROM soccer_analytics.bronze.wyscout_events"
+echo "              UNION ALL SELECT 'wyscout_matches', COUNT(*) FROM soccer_analytics.bronze.wyscout_matches\""

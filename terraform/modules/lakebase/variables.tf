@@ -13,3 +13,9 @@ variable "capacity" {
   type        = string
   default     = "CU_1"
 }
+
+variable "stopped" {
+  description = "Whether the Lakebase instance is stopped (hibernated). Set true to save costs when not in use."
+  type        = bool
+  default     = false
+}

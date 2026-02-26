@@ -49,3 +49,15 @@ resource "databricks_schema" "gold" {
     managed_by  = "terraform"
   }
 }
+
+# ── Volume: Wheel storage for ingestion jobs ─────────────────────────────────
+# Stores Python wheel packages uploaded by CI/CD or deployment scripts.
+# Referenced by serverless job environments via /Volumes/<catalog>/bronze/libs/
+
+resource "databricks_volume" "libs" {
+  catalog_name = var.catalog_name
+  schema_name  = databricks_schema.bronze.name
+  name         = "libs"
+  volume_type  = "MANAGED"
+  comment      = "Python wheel packages for serverless job environments"
+}

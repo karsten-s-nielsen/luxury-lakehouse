@@ -25,14 +25,14 @@ Six AWS services. Five data movement hops. Always-on compute. Manual credential 
 ### The New Way (The Modern Engineer)
 
 ```
-Data Providers → Databricks Workflows → Delta Lake (Bronze/Silver/Gold) → Synced Tables → Lakebase PostgreSQL 17 → Streamlit
+Data Providers → Databricks Workflows → Delta Lake (Bronze/Silver/Gold) → Synced Tables → Lakebase PostgreSQL 16 → Streamlit
 ```
 
 Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 
 ## Architecture
 
-> **[View interactive C4 diagrams](docs/c4/architecture.html)** &mdash; System Context and Container levels, generated from [Structurizr DSL](docs/c4/architecture.dsl)
+> **[View interactive C4 diagrams](docs/c4/architecture.html)** &mdash; System Context, Container, and Ingestion Component levels, generated from [Structurizr DSL](docs/c4/architecture.dsl)
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
@@ -40,7 +40,7 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 | **Storage** | Delta Lake on Unity Catalog | Medallion architecture (Bronze → Silver → Gold) |
 | **Transformation** | dbt-databricks on Serverless SQL | Flatten nested JSON, compute xG/xT metrics |
 | **Synchronization** | Lakeflow Synced Tables | Zero-ETL continuous sync from Gold → Lakebase |
-| **Serving** | Lakebase PostgreSQL 17 (Autoscaling) | Sub-10ms OLTP queries, native pgvector |
+| **Serving** | Lakebase PostgreSQL 16 (Provisioned) | Sub-10ms OLTP queries, native pgvector |
 | **Application** | Streamlit on Databricks Apps | Interactive dashboards with mplsoccer visualizations |
 | **Infrastructure** | Terraform + Databricks Provider | Everything as code |
 
@@ -80,13 +80,13 @@ luxury-lakehouse/
 
 ## Status
 
-**Phase 1: Infrastructure Deployed** — 8 Databricks resources provisioned via `terraform apply`. See [PLAN.md](PLAN.md) for the full implementation plan.
+**Phase 2: Data Ingestion Complete** — Three ingestion modules (StatsBomb, Metrica, Wyscout) deployed to Databricks, populating 9 bronze tables with 31.4M rows. Security-hardened HTTP, structured logging, and 55 unit tests. See [PLAN.md](PLAN.md) for the full implementation plan.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 0 | Foundation & Prerequisites | Complete |
 | 1 | Serverless Infrastructure (Terraform) | Complete |
-| 2 | Data Ingestion (StatsBomb, Metrica, Wyscout) | Scaffolded |
+| 2 | Data Ingestion (StatsBomb, Metrica, Wyscout) | Complete |
 | 3 | Transformation (dbt on Databricks) | Scaffolded |
 | 4 | Zero-ETL Synchronization (Synced Tables → Lakebase) | Scaffolded |
 | 5 | Application Deployment (Streamlit) | Scaffolded |
@@ -98,12 +98,12 @@ luxury-lakehouse/
 | Cloud | AWS (us-east-1) + Databricks Premium |
 | IaC | Terraform with `databricks/databricks` provider |
 | Data Lake | Delta Lake on Unity Catalog |
-| OLTP Database | Databricks Lakebase (PostgreSQL 17, serverless) |
+| OLTP Database | Databricks Lakebase (PostgreSQL 16, provisioned) |
 | Transformations | dbt-core + dbt-databricks |
 | Orchestration | Databricks Serverless Workflows |
 | Application | Streamlit + mplsoccer |
 | Vector Search | pgvector (native in Lakebase) |
-| Python | 3.12, managed with uv |
+| Python | 3.10+ (Databricks serverless), managed with uv |
 | Linting | ruff + sqlfluff |
 | CI/CD | GitHub Actions |
 | Architecture Docs | C4 diagrams (Structurizr DSL) |

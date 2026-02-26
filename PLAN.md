@@ -1,7 +1,7 @@
 # Databricks Lakebase Implementation Plan — Soccer Analytics Platform
 
-> **Status**: Phase 0 nearing completion — workspace provisioned, scaffolding done, pending terraform init
-> **Last Updated**: 2026-02-25
+> **Status**: Phase 2 complete — 9 bronze tables populated (31.4M rows), 55 unit tests, all quality gates pass
+> **Last Updated**: 2026-02-26
 > **Repository**: [`karstenskyt/luxury-lakehouse`](https://github.com/karstenskyt/luxury-lakehouse)
 > **Scope**: Document 3 ("3_AWS Lake House.pdf") — Databricks Lakebase serverless architecture
 > **Approach**: Professional-grade IaC, best practices, production-ready from day one
@@ -31,7 +31,7 @@
 
 ## 1. Executive Summary
 
-This plan implements the Databricks Lakebase architecture described in Document 3 to build a serverless soccer analytics platform. The pipeline ingests open-source match data (StatsBomb, Metrica Sports, Wyscout), transforms it through a medallion architecture (Bronze → Silver → Gold), synchronizes curated tables into Lakebase (PostgreSQL 17), and serves a Streamlit dashboard for coaches and analysts.
+This plan implements the Databricks Lakebase architecture described in Document 3 to build a serverless soccer analytics platform. The pipeline ingests open-source match data (StatsBomb, Metrica Sports, Wyscout), transforms it through a medallion architecture (Bronze → Silver → Gold), synchronizes curated tables into Lakebase (PostgreSQL 16), and serves a Streamlit dashboard for coaches and analysts.
 
 **Why Lakebase over Traditional AWS (Document 2)?**
 
@@ -60,7 +60,7 @@ This plan implements the Databricks Lakebase architecture described in Document 
 | Soccermatics local workspace | `D:/Development/soccermatics/` | Working — 25/25 scripts pass (Python 3.12, conda) |
 | MCP AWS CodeDeploy server | `D:/Development/karstenskyt__mcp-aws-codedeploy/` | Working — 8 tools, FastMCP, Stdio transport |
 | AWS IAM DevOpsAgent role spec | `karstenskyt__mcp-aws-codedeploy/TODO.md` | Documented — policy template ready |
-| Implementation code | This repository | **Empty** — documentation only, zero code |
+| Implementation code | This repository | **Phase 2 complete** — 4 ingestion modules, 55 unit tests, 9 bronze tables (31.4M rows) |
 
 ### Soccermatics Workspace Details
 
@@ -144,7 +144,7 @@ This workspace serves as the **reference implementation** — the analytics logi
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
-│          LAKEBASE AUTOSCALING (PostgreSQL 17) — Phase 4                  │
+│          LAKEBASE AUTOSCALING (PostgreSQL 16) — Phase 4                  │
 │  ┌──────────────────────────────────────────────────────────────────┐    │
 │  │  Serverless OLTP • Scale-to-zero • OAuth M2M auth               │    │
 │  │  • Standard PostgreSQL wire protocol (JDBC/psycopg2)            │    │
@@ -229,8 +229,8 @@ System Boundary: Soccer Analytics Platform (Databricks on AWS)
   │   Technology: Managed Spark streaming
   │   Responsibility: Continuous Gold Delta → Lakebase synchronization
   │
-  ├── Lakebase PostgreSQL 17       [Databricks Serverless OLTP]
-  │   Technology: PostgreSQL 17, Autoscaling, pgvector
+  ├── Lakebase PostgreSQL 16       [Databricks Serverless OLTP]
+  │   Technology: PostgreSQL 16, Autoscaling, pgvector
   │   Responsibility: Low-latency OLTP queries for the Streamlit app
   │
   └── Streamlit Dashboard          [Databricks App]
@@ -545,10 +545,10 @@ The existing DevOpsAgent IAM role in `karstenskyt__mcp-aws-codedeploy` needs add
 - All dbt project skeletons (35 files: models, macros, tests, seeds, sources)
 - Python `__init__.py` files for all packages
 
-**Still pending** (require cloud access):
-- `terraform init` — needs AWS credentials (`AWS_PROFILE=devops-agent`)
-- `dbt deps` — needs Databricks workspace connection
-- Databricks CLI install — defer until workspace is provisioned
+**Completed** (previously pending cloud access):
+- `terraform init` — configured with S3 backend, native locking
+- Databricks CLI — installed and configured with workspace token
+- `dbt deps` — still pending (Phase 3)
 
 ### 0.5 — Local Development Environment — PARTIALLY COMPLETE
 
@@ -565,8 +565,8 @@ The existing DevOpsAgent IAM role in `karstenskyt__mcp-aws-codedeploy` needs add
 | sqlfluff | 4.0.4 | Installed (via uv dev extra) |
 | dbt-core + dbt-databricks | 1.9.x | Installed (via uv) |
 | AWS CLI | v2 | Installed (profile: `devops-agent`) |
-| Terraform | — | **Not installed** — install via `winget install HashiCorp.Terraform` |
-| Databricks CLI | — | **Not installed** — defer until workspace provisioned |
+| Terraform | 1.14.6 | Installed (via winget) |
+| Databricks CLI | 0.x | Installed and configured |
 
 **AWS access**: Configured with profile `devops-agent`. Start Claude Code with `AWS_PROFILE=devops-agent claude` for inherited credentials.
 
@@ -576,7 +576,7 @@ The existing DevOpsAgent IAM role in `karstenskyt__mcp-aws-codedeploy` needs add
 
 **Completed**: `docs/c4/architecture.html` (215 KB, self-contained) and `docs/c4/architecture.dsl` (Structurizr DSL source) generated with:
 - **System Context**: Platform + 4 persons (Coach/Analyst, Scout, Data Scientist, Platform Engineer) + 5 external systems (StatsBomb, Metrica, Wyscout, GitHub, AWS)
-- **Container**: All 7 containers (Ingestion Workflows, Unity Catalog, Serverless SQL Warehouse, dbt Project, Synced Tables Pipeline, Lakebase PostgreSQL 17, Streamlit Dashboard)
+- **Container**: All 7 containers (Ingestion Workflows, Unity Catalog, Serverless SQL Warehouse, dbt Project, Synced Tables Pipeline, Lakebase PostgreSQL 16, Streamlit Dashboard)
 - **DSL tab**: Full Structurizr DSL source with copy button
 
 This is the "north star" diagram that all subsequent phases implement towards. Updated via `/final-review` at each phase boundary.
@@ -623,27 +623,30 @@ resource "databricks_schema" "gold" {
 }
 ```
 
-### 1.2 — Lakebase Autoscaling Project
+### 1.2 — Lakebase Database Instance
 
 **Terraform module: `terraform/modules/lakebase/`**
 
+**Planned (aspirational):**
 ```hcl
 resource "databricks_lakebase_project" "soccer_analytics" {
   name         = "soccer-analytics-lakebase"
   catalog_name = databricks_catalog.soccer_analytics.name
-
-  # Autoscaling configuration
-  autoscaling {
-    min_capacity = 0    # Scale to zero when idle
-    max_capacity = 4    # Max compute units under load
-  }
-
-  # PostgreSQL 17 settings
+  autoscaling { min_capacity = 0; max_capacity = 4 }
   engine_version = "17"
 }
 ```
 
-**Note**: The exact Terraform resource names for Lakebase must be verified against the Databricks Terraform provider documentation at implementation time. Lakebase reached GA in February 2026 — the provider may still be catching up.
+**Actual implementation** (provider v1.98.0+):
+```hcl
+resource "databricks_database_instance" "soccer_analytics" {
+  name     = "soccer-analytics-lakebase-${var.environment}"
+  capacity = var.capacity  # Fixed CU_1 through CU_8 (no autoscaling)
+  stopped  = var.stopped   # Hibernate to save costs when idle
+}
+```
+
+**Divergences from plan**: The provider uses `databricks_database_instance` (not `databricks_lakebase_project`). Capacity is fixed (CU_1–CU_8), not autoscaling. PostgreSQL version is platform-managed (PG 16, read-only). The `stopped` attribute allows hibernation for cost savings.
 
 ### 1.3 — Serverless SQL Warehouse
 
@@ -1031,10 +1034,30 @@ def get_connection():
 | Concern | Implementation |
 |---------|---------------|
 | Secrets management | No hardcoded credentials; OAuth M2M for app, Terraform vars for IaC |
-| Network | Private endpoints where available; TLS everywhere |
+| Network | Private endpoints where available; TLS everywhere; HTTPS-only for all data fetches |
 | IAM | Least-privilege; separate service principals per workload |
 | Data classification | Open-source data only (no PII); still apply Unity Catalog ACLs |
 | Audit | Unity Catalog audit logs; Terraform state versioning |
+| Input validation | Regex on all user-supplied identifiers (`^[a-zA-Z_][a-zA-Z0-9_]*$`) to prevent injection |
+| SSL verification | Explicit `verify=True` on all HTTP requests; never disable cert checks |
+| Timeouts | `(10, 30)` connect/read on every HTTP call; no unbounded requests |
+| Retry safety | Exponential backoff on transient errors (429/5xx); max 3 retries |
+| Bandit compliance | Ruff S rules enforced; no eval/exec/pickle/shell=True |
+| Content validation | Schema checks and non-empty assertions before every Delta write |
+
+### 12.6 — Quality Standards
+
+All code must pass these gates before merge:
+
+| Check | Command | Threshold |
+|-------|---------|-----------|
+| Lint | `uv run ruff check src/` | Zero violations |
+| Type check | `uv run pyright src/` | Zero errors (basic mode) |
+| Unit tests | `uv run pytest src/tests/ -v` | All pass |
+| Security scan | Ruff S (bandit) rules | Zero violations |
+| Wheel build | `uv build` | Produces installable wheel |
+
+**Enforced Ruff rule sets:** E, W, F, I, N, UP, B, S (bandit), RUF
 
 ### 12.2 — Cost Management
 

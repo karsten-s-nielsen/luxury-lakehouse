@@ -73,6 +73,7 @@ module "lakebase" {
 
   environment = var.environment
   capacity    = "CU_1"
+  stopped     = true # Not needed until Phase 4 (Streamlit dashboard)
 }
 
 # ── Module: SQL Warehouse ────────────────────────────────────────────────────
@@ -94,6 +95,7 @@ module "workflows" {
 
   catalog_name = module.workspace.catalog_name
   warehouse_id = module.sql_warehouse.warehouse_id
+  wheel_path   = "${module.catalog.libs_volume_path}/luxury_lakehouse-0.1.0-py3-none-any.whl"
   environment  = var.environment
 }
 

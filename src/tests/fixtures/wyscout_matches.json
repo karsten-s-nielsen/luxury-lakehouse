@@ -1,0 +1,22 @@
+[
+  {
+    "wyId": 2001,
+    "competitionId": 364,
+    "seasonId": 181248,
+    "dateutc": "2017-08-11 18:45:00",
+    "teamsData": {
+      "4001": {"formation": "4-3-3", "score": 2},
+      "4002": {"formation": "4-4-2", "score": 1}
+    }
+  },
+  {
+    "wyId": 2002,
+    "competitionId": 364,
+    "seasonId": 181248,
+    "dateutc": "2017-08-12 15:00:00",
+    "teamsData": {
+      "4003": {"formation": "3-5-2", "score": 0},
+      "4004": {"formation": "4-2-3-1", "score": 0}
+    }
+  }
+]

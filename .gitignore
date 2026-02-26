@@ -73,6 +73,9 @@ htmlcov/
 # Ruff
 .ruff_cache/
 
+# Large data files (downloaded for UC Volume upload, not committed)
+data/
+
 # Build artifacts
 *.whl
 *.tar.gz

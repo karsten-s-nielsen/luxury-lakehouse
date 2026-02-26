@@ -25,3 +25,8 @@ output "schema_names" {
     gold   = "${var.catalog_name}.${databricks_schema.gold.name}"
   }
 }
+
+output "libs_volume_path" {
+  description = "Volume path for wheel uploads (e.g. /Volumes/soccer_analytics/bronze/libs)"
+  value       = "/Volumes/${var.catalog_name}/${databricks_schema.bronze.name}/${databricks_volume.libs.name}"
+}

@@ -17,4 +17,5 @@
 resource "databricks_database_instance" "soccer_analytics" {
   name     = "soccer-analytics-lakebase-${var.environment}"
   capacity = var.capacity
+  stopped  = var.stopped
 }

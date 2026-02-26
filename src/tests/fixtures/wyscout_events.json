@@ -1,0 +1,26 @@
+[
+  {
+    "eventId": 1001,
+    "matchId": 2001,
+    "eventName": "Pass",
+    "subEventName": "Simple pass",
+    "playerId": 3001,
+    "teamId": 4001,
+    "matchPeriod": "1H",
+    "eventSec": 12.5,
+    "positions": [{"x": 50, "y": 50}, {"x": 60, "y": 40}],
+    "tags": [{"id": 1801}]
+  },
+  {
+    "eventId": 1002,
+    "matchId": 2001,
+    "eventName": "Shot",
+    "subEventName": "Head shot",
+    "playerId": 3002,
+    "teamId": 4001,
+    "matchPeriod": "2H",
+    "eventSec": 55.3,
+    "positions": [{"x": 85, "y": 45}, {"x": 100, "y": 50}],
+    "tags": [{"id": 101}, {"id": 1801}]
+  }
+]

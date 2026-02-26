@@ -69,7 +69,8 @@ resource "databricks_job" "data_ingestion" {
 
       parameters = [
         "--catalog", var.catalog_name,
-        "--schema", "bronze"
+        "--schema", "bronze",
+        "--data-dir", "/Volumes/${var.catalog_name}/bronze/libs/wyscout"
       ]
     }
 
@@ -84,7 +85,7 @@ resource "databricks_job" "data_ingestion" {
       client = "1"
 
       dependencies = [
-        "luxury-lakehouse"
+        var.wheel_path
       ]
     }
   }

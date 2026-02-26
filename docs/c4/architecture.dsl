@@ -17,12 +17,17 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform built on Data
         // --- Main System ---
         platform = softwareSystem "Soccer Analytics Platform" "Serverless soccer analytics platform that ingests open-source match data, transforms it through a medallion architecture, and serves interactive dashboards for coaches and analysts" {
 
-            ingestion = container "Ingestion Workflows" "Fetches raw data from StatsBomb, Metrica Sports, and Wyscout APIs, writing to the Bronze layer in Unity Catalog" "Python, statsbombpy, Databricks Serverless Compute"
+            ingestion = container "Ingestion Workflows" "Fetches raw data from StatsBomb, Metrica Sports, and Wyscout APIs, writing to the Bronze layer in Unity Catalog" "Python, statsbombpy, Databricks Serverless Compute" {
+                utilsComp = component "Shared Utilities" "CLI parsing with SQL injection prevention, HTTPS-only HTTP client with retry, structured JSON logging, Delta write helpers with audit columns, content validation" "Python, requests"
+                sbComp = component "StatsBomb Ingester" "Hierarchical API traversal: competitions, matches, events, lineups, 360 frames. Incremental loading via partition-level overwrite. JSON column serialization." "Python, statsbombpy"
+                metricaComp = component "Metrica Ingester" "Downloads tracking CSVs with 3-row multi-line header parsing. Reshapes wide player coordinates to narrow JSON format. Processes 2 sample games." "Python, pandas"
+                wyscoutComp = component "Wyscout Ingester" "Local-first loading with Figshare HTTPS fallback. Processes 7 competitions (2017-18). Serializes positions and tags to JSON strings." "Python, requests"
+            }
             catalog = container "Unity Catalog" "Governed data storage across the medallion architecture with Bronze (raw), Silver (cleaned), and Gold (analytics-ready) schemas" "Delta Lake, Apache Parquet" "Database"
             sqlWarehouse = container "Serverless SQL Warehouse" "Executes dbt transformations and ad-hoc analytical queries using the Photon engine" "Databricks Serverless SQL, Photon"
             dbt = container "dbt Project" "Transforms raw Bronze data through Silver staging to Gold analytics tables, including xG features, pass metrics, and player statistics" "dbt-core, dbt-databricks"
             syncedTables = container "Synced Tables Pipeline" "Synchronizes Gold Delta tables into Lakebase via SNAPSHOT scheduling, eliminating Reverse ETL" "Lakeflow Synced Database Tables" "Queue"
-            lakebase = container "Lakebase PostgreSQL 17" "Managed OLTP database (CU_1 capacity) providing sub-10ms query latency for the Streamlit app, with native pgvector support for player similarity search" "PostgreSQL 17, Capacity Units, pgvector" "Database"
+            lakebase = container "Lakebase PostgreSQL 16" "Managed OLTP database (CU_1 capacity) providing sub-10ms query latency for the Streamlit app, with native pgvector support for player similarity search" "PostgreSQL 16, Capacity Units, pgvector" "Database"
             streamlit = container "Streamlit Dashboard" "Interactive analytics UI with shot maps, pass networks, player radars, pitch control visualizations, and pgvector similarity search" "Python, Streamlit, mplsoccer, psycopg2, Databricks Apps"
         }
 
@@ -46,6 +51,15 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform built on Data
         ingestion -> wyscout "Fetches public event stream JSON" "requests, HTTPS"
         ingestion -> catalog "Writes raw data to Bronze schema" "Delta Lake API"
 
+        // --- Relationships: Component level (Ingestion) ---
+        sbComp -> statsbomb "Fetches competitions, matches, events, lineups, 360 frames" "statsbombpy API"
+        sbComp -> utilsComp "Uses HTTP client, Delta writer, logging, validation" ""
+        metricaComp -> metrica "Downloads tracking and event CSVs" "fetch_url (HTTPS)"
+        metricaComp -> utilsComp "Uses HTTP client, Delta writer, logging, validation" ""
+        wyscoutComp -> wyscout "Downloads event and match JSON" "fetch_url (HTTPS)"
+        wyscoutComp -> utilsComp "Uses HTTP client, Delta writer, logging, validation" ""
+        utilsComp -> catalog "Writes DataFrames to Bronze Delta tables with audit columns" "PySpark, Delta Lake API"
+
         dbt -> catalog "Reads Bronze, writes Silver and Gold tables" "Databricks SQL"
         dbt -> sqlWarehouse "Executes SQL transformations on" "dbt-databricks adapter"
 
@@ -68,6 +82,23 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform built on Data
 
         container platform "Containers" {
             include *
+            autoLayout
+        }
+
+        component ingestion "IngestionComponents" {
+            include *
+            autoLayout
+        }
+
+        dynamic platform "IngestionFlow" {
+            ingestion -> statsbomb "Fetches competitions, matches, events, lineups, 360 frames"
+            ingestion -> metrica "Downloads tracking CSV and event data"
+            ingestion -> wyscout "Downloads event and match JSON from UC Volume"
+            ingestion -> catalog "Writes 9 bronze Delta tables with audit columns"
+            dbt -> catalog "Transforms Bronze to Silver to Gold"
+            syncedTables -> catalog "Reads Gold Delta tables"
+            syncedTables -> lakebase "Syncs analytics tables via Lakeflow"
+            streamlit -> lakebase "Queries analytics data"
             autoLayout
         }
 
