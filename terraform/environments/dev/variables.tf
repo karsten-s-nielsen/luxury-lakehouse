@@ -24,3 +24,9 @@ variable "databricks_token" {
   type        = string
   sensitive   = true
 }
+
+variable "notification_emails" {
+  description = "Email addresses for job failure/success notifications"
+  type        = list(string)
+  default     = []
+}

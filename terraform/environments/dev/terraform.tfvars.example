@@ -16,3 +16,6 @@ databricks_host = "https://dbc-XXXXXXXX-XXXX.cloud.databricks.com"
 
 # Personal access token — generate at Settings > Developer > Access Tokens
 databricks_token = "dapi00000000000000000000000000000000"
+
+# Job failure/success notification emails (optional — omit or [] to disable)
+notification_emails = ["you@example.com"]

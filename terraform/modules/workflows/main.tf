@@ -92,10 +92,19 @@ resource "databricks_job" "data_ingestion" {
 
   # ── Job-level settings ───────────────────────────────────────────────────
 
-  # Email notifications (configure when ready)
-  # notification_settings {
-  #   no_alert_for_skipped_runs = true
-  # }
+  notification_settings {
+    no_alert_for_skipped_runs = true
+  }
+
+  dynamic "email_notifications" {
+    for_each = length(var.notification_emails) > 0 ? [1] : []
+
+    content {
+      on_start   = var.notification_emails
+      on_success = var.notification_emails
+      on_failure = var.notification_emails
+    }
+  }
 
   tags = {
     project     = "luxury-lakehouse"

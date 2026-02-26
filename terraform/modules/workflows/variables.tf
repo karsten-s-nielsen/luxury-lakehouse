@@ -22,3 +22,9 @@ variable "wheel_path" {
   description = "Full path to the luxury_lakehouse wheel on a UC Volume (e.g. /Volumes/soccer_analytics/bronze/libs/luxury_lakehouse-0.1.0-py3-none-any.whl)"
   type        = string
 }
+
+variable "notification_emails" {
+  description = "Email addresses to notify on job start, success, and failure"
+  type        = list(string)
+  default     = []
+}

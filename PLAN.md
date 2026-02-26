@@ -886,7 +886,15 @@ models:
 | **Custom tests** | `assert_xg_between_0_and_1.sql`, `assert_coordinates_in_bounds.sql` |
 | **Source freshness** | Bronze tables must have data < 24 hours old |
 
-### 3.4 — dbt Execution
+### 3.4 — Security
+
+| Control | Implementation |
+|---------|---------------|
+| Data integrity | dbt tests: `unique` on PKs, `not_null` on required columns, `accepted_values` on enums |
+| Access control | Unity Catalog `grants` defined in dbt post-hooks for schema-level permissions |
+| Audit lineage | dbt artifacts (`manifest.json`, `run_results.json`) logged; Unity Catalog lineage enabled |
+
+### 3.5 — dbt Execution
 
 dbt models run on the **Serverless SQL Warehouse** provisioned in Phase 1. No cluster management needed.
 
@@ -960,6 +968,15 @@ Gold Delta Table (lakehouse)
 - **Cost**: Included in Lakebase compute; no separate ETL job cost
 - **Management**: Zero — Databricks handles pipeline lifecycle
 
+### 4.3 — Security
+
+| Control | Implementation |
+|---------|---------------|
+| Connection restriction | Lakebase access restricted to Streamlit app service principal only |
+| Query limits | Query timeouts and connection pooling configured to prevent resource exhaustion |
+| Encryption in transit | `sslmode=require` enforced on all PostgreSQL connections |
+| Read-only mirrors | Synced tables are read-only replicas — no write path from Streamlit to Gold |
+
 ---
 
 ## 11. Phase 5 — Application Deployment (Streamlit)
@@ -1018,7 +1035,16 @@ def get_connection():
 | Pitch Control | Ch 06 `plot_VoronoiDiagrams.py` | Voronoi tessellation | `fct_tracking_frames` (via Databricks SQL, not Lakebase) |
 | Player Similarity | pgvector embeddings (new) | "Find players like X" nearest-neighbor search | `fct_player_embeddings` (pgvector cosine distance) |
 
-### 5.4 — Deployment
+### 5.4 — Security
+
+| Control | Implementation |
+|---------|---------------|
+| Authentication | Databricks App auth (OAuth M2M) — app inherits service principal identity |
+| SQL injection prevention | All queries parameterized via `psycopg2` `%s` placeholders — never string concatenation |
+| Input validation | All filter inputs (competition, team, player) validated against allowed values from dimension tables |
+| Session security | No credentials or PII stored in `st.session_state`; tokens auto-rotated by Databricks SDK |
+
+### 5.5 — Deployment
 
 ```hcl
 # Deployed as Databricks App via Terraform (Phase 1.4)
@@ -1044,6 +1070,40 @@ def get_connection():
 | Retry safety | Exponential backoff on transient errors (429/5xx); max 3 retries |
 | Bandit compliance | Ruff S rules enforced; no eval/exec/pickle/shell=True |
 | Content validation | Schema checks and non-empty assertions before every Delta write |
+| Job notifications | Email alerts on ingestion job start, success, and failure |
+
+#### Phase 3 Security Requirements (dbt)
+
+| Requirement | Implementation |
+|-------------|---------------|
+| Data integrity tests | `unique`, `not_null`, `accepted_values` on all silver/gold model PKs and enums |
+| Access control | Define `grants` in dbt models for schema-level Unity Catalog permissions |
+| Audit lineage | Enable dbt artifacts logging; leverage Unity Catalog lineage for traceability |
+
+#### Phase 4 Security Requirements (Synced Tables / Lakebase)
+
+| Requirement | Implementation |
+|-------------|---------------|
+| Connection restriction | Restrict Lakebase access to Streamlit app service principal only |
+| Query limits | Configure query timeouts and connection pooling limits to prevent resource exhaustion |
+| Encryption in transit | Enforce `sslmode=require` on all PostgreSQL connections |
+
+#### Phase 5 Security Requirements (Streamlit)
+
+| Requirement | Implementation |
+|-------------|---------------|
+| Authentication | Use Databricks App auth (OAuth M2M) — never deploy without authentication |
+| SQL injection prevention | Parameterized queries only — never concatenate user input into SQL |
+| Input validation | Validate and sanitize all filter inputs (competition, team, player selectors) |
+| Session security | No PII or credentials cached in Streamlit session state |
+
+#### Production Hardening (All Phases)
+
+| Requirement | Implementation |
+|-------------|---------------|
+| Terraform state encryption | Add explicit `kms_key_id` to S3 backend for production |
+| CI/CD supply chain | Pin GitHub Actions to SHA digests instead of version tags |
+| Secrets rotation | Document 90-day Databricks PAT rotation; migrate to service principals for prod |
 
 ### 12.6 — Quality Standards
 

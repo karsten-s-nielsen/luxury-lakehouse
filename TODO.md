@@ -50,12 +50,16 @@ Quick-reference action items. Full details in [PLAN.md](PLAN.md).
 - [ ] Implement mart models (Gold): fct_shots, fct_passes, fct_player_stats, fct_match_summary
 - [ ] Implement tracking models: fct_tracking_frames, fct_player_embeddings
 - [ ] Implement dimensions: dim_players, dim_teams, dim_competitions
+- [ ] **Security:** Add dbt tests (`unique`, `not_null`, `accepted_values`) on all silver/gold models
+- [ ] **Security:** Define Unity Catalog `grants` in dbt for schema-level access control
 - [ ] Run `dbt build` — all models + tests pass
 - [ ] Run `/final-review`
 
 ## Phase 4 — Zero-ETL Synchronization
 
 - [ ] Configure Synced Tables (Gold Delta > Lakebase)
+- [ ] **Security:** Restrict Lakebase connections to Streamlit app service principal only
+- [ ] **Security:** Configure query timeouts and connection pooling limits on Lakebase
 - [ ] Verify tables queryable via PostgreSQL wire protocol
 - [ ] Test sub-10ms query latency
 - [ ] Run `/final-review`
@@ -63,6 +67,8 @@ Quick-reference action items. Full details in [PLAN.md](PLAN.md).
 ## Phase 5 — Streamlit Application
 
 - [ ] Implement `src/streamlit_app/db.py` — OAuth M2M connection to Lakebase
+- [ ] **Security:** Use Databricks App auth — never deploy without authentication
+- [ ] **Security:** Parameterized queries only — never concatenate user input into SQL
 - [ ] Implement pages: shots, passes, player_radar, match_summary, pitch_control, player_search
 - [ ] Implement components: filters, charts (mplsoccer wrappers)
 - [ ] Deploy as Databricks App
