@@ -26,6 +26,13 @@ repos:
         exclude: ^documents/
       - id: check-merge-conflict
 
+  # Secret scanning
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+
   # SQL linting (dbt models)
   # TODO: Re-enable in Phase 3 when dbt models are implemented.
   # Requires dbt templater context to parse jinja macros (dbt_utils, custom macros).

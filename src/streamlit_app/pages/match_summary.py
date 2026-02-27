@@ -51,10 +51,8 @@ def page() -> None:
     with col_home:
         st.subheader(str(m.get("home_team_name", "Home")))
     with col_score:
-        st.markdown(
-            f"<h1 style='text-align:center'>{m.get('home_score', 0)} — {m.get('away_score', 0)}</h1>",
-            unsafe_allow_html=True,
-        )
+        score = f"{int(m.get('home_score', 0) or 0)} — {int(m.get('away_score', 0) or 0)}"
+        st.header(score)
     with col_away:
         st.subheader(str(m.get("away_team_name", "Away")))
 

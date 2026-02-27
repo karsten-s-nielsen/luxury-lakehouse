@@ -14,8 +14,14 @@ aws_region  = "us-east-1"
 # Databricks workspace URL (no trailing slash)
 databricks_host = "https://dbc-XXXXXXXX-XXXX.cloud.databricks.com"
 
-# Personal access token — generate at Settings > Developer > Access Tokens
-databricks_token = "dapi00000000000000000000000000000000"
+# Databricks account ID (UUID from accounts.cloud.databricks.com)
+databricks_account_id = "00000000-0000-0000-0000-000000000000"
+
+# Databricks token — set via environment variable, NOT in this file:
+#   PowerShell:  $env:TF_VAR_databricks_token = "<your-token>"
+#   cmd:         set TF_VAR_databricks_token=<your-token>
+#   bash:        export TF_VAR_databricks_token=<your-token>
+# Generate at Settings > Developer > Access Tokens
 
 # Job failure/success notification emails (optional — omit or [] to disable)
 notification_emails = ["you@example.com"]

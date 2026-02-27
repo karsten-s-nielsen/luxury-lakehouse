@@ -19,6 +19,11 @@ variable "databricks_host" {
   type        = string
 }
 
+variable "databricks_account_id" {
+  description = "Databricks account ID (UUID from accounts.cloud.databricks.com)"
+  type        = string
+}
+
 variable "databricks_token" {
   description = "Databricks personal access token for authentication"
   type        = string

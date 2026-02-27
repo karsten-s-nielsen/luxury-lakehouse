@@ -1,18 +1,8 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# Module: App — Outputs
+# Module: Service Principals — Outputs
 # ──────────────────────────────────────────────────────────────────────────────
 
-output "app_name" {
-  description = "Name of the deployed Databricks App"
-  value       = databricks_app.streamlit.name
-}
-
-output "app_url" {
-  description = "URL of the deployed Streamlit dashboard"
-  value       = databricks_app.streamlit.url
-}
-
-output "service_principal_client_id" {
-  description = "Application ID of the app's auto-provisioned service principal"
-  value       = databricks_app.streamlit.service_principal_client_id
+output "ingestion_sp_application_id" {
+  description = "Application (client) ID of the ingestion service principal"
+  value       = databricks_service_principal.ingestion.application_id
 }

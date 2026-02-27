@@ -17,6 +17,14 @@
 resource "databricks_job" "data_ingestion" {
   name = "soccer-analytics-ingestion-${var.environment}"
 
+  # ── Run as: dedicated ingestion service principal ────────────────────────
+  dynamic "run_as" {
+    for_each = var.run_as_sp_application_id != "" ? [1] : []
+    content {
+      service_principal_name = var.run_as_sp_application_id
+    }
+  }
+
   # ── Schedule: Daily at 6am UTC ───────────────────────────────────────────
   schedule {
     quartz_cron_expression = "0 0 6 * * ?"

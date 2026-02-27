@@ -76,6 +76,9 @@ def _refresh_token() -> str:
     except AttributeError:
         logger.info("SDK lacks ws.database — falling back to REST API")
         token = _generate_credential_via_rest(ws, settings.lakebase_instance_name)
+    except Exception:
+        logger.exception("SECURITY: Failed to obtain Lakebase OAuth token")
+        raise
 
     pg_user = _extract_jwt_subject(token)
 
@@ -101,8 +104,9 @@ def _create_connection() -> psycopg2.extensions.connection:
         database=settings.lakebase_database,
         user=pg_user,
         password=token,
-        sslmode="require",
+        sslmode="verify-full",
         connect_timeout=10,
+        options="-c statement_timeout=30000",
     )
 
 
@@ -134,11 +138,16 @@ def execute_query(query: str, params: tuple[Any, ...] | None = None) -> pd.DataF
 
     All queries MUST use %s parameterized placeholders — never f-string interpolation.
     """
-    conn = _create_connection()
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(query, params)
-            rows = cur.fetchall()
-            return pd.DataFrame(rows) if rows else pd.DataFrame()
-    finally:
-        conn.close()
+        conn = _create_connection()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(query, params)
+                rows = cur.fetchall()
+                return pd.DataFrame(rows) if rows else pd.DataFrame()
+        finally:
+            conn.close()
+    except psycopg2.Error:
+        logger.exception("Database query failed")
+        msg = "Database query failed — please try again or contact support."
+        raise RuntimeError(msg) from None

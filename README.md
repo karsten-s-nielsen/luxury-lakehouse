@@ -42,6 +42,7 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 | **Synchronization** | Lakeflow Synced Tables | Zero-ETL continuous sync from Gold → Lakebase |
 | **Serving** | Lakebase PostgreSQL 16 (Provisioned) | Sub-10ms OLTP queries, native pgvector |
 | **Application** | Streamlit on Databricks Apps | Interactive dashboards with mplsoccer visualizations |
+| **Security** | Service Principals + UC Grants | Least-privilege identities for ingestion and app |
 | **Infrastructure** | Terraform + Databricks Provider | Everything as code |
 
 ## Data Sources

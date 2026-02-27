@@ -114,6 +114,25 @@ Quick-reference action items. Full details in [PLAN.md](PLAN.md).
 - [x] ~~End-to-end smoke test~~ — all 4 pages loading, filters cascading, visualizations rendering
 - [x] ~~Run `/final-review` + final C4 diagram update~~
 
+## Security Audit (2026-02-27)
+
+Full report: [SECURITY.md](SECURITY.md) — `mad-skills:security-audit` v1.5.0
+
+- [x] ~~Terraform `count` on unknown SP `application_id`~~ — Fixed: `enable_ingestion_sp_grants` bool
+- [x] ~~Deploying user lacks `servicePrincipal.user` role~~ — Fixed: `databricks_access_control_rule_set`
+- [x] ~~**High:** Add `detect-secrets` to pre-commit (H-1)~~ — baseline generated
+- [x] ~~**Medium:** Catch `psycopg2.Error` in `execute_query()` — sanitize tracebacks (M-2)~~
+- [x] ~~**Medium:** Add `statement_timeout=30000` to Lakebase PG connection (M-3)~~
+- [x] ~~**Medium:** Remove `unsafe_allow_html=True` in match_summary.py (M-1)~~ — replaced with `st.header` + `int()` casts
+- [x] ~~**Medium:** Log auth failures in `_refresh_token()` (M-5)~~
+- [ ] **Medium:** Add UUID format assertion on JWT `sub` claim (M-4)
+- [ ] **Medium:** Remove `WRITE_VOLUME` from ingestion SP on libs volume (M-8)
+- [ ] **Medium:** Migrate Terraform auth from PAT to OAuth M2M (M-6)
+- [ ] **Medium:** Add `databricks_ip_access_list` for workspace API (M-7)
+- [ ] **Medium:** Verify Databricks Apps proxy injects security headers (M-9)
+- [ ] **Medium:** Move hardcoded infra IDs to env vars (M-10)
+- [ ] **Low:** 15 additional hardening items — see SECURITY.md
+
 ## Future Data Sources
 
 - [ ] **Respo.Vision 3D pose tracking** — 3D skeletal data from broadcast video (user pursuing via network)

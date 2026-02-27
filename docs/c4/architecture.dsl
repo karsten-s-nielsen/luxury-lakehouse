@@ -40,7 +40,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
             streamlit = container "Streamlit Dashboard" "Interactive analytics dashboard deployed as a Databricks App with 4 pages: Shot Map, Pass Map, Player Radar, and Match Summary" "Python, Streamlit, mplsoccer, psycopg2, Databricks Apps" {
                 appEntry = component "App Entry Point" "st.navigation page routing, dark theme, sidebar branding" "app.py, Streamlit 1.36+"
                 configComp = component "Configuration" "Pydantic BaseSettings with env var binding, identifier validation, cached singleton" "config.py, pydantic-settings"
-                dbComp = component "Database Layer" "OAuth M2M token management (SDK + REST fallback), JWT subject extraction, parameterized query execution, table name validation" "db.py, psycopg2, databricks-sdk"
+                dbComp = component "Database Layer" "OAuth M2M token management (SDK + REST fallback), JWT subject extraction, parameterized query execution, table name validation, statement_timeout, sanitized error handling" "db.py, psycopg2, databricks-sdk"
                 filtersComp = component "Filter Widgets" "5 cascading selectbox/slider widgets backed by Lakebase dimension tables with 10-min cache" "filters.py, st.cache_data"
                 pitchComp = component "Pitch Visualizations" "mplsoccer wrappers: shot scatter on half-pitch (sized by xG), pass arrows on full pitch (progressive highlighting)" "pitch.py, mplsoccer"
                 chartsComp = component "Chart Visualizations" "Radar chart (1-3 players, per-90 metrics) and horizontal bar comparison chart" "charts.py, mplsoccer Radar, matplotlib"

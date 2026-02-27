@@ -1,18 +1,14 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# Module: App — Outputs
+# Module: Service Principals — Input Variables
 # ──────────────────────────────────────────────────────────────────────────────
 
-output "app_name" {
-  description = "Name of the deployed Databricks App"
-  value       = databricks_app.streamlit.name
+variable "environment" {
+  description = "Deployment environment (dev, staging, prod)"
+  type        = string
+  default     = "dev"
 }
 
-output "app_url" {
-  description = "URL of the deployed Streamlit dashboard"
-  value       = databricks_app.streamlit.url
-}
-
-output "service_principal_client_id" {
-  description = "Application ID of the app's auto-provisioned service principal"
-  value       = databricks_app.streamlit.service_principal_client_id
+variable "account_id" {
+  description = "Databricks account ID (UUID from accounts.cloud.databricks.com)"
+  type        = string
 }

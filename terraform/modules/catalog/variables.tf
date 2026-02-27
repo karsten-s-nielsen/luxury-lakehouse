@@ -12,3 +12,27 @@ variable "environment" {
   type        = string
   default     = "dev"
 }
+
+variable "ingestion_sp_application_id" {
+  description = "Application ID of the ingestion service principal (empty = skip grants)"
+  type        = string
+  default     = ""
+}
+
+variable "enable_ingestion_sp_grants" {
+  description = "Whether to create grants for the ingestion service principal (avoids unknown count at plan time)"
+  type        = bool
+  default     = false
+}
+
+variable "app_sp_application_id" {
+  description = "Application ID of the Streamlit app service principal (empty = skip grants)"
+  type        = string
+  default     = ""
+}
+
+variable "gold_schema_override" {
+  description = "Override for the gold schema name (e.g. dev_gold when dbt prefixes with environment)"
+  type        = string
+  default     = ""
+}

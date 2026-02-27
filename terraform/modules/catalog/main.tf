@@ -61,3 +61,56 @@ resource "databricks_volume" "libs" {
   volume_type  = "MANAGED"
   comment      = "Python wheel packages for serverless job environments"
 }
+
+# ── Unity Catalog Grants: Ingestion Service Principal ────────────────────────
+# Least-privilege access for the ingestion job: catalog traversal, schema
+# read/write on bronze, and volume access for wheel storage.
+
+resource "databricks_grant" "ingestion_sp_use_catalog" {
+  count = var.enable_ingestion_sp_grants ? 1 : 0
+
+  catalog = var.catalog_name
+
+  principal  = var.ingestion_sp_application_id
+  privileges = ["USE_CATALOG"]
+}
+
+resource "databricks_grant" "ingestion_sp_bronze_schema" {
+  count = var.enable_ingestion_sp_grants ? 1 : 0
+
+  schema = "${var.catalog_name}.${databricks_schema.bronze.name}"
+
+  principal  = var.ingestion_sp_application_id
+  privileges = ["USE_SCHEMA", "CREATE_TABLE", "MODIFY"]
+}
+
+resource "databricks_grant" "ingestion_sp_libs_volume" {
+  count = var.enable_ingestion_sp_grants ? 1 : 0
+
+  volume = "${var.catalog_name}.${databricks_schema.bronze.name}.${databricks_volume.libs.name}"
+
+  principal  = var.ingestion_sp_application_id
+  privileges = ["READ_VOLUME", "WRITE_VOLUME"]
+}
+
+# ── Unity Catalog Grants: App Service Principal ──────────────────────────────
+# Read-only access for the Streamlit dashboard: catalog traversal and
+# SELECT on the gold schema (which may be dbt-prefixed, e.g. dev_gold).
+
+resource "databricks_grant" "app_sp_use_catalog" {
+  count = var.app_sp_application_id != "" ? 1 : 0
+
+  catalog = var.catalog_name
+
+  principal  = var.app_sp_application_id
+  privileges = ["USE_CATALOG"]
+}
+
+resource "databricks_grant" "app_sp_gold_schema" {
+  count = var.app_sp_application_id != "" ? 1 : 0
+
+  schema = "${var.catalog_name}.${var.gold_schema_override != "" ? var.gold_schema_override : databricks_schema.gold.name}"
+
+  principal  = var.app_sp_application_id
+  privileges = ["USE_SCHEMA", "SELECT"]
+}

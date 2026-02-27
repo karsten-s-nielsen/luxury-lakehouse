@@ -3,16 +3,17 @@
 # deploy.sh — Build, upload wheel, apply Terraform, and trigger ingestion job
 # ──────────────────────────────────────────────────────────────────────────────
 # Usage:
-#   AWS_PROFILE=devops-agent ./scripts/deploy.sh
+#   TF_VAR_databricks_token="$DATABRICKS_TOKEN" AWS_PROFILE=devops-agent ./scripts/deploy.sh
 #
 # Prerequisites:
 #   1. Databricks CLI configured:
 #        databricks configure --host https://dbc-48322be9-16be.cloud.databricks.com
 #      (generates ~/.databrickscfg with a personal access token)
 #
-#   2. Terraform variables set (via terraform.tfvars or env vars):
-#        TF_VAR_databricks_host=https://dbc-48322be9-16be.cloud.databricks.com
-#        TF_VAR_databricks_token=<your-token>
+#   2. Databricks token exported as an environment variable:
+#        bash:        export TF_VAR_databricks_token=<your-token>
+#        PowerShell:  $env:TF_VAR_databricks_token = "<your-token>"
+#      (Terraform reads TF_VAR_* automatically — never store tokens in .tfvars)
 #
 #   3. AWS credentials available (AWS_PROFILE=devops-agent or environment vars)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -52,8 +53,8 @@ echo ""
 
 echo "Step 3: Running terraform apply..."
 cd "$PROJECT_ROOT/terraform/environments/dev"
-terraform init -upgrade
-terraform apply -auto-approve
+terraform init
+terraform apply
 echo "  ✓ Terraform applied"
 echo ""
 

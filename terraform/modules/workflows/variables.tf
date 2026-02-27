@@ -23,3 +23,9 @@ variable "notification_emails" {
   type        = list(string)
   default     = []
 }
+
+variable "run_as_sp_application_id" {
+  description = "Service principal application ID to run the ingestion job as (empty = run as job owner)"
+  type        = string
+  default     = ""
+}

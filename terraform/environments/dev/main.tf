@@ -55,14 +55,29 @@ module "workspace" {
   environment = var.environment
 }
 
+# ── Module: Service Principals ──────────────────────────────────────────────
+# Dedicated service principals for automated workloads (least privilege).
+
+module "service_principals" {
+  source = "../../modules/service_principals"
+
+  environment = var.environment
+  account_id  = var.databricks_account_id
+}
+
 # ── Module: Catalog (Medallion Schemas) ──────────────────────────────────────
 # Creates bronze / silver / gold schemas inside the soccer_analytics catalog.
+# Also manages Unity Catalog grants for the ingestion and app service principals.
 
 module "catalog" {
   source = "../../modules/catalog"
 
-  catalog_name = module.workspace.catalog_name
-  environment  = var.environment
+  catalog_name                = module.workspace.catalog_name
+  environment                 = var.environment
+  ingestion_sp_application_id = module.service_principals.ingestion_sp_application_id
+  enable_ingestion_sp_grants  = true
+  app_sp_application_id       = module.app.service_principal_client_id
+  gold_schema_override        = "${var.environment}_gold"
 }
 
 # ── Module: Lakebase ─────────────────────────────────────────────────────────
@@ -93,10 +108,11 @@ module "sql_warehouse" {
 module "workflows" {
   source = "../../modules/workflows"
 
-  catalog_name        = module.workspace.catalog_name
-  wheel_path          = "${module.catalog.libs_volume_path}/luxury_lakehouse-0.1.0-py3-none-any.whl"
-  environment         = var.environment
-  notification_emails = var.notification_emails
+  catalog_name             = module.workspace.catalog_name
+  wheel_path               = "${module.catalog.libs_volume_path}/luxury_lakehouse-0.1.0-py3-none-any.whl"
+  environment              = var.environment
+  notification_emails      = var.notification_emails
+  run_as_sp_application_id = module.service_principals.ingestion_sp_application_id
 }
 
 # ── Module: Synced Tables ────────────────────────────────────────────────────
