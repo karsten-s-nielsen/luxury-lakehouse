@@ -11,13 +11,7 @@
 --   A pass is "progressive" if the end point is at least 25% closer
 --   to the opponent's goal center than the start point (by distance).
 
-with statsbomb_raw as (
-
-    select * from {{ source('statsbomb', 'statsbomb_events') }}
-
-),
-
-statsbomb_events as (
+with statsbomb_events as (
 
     select * from {{ ref('stg_statsbomb__events') }}
 
@@ -26,45 +20,43 @@ statsbomb_events as (
 statsbomb_passes as (
 
     select
-        e.event_id,
-        e.match_id,
-        e.player_id,
-        e.team_id,
-        e.period,
-        e.minute,
-        e.second,
-        e.location_x                                    as start_x,
-        e.location_y                                    as start_y,
+        event_id,
+        match_id,
+        player_id,
+        team_id,
+        period,
+        minute,
+        second,
+        location_x                                          as start_x,
+        location_y                                          as start_y,
 
         -- Parse pass end location from JSON string (use get() for safe access)
-        get(from_json(raw.pass_end_location, 'ARRAY<DOUBLE>'), 0) as end_x,
-        get(from_json(raw.pass_end_location, 'ARRAY<DOUBLE>'), 1) as end_y,
+        get(from_json(pass_end_location, 'ARRAY<DOUBLE>'), 0) as end_x,
+        get(from_json(pass_end_location, 'ARRAY<DOUBLE>'), 1) as end_y,
 
-        -- Pass attributes (already flat columns from ingestion)
-        raw.pass_type                                   as pass_type,
-        raw.pass_height                                 as pass_height,
-        raw.pass_body_part                              as body_part,
-        raw.pass_length                                 as pass_length,
-        raw.pass_angle                                  as pass_angle_radians,
-        raw.pass_outcome,
-        coalesce(raw.pass_cross, false)                 as is_cross,
-        coalesce(raw.pass_switch, false)                as is_switch,
-        coalesce(raw.pass_through_ball, false)          as is_through_ball,
+        -- Pass attributes (pass-through from events)
+        pass_type,
+        pass_height,
+        pass_body_part                                      as body_part,
+        pass_length,
+        pass_angle                                          as pass_angle_radians,
+        pass_outcome,
+        coalesce(pass_cross, false)                         as is_cross,
+        coalesce(pass_switch, false)                        as is_switch,
+        coalesce(pass_through_ball, false)                  as is_through_ball,
 
         -- Progressive pass flag
         {{ distance_to_goal(
-            'get(from_json(raw.pass_end_location, \'ARRAY<DOUBLE>\'), 0)',
-            'get(from_json(raw.pass_end_location, \'ARRAY<DOUBLE>\'), 1)'
+            'get(from_json(pass_end_location, \'ARRAY<DOUBLE>\'), 0)',
+            'get(from_json(pass_end_location, \'ARRAY<DOUBLE>\'), 1)'
         ) }}
-            < {{ var('progressive_pass_ratio') }} * {{ distance_to_goal('e.location_x', 'e.location_y') }}
-                                                        as is_progressive,
+            < {{ var('progressive_pass_ratio') }} * {{ distance_to_goal('location_x', 'location_y') }}
+                                                            as is_progressive,
 
-        'statsbomb'                                     as data_source
+        'statsbomb'                                         as data_source
 
-    from statsbomb_events e
-    inner join statsbomb_raw raw
-        on e.event_id = raw.id
-    where e.event_type = 'Pass'
+    from statsbomb_events
+    where event_type = 'Pass'
 
 ),
 

@@ -54,7 +54,33 @@ flattened as (
         duration,
 
         -- Index for ordering events within a possession sequence
-        index
+        index,
+
+        -- Shot-specific fields (pass-through for downstream shot/pass models)
+        shot_end_location,
+        shot_freeze_frame,
+        shot_outcome,
+        shot_technique,
+        shot_body_part,
+        shot_type,
+        shot_statsbomb_xg,
+        shot_first_time,
+        shot_one_on_one,
+
+        -- Pass-specific fields (pass-through for downstream pass models)
+        pass_end_location,
+        pass_type,
+        pass_height,
+        pass_body_part,
+        pass_length,
+        pass_angle,
+        pass_outcome,
+        pass_cross,
+        pass_switch,
+        pass_through_ball,
+
+        -- Substitution fields
+        substitution_replacement_id
 
     from source
 
