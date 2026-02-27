@@ -40,44 +40,49 @@ models:
         data_tests:
           - not_null
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 1
-              max_value: 5
+              arguments:
+                min_value: 1
+                max_value: 5
       - name: event_sec
         description: Event timestamp in seconds from period start
       - name: start_x
         description: Starting X coordinate (120-yard scale)
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 0
-              max_value: 120
-              row_condition: "start_x is not null"
+              arguments:
+                min_value: 0
+                max_value: 120
+                row_condition: "start_x is not null"
               config:
                 severity: warn
       - name: start_y
         description: Starting Y coordinate (80-yard scale)
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 0
-              max_value: 80
-              row_condition: "start_y is not null"
+              arguments:
+                min_value: 0
+                max_value: 80
+                row_condition: "start_y is not null"
               config:
                 severity: warn
       - name: end_x
         description: Ending X coordinate (120-yard scale)
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 0
-              max_value: 120
-              row_condition: "end_x is not null"
+              arguments:
+                min_value: 0
+                max_value: 120
+                row_condition: "end_x is not null"
               config:
                 severity: warn
       - name: end_y
         description: Ending Y coordinate (80-yard scale)
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 0
-              max_value: 80
-              row_condition: "end_y is not null"
+              arguments:
+                min_value: 0
+                max_value: 80
+                row_condition: "end_y is not null"
               config:
                 severity: warn
       - name: is_accurate
@@ -89,4 +94,5 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values: ['wyscout']
+              arguments:
+                values: ['wyscout']

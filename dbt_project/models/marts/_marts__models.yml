@@ -31,27 +31,30 @@ models:
         description: Shot X coordinate (0-120). May slightly exceed bounds for off-pitch events.
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 0
-              max_value: 120
-              row_condition: "location_x is not null"
+              arguments:
+                min_value: 0
+                max_value: 120
+                row_condition: "location_x is not null"
               config:
                 severity: warn
       - name: location_y
         description: Shot Y coordinate (0-80)
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 0
-              max_value: 80
-              row_condition: "location_y is not null"
+              arguments:
+                min_value: 0
+                max_value: 80
+                row_condition: "location_y is not null"
               config:
                 severity: warn
       - name: statsbomb_xg
         description: StatsBomb xG value (NULL for non-StatsBomb data)
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 0
-              max_value: 1
-              row_condition: "statsbomb_xg is not null"
+              arguments:
+                min_value: 0
+                max_value: 1
+                row_condition: "statsbomb_xg is not null"
       - name: distance_to_goal
         description: Euclidean distance from shot location to goal center (yards)
       - name: shot_angle
@@ -65,20 +68,23 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values: [0, 1]
+              arguments:
+                values: [0, 1]
       - name: period
         description: Match period
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 1
-              max_value: 5
-              row_condition: "period is not null"
+              arguments:
+                min_value: 1
+                max_value: 5
+                row_condition: "period is not null"
       - name: data_source
         description: Data provider (statsbomb, wyscout)
         data_tests:
           - not_null
           - accepted_values:
-              values: ['statsbomb', 'wyscout']
+              arguments:
+                values: ['statsbomb', 'wyscout']
 
   - name: fct_passes
     description: >
@@ -103,18 +109,20 @@ models:
         description: Starting X coordinate (120-yard scale). May slightly exceed bounds.
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 0
-              max_value: 120
-              row_condition: "start_x is not null"
+              arguments:
+                min_value: 0
+                max_value: 120
+                row_condition: "start_x is not null"
               config:
                 severity: warn
       - name: start_y
         description: Starting Y coordinate (80-yard scale)
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 0
-              max_value: 80
-              row_condition: "start_y is not null"
+              arguments:
+                min_value: 0
+                max_value: 80
+                row_condition: "start_y is not null"
               config:
                 severity: warn
       - name: end_x
@@ -131,14 +139,16 @@ models:
         description: Pass direction (forward, backward, lateral)
         data_tests:
           - accepted_values:
-              values: ['forward', 'backward', 'lateral']
+              arguments:
+                values: ['forward', 'backward', 'lateral']
       - name: period
         description: Match period
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 1
-              max_value: 5
-              row_condition: "period is not null"
+              arguments:
+                min_value: 1
+                max_value: 5
+                row_condition: "period is not null"
       - name: data_source
         description: Data provider (statsbomb, wyscout)
         data_tests:
@@ -176,8 +186,9 @@ models:
         description: Pass completion percentage (0-100)
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 0
-              max_value: 100
+              arguments:
+                min_value: 0
+                max_value: 100
       - name: goals_per_90
         description: Goals scored per 90 minutes
       - name: xg_per_90
@@ -216,25 +227,29 @@ models:
         description: Home team possession percentage
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 0
-              max_value: 100
+              arguments:
+                min_value: 0
+                max_value: 100
       - name: home_pass_completion_pct
         description: Home team pass completion percentage
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 0
-              max_value: 100
+              arguments:
+                min_value: 0
+                max_value: 100
       - name: away_pass_completion_pct
         description: Away team pass completion percentage
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 0
-              max_value: 100
+              arguments:
+                min_value: 0
+                max_value: 100
       - name: match_result
         description: Match result (home_win, away_win, draw)
         data_tests:
           - accepted_values:
-              values: ['home_win', 'away_win', 'draw']
+              arguments:
+                values: ['home_win', 'away_win', 'draw']
 
   - name: fct_tracking_frames
     description: >
@@ -294,8 +309,9 @@ models:
         description: Total tracking frames for this player in this match
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 1
-              max_value: 200000
+              arguments:
+                min_value: 1
+                max_value: 200000
       - name: embedding_vector
         description: >
           Dense float array representing player movement patterns.
@@ -345,7 +361,8 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values: ['statsbomb', 'wyscout']
+              arguments:
+                values: ['statsbomb', 'wyscout']
 
   - name: dim_competitions
     description: >
@@ -368,4 +385,5 @@ models:
         description: Gender category (male, female)
         data_tests:
           - accepted_values:
-              values: ['male', 'female']
+              arguments:
+                values: ['male', 'female']

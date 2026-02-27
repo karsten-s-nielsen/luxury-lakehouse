@@ -34,7 +34,8 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values: ['statsbomb', 'wyscout']
+              arguments:
+                values: ['statsbomb', 'wyscout']
 
   - name: int_unified_shots
     description: >
@@ -67,7 +68,8 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values: ['statsbomb', 'wyscout']
+              arguments:
+                values: ['statsbomb', 'wyscout']
 
   - name: int_minutes_played
     description: >
@@ -92,5 +94,6 @@ models:
         data_tests:
           - not_null
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 0
-              max_value: 50000
+              arguments:
+                min_value: 0
+                max_value: 50000

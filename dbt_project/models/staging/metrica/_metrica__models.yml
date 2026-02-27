@@ -22,7 +22,8 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values: [1, 2]
+              arguments:
+                values: [1, 2]
       - name: frame
         description: Frame number within the period
         data_tests:
@@ -38,35 +39,40 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values: ['home', 'away']
+              arguments:
+                values: ['home', 'away']
       - name: x
         description: X coordinate scaled to 120-yard pitch
         data_tests:
           - not_null
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 0
-              max_value: 120
+              arguments:
+                min_value: 0
+                max_value: 120
       - name: y
         description: Y coordinate scaled to 80-yard pitch
         data_tests:
           - not_null
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 0
-              max_value: 80
+              arguments:
+                min_value: 0
+                max_value: 80
       - name: ball_x
         description: Ball X coordinate scaled to 120-yard pitch
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 0
-              max_value: 120
-              row_condition: "ball_x is not null"
+              arguments:
+                min_value: 0
+                max_value: 120
+                row_condition: "ball_x is not null"
       - name: ball_y
         description: Ball Y coordinate scaled to 80-yard pitch
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 0
-              max_value: 80
-              row_condition: "ball_y is not null"
+              arguments:
+                min_value: 0
+                max_value: 80
+                row_condition: "ball_y is not null"
 
   - name: stg_metrica__events
     description: >
@@ -105,36 +111,40 @@ models:
         description: Starting X coordinate (120-yard scale). May slightly exceed bounds in raw data.
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 0
-              max_value: 120
-              row_condition: "start_x is not null"
+              arguments:
+                min_value: 0
+                max_value: 120
+                row_condition: "start_x is not null"
               config:
                 severity: warn
       - name: start_y
         description: Starting Y coordinate (80-yard scale)
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 0
-              max_value: 80
-              row_condition: "start_y is not null"
+              arguments:
+                min_value: 0
+                max_value: 80
+                row_condition: "start_y is not null"
               config:
                 severity: warn
       - name: end_x
         description: Ending X coordinate (120-yard scale)
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 0
-              max_value: 120
-              row_condition: "end_x is not null"
+              arguments:
+                min_value: 0
+                max_value: 120
+                row_condition: "end_x is not null"
               config:
                 severity: warn
       - name: end_y
         description: Ending Y coordinate (80-yard scale)
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 0
-              max_value: 80
-              row_condition: "end_y is not null"
+              arguments:
+                min_value: 0
+                max_value: 80
+                row_condition: "end_y is not null"
               config:
                 severity: warn
       - name: team
