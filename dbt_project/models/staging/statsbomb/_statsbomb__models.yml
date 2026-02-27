@@ -70,6 +70,54 @@ models:
                 values: ['Regular Play', 'From Corner', 'From Free Kick', 'From Goal Kick', 'From Keeper', 'From Kick Off', 'From Throw In', 'Other']
               config:
                 severity: warn
+      - name: duration
+        description: Duration in seconds that the event lasted
+      - name: index
+        description: Ordering index within a possession sequence
+      - name: team_name
+        description: Name of the team performing the event
+      - name: player_name
+        description: Name of the player performing the event
+      - name: shot_end_location
+        description: Raw JSON array of shot end location coordinates (pass-through for stg_statsbomb__shots)
+      - name: shot_freeze_frame
+        description: Raw JSON array of freeze frame data (pass-through for stg_statsbomb__shots)
+      - name: shot_outcome
+        description: Shot outcome string (pass-through for stg_statsbomb__shots)
+      - name: shot_technique
+        description: Shot technique string (pass-through for stg_statsbomb__shots)
+      - name: shot_body_part
+        description: Shot body part string (pass-through for stg_statsbomb__shots)
+      - name: shot_type
+        description: Shot type string (pass-through for stg_statsbomb__shots)
+      - name: shot_statsbomb_xg
+        description: StatsBomb xG value (pass-through for stg_statsbomb__shots)
+      - name: shot_first_time
+        description: Whether shot was taken first-time (pass-through for stg_statsbomb__shots)
+      - name: shot_one_on_one
+        description: Whether shot was a one-on-one (pass-through for stg_statsbomb__shots)
+      - name: pass_end_location
+        description: Raw JSON array of pass end location coordinates (pass-through for int_unified_passes)
+      - name: pass_type
+        description: Pass type classification (pass-through for int_unified_passes)
+      - name: pass_height
+        description: Pass height classification (pass-through for int_unified_passes)
+      - name: pass_body_part
+        description: Body part used for the pass (pass-through for int_unified_passes)
+      - name: pass_length
+        description: Pass length in yards (pass-through for int_unified_passes)
+      - name: pass_angle
+        description: Pass angle in radians (pass-through for int_unified_passes)
+      - name: pass_outcome
+        description: Pass outcome classification (pass-through for int_unified_passes)
+      - name: pass_cross
+        description: Whether the pass was a cross (pass-through for int_unified_passes)
+      - name: pass_switch
+        description: Whether the pass was a switch of play (pass-through for int_unified_passes)
+      - name: pass_through_ball
+        description: Whether the pass was a through ball (pass-through for int_unified_passes)
+      - name: substitution_replacement_id
+        description: Player ID of the substitution replacement (pass-through for int_minutes_played)
 
   - name: stg_statsbomb__shots
     description: >
@@ -171,6 +219,28 @@ models:
                 row_condition: "shot_angle is not null"
               config:
                 severity: warn
+      - name: team_name
+        description: Name of the team taking the shot
+      - name: player_name
+        description: Name of the player taking the shot
+      - name: period
+        description: Match period (1=first half, 2=second half, etc.)
+      - name: minute
+        description: Match minute of the shot
+      - name: second
+        description: Match second of the shot
+      - name: end_location_z
+        description: Z coordinate of shot end location (height in yards)
+      - name: shot_type
+        description: Shot type classification (Open Play, Free Kick, Penalty, etc.)
+      - name: is_first_time
+        description: Whether the shot was taken first-time without controlling the ball
+      - name: is_one_on_one
+        description: Whether the shot was a one-on-one with the goalkeeper
+      - name: defenders_in_frame
+        description: Number of defenders visible in the freeze frame
+      - name: teammates_in_frame
+        description: Number of teammates visible in the freeze frame
 
   - name: stg_statsbomb__matches
     description: >
@@ -212,6 +282,22 @@ models:
         description: Final home team score
       - name: away_score
         description: Final away team score
+      - name: home_manager
+        description: Home team manager name
+      - name: away_manager
+        description: Away team manager name
+      - name: referee_name
+        description: Match referee name
+      - name: stadium_name
+        description: Stadium where the match was played
+      - name: match_status
+        description: Match status (available, collecting, etc.)
+      - name: match_week
+        description: Match week number within the competition
+      - name: competition_stage
+        description: Competition stage (Group Stage, Round of 16, Final, etc.)
+      - name: data_version
+        description: StatsBomb data version identifier
 
   - name: stg_statsbomb__lineups
     description: >
@@ -246,3 +332,13 @@ models:
         description: Starting position ID (can be mapped via position_mapping seed)
       - name: position_name
         description: Starting position name
+      - name: competition_id
+        description: Competition identifier (from match metadata)
+      - name: season_id
+        description: Season identifier (from match metadata)
+      - name: player_nickname
+        description: Player nickname or short name
+      - name: yellow_cards
+        description: Number of yellow cards received in the match
+      - name: red_cards
+        description: Number of red cards received in the match (including second yellow)

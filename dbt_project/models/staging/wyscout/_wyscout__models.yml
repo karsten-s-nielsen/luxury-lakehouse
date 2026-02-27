@@ -101,3 +101,9 @@ models:
           - accepted_values:
               arguments:
                 values: ['wyscout']
+      - name: is_own_goal
+        description: Whether the event resulted in an own goal (from tag 102)
+      - name: is_assist
+        description: Whether the event was an assist (from tag 301)
+      - name: is_key_pass
+        description: Whether the event was a key pass (from tag 401)

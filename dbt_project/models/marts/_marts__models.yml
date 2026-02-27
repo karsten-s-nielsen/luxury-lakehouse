@@ -101,6 +101,26 @@ models:
           - accepted_values:
               arguments:
                 values: ['statsbomb', 'wyscout']
+      - name: competition_id
+        description: Foreign key to dim_competitions
+      - name: season_id
+        description: Season identifier
+      - name: minute
+        description: Match minute of the shot
+      - name: second
+        description: Match second of the shot
+      - name: end_location_x
+        description: X coordinate where the shot ended
+      - name: end_location_y
+        description: Y coordinate where the shot ended
+      - name: shot_body_part
+        description: Body part used for the shot
+      - name: shot_technique
+        description: Shot technique classification
+      - name: shot_type
+        description: Shot type classification (Open Play, Free Kick, Penalty, etc.)
+      - name: is_first_time
+        description: Whether the shot was taken first-time
 
   - name: fct_passes
     description: >
@@ -175,6 +195,30 @@ models:
         description: Data provider (statsbomb, wyscout)
         data_tests:
           - not_null
+      - name: competition_id
+        description: Foreign key to dim_competitions
+      - name: season_id
+        description: Season identifier
+      - name: minute
+        description: Match minute of the pass
+      - name: second
+        description: Match second of the pass
+      - name: pass_type
+        description: Pass type classification
+      - name: pass_height
+        description: Pass height (Ground Pass, Low Pass, High Pass)
+      - name: body_part
+        description: Body part used for the pass
+      - name: pass_length
+        description: Pass length in yards
+      - name: pass_angle_radians
+        description: Pass angle in radians
+      - name: is_cross
+        description: Whether the pass was a cross
+      - name: is_switch
+        description: Whether the pass was a switch of play
+      - name: is_through_ball
+        description: Whether the pass was a through ball
 
   - name: fct_player_stats
     description: >
@@ -235,6 +279,18 @@ models:
         description: Total passes attempted per 90 minutes
       - name: progressive_passes_per_90
         description: Progressive passes per 90 minutes
+      - name: shots_on_target
+        description: Total shots on target
+      - name: total_passes
+        description: Total passes attempted
+      - name: completed_passes
+        description: Total passes completed
+      - name: progressive_passes
+        description: Total progressive passes
+      - name: assists_per_90
+        description: Assists per 90 minutes (NULL until assist data available)
+      - name: xg_overperformance
+        description: Goals minus xG (positive = clinical finisher)
 
   - name: fct_match_summary
     description: >
@@ -320,6 +376,36 @@ models:
           - accepted_values:
               arguments:
                 values: ['home_win', 'away_win', 'draw']
+      - name: home_team_name
+        description: Home team display name
+      - name: away_team_name
+        description: Away team display name
+      - name: home_shots
+        description: Total home team shots
+      - name: home_goals
+        description: Total home team goals (from shot events)
+      - name: home_shots_on_target
+        description: Home team shots on target
+      - name: away_shots
+        description: Total away team shots
+      - name: away_goals
+        description: Total away team goals (from shot events)
+      - name: away_shots_on_target
+        description: Away team shots on target
+      - name: home_total_passes
+        description: Total home team passes
+      - name: home_completed_passes
+        description: Home team completed passes
+      - name: home_progressive_passes
+        description: Home team progressive passes
+      - name: away_total_passes
+        description: Total away team passes
+      - name: away_completed_passes
+        description: Away team completed passes
+      - name: away_progressive_passes
+        description: Away team progressive passes
+      - name: xg_difference
+        description: Home xG minus away xG (positive = home advantage)
 
   - name: fct_tracking_frames
     description: >
@@ -348,6 +434,28 @@ models:
         description: >
           Pitch control probability [0,1] at this player's location.
           Computed using Fernandez & Bornn (2018) model. NULL until ML pipeline.
+      - name: period
+        description: Match period (1 or 2)
+      - name: frame
+        description: Frame number within the period
+      - name: timestamp_seconds
+        description: Timestamp in seconds from period start
+      - name: team
+        description: Team affiliation (home or away)
+      - name: x
+        description: Player X coordinate (120-yard scale)
+      - name: y
+        description: Player Y coordinate (80-yard scale)
+      - name: ball_x
+        description: Ball X coordinate (120-yard scale)
+      - name: ball_y
+        description: Ball Y coordinate (80-yard scale)
+      - name: velocity_x
+        description: Player velocity in X direction (yards/second)
+      - name: velocity_y
+        description: Player velocity in Y direction (yards/second)
+      - name: voronoi_area
+        description: Voronoi cell area controlled by player (NULL until spatial pipeline)
 
   - name: fct_player_embeddings
     description: >
@@ -408,6 +516,22 @@ models:
         description: >
           Dense float array representing player movement patterns.
           Generated by an external ML model and loaded back into the warehouse.
+      - name: avg_x
+        description: Average X position during the match
+      - name: avg_y
+        description: Average Y position during the match
+      - name: stddev_x
+        description: Standard deviation of X position (positional spread)
+      - name: stddev_y
+        description: Standard deviation of Y position (positional spread)
+      - name: pct_defensive_third
+        description: Percentage of frames in the defensive third
+      - name: pct_middle_third
+        description: Percentage of frames in the middle third
+      - name: pct_attacking_third
+        description: Percentage of frames in the attacking third
+      - name: avg_distance_to_ball
+        description: Average distance to ball during the match
 
   # ── Dimension Tables ──────────────────────────────────────────────────
 

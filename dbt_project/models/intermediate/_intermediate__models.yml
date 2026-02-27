@@ -36,6 +36,30 @@ models:
           - accepted_values:
               arguments:
                 values: ['statsbomb', 'wyscout']
+      - name: period
+        description: Match period (1=first half, 2=second half, etc.)
+      - name: minute
+        description: Match minute of the pass
+      - name: second
+        description: Match second of the pass
+      - name: pass_type
+        description: Pass type classification
+      - name: pass_height
+        description: Pass height classification (Ground Pass, Low Pass, High Pass)
+      - name: body_part
+        description: Body part used for the pass
+      - name: pass_length
+        description: Pass length in yards (Euclidean distance)
+      - name: pass_angle_radians
+        description: Pass angle in radians
+      - name: pass_outcome
+        description: Pass outcome (Complete, Incomplete, Out, etc.)
+      - name: is_cross
+        description: Whether the pass was a cross
+      - name: is_switch
+        description: Whether the pass was a switch of play
+      - name: is_through_ball
+        description: Whether the pass was a through ball
 
   - name: int_unified_shots
     description: >
@@ -70,6 +94,30 @@ models:
           - accepted_values:
               arguments:
                 values: ['statsbomb', 'wyscout']
+      - name: player_id
+        description: Player performing the shot
+      - name: team_id
+        description: Team performing the shot
+      - name: period
+        description: Match period
+      - name: minute
+        description: Match minute of the shot
+      - name: second
+        description: Match second of the shot
+      - name: end_location_x
+        description: X coordinate where the shot ended
+      - name: end_location_y
+        description: Y coordinate where the shot ended
+      - name: shot_body_part
+        description: Body part used for the shot
+      - name: shot_technique
+        description: Shot technique classification
+      - name: shot_type
+        description: Shot type classification
+      - name: statsbomb_xg
+        description: StatsBomb xG value (NULL for Wyscout)
+      - name: is_first_time
+        description: Whether the shot was first-time (NULL for Wyscout)
 
   - name: int_minutes_played
     description: >
