@@ -1,4 +1,4 @@
-"""Database layer: OAuth token management and parameterized query execution."""
+"""Database layer: OAuth token management, connection pooling, and parameterized query execution."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import base64
 import json as jsonlib
 import logging
 import re
+import threading
 import time
 import uuid
 from typing import Any
@@ -13,6 +14,7 @@ from typing import Any
 import pandas as pd
 import psycopg2
 import psycopg2.extras
+import psycopg2.pool
 import requests as httplib
 from databricks.sdk import WorkspaceClient
 
@@ -25,14 +27,32 @@ _IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 # Module-level token cache
 _token_cache: dict[str, Any] = {"token": None, "user": None, "expires_at": 0.0}
 
+# Connection pool state (guarded by _pool_lock for thread safety)
+_pool: psycopg2.pool.ThreadedConnectionPool | None = None
+_pool_created_at: float = 0.0
+_pool_lock = threading.Lock()
+
 
 def _extract_jwt_subject(token: str) -> str:
-    """Extract the 'sub' claim from a JWT token (no signature verification needed)."""
+    """Extract and validate the 'sub' claim from a JWT token.
+
+    The subject must be a valid UUID (service principal ID). This prevents
+    malformed or spoofed tokens from being used as PG usernames.
+    """
     payload_b64 = token.split(".")[1]
     # Add padding for base64
     payload_b64 += "=" * (4 - len(payload_b64) % 4)
     payload = jsonlib.loads(base64.b64decode(payload_b64))
-    return payload["sub"]  # type: ignore[no-any-return]
+    sub: str = payload["sub"]
+
+    # Validate UUID format (M-4: prevent non-UUID strings as PG usernames)
+    try:
+        uuid.UUID(sub)
+    except (ValueError, AttributeError) as exc:
+        msg = f"JWT 'sub' claim is not a valid UUID: {sub!r}"
+        raise ValueError(msg) from exc
+
+    return sub
 
 
 def _generate_credential_via_rest(ws: WorkspaceClient, instance_name: str) -> str:
@@ -91,23 +111,46 @@ def _refresh_token() -> str:
     return token
 
 
-def _create_connection() -> psycopg2.extensions.connection:
-    """Create a new psycopg2 connection to Lakebase with SSL required."""
+def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
+    """Return a thread-safe connection pool, recycling when the OAuth token expires.
+
+    The pool is created with the current token and recycled every 55 minutes
+    (pool_connection_max_age_seconds) to stay in sync with token rotation.
+    """
+    global _pool, _pool_created_at
+
     settings = get_settings()
-    token = _refresh_token()
+    now = time.time()
 
-    pg_user: str = _token_cache["user"] or _extract_jwt_subject(token)
+    with _pool_lock:
+        if _pool is not None and (now - _pool_created_at) < settings.pool_connection_max_age_seconds:
+            return _pool
 
-    return psycopg2.connect(
-        host=settings.lakebase_host,
-        port=5432,
-        database=settings.lakebase_database,
-        user=pg_user,
-        password=token,
-        sslmode="verify-full",
-        connect_timeout=10,
-        options="-c statement_timeout=30000",
-    )
+        # Close old pool connections before creating a new one
+        if _pool is not None:
+            try:
+                _pool.closeall()
+            except Exception:
+                logger.warning("Failed to close old connection pool", exc_info=True)
+
+        token = _refresh_token()
+        pg_user: str = _token_cache["user"] or _extract_jwt_subject(token)
+
+        _pool = psycopg2.pool.ThreadedConnectionPool(
+            minconn=1,
+            maxconn=5,
+            host=settings.lakebase_host,
+            port=5432,
+            database=settings.lakebase_database,
+            user=pg_user,
+            password=token,
+            sslmode="verify-full",
+            connect_timeout=10,
+            options="-c statement_timeout=30000",
+        )
+        _pool_created_at = now
+        logger.info("Created connection pool (min=1, max=5) for user=%s", pg_user)
+        return _pool
 
 
 def validate_table_name(table: str) -> str:
@@ -133,20 +176,21 @@ def t(table_name: str) -> str:
 def execute_query(query: str, params: tuple[Any, ...] | None = None) -> pd.DataFrame:
     """Execute a parameterized query and return results as a DataFrame.
 
-    Uses connection-per-query pattern. Combined with @st.cache_data(ttl=600),
-    actual DB hits are infrequent.
+    Uses a ThreadedConnectionPool with 55-min recycle aligned to OAuth token
+    expiry. Combined with @st.cache_data(ttl=600), actual DB hits are infrequent.
 
     All queries MUST use %s parameterized placeholders — never f-string interpolation.
     """
     try:
-        conn = _create_connection()
+        pool = _get_pool()
+        conn = pool.getconn()
         try:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute(query, params)
                 rows = cur.fetchall()
                 return pd.DataFrame(rows) if rows else pd.DataFrame()
         finally:
-            conn.close()
+            pool.putconn(conn)
     except psycopg2.Error:
         logger.exception("Database query failed")
         msg = "Database query failed — please try again or contact support."

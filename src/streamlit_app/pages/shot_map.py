@@ -28,6 +28,8 @@ def _load_shots(
         conditions.append("s.player_id = %s")
         params.append(player_id)
 
+    # SECURITY: `where` is built entirely from hardcoded conditions above
+    # (never user input). All user-supplied values use %s parameterized placeholders.
     where = " AND ".join(conditions)
 
     @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading shots...")

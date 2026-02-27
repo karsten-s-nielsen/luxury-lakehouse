@@ -30,7 +30,7 @@ models:
       +schema: silver
       +tags: ["staging"]
       +grants:
-        select: ['account users']
+        select: "{{ var('grant_select_to', ['account users']) }}"
     intermediate:
       +materialized: ephemeral
       +tags: ["intermediate"]
@@ -39,13 +39,17 @@ models:
       +schema: gold
       +tags: ["marts"]
       +grants:
-        select: ['account users']
+        select: "{{ var('grant_select_to', ['account users']) }}"
 
 seeds:
   soccer_analytics:
     +schema: silver
 
 vars:
+  # UC grant principals — override with specific SPs for production
+  # Default 'account users' is acceptable for dev with public data (L-15)
+  grant_select_to:
+    - 'account users'
   # Standard pitch dimensions used across macros (StatsBomb coordinate system)
   pitch_length: 120
   pitch_width: 80

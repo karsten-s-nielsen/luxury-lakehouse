@@ -101,6 +101,8 @@ def render_player_filter(
         conditions.append("ps.minutes_played >= %s")
         params.append(min_minutes)
 
+    # SECURITY: `where` is built entirely from hardcoded conditions above
+    # (never user input). All user-supplied values use %s parameterized placeholders.
     where = " AND ".join(conditions)
     df = _cached_query(
         f"SELECT DISTINCT p.player_id, p.player_display_name "  # noqa: S608
@@ -145,6 +147,8 @@ def render_match_filter(competition_id: int | None, team_id: int | None) -> int 
         conditions.append("(home_team_id = %s OR away_team_id = %s)")
         params.extend([team_id, team_id])
 
+    # SECURITY: `where` is built entirely from hardcoded conditions above
+    # (never user input). All user-supplied values use %s parameterized placeholders.
     where = " AND ".join(conditions)
     df = _cached_query(
         f"SELECT match_id, match_date, home_team_name, away_team_name, "  # noqa: S608

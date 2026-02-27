@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [PLAN.md](PLAN.md).
 
-**Last updated**: 2026-02-28
+**Last updated**: 2026-02-27
 
 ---
 
@@ -107,8 +107,8 @@ Quick-reference action items. Full details in [PLAN.md](PLAN.md).
 - [x] ~~Implement components~~ — `filters.py` (5 cascading widgets), `pitch.py` (mplsoccer wrappers), `charts.py` (radar + bar)
 - [x] ~~Implement pages~~ — Shot Map, Pass Map, Player Radar, Match Summary (4 pages with `st.navigation`)
 - [x] ~~Implement `app.py`~~ — entry point with `st.navigation`, dark theme, sidebar branding
-- [x] ~~Unit tests~~ — 27 new tests (config: 6, db: 10, components: 11), total 82/82 passing
-- [x] ~~Quality gates~~ — ruff (0 violations), pyright (0 errors), pytest (82/82 pass)
+- [x] ~~Unit tests~~ — 28 new tests (config: 6, db: 11, components: 11), total 83/83 passing
+- [x] ~~Quality gates~~ — ruff (0 violations), pyright (0 errors), pytest (83/83 pass)
 - [x] ~~Deploy as Databricks App~~ — `app.yaml` manifest, port 8000, PYTHONPATH=src
 - [x] ~~Fix Lakebase connectivity~~ — PG schema discovery (`dev_gold`), SP role creation + grants (USE CATALOG, USE SCHEMA, SELECT, PG USAGE + SELECT)
 - [x] ~~End-to-end smoke test~~ — all 4 pages loading, filters cascading, visualizations rendering
@@ -125,13 +125,27 @@ Full report: [SECURITY.md](SECURITY.md) — `mad-skills:security-audit` v1.5.0
 - [x] ~~**Medium:** Add `statement_timeout=30000` to Lakebase PG connection (M-3)~~
 - [x] ~~**Medium:** Remove `unsafe_allow_html=True` in match_summary.py (M-1)~~ — replaced with `st.header` + `int()` casts
 - [x] ~~**Medium:** Log auth failures in `_refresh_token()` (M-5)~~
-- [ ] **Medium:** Add UUID format assertion on JWT `sub` claim (M-4)
-- [ ] **Medium:** Remove `WRITE_VOLUME` from ingestion SP on libs volume (M-8)
+- [x] ~~**Medium:** Add UUID format assertion on JWT `sub` claim (M-4)~~
+- [x] ~~**Medium:** Remove `WRITE_VOLUME` from ingestion SP on libs volume (M-8)~~
 - [ ] **Medium:** Migrate Terraform auth from PAT to OAuth M2M (M-6)
 - [ ] **Medium:** Add `databricks_ip_access_list` for workspace API (M-7)
 - [ ] **Medium:** Verify Databricks Apps proxy injects security headers (M-9)
-- [ ] **Medium:** Move hardcoded infra IDs to env vars (M-10)
-- [ ] **Low:** 15 additional hardening items — see SECURITY.md
+- [x] ~~**Medium:** Move hardcoded infra IDs to env vars (M-10)~~
+- [x] ~~**Low:** Document `WHERE {where}` pattern constraints (L-1)~~
+- [x] ~~**Low:** Replace `SELECT *` with explicit column list in match_summary.py (L-2)~~
+- [x] ~~**Low:** Implement connection pooling with 55min recycle (L-6)~~
+- [x] ~~**Low:** Codify Lakebase PG grants in versioned SQL script (L-7)~~
+- [x] ~~**Low:** Add `timeout_seconds` and `max_retries` to ingestion tasks (L-11)~~
+- [x] ~~**Low:** Tighten dbt grants to configurable principal (L-15)~~
+- [ ] **Low:** 9 remaining hardening items — see SECURITY.md
+
+## Final Review (2026-02-27)
+
+- [x] ~~**Bug:** Fix `required_columns` in statsbomb `_write_batch`~~ — `statsbombpy` returns `id`/`type`, not `event_id`/`type_name`
+- [x] ~~**Test:** Split `test_connection_returned_on_error` into two tests~~ — one for `psycopg2.Error` (sanitized), one for `RuntimeError` (propagated)
+- [x] ~~**Docs:** Update PLAN.md implementation status~~ — Phase 5 complete, 83 tests, 165 dbt tests
+- [x] ~~**Docs:** Update SECURITY.md action plan~~ — mark resolved items in Next sprint and Backlog
+- [x] ~~**Docs:** Regenerate C4 architecture diagrams~~
 
 ## Future Data Sources
 
@@ -141,19 +155,20 @@ Full report: [SECURITY.md](SECURITY.md) — `mad-skills:security-audit` v1.5.0
 
 ## Infrastructure Notes
 
-| Resource | Value |
-|----------|-------|
-| AWS region | us-east-1 |
-| AWS profile | `devops-agent` |
-| Databricks workspace URL | `https://dbc-48322be9-16be.cloud.databricks.com` |
-| Databricks tier | Premium (14-day free trial) |
-| Unity Catalog metastore | `metastore_aws_us_east_1` (auto-created) |
-| Unity Catalog | `soccer_analytics` (Default Storage) |
-| SQL Warehouse ID | `6c3b36ca64d183fe` |
-| Lakebase instance | `soccer-analytics-lakebase-dev` |
-| Lakebase DNS (RW) | `instance-f9ffeb4b-6f4b-4fd6-9287-335d745ce173.database.cloud.databricks.com` |
-| Ingestion job ID | `240279916175143` |
-| Streamlit App URL | `https://soccer-analytics-dashboard-dev-7474660814094441.aws.databricksapps.com` |
+Infrastructure IDs are environment-specific. Set these as environment variables
+rather than hardcoding in scripts. See `terraform output` for current values.
+
+| Resource | Env Var / Source |
+|----------|----------------|
+| AWS region | `us-east-1` |
+| AWS profile | `AWS_PROFILE=devops-agent` |
+| Databricks workspace URL | `DATABRICKS_HOST` env var |
+| Unity Catalog | `soccer_analytics` |
+| SQL Warehouse ID | `terraform output sql_warehouse_id` |
+| Lakebase instance | `terraform output lakebase_instance_name` |
+| Lakebase DNS (RW) | `terraform output lakebase_host` |
+| Ingestion job ID | `DATABRICKS_JOB_ID` env var / `terraform output ingestion_job_id` |
+| Streamlit App URL | `terraform output app_url` |
 | GitHub repo | `karstenskyt/luxury-lakehouse` (private) |
 | Monthly budget | Under $100 |
 | Terraform state bucket | `karstenskyt-terraform-state` (S3 native locking) |

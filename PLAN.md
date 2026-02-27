@@ -60,7 +60,7 @@ This plan implements the Databricks Lakebase architecture described in Document 
 | Soccermatics local workspace | `D:/Development/soccermatics/` | Working — 25/25 scripts pass (Python 3.12, conda) |
 | MCP AWS CodeDeploy server | `D:/Development/karstenskyt__mcp-aws-codedeploy/` | Working — 8 tools, FastMCP, Stdio transport |
 | AWS IAM DevOpsAgent role spec | `karstenskyt__mcp-aws-codedeploy/TODO.md` | Documented — policy template ready |
-| Implementation code | This repository | **Phase 3 complete** — 4 ingestion modules, 55 unit tests, 9 bronze tables (31.4M rows); 19 dbt models, 144 data tests, 8/8 source freshness |
+| Implementation code | This repository | **Phase 5 complete** — 4 ingestion modules, 83 unit tests, 9 bronze tables (31.4M rows); 19 dbt models, 165 data tests; Streamlit dashboard (4 pages); security audit complete |
 
 ### Soccermatics Workspace Details
 
@@ -1327,9 +1327,9 @@ This is a small-to-medium dataset — well within free/dev tier limits for most 
 
 | Dependency | Status | Action |
 |------------|--------|--------|
-| DevOpsAgent IAM role | Documented but not created | Must create before Terraform runs |
-| S3 state bucket | Documented but not created | Must create before `terraform init` |
-| DynamoDB lock table | Documented but not created | Must create before `terraform init` |
+| DevOpsAgent IAM role | Active | `AWS_PROFILE=devops-agent` (account 454762693631) |
+| S3 state bucket | Active | `karstenskyt-terraform-state` with native S3 locking |
+| S3 native state locking | Active | S3 bucket `karstenskyt-terraform-state` uses native locking (no DynamoDB) |
 | MCP server for Claude Code | Working | Can use for AWS operations during setup |
 
 ### D. Implementation Timeline (Suggested)

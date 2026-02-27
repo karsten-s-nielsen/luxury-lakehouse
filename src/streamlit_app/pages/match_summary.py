@@ -19,7 +19,15 @@ def _load_match(match_id: int) -> Any:
     @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading match data...")
     def _query(m_id: int) -> Any:
         return execute_query(
-            f"SELECT * FROM {tbl} WHERE match_id = %s",  # noqa: S608
+            f"SELECT match_id, match_date, home_team_name, away_team_name, "  # noqa: S608
+            f"  home_score, away_score, home_xg, away_xg, "
+            f"  home_shots, away_shots, home_shots_on_target, away_shots_on_target, "
+            f"  home_total_passes, away_total_passes, "
+            f"  home_completed_passes, away_completed_passes, "
+            f"  home_progressive_passes, away_progressive_passes, "
+            f"  home_pass_completion_pct, away_pass_completion_pct, "
+            f"  home_possession_pct "
+            f"FROM {tbl} WHERE match_id = %s",
             (m_id,),
         )
 

@@ -90,7 +90,7 @@ resource "databricks_grant" "ingestion_sp_libs_volume" {
   volume = "${var.catalog_name}.${databricks_schema.bronze.name}.${databricks_volume.libs.name}"
 
   principal  = var.ingestion_sp_application_id
-  privileges = ["READ_VOLUME", "WRITE_VOLUME"]
+  privileges = ["READ_VOLUME"]
 }
 
 # ── Unity Catalog Grants: App Service Principal ──────────────────────────────

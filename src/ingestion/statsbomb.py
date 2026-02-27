@@ -200,7 +200,7 @@ def ingest_matches_and_details(
             events_batch,
             replace_expr,
             logger,
-            required_columns=["event_id", "match_id", "type_name"],
+            required_columns=["id", "match_id", "type"],
         )
         _write_batch(
             spark,
@@ -220,7 +220,7 @@ def ingest_matches_and_details(
             frames_batch,
             replace_expr,
             logger,
-            required_columns=["event_id", "match_id"],
+            required_columns=["id", "match_id"],
         )
 
 

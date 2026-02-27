@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import psycopg2
 import pytest
 
 from streamlit_app.db import execute_query, validate_table_name
@@ -36,55 +37,80 @@ class TestValidateTableName:
 
 
 class TestExecuteQuery:
-    """Test parameterized query execution with mocked connection."""
+    """Test parameterized query execution with mocked connection pool."""
 
-    @patch("streamlit_app.db._create_connection")
-    def test_returns_dataframe(self, mock_conn_factory: MagicMock) -> None:
+    @patch("streamlit_app.db._get_pool")
+    def test_returns_dataframe(self, mock_get_pool: MagicMock) -> None:
+        mock_pool = MagicMock()
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
         mock_cursor.fetchall.return_value = [{"id": 1, "name": "test"}]
         mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
         mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
-        mock_conn_factory.return_value = mock_conn
+        mock_pool.getconn.return_value = mock_conn
+        mock_get_pool.return_value = mock_pool
 
         result = execute_query("SELECT id, name FROM t WHERE id = %s", (1,))
         assert len(result) == 1
         assert result.iloc[0]["id"] == 1
         mock_cursor.execute.assert_called_once_with("SELECT id, name FROM t WHERE id = %s", (1,))
 
-    @patch("streamlit_app.db._create_connection")
-    def test_returns_empty_dataframe_on_no_results(self, mock_conn_factory: MagicMock) -> None:
+    @patch("streamlit_app.db._get_pool")
+    def test_returns_empty_dataframe_on_no_results(self, mock_get_pool: MagicMock) -> None:
+        mock_pool = MagicMock()
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
         mock_cursor.fetchall.return_value = []
         mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
         mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
-        mock_conn_factory.return_value = mock_conn
+        mock_pool.getconn.return_value = mock_conn
+        mock_get_pool.return_value = mock_pool
 
         result = execute_query("SELECT * FROM t WHERE 1=0")
         assert result.empty
 
-    @patch("streamlit_app.db._create_connection")
-    def test_connection_closed_on_error(self, mock_conn_factory: MagicMock) -> None:
+    @patch("streamlit_app.db._get_pool")
+    def test_psycopg2_error_sanitized(self, mock_get_pool: MagicMock) -> None:
+        """psycopg2.Error is caught and re-raised as a sanitized RuntimeError."""
+        mock_pool = MagicMock()
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
-        mock_cursor.execute.side_effect = RuntimeError("DB error")
+        mock_cursor.execute.side_effect = psycopg2.OperationalError("connection reset")
         mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
         mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
-        mock_conn_factory.return_value = mock_conn
+        mock_pool.getconn.return_value = mock_conn
+        mock_get_pool.return_value = mock_pool
 
-        with pytest.raises(RuntimeError, match="DB error"):
+        with pytest.raises(RuntimeError, match="Database query failed"):
             execute_query("SELECT * FROM t")
-        mock_conn.close.assert_called_once()
+        mock_pool.putconn.assert_called_once_with(mock_conn)
 
-    @patch("streamlit_app.db._create_connection")
-    def test_connection_closed_on_success(self, mock_conn_factory: MagicMock) -> None:
+    @patch("streamlit_app.db._get_pool")
+    def test_non_psycopg2_error_propagates(self, mock_get_pool: MagicMock) -> None:
+        """Non-psycopg2 errors propagate unchanged but still return the connection."""
+        mock_pool = MagicMock()
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.execute.side_effect = RuntimeError("unexpected")
+        mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+        mock_pool.getconn.return_value = mock_conn
+        mock_get_pool.return_value = mock_pool
+
+        with pytest.raises(RuntimeError, match="unexpected"):
+            execute_query("SELECT * FROM t")
+        mock_pool.putconn.assert_called_once_with(mock_conn)
+
+    @patch("streamlit_app.db._get_pool")
+    def test_connection_returned_on_success(self, mock_get_pool: MagicMock) -> None:
+        mock_pool = MagicMock()
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
         mock_cursor.fetchall.return_value = [{"x": 1}]
         mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
         mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
-        mock_conn_factory.return_value = mock_conn
+        mock_pool.getconn.return_value = mock_conn
+        mock_get_pool.return_value = mock_pool
 
         execute_query("SELECT 1")
-        mock_conn.close.assert_called_once()
+        mock_pool.putconn.assert_called_once_with(mock_conn)

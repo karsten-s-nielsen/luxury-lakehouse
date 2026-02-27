@@ -34,7 +34,9 @@ resource "databricks_job" "data_ingestion" {
 
   # ── Task: Ingest StatsBomb data ──────────────────────────────────────────
   task {
-    task_key = "ingest_statsbomb"
+    task_key        = "ingest_statsbomb"
+    timeout_seconds = 3600
+    max_retries     = 1
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
@@ -52,7 +54,9 @@ resource "databricks_job" "data_ingestion" {
 
   # ── Task: Ingest Metrica tracking data ───────────────────────────────────
   task {
-    task_key = "ingest_metrica"
+    task_key        = "ingest_metrica"
+    timeout_seconds = 1800
+    max_retries     = 1
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
@@ -69,7 +73,9 @@ resource "databricks_job" "data_ingestion" {
 
   # ── Task: Ingest Wyscout data ────────────────────────────────────────────
   task {
-    task_key = "ingest_wyscout"
+    task_key        = "ingest_wyscout"
+    timeout_seconds = 1800
+    max_retries     = 1
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
