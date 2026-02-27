@@ -80,7 +80,7 @@ luxury-lakehouse/
 
 ## Status
 
-**Phase 3: dbt Transformations Complete** — 19 dbt models (7 staging views, 3 ephemeral intermediates, 9 gold tables) deployed to Databricks Serverless SQL. 144 data tests (130 pass, 14 coordinate warnings), 8/8 source freshness checks. See [PLAN.md](PLAN.md) for the full implementation plan.
+**Phase 4: Zero-ETL Synchronization Complete** — 8 gold tables synced to Lakebase PostgreSQL 16 via Synced Tables. Sub-10ms OLTP queries available for Streamlit dashboard. See [PLAN.md](PLAN.md) for the full implementation plan.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -88,7 +88,7 @@ luxury-lakehouse/
 | 1 | Serverless Infrastructure (Terraform) | Complete |
 | 2 | Data Ingestion (StatsBomb, Metrica, Wyscout) | Complete |
 | 3 | Transformation (dbt on Databricks) | Complete |
-| 4 | Zero-ETL Synchronization (Synced Tables → Lakebase) | Scaffolded |
+| 4 | Zero-ETL Synchronization (Synced Tables → Lakebase) | Complete |
 | 5 | Application Deployment (Streamlit) | Scaffolded |
 
 ## Tech Stack

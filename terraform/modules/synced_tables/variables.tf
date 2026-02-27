@@ -17,3 +17,9 @@ variable "environment" {
   type        = string
   default     = "dev"
 }
+
+variable "gold_schema" {
+  description = "Name of the gold-layer schema (dbt prepends target name, e.g. dev_gold)"
+  type        = string
+  default     = "gold"
+}

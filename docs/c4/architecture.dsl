@@ -35,8 +35,8 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform built on Data
                 macros = component "Custom Macros" "distance_to_goal, shot_angle, coordinate scaling. Reusable geometry calculations for xG features" "Jinja SQL Macros"
                 testSuite = component "Test Suite" "144 data tests: unique, not_null, accepted_values, coordinate bounds, source freshness. 130 pass, 14 warn, 0 error" "dbt-expectations, Custom SQL"
             }
-            syncedTables = container "Synced Tables Pipeline" "Synchronizes Gold Delta tables into Lakebase via SNAPSHOT scheduling, eliminating Reverse ETL" "Lakeflow Synced Database Tables" "Queue"
-            lakebase = container "Lakebase PostgreSQL 16" "Managed OLTP database (CU_1 capacity) providing sub-10ms query latency for the Streamlit app, with native pgvector support for player similarity search" "PostgreSQL 16, Capacity Units, pgvector" "Database"
+            syncedTables = container "Synced Tables Pipeline" "8 synced tables (5 fact, 3 dimension) replicate Gold Delta tables into Lakebase via SNAPSHOT scheduling, eliminating Reverse ETL. All tables online with verified row counts." "Lakeflow Synced Database Tables, Terraform" "Queue"
+            lakebase = container "Lakebase PostgreSQL 16" "Managed OLTP database (CU_1 capacity, running) providing sub-10ms query latency for the Streamlit app, with native pgvector support. OAuth M2M authentication, SSL enforced." "PostgreSQL 16, Capacity Units, pgvector" "Database"
             streamlit = container "Streamlit Dashboard" "Interactive analytics UI with shot maps, pass networks, player radars, pitch control visualizations, and pgvector similarity search" "Python, Streamlit, mplsoccer, psycopg2, Databricks Apps"
         }
 

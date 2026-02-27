@@ -24,61 +24,61 @@
 # ── Fact Tables ──────────────────────────────────────────────────────────────
 
 resource "databricks_database_synced_database_table" "fct_shots" {
-  name                   = "${var.catalog_name}.gold.fct_shots_synced"
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_shots_synced"
   database_instance_name = var.database_instance_name
   logical_database_name  = "databricks_postgres"
 
   spec = {
-    source_table_full_name = "${var.catalog_name}.gold.fct_shots"
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_shots"
     primary_key_columns    = ["shot_id"]
     scheduling_policy      = "SNAPSHOT"
   }
 }
 
 resource "databricks_database_synced_database_table" "fct_passes" {
-  name                   = "${var.catalog_name}.gold.fct_passes_synced"
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_passes_synced"
   database_instance_name = var.database_instance_name
   logical_database_name  = "databricks_postgres"
 
   spec = {
-    source_table_full_name = "${var.catalog_name}.gold.fct_passes"
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_passes"
     primary_key_columns    = ["pass_id"]
     scheduling_policy      = "SNAPSHOT"
   }
 }
 
 resource "databricks_database_synced_database_table" "fct_player_stats" {
-  name                   = "${var.catalog_name}.gold.fct_player_stats_synced"
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_player_stats_synced"
   database_instance_name = var.database_instance_name
   logical_database_name  = "databricks_postgres"
 
   spec = {
-    source_table_full_name = "${var.catalog_name}.gold.fct_player_stats"
-    primary_key_columns    = ["player_id", "match_id"]
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_player_stats"
+    primary_key_columns    = ["player_stats_id"]
     scheduling_policy      = "SNAPSHOT"
   }
 }
 
 resource "databricks_database_synced_database_table" "fct_match_summary" {
-  name                   = "${var.catalog_name}.gold.fct_match_summary_synced"
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_match_summary_synced"
   database_instance_name = var.database_instance_name
   logical_database_name  = "databricks_postgres"
 
   spec = {
-    source_table_full_name = "${var.catalog_name}.gold.fct_match_summary"
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_match_summary"
     primary_key_columns    = ["match_id"]
     scheduling_policy      = "SNAPSHOT"
   }
 }
 
 resource "databricks_database_synced_database_table" "fct_player_embeddings" {
-  name                   = "${var.catalog_name}.gold.fct_player_embeddings_synced"
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_player_embeddings_synced"
   database_instance_name = var.database_instance_name
   logical_database_name  = "databricks_postgres"
 
   spec = {
-    source_table_full_name = "${var.catalog_name}.gold.fct_player_embeddings"
-    primary_key_columns    = ["player_id"]
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_player_embeddings"
+    primary_key_columns    = ["embedding_id"]
     scheduling_policy      = "SNAPSHOT"
   }
 }
@@ -86,36 +86,36 @@ resource "databricks_database_synced_database_table" "fct_player_embeddings" {
 # ── Dimension Tables ─────────────────────────────────────────────────────────
 
 resource "databricks_database_synced_database_table" "dim_players" {
-  name                   = "${var.catalog_name}.gold.dim_players_synced"
+  name                   = "${var.catalog_name}.${var.gold_schema}.dim_players_synced"
   database_instance_name = var.database_instance_name
   logical_database_name  = "databricks_postgres"
 
   spec = {
-    source_table_full_name = "${var.catalog_name}.gold.dim_players"
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.dim_players"
     primary_key_columns    = ["player_id"]
     scheduling_policy      = "SNAPSHOT"
   }
 }
 
 resource "databricks_database_synced_database_table" "dim_teams" {
-  name                   = "${var.catalog_name}.gold.dim_teams_synced"
+  name                   = "${var.catalog_name}.${var.gold_schema}.dim_teams_synced"
   database_instance_name = var.database_instance_name
   logical_database_name  = "databricks_postgres"
 
   spec = {
-    source_table_full_name = "${var.catalog_name}.gold.dim_teams"
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.dim_teams"
     primary_key_columns    = ["team_id"]
     scheduling_policy      = "SNAPSHOT"
   }
 }
 
 resource "databricks_database_synced_database_table" "dim_competitions" {
-  name                   = "${var.catalog_name}.gold.dim_competitions_synced"
+  name                   = "${var.catalog_name}.${var.gold_schema}.dim_competitions_synced"
   database_instance_name = var.database_instance_name
   logical_database_name  = "databricks_postgres"
 
   spec = {
-    source_table_full_name = "${var.catalog_name}.gold.dim_competitions"
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.dim_competitions"
     primary_key_columns    = ["competition_id"]
     scheduling_policy      = "SNAPSHOT"
   }

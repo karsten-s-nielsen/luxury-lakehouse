@@ -73,7 +73,7 @@ module "lakebase" {
 
   environment = var.environment
   capacity    = "CU_1"
-  stopped     = true # Not needed until Phase 4 (Streamlit dashboard)
+  stopped     = false # Phase 4: active for synced tables
 }
 
 # ── Module: SQL Warehouse ────────────────────────────────────────────────────
@@ -102,16 +102,15 @@ module "workflows" {
 
 # ── Module: Synced Tables ────────────────────────────────────────────────────
 # Mirrors gold-layer Delta tables into Lakebase for low-latency app queries.
-# TODO: Enable in Phase 3 after dbt models populate the gold-layer tables.
-# The synced tables require source Delta tables to exist before creation.
-#
-# module "synced_tables" {
-#   source = "../../modules/synced_tables"
-#
-#   catalog_name           = module.workspace.catalog_name
-#   database_instance_name = module.lakebase.instance_name
-#   environment            = var.environment
-# }
+
+module "synced_tables" {
+  source = "../../modules/synced_tables"
+
+  catalog_name           = module.workspace.catalog_name
+  database_instance_name = module.lakebase.instance_name
+  environment            = var.environment
+  gold_schema            = "${var.environment}_gold"
+}
 
 # ── Module: App (Streamlit Dashboard) ────────────────────────────────────────
 # Deploys the soccer analytics Streamlit app on Databricks Apps.

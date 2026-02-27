@@ -1,7 +1,7 @@
 # Databricks Lakebase Implementation Plan — Soccer Analytics Platform
 
-> **Status**: Phase 3 complete — 19 dbt models (7 staging views, 3 intermediates, 9 gold tables), 144 data tests, 8/8 source freshness
-> **Last Updated**: 2026-02-27
+> **Status**: Phase 4 complete — 8 gold tables synced to Lakebase PostgreSQL via Zero-ETL Synced Tables
+> **Last Updated**: 2026-02-28
 > **Repository**: [`karstenskyt/luxury-lakehouse`](https://github.com/karstenskyt/luxury-lakehouse)
 > **Scope**: Document 3 ("3_AWS Lake House.pdf") — Databricks Lakebase serverless architecture
 > **Approach**: Professional-grade IaC, best practices, production-ready from day one
@@ -921,7 +921,9 @@ dbt build --target prod                 # incremental after
 
 ---
 
-## 10. Phase 4 — Zero-ETL Synchronization
+## 10. Phase 4 — Zero-ETL Synchronization (COMPLETE)
+
+> **Status**: Complete — 8 synced tables online, all data verified in Lakebase PostgreSQL
 
 ### 4.1 — Synced Tables Configuration
 
@@ -929,31 +931,46 @@ This is the core differentiator vs. the traditional AWS architecture. Instead of
 
 **Terraform module: `terraform/modules/synced_tables/`**
 
-Each Gold-layer table that needs to be queryable by Streamlit gets a synced table definition:
+Each Gold-layer table that needs to be queryable by Streamlit gets a `databricks_database_synced_database_table` resource:
 
 ```hcl
-# Conceptual — exact HCL depends on Databricks provider support
-resource "databricks_synced_table" "fct_shots" {
-  source_table = "soccer_analytics.gold.fct_shots"
-  target       = databricks_lakebase_project.soccer_analytics.id
+resource "databricks_database_synced_database_table" "fct_shots" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_shots_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
 
-  # Continuous sync via Lakeflow Spark Declarative Pipelines
-  sync_mode = "continuous"
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_shots"
+    primary_key_columns    = ["shot_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
 }
 ```
 
-**Tables to sync (Gold → Lakebase)**:
-- `gold.fct_shots` → Lakebase `fct_shots`
-- `gold.fct_passes` → Lakebase `fct_passes`
-- `gold.fct_player_stats` → Lakebase `fct_player_stats`
-- `gold.fct_match_summary` → Lakebase `fct_match_summary`
-- `gold.fct_player_embeddings` → Lakebase `fct_player_embeddings` (pgvector column)
-- `gold.dim_players` → Lakebase `dim_players`
-- `gold.dim_teams` → Lakebase `dim_teams`
-- `gold.dim_competitions` → Lakebase `dim_competitions`
+**Key implementation details:**
+- `gold_schema` variable handles dbt's environment prefix (`dev_gold` in dev, `gold` in prod)
+- `scheduling_policy = "SNAPSHOT"` — initial sync with on-demand refresh
+- `logical_database_name = "databricks_postgres"` — standard Lakebase database
+
+**Tables synced (Gold → Lakebase) with verified row counts:**
+
+| Source Table | Synced Table | Primary Key | Rows |
+|-------------|-------------|-------------|------|
+| `dev_gold.fct_shots` | `fct_shots_synced` | `shot_id` | 131,077 |
+| `dev_gold.fct_passes` | `fct_passes_synced` | `pass_id` | 5,052,415 |
+| `dev_gold.fct_player_stats` | `fct_player_stats_synced` | `player_stats_id` | 19,664 |
+| `dev_gold.fct_match_summary` | `fct_match_summary_synced` | `match_id` | 3,464 |
+| `dev_gold.fct_player_embeddings` | `fct_player_embeddings_synced` | `embedding_id` | 0 |
+| `dev_gold.dim_players` | `dim_players_synced` | `player_id` | 10,803 |
+| `dev_gold.dim_teams` | `dim_teams_synced` | `team_id` | 453 |
+| `dev_gold.dim_competitions` | `dim_competitions_synced` | `competition_id` | 21 |
 
 **NOT synced** (too large for OLTP, query via Databricks SQL instead):
-- `gold.fct_tracking_frames` — 135K rows/match at 25fps; keep in lakehouse only
+- `dev_gold.fct_tracking_frames` — 135K rows/match at 25fps; keep in lakehouse only
+
+**PK fixes applied during implementation:**
+- `fct_player_stats`: changed from `["player_id", "match_id"]` to `["player_stats_id"]` (dbt surrogate key)
+- `fct_player_embeddings`: changed from `["player_id"]` to `["embedding_id"]` (dbt surrogate key)
 
 ### 4.2 — How Synced Tables Work
 
@@ -963,26 +980,36 @@ Gold Delta Table (lakehouse)
          ▼
   Lakeflow Declarative Pipeline (managed, serverless)
          │
-         ▼  continuous async replication
+         ▼  snapshot sync (initial + on-demand refresh)
   Lakebase PostgreSQL table (read-only mirror)
          │
-         ▼  standard PostgreSQL wire protocol
-  Streamlit app queries via psycopg2
+         ▼  standard PostgreSQL wire protocol (port 5432, sslmode=require)
+  Streamlit app queries via psycopg2 (OAuth M2M auth)
 ```
 
 - **Latency**: Sub-10ms for point queries from Streamlit
-- **Consistency**: Eventually consistent (typically seconds behind)
+- **Consistency**: Snapshot-based (SNAPSHOT scheduling policy)
 - **Cost**: Included in Lakebase compute; no separate ETL job cost
 - **Management**: Zero — Databricks handles pipeline lifecycle
+- **Initial sync**: All 8 tables reached `SYNCED_TABLE_ONLINE_NO_PENDING_UPDATE` within 30 seconds
 
 ### 4.3 — Security
 
-| Control | Implementation |
-|---------|---------------|
-| Connection restriction | Lakebase access restricted to Streamlit app service principal only |
-| Query limits | Query timeouts and connection pooling configured to prevent resource exhaustion |
-| Encryption in transit | `sslmode=require` enforced on all PostgreSQL connections |
-| Read-only mirrors | Synced tables are read-only replicas — no write path from Streamlit to Gold |
+| Control | Implementation | Status |
+|---------|---------------|--------|
+| Connection restriction | Lakebase access restricted to Streamlit app service principal only | Phase 5 |
+| Connection pooling | `psycopg2.pool` with 55min recycle (under 1hr OAuth token expiry) | Phase 5 |
+| Encryption in transit | `sslmode=require` enforced on all PostgreSQL connections | Default (enforced by Lakebase) |
+| Read-only mirrors | Synced tables are read-only replicas — no write path from Streamlit to Gold | Active |
+| Authentication | OAuth M2M only (`effective_enable_pg_native_login = false`) | Active |
+| SSL enforcement | All Lakebase connections require SSL by default | Active |
+
+### 4.4 — Implementation Notes
+
+- **dbt schema naming**: dbt prepends target name to custom schemas, so `gold` becomes `dev_gold` in the dev target. The `gold_schema` variable in the synced_tables module handles this.
+- **Git Bash MSYS path mangling**: On Windows, Git Bash converts `/sql/1.0/...` to `C:/Program Files/Git/sql/1.0/...`. Fix: set `MSYS_NO_PATHCONV=1` before running dbt commands.
+- **Lakebase cold start**: ~2 minutes from STOPPED to AVAILABLE. Synced tables cannot be created while instance is STARTING.
+- **Terraform apply ordering**: Lakebase must be AVAILABLE before synced tables can be created. If applying both in one run, a retry is needed after the instance starts.
 
 ---
 

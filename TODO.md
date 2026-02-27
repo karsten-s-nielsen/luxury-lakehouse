@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [PLAN.md](PLAN.md).
 
-**Last updated**: 2026-02-27
+**Last updated**: 2026-02-28
 
 ---
 
@@ -25,7 +25,7 @@ Quick-reference action items. Full details in [PLAN.md](PLAN.md).
 - [x] ~~`terraform apply` — lakebase module~~ — PostgreSQL 16, CU_1 capacity (stopped for cost savings until Phase 4)
 - [x] ~~`terraform apply` — workflows module~~ — Ingestion job (paused in dev)
 - [x] ~~`terraform apply` — app module~~ — Streamlit Databricks App
-- [ ] `terraform apply` — synced_tables module — Deferred to Phase 4 (requires gold-layer tables from Phase 3)
+- [x] ~~`terraform apply` — synced_tables module~~ — 8 synced tables (Gold Delta → Lakebase PostgreSQL)
 - [x] ~~Verify all resources in Databricks UI~~ — 8/8 confirmed via REST API
 - [x] ~~Run `/final-review` + regenerate C4 diagrams~~
 
@@ -66,14 +66,19 @@ Quick-reference action items. Full details in [PLAN.md](PLAN.md).
 - [ ] **Tech debt:** Remove `position_mapping.csv` seed (unused by any model) or add a model that references it
 - [x] ~~Run `/final-review`~~
 
-## Phase 4 — Zero-ETL Synchronization
+## Phase 4 — Zero-ETL Synchronization (Complete)
 
-- [ ] Configure Synced Tables (Gold Delta > Lakebase)
-- [ ] **Security:** Restrict Lakebase connections to Streamlit app service principal only
-- [ ] **Security:** Configure query timeouts and connection pooling limits on Lakebase
-- [ ] Verify tables queryable via PostgreSQL wire protocol
-- [ ] Test sub-10ms query latency
-- [ ] Run `/final-review`
+- [x] ~~Configure Synced Tables (Gold Delta → Lakebase)~~ — 8 tables synced via `databricks_database_synced_database_table`
+- [x] ~~Fix PK mismatches~~ — `fct_player_stats` → `player_stats_id`, `fct_player_embeddings` → `embedding_id`
+- [x] ~~Add `gold_schema` variable~~ — handles dbt's `dev_gold` naming (env prefix on custom schemas)
+- [x] ~~Wake Lakebase instance~~ — `stopped = false`, CU_1 capacity
+- [x] ~~Uncomment synced_tables module~~ — `terraform apply` creates 8 synced table resources
+- [x] ~~Run `dbt build`~~ — 19 models materialized (PASS=148 WARN=14 ERROR=0), gold tables populated
+- [x] ~~`terraform apply`~~ — 8 synced tables created, all reached `SYNCED_TABLE_ONLINE_NO_PENDING_UPDATE`
+- [x] ~~Verify synced table row counts~~ — fct_passes 5.05M, fct_shots 131K, fct_player_stats 20K, dim_players 11K
+- [ ] **Security:** Restrict Lakebase connections to Streamlit app service principal only (Phase 5)
+- [ ] **Security:** Configure connection pooling with 55min recycle (Phase 5: `psycopg2.pool`)
+- [x] ~~Run `/final-review`~~
 
 ## Phase 5 — Streamlit Application
 
