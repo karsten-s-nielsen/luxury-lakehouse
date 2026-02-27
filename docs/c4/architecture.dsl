@@ -1,4 +1,4 @@
-workspace "Luxury Lakehouse" "Serverless soccer analytics platform built on Databricks Lakebase, replacing a traditional 6-service AWS pipeline with a unified lakehouse architecture." {
+workspace "(Luxury!) Lakehouse" "Serverless soccer analytics platform built on Databricks Lakebase, replacing a traditional 6-service AWS pipeline with a unified lakehouse architecture." {
 
     model {
         // --- Persons ---
@@ -33,7 +33,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform built on Data
                 factTables = component "Fact Tables" "6 tables: shots, passes, player stats, match summary, tracking frames, player embeddings. xG features, per-90 rates, velocity metrics" "Delta Tables, Gold Schema"
                 dimTables = component "Dimension Tables" "3 tables: players, teams, competitions. Deduplicated master data from all sources" "Delta Tables, Gold Schema"
                 macros = component "Custom Macros" "distance_to_goal, shot_angle, coordinate scaling. Reusable geometry calculations for xG features" "Jinja SQL Macros"
-                testSuite = component "Test Suite" "144 data tests: unique, not_null, accepted_values, coordinate bounds, source freshness. 130 pass, 14 warn, 0 error" "dbt-expectations, Custom SQL"
+                testSuite = component "Test Suite" "165 data tests: unique, not_null, accepted_values, coordinate bounds, source freshness. 167 pass, 16 warn, 0 error" "dbt-expectations, Custom SQL"
             }
             syncedTables = container "Synced Tables Pipeline" "8 synced tables (5 fact, 3 dimension) replicate Gold Delta tables into Lakebase via SNAPSHOT scheduling, eliminating Reverse ETL. All tables online with verified row counts." "Lakeflow Synced Database Tables, Terraform" "Queue"
             lakebase = container "Lakebase PostgreSQL 16" "Managed OLTP database (CU_1 capacity, running) providing sub-10ms query latency for the Streamlit app, with native pgvector support. OAuth M2M authentication, SSL enforced." "PostgreSQL 16, Capacity Units, pgvector" "Database"

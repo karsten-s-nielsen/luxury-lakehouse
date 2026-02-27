@@ -55,15 +55,15 @@ Quick-reference action items. Full details in [PLAN.md](PLAN.md).
 - [x] ~~Run `dbt build` — all models + tests pass~~ (PASS=130 WARN=14 ERROR=0, 8/8 source freshness)
 - [x] ~~Migrate `calogica/dbt_expectations` → `metaplane/dbt_expectations`~~
 - [x] ~~Move source freshness config to `config` block (dbt 1.11+ deprecation)~~
-- [ ] **Tech debt:** Enable `use_materialization_v2` flag in `dbt_project.yml` — test with marts layer first (10 min)
-- [ ] **Tech debt:** Nest test arguments under `arguments` property in all YAML files (~60 tests across 7 files, ~1 hr)
-- [ ] **Tech debt:** Document all undocumented YAML columns (~100 columns across staging/intermediate/marts lack YAML descriptions)
-- [ ] **Tech debt:** Add missing `accepted_values` tests on categorical columns (shot_body_part, shot_type, pass_outcome, match_status, etc.)
-- [ ] **Tech debt:** Add missing range tests on numeric columns (distance_to_goal, shot_angle, home_score, away_score, etc.)
-- [ ] **Tech debt:** Extract hardcoded thresholds to dbt vars (pass direction=5yd, sprint speed=7.0 m/s, pitch thirds=40/80, goal_width=8)
-- [ ] **Tech debt:** `stg_statsbomb__shots` and `int_unified_passes` read from both `source()` and `ref()` — refactor to single source
-- [ ] **Tech debt:** Redundant `from_json()` calls in lineups and wyscout events — parse once in sub-CTE
-- [ ] **Tech debt:** Remove `position_mapping.csv` seed (unused by any model) or add a model that references it
+- [x] ~~**Tech debt:** Extract hardcoded thresholds to dbt vars~~ — 6 new vars, 7 files updated (`a6bdeec`)
+- [x] ~~**Tech debt:** Refactor dual `source()`/`ref()` pattern~~ — stg_statsbomb__events expanded, shots/passes/minutes use `ref()` only (`487be82`)
+- [x] ~~**Tech debt:** DRY `from_json()` calls~~ — parse-once CTEs in wyscout events and statsbomb lineups (`a532038`)
+- [x] ~~**Tech debt:** Enable `use_materialization_v2` flag~~ — (`7c02afc`)
+- [x] ~~**Tech debt:** Nest test arguments under `arguments` property~~ — 44 tests migrated across 5 YAML files (`5b229fa`)
+- [x] ~~**Tech debt:** Add missing `accepted_values` tests~~ — 7 new tests on categorical columns (`9127ecc`)
+- [x] ~~**Tech debt:** Add missing range tests~~ — 13 new range tests on numeric columns (`710a977`)
+- [x] ~~**Tech debt:** Document all undocumented YAML columns~~ — ~100 column descriptions added (`048fdbf`)
+- [x] ~~**Tech debt:** Integrate `position_mapping.csv` seed into `dim_players`~~ — `position_group` column with accepted_values test (`1d5b868`)
 - [x] ~~Run `/final-review`~~
 
 ## Phase 4 — Zero-ETL Synchronization (Complete)
@@ -76,6 +76,7 @@ Quick-reference action items. Full details in [PLAN.md](PLAN.md).
 - [x] ~~Run `dbt build`~~ — 19 models materialized (PASS=148 WARN=14 ERROR=0), gold tables populated
 - [x] ~~`terraform apply`~~ — 8 synced tables created, all reached `SYNCED_TABLE_ONLINE_NO_PENDING_UPDATE`
 - [x] ~~Verify synced table row counts~~ — fct_passes 5.05M, fct_shots 131K, fct_player_stats 20K, dim_players 11K
+- [x] ~~**Security:** Add `resources` block to `databricks_app` for least-privilege SQL warehouse access~~ (`b376289`)
 - [ ] **Security:** Restrict Lakebase connections to Streamlit app service principal only (Phase 5)
 - [ ] **Security:** Configure connection pooling with 55min recycle (Phase 5: `psycopg2.pool`)
 - [x] ~~Run `/final-review`~~
