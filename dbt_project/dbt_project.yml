@@ -2,6 +2,9 @@ name: soccer_analytics
 version: '1.0.0'
 config-version: 2
 
+flags:
+  use_materialization_v2: true
+
 profile: databricks
 
 model-paths: ["models"]
