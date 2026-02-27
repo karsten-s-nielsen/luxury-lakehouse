@@ -20,11 +20,11 @@ resource "databricks_app" "streamlit" {
   # Grant the app's service principal explicit access to the SQL warehouse.
   # This follows least-privilege: the app can query via SQL but has no
   # broader workspace permissions.
-  resources {
+  resources = [{
     name = "sql-warehouse"
-    sql_warehouse {
+    sql_warehouse = {
       id         = var.sql_warehouse_id
       permission = "CAN_USE"
     }
-  }
+  }]
 }
