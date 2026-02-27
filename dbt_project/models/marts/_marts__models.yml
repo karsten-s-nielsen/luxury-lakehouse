@@ -57,8 +57,24 @@ models:
                 row_condition: "statsbomb_xg is not null"
       - name: distance_to_goal
         description: Euclidean distance from shot location to goal center (yards)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 170
+                row_condition: "distance_to_goal is not null"
+              config:
+                severity: warn
       - name: shot_angle
         description: Angle subtended at the goal posts (radians)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 3.15
+                row_condition: "shot_angle is not null"
+              config:
+                severity: warn
       - name: shot_outcome
         description: Shot outcome classification
         data_tests:
@@ -197,8 +213,24 @@ models:
                 max_value: 100
       - name: goals_per_90
         description: Goals scored per 90 minutes
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 5
+                row_condition: "goals_per_90 is not null"
+              config:
+                severity: warn
       - name: xg_per_90
         description: Expected goals per 90 minutes
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 5
+                row_condition: "xg_per_90 is not null"
+              config:
+                severity: warn
       - name: passes_per_90
         description: Total passes attempted per 90 minutes
       - name: progressive_passes_per_90
@@ -227,8 +259,40 @@ models:
         description: Date the match was played
       - name: home_xg
         description: Total home team expected goals
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 20
+                row_condition: "home_xg is not null"
+              config:
+                severity: warn
       - name: away_xg
         description: Total away team expected goals
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 20
+                row_condition: "away_xg is not null"
+              config:
+                severity: warn
+      - name: home_score
+        description: Final home team score
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 30
+                row_condition: "home_score is not null"
+      - name: away_score
+        description: Final away team score
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 30
+                row_condition: "away_score is not null"
       - name: home_possession_pct
         description: Home team possession percentage
         data_tests:
@@ -306,11 +370,33 @@ models:
         data_tests:
           - not_null
       - name: avg_speed
-        description: Average player speed during the match
+        description: Average player speed during the match (yards/second)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 15
+                row_condition: "avg_speed is not null"
+              config:
+                severity: warn
       - name: max_speed
-        description: Maximum player speed during the match
+        description: Maximum player speed during the match (yards/second)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 15
+                row_condition: "max_speed is not null"
+              config:
+                severity: warn
       - name: sprint_count
-        description: Number of frames exceeding 7 m/s sprint threshold
+        description: Number of frames exceeding sprint speed threshold
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 5000
+                row_condition: "sprint_count is not null"
       - name: total_frames
         description: Total tracking frames for this player in this match
         data_tests:
