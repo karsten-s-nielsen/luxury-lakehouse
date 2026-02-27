@@ -16,4 +16,15 @@
 resource "databricks_app" "streamlit" {
   name        = "soccer-analytics-dashboard-${var.environment}"
   description = "Soccer analytics Streamlit dashboard — explore shots, passes, player stats, and match summaries with interactive visualizations."
+
+  # Grant the app's service principal explicit access to the SQL warehouse.
+  # This follows least-privilege: the app can query via SQL but has no
+  # broader workspace permissions.
+  resources {
+    name = "sql-warehouse"
+    sql_warehouse {
+      id         = var.sql_warehouse_id
+      permission = "CAN_USE"
+    }
+  }
 }

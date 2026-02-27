@@ -118,5 +118,6 @@ module "synced_tables" {
 module "app" {
   source = "../../modules/app"
 
-  environment = var.environment
+  environment      = var.environment
+  sql_warehouse_id = module.sql_warehouse.warehouse_id
 }
