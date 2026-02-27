@@ -11,6 +11,20 @@ with source as (
 
 ),
 
+-- Parse JSON columns once for reuse
+parsed as (
+
+    select
+        *,
+        from_json(
+            positions,
+            'ARRAY<STRUCT<position:STRING, position_id:INT, `from`:STRING, `to`:STRING>>'
+        )                                                   as parsed_positions,
+        from_json(cards, 'ARRAY<STRUCT<card_type:STRING>>')  as parsed_cards
+    from source
+
+),
+
 flattened as (
 
     select
@@ -24,45 +38,26 @@ flattened as (
         team_name,
 
         -- Player info (already flat columns)
-        cast(player_id as int)                          as player_id,
+        cast(player_id as int)                              as player_id,
         player_name,
         player_nickname,
-        cast(jersey_number as int)                      as jersey_number,
+        cast(jersey_number as int)                          as jersey_number,
 
-        -- Starting position (first element of positions JSON array)
-        -- Use get() to safely handle empty positions arrays
-        get(
-            from_json(
-                positions,
-                'ARRAY<STRUCT<position:STRING, position_id:INT, `from`:STRING, `to`:STRING>>'
-            ),
-            0
-        ).position_id                                   as position_id,
-        get(
-            from_json(
-                positions,
-                'ARRAY<STRUCT<position:STRING, position_id:INT, `from`:STRING, `to`:STRING>>'
-            ),
-            0
-        ).position                                      as position_name,
+        -- Starting position (first element of parsed positions array)
+        get(parsed_positions, 0).position_id                as position_id,
+        get(parsed_positions, 0).position                   as position_name,
 
         -- Cards summary
         coalesce(
-            size(filter(
-                from_json(cards, 'ARRAY<STRUCT<card_type:STRING>>'),
-                c -> c.card_type = 'Yellow Card'
-            )),
+            size(filter(parsed_cards, c -> c.card_type = 'Yellow Card')),
             0
-        )                                               as yellow_cards,
+        )                                                   as yellow_cards,
         coalesce(
-            size(filter(
-                from_json(cards, 'ARRAY<STRUCT<card_type:STRING>>'),
-                c -> c.card_type IN ('Red Card', 'Second Yellow')
-            )),
+            size(filter(parsed_cards, c -> c.card_type IN ('Red Card', 'Second Yellow'))),
             0
-        )                                               as red_cards
+        )                                                   as red_cards
 
-    from source
+    from parsed
 
 )
 

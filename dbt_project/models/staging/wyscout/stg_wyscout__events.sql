@@ -18,22 +18,33 @@ with source as (
 
 ),
 
+-- Parse JSON columns once for reuse
+parsed as (
+
+    select
+        *,
+        from_json(positions, 'ARRAY<STRUCT<x:DOUBLE, y:DOUBLE>>') as parsed_positions,
+        from_json(tags, 'ARRAY<STRUCT<id:INT>>')                  as parsed_tags
+    from source
+
+),
+
 cleaned as (
 
     select
         -- Primary key: `id` is the unique Wyscout event identifier
         -- (eventId is an event TYPE code, not unique)
         cast(id as string)                                  as event_sk,
-        eventId                                         as event_id,
-        matchId                                         as match_id,
+        eventId                                             as event_id,
+        matchId                                             as match_id,
 
         -- Event classification
-        eventName                                       as event_type,
-        subEventName                                    as sub_event_type,
+        eventName                                           as event_type,
+        subEventName                                        as sub_event_type,
 
         -- Team and player
-        playerId                                        as player_id,
-        teamId                                          as team_id,
+        playerId                                            as player_id,
+        teamId                                              as team_id,
 
         -- Temporal fields
         case matchPeriod
@@ -42,28 +53,28 @@ cleaned as (
             when 'E1' then 3
             when 'E2' then 4
             when 'P'  then 5
-        end                                             as period,
-        eventSec                                        as event_sec,
+        end                                                 as period,
+        eventSec                                            as event_sec,
 
         -- Start location (scaled to 120x80, use get() for safe access)
-        get(from_json(positions, 'ARRAY<STRUCT<x:DOUBLE, y:DOUBLE>>'), 0).x / 100.0 * 120.0 as start_x,
-        get(from_json(positions, 'ARRAY<STRUCT<x:DOUBLE, y:DOUBLE>>'), 0).y / 100.0 * 80.0  as start_y,
+        get(parsed_positions, 0).x / 100.0 * {{ var('pitch_length') }}.0 as start_x,
+        get(parsed_positions, 0).y / 100.0 * {{ var('pitch_width') }}.0  as start_y,
 
         -- End location (scaled to 120x80, may be NULL if positions has only 1 element)
-        get(from_json(positions, 'ARRAY<STRUCT<x:DOUBLE, y:DOUBLE>>'), 1).x / 100.0 * 120.0 as end_x,
-        get(from_json(positions, 'ARRAY<STRUCT<x:DOUBLE, y:DOUBLE>>'), 1).y / 100.0 * 80.0  as end_y,
+        get(parsed_positions, 1).x / 100.0 * {{ var('pitch_length') }}.0 as end_x,
+        get(parsed_positions, 1).y / 100.0 * {{ var('pitch_width') }}.0  as end_y,
 
         -- Tag-derived boolean flags
-        exists(from_json(tags, 'ARRAY<STRUCT<id:INT>>'), t -> t.id = 101)  as is_goal,
-        exists(from_json(tags, 'ARRAY<STRUCT<id:INT>>'), t -> t.id = 102)  as is_own_goal,
-        exists(from_json(tags, 'ARRAY<STRUCT<id:INT>>'), t -> t.id = 301)  as is_assist,
-        exists(from_json(tags, 'ARRAY<STRUCT<id:INT>>'), t -> t.id = 401)  as is_key_pass,
-        exists(from_json(tags, 'ARRAY<STRUCT<id:INT>>'), t -> t.id = 1801) as is_accurate,
+        exists(parsed_tags, t -> t.id = 101)                as is_goal,
+        exists(parsed_tags, t -> t.id = 102)                as is_own_goal,
+        exists(parsed_tags, t -> t.id = 301)                as is_assist,
+        exists(parsed_tags, t -> t.id = 401)                as is_key_pass,
+        exists(parsed_tags, t -> t.id = 1801)               as is_accurate,
 
         -- Data provenance
-        'wyscout'                                       as data_source
+        'wyscout'                                           as data_source
 
-    from source
+    from parsed
 
 )
 
