@@ -23,7 +23,7 @@
 11. [Phase 4 — Zero-ETL Synchronization](#11-phase-4--zero-etl-synchronization)
 12. [Phase 5 — Application Deployment (Streamlit)](#12-phase-5--application-deployment-streamlit)
 13. [Cross-Cutting Concerns](#13-cross-cutting-concerns)
-14. [Open Questions for User](#14-open-questions-for-user)
+14. [Future Data Sources](#14-future-data-sources)
 15. [Risk Register](#15-risk-register)
 16. [Appendices](#16-appendices)
 
@@ -1253,7 +1253,21 @@ All planning questions have been answered. This section records the decisions fo
 
 ---
 
-## 14. Risk Register
+## 14. Future Data Sources
+
+The following data sources are planned for integration after Phase 5:
+
+| Source | Data Type | Status | Notes |
+|--------|-----------|--------|-------|
+| **Respo.Vision** | 3D pose tracking from broadcast video | Planned | User pursuing via professional network; skeletal keypoints at 25fps |
+| **Wyscout match metadata** | Match details (formations, coaches, venue) | Deferred | Event data ingested; full match metadata not in public Figshare dataset |
+| **StatsBomb 360 freeze frames** | Visible player positions per event | Deferred | Ingestion scaffolded in `statsbomb.py`; most open-data competitions lack 360 data |
+
+Each new source follows the established pattern: `src/ingestion/<source>.py` → Bronze Delta tables → dbt staging/marts → Synced Tables → Lakebase.
+
+---
+
+## 15. Risk Register
 
 | # | Risk | Likelihood | Impact | Mitigation |
 |---|------|-----------|--------|------------|
@@ -1267,7 +1281,7 @@ All planning questions have been answered. This section records the decisions fo
 
 ---
 
-## 15. Appendices
+## 16. Appendices
 
 ### A. Data Volume Estimates
 

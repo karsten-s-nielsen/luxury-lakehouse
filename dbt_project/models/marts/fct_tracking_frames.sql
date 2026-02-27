@@ -15,7 +15,7 @@ with tracking as (
 ),
 
 -- Calculate frame-over-frame velocity using window functions
-with_velocity as (
+final as (
 
     select
         tracking_id,
@@ -64,4 +64,4 @@ with_velocity as (
 
 )
 
-select * from with_velocity
+select * from final

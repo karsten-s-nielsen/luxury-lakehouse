@@ -94,7 +94,6 @@ module "workflows" {
   source = "../../modules/workflows"
 
   catalog_name        = module.workspace.catalog_name
-  warehouse_id        = module.sql_warehouse.warehouse_id
   wheel_path          = "${module.catalog.libs_volume_path}/luxury_lakehouse-0.1.0-py3-none-any.whl"
   environment         = var.environment
   notification_emails = var.notification_emails

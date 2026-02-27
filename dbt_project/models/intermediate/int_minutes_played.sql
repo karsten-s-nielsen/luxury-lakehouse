@@ -68,7 +68,7 @@ substitution_on as (
         match_id,
         cast(substitution_replacement_id as int)            as player_id,
         minute                                              as on_minute
-    from {{ ref('stg_statsbomb__events') }}
+    from events
     where event_type = 'Substitution'
       and substitution_replacement_id is not null
 

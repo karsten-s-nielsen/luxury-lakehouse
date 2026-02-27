@@ -1,4 +1,4 @@
-workspace "(Luxury!) Lakehouse" "Serverless soccer analytics platform built on Databricks Lakebase, replacing a traditional 6-service AWS pipeline with a unified lakehouse architecture." {
+workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform built on Databricks Lakebase, replacing a traditional 6-service AWS pipeline with a unified lakehouse architecture." {
 
     model {
         // --- Persons ---
@@ -18,7 +18,7 @@ workspace "(Luxury!) Lakehouse" "Serverless soccer analytics platform built on D
         platform = softwareSystem "Soccer Analytics Platform" "Serverless soccer analytics platform that ingests open-source match data, transforms it through a medallion architecture, and serves interactive dashboards for coaches and analysts" {
 
             ingestion = container "Ingestion Workflows" "Fetches raw data from StatsBomb, Metrica Sports, and Wyscout APIs, writing to the Bronze layer in Unity Catalog" "Python, statsbombpy, Databricks Serverless Compute" {
-                utilsComp = component "Shared Utilities" "CLI parsing with SQL injection prevention, HTTPS-only HTTP client with retry, structured JSON logging, Delta write helpers with audit columns, content validation" "Python, requests"
+                utilsComp = component "Shared Utilities" "CLI parsing with SQL injection prevention, HTTPS-only HTTP client with retry, structured JSON logging, JSON column serialization, Delta write helpers with table name validation and audit columns, content validation" "Python, requests, pandas"
                 sbComp = component "StatsBomb Ingester" "Hierarchical API traversal: competitions, matches, events, lineups, 360 frames. Incremental loading via partition-level overwrite. JSON column serialization." "Python, statsbombpy"
                 metricaComp = component "Metrica Ingester" "Downloads tracking CSVs with 3-row multi-line header parsing. Reshapes wide player coordinates to narrow JSON format. Processes 2 sample games." "Python, pandas"
                 wyscoutComp = component "Wyscout Ingester" "Local-first loading with Figshare HTTPS fallback. Processes 7 competitions (2017-18). Serializes positions and tags to JSON strings." "Python, requests"
@@ -32,8 +32,8 @@ workspace "(Luxury!) Lakehouse" "Serverless soccer analytics platform built on D
                 intermediate = component "Intermediate Layer" "3 ephemeral CTEs: unified shots, unified passes, minutes played. Cross-source unification with progressive pass detection" "Ephemeral Models"
                 factTables = component "Fact Tables" "6 tables: shots, passes, player stats, match summary, tracking frames, player embeddings. xG features, per-90 rates, velocity metrics" "Delta Tables, Gold Schema"
                 dimTables = component "Dimension Tables" "3 tables: players, teams, competitions. Deduplicated master data from all sources" "Delta Tables, Gold Schema"
-                macros = component "Custom Macros" "distance_to_goal, shot_angle, coordinate scaling. Reusable geometry calculations for xG features" "Jinja SQL Macros"
-                testSuite = component "Test Suite" "165 data tests: unique, not_null, accepted_values, coordinate bounds, source freshness. 167 pass, 16 warn, 0 error" "dbt-expectations, Custom SQL"
+                macros = component "Custom Macros" "distance_to_goal and shot_angle geometry calculations for xG features" "Jinja SQL Macros"
+                testSuite = component "Test Suite" "168 data tests: unique, not_null, accepted_values, composite keys, coordinate bounds, source freshness" "dbt-expectations, dbt-utils"
             }
             syncedTables = container "Synced Tables Pipeline" "8 synced tables (5 fact, 3 dimension) replicate Gold Delta tables into Lakebase via SNAPSHOT scheduling, eliminating Reverse ETL. All tables online with verified row counts." "Lakeflow Synced Database Tables, Terraform" "Queue"
             lakebase = container "Lakebase PostgreSQL 16" "Managed OLTP database (CU_1 capacity, running) providing sub-10ms query latency for the Streamlit app, with native pgvector support. OAuth M2M authentication, SSL enforced." "PostgreSQL 16, Capacity Units, pgvector" "Database"

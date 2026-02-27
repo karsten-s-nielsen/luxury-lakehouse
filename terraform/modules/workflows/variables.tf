@@ -7,11 +7,6 @@ variable "catalog_name" {
   type        = string
 }
 
-variable "warehouse_id" {
-  description = "SQL warehouse ID for warehouse-backed tasks"
-  type        = string
-}
-
 variable "environment" {
   description = "Deployment environment (dev, staging, prod)"
   type        = string

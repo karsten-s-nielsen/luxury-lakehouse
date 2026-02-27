@@ -68,7 +68,7 @@ select = [
 "src/tests/**" = ["S101"]  # assert is standard in pytest
 
 [tool.ruff.lint.isort]
-known-first-party = ["luxury_lakehouse"]
+known-first-party = ["ingestion", "streamlit_app"]
 
 [tool.pyright]
 pythonVersion = "3.10"

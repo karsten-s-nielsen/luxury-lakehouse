@@ -1,4 +1,4 @@
-# Luxury Lakehouse — TODO
+# (Right! Luxury!) Lakehouse — TODO
 
 Quick-reference action items. Full details in [PLAN.md](PLAN.md).
 
@@ -81,6 +81,23 @@ Quick-reference action items. Full details in [PLAN.md](PLAN.md).
 - [ ] **Security:** Configure connection pooling with 55min recycle (Phase 5: `psycopg2.pool`)
 - [x] ~~Run `/final-review`~~
 
+## Pre-Phase-5 Fixes (Complete)
+
+- [x] ~~Consolidate `_serialize_json_columns` into `utils.py`~~ — single shared function with optional `columns` parameter
+- [x] ~~Add `table_name` validation to `write_delta_table`~~ — `_IDENTIFIER_RE` check prevents SQL injection
+- [x] ~~Add `validate_dataframe` calls to statsbomb `_write_batch` and matches write~~ — schema + non-empty checks
+- [x] ~~Fix `_read_existing_match_ids` silent exception~~ — now logs at DEBUG with `exc_info`
+- [x] ~~Fix `_safe_fetch` traceback loss~~ — `logger.exception` replaces `logger.warning`
+- [x] ~~Fix wyscout `main()` duplication~~ — uses `parse_ingestion_args` with `extra_args`, eliminates `print()` and private `_IDENTIFIER_RE` import
+- [x] ~~Fix `monkeypatch` type annotation~~ — `pytest.MonkeyPatch` replaces `object`
+- [x] ~~Fix `known-first-party` in pyproject.toml~~ — `["ingestion", "streamlit_app"]` replaces `["luxury_lakehouse"]`
+- [x] ~~Remove unused `warehouse_id` from workflows module~~
+- [x] ~~Remove empty `default = ""` on `sql_warehouse_id` in app module~~
+- [x] ~~Add composite key tests on intermediate models~~ — `unique_combination_of_columns` on passes, shots, minutes
+- [x] ~~Fix redundant `ref()` in `int_minutes_played.sql`~~ — reuse `events` CTE
+- [x] ~~Rename terminal CTE in `fct_tracking_frames.sql`~~ — `with_velocity` → `final`
+- [x] ~~Delete unused macros~~ — `flatten_json.sql` (4 macros, all dead code)
+
 ## Phase 5 — Streamlit Application
 
 - [ ] Implement `src/streamlit_app/db.py` — OAuth M2M connection to Lakebase
@@ -91,6 +108,12 @@ Quick-reference action items. Full details in [PLAN.md](PLAN.md).
 - [ ] Deploy as Databricks App
 - [ ] End-to-end smoke test
 - [ ] Run `/final-review` + final C4 diagram update
+
+## Future Data Sources
+
+- [ ] **Respo.Vision 3D pose tracking** — 3D skeletal data from broadcast video (user pursuing via network)
+- [ ] **Wyscout match metadata** — deferred (event data ingested, match details not yet in Figshare dataset)
+- [ ] **StatsBomb 360 frames** — deferred (ingestion scaffolded but most competitions lack 360 data)
 
 ## Infrastructure Notes
 

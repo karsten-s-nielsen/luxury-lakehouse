@@ -16,7 +16,6 @@ downstream dbt staging models can parse them with Databricks SQL JSON functions.
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -27,28 +26,13 @@ from ingestion.utils import (
     configure_logging,
     get_spark_session,
     parse_ingestion_args,
+    serialize_json_columns,
     validate_dataframe,
     write_delta_table,
 )
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
-
-
-def _serialize_json_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Convert any dict/list columns in a pandas DataFrame to JSON strings.
-
-    Spark cannot infer a consistent schema from heterogeneous dict columns,
-    so we serialize them before converting to a Spark DataFrame. The dbt
-    staging layer parses these JSON strings back out.
-    """
-    for col in df.columns:
-        if df[col].dropna().empty:
-            continue
-        sample = df[col].dropna().iloc[0]
-        if isinstance(sample, dict | list):
-            df[col] = df[col].apply(lambda v: json.dumps(v, default=str) if isinstance(v, dict | list) else v)
-    return df
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +54,7 @@ def ingest_competitions(
     logger.info("Fetching StatsBomb competitions")
     raw = sb.competitions()
     competitions_pdf: pd.DataFrame = pd.DataFrame(raw) if not isinstance(raw, pd.DataFrame) else raw
-    competitions_pdf = _serialize_json_columns(competitions_pdf)
+    competitions_pdf = serialize_json_columns(competitions_pdf)
 
     sdf = spark.createDataFrame(competitions_pdf)
     validate_dataframe(sdf, ["competition_id", "season_id"], "statsbomb_competitions", logger)
@@ -89,6 +73,7 @@ def _read_existing_match_ids(
     catalog: str,
     schema: str,
     table: str,
+    logger: logging.Logger,
 ) -> set[int]:
     """Return match IDs already present in a Delta table, or empty set if table doesn't exist."""
     full_table = f"{catalog}.{schema}.{table}"
@@ -96,6 +81,7 @@ def _read_existing_match_ids(
         existing = spark.read.table(full_table).select("match_id").distinct().collect()
         return {row["match_id"] for row in existing}
     except Exception:
+        logger.debug("Table %s not found or unreadable, starting fresh", full_table, exc_info=True)
         return set()
 
 
@@ -110,7 +96,7 @@ def _safe_fetch(
     try:
         return fetch_fn(*args, **kwargs)
     except Exception:
-        logger.warning("Failed to fetch %s for args=%s", label, args)
+        logger.exception("Failed to fetch %s for args=%s", label, args)
         return None
 
 
@@ -126,7 +112,7 @@ def ingest_matches_and_details(
     Uses partition-level overwrite keyed on ``competition_id`` and ``season_id``
     for idempotent incremental loading.
     """
-    existing_event_match_ids = _read_existing_match_ids(spark, catalog, schema, "statsbomb_events")
+    existing_event_match_ids = _read_existing_match_ids(spark, catalog, schema, "statsbomb_events", logger)
 
     unique_combos = competitions_pdf[["competition_id", "season_id"]].drop_duplicates()
     total = len(unique_combos)
@@ -155,8 +141,9 @@ def ingest_matches_and_details(
         if "season_id" not in matches_pdf.columns:
             matches_pdf["season_id"] = season_id
 
-        matches_pdf = _serialize_json_columns(matches_pdf)
+        matches_pdf = serialize_json_columns(matches_pdf)
         matches_sdf = spark.createDataFrame(matches_pdf)
+        validate_dataframe(matches_sdf, ["match_id", "competition_id", "season_id"], "statsbomb_matches", logger)
         replace_expr = f"competition_id = {comp_id} AND season_id = {season_id}"
         write_delta_table(
             matches_sdf,
@@ -205,9 +192,36 @@ def ingest_matches_and_details(
                 frames_batch.append(frames_pdf)
 
         # Batch write per competition/season
-        _write_batch(spark, catalog, schema, "statsbomb_events", events_batch, replace_expr, logger)
-        _write_batch(spark, catalog, schema, "statsbomb_lineups", lineups_batch, replace_expr, logger)
-        _write_batch(spark, catalog, schema, "statsbomb_360", frames_batch, replace_expr, logger)
+        _write_batch(
+            spark,
+            catalog,
+            schema,
+            "statsbomb_events",
+            events_batch,
+            replace_expr,
+            logger,
+            required_columns=["event_id", "match_id", "type_name"],
+        )
+        _write_batch(
+            spark,
+            catalog,
+            schema,
+            "statsbomb_lineups",
+            lineups_batch,
+            replace_expr,
+            logger,
+            required_columns=["match_id", "team_name", "player_name"],
+        )
+        _write_batch(
+            spark,
+            catalog,
+            schema,
+            "statsbomb_360",
+            frames_batch,
+            replace_expr,
+            logger,
+            required_columns=["event_id", "match_id"],
+        )
 
 
 def _process_lineups(
@@ -241,6 +255,7 @@ def _write_batch(
     batch: list[pd.DataFrame],
     replace_where: str,
     logger: logging.Logger,
+    required_columns: list[str],
 ) -> None:
     """Concatenate a list of pandas DataFrames, serialize JSON columns, and write to Delta."""
     if not batch:
@@ -248,8 +263,9 @@ def _write_batch(
         return
 
     combined = pd.concat(batch, ignore_index=True)
-    combined = _serialize_json_columns(combined)
+    combined = serialize_json_columns(combined)
     sdf = spark.createDataFrame(combined)
+    validate_dataframe(sdf, required_columns, table_name, logger)
     write_delta_table(sdf, catalog, schema, table_name, replace_where=replace_where, logger=logger)
 
 

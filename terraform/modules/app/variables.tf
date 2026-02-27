@@ -11,5 +11,4 @@ variable "environment" {
 variable "sql_warehouse_id" {
   description = "SQL warehouse ID for the app to use"
   type        = string
-  default     = ""
 }

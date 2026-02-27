@@ -32,6 +32,8 @@ from ingestion.utils import (
     configure_logging,
     fetch_url,
     get_spark_session,
+    parse_ingestion_args,
+    serialize_json_columns,
     validate_dataframe,
     write_delta_table,
 )
@@ -56,19 +58,6 @@ _COMPETITIONS = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# JSON column serialization
-# ---------------------------------------------------------------------------
-
-
-def _serialize_json_columns(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
-    """Serialize specified columns from Python objects to JSON strings."""
-    for col in columns:
-        if col in df.columns:
-            df[col] = df[col].apply(lambda v: json.dumps(v, default=str) if isinstance(v, dict | list) else v)
-    return df
-
-
 def _normalize_mixed_types(df: pd.DataFrame) -> pd.DataFrame:
     """Normalize mixed-type object columns so PyArrow/Spark can convert them.
 
@@ -87,7 +76,7 @@ def _normalize_mixed_types(df: pd.DataFrame) -> pd.DataFrame:
         if isinstance(first, int | float):
             df[col] = pd.to_numeric(df[col], errors="coerce")
         elif isinstance(first, dict | list):
-            pass  # already handled by _serialize_json_columns
+            pass  # already handled by serialize_json_columns
         else:
             df[col] = df[col].astype(str)
     return df
@@ -206,7 +195,7 @@ def ingest_events(
     combined = pd.concat(all_events, ignore_index=True)
 
     # Serialize JSON columns (positions and tags)
-    combined = _serialize_json_columns(combined, ["positions", "tags"])
+    combined = serialize_json_columns(combined, ["positions", "tags"])
     combined = _normalize_mixed_types(combined)
 
     sdf = spark.createDataFrame(combined)
@@ -253,7 +242,7 @@ def ingest_matches(
         sample = combined[c].dropna()
         if not sample.empty and isinstance(sample.iloc[0], dict | list):
             json_cols.append(str(c))
-    combined = _serialize_json_columns(combined, json_cols)
+    combined = serialize_json_columns(combined, json_cols)
     combined = _normalize_mixed_types(combined)
 
     sdf = spark.createDataFrame(combined)
@@ -273,25 +262,10 @@ def ingest_matches(
 
 def main() -> None:
     """CLI entry point for Wyscout ingestion."""
-    import argparse
-    import sys
-
-    from ingestion.utils import _IDENTIFIER_RE
-
-    # Extend standard args with optional --data-dir
-    parser = argparse.ArgumentParser(description="Ingest Wyscout data into the bronze layer")
-    parser.add_argument("--catalog", required=True, help="Unity Catalog name")
-    parser.add_argument("--schema", required=True, help="Target schema (e.g. bronze)")
-    parser.add_argument("--data-dir", default=None, help="Optional local directory with Wyscout JSON files")
-
-    args = parser.parse_args()
-
-    # Validate identifiers (reuses regex from utils)
-    for field in ("catalog", "schema"):
-        value = getattr(args, field)
-        if not _IDENTIFIER_RE.match(value):
-            print(f"error: Invalid {field} name '{value}': must match {_IDENTIFIER_RE.pattern}", file=sys.stderr)
-            raise SystemExit(2)
+    args = parse_ingestion_args(
+        "Ingest Wyscout data into the bronze layer",
+        extra_args=[("--data-dir", {"default": None, "help": "Optional local directory with Wyscout JSON files"})],
+    )
 
     logger = configure_logging("wyscout")
     spark = get_spark_session()

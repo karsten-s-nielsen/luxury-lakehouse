@@ -9,19 +9,20 @@ import pathlib
 import zipfile
 
 import pandas as pd
+import pytest
 
+from ingestion.utils import serialize_json_columns
 from ingestion.wyscout import (
     _download_and_extract_zip,
     _load_all_competitions,
     _load_json_local,
-    _serialize_json_columns,
 )
 
 _FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 
 
 class TestSerializeJsonColumns:
-    """Tests for _serialize_json_columns."""
+    """Tests for serialize_json_columns."""
 
     def test_serializes_positions(self) -> None:
         df = pd.DataFrame(
@@ -30,7 +31,7 @@ class TestSerializeJsonColumns:
                 "positions": [[{"x": 50, "y": 50}, {"x": 60, "y": 40}]],
             }
         )
-        result = _serialize_json_columns(df, ["positions"])
+        result = serialize_json_columns(df, ["positions"])
         assert isinstance(result["positions"].iloc[0], str)
         parsed = json.loads(result["positions"].iloc[0])
         assert len(parsed) == 2
@@ -43,7 +44,7 @@ class TestSerializeJsonColumns:
                 "tags": [[{"id": 101}, {"id": 1801}]],
             }
         )
-        result = _serialize_json_columns(df, ["tags"])
+        result = serialize_json_columns(df, ["tags"])
         assert isinstance(result["tags"].iloc[0], str)
         parsed = json.loads(result["tags"].iloc[0])
         assert len(parsed) == 2
@@ -57,14 +58,14 @@ class TestSerializeJsonColumns:
                 "positions": [[{"x": 50, "y": 50}]],
             }
         )
-        result = _serialize_json_columns(df, ["positions"])
+        result = serialize_json_columns(df, ["positions"])
         assert result["eventName"].iloc[0] == "Pass"
         assert result["eventId"].iloc[0] == 1001
 
     def test_skips_missing_columns(self) -> None:
         df = pd.DataFrame({"eventId": [1001], "eventName": ["Pass"]})
         # Should not raise even though "positions" doesn't exist
-        result = _serialize_json_columns(df, ["positions"])
+        result = serialize_json_columns(df, ["positions"])
         assert len(result) == 1
 
 
@@ -131,7 +132,7 @@ class TestDownloadAndExtractZip:
                 zf.writestr(name, json.dumps(data))
         return buf.getvalue()
 
-    def test_extracts_competition_dataframes(self, monkeypatch: object) -> None:
+    def test_extracts_competition_dataframes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         logger = logging.getLogger("test")
         zip_bytes = self._make_zip(
             {
@@ -145,7 +146,7 @@ class TestDownloadAndExtractZip:
 
         import ingestion.wyscout as wyscout_mod
 
-        monkeypatch.setattr(wyscout_mod, "fetch_url", lambda *a, **kw: _FakeResponse())  # type: ignore[attr-defined]
+        monkeypatch.setattr(wyscout_mod, "fetch_url", lambda *a, **kw: _FakeResponse())
         result = _download_and_extract_zip("https://example.com/test.zip", logger)
 
         assert "England" in result
@@ -153,7 +154,7 @@ class TestDownloadAndExtractZip:
         assert len(result["England"]) == 2
         assert len(result["Italy"]) == 1
 
-    def test_skips_non_json_files(self, monkeypatch: object) -> None:
+    def test_skips_non_json_files(self, monkeypatch: pytest.MonkeyPatch) -> None:
         logger = logging.getLogger("test")
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as zf:
@@ -166,7 +167,7 @@ class TestDownloadAndExtractZip:
 
         import ingestion.wyscout as wyscout_mod
 
-        monkeypatch.setattr(wyscout_mod, "fetch_url", lambda *a, **kw: _FakeResponse())  # type: ignore[attr-defined]
+        monkeypatch.setattr(wyscout_mod, "fetch_url", lambda *a, **kw: _FakeResponse())
         result = _download_and_extract_zip("https://example.com/test.zip", logger)
 
         assert "England" in result

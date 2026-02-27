@@ -11,8 +11,9 @@ import json
 import logging
 import re
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+import pandas as pd
 import requests
 
 if TYPE_CHECKING:
@@ -30,11 +31,16 @@ _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 # ---------------------------------------------------------------------------
 
 
-def parse_ingestion_args(description: str) -> argparse.Namespace:
+def parse_ingestion_args(
+    description: str,
+    extra_args: list[tuple[str, dict[str, Any]]] | None = None,
+) -> argparse.Namespace:
     """Parse and validate common ingestion CLI arguments.
 
     Args:
         description: Help text for the argument parser.
+        extra_args: Optional list of ``("--flag-name", {argparse_kwargs})`` tuples
+            to add source-specific CLI arguments.
 
     Returns:
         Parsed namespace with validated ``catalog`` and ``schema`` fields.
@@ -45,6 +51,11 @@ def parse_ingestion_args(description: str) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--catalog", required=True, help="Unity Catalog name")
     parser.add_argument("--schema", required=True, help="Target schema (e.g. bronze)")
+
+    if extra_args:
+        for flag, kwargs in extra_args:
+            parser.add_argument(flag, **kwargs)
+
     args = parser.parse_args()
 
     for field in ("catalog", "schema"):
@@ -56,7 +67,42 @@ def parse_ingestion_args(description: str) -> argparse.Namespace:
 
 
 # ---------------------------------------------------------------------------
-# 2. Structured JSON Logging
+# 2. JSON Column Serialization
+# ---------------------------------------------------------------------------
+
+
+def serialize_json_columns(df: pd.DataFrame, columns: list[str] | None = None) -> pd.DataFrame:
+    """Serialize dict/list columns in a pandas DataFrame to JSON strings.
+
+    Spark cannot infer a consistent schema from heterogeneous dict columns,
+    so we serialize them before converting to a Spark DataFrame. The dbt
+    staging layer parses these JSON strings back out.
+
+    Args:
+        df: DataFrame with potential dict/list columns.
+        columns: Explicit list of columns to serialize. If ``None``, auto-detects
+            all columns whose first non-null value is a ``dict`` or ``list``.
+
+    Returns:
+        The DataFrame with specified (or detected) columns serialized to JSON strings.
+    """
+    if columns is None:
+        # Auto-detect: serialize any column whose first non-null value is dict/list
+        for col in df.columns:
+            sample = df[col].dropna()
+            if sample.empty:
+                continue
+            if isinstance(sample.iloc[0], dict | list):
+                df[col] = df[col].apply(lambda v: json.dumps(v, default=str) if isinstance(v, dict | list) else v)
+    else:
+        for col in columns:
+            if col in df.columns:
+                df[col] = df[col].apply(lambda v: json.dumps(v, default=str) if isinstance(v, dict | list) else v)
+    return df
+
+
+# ---------------------------------------------------------------------------
+# 3. Structured JSON Logging
 # ---------------------------------------------------------------------------
 
 
@@ -98,7 +144,7 @@ def configure_logging(source_name: str) -> logging.Logger:
 
 
 # ---------------------------------------------------------------------------
-# 3. Spark Session & Delta Write Helpers
+# 4. Spark Session & Delta Write Helpers
 # ---------------------------------------------------------------------------
 
 
@@ -138,7 +184,14 @@ def write_delta_table(
 
     Returns:
         Number of rows written.
+
+    Raises:
+        ValueError: If ``table_name`` fails identifier validation.
     """
+    if not _IDENTIFIER_RE.match(table_name):
+        msg = f"Invalid table_name '{table_name}': must match {_IDENTIFIER_RE.pattern}"
+        raise ValueError(msg)
+
     full_table = f"{catalog}.{schema}.{table_name}"
     df = add_audit_columns(df)
     row_count = df.count()
@@ -159,7 +212,7 @@ def write_delta_table(
 
 
 # ---------------------------------------------------------------------------
-# 4. HTTP Client
+# 5. HTTP Client
 # ---------------------------------------------------------------------------
 
 
@@ -210,7 +263,7 @@ def fetch_url(
 
 
 # ---------------------------------------------------------------------------
-# 5. Content Validation
+# 6. Content Validation
 # ---------------------------------------------------------------------------
 
 

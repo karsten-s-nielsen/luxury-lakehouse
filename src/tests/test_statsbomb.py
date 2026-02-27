@@ -6,11 +6,11 @@ import json
 
 import pandas as pd
 
-from ingestion.statsbomb import _serialize_json_columns
+from ingestion.utils import serialize_json_columns
 
 
 class TestSerializeJsonColumns:
-    """Tests for _serialize_json_columns."""
+    """Tests for serialize_json_columns (auto-detect mode)."""
 
     def test_serializes_dict_columns(self) -> None:
         df = pd.DataFrame(
@@ -20,7 +20,7 @@ class TestSerializeJsonColumns:
                 "plain": ["a", "b"],
             }
         )
-        result = _serialize_json_columns(df)
+        result = serialize_json_columns(df)
         assert isinstance(result["type"].iloc[0], str)
         parsed = json.loads(result["type"].iloc[0])
         assert parsed["name"] == "Shot"
@@ -33,14 +33,14 @@ class TestSerializeJsonColumns:
                 "related_events": [["uuid-1", "uuid-2"]],
             }
         )
-        result = _serialize_json_columns(df)
+        result = serialize_json_columns(df)
         assert isinstance(result["location"].iloc[0], str)
         assert json.loads(result["location"].iloc[0]) == [50.0, 40.0]
         assert json.loads(result["related_events"].iloc[0]) == ["uuid-1", "uuid-2"]
 
     def test_leaves_string_columns_unchanged(self) -> None:
         df = pd.DataFrame({"name": ["Alice", "Bob"], "age": [30, 25]})
-        result = _serialize_json_columns(df)
+        result = serialize_json_columns(df)
         assert result["name"].iloc[0] == "Alice"
         assert result["age"].iloc[0] == 30
 
@@ -51,13 +51,13 @@ class TestSerializeJsonColumns:
                 "type": [{"id": 16, "name": "Shot"}, None],
             }
         )
-        result = _serialize_json_columns(df)
+        result = serialize_json_columns(df)
         assert isinstance(result["type"].iloc[0], str)
         assert result["type"].iloc[1] is None
 
     def test_handles_empty_dataframe(self) -> None:
         df = pd.DataFrame({"id": [], "data": []})
-        result = _serialize_json_columns(df)
+        result = serialize_json_columns(df)
         assert len(result) == 0
 
 
