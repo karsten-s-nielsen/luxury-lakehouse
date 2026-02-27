@@ -1,14 +1,9 @@
 -- stg_statsbomb__events.sql
 -- Flatten and clean raw StatsBomb event data from the bronze layer.
 --
--- Key transformations needed:
---   1. Extract event type name from nested JSON: type.name
---   2. Extract team/player IDs from nested objects: team.id, player.id
---   3. Split location array [x, y] into separate location_x, location_y columns
---   4. Parse timestamp string into proper time components (minute, second)
---   5. Extract possession information: possession, possession_team.id
---   6. Handle NULL locations (off-ball events like substitutions have no location)
---   7. Flatten related_events array into a comma-separated string or lateral view
+-- The ingestion layer (statsbombpy) already extracts most nested fields
+-- into flat columns (team_id, player_id, shot_outcome, pass_type, etc.).
+-- Main transformation: parse `location` JSON string to separate x/y.
 --
 -- StatsBomb coordinate system:
 --   - Pitch is 120 x 80 yards
@@ -29,45 +24,37 @@ flattened as (
         id                                              as event_id,
         match_id,
 
-        -- Event classification
-        -- TODO: Extract from nested JSON — e.g. type:name for Databricks:
-        --   type.name   or   type:name   depending on column format
-        cast(null as string)                            as event_type,
-        cast(null as int)                               as event_type_id,
+        -- Event classification (already flat strings from statsbombpy)
+        type                                            as event_type,
 
-        -- Temporal fields
-        -- TODO: Parse from period, minute, second, and timestamp fields
-        cast(null as int)                               as period,
-        cast(null as int)                               as minute,
-        cast(null as int)                               as second,
-        cast(null as string)                            as timestamp,
+        -- Temporal fields (already flat)
+        period,
+        minute,
+        second,
+        timestamp,
 
-        -- Team and player
-        -- TODO: Extract from nested JSON objects (team.id, player.id)
-        cast(null as int)                               as team_id,
-        cast(null as string)                            as team_name,
-        cast(null as int)                               as player_id,
-        cast(null as string)                            as player_name,
+        -- Team and player (already extracted by ingestion)
+        cast(team_id as int)                            as team_id,
+        team                                            as team_name,
+        cast(player_id as int)                          as player_id,
+        player                                          as player_name,
 
-        -- Location (split from [x, y] array)
-        -- TODO: Extract array elements — e.g. location[0], location[1]
-        cast(null as double)                            as location_x,
-        cast(null as double)                            as location_y,
+        -- Location (parse JSON string "[x, y]" into separate columns)
+        from_json(location, 'ARRAY<DOUBLE>')[0]         as location_x,
+        from_json(location, 'ARRAY<DOUBLE>')[1]         as location_y,
 
-        -- Possession context
-        -- TODO: Extract possession number and possession_team from nested JSON
-        cast(null as int)                               as possession,
-        cast(null as int)                               as possession_team_id,
+        -- Possession context (already flat)
+        possession,
+        cast(possession_team_id as int)                 as possession_team_id,
 
-        -- Play pattern
-        -- TODO: Extract play_pattern.name (Regular Play, From Corner, etc.)
-        cast(null as string)                            as play_pattern,
+        -- Play pattern (already a flat string)
+        play_pattern,
 
-        -- Duration (seconds the event lasted, e.g. carry duration)
-        cast(null as double)                            as duration,
+        -- Duration (seconds the event lasted)
+        duration,
 
         -- Index for ordering events within a possession sequence
-        cast(null as int)                               as index
+        index
 
     from source
 

@@ -54,8 +54,8 @@ with tracking_features as (
         -- Speed features
         avg(speed)                                      as avg_speed,
         max(speed)                                      as max_speed,
-        -- TODO: Count sprint events (speed > 7 m/s threshold)
-        cast(null as int)                               as sprint_count,
+        -- Sprint count: frames where speed exceeds 7 m/s threshold
+        sum(case when speed > 7.0 then 1 else 0 end)   as sprint_count,
 
         -- Third occupancy (percentage of frames in each pitch third)
         -- Defensive third: x < 40, Middle third: 40 <= x < 80, Attacking third: x >= 80

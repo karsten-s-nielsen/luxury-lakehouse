@@ -21,14 +21,58 @@ models:
           - not_null
       - name: player_id
         description: Foreign key to dim_players
+        data_tests:
+          - not_null
       - name: team_id
         description: Foreign key to dim_teams
+        data_tests:
+          - not_null
+      - name: location_x
+        description: Shot X coordinate (0-120). May slightly exceed bounds for off-pitch events.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 120
+              row_condition: "location_x is not null"
+              config:
+                severity: warn
+      - name: location_y
+        description: Shot Y coordinate (0-80)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 80
+              row_condition: "location_y is not null"
+              config:
+                severity: warn
       - name: statsbomb_xg
         description: StatsBomb xG value (NULL for non-StatsBomb data)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 1
+              row_condition: "statsbomb_xg is not null"
       - name: distance_to_goal
         description: Euclidean distance from shot location to goal center (yards)
       - name: shot_angle
         description: Angle subtended at the goal posts (radians)
+      - name: shot_outcome
+        description: Shot outcome classification
+        data_tests:
+          - not_null
+      - name: is_goal
+        description: Binary goal indicator (1=goal, 0=no goal)
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
+      - name: period
+        description: Match period
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 1
+              max_value: 5
+              row_condition: "period is not null"
       - name: data_source
         description: Data provider (statsbomb, wyscout)
         data_tests:
@@ -53,10 +97,48 @@ models:
           - not_null
       - name: player_id
         description: Foreign key to dim_players
+      - name: team_id
+        description: Foreign key to dim_teams
+      - name: start_x
+        description: Starting X coordinate (120-yard scale). May slightly exceed bounds.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 120
+              row_condition: "start_x is not null"
+              config:
+                severity: warn
+      - name: start_y
+        description: Starting Y coordinate (80-yard scale)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 80
+              row_condition: "start_y is not null"
+              config:
+                severity: warn
+      - name: end_x
+        description: Ending X coordinate (120-yard scale)
+      - name: end_y
+        description: Ending Y coordinate (80-yard scale)
       - name: is_progressive
         description: Whether the pass moved the ball significantly closer to goal
+      - name: is_complete
+        description: Whether the pass was completed successfully
       - name: pass_outcome
         description: Pass result (Complete, Incomplete, Out, etc.)
+      - name: pass_direction
+        description: Pass direction (forward, backward, lateral)
+        data_tests:
+          - accepted_values:
+              values: ['forward', 'backward', 'lateral']
+      - name: period
+        description: Match period
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 1
+              max_value: 5
+              row_condition: "period is not null"
       - name: data_source
         description: Data provider (statsbomb, wyscout)
         data_tests:
@@ -78,12 +160,26 @@ models:
         description: Foreign key to dim_players
         data_tests:
           - not_null
+      - name: competition_id
+        description: Foreign key to dim_competitions
+      - name: season_id
+        description: Season identifier
       - name: minutes_played
         description: Total minutes played
+      - name: total_shots
+        description: Total shots taken
+      - name: total_goals
+        description: Total goals scored
+      - name: total_xg
+        description: Total expected goals
+      - name: pass_completion_pct
+        description: Pass completion percentage (0-100)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 100
       - name: goals_per_90
         description: Goals scored per 90 minutes
-      - name: assists_per_90
-        description: Assists per 90 minutes
       - name: xg_per_90
         description: Expected goals per 90 minutes
       - name: passes_per_90
@@ -104,24 +200,47 @@ models:
           - not_null
       - name: competition_id
         description: Foreign key to dim_competitions
+      - name: season_id
+        description: Season identifier
       - name: home_team_id
         description: Foreign key to dim_teams
       - name: away_team_id
         description: Foreign key to dim_teams
+      - name: match_date
+        description: Date the match was played
       - name: home_xg
         description: Total home team expected goals
       - name: away_xg
         description: Total away team expected goals
       - name: home_possession_pct
         description: Home team possession percentage
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 100
       - name: home_pass_completion_pct
         description: Home team pass completion percentage
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 100
+      - name: away_pass_completion_pct
+        description: Away team pass completion percentage
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 100
+      - name: match_result
+        description: Match result (home_win, away_win, draw)
+        data_tests:
+          - accepted_values:
+              values: ['home_win', 'away_win', 'draw']
 
   - name: fct_tracking_frames
     description: >
       Pitch control metrics derived from Metrica tracking data. Contains
-      spatial analysis outputs including Voronoi-based pitch control values,
-      player speeds, and formation snapshots. One row per player per frame.
+      spatial analysis outputs including player speeds, distance to ball,
+      and velocity components. One row per player per frame.
     columns:
       - name: tracking_id
         description: Primary key from stg_metrica__tracking
@@ -132,18 +251,24 @@ models:
         description: Match identifier
         data_tests:
           - not_null
+      - name: player_id
+        description: Player identifier
+        data_tests:
+          - not_null
+      - name: distance_to_ball
+        description: Euclidean distance from player to ball (yards)
+      - name: speed
+        description: Player speed in yards/second
       - name: pitch_control_value
         description: >
           Pitch control probability [0,1] at this player's location.
-          Computed using Fernandez & Bornn (2018) model.
-      - name: speed
-        description: Player speed in m/s
+          Computed using Fernandez & Bornn (2018) model. NULL until ML pipeline.
 
   - name: fct_player_embeddings
     description: >
       Player movement pattern embeddings for similarity search.
       Contains dense vector representations of player behavior derived
-      from tracking data, suitable for pgvector nearest-neighbor queries.
+      from tracking data, suitable for nearest-neighbor queries.
       One row per player per match.
     columns:
       - name: embedding_id
@@ -157,6 +282,20 @@ models:
           - not_null
       - name: match_id
         description: Match identifier
+        data_tests:
+          - not_null
+      - name: avg_speed
+        description: Average player speed during the match
+      - name: max_speed
+        description: Maximum player speed during the match
+      - name: sprint_count
+        description: Number of frames exceeding 7 m/s sprint threshold
+      - name: total_frames
+        description: Total tracking frames for this player in this match
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 1
+              max_value: 200000
       - name: embedding_vector
         description: >
           Dense float array representing player movement patterns.
@@ -178,8 +317,16 @@ models:
         description: Player display name
         data_tests:
           - not_null
+      - name: player_display_name
+        description: Preferred display name (nickname if available)
+        data_tests:
+          - not_null
       - name: primary_position
         description: Most common playing position
+      - name: data_source
+        description: Data provider
+        data_tests:
+          - not_null
 
   - name: dim_teams
     description: >
@@ -192,11 +339,13 @@ models:
           - unique
           - not_null
       - name: team_name
-        description: Team display name
+        description: Team display name (NULL for Wyscout — names not in open data)
+      - name: data_source
+        description: Data provider
         data_tests:
           - not_null
-      - name: country
-        description: Team country
+          - accepted_values:
+              values: ['statsbomb', 'wyscout']
 
   - name: dim_competitions
     description: >
@@ -217,3 +366,6 @@ models:
         description: Country where the competition is held
       - name: gender
         description: Gender category (male, female)
+        data_tests:
+          - accepted_values:
+              values: ['male', 'female']

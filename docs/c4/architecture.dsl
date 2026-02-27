@@ -25,7 +25,16 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform built on Data
             }
             catalog = container "Unity Catalog" "Governed data storage across the medallion architecture with Bronze (raw), Silver (cleaned), and Gold (analytics-ready) schemas" "Delta Lake, Apache Parquet" "Database"
             sqlWarehouse = container "Serverless SQL Warehouse" "Executes dbt transformations and ad-hoc analytical queries using the Photon engine" "Databricks Serverless SQL, Photon"
-            dbt = container "dbt Project" "Transforms raw Bronze data through Silver staging to Gold analytics tables, including xG features, pass metrics, and player statistics" "dbt-core, dbt-databricks"
+            dbt = container "dbt Project" "Transforms raw Bronze data through Silver staging to Gold analytics tables, including xG features, pass metrics, and player statistics" "dbt-core, dbt-databricks" {
+                stagingStatsbomb = component "StatsBomb Staging" "4 views: events, shots, matches, lineups. Flattens nested JSON, extracts coordinates and shot attributes" "SQL Views, Silver Schema"
+                stagingMetrica = component "Metrica Staging" "2 views: events, tracking. Scales normalized coordinates to 120x80, generates surrogate keys" "SQL Views, Silver Schema"
+                stagingWyscout = component "Wyscout Staging" "1 view: events. Decodes tag IDs, maps periods, scales percentage coordinates to 120x80" "SQL Views, Silver Schema"
+                intermediate = component "Intermediate Layer" "3 ephemeral CTEs: unified shots, unified passes, minutes played. Cross-source unification with progressive pass detection" "Ephemeral Models"
+                factTables = component "Fact Tables" "6 tables: shots, passes, player stats, match summary, tracking frames, player embeddings. xG features, per-90 rates, velocity metrics" "Delta Tables, Gold Schema"
+                dimTables = component "Dimension Tables" "3 tables: players, teams, competitions. Deduplicated master data from all sources" "Delta Tables, Gold Schema"
+                macros = component "Custom Macros" "distance_to_goal, shot_angle, coordinate scaling. Reusable geometry calculations for xG features" "Jinja SQL Macros"
+                testSuite = component "Test Suite" "144 data tests: unique, not_null, accepted_values, coordinate bounds, source freshness. 130 pass, 14 warn, 0 error" "dbt-expectations, Custom SQL"
+            }
             syncedTables = container "Synced Tables Pipeline" "Synchronizes Gold Delta tables into Lakebase via SNAPSHOT scheduling, eliminating Reverse ETL" "Lakeflow Synced Database Tables" "Queue"
             lakebase = container "Lakebase PostgreSQL 16" "Managed OLTP database (CU_1 capacity) providing sub-10ms query latency for the Streamlit app, with native pgvector support for player similarity search" "PostgreSQL 16, Capacity Units, pgvector" "Database"
             streamlit = container "Streamlit Dashboard" "Interactive analytics UI with shot maps, pass networks, player radars, pitch control visualizations, and pgvector similarity search" "Python, Streamlit, mplsoccer, psycopg2, Databricks Apps"
@@ -60,6 +69,26 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform built on Data
         wyscoutComp -> utilsComp "Uses HTTP client, Delta writer, logging, validation" ""
         utilsComp -> catalog "Writes DataFrames to Bronze Delta tables with audit columns" "PySpark, Delta Lake API"
 
+        // --- Relationships: Component level (dbt) ---
+        stagingStatsbomb -> catalog "Reads Bronze statsbomb tables, writes Silver views" "Databricks SQL"
+        stagingMetrica -> catalog "Reads Bronze metrica tables, writes Silver views" "Databricks SQL"
+        stagingWyscout -> catalog "Reads Bronze wyscout tables, writes Silver views" "Databricks SQL"
+        intermediate -> stagingStatsbomb "Unifies shots, passes, minutes from StatsBomb" ""
+        intermediate -> stagingWyscout "Unifies shots and passes from Wyscout" ""
+        intermediate -> stagingMetrica "References Metrica tracking data" ""
+        macros -> stagingStatsbomb "Provides distance_to_goal, shot_angle calculations" ""
+        macros -> intermediate "Provides geometry calculations for unified models" ""
+        factTables -> intermediate "Builds gold fact tables from unified data" ""
+        factTables -> stagingStatsbomb "Builds match summary and tracking from staging" ""
+        factTables -> stagingMetrica "Builds tracking frames from Metrica staging" ""
+        dimTables -> stagingStatsbomb "Deduplicates players, teams, competitions" ""
+        dimTables -> stagingWyscout "Merges Wyscout team data" ""
+        testSuite -> factTables "Validates fact table data quality" "dbt-expectations"
+        testSuite -> dimTables "Validates dimension table integrity" "dbt-expectations"
+        testSuite -> stagingStatsbomb "Validates staging data quality" "dbt-expectations"
+        factTables -> catalog "Writes Gold Delta tables" "Databricks SQL"
+        dimTables -> catalog "Writes Gold dimension tables" "Databricks SQL"
+
         dbt -> catalog "Reads Bronze, writes Silver and Gold tables" "Databricks SQL"
         dbt -> sqlWarehouse "Executes SQL transformations on" "dbt-databricks adapter"
 
@@ -86,6 +115,11 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform built on Data
         }
 
         component ingestion "IngestionComponents" {
+            include *
+            autoLayout
+        }
+
+        component dbt "dbtComponents" {
             include *
             autoLayout
         }

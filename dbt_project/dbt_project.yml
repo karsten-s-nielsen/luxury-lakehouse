@@ -26,6 +26,8 @@ models:
       +materialized: view
       +schema: silver
       +tags: ["staging"]
+      +grants:
+        select: ['account users']
     intermediate:
       +materialized: ephemeral
       +tags: ["intermediate"]
@@ -33,6 +35,8 @@ models:
       +materialized: table
       +schema: gold
       +tags: ["marts"]
+      +grants:
+        select: ['account users']
 
 seeds:
   soccer_analytics:

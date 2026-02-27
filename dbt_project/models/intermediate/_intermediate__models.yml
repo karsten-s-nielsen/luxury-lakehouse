@@ -1,0 +1,96 @@
+version: 2
+
+models:
+  - name: int_unified_passes
+    description: >
+      Unified pass data from StatsBomb and Wyscout sources. Contains all
+      passes with standardized schema, progressive pass identification,
+      and pass type flags. Materialized as ephemeral (CTE).
+    columns:
+      - name: event_id
+        description: Unique event identifier from source
+        data_tests:
+          - not_null
+      - name: match_id
+        description: Match identifier
+        data_tests:
+          - not_null
+      - name: player_id
+        description: Player performing the pass
+      - name: team_id
+        description: Team performing the pass
+      - name: start_x
+        description: Starting X coordinate (120-yard scale)
+      - name: start_y
+        description: Starting Y coordinate (80-yard scale)
+      - name: end_x
+        description: Ending X coordinate (120-yard scale)
+      - name: end_y
+        description: Ending Y coordinate (80-yard scale)
+      - name: is_progressive
+        description: Whether the pass moved the ball >=25% closer to goal
+      - name: data_source
+        description: Data provider (statsbomb, wyscout)
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['statsbomb', 'wyscout']
+
+  - name: int_unified_shots
+    description: >
+      Unified shot data from StatsBomb and Wyscout sources. Contains all
+      shots with standardized schema, geometry features, and outcome
+      classification. Materialized as ephemeral (CTE).
+    columns:
+      - name: event_id
+        description: Unique event identifier from source
+        data_tests:
+          - not_null
+      - name: match_id
+        description: Match identifier
+        data_tests:
+          - not_null
+      - name: location_x
+        description: Shot X coordinate (120-yard scale)
+      - name: location_y
+        description: Shot Y coordinate (80-yard scale)
+      - name: shot_outcome
+        description: Standardized shot outcome
+        data_tests:
+          - not_null
+      - name: distance_to_goal
+        description: Euclidean distance from shot to goal center
+      - name: shot_angle
+        description: Angle subtended at the goal posts (radians)
+      - name: data_source
+        description: Data provider (statsbomb, wyscout)
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['statsbomb', 'wyscout']
+
+  - name: int_minutes_played
+    description: >
+      Approximate minutes played per player per competition per season,
+      derived from StatsBomb lineup and substitution event data.
+      Materialized as ephemeral (CTE).
+    columns:
+      - name: player_id
+        description: Player identifier
+        data_tests:
+          - not_null
+      - name: competition_id
+        description: Competition identifier
+        data_tests:
+          - not_null
+      - name: season_id
+        description: Season identifier
+        data_tests:
+          - not_null
+      - name: total_minutes_played
+        description: Total minutes played across all matches in a competition/season
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 50000

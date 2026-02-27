@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [PLAN.md](PLAN.md).
 
-**Last updated**: 2026-02-26
+**Last updated**: 2026-02-27
 
 ---
 
@@ -43,17 +43,28 @@ Quick-reference action items. Full details in [PLAN.md](PLAN.md).
 
 ## Phase 3 — Transformation (dbt)
 
-- [ ] Configure `dbt_project/profiles.yml` with Databricks connection
-- [ ] Run `dbt deps` to install packages
-- [ ] Implement staging models (Silver): flatten nested JSON, parse coordinates
-- [ ] Implement intermediate models: unified shots and passes
-- [ ] Implement mart models (Gold): fct_shots, fct_passes, fct_player_stats, fct_match_summary
-- [ ] Implement tracking models: fct_tracking_frames, fct_player_embeddings
-- [ ] Implement dimensions: dim_players, dim_teams, dim_competitions
-- [ ] **Security:** Add dbt tests (`unique`, `not_null`, `accepted_values`) on all silver/gold models
-- [ ] **Security:** Define Unity Catalog `grants` in dbt for schema-level access control
-- [ ] Run `dbt build` — all models + tests pass
-- [ ] Run `/final-review`
+- [x] ~~Configure `dbt_project/profiles.yml` with Databricks connection~~
+- [x] ~~Run `dbt deps` to install packages~~
+- [x] ~~Implement staging models (Silver): flatten nested JSON, parse coordinates~~
+- [x] ~~Implement intermediate models: unified shots and passes~~
+- [x] ~~Implement mart models (Gold): fct_shots, fct_passes, fct_player_stats, fct_match_summary~~
+- [x] ~~Implement tracking models: fct_tracking_frames, fct_player_embeddings~~
+- [x] ~~Implement dimensions: dim_players, dim_teams, dim_competitions~~
+- [x] ~~**Security:** Add dbt tests (`unique`, `not_null`, `accepted_values`) on all silver/gold models~~
+- [x] ~~**Security:** Define Unity Catalog `grants` in dbt for schema-level access control~~
+- [x] ~~Run `dbt build` — all models + tests pass~~ (PASS=130 WARN=14 ERROR=0, 8/8 source freshness)
+- [x] ~~Migrate `calogica/dbt_expectations` → `metaplane/dbt_expectations`~~
+- [x] ~~Move source freshness config to `config` block (dbt 1.11+ deprecation)~~
+- [ ] **Tech debt:** Enable `use_materialization_v2` flag in `dbt_project.yml` — test with marts layer first (10 min)
+- [ ] **Tech debt:** Nest test arguments under `arguments` property in all YAML files (~60 tests across 7 files, ~1 hr)
+- [ ] **Tech debt:** Document all undocumented YAML columns (~100 columns across staging/intermediate/marts lack YAML descriptions)
+- [ ] **Tech debt:** Add missing `accepted_values` tests on categorical columns (shot_body_part, shot_type, pass_outcome, match_status, etc.)
+- [ ] **Tech debt:** Add missing range tests on numeric columns (distance_to_goal, shot_angle, home_score, away_score, etc.)
+- [ ] **Tech debt:** Extract hardcoded thresholds to dbt vars (pass direction=5yd, sprint speed=7.0 m/s, pitch thirds=40/80, goal_width=8)
+- [ ] **Tech debt:** `stg_statsbomb__shots` and `int_unified_passes` read from both `source()` and `ref()` — refactor to single source
+- [ ] **Tech debt:** Redundant `from_json()` calls in lineups and wyscout events — parse once in sub-CTE
+- [ ] **Tech debt:** Remove `position_mapping.csv` seed (unused by any model) or add a model that references it
+- [x] ~~Run `/final-review`~~
 
 ## Phase 4 — Zero-ETL Synchronization
 

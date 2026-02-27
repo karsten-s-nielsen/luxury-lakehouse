@@ -77,9 +77,9 @@ final as (
         -- Progressive pass flag
         unified_passes.is_progressive,
 
-        -- Pass direction (categorical)
-        -- TODO: Calculate based on angle — forward/backward/lateral
+        -- Pass direction (categorical, 5-yard threshold)
         case
+            when unified_passes.end_x is null or unified_passes.start_x is null then null
             when unified_passes.end_x > unified_passes.start_x + 5 then 'forward'
             when unified_passes.end_x < unified_passes.start_x - 5 then 'backward'
             else 'lateral'

@@ -1,7 +1,7 @@
 # Databricks Lakebase Implementation Plan — Soccer Analytics Platform
 
-> **Status**: Phase 2 complete — 9 bronze tables populated (31.4M rows), 55 unit tests, all quality gates pass
-> **Last Updated**: 2026-02-26
+> **Status**: Phase 3 complete — 19 dbt models (7 staging views, 3 intermediates, 9 gold tables), 144 data tests, 8/8 source freshness
+> **Last Updated**: 2026-02-27
 > **Repository**: [`karstenskyt/luxury-lakehouse`](https://github.com/karstenskyt/luxury-lakehouse)
 > **Scope**: Document 3 ("3_AWS Lake House.pdf") — Databricks Lakebase serverless architecture
 > **Approach**: Professional-grade IaC, best practices, production-ready from day one
@@ -60,7 +60,7 @@ This plan implements the Databricks Lakebase architecture described in Document 
 | Soccermatics local workspace | `D:/Development/soccermatics/` | Working — 25/25 scripts pass (Python 3.12, conda) |
 | MCP AWS CodeDeploy server | `D:/Development/karstenskyt__mcp-aws-codedeploy/` | Working — 8 tools, FastMCP, Stdio transport |
 | AWS IAM DevOpsAgent role spec | `karstenskyt__mcp-aws-codedeploy/TODO.md` | Documented — policy template ready |
-| Implementation code | This repository | **Phase 2 complete** — 4 ingestion modules, 55 unit tests, 9 bronze tables (31.4M rows) |
+| Implementation code | This repository | **Phase 3 complete** — 4 ingestion modules, 55 unit tests, 9 bronze tables (31.4M rows); 19 dbt models, 144 data tests, 8/8 source freshness |
 
 ### Soccermatics Workspace Details
 
@@ -103,9 +103,11 @@ This workspace serves as the **reference implementation** — the analytics logi
 │                    UNITY CATALOG — BRONZE LAYER                          │
 │  ┌──────────────────────────────────────────────────────────────────┐    │
 │  │  Delta Lake tables (raw, append-only, schema-on-read)           │    │
+│  │  • bronze.statsbomb_competitions                                │    │
 │  │  • bronze.statsbomb_events                                      │    │
 │  │  • bronze.statsbomb_lineups                                     │    │
 │  │  • bronze.statsbomb_matches                                     │    │
+│  │  • bronze.statsbomb_three_sixty                                 │    │
 │  │  • bronze.metrica_tracking                                      │    │
 │  │  • bronze.metrica_events                                        │    │
 │  │  • bronze.wyscout_events                                        │    │
@@ -121,6 +123,9 @@ This workspace serves as the **reference implementation** — the analytics logi
 │  │  SILVER (cleaned, typed, deduplicated):                         │    │
 │  │  • silver.stg_statsbomb__events (flattened JSON)                │    │
 │  │  • silver.stg_statsbomb__shots (shot-specific columns)          │    │
+│  │  • silver.stg_statsbomb__matches (competition/season metadata)  │    │
+│  │  • silver.stg_statsbomb__lineups (player positions per match)   │    │
+│  │  • silver.stg_metrica__events (scaled coordinates)              │    │
 │  │  • silver.stg_metrica__tracking (parsed coordinates)            │    │
 │  │  • silver.stg_wyscout__events (normalized schema)               │    │
 │  │                                                                  │    │
@@ -431,8 +436,10 @@ luxury-lakehouse/
 │   │   │       └── stg_wyscout__events.sql
 │   │   │
 │   │   ├── intermediate/             # Cross-source joins, deduplication
+│   │   │   ├── _intermediate__models.yml
 │   │   │   ├── int_unified_shots.sql
-│   │   │   └── int_unified_passes.sql
+│   │   │   ├── int_unified_passes.sql
+│   │   │   └── int_minutes_played.sql
 │   │   │
 │   │   └── marts/                    # GOLD layer (business logic)
 │   │       ├── _marts__models.yml
@@ -1242,7 +1249,7 @@ All planning questions have been answered. This section records the decisions fo
 | StatsBomb (open) | ~3,000 | ~3,400 | ~10.2M events | ~2 GB JSON → ~500 MB Parquet |
 | Metrica (sample) | 3 | 135,000 frames | ~405K frames | ~50 MB CSV → ~15 MB Parquet |
 | Wyscout (public) | ~1,900 | ~1,800 | ~3.4M events | ~1.5 GB JSON → ~400 MB Parquet |
-| **Total Bronze** | | | **~14M rows** | **~1 GB Parquet** |
+| **Total Bronze** | | | **~31.4M rows** | **~1 GB Parquet** |
 
 This is a small-to-medium dataset — well within free/dev tier limits for most services.
 

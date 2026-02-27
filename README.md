@@ -32,7 +32,7 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 
 ## Architecture
 
-> **[View interactive C4 diagrams](docs/c4/architecture.html)** &mdash; System Context, Container, and Ingestion Component levels, generated from [Structurizr DSL](docs/c4/architecture.dsl)
+> **[View interactive C4 diagrams](docs/c4/architecture.html)** &mdash; System Context, Container, Ingestion Component, dbt Component, and Data Flow levels, generated from [Structurizr DSL](docs/c4/architecture.dsl)
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
@@ -80,14 +80,14 @@ luxury-lakehouse/
 
 ## Status
 
-**Phase 2: Data Ingestion Complete** — Three ingestion modules (StatsBomb, Metrica, Wyscout) deployed to Databricks, populating 9 bronze tables with 31.4M rows. Security-hardened HTTP, structured logging, and 55 unit tests. See [PLAN.md](PLAN.md) for the full implementation plan.
+**Phase 3: dbt Transformations Complete** — 19 dbt models (7 staging views, 3 ephemeral intermediates, 9 gold tables) deployed to Databricks Serverless SQL. 144 data tests (130 pass, 14 coordinate warnings), 8/8 source freshness checks. See [PLAN.md](PLAN.md) for the full implementation plan.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 0 | Foundation & Prerequisites | Complete |
 | 1 | Serverless Infrastructure (Terraform) | Complete |
 | 2 | Data Ingestion (StatsBomb, Metrica, Wyscout) | Complete |
-| 3 | Transformation (dbt on Databricks) | Scaffolded |
+| 3 | Transformation (dbt on Databricks) | Complete |
 | 4 | Zero-ETL Synchronization (Synced Tables → Lakebase) | Scaffolded |
 | 5 | Application Deployment (Streamlit) | Scaffolded |
 

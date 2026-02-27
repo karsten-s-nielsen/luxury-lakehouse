@@ -1,25 +1,15 @@
 -- stg_metrica__tracking.sql
 -- Parse and normalize Metrica Sports 25fps tracking data.
 --
--- Key transformations needed:
+-- Key transformations:
 --   1. Explode per-frame JSON into one row per player per frame
---      - Raw data has one row per frame with all players nested in JSON
---      - Need to LATERAL VIEW EXPLODE or similar to get individual player rows
---   2. Scale coordinates from [0, 1] normalized to 120x80 pitch system:
---      - x_scaled = raw_x * 120 (pitch length)
---      - y_scaled = raw_y * 80  (pitch width)
+--   2. Scale coordinates from [0, 1] normalized to 120x80 pitch system
 --   3. Separate home and away player data into a uniform schema
---   4. Include ball coordinates on every player row for distance calculations
---   5. Add match_id from batch/file metadata (Metrica sample data has 3 matches)
---
--- Performance considerations:
---   - At 25 fps with ~22 players, a 90-minute match generates ~3M rows
---   - Consider incremental materialization for production
---   - Partition by match_id and period for efficient querying
+--   4. Ball coordinates are void (NULL) in bronze — not available per-frame
 --
 -- Coordinate system alignment:
 --   Metrica: (0,0) = top-left, (1,1) = bottom-right, normalized [0,1]
---   StatsBomb: (0,0) = bottom-left, (120,80) = top-right, in yards
+--   Target:  (0,0) = bottom-left, (120,80) = top-right (StatsBomb system)
 --   Scaling: x * 120, (1 - y) * 80 to flip vertical axis
 
 with source as (
@@ -28,64 +18,79 @@ with source as (
 
 ),
 
--- TODO: Implement the JSON explosion for player tracking data
--- Example approach for Databricks:
---
--- home_players_exploded as (
---     select
---         period,
---         frame,
---         timestamp as timestamp_seconds,
---         'home' as team,
---         player_key as player_id,
---         player_value.x as raw_x,
---         player_value.y as raw_y,
---         ball_x as raw_ball_x,
---         ball_y as raw_ball_y
---     from source
---     lateral view explode(from_json(home_players, 'map<string, struct<x:double, y:double>>'))
---         as player_key, player_value
--- ),
--- ... union all with away_players_exploded ...
+home_players_exploded as (
+
+    select
+        match_id,
+        period,
+        frame,
+        timestamp                                       as timestamp_seconds,
+        'home'                                          as team,
+        player_key                                      as player_id,
+        player_value.x                                  as raw_x,
+        player_value.y                                  as raw_y
+    from source
+    lateral view explode(
+        from_json(home_players, 'MAP<STRING, STRUCT<x:DOUBLE, y:DOUBLE>>')
+    ) as player_key, player_value
+
+),
+
+away_players_exploded as (
+
+    select
+        match_id,
+        period,
+        frame,
+        timestamp                                       as timestamp_seconds,
+        'away'                                          as team,
+        player_key                                      as player_id,
+        player_value.x                                  as raw_x,
+        player_value.y                                  as raw_y
+    from source
+    lateral view explode(
+        from_json(away_players, 'MAP<STRING, STRUCT<x:DOUBLE, y:DOUBLE>>')
+    ) as player_key, player_value
+
+),
+
+all_players as (
+
+    select * from home_players_exploded
+    union all
+    select * from away_players_exploded
+
+),
 
 normalized as (
 
     select
         -- Surrogate key
-        -- TODO: Generate once columns are populated
-        -- {{ dbt_utils.generate_surrogate_key(['match_id', 'period', 'frame', 'player_id']) }} as tracking_id,
-        cast(null as string)                            as tracking_id,
+        {{ dbt_utils.generate_surrogate_key(['match_id', 'period', 'frame', 'player_id']) }} as tracking_id,
 
         -- Match context
-        -- TODO: Derive match_id from batch metadata or filename
-        cast(null as string)                            as match_id,
+        match_id,
 
         -- Frame identifiers
-        cast(null as int)                               as period,
-        cast(null as int)                               as frame,
-        cast(null as double)                            as timestamp_seconds,
+        cast(period as int)                             as period,
+        cast(frame as int)                              as frame,
+        timestamp_seconds,
 
         -- Player identity
-        cast(null as string)                            as player_id,
-        cast(null as string)                            as team,
+        player_id,
+        team,
 
         -- Scaled player coordinates (120x80)
-        -- TODO: raw_x * 120 and (1 - raw_y) * 80
-        cast(null as double)                            as x,
-        cast(null as double)                            as y,
+        raw_x * 120.0                                   as x,
+        (1.0 - raw_y) * 80.0                            as y,
 
-        -- Scaled ball coordinates (120x80)
-        -- TODO: raw_ball_x * 120 and (1 - raw_ball_y) * 80
+        -- Ball coordinates not available per-frame in bronze (void type)
         cast(null as double)                            as ball_x,
-        cast(null as double)                            as ball_y,
+        cast(null as double)                            as ball_y
 
-        -- Player velocity (computed from frame-over-frame position changes)
-        -- TODO: Implement in a separate downstream model or window function
-        cast(null as double)                            as velocity_x,
-        cast(null as double)                            as velocity_y,
-        cast(null as double)                            as speed
-
-    from source
+    from all_players
+    where raw_x is not null
+      and raw_y is not null
 
 )
 

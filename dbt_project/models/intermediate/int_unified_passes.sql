@@ -1,18 +1,29 @@
 -- int_unified_passes.sql
 -- Union StatsBomb and Wyscout pass data into a common schema.
 --
--- This intermediate model creates a single unified passes table for
--- cross-source pass analysis, progressive pass identification, and
--- pass network construction.
---
 -- Materialized as ephemeral (CTE).
 --
--- Progressive pass definition (from Wyscout/StatsBomb analytics):
+-- The StatsBomb ingestion already flattens pass fields into top-level
+-- columns (pass_type, pass_height, pass_body_part, pass_length, etc.).
+-- Only pass_end_location needs JSON parsing.
+--
+-- Progressive pass definition:
 --   A pass is "progressive" if the end point is at least 25% closer
 --   to the opponent's goal center than the start point (by distance).
---   This is a widely used metric in modern football analytics.
 
-with statsbomb_passes as (
+with statsbomb_raw as (
+
+    select * from {{ source('statsbomb', 'statsbomb_events') }}
+
+),
+
+statsbomb_events as (
+
+    select * from {{ ref('stg_statsbomb__events') }}
+
+),
+
+statsbomb_passes as (
 
     select
         e.event_id,
@@ -24,41 +35,35 @@ with statsbomb_passes as (
         e.second,
         e.location_x                                    as start_x,
         e.location_y                                    as start_y,
-        -- TODO: Extract pass.end_location from raw event JSON
-        -- Need to join back to source for pass-specific nested fields
-        cast(null as double)                            as end_x,
-        cast(null as double)                            as end_y,
 
-        -- Pass attributes
-        -- TODO: Extract from pass nested JSON:
-        --   pass.type.name       → pass_type (Ground Pass, High Pass, etc.)
-        --   pass.height.name     → pass_height (Ground Pass, Low Pass, High Pass)
-        --   pass.body_part.name  → body_part
-        --   pass.length           → pass_length
-        --   pass.angle            → pass_angle
-        --   pass.outcome.name    → pass_outcome (null = complete, Incomplete, Out, etc.)
-        --   pass.recipient.name  → recipient_name
-        --   pass.cross            → is_cross
-        --   pass.switch            → is_switch
-        --   pass.through_ball     → is_through_ball
-        cast(null as string)                            as pass_type,
-        cast(null as string)                            as pass_height,
-        cast(null as string)                            as body_part,
-        cast(null as double)                            as pass_length,
-        cast(null as double)                            as pass_angle_radians,
-        cast(null as string)                            as pass_outcome,
-        cast(null as boolean)                           as is_cross,
-        cast(null as boolean)                           as is_switch,
-        cast(null as boolean)                           as is_through_ball,
+        -- Parse pass end location from JSON string (use get() for safe access)
+        get(from_json(raw.pass_end_location, 'ARRAY<DOUBLE>'), 0) as end_x,
+        get(from_json(raw.pass_end_location, 'ARRAY<DOUBLE>'), 1) as end_y,
+
+        -- Pass attributes (already flat columns from ingestion)
+        raw.pass_type                                   as pass_type,
+        raw.pass_height                                 as pass_height,
+        raw.pass_body_part                              as body_part,
+        raw.pass_length                                 as pass_length,
+        raw.pass_angle                                  as pass_angle_radians,
+        raw.pass_outcome,
+        coalesce(raw.pass_cross, false)                 as is_cross,
+        coalesce(raw.pass_switch, false)                as is_switch,
+        coalesce(raw.pass_through_ball, false)          as is_through_ball,
 
         -- Progressive pass flag
-        -- TODO: Calculate once start/end locations are available
-        -- A pass is progressive if end_distance_to_goal < 0.75 * start_distance_to_goal
-        cast(null as boolean)                           as is_progressive,
+        {{ distance_to_goal(
+            'get(from_json(raw.pass_end_location, \'ARRAY<DOUBLE>\'), 0)',
+            'get(from_json(raw.pass_end_location, \'ARRAY<DOUBLE>\'), 1)'
+        ) }}
+            < 0.75 * {{ distance_to_goal('e.location_x', 'e.location_y') }}
+                                                        as is_progressive,
 
         'statsbomb'                                     as data_source
 
-    from {{ ref('stg_statsbomb__events') }} e
+    from statsbomb_events e
+    inner join statsbomb_raw raw
+        on e.event_id = raw.id
     where e.event_type = 'Pass'
 
 ),
@@ -66,13 +71,13 @@ with statsbomb_passes as (
 wyscout_passes as (
 
     select
-        event_id,
-        match_id,
-        player_id,
-        team_id,
+        event_sk                                        as event_id,
+        cast(match_id as bigint)                        as match_id,
+        cast(player_id as int)                          as player_id,
+        cast(team_id as int)                            as team_id,
         period,
         cast(floor(event_sec / 60) as int)              as minute,
-        cast(mod(cast(event_sec as int), 60) as int)    as second,
+        cast(cast(event_sec as int) % 60 as int)        as second,
         start_x,
         start_y,
         end_x,
@@ -82,22 +87,20 @@ wyscout_passes as (
         sub_event_type                                  as pass_type,
         cast(null as string)                            as pass_height,
         cast(null as string)                            as body_part,
-        -- TODO: Calculate pass length from coordinates
-        cast(null as double)                            as pass_length,
-        cast(null as double)                            as pass_angle_radians,
+        sqrt(power(end_x - start_x, 2) + power(end_y - start_y, 2)) as pass_length,
+        atan2(end_y - start_y, end_x - start_x)        as pass_angle_radians,
         case
             when is_accurate then 'Complete'
             else 'Incomplete'
         end                                             as pass_outcome,
-        -- TODO: Derive from sub_event_type
-        -- sub_event_type IN ('Cross', 'Head cross') → is_cross
-        cast(null as boolean)                           as is_cross,
-        cast(null as boolean)                           as is_switch,
-        cast(null as boolean)                           as is_through_ball,
+        sub_event_type in ('Cross', 'Head cross')       as is_cross,
+        sub_event_type = 'Launch'                       as is_switch,
+        sub_event_type = 'Through pass'                 as is_through_ball,
 
         -- Progressive pass flag
-        -- TODO: Calculate once coordinates are populated
-        cast(null as boolean)                           as is_progressive,
+        {{ distance_to_goal('end_x', 'end_y') }}
+            < 0.75 * {{ distance_to_goal('start_x', 'start_y') }}
+                                                        as is_progressive,
 
         'wyscout'                                       as data_source
 

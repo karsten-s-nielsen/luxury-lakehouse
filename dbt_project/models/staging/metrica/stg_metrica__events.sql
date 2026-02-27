@@ -1,15 +1,15 @@
 -- stg_metrica__events.sql
 -- Clean and normalize Metrica Sports event data.
 --
--- Key transformations needed:
+-- Key transformations:
 --   1. Scale coordinates from [0, 1] to 120x80 pitch system
---      (same scaling as tracking: x * 120, (1 - y) * 80)
+--      (x * 120, (1 - y) * 80 to flip vertical axis)
 --   2. Standardize event type names for downstream unification
---      - Metrica uses: PASS, SHOT, BALL LOST, BALL OUT, CHALLENGE, etc.
---      - May need mapping to a common taxonomy with StatsBomb
 --   3. Link start_frame and end_frame to tracking data for spatial context
---   4. Add match_id from batch metadata
---   5. Parse composite subtype field (e.g. "HEAD-LOSS" → technique + outcome)
+--
+-- Coordinate system alignment:
+--   Metrica: (0,0) = top-left, (1,1) = bottom-right, normalized [0,1]
+--   StatsBomb: (0,0) = bottom-left, (120,80) = top-right, in yards
 
 with source as (
 
@@ -20,12 +20,12 @@ with source as (
 cleaned as (
 
     select
-        -- Primary key
+        -- Primary key (event_id is only unique within a match)
+        {{ dbt_utils.generate_surrogate_key(['match_id', 'event_id']) }} as event_sk,
         event_id,
 
-        -- Match context
-        -- TODO: Derive match_id from batch metadata or filename
-        cast(null as string)                            as match_id,
+        -- Match context (added during ingestion)
+        match_id,
 
         -- Event classification
         type                                            as event_type,
@@ -37,16 +37,12 @@ cleaned as (
         end_frame,
 
         -- Scaled start location (120x80)
-        -- TODO: start_x * 120
-        cast(null as double)                            as start_x,
-        -- TODO: (1 - start_y) * 80
-        cast(null as double)                            as start_y,
+        start_x * 120.0                                 as start_x,
+        (1.0 - start_y) * 80.0                          as start_y,
 
         -- Scaled end location (120x80)
-        -- TODO: end_x * 120
-        cast(null as double)                            as end_x,
-        -- TODO: (1 - end_y) * 80
-        cast(null as double)                            as end_y,
+        end_x * 120.0                                   as end_x,
+        (1.0 - end_y) * 80.0                            as end_y,
 
         -- Team and player
         team,

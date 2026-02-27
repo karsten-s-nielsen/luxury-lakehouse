@@ -4,22 +4,24 @@
 -- Combines data from shots, passes, and match metadata to produce
 -- a single row per match with team-level summary statistics.
 --
--- Key metrics per team:
---   - xG (total and by half)
---   - Possession percentage (derived from event counts)
---   - Pass completion percentage
---   - Shot counts and shot accuracy
---   - Progressive pass counts
---
--- Downstream consumers:
---   - Match result dashboards
---   - xG timeline charts
---   - Season summary tables
---   - Team performance comparison
+-- The matches table has team names but no team IDs (statsbombpy flattening).
+-- We derive the team_name → team_id mapping from events per match.
 
 with matches as (
 
     select * from {{ ref('stg_statsbomb__matches') }}
+
+),
+
+-- Derive team_id from events for each match's home/away team
+match_team_ids as (
+
+    select distinct
+        match_id,
+        team_id,
+        team_name
+    from {{ ref('stg_statsbomb__events') }}
+    where team_id is not null
 
 ),
 
@@ -74,8 +76,10 @@ final as (
         m.competition_id,
         m.season_id,
         m.match_date,
-        m.home_team_id,
-        m.away_team_id,
+        m.home_team_name,
+        m.away_team_name,
+        htm.team_id                                     as home_team_id,
+        atm.team_id                                     as away_team_id,
         m.home_score,
         m.away_score,
 
@@ -114,7 +118,6 @@ final as (
         end                                             as away_pass_completion_pct,
 
         -- Derived: possession estimate (based on pass share)
-        -- This is a rough proxy; true possession requires tracking data
         case
             when coalesce(hp.total_passes, 0) + coalesce(ap.total_passes, 0) > 0
             then round(
@@ -134,10 +137,16 @@ final as (
         end                                             as match_result
 
     from matches m
-    left join match_shots hs on m.match_id = hs.match_id and m.home_team_id = hs.team_id
-    left join match_shots aws on m.match_id = aws.match_id and m.away_team_id = aws.team_id
-    left join match_passes hp on m.match_id = hp.match_id and m.home_team_id = hp.team_id
-    left join match_passes ap on m.match_id = ap.match_id and m.away_team_id = ap.team_id
+    -- Map team names to IDs via events
+    left join match_team_ids htm
+        on m.match_id = htm.match_id and m.home_team_name = htm.team_name
+    left join match_team_ids atm
+        on m.match_id = atm.match_id and m.away_team_name = atm.team_name
+    -- Join shot/pass aggregates on resolved team_id
+    left join match_shots hs on m.match_id = hs.match_id and htm.team_id = hs.team_id
+    left join match_shots aws on m.match_id = aws.match_id and atm.team_id = aws.team_id
+    left join match_passes hp on m.match_id = hp.match_id and htm.team_id = hp.team_id
+    left join match_passes ap on m.match_id = ap.match_id and atm.team_id = ap.team_id
 
 )
 

@@ -8,10 +8,14 @@ models:
       from percentage (0-100) to 120x80 pitch system, and decodes
       tag IDs into meaningful boolean flags. One row per event.
     columns:
-      - name: event_id
-        description: Unique event identifier (from Wyscout eventId)
+      - name: event_sk
+        description: Surrogate key — Wyscout eventId is a type code, not a unique ID
         data_tests:
           - unique
+          - not_null
+      - name: event_id
+        description: Wyscout event type code (NOT unique — duplicates across matches)
+        data_tests:
           - not_null
       - name: match_id
         description: Foreign key to match data
@@ -25,21 +29,64 @@ models:
         description: Sub-event classification (Simple pass, Head shot, etc.)
       - name: player_id
         description: Player performing the event
+        data_tests:
+          - not_null
       - name: team_id
         description: Team performing the event
+        data_tests:
+          - not_null
       - name: period
         description: Match period (1, 2, extra time, penalties)
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 1
+              max_value: 5
       - name: event_sec
         description: Event timestamp in seconds from period start
       - name: start_x
         description: Starting X coordinate (120-yard scale)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 120
+              row_condition: "start_x is not null"
+              config:
+                severity: warn
       - name: start_y
         description: Starting Y coordinate (80-yard scale)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 80
+              row_condition: "start_y is not null"
+              config:
+                severity: warn
       - name: end_x
         description: Ending X coordinate (120-yard scale)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 120
+              row_condition: "end_x is not null"
+              config:
+                severity: warn
       - name: end_y
         description: Ending Y coordinate (80-yard scale)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 80
+              row_condition: "end_y is not null"
+              config:
+                severity: warn
       - name: is_accurate
         description: Whether the event was successful (from tag 1801)
       - name: is_goal
         description: Whether the event resulted in a goal (from tag 101)
+      - name: data_source
+        description: Data provider identifier
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['wyscout']

@@ -25,17 +25,42 @@ models:
       - name: player_id
         description: Player performing the event
       - name: location_x
-        description: X coordinate on pitch (0-120)
+        description: X coordinate on pitch (0-120). May exceed bounds for off-pitch events (throw-ins, GK).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 120
+              row_condition: "location_x is not null"
+              config:
+                severity: warn
       - name: location_y
-        description: Y coordinate on pitch (0-80)
+        description: Y coordinate on pitch (0-80). May exceed bounds for off-pitch events.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 80
+              row_condition: "location_y is not null"
+              config:
+                severity: warn
       - name: minute
         description: Match minute
       - name: second
         description: Match second
       - name: period
         description: Match period (1=first half, 2=second half, etc.)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 1
+              max_value: 5
+              row_condition: "period is not null"
       - name: timestamp
         description: Precise event timestamp within the match
+      - name: possession
+        description: Possession sequence number
+      - name: possession_team_id
+        description: Team ID that has possession
+      - name: play_pattern
+        description: Play pattern name (Regular Play, From Corner, etc.)
 
   - name: stg_statsbomb__shots
     description: >
@@ -56,27 +81,63 @@ models:
         description: Shooter player ID
         data_tests:
           - not_null
+      - name: team_id
+        description: Team performing the shot
+        data_tests:
+          - not_null
       - name: statsbomb_xg
         description: StatsBomb expected goals value for this shot
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 1
+              row_condition: "statsbomb_xg is not null"
       - name: shot_outcome
         description: Outcome of the shot (Goal, Saved, Off T, Blocked, etc.)
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['Goal', 'Saved', 'Off T', 'Blocked', 'Wayward', 'Post', 'Saved Off Target', 'Saved to Post']
       - name: shot_technique
         description: Technique used (Normal, Volley, Half Volley, etc.)
       - name: shot_body_part
         description: Body part used (Right Foot, Left Foot, Head)
       - name: location_x
         description: X coordinate of shot location
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 120
+              config:
+                severity: warn
       - name: location_y
         description: Y coordinate of shot location
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 80
+              config:
+                severity: warn
       - name: end_location_x
         description: X coordinate where the shot ended
       - name: end_location_y
         description: Y coordinate where the shot ended
+      - name: distance_to_goal
+        description: Euclidean distance from shot to goal center (yards)
+        data_tests:
+          - not_null
+      - name: shot_angle
+        description: Angle subtended at the goal posts (radians)
+        data_tests:
+          - not_null
 
   - name: stg_statsbomb__matches
     description: >
-      Cleaned match metadata from StatsBomb. Extracts competition, season,
-      team, and manager information from nested JSON objects.
+      Cleaned match metadata from StatsBomb. The ingestion layer already
+      flattened most fields — competition/season IDs are top-level,
+      team names are plain strings (no team_id available).
       One row per match.
     columns:
       - name: match_id
@@ -92,12 +153,22 @@ models:
         description: Season identifier
         data_tests:
           - not_null
-      - name: home_team_id
-        description: Home team identifier
-      - name: away_team_id
-        description: Away team identifier
+      - name: competition_name
+        description: Competition display name
+      - name: season_name
+        description: Season display name
+      - name: home_team_name
+        description: Home team name
+        data_tests:
+          - not_null
+      - name: away_team_name
+        description: Away team name
+        data_tests:
+          - not_null
       - name: match_date
         description: Date the match was played
+        data_tests:
+          - not_null
       - name: home_score
         description: Final home team score
       - name: away_score
@@ -118,8 +189,8 @@ models:
         description: Foreign key to stg_statsbomb__matches
         data_tests:
           - not_null
-      - name: team_id
-        description: Team identifier
+      - name: team_name
+        description: Team name (no team_id in StatsBomb lineups bronze table)
         data_tests:
           - not_null
       - name: player_id
@@ -128,6 +199,8 @@ models:
           - not_null
       - name: player_name
         description: Player display name
+        data_tests:
+          - not_null
       - name: jersey_number
         description: Player jersey number for this match
       - name: position_id

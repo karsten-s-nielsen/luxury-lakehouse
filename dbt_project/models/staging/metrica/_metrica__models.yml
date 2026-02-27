@@ -19,22 +19,54 @@ models:
           - not_null
       - name: period
         description: Match half (1 or 2)
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [1, 2]
       - name: frame
         description: Frame number within the period
+        data_tests:
+          - not_null
       - name: timestamp_seconds
         description: Timestamp in seconds from period start
       - name: player_id
         description: Player identifier
+        data_tests:
+          - not_null
       - name: team
         description: Team affiliation (home or away)
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['home', 'away']
       - name: x
         description: X coordinate scaled to 120-yard pitch
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 120
       - name: y
         description: Y coordinate scaled to 80-yard pitch
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 80
       - name: ball_x
         description: Ball X coordinate scaled to 120-yard pitch
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 120
+              row_condition: "ball_x is not null"
       - name: ball_y
         description: Ball Y coordinate scaled to 80-yard pitch
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 80
+              row_condition: "ball_y is not null"
 
   - name: stg_metrica__events
     description: >
@@ -42,10 +74,14 @@ models:
       120x80 coordinate system. Linked to tracking frames for spatial
       context. One row per event.
     columns:
-      - name: event_id
-        description: Unique event identifier
+      - name: event_sk
+        description: Surrogate key (match_id + event_id) — event_id repeats across matches
         data_tests:
           - unique
+          - not_null
+      - name: event_id
+        description: Event identifier (unique within a match only)
+        data_tests:
           - not_null
       - name: match_id
         description: Match identifier
@@ -59,18 +95,48 @@ models:
         description: Event subtype for more granular classification
       - name: period
         description: Match half
+        data_tests:
+          - not_null
       - name: start_frame
         description: Tracking frame when event started
       - name: end_frame
         description: Tracking frame when event ended
       - name: start_x
-        description: Starting X coordinate (120-yard scale)
+        description: Starting X coordinate (120-yard scale). May slightly exceed bounds in raw data.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 120
+              row_condition: "start_x is not null"
+              config:
+                severity: warn
       - name: start_y
         description: Starting Y coordinate (80-yard scale)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 80
+              row_condition: "start_y is not null"
+              config:
+                severity: warn
       - name: end_x
         description: Ending X coordinate (120-yard scale)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 120
+              row_condition: "end_x is not null"
+              config:
+                severity: warn
       - name: end_y
         description: Ending Y coordinate (80-yard scale)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 80
+              row_condition: "end_y is not null"
+              config:
+                severity: warn
       - name: team
         description: Team performing the event
       - name: player_id
