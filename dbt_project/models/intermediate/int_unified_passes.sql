@@ -56,7 +56,7 @@ statsbomb_passes as (
             'get(from_json(raw.pass_end_location, \'ARRAY<DOUBLE>\'), 0)',
             'get(from_json(raw.pass_end_location, \'ARRAY<DOUBLE>\'), 1)'
         ) }}
-            < 0.75 * {{ distance_to_goal('e.location_x', 'e.location_y') }}
+            < {{ var('progressive_pass_ratio') }} * {{ distance_to_goal('e.location_x', 'e.location_y') }}
                                                         as is_progressive,
 
         'statsbomb'                                     as data_source
@@ -99,7 +99,7 @@ wyscout_passes as (
 
         -- Progressive pass flag
         {{ distance_to_goal('end_x', 'end_y') }}
-            < 0.75 * {{ distance_to_goal('start_x', 'start_y') }}
+            < {{ var('progressive_pass_ratio') }} * {{ distance_to_goal('start_x', 'start_y') }}
                                                         as is_progressive,
 
         'wyscout'                                       as data_source

@@ -54,14 +54,14 @@ with tracking_features as (
         -- Speed features
         avg(speed)                                      as avg_speed,
         max(speed)                                      as max_speed,
-        -- Sprint count: frames where speed exceeds 7 m/s threshold
-        sum(case when speed > 7.0 then 1 else 0 end)   as sprint_count,
+        -- Sprint count: frames where speed exceeds sprint threshold
+        sum(case when speed > {{ var('sprint_speed_threshold') }} then 1 else 0 end)   as sprint_count,
 
         -- Third occupancy (percentage of frames in each pitch third)
-        -- Defensive third: x < 40, Middle third: 40 <= x < 80, Attacking third: x >= 80
-        avg(case when x < 40 then 1.0 else 0.0 end)    as pct_defensive_third,
-        avg(case when x >= 40 and x < 80 then 1.0 else 0.0 end) as pct_middle_third,
-        avg(case when x >= 80 then 1.0 else 0.0 end)   as pct_attacking_third,
+        -- Boundaries derived from pitch_length: defensive < length/3, middle, attacking >= 2*length/3
+        avg(case when x < {{ var('pitch_length') / 3 }} then 1.0 else 0.0 end)    as pct_defensive_third,
+        avg(case when x >= {{ var('pitch_length') / 3 }} and x < {{ 2 * var('pitch_length') / 3 }} then 1.0 else 0.0 end) as pct_middle_third,
+        avg(case when x >= {{ 2 * var('pitch_length') / 3 }} then 1.0 else 0.0 end)   as pct_attacking_third,
 
         count(*)                                        as total_frames
 

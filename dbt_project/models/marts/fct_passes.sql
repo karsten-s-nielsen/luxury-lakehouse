@@ -80,8 +80,8 @@ final as (
         -- Pass direction (categorical, 5-yard threshold)
         case
             when unified_passes.end_x is null or unified_passes.start_x is null then null
-            when unified_passes.end_x > unified_passes.start_x + 5 then 'forward'
-            when unified_passes.end_x < unified_passes.start_x - 5 then 'backward'
+            when unified_passes.end_x > unified_passes.start_x + {{ var('pass_direction_threshold') }} then 'forward'
+            when unified_passes.end_x < unified_passes.start_x - {{ var('pass_direction_threshold') }} then 'backward'
             else 'lateral'
         end                                             as pass_direction,
 

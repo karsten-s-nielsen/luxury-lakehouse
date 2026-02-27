@@ -103,20 +103,20 @@ final as (
         -- Per-90 rates (NULL when minutes_played is not available)
         case
             when m.total_minutes_played > 0
-            then round((coalesce(s.total_goals, 0) * 1.0 / m.total_minutes_played) * 90, 2)
+            then round((coalesce(s.total_goals, 0) * 1.0 / m.total_minutes_played) * {{ var('minutes_per_match') }}, 2)
         end                                             as goals_per_90,
         cast(null as double)                            as assists_per_90,
         case
             when m.total_minutes_played > 0
-            then round((coalesce(s.total_xg, 0) / m.total_minutes_played) * 90, 2)
+            then round((coalesce(s.total_xg, 0) / m.total_minutes_played) * {{ var('minutes_per_match') }}, 2)
         end                                             as xg_per_90,
         case
             when m.total_minutes_played > 0
-            then round((coalesce(p.total_passes, 0) * 1.0 / m.total_minutes_played) * 90, 2)
+            then round((coalesce(p.total_passes, 0) * 1.0 / m.total_minutes_played) * {{ var('minutes_per_match') }}, 2)
         end                                             as passes_per_90,
         case
             when m.total_minutes_played > 0
-            then round((coalesce(p.progressive_passes, 0) * 1.0 / m.total_minutes_played) * 90, 2)
+            then round((coalesce(p.progressive_passes, 0) * 1.0 / m.total_minutes_played) * {{ var('minutes_per_match') }}, 2)
         end                                             as progressive_passes_per_90,
 
         -- xG overperformance (goals - xG, positive = clinical finisher)

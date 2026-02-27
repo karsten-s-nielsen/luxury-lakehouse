@@ -36,18 +36,18 @@ with_velocity as (
         )                                               as distance_to_ball,
 
         -- Velocity components (position delta / time delta between frames)
-        -- At 25fps, time_delta = 0.04 seconds
-        (x - lag(x) over (partition by match_id, player_id order by frame)) / 0.04 as velocity_x,
-        (y - lag(y) over (partition by match_id, player_id order by frame)) / 0.04 as velocity_y,
+        -- At 25fps, time_delta = frame_duration_seconds
+        (x - lag(x) over (partition by match_id, player_id order by frame)) / {{ var('frame_duration_seconds') }} as velocity_x,
+        (y - lag(y) over (partition by match_id, player_id order by frame)) / {{ var('frame_duration_seconds') }} as velocity_y,
 
         -- Speed (magnitude of velocity vector)
         sqrt(
             power(
-                (x - lag(x) over (partition by match_id, player_id order by frame)) / 0.04,
+                (x - lag(x) over (partition by match_id, player_id order by frame)) / {{ var('frame_duration_seconds') }},
                 2
             )
             + power(
-                (y - lag(y) over (partition by match_id, player_id order by frame)) / 0.04,
+                (y - lag(y) over (partition by match_id, player_id order by frame)) / {{ var('frame_duration_seconds') }},
                 2
             )
         )                                               as speed,

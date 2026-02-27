@@ -38,8 +38,8 @@
                "The Geometry of Shooting"
 #}
 
-    {%- set goal_width = 8 -%}
-    {%- set half_goal_width = 4 -%}
+    {%- set goal_width = var('goal_width') -%}
+    {%- set half_goal_width = var('goal_width') / 2 -%}
 
     abs(
         atan2(

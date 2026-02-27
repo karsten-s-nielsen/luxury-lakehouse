@@ -49,3 +49,10 @@ vars:
   # Goal center coordinates (center of the goal line)
   goal_x: 120
   goal_y: 40
+  # Domain thresholds (documented in Soccermatics curriculum)
+  sprint_speed_threshold: 7.0        # m/s — standard sports science sprint threshold
+  progressive_pass_ratio: 0.75       # end distance < 75% of start distance to goal
+  pass_direction_threshold: 5        # yards — forward/backward deadband
+  frame_duration_seconds: 0.04       # 1/25fps — Metrica tracking frame interval
+  goal_width: 8                      # yards — standard goal width (IFAB Laws of the Game)
+  minutes_per_match: 90              # standard match length for per-90 normalization
