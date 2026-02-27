@@ -25,6 +25,11 @@ models:
         description: Event type name (Pass, Shot, Duel, Free Kick, etc.)
         data_tests:
           - not_null
+          - accepted_values:
+              arguments:
+                values: ['Duel', 'Foul', 'Free Kick', 'Goalkeeper leaving line', 'Interruption', 'Offside', 'Others on the ball', 'Pass', 'Shot', 'Save attempt']
+              config:
+                severity: warn
       - name: sub_event_type
         description: Sub-event classification (Simple pass, Head shot, etc.)
       - name: player_id

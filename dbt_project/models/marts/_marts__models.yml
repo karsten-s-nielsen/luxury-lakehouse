@@ -135,6 +135,12 @@ models:
         description: Whether the pass was completed successfully
       - name: pass_outcome
         description: Pass result (Complete, Incomplete, Out, etc.)
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Complete', 'Incomplete', 'Out', 'Pass Offside', 'Injury Clearance', 'Unknown']
+              config:
+                severity: warn
       - name: pass_direction
         description: Pass direction (forward, backward, lateral)
         data_tests:
@@ -343,6 +349,9 @@ models:
         description: Data provider
         data_tests:
           - not_null
+          - accepted_values:
+              arguments:
+                values: ['statsbomb']
 
   - name: dim_teams
     description: >

@@ -64,6 +64,12 @@ models:
         description: Team ID that has possession
       - name: play_pattern
         description: Play pattern name (Regular Play, From Corner, etc.)
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Regular Play', 'From Corner', 'From Free Kick', 'From Goal Kick', 'From Keeper', 'From Kick Off', 'From Throw In', 'Other']
+              config:
+                severity: warn
 
   - name: stg_statsbomb__shots
     description: >
@@ -104,9 +110,21 @@ models:
               arguments:
                 values: ['Goal', 'Saved', 'Off T', 'Blocked', 'Wayward', 'Post', 'Saved Off Target', 'Saved to Post']
       - name: shot_technique
-        description: Technique used (Normal, Volley, Half Volley, etc.)
+        description: Shot technique used
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Normal', 'Volley', 'Half Volley', 'Lob', 'Overhead Kick', 'Diving Header', 'Backheel']
+              config:
+                severity: warn
       - name: shot_body_part
-        description: Body part used (Right Foot, Left Foot, Head)
+        description: Body part used for the shot
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Right Foot', 'Left Foot', 'Head', 'No Touch']
+              config:
+                severity: warn
       - name: location_x
         description: X coordinate of shot location
         data_tests:
