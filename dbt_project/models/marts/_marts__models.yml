@@ -555,6 +555,16 @@ models:
           - not_null
       - name: primary_position
         description: Most common playing position
+      - name: position_group
+        description: >
+          Broad position category (Goalkeeper, Defender, Midfielder, Forward)
+          mapped from primary_position via position_mapping seed
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Goalkeeper', 'Defender', 'Midfielder', 'Forward']
+              config:
+                severity: warn
       - name: data_source
         description: Data provider
         data_tests:

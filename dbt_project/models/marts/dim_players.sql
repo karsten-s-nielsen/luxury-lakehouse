@@ -34,15 +34,19 @@ with statsbomb_players as (
 final as (
 
     select
-        player_id,
-        player_name,
+        sp.player_id,
+        sp.player_name,
         -- Use nickname if available, otherwise full name
-        coalesce(player_nickname, player_name)          as player_display_name,
-        primary_position,
-        data_source
+        coalesce(sp.player_nickname, sp.player_name)    as player_display_name,
+        sp.primary_position,
+        -- Map position to group via seed (Goalkeeper, Defender, Midfielder, Forward)
+        pm.position_group,
+        sp.data_source
 
-    from statsbomb_players
-    where rn = 1
+    from statsbomb_players sp
+    left join {{ ref('position_mapping') }} pm
+        on sp.primary_position = pm.position_name
+    where sp.rn = 1
 
 )
 
