@@ -32,7 +32,7 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 
 ## Architecture
 
-> **[View interactive C4 diagrams](docs/c4/architecture.html)** &mdash; System Context, Container, Ingestion Component, dbt Component, and Data Flow levels, generated from [Structurizr DSL](docs/c4/architecture.dsl)
+> **[View interactive C4 diagrams](docs/c4/architecture.html)** &mdash; System Context, Container, Ingestion Component, dbt Component, Streamlit Component, and Data Flow levels, generated from [Structurizr DSL](docs/c4/architecture.dsl)
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
@@ -81,7 +81,7 @@ luxury-lakehouse/
 
 ## Status
 
-**Phase 4: Zero-ETL Synchronization Complete** — 8 gold tables synced to Lakebase PostgreSQL 16 via Synced Tables. Sub-10ms OLTP queries available for Streamlit dashboard. See [PLAN.md](PLAN.md) for the full implementation plan.
+**Phase 5: Streamlit Application Complete** — Interactive analytics dashboard deployed as a Databricks App with 4 pages (Shot Map, Pass Map, Player Radar, Match Summary), backed by Lakebase PostgreSQL via OAuth M2M. See [PLAN.md](PLAN.md) for the full implementation plan.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -90,7 +90,7 @@ luxury-lakehouse/
 | 2 | Data Ingestion (StatsBomb, Metrica, Wyscout) | Complete |
 | 3 | Transformation (dbt on Databricks) | Complete |
 | 4 | Zero-ETL Synchronization (Synced Tables → Lakebase) | Complete |
-| 5 | Application Deployment (Streamlit) | Scaffolded |
+| 5 | Application Deployment (Streamlit) | Complete |
 
 ## Tech Stack
 

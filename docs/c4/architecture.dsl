@@ -37,7 +37,18 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
             }
             syncedTables = container "Synced Tables Pipeline" "8 synced tables (5 fact, 3 dimension) replicate Gold Delta tables into Lakebase via SNAPSHOT scheduling, eliminating Reverse ETL. All tables online with verified row counts." "Lakeflow Synced Database Tables, Terraform" "Queue"
             lakebase = container "Lakebase PostgreSQL 16" "Managed OLTP database (CU_1 capacity, running) providing sub-10ms query latency for the Streamlit app, with native pgvector support. OAuth M2M authentication, SSL enforced." "PostgreSQL 16, Capacity Units, pgvector" "Database"
-            streamlit = container "Streamlit Dashboard" "Interactive analytics UI with shot maps, pass networks, player radars, pitch control visualizations, and pgvector similarity search" "Python, Streamlit, mplsoccer, psycopg2, Databricks Apps"
+            streamlit = container "Streamlit Dashboard" "Interactive analytics dashboard deployed as a Databricks App with 4 pages: Shot Map, Pass Map, Player Radar, and Match Summary" "Python, Streamlit, mplsoccer, psycopg2, Databricks Apps" {
+                appEntry = component "App Entry Point" "st.navigation page routing, dark theme, sidebar branding" "app.py, Streamlit 1.36+"
+                configComp = component "Configuration" "Pydantic BaseSettings with env var binding, identifier validation, cached singleton" "config.py, pydantic-settings"
+                dbComp = component "Database Layer" "OAuth M2M token management (SDK + REST fallback), JWT subject extraction, parameterized query execution, table name validation" "db.py, psycopg2, databricks-sdk"
+                filtersComp = component "Filter Widgets" "5 cascading selectbox/slider widgets backed by Lakebase dimension tables with 10-min cache" "filters.py, st.cache_data"
+                pitchComp = component "Pitch Visualizations" "mplsoccer wrappers: shot scatter on half-pitch (sized by xG), pass arrows on full pitch (progressive highlighting)" "pitch.py, mplsoccer"
+                chartsComp = component "Chart Visualizations" "Radar chart (1-3 players, per-90 metrics) and horizontal bar comparison chart" "charts.py, mplsoccer Radar, matplotlib"
+                shotMapPage = component "Shot Map Page" "Half-pitch shot visualization with xG sizing, summary stats (goals, conversion rate, xG/shot)" "shot_map.py"
+                passMapPage = component "Pass Map Page" "Full-pitch pass arrows with progressive highlighting, pass completion stats" "pass_map.py"
+                radarPage = component "Player Radar Page" "Radar chart comparing 1-3 players across 6 configurable per-90 metrics" "player_radar.py"
+                matchPage = component "Match Summary Page" "Scorecard header, xG comparison, 8-stat horizontal bar chart" "match_summary.py"
+            }
         }
 
         // --- Relationships: Persons to System ---
@@ -97,8 +108,30 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
 
         streamlit -> lakebase "Queries analytics data with sub-10ms latency" "psycopg2, OAuth M2M"
 
+        // --- Relationships: Component level (Streamlit) ---
+        appEntry -> shotMapPage "Routes to" ""
+        appEntry -> passMapPage "Routes to" ""
+        appEntry -> radarPage "Routes to" ""
+        appEntry -> matchPage "Routes to" ""
+        appEntry -> configComp "Reads settings" ""
+        shotMapPage -> filtersComp "Uses competition, team, player filters" ""
+        shotMapPage -> pitchComp "Renders shot scatter" ""
+        shotMapPage -> dbComp "Queries fct_shots_synced" ""
+        passMapPage -> filtersComp "Uses competition, team, match filters" ""
+        passMapPage -> pitchComp "Renders pass arrows" ""
+        passMapPage -> dbComp "Queries fct_passes_synced" ""
+        radarPage -> filtersComp "Uses competition, team, player multiselect" ""
+        radarPage -> chartsComp "Renders radar chart" ""
+        radarPage -> dbComp "Queries fct_player_stats_synced" ""
+        matchPage -> filtersComp "Uses competition, team, match filters" ""
+        matchPage -> chartsComp "Renders bar comparison chart" ""
+        matchPage -> dbComp "Queries fct_match_summary_synced" ""
+        filtersComp -> dbComp "Queries dimension tables" ""
+        dbComp -> configComp "Reads Lakebase connection settings" ""
+        dbComp -> lakebase "Connects via OAuth M2M, parameterized SQL" "psycopg2, SSL"
+
         coach -> streamlit "Views shot maps, pass networks, match dashboards" "HTTPS"
-        scout -> streamlit "Uses radar charts and player similarity search" "HTTPS"
+        scout -> streamlit "Uses radar charts and player comparison" "HTTPS"
         dataScientist -> catalog "Runs queries and builds models against Delta tables" "Databricks SQL, Notebooks"
         platformEngineer -> aws "Manages infrastructure" "Terraform, AWS Console"
     }
@@ -120,6 +153,11 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         }
 
         component dbt "dbtComponents" {
+            include *
+            autoLayout
+        }
+
+        component streamlit "StreamlitComponents" {
             include *
             autoLayout
         }

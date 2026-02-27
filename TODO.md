@@ -98,16 +98,21 @@ Quick-reference action items. Full details in [PLAN.md](PLAN.md).
 - [x] ~~Rename terminal CTE in `fct_tracking_frames.sql`~~ — `with_velocity` → `final`
 - [x] ~~Delete unused macros~~ — `flatten_json.sql` (4 macros, all dead code)
 
-## Phase 5 — Streamlit Application
+## Phase 5 — Streamlit Application (Complete)
 
-- [ ] Implement `src/streamlit_app/db.py` — OAuth M2M connection to Lakebase
-- [ ] **Security:** Use Databricks App auth — never deploy without authentication
-- [ ] **Security:** Parameterized queries only — never concatenate user input into SQL
-- [ ] Implement pages: shots, passes, player_radar, match_summary, pitch_control, player_search
-- [ ] Implement components: filters, charts (mplsoccer wrappers)
-- [ ] Deploy as Databricks App
-- [ ] End-to-end smoke test
-- [ ] Run `/final-review` + final C4 diagram update
+- [x] ~~Implement `src/streamlit_app/config.py`~~ — Pydantic BaseSettings with env var binding, identifier validation
+- [x] ~~Implement `src/streamlit_app/db.py`~~ — OAuth M2M via SDK + REST fallback, JWT subject extraction, parameterized queries
+- [x] ~~**Security:** Databricks App auth~~ — OAuth M2M with 55-min token refresh, SSL required, `verify=True`
+- [x] ~~**Security:** Parameterized queries only~~ — all queries use `%s` placeholders, table names validated via `_IDENTIFIER_RE`
+- [x] ~~Implement components~~ — `filters.py` (5 cascading widgets), `pitch.py` (mplsoccer wrappers), `charts.py` (radar + bar)
+- [x] ~~Implement pages~~ — Shot Map, Pass Map, Player Radar, Match Summary (4 pages with `st.navigation`)
+- [x] ~~Implement `app.py`~~ — entry point with `st.navigation`, dark theme, sidebar branding
+- [x] ~~Unit tests~~ — 27 new tests (config: 6, db: 10, components: 11), total 82/82 passing
+- [x] ~~Quality gates~~ — ruff (0 violations), pyright (0 errors), pytest (82/82 pass)
+- [x] ~~Deploy as Databricks App~~ — `app.yaml` manifest, port 8000, PYTHONPATH=src
+- [x] ~~Fix Lakebase connectivity~~ — PG schema discovery (`dev_gold`), SP role creation + grants (USE CATALOG, USE SCHEMA, SELECT, PG USAGE + SELECT)
+- [x] ~~End-to-end smoke test~~ — all 4 pages loading, filters cascading, visualizations rendering
+- [x] ~~Run `/final-review` + final C4 diagram update~~
 
 ## Future Data Sources
 

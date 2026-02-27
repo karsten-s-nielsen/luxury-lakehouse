@@ -1,0 +1,12 @@
+command: ['streamlit', 'run', 'src/streamlit_app/app.py', '--server.port', '8000', '--server.address', '0.0.0.0']
+env:
+  - name: LAKEBASE_HOST
+    value: 'instance-f9ffeb4b-6f4b-4fd6-9287-335d745ce173.database.cloud.databricks.com'
+  - name: LAKEBASE_INSTANCE_NAME
+    value: 'soccer-analytics-lakebase-dev'
+  - name: GOLD_SCHEMA
+    value: 'dev_gold'
+  - name: STREAMLIT_GATHER_USAGE_STATS
+    value: 'false'
+  - name: PYTHONPATH
+    value: 'src'

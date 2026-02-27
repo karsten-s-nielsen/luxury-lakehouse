@@ -1,6 +1,6 @@
 # Databricks Lakebase Implementation Plan — Soccer Analytics Platform
 
-> **Status**: Phase 4 complete — 8 gold tables synced to Lakebase PostgreSQL via Zero-ETL Synced Tables
+> **Status**: Phase 5 complete — Streamlit dashboard deployed as Databricks App with 4 pages, backed by Lakebase PostgreSQL via OAuth M2M
 > **Last Updated**: 2026-02-28
 > **Repository**: [`karstenskyt/luxury-lakehouse`](https://github.com/karstenskyt/luxury-lakehouse)
 > **Scope**: Document 3 ("3_AWS Lake House.pdf") — Databricks Lakebase serverless architecture
@@ -1013,76 +1013,89 @@ Gold Delta Table (lakehouse)
 
 ---
 
-## 11. Phase 5 — Application Deployment (Streamlit)
+## 11. Phase 5 — Application Deployment (Streamlit) — COMPLETE
 
-### 5.1 — Streamlit App Architecture
+### 5.1 — Streamlit App Architecture (Implemented)
 
 ```
 src/streamlit_app/
-├── app.py              # Entrypoint: st.set_page_config, navigation
-├── db.py               # Connection pool: OAuth M2M → Lakebase PostgreSQL
+├── app.py              # Entrypoint: st.navigation, page routing, sidebar branding
+├── config.py           # Pydantic BaseSettings: env vars, identifier validation
+├── db.py               # OAuth M2M token management, parameterized query execution
 ├── pages/
-│   ├── shots.py          # Shot map + xG scatter (from Ch 01, 02)
-│   ├── passes.py         # Pass network + progressive passes (from Ch 01, 09)
-│   ├── player_radar.py   # Radar chart comparison (from Ch 03)
-│   ├── match_summary.py  # Match dashboard (from Ch 05)
-│   ├── pitch_control.py  # Voronoi + tracking viz (from Ch 06, 08)
-│   └── player_search.py  # pgvector: "Find players like X" similarity search
+│   ├── shot_map.py       # Shot map + xG scatter (mplsoccer half-pitch)
+│   ├── pass_map.py       # Pass arrows on full pitch with progressive highlighting
+│   ├── player_radar.py   # Radar chart comparing 1-3 players on per-90 metrics
+│   └── match_summary.py  # Scorecard, xG comparison, horizontal bar chart
 └── components/
-    ├── filters.py      # Sidebar: competition, season, team, player selects
-    └── charts.py       # mplsoccer wrappers returning matplotlib figures
+    ├── filters.py      # 5 cascading filter widgets backed by Lakebase dimension tables
+    ├── pitch.py        # mplsoccer wrappers (shot scatter, pass arrows)
+    └── charts.py       # matplotlib wrappers (radar, bar comparison)
 ```
 
-### 5.2 — Authentication: OAuth M2M (No Passwords)
+Supporting files:
+- `app.yaml` — Databricks Apps manifest (port 8000, PYTHONPATH=src, env vars)
+- `requirements.txt` — Python dependencies for Databricks Apps deployment
+- `.streamlit/config.toml` — Dark theme (#1a1a2e), XSRF protection
 
-Per Document 3, the Streamlit app deployed as a Databricks App gets a **service principal identity** with automatic OAuth token rotation:
+### 5.2 — Authentication: OAuth M2M (Implemented)
+
+The app runs as a Databricks App with an auto-assigned **service principal** (`be66af99-5296-4fd9-887a-c081bce38bfa`). Token generation uses the SDK with a REST API fallback for older runtimes:
 
 ```python
-# src/streamlit_app/db.py (conceptual)
-from databricks.sdk import WorkspaceClient
-import psycopg2
-
-def get_connection():
-    """Connect to Lakebase using OAuth M2M — no hardcoded credentials."""
-    w = WorkspaceClient()  # Inherits service principal from Databricks App
-    token = w.tokens.create(...)  # Auto-rotated OAuth token
-
-    return psycopg2.connect(
-        host=LAKEBASE_HOST,
-        port=5432,
-        dbname="soccer_analytics",
-        user="token",
-        password=token.access_token,
-        sslmode="require"
+# db.py — actual implementation pattern
+ws = WorkspaceClient()  # Inherits SP identity from Databricks App runtime
+try:
+    credential = ws.database.generate_database_credential(
+        instance_names=[settings.lakebase_instance_name],
     )
+    token = credential.token
+except AttributeError:
+    # REST fallback for older SDK versions
+    token = _generate_credential_via_rest(ws, instance_name)
+
+pg_user = _extract_jwt_subject(token)  # JWT 'sub' claim = PG role name
+conn = psycopg2.connect(
+    host=settings.lakebase_host, port=5432,
+    database="databricks_postgres", user=pg_user, password=token,
+    sslmode="require",
+)
 ```
 
-### 5.3 — Mapping Soccermatics Scripts → Streamlit Pages
+**Key learnings from deployment:**
+- PG username is the JWT `sub` claim (SP UUID), not `"token"` or `"databricks"`
+- Lakebase PG database is `databricks_postgres` (Unity Catalog catalog does NOT map to a PG database)
+- Unity Catalog schema maps directly to a PG schema (e.g. `dev_gold`)
+- PG-level `GRANT USAGE ON SCHEMA` and `GRANT SELECT ON ALL TABLES` required in addition to UC grants
 
-| Streamlit Page | Source Chapter(s) | Key Visualization | Data Source (Lakebase table) |
-|----------------|-------------------|-------------------|-----------------------------|
-| Shot Map | Ch 01 `plot_PlottingShots.py`, Ch 02 `plot_xGModelFit.py` | mplsoccer pitch + shot scatter colored by xG | `fct_shots` |
-| Pass Network | Ch 01 `plot_PassNetworks.py` | Node-edge graph on pitch | `fct_passes`, `dim_players` |
-| Player Radar | Ch 03 `plot_RadarPlot.py` | Radar chart with per-90 stats | `fct_player_stats` |
-| Match Summary | Ch 05 `plot_simulatematch.py` | xG timeline, possession bar | `fct_match_summary` |
-| Heat Map | Ch 01 `plot_PassHeatMap.py` | 2D kernel density on pitch | `fct_passes` |
-| Pitch Control | Ch 06 `plot_VoronoiDiagrams.py` | Voronoi tessellation | `fct_tracking_frames` (via Databricks SQL, not Lakebase) |
-| Player Similarity | pgvector embeddings (new) | "Find players like X" nearest-neighbor search | `fct_player_embeddings` (pgvector cosine distance) |
+### 5.3 — Implemented Pages
 
-### 5.4 — Security
+| Streamlit Page | Key Visualization | Data Source (Lakebase table) |
+|----------------|-------------------|-----------------------------|
+| Shot Map | mplsoccer half-pitch, shots sized by xG, colored by outcome | `fct_shots_synced` JOIN `dim_players_synced` |
+| Pass Map | mplsoccer full pitch, arrows colored by progressive/complete/incomplete | `fct_passes_synced` |
+| Player Radar | mplsoccer Radar, 1-3 players, 6 configurable per-90 metrics | `fct_player_stats_synced` JOIN `dim_players_synced` |
+| Match Summary | Scorecard + xG metrics + horizontal bar chart (8 stat categories) | `fct_match_summary_synced` |
+
+**Deferred pages** (future enhancement): Pitch Control (Voronoi), Player Similarity (pgvector), Heat Map, Pass Network.
+
+### 5.4 — Security (Implemented)
 
 | Control | Implementation |
 |---------|---------------|
-| Authentication | Databricks App auth (OAuth M2M) — app inherits service principal identity |
-| SQL injection prevention | All queries parameterized via `psycopg2` `%s` placeholders — never string concatenation |
-| Input validation | All filter inputs (competition, team, player) validated against allowed values from dimension tables |
-| Session security | No credentials or PII stored in `st.session_state`; tokens auto-rotated by Databricks SDK |
+| Authentication | Databricks App OAuth M2M — SP identity with 55-min token refresh cycle |
+| SQL injection prevention | All queries use `%s` parameterized placeholders; table names validated via `_IDENTIFIER_RE` |
+| Input validation | Filter inputs sourced from dimension table queries; identifiers regex-validated |
+| SSL | `sslmode="require"` on all Lakebase connections |
+| Session security | No credentials or PII in `st.session_state`; tokens cached in module-level dict with TTL |
 
-### 5.5 — Deployment
+### 5.5 — Deployment (Implemented)
 
-```hcl
-# Deployed as Databricks App via Terraform (Phase 1.4)
-# No Docker, no ECS, no EC2 — fully serverless
+Deployed via `databricks apps deploy` with workspace source code sync. No Docker, no ECS — fully serverless on Databricks Apps runtime (Python 3.11).
+
+```yaml
+# app.yaml
+command: ['streamlit', 'run', 'src/streamlit_app/app.py', '--server.port', '8000', '--server.address', '0.0.0.0']
 ```
 
 ---
