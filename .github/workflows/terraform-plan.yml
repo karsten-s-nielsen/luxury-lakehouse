@@ -1,6 +1,10 @@
 name: Terraform Plan
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "terraform/**"
   pull_request:
     paths:
       - "terraform/**"
