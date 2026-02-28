@@ -198,6 +198,7 @@ Core POC upgrade — moved from Provisioned (PG 16) to the GA Autoscaling tier (
 
 ### Phase 7 — Cross-Source Player Entity Resolution (PLAN 14.2)
 
+- [ ] **Prerequisite:** Request open-source license from `parmacalcio1913/players-matcher` — repo is currently unlicensed (all rights reserved). Cannot legally use without explicit permission.
 - [ ] Integrate [`parmacalcio1913/players-matcher`](https://github.com/parmacalcio1913/players-matcher) — fuzzy-match players across StatsBomb, Metrica, and Wyscout into a canonical ID
 - [ ] Build `int_player_xref` mapping — dbt intermediate model or seed linking source-specific IDs
 - [ ] Refactor `dim_players` — merge cross-source records using the mapping

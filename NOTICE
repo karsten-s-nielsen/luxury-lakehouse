@@ -1,0 +1,26 @@
+(Right! Luxury!) Lakehouse
+Copyright 2026 Karsten S. Nielsen
+
+This product includes software developed by Karsten S. Nielsen.
+
+Third-Party Data Attribution
+----------------------------
+
+Match event data provided by StatsBomb (https://statsbomb.com).
+Data sourced from the StatsBomb Open Data repository under the
+Creative Commons Attribution 4.0 International (CC-BY 4.0) license.
+See: https://github.com/statsbomb/open-data
+
+Optical tracking data provided by Metrica Sports sample-data repository.
+See: https://github.com/metrica-sports/sample-data
+
+Event stream data provided by the Wyscout public dataset on Figshare.
+See: https://figshare.com/collections/Soccer_match_event_dataset/4415000
+
+Mathematical References
+-----------------------
+
+The shot angle geometry calculation (dbt_project/macros/shot_angle.sql)
+references "The Geometry of Shooting" from Soccermatics by David Sumpter.
+The implementation is an independent SQL translation of a well-known
+trigonometric formula, not a derivative of any source code.
