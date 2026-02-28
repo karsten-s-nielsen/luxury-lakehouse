@@ -203,7 +203,10 @@ def execute_query(query: str, params: tuple[Any, ...] | None = None) -> pd.DataF
             return pd.DataFrame(rows) if rows else pd.DataFrame()
     except psycopg2.Error:
         logger.exception("Database query failed")
+        pool.putconn(conn, close=True)
+        conn = None  # prevent double-return in finally
         msg = "Database query failed — please try again or contact support."
         raise RuntimeError(msg) from None
     finally:
-        pool.putconn(conn)
+        if conn is not None:
+            pool.putconn(conn)

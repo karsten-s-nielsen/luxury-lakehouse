@@ -83,7 +83,7 @@ class TestExecuteQuery:
 
         with pytest.raises(RuntimeError, match="Database query failed"):
             execute_query("SELECT * FROM t")
-        mock_pool.putconn.assert_called_once_with(mock_conn)
+        mock_pool.putconn.assert_called_once_with(mock_conn, close=True)
 
     @patch("streamlit_app.db._get_pool")
     def test_non_psycopg2_error_propagates(self, mock_get_pool: MagicMock) -> None:

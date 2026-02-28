@@ -128,7 +128,7 @@ Full report: [SECURITY.md](SECURITY.md) — `mad-skills:security-audit` v1.5.0
 - [x] ~~**Medium:** Add UUID format assertion on JWT `sub` claim (M-4)~~
 - [x] ~~**Medium:** Remove `WRITE_VOLUME` from ingestion SP on libs volume (M-8)~~
 - [ ] **Medium:** Migrate Terraform auth from PAT to OAuth M2M (M-6)
-- [ ] **Medium:** Add `databricks_ip_access_list` for workspace API (M-7)
+- [x] ~~**Medium:** Add `databricks_ip_access_list` for workspace API (M-7)~~ — accepted risk (requires static IPs)
 - [x] ~~**Medium:** Verify Databricks Apps proxy injects security headers (M-9)~~ — HSTS + nosniff confirmed, app behind OAuth
 - [x] ~~**Medium:** Move hardcoded infra IDs to env vars (M-10)~~
 - [x] ~~**Low:** Document `WHERE {where}` pattern constraints (L-1)~~
@@ -144,7 +144,8 @@ Full report: [SECURITY.md](SECURITY.md) — `mad-skills:security-audit` v1.5.0
 - [x] ~~**Low:** Fix `uv sync --frozen` in dbt CI (L-12)~~
 - [x] ~~**Low:** Collapse Terraform plan output in PR comments (L-13)~~ — `<details>` wrap
 - [x] ~~**Low:** Log REST credential HTTP errors (L-14)~~ — `logger.error` before raise
-- [ ] **Low:** 2 remaining hardening items (L-5, L-10) — see SECURITY.md
+- [x] ~~**Low:** Token memory zeroing (L-5)~~ — accepted risk (Python strings immutable)
+- [ ] **Low:** 1 remaining hardening item (L-10) — see SECURITY.md
 
 ## Final Review (2026-02-27)
 

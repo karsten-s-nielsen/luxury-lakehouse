@@ -71,9 +71,9 @@ def page() -> None:
     # xG comparison
     col_hxg, col_axg = st.columns(2)
     with col_hxg:
-        st.metric("Home xG", f"{m.get('home_xg', 0):.2f}")
+        st.metric("Home xG", f"{float(m.get('home_xg', 0) or 0):.2f}")
     with col_axg:
-        st.metric("Away xG", f"{m.get('away_xg', 0):.2f}")
+        st.metric("Away xG", f"{float(m.get('away_xg', 0) or 0):.2f}")
 
     st.divider()
 
