@@ -5,9 +5,11 @@ on:
     branches: [main]
     paths:
       - "dbt_project/**"
+      - ".github/workflows/dbt-ci.yml"
   pull_request:
     paths:
       - "dbt_project/**"
+      - ".github/workflows/dbt-ci.yml"
 
 permissions:
   contents: read
@@ -27,14 +29,27 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --extra dbt
 
+      - name: Create CI profiles.yml
+        working-directory: dbt_project
+        run: |
+          cat > profiles.yml << 'PROFILES'
+          databricks:
+            target: ci
+            outputs:
+              ci:
+                type: databricks
+                catalog: soccer_analytics
+                schema: ci
+                host: "ci-placeholder.cloud.databricks.com"
+                http_path: "/sql/1.0/warehouses/ci-placeholder"
+                token: "dapi-ci-placeholder"
+                threads: 1
+          PROFILES
+
       - name: dbt deps
         working-directory: dbt_project
-        run: uv run dbt deps
+        run: uv run dbt deps --profiles-dir .
 
       - name: dbt parse (validate SQL)
         working-directory: dbt_project
-        run: uv run dbt parse
-        env:
-          DBT_PROFILES_DIR: .
-          # CI target uses in-memory DuckDB for syntax validation only
-          # Full build against Databricks happens in staging/prod
+        run: uv run dbt parse --profiles-dir .

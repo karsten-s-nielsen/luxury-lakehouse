@@ -5,9 +5,11 @@ on:
     branches: [main]
     paths:
       - "terraform/**"
+      - ".github/workflows/terraform-plan.yml"
   pull_request:
     paths:
       - "terraform/**"
+      - ".github/workflows/terraform-plan.yml"
 
 env:
   TF_WORKING_DIR: terraform/environments/dev
@@ -15,6 +17,7 @@ env:
 
 permissions:
   contents: read
+  id-token: write
   pull-requests: write
 
 jobs:
