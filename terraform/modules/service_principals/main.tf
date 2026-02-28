@@ -46,6 +46,20 @@ resource "databricks_service_principal" "terraform_ci" {
   active       = true
 }
 
+# ── Workspace Admin for CI SP ──────────────────────────────────────────────
+# terraform plan needs to refresh all managed resources (service principals
+# via SCIM, catalogs, SQL endpoints, etc.).  Workspace admin is the minimum
+# role that grants read access to everything terraform manages.
+
+data "databricks_group" "admins" {
+  display_name = "admins"
+}
+
+resource "databricks_group_member" "terraform_ci_admin" {
+  group_id  = data.databricks_group.admins.id
+  member_id = databricks_service_principal.terraform_ci.id
+}
+
 resource "databricks_service_principal_federation_policy" "github_actions" {
   provider = databricks.account
 
