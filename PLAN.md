@@ -1,6 +1,6 @@
 # Databricks Lakebase Implementation Plan — Soccer Analytics Platform
 
-> **Status**: Phase 5.5 complete — Lakebase migrated to Autoscaling (PG 17, scale-to-zero). Streamlit dashboard deployed as Databricks App with 4 pages, backed by Lakebase PostgreSQL via OAuth M2M
+> **Status**: Phase 5.6 complete — IAM OIDC + OAuth M2M + KMS hardening applied. Lakebase on Autoscaling (PG 17, scale-to-zero). Streamlit dashboard deployed as Databricks App with 4 pages, backed by Lakebase PostgreSQL via OAuth M2M
 > **Last Updated**: 2026-02-28
 > **Repository**: [`karstenskyt/luxury-lakehouse`](https://github.com/karstenskyt/luxury-lakehouse)
 > **Scope**: Document 3 ("3_AWS Lake House.pdf") — Databricks Lakebase serverless architecture
@@ -1124,7 +1124,7 @@ command: ['streamlit', 'run', 'src/streamlit_app/app.py', '--server.port', '8000
 
 | Concern | Implementation |
 |---------|---------------|
-| Secrets management | No hardcoded credentials; OAuth M2M for app, Terraform vars for IaC |
+| Secrets management | No hardcoded credentials; OAuth M2M for app + Terraform; GitHub OIDC federation for CI (zero secrets) |
 | Network | Private endpoints where available; TLS everywhere; HTTPS-only for all data fetches |
 | IAM | Least-privilege; separate service principals per workload |
 | Data classification | Open-source data only (no PII); still apply Unity Catalog ACLs |
@@ -1281,6 +1281,30 @@ All planning questions have been answered. This section records the decisions fo
 | GitHub repo name | Decided: `karstenskyt/luxury-lakehouse` | No — resolved |
 | Terraform state backend validation | Exists, needs connectivity test | Phase 0 task |
 | Databricks Terraform provider Lakebase support | Must verify at implementation time | R1 in Risk Register |
+
+---
+
+## 13.5 Phase 5.6 — IAM OIDC + OAuth M2M + KMS Hardening (COMPLETE)
+
+Resolves three open security findings before the repo goes public:
+
+| Finding | Description | Resolution |
+|---------|-------------|------------|
+| **M-6** | Long-lived PAT as Terraform authenticator | Migrated to OAuth M2M (`client_id`/`client_secret`) for local dev; GitHub OIDC federation for CI |
+| **L-10** | S3 state encryption uses default AWS-managed key | KMS CMK with automatic rotation + S3 Bucket Key (`terraform/modules/state_kms/`) |
+| **CI OIDC** | `terraform-plan.yml` references non-existent IAM OIDC role | Created `terraform/modules/github_oidc/` — IAM OIDC provider + role scoped to `repo:karstenskyt/luxury-lakehouse:*` |
+
+**New Terraform modules:**
+- `terraform/modules/state_kms/` — KMS CMK with automatic rotation, S3 Bucket Key for cost optimization
+- `terraform/modules/github_oidc/` — AWS IAM OIDC provider + scoped role (S3 state read/write/lock, KMS encrypt/decrypt, IAM read for plan)
+
+**Modified resources:**
+- `terraform/modules/service_principals/` — added Terraform CI SP with: `databricks_service_principal_federation_policy` (GitHub OIDC, `subject_claim = "repository"` for trigger-agnostic matching), workspace admin group membership, account admin role (federation policy + rule set reads)
+- `terraform/environments/dev/` — provider migrated from `token` to `client_id`/`client_secret`, new module calls wired, `databricks_grant` for CI SP catalog access (`ALL_PRIVILEGES`)
+- `.github/workflows/terraform-plan.yml` — `secrets.*` → `vars.*`, PAT → OIDC, added `DATABRICKS_AUTH_TYPE: github-oidc`
+- `backend.tf` — removed hardcoded `profile`, added `kms_key_id` with CMK ARN (applied via `terraform init -reconfigure`)
+
+**Bootstrap sequence:** Apply locally with OAuth M2M → capture outputs → update `backend.tf` with KMS ARN → `terraform init -reconfigure` → set 3 GitHub repo variables → CI is fully secretless.
 
 ---
 

@@ -42,8 +42,23 @@ provider "aws" {
 }
 
 provider "databricks" {
-  host  = var.databricks_host
-  token = var.databricks_token
+  host          = var.databricks_host
+  client_id     = var.databricks_client_id != "" ? var.databricks_client_id : null
+  client_secret = var.databricks_client_secret != "" ? var.databricks_client_secret : null
+}
+
+# Account-level provider for resources like federation policies that
+# require the accounts API endpoint (not the workspace API).
+# Auth: uses CLI profile "ACCOUNT" locally (databricks auth login --host
+# https://accounts.cloud.databricks.com --account-id <id> --profile ACCOUNT).
+# In CI, DATABRICKS_AUTH_TYPE=github-oidc provides account-level auth.
+provider "databricks" {
+  alias         = "account"
+  host          = "https://accounts.cloud.databricks.com"
+  account_id    = var.databricks_account_id
+  client_id     = var.databricks_client_id != "" ? var.databricks_client_id : null
+  client_secret = var.databricks_client_secret != "" ? var.databricks_client_secret : null
+  profile       = var.databricks_client_id != "" ? null : "ACCOUNT"
 }
 
 # ── Module: Workspace ────────────────────────────────────────────────────────
@@ -61,8 +76,15 @@ module "workspace" {
 module "service_principals" {
   source = "../../modules/service_principals"
 
-  environment = var.environment
-  account_id  = var.databricks_account_id
+  providers = {
+    databricks         = databricks
+    databricks.account = databricks.account
+  }
+
+  environment       = var.environment
+  account_id        = var.databricks_account_id
+  github_repository = "karstenskyt/luxury-lakehouse"
+  databricks_host   = var.databricks_host
 }
 
 # ── Module: Catalog (Medallion Schemas) ──────────────────────────────────────
@@ -136,4 +158,37 @@ module "app" {
 
   environment      = var.environment
   sql_warehouse_id = module.sql_warehouse.warehouse_id
+}
+
+# ── CI Service Principal: Catalog Access ───────────────────────────────────
+# The terraform_ci SP needs ALL_PRIVILEGES on the catalog so terraform plan
+# can read catalog, schema, and grant resources.  This is a composition-level
+# grant because the SP and catalog come from separate modules.
+
+resource "databricks_grant" "ci_sp_catalog" {
+  catalog    = module.workspace.catalog_name
+  principal  = module.service_principals.terraform_ci_sp_application_id
+  privileges = ["ALL_PRIVILEGES"]
+}
+
+# ── Module: State KMS ──────────────────────────────────────────────────────
+# Customer Managed Key for Terraform state encryption in S3 (L-10).
+
+module "state_kms" {
+  source = "../../modules/state_kms"
+
+  environment  = var.environment
+  state_bucket = "karstenskyt-terraform-state"
+}
+
+# ── Module: GitHub OIDC ──────────────────────────────────────────────────────
+# IAM OIDC provider + scoped role for secretless GitHub Actions CI.
+
+module "github_oidc" {
+  source = "../../modules/github_oidc"
+
+  environment       = var.environment
+  github_repository = "karstenskyt/luxury-lakehouse"
+  state_bucket      = "karstenskyt-terraform-state"
+  kms_key_arn       = module.state_kms.kms_key_arn
 }

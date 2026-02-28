@@ -11,8 +11,8 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         statsbomb = softwareSystem "StatsBomb Open Data" "REST API and GitHub JSON providing match events, lineups, and 360-degree tracking context for ~3,000 matches" "External"
         metrica = softwareSystem "Metrica Sports" "GitHub CSV repository providing optical tracking data at 25 frames per second for sample matches" "External"
         wyscout = softwareSystem "Wyscout Public Dataset" "JSON event stream dataset covering the top 5 European leagues (2017-18 season)" "External"
-        github = softwareSystem "GitHub" "Source control and CI/CD pipeline via GitHub Actions" "External"
-        aws = softwareSystem "AWS" "Underlying cloud infrastructure providing S3 storage, IAM, and networking for the Databricks workspace" "External"
+        github = softwareSystem "GitHub" "Source control and CI/CD pipeline via GitHub Actions with OIDC federation for secretless authentication to AWS and Databricks" "External"
+        aws = softwareSystem "AWS" "Underlying cloud infrastructure providing S3 storage (KMS CMK-encrypted state), IAM OIDC provider, and networking for the Databricks workspace" "External"
 
         // --- Main System ---
         platform = softwareSystem "Soccer Analytics Platform" "Serverless soccer analytics platform that ingests open-source match data, transforms it through a medallion architecture, and serves interactive dashboards for coaches and analysts" {
@@ -63,7 +63,8 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         platform -> metrica "Fetches optical tracking CSV data" "HTTPS"
         platform -> wyscout "Fetches event stream JSON data" "HTTPS"
         platform -> aws "Runs on" "Databricks on AWS"
-        github -> platform "Deploys infrastructure and code changes" "GitHub Actions, Terraform"
+        github -> platform "Deploys infrastructure and code changes" "GitHub Actions OIDC, Terraform"
+        github -> aws "Authenticates via OIDC federation" "IAM AssumeRoleWithWebIdentity"
 
         // --- Relationships: Container level ---
         ingestion -> statsbomb "Fetches competitions, matches, events, lineups, 360 data" "statsbombpy, HTTPS"

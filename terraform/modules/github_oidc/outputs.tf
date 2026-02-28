@@ -1,13 +1,13 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# Module: Service Principals — Outputs
+# Module: GitHub OIDC — Outputs
 # ──────────────────────────────────────────────────────────────────────────────
 
-output "ingestion_sp_application_id" {
-  description = "Application (client) ID of the ingestion service principal"
-  value       = databricks_service_principal.ingestion.application_id
+output "role_arn" {
+  description = "ARN of the IAM role for GitHub Actions to assume via OIDC"
+  value       = aws_iam_role.github_actions.arn
 }
 
-output "terraform_ci_sp_application_id" {
-  description = "Application (client) ID of the Terraform CI service principal"
-  value       = databricks_service_principal.terraform_ci.application_id
+output "oidc_provider_arn" {
+  description = "ARN of the GitHub OIDC identity provider in AWS IAM"
+  value       = aws_iam_openid_connect_provider.github.arn
 }

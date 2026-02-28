@@ -24,10 +24,17 @@ variable "databricks_account_id" {
   type        = string
 }
 
-variable "databricks_token" {
-  description = "Databricks personal access token for authentication"
+variable "databricks_client_id" {
+  description = "Databricks service principal client ID (OAuth M2M). Empty during bootstrap — falls back to DATABRICKS_TOKEN env var."
+  type        = string
+  default     = ""
+}
+
+variable "databricks_client_secret" {
+  description = "Databricks SP client secret (empty string in CI — OIDC provides auth)"
   type        = string
   sensitive   = true
+  default     = ""
 }
 
 variable "notification_emails" {

@@ -1,13 +1,15 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# Module: Service Principals — Outputs
+# Module: State KMS — Input Variables
 # ──────────────────────────────────────────────────────────────────────────────
 
-output "ingestion_sp_application_id" {
-  description = "Application (client) ID of the ingestion service principal"
-  value       = databricks_service_principal.ingestion.application_id
+variable "environment" {
+  description = "Deployment environment (dev, staging, prod)"
+  type        = string
+  default     = "dev"
 }
 
-output "terraform_ci_sp_application_id" {
-  description = "Application (client) ID of the Terraform CI service principal"
-  value       = databricks_service_principal.terraform_ci.application_id
+variable "state_bucket" {
+  description = "Name of the S3 bucket holding Terraform remote state"
+  type        = string
+  default     = "karstenskyt-terraform-state"
 }

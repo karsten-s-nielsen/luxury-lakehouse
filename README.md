@@ -42,7 +42,7 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 | **Synchronization** | Lakeflow Synced Tables | Zero-ETL continuous sync from Gold → Lakebase |
 | **Serving** | Lakebase PostgreSQL 17 (Autoscaling) | Sub-10ms OLTP queries, native pgvector, scale-to-zero |
 | **Application** | Streamlit on Databricks Apps | Interactive dashboards with mplsoccer visualizations |
-| **Security** | Service Principals + UC Grants | Least-privilege identities for ingestion and app |
+| **Security** | OAuth M2M + OIDC Federation + KMS | Zero-secret CI, least-privilege SPs, encrypted state |
 | **Infrastructure** | Terraform + Databricks Provider | Everything as code |
 
 ## Data Sources
@@ -82,7 +82,7 @@ luxury-lakehouse/
 
 ## Status
 
-**Phase 5.5: Lakebase Autoscaling Migration Complete** — Migrated from Provisioned (PG 16) to Autoscaling (PG 17) with true scale-to-zero and usage-based billing. Streamlit dashboard deployed as a Databricks App with 4 pages, backed by Lakebase PostgreSQL via OAuth M2M. See [PLAN.md](PLAN.md) for the full implementation plan.
+**Phase 5.6: IAM OIDC + OAuth M2M + KMS Hardening Complete** — Terraform auth migrated from PAT to OAuth M2M, GitHub Actions OIDC federation (zero secrets in CI), S3 state encryption upgraded to KMS CMK with automatic rotation. See [PLAN.md](PLAN.md) for the full implementation plan.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -93,6 +93,7 @@ luxury-lakehouse/
 | 4 | Zero-ETL Synchronization (Synced Tables → Lakebase) | Complete |
 | 5 | Application Deployment (Streamlit) | Complete |
 | 5.5 | Lakebase Autoscaling + PG 17 Migration | Complete |
+| 5.6 | IAM OIDC + OAuth M2M + KMS Hardening | Complete |
 
 ## Tech Stack
 

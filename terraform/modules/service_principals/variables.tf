@@ -18,3 +18,14 @@ variable "deployer_user_names" {
   type        = list(string)
   default     = []
 }
+
+variable "github_repository" {
+  description = "GitHub repository in org/repo format for OIDC federation"
+  type        = string
+  default     = "karstenskyt/luxury-lakehouse"
+}
+
+variable "databricks_host" {
+  description = "Databricks workspace URL (e.g. https://<workspace>.cloud.databricks.com) — used as OIDC audience for workspace-level federation"
+  type        = string
+}

@@ -14,6 +14,13 @@ on:
 env:
   TF_WORKING_DIR: terraform/environments/dev
   AWS_REGION: us-east-1
+  TF_VAR_databricks_host: ${{ vars.DATABRICKS_HOST }}
+  TF_VAR_databricks_client_id: ${{ vars.DATABRICKS_CLIENT_ID }}
+  TF_VAR_databricks_account_id: ${{ vars.DATABRICKS_ACCOUNT_ID }}
+  # No TF_VAR_databricks_client_secret — empty default triggers OIDC fallback
+  DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+  DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+  DATABRICKS_AUTH_TYPE: github-oidc
 
 permissions:
   contents: read
@@ -29,17 +36,21 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
-          terraform_version: "~> 1.9"
+          terraform_version: "~> 1.10"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c # v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform init
+
+      - name: Terraform Format Check
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform fmt -check -recursive -diff
 
       - name: Terraform Validate
         working-directory: ${{ env.TF_WORKING_DIR }}
@@ -48,10 +59,6 @@ jobs:
       - name: Terraform Plan
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform plan -no-color -out=tfplan
-        env:
-          TF_VAR_databricks_host: ${{ secrets.DATABRICKS_HOST }}
-          TF_VAR_databricks_token: ${{ secrets.DATABRICKS_TOKEN }}
-          TF_VAR_databricks_account_id: ${{ secrets.DATABRICKS_ACCOUNT_ID }}
 
       - name: Comment Plan on PR
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7

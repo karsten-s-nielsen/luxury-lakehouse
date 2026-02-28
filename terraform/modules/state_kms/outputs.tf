@@ -1,13 +1,13 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# Module: Service Principals — Outputs
+# Module: State KMS — Outputs
 # ──────────────────────────────────────────────────────────────────────────────
 
-output "ingestion_sp_application_id" {
-  description = "Application (client) ID of the ingestion service principal"
-  value       = databricks_service_principal.ingestion.application_id
+output "kms_key_arn" {
+  description = "ARN of the KMS key used for Terraform state encryption"
+  value       = aws_kms_key.terraform_state.arn
 }
 
-output "terraform_ci_sp_application_id" {
-  description = "Application (client) ID of the Terraform CI service principal"
-  value       = databricks_service_principal.terraform_ci.application_id
+output "kms_key_alias" {
+  description = "Alias of the KMS key (for human-friendly reference)"
+  value       = aws_kms_alias.terraform_state.name
 }

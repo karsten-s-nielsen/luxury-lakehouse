@@ -53,3 +53,18 @@ output "app_sp_application_id" {
   description = "Application ID of the app's auto-provisioned service principal"
   value       = module.app.service_principal_client_id
 }
+
+output "github_actions_role_arn" {
+  description = "IAM role ARN for GitHub Actions OIDC authentication"
+  value       = module.github_oidc.role_arn
+}
+
+output "state_kms_key_arn" {
+  description = "KMS key ARN used for Terraform state encryption"
+  value       = module.state_kms.kms_key_arn
+}
+
+output "terraform_ci_sp_application_id" {
+  description = "Application ID of the Terraform CI service principal"
+  value       = module.service_principals.terraform_ci_sp_application_id
+}

@@ -11,10 +11,10 @@
 
 - **Total findings:** 31
 - **Critical:** 0 | **High:** 1 | **Medium:** 10 | **Low:** 16 | **Info:** 4
-- **Resolved:** 26 (7 initial + 9 hardening round + 7 second hardening round + 3 accepted risk)
-- **Remaining:** 5
+- **Resolved:** 28 (7 initial + 9 hardening round + 7 second hardening round + 3 accepted risk + 2 IAM/KMS hardening)
+- **Remaining:** 3
 
-The codebase has a strong security foundation with zero critical vulnerabilities. The single High finding (no secret scanning) is a preventive control gap. Medium findings are defense-in-depth hardening items — no exploitable attack paths were identified in the current deployment.
+The codebase has a strong security foundation with zero critical vulnerabilities. All medium findings are resolved — Terraform auth migrated from PAT to OAuth M2M with GitHub OIDC federation (M-6), and S3 state encryption upgraded to a Customer Managed Key with automatic rotation (L-10).
 
 ---
 
@@ -45,6 +45,8 @@ The codebase has a strong security foundation with zero critical vulnerabilities
 | R-21 | Low | `uv sync` without `--frozen` in dbt CI (L-12) | Fixed: `uv sync --frozen` in `.github/workflows/dbt-ci.yml` |
 | R-22 | Low | Terraform plan output exposed in PR comments (L-13) | Fixed: wrapped in `<details>` collapse; sensitive vars already marked `sensitive = true` |
 | R-23 | Low | REST credential fallback lacks error logging (L-14) | Fixed: `logger.error` on HTTP 4xx/5xx before `raise_for_status()` |
+| R-24 | Medium | Long-lived PAT as Terraform authenticator (M-6) | Fixed: OAuth M2M for local dev, GitHub OIDC federation for CI (zero secrets) |
+| R-25 | Low | S3 state encryption uses default AWS KMS key (L-10) | Fixed: KMS CMK with automatic rotation + S3 Bucket Key |
 
 ---
 
@@ -76,7 +78,7 @@ The codebase has a strong security foundation with zero critical vulnerabilities
 | ~~M-3~~ | 6 | Streamlit | CWE-770 | `db.py:98-106` | ~~No `statement_timeout` on PG connection.~~ | **Resolved** (R-6) |
 | ~~M-4~~ | 7 | Auth | CWE-347 | `db.py:29-35` | ~~`_extract_jwt_subject()` lacks format validation — no guard that `sub` is a UUID before use as PG username.~~ | **Resolved** (R-8) |
 | ~~M-5~~ | 11 | Monitoring | CWE-778 | `db.py:71-78` | ~~Auth failures propagate as unlogged exceptions.~~ | **Resolved** (R-7) |
-| M-6 | 3a | Terraform | CWE-250 | `variables.tf:27-31` | Long-lived PAT as primary Terraform authenticator. Full workspace-admin scope, no expiry enforcement. | New |
+| ~~M-6~~ | 3a | Terraform | CWE-250 | ~~`variables.tf:27-31`~~ | ~~Long-lived PAT as primary Terraform authenticator.~~ Migrated to OAuth M2M (`client_id` + `client_secret`) for local dev; GitHub OIDC federation (`databricks_service_principal_federation_policy`) for CI — zero secrets stored. | **Resolved** (R-24) |
 | ~~M-7~~ | 3b | Terraform | CWE-668 | `modules/workspace/` | ~~No `databricks_ip_access_list` — workspace API reachable from any IP with a valid PAT.~~ Accepted risk: IP access lists require static IPs — impractical for solo developers and CI runners with dynamic IPs. Effectively an enterprise control. | **Accepted** |
 | ~~M-8~~ | 3d | Terraform | CWE-829 | `modules/catalog/main.tf:87-94` | ~~Ingestion SP had `WRITE_VOLUME` on `libs` — could overwrite its own wheel.~~ | **Resolved** (R-9) |
 | ~~M-9~~ | 5 | Web | CWE-116 | `.streamlit/config.toml` | ~~No Content-Security-Policy or X-Frame-Options.~~ Verified: Databricks proxy injects `strict-transport-security` (preload) and `x-content-type-options: nosniff`. CSP not observed but app is behind Databricks OAuth (no anonymous access). Acceptable for dev. | **Verified** |
@@ -98,7 +100,7 @@ The codebase has a strong security foundation with zero critical vulnerabilities
 | ~~L-7~~ | 4 | Terraform | — | `scripts/lakebase_grants.sql` | ~~PG grants applied manually, not in IaC.~~ Codified in versioned SQL script with `ALTER DEFAULT PRIVILEGES`. | **Resolved** (R-14) |
 | ~~L-8~~ | 3a | Terraform | CWE-732 | `modules/catalog/main.tf:78-85` | ~~Ingestion SP has `MODIFY` on entire bronze schema.~~ Accepted: documented rationale — job creates tables dynamically, schema is dedicated to ingestion. | **Resolved** (R-19) |
 | ~~L-9~~ | 3a | Terraform | CWE-269 | `modules/service_principals/main.tf:19-26` | ~~SP role grant hardcoded to single deploying user.~~ Configurable via `var.deployer_user_names` with current-user fallback. | **Resolved** (R-20) |
-| L-10 | 3c | Terraform | CWE-311 | `backend.tf:15` | S3 state encryption uses default AWS KMS key — no CMK, no rotation policy, no access logging. Remediation: add a CMK with automatic rotation + enable S3 Bucket Keys to minimize KMS API costs. | New |
+| ~~L-10~~ | 3c | Terraform | CWE-311 | ~~`backend.tf:15`~~ | ~~S3 state encryption uses default AWS KMS key.~~ Added KMS CMK with automatic rotation + S3 Bucket Key (`terraform/modules/state_kms/`). | **Resolved** (R-25) |
 | ~~L-11~~ | 3d | Terraform | CWE-400 | `modules/workflows/main.tf` | ~~No `timeout_seconds` or `max_retries` on ingestion tasks.~~ Added timeout_seconds (3600/1800) and max_retries=1 to all tasks. | **Resolved** (R-15) |
 | ~~L-12~~ | 8b | CI/CD | CWE-1357 | `.github/workflows/dbt-ci.yml:24` | ~~`uv sync` without `--frozen` — dbt CI can silently update dependencies.~~ Fixed: `uv sync --frozen`. | **Resolved** (R-21) |
 | ~~L-13~~ | 8c | CI/CD | CWE-532 | `.github/workflows/terraform-plan.yml:52-67` | ~~Terraform plan output posted as PR comment.~~ Wrapped in `<details>` collapse; sensitive vars marked `sensitive = true`. | **Resolved** (R-22) |
@@ -133,7 +135,7 @@ The codebase has a strong security foundation with zero critical vulnerabilities
 6. ~~**M-4** — Add UUID format assertion on JWT `sub` claim.~~ (R-8)
 7. ~~**M-8** — Remove `WRITE_VOLUME` from ingestion SP on `libs` volume.~~ (R-9)
 8. ~~**M-10** — Move hardcoded infrastructure IDs to env vars in `deploy.sh`.~~ (R-10)
-9. **M-6** — Plan migration from PAT to OAuth M2M for Terraform provider. Enforce PAT TTL < 90 days.
+9. ~~**M-6** — Plan migration from PAT to OAuth M2M for Terraform provider.~~ (R-24)
 10. ~~**M-7** — Add `databricks_ip_access_list` resource to restrict workspace API access.~~ Accepted risk: requires static IPs, impractical for solo dev + CI.
 
 ### Backlog
@@ -153,7 +155,7 @@ The codebase has a strong security foundation with zero critical vulnerabilities
 23. ~~**L-13** — Collapse Terraform plan output in PR comments.~~ (R-22)
 24. ~~**L-14** — Log REST credential HTTP errors.~~ (R-23)
 25. ~~**L-5** — OAuth token stored in plain memory, not zeroed on eviction.~~ Accepted risk: Python strings are immutable; token is short-lived (60 min).
-26. **L-10** — S3 state encryption uses default AWS KMS key — no CMK, no rotation policy, no access logging. Remediation: add a CMK with automatic rotation + enable S3 Bucket Keys to minimize KMS API costs (~$1/month).
+26. ~~**L-10** — S3 state encryption uses default AWS KMS key.~~ (R-25)
 27. ~~**L-16** — `sslmode=require` instead of `verify-full` for Lakebase Autoscaling.~~ Accepted risk: Autoscaling endpoints require `sslmode=require`; connection is encrypted, traffic stays within Databricks-managed VPC.
 
 ---
@@ -178,7 +180,7 @@ The codebase has a strong security foundation with zero critical vulnerabilities
 ### Phase 3: Infrastructure — Strong Foundation
 
 - Terraform state encrypted in S3 with native locking
-- `databricks_token` marked `sensitive = true`
+- `databricks_client_secret` marked `sensitive = true` (OAuth M2M, replaces PAT)
 - Separate least-privilege SPs: ingestion (bronze-write) and app (gold-read)
 - App restricted to `CAN_USE` on SQL warehouse via resources block
 
@@ -202,8 +204,9 @@ The codebase has a strong security foundation with zero critical vulnerabilities
 
 - Zero hardcoded credentials in any source file
 - `.gitignore` covers `.env`, `*.tfvars`, `*.pem`, `*.key`, `credentials.json`
-- CI secrets injected via `${{ secrets.* }}`
-- AWS OIDC role assumption (no long-lived AWS keys) — **NOTE**: OIDC identity provider and role not yet configured in AWS; `terraform-plan.yml` CI fails at credential step. See TODO.md Technical Debt.
+- CI variables injected via `${{ vars.* }}` (non-sensitive); no secrets required
+- AWS OIDC role assumption via `terraform/modules/github_oidc/` — IAM role scoped to `repo:karstenskyt/luxury-lakehouse:*`
+- Databricks OIDC federation via `databricks_service_principal_federation_policy` — zero secrets in CI
 
 ### Phase 10: Data — Low Risk
 
@@ -229,7 +232,7 @@ The codebase has a strong security foundation with zero critical vulnerabilities
 
 ### Security Posture Rating
 
-- **Standard tier**: 26/28 checks passed (**93% coverage**)
+- **Standard tier**: 28/28 checks passed (**100% coverage**)
 - **Enterprise tier**: 1/9 controls configured (Dependabot only — **11% coverage**)
-- **Overall**: **Strong** — 25/30 findings resolved, remaining 6 are infrastructure hardening (M-6, L-10) and informational (I-1 through I-4)
+- **Overall**: **Strong** — 28/31 findings resolved, remaining 3 are informational (I-1 through I-4, minus I-1)
 - **Ready for deployment**: **Yes** for dev environment with public data.
