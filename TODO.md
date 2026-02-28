@@ -162,32 +162,21 @@ Full report: [SECURITY.md](SECURITY.md) — `mad-skills:security-audit` v1.5.0
 - [x] ~~**Docs:** Update PLAN.md security section~~ — `sslmode=verify-full`, connection pooling, `statement_timeout`, SECURITY.md reference
 - [x] ~~**Docs:** Regenerate C4 architecture diagrams~~
 
+## Phase 5.5 — Migrate Lakebase to Autoscaling + PG 17 (Complete)
+
+- [x] ~~Terraform module: `databricks_postgres_project` + endpoint (PG 17, autoscaling 0.5–4 CU, scale-to-zero)~~
+- [x] ~~Synced tables: re-pointed to Autoscaling project, 8 tables ONLINE with data~~
+- [x] ~~Streamlit app: new credential API, `sslmode=require`, retry logic for scale-to-zero~~
+- [x] ~~PG grants, smoke test, quality gates (ruff 0, pyright 0, pytest 85/85)~~
+
+## Phase 5.6 — IAM OIDC + OAuth M2M + KMS Hardening (Complete)
+
+- [x] ~~OAuth M2M migration (M-6), KMS CMK for state encryption (L-10), AWS IAM OIDC + Databricks federation for secretless CI~~
+- [x] ~~CI green on PR #6, all GitHub secrets deleted, 4 repo variables only~~
+
 ## Next Up
 
 Ordered execution plan for remaining work:
-
-### Phase 5.5 — Migrate Lakebase to Autoscaling + PG 17 (COMPLETE)
-
-Core POC upgrade — moved from Provisioned (PG 16) to the GA Autoscaling tier (PG 17).
-
-- [x] ~~Write new Terraform module using `databricks_postgres_project` + endpoint (PG 17, autoscaling 0.5–4 CU, scale-to-zero)~~
-- [x] ~~Re-point `synced_tables` module to the new Autoscaling project (backward-compat `instance_name` output)~~
-- [x] ~~Update `src/streamlit_app/db.py` — new credential API (`ws.postgres.generate_database_credential`), `sslmode=require`, retry logic for scale-to-zero~~
-- [x] ~~Update `config.py` — `lakebase_endpoint_name` replaces `lakebase_instance_name`~~
-- [x] ~~Update `app.yaml` — `LAKEBASE_ENDPOINT_NAME` env var, actual DNS~~
-- [x] ~~Update `lakebase_grants.sql` — Autoscaling connection syntax~~
-- [x] ~~Update tests — config + db retry tests (85/85 passing)~~
-- [x] ~~Update docs — PLAN.md, README.md, SECURITY.md, TODO.md, architecture.dsl~~
-- [x] ~~`terraform apply` — project + endpoint created (project: `soccer-analytics-dev`, endpoint: `ep-spring-rain-d2i6lozx`)~~
-- [x] ~~Create 8 synced tables via Databricks UI~~ — manual step required (see note below)
-- [x] ~~Import synced tables into Terraform state (`scripts/import_synced_tables.sh`)~~
-- [x] ~~All 8 synced tables `ONLINE` with data~~
-- [x] ~~PG grants — SP role created, USAGE + SELECT + ALTER DEFAULT PRIVILEGES on `dev_gold`~~
-- [x] ~~Deploy Streamlit app to Databricks Apps~~
-- [x] ~~Smoke-test — all 5 routes HTTP 200, health `ok`~~
-- [x] ~~Run quality gates (ruff 0, pyright 0 errors, pytest 85/85)~~
-
-> **Manual step — Synced tables for Autoscaling projects**: As of Terraform provider v1.110.0, the `databricks_database_synced_database_table` resource only supports `database_instance_name` (Provisioned). The REST API accepts project+branch fields but the SDK has not exposed them yet. Synced tables targeting Autoscaling projects must be created via the **Databricks UI** (Catalog Explorer → source table → Create → Synced table → select project/branch), then imported into Terraform state using `scripts/import_synced_tables.sh`. The `lifecycle { ignore_changes = all }` block prevents drift. This applies to any future synced table additions (e.g., new gold tables from Phase 6+).
 
 ### Phase 6 — StatsBomb 360 Freeze Frames (PLAN 14.1)
 
@@ -196,19 +185,12 @@ Core POC upgrade — moved from Provisioned (PG 16) to the GA Autoscaling tier (
 - [ ] Add dbt staging model for 360 data (flatten freeze frames, extract visible player positions)
 - [ ] Add dbt tests on 360 staging model
 
-### Phase 7 — Cross-Source Player Entity Resolution (PLAN 14.2)
-
-- [ ] **Prerequisite:** Request open-source license from `parmacalcio1913/players-matcher` — repo is currently unlicensed (all rights reserved). Cannot legally use without explicit permission.
-- [ ] Integrate [`parmacalcio1913/players-matcher`](https://github.com/parmacalcio1913/players-matcher) — fuzzy-match players across StatsBomb, Metrica, and Wyscout into a canonical ID
-- [ ] Build `int_player_xref` mapping — dbt intermediate model or seed linking source-specific IDs
-- [ ] Refactor `dim_players` — merge cross-source records using the mapping
-
-### Phase 8 — pgvector Player Embeddings (PLAN 14.3)
+### Phase 7 — pgvector Player Embeddings (PLAN 14.3)
 
 - [ ] Design feature vector from `fct_player_stats` per-90 metrics
 - [ ] Populate `fct_player_embeddings` — currently 0 rows, table and synced table already provisioned
 
-### Phase 8.5 — Metrica Tracking Data: Game 3 + Pitch Control (PLAN 14.5)
+### Phase 7.5 — Metrica Tracking Data: Game 3 + Pitch Control (PLAN 14.5)
 
 Games 1–2 are already ingested, transformed (`fct_tracking_frames`), and synced to Lakebase. This phase adds Game 3 and builds the visualization layer.
 
@@ -217,17 +199,23 @@ Games 1–2 are already ingested, transformed (`fct_tracking_frames`), and synce
 - [ ] **Build Pitch Control page** — Voronoi diagrams showing space ownership from `fct_tracking_frames_synced`
 - [ ] Add velocity/acceleration visualizations (data already in `fct_tracking_frames` `final` CTE)
 
+### Phase 8 — Cross-Source Player Entity Resolution (PLAN 14.2)
+
+- [ ] **Prerequisite:** Request open-source license from `parmacalcio1913/players-matcher` — repo is currently unlicensed (all rights reserved). Cannot legally use without explicit permission.
+- [ ] Integrate [`parmacalcio1913/players-matcher`](https://github.com/parmacalcio1913/players-matcher) — fuzzy-match players across StatsBomb, Metrica, and Wyscout into a canonical ID
+- [ ] Build `int_player_xref` mapping — dbt intermediate model or seed linking source-specific IDs
+- [ ] Refactor `dim_players` — merge cross-source records using the mapping
+
 ### Phase 9 — Additional Streamlit Pages (PLAN 14.6)
 
-- [ ] **Player Similarity** — pgvector nearest-neighbor search (`player_search.py`, depends on Phase 8)
-- [ ] **Pitch Control** — built in Phase 8.5, listed here for completeness
+- [ ] **Player Similarity** — pgvector nearest-neighbor search (`player_search.py`, depends on Phase 7)
+- [ ] **Pitch Control** — built in Phase 7.5, listed here for completeness
 - [ ] **Heat Map** — touch/action density maps per player or team
 - [ ] **Pass Network** — graph visualization of passing connections between teammates
 
 ## Technical Debt
 
 - [ ] **Update synced_tables Terraform module for Autoscaling API** — When the Databricks Terraform provider adds `database_project` and `branch` fields to `databricks_database_synced_database_table`, remove the UI+import workaround. Update `main.tf` to pass project/branch instead of `database_instance_name`, remove `lifecycle { ignore_changes = all }`, and retire `scripts/import_synced_tables.sh`. Track: [provider changelog](https://registry.terraform.io/providers/databricks/databricks/latest/docs). Until then, any new synced table (e.g., Phase 6+ gold tables) must be created via Databricks UI and imported.
-- [x] ~~**Fix Terraform Plan CI — configure AWS OIDC**~~ — IAM OIDC provider + role created via `terraform/modules/github_oidc/`. Databricks OIDC federation via `databricks_service_principal_federation_policy`. CI workflow updated to use `vars.*` (no secrets). Bootstrap: apply locally, set 3 GitHub repo variables, done.
 
 ## Future Work (unscheduled)
 
