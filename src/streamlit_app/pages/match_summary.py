@@ -14,6 +14,8 @@ from streamlit_app.db import execute_query, t
 
 def _load_match(match_id: int) -> Any:
     """Load match summary data for a single match."""
+    # L-3: Explicit type assertion before query
+    match_id = int(match_id)
     tbl = t("fct_match_summary_synced")
 
     @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading match data...")

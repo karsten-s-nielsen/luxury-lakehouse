@@ -18,13 +18,18 @@ def _load_shots(
     player_id: int | None = None,
 ) -> Any:
     """Load shot data from Lakebase with filters applied."""
+    # L-3: Explicit type assertion before query — defense-in-depth beyond
+    # Streamlit widget type enforcement and %s parameterized placeholders.
+    competition_id = int(competition_id)
     conditions = ["s.competition_id = %s"]
     params: list[Any] = [competition_id]
 
     if team_id is not None:
+        team_id = int(team_id)
         conditions.append("s.team_id = %s")
         params.append(team_id)
     if player_id is not None:
+        player_id = int(player_id)
         conditions.append("s.player_id = %s")
         params.append(player_id)
 

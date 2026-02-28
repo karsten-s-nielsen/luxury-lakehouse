@@ -1058,7 +1058,7 @@ pg_user = _extract_jwt_subject(token)  # JWT 'sub' claim = PG role name
 conn = psycopg2.connect(
     host=settings.lakebase_host, port=5432,
     database="databricks_postgres", user=pg_user, password=token,
-    sslmode="require",
+    sslmode="verify-full",
 )
 ```
 
@@ -1085,9 +1085,13 @@ conn = psycopg2.connect(
 |---------|---------------|
 | Authentication | Databricks App OAuth M2M — SP identity with 55-min token refresh cycle |
 | SQL injection prevention | All queries use `%s` parameterized placeholders; table names validated via `_IDENTIFIER_RE` |
-| Input validation | Filter inputs sourced from dimension table queries; identifiers regex-validated |
-| SSL | `sslmode="require"` on all Lakebase connections |
+| Input validation | Filter inputs sourced from dimension table queries; identifiers regex-validated; `int()` type assertions on all IDs (L-3) |
+| Connection pooling | `ThreadedConnectionPool` (min=1, max=5) with 55-min recycle aligned to token expiry; thread-safe via `_pool_lock` (L-4, L-6) |
+| SSL | `sslmode="verify-full"` on all Lakebase connections |
+| Query limits | `statement_timeout=30000` (30s) prevents runaway queries (M-3) |
+| Error handling | `psycopg2.Error` caught and sanitized — no tracebacks leaked to browser (M-2) |
 | Session security | No credentials or PII in `st.session_state`; tokens cached in module-level dict with TTL |
+| Full security audit | See [SECURITY.md](SECURITY.md) — 30 findings, 23 resolved (89% coverage) |
 
 ### 5.5 — Deployment (Implemented)
 

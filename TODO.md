@@ -129,7 +129,7 @@ Full report: [SECURITY.md](SECURITY.md) — `mad-skills:security-audit` v1.5.0
 - [x] ~~**Medium:** Remove `WRITE_VOLUME` from ingestion SP on libs volume (M-8)~~
 - [ ] **Medium:** Migrate Terraform auth from PAT to OAuth M2M (M-6)
 - [ ] **Medium:** Add `databricks_ip_access_list` for workspace API (M-7)
-- [ ] **Medium:** Verify Databricks Apps proxy injects security headers (M-9)
+- [x] ~~**Medium:** Verify Databricks Apps proxy injects security headers (M-9)~~ — HSTS + nosniff confirmed, app behind OAuth
 - [x] ~~**Medium:** Move hardcoded infra IDs to env vars (M-10)~~
 - [x] ~~**Low:** Document `WHERE {where}` pattern constraints (L-1)~~
 - [x] ~~**Low:** Replace `SELECT *` with explicit column list in match_summary.py (L-2)~~
@@ -137,7 +137,14 @@ Full report: [SECURITY.md](SECURITY.md) — `mad-skills:security-audit` v1.5.0
 - [x] ~~**Low:** Codify Lakebase PG grants in versioned SQL script (L-7)~~
 - [x] ~~**Low:** Add `timeout_seconds` and `max_retries` to ingestion tasks (L-11)~~
 - [x] ~~**Low:** Tighten dbt grants to configurable principal (L-15)~~
-- [ ] **Low:** 9 remaining hardening items — see SECURITY.md
+- [x] ~~**Low:** Add `int()` type assertions on filter IDs (L-3)~~
+- [x] ~~**Low:** Make `_token_cache` thread-safe (L-4)~~ — guarded by `_pool_lock`
+- [x] ~~**Low:** Document schema-level MODIFY rationale (L-8)~~ — accepted with comment
+- [x] ~~**Low:** Make SP role grant principal configurable (L-9)~~ — `var.deployer_user_names`
+- [x] ~~**Low:** Fix `uv sync --frozen` in dbt CI (L-12)~~
+- [x] ~~**Low:** Collapse Terraform plan output in PR comments (L-13)~~ — `<details>` wrap
+- [x] ~~**Low:** Log REST credential HTTP errors (L-14)~~ — `logger.error` before raise
+- [ ] **Low:** 2 remaining hardening items (L-5, L-10) — see SECURITY.md
 
 ## Final Review (2026-02-27)
 
@@ -145,6 +152,13 @@ Full report: [SECURITY.md](SECURITY.md) — `mad-skills:security-audit` v1.5.0
 - [x] ~~**Test:** Split `test_connection_returned_on_error` into two tests~~ — one for `psycopg2.Error` (sanitized), one for `RuntimeError` (propagated)
 - [x] ~~**Docs:** Update PLAN.md implementation status~~ — Phase 5 complete, 83 tests, 165 dbt tests
 - [x] ~~**Docs:** Update SECURITY.md action plan~~ — mark resolved items in Next sprint and Backlog
+- [x] ~~**Docs:** Regenerate C4 architecture diagrams~~
+
+## Final Review (2026-02-28)
+
+- [x] ~~**Bug:** Fix connection leak in `execute_query()`~~ — `getconn()` moved before `try` block to prevent `NameError` masking real errors
+- [x] ~~**Bug:** Fix dbt CI missing `--extra dbt`~~ — `uv sync --frozen --extra dbt` ensures dbt packages are installed
+- [x] ~~**Docs:** Update PLAN.md security section~~ — `sslmode=verify-full`, connection pooling, `statement_timeout`, SECURITY.md reference
 - [x] ~~**Docs:** Regenerate C4 architecture diagrams~~
 
 ## Future Data Sources

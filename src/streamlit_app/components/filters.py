@@ -46,6 +46,8 @@ def render_team_filter(competition_id: int | None) -> int | None:
     if competition_id is None:
         return None
 
+    # L-3: Explicit type assertion before query
+    competition_id = int(competition_id)
     df = _cached_query(
         f"SELECT DISTINCT t.team_id, t.team_name "  # noqa: S608
         f"FROM {t('dim_teams_synced')} t "
@@ -82,10 +84,13 @@ def render_player_filter(
     if competition_id is None:
         return [] if multiselect else None
 
+    # L-3: Explicit type assertion before query
+    competition_id = int(competition_id)
     conditions = ["ps.competition_id = %s"]
     params: list[Any] = [competition_id]
 
     if team_id is not None:
+        team_id = int(team_id)
         shots_tbl = t("fct_shots_synced")
         passes_tbl = t("fct_passes_synced")
         conditions.append(
@@ -140,10 +145,13 @@ def render_match_filter(competition_id: int | None, team_id: int | None) -> int 
     if competition_id is None:
         return None
 
+    # L-3: Explicit type assertion before query
+    competition_id = int(competition_id)
     conditions = ["competition_id = %s"]
     params: list[Any] = [competition_id]
 
     if team_id is not None:
+        team_id = int(team_id)
         conditions.append("(home_team_id = %s OR away_team_id = %s)")
         params.extend([team_id, team_id])
 

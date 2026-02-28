@@ -11,16 +11,24 @@ resource "databricks_service_principal" "ingestion" {
   active       = true
 }
 
-# ── Grant deploying user the servicePrincipal.user role ──────────────────────
-# Required so that the PAT owner can set `run_as` on jobs to this SP.
+# ── Grant deploying user(s) the servicePrincipal.user role ───────────────────
+# Required so that deployers can set `run_as` on jobs to this SP.
+# L-9: Principals are configurable via var.deployer_user_names. Falls back
+# to the current Terraform user when no explicit list is provided.
 
 data "databricks_current_user" "me" {}
+
+locals {
+  deployer_principals = length(var.deployer_user_names) > 0 ? [
+    for u in var.deployer_user_names : "users/${u}"
+  ] : ["users/${data.databricks_current_user.me.user_name}"]
+}
 
 resource "databricks_access_control_rule_set" "ingestion_sp_user_role" {
   name = "accounts/${var.account_id}/servicePrincipals/${databricks_service_principal.ingestion.application_id}/ruleSets/default"
 
   grant_rules {
-    principals = ["users/${data.databricks_current_user.me.user_name}"]
+    principals = local.deployer_principals
     role       = "roles/servicePrincipal.user"
   }
 }

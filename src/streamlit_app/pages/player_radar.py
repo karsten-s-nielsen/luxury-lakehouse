@@ -29,6 +29,9 @@ _DEFAULT_METRICS: list[tuple[str, str, tuple[float, float]]] = [
 
 def _load_player_stats(competition_id: int, player_ids: list[int]) -> Any:
     """Load per-90 stats for selected players in a competition."""
+    # L-3: Explicit type assertion before query
+    competition_id = int(competition_id)
+    player_ids = [int(pid) for pid in player_ids]
     placeholders = ", ".join(["%s"] * len(player_ids))
 
     @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading player stats...")

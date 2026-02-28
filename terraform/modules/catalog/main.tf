@@ -65,6 +65,13 @@ resource "databricks_volume" "libs" {
 # ── Unity Catalog Grants: Ingestion Service Principal ────────────────────────
 # Least-privilege access for the ingestion job: catalog traversal, schema
 # read/write on bronze, and volume access for wheel storage.
+#
+# L-8: Schema-level MODIFY is intentional — the ingestion job creates tables
+# dynamically (CREATE_TABLE) and writes to all 9 bronze tables. Per-table
+# grants would require Terraform changes for every new source table and would
+# prevent the job from creating tables on first run. Since the bronze schema
+# is dedicated to raw ingestion data and only this SP writes to it, schema-
+# level scope is the appropriate granularity.
 
 resource "databricks_grant" "ingestion_sp_use_catalog" {
   count = var.enable_ingestion_sp_grants ? 1 : 0

@@ -24,13 +24,15 @@ logger = logging.getLogger(__name__)
 
 _IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
-# Module-level token cache
+# Thread lock for token cache and connection pool state (L-4: thread safety)
+_pool_lock = threading.Lock()
+
+# Module-level token cache (guarded by _pool_lock)
 _token_cache: dict[str, Any] = {"token": None, "user": None, "expires_at": 0.0}
 
-# Connection pool state (guarded by _pool_lock for thread safety)
+# Connection pool state (guarded by _pool_lock)
 _pool: psycopg2.pool.ThreadedConnectionPool | None = None
 _pool_created_at: float = 0.0
-_pool_lock = threading.Lock()
 
 
 def _extract_jwt_subject(token: str) -> str:
@@ -70,6 +72,13 @@ def _generate_credential_via_rest(ws: WorkspaceClient, instance_name: str) -> st
         verify=True,
         timeout=(10, 30),
     )
+    # L-14: Log HTTP auth failures before raising
+    if not resp.ok:
+        logger.error(
+            "SECURITY: REST credential API returned HTTP %d %s",
+            resp.status_code,
+            resp.reason,
+        )
     resp.raise_for_status()
     return resp.json()["token"]  # type: ignore[no-any-return]
 
@@ -79,6 +88,10 @@ def _refresh_token() -> str:
 
     Tries the high-level SDK API first, falls back to REST for older runtimes.
     Tokens are cached for 55 minutes (the configured max age).
+
+    THREADING: Must be called while holding _pool_lock (L-4). This is
+    guaranteed because the only caller is _get_pool(), which acquires
+    the lock before calling this function.
     """
     settings = get_settings()
     now = time.time()
@@ -181,17 +194,16 @@ def execute_query(query: str, params: tuple[Any, ...] | None = None) -> pd.DataF
 
     All queries MUST use %s parameterized placeholders — never f-string interpolation.
     """
+    pool = _get_pool()
+    conn = pool.getconn()
     try:
-        pool = _get_pool()
-        conn = pool.getconn()
-        try:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                cur.execute(query, params)
-                rows = cur.fetchall()
-                return pd.DataFrame(rows) if rows else pd.DataFrame()
-        finally:
-            pool.putconn(conn)
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+            return pd.DataFrame(rows) if rows else pd.DataFrame()
     except psycopg2.Error:
         logger.exception("Database query failed")
         msg = "Database query failed — please try again or contact support."
         raise RuntimeError(msg) from None
+    finally:
+        pool.putconn(conn)

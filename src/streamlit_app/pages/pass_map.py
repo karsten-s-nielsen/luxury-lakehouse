@@ -14,6 +14,8 @@ from streamlit_app.db import execute_query, t
 
 def _load_passes(competition_id: int, team_id: int, match_id: int) -> Any:
     """Load pass data for a specific team in a specific match."""
+    # L-3: Explicit type assertion before query
+    competition_id, team_id, match_id = int(competition_id), int(team_id), int(match_id)
     tbl = t("fct_passes_synced")
 
     @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading passes...")

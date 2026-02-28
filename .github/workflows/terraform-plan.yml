@@ -68,5 +68,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `### Terraform Plan\n\`\`\`hcl\n${truncated}\n\`\`\``
+              body: `### Terraform Plan\n<details>\n<summary>Show plan output</summary>\n\n\`\`\`hcl\n${truncated}\n\`\`\`\n</details>`
             });
