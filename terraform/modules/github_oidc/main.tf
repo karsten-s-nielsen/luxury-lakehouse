@@ -42,10 +42,11 @@ resource "aws_iam_role" "github_actions" {
   })
 }
 
-# ── Permissions: S3 state read/lock + KMS encrypt/decrypt (plan-only) ────────
-# PutObject and DeleteObject are required for Terraform's native S3 locking
-# (writes/removes .tflock files). GenerateDataKey is required because the
-# state bucket uses KMS-SSE — even lock file writes need encryption.
+# ── Permissions: S3 state + KMS + IAM/S3 read for plan ───────────────────────
+# S3 PutObject/DeleteObject: Terraform native S3 locking (.tflock files).
+# KMS GenerateDataKey: state bucket uses KMS-SSE, lock writes need encryption.
+# IAM/KMS/S3 read: terraform plan reads managed resources (OIDC provider, role,
+# KMS key metadata, S3 bucket encryption config).
 
 resource "aws_iam_role_policy" "terraform_state_access" {
   name = "terraform-state-access"
@@ -55,17 +56,46 @@ resource "aws_iam_role_policy" "terraform_state_access" {
     Version = "2012-10-17"
     Statement = [
       {
+        Sid    = "S3StateAccess"
         Effect = "Allow"
-        Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"]
+        Action = [
+          "s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket",
+          "s3:GetBucketVersioning", "s3:GetEncryptionConfiguration"
+        ]
         Resource = [
           "arn:aws:s3:::${var.state_bucket}",
           "arn:aws:s3:::${var.state_bucket}/*"
         ]
       },
       {
-        Effect   = "Allow"
-        Action   = ["kms:Decrypt", "kms:DescribeKey", "kms:GenerateDataKey"]
+        Sid    = "KMSAccess"
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt", "kms:DescribeKey", "kms:GenerateDataKey",
+          "kms:GetKeyRotationStatus"
+        ]
         Resource = [var.kms_key_arn]
+      },
+      {
+        Sid      = "KMSAliasList"
+        Effect   = "Allow"
+        Action   = ["kms:ListAliases"]
+        Resource = ["*"]
+      },
+      {
+        Sid    = "IAMReadOIDC"
+        Effect = "Allow"
+        Action = [
+          "iam:GetOpenIDConnectProvider",
+          "iam:GetRole",
+          "iam:GetRolePolicy",
+          "iam:ListRolePolicies",
+          "iam:ListAttachedRolePolicies"
+        ]
+        Resource = [
+          aws_iam_openid_connect_provider.github.arn,
+          aws_iam_role.github_actions.arn
+        ]
       }
     ]
   })

@@ -24,3 +24,8 @@ variable "github_repository" {
   type        = string
   default     = "karstenskyt/luxury-lakehouse"
 }
+
+variable "databricks_host" {
+  description = "Databricks workspace URL (e.g. https://<workspace>.cloud.databricks.com) — used as OIDC audience for workspace-level federation"
+  type        = string
+}

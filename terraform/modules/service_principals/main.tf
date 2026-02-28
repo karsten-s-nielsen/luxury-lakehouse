@@ -55,6 +55,6 @@ resource "databricks_service_principal_federation_policy" "github_actions" {
   oidc_policy = {
     issuer    = "https://token.actions.githubusercontent.com"
     subject   = "repo:${var.github_repository}:*"
-    audiences = [var.account_id]
+    audiences = [var.account_id, "${var.databricks_host}/oidc/v1/token"]
   }
 }

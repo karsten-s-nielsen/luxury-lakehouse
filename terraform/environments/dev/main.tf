@@ -84,6 +84,7 @@ module "service_principals" {
   environment       = var.environment
   account_id        = var.databricks_account_id
   github_repository = "karstenskyt/luxury-lakehouse"
+  databricks_host   = var.databricks_host
 }
 
 # ── Module: Catalog (Medallion Schemas) ──────────────────────────────────────
