@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [PLAN.md](PLAN.md).
 
-**Last updated**: 2026-02-27
+**Last updated**: 2026-02-28
 
 ---
 
@@ -162,11 +162,40 @@ Full report: [SECURITY.md](SECURITY.md) — `mad-skills:security-audit` v1.5.0
 - [x] ~~**Docs:** Update PLAN.md security section~~ — `sslmode=verify-full`, connection pooling, `statement_timeout`, SECURITY.md reference
 - [x] ~~**Docs:** Regenerate C4 architecture diagrams~~
 
-## Future Data Sources
+## Next Up
+
+Ordered execution plan for remaining work:
+
+### Phase 6 — StatsBomb 360 Freeze Frames (PLAN 14.1)
+
+- [ ] Trigger 360 ingestion for 11 available competition-seasons (World Cup, Euros, La Liga, Ligue 1, Bundesliga, MLS, Women's tournaments)
+- [ ] Verify `statsbomb_360` bronze table populated with freeze frame data
+- [ ] Add dbt staging model for 360 data (flatten freeze frames, extract visible player positions)
+- [ ] Add dbt tests on 360 staging model
+
+### Phase 7 — Cross-Source Player Entity Resolution (PLAN 14.2)
+
+- [ ] Integrate [`parmacalcio1913/players-matcher`](https://github.com/parmacalcio1913/players-matcher) — fuzzy-match players across StatsBomb, Metrica, and Wyscout into a canonical ID
+- [ ] Build `int_player_xref` mapping — dbt intermediate model or seed linking source-specific IDs
+- [ ] Refactor `dim_players` — merge cross-source records using the mapping
+
+### Phase 8 — pgvector Player Embeddings (PLAN 14.3)
+
+- [ ] Design feature vector from `fct_player_stats` per-90 metrics
+- [ ] Populate `fct_player_embeddings` — currently 0 rows, table and synced table already provisioned
+- [ ] Implement Player Similarity page (`player_search.py`) — pgvector cosine distance queries
+
+### Phase 9 — Additional Streamlit Pages (PLAN 14.4)
+
+- [ ] **Player Similarity** — pgvector nearest-neighbor search (depends on Phase 8)
+- [ ] **Heat Map** — touch/action density maps per player or team
+- [ ] **Pass Network** — graph visualization of passing connections between teammates
+
+## Future Work (unscheduled)
 
 - [ ] **Respo.Vision 3D pose tracking** — 3D skeletal data from broadcast video (user pursuing via network)
 - [ ] **Wyscout match metadata** — deferred (event data ingested, match details not yet in Figshare dataset)
-- [ ] **StatsBomb 360 frames** — deferred (ingestion scaffolded but most competitions lack 360 data)
+- [ ] **Pitch Control** — Voronoi diagrams from `fct_tracking_frames` (depends on Respo.Vision or Metrica tracking data)
 
 ## Infrastructure Notes
 

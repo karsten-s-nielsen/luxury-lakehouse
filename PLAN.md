@@ -1077,7 +1077,7 @@ conn = psycopg2.connect(
 | Player Radar | mplsoccer Radar, 1-3 players, 6 configurable per-90 metrics | `fct_player_stats_synced` JOIN `dim_players_synced` |
 | Match Summary | Scorecard + xG metrics + horizontal bar chart (8 stat categories) | `fct_match_summary_synced` |
 
-**Deferred pages** (future enhancement): Pitch Control (Voronoi), Player Similarity (pgvector), Heat Map, Pass Network.
+**Planned pages** (see [Section 14.4](#144--additional-streamlit-pages)): Pitch Control (Voronoi), Player Similarity (pgvector), Heat Map, Pass Network.
 
 ### 5.4 — Security (Implemented)
 
@@ -1270,7 +1270,9 @@ All planning questions have been answered. This section records the decisions fo
 
 ---
 
-## 14. Future Data Sources
+## 14. Future Work
+
+### 14.1 — Future Data Sources
 
 The following data sources are planned for integration after Phase 5:
 
@@ -1278,9 +1280,43 @@ The following data sources are planned for integration after Phase 5:
 |--------|-----------|--------|-------|
 | **Respo.Vision** | 3D pose tracking from broadcast video | Planned | User pursuing via professional network; skeletal keypoints at 25fps |
 | **Wyscout match metadata** | Match details (formations, coaches, venue) | Deferred | Event data ingested; full match metadata not in public Figshare dataset |
-| **StatsBomb 360 freeze frames** | Visible player positions per event | Deferred | Ingestion scaffolded in `statsbomb.py`; most open-data competitions lack 360 data |
+| **StatsBomb 360 freeze frames** | Visible player positions per event | Planned | Ingestion scaffolded in `statsbomb.py`; 11 competition-seasons have 360 data (World Cup 2022, Euro 2024, Euro 2020, La Liga 2020/21, Ligue 1 2021/22 + 2022/23, Bundesliga 2023/24, MLS 2023, Women's Euro 2022 + 2025, Women's World Cup 2023) |
 
 Each new source follows the established pattern: `src/ingestion/<source>.py` → Bronze Delta tables → dbt staging/marts → Synced Tables → Lakebase.
+
+### 14.2 — Cross-Source Player Entity Resolution
+
+`dim_players` currently deduplicates within each source, but StatsBomb, Metrica, and Wyscout use independent player IDs with no shared key. The same player (e.g., Messi) exists as three separate rows.
+
+**Planned approach:** [`parmacalcio1913/players-matcher`](https://github.com/parmacalcio1913/players-matcher) — a fuzzy-matching library purpose-built for football player entity resolution across data providers. It uses name similarity, birth date, and team context to produce a canonical mapping table.
+
+**Integration path:**
+1. Add `players-matcher` as a dependency
+2. Build a mapping seed or intermediate model (`int_player_xref`) that links StatsBomb, Metrica, and Wyscout player IDs to a canonical `player_id`
+3. Refactor `dim_players` to merge cross-source records using the mapping
+4. Downstream fact tables and Streamlit pages automatically benefit from unified player identity
+
+This is a prerequisite for meaningful cross-source analytics (e.g., comparing a player's StatsBomb xG with their Wyscout event data).
+
+### 14.3 — pgvector Player Embeddings
+
+The `fct_player_embeddings` gold table and its synced table are provisioned but contain 0 rows. The embedding logic has not been implemented yet.
+
+**Planned work:**
+- Design a feature vector from `fct_player_stats` per-90 metrics (goals, assists, xG, progressive passes, etc.)
+- Generate embeddings in a dbt model or Python post-processing step
+- Populate `fct_player_embeddings` with vectors suitable for pgvector similarity search
+- Implement the **Player Similarity** Streamlit page (`player_search.py`) using pgvector `<=>` cosine distance queries
+- Depends on cross-source player entity resolution (14.2) for unified player identity
+
+### 14.4 — Additional Streamlit Pages
+
+| Page | Description | Data Source | Status |
+|------|-------------|-------------|--------|
+| **Pitch Control** | Voronoi diagrams showing space ownership | `fct_tracking_frames_synced` | Planned — requires Metrica tracking data |
+| **Player Similarity** | pgvector-powered nearest-neighbor search | `fct_player_embeddings_synced` | Planned — depends on 14.3 |
+| **Heat Map** | Touch/action density maps per player or team | `fct_passes_synced`, `fct_shots_synced` | Planned |
+| **Pass Network** | Graph visualization of passing connections between teammates | `fct_passes_synced` | Planned |
 
 ---
 
