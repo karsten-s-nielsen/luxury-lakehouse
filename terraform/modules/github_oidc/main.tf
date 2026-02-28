@@ -72,7 +72,8 @@ resource "aws_iam_role_policy" "terraform_state_access" {
         Effect = "Allow"
         Action = [
           "kms:Decrypt", "kms:DescribeKey", "kms:GenerateDataKey",
-          "kms:GetKeyRotationStatus", "kms:GetKeyPolicy"
+          "kms:GetKeyRotationStatus", "kms:GetKeyPolicy",
+          "kms:ListResourceTags"
         ]
         Resource = [var.kms_key_arn]
       },

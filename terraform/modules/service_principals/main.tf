@@ -52,9 +52,14 @@ resource "databricks_service_principal_federation_policy" "github_actions" {
   service_principal_id = databricks_service_principal.terraform_ci.id
   policy_id            = "github-actions"
 
+  # Match on the `repository` claim instead of `sub` so the policy works for
+  # all GitHub trigger types (push, pull_request, etc.) without wildcards.
+  # The `sub` claim varies per trigger (e.g. "repo:…:pull_request",
+  # "repo:…:ref:refs/heads/main") and Databricks requires exact match.
   oidc_policy = {
-    issuer    = "https://token.actions.githubusercontent.com"
-    subject   = "repo:${var.github_repository}:*"
-    audiences = [var.account_id, "${var.databricks_host}/oidc/v1/token"]
+    issuer        = "https://token.actions.githubusercontent.com"
+    audiences     = [var.account_id, "${var.databricks_host}/oidc/v1/token"]
+    subject       = var.github_repository
+    subject_claim = "repository"
   }
 }
