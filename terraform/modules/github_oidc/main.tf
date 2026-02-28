@@ -42,7 +42,10 @@ resource "aws_iam_role" "github_actions" {
   })
 }
 
-# ── Minimal permissions: S3 state read + KMS decrypt (plan-only) ─────────────
+# ── Permissions: S3 state read/lock + KMS encrypt/decrypt (plan-only) ────────
+# PutObject and DeleteObject are required for Terraform's native S3 locking
+# (writes/removes .tflock files). GenerateDataKey is required because the
+# state bucket uses KMS-SSE — even lock file writes need encryption.
 
 resource "aws_iam_role_policy" "terraform_state_access" {
   name = "terraform-state-access"
@@ -53,7 +56,7 @@ resource "aws_iam_role_policy" "terraform_state_access" {
     Statement = [
       {
         Effect = "Allow"
-        Action = ["s3:GetObject", "s3:ListBucket"]
+        Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"]
         Resource = [
           "arn:aws:s3:::${var.state_bucket}",
           "arn:aws:s3:::${var.state_bucket}/*"
@@ -61,7 +64,7 @@ resource "aws_iam_role_policy" "terraform_state_access" {
       },
       {
         Effect   = "Allow"
-        Action   = ["kms:Decrypt", "kms:DescribeKey"]
+        Action   = ["kms:Decrypt", "kms:DescribeKey", "kms:GenerateDataKey"]
         Resource = [var.kms_key_arn]
       }
     ]
