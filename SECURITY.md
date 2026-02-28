@@ -151,6 +151,8 @@ The codebase has a strong security foundation with zero critical vulnerabilities
 22. ~~**L-12** — Fix `uv sync --frozen` in dbt CI.~~ (R-21)
 23. ~~**L-13** — Collapse Terraform plan output in PR comments.~~ (R-22)
 24. ~~**L-14** — Log REST credential HTTP errors.~~ (R-23)
+25. **L-5** — OAuth token stored in plain memory, not zeroed on eviction. Python limitation; token is short-lived (60 min).
+26. **L-10** — S3 state encryption uses default AWS KMS key — no CMK, no rotation policy, no access logging.
 
 ---
 
