@@ -166,20 +166,28 @@ Full report: [SECURITY.md](SECURITY.md) — `mad-skills:security-audit` v1.5.0
 
 Ordered execution plan for remaining work:
 
-### Phase 5.5 — Migrate Lakebase to Autoscaling + PG 17 (highest priority)
+### Phase 5.5 — Migrate Lakebase to Autoscaling + PG 17 (COMPLETE)
 
-Core POC upgrade — moves the repo from Provisioned (PG 16) to the GA Autoscaling tier (PG 17) before public release.
+Core POC upgrade — moved from Provisioned (PG 16) to the GA Autoscaling tier (PG 17).
 
-- [ ] Write new Terraform module `lakebase_autoscaling` using `databricks_postgres_project` resource (`spec.pg_version = 17`, `autoscaling_limit_min_cu = 0`, `suspend_timeout_duration` for scale-to-zero)
-- [ ] Re-point `synced_tables` module to the new Autoscaling project
-- [ ] Update `src/streamlit_app/db.py` connection config for new endpoint (DNS, auth, idle-disconnect handling)
-- [ ] Verify all 8 synced tables reach `ONLINE` on the new instance
-- [ ] Smoke-test Streamlit app against Autoscaling endpoint (all 4 pages)
-- [ ] Destroy old `databricks_database_instance` (Provisioned) via Terraform
-- [ ] Update PLAN.md, README.md, SECURITY.md to reflect PG 17 Autoscaling
-- [ ] Run quality gates (ruff, pyright, pytest) and `/final-review`
+- [x] ~~Write new Terraform module using `databricks_postgres_project` + endpoint (PG 17, autoscaling 0.5–4 CU, scale-to-zero)~~
+- [x] ~~Re-point `synced_tables` module to the new Autoscaling project (backward-compat `instance_name` output)~~
+- [x] ~~Update `src/streamlit_app/db.py` — new credential API (`ws.postgres.generate_database_credential`), `sslmode=require`, retry logic for scale-to-zero~~
+- [x] ~~Update `config.py` — `lakebase_endpoint_name` replaces `lakebase_instance_name`~~
+- [x] ~~Update `app.yaml` — `LAKEBASE_ENDPOINT_NAME` env var, actual DNS~~
+- [x] ~~Update `lakebase_grants.sql` — Autoscaling connection syntax~~
+- [x] ~~Update tests — config + db retry tests (85/85 passing)~~
+- [x] ~~Update docs — PLAN.md, README.md, SECURITY.md, TODO.md, architecture.dsl~~
+- [x] ~~`terraform apply` — project + endpoint created (project: `soccer-analytics-dev`, endpoint: `ep-spring-rain-d2i6lozx`)~~
+- [x] ~~Create 8 synced tables via Databricks UI~~ — manual step required (see note below)
+- [x] ~~Import synced tables into Terraform state (`scripts/import_synced_tables.sh`)~~
+- [x] ~~All 8 synced tables `ONLINE` with data~~
+- [x] ~~PG grants — SP role created, USAGE + SELECT + ALTER DEFAULT PRIVILEGES on `dev_gold`~~
+- [x] ~~Deploy Streamlit app to Databricks Apps~~
+- [x] ~~Smoke-test — all 5 routes HTTP 200, health `ok`~~
+- [x] ~~Run quality gates (ruff 0, pyright 0 errors, pytest 85/85)~~
 
-**Context**: Autoscaling went GA on AWS 2026-02-22. Terraform provider v1.110.0 has `databricks_postgres_project` with configurable `spec.pg_version`, `autoscaling_limit_min_cu`/`max_cu`, and `suspend_timeout_duration`. Cannot in-place upgrade — `databricks_database_instance.pg_version` is read-only. Benefits: true scale-to-zero (usage-based DBU billing), PG 17 + improved pgvector (Phase 8), instant data branching.
+> **Manual step — Synced tables for Autoscaling projects**: As of Terraform provider v1.110.0, the `databricks_database_synced_database_table` resource only supports `database_instance_name` (Provisioned). The REST API accepts project+branch fields but the SDK has not exposed them yet. Synced tables targeting Autoscaling projects must be created via the **Databricks UI** (Catalog Explorer → source table → Create → Synced table → select project/branch), then imported into Terraform state using `scripts/import_synced_tables.sh`. The `lifecycle { ignore_changes = all }` block prevents drift. This applies to any future synced table additions (e.g., new gold tables from Phase 6+).
 
 ### Phase 6 — StatsBomb 360 Freeze Frames (PLAN 14.1)
 
@@ -215,6 +223,10 @@ Games 1–2 are already ingested, transformed (`fct_tracking_frames`), and synce
 - [ ] **Heat Map** — touch/action density maps per player or team
 - [ ] **Pass Network** — graph visualization of passing connections between teammates
 
+## Technical Debt
+
+- [ ] **Update synced_tables Terraform module for Autoscaling API** — When the Databricks Terraform provider adds `database_project` and `branch` fields to `databricks_database_synced_database_table`, remove the UI+import workaround. Update `main.tf` to pass project/branch instead of `database_instance_name`, remove `lifecycle { ignore_changes = all }`, and retire `scripts/import_synced_tables.sh`. Track: [provider changelog](https://registry.terraform.io/providers/databricks/databricks/latest/docs). Until then, any new synced table (e.g., Phase 6+ gold tables) must be created via Databricks UI and imported.
+
 ## Future Work (unscheduled)
 
 - [ ] **Respo.Vision 3D pose tracking** — 3D skeletal data from broadcast video (user pursuing via network); complements Metrica 2D with skeletal keypoints and body orientation
@@ -232,8 +244,9 @@ rather than hardcoding in scripts. See `terraform output` for current values.
 | Databricks workspace URL | `DATABRICKS_HOST` env var |
 | Unity Catalog | `soccer_analytics` |
 | SQL Warehouse ID | `terraform output sql_warehouse_id` |
-| Lakebase instance | `terraform output lakebase_instance_name` |
-| Lakebase DNS (RW) | `terraform output lakebase_host` |
+| Lakebase project ID | `terraform output lakebase_project_id` |
+| Lakebase endpoint | `terraform output lakebase_endpoint_name` |
+| Lakebase DNS (RW) | `terraform output lakebase_read_write_dns` |
 | Ingestion job ID | `DATABRICKS_JOB_ID` env var / `terraform output ingestion_job_id` |
 | Streamlit App URL | `terraform output app_url` |
 | GitHub repo | `karstenskyt/luxury-lakehouse` (private) |

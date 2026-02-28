@@ -34,6 +34,10 @@ _token_cache: dict[str, Any] = {"token": None, "user": None, "expires_at": 0.0}
 _pool: psycopg2.pool.ThreadedConnectionPool | None = None
 _pool_created_at: float = 0.0
 
+# Retry settings for scale-to-zero wake-up latency
+_RETRY_MAX_ATTEMPTS = 3
+_RETRY_DELAY_SECONDS = 3
+
 
 def _extract_jwt_subject(token: str) -> str:
     """Extract and validate the 'sub' claim from a JWT token.
@@ -57,18 +61,18 @@ def _extract_jwt_subject(token: str) -> str:
     return sub
 
 
-def _generate_credential_via_rest(ws: WorkspaceClient, instance_name: str) -> str:
-    """Call the database credentials REST API directly.
+def _generate_credential_via_rest(ws: WorkspaceClient, endpoint_name: str) -> str:
+    """Call the Lakebase Autoscaling credentials REST API directly.
 
-    Fallback for older SDK versions that lack ws.database.
+    Fallback for older SDK versions that lack ws.postgres.
     """
     host = (ws.config.host or "").rstrip("/")
     auth_headers: dict[str, str] = ws.config.authenticate()  # type: ignore[assignment]
 
     resp = httplib.post(
-        f"{host}/api/2.0/database/credentials",
+        f"{host}/api/2.0/postgres/credentials",
         headers={**auth_headers, "Content-Type": "application/json"},
-        json={"instance_names": [instance_name], "request_id": str(uuid.uuid4())},
+        json={"endpoint": endpoint_name, "request_id": str(uuid.uuid4())},
         verify=True,
         timeout=(10, 30),
     )
@@ -102,13 +106,13 @@ def _refresh_token() -> str:
     ws = WorkspaceClient()
 
     try:
-        credential = ws.database.generate_database_credential(
-            instance_names=[settings.lakebase_instance_name],
+        credential = ws.postgres.generate_database_credential(  # type: ignore[attr-defined]
+            endpoint=settings.lakebase_endpoint_name,
         )
         token: str = credential.token  # type: ignore[assignment]
     except AttributeError:
-        logger.info("SDK lacks ws.database — falling back to REST API")
-        token = _generate_credential_via_rest(ws, settings.lakebase_instance_name)
+        logger.info("SDK lacks ws.postgres — falling back to REST API")
+        token = _generate_credential_via_rest(ws, settings.lakebase_endpoint_name)
     except Exception:
         logger.exception("SECURITY: Failed to obtain Lakebase OAuth token")
         raise
@@ -157,7 +161,7 @@ def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
             database=settings.lakebase_database,
             user=pg_user,
             password=token,
-            sslmode="verify-full",
+            sslmode="require",
             connect_timeout=10,
             options="-c statement_timeout=30000",
         )
@@ -192,21 +196,51 @@ def execute_query(query: str, params: tuple[Any, ...] | None = None) -> pd.DataF
     Uses a ThreadedConnectionPool with 55-min recycle aligned to OAuth token
     expiry. Combined with @st.cache_data(ttl=600), actual DB hits are infrequent.
 
+    Retries up to 3 times on psycopg2.OperationalError to handle Lakebase
+    Autoscaling scale-to-zero wake-up latency (typically 2-5 seconds).
+
     All queries MUST use %s parameterized placeholders — never f-string interpolation.
     """
-    pool = _get_pool()
-    conn = pool.getconn()
-    try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(query, params)
-            rows = cur.fetchall()
-            return pd.DataFrame(rows) if rows else pd.DataFrame()
-    except psycopg2.Error:
-        logger.exception("Database query failed")
-        pool.putconn(conn, close=True)
-        conn = None  # prevent double-return in finally
-        msg = "Database query failed — please try again or contact support."
-        raise RuntimeError(msg) from None
-    finally:
-        if conn is not None:
-            pool.putconn(conn)
+    last_error: Exception | None = None
+
+    for attempt in range(_RETRY_MAX_ATTEMPTS):
+        pool = _get_pool()
+        conn = None
+        try:
+            conn = pool.getconn()
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(query, params)
+                rows = cur.fetchall()
+                return pd.DataFrame(rows) if rows else pd.DataFrame()
+        except psycopg2.OperationalError as exc:
+            last_error = exc
+            if conn is not None:
+                pool.putconn(conn, close=True)
+                conn = None
+            if attempt < _RETRY_MAX_ATTEMPTS - 1:
+                logger.warning(
+                    "Lakebase connection failed (attempt %d/%d), retrying in %ds: %s",
+                    attempt + 1,
+                    _RETRY_MAX_ATTEMPTS,
+                    _RETRY_DELAY_SECONDS,
+                    exc,
+                )
+                time.sleep(_RETRY_DELAY_SECONDS)
+                continue
+            logger.exception("Database query failed after %d attempts", _RETRY_MAX_ATTEMPTS)
+            msg = "Database query failed — please try again or contact support."
+            raise RuntimeError(msg) from None
+        except psycopg2.Error:
+            logger.exception("Database query failed")
+            if conn is not None:
+                pool.putconn(conn, close=True)
+                conn = None
+            msg = "Database query failed — please try again or contact support."
+            raise RuntimeError(msg) from None
+        finally:
+            if conn is not None:
+                pool.putconn(conn)
+
+    # Should not reach here, but satisfy type checker
+    msg = "Database query failed — please try again or contact support."
+    raise RuntimeError(msg) from last_error

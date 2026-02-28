@@ -9,10 +9,10 @@
 
 ## Executive Summary
 
-- **Total findings:** 30
-- **Critical:** 0 | **High:** 1 | **Medium:** 10 | **Low:** 15 | **Info:** 4
-- **Resolved:** 25 (7 initial + 9 hardening round + 7 second hardening round + 2 accepted risk)
-- **Remaining:** 6
+- **Total findings:** 31
+- **Critical:** 0 | **High:** 1 | **Medium:** 10 | **Low:** 16 | **Info:** 4
+- **Resolved:** 26 (7 initial + 9 hardening round + 7 second hardening round + 3 accepted risk)
+- **Remaining:** 5
 
 The codebase has a strong security foundation with zero critical vulnerabilities. The single High finding (no secret scanning) is a preventive control gap. Medium findings are defense-in-depth hardening items — no exploitable attack paths were identified in the current deployment.
 
@@ -93,6 +93,7 @@ The codebase has a strong security foundation with zero critical vulnerabilities
 | ~~L-3~~ | 6 | Streamlit | CWE-20 | All `_load_*` functions | ~~No explicit type assertion on `competition_id`/`team_id` before query.~~ Added `int()` casts in all `_load_*` functions and filter widgets. | **Resolved** (R-17) |
 | ~~L-4~~ | 7 | Auth | CWE-362 | `db.py:25-26` | ~~Module-level `_token_cache` dict is not thread-safe.~~ `_token_cache` now guarded by `_pool_lock`; `_refresh_token()` documented as requiring lock. | **Resolved** (R-18) |
 | ~~L-5~~ | 7 | Auth | CWE-316 | `db.py:82-84` | ~~OAuth token stored in plain memory, not zeroed on eviction.~~ Accepted risk: Python strings are immutable — cannot be zeroed in place. Token is short-lived (60 min) and only accessible within the Databricks Apps process. | **Accepted** |
+| ~~L-16~~ | 4 | Streamlit | CWE-295 | `db.py:164` | `sslmode=require` instead of `verify-full`. Accepted risk: Databricks Lakebase Autoscaling endpoints require `sslmode=require` — `verify-full` fails because the endpoint hostname (dynamic, auto-generated) is not in the server certificate SAN. Connection is encrypted but server identity is not verified by the client. Risk is low: traffic stays within the Databricks-managed VPC and the endpoint DNS is only resolvable within the workspace. | **Accepted** |
 | ~~L-6~~ | 4 | Streamlit | — | `db.py` | ~~Connection pooling deferred — new TCP connection per query.~~ Implemented `ThreadedConnectionPool` with 55-min recycle. | **Resolved** (R-13) |
 | ~~L-7~~ | 4 | Terraform | — | `scripts/lakebase_grants.sql` | ~~PG grants applied manually, not in IaC.~~ Codified in versioned SQL script with `ALTER DEFAULT PRIVILEGES`. | **Resolved** (R-14) |
 | ~~L-8~~ | 3a | Terraform | CWE-732 | `modules/catalog/main.tf:78-85` | ~~Ingestion SP has `MODIFY` on entire bronze schema.~~ Accepted: documented rationale — job creates tables dynamically, schema is dedicated to ingestion. | **Resolved** (R-19) |
@@ -153,6 +154,7 @@ The codebase has a strong security foundation with zero critical vulnerabilities
 24. ~~**L-14** — Log REST credential HTTP errors.~~ (R-23)
 25. ~~**L-5** — OAuth token stored in plain memory, not zeroed on eviction.~~ Accepted risk: Python strings are immutable; token is short-lived (60 min).
 26. **L-10** — S3 state encryption uses default AWS KMS key — no CMK, no rotation policy, no access logging. Remediation: add a CMK with automatic rotation + enable S3 Bucket Keys to minimize KMS API costs (~$1/month).
+27. ~~**L-16** — `sslmode=require` instead of `verify-full` for Lakebase Autoscaling.~~ Accepted risk: Autoscaling endpoints require `sslmode=require`; connection is encrypted, traffic stays within Databricks-managed VPC.
 
 ---
 
@@ -183,7 +185,7 @@ The codebase has a strong security foundation with zero critical vulnerabilities
 ### Phase 7: Auth — Correct Model
 
 - OAuth M2M with short-lived JWT (60 min, refreshed at 55 min)
-- `sslmode=verify-full` on all PG connections
+- `sslmode=require` on all PG connections (Autoscaling requirement)
 - XSRF protection enabled in Streamlit config
 - CORS disabled
 

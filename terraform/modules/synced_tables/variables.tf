@@ -8,7 +8,7 @@ variable "catalog_name" {
 }
 
 variable "database_instance_name" {
-  description = "Name of the Lakebase database instance to sync into"
+  description = "Name of the Lakebase instance or Autoscaling project ID to sync into"
   type        = string
 }
 

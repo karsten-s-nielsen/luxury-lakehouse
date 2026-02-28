@@ -1,11 +1,12 @@
 -- ──────────────────────────────────────────────────────────────────────────────
 -- Lakebase PostgreSQL Grants — Streamlit App Service Principal
 -- ──────────────────────────────────────────────────────────────────────────────
--- Run this script against the Lakebase PostgreSQL instance after synced tables
--- are created. Connects as the workspace admin user (requires manual PG login).
+-- Run this script against the Lakebase Autoscaling PostgreSQL 17 endpoint
+-- after synced tables are created. Connects as the workspace admin user
+-- (requires manual PG login via OAuth).
 --
--- Usage (psycopg2 one-liner or psql):
---   psql -h <lakebase-host> -U <admin-uuid> -d databricks_postgres -f scripts/lakebase_grants.sql
+-- Usage (psql with Autoscaling endpoint):
+--   psql -h <lakebase-read-write-dns> -U <admin-uuid> -d databricks_postgres -f scripts/lakebase_grants.sql
 --
 -- The :app_sp_uuid variable must be set to the Streamlit app service principal
 -- UUID (the 'sub' claim from its OAuth JWT). Find it via:

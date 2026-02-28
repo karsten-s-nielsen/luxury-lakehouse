@@ -18,7 +18,7 @@ class AppSettings(BaseSettings):
 
     # Required — Lakebase connection
     lakebase_host: str
-    lakebase_instance_name: str
+    lakebase_endpoint_name: str
 
     # Defaults
     lakebase_database: str = "databricks_postgres"

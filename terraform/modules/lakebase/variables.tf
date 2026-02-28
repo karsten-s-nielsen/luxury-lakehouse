@@ -8,14 +8,20 @@ variable "environment" {
   default     = "dev"
 }
 
-variable "capacity" {
-  description = "Capacity SKU for the Lakebase instance (CU_1, CU_2, CU_4, CU_8)"
-  type        = string
-  default     = "CU_1"
+variable "autoscaling_min_cu" {
+  description = "Minimum compute units for autoscaling (scales to zero when suspended)"
+  type        = number
+  default     = 0.5
 }
 
-variable "stopped" {
-  description = "Whether the Lakebase instance is stopped (hibernated). Set true to save costs when not in use."
-  type        = bool
-  default     = false
+variable "autoscaling_max_cu" {
+  description = "Maximum compute units for autoscaling"
+  type        = number
+  default     = 4
+}
+
+variable "suspend_timeout_duration" {
+  description = "Duration of inactivity before the endpoint suspends (e.g. '300s')"
+  type        = string
+  default     = "300s"
 }

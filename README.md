@@ -25,7 +25,7 @@ Six AWS services. Five data movement hops. Always-on compute. Manual credential 
 ### The New Way (The Modern Engineer)
 
 ```
-Data Providers → Databricks Workflows → Delta Lake (Bronze/Silver/Gold) → Synced Tables → Lakebase PostgreSQL 16 → Streamlit
+Data Providers → Databricks Workflows → Delta Lake (Bronze/Silver/Gold) → Synced Tables → Lakebase PostgreSQL 17 → Streamlit
 ```
 
 Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
@@ -40,7 +40,7 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 | **Storage** | Delta Lake on Unity Catalog | Medallion architecture (Bronze → Silver → Gold) |
 | **Transformation** | dbt-databricks on Serverless SQL | Flatten nested JSON, compute xG/xT metrics |
 | **Synchronization** | Lakeflow Synced Tables | Zero-ETL continuous sync from Gold → Lakebase |
-| **Serving** | Lakebase PostgreSQL 16 (Provisioned) | Sub-10ms OLTP queries, native pgvector |
+| **Serving** | Lakebase PostgreSQL 17 (Autoscaling) | Sub-10ms OLTP queries, native pgvector, scale-to-zero |
 | **Application** | Streamlit on Databricks Apps | Interactive dashboards with mplsoccer visualizations |
 | **Security** | Service Principals + UC Grants | Least-privilege identities for ingestion and app |
 | **Infrastructure** | Terraform + Databricks Provider | Everything as code |
@@ -82,7 +82,7 @@ luxury-lakehouse/
 
 ## Status
 
-**Phase 5: Streamlit Application Complete** — Interactive analytics dashboard deployed as a Databricks App with 4 pages (Shot Map, Pass Map, Player Radar, Match Summary), backed by Lakebase PostgreSQL via OAuth M2M. See [PLAN.md](PLAN.md) for the full implementation plan.
+**Phase 5.5: Lakebase Autoscaling Migration Complete** — Migrated from Provisioned (PG 16) to Autoscaling (PG 17) with true scale-to-zero and usage-based billing. Streamlit dashboard deployed as a Databricks App with 4 pages, backed by Lakebase PostgreSQL via OAuth M2M. See [PLAN.md](PLAN.md) for the full implementation plan.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -92,6 +92,7 @@ luxury-lakehouse/
 | 3 | Transformation (dbt on Databricks) | Complete |
 | 4 | Zero-ETL Synchronization (Synced Tables → Lakebase) | Complete |
 | 5 | Application Deployment (Streamlit) | Complete |
+| 5.5 | Lakebase Autoscaling + PG 17 Migration | Complete |
 
 ## Tech Stack
 
@@ -100,7 +101,7 @@ luxury-lakehouse/
 | Cloud | AWS (us-east-1) + Databricks Premium |
 | IaC | Terraform with `databricks/databricks` provider |
 | Data Lake | Delta Lake on Unity Catalog |
-| OLTP Database | Databricks Lakebase (PostgreSQL 16, provisioned) |
+| OLTP Database | Databricks Lakebase (PostgreSQL 17, autoscaling) |
 | Transformations | dbt-core + dbt-databricks |
 | Orchestration | Databricks Serverless Workflows |
 | Application | Streamlit + mplsoccer |

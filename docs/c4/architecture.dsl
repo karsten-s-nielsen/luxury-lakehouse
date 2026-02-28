@@ -36,7 +36,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
                 testSuite = component "Test Suite" "165+ data tests: unique, not_null, accepted_values, range bounds, composite keys, source freshness" "dbt-expectations, dbt-utils"
             }
             syncedTables = container "Synced Tables Pipeline" "8 synced tables (5 fact, 3 dimension) replicate Gold Delta tables into Lakebase via SNAPSHOT scheduling, eliminating Reverse ETL. All tables online with verified row counts." "Lakeflow Synced Database Tables, Terraform" "Queue"
-            lakebase = container "Lakebase PostgreSQL 16" "Managed OLTP database (CU_1 capacity, running) providing sub-10ms query latency for the Streamlit app, with native pgvector support. OAuth M2M authentication, SSL enforced." "PostgreSQL 16, Capacity Units, pgvector" "Database"
+            lakebase = container "Lakebase PostgreSQL 17 (Autoscaling)" "Managed OLTP database with autoscaling (0.5–4 CU) and scale-to-zero, providing sub-10ms query latency for the Streamlit app, with native pgvector support. OAuth M2M authentication, SSL enforced." "PostgreSQL 17, Autoscaling, pgvector" "Database"
             streamlit = container "Streamlit Dashboard" "Interactive analytics dashboard deployed as a Databricks App with 4 pages: Shot Map, Pass Map, Player Radar, and Match Summary" "Python, Streamlit, mplsoccer, psycopg2, Databricks Apps" {
                 appEntry = component "App Entry Point" "st.navigation page routing, dark theme, sidebar branding" "app.py, Streamlit 1.36+"
                 configComp = component "Configuration" "Pydantic BaseSettings with env var binding, identifier validation, cached singleton" "config.py, pydantic-settings"

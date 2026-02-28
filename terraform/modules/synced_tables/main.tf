@@ -2,11 +2,22 @@
 # Module: Synced Tables — Delta-to-Lakebase Synchronization
 # ──────────────────────────────────────────────────────────────────────────────
 # Synced Database Tables mirror gold-layer Delta tables into the Lakebase
-# PostgreSQL instance, enabling sub-second point lookups from the Streamlit
+# PostgreSQL endpoint, enabling sub-second point lookups from the Streamlit
 # dashboard without requiring a running SQL warehouse.
 #
 # Resource: databricks_database_synced_database_table
 # Docs: https://registry.terraform.io/providers/databricks/databricks/latest/docs/resources/database_synced_database_table
+#
+# IMPORTANT: As of provider v1.110.0, this resource only exposes
+# `database_instance_name` (Provisioned). For Lakebase Autoscaling projects,
+# synced tables must be created via the Databricks UI (which supports
+# project + branch selection), then imported into Terraform state:
+#
+#   terraform import 'module.synced_tables.databricks_database_synced_database_table.fct_shots' \
+#     'soccer_analytics.dev_gold.fct_shots_synced'
+#
+# The lifecycle block uses `ignore_changes = all` because the provider does
+# not support updates to synced tables ("Update is not yet implemented").
 #
 # Fact tables (events and metrics):
 #   - fct_shots:            Shot events with xG, outcome, body part
@@ -33,6 +44,10 @@ resource "databricks_database_synced_database_table" "fct_shots" {
     primary_key_columns    = ["shot_id"]
     scheduling_policy      = "SNAPSHOT"
   }
+
+  lifecycle {
+    ignore_changes = all
+  }
 }
 
 resource "databricks_database_synced_database_table" "fct_passes" {
@@ -44,6 +59,10 @@ resource "databricks_database_synced_database_table" "fct_passes" {
     source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_passes"
     primary_key_columns    = ["pass_id"]
     scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
   }
 }
 
@@ -57,6 +76,10 @@ resource "databricks_database_synced_database_table" "fct_player_stats" {
     primary_key_columns    = ["player_stats_id"]
     scheduling_policy      = "SNAPSHOT"
   }
+
+  lifecycle {
+    ignore_changes = all
+  }
 }
 
 resource "databricks_database_synced_database_table" "fct_match_summary" {
@@ -69,6 +92,10 @@ resource "databricks_database_synced_database_table" "fct_match_summary" {
     primary_key_columns    = ["match_id"]
     scheduling_policy      = "SNAPSHOT"
   }
+
+  lifecycle {
+    ignore_changes = all
+  }
 }
 
 resource "databricks_database_synced_database_table" "fct_player_embeddings" {
@@ -80,6 +107,10 @@ resource "databricks_database_synced_database_table" "fct_player_embeddings" {
     source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_player_embeddings"
     primary_key_columns    = ["embedding_id"]
     scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
   }
 }
 
@@ -95,6 +126,10 @@ resource "databricks_database_synced_database_table" "dim_players" {
     primary_key_columns    = ["player_id"]
     scheduling_policy      = "SNAPSHOT"
   }
+
+  lifecycle {
+    ignore_changes = all
+  }
 }
 
 resource "databricks_database_synced_database_table" "dim_teams" {
@@ -107,6 +142,10 @@ resource "databricks_database_synced_database_table" "dim_teams" {
     primary_key_columns    = ["team_id"]
     scheduling_policy      = "SNAPSHOT"
   }
+
+  lifecycle {
+    ignore_changes = all
+  }
 }
 
 resource "databricks_database_synced_database_table" "dim_competitions" {
@@ -118,5 +157,9 @@ resource "databricks_database_synced_database_table" "dim_competitions" {
     source_table_full_name = "${var.catalog_name}.${var.gold_schema}.dim_competitions"
     primary_key_columns    = ["competition_id"]
     scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
   }
 }

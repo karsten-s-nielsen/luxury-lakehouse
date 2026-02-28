@@ -46,6 +46,7 @@ terraform/**/.terraform/
 *.tfstate.*
 *.tfvars
 !terraform/environments/dev/terraform.tfvars.example
+tfplan*
 crash.log
 override.tf
 override.tf.json

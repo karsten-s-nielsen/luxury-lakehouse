@@ -13,7 +13,7 @@ class TestAppSettings:
     def test_valid_settings(self) -> None:
         settings = AppSettings(
             lakebase_host="example.database.cloud.databricks.com",
-            lakebase_instance_name="test-instance",
+            lakebase_endpoint_name="projects/test/branches/production/endpoints/primary",
         )
         assert settings.lakebase_host == "example.database.cloud.databricks.com"
         assert settings.lakebase_database == "databricks_postgres"
@@ -24,7 +24,7 @@ class TestAppSettings:
     def test_custom_schema(self) -> None:
         settings = AppSettings(
             lakebase_host="host",
-            lakebase_instance_name="inst",
+            lakebase_endpoint_name="projects/t/branches/production/endpoints/primary",
             gold_schema="prod_gold",
         )
         assert settings.gold_schema == "prod_gold"
@@ -33,7 +33,7 @@ class TestAppSettings:
         with pytest.raises(ValueError, match="Invalid identifier"):
             AppSettings(
                 lakebase_host="host",
-                lakebase_instance_name="inst",
+                lakebase_endpoint_name="projects/t/branches/production/endpoints/primary",
                 gold_schema="dev_gold; DROP TABLE--",
             )
 
@@ -41,7 +41,7 @@ class TestAppSettings:
         with pytest.raises(ValueError, match="Invalid identifier"):
             AppSettings(
                 lakebase_host="host",
-                lakebase_instance_name="inst",
+                lakebase_endpoint_name="projects/t/branches/production/endpoints/primary",
                 gold_schema="dev gold",
             )
 
@@ -49,14 +49,14 @@ class TestAppSettings:
         with pytest.raises(ValueError, match="Invalid identifier"):
             AppSettings(
                 lakebase_host="host",
-                lakebase_instance_name="inst",
+                lakebase_endpoint_name="projects/t/branches/production/endpoints/primary",
                 gold_schema="",
             )
 
     def test_accepts_underscored_schema(self) -> None:
         settings = AppSettings(
             lakebase_host="host",
-            lakebase_instance_name="inst",
+            lakebase_endpoint_name="projects/t/branches/production/endpoints/primary",
             gold_schema="_internal_gold",
         )
         assert settings.gold_schema == "_internal_gold"

@@ -1,6 +1,6 @@
 # Databricks Lakebase Implementation Plan — Soccer Analytics Platform
 
-> **Status**: Phase 5 complete — Streamlit dashboard deployed as Databricks App with 4 pages, backed by Lakebase PostgreSQL via OAuth M2M
+> **Status**: Phase 5.5 complete — Lakebase migrated to Autoscaling (PG 17, scale-to-zero). Streamlit dashboard deployed as Databricks App with 4 pages, backed by Lakebase PostgreSQL via OAuth M2M
 > **Last Updated**: 2026-02-28
 > **Repository**: [`karstenskyt/luxury-lakehouse`](https://github.com/karstenskyt/luxury-lakehouse)
 > **Scope**: Document 3 ("3_AWS Lake House.pdf") — Databricks Lakebase serverless architecture
@@ -31,7 +31,7 @@
 
 ## 1. Executive Summary
 
-This plan implements the Databricks Lakebase architecture described in Document 3 to build a serverless soccer analytics platform. The pipeline ingests open-source match data (StatsBomb, Metrica Sports, Wyscout), transforms it through a medallion architecture (Bronze → Silver → Gold), synchronizes curated tables into Lakebase (PostgreSQL 16), and serves a Streamlit dashboard for coaches and analysts.
+This plan implements the Databricks Lakebase architecture described in Document 3 to build a serverless soccer analytics platform. The pipeline ingests open-source match data (StatsBomb, Metrica Sports, Wyscout), transforms it through a medallion architecture (Bronze → Silver → Gold), synchronizes curated tables into Lakebase (PostgreSQL 17), and serves a Streamlit dashboard for coaches and analysts.
 
 **Why Lakebase over Traditional AWS (Document 2)?**
 
@@ -149,7 +149,7 @@ This workspace serves as the **reference implementation** — the analytics logi
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
-│          LAKEBASE AUTOSCALING (PostgreSQL 16) — Phase 4                  │
+│          LAKEBASE AUTOSCALING (PostgreSQL 17) — Phase 4                  │
 │  ┌──────────────────────────────────────────────────────────────────┐    │
 │  │  Serverless OLTP • Scale-to-zero • OAuth M2M auth               │    │
 │  │  • Standard PostgreSQL wire protocol (JDBC/psycopg2)            │    │
@@ -234,8 +234,8 @@ System Boundary: Soccer Analytics Platform (Databricks on AWS)
   │   Technology: Managed Spark streaming
   │   Responsibility: Continuous Gold Delta → Lakebase synchronization
   │
-  ├── Lakebase PostgreSQL 16       [Databricks Serverless OLTP]
-  │   Technology: PostgreSQL 16, Autoscaling, pgvector
+  ├── Lakebase PostgreSQL 17       [Databricks Serverless OLTP]
+  │   Technology: PostgreSQL 17, Autoscaling, pgvector
   │   Responsibility: Low-latency OLTP queries for the Streamlit app
   │
   └── Streamlit Dashboard          [Databricks App]
@@ -583,7 +583,7 @@ The existing DevOpsAgent IAM role in `karstenskyt__mcp-aws-codedeploy` needs add
 
 **Completed**: `docs/c4/architecture.html` (215 KB, self-contained) and `docs/c4/architecture.dsl` (Structurizr DSL source) generated with:
 - **System Context**: Platform + 4 persons (Coach/Analyst, Scout, Data Scientist, Platform Engineer) + 5 external systems (StatsBomb, Metrica, Wyscout, GitHub, AWS)
-- **Container**: All 7 containers (Ingestion Workflows, Unity Catalog, Serverless SQL Warehouse, dbt Project, Synced Tables Pipeline, Lakebase PostgreSQL 16, Streamlit Dashboard)
+- **Container**: All 7 containers (Ingestion Workflows, Unity Catalog, Serverless SQL Warehouse, dbt Project, Synced Tables Pipeline, Lakebase PostgreSQL 17, Streamlit Dashboard)
 - **DSL tab**: Full Structurizr DSL source with copy button
 
 This is the "north star" diagram that all subsequent phases implement towards. Updated via `/final-review` at each phase boundary.
@@ -644,16 +644,23 @@ resource "databricks_lakebase_project" "soccer_analytics" {
 }
 ```
 
-**Actual implementation** (provider v1.98.0+):
+**Actual implementation** (provider v1.110.0+, Autoscaling):
 ```hcl
-resource "databricks_database_instance" "soccer_analytics" {
-  name     = "soccer-analytics-lakebase-${var.environment}"
-  capacity = var.capacity  # Fixed CU_1 through CU_8 (no autoscaling)
-  stopped  = var.stopped   # Hibernate to save costs when idle
+resource "databricks_postgres_project" "soccer_analytics" {
+  project_id = "soccer-analytics-${var.environment}"
+  spec = {
+    pg_version   = 17
+    display_name = "Soccer Analytics Lakebase (${var.environment})"
+    default_endpoint_settings = {
+      autoscaling_limit_min_cu = var.autoscaling_min_cu
+      autoscaling_limit_max_cu = var.autoscaling_max_cu
+      suspend_timeout_duration = var.suspend_timeout_duration
+    }
+  }
 }
 ```
 
-**Divergences from plan**: The provider uses `databricks_database_instance` (not `databricks_lakebase_project`). Capacity is fixed (CU_1–CU_8), not autoscaling. PostgreSQL version is platform-managed (PG 16, read-only). The `stopped` attribute allows hibernation for cost savings.
+**Phase 5.5 migration**: Replaced `databricks_database_instance` (Provisioned, PG 16, fixed CU) with `databricks_postgres_project` + branch + endpoint (Autoscaling, PG 17, scale-to-zero). True usage-based billing, configurable PG version, and automatic suspend/resume.
 
 ### 1.3 — Serverless SQL Warehouse
 
@@ -944,6 +951,10 @@ resource "databricks_database_synced_database_table" "fct_shots" {
     primary_key_columns    = ["shot_id"]
     scheduling_policy      = "SNAPSHOT"
   }
+
+  lifecycle {
+    ignore_changes = all
+  }
 }
 ```
 
@@ -951,6 +962,8 @@ resource "databricks_database_synced_database_table" "fct_shots" {
 - `gold_schema` variable handles dbt's environment prefix (`dev_gold` in dev, `gold` in prod)
 - `scheduling_policy = "SNAPSHOT"` — initial sync with on-demand refresh
 - `logical_database_name = "databricks_postgres"` — standard Lakebase database
+
+> **Autoscaling workaround (provider v1.110.0):** The `databricks_database_synced_database_table` resource only supports `database_instance_name` (Provisioned). The REST API server accepts project+branch fields but the Terraform provider, Go SDK, Python SDK, and CLI do not expose them. Synced tables targeting **Autoscaling projects** must be created via the **Databricks UI** (Catalog Explorer → source table → Create → Synced table → select project/branch), then imported into Terraform state using `scripts/import_synced_tables.sh`. The `lifecycle { ignore_changes = all }` block prevents drift — the provider also does not support updates ("Update Synced Database Table is not yet implemented"). This applies to any new synced table added in future phases.
 
 **Tables synced (Gold → Lakebase) with verified row counts:**
 
@@ -983,8 +996,8 @@ Gold Delta Table (lakehouse)
          ▼  snapshot sync (initial + on-demand refresh)
   Lakebase PostgreSQL table (read-only mirror)
          │
-         ▼  standard PostgreSQL wire protocol (port 5432, sslmode=verify-full)
-  Streamlit app queries via psycopg2 (OAuth M2M auth)
+         ▼  standard PostgreSQL wire protocol (port 5432, sslmode=require)
+  Streamlit app queries via psycopg2 (OAuth M2M auth, retry on scale-to-zero)
 ```
 
 - **Latency**: Sub-10ms for point queries from Streamlit
@@ -999,7 +1012,7 @@ Gold Delta Table (lakehouse)
 |---------|---------------|--------|
 | Connection restriction | Lakebase access restricted to Streamlit app service principal only | Phase 5 |
 | Connection pooling | `psycopg2.pool` with 55min recycle (under 1hr OAuth token expiry) | Phase 5 |
-| Encryption in transit | `sslmode=verify-full` enforced on all PostgreSQL connections | Active |
+| Encryption in transit | `sslmode=require` enforced on all PostgreSQL connections (Autoscaling requirement) | Active |
 | Read-only mirrors | Synced tables are read-only replicas — no write path from Streamlit to Gold | Active |
 | Authentication | OAuth M2M only (`effective_enable_pg_native_login = false`) | Active |
 | SSL enforcement | All Lakebase connections require SSL by default | Active |
@@ -1008,8 +1021,9 @@ Gold Delta Table (lakehouse)
 
 - **dbt schema naming**: dbt prepends target name to custom schemas, so `gold` becomes `dev_gold` in the dev target. The `gold_schema` variable in the synced_tables module handles this.
 - **Git Bash MSYS path mangling**: On Windows, Git Bash converts `/sql/1.0/...` to `C:/Program Files/Git/sql/1.0/...`. Fix: set `MSYS_NO_PATHCONV=1` before running dbt commands.
-- **Lakebase cold start**: ~2 minutes from STOPPED to AVAILABLE. Synced tables cannot be created while instance is STARTING.
-- **Terraform apply ordering**: Lakebase must be AVAILABLE before synced tables can be created. If applying both in one run, a retry is needed after the instance starts.
+- **Autoscaling scale-to-zero wake-up**: Lakebase Autoscaling endpoints suspend after the configured timeout (default 300s). First connection after suspension takes 2–5 seconds. The Streamlit app retries up to 3 times with 3s delay to handle this transparently.
+- **Synced table creation (manual step)**: Until the Databricks provider adds project/branch fields to `databricks_database_synced_database_table`, new synced tables must be created via the UI then imported into Terraform. See `scripts/import_synced_tables.sh` for the import workflow. This affects any future gold table additions (Phase 6+).
+- **Credential API for Autoscaling**: The REST endpoint is `/api/2.0/postgres/credentials` (NOT `/api/2.0/database/credentials` which only supports Provisioned instances). Requires OAuth authentication — PATs return 401 on `/api/2.0/database/` endpoints.
 
 ---
 
@@ -1043,22 +1057,22 @@ Supporting files:
 The app runs as a Databricks App with an auto-assigned **service principal** (`be66af99-5296-4fd9-887a-c081bce38bfa`). Token generation uses the SDK with a REST API fallback for older runtimes:
 
 ```python
-# db.py — actual implementation pattern
+# db.py — actual implementation pattern (Autoscaling, PG 17)
 ws = WorkspaceClient()  # Inherits SP identity from Databricks App runtime
 try:
-    credential = ws.database.generate_database_credential(
-        instance_names=[settings.lakebase_instance_name],
+    credential = ws.postgres.generate_database_credential(
+        endpoint=settings.lakebase_endpoint_name,
     )
     token = credential.token
 except AttributeError:
     # REST fallback for older SDK versions
-    token = _generate_credential_via_rest(ws, instance_name)
+    token = _generate_credential_via_rest(ws, endpoint_name)
 
 pg_user = _extract_jwt_subject(token)  # JWT 'sub' claim = PG role name
 conn = psycopg2.connect(
     host=settings.lakebase_host, port=5432,
     database="databricks_postgres", user=pg_user, password=token,
-    sslmode="verify-full",
+    sslmode="require",  # Autoscaling requirement
 )
 ```
 
@@ -1087,7 +1101,7 @@ conn = psycopg2.connect(
 | SQL injection prevention | All queries use `%s` parameterized placeholders; table names validated via `_IDENTIFIER_RE` |
 | Input validation | Filter inputs sourced from dimension table queries; identifiers regex-validated; `int()` type assertions on all IDs (L-3) |
 | Connection pooling | `ThreadedConnectionPool` (min=1, max=5) with 55-min recycle aligned to token expiry; thread-safe via `_pool_lock` (L-4, L-6) |
-| SSL | `sslmode="verify-full"` on all Lakebase connections |
+| SSL | `sslmode="require"` on all Lakebase connections (Autoscaling requirement) |
 | Query limits | `statement_timeout=30000` (30s) prevents runaway queries (M-3) |
 | Error handling | `psycopg2.Error` caught and sanitized — no tracebacks leaked to browser (M-2) |
 | Session security | No credentials or PII in `st.session_state`; tokens cached in module-level dict with TTL |
@@ -1137,7 +1151,7 @@ command: ['streamlit', 'run', 'src/streamlit_app/app.py', '--server.port', '8000
 |-------------|---------------|
 | Connection restriction | Restrict Lakebase access to Streamlit app service principal only |
 | Query limits | Configure query timeouts and connection pooling limits to prevent resource exhaustion |
-| Encryption in transit | Enforce `sslmode=verify-full` on all PostgreSQL connections |
+| Encryption in transit | Enforce `sslmode=require` on all PostgreSQL connections (Autoscaling) |
 
 #### Phase 5 Security Requirements (Streamlit)
 
@@ -1335,7 +1349,7 @@ Games 1–2 are already ingested, transformed (`fct_tracking_frames`), and synce
 
 | # | Risk | Likelihood | Impact | Mitigation |
 |---|------|-----------|--------|------------|
-| R1 | Lakebase Terraform provider support incomplete (GA Feb 2026) | Medium | High | Verify provider docs before coding; fall back to Databricks REST API + `null_resource` provisioners |
+| R1 | Lakebase Terraform provider support incomplete (GA Feb 2026) | Medium | High | **Realized**: Provider v1.110.0 lacks project/branch fields for synced tables. Mitigated via UI creation + `terraform import` + `lifecycle { ignore_changes = all }`. See §4.1 and §4.4. |
 | R2 | Synced Tables feature not available in chosen Databricks tier | Low | Critical | Confirm tier supports Synced Tables before provisioning |
 | R3 | StatsBomb API rate limiting during bulk ingestion | Medium | Low | Implement exponential backoff; cache locally; run during off-peak |
 | R4 | Databricks cost exceeds expectations | Medium | Medium | Start with scale-to-zero everywhere; set billing alerts; review after 1 month |

@@ -14,9 +14,14 @@ output "warehouse_id" {
   value       = module.sql_warehouse.warehouse_id
 }
 
-output "lakebase_instance_name" {
-  description = "Lakebase database instance name"
-  value       = module.lakebase.instance_name
+output "lakebase_project_id" {
+  description = "Lakebase Autoscaling project ID"
+  value       = module.lakebase.project_id
+}
+
+output "lakebase_endpoint_name" {
+  description = "Lakebase endpoint path for credential API"
+  value       = module.lakebase.endpoint_name
 }
 
 output "lakebase_read_write_dns" {

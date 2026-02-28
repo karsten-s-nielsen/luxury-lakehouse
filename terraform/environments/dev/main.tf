@@ -22,7 +22,7 @@ terraform {
     }
     databricks = {
       source  = "databricks/databricks"
-      version = ">= 1.98.0"
+      version = ">= 1.110.0"
     }
   }
 }
@@ -81,14 +81,15 @@ module "catalog" {
 }
 
 # ── Module: Lakebase ─────────────────────────────────────────────────────────
-# PostgreSQL-compatible Lakebase instance with scale-to-zero for dev.
+# Lakebase Autoscaling (PG 17) with true scale-to-zero for dev.
 
 module "lakebase" {
   source = "../../modules/lakebase"
 
-  environment = var.environment
-  capacity    = "CU_1"
-  stopped     = false # Phase 4: active for synced tables
+  environment              = var.environment
+  autoscaling_min_cu       = 0.5
+  autoscaling_max_cu       = 4
+  suspend_timeout_duration = "300s"
 }
 
 # ── Module: SQL Warehouse ────────────────────────────────────────────────────
