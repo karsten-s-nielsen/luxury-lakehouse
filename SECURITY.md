@@ -203,7 +203,7 @@ The codebase has a strong security foundation with zero critical vulnerabilities
 - Zero hardcoded credentials in any source file
 - `.gitignore` covers `.env`, `*.tfvars`, `*.pem`, `*.key`, `credentials.json`
 - CI secrets injected via `${{ secrets.* }}`
-- AWS OIDC role assumption (no long-lived AWS keys)
+- AWS OIDC role assumption (no long-lived AWS keys) — **NOTE**: OIDC identity provider and role not yet configured in AWS; `terraform-plan.yml` CI fails at credential step. See TODO.md Technical Debt.
 
 ### Phase 10: Data — Low Risk
 

@@ -226,6 +226,7 @@ Games 1–2 are already ingested, transformed (`fct_tracking_frames`), and synce
 ## Technical Debt
 
 - [ ] **Update synced_tables Terraform module for Autoscaling API** — When the Databricks Terraform provider adds `database_project` and `branch` fields to `databricks_database_synced_database_table`, remove the UI+import workaround. Update `main.tf` to pass project/branch instead of `database_instance_name`, remove `lifecycle { ignore_changes = all }`, and retire `scripts/import_synced_tables.sh`. Track: [provider changelog](https://registry.terraform.io/providers/databricks/databricks/latest/docs). Until then, any new synced table (e.g., Phase 6+ gold tables) must be created via Databricks UI and imported.
+- [ ] **Fix Terraform Plan CI — configure AWS OIDC** — The `terraform-plan.yml` workflow fails at the "Configure AWS credentials" step because `secrets.AWS_ROLE_ARN` is not set. Requires: (1) create an IAM OIDC identity provider for `token.actions.githubusercontent.com` in AWS account 454762693631, (2) create an IAM role with a trust policy scoped to `repo:karstenskyt/luxury-lakehouse:*`, (3) add the role ARN as the `AWS_ROLE_ARN` secret in the GitHub repo settings. Also needs `DATABRICKS_HOST`, `DATABRICKS_TOKEN`, and `DATABRICKS_ACCOUNT_ID` secrets. Has been failing silently since the workflow was added. See also SECURITY.md M-6 (migrate Terraform auth from PAT to OAuth M2M).
 
 ## Future Work (unscheduled)
 
