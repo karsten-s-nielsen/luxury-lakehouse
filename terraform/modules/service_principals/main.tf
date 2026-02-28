@@ -46,13 +46,11 @@ resource "databricks_service_principal" "terraform_ci" {
   active       = true
 }
 
-# ── Workspace Admin for CI SP ──────────────────────────────────────────────
-# terraform plan needs to refresh all managed resources (service principals
-# via SCIM, catalogs, SQL endpoints, etc.).  Workspace admin is the minimum
-# role that grants read access to everything terraform manages.
+# ── CI SP Roles: Workspace Admin + Account Admin ──────────────────────────
+# terraform plan needs to refresh all managed resources.  Workspace admin
+# covers SCIM, SQL endpoints, and catalog reads.  Account admin covers
+# federation policies and access control rule sets.
 
-# Workspace admin — needed to read service principals, SQL endpoints, groups
-# via SCIM and workspace APIs during terraform plan.
 data "databricks_group" "admins" {
   display_name = "admins"
 }

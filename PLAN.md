@@ -1296,11 +1296,11 @@ Resolves three open security findings before the repo goes public:
 
 **New Terraform modules:**
 - `terraform/modules/state_kms/` — KMS CMK with automatic rotation, S3 Bucket Key for cost optimization
-- `terraform/modules/github_oidc/` — AWS IAM OIDC provider + least-privilege role (S3 read + KMS decrypt)
+- `terraform/modules/github_oidc/` — AWS IAM OIDC provider + scoped role (S3 state read/write/lock, KMS encrypt/decrypt, IAM read for plan)
 
 **Modified resources:**
-- `terraform/modules/service_principals/` — added Terraform CI SP with `databricks_service_principal_federation_policy` for GitHub OIDC
-- `terraform/environments/dev/` — provider migrated from `token` to `client_id`/`client_secret`, new module calls wired
+- `terraform/modules/service_principals/` — added Terraform CI SP with: `databricks_service_principal_federation_policy` (GitHub OIDC, `subject_claim = "repository"` for trigger-agnostic matching), workspace admin group membership, account admin role (federation policy + rule set reads)
+- `terraform/environments/dev/` — provider migrated from `token` to `client_id`/`client_secret`, new module calls wired, `databricks_grant` for CI SP catalog access (`ALL_PRIVILEGES`)
 - `.github/workflows/terraform-plan.yml` — `secrets.*` → `vars.*`, PAT → OIDC, added `DATABRICKS_AUTH_TYPE: github-oidc`
 - `backend.tf` — removed hardcoded `profile`, added `kms_key_id` with CMK ARN (applied via `terraform init -reconfigure`)
 
