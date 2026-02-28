@@ -4,6 +4,10 @@
 # Creates dedicated service principals for automated workloads so that
 # jobs and apps run with scoped permissions instead of a PAT owner's
 # full workspace privileges.
+#
+# Requires two provider configurations:
+#   databricks         — workspace-level (SP creation, grants)
+#   databricks.account — account-level (federation policies)
 # ──────────────────────────────────────────────────────────────────────────────
 
 resource "databricks_service_principal" "ingestion" {
@@ -30,5 +34,27 @@ resource "databricks_access_control_rule_set" "ingestion_sp_user_role" {
   grant_rules {
     principals = local.deployer_principals
     role       = "roles/servicePrincipal.user"
+  }
+}
+
+# ── Terraform CI Service Principal ───────────────────────────────────────────
+# Dedicated SP for CI/Terraform with GitHub OIDC federation so GitHub Actions
+# can authenticate to Databricks without storing secrets (M-6).
+
+resource "databricks_service_principal" "terraform_ci" {
+  display_name = "luxury-lakehouse-terraform-ci-${var.environment}"
+  active       = true
+}
+
+resource "databricks_service_principal_federation_policy" "github_actions" {
+  provider = databricks.account
+
+  service_principal_id = databricks_service_principal.terraform_ci.id
+  policy_id            = "github-actions"
+
+  oidc_policy = {
+    issuer    = "https://token.actions.githubusercontent.com"
+    subject   = "repo:${var.github_repository}:*"
+    audiences = [var.account_id]
   }
 }

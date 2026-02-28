@@ -1,5 +1,5 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# Module: Service Principals — Input Variables
+# Module: GitHub OIDC — Input Variables
 # ──────────────────────────────────────────────────────────────────────────────
 
 variable "environment" {
@@ -8,19 +8,19 @@ variable "environment" {
   default     = "dev"
 }
 
-variable "account_id" {
-  description = "Databricks account ID (UUID from accounts.cloud.databricks.com)"
-  type        = string
-}
-
-variable "deployer_user_names" {
-  description = "List of user principals to grant servicePrincipal.user role (L-9: configurable, not hardcoded to current user)"
-  type        = list(string)
-  default     = []
-}
-
 variable "github_repository" {
-  description = "GitHub repository in org/repo format for OIDC federation"
+  description = "GitHub repository in org/repo format for OIDC trust policy"
   type        = string
   default     = "karstenskyt/luxury-lakehouse"
+}
+
+variable "state_bucket" {
+  description = "Name of the S3 bucket holding Terraform remote state"
+  type        = string
+  default     = "karstenskyt-terraform-state"
+}
+
+variable "kms_key_arn" {
+  description = "ARN of the KMS key used for state encryption (for IAM policy)"
+  type        = string
 }

@@ -127,7 +127,7 @@ Full report: [SECURITY.md](SECURITY.md) — `mad-skills:security-audit` v1.5.0
 - [x] ~~**Medium:** Log auth failures in `_refresh_token()` (M-5)~~
 - [x] ~~**Medium:** Add UUID format assertion on JWT `sub` claim (M-4)~~
 - [x] ~~**Medium:** Remove `WRITE_VOLUME` from ingestion SP on libs volume (M-8)~~
-- [ ] **Medium:** Migrate Terraform auth from PAT to OAuth M2M (M-6)
+- [x] ~~**Medium:** Migrate Terraform auth from PAT to OAuth M2M (M-6)~~ — OAuth M2M + GitHub OIDC federation
 - [x] ~~**Medium:** Add `databricks_ip_access_list` for workspace API (M-7)~~ — accepted risk (requires static IPs)
 - [x] ~~**Medium:** Verify Databricks Apps proxy injects security headers (M-9)~~ — HSTS + nosniff confirmed, app behind OAuth
 - [x] ~~**Medium:** Move hardcoded infra IDs to env vars (M-10)~~
@@ -145,7 +145,7 @@ Full report: [SECURITY.md](SECURITY.md) — `mad-skills:security-audit` v1.5.0
 - [x] ~~**Low:** Collapse Terraform plan output in PR comments (L-13)~~ — `<details>` wrap
 - [x] ~~**Low:** Log REST credential HTTP errors (L-14)~~ — `logger.error` before raise
 - [x] ~~**Low:** Token memory zeroing (L-5)~~ — accepted risk (Python strings immutable)
-- [ ] **Low:** 1 remaining hardening item (L-10) — see SECURITY.md
+- [x] ~~**Low:** S3 state encryption — KMS CMK with automatic rotation (L-10)~~
 
 ## Final Review (2026-02-27)
 
@@ -226,7 +226,7 @@ Games 1–2 are already ingested, transformed (`fct_tracking_frames`), and synce
 ## Technical Debt
 
 - [ ] **Update synced_tables Terraform module for Autoscaling API** — When the Databricks Terraform provider adds `database_project` and `branch` fields to `databricks_database_synced_database_table`, remove the UI+import workaround. Update `main.tf` to pass project/branch instead of `database_instance_name`, remove `lifecycle { ignore_changes = all }`, and retire `scripts/import_synced_tables.sh`. Track: [provider changelog](https://registry.terraform.io/providers/databricks/databricks/latest/docs). Until then, any new synced table (e.g., Phase 6+ gold tables) must be created via Databricks UI and imported.
-- [ ] **Fix Terraform Plan CI — configure AWS OIDC** — The `terraform-plan.yml` workflow fails at the "Configure AWS credentials" step because `secrets.AWS_ROLE_ARN` is not set. Requires: (1) create an IAM OIDC identity provider for `token.actions.githubusercontent.com` in AWS account 454762693631, (2) create an IAM role with a trust policy scoped to `repo:karstenskyt/luxury-lakehouse:*`, (3) add the role ARN as the `AWS_ROLE_ARN` secret in the GitHub repo settings. Also needs `DATABRICKS_HOST`, `DATABRICKS_TOKEN`, and `DATABRICKS_ACCOUNT_ID` secrets. Has been failing silently since the workflow was added. See also SECURITY.md M-6 (migrate Terraform auth from PAT to OAuth M2M).
+- [x] ~~**Fix Terraform Plan CI — configure AWS OIDC**~~ — IAM OIDC provider + role created via `terraform/modules/github_oidc/`. Databricks OIDC federation via `databricks_service_principal_federation_policy`. CI workflow updated to use `vars.*` (no secrets). Bootstrap: apply locally, set 3 GitHub repo variables, done.
 
 ## Future Work (unscheduled)
 
@@ -250,6 +250,9 @@ rather than hardcoding in scripts. See `terraform output` for current values.
 | Lakebase DNS (RW) | `terraform output lakebase_read_write_dns` |
 | Ingestion job ID | `DATABRICKS_JOB_ID` env var / `terraform output ingestion_job_id` |
 | Streamlit App URL | `terraform output app_url` |
+| GitHub Actions IAM Role | `terraform output github_actions_role_arn` |
+| State KMS Key | `terraform output state_kms_key_arn` |
+| Terraform CI SP | `terraform output terraform_ci_sp_application_id` |
 | GitHub repo | `karstenskyt/luxury-lakehouse` (private) |
 | Monthly budget | Under $100 |
 | Terraform state bucket | `karstenskyt-terraform-state` (S3 native locking) |
