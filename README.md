@@ -114,7 +114,7 @@ luxury-lakehouse/
 
 ## License
 
-[MIT](LICENSE)
+[Apache License 2.0](LICENSE) &mdash; see [NOTICE](NOTICE) for third-party data attribution.
 
 ---
 

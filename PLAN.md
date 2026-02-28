@@ -1328,7 +1328,9 @@ Each new source follows the established pattern: `src/ingestion/<source>.py` →
 
 **Planned approach:** [`parmacalcio1913/players-matcher`](https://github.com/parmacalcio1913/players-matcher) — a fuzzy-matching library purpose-built for football player entity resolution across data providers. It uses name similarity, birth date, and team context to produce a canonical mapping table.
 
-**Integration path:**
+**License blocker:** As of 2026-02-28, `parmacalcio1913/players-matcher` has **no license** (all rights reserved by default). Before using this library, request the maintainer add an open-source license (e.g., MIT or Apache-2.0). If no license is forthcoming, implement fuzzy matching independently using `rapidfuzz` or similar.
+
+**Integration path (after license is resolved):**
 1. Add `players-matcher` as a dependency
 2. Build a mapping seed or intermediate model (`int_player_xref`) that links StatsBomb, Metrica, and Wyscout player IDs to a canonical `player_id`
 3. Refactor `dim_players` to merge cross-source records using the mapping
