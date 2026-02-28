@@ -12,7 +12,7 @@
 - **Total findings:** 30
 - **Critical:** 0 | **High:** 1 | **Medium:** 10 | **Low:** 15 | **Info:** 4
 - **Resolved:** 25 (7 initial + 9 hardening round + 7 second hardening round + 2 accepted risk)
-- **Remaining:** 5
+- **Remaining:** 6
 
 The codebase has a strong security foundation with zero critical vulnerabilities. The single High finding (no secret scanning) is a preventive control gap. Medium findings are defense-in-depth hardening items — no exploitable attack paths were identified in the current deployment.
 
@@ -229,5 +229,5 @@ The codebase has a strong security foundation with zero critical vulnerabilities
 
 - **Standard tier**: 26/28 checks passed (**93% coverage**)
 - **Enterprise tier**: 1/9 controls configured (Dependabot only — **11% coverage**)
-- **Overall**: **Strong** — 25/30 findings resolved, remaining 5 are infrastructure hardening (M-6, L-10) or informational (I-1 through I-4)
+- **Overall**: **Strong** — 25/30 findings resolved, remaining 6 are infrastructure hardening (M-6, L-10) and informational (I-1 through I-4)
 - **Ready for deployment**: **Yes** for dev environment with public data.

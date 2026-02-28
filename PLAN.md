@@ -983,7 +983,7 @@ Gold Delta Table (lakehouse)
          ▼  snapshot sync (initial + on-demand refresh)
   Lakebase PostgreSQL table (read-only mirror)
          │
-         ▼  standard PostgreSQL wire protocol (port 5432, sslmode=require)
+         ▼  standard PostgreSQL wire protocol (port 5432, sslmode=verify-full)
   Streamlit app queries via psycopg2 (OAuth M2M auth)
 ```
 
@@ -999,7 +999,7 @@ Gold Delta Table (lakehouse)
 |---------|---------------|--------|
 | Connection restriction | Lakebase access restricted to Streamlit app service principal only | Phase 5 |
 | Connection pooling | `psycopg2.pool` with 55min recycle (under 1hr OAuth token expiry) | Phase 5 |
-| Encryption in transit | `sslmode=require` enforced on all PostgreSQL connections | Default (enforced by Lakebase) |
+| Encryption in transit | `sslmode=verify-full` enforced on all PostgreSQL connections | Active |
 | Read-only mirrors | Synced tables are read-only replicas — no write path from Streamlit to Gold | Active |
 | Authentication | OAuth M2M only (`effective_enable_pg_native_login = false`) | Active |
 | SSL enforcement | All Lakebase connections require SSL by default | Active |
@@ -1091,7 +1091,7 @@ conn = psycopg2.connect(
 | Query limits | `statement_timeout=30000` (30s) prevents runaway queries (M-3) |
 | Error handling | `psycopg2.Error` caught and sanitized — no tracebacks leaked to browser (M-2) |
 | Session security | No credentials or PII in `st.session_state`; tokens cached in module-level dict with TTL |
-| Full security audit | See [SECURITY.md](SECURITY.md) — 30 findings, 23 resolved (89% coverage) |
+| Full security audit | See [SECURITY.md](SECURITY.md) — 30 findings, 25 resolved (83% coverage) |
 
 ### 5.5 — Deployment (Implemented)
 
@@ -1137,7 +1137,7 @@ command: ['streamlit', 'run', 'src/streamlit_app/app.py', '--server.port', '8000
 |-------------|---------------|
 | Connection restriction | Restrict Lakebase access to Streamlit app service principal only |
 | Query limits | Configure query timeouts and connection pooling limits to prevent resource exhaustion |
-| Encryption in transit | Enforce `sslmode=require` on all PostgreSQL connections |
+| Encryption in transit | Enforce `sslmode=verify-full` on all PostgreSQL connections |
 
 #### Phase 5 Security Requirements (Streamlit)
 
@@ -1251,9 +1251,9 @@ All planning questions have been answered. This section records the decisions fo
 
 **Metrica from start + pgvector in scope:**
 - Phase 2 includes all three ingestion modules (no deferral)
-- Phase 5 includes a pgvector-powered similarity search page in Streamlit (player movement embeddings)
-- Gold layer needs a `gold.fct_player_embeddings` table for vector data
-- Lakebase Synced Tables must include the embeddings table
+- pgvector-powered similarity search deferred to Phase 8 (embeddings) and Phase 9 (Streamlit page)
+- Gold layer has a `gold.fct_player_embeddings` table provisioned (0 rows; populated in Phase 8)
+- Lakebase Synced Tables include the embeddings table (ready for Phase 9 Player Similarity page)
 
 **Repo finalized:**
 - GitHub repo: `karstenskyt/luxury-lakehouse` (created, empty)
@@ -1309,7 +1309,18 @@ The `fct_player_embeddings` gold table and its synced table are provisioned but 
 - Implement the **Player Similarity** Streamlit page (`player_search.py`) using pgvector `<=>` cosine distance queries
 - Depends on cross-source player entity resolution (14.2) for unified player identity
 
-### 14.4 — Additional Streamlit Pages
+### 14.5 — Metrica Tracking Data: Game 3 + Pitch Control
+
+Games 1–2 are already ingested, transformed (`fct_tracking_frames`), and synced to Lakebase. This phase adds Game 3 and builds the Pitch Control visualization.
+
+| Task | Description | Status |
+|------|-------------|--------|
+| **Game 3 ingestion** | EPTS FIFA format (JSON events + tracking); new parser in `metrica.py` | Planned |
+| **dbt tests** | Verify Game 3 compatibility with existing `stg_metrica__tracking` schema | Planned |
+| **Pitch Control page** | Voronoi diagrams showing space ownership from `fct_tracking_frames_synced` | Planned |
+| **Velocity/acceleration viz** | Visualize speed data from `fct_tracking_frames` `final` CTE | Planned |
+
+### 14.6 — Additional Streamlit Pages
 
 | Page | Description | Data Source | Status |
 |------|-------------|-------------|--------|

@@ -77,8 +77,8 @@ Quick-reference action items. Full details in [PLAN.md](PLAN.md).
 - [x] ~~`terraform apply`~~ — 8 synced tables created, all reached `SYNCED_TABLE_ONLINE_NO_PENDING_UPDATE`
 - [x] ~~Verify synced table row counts~~ — fct_passes 5.05M, fct_shots 131K, fct_player_stats 20K, dim_players 11K
 - [x] ~~**Security:** Add `resources` block to `databricks_app` for least-privilege SQL warehouse access~~ (`b376289`)
-- [ ] **Security:** Restrict Lakebase connections to Streamlit app service principal only (Phase 5)
-- [ ] **Security:** Configure connection pooling with 55min recycle (Phase 5: `psycopg2.pool`)
+- [x] ~~**Security:** Restrict Lakebase connections to Streamlit app service principal only~~ — done in Phase 5 (SP role creation + PG grants)
+- [x] ~~**Security:** Configure connection pooling with 55min recycle~~ — done in Security Audit (L-6)
 - [x] ~~Run `/final-review`~~
 
 ## Pre-Phase-5 Fixes (Complete)
@@ -183,19 +183,27 @@ Ordered execution plan for remaining work:
 
 - [ ] Design feature vector from `fct_player_stats` per-90 metrics
 - [ ] Populate `fct_player_embeddings` — currently 0 rows, table and synced table already provisioned
-- [ ] Implement Player Similarity page (`player_search.py`) — pgvector cosine distance queries
 
-### Phase 9 — Additional Streamlit Pages (PLAN 14.4)
+### Phase 8.5 — Metrica Tracking Data: Game 3 + Pitch Control (PLAN 14.5)
 
-- [ ] **Player Similarity** — pgvector nearest-neighbor search (depends on Phase 8)
+Games 1–2 are already ingested, transformed (`fct_tracking_frames`), and synced to Lakebase. This phase adds Game 3 and builds the visualization layer.
+
+- [ ] **Add Game 3 ingestion** — EPTS FIFA format (JSON events + tracking), needs new parser in `metrica.py`
+- [ ] Add dbt tests for Game 3 data compatibility with existing `stg_metrica__tracking` schema
+- [ ] **Build Pitch Control page** — Voronoi diagrams showing space ownership from `fct_tracking_frames_synced`
+- [ ] Add velocity/acceleration visualizations (data already in `fct_tracking_frames` `final` CTE)
+
+### Phase 9 — Additional Streamlit Pages (PLAN 14.6)
+
+- [ ] **Player Similarity** — pgvector nearest-neighbor search (`player_search.py`, depends on Phase 8)
+- [ ] **Pitch Control** — built in Phase 8.5, listed here for completeness
 - [ ] **Heat Map** — touch/action density maps per player or team
 - [ ] **Pass Network** — graph visualization of passing connections between teammates
 
 ## Future Work (unscheduled)
 
-- [ ] **Respo.Vision 3D pose tracking** — 3D skeletal data from broadcast video (user pursuing via network)
+- [ ] **Respo.Vision 3D pose tracking** — 3D skeletal data from broadcast video (user pursuing via network); complements Metrica 2D with skeletal keypoints and body orientation
 - [ ] **Wyscout match metadata** — deferred (event data ingested, match details not yet in Figshare dataset)
-- [ ] **Pitch Control** — Voronoi diagrams from `fct_tracking_frames` (depends on Respo.Vision or Metrica tracking data)
 
 ## Infrastructure Notes
 
