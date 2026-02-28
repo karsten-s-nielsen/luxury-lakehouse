@@ -166,6 +166,21 @@ Full report: [SECURITY.md](SECURITY.md) — `mad-skills:security-audit` v1.5.0
 
 Ordered execution plan for remaining work:
 
+### Phase 5.5 — Migrate Lakebase to Autoscaling + PG 17 (highest priority)
+
+Core POC upgrade — moves the repo from Provisioned (PG 16) to the GA Autoscaling tier (PG 17) before public release.
+
+- [ ] Write new Terraform module `lakebase_autoscaling` using `databricks_postgres_project` resource (`spec.pg_version = 17`, `autoscaling_limit_min_cu = 0`, `suspend_timeout_duration` for scale-to-zero)
+- [ ] Re-point `synced_tables` module to the new Autoscaling project
+- [ ] Update `src/streamlit_app/db.py` connection config for new endpoint (DNS, auth, idle-disconnect handling)
+- [ ] Verify all 8 synced tables reach `ONLINE` on the new instance
+- [ ] Smoke-test Streamlit app against Autoscaling endpoint (all 4 pages)
+- [ ] Destroy old `databricks_database_instance` (Provisioned) via Terraform
+- [ ] Update PLAN.md, README.md, SECURITY.md to reflect PG 17 Autoscaling
+- [ ] Run quality gates (ruff, pyright, pytest) and `/final-review`
+
+**Context**: Autoscaling went GA on AWS 2026-02-22. Terraform provider v1.110.0 has `databricks_postgres_project` with configurable `spec.pg_version`, `autoscaling_limit_min_cu`/`max_cu`, and `suspend_timeout_duration`. Cannot in-place upgrade — `databricks_database_instance.pg_version` is read-only. Benefits: true scale-to-zero (usage-based DBU billing), PG 17 + improved pgvector (Phase 8), instant data branching.
+
 ### Phase 6 — StatsBomb 360 Freeze Frames (PLAN 14.1)
 
 - [ ] Trigger 360 ingestion for 11 available competition-seasons (World Cup, Euros, La Liga, Ligue 1, Bundesliga, MLS, Women's tournaments)
