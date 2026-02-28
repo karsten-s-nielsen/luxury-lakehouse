@@ -51,6 +51,8 @@ resource "databricks_service_principal" "terraform_ci" {
 # via SCIM, catalogs, SQL endpoints, etc.).  Workspace admin is the minimum
 # role that grants read access to everything terraform manages.
 
+# Workspace admin — needed to read service principals, SQL endpoints, groups
+# via SCIM and workspace APIs during terraform plan.
 data "databricks_group" "admins" {
   display_name = "admins"
 }
@@ -58,6 +60,14 @@ data "databricks_group" "admins" {
 resource "databricks_group_member" "terraform_ci_admin" {
   group_id  = data.databricks_group.admins.id
   member_id = databricks_service_principal.terraform_ci.id
+}
+
+# Account admin — needed to read account-level resources (federation policies,
+# access control rule sets) during terraform plan.
+resource "databricks_service_principal_role" "terraform_ci_account_admin" {
+  provider             = databricks.account
+  service_principal_id = databricks_service_principal.terraform_ci.id
+  role                 = "account_admin"
 }
 
 resource "databricks_service_principal_federation_policy" "github_actions" {

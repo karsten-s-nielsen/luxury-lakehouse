@@ -160,6 +160,17 @@ module "app" {
   sql_warehouse_id = module.sql_warehouse.warehouse_id
 }
 
+# ── CI Service Principal: Catalog Access ───────────────────────────────────
+# The terraform_ci SP needs ALL_PRIVILEGES on the catalog so terraform plan
+# can read catalog, schema, and grant resources.  This is a composition-level
+# grant because the SP and catalog come from separate modules.
+
+resource "databricks_grant" "ci_sp_catalog" {
+  catalog    = module.workspace.catalog_name
+  principal  = module.service_principals.terraform_ci_sp_application_id
+  privileges = ["ALL_PRIVILEGES"]
+}
+
 # ── Module: State KMS ──────────────────────────────────────────────────────
 # Customer Managed Key for Terraform state encryption in S3 (L-10).
 
