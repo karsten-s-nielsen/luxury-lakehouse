@@ -225,18 +225,57 @@ No cross-source dependency — these use existing synced gold tables (`fct_passe
 - [ ] **Player Similarity** — pgvector nearest-neighbor search (`player_search.py`, depends on Phase 10)
 - [ ] ~~**Pitch Control** — built in Phase 7~~
 
+### Phase 12 — SPADL / VAEP Action Valuation (PLAN 14.7)
+
+Convert event data to the SPADL (Soccer Player Action Description Language) unified format and train VAEP (Valuing Actions by Estimating Probabilities) models. Uses existing bronze event data — no new data sources needed.
+
+- [ ] Add `kloppy` (v3.18+) and `socceraction` (v1.5+) as dependencies
+- [ ] Build Kloppy → SPADL conversion pipeline for StatsBomb and Wyscout events (12 columns, 22 action types)
+- [ ] Train VAEP gradient-boosted scoring model on SPADL actions (P(scoring within 10 actions) − P(conceding within 10 actions))
+- [ ] Create `fct_action_values` gold table — per-action offensive and defensive VAEP scores
+- [ ] Create Streamlit page — top players by VAEP/90, action value distributions
+
+### Phase 13 — Additional Public Tracking Datasets (PLAN 14.8)
+
+Ingest new open tracking datasets via Kloppy to expand beyond Metrica's 3 matches.
+
+- [ ] **Bundesliga IDSSE** — 7 Bundesliga matches, TRACAB tracking (25fps) + DFL events, CC-BY 4.0 license (Nature Scientific Data, Feb 2025)
+- [ ] **SkillCorner Open Data** — 10 A-League 2024/25 matches, JSONL tracking (10fps) + CSV events
+- [ ] Build `src/ingestion/kloppy_loader.py` — generic Kloppy-based ingestion that normalizes any provider to the existing bronze tracking schema
+- [ ] Verify `stg_metrica__tracking` and `fct_tracking_frames` handle multi-provider tracking data (or refactor to `stg_tracking`)
+
+### Phase 14 — Physics-Based Pitch Control Model (PLAN 14.9)
+
+Replace the current Voronoi approximation with a physics-based pitch control model using tracking data.
+
+- [ ] Implement Spearman et al. (2017) pitch control model — player influence as a function of position, velocity, and time-to-intercept
+- [ ] Populate `pitch_control_value` column in `fct_tracking_frames` (currently NULL) via Python UDF or MLflow model
+- [ ] Update Streamlit Pitch Control page with continuous heatmap overlay (replacing Voronoi)
+- [ ] Depends on tracking data from Metrica (Phase 7) + IDSSE/SkillCorner (Phase 13)
+
+### Phase 15 — DEFCON-Inspired Defensive Valuation (PLAN 14.10)
+
+Quantify individual defensive contributions inspired by the DEFCON framework (Kim et al., 2025). See research notes in PLAN.md §14.10.
+
+- [ ] **License status**: DEFCON repo ([`hyunsungkim-ds/defcon`](https://github.com/hyunsungkim-ds/defcon)) has **no LICENSE file** — all rights reserved. Cannot copy code. Implementation must be from paper equations (publicly available) and standard open-source libraries.
+- [ ] Build Expected Possession Value (EPV) decomposition from VAEP scores (Phase 12) + pitch control (Phase 14)
+- [ ] Implement credit assignment: Intercept, Disturb, Deter, Concede (4 defensive contribution types)
+- [ ] **DEFCON-lite (tabular)**: gradient-boosted tree model using VAEP features + tracking-derived spatial features, without GNN
+- [ ] **Full DEFCON (GNN)**: Graph Attention Network for action selection/success prediction (requires 500+ matches with tracking — may need commercial data)
+- [ ] Depends on: VAEP (Phase 12), additional tracking data (Phase 13), pitch control (Phase 14)
+
 ## Technical Debt
 
 - [ ] **Update synced_tables Terraform module for Autoscaling API** — When the Databricks Terraform provider adds `database_project` and `branch` fields to `databricks_database_synced_database_table`, remove the UI+import workaround. Update `main.tf` to pass project/branch instead of `database_instance_name`, remove `lifecycle { ignore_changes = all }`, and retire `scripts/import_synced_tables.sh`. Track: [provider changelog](https://registry.terraform.io/providers/databricks/databricks/latest/docs). Until then, any new synced table (e.g., Phase 6+ gold tables) must be created via Databricks UI and imported.
 
 ## Future Work (unscheduled)
 
-- [ ] **Pitch Control ML model** — populate `pitch_control_value` column in `fct_tracking_frames` (currently NULL) via MLflow model; requires xT/pitch control model training
 - [ ] **Voronoi area persistence** — pre-compute `voronoi_area` column in `fct_tracking_frames` via dbt (currently NULL, computed client-side in Streamlit for visualization only)
 - [ ] **Pitch Control animation** — frame-by-frame playback via `st.empty()` loop or JS component; Phase 7 delivers single-frame static views only
 - [ ] **Event overlay on Pitch Control** — render event markers (passes, shots) on pitch control view; requires syncing `stg_metrica__events` to Lakebase or creating a joined gold table
 - [ ] **Respo.Vision 3D pose tracking** — 3D skeletal data from broadcast video (user pursuing via network); complements Metrica 2D with skeletal keypoints and body orientation
 - [ ] **Wyscout match metadata** — deferred (event data ingested, match details not yet in Figshare dataset)
+- [ ] **Full GNN DEFCON** — requires 500+ matches with synchronized tracking + event data; current public data (~20 matches) is insufficient for GNN training. May require commercial data (StatsBomb 360 + tracking, Second Spectrum, etc.)
 
 ## Infrastructure Notes
 

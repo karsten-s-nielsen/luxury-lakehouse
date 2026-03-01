@@ -1313,6 +1313,10 @@ The following data sources are planned for integration after Phase 5:
 | **Respo.Vision** | 3D pose tracking from broadcast video | Planned | User pursuing via professional network; skeletal keypoints at 25fps |
 | **Wyscout match metadata** | Match details (formations, coaches, venue) | Deferred | Event data ingested; full match metadata not in public Figshare dataset |
 | **StatsBomb 360 freeze frames** | Visible player positions per event | **Complete** | Phase 6: `backfill_360()` in `statsbomb.py`, `stg_statsbomb__360` staging model with EXPLODE + tests |
+| **Bundesliga IDSSE** | TRACAB tracking (25fps) + DFL events, 7 matches | Planned | CC-BY 4.0 license (Nature Scientific Data, Feb 2025). High-quality synchronized tracking + events |
+| **SkillCorner Open Data** | JSONL tracking (10fps) + CSV events, 10 A-League matches | Planned | From SkillCorner public repo. Lower frame rate but broadcast-derived (no stadium install needed) |
+| **Kloppy** | Standardized tracking/event loader (14+ providers) | Planned | v3.18+. Replaces per-provider parsing with unified coordinate normalization. Supports Metrica CSV/EPTS, SkillCorner, TRACAB, StatsBomb |
+| **socceraction (SPADL/VAEP)** | Unified event format + action valuation | Planned | v1.5+. SPADL: 12-column schema, 22 action types. VAEP: gradient-boosted P(score)−P(concede) per action |
 
 Each new source follows the established pattern: `src/ingestion/<source>.py` → Bronze Delta tables → dbt staging/marts → Synced Tables → Lakebase.
 
@@ -1375,6 +1379,106 @@ Games 1–2 were already ingested. This phase fixed ball coordinate propagation,
 | **Pitch Control page** | `plot_pitch_control()` with Voronoi, `pitch_control.py` with match/period/frame filters | Complete |
 | **Sync fct_tracking_frames** | Terraform resource + Lakebase synced table for Streamlit queries | Complete |
 
+### 14.7 — SPADL / VAEP Action Valuation
+
+**Status:** Planned (Phase 12). No new data sources needed — uses existing StatsBomb and Wyscout event data.
+
+**Key libraries:**
+- [`kloppy`](https://github.com/PySport/kloppy) (v3.18+) — standardized tracking/event data loader supporting 14+ providers (Metrica CSV/EPTS, SkillCorner, TRACAB, StatsBomb, Wyscout, etc.). Handles coordinate system normalization automatically.
+- [`socceraction`](https://github.com/ML-KULeuven/socceraction) (v1.5+) — SPADL conversion + VAEP model training. Bridge: `socceraction.spadl.kloppy.convert_to_actions()` converts any Kloppy EventDataset to SPADL.
+
+**SPADL (Soccer Player Action Description Language):** Unified 12-column event schema with 22 action types (pass, cross, shot, dribble, tackle, etc.). Converts heterogeneous provider-specific events (StatsBomb has ~40 types, Wyscout has different types) into a single format suitable for machine learning.
+
+**VAEP (Valuing Actions by Estimating Probabilities):** Gradient-boosted tree model that scores every on-ball action by its impact on scoring/conceding probability within the next 10 actions. For each action: `VAEP = ΔP(scoring) − ΔP(conceding)`. Trainable on event data alone — no tracking data needed.
+
+**Implementation path:**
+1. Add `kloppy` and `socceraction` as project dependencies
+2. Build SPADL conversion pipeline: load StatsBomb/Wyscout events via Kloppy → `convert_to_actions()` → SPADL DataFrame
+3. Write SPADL actions to a new bronze table (`spadl_actions`)
+4. Train VAEP model on SPADL features (10-action game state features per the socceraction library)
+5. Score all actions → `fct_action_values` gold table with offensive/defensive VAEP per action
+6. Build Streamlit page: top players by VAEP/90, action value distributions, game-changing actions
+
+**Why this is valuable:** VAEP provides a principled, cross-source metric for player and action valuation that doesn't require tracking data. It's also a prerequisite for DEFCON defensive valuation (§14.10).
+
+### 14.8 — Additional Public Tracking Datasets
+
+**Status:** Planned (Phase 13). Expands beyond Metrica's 3 sample matches.
+
+Currently, the platform has tracking data from only 3 Metrica Sports sample matches. Two newly available public datasets would bring the total to ~20 matches with synchronized tracking + event data:
+
+| Dataset | Matches | Tracking Format | Frame Rate | Events | License | Reference |
+|---------|---------|----------------|------------|--------|---------|-----------|
+| **Bundesliga IDSSE** | 7 | TRACAB (x,y,z,speed,accel) | 25fps | DFL events (JSON) | CC-BY 4.0 | Bassek et al., *Nature Scientific Data*, Feb 2025 |
+| **SkillCorner Open Data** | 10 | JSONL (broadcast-derived) | 10fps | CSV events | Public repo | SkillCorner GitHub |
+| **Metrica Sports** | 3 | CSV + EPTS | 25fps | CSV + JSON | Public repo | Already ingested |
+
+**Kloppy integration:** Rather than writing per-provider parsers (as done for Metrica), use Kloppy as a universal loader. Kloppy handles coordinate system normalization, player identity mapping, and format-specific quirks for all three providers. A single `src/ingestion/kloppy_loader.py` module could replace provider-specific tracking parsers.
+
+**Architecture decision:** The existing `stg_metrica__tracking` → `fct_tracking_frames` pipeline assumes Metrica-specific columns. With multiple tracking providers, either:
+- (a) Normalize all providers to the Metrica bronze schema in ingestion (Kloppy handles this), or
+- (b) Refactor to a provider-agnostic `stg_tracking` staging model
+
+Option (a) is simpler and maintains backward compatibility.
+
+### 14.9 — Physics-Based Pitch Control Model
+
+**Status:** Planned (Phase 14). Replaces the current Voronoi approximation.
+
+The Phase 7 Pitch Control page uses Voronoi tessellation — a geometric approximation that assigns space to the nearest player. A physics-based model (Spearman et al., 2017; Fernandez & Bornn, 2018) accounts for player velocity, acceleration, and time-to-intercept to produce continuous pitch control probabilities.
+
+**Implementation:**
+1. For each pitch cell (e.g., 1m×1m grid), compute each player's time-to-intercept based on current position, velocity, and maximum acceleration
+2. Convert time-to-intercept to control probability using a logistic function
+3. Sum team probabilities per cell → continuous pitch control surface [0, 1]
+4. Populate `pitch_control_value` column in `fct_tracking_frames` (currently NULL) or create a new `fct_pitch_control` table at reduced spatial resolution
+5. Update Streamlit Pitch Control page with continuous heatmap overlay option alongside existing Voronoi view
+
+**Data requirements:** Tracking data with player positions and velocities — available from Metrica (Phase 7), and from IDSSE/SkillCorner (Phase 13 if completed).
+
+### 14.10 — DEFCON-Inspired Defensive Contribution Framework
+
+**Status:** Research complete, implementation planned (Phase 15). Multi-tier approach.
+
+**Paper:** Kim, H.S. et al. (2025). "Better Prevent than Tackle: Valuing Defense in Soccer Based on Graph Neural Networks." *arXiv:2512.10355*. Developed at Ajax Amsterdam.
+
+**Framework overview:** DEFCON (DEFensive CONtribution) quantifies individual defensive contributions by decomposing Expected Possession Value (EPV) changes during opponent possessions into 4 credit types:
+- **Intercept** — winning the ball via tackle or interception
+- **Disturb** — forcing a suboptimal action (bad pass, failed dribble)
+- **Deter** — preventing a dangerous action from being attempted (closing passing lanes, pressuring the ball carrier)
+- **Concede** — negative credit when allowing dangerous actions
+
+**Architecture (7 GAT-based component models):**
+1. Action Selection Model — P(action type | game state) using Graph Attention Networks on player positions/velocities
+2. Pass Success Model — P(pass completion | sender, receiver, defenders)
+3. Shot Blocking Model — P(shot is blocked | shooter position, defender positions)
+4. Goal-Scoring Probability — P(goal | shot features, keeper position)
+5. Goal-Conceding Probability — P(concede | current game state)
+6. Unblocked xG (UxG) — expected goal probability if no defenders present
+7. Failure Receiver Model — P(which player receives failed action)
+
+**License warning:** The DEFCON repository ([`hyunsungkim-ds/defcon`](https://github.com/hyunsungkim-ds/defcon)) has **no LICENSE file** as of 2026-03-01. Under copyright law, this means all rights are reserved — code cannot be copied, modified, or distributed without explicit permission. The implementation approach must be:
+- **Equations and methodology** from the published paper (arXiv) are public and can be reimplemented
+- **Code** from the GitHub repo cannot be used without a license
+- **Standard libraries** (PyTorch Geometric, scikit-learn, socceraction) are open-source and freely usable
+
+**Data requirements vs. what we have:**
+- DEFCON was trained on 564 Eredivisie matches with synchronized tracking + event data (commercial, non-public)
+- We currently have 3 Metrica matches (~20 with IDSSE + SkillCorner)
+- GNN training requires hundreds of matches — tabular DEFCON-lite is feasible with fewer matches
+- Full GNN DEFCON likely requires commercial tracking data or significant expansion of public datasets
+
+**Tiered implementation plan:**
+
+| Tier | Approach | Data Needed | Feasibility |
+|------|----------|-------------|-------------|
+| **Tier 1: VAEP** | SPADL + gradient-boosted VAEP scoring | Event data only (3,000+ StatsBomb matches) | Ready now (Phase 12) |
+| **Tier 2: Pitch Control** | Physics-based model (Spearman 2017) | Tracking data (3–20 matches) | Ready now (Phase 14) |
+| **Tier 3: DEFCON-lite** | Tabular model using VAEP features + tracking-derived spatial features (no GNN) | ~20 matches with tracking + events | Feasible with IDSSE + SkillCorner (Phase 13) |
+| **Tier 4: Full GNN DEFCON** | Graph Attention Networks on player graphs per frame | 500+ matches with tracking | Requires commercial data |
+
+**Key insight:** Tiers 1–3 deliver increasing analytical value using only public data and open-source tools. Tier 4 (full GNN) is aspirational and may require partnerships with data providers.
+
 ### 14.6 — Additional Streamlit Pages
 
 | Page | Description | Data Source | Status |
@@ -1397,6 +1501,9 @@ Games 1–2 were already ingested. This phase fixed ball coordinate propagation,
 | R5 | dbt-databricks adapter incompatibility with Lakebase features | Low | Medium | Test early in Phase 3; fall back to raw SQL if needed |
 | R6 | Streamlit performance with mplsoccer (matplotlib is slow for interactive) | Medium | Low | Cache rendered figures; pre-compute static images for common views |
 | R7 | Unity Catalog ACL complexity for multi-user access | Low | Low | Start with single admin user; add RBAC later |
+| R8 | DEFCON repo has no license — cannot copy code | High | Medium | Reimplement from paper equations (public); use standard open-source libraries (PyTorch Geometric, socceraction). Do not copy code from `hyunsungkim-ds/defcon` |
+| R9 | `parmacalcio1913/players-matcher` has no license | High | Medium | Request license from maintainer. Fallback: implement fuzzy matching independently with `rapidfuzz` |
+| R10 | Public tracking data insufficient for GNN training (~20 matches vs 500+ needed) | High | High | Tier 1–3 DEFCON-lite feasible with public data. Full GNN (Tier 4) deferred until commercial data available |
 
 ---
 
@@ -1409,7 +1516,10 @@ Games 1–2 were already ingested. This phase fixed ball coordinate propagation,
 | StatsBomb (open) | ~3,000 | ~3,400 | ~10.2M events | ~2 GB JSON → ~500 MB Parquet |
 | Metrica (sample) | 3 | 135,000 frames | ~405K frames | ~50 MB CSV → ~15 MB Parquet |
 | Wyscout (public) | ~1,900 | ~1,800 | ~3.4M events | ~1.5 GB JSON → ~400 MB Parquet |
+| Bundesliga IDSSE (planned) | 7 | ~135,000 frames | ~1M frames | ~200 MB TRACAB |
+| SkillCorner (planned) | 10 | ~54,000 frames | ~540K frames | ~100 MB JSONL |
 | **Total Bronze** | | | **~31.4M rows** | **~1 GB Parquet** |
+| **Projected (with new sources)** | | | **~33M rows** | **~1.3 GB Parquet** |
 
 This is a small-to-medium dataset — well within free/dev tier limits for most services.
 
@@ -1428,6 +1538,8 @@ This is a small-to-medium dataset — well within free/dev tier limits for most 
 | 08 | Physical data, acceleration | `fct_tracking_frames` |
 | 09 | Clustering, progressive passes | `fct_passes`, `fct_player_stats` |
 | 10 | Streamlit web app | `src/streamlit_app/` |
+| — | SPADL action valuation (VAEP) | `fct_action_values` (Phase 12) |
+| — | Defensive contribution (DEFCON-inspired) | Phase 15 — EPV decomposition + credit assignment |
 
 ### C. Dependencies on MCP CodeDeploy Project
 
