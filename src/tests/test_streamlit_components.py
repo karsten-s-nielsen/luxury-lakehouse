@@ -6,7 +6,14 @@ import matplotlib.figure
 import pandas as pd
 
 from streamlit_app.components.charts import plot_match_comparison_bars, plot_player_radar
-from streamlit_app.components.pitch import plot_pass_map, plot_pitch_control, plot_shot_map
+from streamlit_app.components.pitch import (
+    plot_heatmap,
+    plot_pass_map,
+    plot_pass_network,
+    plot_pitch_control,
+    plot_shot_map,
+)
+from streamlit_app.pages.pass_network import _build_network
 
 
 class TestPlotShotMap:
@@ -194,3 +201,182 @@ class TestPlotPitchControl:
         )
         fig = plot_pitch_control(players, ball_x=60.0, ball_y=40.0)
         assert isinstance(fig, matplotlib.figure.Figure)
+
+
+class TestPlotHeatmap:
+    """Test heat map visualization."""
+
+    def test_returns_figure_with_data(self) -> None:
+        actions = pd.DataFrame({"x": [30.0, 50.0, 70.0, 100.0], "y": [40.0, 20.0, 60.0, 35.0]})
+        fig = plot_heatmap(actions, title="Test Heat Map")
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+    def test_returns_figure_with_empty_data(self) -> None:
+        actions = pd.DataFrame({"x": [], "y": []})
+        fig = plot_heatmap(actions)
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+    def test_custom_bins(self) -> None:
+        actions = pd.DataFrame({"x": [30.0, 50.0, 70.0], "y": [40.0, 20.0, 60.0]})
+        fig = plot_heatmap(actions, bins=(6, 4))
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+    def test_custom_cmap(self) -> None:
+        actions = pd.DataFrame({"x": [30.0, 50.0], "y": [40.0, 20.0]})
+        fig = plot_heatmap(actions, cmap="YlOrRd")
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+
+class TestPlotPassNetwork:
+    """Test pass network visualization."""
+
+    def test_returns_figure_with_data(self) -> None:
+        nodes = pd.DataFrame(
+            {
+                "player_id": [1, 2, 3],
+                "player_display_name": ["A", "B", "C"],
+                "avg_x": [30.0, 50.0, 70.0],
+                "avg_y": [40.0, 30.0, 50.0],
+                "pass_count": [10, 8, 12],
+            }
+        )
+        edges = pd.DataFrame(
+            {
+                "passer_id": [1, 2],
+                "receiver_id": [2, 3],
+                "pair_count": [5, 3],
+                "avg_start_x": [30.0, 50.0],
+                "avg_start_y": [40.0, 30.0],
+                "avg_end_x": [50.0, 70.0],
+                "avg_end_y": [30.0, 50.0],
+            }
+        )
+        fig = plot_pass_network(nodes, edges)
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+    def test_returns_figure_with_empty_nodes(self) -> None:
+        nodes = pd.DataFrame(columns=pd.Index(["player_id", "player_display_name", "avg_x", "avg_y", "pass_count"]))
+        edges = pd.DataFrame(
+            columns=pd.Index(
+                [
+                    "passer_id",
+                    "receiver_id",
+                    "pair_count",
+                    "avg_start_x",
+                    "avg_start_y",
+                    "avg_end_x",
+                    "avg_end_y",
+                ]
+            )
+        )
+        fig = plot_pass_network(nodes, edges)
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+    def test_returns_figure_with_empty_edges(self) -> None:
+        nodes = pd.DataFrame(
+            {
+                "player_id": [1, 2],
+                "player_display_name": ["A", "B"],
+                "avg_x": [30.0, 60.0],
+                "avg_y": [40.0, 40.0],
+                "pass_count": [5, 5],
+            }
+        )
+        edges = pd.DataFrame(
+            columns=pd.Index(
+                [
+                    "passer_id",
+                    "receiver_id",
+                    "pair_count",
+                    "avg_start_x",
+                    "avg_start_y",
+                    "avg_end_x",
+                    "avg_end_y",
+                ]
+            )
+        )
+        fig = plot_pass_network(nodes, edges)
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+    def test_single_edge(self) -> None:
+        nodes = pd.DataFrame(
+            {
+                "player_id": [1, 2],
+                "player_display_name": ["Player A", "Player B"],
+                "avg_x": [30.0, 60.0],
+                "avg_y": [40.0, 40.0],
+                "pass_count": [3, 3],
+            }
+        )
+        edges = pd.DataFrame(
+            {
+                "passer_id": [1],
+                "receiver_id": [2],
+                "pair_count": [3],
+                "avg_start_x": [30.0],
+                "avg_start_y": [40.0],
+                "avg_end_x": [60.0],
+                "avg_end_y": [40.0],
+            }
+        )
+        fig = plot_pass_network(nodes, edges)
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+
+class TestBuildNetwork:
+    """Test pass network construction logic."""
+
+    def test_builds_nodes_and_edges(self) -> None:
+        passes = pd.DataFrame(
+            {
+                "player_id": [1, 1, 1, 2, 2],
+                "pass_recipient_id": [2, 2, 2, 3, 3],
+                "passer_name": ["A", "A", "A", "B", "B"],
+                "receiver_name": ["B", "B", "B", "C", "C"],
+                "start_x": [30.0, 32.0, 28.0, 50.0, 52.0],
+                "start_y": [40.0, 42.0, 38.0, 30.0, 32.0],
+                "end_x": [50.0, 48.0, 52.0, 70.0, 68.0],
+                "end_y": [30.0, 32.0, 28.0, 50.0, 48.0],
+            }
+        )
+        nodes, edges = _build_network(passes, min_pair_count=1)
+        assert len(nodes) == 3
+        assert len(edges) == 2
+
+    def test_min_pair_count_filters_edges(self) -> None:
+        passes = pd.DataFrame(
+            {
+                "player_id": [1, 1, 1, 2],
+                "pass_recipient_id": [2, 2, 2, 3],
+                "passer_name": ["A", "A", "A", "B"],
+                "receiver_name": ["B", "B", "B", "C"],
+                "start_x": [30.0, 32.0, 28.0, 50.0],
+                "start_y": [40.0, 42.0, 38.0, 30.0],
+                "end_x": [50.0, 48.0, 52.0, 70.0],
+                "end_y": [30.0, 32.0, 28.0, 50.0],
+            }
+        )
+        _nodes, edges = _build_network(passes, min_pair_count=3)
+        # Only 1->2 has 3 passes; 2->3 has 1
+        assert len(edges) == 1
+        assert edges.iloc[0]["passer_id"] == 1
+        assert edges.iloc[0]["receiver_id"] == 2
+
+    def test_empty_passes(self) -> None:
+        passes = pd.DataFrame(
+            columns=pd.Index(
+                [
+                    "player_id",
+                    "pass_recipient_id",
+                    "passer_name",
+                    "receiver_name",
+                    "start_x",
+                    "start_y",
+                    "end_x",
+                    "end_y",
+                ]
+            )
+        )
+        nodes, edges = _build_network(passes)
+        assert len(nodes) == 0
+        assert len(edges) == 0

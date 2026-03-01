@@ -60,7 +60,8 @@ Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by 
 
 - **Expected Goals (xG)** — Shot quality model using distance, angle, body part
 - **Expected Threat (xT)** — Pitch zone valuation via Markov chains
-- **Pass Networks** — Team passing structure and progressive passes
+- **Pass Networks** — Team passing structure, player connections, and progressive passes
+- **Heat Maps** — Action density visualization for players and teams
 - **Pitch Control** — Voronoi diagrams from tracking data
 - **Player Similarity** — pgvector cosine-distance search ("Find players like X")
 - **Player Radar Charts** — Per-90 stat comparison across multiple metrics
@@ -82,7 +83,7 @@ luxury-lakehouse/
 
 ## Status
 
-**Phase 7: Metrica Game 3 + Pitch Control** — FIFA EPTS format ingestion (XML metadata + tracking + JSON events), ball coordinate fix, and Voronoi pitch control visualization. See [PLAN.md](PLAN.md) for the full implementation plan.
+**Phase 8: Heat Map + Pass Network** — action density heat maps and player-to-player pass network visualization. Added `pass_recipient_id` to the dbt pipeline. 7 Streamlit pages total. See [PLAN.md](PLAN.md) for the full implementation plan.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -96,6 +97,7 @@ luxury-lakehouse/
 | 5.6 | IAM OIDC + OAuth M2M + KMS Hardening | Complete |
 | 6 | StatsBomb 360 Freeze Frames | Complete |
 | 7 | Metrica Game 3 (EPTS) + Pitch Control | Complete |
+| 8 | Heat Map + Pass Network Pages | Complete |
 
 ## Tech Stack
 

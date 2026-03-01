@@ -45,6 +45,9 @@ statsbomb_passes as (
         coalesce(pass_switch, false)                        as is_switch,
         coalesce(pass_through_ball, false)                  as is_through_ball,
 
+        -- Pass recipient (available for StatsBomb; enables pass network edges)
+        pass_recipient_id,
+
         -- Progressive pass flag
         {{ distance_to_goal(
             'get(from_json(pass_end_location, \'ARRAY<DOUBLE>\'), 0)',
@@ -88,6 +91,9 @@ wyscout_passes as (
         sub_event_type in ('Cross', 'Head cross')       as is_cross,
         sub_event_type = 'Launch'                       as is_switch,
         sub_event_type = 'Through pass'                 as is_through_ball,
+
+        -- Pass recipient (not available in Wyscout open data)
+        cast(null as int)                               as pass_recipient_id,
 
         -- Progressive pass flag
         {{ distance_to_goal('end_x', 'end_y') }}
