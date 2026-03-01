@@ -1,14 +1,19 @@
-"""Tests for ingestion.metrica — CSV header parsing and wide-to-narrow reshape."""
+"""Tests for ingestion.metrica — CSV header parsing, wide-to-narrow reshape, and EPTS parsers."""
 
 from __future__ import annotations
 
 import json
 import pathlib
+import textwrap
 
 import pandas as pd
 
 from ingestion.metrica import (
     _build_player_columns,
+    _EPTSMetadata,
+    _parse_epts_events,
+    _parse_epts_metadata,
+    _parse_epts_tracking,
     _parse_tracking_header,
     _reshape_tracking_to_narrow,
 )
@@ -115,3 +120,298 @@ class TestDownloadAndParseEvents:
         df = pd.read_csv(_FIXTURES / "metrica_events.csv")
         assert "Type" in df.columns or "type" in df.columns
         assert len(df) == 3
+
+
+# ---------------------------------------------------------------------------
+# EPTS parser tests (Game 3)
+# ---------------------------------------------------------------------------
+
+_MINIMAL_EPTS_XML = textwrap.dedent("""\
+    <?xml version="1.0" encoding="utf-8"?>
+    <main>
+      <Metadata>
+        <GlobalConfig>
+          <FrameRate>25</FrameRate>
+          <ProviderGlobalParameters>
+            <ProviderParameter><Name>first_half_start</Name><Value>1</Value></ProviderParameter>
+            <ProviderParameter><Name>first_half_end</Name><Value>100</Value></ProviderParameter>
+            <ProviderParameter><Name>second_half_start</Name><Value>101</Value></ProviderParameter>
+            <ProviderParameter><Name>second_half_end</Name><Value>200</Value></ProviderParameter>
+          </ProviderGlobalParameters>
+        </GlobalConfig>
+        <Sessions>
+          <Session id="s1">
+            <MatchParameters>
+              <Score idLocalTeam="TMA" idVisitingTeam="TMB">
+                <LocalTeamScore>1</LocalTeamScore>
+                <VisitingTeamScore>0</VisitingTeamScore>
+              </Score>
+            </MatchParameters>
+          </Session>
+        </Sessions>
+        <Teams>
+          <Team id="TMA"><Name>Team A</Name></Team>
+          <Team id="TMB"><Name>Team B</Name></Team>
+        </Teams>
+        <Players>
+          <Player id="P1" teamId="TMA"><Name>Player 1</Name><ShirtNumber>1</ShirtNumber></Player>
+          <Player id="P2" teamId="TMA"><Name>Player 2</Name><ShirtNumber>2</ShirtNumber></Player>
+          <Player id="P3" teamId="TMB"><Name>Player 3</Name><ShirtNumber>3</ShirtNumber></Player>
+          <Player id="P4" teamId="TMB"><Name>Player 4</Name><ShirtNumber>4</ShirtNumber></Player>
+        </Players>
+        <PlayerChannels>
+          <PlayerChannel channelId="x" id="p1_x" playerId="P1"/>
+          <PlayerChannel channelId="y" id="p1_y" playerId="P1"/>
+          <PlayerChannel channelId="x" id="p2_x" playerId="P2"/>
+          <PlayerChannel channelId="y" id="p2_y" playerId="P2"/>
+          <PlayerChannel channelId="x" id="p3_x" playerId="P3"/>
+          <PlayerChannel channelId="y" id="p3_y" playerId="P3"/>
+          <PlayerChannel channelId="x" id="p4_x" playerId="P4"/>
+          <PlayerChannel channelId="y" id="p4_y" playerId="P4"/>
+        </PlayerChannels>
+      </Metadata>
+      <DataFormatSpecifications>
+        <DataFormatSpecification startFrame="1" endFrame="100" separator=":">
+          <StringRegister name="frameCount"/>
+          <SplitRegister separator=";">
+            <SplitRegister separator=",">
+              <PlayerChannelRef playerChannelId="p1_x"/>
+              <PlayerChannelRef playerChannelId="p1_y"/>
+            </SplitRegister>
+            <SplitRegister separator=",">
+              <PlayerChannelRef playerChannelId="p2_x"/>
+              <PlayerChannelRef playerChannelId="p2_y"/>
+            </SplitRegister>
+            <SplitRegister separator=",">
+              <PlayerChannelRef playerChannelId="p3_x"/>
+              <PlayerChannelRef playerChannelId="p3_y"/>
+            </SplitRegister>
+            <SplitRegister separator=",">
+              <PlayerChannelRef playerChannelId="p4_x"/>
+              <PlayerChannelRef playerChannelId="p4_y"/>
+            </SplitRegister>
+          </SplitRegister>
+          <SplitRegister separator=",">
+            <BallChannelRef channelId="x"/>
+            <BallChannelRef channelId="y"/>
+          </SplitRegister>
+        </DataFormatSpecification>
+        <DataFormatSpecification startFrame="101" endFrame="200" separator=":">
+          <StringRegister name="frameCount"/>
+          <SplitRegister separator=";">
+            <SplitRegister separator=",">
+              <PlayerChannelRef playerChannelId="p1_x"/>
+              <PlayerChannelRef playerChannelId="p1_y"/>
+            </SplitRegister>
+            <SplitRegister separator=",">
+              <PlayerChannelRef playerChannelId="p2_x"/>
+              <PlayerChannelRef playerChannelId="p2_y"/>
+            </SplitRegister>
+            <SplitRegister separator=",">
+              <PlayerChannelRef playerChannelId="p3_x"/>
+              <PlayerChannelRef playerChannelId="p3_y"/>
+            </SplitRegister>
+            <SplitRegister separator=",">
+              <PlayerChannelRef playerChannelId="p4_x"/>
+              <PlayerChannelRef playerChannelId="p4_y"/>
+            </SplitRegister>
+          </SplitRegister>
+          <SplitRegister separator=",">
+            <BallChannelRef channelId="x"/>
+            <BallChannelRef channelId="y"/>
+          </SplitRegister>
+        </DataFormatSpecification>
+      </DataFormatSpecifications>
+    </main>
+""")
+
+
+class TestParseEPTSMetadata:
+    """Tests for _parse_epts_metadata."""
+
+    def test_extracts_half_boundaries(self) -> None:
+        meta = _parse_epts_metadata(_MINIMAL_EPTS_XML)
+        assert meta.first_half == (1, 100)
+        assert meta.second_half == (101, 200)
+
+    def test_extracts_frame_rate(self) -> None:
+        meta = _parse_epts_metadata(_MINIMAL_EPTS_XML)
+        assert meta.frame_rate == 25
+
+    def test_maps_players_to_teams(self) -> None:
+        meta = _parse_epts_metadata(_MINIMAL_EPTS_XML)
+        assert meta.player_id_to_side["P1"] == "home"
+        assert meta.player_id_to_side["P2"] == "home"
+        assert meta.player_id_to_side["P3"] == "away"
+        assert meta.player_id_to_side["P4"] == "away"
+
+    def test_maps_players_to_shirt_numbers(self) -> None:
+        meta = _parse_epts_metadata(_MINIMAL_EPTS_XML)
+        assert meta.player_id_to_shirt["P1"] == "1"
+        assert meta.player_id_to_shirt["P4"] == "4"
+
+    def test_maps_channels_to_player_ids(self) -> None:
+        meta = _parse_epts_metadata(_MINIMAL_EPTS_XML)
+        assert meta.channel_to_player_id["p1"] == "P1"
+        assert meta.channel_to_player_id["p3"] == "P3"
+
+    def test_extracts_data_format_specs(self) -> None:
+        meta = _parse_epts_metadata(_MINIMAL_EPTS_XML)
+        assert len(meta.data_format_specs) == 2
+        start, end, prefixes = meta.data_format_specs[0]
+        assert start == 1
+        assert end == 100
+        assert prefixes == ["p1", "p2", "p3", "p4"]
+
+
+class TestParseEPTSTracking:
+    """Tests for _parse_epts_tracking."""
+
+    def _make_metadata(self) -> _EPTSMetadata:
+        return _parse_epts_metadata(_MINIMAL_EPTS_XML)
+
+    def test_parses_single_frame(self) -> None:
+        meta = self._make_metadata()
+        tracking = "1:0.5,0.4;0.3,0.6;0.7,0.2;0.8,0.3:0.5,0.5\n"
+        rows = _parse_epts_tracking(tracking, meta, "Game_3")
+        assert len(rows) == 1
+        assert rows[0]["frame"] == 1
+        assert rows[0]["period"] == 1
+        assert rows[0]["match_id"] == "Game_3"
+
+    def test_separates_home_away(self) -> None:
+        meta = self._make_metadata()
+        tracking = "1:0.5,0.4;0.3,0.6;0.7,0.2;0.8,0.3:0.5,0.5\n"
+        rows = _parse_epts_tracking(tracking, meta, "Game_3")
+        home = json.loads(rows[0]["home_players"])  # type: ignore[arg-type]
+        away = json.loads(rows[0]["away_players"])  # type: ignore[arg-type]
+        # P1 (shirt 1) and P2 (shirt 2) are home
+        assert "1" in home
+        assert "2" in home
+        # P3 (shirt 3) and P4 (shirt 4) are away
+        assert "3" in away
+        assert "4" in away
+
+    def test_coordinates_preserved(self) -> None:
+        meta = self._make_metadata()
+        tracking = "1:0.5,0.4;0.3,0.6;0.7,0.2;0.8,0.3:0.5,0.5\n"
+        rows = _parse_epts_tracking(tracking, meta, "Game_3")
+        home = json.loads(rows[0]["home_players"])  # type: ignore[arg-type]
+        assert home["1"]["x"] == 0.5
+        assert home["1"]["y"] == 0.4
+
+    def test_ball_coordinates(self) -> None:
+        meta = self._make_metadata()
+        tracking = "1:0.5,0.4;0.3,0.6;0.7,0.2;0.8,0.3:0.45,0.55\n"
+        rows = _parse_epts_tracking(tracking, meta, "Game_3")
+        assert rows[0]["ball_x"] == 0.45
+        assert rows[0]["ball_y"] == 0.55
+
+    def test_nan_ball_becomes_none(self) -> None:
+        meta = self._make_metadata()
+        tracking = "1:0.5,0.4;0.3,0.6;0.7,0.2;0.8,0.3:NaN,NaN\n"
+        rows = _parse_epts_tracking(tracking, meta, "Game_3")
+        assert rows[0]["ball_x"] is None
+        assert rows[0]["ball_y"] is None
+
+    def test_second_half_period(self) -> None:
+        meta = self._make_metadata()
+        tracking = "150:0.5,0.4;0.3,0.6;0.7,0.2;0.8,0.3:0.5,0.5\n"
+        rows = _parse_epts_tracking(tracking, meta, "Game_3")
+        assert rows[0]["period"] == 2
+        assert rows[0]["timestamp"] == (150 - 101) / 25
+
+    def test_multiple_frames(self) -> None:
+        meta = self._make_metadata()
+        tracking = "1:0.5,0.4;0.3,0.6;0.7,0.2;0.8,0.3:0.5,0.5\n2:0.51,0.41;0.31,0.59;0.71,0.21;0.81,0.31:0.52,0.48\n"
+        rows = _parse_epts_tracking(tracking, meta, "Game_3")
+        assert len(rows) == 2
+        assert rows[0]["frame"] == 1
+        assert rows[1]["frame"] == 2
+
+    def test_output_schema_matches_csv_games(self) -> None:
+        """Verify Game 3 output columns match Games 1-2 narrow format."""
+        meta = self._make_metadata()
+        tracking = "1:0.5,0.4;0.3,0.6;0.7,0.2;0.8,0.3:0.5,0.5\n"
+        rows = _parse_epts_tracking(tracking, meta, "Game_3")
+        expected_keys = {"period", "frame", "timestamp", "ball_x", "ball_y", "home_players", "away_players", "match_id"}
+        assert set(rows[0].keys()) == expected_keys
+
+
+class TestParseEPTSEvents:
+    """Tests for _parse_epts_events."""
+
+    def test_flattens_nested_event(self) -> None:
+        events = [
+            {
+                "index": 1,
+                "team": {"name": "Team A", "id": "TMA"},
+                "type": {"name": "PASS", "id": 1},
+                "subtypes": {"name": "HEAD", "id": 10},
+                "start": {"frame": 100, "time": 4.0, "x": 0.5, "y": 0.4},
+                "end": {"frame": 110, "time": 4.4, "x": 0.6, "y": 0.3},
+                "period": 1,
+                "from": {"name": "Player 1", "id": "P1"},
+                "to": {"name": "Player 2", "id": "P2"},
+            }
+        ]
+        df = _parse_epts_events(events, "Game_3")
+        assert len(df) == 1
+        assert df.iloc[0]["event_id"] == 1
+        assert df.iloc[0]["type"] == "PASS"
+        assert df.iloc[0]["subtype"] == "HEAD"
+        assert df.iloc[0]["team"] == "Home"
+        assert df.iloc[0]["player"] == "Player 1"
+        assert df.iloc[0]["match_id"] == "Game_3"
+
+    def test_team_normalization(self) -> None:
+        events = [
+            {
+                "index": 1,
+                "team": {"name": "Team B", "id": "TMB"},
+                "type": {"name": "SHOT", "id": 2},
+                "subtypes": None,
+                "start": {"frame": 200, "time": 8.0, "x": 0.8, "y": 0.5},
+                "end": {"frame": 210, "time": 8.4, "x": 0.9, "y": 0.5},
+                "period": 1,
+                "from": {"name": "Player 3", "id": "P3"},
+                "to": None,
+            }
+        ]
+        df = _parse_epts_events(events, "Game_3")
+        assert df.iloc[0]["team"] == "Away"
+
+    def test_handles_null_subtypes(self) -> None:
+        events = [
+            {
+                "index": 1,
+                "team": {"name": "Team A", "id": "TMA"},
+                "type": {"name": "CARRY", "id": 10},
+                "subtypes": None,
+                "start": {"frame": 100, "time": 4.0, "x": 0.5, "y": 0.4},
+                "end": {"frame": 105, "time": 4.2, "x": 0.52, "y": 0.41},
+                "period": 1,
+                "from": {"name": "Player 1", "id": "P1"},
+                "to": None,
+            }
+        ]
+        df = _parse_epts_events(events, "Game_3")
+        assert df.iloc[0]["subtype"] is None
+
+    def test_output_has_expected_columns(self) -> None:
+        events = [
+            {
+                "index": 1,
+                "team": {"name": "Team A", "id": "TMA"},
+                "type": {"name": "PASS", "id": 1},
+                "subtypes": None,
+                "start": {"frame": 100, "time": 4.0, "x": None, "y": None},
+                "end": {"frame": 100, "time": 4.0, "x": None, "y": None},
+                "period": 1,
+                "from": {"name": "Player 1", "id": "P1"},
+                "to": None,
+            }
+        ]
+        df = _parse_epts_events(events, "Game_3")
+        required = {"event_id", "type", "period", "start_frame", "end_frame", "team", "player", "match_id"}
+        assert required.issubset(set(df.columns))

@@ -42,36 +42,36 @@ models:
               arguments:
                 values: ['home', 'away']
       - name: x
-        description: X coordinate scaled to 120-yard pitch
+        description: X coordinate scaled to 120-yard pitch. May slightly exceed pitch bounds for off-pitch tracking positions.
         data_tests:
           - not_null
           - dbt_expectations.expect_column_values_to_be_between:
               arguments:
-                min_value: 0
-                max_value: 120
+                min_value: -10
+                max_value: 130
       - name: y
-        description: Y coordinate scaled to 80-yard pitch
+        description: Y coordinate scaled to 80-yard pitch. May slightly exceed pitch bounds for off-pitch tracking positions.
         data_tests:
           - not_null
           - dbt_expectations.expect_column_values_to_be_between:
               arguments:
-                min_value: 0
-                max_value: 80
+                min_value: -10
+                max_value: 90
       - name: ball_x
-        description: Ball X coordinate scaled to 120-yard pitch
+        description: Ball X coordinate scaled to 120-yard pitch. May slightly exceed pitch bounds when out of play.
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
               arguments:
-                min_value: 0
-                max_value: 120
+                min_value: -10
+                max_value: 130
                 row_condition: "ball_x is not null"
       - name: ball_y
-        description: Ball Y coordinate scaled to 80-yard pitch
+        description: Ball Y coordinate scaled to 80-yard pitch. May slightly exceed pitch bounds when out of play.
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
               arguments:
-                min_value: 0
-                max_value: 80
+                min_value: -10
+                max_value: 90
                 row_condition: "ball_y is not null"
 
   - name: stg_metrica__events

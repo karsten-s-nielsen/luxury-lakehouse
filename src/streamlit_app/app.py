@@ -6,6 +6,7 @@ import streamlit as st
 
 from streamlit_app.pages.match_summary import page as match_summary_page
 from streamlit_app.pages.pass_map import page as pass_map_page
+from streamlit_app.pages.pitch_control import page as pitch_control_page
 from streamlit_app.pages.player_radar import page as player_radar_page
 from streamlit_app.pages.shot_map import page as shot_map_page
 
@@ -25,6 +26,7 @@ def main() -> None:
         st.Page(pass_map_page, title="Pass Map", icon=":material/arrow_forward:", url_path="pass-map"),
         st.Page(player_radar_page, title="Player Radar", icon=":material/radar:", url_path="player-radar"),
         st.Page(match_summary_page, title="Match Summary", icon=":material/scoreboard:", url_path="match-summary"),
+        st.Page(pitch_control_page, title="Pitch Control", icon=":material/grid_on:", url_path="pitch-control"),
     ]
 
     nav = st.navigation({"Analysis": pages})

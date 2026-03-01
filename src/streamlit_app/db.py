@@ -105,13 +105,11 @@ def _refresh_token() -> str:
 
     ws = WorkspaceClient()
 
+    # Always use REST API — the SDK's generate_database_credential() does not
+    # yet support the `endpoint` parameter (returns a generic credential that
+    # Lakebase Autoscaling endpoints reject).  The REST API correctly scopes
+    # the JWT to the specific endpoint.
     try:
-        credential = ws.postgres.generate_database_credential(  # type: ignore[attr-defined]
-            endpoint=settings.lakebase_endpoint_name,
-        )
-        token: str = credential.token  # type: ignore[assignment]
-    except AttributeError:
-        logger.info("SDK lacks ws.postgres — falling back to REST API")
         token = _generate_credential_via_rest(ws, settings.lakebase_endpoint_name)
     except Exception:
         logger.exception("SECURITY: Failed to obtain Lakebase OAuth token")

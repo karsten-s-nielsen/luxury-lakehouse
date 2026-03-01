@@ -20,7 +20,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
             ingestion = container "Ingestion Workflows" "Fetches raw data from StatsBomb, Metrica Sports, and Wyscout APIs, writing to the Bronze layer in Unity Catalog" "Python, statsbombpy, Databricks Serverless Compute" {
                 utilsComp = component "Shared Utilities" "CLI parsing with SQL injection prevention, HTTPS-only HTTP client with retry, structured JSON logging, JSON column serialization, Delta write helpers with table name validation and audit columns, content validation" "Python, requests, pandas"
                 sbComp = component "StatsBomb Ingester" "Hierarchical API traversal: competitions, matches, events, lineups, 360 frames. Incremental loading via partition-level overwrite. JSON column serialization." "Python, statsbombpy"
-                metricaComp = component "Metrica Ingester" "Downloads tracking CSVs with 3-row multi-line header parsing. Reshapes wide player coordinates to narrow JSON format. Processes 2 sample games." "Python, pandas"
+                metricaComp = component "Metrica Ingester" "Downloads tracking CSVs (Games 1-2) and EPTS XML+tracking+JSON (Game 3). Reshapes wide player coordinates to narrow JSON format. Normalizes EPTS center-origin meters to [0,1] convention." "Python, pandas, xml.etree"
                 wyscoutComp = component "Wyscout Ingester" "Local-first loading with Figshare HTTPS fallback. Processes 7 competitions (2017-18). Serializes positions and tags to JSON strings." "Python, requests"
             }
             catalog = container "Unity Catalog" "Governed data storage across the medallion architecture with Bronze (raw), Silver (cleaned), and Gold (analytics-ready) schemas" "Delta Lake, Apache Parquet" "Database"
@@ -35,19 +35,20 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
                 macros = component "Custom Macros" "distance_to_goal and shot_angle geometry calculations for xG features" "Jinja SQL Macros"
                 testSuite = component "Test Suite" "183+ data tests: unique, not_null, accepted_values, range bounds, composite keys, source freshness" "dbt-expectations, dbt-utils"
             }
-            syncedTables = container "Synced Tables Pipeline" "8 synced tables (5 fact, 3 dimension) replicate Gold Delta tables into Lakebase via SNAPSHOT scheduling, eliminating Reverse ETL. All tables online with verified row counts." "Lakeflow Synced Database Tables, Terraform" "Queue"
+            syncedTables = container "Synced Tables Pipeline" "9 synced tables (6 fact, 3 dimension) replicate Gold Delta tables into Lakebase via SNAPSHOT scheduling, eliminating Reverse ETL. All tables online with verified row counts." "Lakeflow Synced Database Tables, Terraform" "Queue"
             lakebase = container "Lakebase PostgreSQL 17 (Autoscaling)" "Managed OLTP database with autoscaling (0.5–4 CU) and scale-to-zero, providing sub-10ms query latency for the Streamlit app, with native pgvector support. OAuth M2M authentication, SSL enforced." "PostgreSQL 17, Autoscaling, pgvector" "Database"
-            streamlit = container "Streamlit Dashboard" "Interactive analytics dashboard deployed as a Databricks App with 4 pages: Shot Map, Pass Map, Player Radar, and Match Summary" "Python, Streamlit, mplsoccer, psycopg2, Databricks Apps" {
+            streamlit = container "Streamlit Dashboard" "Interactive analytics dashboard deployed as a Databricks App with 5 pages: Shot Map, Pass Map, Player Radar, Match Summary, and Pitch Control" "Python, Streamlit, mplsoccer, psycopg2, Databricks Apps" {
                 appEntry = component "App Entry Point" "st.navigation page routing, dark theme, sidebar branding" "app.py, Streamlit 1.36+"
                 configComp = component "Configuration" "Pydantic BaseSettings with env var binding, identifier validation, cached singleton" "config.py, pydantic-settings"
                 dbComp = component "Database Layer" "OAuth M2M token management (SDK + REST fallback), JWT UUID validation, ThreadedConnectionPool with 55-min recycle, parameterized queries, table name validation, statement_timeout, sanitized errors" "db.py, psycopg2, databricks-sdk"
                 filtersComp = component "Filter Widgets" "5 cascading selectbox/slider widgets backed by Lakebase dimension tables with 10-min cache" "filters.py, st.cache_data"
-                pitchComp = component "Pitch Visualizations" "mplsoccer wrappers: shot scatter on half-pitch (sized by xG), pass arrows on full pitch (progressive highlighting)" "pitch.py, mplsoccer"
+                pitchComp = component "Pitch Visualizations" "mplsoccer wrappers: shot scatter on half-pitch (sized by xG), pass arrows on full pitch (progressive highlighting), Voronoi pitch control with player positions and velocity arrows" "pitch.py, mplsoccer, scipy.spatial"
                 chartsComp = component "Chart Visualizations" "Radar chart (1-3 players, per-90 metrics) and horizontal bar comparison chart" "charts.py, mplsoccer Radar, matplotlib"
                 shotMapPage = component "Shot Map Page" "Half-pitch shot visualization with xG sizing, summary stats (goals, conversion rate, xG/shot)" "shot_map.py"
                 passMapPage = component "Pass Map Page" "Full-pitch pass arrows with progressive highlighting, pass completion stats" "pass_map.py"
                 radarPage = component "Player Radar Page" "Radar chart comparing 1-3 players across 6 configurable per-90 metrics" "player_radar.py"
                 matchPage = component "Match Summary Page" "Scorecard header, xG comparison, 8-stat horizontal bar chart" "match_summary.py"
+                pitchControlPage = component "Pitch Control Page" "Voronoi-based pitch control visualization with match/period/frame selectors and velocity arrow toggle" "pitch_control.py"
             }
         }
 
@@ -114,6 +115,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         appEntry -> passMapPage "Routes to" ""
         appEntry -> radarPage "Routes to" ""
         appEntry -> matchPage "Routes to" ""
+        appEntry -> pitchControlPage "Routes to" ""
         appEntry -> configComp "Reads settings" ""
         shotMapPage -> filtersComp "Uses competition, team, player filters" ""
         shotMapPage -> pitchComp "Renders shot scatter" ""
@@ -127,6 +129,8 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         matchPage -> filtersComp "Uses competition, team, match filters" ""
         matchPage -> chartsComp "Renders bar comparison chart" ""
         matchPage -> dbComp "Queries fct_match_summary_synced" ""
+        pitchControlPage -> pitchComp "Renders Voronoi pitch control" ""
+        pitchControlPage -> dbComp "Queries fct_tracking_frames_synced" ""
         filtersComp -> dbComp "Queries dimension tables" ""
         dbComp -> configComp "Reads Lakebase connection settings" ""
         dbComp -> lakebase "Connects via OAuth M2M, parameterized SQL" "psycopg2, SSL"

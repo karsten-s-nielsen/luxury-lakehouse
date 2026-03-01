@@ -1,4 +1,4 @@
-"""mplsoccer pitch wrappers for shot and pass visualizations."""
+"""mplsoccer pitch wrappers for shot, pass, and pitch control visualizations."""
 
 from __future__ import annotations
 
@@ -6,8 +6,10 @@ from typing import Any
 
 import matplotlib.figure
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 from mplsoccer import Pitch, VerticalPitch
+from scipy.spatial import Voronoi  # type: ignore[import-untyped]
 
 # Dark theme colors
 _BG_COLOR = "#1a1a2e"
@@ -17,6 +19,9 @@ _NO_GOAL_COLOR = "#457b9d"
 _PROGRESSIVE_COLOR = "#2a9d8f"
 _COMPLETE_COLOR = "#457b9d"
 _INCOMPLETE_COLOR = "#6c757d"
+_HOME_COLOR = "#457b9d"
+_AWAY_COLOR = "#e63946"
+_BALL_COLOR = "#f4d03f"
 
 
 def plot_shot_map(shots: pd.DataFrame, title: str = "Shot Map") -> matplotlib.figure.Figure:
@@ -122,6 +127,135 @@ def plot_pass_map(
                 headwidth=5,
                 headlength=5,
             )
+
+    ax.set_title(title, color=_LINE_COLOR, fontsize=14, pad=10)
+    plt.close(fig)
+    return fig
+
+
+def _clip_voronoi_to_pitch(
+    vor: Voronoi,
+    pitch_bounds: tuple[float, float, float, float],
+) -> list[np.ndarray]:
+    """Clip Voronoi regions to a rectangular pitch boundary.
+
+    Returns a list of polygon vertex arrays, one per input point.
+    Unbounded regions are clipped to the pitch rectangle.
+    """
+    x_min, x_max, y_min, y_max = pitch_bounds
+    regions: list[np.ndarray] = []
+
+    for point_idx in range(len(vor.points)):
+        region_idx = vor.point_region[point_idx]
+        region = vor.regions[region_idx]
+
+        if not region or -1 in region:
+            # Unbounded region — approximate with pitch-sized polygon
+            regions.append(np.array([[x_min, y_min], [x_max, y_min], [x_max, y_max], [x_min, y_max]]))
+            continue
+
+        polygon = np.array([vor.vertices[i] for i in region])
+        # Clip to pitch bounds
+        polygon[:, 0] = np.clip(polygon[:, 0], x_min, x_max)
+        polygon[:, 1] = np.clip(polygon[:, 1], y_min, y_max)
+        regions.append(polygon)
+
+    return regions
+
+
+def plot_pitch_control(
+    players: pd.DataFrame,
+    ball_x: float | None = None,
+    ball_y: float | None = None,
+    show_velocity: bool = False,
+    title: str = "Pitch Control",
+) -> matplotlib.figure.Figure:
+    """Plot Voronoi-based pitch control with player positions.
+
+    Expected columns: x, y, team, player_id.
+    Optional columns: velocity_x, velocity_y (for arrow overlay).
+
+    Returns a matplotlib Figure.
+    """
+    pitch = Pitch(pitch_type="statsbomb", pitch_color=_BG_COLOR, line_color=_LINE_COLOR)
+    result: Any = pitch.draw(figsize=(12, 8))
+    fig: matplotlib.figure.Figure = result[0]
+    ax: Any = result[1]
+    fig.set_facecolor(_BG_COLOR)
+
+    if players.empty:
+        ax.set_title(title, color=_LINE_COLOR, fontsize=14, pad=10)
+        plt.close(fig)
+        return fig
+
+    home = players[players["team"] == "home"]
+    away = players[players["team"] == "away"]
+
+    # Voronoi tessellation (requires >= 3 points)
+    all_points: np.ndarray = np.asarray(players[["x", "y"]].dropna().values)
+    if len(all_points) >= 3:
+        vor = Voronoi(all_points)
+        pitch_bounds = (0.0, 120.0, 0.0, 80.0)
+        clipped_regions = _clip_voronoi_to_pitch(vor, pitch_bounds)
+
+        teams_array = players.loc[players[["x", "y"]].dropna().index, "team"].values
+        for i, polygon in enumerate(clipped_regions):
+            color = _HOME_COLOR if teams_array[i] == "home" else _AWAY_COLOR
+            ax.fill(*polygon.T, alpha=0.15, color=color, zorder=1)
+
+    # Player scatter
+    if not home.empty:
+        pitch.scatter(
+            home["x"],
+            home["y"],
+            color=_HOME_COLOR,
+            s=120,
+            edgecolors=_LINE_COLOR,
+            linewidth=0.8,
+            ax=ax,
+            zorder=3,
+            label="Home",
+        )
+    if not away.empty:
+        pitch.scatter(
+            away["x"],
+            away["y"],
+            color=_AWAY_COLOR,
+            s=120,
+            edgecolors=_LINE_COLOR,
+            linewidth=0.8,
+            ax=ax,
+            zorder=3,
+            label="Away",
+        )
+
+    # Ball position
+    if ball_x is not None and ball_y is not None:
+        pitch.scatter(
+            [ball_x], [ball_y], color=_BALL_COLOR, s=200, edgecolors="white", linewidth=1.5, ax=ax, zorder=4, marker="h"
+        )
+
+    # Velocity arrows
+    if show_velocity and "velocity_x" in players.columns and "velocity_y" in players.columns:
+        vel_df = players.dropna(subset=["velocity_x", "velocity_y"])
+        if not vel_df.empty:
+            scale = 2.0  # Scale factor for visibility
+            pitch.arrows(
+                vel_df["x"],
+                vel_df["y"],
+                vel_df["x"] + vel_df["velocity_x"] * scale,
+                vel_df["y"] + vel_df["velocity_y"] * scale,
+                color=_LINE_COLOR,
+                alpha=0.6,
+                width=1.0,
+                ax=ax,
+                zorder=2,
+                headwidth=4,
+                headlength=4,
+            )
+
+    ax.set_xlim(-2, 122)
+    ax.set_ylim(-2, 82)
 
     ax.set_title(title, color=_LINE_COLOR, fontsize=14, pad=10)
     plt.close(fig)

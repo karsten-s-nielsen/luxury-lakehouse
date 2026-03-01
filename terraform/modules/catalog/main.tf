@@ -72,6 +72,9 @@ resource "databricks_volume" "libs" {
 # prevent the job from creating tables on first run. Since the bronze schema
 # is dedicated to raw ingestion data and only this SP writes to it, schema-
 # level scope is the appropriate granularity.
+#
+# SELECT is required because Spark's saveAsTable(mode="overwrite") reads
+# existing table metadata before writing (loadTable → getTableMetadata).
 
 resource "databricks_grant" "ingestion_sp_use_catalog" {
   count = var.enable_ingestion_sp_grants ? 1 : 0
@@ -88,7 +91,7 @@ resource "databricks_grant" "ingestion_sp_bronze_schema" {
   schema = "${var.catalog_name}.${databricks_schema.bronze.name}"
 
   principal  = var.ingestion_sp_application_id
-  privileges = ["USE_SCHEMA", "CREATE_TABLE", "MODIFY"]
+  privileges = ["USE_SCHEMA", "CREATE_TABLE", "MODIFY", "SELECT"]
 }
 
 resource "databricks_grant" "ingestion_sp_libs_volume" {

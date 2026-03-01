@@ -5,7 +5,7 @@
 --   1. Explode per-frame JSON into one row per player per frame
 --   2. Scale coordinates from [0, 1] normalized to 120x80 pitch system
 --   3. Separate home and away player data into a uniform schema
---   4. Ball coordinates are void (NULL) in bronze — not available per-frame
+--   4. Broadcast frame-level ball coordinates to each player row
 --
 -- Coordinate system alignment:
 --   Metrica: (0,0) = top-left, (1,1) = bottom-right, normalized [0,1]
@@ -28,7 +28,9 @@ home_players_exploded as (
         'home'                                          as team,
         player_key                                      as player_id,
         player_value.x                                  as raw_x,
-        player_value.y                                  as raw_y
+        player_value.y                                  as raw_y,
+        ball_x                                          as raw_ball_x,
+        ball_y                                          as raw_ball_y
     from source
     lateral view explode(
         from_json(home_players, 'MAP<STRING, STRUCT<x:DOUBLE, y:DOUBLE>>')
@@ -46,7 +48,9 @@ away_players_exploded as (
         'away'                                          as team,
         player_key                                      as player_id,
         player_value.x                                  as raw_x,
-        player_value.y                                  as raw_y
+        player_value.y                                  as raw_y,
+        ball_x                                          as raw_ball_x,
+        ball_y                                          as raw_ball_y
     from source
     lateral view explode(
         from_json(away_players, 'MAP<STRING, STRUCT<x:DOUBLE, y:DOUBLE>>')
@@ -84,9 +88,9 @@ normalized as (
         raw_x * 120.0                                   as x,
         (1.0 - raw_y) * 80.0                            as y,
 
-        -- Ball coordinates not available per-frame in bronze (void type)
-        cast(null as double)                            as ball_x,
-        cast(null as double)                            as ball_y
+        -- Ball coordinates broadcast from frame-level bronze columns
+        raw_ball_x * 120.0                              as ball_x,
+        (1.0 - raw_ball_y) * 80.0                       as ball_y
 
     from all_players
     where raw_x is not null

@@ -6,7 +6,7 @@ import matplotlib.figure
 import pandas as pd
 
 from streamlit_app.components.charts import plot_match_comparison_bars, plot_player_radar
-from streamlit_app.components.pitch import plot_pass_map, plot_shot_map
+from streamlit_app.components.pitch import plot_pass_map, plot_pitch_control, plot_shot_map
 
 
 class TestPlotShotMap:
@@ -146,4 +146,51 @@ class TestPlotMatchComparisonBars:
             away_vals=[1.0],
             labels=["Goals"],
         )
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+
+class TestPlotPitchControl:
+    """Test pitch control visualization with Voronoi tessellation."""
+
+    def test_returns_figure_with_data(self) -> None:
+        players = pd.DataFrame(
+            {
+                "x": [20.0, 40.0, 60.0, 80.0, 100.0, 30.0, 50.0, 70.0, 90.0, 110.0],
+                "y": [40.0, 30.0, 50.0, 20.0, 60.0, 60.0, 70.0, 10.0, 40.0, 50.0],
+                "team": ["home"] * 5 + ["away"] * 5,
+                "player_id": [f"p{i}" for i in range(10)],
+            }
+        )
+        fig = plot_pitch_control(players, ball_x=60.0, ball_y=40.0)
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+    def test_returns_figure_with_empty_data(self) -> None:
+        players = pd.DataFrame({"x": [], "y": [], "team": [], "player_id": []})
+        fig = plot_pitch_control(players)
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+    def test_with_velocity_arrows(self) -> None:
+        players = pd.DataFrame(
+            {
+                "x": [30.0, 50.0, 70.0, 90.0],
+                "y": [40.0, 30.0, 50.0, 20.0],
+                "team": ["home", "home", "away", "away"],
+                "player_id": ["p1", "p2", "p3", "p4"],
+                "velocity_x": [1.0, -0.5, 0.3, -0.8],
+                "velocity_y": [0.5, 0.2, -0.4, 0.1],
+            }
+        )
+        fig = plot_pitch_control(players, show_velocity=True)
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+    def test_with_ball_position(self) -> None:
+        players = pd.DataFrame(
+            {
+                "x": [30.0, 50.0, 70.0, 90.0],
+                "y": [40.0, 30.0, 50.0, 20.0],
+                "team": ["home", "home", "away", "away"],
+                "player_id": ["p1", "p2", "p3", "p4"],
+            }
+        )
+        fig = plot_pitch_control(players, ball_x=60.0, ball_y=40.0)
         assert isinstance(fig, matplotlib.figure.Figure)

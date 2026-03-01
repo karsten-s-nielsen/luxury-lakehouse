@@ -1,7 +1,7 @@
 # Databricks Lakebase Implementation Plan — Soccer Analytics Platform
 
-> **Status**: Phase 6 complete — StatsBomb 360 freeze-frame backfill + dbt staging model. Lakebase on Autoscaling (PG 17, scale-to-zero). Streamlit dashboard deployed as Databricks App with 4 pages, backed by Lakebase PostgreSQL via OAuth M2M
-> **Last Updated**: 2026-02-28
+> **Status**: Phase 7 complete — Metrica Game 3 EPTS ingestion, ball coordinate fix, Voronoi pitch control page. Lakebase on Autoscaling (PG 17, scale-to-zero). Streamlit dashboard deployed as Databricks App with 5 pages, backed by Lakebase PostgreSQL via OAuth M2M
+> **Last Updated**: 2026-03-01
 > **Repository**: [`karstenskyt/luxury-lakehouse`](https://github.com/karstenskyt/luxury-lakehouse)
 > **Scope**: Document 3 ("3_AWS Lake House.pdf") — Databricks Lakebase serverless architecture
 > **Approach**: Professional-grade IaC, best practices, production-ready from day one
@@ -60,7 +60,7 @@ This plan implements the Databricks Lakebase architecture described in Document 
 | Soccermatics local workspace | `D:/Development/soccermatics/` | Working — 25/25 scripts pass (Python 3.12, conda) |
 | MCP AWS CodeDeploy server | `D:/Development/karstenskyt__mcp-aws-codedeploy/` | Working — 8 tools, FastMCP, Stdio transport |
 | AWS IAM DevOpsAgent role spec | `karstenskyt__mcp-aws-codedeploy/TODO.md` | Documented — policy template ready |
-| Implementation code | This repository | **Phase 6 complete** — 4 ingestion modules, 85 unit tests, 9 bronze tables (31.4M+ rows); 20 dbt models, 183 data tests; Streamlit dashboard (4 pages); security audit complete |
+| Implementation code | This repository | **Phase 7 complete** — 4 ingestion modules, 107 unit tests, 9 bronze tables (31.4M+ rows); 20 dbt models, 185 data tests; Streamlit dashboard (5 pages); 9 synced tables; security audit complete |
 
 ### Soccermatics Workspace Details
 
@@ -1040,10 +1040,11 @@ src/streamlit_app/
 │   ├── shot_map.py       # Shot map + xG scatter (mplsoccer half-pitch)
 │   ├── pass_map.py       # Pass arrows on full pitch with progressive highlighting
 │   ├── player_radar.py   # Radar chart comparing 1-3 players on per-90 metrics
-│   └── match_summary.py  # Scorecard, xG comparison, horizontal bar chart
+│   ├── match_summary.py  # Scorecard, xG comparison, horizontal bar chart
+│   └── pitch_control.py  # Voronoi pitch control from Metrica tracking data
 └── components/
     ├── filters.py      # 5 cascading filter widgets backed by Lakebase dimension tables
-    ├── pitch.py        # mplsoccer wrappers (shot scatter, pass arrows)
+    ├── pitch.py        # mplsoccer wrappers (shot scatter, pass arrows, pitch control)
     └── charts.py       # matplotlib wrappers (radar, bar comparison)
 ```
 
@@ -1054,19 +1055,12 @@ Supporting files:
 
 ### 5.2 — Authentication: OAuth M2M (Implemented)
 
-The app runs as a Databricks App with an auto-assigned **service principal** (`be66af99-5296-4fd9-887a-c081bce38bfa`). Token generation uses the SDK with a REST API fallback for older runtimes:
+The app runs as a Databricks App with an auto-assigned **service principal** (`be66af99-5296-4fd9-887a-c081bce38bfa`). Token generation uses the REST API directly (the SDK's `generate_database_credential()` does not yet support the `endpoint` parameter for Autoscaling):
 
 ```python
 # db.py — actual implementation pattern (Autoscaling, PG 17)
 ws = WorkspaceClient()  # Inherits SP identity from Databricks App runtime
-try:
-    credential = ws.postgres.generate_database_credential(
-        endpoint=settings.lakebase_endpoint_name,
-    )
-    token = credential.token
-except AttributeError:
-    # REST fallback for older SDK versions
-    token = _generate_credential_via_rest(ws, endpoint_name)
+token = _generate_credential_via_rest(ws, settings.lakebase_endpoint_name)
 
 pg_user = _extract_jwt_subject(token)  # JWT 'sub' claim = PG role name
 conn = psycopg2.connect(
@@ -1369,22 +1363,23 @@ The `fct_player_embeddings` gold table and its synced table are provisioned but 
 - Implement the **Player Similarity** Streamlit page (`player_search.py`) using pgvector `<=>` cosine distance queries
 - Depends on cross-source player entity resolution (14.2) for unified player identity
 
-### 14.5 — Metrica Tracking Data: Game 3 + Pitch Control
+### 14.5 — Metrica Tracking Data: Game 3 + Pitch Control (Complete)
 
-Games 1–2 are already ingested, transformed (`fct_tracking_frames`), and synced to Lakebase. This phase adds Game 3 and builds the Pitch Control visualization.
+Games 1–2 were already ingested. This phase fixed ball coordinate propagation, added Game 3 EPTS format ingestion, synced `fct_tracking_frames` to Lakebase, and built a Pitch Control visualization with Voronoi tessellation.
 
 | Task | Description | Status |
 |------|-------------|--------|
-| **Game 3 ingestion** | EPTS FIFA format (JSON events + tracking); new parser in `metrica.py` | Planned |
-| **dbt tests** | Verify Game 3 compatibility with existing `stg_metrica__tracking` schema | Planned |
-| **Pitch Control page** | Voronoi diagrams showing space ownership from `fct_tracking_frames_synced` | Planned |
-| **Velocity/acceleration viz** | Visualize speed data from `fct_tracking_frames` `final` CTE | Planned |
+| **Ball coordinate fix** | `stg_metrica__tracking.sql` — broadcast frame-level `ball_x`/`ball_y` instead of NULL | Complete |
+| **Game 3 ingestion** | EPTS parsers: XML metadata, colon-delimited tracking, JSON events in `metrica.py` | Complete |
+| **Unit tests** | 22 new tests for EPTS parsers + 4 pitch control viz tests (107 total) | Complete |
+| **Pitch Control page** | `plot_pitch_control()` with Voronoi, `pitch_control.py` with match/period/frame filters | Complete |
+| **Sync fct_tracking_frames** | Terraform resource + Lakebase synced table for Streamlit queries | Complete |
 
 ### 14.6 — Additional Streamlit Pages
 
 | Page | Description | Data Source | Status |
 |------|-------------|-------------|--------|
-| **Pitch Control** | Voronoi diagrams showing space ownership | `fct_tracking_frames_synced` | Planned — requires Metrica tracking data |
+| **Pitch Control** | Voronoi diagrams showing space ownership | `fct_tracking_frames_synced` | Complete (Phase 7) |
 | **Player Similarity** | pgvector-powered nearest-neighbor search | `fct_player_embeddings_synced` | Planned — depends on 14.3 |
 | **Heat Map** | Touch/action density maps per player or team | `fct_passes_synced`, `fct_shots_synced` | Planned |
 | **Pass Network** | Graph visualization of passing connections between teammates | `fct_passes_synced` | Planned |
