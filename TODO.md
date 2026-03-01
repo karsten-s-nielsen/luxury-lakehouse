@@ -207,25 +207,7 @@ No cross-source dependency — these use existing synced gold tables (`fct_passe
 - [ ] **Heat Map** — touch/action density maps per player or team
 - [ ] **Pass Network** — graph visualization of passing connections between teammates
 
-### Phase 9 — Cross-Source Player Entity Resolution (PLAN 14.2)
-
-- [ ] **Prerequisite:** Request open-source license from `parmacalcio1913/players-matcher` — repo is currently unlicensed (all rights reserved). Cannot legally use without explicit permission.
-- [ ] Integrate [`parmacalcio1913/players-matcher`](https://github.com/parmacalcio1913/players-matcher) — fuzzy-match players across StatsBomb, Metrica, and Wyscout into a canonical ID
-- [ ] Build `int_player_xref` mapping — dbt intermediate model or seed linking source-specific IDs
-- [ ] Refactor `dim_players` — merge cross-source records using the mapping
-
-### Phase 10 — pgvector Player Embeddings (PLAN 14.3)
-
-- [ ] Design feature vector from `fct_player_stats` per-90 metrics
-- [ ] Populate `fct_player_embeddings` — currently 0 rows, table and synced table already provisioned
-- [ ] Depends on Phase 9 (entity resolution) for unified player identity
-
-### Phase 11 — Player Similarity Streamlit Page (PLAN 14.6)
-
-- [ ] **Player Similarity** — pgvector nearest-neighbor search (`player_search.py`, depends on Phase 10)
-- [ ] ~~**Pitch Control** — built in Phase 7~~
-
-### Phase 12 — SPADL / VAEP Action Valuation (PLAN 14.7)
+### Phase 9 — SPADL / VAEP Action Valuation (PLAN 14.7)
 
 Convert event data to the SPADL (Soccer Player Action Description Language) unified format and train VAEP (Valuing Actions by Estimating Probabilities) models. Uses existing bronze event data — no new data sources needed.
 
@@ -235,7 +217,7 @@ Convert event data to the SPADL (Soccer Player Action Description Language) unif
 - [ ] Create `fct_action_values` gold table — per-action offensive and defensive VAEP scores
 - [ ] Create Streamlit page — top players by VAEP/90, action value distributions
 
-### Phase 13 — Additional Public Tracking Datasets (PLAN 14.8)
+### Phase 10 — Additional Public Tracking Datasets (PLAN 14.8)
 
 Ingest new open tracking datasets via Kloppy to expand beyond Metrica's 3 matches.
 
@@ -244,25 +226,43 @@ Ingest new open tracking datasets via Kloppy to expand beyond Metrica's 3 matche
 - [ ] Build `src/ingestion/kloppy_loader.py` — generic Kloppy-based ingestion that normalizes any provider to the existing bronze tracking schema
 - [ ] Verify `stg_metrica__tracking` and `fct_tracking_frames` handle multi-provider tracking data (or refactor to `stg_tracking`)
 
-### Phase 14 — Physics-Based Pitch Control Model (PLAN 14.9)
+### Phase 11 — Physics-Based Pitch Control Model (PLAN 14.9)
 
 Replace the current Voronoi approximation with a physics-based pitch control model using tracking data.
 
 - [ ] Implement Spearman et al. (2017) pitch control model — player influence as a function of position, velocity, and time-to-intercept
 - [ ] Populate `pitch_control_value` column in `fct_tracking_frames` (currently NULL) via Python UDF or MLflow model
 - [ ] Update Streamlit Pitch Control page with continuous heatmap overlay (replacing Voronoi)
-- [ ] Depends on tracking data from Metrica (Phase 7) + IDSSE/SkillCorner (Phase 13)
+- [ ] Depends on tracking data from Metrica (Phase 7) + IDSSE/SkillCorner (Phase 10)
+
+### Phase 12 — Cross-Source Player Entity Resolution (PLAN 14.2)
+
+- [ ] **Prerequisite:** Request open-source license from `parmacalcio1913/players-matcher` — repo is currently unlicensed (all rights reserved). Cannot legally use without explicit permission.
+- [ ] Integrate [`parmacalcio1913/players-matcher`](https://github.com/parmacalcio1913/players-matcher) — fuzzy-match players across StatsBomb, Metrica, and Wyscout into a canonical ID
+- [ ] Build `int_player_xref` mapping — dbt intermediate model or seed linking source-specific IDs
+- [ ] Refactor `dim_players` — merge cross-source records using the mapping
+
+### Phase 13 — pgvector Player Embeddings (PLAN 14.3)
+
+- [ ] Design feature vector from `fct_player_stats` per-90 metrics
+- [ ] Populate `fct_player_embeddings` — currently 0 rows, table and synced table already provisioned
+- [ ] Depends on Phase 12 (entity resolution) for unified player identity
+
+### Phase 14 — Player Similarity Streamlit Page (PLAN 14.6)
+
+- [ ] **Player Similarity** — pgvector nearest-neighbor search (`player_search.py`, depends on Phase 13)
+- [ ] ~~**Pitch Control** — built in Phase 7~~
 
 ### Phase 15 — DEFCON-Inspired Defensive Valuation (PLAN 14.10)
 
 Quantify individual defensive contributions inspired by the DEFCON framework (Kim et al., 2025). See research notes in PLAN.md §14.10.
 
 - [ ] **License status**: DEFCON repo ([`hyunsungkim-ds/defcon`](https://github.com/hyunsungkim-ds/defcon)) has **no LICENSE file** — all rights reserved. Cannot copy code. Implementation must be from paper equations (publicly available) and standard open-source libraries.
-- [ ] Build Expected Possession Value (EPV) decomposition from VAEP scores (Phase 12) + pitch control (Phase 14)
+- [ ] Build Expected Possession Value (EPV) decomposition from VAEP scores (Phase 9) + pitch control (Phase 11)
 - [ ] Implement credit assignment: Intercept, Disturb, Deter, Concede (4 defensive contribution types)
 - [ ] **DEFCON-lite (tabular)**: gradient-boosted tree model using VAEP features + tracking-derived spatial features, without GNN
 - [ ] **Full DEFCON (GNN)**: Graph Attention Network for action selection/success prediction (requires 500+ matches with tracking — may need commercial data)
-- [ ] Depends on: VAEP (Phase 12), additional tracking data (Phase 13), pitch control (Phase 14)
+- [ ] Depends on: VAEP (Phase 9), additional tracking data (Phase 10), pitch control (Phase 11)
 
 ## Technical Debt
 
