@@ -67,13 +67,30 @@ sources:
 
       - name: statsbomb_360
         description: >
-          StatsBomb 360 freeze-frame data. Contains positional snapshots of
-          all visible players at the moment of each event. Enables pitch
-          control and spatial analysis models.
+          StatsBomb 360 freeze-frame data. statsbombpy returns already-exploded
+          rows — one row per player per event in 360-enabled matches. Contains
+          positional snapshots of all visible players at the moment of each event.
+          Enables pitch control and spatial analysis.
         columns:
-          - name: event_uuid
-            description: Foreign key to statsbomb_events.id
-          - name: freeze_frame
+          - name: id
+            description: Event UUID linking this row to the parent event in statsbomb_events
+          - name: match_id
+            description: Foreign key to statsbomb_matches
+          - name: competition_id
+            description: Competition identifier (partition key)
+          - name: season_id
+            description: Season identifier (partition key)
+          - name: teammate
+            description: Whether this player is on the same team as the event actor
+          - name: actor
+            description: Whether this player is the one performing the event
+          - name: keeper
+            description: Whether this player is the goalkeeper
+          - name: location
             description: >
-              JSON array of player positions — each with location [x,y],
-              teammate (boolean), and actor (boolean)
+              JSON string — [x, y] coordinate array for this player's position
+              on the pitch (StatsBomb 120x80 coordinate system)
+          - name: visible_area
+            description: >
+              JSON string — flat array of alternating x, y coordinates forming
+              a polygon that represents the camera's visible area on the pitch

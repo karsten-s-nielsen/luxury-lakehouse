@@ -270,7 +270,88 @@ def _write_batch(
 
 
 # ---------------------------------------------------------------------------
-# Entry point
+# 360 backfill
+# ---------------------------------------------------------------------------
+
+
+def backfill_360(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    competitions_pdf: pd.DataFrame,
+    logger: logging.Logger,
+) -> None:
+    """Backfill 360 freeze-frame data for matches already ingested.
+
+    The main ingestion pipeline only fetches 360 data for *new* matches.
+    This function targets matches that have events but no 360 data yet,
+    enabling one-time catchup after the 360 ingestion code was added.
+    """
+    existing_360_match_ids = _read_existing_match_ids(spark, catalog, schema, "statsbomb_360", logger)
+    existing_event_match_ids = _read_existing_match_ids(spark, catalog, schema, "statsbomb_events", logger)
+
+    # Only process matches that have events but no 360 data
+    backfill_candidates = existing_event_match_ids - existing_360_match_ids
+
+    if not backfill_candidates:
+        logger.info("No matches need 360 backfill")
+        return
+
+    logger.info("Found %d matches needing 360 backfill", len(backfill_candidates))
+
+    unique_combos = competitions_pdf[["competition_id", "season_id"]].drop_duplicates()
+
+    for _, row in unique_combos.iterrows():
+        comp_id = int(row["competition_id"])
+        season_id = int(row["season_id"])
+
+        matches_pdf = _safe_fetch(
+            sb.matches,
+            competition_id=comp_id,
+            season_id=season_id,
+            logger=logger,
+            label="matches",
+        )
+        if matches_pdf is None or matches_pdf.empty:
+            continue
+
+        match_ids_in_season: list[int] = matches_pdf["match_id"].tolist()
+        target_ids = set(match_ids_in_season) & backfill_candidates
+
+        if not target_ids:
+            continue
+
+        logger.info(
+            "Backfilling 360 for %d matches in comp=%d season=%d",
+            len(target_ids),
+            comp_id,
+            season_id,
+        )
+
+        frames_batch: list[pd.DataFrame] = []
+        for match_id in target_ids:
+            frames_pdf = _safe_fetch(sb.frames, match_id=match_id, logger=logger, label="360")
+            if frames_pdf is not None and not frames_pdf.empty:
+                frames_pdf["match_id"] = match_id
+                frames_pdf["competition_id"] = comp_id
+                frames_pdf["season_id"] = season_id
+                frames_batch.append(frames_pdf)
+
+        replace_expr = f"competition_id = {comp_id} AND season_id = {season_id}"
+        _write_batch(
+            spark,
+            catalog,
+            schema,
+            "statsbomb_360",
+            frames_batch,
+            replace_expr,
+            logger,
+            required_columns=["id", "match_id"],
+        )
+
+
+# ---------------------------------------------------------------------------
+# Entry points
 # ---------------------------------------------------------------------------
 
 
@@ -286,6 +367,18 @@ def main() -> None:
     ingest_matches_and_details(spark, args.catalog, args.schema, competitions_pdf, logger)
 
     logger.info("StatsBomb ingestion complete")
+
+
+def backfill_360_main() -> None:
+    """CLI entry point for backfilling StatsBomb 360 freeze-frame data."""
+    args = parse_ingestion_args("Backfill StatsBomb 360 freeze-frame data for existing matches")
+    logger = configure_logging("statsbomb_360_backfill")
+    spark = get_spark_session()
+
+    logger.info("Starting 360 backfill into %s.%s", args.catalog, args.schema)
+    competitions_pdf = ingest_competitions(spark, args.catalog, args.schema, logger)
+    backfill_360(spark, args.catalog, args.schema, competitions_pdf, logger)
+    logger.info("360 backfill complete")
 
 
 if __name__ == "__main__":

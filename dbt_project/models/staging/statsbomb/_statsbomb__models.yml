@@ -342,3 +342,84 @@ models:
         description: Number of yellow cards received in the match
       - name: red_cards
         description: Number of red cards received in the match (including second yellow)
+
+  - name: stg_statsbomb__360
+    description: >
+      Cleaned 360 freeze-frame data from StatsBomb. Bronze data is already
+      one row per player per event (statsbombpy returns pre-exploded data).
+      This model deduplicates, parses JSON location, and renames to project
+      conventions. Only available for 360-enabled matches (11 competition-
+      seasons including World Cup 2022, Euro 2024, La Liga 2020/21, etc.).
+    columns:
+      - name: freeze_frame_id
+        description: Surrogate key (event UUID + location + teammate/actor/keeper flags)
+        data_tests:
+          - unique
+          - not_null
+      - name: event_uuid
+        description: Foreign key to stg_statsbomb__events.event_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_statsbomb__events')
+                field: event_id
+              config:
+                severity: warn
+      - name: match_id
+        description: Foreign key to stg_statsbomb__matches
+        data_tests:
+          - not_null
+      - name: is_teammate
+        description: Whether this player is on the same team as the event actor
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [true, false]
+      - name: is_actor
+        description: Whether this player is the one performing the event
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [true, false]
+      - name: is_keeper
+        description: Whether this player is the goalkeeper
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [true, false]
+      - name: location_x
+        description: >
+          Player X coordinate (StatsBomb 120x80 system). May exceed 0-120
+          for players visible to the camera but off the pitch.
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -10
+                max_value: 130
+                row_condition: "location_x is not null"
+              config:
+                severity: warn
+      - name: location_y
+        description: >
+          Player Y coordinate (StatsBomb 120x80 system). May exceed 0-80
+          for players visible to the camera but off the pitch.
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -40
+                max_value: 120
+                row_condition: "location_y is not null"
+              config:
+                severity: warn
+      - name: competition_id
+        description: Competition identifier (from match metadata)
+      - name: season_id
+        description: Season identifier (from match metadata)
+      - name: visible_area_vertices
+        description: Number of vertices in the visible area polygon (typically 4-12)

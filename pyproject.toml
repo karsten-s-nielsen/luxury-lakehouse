@@ -50,6 +50,7 @@ dev = [
 ingest_statsbomb = "ingestion.statsbomb:main"
 ingest_metrica = "ingestion.metrica:main"
 ingest_wyscout = "ingestion.wyscout:main"
+backfill_statsbomb_360 = "ingestion.statsbomb:backfill_360_main"
 
 [tool.ruff]
 target-version = "py310"

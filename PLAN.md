@@ -1,6 +1,6 @@
 # Databricks Lakebase Implementation Plan — Soccer Analytics Platform
 
-> **Status**: Phase 5.6 complete — IAM OIDC + OAuth M2M + KMS hardening applied. Lakebase on Autoscaling (PG 17, scale-to-zero). Streamlit dashboard deployed as Databricks App with 4 pages, backed by Lakebase PostgreSQL via OAuth M2M
+> **Status**: Phase 6 complete — StatsBomb 360 freeze-frame backfill + dbt staging model. Lakebase on Autoscaling (PG 17, scale-to-zero). Streamlit dashboard deployed as Databricks App with 4 pages, backed by Lakebase PostgreSQL via OAuth M2M
 > **Last Updated**: 2026-02-28
 > **Repository**: [`karstenskyt/luxury-lakehouse`](https://github.com/karstenskyt/luxury-lakehouse)
 > **Scope**: Document 3 ("3_AWS Lake House.pdf") — Databricks Lakebase serverless architecture
@@ -60,7 +60,7 @@ This plan implements the Databricks Lakebase architecture described in Document 
 | Soccermatics local workspace | `D:/Development/soccermatics/` | Working — 25/25 scripts pass (Python 3.12, conda) |
 | MCP AWS CodeDeploy server | `D:/Development/karstenskyt__mcp-aws-codedeploy/` | Working — 8 tools, FastMCP, Stdio transport |
 | AWS IAM DevOpsAgent role spec | `karstenskyt__mcp-aws-codedeploy/TODO.md` | Documented — policy template ready |
-| Implementation code | This repository | **Phase 5 complete** — 4 ingestion modules, 83 unit tests, 9 bronze tables (31.4M rows); 19 dbt models, 165 data tests; Streamlit dashboard (4 pages); security audit complete |
+| Implementation code | This repository | **Phase 6 complete** — 4 ingestion modules, 85 unit tests, 9 bronze tables (31.4M+ rows); 20 dbt models, 183 data tests; Streamlit dashboard (4 pages); security audit complete |
 
 ### Soccermatics Workspace Details
 
@@ -1265,9 +1265,9 @@ All planning questions have been answered. This section records the decisions fo
 
 **Metrica from start + pgvector in scope:**
 - Phase 2 includes all three ingestion modules (no deferral)
-- pgvector-powered similarity search deferred to Phase 8 (embeddings) and Phase 9 (Streamlit page)
-- Gold layer has a `gold.fct_player_embeddings` table provisioned (0 rows; populated in Phase 8)
-- Lakebase Synced Tables include the embeddings table (ready for Phase 9 Player Similarity page)
+- pgvector-powered similarity search deferred to Phase 10 (embeddings) and Phase 11 (Streamlit page)
+- Gold layer has a `gold.fct_player_embeddings` table provisioned (0 rows; populated in Phase 10)
+- Lakebase Synced Tables include the embeddings table (ready for Phase 11 Player Similarity page)
 
 **Repo finalized:**
 - GitHub repo: `karstenskyt/luxury-lakehouse` (created, empty)
@@ -1318,9 +1318,29 @@ The following data sources are planned for integration after Phase 5:
 |--------|-----------|--------|-------|
 | **Respo.Vision** | 3D pose tracking from broadcast video | Planned | User pursuing via professional network; skeletal keypoints at 25fps |
 | **Wyscout match metadata** | Match details (formations, coaches, venue) | Deferred | Event data ingested; full match metadata not in public Figshare dataset |
-| **StatsBomb 360 freeze frames** | Visible player positions per event | Planned | Ingestion scaffolded in `statsbomb.py`; 11 competition-seasons have 360 data (World Cup 2022, Euro 2024, Euro 2020, La Liga 2020/21, Ligue 1 2021/22 + 2022/23, Bundesliga 2023/24, MLS 2023, Women's Euro 2022 + 2025, Women's World Cup 2023) |
+| **StatsBomb 360 freeze frames** | Visible player positions per event | **Complete** | Phase 6: `backfill_360()` in `statsbomb.py`, `stg_statsbomb__360` staging model with EXPLODE + tests |
 
 Each new source follows the established pattern: `src/ingestion/<source>.py` → Bronze Delta tables → dbt staging/marts → Synced Tables → Lakebase.
+
+### 14.1.1 — Phase 6: StatsBomb 360 Freeze Frames (Complete)
+
+**Scope**: Bronze backfill + dbt staging model. No gold fact table, no synced table, no Streamlit page.
+
+**Ingestion** (`src/ingestion/statsbomb.py`):
+- `backfill_360()` — iterates matches with existing events but no 360 data, fetching `sb.frames()` per match
+- `backfill_360_main()` — CLI entry point registered as `backfill_statsbomb_360` in `pyproject.toml`
+- Reuses existing helpers: `_read_existing_match_ids`, `_safe_fetch`, `_write_batch`, `serialize_json_columns`
+- Partition-level overwrite by `competition_id` + `season_id` for idempotency
+
+**dbt staging** (`dbt_project/models/staging/statsbomb/`):
+- `stg_statsbomb__360.sql` — bronze data is already one-row-per-player-per-event (statsbombpy pre-explodes). Parses `location` JSON, deduplicates via `ROW_NUMBER()` (statsbombpy can return duplicate rows), renames to project conventions
+- Surrogate key: `id` + `location` + `teammate` + `actor` + `keeper` (all distinguishing fields — no player ID exists in 360 data)
+- Extracts `is_teammate`, `is_actor`, `is_keeper` booleans and `location_x`/`location_y` coordinates
+- `visible_area_vertices` count (raw polygon of alternating x,y values, divided by 2)
+- Tests: unique, not_null, relationships (FK to events with warn severity), accepted_values on booleans, range tests on coordinates (widened for off-pitch players visible to camera: x [-10, 130], y [-40, 120])
+- **15.58M rows**, 1.03M distinct events, 323 matches across 5 competitions
+
+**11 competition-seasons with 360 data**: World Cup 2022, Euro 2024, Euro 2020, La Liga 2020/21, Ligue 1 2021/22 + 2022/23, Bundesliga 2023/24, MLS 2023, Women's Euro 2022 + 2025, Women's World Cup 2023.
 
 ### 14.2 — Cross-Source Player Entity Resolution
 
