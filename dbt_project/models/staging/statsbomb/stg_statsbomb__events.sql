@@ -79,6 +79,10 @@ flattened as (
         pass_switch,
         pass_through_ball,
 
+        -- Pass recipient (for pass network edges)
+        cast(pass_recipient_id as int)                  as pass_recipient_id,
+        pass_recipient                                  as pass_recipient_name,
+
         -- Substitution fields
         substitution_replacement_id
 

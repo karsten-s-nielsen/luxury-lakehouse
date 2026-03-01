@@ -116,6 +116,10 @@ models:
         description: Whether the pass was a switch of play (pass-through for int_unified_passes)
       - name: pass_through_ball
         description: Whether the pass was a through ball (pass-through for int_unified_passes)
+      - name: pass_recipient_id
+        description: Player ID of the intended pass recipient (NULL for non-pass events)
+      - name: pass_recipient_name
+        description: Name of the intended pass recipient (NULL for non-pass events)
       - name: substitution_replacement_id
         description: Player ID of the substitution replacement (pass-through for int_minutes_played)
 

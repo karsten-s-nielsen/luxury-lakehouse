@@ -39,6 +39,7 @@ final as (
         unified_passes.match_id,
         unified_passes.player_id,
         unified_passes.team_id,
+        unified_passes.pass_recipient_id,
 
         -- Match context
         matches.competition_id,

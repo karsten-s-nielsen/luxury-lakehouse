@@ -140,8 +140,15 @@ def render_player_filter(
     return options[idx]["player_id"]  # type: ignore[return-value]
 
 
-def render_match_filter(competition_id: int | None, team_id: int | None) -> int | None:
-    """Render match selectbox. Returns match_id or None."""
+def render_match_filter(
+    competition_id: int | None,
+    team_id: int | None,
+    allow_all: bool = False,
+) -> int | None:
+    """Render match selectbox. Returns match_id or None.
+
+    When allow_all=True, prepends an "All matches" option that returns None.
+    """
     if competition_id is None:
         return None
 
@@ -175,6 +182,16 @@ def render_match_filter(competition_id: int | None, team_id: int | None) -> int 
         f"{r['match_date']} — {r['home_team_name']} {r['home_score']}-{r['away_score']} {r['away_team_name']}"
         for r in options
     ]
+
+    if allow_all:
+        idx = st.selectbox(
+            "Match",
+            [None, *range(len(labels))],
+            format_func=lambda i: "All matches" if i is None else labels[i],
+        )
+        if idx is None:
+            return None
+        return options[idx]["match_id"]  # type: ignore[return-value]
 
     idx = st.selectbox("Match", range(len(labels)), format_func=lambda i: labels[i])
     if idx is None:

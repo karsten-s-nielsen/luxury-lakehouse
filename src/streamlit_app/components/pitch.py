@@ -22,6 +22,8 @@ _INCOMPLETE_COLOR = "#6c757d"
 _HOME_COLOR = "#457b9d"
 _AWAY_COLOR = "#e63946"
 _BALL_COLOR = "#f4d03f"
+_NETWORK_NODE_COLOR = "#f4d03f"
+_NETWORK_EDGE_COLOR = "#e0e0e0"
 
 
 def plot_shot_map(shots: pd.DataFrame, title: str = "Shot Map") -> matplotlib.figure.Figure:
@@ -256,6 +258,118 @@ def plot_pitch_control(
 
     ax.set_xlim(-2, 122)
     ax.set_ylim(-2, 82)
+
+    ax.set_title(title, color=_LINE_COLOR, fontsize=14, pad=10)
+    plt.close(fig)
+    return fig
+
+
+def plot_heatmap(
+    actions: pd.DataFrame,
+    title: str = "Heat Map",
+    bins: tuple[int, int] = (12, 8),
+    cmap: str = "hot",
+) -> matplotlib.figure.Figure:
+    """Plot action density heat map on a full pitch.
+
+    Expected columns: x, y (generic coordinates in StatsBomb 120x80 system).
+    Returns a matplotlib Figure.
+    """
+    pitch = Pitch(pitch_type="statsbomb", pitch_color=_BG_COLOR, line_color=_LINE_COLOR)
+    result: Any = pitch.draw(figsize=(12, 8))
+    fig: matplotlib.figure.Figure = result[0]
+    ax: Any = result[1]
+    fig.set_facecolor(_BG_COLOR)
+
+    if actions.empty:
+        ax.set_title(title, color=_LINE_COLOR, fontsize=14, pad=10)
+        plt.close(fig)
+        return fig
+
+    bin_stats = pitch.bin_statistic(actions["x"], actions["y"], statistic="count", bins=bins)
+    pitch.heatmap(bin_stats, ax=ax, cmap=cmap, edgecolors=_BG_COLOR)
+
+    ax.set_title(title, color=_LINE_COLOR, fontsize=14, pad=10)
+    plt.close(fig)
+    return fig
+
+
+def plot_pass_network(
+    nodes: pd.DataFrame,
+    edges: pd.DataFrame,
+    title: str = "Pass Network",
+) -> matplotlib.figure.Figure:
+    """Plot pass network with nodes (players) and edges (pass connections).
+
+    Expected node columns: player_id, player_display_name, avg_x, avg_y, pass_count.
+    Expected edge columns: passer_id, receiver_id, pair_count, avg_start_x, avg_start_y,
+                           avg_end_x, avg_end_y.
+    Returns a matplotlib Figure.
+    """
+    pitch = Pitch(pitch_type="statsbomb", pitch_color=_BG_COLOR, line_color=_LINE_COLOR)
+    result: Any = pitch.draw(figsize=(12, 8))
+    fig: matplotlib.figure.Figure = result[0]
+    ax: Any = result[1]
+    fig.set_facecolor(_BG_COLOR)
+
+    if nodes.empty:
+        ax.set_title(title, color=_LINE_COLOR, fontsize=14, pad=10)
+        plt.close(fig)
+        return fig
+
+    # Draw edges
+    if not edges.empty:
+        max_pair = edges["pair_count"].max()
+        min_pair = edges["pair_count"].min()
+        pair_range = max(max_pair - min_pair, 1)
+
+        for _, edge in edges.iterrows():
+            weight = (edge["pair_count"] - min_pair) / pair_range
+            lw = 0.5 + weight * 4.5
+            alpha = 0.3 + weight * 0.7
+
+            pitch.lines(
+                edge["avg_start_x"],
+                edge["avg_start_y"],
+                edge["avg_end_x"],
+                edge["avg_end_y"],
+                lw=lw,
+                color=_NETWORK_EDGE_COLOR,
+                alpha=alpha,
+                ax=ax,
+                zorder=2,
+            )
+
+    # Draw nodes
+    max_passes = nodes["pass_count"].max()
+    min_passes = nodes["pass_count"].min()
+    pass_range = max(max_passes - min_passes, 1)
+    sizes = 50 + (nodes["pass_count"] - min_passes) / pass_range * 450
+
+    pitch.scatter(
+        nodes["avg_x"],
+        nodes["avg_y"],
+        s=sizes,
+        color=_NETWORK_NODE_COLOR,
+        edgecolors=_LINE_COLOR,
+        linewidth=0.8,
+        ax=ax,
+        zorder=3,
+    )
+
+    # Labels
+    for _, node in nodes.iterrows():
+        ax.annotate(
+            node["player_display_name"],
+            (node["avg_x"], node["avg_y"]),
+            color="white",
+            fontsize=8,
+            ha="center",
+            va="bottom",
+            xytext=(0, 8),
+            textcoords="offset points",
+            zorder=4,
+        )
 
     ax.set_title(title, color=_LINE_COLOR, fontsize=14, pad=10)
     plt.close(fig)

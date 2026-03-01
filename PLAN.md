@@ -1,6 +1,6 @@
 # Databricks Lakebase Implementation Plan — Soccer Analytics Platform
 
-> **Status**: Phase 7 complete — Metrica Game 3 EPTS ingestion, ball coordinate fix, Voronoi pitch control page. Lakebase on Autoscaling (PG 17, scale-to-zero). Streamlit dashboard deployed as Databricks App with 5 pages, backed by Lakebase PostgreSQL via OAuth M2M
+> **Status**: Phase 8 complete — Heat Map + Pass Network pages, `pass_recipient_id` added to dbt pipeline. Lakebase on Autoscaling (PG 17, scale-to-zero). Streamlit dashboard deployed as Databricks App with 7 pages, backed by Lakebase PostgreSQL via OAuth M2M
 > **Last Updated**: 2026-03-01
 > **Repository**: [`karstenskyt/luxury-lakehouse`](https://github.com/karstenskyt/luxury-lakehouse)
 > **Scope**: Document 3 ("3_AWS Lake House.pdf") — Databricks Lakebase serverless architecture
@@ -60,7 +60,7 @@ This plan implements the Databricks Lakebase architecture described in Document 
 | Soccermatics local workspace | `D:/Development/soccermatics/` | Working — 25/25 scripts pass (Python 3.12, conda) |
 | MCP AWS CodeDeploy server | `D:/Development/karstenskyt__mcp-aws-codedeploy/` | Working — 8 tools, FastMCP, Stdio transport |
 | AWS IAM DevOpsAgent role spec | `karstenskyt__mcp-aws-codedeploy/TODO.md` | Documented — policy template ready |
-| Implementation code | This repository | **Phase 7 complete** — 4 ingestion modules, 107 unit tests, 9 bronze tables (31.4M+ rows); 20 dbt models, 185 data tests; Streamlit dashboard (5 pages); 9 synced tables; security audit complete |
+| Implementation code | This repository | **Phase 8 complete** — 4 ingestion modules, 118 unit tests, 9 bronze tables (31.4M+ rows); 20 dbt models, 186 data tests; Streamlit dashboard (7 pages); 9 synced tables; security audit complete |
 
 ### Soccermatics Workspace Details
 
@@ -401,7 +401,9 @@ luxury-lakehouse/
 │   │   │   ├── player_radar.py      # Player comparison radar charts
 │   │   │   ├── match_summary.py     # Match overview dashboard
 │   │   │   ├── pitch_control.py     # Tracking data visualizations
-│   │   │   └── player_search.py    # pgvector similarity search
+│   │   │   ├── heat_map.py          # Action density heat maps
+│   │   │   ├── pass_network.py      # Player-to-player pass network graph
+│   │   │   └── player_search.py    # pgvector similarity search (planned)
 │   │   ├── components/
 │   │   │   ├── filters.py           # Reusable filter sidebar
 │   │   │   └── charts.py            # mplsoccer chart wrappers
@@ -1084,8 +1086,11 @@ conn = psycopg2.connect(
 | Pass Map | mplsoccer full pitch, arrows colored by progressive/complete/incomplete | `fct_passes_synced` |
 | Player Radar | mplsoccer Radar, 1-3 players, 6 configurable per-90 metrics | `fct_player_stats_synced` JOIN `dim_players_synced` |
 | Match Summary | Scorecard + xG metrics + horizontal bar chart (8 stat categories) | `fct_match_summary_synced` |
+| Pitch Control | Voronoi tessellation showing space ownership from tracking data | `fct_tracking_frames_synced` |
+| Heat Map | Action density (passes + shots) binned on full pitch, per player/team/match | `fct_passes_synced`, `fct_shots_synced` |
+| Pass Network | Player-to-player passing graph with scaled nodes and edges | `fct_passes_synced` JOIN `dim_players_synced` |
 
-**Planned pages** (see [Section 14.4](#144--additional-streamlit-pages)): Pitch Control (Voronoi), Player Similarity (pgvector), Heat Map, Pass Network.
+**Planned pages** (see [Section 14.4](#144--additional-streamlit-pages)): Player Similarity (pgvector).
 
 ### 5.4 — Security (Implemented)
 
@@ -1099,7 +1104,7 @@ conn = psycopg2.connect(
 | Query limits | `statement_timeout=30000` (30s) prevents runaway queries (M-3) |
 | Error handling | `psycopg2.Error` caught and sanitized — no tracebacks leaked to browser (M-2) |
 | Session security | No credentials or PII in `st.session_state`; tokens cached in module-level dict with TTL |
-| Full security audit | See [SECURITY.md](SECURITY.md) — 30 findings, 25 resolved (83% coverage) |
+| Full security audit | See [SECURITY.md](SECURITY.md) — 31 findings, 28 resolved (90% coverage) |
 
 ### 5.5 — Deployment (Implemented)
 
@@ -1484,9 +1489,9 @@ The Phase 7 Pitch Control page uses Voronoi tessellation — a geometric approxi
 | Page | Description | Data Source | Status |
 |------|-------------|-------------|--------|
 | **Pitch Control** | Voronoi diagrams showing space ownership | `fct_tracking_frames_synced` | Complete (Phase 7) |
+| **Heat Map** | Touch/action density maps per player or team | `fct_passes_synced`, `fct_shots_synced` | Complete (Phase 8) |
+| **Pass Network** | Graph visualization of passing connections between teammates | `fct_passes_synced` JOIN `dim_players_synced` | Complete (Phase 8) |
 | **Player Similarity** | pgvector-powered nearest-neighbor search | `fct_player_embeddings_synced` | Planned — depends on 14.3 |
-| **Heat Map** | Touch/action density maps per player or team | `fct_passes_synced`, `fct_shots_synced` | Planned |
-| **Pass Network** | Graph visualization of passing connections between teammates | `fct_passes_synced` | Planned |
 
 ---
 

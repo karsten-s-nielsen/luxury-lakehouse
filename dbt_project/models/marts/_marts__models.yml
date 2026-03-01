@@ -219,6 +219,16 @@ models:
         description: Whether the pass was a switch of play
       - name: is_through_ball
         description: Whether the pass was a through ball
+      - name: pass_recipient_id
+        description: Foreign key to dim_players — player who received the pass (NULL for Wyscout and incomplete passes)
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_players')
+                field: player_id
+              config:
+                severity: warn
+                where: "pass_recipient_id is not null AND data_source = 'statsbomb'"
 
   - name: fct_player_stats
     description: >

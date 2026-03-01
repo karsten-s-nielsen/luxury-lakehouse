@@ -65,6 +65,8 @@ models:
         description: Whether the pass was a switch of play
       - name: is_through_ball
         description: Whether the pass was a through ball
+      - name: pass_recipient_id
+        description: Player ID of the intended pass recipient (StatsBomb only; NULL for Wyscout)
 
   - name: int_unified_shots
     description: >

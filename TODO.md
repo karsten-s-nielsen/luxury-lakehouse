@@ -196,16 +196,23 @@ Games 1–2 were already ingested; Game 3 (FIFA EPTS format) now added with XML 
 - [x] ~~**Lakebase auth fix** — `databricks_create_role()` required for SP OAuth JWT authentication; REST API fallback for credential generation~~
 - [x] ~~Quality gates: ruff 0, pyright 0, pytest 107/107~~
 
+## Phase 8 — Heat Map + Pass Network (Complete)
+
+Two new Streamlit pages using existing synced gold tables. Added `pass_recipient_id` to the dbt pipeline (staging → intermediate → marts) to enable pass network edges. Recreated `fct_passes_synced` synced table to pick up schema change.
+
+- [x] ~~**dbt pipeline**: Add `pass_recipient_id` + `pass_recipient_name` through stg → int → fct layers~~ — relationship test to dim_players
+- [x] ~~**Heat Map page** — action density (passes + shots) with competition/team/player/match filters, 3×3 zone stats~~
+- [x] ~~**Pass Network page** — player-to-player passing graph with min-passes slider, scaled nodes + edges~~
+- [x] ~~**Viz functions**: `plot_heatmap()` (mplsoccer bin_statistic) + `plot_pass_network()` (scatter + lines)~~
+- [x] ~~**Filter enhancement**: `render_match_filter(allow_all=True)` for optional match selection~~
+- [x] ~~**Synced table**: Recreated `fct_passes_synced` (schema change), re-imported Terraform state~~
+- [x] ~~**Tests**: 11 new tests (4 heatmap + 4 pass network + 3 build_network)~~
+- [x] ~~Quality gates: ruff 0, pyright 0, pytest 118/118, dbt PASS=186 WARN=17 ERROR=0~~
+- [x] ~~Deploy + smoke test: 8 routes HTTP 200, PG grants applied~~
+
 ## Next Up
 
 Ordered execution plan for remaining work:
-
-### Phase 8 — Heat Map + Pass Network Streamlit Pages
-
-No cross-source dependency — these use existing synced gold tables (`fct_passes_synced`, `fct_shots_synced`).
-
-- [ ] **Heat Map** — touch/action density maps per player or team
-- [ ] **Pass Network** — graph visualization of passing connections between teammates
 
 ### Phase 9 — SPADL / VAEP Action Valuation (PLAN 14.7)
 
