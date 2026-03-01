@@ -174,23 +174,20 @@ Full report: [SECURITY.md](SECURITY.md) — `mad-skills:security-audit` v1.5.0
 - [x] ~~OAuth M2M migration (M-6), KMS CMK for state encryption (L-10), AWS IAM OIDC + Databricks federation for secretless CI~~
 - [x] ~~CI green on PR #6, all GitHub secrets deleted, 4 repo variables only~~
 
+## Phase 6 — StatsBomb 360 Freeze Frames (Complete)
+
+- [x] ~~Add `backfill_360()` + `backfill_360_main()` CLI entry point~~ — iterates matches with events but no 360 data
+- [x] ~~Fix `statsbomb_360` source definition~~ — actual schema: `id`, `match_id`, `teammate`, `actor`, `keeper`, `location`, `visible_area` (statsbombpy pre-explodes)
+- [x] ~~Add `stg_statsbomb__360` dbt staging model~~ — parse location JSON, dedup via ROW_NUMBER(), one row per player per event
+- [x] ~~Add dbt tests on 360 staging model~~ — 15 tests: unique, not_null, relationships, accepted_values, range (PASS=16 WARN=0 ERROR=0)
+- [x] ~~Run `backfill_statsbomb_360` on Databricks~~ — 15.58M rows, 323 matches, 5 competitions, 335s runtime
+- [x] ~~Verify `stg_statsbomb__360` builds successfully via `dbt build`~~ — view created, all 15 tests pass
+
 ## Next Up
 
 Ordered execution plan for remaining work:
 
-### Phase 6 — StatsBomb 360 Freeze Frames (PLAN 14.1)
-
-- [ ] Trigger 360 ingestion for 11 available competition-seasons (World Cup, Euros, La Liga, Ligue 1, Bundesliga, MLS, Women's tournaments)
-- [ ] Verify `statsbomb_360` bronze table populated with freeze frame data
-- [ ] Add dbt staging model for 360 data (flatten freeze frames, extract visible player positions)
-- [ ] Add dbt tests on 360 staging model
-
-### Phase 7 — pgvector Player Embeddings (PLAN 14.3)
-
-- [ ] Design feature vector from `fct_player_stats` per-90 metrics
-- [ ] Populate `fct_player_embeddings` — currently 0 rows, table and synced table already provisioned
-
-### Phase 7.5 — Metrica Tracking Data: Game 3 + Pitch Control (PLAN 14.5)
+### Phase 7 — Metrica Tracking Data: Game 3 + Pitch Control (PLAN 14.5)
 
 Games 1–2 are already ingested, transformed (`fct_tracking_frames`), and synced to Lakebase. This phase adds Game 3 and builds the visualization layer.
 
@@ -199,19 +196,30 @@ Games 1–2 are already ingested, transformed (`fct_tracking_frames`), and synce
 - [ ] **Build Pitch Control page** — Voronoi diagrams showing space ownership from `fct_tracking_frames_synced`
 - [ ] Add velocity/acceleration visualizations (data already in `fct_tracking_frames` `final` CTE)
 
-### Phase 8 — Cross-Source Player Entity Resolution (PLAN 14.2)
+### Phase 8 — Heat Map + Pass Network Streamlit Pages
+
+No cross-source dependency — these use existing synced gold tables (`fct_passes_synced`, `fct_shots_synced`).
+
+- [ ] **Heat Map** — touch/action density maps per player or team
+- [ ] **Pass Network** — graph visualization of passing connections between teammates
+
+### Phase 9 — Cross-Source Player Entity Resolution (PLAN 14.2)
 
 - [ ] **Prerequisite:** Request open-source license from `parmacalcio1913/players-matcher` — repo is currently unlicensed (all rights reserved). Cannot legally use without explicit permission.
 - [ ] Integrate [`parmacalcio1913/players-matcher`](https://github.com/parmacalcio1913/players-matcher) — fuzzy-match players across StatsBomb, Metrica, and Wyscout into a canonical ID
 - [ ] Build `int_player_xref` mapping — dbt intermediate model or seed linking source-specific IDs
 - [ ] Refactor `dim_players` — merge cross-source records using the mapping
 
-### Phase 9 — Additional Streamlit Pages (PLAN 14.6)
+### Phase 10 — pgvector Player Embeddings (PLAN 14.3)
 
-- [ ] **Player Similarity** — pgvector nearest-neighbor search (`player_search.py`, depends on Phase 7)
-- [ ] **Pitch Control** — built in Phase 7.5, listed here for completeness
-- [ ] **Heat Map** — touch/action density maps per player or team
-- [ ] **Pass Network** — graph visualization of passing connections between teammates
+- [ ] Design feature vector from `fct_player_stats` per-90 metrics
+- [ ] Populate `fct_player_embeddings` — currently 0 rows, table and synced table already provisioned
+- [ ] Depends on Phase 9 (entity resolution) for unified player identity
+
+### Phase 11 — Player Similarity Streamlit Page (PLAN 14.6)
+
+- [ ] **Player Similarity** — pgvector nearest-neighbor search (`player_search.py`, depends on Phase 10)
+- [ ] **Pitch Control** — built in Phase 7, listed here for completeness
 
 ## Technical Debt
 

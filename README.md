@@ -82,7 +82,7 @@ luxury-lakehouse/
 
 ## Status
 
-**Phase 5.6: IAM OIDC + OAuth M2M + KMS Hardening Complete** — Terraform auth migrated from PAT to OAuth M2M, GitHub Actions OIDC federation (zero secrets in CI), S3 state encryption upgraded to KMS CMK with automatic rotation. See [PLAN.md](PLAN.md) for the full implementation plan.
+**Phase 6: StatsBomb 360 Freeze Frames** — Bronze backfill function + dbt staging model for 360 freeze-frame data (player positions at moment of each event). See [PLAN.md](PLAN.md) for the full implementation plan.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -94,6 +94,7 @@ luxury-lakehouse/
 | 5 | Application Deployment (Streamlit) | Complete |
 | 5.5 | Lakebase Autoscaling + PG 17 Migration | Complete |
 | 5.6 | IAM OIDC + OAuth M2M + KMS Hardening | Complete |
+| 6 | StatsBomb 360 Freeze Frames | Complete |
 
 ## Tech Stack
 

@@ -26,14 +26,14 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
             catalog = container "Unity Catalog" "Governed data storage across the medallion architecture with Bronze (raw), Silver (cleaned), and Gold (analytics-ready) schemas" "Delta Lake, Apache Parquet" "Database"
             sqlWarehouse = container "Serverless SQL Warehouse" "Executes dbt transformations and ad-hoc analytical queries using the Photon engine" "Databricks Serverless SQL, Photon"
             dbt = container "dbt Project" "Transforms raw Bronze data through Silver staging to Gold analytics tables, including xG features, pass metrics, and player statistics" "dbt-core, dbt-databricks" {
-                stagingStatsbomb = component "StatsBomb Staging" "4 views: events, shots, matches, lineups. Flattens nested JSON, extracts coordinates and shot attributes" "SQL Views, Silver Schema"
+                stagingStatsbomb = component "StatsBomb Staging" "5 views: events, shots, matches, lineups, 360 freeze frames. Flattens nested JSON, extracts coordinates, deduplicates bronze data" "SQL Views, Silver Schema"
                 stagingMetrica = component "Metrica Staging" "2 views: events, tracking. Scales normalized coordinates to 120x80, generates surrogate keys" "SQL Views, Silver Schema"
                 stagingWyscout = component "Wyscout Staging" "1 view: events. Decodes tag IDs, maps periods, scales percentage coordinates to 120x80" "SQL Views, Silver Schema"
                 intermediate = component "Intermediate Layer" "3 ephemeral CTEs: unified shots, unified passes, minutes played. Cross-source unification with progressive pass detection" "Ephemeral Models"
                 factTables = component "Fact Tables" "6 tables: shots, passes, player stats, match summary, tracking frames, player embeddings. xG features, per-90 rates, velocity metrics" "Delta Tables, Gold Schema"
                 dimTables = component "Dimension Tables" "3 tables: players, teams, competitions. Deduplicated master data from all sources" "Delta Tables, Gold Schema"
                 macros = component "Custom Macros" "distance_to_goal and shot_angle geometry calculations for xG features" "Jinja SQL Macros"
-                testSuite = component "Test Suite" "165+ data tests: unique, not_null, accepted_values, range bounds, composite keys, source freshness" "dbt-expectations, dbt-utils"
+                testSuite = component "Test Suite" "183+ data tests: unique, not_null, accepted_values, range bounds, composite keys, source freshness" "dbt-expectations, dbt-utils"
             }
             syncedTables = container "Synced Tables Pipeline" "8 synced tables (5 fact, 3 dimension) replicate Gold Delta tables into Lakebase via SNAPSHOT scheduling, eliminating Reverse ETL. All tables online with verified row counts." "Lakeflow Synced Database Tables, Terraform" "Queue"
             lakebase = container "Lakebase PostgreSQL 17 (Autoscaling)" "Managed OLTP database with autoscaling (0.5–4 CU) and scale-to-zero, providing sub-10ms query latency for the Streamlit app, with native pgvector support. OAuth M2M authentication, SSL enforced." "PostgreSQL 17, Autoscaling, pgvector" "Database"
