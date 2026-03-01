@@ -82,7 +82,7 @@ luxury-lakehouse/
 
 ## Status
 
-**Phase 6: StatsBomb 360 Freeze Frames** — Bronze backfill function + dbt staging model for 360 freeze-frame data (player positions at moment of each event). See [PLAN.md](PLAN.md) for the full implementation plan.
+**Phase 7: Metrica Game 3 + Pitch Control** — FIFA EPTS format ingestion (XML metadata + tracking + JSON events), ball coordinate fix, and Voronoi pitch control visualization. See [PLAN.md](PLAN.md) for the full implementation plan.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -95,6 +95,7 @@ luxury-lakehouse/
 | 5.5 | Lakebase Autoscaling + PG 17 Migration | Complete |
 | 5.6 | IAM OIDC + OAuth M2M + KMS Hardening | Complete |
 | 6 | StatsBomb 360 Freeze Frames | Complete |
+| 7 | Metrica Game 3 (EPTS) + Pitch Control | Complete |
 
 ## Tech Stack
 

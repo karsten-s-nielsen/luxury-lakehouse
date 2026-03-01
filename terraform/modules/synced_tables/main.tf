@@ -25,6 +25,7 @@
 #   - fct_player_stats:     Aggregated per-player-per-match statistics
 #   - fct_match_summary:    Match-level aggregates (score, possession, xG)
 #   - fct_player_embeddings: Vector embeddings for player similarity search
+#   - fct_tracking_frames:  Metrica tracking data with velocity and pitch control metrics
 #
 # Dimension tables (entities):
 #   - dim_players:          Player master data (name, position, birth date)
@@ -106,6 +107,22 @@ resource "databricks_database_synced_database_table" "fct_player_embeddings" {
   spec = {
     source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_player_embeddings"
     primary_key_columns    = ["embedding_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+resource "databricks_database_synced_database_table" "fct_tracking_frames" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_tracking_frames_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_tracking_frames"
+    primary_key_columns    = ["tracking_id"]
     scheduling_policy      = "SNAPSHOT"
   }
 

@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [PLAN.md](PLAN.md).
 
-**Last updated**: 2026-02-28
+**Last updated**: 2026-03-01
 
 ---
 
@@ -183,18 +183,22 @@ Full report: [SECURITY.md](SECURITY.md) — `mad-skills:security-audit` v1.5.0
 - [x] ~~Run `backfill_statsbomb_360` on Databricks~~ — 15.58M rows, 323 matches, 5 competitions, 335s runtime
 - [x] ~~Verify `stg_statsbomb__360` builds successfully via `dbt build`~~ — view created, all 15 tests pass
 
+## Phase 7 — Metrica Game 3 (EPTS) + Pitch Control (Complete)
+
+Games 1–2 were already ingested; Game 3 (FIFA EPTS format) now added with XML metadata, colon-delimited tracking, and JSON events parsers. Ball coordinate propagation fixed in `stg_metrica__tracking.sql`. Pitch Control page with Voronoi tessellation deployed.
+
+- [x] ~~**Fix ball coordinate propagation** — `stg_metrica__tracking.sql` was casting `ball_x`/`ball_y` to NULL; now broadcasts frame-level ball coordinates~~
+- [x] ~~**Add Game 3 ingestion** — EPTS parsers: `_parse_epts_metadata()` (XML), `_parse_epts_tracking()`, `_parse_epts_events()` (JSON)~~
+- [x] ~~**Fix `_build_player_columns()`** — Metrica CSV header uses player name (not "x"/"y") in column_row; rewrote to track alternating x/y per pair~~
+- [x] ~~**Unit tests** — 22 new tests for EPTS metadata, tracking, and events parsers (107 total)~~
+- [x] ~~**Pitch Control page** — `plot_pitch_control()` with Voronoi tessellation, `pitch_control.py` page with match/period/frame filters~~
+- [x] ~~**Sync fct_tracking_frames** — Terraform resource + Lakebase synced table (9.46M rows)~~
+- [x] ~~**Lakebase auth fix** — `databricks_create_role()` required for SP OAuth JWT authentication; REST API fallback for credential generation~~
+- [x] ~~Quality gates: ruff 0, pyright 0, pytest 107/107~~
+
 ## Next Up
 
 Ordered execution plan for remaining work:
-
-### Phase 7 — Metrica Tracking Data: Game 3 + Pitch Control (PLAN 14.5)
-
-Games 1–2 are already ingested, transformed (`fct_tracking_frames`), and synced to Lakebase. This phase adds Game 3 and builds the visualization layer.
-
-- [ ] **Add Game 3 ingestion** — EPTS FIFA format (JSON events + tracking), needs new parser in `metrica.py`
-- [ ] Add dbt tests for Game 3 data compatibility with existing `stg_metrica__tracking` schema
-- [ ] **Build Pitch Control page** — Voronoi diagrams showing space ownership from `fct_tracking_frames_synced`
-- [ ] Add velocity/acceleration visualizations (data already in `fct_tracking_frames` `final` CTE)
 
 ### Phase 8 — Heat Map + Pass Network Streamlit Pages
 
@@ -219,7 +223,7 @@ No cross-source dependency — these use existing synced gold tables (`fct_passe
 ### Phase 11 — Player Similarity Streamlit Page (PLAN 14.6)
 
 - [ ] **Player Similarity** — pgvector nearest-neighbor search (`player_search.py`, depends on Phase 10)
-- [ ] **Pitch Control** — built in Phase 7, listed here for completeness
+- [ ] ~~**Pitch Control** — built in Phase 7~~
 
 ## Technical Debt
 
@@ -227,6 +231,10 @@ No cross-source dependency — these use existing synced gold tables (`fct_passe
 
 ## Future Work (unscheduled)
 
+- [ ] **Pitch Control ML model** — populate `pitch_control_value` column in `fct_tracking_frames` (currently NULL) via MLflow model; requires xT/pitch control model training
+- [ ] **Voronoi area persistence** — pre-compute `voronoi_area` column in `fct_tracking_frames` via dbt (currently NULL, computed client-side in Streamlit for visualization only)
+- [ ] **Pitch Control animation** — frame-by-frame playback via `st.empty()` loop or JS component; Phase 7 delivers single-frame static views only
+- [ ] **Event overlay on Pitch Control** — render event markers (passes, shots) on pitch control view; requires syncing `stg_metrica__events` to Lakebase or creating a joined gold table
 - [ ] **Respo.Vision 3D pose tracking** — 3D skeletal data from broadcast video (user pursuing via network); complements Metrica 2D with skeletal keypoints and body orientation
 - [ ] **Wyscout match metadata** — deferred (event data ingested, match details not yet in Figshare dataset)
 
