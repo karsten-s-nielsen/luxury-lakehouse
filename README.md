@@ -64,6 +64,7 @@ Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by 
 - **Heat Maps** — Action density visualization for players and teams
 - **VAEP Action Valuation** — Player contribution scoring beyond goals/assists (SPADL + VAEP)
 - **Pitch Control** — Voronoi diagrams from tracking data
+- **Movement Analysis** — Physical performance metrics and off-ball spatial analysis from tracking data *(planned)*
 - **Player Similarity** — pgvector cosine-distance search ("Find players like X") *(planned)*
 - **Player Radar Charts** — Per-90 stat comparison across multiple metrics
 
@@ -100,6 +101,9 @@ luxury-lakehouse/
 | 7 | Metrica Game 3 (EPTS) + Pitch Control | Complete |
 | 8 | Heat Map + Pass Network Pages | Complete |
 | 9 | SPADL/VAEP Action Valuation | Complete |
+| 10 | Additional Tracking Data (IDSSE, SkillCorner) | Planned |
+| 11 | Physics-Based Pitch Control | Planned |
+| 12 | Movement Analysis | Planned |
 
 ## Tech Stack
 

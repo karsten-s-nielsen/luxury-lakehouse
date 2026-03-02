@@ -1478,11 +1478,11 @@ The Phase 7 Pitch Control page uses Voronoi tessellation — a geometric approxi
 4. Populate `pitch_control_value` column in `fct_tracking_frames` (currently NULL) or create a new `fct_pitch_control` table at reduced spatial resolution
 5. Update Streamlit Pitch Control page with continuous heatmap overlay option alongside existing Voronoi view
 
-**Data requirements:** Tracking data with player positions and velocities — available from Metrica (Phase 7), and from IDSSE/SkillCorner (Phase 13 if completed).
+**Data requirements:** Tracking data with player positions and velocities — available from Metrica (Phase 7), and from IDSSE/SkillCorner (Phase 10 if completed).
 
 ### 14.10 — DEFCON-Inspired Defensive Contribution Framework
 
-**Status:** Research complete, implementation planned (Phase 15). Multi-tier approach. Tier 1 (VAEP) complete as of Phase 9.
+**Status:** Research complete, implementation planned (Phase 16). Multi-tier approach. Tier 1 (VAEP) complete as of Phase 9.
 
 **Paper:** Kim, H.S. et al. (2025). "Better Prevent than Tackle: Valuing Defense in Soccer Based on Graph Neural Networks." *arXiv:2512.10355*. Developed at Ajax Amsterdam.
 
@@ -1523,6 +1523,56 @@ The Phase 7 Pitch Control page uses Voronoi tessellation — a geometric approxi
 
 **Key insight:** Tiers 1–3 deliver increasing analytical value using only public data and open-source tools. Tier 4 (full GNN) is aspirational and may require partnerships with data providers.
 
+### 14.11 — Movement Analysis
+
+**Status:** Planned (Phase 12). Physical and tactical movement analysis from tracking data.
+
+"Movement Analysis" is an umbrella term spanning two traditions in football analytics:
+
+| Tradition | What It Measures | Data Required |
+|-----------|-----------------|---------------|
+| **Physical/Sports Science** | Distance, speed, sprints, accelerations, metabolic power | Tracking (25fps x,y) |
+| **Tactical/Spatial** | Off-ball runs, space creation, pressing, defensive shape | Tracking + Events |
+
+**Three-tier implementation plan:**
+
+| Tier | Scope | Data Source | Dependencies |
+|------|-------|-------------|-------------|
+| **Tier 1: Event-data proxies** | PPDA, pressure event analysis | StatsBomb + Wyscout events (all matches) | None — feasible now |
+| **Tier 2: Physical performance** | Distance, HSR, sprints, accelerations, metabolic power | Tracking data (Metrica + IDSSE + SkillCorner) | Phase 10 (tracking ingestion) |
+| **Tier 3: Off-ball spatial** | Off-ball xT, space creation, OBSO | Tracking + pitch control surface | Phase 10 + Phase 11 (pitch control) |
+
+**Tier 1 — Event-data proxies (all matches):**
+- **PPDA** (Passes Per Defensive Action): count passes allowed per defensive action in opponent's attacking 60% of pitch. Computable from existing `fct_passes` and event-level action data.
+- **Pressure event analysis**: StatsBomb includes explicit `type='Pressure'` events with location data. Density maps show where and how intensely teams/players press.
+- Add to `fct_match_summary` or new `fct_pressing_stats` gold table, synced to Lakebase.
+
+**Tier 2 — Physical performance (tracking matches):**
+- Use [`floodlight`](https://github.com/floodlight-sports/floodlight) (v1.1+, MIT license) for kinematics computation on tracking data. Floodlight implements: velocity/speed from x/y deltas, acceleration profiles, metabolic power (Osgnach et al. 2010), sprint detection (speed thresholds), Butterworth smoothing for noisy tracking signals.
+- Key metrics: total distance (km/match), high-speed running (>19.8 km/h), sprint distance (>25.1 km/h), sprint count, peak velocity, accelerations/decelerations.
+- Currently feasible for 3 Metrica matches (`fct_tracking_frames` already has `speed` and `velocity_x/y`); extends to ~20 matches after Phase 10.
+- New Streamlit **Movement Analysis page**: speed heatmaps, per-player distance profiles, sprint timelines.
+
+**Tier 3 — Off-ball spatial analysis (tracking + pitch control):**
+- **Off-Ball Expected Threat (Off-ball xT)**: `pitch_control(location) × xT(location)` per frame per player. Values the positioning of players who never receive the ball. Reference: Soccermatics Lesson 7 (Sumpter).
+- **Space creation**: Quantify area of pitch opened for teammates by a player's movement, drawing defenders away. Reference: Fernandez & Bornn 2018, "Wide Open Spaces" (neural network pitch control + space generation attribution).
+- **OBSO (Off-Ball Scoring Opportunities)**: Probability of scoring if ball is played to where an off-ball player stands. Reference: Spearman 2018, "Beyond Expected Goals."
+- Requires physics-based pitch control surface (Phase 11) for meaningful results.
+
+**Key academic references:**
+- Spearman (2018) — "Beyond Expected Goals" (OBSO from tracking data)
+- Fernandez & Bornn (2018) — "Wide Open Spaces" (space creation quantification)
+- Soccermatics Lesson 7 — Off-ball run valuation (Sumpter, directly on our curriculum path)
+- Kempe et al. (2024) — 9-step framework for player movement analysis (Frontiers in Sports and Active Living)
+- LaurieOnTracking Tutorials 2–4 — Reference implementation of physical metrics + pitch control + EPV
+
+**Key libraries:**
+- [`floodlight`](https://github.com/floodlight-sports/floodlight) (v1.1+, MIT) — Full kinematics pipeline: speed, acceleration, metabolic power, space control, entropy
+- [`databallpy`](https://github.com/Alek050/databallpy) (MIT) — Gaussian space model (Fernandez & Bornn), pressure calculation, event+tracking sync
+- [`kloppy`](https://github.com/PySport/kloppy) (BSD-3) — Data loading/normalization only (already planned for Phase 10)
+
+**Data constraint:** True movement analysis (pitch control, off-ball run detection, OBSO) requires tracking data at 25fps. Available: 3 matches now (Metrica), ~20 after Phase 10 (+ IDSSE + SkillCorner). Sufficient for demonstrating the full analytical pipeline; clubs with proprietary tracking would plug in their own data.
+
 ### 14.6 — Additional Streamlit Pages
 
 | Page | Description | Data Source | Status |
@@ -1531,6 +1581,7 @@ The Phase 7 Pitch Control page uses Voronoi tessellation — a geometric approxi
 | **Heat Map** | Touch/action density maps per player or team | `fct_passes_synced`, `fct_shots_synced` | Complete (Phase 8) |
 | **Pass Network** | Graph visualization of passing connections between teammates | `fct_passes_synced` JOIN `dim_players_synced` | Complete (Phase 8) |
 | **Action Values** | Player VAEP rankings, action type breakdown, match action timeline | `fct_action_values_synced`, `fct_player_stats_synced` | Complete (Phase 9) |
+| **Movement Analysis** | Speed heatmaps, distance profiles, sprint timelines, pressing intensity | `fct_tracking_frames_synced`, `fct_pressing_stats_synced` | Planned — Phase 12 (14.11) |
 | **Player Similarity** | pgvector-powered nearest-neighbor search | `fct_player_embeddings_synced` | Planned — depends on 14.3 |
 
 ---
@@ -1584,7 +1635,8 @@ This is a small-to-medium dataset — well within free/dev tier limits for most 
 | 09 | Clustering, progressive passes | `fct_passes`, `fct_player_stats` |
 | 10 | Streamlit web app | `src/streamlit_app/` |
 | — | SPADL action valuation (VAEP) | `fct_action_values` (Phase 9 — Complete) |
-| — | Defensive contribution (DEFCON-inspired) | Phase 15 — EPV decomposition + credit assignment |
+| — | Movement analysis (physical + tactical) | Phase 12 — PPDA, physical metrics, off-ball xT |
+| — | Defensive contribution (DEFCON-inspired) | Phase 16 — EPV decomposition + credit assignment |
 
 ### C. Dependencies on MCP CodeDeploy Project
 

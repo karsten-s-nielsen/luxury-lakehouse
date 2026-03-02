@@ -248,25 +248,51 @@ Replace the current Voronoi approximation with a physics-based pitch control mod
 - [ ] Update Streamlit Pitch Control page with continuous heatmap overlay (replacing Voronoi)
 - [ ] Depends on tracking data from Metrica (Phase 7) + IDSSE/SkillCorner (Phase 10)
 
-### Phase 12 — Cross-Source Player Entity Resolution (PLAN 14.2)
+### Phase 12 — Movement Analysis (PLAN 14.11)
+
+Physical and tactical movement analysis from tracking data. Builds on Phase 10 (tracking ingestion) and Phase 11 (pitch control).
+
+**Tier 1 — Event-data proxies (all matches):**
+- [ ] **PPDA** (Passes Per Defensive Action) — team-level pressing intensity metric from StatsBomb + Wyscout events
+- [ ] **Pressure event analysis** — location density of StatsBomb `type='Pressure'` events per player/team
+- [ ] Add pressing metrics to `fct_match_summary` or new `fct_pressing_stats` dbt model
+
+**Tier 2 — Physical performance (tracking matches only):**
+- [ ] **Physical performance dashboard** — total distance, high-speed running (>19.8 km/h), sprint count, accelerations per player per match
+- [ ] Use [`floodlight`](https://github.com/floodlight-sports/floodlight) (v1.1+, MIT) for kinematics: speed, acceleration, metabolic power from x/y tracking
+- [ ] New dbt model or Python post-processing to persist derived movement metrics in bronze/gold
+- [ ] New Streamlit **Movement Analysis page** — speed heatmaps, distance profiles, sprint detection
+
+**Tier 3 — Off-ball spatial analysis (tracking + pitch control):**
+- [ ] **Off-Ball Expected Threat (Off-ball xT)** — `pitch_control(location) × xT(location)` per frame per player (Soccermatics Lesson 7)
+- [ ] **Space creation quantification** — measure area opened for teammates by player movement (Fernandez & Bornn 2018)
+- [ ] Depends on: Phase 10 (tracking data), Phase 11 (physics-based pitch control)
+
+**Key academic references:**
+- Spearman 2018 — Off-Ball Scoring Opportunities (OBSO)
+- Fernandez & Bornn 2018 — "Wide Open Spaces" (space creation)
+- Soccermatics Lesson 7 — off-ball run valuation
+- Kempe et al. 2024 — player movement analysis framework (Frontiers)
+
+### Phase 13 — Cross-Source Player Entity Resolution (PLAN 14.2)
 
 - [ ] **Prerequisite:** Request open-source license from `parmacalcio1913/players-matcher` — repo is currently unlicensed (all rights reserved). Cannot legally use without explicit permission.
 - [ ] Integrate [`parmacalcio1913/players-matcher`](https://github.com/parmacalcio1913/players-matcher) — fuzzy-match players across StatsBomb, Metrica, and Wyscout into a canonical ID
 - [ ] Build `int_player_xref` mapping — dbt intermediate model or seed linking source-specific IDs
 - [ ] Refactor `dim_players` — merge cross-source records using the mapping
 
-### Phase 13 — pgvector Player Embeddings (PLAN 14.3)
+### Phase 14 — pgvector Player Embeddings (PLAN 14.3)
 
 - [ ] Design feature vector from `fct_player_stats` per-90 metrics (VAEP/90, offensive/defensive VAEP now available from Phase 9)
 - [ ] Populate `fct_player_embeddings` — currently 0 rows, table and synced table already provisioned
-- [ ] Depends on Phase 12 (entity resolution) for cross-source unified player identity; within-source embeddings feasible without it
+- [ ] Depends on Phase 13 (entity resolution) for cross-source unified player identity; within-source embeddings feasible without it
 
-### Phase 14 — Player Similarity Streamlit Page (PLAN 14.6)
+### Phase 15 — Player Similarity Streamlit Page (PLAN 14.6)
 
-- [ ] **Player Similarity** — pgvector nearest-neighbor search (`player_search.py`, depends on Phase 13)
+- [ ] **Player Similarity** — pgvector nearest-neighbor search (`player_search.py`, depends on Phase 14)
 - [ ] ~~**Pitch Control** — built in Phase 7~~
 
-### Phase 15 — DEFCON-Inspired Defensive Valuation (PLAN 14.10)
+### Phase 16 — DEFCON-Inspired Defensive Valuation (PLAN 14.10)
 
 Quantify individual defensive contributions inspired by the DEFCON framework (Kim et al., 2025). See research notes in PLAN.md §14.10.
 
@@ -275,7 +301,7 @@ Quantify individual defensive contributions inspired by the DEFCON framework (Ki
 - [ ] Implement credit assignment: Intercept, Disturb, Deter, Concede (4 defensive contribution types)
 - [ ] **DEFCON-lite (tabular)**: gradient-boosted tree model using VAEP features + tracking-derived spatial features, without GNN
 - [ ] **Full DEFCON (GNN)**: Graph Attention Network for action selection/success prediction (requires 500+ matches with tracking — may need commercial data)
-- [ ] Depends on: ~~VAEP (Phase 9)~~ DONE, additional tracking data (Phase 10), pitch control (Phase 11)
+- [ ] Depends on: ~~VAEP (Phase 9)~~ DONE, additional tracking data (Phase 10), pitch control (Phase 11), movement analysis (Phase 12)
 
 ## Technical Debt
 
@@ -288,7 +314,7 @@ Quantify individual defensive contributions inspired by the DEFCON framework (Ki
 - [ ] **Event overlay on Pitch Control** — render event markers (passes, shots, SPADL actions) on pitch control view; requires syncing `stg_metrica__events` to Lakebase or creating a joined gold table
 - [ ] **Respo.Vision 3D pose tracking** — 3D skeletal data from broadcast video (user pursuing via network); complements Metrica 2D with skeletal keypoints and body orientation
 - [ ] **Wyscout match metadata** — deferred (event data ingested, match details not yet in Figshare dataset); low priority since events + VAEP cover analytical needs
-- [ ] **Full GNN DEFCON** — requires 500+ matches with synchronized tracking + event data; current public data (~20 matches) is insufficient for GNN training. May require commercial data. See also Phase 15.
+- [ ] **Full GNN DEFCON** — requires 500+ matches with synchronized tracking + event data; current public data (~20 matches) is insufficient for GNN training. May require commercial data. See also Phase 16.
 
 ## Infrastructure Notes
 
