@@ -1,9 +1,8 @@
 # Databricks Lakebase Implementation Plan — Soccer Analytics Platform
 
-> **Status**: Phase 9 complete — SPADL/VAEP Action Valuation ("Fetch Once, Fork Twice"). Lakebase on Autoscaling (PG 17, scale-to-zero). Streamlit dashboard deployed as Databricks App with 8 pages, backed by Lakebase PostgreSQL via OAuth M2M. 155 unit tests, 225 dbt tests.
+> **Status**: Phase 9 complete — 8 Streamlit pages, 155 unit tests, 225 dbt data tests, 10 synced tables.
 > **Last Updated**: 2026-03-02
 > **Repository**: [`karstenskyt/luxury-lakehouse`](https://github.com/karstenskyt/luxury-lakehouse)
-> **Scope**: Document 3 ("3_AWS Lake House.pdf") — Databricks Lakebase serverless architecture
 > **Approach**: Professional-grade IaC, best practices, production-ready from day one
 
 ---
@@ -11,29 +10,23 @@
 ## Table of Contents
 
 1. [Executive Summary](#1-executive-summary)
-2. [Current State Assessment](#2-current-state-assessment)
-3. [Target Architecture](#3-target-architecture)
-4. [C4 Architecture Model](#4-c4-architecture-model)
-5. [Technology Decisions](#5-technology-decisions)
-6. [Repository Structure](#6-repository-structure)
-7. [Phase 0 — Foundation & Prerequisites](#7-phase-0--foundation--prerequisites)
-8. [Phase 1 — Serverless Infrastructure (IaC)](#8-phase-1--serverless-infrastructure-iac)
-9. [Phase 2 — Data Ingestion](#9-phase-2--data-ingestion)
-10. [Phase 3 — Transformation (dbt)](#10-phase-3--transformation-dbt)
-11. [Phase 4 — Zero-ETL Synchronization](#11-phase-4--zero-etl-synchronization)
-12. [Phase 5 — Application Deployment (Streamlit)](#12-phase-5--application-deployment-streamlit)
-13. [Cross-Cutting Concerns](#13-cross-cutting-concerns)
-14. [Future Data Sources](#14-future-data-sources)
-15. [Risk Register](#15-risk-register)
-16. [Appendices](#16-appendices)
+2. [Target Architecture](#2-target-architecture)
+3. [C4 Architecture Model](#3-c4-architecture-model)
+4. [Technology Decisions](#4-technology-decisions)
+5. [Repository Structure](#5-repository-structure)
+6. [Cross-Cutting Concerns](#6-cross-cutting-concerns)
+7. [Completed Phases](#7-completed-phases)
+8. [Future Work](#8-future-work)
+9. [Risk Register](#9-risk-register)
+10. [Appendices](#10-appendices)
 
 ---
 
 ## 1. Executive Summary
 
-This plan implements the Databricks Lakebase architecture described in Document 3 to build a serverless soccer analytics platform. The pipeline ingests open-source match data (StatsBomb, Metrica Sports, Wyscout), transforms it through a medallion architecture (Bronze → Silver → Gold), synchronizes curated tables into Lakebase (PostgreSQL 17), and serves a Streamlit dashboard for coaches and analysts.
+This plan implements the Databricks Lakebase architecture to build a serverless soccer analytics platform. The pipeline ingests open-source match data (StatsBomb, Metrica Sports, Wyscout), transforms it through a medallion architecture (Bronze → Silver → Gold), synchronizes curated tables into Lakebase (PostgreSQL 17), and serves a Streamlit dashboard for coaches and analysts.
 
-**Why Lakebase over Traditional AWS (Document 2)?**
+**Why Lakebase over Traditional AWS?**
 
 | Concern | Traditional AWS | Lakebase |
 |---------|----------------|----------|
@@ -47,37 +40,7 @@ This plan implements the Databricks Lakebase architecture described in Document 
 
 ---
 
-## 2. Current State Assessment
-
-### What Exists
-
-| Asset | Location | Status |
-|-------|----------|--------|
-| Architecture research (Document 1) | `documents/1_AWS Lake House.pdf` | Complete — 8-page comparative analysis |
-| Traditional AWS plan (Document 2) | `documents/2_AWS Lake House.pdf` | Complete — 5-phase implementation guide |
-| Lakebase plan (Document 3) | `documents/3_AWS Lake House.pdf` | Complete — 5-phase implementation guide (THIS plan implements it) |
-| Architecture diagram | `documents/Screenshot_20251212_222944_Chrome.jpg` | Reference — original pipeline by "Matteo" |
-| Soccermatics local workspace | `D:/Development/soccermatics/` | Working — 25/25 scripts pass (Python 3.12, conda) |
-| MCP AWS CodeDeploy server | `D:/Development/karstenskyt__mcp-aws-codedeploy/` | Working — 8 tools, FastMCP, Stdio transport |
-| AWS IAM DevOpsAgent role spec | `karstenskyt__mcp-aws-codedeploy/TODO.md` | Documented — policy template ready |
-| Implementation code | This repository | **Phase 9 complete** — 6 ingestion modules (incl. SPADL adapter + VAEP pipeline), 155 unit tests, 11 bronze tables (31.4M+ rows); 20 dbt models, 225 data tests; Streamlit dashboard (8 pages); 10 synced tables; security audit complete |
-
-### Soccermatics Workspace Details
-
-The local workspace at `D:/Development/soccermatics/` was set up in a previous Claude session (2026-02-07). Key facts:
-
-- **Not a git clone** — reorganized from `github.com/soccermatics/Soccermatics` into chapter-based layout
-- **25/25 scripts verified passing** on Windows 11 + Python 3.12 + conda
-- **Data bundled locally**: StatsBomb (auto-fetch via API), Wyscout (bundled JSON), Metrica (bundled CSV)
-- **Chapter 10 (Web App)**: Requires paid Twelve API key — not runnable, but Streamlit pattern is the target
-- **TensorFlow disabled** (Ch 07): CUDA 12.8 + Win + Py 3.12 incompatibility — gated behind flag
-- **Dependencies**: mplsoccer, kloppy, statsbombpy, xgboost, streamlit, umap-learn, plus standard scientific stack
-
-This workspace serves as the **reference implementation** — the analytics logic from these scripts will be ported into dbt models and the Streamlit app.
-
----
-
-## 3. Target Architecture
+## 2. Target Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
@@ -90,12 +53,13 @@ This workspace serves as the **reference implementation** — the analytics logi
           │                  │                          │
           ▼                  ▼                          ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
-│              DATABRICKS SERVERLESS WORKFLOWS (Phase 2)                   │
+│              DATABRICKS SERVERLESS WORKFLOWS                             │
 │  ┌──────────────────────────────────────────────────────────────────┐    │
 │  │  Python ingestion tasks on Serverless Compute (scheduled)       │    │
 │  │  • statsbombpy → competitions, matches, events, lineups, 360   │    │
-│  │  • requests → Metrica sample-data CSV                           │    │
+│  │  • requests → Metrica sample-data CSV + EPTS                    │    │
 │  │  • requests → Wyscout public JSON datasets                      │    │
+│  │  • spadl_vaep → SPADL conversion + VAEP scoring from bronze     │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
@@ -103,53 +67,42 @@ This workspace serves as the **reference implementation** — the analytics logi
 │                    UNITY CATALOG — BRONZE LAYER                          │
 │  ┌──────────────────────────────────────────────────────────────────┐    │
 │  │  Delta Lake tables (raw, append-only, schema-on-read)           │    │
-│  │  • bronze.statsbomb_competitions                                │    │
-│  │  • bronze.statsbomb_events                                      │    │
-│  │  • bronze.statsbomb_lineups                                     │    │
-│  │  • bronze.statsbomb_matches                                     │    │
-│  │  • bronze.statsbomb_three_sixty                                 │    │
-│  │  • bronze.metrica_tracking                                      │    │
-│  │  • bronze.metrica_events                                        │    │
-│  │  • bronze.wyscout_events                                        │    │
-│  │  • bronze.wyscout_matches                                       │    │
+│  │  • statsbomb: competitions, matches, events, lineups, 360      │    │
+│  │  • metrica: tracking, events                                    │    │
+│  │  • wyscout: events, matches                                     │    │
+│  │  • spadl: actions, action_values                                 │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
-│          DATABRICKS SERVERLESS SQL + dbt (Phase 3)                       │
+│          DATABRICKS SERVERLESS SQL + dbt                                 │
 │  ┌──────────────────────────────────────────────────────────────────┐    │
 │  │  dbt-databricks models on Serverless SQL Warehouse              │    │
 │  │                                                                  │    │
 │  │  SILVER (cleaned, typed, deduplicated):                         │    │
-│  │  • silver.stg_statsbomb__events (flattened JSON)                │    │
-│  │  • silver.stg_statsbomb__shots (shot-specific columns)          │    │
-│  │  • silver.stg_statsbomb__matches (competition/season metadata)  │    │
-│  │  • silver.stg_statsbomb__lineups (player positions per match)   │    │
-│  │  • silver.stg_metrica__events (scaled coordinates)              │    │
-│  │  • silver.stg_metrica__tracking (parsed coordinates)            │    │
-│  │  • silver.stg_wyscout__events (normalized schema)               │    │
+│  │  • stg_statsbomb__events, shots, matches, lineups, 360         │    │
+│  │  • stg_metrica__tracking, events                                │    │
+│  │  • stg_wyscout__events                                          │    │
+│  │  • stg_spadl__action_values                                     │    │
 │  │                                                                  │    │
 │  │  GOLD (business logic, analytics-ready):                        │    │
-│  │  • gold.fct_shots (xG features: distance, angle, body_part)    │    │
-│  │  • gold.fct_passes (pass networks, progressive passes)         │    │
-│  │  • gold.fct_player_stats (per-90 metrics, radar chart data)    │    │
-│  │  • gold.fct_match_summary (possession, xG, xT totals)         │    │
-│  │  • gold.fct_tracking_frames (pitch control, velocities)        │    │
-│  │  • gold.dim_players / dim_teams / dim_competitions             │    │
+│  │  • fct_shots, fct_passes, fct_player_stats, fct_match_summary  │    │
+│  │  • fct_tracking_frames, fct_action_values, fct_player_embeddings│    │
+│  │  • dim_players, dim_teams, dim_competitions                     │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
-│              SYNCED TABLES — ZERO-ETL (Phase 4)                          │
+│              SYNCED TABLES — ZERO-ETL                                    │
 │  ┌──────────────────────────────────────────────────────────────────┐    │
-│  │  Lakeflow Spark Declarative Pipelines                           │    │
+│  │  Lakeflow Declarative Pipelines                                 │    │
 │  │  Gold Delta tables → continuous async sync → Lakebase           │    │
 │  │  (read-only PostgreSQL-queryable mirrors, sub-10ms latency)     │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
-│          LAKEBASE AUTOSCALING (PostgreSQL 17) — Phase 4                  │
+│          LAKEBASE AUTOSCALING (PostgreSQL 17)                            │
 │  ┌──────────────────────────────────────────────────────────────────┐    │
 │  │  Serverless OLTP • Scale-to-zero • OAuth M2M auth               │    │
 │  │  • Standard PostgreSQL wire protocol (JDBC/psycopg2)            │    │
@@ -159,39 +112,37 @@ This workspace serves as the **reference implementation** — the analytics logi
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
-│          STREAMLIT APPLICATION — Phase 5                                 │
+│          STREAMLIT APPLICATION                                           │
 │  ┌──────────────────────────────────────────────────────────────────┐    │
-│  │  Deployed as Databricks App (databricks_app resource)           │    │
+│  │  Deployed as Databricks App (serverless runtime)                │    │
 │  │  • OAuth M2M auth (automatic token rotation, no passwords)      │    │
-│  │  • Connects to Lakebase via psycopg2 / SQLAlchemy               │    │
-│  │  • mplsoccer visualizations (shots, passes, heat maps, radars) │    │
-│  │  • Interactive filters: competition, season, team, player       │    │
+│  │  • Connects to Lakebase via psycopg2 (ThreadedConnectionPool)   │    │
+│  │  • 8 pages: Shot Map, Pass Map, Heat Map, Pass Network,        │    │
+│  │    Action Values, Player Radar, Match Summary, Pitch Control    │    │
 │  └──────────────────────────────────────────────────────────────────┘    │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 4. C4 Architecture Model
+## 3. C4 Architecture Model
 
-C4 diagrams (Context, Container, Component, Dynamic) are the standard deliverable for documenting this system's architecture. We use the `/c4` skill (Structurizr DSL → rendered SVGs in a self-contained HTML file) to produce and maintain these diagrams as living documentation.
+C4 diagrams (Context, Container, Component, Dynamic) are the standard deliverable for documenting this system's architecture. The Structurizr DSL source and generated HTML live in `docs/c4/`.
 
-### 4.1 — Diagram Inventory
+### 3.1 — Diagram Inventory
 
-The following C4 diagrams will be generated and maintained throughout implementation. Each diagram is regenerated via `/final-review` before any commit to ensure architecture docs stay synchronized with code.
+| Diagram Level | Name | Purpose |
+|---------------|------|---------|
+| **L1 — System Context** | Soccer Analytics Platform | Platform in its environment: users, data providers, Databricks boundary |
+| **L2 — Container** | Platform Containers | Ingestion Workflows, Unity Catalog, SQL Warehouse, dbt, Lakebase, Synced Tables, Streamlit |
+| **L3 — Component** | Ingestion Service | StatsBomb/Metrica/Wyscout fetchers, SPADL adapter, shared utilities, Delta writer |
+| **L3 — Component** | dbt Transformation | Staging, intermediate, mart models, macros, test suite |
+| **L3 — Component** | Streamlit Application | Page modules, filter components, chart components, Lakebase connection pool |
+| **L4 — Dynamic** | Data Flow | End-to-end: API fetch → Bronze → dbt → Gold → Synced Table → Lakebase → Streamlit |
+| **L4 — Dynamic** | Zero-ETL Sync | Gold Delta change → Lakeflow pipeline → Lakebase mirror update |
+| **Deployment** | Infrastructure | Databricks/AWS resource mapping |
 
-| Diagram Level | Name | Purpose | Generated At |
-|---------------|------|---------|-------------|
-| **L1 — System Context** | Soccer Analytics Platform | Shows the platform in its environment: users (coaches, analysts, data scientists), external data providers (StatsBomb, Metrica, Wyscout), and the Databricks platform boundary | Phase 0 (initial), updated every phase |
-| **L2 — Container** | Platform Containers | Shows the major runtime containers: Ingestion Workflows, Unity Catalog (Bronze/Silver/Gold), Serverless SQL Warehouse, dbt Project, Lakebase PostgreSQL, Synced Tables pipeline, Streamlit App | Phase 1 (after IaC), updated as containers are provisioned |
-| **L3 — Component** | Ingestion Service | Zooms into the ingestion container: StatsBomb fetcher, Metrica fetcher, Wyscout fetcher, shared utilities, Delta writer | Phase 2 |
-| **L3 — Component** | dbt Transformation | Zooms into dbt: staging models, intermediate models, mart models, custom macros, test suite | Phase 3 |
-| **L3 — Component** | Streamlit Application | Zooms into the app: page modules, filter components, chart components, Lakebase connection pool | Phase 5 |
-| **L4 — Dynamic** | Data Flow: Ingestion to Dashboard | Shows the end-to-end runtime sequence: API fetch → Bronze write → dbt transform → Gold table → Synced Table sync → Lakebase query → Streamlit render | Phase 4 (once pipeline is end-to-end) |
-| **L4 — Dynamic** | Zero-ETL Sync | Shows the Synced Tables mechanism: Gold Delta table change → Lakeflow pipeline trigger → Lakebase mirror update | Phase 4 |
-| **Deployment** | AWS + Databricks Infrastructure | Maps containers to actual Databricks/AWS resources: workspace, serverless compute, S3 storage, Lakebase instance, Databricks App runtime | Phase 1 |
-
-### 4.2 — C4 Model: Persons & External Systems
+### 3.2 — C4 Model: Persons & External Systems
 
 ```
 Persons:
@@ -208,13 +159,13 @@ External Systems:
   - AWS                       : Underlying cloud (S3 storage, IAM, networking)
 ```
 
-### 4.3 — C4 Model: Containers
+### 3.3 — C4 Model: Containers
 
 ```
 System Boundary: Soccer Analytics Platform (Databricks on AWS)
   │
   ├── Ingestion Workflows          [Databricks Serverless Compute]
-  │   Technology: Python + statsbombpy + requests
+  │   Technology: Python + statsbombpy + requests + socceraction
   │   Responsibility: Fetch raw data from providers → write to Bronze
   │
   ├── Unity Catalog                [Databricks Managed]
@@ -235,7 +186,7 @@ System Boundary: Soccer Analytics Platform (Databricks on AWS)
   │   Responsibility: Continuous Gold Delta → Lakebase synchronization
   │
   ├── Lakebase PostgreSQL 17       [Databricks Serverless OLTP]
-  │   Technology: PostgreSQL 17, Autoscaling, pgvector
+  │   Technology: PostgreSQL 17, Autoscaling (0.5–4 CU), pgvector
   │   Responsibility: Low-latency OLTP queries for the Streamlit app
   │
   └── Streamlit Dashboard          [Databricks App]
@@ -243,11 +194,9 @@ System Boundary: Soccer Analytics Platform (Databricks on AWS)
       Responsibility: Interactive analytics UI for coaches/analysts
 ```
 
-### 4.4 — C4 Diagram Lifecycle
+### 3.4 — C4 Diagram Lifecycle
 
-The `/c4` skill (already installed locally with Java 21+) generates a self-contained HTML file with embedded SVGs and tabbed navigation across all diagram levels. It uses Structurizr DSL as the source notation — the industry standard C4 toolchain by Simon Brown. The `/final-review` skill includes C4 regeneration as part of its pre-commit quality gate.
-
-**Toolchain status:** `/c4` and `/final-review` skills installed and operational. Java 21+ present. No additional setup required.
+The `/c4` skill generates a self-contained HTML file with embedded SVGs and tabbed navigation. The `/final-review` skill includes C4 regeneration as part of its pre-commit quality gate.
 
 **Workflow:**
 1. Architecture changes are made (new module, new service, changed data flow)
@@ -257,36 +206,22 @@ The `/c4` skill (already installed locally with Java 21+) generates a self-conta
 
 **File locations:**
 ```
-docs/
-├── c4/
-│   ├── architecture.dsl           # Structurizr DSL source (the model)
-│   └── architecture.html          # Generated: self-contained HTML with all diagrams
-└── architecture-decision-records/
-    └── ...
+docs/c4/
+├── architecture.dsl           # Structurizr DSL source (the model)
+└── architecture.html          # Generated: self-contained HTML with all diagrams
 ```
-
-### 4.5 — Relationship to Original Architecture Diagram
-
-The original `documents/Screenshot_20251212_222944_Chrome.jpg` (Matteo's "Our Data Architecture" diagram) represents the **traditional AWS pipeline** from Document 2. Our C4 diagrams replace this informal screenshot with:
-
-- A formal **System Context** showing the same actors and boundaries
-- A **Container** diagram that maps each node in Matteo's diagram to its Lakebase equivalent
-- **Component** and **Dynamic** diagrams that go deeper than the original ever could
-
-This is the architectural documentation upgrade from ad-hoc screenshots to industry-standard C4 notation.
 
 ---
 
-## 5. Technology Decisions
+## 4. Technology Decisions
 
-### IaC: Terraform (not CloudFormation/CDK)
+### IaC: Terraform
 
 | Decision | Rationale |
 |----------|-----------|
-| **Terraform** with Databricks provider | Official `databricks/databricks` provider; multi-cloud; state management via S3+DynamoDB already spec'd in MCP CodeDeploy project |
-| **Terraform modules** | Separate modules per concern (workspace, catalog, lakebase, workflows, app) |
-| **Remote state** | S3 backend with DynamoDB locking (consistent with existing IAM role design) |
-| **Terragrunt** (evaluate) | DRY configuration across dev/staging/prod environments — decide during Phase 0 |
+| **Terraform** with Databricks provider | Official `databricks/databricks` provider; multi-cloud; S3+native-locking state backend |
+| **Terraform modules** | Separate modules per concern: workspace, catalog, lakebase, workflows, sql_warehouse, synced_tables, app, service_principals, github_oidc, state_kms |
+| **Remote state** | S3 backend with native locking, KMS CMK encryption |
 
 ### Python Tooling
 
@@ -294,7 +229,7 @@ This is the architectural documentation upgrade from ad-hoc screenshots to indus
 |------|---------|-----|
 | **uv** | Package management, virtual envs | Fast, deterministic, replaces pip+venv+pip-tools |
 | **ruff** | Linting + formatting | Single tool replaces flake8+black+isort, 10-100x faster |
-| **pyright** | Type checking | Best-in-class for Python, integrates with LSP |
+| **pyright** | Type checking | Best-in-class for Python, basic mode |
 | **pytest** | Testing | Standard, with `pytest-cov` for coverage |
 | **pre-commit** | Git hooks | Enforce quality gates locally before push |
 
@@ -310,10 +245,9 @@ This is the architectural documentation upgrade from ad-hoc screenshots to indus
 
 | Tool | Purpose |
 |------|---------|
-| **GitHub Actions** | CI/CD pipeline |
-| **terraform plan** on PR | Infrastructure change review |
-| **dbt build --target ci** on PR | Model validation |
-| **Environments** | dev → staging → prod promotion |
+| **GitHub Actions** | CI/CD pipeline (3 workflows: Python CI, Terraform Plan, dbt CI) |
+| **GitHub OIDC** | Secretless CI — AWS IAM + Databricks federation |
+| **Environments** | Dev only (single environment; add prod later) |
 
 ---
 
@@ -324,658 +258,172 @@ luxury-lakehouse/
 │
 ├── PLAN.md                           # This document
 ├── CLAUDE.md                         # AI assistant instructions
-├── README.md                         # Project overview and quickstart
-├── .gitignore
-├── .pre-commit-config.yaml           # Pre-commit hooks configuration
+├── README.md                         # Project overview
+├── SECURITY.md                       # Security audit report
+├── TODO.md                           # Forward-looking action items
+├── .pre-commit-config.yaml           # Pre-commit hooks (ruff, terraform_fmt, detect-secrets)
 ├── pyproject.toml                    # Python project metadata (uv)
 ├── uv.lock                           # Deterministic dependency lock
 │
-├── documents/                        # Reference PDFs and architecture diagram
-│   ├── 1_AWS Lake House.pdf
-│   ├── 2_AWS Lake House.pdf
-│   ├── 3_AWS Lake House.pdf
-│   └── Screenshot_20251212_222944_Chrome.jpg
+├── assets/                           # Images and branding
+│   └── luxury-lakehouse.jpg
 │
-├── terraform/                        # Infrastructure as Code
-│   ├── environments/
-│   │   └── dev/                      # Dev-only for now (add prod later)
-│   │       ├── main.tf              # Dev environment composition
-│   │       ├── variables.tf
-│   │       ├── terraform.tfvars      # Dev-specific values (gitignored)
-│   │       └── backend.tf            # S3 state backend (dev key)
-│   │
+├── terraform/
+│   ├── environments/dev/             # Dev environment composition
 │   ├── modules/
-│   │   ├── workspace/                # Databricks workspace + Unity Catalog
-│   │   │   ├── main.tf
-│   │   │   ├── variables.tf
-│   │   │   └── outputs.tf
-│   │   │
-│   │   ├── lakebase/                 # Lakebase Autoscaling Project
-│   │   │   ├── main.tf
-│   │   │   ├── variables.tf
-│   │   │   └── outputs.tf
-│   │   │
-│   │   ├── catalog/                  # Unity Catalog schemas (bronze, silver, gold)
-│   │   │   ├── main.tf
-│   │   │   ├── variables.tf
-│   │   │   └── outputs.tf
-│   │   │
-│   │   ├── workflows/                # Databricks Workflows (ingestion jobs)
-│   │   │   ├── main.tf
-│   │   │   ├── variables.tf
-│   │   │   └── outputs.tf
-│   │   │
-│   │   ├── sql_warehouse/            # Serverless SQL Warehouse for dbt
-│   │   │   ├── main.tf
-│   │   │   ├── variables.tf
-│   │   │   └── outputs.tf
-│   │   │
-│   │   ├── synced_tables/            # Lakeflow Synced Tables (Gold → Lakebase)
-│   │   │   ├── main.tf
-│   │   │   ├── variables.tf
-│   │   │   └── outputs.tf
-│   │   │
-│   │   └── app/                      # Databricks App (Streamlit hosting)
-│   │       ├── main.tf
-│   │       ├── variables.tf
-│   │       └── outputs.tf
-│   │
+│   │   ├── workspace/                # Unity Catalog
+│   │   ├── catalog/                  # Bronze, Silver, Gold schemas + grants
+│   │   ├── lakebase/                 # Lakebase Autoscaling (PG 17)
+│   │   ├── sql_warehouse/            # Serverless SQL Warehouse
+│   │   ├── workflows/                # Ingestion job definitions
+│   │   ├── synced_tables/            # Gold → Lakebase sync (10 tables)
+│   │   ├── app/                      # Databricks App (Streamlit)
+│   │   ├── service_principals/       # Ingestion SP, App SP, CI SP + federation
+│   │   ├── github_oidc/              # AWS IAM OIDC provider + scoped role
+│   │   └── state_kms/                # KMS CMK for Terraform state encryption
 │   └── shared/
 │       ├── versions.tf               # Provider version constraints
-│       └── tags.tf                    # Standard resource tagging
+│       └── tags.tf                   # Standard resource tagging
 │
-├── src/                              # Python source code
-│   ├── ingestion/                    # Phase 2: Data ingestion scripts
-│   │   ├── __init__.py
-│   │   ├── statsbomb.py             # StatsBomb API ingestion (incl. _raw_extra_json enrichment)
-│   │   ├── metrica.py               # Metrica Sports CSV ingestion
-│   │   ├── wyscout.py               # Wyscout JSON ingestion
-│   │   ├── spadl_adapter.py         # Bronze-to-socceraction format adapters (Phase 9)
-│   │   ├── spadl_vaep.py            # SPADL conversion + VAEP scoring pipeline (Phase 9)
-│   │   └── utils.py                  # Shared ingestion utilities
+├── src/
+│   ├── ingestion/
+│   │   ├── statsbomb.py              # StatsBomb API ingestion (5 bronze tables + 360 backfill)
+│   │   ├── metrica.py                # Metrica CSV + EPTS ingestion (Games 1-3)
+│   │   ├── wyscout.py                # Wyscout JSON ingestion
+│   │   ├── spadl_adapter.py          # Bronze-to-socceraction format adapters
+│   │   ├── spadl_vaep.py             # SPADL conversion + VAEP scoring pipeline
+│   │   └── utils.py                  # Shared CLI, logging, HTTP, Delta helpers
 │   │
-│   ├── streamlit_app/               # Phase 5: Streamlit dashboard
-│   │   ├── __init__.py
-│   │   ├── app.py                   # Main Streamlit entrypoint
-│   │   ├── pages/
-│   │   │   ├── shots.py             # Shot maps and xG analysis
-│   │   │   ├── passes.py            # Pass networks and progressive passes
-│   │   │   ├── player_radar.py      # Player comparison radar charts (incl. VAEP/90)
-│   │   │   ├── match_summary.py     # Match overview dashboard
-│   │   │   ├── pitch_control.py     # Tracking data visualizations
-│   │   │   ├── heat_map.py          # Action density heat maps
-│   │   │   ├── pass_network.py      # Player-to-player pass network graph
-│   │   │   ├── action_values.py     # VAEP action valuation (Phase 9)
-│   │   │   └── player_search.py    # pgvector similarity search (planned)
-│   │   ├── components/
-│   │   │   ├── filters.py           # Reusable filter sidebar
-│   │   │   └── charts.py            # mplsoccer chart wrappers (radar, bar, VAEP timeline, type breakdown)
-│   │   └── db.py                    # Lakebase connection (OAuth M2M)
+│   ├── streamlit_app/
+│   │   ├── app.py                    # Entrypoint: st.navigation, page routing
+│   │   ├── config.py                 # Pydantic BaseSettings
+│   │   ├── db.py                     # OAuth M2M, ThreadedConnectionPool, parameterized queries
+│   │   ├── pages/                    # 8 pages (+ player_search.py planned)
+│   │   └── components/               # filters.py, pitch.py, charts.py
 │   │
 │   └── tests/
 │       ├── test_ingestion.py
 │       └── test_streamlit.py
 │
-├── dbt_project/                      # Phase 3: dbt transformation project
-│   ├── dbt_project.yml
-│   ├── profiles.yml                  # Connection profiles (gitignored)
-│   ├── packages.yml                  # dbt packages (dbt-expectations, etc.)
-│   │
+├── dbt_project/
 │   ├── models/
-│   │   ├── staging/                  # SILVER layer (1:1 source cleaning)
-│   │   │   ├── statsbomb/
-│   │   │   │   ├── _statsbomb__sources.yml
-│   │   │   │   ├── _statsbomb__models.yml
-│   │   │   │   ├── stg_statsbomb__events.sql
-│   │   │   │   ├── stg_statsbomb__shots.sql
-│   │   │   │   ├── stg_statsbomb__lineups.sql
-│   │   │   │   └── stg_statsbomb__matches.sql
-│   │   │   ├── metrica/
-│   │   │   │   ├── _metrica__sources.yml
-│   │   │   │   ├── _metrica__models.yml
-│   │   │   │   ├── stg_metrica__tracking.sql
-│   │   │   │   └── stg_metrica__events.sql
-│   │   │   ├── wyscout/
-│   │   │   │   ├── _wyscout__sources.yml
-│   │   │   │   ├── _wyscout__models.yml
-│   │   │   │   └── stg_wyscout__events.sql
-│   │   │   └── spadl/
-│   │   │       ├── _spadl__sources.yml
-│   │   │       ├── _spadl__models.yml
-│   │   │       └── stg_spadl__action_values.sql
-│   │   │
-│   │   ├── intermediate/             # Cross-source joins, deduplication
-│   │   │   ├── _intermediate__models.yml
-│   │   │   ├── int_unified_shots.sql
-│   │   │   ├── int_unified_passes.sql
-│   │   │   └── int_minutes_played.sql
-│   │   │
-│   │   └── marts/                    # GOLD layer (business logic)
-│   │       ├── _marts__models.yml
-│   │       ├── fct_shots.sql         # xG features (distance, angle, body_part)
-│   │       ├── fct_passes.sql        # Pass metrics, progressive passes
-│   │       ├── fct_player_stats.sql  # Per-90 aggregations, radar data
-│   │       ├── fct_match_summary.sql # Match-level aggregations
-│   │       ├── fct_action_values.sql # VAEP action scores (Phase 9)
-│   │       ├── fct_tracking_frames.sql # Pitch control metrics
-│   │       ├── fct_player_embeddings.sql # pgvector: movement pattern embeddings
-│   │       ├── dim_players.sql
-│   │       ├── dim_teams.sql
-│   │       └── dim_competitions.sql
-│   │
+│   │   ├── staging/                  # SILVER: statsbomb/, metrica/, wyscout/, spadl/
+│   │   ├── intermediate/             # Cross-source joins (ephemeral)
+│   │   └── marts/                    # GOLD: 7 fact + 3 dimension tables
 │   ├── tests/                        # Custom data tests
-│   │   ├── assert_xg_between_0_and_1.sql
-│   │   └── assert_coordinates_in_bounds.sql
-│   │
-│   ├── macros/                       # Reusable SQL macros
-│   │   ├── distance_to_goal.sql
-│   │   ├── shot_angle.sql
-│   │   └── flatten_json.sql
-│   │
-│   └── seeds/                        # Static reference data
-│       ├── competition_metadata.csv
-│       └── position_mapping.csv
+│   ├── macros/                       # distance_to_goal, shot_angle
+│   └── seeds/                        # competition_metadata.csv, position_mapping.csv
 │
-├── .github/
-│   └── workflows/
-│       ├── terraform-plan.yml        # PR: terraform plan + comment
-│       ├── terraform-apply.yml       # Merge to main: terraform apply
-│       ├── dbt-ci.yml                # PR: dbt build --target ci
-│       └── python-ci.yml             # PR: ruff + pyright + pytest
+├── .github/workflows/
+│   ├── python-ci.yml                 # ruff + pyright + pytest
+│   ├── terraform-plan.yml            # Plan on PR (OIDC auth)
+│   └── dbt-ci.yml                    # dbt build --target ci
 │
-└── docs/                             # Additional documentation
-    ├── c4/
-    │   ├── architecture.dsl          # Structurizr DSL source (C4 model)
-    │   └── architecture.html         # Generated: self-contained HTML (all diagram levels)
-    ├── architecture-decision-records/
-    │   ├── 001-lakebase-over-redshift.md
-    │   ├── 002-terraform-over-cdk.md
-    │   ├── 003-uv-over-pip.md
-    │   └── 004-c4-architecture-docs.md
-    └── runbooks/
-        ├── initial-setup.md
-        └── disaster-recovery.md
+└── docs/c4/
+    ├── architecture.dsl              # Structurizr DSL source
+    └── architecture.html             # Generated: self-contained HTML
 ```
 
 ---
 
-## 6. Phase 0 — Foundation & Prerequisites
+## 6. Cross-Cutting Concerns
 
-### 0.1 — Provision Databricks Workspace on AWS — COMPLETE
+### 6.1 — Security
 
-**Completed**: Signed up via databricks.com → AWS Marketplace subscription → workspace provisioned.
-
-| Detail | Value |
-|--------|-------|
-| Workspace URL | `https://dbc-48322be9-16be.cloud.databricks.com` |
-| Tier | Premium (14-day free trial, then pay-as-you-go) |
-| Region | us-east-1 |
-| Unity Catalog metastore | `metastore_aws_us_east_1` (auto-created) |
-| Personal access token | Generated (scope: Other APIs, all API scopes) |
-| terraform.tfvars | Populated with host + token |
-
-**Action needed**: Rotate the token (exposed in chat) — generate a new one and update `terraform.tfvars`.
-
-**Cost note**: Premium tier at ~$0.55/DBU. With $100/month budget and aggressive scale-to-zero, this allows ~180 DBUs of active compute.
-
-### 0.2 — Verify Terraform State Backend
-
-**Decision**: S3 bucket + DynamoDB lock table already exist (provisioned via MCP CodeDeploy project) but have never been used.
-
-```hcl
-terraform {
-  backend "s3" {
-    bucket         = "<your-terraform-state-bucket>"  # Verify actual name
-    key            = "luxury-lakehouse/terraform.tfstate"  # Separate key from other projects
-    region         = "us-east-1"
-    dynamodb_table = "terraform-state-lock"
-    encrypt        = true
-  }
-}
-```
-
-**Phase 0 task**: Run `terraform init` to verify connectivity to the existing backend. If it fails, troubleshoot S3/DynamoDB access before proceeding.
-
-### 0.3 — IAM Role Extension
-
-The existing DevOpsAgent IAM role in `karstenskyt__mcp-aws-codedeploy` needs additional permissions for Databricks:
-
-| Additional Permission | Purpose |
-|----------------------|---------|
-| `databricks:*` (via cross-account role) | Databricks workspace management |
-| `iam:PassRole` (scoped) | Allow Databricks to assume instance profiles |
-| `s3:*` on Unity Catalog bucket | Delta Lake storage |
-
-### 0.4 — Repository Initialization — COMPLETE
-
-**Completed**:
-- `git init` + remote set to `git@github.com:karstenskyt/luxury-lakehouse.git`
-- `uv init --name luxury-lakehouse --python 3.12` + `uv sync --extra dev`
-- `.gitignore` created (Python, Terraform, dbt, IDE, secrets)
-- `pyproject.toml` with all dependencies (statsbombpy, mplsoccer, streamlit, dbt-databricks, databricks-sdk, etc.)
-- Dev tools: ruff 0.15.2, pytest 9.0.2, pyright 1.1.408, pre-commit 4.5.1, sqlfluff 4.0.4
-- `pre-commit install` — hooks active
-- `.pre-commit-config.yaml` — ruff, terraform_fmt, yaml checks, sqlfluff
-- GitHub Actions workflows: `python-ci.yml`, `terraform-plan.yml`, `dbt-ci.yml`
-- Full directory structure created (terraform modules, src, dbt_project, docs, .github)
-- All Terraform module skeletons (27 files across 7 modules + shared + dev environment)
-- All dbt project skeletons (35 files: models, macros, tests, seeds, sources)
-- Python `__init__.py` files for all packages
-
-**Completed** (previously pending cloud access):
-- `terraform init` — configured with S3 backend, native locking
-- Databricks CLI — installed and configured with workspace token
-- `dbt deps` — still pending (Phase 3)
-
-### 0.5 — Local Development Environment — PARTIALLY COMPLETE
-
-| Tool | Version | Status |
-|------|---------|--------|
-| Python | 3.12.12 (via uv) | Installed |
-| uv | 0.9.28 | Installed |
-| git | 2.51.2 | Installed |
-| Java | 21.0.10 (OpenJDK) | Installed |
-| ruff | 0.15.2 | Installed (via uv dev extra) |
-| pyright | 1.1.408 | Installed (via uv dev extra) |
-| pytest | 9.0.2 | Installed (via uv dev extra) |
-| pre-commit | 4.5.1 | Installed (via uv dev extra) |
-| sqlfluff | 4.0.4 | Installed (via uv dev extra) |
-| dbt-core + dbt-databricks | 1.9.x | Installed (via uv) |
-| AWS CLI | v2 | Installed (profile: `devops-agent`) |
-| Terraform | 1.14.6 | Installed (via winget) |
-| Databricks CLI | 0.x | Installed and configured |
-
-**AWS access**: Configured with profile `devops-agent`. Start Claude Code with `AWS_PROFILE=devops-agent claude` for inherited credentials.
-
-### 0.6 — Initial C4 Diagram (System Context) — COMPLETE
-
-**Deliverable**: Generate the L1 System Context and L2 Container diagrams using `/c4` before writing any implementation code.
-
-**Completed**: `docs/c4/architecture.html` (215 KB, self-contained) and `docs/c4/architecture.dsl` (Structurizr DSL source) generated with:
-- **System Context**: Platform + 4 persons (Coach/Analyst, Scout, Data Scientist, Platform Engineer) + 5 external systems (StatsBomb, Metrica, Wyscout, GitHub, AWS)
-- **Container**: All 7 containers (Ingestion Workflows, Unity Catalog, Serverless SQL Warehouse, dbt Project, Synced Tables Pipeline, Lakebase PostgreSQL 17, Streamlit Dashboard)
-- **DSL tab**: Full Structurizr DSL source with copy button
-
-This is the "north star" diagram that all subsequent phases implement towards. Updated via `/final-review` at each phase boundary.
-
-### 0.7 — README — COMPLETE
-
-**Completed**: `README.md` written with:
-- NanoBanano comic strip as hero image (`documents/luxury-lakehouse.png`)
-- Four Yorkshiremen framing (old way vs new way)
-- Architecture table, data sources, analytics, project structure, tech stack
-- Link to interactive C4 diagrams
-
----
-
-## 7. Phase 1 — Serverless Infrastructure (IaC)
-
-### 1.1 — Databricks Workspace & Unity Catalog
-
-**Terraform module: `terraform/modules/workspace/`**
-
-```hcl
-# Key resources:
-resource "databricks_catalog" "soccer_analytics" {
-  name    = "soccer_analytics"
-  comment = "Unity Catalog for soccer analytics lakehouse"
-}
-
-resource "databricks_schema" "bronze" {
-  catalog_name = databricks_catalog.soccer_analytics.name
-  name         = "bronze"
-  comment      = "Raw ingested data (append-only, schema-on-read)"
-}
-
-resource "databricks_schema" "silver" {
-  catalog_name = databricks_catalog.soccer_analytics.name
-  name         = "silver"
-  comment      = "Cleaned, typed, deduplicated staging tables"
-}
-
-resource "databricks_schema" "gold" {
-  catalog_name = databricks_catalog.soccer_analytics.name
-  name         = "gold"
-  comment      = "Business logic, analytics-ready fact and dimension tables"
-}
-```
-
-### 1.2 — Lakebase Database Instance
-
-**Terraform module: `terraform/modules/lakebase/`**
-
-**Planned (aspirational):**
-```hcl
-resource "databricks_lakebase_project" "soccer_analytics" {
-  name         = "soccer-analytics-lakebase"
-  catalog_name = databricks_catalog.soccer_analytics.name
-  autoscaling { min_capacity = 0; max_capacity = 4 }
-  engine_version = "17"
-}
-```
-
-**Actual implementation** (provider v1.110.0+, Autoscaling):
-```hcl
-resource "databricks_postgres_project" "soccer_analytics" {
-  project_id = "soccer-analytics-${var.environment}"
-  spec = {
-    pg_version   = 17
-    display_name = "Soccer Analytics Lakebase (${var.environment})"
-    default_endpoint_settings = {
-      autoscaling_limit_min_cu = var.autoscaling_min_cu
-      autoscaling_limit_max_cu = var.autoscaling_max_cu
-      suspend_timeout_duration = var.suspend_timeout_duration
-    }
-  }
-}
-```
-
-**Phase 5.5 migration**: Replaced `databricks_database_instance` (Provisioned, PG 16, fixed CU) with `databricks_postgres_project` + branch + endpoint (Autoscaling, PG 17, scale-to-zero). True usage-based billing, configurable PG version, and automatic suspend/resume.
-
-### 1.3 — Serverless SQL Warehouse
-
-**Terraform module: `terraform/modules/sql_warehouse/`**
-
-```hcl
-resource "databricks_sql_endpoint" "serverless" {
-  name             = "soccer-analytics-warehouse"
-  cluster_size     = "2X-Small"
-  enable_serverless_compute = true
-  auto_stop_mins   = 10       # Auto-stop after 10 min idle
-
-  tags {
-    custom_tags {
-      key   = "project"
-      value = "soccer-analytics"
-    }
-  }
-}
-```
-
-### 1.4 — Databricks App (Streamlit Host)
-
-**Terraform module: `terraform/modules/app/`**
-
-```hcl
-resource "databricks_app" "streamlit" {
-  name        = "soccer-analytics-dashboard"
-  description = "Soccermatics interactive analytics dashboard"
-
-  # Serverless runtime
-  resources {
-    name = "lakebase-connection"
-    sql_warehouse {
-      id         = databricks_sql_endpoint.serverless.id
-      permission = "CAN_USE"
-    }
-  }
-}
-```
-
-### 1.5 — Terraform Execution Order
-
-```
-1. workspace (catalog + schemas)
-    ├── 2a. lakebase (depends on catalog)
-    ├── 2b. sql_warehouse (independent)
-    └── 2c. workflows (depends on catalog)
-3. synced_tables (depends on lakebase + catalog)
-4. app (depends on sql_warehouse + lakebase)
-```
-
----
-
-## 8. Phase 2 — Data Ingestion
-
-### 2.1 — Ingestion Scripts
-
-Three Python modules, each responsible for one data source:
-
-**`src/ingestion/statsbomb.py`**
-
-```python
-# Key responsibilities:
-# 1. Fetch competitions list → write to bronze.statsbomb_competitions
-# 2. For each competition/season: fetch matches → bronze.statsbomb_matches
-# 3. For each match: fetch events → bronze.statsbomb_events
-# 4. For each match: fetch lineups → bronze.statsbomb_lineups
-# 5. For each match (where available): fetch 360 data → bronze.statsbomb_360
-
-# Uses: statsbombpy library (same as local soccermatics workspace)
-# Writes: Delta Lake tables via Databricks SDK / spark.write.format("delta")
-# Idempotency: partition by competition_id/season_id, overwrite partition
-```
-
-**`src/ingestion/metrica.py`**
-
-```python
-# Key responsibilities:
-# 1. Fetch sample tracking CSV from Metrica GitHub
-# 2. Parse 25fps coordinate data (all 22 players + ball)
-# 3. Write to bronze.metrica_tracking (partitioned by match_id, half)
-# 4. Fetch sample event data → bronze.metrica_events
-
-# Challenge: Tracking data is HIGH VOLUME (25 frames/sec × ~90 min = ~135,000 rows/match)
-# Strategy: Batch write in chunks, partition by match_id
-```
-
-**`src/ingestion/wyscout.py`**
-
-```python
-# Key responsibilities:
-# 1. Fetch Wyscout public event dataset JSON
-# 2. Parse match events for top 5 European leagues
-# 3. Write to bronze.wyscout_events (partitioned by competition_id)
-# 4. Write to bronze.wyscout_matches
-
-# Note: Wyscout public dataset is the 2017-18 season release
-# Local copy already exists at D:/Development/soccermatics/data/Wyscout/
-```
-
-### 2.2 — Databricks Workflows (Scheduling)
-
-**Terraform module: `terraform/modules/workflows/`**
-
-```hcl
-resource "databricks_job" "data_ingestion" {
-  name = "soccer-analytics-ingestion"
-
-  # Run on serverless compute (no cluster to manage)
-  task {
-    task_key = "ingest_statsbomb"
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "ingest_statsbomb"
-    }
-  }
-
-  task {
-    task_key = "ingest_metrica"
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "ingest_metrica"
-    }
-  }
-
-  task {
-    task_key = "ingest_wyscout"
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "ingest_wyscout"
-    }
-  }
-
-  # All three tasks can run in parallel
-  schedule {
-    quartz_cron_expression = "0 0 6 * * ?"  # Daily at 6am UTC
-    timezone_id            = "UTC"
-  }
-}
-```
-
-### 2.3 — Ingestion Best Practices
-
-| Practice | Implementation |
-|----------|---------------|
-| Idempotency | Partition-level overwrites; same run twice = same result |
-| Schema evolution | `mergeSchema = true` on Delta writes |
-| Data quality | Row counts logged; null checks on critical fields |
-| Incremental loads | StatsBomb: track last-seen match_id; only fetch new |
-| Error handling | Per-source try/catch; partial failure doesn't block others |
-| Audit trail | `_ingested_at` timestamp column on all bronze tables |
-
----
-
-## 9. Phase 3 — Transformation (dbt)
-
-### 3.1 — dbt Project Configuration
-
-**`dbt_project/dbt_project.yml`**
-
-```yaml
-name: soccer_analytics
-version: 1.0.0
-profile: databricks
-
-model-paths: ["models"]
-test-paths: ["tests"]
-macro-paths: ["macros"]
-seed-paths: ["seeds"]
-
-models:
-  soccer_analytics:
-    staging:
-      +materialized: view           # Views for staging (cheap, always fresh)
-      +schema: silver
-    intermediate:
-      +materialized: ephemeral      # CTEs, not persisted
-    marts:
-      +materialized: table          # Tables for gold (synced to Lakebase)
-      +schema: gold
-```
-
-### 3.2 — Key dbt Models
-
-**Silver: `stg_statsbomb__events.sql`** (flattens nested JSON)
-```sql
--- Flattens the deeply nested StatsBomb event structure:
--- Raw: { "type": {"id": 16, "name": "Shot"}, "location": [100.5, 33.2], "shot": {"statsbomb_xg": 0.12, ...} }
--- Output: event_id, match_id, type_name, location_x, location_y, shot_statsbomb_xg, ...
-```
-
-**Silver: `stg_statsbomb__shots.sql`** (shot-specific extraction)
-```sql
--- Extracts shot events with freeze-frame data exploded
--- Each row = one player position in the shot freeze frame
--- Enables defensive positioning analysis at moment of shot
-```
-
-**Gold: `fct_shots.sql`** (analytics-ready shot model)
-```sql
--- Business logic from soccermatics Chapter 02 (xG model):
--- • Distance to goal center (Pythagorean from location_x, location_y)
--- • Shot angle (arctan geometry from Chapter 02 plot_xGModelFit.py)
--- • Body part (left/right/head)
--- • Situation (open play, set piece, counter)
--- • StatsBomb xG (pre-computed by provider)
--- • Custom xG (logistic regression features ready for ML)
-```
-
-**Gold: `fct_player_stats.sql`** (per-90 aggregations)
-```sql
--- Business logic from soccermatics Chapter 03 (radar plots):
--- • Goals per 90, assists per 90, xG per 90
--- • Passes attempted/completed per 90
--- • Progressive passes per 90 (from Chapter 09 clustering)
--- • Defensive actions per 90
--- • Minutes played normalization
-```
-
-**Gold: `fct_match_summary.sql`** (match-level dashboard)
-```sql
--- Aggregated match stats for the main dashboard view:
--- • Total xG per team
--- • Possession percentage
--- • Pass completion rate
--- • Shot count and conversion rate
--- • Expected Threat (xT) buildup
-```
-
-### 3.3 — dbt Testing Strategy
-
-| Test Type | Coverage |
-|-----------|----------|
-| **Schema tests** | Not null on PKs, unique on IDs, accepted values on enums |
-| **dbt-expectations** | `expect_column_values_to_be_between` for xG (0–1), coordinates (pitch bounds) |
-| **Custom tests** | `assert_xg_between_0_and_1.sql`, `assert_coordinates_in_bounds.sql` |
-| **Source freshness** | Bronze tables must have data < 24 hours old |
-
-### 3.4 — Security
-
-| Control | Implementation |
+| Concern | Implementation |
 |---------|---------------|
-| Data integrity | dbt tests: `unique` on PKs, `not_null` on required columns, `accepted_values` on enums |
-| Access control | Unity Catalog `grants` defined in dbt post-hooks for schema-level permissions |
-| Audit lineage | dbt artifacts (`manifest.json`, `run_results.json`) logged; Unity Catalog lineage enabled |
+| Secrets management | No hardcoded credentials; OAuth M2M for app + Terraform; GitHub OIDC federation for CI (zero secrets) |
+| Network | TLS everywhere; HTTPS-only for all data fetches |
+| IAM | Least-privilege; separate service principals per workload |
+| Data classification | Open-source data only (no PII); Unity Catalog ACLs applied |
+| Audit | Unity Catalog audit logs; Terraform state versioning |
+| Input validation | Regex on all user-supplied identifiers (`^[a-zA-Z_][a-zA-Z0-9_]*$`) |
+| SSL verification | Explicit `verify=True` on all HTTP requests |
+| Timeouts | `(10, 30)` connect/read on every HTTP call |
+| Retry safety | Exponential backoff on transient errors (429/5xx); max 3 retries |
+| Bandit compliance | Ruff S rules enforced; no eval/exec/pickle/shell=True |
+| Content validation | Schema checks and non-empty assertions before every Delta write |
+| Full audit | See [SECURITY.md](SECURITY.md) — 31 findings, 28 resolved, 3 accepted |
 
-### 3.5 — dbt Execution
+### 6.2 — Quality Standards
 
-dbt models run on the **Serverless SQL Warehouse** provisioned in Phase 1. No cluster management needed.
+All code must pass these gates before merge:
 
-```bash
-# Development (local)
-dbt run --target dev --select staging
-dbt run --target dev --select marts
-dbt test --target dev
+| Check | Command | Threshold |
+|-------|---------|-----------|
+| Lint | `uv run ruff check src/` | Zero violations |
+| Type check | `uv run pyright src/` | Zero errors (basic mode) |
+| Unit tests | `uv run pytest src/tests/ -v` | All pass |
+| Security scan | Ruff S (bandit) rules | Zero violations |
+| Wheel build | `uv build` | Produces installable wheel |
 
-# CI (GitHub Actions)
-dbt build --target ci  # run + test in one command
+**Enforced Ruff rule sets:** E, W, F, I, N, UP, B, S (bandit), RUF
 
-# Production (Databricks Workflow)
-dbt build --target prod --full-refresh  # initial load
-dbt build --target prod                 # incremental after
-```
+### 6.3 — Cost Management
+
+| Strategy | Implementation |
+|----------|---------------|
+| Scale-to-zero | Lakebase Autoscaling min=0.5 CU; SQL Warehouse auto-stop=10min |
+| Serverless compute | No always-on clusters; pay per DBU consumed |
+| Budget | Dev environment: under $100/month with scale-to-zero |
+
+### 6.4 — Observability
+
+| Layer | Tool |
+|-------|------|
+| Infrastructure | Terraform plan output, Databricks audit logs |
+| Data pipeline | dbt test results, source freshness checks |
+| Ingestion | Databricks Workflow run history, row count assertions |
+| Application | Streamlit built-in metrics, Lakebase query logs |
+
+### 6.5 — Testing Strategy
+
+| Level | What | How |
+|-------|------|-----|
+| Unit | Ingestion logic, utility functions | pytest (155 tests) |
+| Integration | dbt models compile and run | `dbt build --target ci` |
+| Data quality | Row counts, value ranges, referential integrity | dbt tests (225) + dbt-expectations |
+| E2E | Streamlit pages render with real data | Manual smoke test |
+| Infrastructure | Terraform validates | `terraform validate` + `terraform plan` |
+
+### 6.6 — Architecture Documentation
+
+C4 diagrams are the single source of truth for architecture documentation, maintained as Structurizr DSL and regenerated automatically via `/final-review` before significant commits. See [§3.4](#34--c4-diagram-lifecycle).
 
 ---
 
-## 10. Phase 4 — Zero-ETL Synchronization (COMPLETE)
+## 7. Completed Phases
 
-> **Status**: Complete — 10 synced tables online (7 fact + 3 dimension), all data verified in Lakebase PostgreSQL
+| Phase | Description | Key Deliverables |
+|-------|-------------|------------------|
+| **0** | Foundation & Prerequisites | Workspace provisioned (Premium, us-east-1), Terraform state backend (S3 + native locking), repo initialized with uv + ruff + pyright + pre-commit, initial C4 diagrams |
+| **1** | Serverless Infrastructure | 7 Terraform modules (workspace, catalog, sql_warehouse, lakebase, workflows, synced_tables, app), 27+ resource files |
+| **2** | Data Ingestion | 3 ingestion modules → 9 bronze tables, 31.4M+ rows; shared utils with CLI, logging, HTTP, Delta helpers; 55 unit tests |
+| **3** | Transformation (dbt) | 20 dbt models (staging → intermediate → marts), 225 data tests, position_mapping seed, dbt-expectations range tests |
+| **4** | Zero-ETL Synchronization | 10 synced tables (Gold Delta → Lakebase PG), snapshot scheduling, sub-10ms OLTP queries |
+| **5** | Streamlit Application | 4 initial pages (Shot Map, Pass Map, Player Radar, Match Summary), OAuth M2M auth, ThreadedConnectionPool, deployed as Databricks App |
+| **5.5** | Lakebase Autoscaling Migration | PG 16 → PG 17, `databricks_postgres_project` + endpoint, scale-to-zero (0.5–4 CU), `sslmode=require` |
+| **5.6** | IAM OIDC + OAuth M2M + KMS | PAT → OAuth M2M for local dev, GitHub OIDC federation for secretless CI, KMS CMK for state encryption |
+| **6** | StatsBomb 360 Freeze Frames | `backfill_360()` entry point, `stg_statsbomb__360` staging model, 15.58M rows across 323 matches |
+| **7** | Metrica Game 3 + Pitch Control | EPTS format parsers (XML metadata + colon-delimited tracking + JSON events), ball coordinate fix, Voronoi pitch control page, 107 tests |
+| **8** | Heat Map + Pass Network | `pass_recipient_id` through dbt pipeline, Heat Map page (action density), Pass Network page (graph viz), synced table schema migration, 118 tests |
+| **9** | SPADL/VAEP Action Valuation | "Fetch Once, Fork Twice" — `spadl_adapter.py` + `spadl_vaep.py`, socceraction + XGBoost, 9.5M VAEP-scored actions, Action Values page (3 views), Player Radar VAEP/90, 155 tests |
 
-### 4.1 — Synced Tables Configuration
+### Key Design Decisions (from completed phases)
 
-This is the core differentiator vs. the traditional AWS architecture. Instead of Reverse ETL (Redshift UNLOAD → S3 → RDS import), Lakebase uses **Synced Tables**.
+| # | Decision | Impact |
+|---|----------|--------|
+| 1 | Databricks Premium tier | Includes Lakebase, Unity Catalog, Serverless SQL |
+| 2 | AWS us-east-1 | Consistent with existing infrastructure |
+| 3 | Dev only (single environment) | Simplifies structure; add prod later |
+| 4 | Under $100/month budget | Scale-to-zero mandatory everywhere |
+| 5 | All 3 data sources from start | StatsBomb, Metrica, Wyscout all in Phase 2 |
+| 6 | No Kloppy in Phase 9 | Direct bronze adapters simpler; Kloppy deferred to Phase 10 |
+| 7 | "Fetch Once, Fork Twice" | SPADL reads from bronze — no redundant API calls |
+| 8 | Synced tables via UI + import | Provider lacks project/branch fields; `lifecycle { ignore_changes = all }` |
+| 9 | OAuth M2M everywhere | Zero secrets in CI; short-lived JWT (60 min) for app |
 
-**Terraform module: `terraform/modules/synced_tables/`**
-
-Each Gold-layer table that needs to be queryable by Streamlit gets a `databricks_database_synced_database_table` resource:
-
-```hcl
-resource "databricks_database_synced_database_table" "fct_shots" {
-  name                   = "${var.catalog_name}.${var.gold_schema}.fct_shots_synced"
-  database_instance_name = var.database_instance_name
-  logical_database_name  = "databricks_postgres"
-
-  spec = {
-    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_shots"
-    primary_key_columns    = ["shot_id"]
-    scheduling_policy      = "SNAPSHOT"
-  }
-
-  lifecycle {
-    ignore_changes = all
-  }
-}
-```
-
-**Key implementation details:**
-- `gold_schema` variable handles dbt's environment prefix (`dev_gold` in dev, `gold` in prod)
-- `scheduling_policy = "SNAPSHOT"` — initial sync with on-demand refresh
-- `logical_database_name = "databricks_postgres"` — standard Lakebase database
-
-> **Autoscaling workaround (provider v1.110.0):** The `databricks_database_synced_database_table` resource only supports `database_instance_name` (Provisioned). The REST API server accepts project+branch fields but the Terraform provider, Go SDK, Python SDK, and CLI do not expose them. Synced tables targeting **Autoscaling projects** must be created via the **Databricks UI** (Catalog Explorer → source table → Create → Synced table → select project/branch), then imported into Terraform state using `scripts/import_synced_tables.sh`. The `lifecycle { ignore_changes = all }` block prevents drift — the provider also does not support updates ("Update Synced Database Table is not yet implemented"). This applies to any new synced table added in future phases.
-
-**Tables synced (Gold → Lakebase) with verified row counts:**
+### Synced Tables (Gold → Lakebase)
 
 | Source Table | Synced Table | Primary Key | Rows |
 |-------------|-------------|-------------|------|
@@ -990,642 +438,164 @@ resource "databricks_database_synced_database_table" "fct_shots" {
 | `dev_gold.dim_teams` | `dim_teams_synced` | `team_id` | 453 |
 | `dev_gold.dim_competitions` | `dim_competitions_synced` | `competition_id` | 21 |
 
-**PK fixes applied during implementation:**
-- `fct_player_stats`: changed from `["player_id", "match_id"]` to `["player_stats_id"]` (dbt surrogate key)
-- `fct_player_embeddings`: changed from `["player_id"]` to `["embedding_id"]` (dbt surrogate key)
+### Synced Tables: Implementation Notes
 
-### 4.2 — How Synced Tables Work
+- `scheduling_policy = "SNAPSHOT"` — initial sync with on-demand refresh
+- `logical_database_name = "databricks_postgres"` — standard Lakebase database
+- **Autoscaling workaround (provider v1.110.0):** `databricks_database_synced_database_table` only supports `database_instance_name` (Provisioned). Synced tables targeting Autoscaling projects must be created via Databricks UI, then imported into Terraform. `lifecycle { ignore_changes = all }` prevents drift. This applies to any new synced table.
+- **Schema changes:** Must delete synced table, drop ghost PG table, recreate via API, re-import into Terraform.
+- **Credential API:** REST endpoint is `/api/2.0/postgres/credentials` (NOT `/api/2.0/database/credentials`).
 
-```
-Gold Delta Table (lakehouse)
-         │
-         ▼
-  Lakeflow Declarative Pipeline (managed, serverless)
-         │
-         ▼  snapshot sync (initial + on-demand refresh)
-  Lakebase PostgreSQL table (read-only mirror)
-         │
-         ▼  standard PostgreSQL wire protocol (port 5432, sslmode=require)
-  Streamlit app queries via psycopg2 (OAuth M2M auth, retry on scale-to-zero)
-```
+### Streamlit App
 
-- **Latency**: Sub-10ms for point queries from Streamlit
-- **Consistency**: Snapshot-based (SNAPSHOT scheduling policy)
-- **Cost**: Included in Lakebase compute; no separate ETL job cost
-- **Management**: Zero — Databricks handles pipeline lifecycle
-- **Initial sync**: All 8 tables reached `SYNCED_TABLE_ONLINE_NO_PENDING_UPDATE` within 30 seconds
-
-### 4.3 — Security
-
-| Control | Implementation | Status |
-|---------|---------------|--------|
-| Connection restriction | Lakebase access restricted to Streamlit app service principal only | Phase 5 |
-| Connection pooling | `psycopg2.pool` with 55min recycle (under 1hr OAuth token expiry) | Phase 5 |
-| Encryption in transit | `sslmode=require` enforced on all PostgreSQL connections (Autoscaling requirement) | Active |
-| Read-only mirrors | Synced tables are read-only replicas — no write path from Streamlit to Gold | Active |
-| Authentication | OAuth M2M only (`effective_enable_pg_native_login = false`) | Active |
-| SSL enforcement | All Lakebase connections require SSL by default | Active |
-
-### 4.4 — Implementation Notes
-
-- **dbt schema naming**: dbt prepends target name to custom schemas, so `gold` becomes `dev_gold` in the dev target. The `gold_schema` variable in the synced_tables module handles this.
-- **Git Bash MSYS path mangling**: On Windows, Git Bash converts `/sql/1.0/...` to `C:/Program Files/Git/sql/1.0/...`. Fix: set `MSYS_NO_PATHCONV=1` before running dbt commands.
-- **Autoscaling scale-to-zero wake-up**: Lakebase Autoscaling endpoints suspend after the configured timeout (default 300s). First connection after suspension takes 2–5 seconds. The Streamlit app retries up to 3 times with 3s delay to handle this transparently.
-- **Synced table creation (manual step)**: Until the Databricks provider adds project/branch fields to `databricks_database_synced_database_table`, new synced tables must be created via the UI then imported into Terraform. See `scripts/import_synced_tables.sh` for the import workflow. This affects any future gold table additions (Phase 6+).
-- **Credential API for Autoscaling**: The REST endpoint is `/api/2.0/postgres/credentials` (NOT `/api/2.0/database/credentials` which only supports Provisioned instances). Requires OAuth authentication — PATs return 401 on `/api/2.0/database/` endpoints.
+| Page | Visualization | Data Source |
+|------|--------------|-------------|
+| Shot Map | Half-pitch shots sized by xG, colored by outcome | `fct_shots_synced` |
+| Pass Map | Full pitch arrows, progressive pass highlighting | `fct_passes_synced` |
+| Player Radar | Per-90 metrics comparison (1-3 players), incl. VAEP/90 | `fct_player_stats_synced` |
+| Match Summary | Scorecard + xG metrics + horizontal bar chart | `fct_match_summary_synced` |
+| Pitch Control | Voronoi tessellation from tracking data | `fct_tracking_frames_synced` |
+| Heat Map | Action density per player/team/match | `fct_passes_synced`, `fct_shots_synced` |
+| Pass Network | Player-to-player graph with scaled nodes/edges | `fct_passes_synced` |
+| Action Values | VAEP rankings, action type breakdown, timeline | `fct_action_values_synced`, `fct_player_stats_synced` |
 
 ---
 
-## 11. Phase 5 — Application Deployment (Streamlit) — COMPLETE
+## 8. Future Work
 
-### 5.1 — Streamlit App Architecture (Implemented)
+### 8.1 — Phase 10: Additional Public Tracking Datasets
 
-```
-src/streamlit_app/
-├── app.py              # Entrypoint: st.navigation, page routing, sidebar branding
-├── config.py           # Pydantic BaseSettings: env vars, identifier validation
-├── db.py               # OAuth M2M token management, parameterized query execution
-├── pages/
-│   ├── shot_map.py       # Shot map + xG scatter (mplsoccer half-pitch)
-│   ├── pass_map.py       # Pass arrows on full pitch with progressive highlighting
-│   ├── player_radar.py   # Radar chart comparing 1-3 players on per-90 metrics (incl. VAEP/90)
-│   ├── match_summary.py  # Scorecard, xG comparison, horizontal bar chart
-│   ├── heat_map.py       # Action density heat maps (Phase 8)
-│   ├── pass_network.py   # Player-to-player pass network graph (Phase 8)
-│   ├── action_values.py  # VAEP action valuation — rankings, breakdown, timeline (Phase 9)
-│   └── pitch_control.py  # Voronoi pitch control from Metrica tracking data
-└── components/
-    ├── filters.py      # 5 cascading filter widgets backed by Lakebase dimension tables
-    ├── pitch.py        # mplsoccer wrappers (shot scatter, pass arrows, pitch control)
-    └── charts.py       # matplotlib wrappers (radar, bar comparison)
-```
+**Status:** Planned. Expands beyond Metrica's 3 sample matches.
 
-Supporting files:
-- `app.yaml` — Databricks Apps manifest (port 8000, PYTHONPATH=src, env vars)
-- `requirements.txt` — Python dependencies for Databricks Apps deployment
-- `.streamlit/config.toml` — Dark theme (#1a1a2e), XSRF protection
+| Dataset | Matches | Tracking Format | Frame Rate | License |
+|---------|---------|----------------|------------|---------|
+| **Bundesliga IDSSE** | 7 | TRACAB (x,y,z,speed,accel) | 25fps | CC-BY 4.0 (Nature Scientific Data, Feb 2025) |
+| **SkillCorner Open Data** | 10 | JSONL (broadcast-derived) | 10fps | Public repo |
+| **Metrica Sports** | 3 | CSV + EPTS | 25fps | Public repo (already ingested) |
 
-### 5.2 — Authentication: OAuth M2M (Implemented)
+**Kloppy integration:** Use Kloppy (v3.18+) as a universal loader rather than per-provider parsers. Kloppy handles coordinate normalization, player identity mapping, and format-specific quirks. A single `src/ingestion/kloppy_loader.py` module could replace provider-specific tracking parsers.
 
-The app runs as a Databricks App with an auto-assigned **service principal** (`be66af99-5296-4fd9-887a-c081bce38bfa`). Token generation uses the REST API directly (the SDK's `generate_database_credential()` does not yet support the `endpoint` parameter for Autoscaling):
+**Architecture decision:** Normalize all providers to the Metrica bronze schema in ingestion (Kloppy handles this). Maintains backward compatibility with existing `stg_metrica__tracking` → `fct_tracking_frames` pipeline.
 
-```python
-# db.py — actual implementation pattern (Autoscaling, PG 17)
-ws = WorkspaceClient()  # Inherits SP identity from Databricks App runtime
-token = _generate_credential_via_rest(ws, settings.lakebase_endpoint_name)
+### 8.2 — Phase 11: Physics-Based Pitch Control Model
 
-pg_user = _extract_jwt_subject(token)  # JWT 'sub' claim = PG role name
-conn = psycopg2.connect(
-    host=settings.lakebase_host, port=5432,
-    database="databricks_postgres", user=pg_user, password=token,
-    sslmode="require",  # Autoscaling requirement
-)
-```
+**Status:** Planned. Replaces the current Voronoi approximation.
 
-**Key learnings from deployment:**
-- PG username is the JWT `sub` claim (SP UUID), not `"token"` or `"databricks"`
-- Lakebase PG database is `databricks_postgres` (Unity Catalog catalog does NOT map to a PG database)
-- Unity Catalog schema maps directly to a PG schema (e.g. `dev_gold`)
-- PG-level `GRANT USAGE ON SCHEMA` and `GRANT SELECT ON ALL TABLES` required in addition to UC grants
+The Phase 7 Pitch Control page uses Voronoi tessellation — a geometric approximation. A physics-based model (Spearman et al., 2017; Fernandez & Bornn, 2018) accounts for player velocity, acceleration, and time-to-intercept to produce continuous pitch control probabilities.
 
-### 5.3 — Implemented Pages
+**Implementation:**
+1. Per-cell time-to-intercept based on position, velocity, max acceleration
+2. Convert to control probability using logistic function
+3. Sum team probabilities → continuous pitch control surface [0, 1]
+4. Populate `pitch_control_value` in `fct_tracking_frames` (currently NULL)
+5. Update Streamlit with continuous heatmap overlay alongside Voronoi
 
-| Streamlit Page | Key Visualization | Data Source (Lakebase table) |
-|----------------|-------------------|-----------------------------|
-| Shot Map | mplsoccer half-pitch, shots sized by xG, colored by outcome | `fct_shots_synced` JOIN `dim_players_synced` |
-| Pass Map | mplsoccer full pitch, arrows colored by progressive/complete/incomplete | `fct_passes_synced` |
-| Player Radar | mplsoccer Radar, 1-3 players, per-90 metrics incl. VAEP/90 | `fct_player_stats_synced` JOIN `dim_players_synced` |
-| Match Summary | Scorecard + xG metrics + horizontal bar chart (8 stat categories) | `fct_match_summary_synced` |
-| Pitch Control | Voronoi tessellation showing space ownership from tracking data | `fct_tracking_frames_synced` |
-| Heat Map | Action density (passes + shots) binned on full pitch, per player/team/match | `fct_passes_synced`, `fct_shots_synced` |
-| Pass Network | Player-to-player passing graph with scaled nodes and edges | `fct_passes_synced` JOIN `dim_players_synced` |
-| Action Values | Player VAEP rankings, action type breakdown, match action timeline | `fct_action_values_synced`, `fct_player_stats_synced` |
+**Data requirements:** Tracking data with positions and velocities — available from Metrica (Phase 7) and IDSSE/SkillCorner (Phase 10).
 
-**Planned pages** (see [Section 14.6](#146--additional-streamlit-pages)): Player Similarity (pgvector).
-
-### 5.4 — Security (Implemented)
-
-| Control | Implementation |
-|---------|---------------|
-| Authentication | Databricks App OAuth M2M — SP identity with 55-min token refresh cycle |
-| SQL injection prevention | All queries use `%s` parameterized placeholders; table names validated via `_IDENTIFIER_RE` |
-| Input validation | Filter inputs sourced from dimension table queries; identifiers regex-validated; `int()` type assertions on all IDs (L-3) |
-| Connection pooling | `ThreadedConnectionPool` (min=1, max=5) with 55-min recycle aligned to token expiry; thread-safe via `_pool_lock` (L-4, L-6) |
-| SSL | `sslmode="require"` on all Lakebase connections (Autoscaling requirement) |
-| Query limits | `statement_timeout=30000` (30s) prevents runaway queries (M-3) |
-| Error handling | `psycopg2.Error` caught and sanitized — no tracebacks leaked to browser (M-2) |
-| Session security | No credentials or PII in `st.session_state`; tokens cached in module-level dict with TTL |
-| Full security audit | See [SECURITY.md](SECURITY.md) — 31 findings, 28 resolved (90% coverage) |
-
-### 5.5 — Deployment (Implemented)
-
-Deployed via `databricks apps deploy` with workspace source code sync. No Docker, no ECS — fully serverless on Databricks Apps runtime (Python 3.11).
-
-```yaml
-# app.yaml
-command: ['streamlit', 'run', 'src/streamlit_app/app.py', '--server.port', '8000', '--server.address', '0.0.0.0']
-```
-
----
-
-## 12. Cross-Cutting Concerns
-
-### 12.1 — Security
-
-| Concern | Implementation |
-|---------|---------------|
-| Secrets management | No hardcoded credentials; OAuth M2M for app + Terraform; GitHub OIDC federation for CI (zero secrets) |
-| Network | Private endpoints where available; TLS everywhere; HTTPS-only for all data fetches |
-| IAM | Least-privilege; separate service principals per workload |
-| Data classification | Open-source data only (no PII); still apply Unity Catalog ACLs |
-| Audit | Unity Catalog audit logs; Terraform state versioning |
-| Input validation | Regex on all user-supplied identifiers (`^[a-zA-Z_][a-zA-Z0-9_]*$`) to prevent injection |
-| SSL verification | Explicit `verify=True` on all HTTP requests; never disable cert checks |
-| Timeouts | `(10, 30)` connect/read on every HTTP call; no unbounded requests |
-| Retry safety | Exponential backoff on transient errors (429/5xx); max 3 retries |
-| Bandit compliance | Ruff S rules enforced; no eval/exec/pickle/shell=True |
-| Content validation | Schema checks and non-empty assertions before every Delta write |
-| Job notifications | Email alerts on ingestion job start, success, and failure |
-
-#### Phase 3 Security Requirements (dbt)
-
-| Requirement | Implementation |
-|-------------|---------------|
-| Data integrity tests | `unique`, `not_null`, `accepted_values` on all silver/gold model PKs and enums |
-| Access control | Define `grants` in dbt models for schema-level Unity Catalog permissions |
-| Audit lineage | Enable dbt artifacts logging; leverage Unity Catalog lineage for traceability |
-
-#### Phase 4 Security Requirements (Synced Tables / Lakebase)
-
-| Requirement | Implementation |
-|-------------|---------------|
-| Connection restriction | Restrict Lakebase access to Streamlit app service principal only |
-| Query limits | Configure query timeouts and connection pooling limits to prevent resource exhaustion |
-| Encryption in transit | Enforce `sslmode=require` on all PostgreSQL connections (Autoscaling) |
-
-#### Phase 5 Security Requirements (Streamlit)
-
-| Requirement | Implementation |
-|-------------|---------------|
-| Authentication | Use Databricks App auth (OAuth M2M) — never deploy without authentication |
-| SQL injection prevention | Parameterized queries only — never concatenate user input into SQL |
-| Input validation | Validate and sanitize all filter inputs (competition, team, player selectors) |
-| Session security | No PII or credentials cached in Streamlit session state |
-
-#### Production Hardening (All Phases)
-
-| Requirement | Implementation |
-|-------------|---------------|
-| Terraform state encryption | Add explicit `kms_key_id` to S3 backend for production |
-| CI/CD supply chain | Pin GitHub Actions to SHA digests instead of version tags |
-| Secrets rotation | Document 90-day Databricks PAT rotation; migrate to service principals for prod |
-
-### 12.6 — Quality Standards
-
-All code must pass these gates before merge:
-
-| Check | Command | Threshold |
-|-------|---------|-----------|
-| Lint | `uv run ruff check src/` | Zero violations |
-| Type check | `uv run pyright src/` | Zero errors (basic mode) |
-| Unit tests | `uv run pytest src/tests/ -v` | All pass |
-| Security scan | Ruff S (bandit) rules | Zero violations |
-| Wheel build | `uv build` | Produces installable wheel |
-
-**Enforced Ruff rule sets:** E, W, F, I, N, UP, B, S (bandit), RUF
-
-### 12.2 — Cost Management
-
-| Strategy | Implementation |
-|----------|---------------|
-| Scale-to-zero | Lakebase Autoscaling min=0; SQL Warehouse auto-stop=10min |
-| Serverless compute | No always-on clusters; pay per DBU consumed |
-| Right-sizing | Start with 2X-Small SQL Warehouse; scale based on usage |
-| Monitoring | Databricks billing alerts; tag all resources with `project=soccer-analytics` |
-| Estimate | Dev environment: ~$50-100/month with scale-to-zero (mostly idle) |
-
-### 12.3 — Observability
-
-| Layer | Tool |
-|-------|------|
-| Infrastructure | Terraform plan output, Databricks audit logs |
-| Data pipeline | dbt test results, source freshness checks |
-| Ingestion | Databricks Workflow run history, row count assertions |
-| Application | Streamlit built-in metrics, Lakebase query logs |
-
-### 12.4 — Testing Strategy
-
-| Level | What | How |
-|-------|------|-----|
-| Unit | Ingestion logic, utility functions | pytest |
-| Integration | dbt models compile and run | `dbt build --target ci` |
-| Data quality | Row counts, value ranges, referential integrity | dbt tests + dbt-expectations |
-| E2E | Streamlit pages render with real data | Manual smoke test + screenshots |
-| Infrastructure | Terraform validates | `terraform validate` + `terraform plan` |
-
-### 12.5 — Architecture Documentation (C4 + /final-review)
-
-C4 diagrams are the single source of truth for architecture documentation. They are maintained as code (Structurizr DSL) and regenerated automatically.
-
-**Pre-commit quality gate via `/final-review`:**
-
-The `/final-review` skill is invoked before any significant commit. It performs:
-1. Code and documentation consistency check
-2. Best practices review
-3. **C4 diagram regeneration** — ensures architecture docs reflect actual code
-
-**C4 update triggers:**
-| Change Type | C4 Action |
-|-------------|-----------|
-| New Terraform module added | Update L2 Container + Deployment diagrams |
-| New ingestion source | Update L3 Ingestion Component diagram |
-| New dbt model in marts/ | Update L3 dbt Component + L4 Data Flow diagrams |
-| New Streamlit page | Update L3 App Component diagram |
-| Infrastructure topology change | Update Deployment diagram |
-| Any of the above | Run `/final-review` → auto-regenerates all C4 diagrams |
-
-**ADR**: `docs/architecture-decision-records/004-c4-architecture-docs.md` documents the decision to use C4 as the standard.
-
----
-
-## 13. Decisions Log (Resolved Questions)
-
-All planning questions have been answered. This section records the decisions for future reference.
-
-| # | Question | Decision | Impact |
-|---|----------|----------|--------|
-| 1 | Databricks workspace | **Provision new** via AWS Marketplace | Phase 0 includes workspace provisioning |
-| 2 | Databricks tier | **Premium** | Includes Lakebase, Unity Catalog, Serverless SQL |
-| 3 | AWS region | **us-east-1** | Consistent with MCP CodeDeploy setup |
-| 4 | Terraform state backend | **Exists but unused** — S3 bucket + DynamoDB table provisioned, never used | Verify connectivity in Phase 0, no provisioning needed |
-| 5 | GitHub repository | **`karstenskyt/luxury-lakehouse`** — Monty Python Four Yorkshiremen theme | Repo created on GitHub, ready for initial push |
-| 6 | Budget | **Under $100/month** | Scale-to-zero mandatory everywhere; 2X-Small SQL Warehouse; aggressive auto-stop |
-| 7 | Environments | **Dev only** | Single Terraform environment; simplifies structure; add prod later |
-| 8 | Metrica tracking data | **Include from start** | All three data sources (StatsBomb, Metrica, Wyscout) in Phase 2 |
-| 9 | Additional data sources | **Future consideration** | Design pipeline to be extensible (modular ingestion); don't implement Signality/SkillCorner now |
-| 10 | pgvector | **In scope** | Include vector embedding work in initial implementation; leverage Lakebase native pgvector |
-
-### Design Implications of These Decisions
-
-**Budget ($100/month) + Dev-only:**
-- All compute must scale to zero: Lakebase Autoscaling min=0, SQL Warehouse auto-stop=10min
-- No always-on resources whatsoever
-- Single Terraform environment (removes `terraform/environments/prod/`)
-- Databricks Premium is ~$0.55/DBU — budget allows ~180 DBUs/month of active compute
-
-**Metrica from start + pgvector in scope:**
-- Phase 2 includes all three ingestion modules (no deferral)
-- pgvector-powered similarity search deferred to Phase 10 (embeddings) and Phase 11 (Streamlit page)
-- Gold layer has a `gold.fct_player_embeddings` table provisioned (0 rows; populated in Phase 10)
-- Lakebase Synced Tables include the embeddings table (ready for Phase 11 Player Similarity page)
-
-**Repo finalized:**
-- GitHub repo: `karstenskyt/luxury-lakehouse` (created, empty)
-- Ready for `git remote add origin` and initial push
-- GitHub Actions CI can be configured from Phase 0
-
-### Remaining Open Items
-
-| Item | Status | Blocker? |
-|------|--------|----------|
-| GitHub repo name | Decided: `karstenskyt/luxury-lakehouse` | No — resolved |
-| Terraform state backend validation | Exists, needs connectivity test | Phase 0 task |
-| Databricks Terraform provider Lakebase support | Must verify at implementation time | R1 in Risk Register |
-
----
-
-## 13.5 Phase 5.6 — IAM OIDC + OAuth M2M + KMS Hardening (COMPLETE)
-
-Resolves three open security findings before the repo goes public:
-
-| Finding | Description | Resolution |
-|---------|-------------|------------|
-| **M-6** | Long-lived PAT as Terraform authenticator | Migrated to OAuth M2M (`client_id`/`client_secret`) for local dev; GitHub OIDC federation for CI |
-| **L-10** | S3 state encryption uses default AWS-managed key | KMS CMK with automatic rotation + S3 Bucket Key (`terraform/modules/state_kms/`) |
-| **CI OIDC** | `terraform-plan.yml` references non-existent IAM OIDC role | Created `terraform/modules/github_oidc/` — IAM OIDC provider + role scoped to `repo:karstenskyt/luxury-lakehouse:*` |
-
-**New Terraform modules:**
-- `terraform/modules/state_kms/` — KMS CMK with automatic rotation, S3 Bucket Key for cost optimization
-- `terraform/modules/github_oidc/` — AWS IAM OIDC provider + scoped role (S3 state read/write/lock, KMS encrypt/decrypt, IAM read for plan)
-
-**Modified resources:**
-- `terraform/modules/service_principals/` — added Terraform CI SP with: `databricks_service_principal_federation_policy` (GitHub OIDC, `subject_claim = "repository"` for trigger-agnostic matching), workspace admin group membership, account admin role (federation policy + rule set reads)
-- `terraform/environments/dev/` — provider migrated from `token` to `client_id`/`client_secret`, new module calls wired, `databricks_grant` for CI SP catalog access (`ALL_PRIVILEGES`)
-- `.github/workflows/terraform-plan.yml` — `secrets.*` → `vars.*`, PAT → OIDC, added `DATABRICKS_AUTH_TYPE: github-oidc`
-- `backend.tf` — removed hardcoded `profile`, added `kms_key_id` with CMK ARN (applied via `terraform init -reconfigure`)
-
-**Bootstrap sequence:** Apply locally with OAuth M2M → capture outputs → update `backend.tf` with KMS ARN → `terraform init -reconfigure` → set 3 GitHub repo variables → CI is fully secretless.
-
----
-
-## 13.6 Phase 9 — SPADL / VAEP Action Valuation (COMPLETE)
-
-"Fetch Once, Fork Twice" redesign: SPADL pipeline reads from existing bronze Delta tables instead of re-fetching from APIs. Eliminates redundant API calls, fixes Wyscout DNS failure on Databricks serverless, adds incrementality and model persistence.
-
-| Task | Description | Status |
-|------|-------------|--------|
-| **Exact-pin deps** | `socceraction==1.5.3`, `xgboost==3.2.0`, `multimethod==1.12` (pandera chain) | Complete |
-| **Bronze enrichment** | `_build_raw_extra_json()` in `statsbomb.py` + backfill entry point | Complete |
-| **SPADL adapter** | `spadl_adapter.py` — bronze-to-socceraction format for StatsBomb + Wyscout | Complete |
-| **VAEP pipeline** | `spadl_vaep.py` — 4-phase: bronze read, SPADL convert, train XGBoost, score | Complete |
-| **Terraform** | Removed `statsbombpy` from analytics env, exact-pinned deps | Complete |
-| **dbt** | `stg_spadl__action_values`, `fct_action_values`, `fct_player_stats` VAEP columns | Complete |
-| **Streamlit** | Action Values page (3 views), Player Radar updated with VAEP/90 | Complete |
-| **Synced tables** | `fct_action_values_synced` (new), `fct_player_stats_synced` (recreated) — 10 total | Complete |
-| **E2E** | 7M StatsBomb + 2.5M Wyscout SPADL actions, 9.5M VAEP-scored actions | Complete |
-| **Tests** | 155 unit tests (19 adapter + 3 pipeline new), ruff 0, pyright 0 | Complete |
-| **dbt build** | PASS=226 WARN=20 ERROR=0 (10 tables, 225 data tests, 2 seeds, 9 views) | Complete |
-
-**Key design decisions:**
-- **No Kloppy dependency**: Originally planned to use Kloppy as a universal loader, but `spadl_adapter.py` provides a simpler direct mapping from bronze columns to socceraction format. Kloppy deferred to Phase 10 (tracking datasets).
-- **`_raw_extra_json` enrichment**: StatsBomb events enriched with nested type-specific JSON during ingestion. `statsbombpy` caches HTTP responses, so the second `sb.events(fmt="json")` call reuses the cached response.
-- **Incremental processing**: Games already in `spadl_actions` and `vaep_action_values` are skipped on subsequent runs.
-- **Model persistence**: XGBoost models saved to UC Volumes with hash-based cache key for deterministic retraining.
-
----
-
-## 14. Future Work
-
-### 14.1 — Future Data Sources
-
-The following data sources are planned for integration after Phase 9:
+### 8.3 — Future Data Sources
 
 | Source | Data Type | Status | Notes |
 |--------|-----------|--------|-------|
-| **Respo.Vision** | 3D pose tracking from broadcast video | Planned | User pursuing via professional network; skeletal keypoints at 25fps |
-| **Wyscout match metadata** | Match details (formations, coaches, venue) | Deferred | Event data ingested; full match metadata not in public Figshare dataset |
-| **StatsBomb 360 freeze frames** | Visible player positions per event | **Complete** | Phase 6: `backfill_360()` in `statsbomb.py`, `stg_statsbomb__360` staging model with EXPLODE + tests |
-| **Bundesliga IDSSE** | TRACAB tracking (25fps) + DFL events, 7 matches | Planned | CC-BY 4.0 license (Nature Scientific Data, Feb 2025). High-quality synchronized tracking + events |
-| **SkillCorner Open Data** | JSONL tracking (10fps) + CSV events, 10 A-League matches | Planned | From SkillCorner public repo. Lower frame rate but broadcast-derived (no stadium install needed) |
-| **Kloppy** | Standardized tracking/event loader (14+ providers) | Planned | v3.18+. Replaces per-provider parsing with unified coordinate normalization. Supports Metrica CSV/EPTS, SkillCorner, TRACAB, StatsBomb |
-| **socceraction (SPADL/VAEP)** | Unified event format + action valuation | **Complete** | v1.5.3. Phase 9: "Fetch Once, Fork Twice" — reads from bronze, SPADL conversion, XGBoost VAEP scoring. 9.5M actions scored. |
+| **Respo.Vision** | 3D pose tracking from broadcast video | Planned | User pursuing via network; skeletal keypoints at 25fps |
+| **Wyscout match metadata** | Match details (formations, coaches, venue) | Deferred | Not in public Figshare dataset |
 
-Each new source follows the established pattern: `src/ingestion/<source>.py` → Bronze Delta tables → dbt staging/marts → Synced Tables → Lakebase.
+Each new source follows the established pattern: `src/ingestion/<source>.py` → Bronze → dbt staging/marts → Synced Tables → Lakebase.
 
-### 14.1.1 — Phase 6: StatsBomb 360 Freeze Frames (Complete)
+### 8.4 — Phase 12: Movement Analysis
 
-**Scope**: Bronze backfill + dbt staging model. No gold fact table, no synced table, no Streamlit page.
-
-**Ingestion** (`src/ingestion/statsbomb.py`):
-- `backfill_360()` — iterates matches with existing events but no 360 data, fetching `sb.frames()` per match
-- `backfill_360_main()` — CLI entry point registered as `backfill_statsbomb_360` in `pyproject.toml`
-- Reuses existing helpers: `_read_existing_match_ids`, `_safe_fetch`, `_write_batch`, `serialize_json_columns`
-- Partition-level overwrite by `competition_id` + `season_id` for idempotency
-
-**dbt staging** (`dbt_project/models/staging/statsbomb/`):
-- `stg_statsbomb__360.sql` — bronze data is already one-row-per-player-per-event (statsbombpy pre-explodes). Parses `location` JSON, deduplicates via `ROW_NUMBER()` (statsbombpy can return duplicate rows), renames to project conventions
-- Surrogate key: `id` + `location` + `teammate` + `actor` + `keeper` (all distinguishing fields — no player ID exists in 360 data)
-- Extracts `is_teammate`, `is_actor`, `is_keeper` booleans and `location_x`/`location_y` coordinates
-- `visible_area_vertices` count (raw polygon of alternating x,y values, divided by 2)
-- Tests: unique, not_null, relationships (FK to events with warn severity), accepted_values on booleans, range tests on coordinates (widened for off-pitch players visible to camera: x [-10, 130], y [-40, 120])
-- **15.58M rows**, 1.03M distinct events, 323 matches across 5 competitions
-
-**11 competition-seasons with 360 data**: World Cup 2022, Euro 2024, Euro 2020, La Liga 2020/21, Ligue 1 2021/22 + 2022/23, Bundesliga 2023/24, MLS 2023, Women's Euro 2022 + 2025, Women's World Cup 2023.
-
-### 14.2 — Cross-Source Player Entity Resolution
-
-`dim_players` currently deduplicates within each source, but StatsBomb, Metrica, and Wyscout use independent player IDs with no shared key. The same player (e.g., Messi) exists as three separate rows.
-
-**Planned approach:** [`parmacalcio1913/players-matcher`](https://github.com/parmacalcio1913/players-matcher) — a fuzzy-matching library purpose-built for football player entity resolution across data providers. It uses name similarity, birth date, and team context to produce a canonical mapping table.
-
-**License blocker:** As of 2026-02-28, `parmacalcio1913/players-matcher` has **no license** (all rights reserved by default). Before using this library, request the maintainer add an open-source license (e.g., MIT or Apache-2.0). If no license is forthcoming, implement fuzzy matching independently using `rapidfuzz` or similar.
-
-**Integration path (after license is resolved):**
-1. Add `players-matcher` as a dependency
-2. Build a mapping seed or intermediate model (`int_player_xref`) that links StatsBomb, Metrica, and Wyscout player IDs to a canonical `player_id`
-3. Refactor `dim_players` to merge cross-source records using the mapping
-4. Downstream fact tables and Streamlit pages automatically benefit from unified player identity
-
-This is a prerequisite for meaningful cross-source analytics (e.g., comparing a player's StatsBomb xG with their Wyscout event data).
-
-### 14.3 — pgvector Player Embeddings
-
-The `fct_player_embeddings` gold table and its synced table are provisioned but contain 0 rows. The embedding logic has not been implemented yet.
-
-**Planned work:**
-- Design a feature vector from `fct_player_stats` per-90 metrics (goals, assists, xG, progressive passes, etc.)
-- Generate embeddings in a dbt model or Python post-processing step
-- Populate `fct_player_embeddings` with vectors suitable for pgvector similarity search
-- Implement the **Player Similarity** Streamlit page (`player_search.py`) using pgvector `<=>` cosine distance queries
-- Depends on cross-source player entity resolution (14.2) for unified player identity
-
-### 14.5 — Metrica Tracking Data: Game 3 + Pitch Control (Complete)
-
-Games 1–2 were already ingested. This phase fixed ball coordinate propagation, added Game 3 EPTS format ingestion, synced `fct_tracking_frames` to Lakebase, and built a Pitch Control visualization with Voronoi tessellation.
-
-| Task | Description | Status |
-|------|-------------|--------|
-| **Ball coordinate fix** | `stg_metrica__tracking.sql` — broadcast frame-level `ball_x`/`ball_y` instead of NULL | Complete |
-| **Game 3 ingestion** | EPTS parsers: XML metadata, colon-delimited tracking, JSON events in `metrica.py` | Complete |
-| **Unit tests** | 22 new tests for EPTS parsers + 4 pitch control viz tests (107 total) | Complete |
-| **Pitch Control page** | `plot_pitch_control()` with Voronoi, `pitch_control.py` with match/period/frame filters | Complete |
-| **Sync fct_tracking_frames** | Terraform resource + Lakebase synced table for Streamlit queries | Complete |
-
-### 14.7 — SPADL / VAEP Action Valuation (Complete — Phase 9)
-
-**Status:** Complete (Phase 9). Implemented as "Fetch Once, Fork Twice" — reads from existing bronze tables instead of re-fetching from APIs.
-
-**Key libraries:**
-- [`socceraction`](https://github.com/ML-KULeuven/socceraction) (v1.5.3) — SPADL conversion + VAEP model training.
-- [`xgboost`](https://github.com/dmlc/xgboost) (v3.2.0) — Gradient-boosted tree models for VAEP scoring.
-- `multimethod==1.12` — Exact pin required (pandera 0.17.2 needs `overload` from multimethod 1.x).
-
-**Architecture (Fetch Once, Fork Twice):**
-- `spadl_adapter.py` — Transforms bronze event tables (StatsBomb, Wyscout) into socceraction-compatible DataFrames without re-fetching from APIs
-- `spadl_vaep.py` — 4-phase pipeline: read bronze → SPADL conversion → feature extraction + XGBoost training → score all actions
-- `statsbomb.py` — Enriched with `_raw_extra_json` column containing type-specific nested event data needed by socceraction
-- Incremental processing: skips games already in `spadl_actions` and `vaep_action_values` tables
-- Model persistence: trained XGBoost models saved to UC Volumes with hash-based cache key
-
-**Results:**
-- ~7M StatsBomb + ~2.5M Wyscout SPADL actions converted
-- ~9.5M actions scored with offensive/defensive VAEP values
-- dbt pipeline: `stg_spadl__action_values` (staging) → `fct_action_values` (gold) + `fct_player_stats` VAEP columns
-- Streamlit: Action Values page (3 views) + Player Radar updated with VAEP/90 metrics
-
-**Why this is valuable:** VAEP provides a principled, cross-source metric for player and action valuation that doesn't require tracking data. It's also a prerequisite for DEFCON defensive valuation (§14.10).
-
-### 14.8 — Additional Public Tracking Datasets
-
-**Status:** Planned (Phase 10). Expands beyond Metrica's 3 sample matches.
-
-Currently, the platform has tracking data from only 3 Metrica Sports sample matches. Two newly available public datasets would bring the total to ~20 matches with synchronized tracking + event data:
-
-| Dataset | Matches | Tracking Format | Frame Rate | Events | License | Reference |
-|---------|---------|----------------|------------|--------|---------|-----------|
-| **Bundesliga IDSSE** | 7 | TRACAB (x,y,z,speed,accel) | 25fps | DFL events (JSON) | CC-BY 4.0 | Bassek et al., *Nature Scientific Data*, Feb 2025 |
-| **SkillCorner Open Data** | 10 | JSONL (broadcast-derived) | 10fps | CSV events | Public repo | SkillCorner GitHub |
-| **Metrica Sports** | 3 | CSV + EPTS | 25fps | CSV + JSON | Public repo | Already ingested |
-
-**Kloppy integration:** Rather than writing per-provider parsers (as done for Metrica), use Kloppy as a universal loader. Kloppy handles coordinate system normalization, player identity mapping, and format-specific quirks for all three providers. A single `src/ingestion/kloppy_loader.py` module could replace provider-specific tracking parsers.
-
-**Architecture decision:** The existing `stg_metrica__tracking` → `fct_tracking_frames` pipeline assumes Metrica-specific columns. With multiple tracking providers, either:
-- (a) Normalize all providers to the Metrica bronze schema in ingestion (Kloppy handles this), or
-- (b) Refactor to a provider-agnostic `stg_tracking` staging model
-
-Option (a) is simpler and maintains backward compatibility.
-
-### 14.9 — Physics-Based Pitch Control Model
-
-**Status:** Planned (Phase 11). Replaces the current Voronoi approximation.
-
-The Phase 7 Pitch Control page uses Voronoi tessellation — a geometric approximation that assigns space to the nearest player. A physics-based model (Spearman et al., 2017; Fernandez & Bornn, 2018) accounts for player velocity, acceleration, and time-to-intercept to produce continuous pitch control probabilities.
-
-**Implementation:**
-1. For each pitch cell (e.g., 1m×1m grid), compute each player's time-to-intercept based on current position, velocity, and maximum acceleration
-2. Convert time-to-intercept to control probability using a logistic function
-3. Sum team probabilities per cell → continuous pitch control surface [0, 1]
-4. Populate `pitch_control_value` column in `fct_tracking_frames` (currently NULL) or create a new `fct_pitch_control` table at reduced spatial resolution
-5. Update Streamlit Pitch Control page with continuous heatmap overlay option alongside existing Voronoi view
-
-**Data requirements:** Tracking data with player positions and velocities — available from Metrica (Phase 7), and from IDSSE/SkillCorner (Phase 10 if completed).
-
-### 14.10 — DEFCON-Inspired Defensive Contribution Framework
-
-**Status:** Research complete, implementation planned (Phase 16). Multi-tier approach. Tier 1 (VAEP) complete as of Phase 9.
-
-**Paper:** Kim, H.S. et al. (2025). "Better Prevent than Tackle: Valuing Defense in Soccer Based on Graph Neural Networks." *arXiv:2512.10355*. Developed at Ajax Amsterdam.
-
-**Framework overview:** DEFCON (DEFensive CONtribution) quantifies individual defensive contributions by decomposing Expected Possession Value (EPV) changes during opponent possessions into 4 credit types:
-- **Intercept** — winning the ball via tackle or interception
-- **Disturb** — forcing a suboptimal action (bad pass, failed dribble)
-- **Deter** — preventing a dangerous action from being attempted (closing passing lanes, pressuring the ball carrier)
-- **Concede** — negative credit when allowing dangerous actions
-
-**Architecture (7 GAT-based component models):**
-1. Action Selection Model — P(action type | game state) using Graph Attention Networks on player positions/velocities
-2. Pass Success Model — P(pass completion | sender, receiver, defenders)
-3. Shot Blocking Model — P(shot is blocked | shooter position, defender positions)
-4. Goal-Scoring Probability — P(goal | shot features, keeper position)
-5. Goal-Conceding Probability — P(concede | current game state)
-6. Unblocked xG (UxG) — expected goal probability if no defenders present
-7. Failure Receiver Model — P(which player receives failed action)
-
-**License warning:** The DEFCON repository ([`hyunsungkim-ds/defcon`](https://github.com/hyunsungkim-ds/defcon)) has **no LICENSE file** as of 2026-03-01. Under copyright law, this means all rights are reserved — code cannot be copied, modified, or distributed without explicit permission. The implementation approach must be:
-- **Equations and methodology** from the published paper (arXiv) are public and can be reimplemented
-- **Code** from the GitHub repo cannot be used without a license
-- **Standard libraries** (PyTorch Geometric, scikit-learn, socceraction) are open-source and freely usable
-
-**Data requirements vs. what we have:**
-- DEFCON was trained on 564 Eredivisie matches with synchronized tracking + event data (commercial, non-public)
-- We currently have 3 Metrica matches (~20 with IDSSE + SkillCorner)
-- GNN training requires hundreds of matches — tabular DEFCON-lite is feasible with fewer matches
-- Full GNN DEFCON likely requires commercial tracking data or significant expansion of public datasets
-
-**Tiered implementation plan:**
-
-| Tier | Approach | Data Needed | Feasibility |
-|------|----------|-------------|-------------|
-| **Tier 1: VAEP** | SPADL + gradient-boosted VAEP scoring | Event data only (3,000+ StatsBomb matches) | **Complete** (Phase 9) |
-| **Tier 2: Pitch Control** | Physics-based model (Spearman 2017) | Tracking data (3–20 matches) | Phase 11 (Voronoi done in Phase 7) |
-| **Tier 3: DEFCON-lite** | Tabular model using VAEP features + tracking-derived spatial features (no GNN) | ~20 matches with tracking + events | Feasible with IDSSE + SkillCorner (Phase 10) |
-| **Tier 4: Full GNN DEFCON** | Graph Attention Networks on player graphs per frame | 500+ matches with tracking | Requires commercial data |
-
-**Key insight:** Tiers 1–3 deliver increasing analytical value using only public data and open-source tools. Tier 4 (full GNN) is aspirational and may require partnerships with data providers.
-
-### 14.11 — Movement Analysis
-
-**Status:** Planned (Phase 12). Physical and tactical movement analysis from tracking data.
-
-"Movement Analysis" is an umbrella term spanning two traditions in football analytics:
-
-| Tradition | What It Measures | Data Required |
-|-----------|-----------------|---------------|
-| **Physical/Sports Science** | Distance, speed, sprints, accelerations, metabolic power | Tracking (25fps x,y) |
-| **Tactical/Spatial** | Off-ball runs, space creation, pressing, defensive shape | Tracking + Events |
-
-**Three-tier implementation plan:**
+**Status:** Planned. Physical and tactical movement analysis from tracking data.
 
 | Tier | Scope | Data Source | Dependencies |
 |------|-------|-------------|-------------|
 | **Tier 1: Event-data proxies** | PPDA, pressure event analysis | StatsBomb + Wyscout events (all matches) | None — feasible now |
-| **Tier 2: Physical performance** | Distance, HSR, sprints, accelerations, metabolic power | Tracking data (Metrica + IDSSE + SkillCorner) | Phase 10 (tracking ingestion) |
-| **Tier 3: Off-ball spatial** | Off-ball xT, space creation, OBSO | Tracking + pitch control surface | Phase 10 + Phase 11 (pitch control) |
-
-**Tier 1 — Event-data proxies (all matches):**
-- **PPDA** (Passes Per Defensive Action): count passes allowed per defensive action in opponent's attacking 60% of pitch. Computable from existing `fct_passes` and event-level action data.
-- **Pressure event analysis**: StatsBomb includes explicit `type='Pressure'` events with location data. Density maps show where and how intensely teams/players press.
-- Add to `fct_match_summary` or new `fct_pressing_stats` gold table, synced to Lakebase.
-
-**Tier 2 — Physical performance (tracking matches):**
-- Use [`floodlight`](https://github.com/floodlight-sports/floodlight) (v1.1+, MIT license) for kinematics computation on tracking data. Floodlight implements: velocity/speed from x/y deltas, acceleration profiles, metabolic power (Osgnach et al. 2010), sprint detection (speed thresholds), Butterworth smoothing for noisy tracking signals.
-- Key metrics: total distance (km/match), high-speed running (>19.8 km/h), sprint distance (>25.1 km/h), sprint count, peak velocity, accelerations/decelerations.
-- Currently feasible for 3 Metrica matches (`fct_tracking_frames` already has `speed` and `velocity_x/y`); extends to ~20 matches after Phase 10.
-- New Streamlit **Movement Analysis page**: speed heatmaps, per-player distance profiles, sprint timelines.
-
-**Tier 3 — Off-ball spatial analysis (tracking + pitch control):**
-- **Off-Ball Expected Threat (Off-ball xT)**: `pitch_control(location) × xT(location)` per frame per player. Values the positioning of players who never receive the ball. Reference: Soccermatics Lesson 7 (Sumpter).
-- **Space creation**: Quantify area of pitch opened for teammates by a player's movement, drawing defenders away. Reference: Fernandez & Bornn 2018, "Wide Open Spaces" (neural network pitch control + space generation attribution).
-- **OBSO (Off-Ball Scoring Opportunities)**: Probability of scoring if ball is played to where an off-ball player stands. Reference: Spearman 2018, "Beyond Expected Goals."
-- Requires physics-based pitch control surface (Phase 11) for meaningful results.
-
-**Key academic references:**
-- Spearman (2018) — "Beyond Expected Goals" (OBSO from tracking data)
-- Fernandez & Bornn (2018) — "Wide Open Spaces" (space creation quantification)
-- Soccermatics Lesson 7 — Off-ball run valuation (Sumpter, directly on our curriculum path)
-- Kempe et al. (2024) — 9-step framework for player movement analysis (Frontiers in Sports and Active Living)
-- LaurieOnTracking Tutorials 2–4 — Reference implementation of physical metrics + pitch control + EPV
+| **Tier 2: Physical performance** | Distance, HSR, sprints, accelerations, metabolic power | Tracking data (Metrica + IDSSE + SkillCorner) | Phase 10 |
+| **Tier 3: Off-ball spatial** | Off-ball xT, space creation, OBSO | Tracking + pitch control surface | Phase 10 + Phase 11 |
 
 **Key libraries:**
-- [`floodlight`](https://github.com/floodlight-sports/floodlight) (v1.1+, MIT) — Full kinematics pipeline: speed, acceleration, metabolic power, space control, entropy
-- [`databallpy`](https://github.com/Alek050/databallpy) (MIT) — Gaussian space model (Fernandez & Bornn), pressure calculation, event+tracking sync
-- [`kloppy`](https://github.com/PySport/kloppy) (BSD-3) — Data loading/normalization only (already planned for Phase 10)
+- [`floodlight`](https://github.com/floodlight-sports/floodlight) (v1.1+, MIT) — Full kinematics pipeline
+- [`databallpy`](https://github.com/Alek050/databallpy) (MIT) — Gaussian space model, pressure calculation
+- [`kloppy`](https://github.com/PySport/kloppy) (BSD-3) — Data loading/normalization (Phase 10)
 
-**Data constraint:** True movement analysis (pitch control, off-ball run detection, OBSO) requires tracking data at 25fps. Available: 3 matches now (Metrica), ~20 after Phase 10 (+ IDSSE + SkillCorner). Sufficient for demonstrating the full analytical pipeline; clubs with proprietary tracking would plug in their own data.
+**Key references:** Spearman 2018 (OBSO), Fernandez & Bornn 2018 ("Wide Open Spaces"), Soccermatics Lesson 7 (off-ball xT), Kempe et al. 2024 (movement analysis framework).
 
-### 14.6 — Additional Streamlit Pages
+### 8.5 — Phase 13: Cross-Source Player Entity Resolution
 
-| Page | Description | Data Source | Status |
-|------|-------------|-------------|--------|
-| **Pitch Control** | Voronoi diagrams showing space ownership | `fct_tracking_frames_synced` | Complete (Phase 7) |
-| **Heat Map** | Touch/action density maps per player or team | `fct_passes_synced`, `fct_shots_synced` | Complete (Phase 8) |
-| **Pass Network** | Graph visualization of passing connections between teammates | `fct_passes_synced` JOIN `dim_players_synced` | Complete (Phase 8) |
-| **Action Values** | Player VAEP rankings, action type breakdown, match action timeline | `fct_action_values_synced`, `fct_player_stats_synced` | Complete (Phase 9) |
-| **Movement Analysis** | Speed heatmaps, distance profiles, sprint timelines, pressing intensity | `fct_tracking_frames_synced`, `fct_pressing_stats_synced` | Planned — Phase 12 (14.11) |
-| **Player Similarity** | pgvector-powered nearest-neighbor search | `fct_player_embeddings_synced` | Planned — depends on 14.3 |
+`dim_players` currently deduplicates within each source, but StatsBomb, Metrica, and Wyscout use independent player IDs. The same player exists as separate rows per source.
+
+**Planned approach:** [`parmacalcio1913/players-matcher`](https://github.com/parmacalcio1913/players-matcher) for fuzzy matching. **License blocker:** No license as of 2026-02-28 (all rights reserved). Fallback: implement with `rapidfuzz`.
+
+**Integration path:** `int_player_xref` mapping → refactor `dim_players` → downstream tables automatically benefit.
+
+### 8.6 — Phase 14: pgvector Player Embeddings
+
+`fct_player_embeddings` and its synced table are provisioned (0 rows). Design feature vector from `fct_player_stats` per-90 metrics, generate embeddings, enable pgvector `<=>` cosine distance queries. Depends on Phase 13 for cross-source identity (within-source feasible without it).
+
+### 8.7 — Phase 15: Player Similarity Streamlit Page
+
+pgvector nearest-neighbor search (`player_search.py`). "Find players like X." Depends on Phase 14.
+
+### 8.8 — Phase 16: DEFCON-Inspired Defensive Valuation
+
+**Paper:** Kim, H.S. et al. (2025). "Better Prevent than Tackle: Valuing Defense in Soccer Based on Graph Neural Networks." *arXiv:2512.10355*.
+
+**License warning:** [`hyunsungkim-ds/defcon`](https://github.com/hyunsungkim-ds/defcon) has no LICENSE file. Implementation must use paper equations and standard open-source libraries only.
+
+**Tiered approach:**
+
+| Tier | Approach | Data Needed | Feasibility |
+|------|----------|-------------|-------------|
+| **Tier 1: VAEP** | SPADL + VAEP scoring | Events only (3,000+ matches) | **Complete** (Phase 9) |
+| **Tier 2: Pitch Control** | Physics-based model | Tracking (3–20 matches) | Phase 11 |
+| **Tier 3: DEFCON-lite** | Tabular model (VAEP + spatial features, no GNN) | ~20 matches with tracking | Feasible after Phase 10 |
+| **Tier 4: Full GNN DEFCON** | Graph Attention Networks on player graphs | 500+ matches with tracking | Requires commercial data |
+
+### 8.9 — Additional Streamlit Pages
+
+| Page | Description | Dependencies |
+|------|-------------|-------------|
+| **Movement Analysis** | Speed heatmaps, distance profiles, sprint timelines, pressing intensity | Phase 12 |
+| **Player Similarity** | pgvector nearest-neighbor search | Phase 14 + 15 |
 
 ---
 
-## 15. Risk Register
+## 9. Risk Register
 
 | # | Risk | Likelihood | Impact | Mitigation |
 |---|------|-----------|--------|------------|
-| R1 | Lakebase Terraform provider support incomplete (GA Feb 2026) | Medium | High | **Realized**: Provider v1.110.0 lacks project/branch fields for synced tables. Mitigated via UI creation + `terraform import` + `lifecycle { ignore_changes = all }`. See §4.1 and §4.4. |
-| R2 | Synced Tables feature not available in chosen Databricks tier | Low | Critical | Confirm tier supports Synced Tables before provisioning |
-| R3 | StatsBomb API rate limiting during bulk ingestion | Medium | Low | Implement exponential backoff; cache locally; run during off-peak |
-| R4 | Databricks cost exceeds expectations | Medium | Medium | Start with scale-to-zero everywhere; set billing alerts; review after 1 month |
-| R5 | dbt-databricks adapter incompatibility with Lakebase features | Low | Medium | Test early in Phase 3; fall back to raw SQL if needed |
-| R6 | Streamlit performance with mplsoccer (matplotlib is slow for interactive) | Medium | Low | Cache rendered figures; pre-compute static images for common views |
-| R7 | Unity Catalog ACL complexity for multi-user access | Low | Low | Start with single admin user; add RBAC later |
-| R8 | DEFCON repo has no license — cannot copy code | High | Medium | Reimplement from paper equations (public); use standard open-source libraries (PyTorch Geometric, socceraction). Do not copy code from `hyunsungkim-ds/defcon` |
-| R9 | `parmacalcio1913/players-matcher` has no license | High | Medium | Request license from maintainer. Fallback: implement fuzzy matching independently with `rapidfuzz` |
-| R10 | Public tracking data insufficient for GNN training (~20 matches vs 500+ needed) | High | High | Tier 1–3 DEFCON-lite feasible with public data. Full GNN (Tier 4) deferred until commercial data available |
+| R1 | Lakebase Terraform provider support incomplete | Medium | High | **Realized**: Provider v1.110.0 lacks project/branch fields for synced tables. Mitigated via UI creation + `terraform import` + `lifecycle { ignore_changes = all }`. |
+| R2 | Synced Tables feature not in Databricks tier | Low | Critical | Confirmed: Premium tier supports Synced Tables. |
+| R3 | StatsBomb API rate limiting during bulk ingestion | Medium | Low | Exponential backoff; local caching; off-peak scheduling. |
+| R4 | Databricks cost exceeds expectations | Medium | Medium | Scale-to-zero everywhere; billing alerts; monthly review. |
+| R5 | dbt-databricks adapter incompatibility | Low | Medium | Tested in Phase 3; no issues encountered. |
+| R6 | Streamlit performance with mplsoccer | Medium | Low | Figure caching; pre-computed static images for common views. |
+| R7 | Unity Catalog ACL complexity | Low | Low | Single admin user for dev; RBAC deferred to prod. |
+| R8 | DEFCON repo has no license | High | Medium | Reimplement from paper equations; use open-source libraries only. |
+| R9 | `players-matcher` has no license | High | Medium | Request from maintainer. Fallback: `rapidfuzz`. |
+| R10 | Public tracking data insufficient for GNN training | High | High | Tiers 1–3 feasible with public data. Full GNN deferred. |
 
 ---
 
-## 16. Appendices
+## 10. Appendices
 
 ### A. Data Volume Estimates
 
 | Source | Matches | Events/Match | Rows (Bronze) | Size Estimate |
 |--------|---------|-------------|----------------|---------------|
-| StatsBomb (open) | ~3,000 | ~3,400 | ~10.2M events | ~2 GB JSON → ~500 MB Parquet |
-| Metrica (sample) | 3 | 135,000 frames | ~405K frames | ~50 MB CSV → ~15 MB Parquet |
-| Wyscout (public) | ~1,900 | ~1,800 | ~3.4M events | ~1.5 GB JSON → ~400 MB Parquet |
+| StatsBomb (open) | ~3,000 | ~3,400 | ~10.2M events | ~500 MB Parquet |
+| Metrica (sample) | 3 | 135,000 frames | ~405K frames | ~15 MB Parquet |
+| Wyscout (public) | ~1,900 | ~1,800 | ~3.4M events | ~400 MB Parquet |
 | Bundesliga IDSSE (planned) | 7 | ~135,000 frames | ~1M frames | ~200 MB TRACAB |
 | SkillCorner (planned) | 10 | ~54,000 frames | ~540K frames | ~100 MB JSONL |
 | **Total Bronze** | | | **~31.4M rows** | **~1 GB Parquet** |
 | **Projected (with new sources)** | | | **~33M rows** | **~1.3 GB Parquet** |
 
-This is a small-to-medium dataset — well within free/dev tier limits for most services.
-
 ### B. Reference: Soccermatics Chapter → Analytics Mapping
 
-| Chapter | Analytics Concept | dbt Model Target |
-|---------|-------------------|------------------|
+| Chapter | Analytics Concept | Implementation |
+|---------|-------------------|----------------|
 | 00 | Data loading patterns | `stg_*` sources |
 | 01 | Shot plotting, pass networks, heat maps | `fct_shots`, `fct_passes` |
-| 02 | xG model (logistic regression), shot geometry | `fct_shots` (distance, angle features) |
+| 02 | xG model, shot geometry | `fct_shots` (distance, angle features) |
 | 03 | Radar plots, per-90 stats | `fct_player_stats` |
 | 04 | Expected Threat (xT), Markov chains | `fct_passes` (xT values) |
 | 05 | Match simulation, randomness | `fct_match_summary` |
@@ -1634,32 +604,17 @@ This is a small-to-medium dataset — well within free/dev tier limits for most 
 | 08 | Physical data, acceleration | `fct_tracking_frames` |
 | 09 | Clustering, progressive passes | `fct_passes`, `fct_player_stats` |
 | 10 | Streamlit web app | `src/streamlit_app/` |
-| — | SPADL action valuation (VAEP) | `fct_action_values` (Phase 9 — Complete) |
-| — | Movement analysis (physical + tactical) | Phase 12 — PPDA, physical metrics, off-ball xT |
-| — | Defensive contribution (DEFCON-inspired) | Phase 16 — EPV decomposition + credit assignment |
+| — | SPADL action valuation (VAEP) | `fct_action_values` (Phase 9) |
+| — | Movement analysis | Phase 12 — PPDA, physical metrics, off-ball xT |
+| — | Defensive contribution (DEFCON) | Phase 16 — EPV decomposition + credit assignment |
 
 ### C. Dependencies on MCP CodeDeploy Project
 
-| Dependency | Status | Action |
-|------------|--------|--------|
-| DevOpsAgent IAM role | Active | `AWS_PROFILE=devops-agent` (account 454762693631) |
-| S3 state bucket | Active | `karstenskyt-terraform-state` with native S3 locking |
-| S3 native state locking | Active | S3 bucket `karstenskyt-terraform-state` uses native locking (no DynamoDB) |
-| MCP server for Claude Code | Working | Can use for AWS operations during setup |
-
-### D. Implementation Timeline (Suggested)
-
-| Phase | Effort | Dependencies |
-|-------|--------|-------------|
-| Phase 0: Foundation | 1-2 sessions | AWS account, Databricks account |
-| Phase 1: Infrastructure (Terraform) | 2-3 sessions | Phase 0 complete |
-| Phase 2: Data Ingestion | 2-3 sessions | Phase 1 (catalog + workflows) |
-| Phase 3: dbt Transformations | 3-4 sessions | Phase 2 (bronze tables populated) |
-| Phase 4: Synced Tables | 1 session | Phase 1 (lakebase) + Phase 3 (gold tables) |
-| Phase 5: Streamlit App | 3-4 sessions | Phase 4 (lakebase queryable) |
-
-Phases 2 and 3 can partially overlap once the catalog is provisioned.
+| Dependency | Status |
+|------------|--------|
+| DevOpsAgent IAM role | Active — `AWS_PROFILE=devops-agent` (account 454762693631) |
+| S3 state bucket | Active — `karstenskyt-terraform-state` with native S3 locking |
 
 ---
 
-*This plan is designed to survive session interruptions. Each phase is self-contained with clear inputs, outputs, and verification criteria. Resume from where you left off by checking task completion status.*
+*This plan is a living document. Completed phase details are preserved in git history. Future phases are designed to be self-contained with clear inputs, outputs, and verification criteria.*
