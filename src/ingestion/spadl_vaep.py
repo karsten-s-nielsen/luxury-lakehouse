@@ -518,32 +518,34 @@ def _score_competition(
             p_concedes = pd.Series(model_concedes.predict_proba(x_game)[:, 1])
             values = vaepformula.value(game_actions, p_scores, p_concedes)  # type: ignore[arg-type]
 
-            game_out = game_actions[
-                [
-                    c
-                    for c in [
-                        "game_id",
-                        "original_event_id",
-                        "period_id",
-                        "time_seconds",
-                        "team_id",
-                        "player_id",
-                        "start_x",
-                        "start_y",
-                        "end_x",
-                        "end_y",
-                        "type_id",
-                        "type_name",
-                        "result_id",
-                        "result_name",
-                        "bodypart_id",
-                        "bodypart_name",
+            game_out = pd.DataFrame(
+                game_actions[
+                    [
+                        c
+                        for c in [
+                            "game_id",
+                            "original_event_id",
+                            "period_id",
+                            "time_seconds",
+                            "team_id",
+                            "player_id",
+                            "start_x",
+                            "start_y",
+                            "end_x",
+                            "end_y",
+                            "type_id",
+                            "type_name",
+                            "result_id",
+                            "result_name",
+                            "bodypart_id",
+                            "bodypart_name",
+                        ]
+                        if c in game_actions.columns
                     ]
-                    if c in game_actions.columns
-                ]
-            ].copy()
+                ].copy()
+            )
             game_out = game_out.rename(
-                columns={  # type: ignore[call-overload]
+                columns={
                     "type_name": "action_type",
                     "result_name": "action_result",
                     "bodypart_name": "bodypart",
