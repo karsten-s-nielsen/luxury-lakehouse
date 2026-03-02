@@ -24,6 +24,9 @@ _DEFAULT_METRICS: list[tuple[str, str, tuple[float, float]]] = [
     ("progressive_passes_per_90", "Prog. Passes/90", (0, 12)),
     ("pass_completion_pct", "Pass %", (40, 100)),
     ("xg_overperformance", "xG Over-perf", (-5, 5)),
+    ("vaep_per_90", "VAEP/90", (-0.5, 1.5)),
+    ("offensive_vaep_per_90", "Off. VAEP/90", (-0.5, 1.5)),
+    ("defensive_vaep_per_90", "Def. VAEP/90", (-0.5, 1.0)),
 ]
 
 
@@ -40,7 +43,8 @@ def _load_player_stats(competition_id: int, player_ids: list[int]) -> Any:
             f"SELECT ps.player_id, p.player_display_name, "  # noqa: S608
             f"  ps.minutes_played, ps.goals_per_90, ps.xg_per_90, "
             f"  ps.passes_per_90, ps.progressive_passes_per_90, "
-            f"  ps.pass_completion_pct, ps.xg_overperformance "
+            f"  ps.pass_completion_pct, ps.xg_overperformance, "
+            f"  ps.vaep_per_90, ps.offensive_vaep_per_90, ps.defensive_vaep_per_90 "
             f"FROM {t('fct_player_stats_synced')} ps "
             f"JOIN {t('dim_players_synced')} p ON ps.player_id = p.player_id "
             f"WHERE ps.competition_id = %s AND ps.player_id IN ({placeholders}) ",

@@ -115,6 +115,22 @@ resource "databricks_database_synced_database_table" "fct_player_embeddings" {
   }
 }
 
+resource "databricks_database_synced_database_table" "fct_action_values" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_action_values_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_action_values"
+    primary_key_columns    = ["action_value_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
 resource "databricks_database_synced_database_table" "fct_tracking_frames" {
   name                   = "${var.catalog_name}.${var.gold_schema}.fct_tracking_frames_synced"
   database_instance_name = var.database_instance_name

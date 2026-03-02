@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [PLAN.md](PLAN.md).
 
-**Last updated**: 2026-03-01
+**Last updated**: 2026-03-02
 
 ---
 
@@ -210,19 +210,25 @@ Two new Streamlit pages using existing synced gold tables. Added `pass_recipient
 - [x] ~~Quality gates: ruff 0, pyright 0, pytest 118/118, dbt PASS=186 WARN=17 ERROR=0~~
 - [x] ~~Deploy + smoke test: 8 routes HTTP 200, PG grants applied~~
 
+## Phase 9 — SPADL / VAEP Action Valuation (Complete)
+
+"Fetch Once, Fork Twice" redesign: SPADL pipeline reads from existing bronze Delta tables instead of re-fetching from APIs. Eliminates redundant API calls, fixes Wyscout DNS failure on Databricks serverless, adds incrementality and model persistence.
+
+- [x] ~~Exact-pin analytics deps~~ — `socceraction==1.5.3`, `xgboost==3.2.0`, `multimethod==1.12` (pandera dependency chain)
+- [x] ~~Enrich StatsBomb bronze with `_raw_extra_json`~~ — `_build_raw_extra_json()` in `statsbomb.py`, backfill entry point
+- [x] ~~New `spadl_adapter.py`~~ — bronze-to-socceraction format adapters for StatsBomb + Wyscout (4 functions)
+- [x] ~~Rewrite `spadl_vaep.py`~~ — reads from bronze, incremental SPADL conversion + VAEP scoring, XGBoost model persistence to UC Volumes, DataFrame API
+- [x] ~~Terraform~~ — removed `statsbombpy` from analytics env, exact-pinned deps
+- [x] ~~dbt pipeline~~ — `stg_spadl__action_values`, `fct_action_values`, `fct_player_stats` VAEP columns (dbt PASS=226 WARN=20 ERROR=0)
+- [x] ~~Streamlit~~ — Action Values page (3 views), Player Radar updated with VAEP/90 metrics
+- [x] ~~Synced tables~~ — `fct_action_values_synced` (new), `fct_player_stats_synced` (recreated for schema change), 10 total
+- [x] ~~E2E pipeline~~ — 7M StatsBomb + 2.5M Wyscout SPADL actions, 9.5M VAEP-scored actions
+- [x] ~~Tests~~ — 19 adapter + 3 pipeline tests added (155 total), quality gates: ruff 0, pyright 0
+- [x] ~~Deploy + smoke test~~ — app deployed, PG grants applied, all pages live
+
 ## Next Up
 
 Ordered execution plan for remaining work:
-
-### Phase 9 — SPADL / VAEP Action Valuation (PLAN 14.7)
-
-Convert event data to the SPADL (Soccer Player Action Description Language) unified format and train VAEP (Valuing Actions by Estimating Probabilities) models. Uses existing bronze event data — no new data sources needed.
-
-- [ ] Add `kloppy` (v3.18+) and `socceraction` (v1.5+) as dependencies
-- [ ] Build Kloppy → SPADL conversion pipeline for StatsBomb and Wyscout events (12 columns, 22 action types)
-- [ ] Train VAEP gradient-boosted scoring model on SPADL actions (P(scoring within 10 actions) − P(conceding within 10 actions))
-- [ ] Create `fct_action_values` gold table — per-action offensive and defensive VAEP scores
-- [ ] Create Streamlit page — top players by VAEP/90, action value distributions
 
 ### Phase 10 — Additional Public Tracking Datasets (PLAN 14.8)
 
@@ -251,9 +257,9 @@ Replace the current Voronoi approximation with a physics-based pitch control mod
 
 ### Phase 13 — pgvector Player Embeddings (PLAN 14.3)
 
-- [ ] Design feature vector from `fct_player_stats` per-90 metrics
+- [ ] Design feature vector from `fct_player_stats` per-90 metrics (VAEP/90, offensive/defensive VAEP now available from Phase 9)
 - [ ] Populate `fct_player_embeddings` — currently 0 rows, table and synced table already provisioned
-- [ ] Depends on Phase 12 (entity resolution) for unified player identity
+- [ ] Depends on Phase 12 (entity resolution) for cross-source unified player identity; within-source embeddings feasible without it
 
 ### Phase 14 — Player Similarity Streamlit Page (PLAN 14.6)
 
@@ -269,7 +275,7 @@ Quantify individual defensive contributions inspired by the DEFCON framework (Ki
 - [ ] Implement credit assignment: Intercept, Disturb, Deter, Concede (4 defensive contribution types)
 - [ ] **DEFCON-lite (tabular)**: gradient-boosted tree model using VAEP features + tracking-derived spatial features, without GNN
 - [ ] **Full DEFCON (GNN)**: Graph Attention Network for action selection/success prediction (requires 500+ matches with tracking — may need commercial data)
-- [ ] Depends on: VAEP (Phase 9), additional tracking data (Phase 10), pitch control (Phase 11)
+- [ ] Depends on: ~~VAEP (Phase 9)~~ DONE, additional tracking data (Phase 10), pitch control (Phase 11)
 
 ## Technical Debt
 
@@ -277,12 +283,12 @@ Quantify individual defensive contributions inspired by the DEFCON framework (Ki
 
 ## Future Work (unscheduled)
 
-- [ ] **Voronoi area persistence** — pre-compute `voronoi_area` column in `fct_tracking_frames` via dbt (currently NULL, computed client-side in Streamlit for visualization only)
+- [ ] **Voronoi area persistence** — pre-compute `voronoi_area` column in `fct_tracking_frames` via dbt (currently NULL, computed client-side in Streamlit). Lower priority if Phase 11 replaces Voronoi with physics-based pitch control.
 - [ ] **Pitch Control animation** — frame-by-frame playback via `st.empty()` loop or JS component; Phase 7 delivers single-frame static views only
-- [ ] **Event overlay on Pitch Control** — render event markers (passes, shots) on pitch control view; requires syncing `stg_metrica__events` to Lakebase or creating a joined gold table
+- [ ] **Event overlay on Pitch Control** — render event markers (passes, shots, SPADL actions) on pitch control view; requires syncing `stg_metrica__events` to Lakebase or creating a joined gold table
 - [ ] **Respo.Vision 3D pose tracking** — 3D skeletal data from broadcast video (user pursuing via network); complements Metrica 2D with skeletal keypoints and body orientation
-- [ ] **Wyscout match metadata** — deferred (event data ingested, match details not yet in Figshare dataset)
-- [ ] **Full GNN DEFCON** — requires 500+ matches with synchronized tracking + event data; current public data (~20 matches) is insufficient for GNN training. May require commercial data (StatsBomb 360 + tracking, Second Spectrum, etc.)
+- [ ] **Wyscout match metadata** — deferred (event data ingested, match details not yet in Figshare dataset); low priority since events + VAEP cover analytical needs
+- [ ] **Full GNN DEFCON** — requires 500+ matches with synchronized tracking + event data; current public data (~20 matches) is insufficient for GNN training. May require commercial data. See also Phase 15.
 
 ## Infrastructure Notes
 

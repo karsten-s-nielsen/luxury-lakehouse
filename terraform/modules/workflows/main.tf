@@ -2,11 +2,12 @@
 # Module: Workflows — Data Ingestion Pipeline
 # ──────────────────────────────────────────────────────────────────────────────
 # Creates a Databricks job that ingests data from three soccer data providers
-# in parallel:
+# in parallel, then runs SPADL/VAEP action valuation:
 #
-#   statsbomb  — Free open-data events (shots, passes, lineups)
-#   metrica    — Tracking data (player coordinates at 25fps)
-#   wyscout    — Match events and player attributes
+#   statsbomb        — Free open-data events (shots, passes, lineups)
+#   metrica          — Tracking data (player coordinates at 25fps)
+#   wyscout          — Match events and player attributes
+#   compute_spadl_vaep — SPADL conversion + VAEP scoring (depends on statsbomb + wyscout)
 #
 # Schedule: Daily at 06:00 UTC (before business hours in US/EU timezones)
 #
@@ -91,6 +92,32 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
+  # ── Task: Compute SPADL actions and VAEP scores ─────────────────────────
+  task {
+    task_key        = "compute_spadl_vaep"
+    timeout_seconds = 7200
+    max_retries     = 1
+
+    depends_on {
+      task_key = "ingest_statsbomb"
+    }
+    depends_on {
+      task_key = "ingest_wyscout"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_spadl_vaep"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "analytics"
+  }
+
   # ── Environment definition for serverless tasks ──────────────────────────
   environment {
     environment_key = "default"
@@ -100,6 +127,23 @@ resource "databricks_job" "data_ingestion" {
 
       dependencies = [
         var.wheel_path
+      ]
+    }
+  }
+
+  # ── Environment for SPADL/VAEP task (includes analytics extras) ─────────
+  # No statsbombpy needed — pipeline reads from bronze, not the API.
+  environment {
+    environment_key = "analytics"
+
+    spec {
+      client = "1"
+
+      dependencies = [
+        var.wheel_path,
+        "socceraction==1.5.3",
+        "xgboost==3.2.0",
+        "multimethod==1.12"
       ]
     }
   }

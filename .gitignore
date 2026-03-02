@@ -81,3 +81,7 @@ data/
 # Build artifacts
 *.whl
 *.tar.gz
+
+# Working artifacts (not source code)
+job_update.json
+LUXURY-REVIEW.md

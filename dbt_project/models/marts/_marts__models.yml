@@ -301,6 +301,194 @@ models:
         description: Assists per 90 minutes (NULL until assist data available)
       - name: xg_overperformance
         description: Goals minus xG (positive = clinical finisher)
+      - name: total_vaep
+        description: Total VAEP value across all actions
+      - name: total_offensive_vaep
+        description: Total offensive VAEP value
+      - name: total_defensive_vaep
+        description: Total defensive VAEP value
+      - name: total_actions
+        description: Total number of SPADL actions
+      - name: vaep_per_90
+        description: Net VAEP per 90 minutes
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -5
+                max_value: 5
+                row_condition: "vaep_per_90 is not null"
+              config:
+                severity: warn
+      - name: offensive_vaep_per_90
+        description: Offensive VAEP per 90 minutes
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -5
+                max_value: 5
+                row_condition: "offensive_vaep_per_90 is not null"
+              config:
+                severity: warn
+      - name: defensive_vaep_per_90
+        description: Defensive VAEP per 90 minutes
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -5
+                max_value: 5
+                row_condition: "defensive_vaep_per_90 is not null"
+              config:
+                severity: warn
+
+  - name: fct_action_values
+    description: >
+      Gold-layer SPADL action values with VAEP scores. Contains every on-ball
+      action from all data sources converted to the SPADL unified format,
+      scored with offensive, defensive, and net VAEP values. Enables player
+      ranking by total contribution beyond goals/assists.
+      Coordinate system: 105x68 meters (SPADL academic standard).
+      One row per action.
+    columns:
+      - name: action_value_id
+        description: Unique action identifier (surrogate key)
+        data_tests:
+          - unique
+          - not_null
+      - name: match_id
+        description: Match identifier
+        data_tests:
+          - not_null
+      - name: player_id
+        description: Foreign key to dim_players
+        data_tests:
+          - not_null
+      - name: team_id
+        description: Foreign key to dim_teams
+        data_tests:
+          - not_null
+      - name: competition_id
+        description: Foreign key to dim_competitions
+      - name: season_id
+        description: Season identifier
+      - name: period
+        description: Match period (1-5)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 1
+                max_value: 5
+                row_condition: "period is not null"
+      - name: time_seconds
+        description: Seconds from period start
+      - name: minute
+        description: Match minute derived from time_seconds
+      - name: second
+        description: Match second derived from time_seconds
+      - name: start_x
+        description: Action start X coordinate (0-105 meters)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 105
+                row_condition: "start_x is not null"
+              config:
+                severity: warn
+      - name: start_y
+        description: Action start Y coordinate (0-68 meters)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 68
+                row_condition: "start_y is not null"
+              config:
+                severity: warn
+      - name: end_x
+        description: Action end X coordinate (0-105 meters)
+      - name: end_y
+        description: Action end Y coordinate (0-68 meters)
+      - name: action_type
+        description: SPADL action type name (23 types)
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - pass
+                  - cross
+                  - throw_in
+                  - freekick_crossed
+                  - freekick_short
+                  - corner_crossed
+                  - corner_short
+                  - take_on
+                  - foul
+                  - tackle
+                  - interception
+                  - shot
+                  - shot_penalty
+                  - shot_freekick
+                  - keeper_save
+                  - keeper_claim
+                  - keeper_punch
+                  - keeper_pick_up
+                  - clearance
+                  - bad_touch
+                  - non_action
+                  - dribble
+                  - goalkick
+      - name: action_result
+        description: Action result (success, fail, offside, owngoal, yellow_card, red_card)
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['success', 'fail', 'offside', 'owngoal', 'yellow_card', 'red_card']
+      - name: bodypart
+        description: Body part used for the action
+      - name: offensive_value
+        description: VAEP offensive value (change in scoring probability)
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -1
+                max_value: 1
+                row_condition: "offensive_value is not null"
+              config:
+                severity: warn
+      - name: defensive_value
+        description: VAEP defensive value (change in conceding probability)
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -1
+                max_value: 1
+                row_condition: "defensive_value is not null"
+              config:
+                severity: warn
+      - name: vaep_value
+        description: Net VAEP value (offensive + defensive)
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -1
+                max_value: 1
+                row_condition: "vaep_value is not null"
+              config:
+                severity: warn
+      - name: data_source
+        description: Data provider (statsbomb, wyscout)
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['statsbomb', 'wyscout']
+      - name: original_event_id
+        description: Original event ID from source data (NULL for synthetic dribbles)
 
   - name: fct_match_summary
     description: >

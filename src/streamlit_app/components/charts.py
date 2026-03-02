@@ -1,12 +1,14 @@
-"""matplotlib chart wrappers for radar and bar comparison visualizations."""
+"""matplotlib chart wrappers for radar, bar, scatter, and VAEP visualizations."""
 
 from __future__ import annotations
 
 from typing import Any
 
+import matplotlib.colors as mcolors
 import matplotlib.figure
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from mplsoccer import Radar
 
 _BG_COLOR = "#1a1a2e"
@@ -98,6 +100,87 @@ def plot_match_comparison_bars(
     ax.spines["left"].set_color("#333355")
 
     ax.set_title("Match Comparison", color=_LINE_COLOR, fontsize=14, pad=10)
+    plt.tight_layout()
+    plt.close(fig)
+    return fig
+
+
+def plot_action_value_timeline(
+    actions: pd.DataFrame,
+    title: str = "Action Value Timeline",
+) -> matplotlib.figure.Figure:
+    """Plot VAEP values over match time as a scatter chart.
+
+    Args:
+        actions: DataFrame with ``time_seconds`` and ``vaep_value`` columns.
+        title: Chart title.
+
+    Returns a matplotlib Figure.
+    """
+    fig, ax = plt.subplots(figsize=(14, 5))
+    fig.set_facecolor(_BG_COLOR)
+    ax.set_facecolor(_BG_COLOR)
+
+    if not actions.empty and "time_seconds" in actions.columns and "vaep_value" in actions.columns:
+        minutes = actions["time_seconds"] / 60.0
+        values = actions["vaep_value"]
+
+        # Diverging colormap: red (negative) → white (neutral) → green (positive)
+        cmap = mcolors.LinearSegmentedColormap.from_list("vaep", ["#e63946", "#ffffff", "#2a9d8f"])
+        v_abs_max = float(max(abs(values.min()), abs(values.max()), 0.01))
+        norm = mcolors.TwoSlopeNorm(vmin=-v_abs_max, vcenter=0, vmax=v_abs_max)
+
+        ax.scatter(minutes, values, c=values, cmap=cmap, norm=norm, s=12, alpha=0.7, edgecolors="none")
+
+        # Halftime line
+        ax.axvline(x=45, color="#555577", linestyle="--", linewidth=1, alpha=0.6)
+        # Zero line
+        ax.axhline(y=0, color="#555577", linestyle="-", linewidth=0.5, alpha=0.5)
+
+    ax.set_xlabel("Match Minute", color=_LINE_COLOR, fontsize=11)
+    ax.set_ylabel("VAEP Value", color=_LINE_COLOR, fontsize=11)
+    ax.set_title(title, color=_LINE_COLOR, fontsize=14, pad=10, fontweight="bold")
+    ax.tick_params(axis="both", colors=_LINE_COLOR)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["bottom"].set_color("#333355")
+    ax.spines["left"].set_color("#333355")
+    plt.tight_layout()
+    plt.close(fig)
+    return fig
+
+
+def plot_action_type_breakdown(
+    action_types: pd.DataFrame,
+    title: str = "VAEP by Action Type",
+) -> matplotlib.figure.Figure:
+    """Plot total VAEP by action type as a horizontal bar chart.
+
+    Args:
+        action_types: DataFrame with ``action_type`` and ``total_vaep`` columns.
+        title: Chart title.
+
+    Returns a matplotlib Figure.
+    """
+    fig, ax = plt.subplots(figsize=(10, max(4, len(action_types) * 0.4)))
+    fig.set_facecolor(_BG_COLOR)
+    ax.set_facecolor(_BG_COLOR)
+
+    if not action_types.empty and "action_type" in action_types.columns and "total_vaep" in action_types.columns:
+        # Sort by absolute value descending
+        sorted_df = action_types.sort_values("total_vaep", key=abs, ascending=True)
+        colors = ["#2a9d8f" if v >= 0 else "#e63946" for v in sorted_df["total_vaep"]]
+
+        ax.barh(sorted_df["action_type"], sorted_df["total_vaep"], color=colors, alpha=0.85)
+        ax.axvline(x=0, color="#555577", linestyle="-", linewidth=0.5)
+
+    ax.set_xlabel("Total VAEP", color=_LINE_COLOR, fontsize=11)
+    ax.set_title(title, color=_LINE_COLOR, fontsize=14, pad=10, fontweight="bold")
+    ax.tick_params(axis="both", colors=_LINE_COLOR, labelcolor=_LINE_COLOR)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["bottom"].set_color("#333355")
+    ax.spines["left"].set_color("#333355")
     plt.tight_layout()
     plt.close(fig)
     return fig

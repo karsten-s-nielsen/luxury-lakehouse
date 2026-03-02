@@ -62,8 +62,9 @@ Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by 
 - **Expected Threat (xT)** — Pitch zone valuation via Markov chains
 - **Pass Networks** — Team passing structure, player connections, and progressive passes
 - **Heat Maps** — Action density visualization for players and teams
+- **VAEP Action Valuation** — Player contribution scoring beyond goals/assists (SPADL + VAEP)
 - **Pitch Control** — Voronoi diagrams from tracking data
-- **Player Similarity** — pgvector cosine-distance search ("Find players like X")
+- **Player Similarity** — pgvector cosine-distance search ("Find players like X") *(planned)*
 - **Player Radar Charts** — Per-90 stat comparison across multiple metrics
 
 ## Project Structure
@@ -83,7 +84,7 @@ luxury-lakehouse/
 
 ## Status
 
-**Phase 8: Heat Map + Pass Network** — action density heat maps and player-to-player pass network visualization. Added `pass_recipient_id` to the dbt pipeline. 7 Streamlit pages total. See [PLAN.md](PLAN.md) for the full implementation plan.
+**Phase 9: SPADL/VAEP Action Valuation** — "Fetch Once, Fork Twice" architecture reading from bronze tables, SPADL conversion, XGBoost VAEP scoring. 8 Streamlit pages, 155 tests. See [PLAN.md](PLAN.md) for the full implementation plan.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -98,6 +99,7 @@ luxury-lakehouse/
 | 6 | StatsBomb 360 Freeze Frames | Complete |
 | 7 | Metrica Game 3 (EPTS) + Pitch Control | Complete |
 | 8 | Heat Map + Pass Network Pages | Complete |
+| 9 | SPADL/VAEP Action Valuation | Complete |
 
 ## Tech Stack
 

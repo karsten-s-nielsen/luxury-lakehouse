@@ -16,6 +16,7 @@ downstream dbt staging models can parse them with Databricks SQL JSON functions.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -33,6 +34,41 @@ from ingestion.utils import (
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
+
+
+# ---------------------------------------------------------------------------
+# Raw extra JSON extraction (for SPADL adapter)
+# ---------------------------------------------------------------------------
+
+
+def _build_raw_extra_json(match_id: int, logger: logging.Logger) -> dict[str, str]:
+    """Fetch raw StatsBomb JSON and extract type-specific 'extra' dicts.
+
+    socceraction's SPADL converter needs an ``extra`` dict containing
+    type-specific event payloads (e.g. pass.end_location, shot.outcome).
+    statsbombpy's default ``fmt="dataframe"`` flattens these, destroying the
+    nested structure.  ``fmt="json"`` preserves it.
+
+    Returns:
+        Mapping of event_id → JSON string of the extra dict.
+    """
+    raw_events: dict[str, Any] = sb.events(match_id=match_id, fmt="json")  # type: ignore[assignment]
+
+    extra_map: dict[str, str] = {}
+    for event_id_str, raw in raw_events.items():
+        type_obj = raw.get("type", {})
+        type_name = type_obj.get("name", "") if isinstance(type_obj, dict) else ""
+        type_key = type_name.lower().replace(" ", "_").replace("*", "")
+        extra: dict[str, Any] = {}
+        if type_key and type_key in raw:
+            extra[type_key] = raw[type_key]
+        for aux_key in ("related_events", "tactics", "50_50"):
+            if aux_key in raw:
+                extra[aux_key] = raw[aux_key]
+        extra_map[str(event_id_str)] = json.dumps(extra, default=str)
+
+    logger.debug("Built raw_extra_json for match %d: %d events", match_id, len(extra_map))
+    return extra_map
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +212,15 @@ def ingest_matches_and_details(
                 events_pdf["match_id"] = match_id
                 events_pdf["competition_id"] = comp_id
                 events_pdf["season_id"] = season_id
+
+                # Enrich with raw extra JSON for SPADL adapter
+                try:
+                    extra_map = _build_raw_extra_json(match_id, logger)
+                    events_pdf["_raw_extra_json"] = events_pdf["id"].map(extra_map).fillna("{}")  # type: ignore[arg-type]
+                except Exception:
+                    logger.exception("Failed to build _raw_extra_json for match %d", match_id)
+                    events_pdf["_raw_extra_json"] = "{}"
+
                 events_batch.append(events_pdf)
 
             # Lineups
@@ -351,6 +396,70 @@ def backfill_360(
 
 
 # ---------------------------------------------------------------------------
+# Extra JSON backfill
+# ---------------------------------------------------------------------------
+
+
+def backfill_extra_json(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    competitions_pdf: pd.DataFrame,
+    logger: logging.Logger,
+) -> None:
+    """Backfill ``_raw_extra_json`` for existing events that lack it.
+
+    Reads distinct ``match_id`` values where the column is NULL or ``'{}'``,
+    fetches the raw JSON from StatsBomb, and overwrites each partition.
+    """
+    events_table = f"{catalog}.{schema}.statsbomb_events"
+    try:
+        needs_backfill_rows = spark.sql(
+            f"SELECT DISTINCT match_id, competition_id, season_id "  # noqa: S608
+            f"FROM {events_table} "
+            f"WHERE _raw_extra_json IS NULL OR _raw_extra_json = '{{}}'"
+        ).collect()
+    except Exception:
+        logger.exception("Cannot read %s for backfill — table may not exist", events_table)
+        return
+
+    if not needs_backfill_rows:
+        logger.info("No matches need _raw_extra_json backfill")
+        return
+
+    logger.info("Found %d match partitions needing _raw_extra_json backfill", len(needs_backfill_rows))
+
+    for row in needs_backfill_rows:
+        match_id = int(row["match_id"])
+        comp_id = int(row["competition_id"])
+        season_id = int(row["season_id"])
+
+        try:
+            # Read existing events for this match
+            match_events = spark.sql(
+                f"SELECT * FROM {events_table} "  # noqa: S608
+                f"WHERE match_id = {match_id}"
+            ).toPandas()
+
+            if match_events.empty:
+                continue
+
+            # Build extra JSON mapping
+            extra_map = _build_raw_extra_json(match_id, logger)
+            match_events["_raw_extra_json"] = match_events["id"].map(extra_map).fillna("{}")
+
+            # Re-serialize any JSON columns and write back
+            match_events = serialize_json_columns(match_events)
+            sdf = spark.createDataFrame(match_events)
+            replace_expr = f"match_id = {match_id}"
+            write_delta_table(sdf, catalog, schema, "statsbomb_events", replace_where=replace_expr, logger=logger)
+
+            logger.info("Backfilled _raw_extra_json for match %d (comp=%d, season=%d)", match_id, comp_id, season_id)
+        except Exception:
+            logger.exception("Failed backfill for match %d", match_id)
+
+
+# ---------------------------------------------------------------------------
 # Entry points
 # ---------------------------------------------------------------------------
 
@@ -379,6 +488,18 @@ def backfill_360_main() -> None:
     competitions_pdf = ingest_competitions(spark, args.catalog, args.schema, logger)
     backfill_360(spark, args.catalog, args.schema, competitions_pdf, logger)
     logger.info("360 backfill complete")
+
+
+def backfill_extra_json_main() -> None:
+    """CLI entry point for backfilling _raw_extra_json on existing StatsBomb events."""
+    args = parse_ingestion_args("Backfill _raw_extra_json for existing StatsBomb events")
+    logger = configure_logging("statsbomb_extra_backfill")
+    spark = get_spark_session()
+
+    logger.info("Starting _raw_extra_json backfill into %s.%s", args.catalog, args.schema)
+    competitions_pdf = ingest_competitions(spark, args.catalog, args.schema, logger)
+    backfill_extra_json(spark, args.catalog, args.schema, competitions_pdf, logger)
+    logger.info("_raw_extra_json backfill complete")
 
 
 if __name__ == "__main__":

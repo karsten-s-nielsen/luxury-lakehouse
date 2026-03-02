@@ -1,7 +1,7 @@
 # Databricks Lakebase Implementation Plan — Soccer Analytics Platform
 
-> **Status**: Phase 8 complete — Heat Map + Pass Network pages, `pass_recipient_id` added to dbt pipeline. Lakebase on Autoscaling (PG 17, scale-to-zero). Streamlit dashboard deployed as Databricks App with 7 pages, backed by Lakebase PostgreSQL via OAuth M2M
-> **Last Updated**: 2026-03-01
+> **Status**: Phase 9 complete — SPADL/VAEP Action Valuation ("Fetch Once, Fork Twice"). Lakebase on Autoscaling (PG 17, scale-to-zero). Streamlit dashboard deployed as Databricks App with 8 pages, backed by Lakebase PostgreSQL via OAuth M2M. 155 unit tests, 225 dbt tests.
+> **Last Updated**: 2026-03-02
 > **Repository**: [`karstenskyt/luxury-lakehouse`](https://github.com/karstenskyt/luxury-lakehouse)
 > **Scope**: Document 3 ("3_AWS Lake House.pdf") — Databricks Lakebase serverless architecture
 > **Approach**: Professional-grade IaC, best practices, production-ready from day one
@@ -60,7 +60,7 @@ This plan implements the Databricks Lakebase architecture described in Document 
 | Soccermatics local workspace | `D:/Development/soccermatics/` | Working — 25/25 scripts pass (Python 3.12, conda) |
 | MCP AWS CodeDeploy server | `D:/Development/karstenskyt__mcp-aws-codedeploy/` | Working — 8 tools, FastMCP, Stdio transport |
 | AWS IAM DevOpsAgent role spec | `karstenskyt__mcp-aws-codedeploy/TODO.md` | Documented — policy template ready |
-| Implementation code | This repository | **Phase 8 complete** — 4 ingestion modules, 118 unit tests, 9 bronze tables (31.4M+ rows); 20 dbt models, 186 data tests; Streamlit dashboard (7 pages); 9 synced tables; security audit complete |
+| Implementation code | This repository | **Phase 9 complete** — 6 ingestion modules (incl. SPADL adapter + VAEP pipeline), 155 unit tests, 11 bronze tables (31.4M+ rows); 20 dbt models, 225 data tests; Streamlit dashboard (8 pages); 10 synced tables; security audit complete |
 
 ### Soccermatics Workspace Details
 
@@ -387,9 +387,11 @@ luxury-lakehouse/
 ├── src/                              # Python source code
 │   ├── ingestion/                    # Phase 2: Data ingestion scripts
 │   │   ├── __init__.py
-│   │   ├── statsbomb.py             # StatsBomb API ingestion
+│   │   ├── statsbomb.py             # StatsBomb API ingestion (incl. _raw_extra_json enrichment)
 │   │   ├── metrica.py               # Metrica Sports CSV ingestion
 │   │   ├── wyscout.py               # Wyscout JSON ingestion
+│   │   ├── spadl_adapter.py         # Bronze-to-socceraction format adapters (Phase 9)
+│   │   ├── spadl_vaep.py            # SPADL conversion + VAEP scoring pipeline (Phase 9)
 │   │   └── utils.py                  # Shared ingestion utilities
 │   │
 │   ├── streamlit_app/               # Phase 5: Streamlit dashboard
@@ -398,15 +400,16 @@ luxury-lakehouse/
 │   │   ├── pages/
 │   │   │   ├── shots.py             # Shot maps and xG analysis
 │   │   │   ├── passes.py            # Pass networks and progressive passes
-│   │   │   ├── player_radar.py      # Player comparison radar charts
+│   │   │   ├── player_radar.py      # Player comparison radar charts (incl. VAEP/90)
 │   │   │   ├── match_summary.py     # Match overview dashboard
 │   │   │   ├── pitch_control.py     # Tracking data visualizations
 │   │   │   ├── heat_map.py          # Action density heat maps
 │   │   │   ├── pass_network.py      # Player-to-player pass network graph
+│   │   │   ├── action_values.py     # VAEP action valuation (Phase 9)
 │   │   │   └── player_search.py    # pgvector similarity search (planned)
 │   │   ├── components/
 │   │   │   ├── filters.py           # Reusable filter sidebar
-│   │   │   └── charts.py            # mplsoccer chart wrappers
+│   │   │   └── charts.py            # mplsoccer chart wrappers (radar, bar, VAEP timeline, type breakdown)
 │   │   └── db.py                    # Lakebase connection (OAuth M2M)
 │   │
 │   └── tests/
@@ -432,10 +435,14 @@ luxury-lakehouse/
 │   │   │   │   ├── _metrica__models.yml
 │   │   │   │   ├── stg_metrica__tracking.sql
 │   │   │   │   └── stg_metrica__events.sql
-│   │   │   └── wyscout/
-│   │   │       ├── _wyscout__sources.yml
-│   │   │       ├── _wyscout__models.yml
-│   │   │       └── stg_wyscout__events.sql
+│   │   │   ├── wyscout/
+│   │   │   │   ├── _wyscout__sources.yml
+│   │   │   │   ├── _wyscout__models.yml
+│   │   │   │   └── stg_wyscout__events.sql
+│   │   │   └── spadl/
+│   │   │       ├── _spadl__sources.yml
+│   │   │       ├── _spadl__models.yml
+│   │   │       └── stg_spadl__action_values.sql
 │   │   │
 │   │   ├── intermediate/             # Cross-source joins, deduplication
 │   │   │   ├── _intermediate__models.yml
@@ -449,6 +456,7 @@ luxury-lakehouse/
 │   │       ├── fct_passes.sql        # Pass metrics, progressive passes
 │   │       ├── fct_player_stats.sql  # Per-90 aggregations, radar data
 │   │       ├── fct_match_summary.sql # Match-level aggregations
+│   │       ├── fct_action_values.sql # VAEP action scores (Phase 9)
 │   │       ├── fct_tracking_frames.sql # Pitch control metrics
 │   │       ├── fct_player_embeddings.sql # pgvector: movement pattern embeddings
 │   │       ├── dim_players.sql
@@ -932,7 +940,7 @@ dbt build --target prod                 # incremental after
 
 ## 10. Phase 4 — Zero-ETL Synchronization (COMPLETE)
 
-> **Status**: Complete — 8 synced tables online, all data verified in Lakebase PostgreSQL
+> **Status**: Complete — 10 synced tables online (7 fact + 3 dimension), all data verified in Lakebase PostgreSQL
 
 ### 4.1 — Synced Tables Configuration
 
@@ -975,13 +983,12 @@ resource "databricks_database_synced_database_table" "fct_shots" {
 | `dev_gold.fct_passes` | `fct_passes_synced` | `pass_id` | 5,052,415 |
 | `dev_gold.fct_player_stats` | `fct_player_stats_synced` | `player_stats_id` | 19,664 |
 | `dev_gold.fct_match_summary` | `fct_match_summary_synced` | `match_id` | 3,464 |
+| `dev_gold.fct_tracking_frames` | `fct_tracking_frames_synced` | `tracking_frame_id` | 9,464,895 |
+| `dev_gold.fct_action_values` | `fct_action_values_synced` | `action_value_id` | ~9,500,000 |
 | `dev_gold.fct_player_embeddings` | `fct_player_embeddings_synced` | `embedding_id` | 0 |
 | `dev_gold.dim_players` | `dim_players_synced` | `player_id` | 10,803 |
 | `dev_gold.dim_teams` | `dim_teams_synced` | `team_id` | 453 |
 | `dev_gold.dim_competitions` | `dim_competitions_synced` | `competition_id` | 21 |
-
-**NOT synced** (too large for OLTP, query via Databricks SQL instead):
-- `dev_gold.fct_tracking_frames` — 135K rows/match at 25fps; keep in lakehouse only
 
 **PK fixes applied during implementation:**
 - `fct_player_stats`: changed from `["player_id", "match_id"]` to `["player_stats_id"]` (dbt surrogate key)
@@ -1041,8 +1048,11 @@ src/streamlit_app/
 ├── pages/
 │   ├── shot_map.py       # Shot map + xG scatter (mplsoccer half-pitch)
 │   ├── pass_map.py       # Pass arrows on full pitch with progressive highlighting
-│   ├── player_radar.py   # Radar chart comparing 1-3 players on per-90 metrics
+│   ├── player_radar.py   # Radar chart comparing 1-3 players on per-90 metrics (incl. VAEP/90)
 │   ├── match_summary.py  # Scorecard, xG comparison, horizontal bar chart
+│   ├── heat_map.py       # Action density heat maps (Phase 8)
+│   ├── pass_network.py   # Player-to-player pass network graph (Phase 8)
+│   ├── action_values.py  # VAEP action valuation — rankings, breakdown, timeline (Phase 9)
 │   └── pitch_control.py  # Voronoi pitch control from Metrica tracking data
 └── components/
     ├── filters.py      # 5 cascading filter widgets backed by Lakebase dimension tables
@@ -1084,13 +1094,14 @@ conn = psycopg2.connect(
 |----------------|-------------------|-----------------------------|
 | Shot Map | mplsoccer half-pitch, shots sized by xG, colored by outcome | `fct_shots_synced` JOIN `dim_players_synced` |
 | Pass Map | mplsoccer full pitch, arrows colored by progressive/complete/incomplete | `fct_passes_synced` |
-| Player Radar | mplsoccer Radar, 1-3 players, 6 configurable per-90 metrics | `fct_player_stats_synced` JOIN `dim_players_synced` |
+| Player Radar | mplsoccer Radar, 1-3 players, per-90 metrics incl. VAEP/90 | `fct_player_stats_synced` JOIN `dim_players_synced` |
 | Match Summary | Scorecard + xG metrics + horizontal bar chart (8 stat categories) | `fct_match_summary_synced` |
 | Pitch Control | Voronoi tessellation showing space ownership from tracking data | `fct_tracking_frames_synced` |
 | Heat Map | Action density (passes + shots) binned on full pitch, per player/team/match | `fct_passes_synced`, `fct_shots_synced` |
 | Pass Network | Player-to-player passing graph with scaled nodes and edges | `fct_passes_synced` JOIN `dim_players_synced` |
+| Action Values | Player VAEP rankings, action type breakdown, match action timeline | `fct_action_values_synced`, `fct_player_stats_synced` |
 
-**Planned pages** (see [Section 14.4](#144--additional-streamlit-pages)): Player Similarity (pgvector).
+**Planned pages** (see [Section 14.6](#146--additional-streamlit-pages)): Player Similarity (pgvector).
 
 ### 5.4 — Security (Implemented)
 
@@ -1307,11 +1318,37 @@ Resolves three open security findings before the repo goes public:
 
 ---
 
+## 13.6 Phase 9 — SPADL / VAEP Action Valuation (COMPLETE)
+
+"Fetch Once, Fork Twice" redesign: SPADL pipeline reads from existing bronze Delta tables instead of re-fetching from APIs. Eliminates redundant API calls, fixes Wyscout DNS failure on Databricks serverless, adds incrementality and model persistence.
+
+| Task | Description | Status |
+|------|-------------|--------|
+| **Exact-pin deps** | `socceraction==1.5.3`, `xgboost==3.2.0`, `multimethod==1.12` (pandera chain) | Complete |
+| **Bronze enrichment** | `_build_raw_extra_json()` in `statsbomb.py` + backfill entry point | Complete |
+| **SPADL adapter** | `spadl_adapter.py` — bronze-to-socceraction format for StatsBomb + Wyscout | Complete |
+| **VAEP pipeline** | `spadl_vaep.py` — 4-phase: bronze read, SPADL convert, train XGBoost, score | Complete |
+| **Terraform** | Removed `statsbombpy` from analytics env, exact-pinned deps | Complete |
+| **dbt** | `stg_spadl__action_values`, `fct_action_values`, `fct_player_stats` VAEP columns | Complete |
+| **Streamlit** | Action Values page (3 views), Player Radar updated with VAEP/90 | Complete |
+| **Synced tables** | `fct_action_values_synced` (new), `fct_player_stats_synced` (recreated) — 10 total | Complete |
+| **E2E** | 7M StatsBomb + 2.5M Wyscout SPADL actions, 9.5M VAEP-scored actions | Complete |
+| **Tests** | 155 unit tests (19 adapter + 3 pipeline new), ruff 0, pyright 0 | Complete |
+| **dbt build** | PASS=226 WARN=20 ERROR=0 (10 tables, 225 data tests, 2 seeds, 9 views) | Complete |
+
+**Key design decisions:**
+- **No Kloppy dependency**: Originally planned to use Kloppy as a universal loader, but `spadl_adapter.py` provides a simpler direct mapping from bronze columns to socceraction format. Kloppy deferred to Phase 10 (tracking datasets).
+- **`_raw_extra_json` enrichment**: StatsBomb events enriched with nested type-specific JSON during ingestion. `statsbombpy` caches HTTP responses, so the second `sb.events(fmt="json")` call reuses the cached response.
+- **Incremental processing**: Games already in `spadl_actions` and `vaep_action_values` are skipped on subsequent runs.
+- **Model persistence**: XGBoost models saved to UC Volumes with hash-based cache key for deterministic retraining.
+
+---
+
 ## 14. Future Work
 
 ### 14.1 — Future Data Sources
 
-The following data sources are planned for integration after Phase 5:
+The following data sources are planned for integration after Phase 9:
 
 | Source | Data Type | Status | Notes |
 |--------|-----------|--------|-------|
@@ -1321,7 +1358,7 @@ The following data sources are planned for integration after Phase 5:
 | **Bundesliga IDSSE** | TRACAB tracking (25fps) + DFL events, 7 matches | Planned | CC-BY 4.0 license (Nature Scientific Data, Feb 2025). High-quality synchronized tracking + events |
 | **SkillCorner Open Data** | JSONL tracking (10fps) + CSV events, 10 A-League matches | Planned | From SkillCorner public repo. Lower frame rate but broadcast-derived (no stadium install needed) |
 | **Kloppy** | Standardized tracking/event loader (14+ providers) | Planned | v3.18+. Replaces per-provider parsing with unified coordinate normalization. Supports Metrica CSV/EPTS, SkillCorner, TRACAB, StatsBomb |
-| **socceraction (SPADL/VAEP)** | Unified event format + action valuation | Planned | v1.5+. SPADL: 12-column schema, 22 action types. VAEP: gradient-boosted P(score)−P(concede) per action |
+| **socceraction (SPADL/VAEP)** | Unified event format + action valuation | **Complete** | v1.5.3. Phase 9: "Fetch Once, Fork Twice" — reads from bronze, SPADL conversion, XGBoost VAEP scoring. 9.5M actions scored. |
 
 Each new source follows the established pattern: `src/ingestion/<source>.py` → Bronze Delta tables → dbt staging/marts → Synced Tables → Lakebase.
 
@@ -1384,31 +1421,33 @@ Games 1–2 were already ingested. This phase fixed ball coordinate propagation,
 | **Pitch Control page** | `plot_pitch_control()` with Voronoi, `pitch_control.py` with match/period/frame filters | Complete |
 | **Sync fct_tracking_frames** | Terraform resource + Lakebase synced table for Streamlit queries | Complete |
 
-### 14.7 — SPADL / VAEP Action Valuation
+### 14.7 — SPADL / VAEP Action Valuation (Complete — Phase 9)
 
-**Status:** Planned (Phase 12). No new data sources needed — uses existing StatsBomb and Wyscout event data.
+**Status:** Complete (Phase 9). Implemented as "Fetch Once, Fork Twice" — reads from existing bronze tables instead of re-fetching from APIs.
 
 **Key libraries:**
-- [`kloppy`](https://github.com/PySport/kloppy) (v3.18+) — standardized tracking/event data loader supporting 14+ providers (Metrica CSV/EPTS, SkillCorner, TRACAB, StatsBomb, Wyscout, etc.). Handles coordinate system normalization automatically.
-- [`socceraction`](https://github.com/ML-KULeuven/socceraction) (v1.5+) — SPADL conversion + VAEP model training. Bridge: `socceraction.spadl.kloppy.convert_to_actions()` converts any Kloppy EventDataset to SPADL.
+- [`socceraction`](https://github.com/ML-KULeuven/socceraction) (v1.5.3) — SPADL conversion + VAEP model training.
+- [`xgboost`](https://github.com/dmlc/xgboost) (v3.2.0) — Gradient-boosted tree models for VAEP scoring.
+- `multimethod==1.12` — Exact pin required (pandera 0.17.2 needs `overload` from multimethod 1.x).
 
-**SPADL (Soccer Player Action Description Language):** Unified 12-column event schema with 22 action types (pass, cross, shot, dribble, tackle, etc.). Converts heterogeneous provider-specific events (StatsBomb has ~40 types, Wyscout has different types) into a single format suitable for machine learning.
+**Architecture (Fetch Once, Fork Twice):**
+- `spadl_adapter.py` — Transforms bronze event tables (StatsBomb, Wyscout) into socceraction-compatible DataFrames without re-fetching from APIs
+- `spadl_vaep.py` — 4-phase pipeline: read bronze → SPADL conversion → feature extraction + XGBoost training → score all actions
+- `statsbomb.py` — Enriched with `_raw_extra_json` column containing type-specific nested event data needed by socceraction
+- Incremental processing: skips games already in `spadl_actions` and `vaep_action_values` tables
+- Model persistence: trained XGBoost models saved to UC Volumes with hash-based cache key
 
-**VAEP (Valuing Actions by Estimating Probabilities):** Gradient-boosted tree model that scores every on-ball action by its impact on scoring/conceding probability within the next 10 actions. For each action: `VAEP = ΔP(scoring) − ΔP(conceding)`. Trainable on event data alone — no tracking data needed.
-
-**Implementation path:**
-1. Add `kloppy` and `socceraction` as project dependencies
-2. Build SPADL conversion pipeline: load StatsBomb/Wyscout events via Kloppy → `convert_to_actions()` → SPADL DataFrame
-3. Write SPADL actions to a new bronze table (`spadl_actions`)
-4. Train VAEP model on SPADL features (10-action game state features per the socceraction library)
-5. Score all actions → `fct_action_values` gold table with offensive/defensive VAEP per action
-6. Build Streamlit page: top players by VAEP/90, action value distributions, game-changing actions
+**Results:**
+- ~7M StatsBomb + ~2.5M Wyscout SPADL actions converted
+- ~9.5M actions scored with offensive/defensive VAEP values
+- dbt pipeline: `stg_spadl__action_values` (staging) → `fct_action_values` (gold) + `fct_player_stats` VAEP columns
+- Streamlit: Action Values page (3 views) + Player Radar updated with VAEP/90 metrics
 
 **Why this is valuable:** VAEP provides a principled, cross-source metric for player and action valuation that doesn't require tracking data. It's also a prerequisite for DEFCON defensive valuation (§14.10).
 
 ### 14.8 — Additional Public Tracking Datasets
 
-**Status:** Planned (Phase 13). Expands beyond Metrica's 3 sample matches.
+**Status:** Planned (Phase 10). Expands beyond Metrica's 3 sample matches.
 
 Currently, the platform has tracking data from only 3 Metrica Sports sample matches. Two newly available public datasets would bring the total to ~20 matches with synchronized tracking + event data:
 
@@ -1428,7 +1467,7 @@ Option (a) is simpler and maintains backward compatibility.
 
 ### 14.9 — Physics-Based Pitch Control Model
 
-**Status:** Planned (Phase 14). Replaces the current Voronoi approximation.
+**Status:** Planned (Phase 11). Replaces the current Voronoi approximation.
 
 The Phase 7 Pitch Control page uses Voronoi tessellation — a geometric approximation that assigns space to the nearest player. A physics-based model (Spearman et al., 2017; Fernandez & Bornn, 2018) accounts for player velocity, acceleration, and time-to-intercept to produce continuous pitch control probabilities.
 
@@ -1443,7 +1482,7 @@ The Phase 7 Pitch Control page uses Voronoi tessellation — a geometric approxi
 
 ### 14.10 — DEFCON-Inspired Defensive Contribution Framework
 
-**Status:** Research complete, implementation planned (Phase 15). Multi-tier approach.
+**Status:** Research complete, implementation planned (Phase 15). Multi-tier approach. Tier 1 (VAEP) complete as of Phase 9.
 
 **Paper:** Kim, H.S. et al. (2025). "Better Prevent than Tackle: Valuing Defense in Soccer Based on Graph Neural Networks." *arXiv:2512.10355*. Developed at Ajax Amsterdam.
 
@@ -1477,9 +1516,9 @@ The Phase 7 Pitch Control page uses Voronoi tessellation — a geometric approxi
 
 | Tier | Approach | Data Needed | Feasibility |
 |------|----------|-------------|-------------|
-| **Tier 1: VAEP** | SPADL + gradient-boosted VAEP scoring | Event data only (3,000+ StatsBomb matches) | Ready now (Phase 12) |
-| **Tier 2: Pitch Control** | Physics-based model (Spearman 2017) | Tracking data (3–20 matches) | Ready now (Phase 14) |
-| **Tier 3: DEFCON-lite** | Tabular model using VAEP features + tracking-derived spatial features (no GNN) | ~20 matches with tracking + events | Feasible with IDSSE + SkillCorner (Phase 13) |
+| **Tier 1: VAEP** | SPADL + gradient-boosted VAEP scoring | Event data only (3,000+ StatsBomb matches) | **Complete** (Phase 9) |
+| **Tier 2: Pitch Control** | Physics-based model (Spearman 2017) | Tracking data (3–20 matches) | Phase 11 (Voronoi done in Phase 7) |
+| **Tier 3: DEFCON-lite** | Tabular model using VAEP features + tracking-derived spatial features (no GNN) | ~20 matches with tracking + events | Feasible with IDSSE + SkillCorner (Phase 10) |
 | **Tier 4: Full GNN DEFCON** | Graph Attention Networks on player graphs per frame | 500+ matches with tracking | Requires commercial data |
 
 **Key insight:** Tiers 1–3 deliver increasing analytical value using only public data and open-source tools. Tier 4 (full GNN) is aspirational and may require partnerships with data providers.
@@ -1491,6 +1530,7 @@ The Phase 7 Pitch Control page uses Voronoi tessellation — a geometric approxi
 | **Pitch Control** | Voronoi diagrams showing space ownership | `fct_tracking_frames_synced` | Complete (Phase 7) |
 | **Heat Map** | Touch/action density maps per player or team | `fct_passes_synced`, `fct_shots_synced` | Complete (Phase 8) |
 | **Pass Network** | Graph visualization of passing connections between teammates | `fct_passes_synced` JOIN `dim_players_synced` | Complete (Phase 8) |
+| **Action Values** | Player VAEP rankings, action type breakdown, match action timeline | `fct_action_values_synced`, `fct_player_stats_synced` | Complete (Phase 9) |
 | **Player Similarity** | pgvector-powered nearest-neighbor search | `fct_player_embeddings_synced` | Planned — depends on 14.3 |
 
 ---
@@ -1543,7 +1583,7 @@ This is a small-to-medium dataset — well within free/dev tier limits for most 
 | 08 | Physical data, acceleration | `fct_tracking_frames` |
 | 09 | Clustering, progressive passes | `fct_passes`, `fct_player_stats` |
 | 10 | Streamlit web app | `src/streamlit_app/` |
-| — | SPADL action valuation (VAEP) | `fct_action_values` (Phase 12) |
+| — | SPADL action valuation (VAEP) | `fct_action_values` (Phase 9 — Complete) |
 | — | Defensive contribution (DEFCON-inspired) | Phase 15 — EPV decomposition + credit assignment |
 
 ### C. Dependencies on MCP CodeDeploy Project

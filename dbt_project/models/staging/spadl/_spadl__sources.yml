@@ -1,0 +1,64 @@
+version: 2
+
+sources:
+  - name: spadl
+    description: >
+      SPADL-formatted action data with VAEP scores, produced by the
+      socceraction-based ingestion pipeline. Contains all 22 SPADL action types
+      (passes, shots, tackles, dribbles, etc.) with offensive and defensive
+      value scores from trained VAEP classifiers.
+    database: soccer_analytics
+    schema: bronze
+    loader: python_wheel
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 24, period: hour}
+        error_after: {count: 72, period: hour}
+
+    tables:
+      - name: vaep_action_values
+        description: >
+          SPADL actions with VAEP scores. Each row is a single on-ball action
+          converted from StatsBomb or Wyscout events into the unified SPADL
+          format, scored with offensive value, defensive value, and net VAEP.
+          Coordinates use the 105x68 meter academic standard.
+        columns:
+          - name: game_id
+            description: Match identifier from the source data
+          - name: original_event_id
+            description: Original event ID from the source data (nullable for synthetic dribbles)
+          - name: period_id
+            description: Match period (1=first half, 2=second half, 3-5=extra time/penalties)
+          - name: time_seconds
+            description: Seconds elapsed from the start of the period
+          - name: team_id
+            description: Team performing the action
+          - name: player_id
+            description: Player performing the action
+          - name: start_x
+            description: Action start X coordinate (0-105 meters)
+          - name: start_y
+            description: Action start Y coordinate (0-68 meters)
+          - name: end_x
+            description: Action end X coordinate (0-105 meters)
+          - name: end_y
+            description: Action end Y coordinate (0-68 meters)
+          - name: action_type
+            description: SPADL action type name (pass, shot, tackle, dribble, etc.)
+          - name: action_result
+            description: Action result (success, fail, offside, owngoal, yellow_card, red_card)
+          - name: bodypart
+            description: Body part used (foot, head, other)
+          - name: offensive_value
+            description: VAEP offensive value (change in scoring probability)
+          - name: defensive_value
+            description: VAEP defensive value (change in conceding probability)
+          - name: vaep_value
+            description: Net VAEP value (offensive + defensive)
+          - name: data_source
+            description: Data provider (statsbomb, wyscout)
+          - name: competition_id
+            description: Competition identifier
+          - name: season_id
+            description: Season identifier

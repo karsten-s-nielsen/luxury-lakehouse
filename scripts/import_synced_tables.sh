@@ -36,6 +36,12 @@ terraform import 'module.synced_tables.databricks_database_synced_database_table
 terraform import 'module.synced_tables.databricks_database_synced_database_table.fct_player_embeddings' \
   'soccer_analytics.dev_gold.fct_player_embeddings_synced'
 
+terraform import 'module.synced_tables.databricks_database_synced_database_table.fct_action_values' \
+  'soccer_analytics.dev_gold.fct_action_values_synced'
+
+terraform import 'module.synced_tables.databricks_database_synced_database_table.fct_tracking_frames' \
+  'soccer_analytics.dev_gold.fct_tracking_frames_synced'
+
 # Dimension tables
 terraform import 'module.synced_tables.databricks_database_synced_database_table.dim_players' \
   'soccer_analytics.dev_gold.dim_players_synced'
@@ -46,4 +52,4 @@ terraform import 'module.synced_tables.databricks_database_synced_database_table
 terraform import 'module.synced_tables.databricks_database_synced_database_table.dim_competitions' \
   'soccer_analytics.dev_gold.dim_competitions_synced'
 
-echo "All 8 synced tables imported. Run 'terraform plan' to verify."
+echo "All 10 synced tables imported. Run 'terraform plan' to verify."

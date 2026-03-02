@@ -65,6 +65,28 @@ player_passes_agg as (
 
 ),
 
+action_values as (
+
+    select * from {{ ref('fct_action_values') }}
+
+),
+
+vaep_agg as (
+
+    select
+        player_id,
+        competition_id,
+        season_id,
+        sum(offensive_value)                            as total_offensive_vaep,
+        sum(defensive_value)                            as total_defensive_vaep,
+        sum(vaep_value)                                 as total_vaep,
+        count(*)                                        as total_actions
+
+    from action_values
+    group by player_id, competition_id, season_id
+
+),
+
 final as (
 
     select
@@ -120,7 +142,25 @@ final as (
         end                                             as progressive_passes_per_90,
 
         -- xG overperformance (goals - xG, positive = clinical finisher)
-        coalesce(s.total_goals, 0) - coalesce(s.total_xg, 0) as xg_overperformance
+        coalesce(s.total_goals, 0) - coalesce(s.total_xg, 0) as xg_overperformance,
+
+        -- VAEP action valuation
+        coalesce(v.total_vaep, 0)                       as total_vaep,
+        coalesce(v.total_offensive_vaep, 0)              as total_offensive_vaep,
+        coalesce(v.total_defensive_vaep, 0)              as total_defensive_vaep,
+        coalesce(v.total_actions, 0)                     as total_actions,
+        case
+            when m.total_minutes_played > 0
+            then round((coalesce(v.total_vaep, 0) / m.total_minutes_played) * {{ var('minutes_per_match') }}, 3)
+        end                                             as vaep_per_90,
+        case
+            when m.total_minutes_played > 0
+            then round((coalesce(v.total_offensive_vaep, 0) / m.total_minutes_played) * {{ var('minutes_per_match') }}, 3)
+        end                                             as offensive_vaep_per_90,
+        case
+            when m.total_minutes_played > 0
+            then round((coalesce(v.total_defensive_vaep, 0) / m.total_minutes_played) * {{ var('minutes_per_match') }}, 3)
+        end                                             as defensive_vaep_per_90
 
     from player_shots_agg s
     full outer join player_passes_agg p
@@ -131,6 +171,10 @@ final as (
         on coalesce(s.player_id, p.player_id) = m.player_id
         and coalesce(s.competition_id, p.competition_id) = m.competition_id
         and coalesce(s.season_id, p.season_id) = m.season_id
+    left join vaep_agg v
+        on coalesce(s.player_id, p.player_id) = v.player_id
+        and coalesce(s.competition_id, p.competition_id) = v.competition_id
+        and coalesce(s.season_id, p.season_id) = v.season_id
 
 )
 

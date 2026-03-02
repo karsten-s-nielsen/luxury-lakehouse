@@ -1,0 +1,127 @@
+version: 2
+
+models:
+  - name: stg_spadl__action_values
+    description: >
+      Staging view for SPADL actions with VAEP scores. Deduplicates bronze data
+      by natural key (game_id, period_id, time_seconds, player_id, type_id,
+      data_source), keeping the most recent ingestion. Renames game_id to match_id
+      for consistency with the rest of the platform and derives minute/second
+      from time_seconds.
+    columns:
+      - name: match_id
+        description: Match identifier (renamed from game_id)
+        data_tests:
+          - not_null
+      - name: player_id
+        description: Player performing the action
+        data_tests:
+          - not_null
+      - name: team_id
+        description: Team performing the action
+        data_tests:
+          - not_null
+      - name: period
+        description: Match period (1-5)
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 1
+                max_value: 5
+      - name: time_seconds
+        description: Seconds elapsed from period start
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 7200
+              config:
+                severity: warn
+      - name: action_type
+        description: SPADL action type name
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - pass
+                  - cross
+                  - throw_in
+                  - freekick_crossed
+                  - freekick_short
+                  - corner_crossed
+                  - corner_short
+                  - take_on
+                  - foul
+                  - tackle
+                  - interception
+                  - shot
+                  - shot_penalty
+                  - shot_freekick
+                  - keeper_save
+                  - keeper_claim
+                  - keeper_punch
+                  - keeper_pick_up
+                  - clearance
+                  - bad_touch
+                  - non_action
+                  - dribble
+                  - goalkick
+      - name: action_result
+        description: Action result classification
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - success
+                  - fail
+                  - offside
+                  - owngoal
+                  - yellow_card
+                  - red_card
+      - name: start_x
+        description: Action start X coordinate (0-105 meters)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 105
+                row_condition: "start_x is not null"
+              config:
+                severity: warn
+      - name: start_y
+        description: Action start Y coordinate (0-68 meters)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 68
+                row_condition: "start_y is not null"
+              config:
+                severity: warn
+      - name: offensive_value
+        description: VAEP offensive value
+        data_tests:
+          - not_null
+      - name: defensive_value
+        description: VAEP defensive value
+        data_tests:
+          - not_null
+      - name: vaep_value
+        description: Net VAEP value (offensive + defensive)
+        data_tests:
+          - not_null
+      - name: data_source
+        description: Data provider (statsbomb, wyscout)
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['statsbomb', 'wyscout']
+      - name: competition_id
+        description: Competition identifier
+      - name: season_id
+        description: Season identifier
