@@ -2,7 +2,7 @@
 
 > *"Luxury! We used to dream of serverless! We had to get up at three o'clock in the morning, restart the Airflow EC2 instance, write raw JSON to an S3 bucket with our bare hands, wait six hours for a Glue job to flatten the arrays, and force-feed it into Redshift just so we could reverse-ETL it all back into Postgres!"*
 
-![The Modern Engineer vs The Veteran Engineer](documents/luxury-lakehouse.png)
+![The Modern Engineer vs The Veteran Engineer](assets/luxury-lakehouse.jpg)
 
 <sup>Comic by NanoBanana &mdash; inspired by Monty Python's *Four Yorkshiremen*</sup>
 
@@ -79,13 +79,13 @@ luxury-lakehouse/
 ├── dbt_project/        # Bronze → Silver → Gold transformations
 ├── docs/
 │   └── c4/             # C4 architecture diagrams (Structurizr DSL)
-├── documents/          # Reference PDFs and architecture diagrams
+├── assets/             # Images and branding
 └── PLAN.md             # Detailed implementation plan
 ```
 
 ## Status
 
-**Phase 9: SPADL/VAEP Action Valuation** — "Fetch Once, Fork Twice" architecture reading from bronze tables, SPADL conversion, XGBoost VAEP scoring. 8 Streamlit pages, 155 tests. See [PLAN.md](PLAN.md) for the full implementation plan.
+**Phase 9 complete** — 8 Streamlit pages, 155 unit tests, 225 dbt data tests. See [PLAN.md](PLAN.md) for the full roadmap.
 
 | Phase | Description | Status |
 |-------|-------------|--------|

@@ -23,7 +23,6 @@ repos:
       - id: trailing-whitespace
       - id: check-added-large-files
         args: [--maxkb=1000]
-        exclude: ^documents/
       - id: check-merge-conflict
 
   # Secret scanning
@@ -34,8 +33,7 @@ repos:
         args: ['--baseline', '.secrets.baseline']
 
   # SQL linting (dbt models)
-  # TODO: Re-enable in Phase 3 when dbt models are implemented.
-  # Requires dbt templater context to parse jinja macros (dbt_utils, custom macros).
+  # Disabled: sqlfluff requires dbt templater context to parse jinja macros.
   # - repo: https://github.com/sqlfluff/sqlfluff
   #   rev: 3.3.1
   #   hooks:
