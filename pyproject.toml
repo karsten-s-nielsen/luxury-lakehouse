@@ -26,7 +26,7 @@ analytics = [
     # Safe to relax when pandera >= 0.18 drops multimethod dependency.
     "socceraction==1.5.3",
     "xgboost==3.2.0",
-    "multimethod==1.12",
+    "multimethod==2.0.2",
 ]
 app = [
     "streamlit>=1.36.0",
