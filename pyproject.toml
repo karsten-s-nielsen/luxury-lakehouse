@@ -86,7 +86,7 @@ select = [
 "src/tests/**" = ["S101"]  # assert is standard in pytest
 
 [tool.ruff.lint.isort]
-known-first-party = ["ingestion", "streamlit_app"]
+known-first-party = ["analytics", "ingestion", "streamlit_app"]
 
 [tool.pyright]
 pythonVersion = "3.10"
@@ -98,7 +98,7 @@ testpaths = ["src/tests"]
 addopts = "--tb=short -q"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ingestion", "src/streamlit_app"]
+packages = ["src/ingestion", "src/streamlit_app", "src/analytics"]
 
 [build-system]
 requires = ["hatchling"]

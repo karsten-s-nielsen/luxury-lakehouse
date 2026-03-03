@@ -65,7 +65,7 @@ Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by 
 - **Pass Networks** — Team passing structure, player connections, and progressive passes
 - **Heat Maps** — Action density visualization for players and teams
 - **VAEP Action Valuation** — Player contribution scoring beyond goals/assists (SPADL + VAEP)
-- **Pitch Control** — Voronoi diagrams from tracking data
+- **Pitch Control** — Physics-based (Spearman 2017) and Voronoi models from tracking data
 - **Line-Breaking Passes** — Geometric detection of defensive line penetration via clustering + intersection *(planned)*
 - **Movement Analysis** — Physical performance metrics and off-ball spatial analysis from tracking data *(planned)*
 - **Player Similarity** — pgvector cosine-distance search ("Find players like X") *(planned)*
@@ -77,6 +77,7 @@ Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by 
 luxury-lakehouse/
 ├── terraform/          # Infrastructure as Code (Databricks on AWS)
 ├── src/
+│   ├── analytics/      # Pure-Python analytics models (pitch control)
 │   ├── ingestion/      # Data ingestion (StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner)
 │   └── streamlit_app/  # Interactive analytics dashboard
 ├── dbt_project/        # Bronze → Silver → Gold transformations
@@ -90,7 +91,7 @@ luxury-lakehouse/
 
 ## Status
 
-**Phase 10 complete** — 8 Streamlit pages, 187 unit tests, 271 dbt data tests, 20 tracking matches (38M+ rows) across 3 providers. See [PLAN.md](PLAN.md) for the implementation plan and [ROADMAP.md](ROADMAP.md) for research directions.
+**Phase 11 complete** — 8 Streamlit pages, 214 unit tests, 271 dbt data tests, physics-based pitch control (Spearman 2017) with Voronoi toggle. See [PLAN.md](PLAN.md) for the implementation plan and [ROADMAP.md](ROADMAP.md) for research directions.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -107,7 +108,7 @@ luxury-lakehouse/
 | 8 | Heat Map + Pass Network Pages | Complete |
 | 9 | SPADL/VAEP Action Valuation | Complete |
 | 10 | Additional Tracking Data (IDSSE, SkillCorner) | Complete |
-| 11 | Physics-Based Pitch Control | Planned |
+| 11 | Physics-Based Pitch Control (Spearman 2017) | Complete |
 | 12 | Movement Analysis | Planned |
 | 13 | Line-Breaking Pass Detection | Planned |
 

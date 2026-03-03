@@ -165,6 +165,70 @@ def _clip_voronoi_to_pitch(
     return regions
 
 
+def _draw_players_and_ball(
+    pitch_obj: Pitch,
+    ax: Any,
+    players: pd.DataFrame,
+    ball_x: float | None = None,
+    ball_y: float | None = None,
+    show_velocity: bool = False,
+) -> None:
+    """Draw player scatter, ball marker, and optional velocity arrows.
+
+    Shared helper used by both Voronoi and physics pitch control plots.
+    """
+    home = players[players["team"] == "home"]
+    away = players[players["team"] == "away"]
+
+    if not home.empty:
+        pitch_obj.scatter(
+            home["x"],
+            home["y"],
+            color=_HOME_COLOR,
+            s=120,
+            edgecolors=_LINE_COLOR,
+            linewidth=0.8,
+            ax=ax,
+            zorder=3,
+            label="Home",
+        )
+    if not away.empty:
+        pitch_obj.scatter(
+            away["x"],
+            away["y"],
+            color=_AWAY_COLOR,
+            s=120,
+            edgecolors=_LINE_COLOR,
+            linewidth=0.8,
+            ax=ax,
+            zorder=3,
+            label="Away",
+        )
+
+    if ball_x is not None and ball_y is not None:
+        pitch_obj.scatter(
+            [ball_x], [ball_y], color=_BALL_COLOR, s=200, edgecolors="white", linewidth=1.5, ax=ax, zorder=4, marker="h"
+        )
+
+    if show_velocity and "velocity_x" in players.columns and "velocity_y" in players.columns:
+        vel_df = players.dropna(subset=["velocity_x", "velocity_y"])
+        if not vel_df.empty:
+            scale = 2.0
+            pitch_obj.arrows(
+                vel_df["x"],
+                vel_df["y"],
+                vel_df["x"] + vel_df["velocity_x"] * scale,
+                vel_df["y"] + vel_df["velocity_y"] * scale,
+                color=_LINE_COLOR,
+                alpha=0.6,
+                width=1.0,
+                ax=ax,
+                zorder=2,
+                headwidth=4,
+                headlength=4,
+            )
+
+
 def plot_pitch_control(
     players: pd.DataFrame,
     ball_x: float | None = None,
@@ -190,9 +254,6 @@ def plot_pitch_control(
         plt.close(fig)
         return fig
 
-    home = players[players["team"] == "home"]
-    away = players[players["team"] == "away"]
-
     # Voronoi tessellation (requires >= 3 points)
     all_points: np.ndarray = np.asarray(players[["x", "y"]].dropna().values)
     if len(all_points) >= 3:
@@ -205,56 +266,76 @@ def plot_pitch_control(
             color = _HOME_COLOR if teams_array[i] == "home" else _AWAY_COLOR
             ax.fill(*polygon.T, alpha=0.15, color=color, zorder=1)
 
-    # Player scatter
-    if not home.empty:
-        pitch.scatter(
-            home["x"],
-            home["y"],
-            color=_HOME_COLOR,
-            s=120,
-            edgecolors=_LINE_COLOR,
-            linewidth=0.8,
-            ax=ax,
-            zorder=3,
-            label="Home",
-        )
-    if not away.empty:
-        pitch.scatter(
-            away["x"],
-            away["y"],
-            color=_AWAY_COLOR,
-            s=120,
-            edgecolors=_LINE_COLOR,
-            linewidth=0.8,
-            ax=ax,
-            zorder=3,
-            label="Away",
-        )
+    _draw_players_and_ball(pitch, ax, players, ball_x, ball_y, show_velocity)
 
-    # Ball position
-    if ball_x is not None and ball_y is not None:
-        pitch.scatter(
-            [ball_x], [ball_y], color=_BALL_COLOR, s=200, edgecolors="white", linewidth=1.5, ax=ax, zorder=4, marker="h"
-        )
+    ax.set_xlim(-2, 122)
+    ax.set_ylim(-2, 82)
 
-    # Velocity arrows
-    if show_velocity and "velocity_x" in players.columns and "velocity_y" in players.columns:
-        vel_df = players.dropna(subset=["velocity_x", "velocity_y"])
-        if not vel_df.empty:
-            scale = 2.0  # Scale factor for visibility
-            pitch.arrows(
-                vel_df["x"],
-                vel_df["y"],
-                vel_df["x"] + vel_df["velocity_x"] * scale,
-                vel_df["y"] + vel_df["velocity_y"] * scale,
-                color=_LINE_COLOR,
-                alpha=0.6,
-                width=1.0,
-                ax=ax,
-                zorder=2,
-                headwidth=4,
-                headlength=4,
-            )
+    ax.set_title(title, color=_LINE_COLOR, fontsize=14, pad=10)
+    plt.close(fig)
+    return fig
+
+
+def plot_physics_pitch_control(
+    players: pd.DataFrame,
+    control_surface: np.ndarray,
+    grid_x: np.ndarray,
+    grid_y: np.ndarray,
+    ball_x: float | None = None,
+    ball_y: float | None = None,
+    show_velocity: bool = False,
+    title: str = "Pitch Control (Physics)",
+) -> matplotlib.figure.Figure:
+    """Plot physics-based pitch control with continuous heatmap overlay.
+
+    Parameters
+    ----------
+    players : DataFrame with x, y, team, player_id (and optionally velocity_x, velocity_y).
+    control_surface : (ny, nx) array from compute_pitch_control_frame, values in [0, 1].
+    grid_x : (nx,) StatsBomb x-coordinates of grid columns.
+    grid_y : (ny,) StatsBomb y-coordinates of grid rows.
+    ball_x, ball_y : Optional ball position in StatsBomb coordinates.
+    show_velocity : If True, draw velocity arrows.
+    title : Plot title.
+
+    Returns a matplotlib Figure.
+    """
+    pitch = Pitch(pitch_type="statsbomb", pitch_color=_BG_COLOR, line_color=_LINE_COLOR)
+    result: Any = pitch.draw(figsize=(12, 8))
+    fig: matplotlib.figure.Figure = result[0]
+    ax: Any = result[1]
+    fig.set_facecolor(_BG_COLOR)
+
+    if players.empty:
+        ax.set_title(title, color=_LINE_COLOR, fontsize=14, pad=10)
+        plt.close(fig)
+        return fig
+
+    # Continuous heatmap overlay using imshow
+    # surface: 1.0 = home (blue), 0.0 = away (red), 0.5 = contested (white)
+    cmap = plt.get_cmap("RdBu")
+    x_min, x_max = float(grid_x[0]), float(grid_x[-1])
+    y_min, y_max = float(grid_y[0]), float(grid_y[-1])
+    im = ax.imshow(
+        control_surface,
+        extent=[x_min, x_max, y_min, y_max],
+        origin="lower",
+        cmap=cmap,
+        vmin=0.0,
+        vmax=1.0,
+        alpha=0.5,
+        aspect="auto",
+        zorder=1,
+        interpolation="bilinear",
+    )
+
+    # Colorbar
+    cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
+    cbar.set_ticks([0.0, 0.5, 1.0])
+    cbar.set_ticklabels(["Away", "Contested", "Home"])
+    cbar.ax.tick_params(colors=_LINE_COLOR, labelsize=9)
+
+    _draw_players_and_ball(pitch, ax, players, ball_x, ball_y, show_velocity)
 
     ax.set_xlim(-2, 122)
     ax.set_ylim(-2, 82)

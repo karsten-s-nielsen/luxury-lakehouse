@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import matplotlib.figure
+import numpy as np
 import pandas as pd
 
 from streamlit_app.components.charts import plot_match_comparison_bars, plot_player_radar
@@ -10,6 +11,7 @@ from streamlit_app.components.pitch import (
     plot_heatmap,
     plot_pass_map,
     plot_pass_network,
+    plot_physics_pitch_control,
     plot_pitch_control,
     plot_shot_map,
 )
@@ -380,3 +382,56 @@ class TestBuildNetwork:
         nodes, edges = _build_network(passes)
         assert len(nodes) == 0
         assert len(edges) == 0
+
+
+class TestPlotPhysicsPitchControl:
+    """Test physics-based pitch control visualization."""
+
+    def _sample_players(self, with_velocity: bool = False) -> pd.DataFrame:
+        data: dict[str, list[object] | list[str]] = {
+            "x": [20.0, 40.0, 60.0, 80.0, 100.0, 30.0, 50.0, 70.0, 90.0, 110.0],
+            "y": [40.0, 30.0, 50.0, 20.0, 60.0, 60.0, 70.0, 10.0, 40.0, 50.0],
+            "team": ["home"] * 5 + ["away"] * 5,
+            "player_id": [f"p{i}" for i in range(10)],
+        }
+        if with_velocity:
+            data["velocity_x"] = [1.0, -0.5, 0.3, -0.8, 0.0, -1.0, 0.5, -0.3, 0.8, 0.0]
+            data["velocity_y"] = [0.5, 0.2, -0.4, 0.1, 0.0, -0.5, -0.2, 0.4, -0.1, 0.0]
+        return pd.DataFrame(data)
+
+    def _sample_surface(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        grid_x = np.linspace(0, 120, 50)
+        grid_y = np.linspace(0, 80, 32)
+        surface = np.random.default_rng(42).random((32, 50))
+        return grid_x, grid_y, surface
+
+    def test_returns_figure_with_data(self) -> None:
+        players = self._sample_players()
+        grid_x, grid_y, surface = self._sample_surface()
+        fig = plot_physics_pitch_control(players, surface, grid_x, grid_y)
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+    def test_returns_figure_with_empty_data(self) -> None:
+        players = pd.DataFrame({"x": [], "y": [], "team": [], "player_id": []})
+        grid_x, grid_y, surface = self._sample_surface()
+        fig = plot_physics_pitch_control(players, surface, grid_x, grid_y)
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+    def test_with_velocity_arrows(self) -> None:
+        players = self._sample_players(with_velocity=True)
+        grid_x, grid_y, surface = self._sample_surface()
+        fig = plot_physics_pitch_control(players, surface, grid_x, grid_y, show_velocity=True)
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+    def test_with_ball_position(self) -> None:
+        players = self._sample_players()
+        grid_x, grid_y, surface = self._sample_surface()
+        fig = plot_physics_pitch_control(players, surface, grid_x, grid_y, ball_x=60.0, ball_y=40.0)
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+    def test_colorbar_present(self) -> None:
+        players = self._sample_players()
+        grid_x, grid_y, surface = self._sample_surface()
+        fig = plot_physics_pitch_control(players, surface, grid_x, grid_y)
+        # The figure should have more than 1 axes (pitch + colorbar)
+        assert len(fig.get_axes()) > 1
