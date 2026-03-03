@@ -2,7 +2,7 @@
 
 > **Status**: Phase 10 complete — 8 Streamlit pages, 187 unit tests, 271 dbt data tests, 10 synced tables, 20 tracking matches.
 > **Last Updated**: 2026-03-03
-> **Repository**: [`karstenskyt/luxury-lakehouse`](https://github.com/karstenskyt/luxury-lakehouse)
+> **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready from day one
 
 ---

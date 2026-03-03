@@ -85,7 +85,7 @@ All actionable findings from the February 2026 audit have been resolved. The 3 a
 - Zero hardcoded credentials in any source file
 - `.gitignore` covers `.env`, `*.tfvars`, `*.pem`, `*.key`, `credentials.json`
 - CI variables injected via `${{ vars.* }}` (non-sensitive); no secrets required
-- AWS OIDC role assumption — IAM role scoped to `repo:karstenskyt/luxury-lakehouse:*`
+- AWS OIDC role assumption — IAM role scoped to `repo:karsten-s-nielsen/luxury-lakehouse:*`
 - Databricks OIDC federation — zero secrets in CI
 
 ### Data — Low Risk

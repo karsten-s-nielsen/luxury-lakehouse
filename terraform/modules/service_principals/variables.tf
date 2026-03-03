@@ -22,7 +22,7 @@ variable "deployer_user_names" {
 variable "github_repository" {
   description = "GitHub repository in org/repo format for OIDC federation"
   type        = string
-  default     = "karstenskyt/luxury-lakehouse"
+  default     = "karsten-s-nielsen/luxury-lakehouse"
 }
 
 variable "databricks_host" {

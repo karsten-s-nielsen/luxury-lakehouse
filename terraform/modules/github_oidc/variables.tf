@@ -11,7 +11,7 @@ variable "environment" {
 variable "github_repository" {
   description = "GitHub repository in org/repo format for OIDC trust policy"
   type        = string
-  default     = "karstenskyt/luxury-lakehouse"
+  default     = "karsten-s-nielsen/luxury-lakehouse"
 }
 
 variable "state_bucket" {

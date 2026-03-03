@@ -114,7 +114,7 @@ Infrastructure IDs are environment-specific. Use `terraform output` for current 
 | GitHub Actions IAM Role | `terraform output github_actions_role_arn` |
 | State KMS Key | `terraform output state_kms_key_arn` |
 | Terraform CI SP | `terraform output terraform_ci_sp_application_id` |
-| GitHub repo | `karstenskyt/luxury-lakehouse` (private) |
+| GitHub repo | `karsten-s-nielsen/luxury-lakehouse` (private) |
 | Monthly budget | Under $100 |
 | Terraform state bucket | `karstenskyt-terraform-state` (S3 native locking) |
 | Start Claude Code with | `AWS_PROFILE=devops-agent claude` |

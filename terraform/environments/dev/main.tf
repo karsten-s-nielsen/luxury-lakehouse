@@ -83,7 +83,7 @@ module "service_principals" {
 
   environment       = var.environment
   account_id        = var.databricks_account_id
-  github_repository = "karstenskyt/luxury-lakehouse"
+  github_repository = "karsten-s-nielsen/luxury-lakehouse"
   databricks_host   = var.databricks_host
 }
 
@@ -188,7 +188,7 @@ module "github_oidc" {
   source = "../../modules/github_oidc"
 
   environment       = var.environment
-  github_repository = "karstenskyt/luxury-lakehouse"
+  github_repository = "karsten-s-nielsen/luxury-lakehouse"
   state_bucket      = "karstenskyt-terraform-state"
   kms_key_arn       = module.state_kms.kms_key_arn
 }
