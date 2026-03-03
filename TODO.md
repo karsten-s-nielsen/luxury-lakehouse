@@ -1,6 +1,6 @@
 # (Right! Luxury!) Lakehouse — TODO
 
-Quick-reference action items. Full details in [PLAN.md](PLAN.md).
+Quick-reference action items. Full details in [PLAN.md](PLAN.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
 
 **Last updated**: 2026-03-03
 
@@ -38,24 +38,34 @@ Phases 0–10 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for th
 - [ ] Space creation quantification (Fernandez & Bornn 2018)
 - [ ] Depends on Phase 10 + Phase 11
 
-### Phase 13 — Cross-Source Player Entity Resolution (PLAN §8.5)
+### Phase 13 — Line-Breaking Pass Detection (PLAN §8.5)
+
+- [ ] Adapt clustering + intersection algorithm for 120x80 coordinate system (rewrite PyTorch → NumPy)
+- [ ] **Path A (360 freeze frames):** Single-frame intersection on 323 StatsBomb matches — cluster opponent positions at pass moment
+- [ ] **Path B (tracking):** Full dual-frame intersection on 20 tracking matches
+- [ ] Add `is_line_breaking`, `lines_broken`, `line_breaking_type` columns to `fct_passes`
+- [ ] Add `line_breaking_passes`, `line_breaking_per_90` to `fct_player_stats`
+- [ ] Update Pass Map page with line-breaking visual distinction
+- [ ] Depends on Phase 6 (360 data) + Phase 10 (tracking) — both complete
+
+### Phase 14 — Cross-Source Player Entity Resolution (PLAN §8.6)
 
 - [ ] Request license from `parmacalcio1913/players-matcher` (currently unlicensed)
 - [ ] Build `int_player_xref` mapping across StatsBomb, Metrica, Wyscout
 - [ ] Refactor `dim_players` to merge cross-source records
 
-### Phase 14 — pgvector Player Embeddings (PLAN §8.6)
+### Phase 15 — pgvector Player Embeddings (PLAN §8.7)
 
 - [ ] Design feature vector from `fct_player_stats` per-90 metrics
 - [ ] Populate `fct_player_embeddings` (0 rows, table provisioned)
-- [ ] Depends on Phase 13 for cross-source identity (within-source feasible without it)
+- [ ] Depends on Phase 14 for cross-source identity (within-source feasible without it)
 
-### Phase 15 — Player Similarity Streamlit Page (PLAN §8.7)
+### Phase 16 — Player Similarity Streamlit Page (PLAN §8.8)
 
 - [ ] pgvector nearest-neighbor search (`player_search.py`)
-- [ ] Depends on Phase 14
+- [ ] Depends on Phase 15
 
-### Phase 16 — DEFCON Defensive Valuation (PLAN §8.8)
+### Phase 17 — DEFCON Defensive Valuation (PLAN §8.9)
 
 - [ ] DEFCON repo has no license — must reimplement from paper equations
 - [ ] EPV decomposition from VAEP (Phase 9) + pitch control (Phase 11)
@@ -76,14 +86,14 @@ Phases 0–10 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for th
 - [ ] **StatsBomb `backfill_extra_json` N+1** (`statsbomb.py:438`) — Runs ~3,500 per-match `SELECT *` queries in a loop. Each is a full table scan. Fix: single `SELECT` grouped by match, or batch processing.
 - [ ] **`fct_tracking_frames` missing `CLUSTER BY`** — No Z-ordering on gold Delta table. Pitch control queries scan all files before synced table indexes apply. Fix: add `CLUSTER BY (match_id)` to dbt config.
 
-## Future Work (unscheduled)
+## Research & Future Work
 
-- [x] **Lakebase query optimization round** — 12 btree indexes across 4 fact tables covering all 19 Streamlit query patterns. Composite indexes on `fct_passes_synced`, `fct_shots_synced`, `fct_action_values_synced`. EXPLAIN ANALYZE verification via `scripts/create_indexes.py --verify`. Dimension tables confirmed fine with seq scans. Databricks-layer issues documented as tech debt above.
-- [ ] Voronoi area persistence — pre-compute in dbt (lower priority if Phase 11 replaces Voronoi)
-- [ ] Pitch Control animation — frame-by-frame playback
-- [ ] Event overlay on Pitch Control — render events on pitch control view
-- [ ] Respo.Vision 3D pose tracking — skeletal keypoints from broadcast video (user pursuing)
-- [ ] Wyscout match metadata — formations, coaches, venue (not in public dataset)
+See [ROADMAP.md](ROADMAP.md) for research directions, long-horizon features, and unscheduled ideas including:
+
+- **Visual Exploratory Behavior** — blocked by pose data procurement (BSD 3-Clause)
+- **Staging Environment** — Lakebase branching for pre-production validation
+- **Graph-Based Tactical Patterns** — GNN research direction (Raabe et al. 2022)
+- **Decision Optimization** — RL-based pass optimization beyond VAEP (Rahimian et al.)
 
 ## Infrastructure Notes
 

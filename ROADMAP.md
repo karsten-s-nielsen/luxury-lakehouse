@@ -1,0 +1,204 @@
+# (Right! Luxury!) Lakehouse — Roadmap
+
+Research directions, long-horizon features, and exploratory ideas beyond the [phased plan](PLAN.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
+
+**Last updated**: 2026-03-03
+
+---
+
+## Line-Breaking Pass Detection
+
+> **Promoted to Phase 13** — see [TODO.md](TODO.md) and [PLAN.md §8.5](PLAN.md#85--phase-13-line-breaking-pass-detection) for the phased plan.
+
+**Status:** Ready to implement (no new data ingestion required)
+**License:** Apache 2.0 ([parmacalcio1913/line-breaking-passes](https://github.com/parmacalcio1913/line-breaking-passes))
+**References:** Stats Perform Opta Vision methodology; Parma Calcio research notebook
+
+Detects which defensive lines (attack / midfield / defense) a pass breaks using hierarchical clustering of opponent positions + geometric segment intersection. Fills the analytical gap between the blunt `is_progressive` flag (radial distance) and full spatial models (pitch control).
+
+### Why it matters
+
+A short lateral pass that splits two centre-backs is not "progressive" by the 0.75 distance ratio, but it's one of the most tactically valuable actions in football. Line-breaking pass detection captures this.
+
+### Two data paths
+
+| Data Source | Matches | Approach |
+|-------------|---------|----------|
+| **StatsBomb 360 freeze frames** | 323 | Cluster opponent positions at pass moment, single-frame intersection test |
+| **Tracking data** (Metrica/IDSSE/SkillCorner) | 20 | Full dual-frame algorithm (intersection at both start and end frame) |
+
+The 360 freeze-frame path is the higher-leverage starting point — 16x more matches, zero new data ingestion.
+
+### Adaptation needed
+
+- **Coordinate system**: Their code uses 105x68m corner-origin; luxury-lakehouse uses 120x80. Parameterize pitch dimensions.
+- **Data format**: Their code uses Metrica wide-format CSV; luxury-lakehouse `fct_tracking_frames` is narrow (one row per player per frame). Adapt clustering to work on narrow DataFrames or pivot.
+- **PyTorch dependency**: Used for vectorized cross-product math in the intersection test. Rewrite in pure NumPy (the math is trivial — no GPU needed).
+
+### Potential artifacts
+
+| Artifact | Layer | Description |
+|----------|-------|-------------|
+| `src/ingestion/line_breaking.py` | Ingestion | Clustering + intersection logic, adapted for narrow format + 360 freeze frames |
+| `stg_statsbomb__line_breaking.sql` | dbt staging | Join 360 freeze frames with pass events, flag line-breaking passes |
+| `fct_passes.sql` (update) | dbt marts | Add `is_line_breaking`, `lines_broken`, `line_breaking_type` columns |
+| `fct_player_stats.sql` (update) | dbt marts | Add `line_breaking_passes`, `line_breaking_per_90` aggregations |
+| Pass Map page (update) | Streamlit | Visual distinction for line-breaking passes |
+
+### Dependencies
+
+- Phase 6 (StatsBomb 360) — **complete**
+- Phase 10 (tracking data) — **complete** (for dual-frame path)
+- Phase 12 (Movement Analysis) — synergistic: defensive line depth + compactness feed pressing metrics
+
+---
+
+## Visual Exploratory Behavior (Pose-Enhanced Tracking)
+
+**Status:** Blocked by data procurement — active paths being pursued
+**License:** BSD 3-Clause ([USSoccerFederation/ssac26_visual_exploratory_behavior](https://github.com/USSoccerFederation/ssac26_visual_exploratory_behavior))
+**Paper:** Bekkers (2026), "Wide Open Gazes: Quantifying Visual Exploratory Behavior in Soccer with Pose Enhanced Positional Data" (SSAC26)
+
+Probabilistic 2D vision model: for each player at each frame, computes a pitch-surface probability grid of what they can see, accounting for head rotation (120-degree FoV), speed-dependent perception decay, and occlusion by other players' torsos.
+
+### Why it matters
+
+The paper proves that aggregated vision features improve prediction of pitch value gained (AUC 0.744 to 0.788 with vision, +0.0 without), while traditional VEA counting (head movements > 125 deg/s) adds zero predictive power. This is the frontier of off-ball analysis.
+
+### Hard blocker: pose data
+
+The model requires **`head_angle`** and **`shoulders_angle`** per player per frame — data from pose estimation applied to broadcast video. None of luxury-lakehouse's current tracking sources provide these angles.
+
+| Data Source | Has pose angles? | Viable? |
+|-------------|-----------------|---------|
+| Metrica / IDSSE / SkillCorner tracking | No | No |
+| StatsBomb 360 freeze frames | No | No |
+| **Respo.Vision** (commercial) | Yes | Yes — active inquiry |
+| **Parma Calcio contact** (sample data) | Possibly | Yes — active inquiry |
+
+### What's ready now
+
+The `Vision` class is a clean NumPy/scipy implementation. Once pose data arrives, integration is straightforward:
+- Narrow format matches `fct_tracking_frames` (no format adaptation)
+- Pitch dimensions are configurable
+- Speed is already computed in our tracking pipeline
+- Combines naturally with Phase 11 pitch control via element-wise matrix multiplication
+
+### Potential artifacts (once data available)
+
+| Artifact | Layer | Description |
+|----------|-------|-------------|
+| `src/ingestion/pose_tracking.py` | Ingestion | Ingest pose-enhanced tracking (Respo.Vision format) |
+| `src/analytics/vision.py` | Analytics | Adapted `Vision` class for 120x80 coordinate system |
+| `int_vision_maps.sql` | dbt intermediate | Per-player per-frame vision metrics |
+| `fct_player_stats.sql` (update) | dbt marts | Vision-derived per-90 stats |
+| Heat Map page (update) | Streamlit | Vision map overlay on tracking viz |
+
+### Dependencies
+
+- Pose-enhanced tracking data procurement (blocker)
+- Phase 11 (pitch control) — for vision x pitch control x pitch value framework
+- Phase 10 (tracking) — **complete** (velocity computation ready)
+
+---
+
+## Staging Environment (Lakebase Branching)
+
+**Status:** Design phase
+**Budget impact:** Moderate — second Lakebase project with scale-to-zero minimizes idle cost
+
+Currently the platform has a single `dev` environment. Adding a `staging` environment leverages Lakebase's unique serverless PostgreSQL capabilities — particularly **copy-on-write database branching** — for pre-production validation without duplicating the full data pipeline.
+
+### Why it matters
+
+- **Lakebase branching**: Create lightweight branches of the production database for testing schema changes, index strategies, and synced table migrations — without affecting dev
+- **dbt environment isolation**: Run `dbt build --target staging` against a separate Gold schema, validating transformations before promoting to dev
+- **Synced table dry-run**: Test synced table schema changes (the current delete-drop-recreate workflow) in staging before applying to dev
+- **Learning objective**: Hands-on experience with Lakebase's PostgreSQL branching, which is a differentiating capability vs. traditional RDS
+
+### Implementation sketch
+
+| Component | Dev (current) | Staging (new) |
+|-----------|--------------|---------------|
+| Unity Catalog schema | `dev_bronze`, `dev_silver`, `dev_gold` | `staging_bronze`, `staging_silver`, `staging_gold` |
+| Lakebase project | `soccer-analytics-dev` | `soccer-analytics-staging` |
+| Lakebase branch | `production` | `staging` (branched from dev production) |
+| dbt target | `dev` | `staging` |
+| Synced tables | 10 tables | Subset (fact tables only for validation) |
+| Terraform | `terraform/environments/dev/` | `terraform/environments/staging/` |
+| Budget | Under $100/month | Minimal incremental (scale-to-zero) |
+
+### Key decisions to make
+
+1. **Branch source**: Branch staging from dev's production, or maintain independently?
+2. **Data scope**: Full data replication or subset (e.g., 1 competition per source)?
+3. **CI integration**: Should GitHub Actions run `dbt build --target staging` on PRs?
+4. **Synced table subset**: Which tables justify staging replication?
+
+### Dependencies
+
+- No blocking dependencies — can be implemented at any time
+- Terraform module refactoring to support multi-environment
+
+---
+
+## Graph-Based Tactical Pattern Recognition
+
+**Status:** Research direction
+**Paper:** Raabe, Nabben & Memmert (2022), "Graph representations for the analysis of multi-agent spatiotemporal sports data" (*Applied Intelligence*, CC BY open access)
+
+Proposes **Tactical Graphs** — representing players as graph nodes and spatial interactions as edges — processed by lightweight Tactical Graph Networks (TGNets) for classifying defensive outcomes from tracking data. Key finding: graph representations match or outperform CNN/LSTM approaches at a fraction of computational complexity.
+
+### Relevance
+
+- Directly applicable to luxury-lakehouse's 20 tracking matches (38M frames)
+- Player-to-player distance edges naturally model defensive structure
+- Graph representation is permutation-invariant (player ordering doesn't matter) and rotation-invariant
+- Could power tactical pattern classification: pressing triggers, defensive shape transitions, counter-attack detection
+- Lightweight architecture means feasible without GPU infrastructure
+
+### Relationship to existing phases
+
+- **Phase 11** (pitch control): TGNets could classify game states by pitch control regime
+- **Phase 12** (movement analysis): Graph features complement physical metrics
+- **Phase 17** (DEFCON): The DEFCON paper also uses Graph Attention Networks — shared infrastructure
+- Would require a new `src/analytics/` module for graph construction and model training
+
+### Not immediately actionable
+
+Requires labeled training data (defensive outcomes per tracking sequence). The paper used proprietary German football data with expert labels. Luxury-lakehouse would need to derive labels from events (e.g., possession outcome after defensive sequence) or use manual annotation.
+
+---
+
+## Decision Optimization (Beyond VAEP)
+
+**Status:** Research direction
+**Paper:** Rahimian, Van Haaren & Toka, "Beyond action valuation: A deep reinforcement learning framework for optimizing player decisions in soccer"
+
+Extends VAEP (Phase 9) from *valuing what happened* to *optimizing what should happen*. Uses RL to learn team-specific optimal pass selection and success probability surfaces, then compares actual decisions against optimal ones.
+
+### Relevance
+
+- Natural evolution of the Phase 9 VAEP pipeline
+- Answers "where *should* the player have passed?" not just "how valuable was the pass?"
+- Requires synchronized 25fps tracking + event data (Stats Perform level — commercial)
+- Implementation would need CNN policy networks trained on 11-channel game state representations
+
+### Not immediately actionable
+
+Requires commercial-grade tracking data (Belgian Pro League / Stats Perform) — significantly beyond current public datasets. Filed as a long-horizon research direction.
+
+---
+
+## Other Ideas (Unscheduled)
+
+- [ ] Voronoi area persistence — pre-compute in dbt (lower priority if Phase 11 replaces Voronoi)
+- [ ] Pitch Control animation — frame-by-frame playback in Streamlit
+- [ ] Event overlay on Pitch Control — render events on pitch control view
+- [ ] Respo.Vision 3D pose tracking — skeletal keypoints from broadcast video (user pursuing via network)
+- [ ] Wyscout match metadata — formations, coaches, venue (not in public Figshare dataset)
+- [ ] Parallelized Databricks ingestion — fan-out patterns for concurrent provider ingestion
+
+---
+
+*Items graduate from this roadmap into numbered phases in [PLAN.md](PLAN.md) when prerequisites are met and the scope is well-defined.*
