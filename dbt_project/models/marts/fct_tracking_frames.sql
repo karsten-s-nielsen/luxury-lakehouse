@@ -9,7 +9,7 @@
 -- Formula: velocity = delta_position * frame_rate (since dt = 1/frame_rate).
 --
 -- Performance notes:
---   - Very large table (~3M rows per 25fps match, ~1.3M per 10fps match)
+--   - Very large table (~3M rows per 25fps match, ~680K per 10fps match)
 --   - Downstream queries should always filter by match_id and period
 
 with tracking as (
@@ -22,7 +22,19 @@ with tracking as (
 
 ),
 
--- Calculate frame-over-frame velocity using window functions
+-- Extract LAG values into a CTE so speed can reference pre-computed deltas
+-- instead of recomputing the window functions a second time.
+with_lag as (
+
+    select
+        *,
+        lag(x) over (partition by match_id, player_id, period order by frame) as prev_x,
+        lag(y) over (partition by match_id, player_id, period order by frame) as prev_y
+    from tracking
+
+),
+
+-- Derive velocity, speed, and distance from pre-computed lag values
 final as (
 
     select
@@ -46,20 +58,13 @@ final as (
         )                                               as distance_to_ball,
 
         -- Velocity components: delta_position * frame_rate = units/second
-        -- Per-row frame_rate replaces hardcoded {{ var('frame_duration_seconds') }}
-        (x - lag(x) over (partition by match_id, player_id, period order by frame)) * frame_rate as velocity_x,
-        (y - lag(y) over (partition by match_id, player_id, period order by frame)) * frame_rate as velocity_y,
+        (x - prev_x) * frame_rate                      as velocity_x,
+        (y - prev_y) * frame_rate                      as velocity_y,
 
         -- Speed (magnitude of velocity vector)
         sqrt(
-            power(
-                (x - lag(x) over (partition by match_id, player_id, period order by frame)) * frame_rate,
-                2
-            )
-            + power(
-                (y - lag(y) over (partition by match_id, player_id, period order by frame)) * frame_rate,
-                2
-            )
+            power((x - prev_x) * frame_rate, 2)
+            + power((y - prev_y) * frame_rate, 2)
         )                                               as speed,
 
         -- Pitch control value at this player's location
@@ -70,7 +75,7 @@ final as (
         -- Computed by external spatial analysis pipeline (Phase 11+)
         cast(null as double)                            as voronoi_area
 
-    from tracking
+    from with_lag
 
 )
 

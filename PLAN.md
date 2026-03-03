@@ -43,15 +43,15 @@ This plan implements the Databricks Lakebase architecture to build a serverless 
 ## 2. Target Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                        DATA SOURCES (Open Source)                        │
-│  ┌─────────────┐  ┌──────────────────┐  ┌────────────────────────────┐  │
-│  │  StatsBomb   │  │  Metrica Sports  │  │  Wyscout  │  │ IDSSE │ │SkillCorner│ │
-│  │  (JSON API)  │  │  (CSV tracking)  │  │  (JSON)   │  │ (XML) │ │  (JSONL)  │ │
-│  └──────┬───────┘  └───────┬──────────┘  └─────┬─────┘  └───┬───┘ └─────┬─────┘ │
-└─────────┼──────────────────┼────────────────────┼────────────┼───────────┼────────┘
-          │                  │                    │            │           │
-          ▼                  ▼                    ▼            ▼           ▼
+┌───────────────────────────────────────────────────────────────────────────────────────┐
+│                              DATA SOURCES (Open Source)                                │
+│  ┌───────────┐  ┌────────────────┐  ┌─────────┐  ┌───────────┐  ┌──────────────┐     │
+│  │ StatsBomb  │  │ Metrica Sports │  │ Wyscout │  │   IDSSE   │  │ SkillCorner  │     │
+│  │ (JSON API) │  │ (CSV tracking) │  │ (JSON)  │  │   (XML)   │  │   (JSONL)    │     │
+│  └─────┬─────┘  └───────┬────────┘  └────┬────┘  └─────┬─────┘  └──────┬───────┘     │
+└────────┼────────────────┼─────────────────┼─────────────┼───────────────┼──────────────┘
+         │                │                 │             │               │
+         ▼                ▼                 ▼             ▼               ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
 │              DATABRICKS SERVERLESS WORKFLOWS                             │
 │  ┌──────────────────────────────────────────────────────────────────┐    │
@@ -331,7 +331,7 @@ luxury-lakehouse/
 │   └── seeds/                        # competition_metadata.csv, position_mapping.csv
 │
 ├── scripts/
-│   ├── create_indexes.py             # PG indexes on Lakebase synced tables (re-run after recreation)
+│   ├── create_indexes.py             # PG indexes on Lakebase synced tables (12 indexes, 4 tables, --verify flag)
 │   ├── delete_synced_table.py        # Delete synced table + drop PG ghost table
 │   ├── import_synced_tables.sh       # Terraform import workflow
 │   ├── lakebase_grants.sql           # PG GRANT SELECT for Streamlit SP
@@ -409,7 +409,16 @@ All code must pass these gates before merge:
 | E2E | Streamlit pages render with real data | Manual smoke test |
 | Infrastructure | Terraform validates | `terraform validate` + `terraform plan` |
 
-### 6.6 — Architecture Documentation
+### 6.6 — Database Performance
+
+Lakebase and Databricks performance standards are codified in [CLAUDE.md § Database Performance](CLAUDE.md#database-performance). Key rules:
+
+- **Lakebase (PG):** Index every filtered column on fact tables >100K rows. No `ON ONLY` indexes (partitioned tables). Avoid `SELECT DISTINCT` on large tables — use recursive CTE. Re-run `scripts/create_indexes.py` after every synced table recreation.
+- **Databricks (Spark/dbt):** Avoid double `df.count()`, prefer `replaceWhere` over bare append, don't `.toPandas()` unbounded tables, extract repeated window functions into CTEs.
+
+Currently 12 btree indexes across 4 fact tables covering all 19 Streamlit query patterns. Managed by `scripts/create_indexes.py` with `--verify` for EXPLAIN ANALYZE validation.
+
+### 6.7 — Architecture Documentation
 
 C4 diagrams are the single source of truth for architecture documentation, maintained as Structurizr DSL and regenerated automatically via `/final-review` before significant commits. See [§3.4](#34--c4-diagram-lifecycle).
 
@@ -468,6 +477,7 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 - `logical_database_name = "databricks_postgres"` — standard Lakebase database
 - **Autoscaling workaround (provider v1.110.0):** `databricks_database_synced_database_table` only supports `database_instance_name` (Provisioned). Synced tables targeting Autoscaling projects must be created via Databricks UI, then imported into Terraform. `lifecycle { ignore_changes = all }` prevents drift. This applies to any new synced table.
 - **Schema changes:** Must delete synced table, drop ghost PG table, recreate via API, re-import into Terraform.
+- **PG indexes:** 12 custom btree indexes across 4 fact tables (tracking, passes, shots, action_values). Dropped on synced table recreation — re-run `scripts/create_indexes.py` alongside `scripts/lakebase_grants.sql`.
 - **Credential API:** REST endpoint is `/api/2.0/postgres/credentials` (NOT `/api/2.0/database/credentials`).
 
 ### Streamlit App
