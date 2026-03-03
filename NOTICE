@@ -38,6 +38,10 @@ kloppy — standardizing soccer tracking/event data (BSD-3-Clause License).
 Copyright (c) kloppy contributors.
 See: https://github.com/PySport/kloppy
 
+socceraction — SPADL conversion and VAEP action valuation (MIT License).
+Copyright (c) DTAI Research KU Leuven.
+See: https://github.com/ML-KULeuven/socceraction
+
 Mathematical References
 -----------------------
 
@@ -45,3 +49,15 @@ The shot angle geometry calculation (dbt_project/macros/shot_angle.sql)
 references "The Geometry of Shooting" from Soccermatics by David Sumpter.
 The implementation is an independent SQL translation of a well-known
 trigonometric formula, not a derivative of any source code.
+
+The physics-based pitch control model (src/analytics/pitch_control.py)
+implements the time-to-intercept and influence model described in:
+Spearman, W. (2017). "Beyond Expected Goals." MIT Sloan Sports
+Analytics Conference. The implementation is an independent Python
+translation of the published equations, not derived from any source code.
+
+The VAEP action valuation pipeline (src/ingestion/spadl_vaep.py) uses the
+SPADL representation and VAEP framework described in: Decroos, T. et al.
+(2019). "Actions Speak Louder than Goals: Valuing Player Actions in
+Soccer." Proceedings of the 25th ACM SIGKDD. Implementation via the
+socceraction library (see Third-Party Libraries above).

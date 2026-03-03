@@ -1,4 +1,4 @@
-"""Pitch Control page — Voronoi diagram of player territorial control per frame."""
+"""Pitch Control page — physics-based (Spearman 2017) and Voronoi pitch control."""
 
 from __future__ import annotations
 
@@ -6,7 +6,8 @@ from typing import Any
 
 import streamlit as st
 
-from streamlit_app.components.pitch import plot_pitch_control
+from analytics.pitch_control import compute_pitch_control_at_point, compute_pitch_control_frame
+from streamlit_app.components.pitch import plot_physics_pitch_control, plot_pitch_control
 from streamlit_app.config import get_settings
 from streamlit_app.db import execute_query, t
 
@@ -116,6 +117,7 @@ def page() -> None:
         return
 
     with st.sidebar:
+        viz_mode = st.radio("Model", ["Physics (Spearman)", "Voronoi"], horizontal=True)
         match_id = st.selectbox("Match", matches["match_id"].tolist())
         period = st.radio("Period", [1, 2], horizontal=True)
         show_velocity = st.toggle("Show velocity arrows", value=False)
@@ -148,12 +150,33 @@ def page() -> None:
 
     with col_viz:
         title = f"Pitch Control — {match_id} P{period} F{frame}"
-        fig = plot_pitch_control(frame_data, ball_x, ball_y, show_velocity, title=title)
+        if viz_mode == "Physics (Spearman)":
+            # Fill NaN velocities with 0 for physics model
+            physics_data = frame_data.copy()
+            physics_data["velocity_x"] = physics_data["velocity_x"].fillna(0.0)
+            physics_data["velocity_y"] = physics_data["velocity_y"].fillna(0.0)
+
+            grid_x, grid_y, surface = compute_pitch_control_frame(physics_data)
+            fig = plot_physics_pitch_control(
+                physics_data, surface, grid_x, grid_y, ball_x, ball_y, show_velocity, title=title
+            )
+        else:
+            fig = plot_pitch_control(frame_data, ball_x, ball_y, show_velocity, title=title)
         st.pyplot(fig)
 
     with col_stats:
         player_count = len(frame_data)
         st.metric("Players", player_count)
+
+        if viz_mode == "Physics (Spearman)":
+            # Physics-mode stats: control percentages
+            home_pct = float(surface.mean()) * 100  # type: ignore[possibly-undefined]
+            away_pct = 100.0 - home_pct
+            st.metric("Home Control", f"{home_pct:.1f}%")
+            st.metric("Away Control", f"{away_pct:.1f}%")
+            if ball_x is not None and ball_y is not None:
+                ball_control = compute_pitch_control_at_point(physics_data, ball_x, ball_y)  # type: ignore[possibly-undefined]
+                st.metric("Control at Ball", f"{ball_control:.2f}")
 
         if "speed" in frame_data.columns:
             valid_speed = frame_data["speed"].dropna()

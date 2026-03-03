@@ -8,18 +8,11 @@ Quick-reference action items. Full details in [PLAN.md](PLAN.md). For research d
 
 ## Completed Phases
 
-Phases 0–10 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for the summary table and git history for implementation details.
+Phases 0–11 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for the summary table and git history for implementation details.
 
 ---
 
 ## Next Up
-
-### Phase 11 — Physics-Based Pitch Control Model (PLAN §8.2)
-
-- [ ] Implement Spearman et al. (2017) pitch control — player influence from position, velocity, time-to-intercept
-- [ ] Populate `pitch_control_value` in `fct_tracking_frames` (currently NULL)
-- [ ] Update Streamlit Pitch Control page with continuous heatmap overlay
-- [ ] Depends on tracking data from Phase 7 (Metrica) + Phase 10 (IDSSE/SkillCorner)
 
 ### Phase 12 — Movement Analysis (PLAN §8.4)
 
@@ -85,6 +78,8 @@ Phases 0–10 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for th
 - [ ] **SPADL/VAEP `.toPandas()` OOM risk** (`spadl_vaep.py:170`) — Full bronze tables collected to driver memory. Works at current scale (~3M events) but will OOM at 2x. Fix: Spark-native rewrite or bounded partitioned pulls.
 - [ ] **StatsBomb `backfill_extra_json` N+1** (`statsbomb.py:438`) — Runs ~3,500 per-match `SELECT *` queries in a loop. Each is a full table scan. Fix: single `SELECT` grouped by match, or batch processing.
 - [ ] **`fct_tracking_frames` missing `CLUSTER BY`** — No Z-ordering on gold Delta table. Pitch control queries scan all files before synced table indexes apply. Fix: add `CLUSTER BY (match_id)` to dbt config.
+- [ ] **`pitch_control_value` column still NULL** — `fct_tracking_frames.pitch_control_value` is provisioned but not populated. Batch computation deferred from Phase 11. Requires running `compute_pitch_control_frame()` across all frames and writing back to Delta.
+- [ ] **Pitch control `max_speed` unused** — `PitchControlParams.max_speed` is defined but not used in the TTI calculation. The Spearman model uses single-phase acceleration only (no velocity cap). Implement two-phase TTI (acceleration + constant speed) for full model fidelity.
 
 ## Research & Future Work
 

@@ -1,6 +1,6 @@
 # Databricks Lakebase Implementation Plan — Soccer Analytics Platform
 
-> **Status**: Phase 10 complete — 8 Streamlit pages, 187 unit tests, 271 dbt data tests, 10 synced tables, 20 tracking matches.
+> **Status**: Phase 11 complete — 8 Streamlit pages, 214 unit tests, 271 dbt data tests, 10 synced tables, physics-based pitch control.
 > **Last Updated**: 2026-03-03
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready from day one
@@ -291,6 +291,9 @@ luxury-lakehouse/
 │       └── tags.tf                   # Standard resource tagging
 │
 ├── src/
+│   ├── analytics/
+│   │   └── pitch_control.py            # Spearman (2017) physics-based pitch control model
+│   │
 │   ├── ingestion/
 │   │   ├── statsbomb.py              # StatsBomb API ingestion (5 bronze tables + 360 backfill)
 │   │   ├── metrica.py                # Metrica CSV + EPTS ingestion (Games 1-3)
@@ -308,7 +311,7 @@ luxury-lakehouse/
 │   │   ├── pages/                    # 8 pages (+ player_search.py planned)
 │   │   └── components/               # filters.py, pitch.py, charts.py
 │   │
-│   └── tests/                        # 187 unit tests (11 test modules)
+│   └── tests/                        # 214 unit tests (12 test modules)
 │       ├── test_statsbomb.py
 │       ├── test_metrica.py
 │       ├── test_wyscout.py
@@ -317,6 +320,7 @@ luxury-lakehouse/
 │       ├── test_spadl_adapter.py
 │       ├── test_spadl_vaep.py
 │       ├── test_ingestion_utils.py
+│       ├── test_pitch_control_model.py
 │       ├── test_streamlit_components.py
 │       ├── test_streamlit_config.py
 │       └── test_streamlit_db.py
@@ -403,7 +407,7 @@ All code must pass these gates before merge:
 
 | Level | What | How |
 |-------|------|-----|
-| Unit | Ingestion logic, utility functions | pytest (187 tests) |
+| Unit | Ingestion logic, utility functions, analytics models | pytest (214 tests) |
 | Integration | dbt models compile and run | `dbt build --target ci` |
 | Data quality | Row counts, value ranges, referential integrity | dbt tests (271) + dbt-expectations |
 | E2E | Streamlit pages render with real data | Manual smoke test |
@@ -440,7 +444,8 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 | **7** | Metrica Game 3 + Pitch Control | EPTS format parsers (XML metadata + colon-delimited tracking + JSON events), ball coordinate fix, Voronoi pitch control page, 107 tests |
 | **8** | Heat Map + Pass Network | `pass_recipient_id` through dbt pipeline, Heat Map page (action density), Pass Network page (graph viz), synced table schema migration, 118 tests |
 | **9** | SPADL/VAEP Action Valuation | "Fetch Once, Fork Twice" — `spadl_adapter.py` + `spadl_vaep.py`, socceraction + XGBoost, 9.5M VAEP-scored actions, Action Values page (3 views), Player Radar VAEP/90, 155 tests |
-| **10** | Additional Tracking Data (IDSSE + SkillCorner) | 7 Bundesliga IDSSE matches (25fps via stdlib XML parser) + 10 A-League SkillCorner matches (10fps via kloppy), per-row `frame_rate` + `source_provider`, `fct_tracking_frames` UNION ALL 3 sources (38.1M rows), 187 tests |
+| **10** | Additional Tracking Data (IDSSE + SkillCorner) | 7 Bundesliga IDSSE matches (25fps via stdlib XML parser) + 10 A-League SkillCorner matches (10fps via kloppy), per-row `frame_rate` + `source_provider`, `fct_tracking_frames` UNION ALL 3 sources (38.1M rows) |
+| **11** | Physics-Based Pitch Control Model | Spearman (2017) model in `src/analytics/pitch_control.py`, NumPy-vectorized TTI + logistic sigmoid, continuous heatmap overlay with RdBu colormap, Physics/Voronoi toggle on Pitch Control page, 214 tests |
 
 ### Key Design Decisions (from completed phases)
 
@@ -488,7 +493,7 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 | Pass Map | Full pitch arrows, progressive pass highlighting | `fct_passes_synced` |
 | Player Radar | Per-90 metrics comparison (1-3 players), incl. VAEP/90 | `fct_player_stats_synced` |
 | Match Summary | Scorecard + xG metrics + horizontal bar chart | `fct_match_summary_synced` |
-| Pitch Control | Voronoi tessellation from tracking data | `fct_tracking_frames_synced` |
+| Pitch Control | Physics (Spearman 2017) + Voronoi toggle from tracking data | `fct_tracking_frames_synced` |
 | Heat Map | Action density per player/team/match | `fct_passes_synced`, `fct_shots_synced` |
 | Pass Network | Player-to-player graph with scaled nodes/edges | `fct_passes_synced` |
 | Action Values | VAEP rankings, action type breakdown, timeline | `fct_action_values_synced`, `fct_player_stats_synced` |
@@ -518,16 +523,18 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 
 ### 8.2 — Phase 11: Physics-Based Pitch Control Model
 
-**Status:** Planned. Replaces the current Voronoi approximation.
+**Status:** Complete. Physics model implemented; Voronoi retained as toggle.
 
-The Phase 7 Pitch Control page uses Voronoi tessellation — a geometric approximation. A physics-based model (Spearman et al., 2017; Fernandez & Bornn, 2018) accounts for player velocity, acceleration, and time-to-intercept to produce continuous pitch control probabilities.
+Pure-Python implementation of Spearman (2017) physics-based pitch control in `src/analytics/pitch_control.py`. Accounts for player position, velocity, and time-to-intercept using kinematic equations and logistic sigmoid influence functions. NumPy-vectorized for <100ms per frame on a 50x32 grid with 22 players.
 
-**Implementation:**
-1. Per-cell time-to-intercept based on position, velocity, max acceleration
-2. Convert to control probability using logistic function
-3. Sum team probabilities → continuous pitch control surface [0, 1]
-4. Populate `pitch_control_value` in `fct_tracking_frames` (currently NULL)
-5. Update Streamlit with continuous heatmap overlay alongside Voronoi
+**Delivered:**
+1. `src/analytics/` package with `PitchControlParams`, `compute_pitch_control_frame()`, `compute_pitch_control_at_point()`
+2. Continuous heatmap overlay via `plot_physics_pitch_control()` with diverging RdBu colormap
+3. Streamlit Pitch Control page with "Physics (Spearman)" / "Voronoi" model toggle
+4. Physics-mode stats: Home Control %, Away Control %, Control at Ball
+5. 27 new unit tests (22 model + 5 visualization), 214 total passing
+
+**Deferred:** Batch population of `pitch_control_value` in `fct_tracking_frames` (stays NULL — separate follow-up).
 
 **Data requirements:** Tracking data with positions and velocities — available from Metrica (Phase 7) and IDSSE/SkillCorner (Phase 10).
 

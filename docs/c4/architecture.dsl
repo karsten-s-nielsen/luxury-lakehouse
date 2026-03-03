@@ -29,6 +29,9 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
                 spadlAdapter = component "SPADL Adapter" "Transforms bronze event tables into socceraction-compatible DataFrames. Adapters for StatsBomb (column rename, extra dict, home_team_id) and Wyscout (period mapping, milliseconds, JSON parsing)." "Python, pandas"
                 spadlVaep = component "SPADL/VAEP Pipeline" "4-phase pipeline: read bronze events, convert to SPADL actions via socceraction, extract features and train XGBoost VAEP models, score all actions. Incremental processing, model persistence to UC Volumes." "Python, socceraction, xgboost"
             }
+            analytics = container "Analytics Models" "Pure-Python analytics library providing physics-based pitch control (Spearman 2017) with time-to-intercept kinematics and logistic sigmoid influence functions" "Python, NumPy" {
+                pitchControlModel = component "Pitch Control Model" "Spearman (2017) physics-based model: kinematic TTI, logistic sigmoid influence, vectorized 50x32 grid computation. PitchControlParams frozen dataclass." "pitch_control.py, NumPy"
+            }
             catalog = container "Unity Catalog" "Governed data storage across the medallion architecture with Bronze (raw), Silver (cleaned), and Gold (analytics-ready) schemas" "Delta Lake, Apache Parquet" "Database"
             sqlWarehouse = container "Serverless SQL Warehouse" "Executes dbt transformations and ad-hoc analytical queries using the Photon engine" "Databricks Serverless SQL, Photon"
             dbt = container "dbt Project" "Transforms raw Bronze data through Silver staging to Gold analytics tables, including xG features, pass metrics, player statistics, and multi-source tracking frames" "dbt-core, dbt-databricks" {
@@ -51,7 +54,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
                 configComp = component "Configuration" "Pydantic BaseSettings with env var binding, identifier validation, cached singleton" "config.py, pydantic-settings"
                 dbComp = component "Database Layer" "OAuth M2M token management (SDK + REST fallback), JWT UUID validation, ThreadedConnectionPool with 55-min recycle, parameterized queries, table name validation, statement_timeout, sanitized errors" "db.py, psycopg2, databricks-sdk"
                 filtersComp = component "Filter Widgets" "5 cascading selectbox/slider widgets backed by Lakebase dimension tables with 10-min cache" "filters.py, st.cache_data"
-                pitchComp = component "Pitch Visualizations" "mplsoccer wrappers: shot scatter (sized by xG), pass arrows (progressive highlighting), heat map (bin_statistic density), pass network (scaled nodes and edges), Voronoi pitch control" "pitch.py, mplsoccer, scipy.spatial"
+                pitchComp = component "Pitch Visualizations" "mplsoccer wrappers: shot scatter (sized by xG), pass arrows (progressive highlighting), heat map (bin_statistic density), pass network (scaled nodes and edges), Voronoi pitch control, physics pitch control (imshow heatmap with RdBu colormap)" "pitch.py, mplsoccer, scipy.spatial"
                 chartsComp = component "Chart Visualizations" "Radar chart (1-3 players, per-90 metrics), horizontal bar comparison, VAEP action value timeline, and action type breakdown chart" "charts.py, mplsoccer Radar, matplotlib"
                 shotMapPage = component "Shot Map Page" "Half-pitch shot visualization with xG sizing, summary stats (goals, conversion rate, xG/shot)" "shot_map.py"
                 passMapPage = component "Pass Map Page" "Full-pitch pass arrows with progressive highlighting, pass completion stats" "pass_map.py"
@@ -60,7 +63,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
                 heatMapPage = component "Heat Map Page" "Action density visualization with competition/team/player/match filters, 3x3 zone stats, supports all-matches aggregation" "heat_map.py"
                 passNetworkPage = component "Pass Network Page" "Player-to-player passing graph with min-passes threshold slider, scaled nodes by pass count, edges by pair frequency" "pass_network.py"
                 actionValuesPage = component "Action Values Page" "3 views: Player VAEP Rankings table, Action Type Breakdown bar chart, Match Action Timeline. Filters by competition, team, player, match." "action_values.py"
-                pitchControlPage = component "Pitch Control Page" "Voronoi-based pitch control visualization with provider filter (Metrica/IDSSE/SkillCorner), adaptive frame slider step, recursive CTE loose index scan for match list" "pitch_control.py"
+                pitchControlPage = component "Pitch Control Page" "Physics (Spearman 2017) and Voronoi pitch control with model toggle, provider filter (Metrica/IDSSE/SkillCorner), adaptive frame slider step, Home/Away control %, recursive CTE loose index scan" "pitch_control.py"
             }
         }
 
@@ -172,7 +175,8 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         actionValuesPage -> filtersComp "Uses competition, team, player, match filters" ""
         actionValuesPage -> chartsComp "Renders action value timeline and type breakdown" ""
         actionValuesPage -> dbComp "Queries fct_action_values_synced, fct_player_stats_synced" ""
-        pitchControlPage -> pitchComp "Renders Voronoi pitch control" ""
+        pitchControlPage -> pitchComp "Renders Voronoi and physics pitch control" ""
+        pitchControlPage -> analytics "Computes pitch control surface via Spearman model" ""
         pitchControlPage -> dbComp "Queries fct_tracking_frames_synced" ""
         filtersComp -> dbComp "Queries dimension tables" ""
         dbComp -> configComp "Reads Lakebase connection settings" ""
@@ -201,6 +205,11 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         }
 
         component dbt "dbtComponents" {
+            include *
+            autoLayout
+        }
+
+        component analytics "AnalyticsComponents" {
             include *
             autoLayout
         }
