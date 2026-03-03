@@ -11,16 +11,38 @@ from streamlit_app.config import get_settings
 from streamlit_app.db import execute_query, t
 
 
-def _load_matches() -> Any:
-    """Load distinct Metrica match IDs from the tracking synced table."""
+def _load_matches(provider: str | None = None) -> Any:
+    """Load distinct match IDs from the tracking synced table, optionally filtered by provider.
+
+    Uses a recursive CTE ("loose index scan") to avoid a full-table DISTINCT
+    on 38M+ rows.  With only ~20 distinct match_ids, this performs ~20 index
+    lookups via the btree on match_id instead of a sequential scan.
+    """
+    tbl = t("fct_tracking_frames_synced")
 
     @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner=False)
-    def _query() -> Any:
+    def _query(prov: str | None) -> Any:
+        if prov:
+            return execute_query(
+                f"WITH RECURSIVE dm AS ("  # noqa: S608
+                f"  SELECT MIN(match_id) AS match_id FROM {tbl} WHERE source_provider = %s"
+                f"  UNION ALL"
+                f"  SELECT (SELECT MIN(match_id) FROM {tbl}"
+                f"          WHERE source_provider = %s AND match_id > dm.match_id)"
+                f"  FROM dm WHERE dm.match_id IS NOT NULL"
+                f") SELECT match_id FROM dm WHERE match_id IS NOT NULL ORDER BY match_id",
+                (prov, prov),
+            )
         return execute_query(
-            f"SELECT DISTINCT match_id FROM {t('fct_tracking_frames_synced')} ORDER BY match_id"  # noqa: S608
+            f"WITH RECURSIVE dm AS ("  # noqa: S608
+            f"  SELECT MIN(match_id) AS match_id FROM {tbl}"
+            f"  UNION ALL"
+            f"  SELECT (SELECT MIN(match_id) FROM {tbl} WHERE match_id > dm.match_id)"
+            f"  FROM dm WHERE dm.match_id IS NOT NULL"
+            f") SELECT match_id FROM dm WHERE match_id IS NOT NULL ORDER BY match_id"
         )
 
-    return _query()
+    return _query(provider)
 
 
 def _load_frame_range(match_id: str, period: int) -> tuple[int, int]:
@@ -41,6 +63,24 @@ def _load_frame_range(match_id: str, period: int) -> tuple[int, int]:
         return (int(df.iloc[0]["min_frame"]), int(df.iloc[0]["max_frame"]))
 
     return _query(match_id, period)
+
+
+def _load_frame_rate(match_id: str) -> int:
+    """Get the frame rate for a specific match."""
+    match_id = str(match_id)
+
+    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner=False)
+    def _query(m: str) -> int:
+        df = execute_query(
+            f"SELECT frame_rate FROM {t('fct_tracking_frames_synced')} "  # noqa: S608
+            f"WHERE match_id = %s LIMIT 1",
+            (m,),
+        )
+        if df.empty:
+            return 25
+        return int(df.iloc[0]["frame_rate"])
+
+    return _query(match_id)
 
 
 def _load_frame_data(match_id: str, frame: int) -> Any:
@@ -65,7 +105,12 @@ def page() -> None:
     """Render the Pitch Control page."""
     st.header(":material/grid_on: Pitch Control")
 
-    matches = _load_matches()
+    with st.sidebar:
+        provider_options = ["All", "metrica", "idsse", "skillcorner"]
+        provider = st.selectbox("Provider", provider_options, index=0)
+        selected_provider = None if provider == "All" else provider
+
+    matches = _load_matches(selected_provider)
     if matches.empty:
         st.info("No tracking data available. Sync fct_tracking_frames to Lakebase first.")
         return
@@ -83,8 +128,12 @@ def page() -> None:
         st.warning("No frames found for this match and period.")
         return
 
+    # Adaptive frame slider step based on source frame rate
+    fps = _load_frame_rate(str(match_id))
+    slider_step = fps  # Skip 1 second of frames per slider tick
+
     with st.sidebar:
-        frame = st.slider("Frame", min_value=min_frame, max_value=max_frame, value=min_frame, step=25)
+        frame = st.slider("Frame", min_value=min_frame, max_value=max_frame, value=min_frame, step=slider_step)
 
     frame_data = _load_frame_data(str(match_id), frame)
     if frame_data.empty:

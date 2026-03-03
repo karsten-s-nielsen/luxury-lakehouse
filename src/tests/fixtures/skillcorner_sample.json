@@ -1,0 +1,58 @@
+{
+  "description": "Synthetic SkillCorner test fixture for unit tests. Mimics kloppy TrackingDataset frame structure.",
+  "match_id": "1925299",
+  "frame_rate": 10,
+  "pitch": {"length": 105, "width": 68, "unit": "m"},
+  "teams": {
+    "home": {"team_id": "100", "name": "Brisbane FC"},
+    "away": {"team_id": "200", "name": "Perth Glory"}
+  },
+  "players": {
+    "home": [
+      {"player_id": "P101", "name": "Player Home 1"},
+      {"player_id": "P102", "name": "Player Home 2"}
+    ],
+    "away": [
+      {"player_id": "P201", "name": "Player Away 1"},
+      {"player_id": "P202", "name": "Player Away 2"}
+    ]
+  },
+  "frames": [
+    {
+      "frame_id": 0,
+      "period": 1,
+      "timestamp_seconds": 0.0,
+      "ball": {"x": 0.5, "y": -1.0},
+      "players": {
+        "P101": {"x": -20.0, "y": 10.0},
+        "P102": {"x": -15.0, "y": -5.0},
+        "P201": {"x": 25.0, "y": 8.0},
+        "P202": {"x": 30.0, "y": -12.0}
+      }
+    },
+    {
+      "frame_id": 1,
+      "period": 1,
+      "timestamp_seconds": 0.1,
+      "ball": {"x": 1.0, "y": -0.5},
+      "players": {
+        "P101": {"x": -19.5, "y": 10.2},
+        "P102": {"x": -14.5, "y": -4.8},
+        "P201": {"x": 25.5, "y": 8.2},
+        "P202": {"x": 30.5, "y": -11.8}
+      }
+    },
+    {
+      "frame_id": 100,
+      "period": 2,
+      "timestamp_seconds": 0.0,
+      "ball": {"x": -3.0, "y": 2.0},
+      "players": {
+        "P101": {"x": 10.0, "y": -15.0},
+        "P102": {"x": 5.0, "y": 20.0},
+        "P201": {"x": -18.0, "y": 7.0},
+        "P202": {"x": -22.0, "y": -10.0}
+      }
+    }
+  ]
+}

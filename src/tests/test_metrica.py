@@ -73,7 +73,17 @@ class TestReshapeTrackingToNarrow:
         df = pd.read_csv(_FIXTURES / "metrica_tracking_home.csv", skiprows=3, header=None, names=columns)
         result = _reshape_tracking_to_narrow(df, "test_match")
 
-        expected_cols = {"period", "frame", "timestamp", "ball_x", "ball_y", "home_players", "away_players", "match_id"}
+        expected_cols = {
+            "period",
+            "frame",
+            "timestamp",
+            "ball_x",
+            "ball_y",
+            "home_players",
+            "away_players",
+            "match_id",
+            "frame_rate",
+        }
         assert expected_cols == set(result.columns)
 
     def test_home_players_is_valid_json(self) -> None:
@@ -110,6 +120,26 @@ class TestReshapeTrackingToNarrow:
         result = _reshape_tracking_to_narrow(df, "Game_42")
 
         assert all(result["match_id"] == "Game_42")
+
+    def test_frame_rate_column_present(self) -> None:
+        csv_text = (_FIXTURES / "metrica_tracking_home.csv").read_text()
+        team_row, jersey_row, column_row = _parse_tracking_header(csv_text)
+        columns = _build_player_columns(team_row, jersey_row, column_row)
+
+        df = pd.read_csv(_FIXTURES / "metrica_tracking_home.csv", skiprows=3, header=None, names=columns)
+        result = _reshape_tracking_to_narrow(df, "test_match")
+
+        assert "frame_rate" in result.columns
+
+    def test_frame_rate_always_25(self) -> None:
+        csv_text = (_FIXTURES / "metrica_tracking_home.csv").read_text()
+        team_row, jersey_row, column_row = _parse_tracking_header(csv_text)
+        columns = _build_player_columns(team_row, jersey_row, column_row)
+
+        df = pd.read_csv(_FIXTURES / "metrica_tracking_home.csv", skiprows=3, header=None, names=columns)
+        result = _reshape_tracking_to_narrow(df, "test_match")
+
+        assert all(result["frame_rate"] == 25)
 
 
 class TestDownloadAndParseEvents:
@@ -334,8 +364,24 @@ class TestParseEPTSTracking:
         meta = self._make_metadata()
         tracking = "1:0.5,0.4;0.3,0.6;0.7,0.2;0.8,0.3:0.5,0.5\n"
         rows = _parse_epts_tracking(tracking, meta, "Game_3")
-        expected_keys = {"period", "frame", "timestamp", "ball_x", "ball_y", "home_players", "away_players", "match_id"}
+        expected_keys = {
+            "period",
+            "frame",
+            "timestamp",
+            "ball_x",
+            "ball_y",
+            "home_players",
+            "away_players",
+            "match_id",
+            "frame_rate",
+        }
         assert set(rows[0].keys()) == expected_keys
+
+    def test_epts_frame_rate_always_25(self) -> None:
+        meta = self._make_metadata()
+        tracking = "1:0.5,0.4;0.3,0.6;0.7,0.2;0.8,0.3:0.5,0.5\n"
+        rows = _parse_epts_tracking(tracking, meta, "Game_3")
+        assert all(r["frame_rate"] == 25 for r in rows)
 
 
 class TestParseEPTSEvents:

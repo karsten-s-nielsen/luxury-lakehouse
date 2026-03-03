@@ -60,6 +60,8 @@ vars:
   sprint_speed_threshold: 7.0        # m/s — standard sports science sprint threshold
   progressive_pass_ratio: 0.75       # end distance < 75% of start distance to goal
   pass_direction_threshold: 5        # yards — forward/backward deadband
-  frame_duration_seconds: 0.04       # 1/25fps — Metrica tracking frame interval
+  # DEPRECATED: frame_duration_seconds is no longer used in fct_tracking_frames.
+  # Velocity now uses per-row frame_rate column (Phase 10). Kept for backward compat.
+  frame_duration_seconds: 0.04       # 1/25fps — legacy Metrica-only tracking interval
   goal_width: 8                      # yards — standard goal width (IFAB Laws of the Game)
   minutes_per_match: 90              # standard match length for per-90 normalization

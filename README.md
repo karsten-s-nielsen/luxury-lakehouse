@@ -36,7 +36,7 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| **Ingestion** | Databricks Serverless Workflows | Fetch data from StatsBomb, Metrica Sports, Wyscout |
+| **Ingestion** | Databricks Serverless Workflows | Fetch data from StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner |
 | **Storage** | Delta Lake on Unity Catalog | Medallion architecture (Bronze → Silver → Gold) |
 | **Transformation** | dbt-databricks on Serverless SQL | Flatten nested JSON, compute xG/xT metrics |
 | **Synchronization** | Lakeflow Synced Tables | Zero-ETL continuous sync from Gold → Lakebase |
@@ -47,12 +47,14 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 
 ## Data Sources
 
-| Provider | Data Type | Format | Coverage |
-|----------|-----------|--------|----------|
-| [StatsBomb Open Data](https://github.com/statsbomb/open-data) | Match events + 360 context | Nested JSON | ~3,000 matches |
-| [Metrica Sports](https://github.com/metrica-sports/sample-data) | Optical tracking (25 fps) | CSV | Sample matches |
-| [Wyscout](https://figshare.com/collections/Soccer_match_event_dataset/4415000) | Event streams | JSON | Top 5 European leagues |
-| *Respo.Vision* (planned) | 3D pose tracking | JSON | TBD |
+| Provider | Data Type | Format | License | Coverage |
+|----------|-----------|--------|---------|----------|
+| [StatsBomb Open Data](https://github.com/statsbomb/open-data) | Match events + 360 context | Nested JSON | CC-BY 4.0 | ~3,000 matches |
+| [Metrica Sports](https://github.com/metrica-sports/sample-data) | Optical tracking (25 fps) | CSV/EPTS | Unlicensed | 3 sample matches |
+| [Wyscout](https://figshare.com/collections/Soccer_match_event_dataset/4415000) | Event streams | JSON | CC-BY 4.0 | Top 5 leagues |
+| [IDSSE (Bundesliga)](https://figshare.com/collections/DFL_-_Bundesliga_Data_Shootout/5830772) | DFL tracking (25 fps) | XML | CC-BY 4.0 | 7 matches |
+| [SkillCorner](https://github.com/SkillCorner/opendata) | Broadcast tracking (10 fps) | JSONL | MIT | 10 A-League matches |
+| *Respo.Vision* (planned) | 3D pose tracking | JSON | TBD | TBD |
 
 ## Analytics
 
@@ -74,9 +76,10 @@ Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by 
 luxury-lakehouse/
 ├── terraform/          # Infrastructure as Code (Databricks on AWS)
 ├── src/
-│   ├── ingestion/      # Data ingestion from StatsBomb, Metrica, Wyscout
+│   ├── ingestion/      # Data ingestion (StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner)
 │   └── streamlit_app/  # Interactive analytics dashboard
 ├── dbt_project/        # Bronze → Silver → Gold transformations
+├── scripts/            # Operational scripts (PG indexes, grants, synced table management)
 ├── docs/
 │   └── c4/             # C4 architecture diagrams (Structurizr DSL)
 ├── assets/             # Images and branding
@@ -85,7 +88,7 @@ luxury-lakehouse/
 
 ## Status
 
-**Phase 9 complete** — 8 Streamlit pages, 155 unit tests, 225 dbt data tests. See [PLAN.md](PLAN.md) for the full roadmap.
+**Phase 10 complete** — 8 Streamlit pages, 187 unit tests, 271 dbt data tests, 20 tracking matches (38M+ rows) across 3 providers. See [PLAN.md](PLAN.md) for the full roadmap.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -101,7 +104,7 @@ luxury-lakehouse/
 | 7 | Metrica Game 3 (EPTS) + Pitch Control | Complete |
 | 8 | Heat Map + Pass Network Pages | Complete |
 | 9 | SPADL/VAEP Action Valuation | Complete |
-| 10 | Additional Tracking Data (IDSSE, SkillCorner) | Planned |
+| 10 | Additional Tracking Data (IDSSE, SkillCorner) | Complete |
 | 11 | Physics-Based Pitch Control | Planned |
 | 12 | Movement Analysis | Planned |
 

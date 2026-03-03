@@ -30,6 +30,13 @@ models:
           - not_null
       - name: timestamp_seconds
         description: Timestamp in seconds from period start
+      - name: frame_rate
+        description: Frame rate in fps (always 25 for Metrica)
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [25]
       - name: player_id
         description: Player identifier
         data_tests:
@@ -41,6 +48,13 @@ models:
           - accepted_values:
               arguments:
                 values: ['home', 'away']
+      - name: source_provider
+        description: Data source identifier (always 'metrica')
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['metrica']
       - name: x
         description: X coordinate scaled to 120-yard pitch. May slightly exceed pitch bounds for off-pitch tracking positions.
         data_tests:

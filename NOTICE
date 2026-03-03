@@ -14,8 +14,29 @@ See: https://github.com/statsbomb/open-data
 Optical tracking data provided by Metrica Sports sample-data repository.
 See: https://github.com/metrica-sports/sample-data
 
-Event stream data provided by the Wyscout public dataset on Figshare.
+Event stream data provided by the Wyscout public dataset on Figshare
+under the Creative Commons Attribution 4.0 International (CC-BY 4.0)
+license. Citation: Pappalardo et al. "A public data set of
+spatio-temporal match events in soccer competitions." Scientific Data,
+Nature (2019).
 See: https://figshare.com/collections/Soccer_match_event_dataset/4415000
+
+Bundesliga tracking data from the IDSSE dataset (7 matches, CC-BY 4.0).
+Citation: Bassek et al. "An integrated dataset of spatiotemporal and
+event data in elite soccer." Scientific Data, Nature (2025).
+See: https://figshare.com/collections/DFL_-_Bundesliga_Data_Shootout/5830772
+
+Broadcast tracking data provided by SkillCorner (10 A-League matches).
+Data sourced from the SkillCorner Open Data repository under the
+MIT License. Copyright (c) 2020 SkillCorner.
+See: https://github.com/SkillCorner/opendata
+
+Third-Party Libraries
+---------------------
+
+kloppy — standardizing soccer tracking/event data (BSD-3-Clause License).
+Copyright (c) kloppy contributors.
+See: https://github.com/PySport/kloppy
 
 Mathematical References
 -----------------------

@@ -42,6 +42,8 @@ sources:
             description: >
               JSON object with player tracking data for away team.
               Keys are player IDs, values are {x, y} coordinate objects.
+          - name: frame_rate
+            description: Frame rate in fps (always 25 for Metrica)
 
       - name: metrica_events
         description: >

@@ -1,0 +1,47 @@
+version: 2
+
+sources:
+  - name: skillcorner
+    description: >
+      SkillCorner broadcast tracking data ingested into the bronze layer via
+      kloppy. Contains 10 A-League 2024/25 matches at 10 fps. Coordinates
+      are center-origin meters on a 105×68m pitch.
+    database: soccer_analytics
+    schema: bronze
+    loader: aws_lambda
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 24, period: hour}
+        error_after: {count: 72, period: hour}
+
+    tables:
+      - name: skillcorner_tracking
+        description: >
+          Broadcast tracking data at 10 fps in narrow format (one row per
+          player per frame). Coordinates use center-origin meters:
+          x ∈ (-52.5, 52.5), y ∈ (-34, 34). Lower frame rate than optical
+          tracking due to broadcast video source. Staging transforms to 120×80.
+        columns:
+          - name: period
+            description: Match half (1 or 2)
+          - name: frame
+            description: Frame number (10 fps)
+          - name: timestamp
+            description: Timestamp in seconds from period start
+          - name: player_id
+            description: Player identifier from SkillCorner
+          - name: team
+            description: Team affiliation (home or away)
+          - name: x
+            description: Player x-coordinate in center-origin meters (-52.5 to 52.5)
+          - name: y
+            description: Player y-coordinate in center-origin meters (-34 to 34)
+          - name: ball_x
+            description: Ball x-coordinate in center-origin meters
+          - name: ball_y
+            description: Ball y-coordinate in center-origin meters
+          - name: match_id
+            description: Match identifier prefixed with 'skillcorner_'
+          - name: frame_rate
+            description: Frame rate in fps (always 10 for SkillCorner)

@@ -1,12 +1,14 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # Module: Workflows — Data Ingestion Pipeline
 # ──────────────────────────────────────────────────────────────────────────────
-# Creates a Databricks job that ingests data from three soccer data providers
+# Creates a Databricks job that ingests data from five soccer data providers
 # in parallel, then runs SPADL/VAEP action valuation:
 #
-#   statsbomb        — Free open-data events (shots, passes, lineups)
-#   metrica          — Tracking data (player coordinates at 25fps)
-#   wyscout          — Match events and player attributes
+#   statsbomb         — Free open-data events (shots, passes, lineups)
+#   metrica           — Tracking data (player coordinates at 25fps)
+#   wyscout           — Match events and player attributes
+#   idsse             — Bundesliga DFL tracking (25fps, 7 matches from UC Volume)
+#   skillcorner       — A-League broadcast tracking (10fps, 10 matches via kloppy)
 #   compute_spadl_vaep — SPADL conversion + VAEP scoring (depends on statsbomb + wyscout)
 #
 # Schedule: Daily at 06:00 UTC (before business hours in US/EU timezones)
@@ -92,6 +94,46 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
+  # ── Task: Ingest IDSSE Bundesliga tracking data ─────────────────────────
+  # Uses stdlib XML parser — reads pre-downloaded DFL XML from UC Volume.
+  # No floodlight dependency needed (only pandas from default env).
+  task {
+    task_key        = "ingest_idsse"
+    timeout_seconds = 3600
+    max_retries     = 1
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "ingest_idsse"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "default"
+  }
+
+  # ── Task: Ingest SkillCorner A-League tracking data ────────────────────
+  task {
+    task_key        = "ingest_skillcorner"
+    timeout_seconds = 1800
+    max_retries     = 1
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "ingest_skillcorner"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "tracking"
+  }
+
   # ── Task: Compute SPADL actions and VAEP scores ─────────────────────────
   task {
     task_key        = "compute_spadl_vaep"
@@ -144,6 +186,20 @@ resource "databricks_job" "data_ingestion" {
         "socceraction==1.5.3",
         "xgboost==3.2.0",
         "multimethod==1.12"
+      ]
+    }
+  }
+
+  # ── Environment for SkillCorner tracking task (kloppy for open data download)
+  environment {
+    environment_key = "tracking"
+
+    spec {
+      client = "1"
+
+      dependencies = [
+        var.wheel_path,
+        "kloppy>=3.17.0,<4.0"
       ]
     }
   }

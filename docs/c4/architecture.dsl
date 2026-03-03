@@ -11,36 +11,42 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         statsbomb = softwareSystem "StatsBomb Open Data" "REST API and GitHub JSON providing match events, lineups, and 360-degree tracking context for ~3,000 matches" "External"
         metrica = softwareSystem "Metrica Sports" "GitHub CSV repository providing optical tracking data at 25 frames per second for sample matches" "External"
         wyscout = softwareSystem "Wyscout Public Dataset" "JSON event stream dataset covering the top 5 European leagues (2017-18 season)" "External"
+        idsse = softwareSystem "IDSSE Bundesliga Dataset" "Figshare collection providing DFL position tracking XML at 25fps for 7 Bundesliga matches (CC-BY 4.0)" "External"
+        skillcorner = softwareSystem "SkillCorner Open Data" "GitHub JSONL repository providing broadcast tracking data at 10fps for 10 A-League matches (MIT)" "External"
         github = softwareSystem "GitHub" "Source control and CI/CD pipeline via GitHub Actions with OIDC federation for secretless authentication to AWS and Databricks" "External"
         aws = softwareSystem "AWS" "Underlying cloud infrastructure providing S3 storage (KMS CMK-encrypted state), IAM OIDC provider, and networking for the Databricks workspace" "External"
 
         // --- Main System ---
         platform = softwareSystem "Soccer Analytics Platform" "Serverless soccer analytics platform that ingests open-source match data, transforms it through a medallion architecture, and serves interactive dashboards for coaches and analysts" {
 
-            ingestion = container "Ingestion Workflows" "Fetches raw data from StatsBomb, Metrica Sports, and Wyscout APIs, writing to the Bronze layer in Unity Catalog. Includes SPADL/VAEP pipeline reading from bronze." "Python, statsbombpy, Databricks Serverless Compute" {
+            ingestion = container "Ingestion Workflows" "Fetches raw data from StatsBomb, Metrica, Wyscout, IDSSE, and SkillCorner, writing to the Bronze layer in Unity Catalog. Includes SPADL/VAEP pipeline reading from bronze." "Python, statsbombpy, floodlight, kloppy, Databricks Serverless Compute" {
                 utilsComp = component "Shared Utilities" "CLI parsing with SQL injection prevention, HTTPS-only HTTP client with retry, structured JSON logging, JSON column serialization, Delta write helpers with table name validation and audit columns, content validation" "Python, requests, pandas"
                 sbComp = component "StatsBomb Ingester" "Hierarchical API traversal: competitions, matches, events, lineups, 360 frames. Incremental loading via partition-level overwrite. JSON column serialization. Enriches events with _raw_extra_json for SPADL." "Python, statsbombpy"
-                metricaComp = component "Metrica Ingester" "Downloads tracking CSVs (Games 1-2) and EPTS XML+tracking+JSON (Game 3). Reshapes wide player coordinates to narrow JSON format. Normalizes EPTS center-origin meters to [0,1] convention." "Python, pandas, xml.etree"
+                metricaComp = component "Metrica Ingester" "Downloads tracking CSVs (Games 1-2) and EPTS XML+tracking+JSON (Game 3). Reshapes wide player coordinates to narrow JSON format. Normalizes EPTS center-origin meters to [0,1] convention. 25fps, frame_rate column." "Python, pandas, xml.etree"
                 wyscoutComp = component "Wyscout Ingester" "Local-first loading with Figshare HTTPS fallback. Processes 7 competitions (2017-18). Serializes positions and tags to JSON strings." "Python, requests"
+                idsseComp = component "IDSSE Ingester" "Downloads 7 Bundesliga matches from Figshare via floodlight IDSSEDataset. Converts DFL position XML (XY arrays) to narrow rows with center-origin meters. 25fps, prefixed match IDs (idsse_*)." "Python, floodlight"
+                skillcornerComp = component "SkillCorner Ingester" "Downloads 10 A-League matches via kloppy load_open_data. Iterates TrackingDataset Frame objects to narrow rows with center-origin meters. 10fps, prefixed match IDs (skillcorner_*)." "Python, kloppy"
                 spadlAdapter = component "SPADL Adapter" "Transforms bronze event tables into socceraction-compatible DataFrames. Adapters for StatsBomb (column rename, extra dict, home_team_id) and Wyscout (period mapping, milliseconds, JSON parsing)." "Python, pandas"
                 spadlVaep = component "SPADL/VAEP Pipeline" "4-phase pipeline: read bronze events, convert to SPADL actions via socceraction, extract features and train XGBoost VAEP models, score all actions. Incremental processing, model persistence to UC Volumes." "Python, socceraction, xgboost"
             }
             catalog = container "Unity Catalog" "Governed data storage across the medallion architecture with Bronze (raw), Silver (cleaned), and Gold (analytics-ready) schemas" "Delta Lake, Apache Parquet" "Database"
             sqlWarehouse = container "Serverless SQL Warehouse" "Executes dbt transformations and ad-hoc analytical queries using the Photon engine" "Databricks Serverless SQL, Photon"
-            dbt = container "dbt Project" "Transforms raw Bronze data through Silver staging to Gold analytics tables, including xG features, pass metrics, and player statistics" "dbt-core, dbt-databricks" {
+            dbt = container "dbt Project" "Transforms raw Bronze data through Silver staging to Gold analytics tables, including xG features, pass metrics, player statistics, and multi-source tracking frames" "dbt-core, dbt-databricks" {
                 stagingStatsbomb = component "StatsBomb Staging" "5 views: events, shots, matches, lineups, 360 freeze frames. Flattens nested JSON, extracts coordinates, deduplicates bronze data" "SQL Views, Silver Schema"
-                stagingMetrica = component "Metrica Staging" "2 views: events, tracking. Scales normalized coordinates to 120x80, generates surrogate keys" "SQL Views, Silver Schema"
+                stagingMetrica = component "Metrica Staging" "2 views: events, tracking. Scales normalized coordinates to 120x80, adds source_provider and frame_rate columns" "SQL Views, Silver Schema"
                 stagingWyscout = component "Wyscout Staging" "1 view: events. Decodes tag IDs, maps periods, scales percentage coordinates to 120x80" "SQL Views, Silver Schema"
+                stagingIdsse = component "IDSSE Staging" "1 view: tracking. Transforms center-origin meters to 120x80 coordinate system, adds source_provider (idsse) and frame_rate (25)" "SQL Views, Silver Schema"
+                stagingSkillcorner = component "SkillCorner Staging" "1 view: tracking. Transforms center-origin meters to 120x80 coordinate system, adds source_provider (skillcorner) and frame_rate (10)" "SQL Views, Silver Schema"
                 stagingSpadl = component "SPADL Staging" "1 view: action values. Deduplicates VAEP scores from bronze, casts types, adds audit columns" "SQL Views, Silver Schema"
                 intermediate = component "Intermediate Layer" "3 ephemeral CTEs: unified shots, unified passes, minutes played. Cross-source unification with progressive pass detection" "Ephemeral Models"
-                factTables = component "Fact Tables" "7 tables: shots, passes, player stats, match summary, tracking frames, player embeddings, action values. xG features, VAEP scores, per-90 rates, velocity metrics" "Delta Tables, Gold Schema"
+                factTables = component "Fact Tables" "7 tables: shots, passes, player stats, match summary, tracking frames (UNION ALL 3 sources), player embeddings, action values. Per-row frame_rate velocity, VAEP scores, per-90 rates" "Delta Tables, Gold Schema"
                 dimTables = component "Dimension Tables" "3 tables: players, teams, competitions. Deduplicated master data from all sources" "Delta Tables, Gold Schema"
                 macros = component "Custom Macros" "distance_to_goal and shot_angle geometry calculations for xG features" "Jinja SQL Macros"
-                testSuite = component "Test Suite" "225+ data tests: unique, not_null, accepted_values, range bounds, composite keys, relationships, source freshness" "dbt-expectations, dbt-utils"
+                testSuite = component "Test Suite" "271 data tests: unique, not_null, accepted_values, range bounds, composite keys, relationships, source freshness" "dbt-expectations, dbt-utils"
             }
-            syncedTables = container "Synced Tables Pipeline" "10 synced tables (7 fact, 3 dimension) replicate Gold Delta tables into Lakebase via SNAPSHOT scheduling, eliminating Reverse ETL. All tables online with verified row counts." "Lakeflow Synced Database Tables, Terraform" "Queue"
+            syncedTables = container "Synced Tables Pipeline" "10 synced tables (7 fact, 3 dimension) replicate Gold Delta tables into Lakebase via SNAPSHOT scheduling. Custom PG indexes on partitioned tables for sub-100ms queries." "Lakeflow Synced Database Tables, Terraform" "Queue"
             lakebase = container "Lakebase PostgreSQL 17 (Autoscaling)" "Managed OLTP database with autoscaling (0.5–4 CU) and scale-to-zero, providing sub-10ms query latency for the Streamlit app, with native pgvector support. OAuth M2M authentication, SSL enforced." "PostgreSQL 17, Autoscaling, pgvector" "Database"
-            streamlit = container "Streamlit Dashboard" "Interactive analytics dashboard deployed as a Databricks App with 8 pages: Shot Map, Pass Map, Heat Map, Pass Network, Action Values, Player Radar, Match Summary, and Pitch Control" "Python, Streamlit, mplsoccer, psycopg2, Databricks Apps" {
+            streamlit = container "Streamlit Dashboard" "Interactive analytics dashboard deployed as a Databricks App with 8 pages covering event analysis, player comparison, and multi-source tracking visualization (Metrica, IDSSE, SkillCorner)" "Python, Streamlit, mplsoccer, psycopg2, Databricks Apps" {
                 appEntry = component "App Entry Point" "st.navigation page routing, dark theme, sidebar branding" "app.py, Streamlit 1.36+"
                 configComp = component "Configuration" "Pydantic BaseSettings with env var binding, identifier validation, cached singleton" "config.py, pydantic-settings"
                 dbComp = component "Database Layer" "OAuth M2M token management (SDK + REST fallback), JWT UUID validation, ThreadedConnectionPool with 55-min recycle, parameterized queries, table name validation, statement_timeout, sanitized errors" "db.py, psycopg2, databricks-sdk"
@@ -54,7 +60,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
                 heatMapPage = component "Heat Map Page" "Action density visualization with competition/team/player/match filters, 3x3 zone stats, supports all-matches aggregation" "heat_map.py"
                 passNetworkPage = component "Pass Network Page" "Player-to-player passing graph with min-passes threshold slider, scaled nodes by pass count, edges by pair frequency" "pass_network.py"
                 actionValuesPage = component "Action Values Page" "3 views: Player VAEP Rankings table, Action Type Breakdown bar chart, Match Action Timeline. Filters by competition, team, player, match." "action_values.py"
-                pitchControlPage = component "Pitch Control Page" "Voronoi-based pitch control visualization with match/period/frame selectors and velocity arrow toggle" "pitch_control.py"
+                pitchControlPage = component "Pitch Control Page" "Voronoi-based pitch control visualization with provider filter (Metrica/IDSSE/SkillCorner), adaptive frame slider step, recursive CTE loose index scan for match list" "pitch_control.py"
             }
         }
 
@@ -69,6 +75,8 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         platform -> statsbomb "Fetches match events, lineups, and 360 data" "REST API, HTTPS"
         platform -> metrica "Fetches optical tracking CSV data" "HTTPS"
         platform -> wyscout "Fetches event stream JSON data" "HTTPS"
+        platform -> idsse "Fetches DFL position tracking XML (7 matches)" "floodlight, HTTPS"
+        platform -> skillcorner "Fetches broadcast tracking JSONL (10 matches)" "kloppy, HTTPS"
         platform -> aws "Runs on" "Databricks on AWS"
         github -> platform "Deploys infrastructure and code changes" "GitHub Actions OIDC, Terraform"
         github -> aws "Authenticates via OIDC federation" "IAM AssumeRoleWithWebIdentity"
@@ -77,6 +85,8 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         ingestion -> statsbomb "Fetches competitions, matches, events, lineups, 360 data" "statsbombpy, HTTPS"
         ingestion -> metrica "Fetches sample tracking CSV and event data" "requests, HTTPS"
         ingestion -> wyscout "Fetches public event stream JSON" "requests, HTTPS"
+        ingestion -> idsse "Fetches DFL position tracking XML for 7 Bundesliga matches" "floodlight, HTTPS"
+        ingestion -> skillcorner "Fetches broadcast tracking JSONL for 10 A-League matches" "kloppy, HTTPS"
         ingestion -> catalog "Writes raw data to Bronze schema" "Delta Lake API"
 
         // --- Relationships: Component level (Ingestion) ---
@@ -86,6 +96,10 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         metricaComp -> utilsComp "Uses HTTP client, Delta writer, logging, validation" ""
         wyscoutComp -> wyscout "Downloads event and match JSON" "fetch_url (HTTPS)"
         wyscoutComp -> utilsComp "Uses HTTP client, Delta writer, logging, validation" ""
+        idsseComp -> idsse "Downloads DFL position XML via floodlight IDSSEDataset" "floodlight, HTTPS"
+        idsseComp -> utilsComp "Uses Delta writer, logging, validation" ""
+        skillcornerComp -> skillcorner "Downloads tracking JSONL via kloppy load_open_data" "kloppy, HTTPS"
+        skillcornerComp -> utilsComp "Uses Delta writer, logging, validation" ""
         spadlVaep -> spadlAdapter "Transforms bronze events to socceraction format" ""
         spadlVaep -> utilsComp "Uses Delta writer, logging, validation" ""
         spadlAdapter -> catalog "Reads StatsBomb and Wyscout bronze event tables" "PySpark SQL"
@@ -96,6 +110,8 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         stagingStatsbomb -> catalog "Reads Bronze statsbomb tables, writes Silver views" "Databricks SQL"
         stagingMetrica -> catalog "Reads Bronze metrica tables, writes Silver views" "Databricks SQL"
         stagingWyscout -> catalog "Reads Bronze wyscout tables, writes Silver views" "Databricks SQL"
+        stagingIdsse -> catalog "Reads Bronze IDSSE tracking, writes Silver view" "Databricks SQL"
+        stagingSkillcorner -> catalog "Reads Bronze SkillCorner tracking, writes Silver view" "Databricks SQL"
         stagingSpadl -> catalog "Reads Bronze VAEP action values, writes Silver view" "Databricks SQL"
         intermediate -> stagingStatsbomb "Unifies shots, passes, minutes from StatsBomb" ""
         intermediate -> stagingWyscout "Unifies shots and passes from Wyscout" ""
@@ -105,6 +121,8 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         factTables -> intermediate "Builds gold fact tables from unified data" ""
         factTables -> stagingStatsbomb "Builds match summary and tracking from staging" ""
         factTables -> stagingMetrica "Builds tracking frames from Metrica staging" ""
+        factTables -> stagingIdsse "Builds tracking frames from IDSSE staging (UNION ALL)" ""
+        factTables -> stagingSkillcorner "Builds tracking frames from SkillCorner staging (UNION ALL)" ""
         factTables -> stagingSpadl "Builds action values fact table from SPADL staging" ""
         dimTables -> stagingStatsbomb "Deduplicates players, teams, competitions" ""
         dimTables -> stagingWyscout "Merges Wyscout team data" ""
@@ -196,11 +214,13 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
             ingestion -> statsbomb "Fetches competitions, matches, events, lineups, 360 frames"
             ingestion -> metrica "Downloads tracking CSV and event data"
             ingestion -> wyscout "Downloads event and match JSON from UC Volume"
-            ingestion -> catalog "Writes 9 bronze Delta tables with audit columns"
-            dbt -> catalog "Transforms Bronze to Silver to Gold"
+            ingestion -> idsse "Downloads DFL position XML for 7 Bundesliga matches"
+            ingestion -> skillcorner "Downloads broadcast tracking JSONL for 10 A-League matches"
+            ingestion -> catalog "Writes 11 bronze Delta tables with audit columns"
+            dbt -> catalog "Transforms Bronze to Silver to Gold (271 data tests)"
             syncedTables -> catalog "Reads Gold Delta tables"
-            syncedTables -> lakebase "Syncs analytics tables via Lakeflow"
-            streamlit -> lakebase "Queries analytics data"
+            syncedTables -> lakebase "Syncs 10 tables via Lakeflow, PG indexes on partitions"
+            streamlit -> lakebase "Queries analytics data with recursive CTE optimization"
             autoLayout
         }
 

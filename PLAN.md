@@ -1,7 +1,7 @@
 # Databricks Lakebase Implementation Plan — Soccer Analytics Platform
 
-> **Status**: Phase 9 complete — 8 Streamlit pages, 155 unit tests, 225 dbt data tests, 10 synced tables.
-> **Last Updated**: 2026-03-02
+> **Status**: Phase 10 complete — 8 Streamlit pages, 187 unit tests, 271 dbt data tests, 10 synced tables, 20 tracking matches.
+> **Last Updated**: 2026-03-03
 > **Repository**: [`karstenskyt/luxury-lakehouse`](https://github.com/karstenskyt/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready from day one
 
@@ -46,12 +46,12 @@ This plan implements the Databricks Lakebase architecture to build a serverless 
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                        DATA SOURCES (Open Source)                        │
 │  ┌─────────────┐  ┌──────────────────┐  ┌────────────────────────────┐  │
-│  │  StatsBomb   │  │  Metrica Sports  │  │         Wyscout            │  │
-│  │  (JSON API)  │  │  (CSV tracking)  │  │    (JSON events)           │  │
-│  └──────┬───────┘  └───────┬──────────┘  └────────────┬───────────────┘  │
-└─────────┼──────────────────┼──────────────────────────┼──────────────────┘
-          │                  │                          │
-          ▼                  ▼                          ▼
+│  │  StatsBomb   │  │  Metrica Sports  │  │  Wyscout  │  │ IDSSE │ │SkillCorner│ │
+│  │  (JSON API)  │  │  (CSV tracking)  │  │  (JSON)   │  │ (XML) │ │  (JSONL)  │ │
+│  └──────┬───────┘  └───────┬──────────┘  └─────┬─────┘  └───┬───┘ └─────┬─────┘ │
+└─────────┼──────────────────┼────────────────────┼────────────┼───────────┼────────┘
+          │                  │                    │            │           │
+          ▼                  ▼                    ▼            ▼           ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
 │              DATABRICKS SERVERLESS WORKFLOWS                             │
 │  ┌──────────────────────────────────────────────────────────────────┐    │
@@ -59,6 +59,8 @@ This plan implements the Databricks Lakebase architecture to build a serverless 
 │  │  • statsbombpy → competitions, matches, events, lineups, 360   │    │
 │  │  • requests → Metrica sample-data CSV + EPTS                    │    │
 │  │  • requests → Wyscout public JSON datasets                      │    │
+│  │  • xml.etree → IDSSE DFL position XML from UC Volume            │    │
+│  │  • kloppy → SkillCorner broadcast tracking from open data       │    │
 │  │  • spadl_vaep → SPADL conversion + VAEP scoring from bronze     │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
@@ -70,6 +72,8 @@ This plan implements the Databricks Lakebase architecture to build a serverless 
 │  │  • statsbomb: competitions, matches, events, lineups, 360      │    │
 │  │  • metrica: tracking, events                                    │    │
 │  │  • wyscout: events, matches                                     │    │
+│  │  • idsse: tracking (7 Bundesliga matches, 25fps)                │    │
+│  │  • skillcorner: tracking (10 A-League matches, 10fps)           │    │
 │  │  • spadl: actions, action_values                                 │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
@@ -83,6 +87,7 @@ This plan implements the Databricks Lakebase architecture to build a serverless 
 │  │  • stg_statsbomb__events, shots, matches, lineups, 360         │    │
 │  │  • stg_metrica__tracking, events                                │    │
 │  │  • stg_wyscout__events                                          │    │
+│  │  • stg_idsse__tracking, stg_skillcorner__tracking               │    │
 │  │  • stg_spadl__action_values                                     │    │
 │  │                                                                  │    │
 │  │  GOLD (business logic, analytics-ready):                        │    │
@@ -290,6 +295,8 @@ luxury-lakehouse/
 │   │   ├── statsbomb.py              # StatsBomb API ingestion (5 bronze tables + 360 backfill)
 │   │   ├── metrica.py                # Metrica CSV + EPTS ingestion (Games 1-3)
 │   │   ├── wyscout.py                # Wyscout JSON ingestion
+│   │   ├── idsse.py                  # IDSSE Bundesliga DFL tracking (7 matches, stdlib XML)
+│   │   ├── skillcorner.py            # SkillCorner A-League broadcast tracking (10 matches, kloppy)
 │   │   ├── spadl_adapter.py          # Bronze-to-socceraction format adapters
 │   │   ├── spadl_vaep.py             # SPADL conversion + VAEP scoring pipeline
 │   │   └── utils.py                  # Shared CLI, logging, HTTP, Delta helpers
@@ -301,18 +308,34 @@ luxury-lakehouse/
 │   │   ├── pages/                    # 8 pages (+ player_search.py planned)
 │   │   └── components/               # filters.py, pitch.py, charts.py
 │   │
-│   └── tests/
-│       ├── test_ingestion.py
-│       └── test_streamlit.py
+│   └── tests/                        # 187 unit tests (11 test modules)
+│       ├── test_statsbomb.py
+│       ├── test_metrica.py
+│       ├── test_wyscout.py
+│       ├── test_idsse.py
+│       ├── test_skillcorner.py
+│       ├── test_spadl_adapter.py
+│       ├── test_spadl_vaep.py
+│       ├── test_ingestion_utils.py
+│       ├── test_streamlit_components.py
+│       ├── test_streamlit_config.py
+│       └── test_streamlit_db.py
 │
 ├── dbt_project/
 │   ├── models/
-│   │   ├── staging/                  # SILVER: statsbomb/, metrica/, wyscout/, spadl/
+│   │   ├── staging/                  # SILVER: statsbomb/, metrica/, wyscout/, spadl/, idsse/, skillcorner/
 │   │   ├── intermediate/             # Cross-source joins (ephemeral)
 │   │   └── marts/                    # GOLD: 7 fact + 3 dimension tables
 │   ├── tests/                        # Custom data tests
 │   ├── macros/                       # distance_to_goal, shot_angle
 │   └── seeds/                        # competition_metadata.csv, position_mapping.csv
+│
+├── scripts/
+│   ├── create_indexes.py             # PG indexes on Lakebase synced tables (re-run after recreation)
+│   ├── delete_synced_table.py        # Delete synced table + drop PG ghost table
+│   ├── import_synced_tables.sh       # Terraform import workflow
+│   ├── lakebase_grants.sql           # PG GRANT SELECT for Streamlit SP
+│   └── deploy.sh                     # Databricks sync + app deploy
 │
 ├── .github/workflows/
 │   ├── python-ci.yml                 # ruff + pyright + pytest
@@ -380,9 +403,9 @@ All code must pass these gates before merge:
 
 | Level | What | How |
 |-------|------|-----|
-| Unit | Ingestion logic, utility functions | pytest (155 tests) |
+| Unit | Ingestion logic, utility functions | pytest (187 tests) |
 | Integration | dbt models compile and run | `dbt build --target ci` |
-| Data quality | Row counts, value ranges, referential integrity | dbt tests (225) + dbt-expectations |
+| Data quality | Row counts, value ranges, referential integrity | dbt tests (271) + dbt-expectations |
 | E2E | Streamlit pages render with real data | Manual smoke test |
 | Infrastructure | Terraform validates | `terraform validate` + `terraform plan` |
 
@@ -408,6 +431,7 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 | **7** | Metrica Game 3 + Pitch Control | EPTS format parsers (XML metadata + colon-delimited tracking + JSON events), ball coordinate fix, Voronoi pitch control page, 107 tests |
 | **8** | Heat Map + Pass Network | `pass_recipient_id` through dbt pipeline, Heat Map page (action density), Pass Network page (graph viz), synced table schema migration, 118 tests |
 | **9** | SPADL/VAEP Action Valuation | "Fetch Once, Fork Twice" — `spadl_adapter.py` + `spadl_vaep.py`, socceraction + XGBoost, 9.5M VAEP-scored actions, Action Values page (3 views), Player Radar VAEP/90, 155 tests |
+| **10** | Additional Tracking Data (IDSSE + SkillCorner) | 7 Bundesliga IDSSE matches (25fps via stdlib XML parser) + 10 A-League SkillCorner matches (10fps via kloppy), per-row `frame_rate` + `source_provider`, `fct_tracking_frames` UNION ALL 3 sources (38.1M rows), 187 tests |
 
 ### Key Design Decisions (from completed phases)
 
@@ -431,7 +455,7 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 | `dev_gold.fct_passes` | `fct_passes_synced` | `pass_id` | 5,052,415 |
 | `dev_gold.fct_player_stats` | `fct_player_stats_synced` | `player_stats_id` | 19,664 |
 | `dev_gold.fct_match_summary` | `fct_match_summary_synced` | `match_id` | 3,464 |
-| `dev_gold.fct_tracking_frames` | `fct_tracking_frames_synced` | `tracking_frame_id` | 9,464,895 |
+| `dev_gold.fct_tracking_frames` | `fct_tracking_frames_synced` | `tracking_id` | 38,118,607 |
 | `dev_gold.fct_action_values` | `fct_action_values_synced` | `action_value_id` | ~9,500,000 |
 | `dev_gold.fct_player_embeddings` | `fct_player_embeddings_synced` | `embedding_id` | 0 |
 | `dev_gold.dim_players` | `dim_players_synced` | `player_id` | 10,803 |
@@ -465,17 +489,22 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 
 ### 8.1 — Phase 10: Additional Public Tracking Datasets
 
-**Status:** Planned. Expands beyond Metrica's 3 sample matches.
+**Status:** Complete. Expanded tracking corpus from 3 to 20 matches across 3 providers.
 
-| Dataset | Matches | Tracking Format | Frame Rate | License |
-|---------|---------|----------------|------------|---------|
-| **Bundesliga IDSSE** | 7 | TRACAB (x,y,z,speed,accel) | 25fps | CC-BY 4.0 (Nature Scientific Data, Feb 2025) |
-| **SkillCorner Open Data** | 10 | JSONL (broadcast-derived) | 10fps | Public repo |
-| **Metrica Sports** | 3 | CSV + EPTS | 25fps | Public repo (already ingested) |
+| Dataset | Matches | Tracking Format | Frame Rate | Bronze Rows | Parser |
+|---------|---------|----------------|------------|-------------|--------|
+| **Metrica Sports** | 3 | CSV + EPTS | 25fps | 9,458,316 | `requests` + custom CSV/EPTS |
+| **Bundesliga IDSSE** | 7 | DFL position XML | 25fps | 21,874,234 | `xml.etree.ElementTree` (stdlib) |
+| **SkillCorner Open Data** | 10 | JSONL (broadcast) | 10fps | 6,786,057 | `kloppy` (BSD-3) |
+| **Total** | **20** | | | **38,118,607** | |
 
-**Kloppy integration:** Use Kloppy (v3.18+) as a universal loader rather than per-provider parsers. Kloppy handles coordinate normalization, player identity mapping, and format-specific quirks. A single `src/ingestion/kloppy_loader.py` module could replace provider-specific tracking parsers.
-
-**Architecture decision:** Normalize all providers to the Metrica bronze schema in ingestion (Kloppy handles this). Maintains backward compatibility with existing `stg_metrica__tracking` → `fct_tracking_frames` pipeline.
+**Key decisions:**
+- IDSSE uses stdlib XML parser (not floodlight) — avoids numpy ABI conflicts on serverless, h5py dependency, and figshare DNS issues. Pre-downloaded DFL XML files stored on UC Volume.
+- SkillCorner uses kloppy for open data download + parsing (separate Databricks environment).
+- Each provider writes narrow-format bronze (one row per player per frame) with per-row `frame_rate`.
+- Match IDs prefixed by provider (`idsse_`, `skillcorner_`) to prevent surrogate key collisions.
+- `fct_tracking_frames` UNION ALL from 3 staging models with per-row `frame_rate * delta_position` velocity.
+- Velocity `lag()` partitions by `(match_id, player_id, period)` to avoid cross-half spikes.
 
 ### 8.2 — Phase 11: Physics-Based Pitch Control Model
 
@@ -584,10 +613,9 @@ pgvector nearest-neighbor search (`player_search.py`). "Find players like X." De
 | StatsBomb (open) | ~3,000 | ~3,400 | ~10.2M events | ~500 MB Parquet |
 | Metrica (sample) | 3 | 135,000 frames | ~405K frames | ~15 MB Parquet |
 | Wyscout (public) | ~1,900 | ~1,800 | ~3.4M events | ~400 MB Parquet |
-| Bundesliga IDSSE (planned) | 7 | ~135,000 frames | ~1M frames | ~200 MB TRACAB |
-| SkillCorner (planned) | 10 | ~54,000 frames | ~540K frames | ~100 MB JSONL |
-| **Total Bronze** | | | **~31.4M rows** | **~1 GB Parquet** |
-| **Projected (with new sources)** | | | **~33M rows** | **~1.3 GB Parquet** |
+| Bundesliga IDSSE | 7 | ~460,000 frames | ~21.9M rows | ~2.5 GB XML |
+| SkillCorner | 10 | ~97,000 frames | ~6.8M rows | ~100 MB JSONL |
+| **Total Bronze** | | | **~42.3M rows** | **~4 GB** |
 
 ### B. Reference: Soccermatics Chapter → Analytics Mapping
 

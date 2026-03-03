@@ -2,26 +2,17 @@
 
 Quick-reference action items. Full details in [PLAN.md](PLAN.md).
 
-**Last updated**: 2026-03-02
+**Last updated**: 2026-03-03
 
 ---
 
 ## Completed Phases
 
-Phases 0–9 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for the summary table and git history for implementation details.
+Phases 0–10 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for the summary table and git history for implementation details.
 
 ---
 
 ## Next Up
-
-### Phase 10 — Additional Public Tracking Datasets (PLAN §8.1)
-
-Ingest new open tracking datasets via Kloppy to expand beyond Metrica's 3 matches.
-
-- [ ] **Bundesliga IDSSE** — 7 matches, TRACAB tracking (25fps) + DFL events, CC-BY 4.0
-- [ ] **SkillCorner Open Data** — 10 A-League matches, JSONL tracking (10fps) + CSV events
-- [ ] Build `src/ingestion/kloppy_loader.py` — generic Kloppy-based ingestion normalizing to bronze tracking schema
-- [ ] Verify `stg_metrica__tracking` / `fct_tracking_frames` handle multi-provider data (or refactor to `stg_tracking`)
 
 ### Phase 11 — Physics-Based Pitch Control Model (PLAN §8.2)
 
@@ -77,9 +68,11 @@ Ingest new open tracking datasets via Kloppy to expand beyond Metrica's 3 matche
 ## Technical Debt
 
 - [ ] **Synced tables Terraform workaround** — When the Databricks provider adds `database_project`/`branch` fields to `databricks_database_synced_database_table`, remove the UI+import workflow, drop `lifecycle { ignore_changes = all }`, and retire `scripts/import_synced_tables.sh`. Track: [provider changelog](https://registry.terraform.io/providers/databricks/databricks/latest/docs).
+- [ ] **PG index recreation after synced table changes** — Custom indexes on Lakebase synced tables are dropped when a synced table is recreated. Must re-run `scripts/create_indexes.py` after every recreation (alongside `scripts/lakebase_grants.sql` for SP permissions). Lakebase partitions tables internally (`__db_system.partition_*`); indexes must cascade to child partitions (no `ON ONLY`).
 
 ## Future Work (unscheduled)
 
+- [ ] **Lakebase query optimization round** — Thorough review of PG indexes on all synced tables (currently only `fct_tracking_frames_synced` has ad-hoc btree indexes). Audit EXPLAIN plans for all Streamlit queries. Investigate composite indexes, partial indexes, and covering indexes. Consider materializing small lookup tables (match list, competition list) to avoid full-table scans on large tables. Also evaluate parallelizing Databricks ingestion tasks that are currently sequential (multiple serverless instances, fan-out patterns in Workflows).
 - [ ] Voronoi area persistence — pre-compute in dbt (lower priority if Phase 11 replaces Voronoi)
 - [ ] Pitch Control animation — frame-by-frame playback
 - [ ] Event overlay on Pitch Control — render events on pitch control view

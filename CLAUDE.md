@@ -34,6 +34,7 @@ All code must pass these checks with zero violations:
 
 ```bash
 uv run ruff check src/        # Lint (E, W, F, I, N, UP, B, S, RUF)
+uv run ruff format --check src/ # Format check (CI enforced)
 uv run pyright src/            # Type check (basic mode)
 uv run pytest src/tests/ -v    # Unit tests
 ```

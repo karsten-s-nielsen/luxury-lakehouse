@@ -1,0 +1,87 @@
+version: 2
+
+models:
+  - name: stg_idsse__tracking
+    description: >
+      Normalized IDSSE Bundesliga tracking data. Transforms center-origin meter
+      coordinates to the shared 120×80 pitch system. One row per player per frame.
+    columns:
+      - name: tracking_id
+        description: Surrogate key (match_id + period + frame + player_id)
+        data_tests:
+          - unique
+          - not_null
+      - name: match_id
+        description: Match identifier (prefixed with 'idsse_')
+        data_tests:
+          - not_null
+      - name: period
+        description: Match half (1 or 2)
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [1, 2]
+      - name: frame
+        description: Frame number within the half
+        data_tests:
+          - not_null
+      - name: timestamp_seconds
+        description: Timestamp in seconds from period start
+      - name: frame_rate
+        description: Frame rate in fps (always 25 for IDSSE)
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [25]
+      - name: player_id
+        description: Player identifier from DFL teamsheet
+        data_tests:
+          - not_null
+      - name: team
+        description: Team affiliation (home or away)
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['home', 'away']
+      - name: source_provider
+        description: Data source identifier (always 'idsse')
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['idsse']
+      - name: x
+        description: X coordinate scaled to 120-yard pitch
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -10
+                max_value: 130
+      - name: y
+        description: Y coordinate scaled to 80-yard pitch
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -10
+                max_value: 90
+      - name: ball_x
+        description: Ball X coordinate scaled to 120-yard pitch
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -10
+                max_value: 130
+                row_condition: "ball_x is not null"
+      - name: ball_y
+        description: Ball Y coordinate scaled to 80-yard pitch
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -10
+                max_value: 90
+                row_condition: "ball_y is not null"

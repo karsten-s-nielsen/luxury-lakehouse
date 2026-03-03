@@ -310,7 +310,7 @@ models:
       One row per player per match.
     columns:
       - name: lineup_id
-        description: Surrogate key (match_id + team_id + player_id)
+        description: Surrogate key (match_id + team_name + player_id)
         data_tests:
           - unique
           - not_null

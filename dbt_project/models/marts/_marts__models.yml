@@ -607,27 +607,44 @@ models:
 
   - name: fct_tracking_frames
     description: >
-      Pitch control metrics derived from Metrica tracking data. Contains
-      spatial analysis outputs including player speeds, distance to ball,
-      and velocity components. One row per player per frame.
+      Enriched tracking data from all providers (Metrica, IDSSE, SkillCorner).
+      Contains spatial analysis outputs including player speeds, distance to
+      ball, and velocity components. Supports mixed frame rates (25fps
+      Metrica/IDSSE, 10fps SkillCorner). One row per player per frame.
     columns:
       - name: tracking_id
-        description: Primary key from stg_metrica__tracking
+        description: Primary key from staging models
         data_tests:
           - unique
           - not_null
       - name: match_id
-        description: Match identifier
+        description: Match identifier (prefixed by provider)
         data_tests:
           - not_null
       - name: player_id
         description: Player identifier
         data_tests:
           - not_null
+      - name: source_provider
+        description: Tracking data provider (metrica, idsse, skillcorner)
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['metrica', 'idsse', 'skillcorner']
+      - name: frame_rate
+        description: Frame rate in fps (25 for Metrica/IDSSE, 10 for SkillCorner)
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [10, 25]
       - name: distance_to_ball
         description: Euclidean distance from player to ball (yards)
       - name: speed
-        description: Player speed in yards/second
+        description: >
+          Player speed in coordinate-units/second (120x80 pitch scale).
+          NULL for the first frame of each (match_id, player_id, period) partition.
       - name: pitch_control_value
         description: >
           Pitch control probability [0,1] at this player's location.

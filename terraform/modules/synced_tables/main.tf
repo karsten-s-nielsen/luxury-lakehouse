@@ -25,7 +25,8 @@
 #   - fct_player_stats:     Aggregated per-player-per-match statistics
 #   - fct_match_summary:    Match-level aggregates (score, possession, xG)
 #   - fct_player_embeddings: Vector embeddings for player similarity search
-#   - fct_tracking_frames:  Metrica tracking data with velocity and pitch control metrics
+#   - fct_action_values:    SPADL/VAEP action-level offensive and defensive values
+#   - fct_tracking_frames:  Tracking data (Metrica, IDSSE, SkillCorner) with velocity metrics
 #
 # Dimension tables (entities):
 #   - dim_players:          Player master data (name, position, birth date)

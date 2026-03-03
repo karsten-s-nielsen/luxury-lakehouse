@@ -25,6 +25,7 @@ home_players_exploded as (
         period,
         frame,
         timestamp                                       as timestamp_seconds,
+        frame_rate,
         'home'                                          as team,
         player_key                                      as player_id,
         player_value.x                                  as raw_x,
@@ -45,6 +46,7 @@ away_players_exploded as (
         period,
         frame,
         timestamp                                       as timestamp_seconds,
+        frame_rate,
         'away'                                          as team,
         player_key                                      as player_id,
         player_value.x                                  as raw_x,
@@ -79,10 +81,14 @@ normalized as (
         cast(period as int)                             as period,
         cast(frame as int)                              as frame,
         timestamp_seconds,
+        frame_rate,
 
         -- Player identity
         player_id,
         team,
+
+        -- Source provider
+        'metrica'                                       as source_provider,
 
         -- Scaled player coordinates (120x80)
         raw_x * 120.0                                   as x,

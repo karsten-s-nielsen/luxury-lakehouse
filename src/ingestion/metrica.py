@@ -282,6 +282,7 @@ def _parse_epts_tracking(
                 "home_players": json.dumps(home_players),
                 "away_players": json.dumps(away_players),
                 "match_id": match_id,
+                "frame_rate": 25,
             }
         )
 
@@ -478,6 +479,7 @@ def _reshape_tracking_to_narrow(
                 "home_players": json.dumps(home_players),
                 "away_players": json.dumps(away_players),
                 "match_id": match_id,
+                "frame_rate": 25,
             }
         )
 
@@ -612,12 +614,18 @@ def ingest_tracking(
     if all_tracking:
         combined = pd.concat(all_tracking, ignore_index=True)
         sdf = spark.createDataFrame(combined)
-        validate_dataframe(
-            sdf,
-            ["period", "frame", "timestamp", "ball_x", "ball_y", "home_players", "away_players", "match_id"],
-            "metrica_tracking",
-            logger,
-        )
+        required_cols = [
+            "period",
+            "frame",
+            "timestamp",
+            "ball_x",
+            "ball_y",
+            "home_players",
+            "away_players",
+            "match_id",
+            "frame_rate",
+        ]
+        validate_dataframe(sdf, required_cols, "metrica_tracking", logger)
         write_delta_table(sdf, catalog, schema, "metrica_tracking", mode="overwrite", logger=logger)
 
 
