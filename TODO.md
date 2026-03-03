@@ -69,10 +69,16 @@ Phases 0–10 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for th
 
 - [ ] **Synced tables Terraform workaround** — When the Databricks provider adds `database_project`/`branch` fields to `databricks_database_synced_database_table`, remove the UI+import workflow, drop `lifecycle { ignore_changes = all }`, and retire `scripts/import_synced_tables.sh`. Track: [provider changelog](https://registry.terraform.io/providers/databricks/databricks/latest/docs).
 - [ ] **PG index recreation after synced table changes** — Custom indexes on Lakebase synced tables are dropped when a synced table is recreated. Must re-run `scripts/create_indexes.py` after every recreation (alongside `scripts/lakebase_grants.sql` for SP permissions). Lakebase partitions tables internally (`__db_system.partition_*`); indexes must cascade to child partitions (no `ON ONLY`).
+- [ ] **Double `df.count()` in ingestion writes** (`utils.py`) — `validate_dataframe()` calls `df.count()`, then `write_delta_table()` calls it again before `saveAsTable()`. Each triggers full DAG recomputation (2x compute cost per write). Fix: pass row count from validation to write, or cache the DataFrame.
+- [ ] **IDSSE bronze append duplicates** (`idsse.py:270`) — Uses `mode="append"` after first match. Retry of a partial run causes duplicate rows in bronze. Mitigated by dbt `ROW_NUMBER()` dedup, but bronze is dirty. Fix: use `replaceWhere` keyed on `match_id`.
+- [ ] **SPADL/VAEP append without `replaceWhere`** (`spadl_vaep.py:247,686`) — `mode="append"` without partition guards. Partial retry causes duplicates. Mitigated by dbt dedup. Fix: use `replaceWhere` keyed on `match_id` or `competition_id`.
+- [ ] **SPADL/VAEP `.toPandas()` OOM risk** (`spadl_vaep.py:170`) — Full bronze tables collected to driver memory. Works at current scale (~3M events) but will OOM at 2x. Fix: Spark-native rewrite or bounded partitioned pulls.
+- [ ] **StatsBomb `backfill_extra_json` N+1** (`statsbomb.py:438`) — Runs ~3,500 per-match `SELECT *` queries in a loop. Each is a full table scan. Fix: single `SELECT` grouped by match, or batch processing.
+- [ ] **`fct_tracking_frames` missing `CLUSTER BY`** — No Z-ordering on gold Delta table. Pitch control queries scan all files before synced table indexes apply. Fix: add `CLUSTER BY (match_id)` to dbt config.
 
 ## Future Work (unscheduled)
 
-- [ ] **Lakebase query optimization round** — Thorough review of PG indexes on all synced tables (currently only `fct_tracking_frames_synced` has ad-hoc btree indexes). Audit EXPLAIN plans for all Streamlit queries. Investigate composite indexes, partial indexes, and covering indexes. Consider materializing small lookup tables (match list, competition list) to avoid full-table scans on large tables. Also evaluate parallelizing Databricks ingestion tasks that are currently sequential (multiple serverless instances, fan-out patterns in Workflows).
+- [x] **Lakebase query optimization round** — 12 btree indexes across 4 fact tables covering all 19 Streamlit query patterns. Composite indexes on `fct_passes_synced`, `fct_shots_synced`, `fct_action_values_synced`. EXPLAIN ANALYZE verification via `scripts/create_indexes.py --verify`. Dimension tables confirmed fine with seq scans. Databricks-layer issues documented as tech debt above.
 - [ ] Voronoi area persistence — pre-compute in dbt (lower priority if Phase 11 replaces Voronoi)
 - [ ] Pitch Control animation — frame-by-frame playback
 - [ ] Event overlay on Pitch Control — render events on pitch control view

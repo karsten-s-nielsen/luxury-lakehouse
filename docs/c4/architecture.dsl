@@ -19,12 +19,12 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         // --- Main System ---
         platform = softwareSystem "Soccer Analytics Platform" "Serverless soccer analytics platform that ingests open-source match data, transforms it through a medallion architecture, and serves interactive dashboards for coaches and analysts" {
 
-            ingestion = container "Ingestion Workflows" "Fetches raw data from StatsBomb, Metrica, Wyscout, IDSSE, and SkillCorner, writing to the Bronze layer in Unity Catalog. Includes SPADL/VAEP pipeline reading from bronze." "Python, statsbombpy, floodlight, kloppy, Databricks Serverless Compute" {
+            ingestion = container "Ingestion Workflows" "Fetches raw data from StatsBomb, Metrica, Wyscout, IDSSE, and SkillCorner, writing to the Bronze layer in Unity Catalog. Includes SPADL/VAEP pipeline reading from bronze." "Python, statsbombpy, xml.etree, kloppy, Databricks Serverless Compute" {
                 utilsComp = component "Shared Utilities" "CLI parsing with SQL injection prevention, HTTPS-only HTTP client with retry, structured JSON logging, JSON column serialization, Delta write helpers with table name validation and audit columns, content validation" "Python, requests, pandas"
                 sbComp = component "StatsBomb Ingester" "Hierarchical API traversal: competitions, matches, events, lineups, 360 frames. Incremental loading via partition-level overwrite. JSON column serialization. Enriches events with _raw_extra_json for SPADL." "Python, statsbombpy"
                 metricaComp = component "Metrica Ingester" "Downloads tracking CSVs (Games 1-2) and EPTS XML+tracking+JSON (Game 3). Reshapes wide player coordinates to narrow JSON format. Normalizes EPTS center-origin meters to [0,1] convention. 25fps, frame_rate column." "Python, pandas, xml.etree"
                 wyscoutComp = component "Wyscout Ingester" "Local-first loading with Figshare HTTPS fallback. Processes 7 competitions (2017-18). Serializes positions and tags to JSON strings." "Python, requests"
-                idsseComp = component "IDSSE Ingester" "Downloads 7 Bundesliga matches from Figshare via floodlight IDSSEDataset. Converts DFL position XML (XY arrays) to narrow rows with center-origin meters. 25fps, prefixed match IDs (idsse_*)." "Python, floodlight"
+                idsseComp = component "IDSSE Ingester" "Parses 7 pre-downloaded Bundesliga DFL position XML files from UC Volume using two-pass iterparse. Converts XY arrays to narrow rows with center-origin meters. 25fps, prefixed match IDs (idsse_*)." "Python, xml.etree.ElementTree (stdlib)"
                 skillcornerComp = component "SkillCorner Ingester" "Downloads 10 A-League matches via kloppy load_open_data. Iterates TrackingDataset Frame objects to narrow rows with center-origin meters. 10fps, prefixed match IDs (skillcorner_*)." "Python, kloppy"
                 spadlAdapter = component "SPADL Adapter" "Transforms bronze event tables into socceraction-compatible DataFrames. Adapters for StatsBomb (column rename, extra dict, home_team_id) and Wyscout (period mapping, milliseconds, JSON parsing)." "Python, pandas"
                 spadlVaep = component "SPADL/VAEP Pipeline" "4-phase pipeline: read bronze events, convert to SPADL actions via socceraction, extract features and train XGBoost VAEP models, score all actions. Incremental processing, model persistence to UC Volumes." "Python, socceraction, xgboost"
@@ -44,7 +44,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
                 macros = component "Custom Macros" "distance_to_goal and shot_angle geometry calculations for xG features" "Jinja SQL Macros"
                 testSuite = component "Test Suite" "271 data tests: unique, not_null, accepted_values, range bounds, composite keys, relationships, source freshness" "dbt-expectations, dbt-utils"
             }
-            syncedTables = container "Synced Tables Pipeline" "10 synced tables (7 fact, 3 dimension) replicate Gold Delta tables into Lakebase via SNAPSHOT scheduling. Custom PG indexes on partitioned tables for sub-100ms queries." "Lakeflow Synced Database Tables, Terraform" "Queue"
+            syncedTables = container "Synced Tables Pipeline" "10 synced tables (7 fact, 3 dimension) replicate Gold Delta tables into Lakebase via SNAPSHOT scheduling. 12 btree indexes across 4 fact tables for sub-100ms queries." "Lakeflow Synced Database Tables, Terraform" "Queue"
             lakebase = container "Lakebase PostgreSQL 17 (Autoscaling)" "Managed OLTP database with autoscaling (0.5–4 CU) and scale-to-zero, providing sub-10ms query latency for the Streamlit app, with native pgvector support. OAuth M2M authentication, SSL enforced." "PostgreSQL 17, Autoscaling, pgvector" "Database"
             streamlit = container "Streamlit Dashboard" "Interactive analytics dashboard deployed as a Databricks App with 8 pages covering event analysis, player comparison, and multi-source tracking visualization (Metrica, IDSSE, SkillCorner)" "Python, Streamlit, mplsoccer, psycopg2, Databricks Apps" {
                 appEntry = component "App Entry Point" "st.navigation page routing, dark theme, sidebar branding" "app.py, Streamlit 1.36+"
@@ -75,7 +75,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         platform -> statsbomb "Fetches match events, lineups, and 360 data" "REST API, HTTPS"
         platform -> metrica "Fetches optical tracking CSV data" "HTTPS"
         platform -> wyscout "Fetches event stream JSON data" "HTTPS"
-        platform -> idsse "Fetches DFL position tracking XML (7 matches)" "floodlight, HTTPS"
+        platform -> idsse "Reads pre-downloaded DFL position tracking XML (7 matches)" "xml.etree, UC Volume"
         platform -> skillcorner "Fetches broadcast tracking JSONL (10 matches)" "kloppy, HTTPS"
         platform -> aws "Runs on" "Databricks on AWS"
         github -> platform "Deploys infrastructure and code changes" "GitHub Actions OIDC, Terraform"
@@ -85,7 +85,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         ingestion -> statsbomb "Fetches competitions, matches, events, lineups, 360 data" "statsbombpy, HTTPS"
         ingestion -> metrica "Fetches sample tracking CSV and event data" "requests, HTTPS"
         ingestion -> wyscout "Fetches public event stream JSON" "requests, HTTPS"
-        ingestion -> idsse "Fetches DFL position tracking XML for 7 Bundesliga matches" "floodlight, HTTPS"
+        ingestion -> idsse "Reads pre-downloaded DFL position tracking XML for 7 Bundesliga matches" "xml.etree, UC Volume"
         ingestion -> skillcorner "Fetches broadcast tracking JSONL for 10 A-League matches" "kloppy, HTTPS"
         ingestion -> catalog "Writes raw data to Bronze schema" "Delta Lake API"
 
@@ -96,7 +96,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         metricaComp -> utilsComp "Uses HTTP client, Delta writer, logging, validation" ""
         wyscoutComp -> wyscout "Downloads event and match JSON" "fetch_url (HTTPS)"
         wyscoutComp -> utilsComp "Uses HTTP client, Delta writer, logging, validation" ""
-        idsseComp -> idsse "Downloads DFL position XML via floodlight IDSSEDataset" "floodlight, HTTPS"
+        idsseComp -> idsse "Parses pre-downloaded DFL position XML via two-pass iterparse" "xml.etree.ElementTree"
         idsseComp -> utilsComp "Uses Delta writer, logging, validation" ""
         skillcornerComp -> skillcorner "Downloads tracking JSONL via kloppy load_open_data" "kloppy, HTTPS"
         skillcornerComp -> utilsComp "Uses Delta writer, logging, validation" ""
