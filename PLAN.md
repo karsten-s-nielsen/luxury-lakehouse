@@ -535,10 +535,19 @@ The Phase 7 Pitch Control page uses Voronoi tessellation — a geometric approxi
 
 | Source | Data Type | Status | Notes |
 |--------|-----------|--------|-------|
-| **Respo.Vision** | 3D pose tracking from broadcast video | Planned | User pursuing via network; skeletal keypoints at 25fps |
+| **Respo.Vision** | 3D pose tracking from broadcast video | Planned | User pursuing via network; skeletal keypoints at 25fps. Required for Visual Exploratory Behavior model (see [ROADMAP.md](ROADMAP.md)). |
 | **Wyscout match metadata** | Match details (formations, coaches, venue) | Deferred | Not in public Figshare dataset |
 
 Each new source follows the established pattern: `src/ingestion/<source>.py` → Bronze → dbt staging/marts → Synced Tables → Lakebase.
+
+### 8.3.1 — Research-Driven Features (see [ROADMAP.md](ROADMAP.md))
+
+| Feature | Status | License | Key Insight |
+|---------|--------|---------|-------------|
+| **Line-Breaking Pass Detection** | **Phase 13** (promoted) | Apache 2.0 | Geometric detection of defensive line penetration via hierarchical clustering + segment intersection |
+| **Visual Exploratory Behavior** | Blocked by pose data | BSD 3-Clause | Probabilistic vision model (FoV + occlusion) — requires `head_angle` + `shoulders_angle` from Respo.Vision |
+| **Graph-Based Tactical Patterns** | Research direction | CC BY | TGNets (Raabe et al. 2022) for classifying defensive outcomes from tracking graphs |
+| **Decision Optimization** | Research direction | N/A | RL-based pass selection optimization (Rahimian et al.) — requires commercial tracking data |
 
 ### 8.4 — Phase 12: Movement Analysis
 
@@ -557,7 +566,39 @@ Each new source follows the established pattern: `src/ingestion/<source>.py` →
 
 **Key references:** Spearman 2018 (OBSO), Fernandez & Bornn 2018 ("Wide Open Spaces"), Soccermatics Lesson 7 (off-ball xT), Kempe et al. 2024 (movement analysis framework).
 
-### 8.5 — Phase 13: Cross-Source Player Entity Resolution
+### 8.5 — Phase 13: Line-Breaking Pass Detection
+
+**Status:** Planned. Geometric detection of defensive line penetration using hierarchical clustering + segment intersection.
+
+**License:** Apache 2.0 ([parmacalcio1913/line-breaking-passes](https://github.com/parmacalcio1913/line-breaking-passes)). Attribution required, no other restrictions.
+
+**Algorithm:** For each pass, Ward hierarchical clustering groups outfield defenders into 3 depth lines (attack/midfield/defense). Segments connect adjacent players in each line. A cross-product straddle test checks whether the pass trajectory intersects any line segment. Distance constraints (>= 1m from line) and forward-pass filter eliminate noise. Passes are classified as "through" (between defenders) or "around" (outside outermost defender).
+
+**Two data paths:**
+
+| Path | Data Source | Matches | Approach |
+|------|-------------|---------|----------|
+| **A (360)** | StatsBomb freeze frames | 323 | Cluster opponent positions at pass moment, single-frame intersection |
+| **B (tracking)** | Metrica/IDSSE/SkillCorner | 20 | Full dual-frame intersection (start + end frame of pass) |
+
+**Adaptations needed:**
+- Coordinate system: 105x68m → 120x80 (parameterize pitch dimensions)
+- Data format: wide CSV → narrow `fct_tracking_frames` (adapt clustering or pivot)
+- PyTorch → NumPy (trivial — used only for vectorized cross-product math)
+
+**Artifacts:**
+
+| Artifact | Layer | Description |
+|----------|-------|-------------|
+| `src/ingestion/line_breaking.py` | Ingestion | Clustering + intersection, adapted for narrow + 360 formats |
+| `stg_statsbomb__line_breaking.sql` | dbt staging | Join 360 freeze frames with pass events |
+| `fct_passes.sql` (update) | dbt marts | `is_line_breaking`, `lines_broken`, `line_breaking_type` |
+| `fct_player_stats.sql` (update) | dbt marts | `line_breaking_passes`, `line_breaking_per_90` |
+| Pass Map page (update) | Streamlit | Visual distinction for line-breaking passes |
+
+**Dependencies:** Phase 6 (360) + Phase 10 (tracking) — both complete. Synergistic with Phase 12 (defensive line depth feeds pressing metrics).
+
+### 8.6 — Phase 14: Cross-Source Player Entity Resolution
 
 `dim_players` currently deduplicates within each source, but StatsBomb, Metrica, and Wyscout use independent player IDs. The same player exists as separate rows per source.
 
@@ -565,15 +606,15 @@ Each new source follows the established pattern: `src/ingestion/<source>.py` →
 
 **Integration path:** `int_player_xref` mapping → refactor `dim_players` → downstream tables automatically benefit.
 
-### 8.6 — Phase 14: pgvector Player Embeddings
+### 8.7 — Phase 15: pgvector Player Embeddings
 
-`fct_player_embeddings` and its synced table are provisioned (0 rows). Design feature vector from `fct_player_stats` per-90 metrics, generate embeddings, enable pgvector `<=>` cosine distance queries. Depends on Phase 13 for cross-source identity (within-source feasible without it).
+`fct_player_embeddings` and its synced table are provisioned (0 rows). Design feature vector from `fct_player_stats` per-90 metrics, generate embeddings, enable pgvector `<=>` cosine distance queries. Depends on Phase 14 for cross-source identity (within-source feasible without it).
 
-### 8.7 — Phase 15: Player Similarity Streamlit Page
+### 8.8 — Phase 16: Player Similarity Streamlit Page
 
-pgvector nearest-neighbor search (`player_search.py`). "Find players like X." Depends on Phase 14.
+pgvector nearest-neighbor search (`player_search.py`). "Find players like X." Depends on Phase 15.
 
-### 8.8 — Phase 16: DEFCON-Inspired Defensive Valuation
+### 8.9 — Phase 17: DEFCON-Inspired Defensive Valuation
 
 **Paper:** Kim, H.S. et al. (2025). "Better Prevent than Tackle: Valuing Defense in Soccer Based on Graph Neural Networks." *arXiv:2512.10355*.
 
@@ -588,12 +629,12 @@ pgvector nearest-neighbor search (`player_search.py`). "Find players like X." De
 | **Tier 3: DEFCON-lite** | Tabular model (VAEP + spatial features, no GNN) | ~20 matches with tracking | Feasible after Phase 10 |
 | **Tier 4: Full GNN DEFCON** | Graph Attention Networks on player graphs | 500+ matches with tracking | Requires commercial data |
 
-### 8.9 — Additional Streamlit Pages
+### 8.10 — Additional Streamlit Pages
 
 | Page | Description | Dependencies |
 |------|-------------|-------------|
 | **Movement Analysis** | Speed heatmaps, distance profiles, sprint timelines, pressing intensity | Phase 12 |
-| **Player Similarity** | pgvector nearest-neighbor search | Phase 14 + 15 |
+| **Player Similarity** | pgvector nearest-neighbor search | Phase 15 + 16 |
 
 ---
 
@@ -644,7 +685,8 @@ pgvector nearest-neighbor search (`player_search.py`). "Find players like X." De
 | 10 | Streamlit web app | `src/streamlit_app/` |
 | — | SPADL action valuation (VAEP) | `fct_action_values` (Phase 9) |
 | — | Movement analysis | Phase 12 — PPDA, physical metrics, off-ball xT |
-| — | Defensive contribution (DEFCON) | Phase 16 — EPV decomposition + credit assignment |
+| — | Line-breaking pass detection | Phase 13 — clustering + segment intersection |
+| — | Defensive contribution (DEFCON) | Phase 17 — EPV decomposition + credit assignment |
 
 ### C. Dependencies on MCP CodeDeploy Project
 

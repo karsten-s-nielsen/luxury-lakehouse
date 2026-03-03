@@ -66,6 +66,7 @@ Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by 
 - **Heat Maps** — Action density visualization for players and teams
 - **VAEP Action Valuation** — Player contribution scoring beyond goals/assists (SPADL + VAEP)
 - **Pitch Control** — Voronoi diagrams from tracking data
+- **Line-Breaking Passes** — Geometric detection of defensive line penetration via clustering + intersection *(planned)*
 - **Movement Analysis** — Physical performance metrics and off-ball spatial analysis from tracking data *(planned)*
 - **Player Similarity** — pgvector cosine-distance search ("Find players like X") *(planned)*
 - **Player Radar Charts** — Per-90 stat comparison across multiple metrics
@@ -83,12 +84,13 @@ luxury-lakehouse/
 ├── docs/
 │   └── c4/             # C4 architecture diagrams (Structurizr DSL)
 ├── assets/             # Images and branding
-└── PLAN.md             # Detailed implementation plan
+├── PLAN.md             # Detailed implementation plan
+└── ROADMAP.md          # Research directions and future ideas
 ```
 
 ## Status
 
-**Phase 10 complete** — 8 Streamlit pages, 187 unit tests, 271 dbt data tests, 20 tracking matches (38M+ rows) across 3 providers. See [PLAN.md](PLAN.md) for the full roadmap.
+**Phase 10 complete** — 8 Streamlit pages, 187 unit tests, 271 dbt data tests, 20 tracking matches (38M+ rows) across 3 providers. See [PLAN.md](PLAN.md) for the implementation plan and [ROADMAP.md](ROADMAP.md) for research directions.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -107,6 +109,7 @@ luxury-lakehouse/
 | 10 | Additional Tracking Data (IDSSE, SkillCorner) | Complete |
 | 11 | Physics-Based Pitch Control | Planned |
 | 12 | Movement Analysis | Planned |
+| 13 | Line-Breaking Pass Detection | Planned |
 
 ## Tech Stack
 
