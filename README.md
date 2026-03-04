@@ -91,7 +91,7 @@ luxury-lakehouse/
 
 ## Status
 
-**Phase 13 complete** — 8 Streamlit pages, 257 unit tests, 285 dbt data tests, line-breaking pass detection with Ward clustering + straddle test. See [PLAN.md](PLAN.md) for the implementation plan and [ROADMAP.md](ROADMAP.md) for research directions.
+**Phase 13 complete** — 8 Streamlit pages, 257 unit tests, 282 dbt data tests, line-breaking pass detection with Ward clustering + straddle test. See [PLAN.md](PLAN.md) for the implementation plan and [ROADMAP.md](ROADMAP.md) for research directions.
 
 | Phase | Description | Status |
 |-------|-------------|--------|

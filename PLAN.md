@@ -1,6 +1,6 @@
 # Databricks Lakebase Implementation Plan — Soccer Analytics Platform
 
-> **Status**: Phase 13 complete — 8 Streamlit pages, 257 unit tests, 285 dbt data tests, 10 synced tables, line-breaking pass detection.
+> **Status**: Phase 13 complete — 8 Streamlit pages, 257 unit tests, 282 dbt data tests, 10 synced tables, line-breaking pass detection.
 > **Last Updated**: 2026-03-04
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready from day one
@@ -292,7 +292,8 @@ luxury-lakehouse/
 │
 ├── src/
 │   ├── analytics/
-│   │   └── pitch_control.py            # Spearman (2017) physics-based pitch control model
+│   │   ├── pitch_control.py          # Spearman (2017) physics-based pitch control model
+│   │   └── line_breaking.py          # Ward clustering + straddle test for line-breaking passes
 │   │
 │   ├── ingestion/
 │   │   ├── statsbomb.py              # StatsBomb API ingestion (5 bronze tables + 360 backfill)
@@ -300,6 +301,7 @@ luxury-lakehouse/
 │   │   ├── wyscout.py                # Wyscout JSON ingestion
 │   │   ├── idsse.py                  # IDSSE Bundesliga DFL tracking (7 matches, stdlib XML)
 │   │   ├── skillcorner.py            # SkillCorner A-League broadcast tracking (10 matches, kloppy)
+│   │   ├── line_breaking.py          # Line-breaking pass batch computation (360 + tracking)
 │   │   ├── spadl_adapter.py          # Bronze-to-socceraction format adapters
 │   │   ├── spadl_vaep.py             # SPADL conversion + VAEP scoring pipeline
 │   │   └── utils.py                  # Shared CLI, logging, HTTP, Delta helpers
@@ -311,7 +313,7 @@ luxury-lakehouse/
 │   │   ├── pages/                    # 8 pages (+ player_search.py planned)
 │   │   └── components/               # filters.py, pitch.py, charts.py
 │   │
-│   └── tests/                        # 257 unit tests (12 test modules)
+│   └── tests/                        # 257 unit tests (13 test modules)
 │       ├── test_statsbomb.py
 │       ├── test_metrica.py
 │       ├── test_wyscout.py
@@ -321,13 +323,14 @@ luxury-lakehouse/
 │       ├── test_spadl_vaep.py
 │       ├── test_ingestion_utils.py
 │       ├── test_pitch_control_model.py
+│       ├── test_line_breaking.py
 │       ├── test_streamlit_components.py
 │       ├── test_streamlit_config.py
 │       └── test_streamlit_db.py
 │
 ├── dbt_project/
 │   ├── models/
-│   │   ├── staging/                  # SILVER: statsbomb/, metrica/, wyscout/, spadl/, idsse/, skillcorner/
+│   │   ├── staging/                  # SILVER: statsbomb/, metrica/, wyscout/, spadl/, idsse/, skillcorner/, line_breaking/
 │   │   ├── intermediate/             # Cross-source joins (ephemeral)
 │   │   └── marts/                    # GOLD: 7 fact + 3 dimension tables
 │   ├── tests/                        # Custom data tests
@@ -409,7 +412,7 @@ All code must pass these gates before merge:
 |-------|------|-----|
 | Unit | Ingestion logic, utility functions, analytics models | pytest (257 tests) |
 | Integration | dbt models compile and run | `dbt build --target ci` |
-| Data quality | Row counts, value ranges, referential integrity | dbt tests (271) + dbt-expectations |
+| Data quality | Row counts, value ranges, referential integrity | dbt tests (282) + dbt-expectations |
 | E2E | Streamlit pages render with real data | Manual smoke test |
 | Infrastructure | Terraform validates | `terraform validate` + `terraform plan` |
 
@@ -418,7 +421,7 @@ All code must pass these gates before merge:
 Lakebase and Databricks performance standards are codified in [CLAUDE.md § Database Performance](CLAUDE.md#database-performance). Key rules:
 
 - **Lakebase (PG):** Index every filtered column on fact tables >100K rows. No `ON ONLY` indexes (partitioned tables). Avoid `SELECT DISTINCT` on large tables — use recursive CTE. Re-run `scripts/create_indexes.py` after every synced table recreation.
-- **Databricks (Spark/dbt):** Avoid double `df.count()`, prefer `replaceWhere` over bare append, don't `.toPandas()` unbounded tables, extract repeated window functions into CTEs.
+- **Databricks (Spark/dbt):** `validate_dataframe()` returns row count to `write_delta_table()` (no double `df.count()`), all writes use `replaceWhere` for idempotency, don't `.toPandas()` unbounded tables, extract repeated window functions into CTEs, `fct_tracking_frames` uses `CLUSTER BY match_id` for Z-ordering.
 
 Currently 14 btree indexes across 5 fact tables covering all Streamlit query patterns. Managed by `scripts/create_indexes.py` with `--verify` for EXPLAIN ANALYZE validation.
 

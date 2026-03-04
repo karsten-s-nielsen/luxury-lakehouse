@@ -265,10 +265,17 @@ def ingest_idsse(
         if rows:
             df = pd.DataFrame(rows)
             sdf = spark.createDataFrame(df)
-            validate_dataframe(sdf, required_cols, "idsse_tracking", logger)
-            # First match overwrites, subsequent matches append
-            mode = "overwrite" if i == 0 else "append"
-            write_delta_table(sdf, catalog, schema, "idsse_tracking", mode=mode, logger=logger)
+            row_count = validate_dataframe(sdf, required_cols, "idsse_tracking", logger)
+            replace_expr = f"match_id = 'idsse_{mid}'"
+            write_delta_table(
+                sdf,
+                catalog,
+                schema,
+                "idsse_tracking",
+                replace_where=replace_expr,
+                logger=logger,
+                row_count=row_count,
+            )
             del df, sdf, rows  # Free memory between matches
             gc.collect()
 

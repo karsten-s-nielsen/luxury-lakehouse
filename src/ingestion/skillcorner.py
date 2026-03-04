@@ -167,13 +167,21 @@ def ingest_skillcorner(
     if all_rows:
         df = pd.DataFrame(all_rows)
         sdf = spark.createDataFrame(df)
-        validate_dataframe(
+        row_count = validate_dataframe(
             sdf,
             ["period", "frame", "timestamp", "player_id", "team", "x", "y", "match_id", "frame_rate"],
             "skillcorner_tracking",
             logger,
         )
-        write_delta_table(sdf, catalog, schema, "skillcorner_tracking", mode="overwrite", logger=logger)
+        write_delta_table(
+            sdf,
+            catalog,
+            schema,
+            "skillcorner_tracking",
+            mode="overwrite",
+            logger=logger,
+            row_count=row_count,
+        )
 
 
 def main() -> None:

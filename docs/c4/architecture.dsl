@@ -48,7 +48,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
                 factTables = component "Fact Tables" "7 tables: shots, passes (with is_line_breaking, lines_broken, line_breaking_type), player stats (with line_breaking_per_90), match summary, tracking frames (UNION ALL 3 sources), player embeddings, action values" "Delta Tables, Gold Schema"
                 dimTables = component "Dimension Tables" "3 tables: players, teams, competitions. Deduplicated master data from all sources" "Delta Tables, Gold Schema"
                 macros = component "Custom Macros" "distance_to_goal and shot_angle geometry calculations for xG features" "Jinja SQL Macros"
-                testSuite = component "Test Suite" "285 data tests: unique, not_null, accepted_values, range bounds, composite keys, relationships, source freshness" "dbt-expectations, dbt-utils"
+                testSuite = component "Test Suite" "282 data tests: unique, not_null, accepted_values, range bounds, composite keys, relationships, source freshness" "dbt-expectations, dbt-utils"
             }
             syncedTables = container "Synced Tables Pipeline" "10 synced tables (7 fact, 3 dimension) replicate Gold Delta tables into Lakebase via SNAPSHOT scheduling. 14 btree indexes across 5 fact tables for sub-100ms queries." "Lakeflow Synced Database Tables, Terraform" "Queue"
             lakebase = container "Lakebase PostgreSQL 17 (Autoscaling)" "Managed OLTP database with autoscaling (0.5–4 CU) and scale-to-zero, providing sub-10ms query latency for the Streamlit app, with native pgvector support. OAuth M2M authentication, SSL enforced." "PostgreSQL 17, Autoscaling, pgvector" "Database"
@@ -235,7 +235,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
             ingestion -> idsse "Downloads DFL position XML for 7 Bundesliga matches"
             ingestion -> skillcorner "Downloads broadcast tracking JSONL for 10 A-League matches"
             ingestion -> catalog "Writes 12 bronze Delta tables with audit columns"
-            dbt -> catalog "Transforms Bronze to Silver to Gold (285 data tests)"
+            dbt -> catalog "Transforms Bronze to Silver to Gold (282 data tests)"
             syncedTables -> catalog "Reads Gold Delta tables"
             syncedTables -> lakebase "Syncs 10 tables via Lakeflow, PG indexes on partitions"
             streamlit -> lakebase "Queries analytics data with recursive CTE optimization"

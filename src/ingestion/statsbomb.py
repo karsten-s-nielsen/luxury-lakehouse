@@ -93,8 +93,16 @@ def ingest_competitions(
     competitions_pdf = serialize_json_columns(competitions_pdf)
 
     sdf = spark.createDataFrame(competitions_pdf)
-    validate_dataframe(sdf, ["competition_id", "season_id"], "statsbomb_competitions", logger)
-    write_delta_table(sdf, catalog, schema, "statsbomb_competitions", mode="overwrite", logger=logger)
+    row_count = validate_dataframe(sdf, ["competition_id", "season_id"], "statsbomb_competitions", logger)
+    write_delta_table(
+        sdf,
+        catalog,
+        schema,
+        "statsbomb_competitions",
+        mode="overwrite",
+        logger=logger,
+        row_count=row_count,
+    )
 
     return competitions_pdf
 
@@ -179,7 +187,12 @@ def ingest_matches_and_details(
 
         matches_pdf = serialize_json_columns(matches_pdf)
         matches_sdf = spark.createDataFrame(matches_pdf)
-        validate_dataframe(matches_sdf, ["match_id", "competition_id", "season_id"], "statsbomb_matches", logger)
+        row_count = validate_dataframe(
+            matches_sdf,
+            ["match_id", "competition_id", "season_id"],
+            "statsbomb_matches",
+            logger,
+        )
         replace_expr = f"competition_id = {comp_id} AND season_id = {season_id}"
         write_delta_table(
             matches_sdf,
@@ -188,6 +201,7 @@ def ingest_matches_and_details(
             "statsbomb_matches",
             replace_where=replace_expr,
             logger=logger,
+            row_count=row_count,
         )
 
         # Determine new match IDs for detail fetching
@@ -310,8 +324,8 @@ def _write_batch(
     combined = pd.concat(batch, ignore_index=True)
     combined = serialize_json_columns(combined)
     sdf = spark.createDataFrame(combined)
-    validate_dataframe(sdf, required_columns, table_name, logger)
-    write_delta_table(sdf, catalog, schema, table_name, replace_where=replace_where, logger=logger)
+    row_count = validate_dataframe(sdf, required_columns, table_name, logger)
+    write_delta_table(sdf, catalog, schema, table_name, replace_where=replace_where, logger=logger, row_count=row_count)
 
 
 # ---------------------------------------------------------------------------

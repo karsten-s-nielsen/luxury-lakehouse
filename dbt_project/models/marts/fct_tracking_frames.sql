@@ -1,3 +1,4 @@
+{{ config(cluster_by=["match_id"]) }}
 -- fct_tracking_frames.sql
 -- Enriched tracking data from all providers (Metrica, IDSSE, SkillCorner).
 --

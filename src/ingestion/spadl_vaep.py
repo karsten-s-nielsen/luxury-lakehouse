@@ -244,7 +244,8 @@ def _convert_statsbomb_from_bronze(
         comp_actions = _clean_spadl_for_spark(comp_actions)
 
         sdf = spark.createDataFrame(comp_actions)
-        write_delta_table(sdf, catalog, schema, _SPADL_TABLE, mode="append", logger=logger)
+        replace_expr = f"competition_id = {comp_id} AND season_id = {season_id} AND data_source = 'statsbomb'"
+        write_delta_table(sdf, catalog, schema, _SPADL_TABLE, replace_where=replace_expr, logger=logger)
         wrote_any = True
 
         logger.info("SB comp %d/%d: %d actions written", comp_id, season_id, len(comp_actions))
@@ -344,7 +345,8 @@ def _convert_wyscout_from_bronze(
         comp_actions = _clean_spadl_for_spark(comp_actions)
 
         sdf = spark.createDataFrame(comp_actions)
-        write_delta_table(sdf, catalog, schema, _SPADL_TABLE, mode="append", logger=logger)
+        replace_expr = f"competition_id = {comp_id} AND season_id = {season_id} AND data_source = 'wyscout'"
+        write_delta_table(sdf, catalog, schema, _SPADL_TABLE, replace_where=replace_expr, logger=logger)
         wrote_any = True
 
         logger.info("WS comp %d: %d actions written", comp_id, len(comp_actions))
@@ -683,7 +685,8 @@ def run_pipeline(
 
             scored = _clean_spadl_for_spark(scored)
             sdf = spark.createDataFrame(scored)
-            write_delta_table(sdf, catalog, schema, _VAEP_TABLE, mode="append", logger=logger)
+            replace_expr = f"competition_id = {comp_id} AND data_source = '{source}'"
+            write_delta_table(sdf, catalog, schema, _VAEP_TABLE, replace_where=replace_expr, logger=logger)
             total_scored += len(scored)
 
             logger.info(

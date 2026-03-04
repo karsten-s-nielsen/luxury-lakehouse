@@ -8,48 +8,12 @@ Research directions, long-horizon features, and exploratory ideas beyond the [ph
 
 ## Line-Breaking Pass Detection
 
-> **Promoted to Phase 13** — see [TODO.md](TODO.md) and [PLAN.md §8.5](PLAN.md#85--phase-13-line-breaking-pass-detection) for the phased plan.
+> **Complete** — implemented in Phase 13. See [PLAN.md §8.5](PLAN.md#85--phase-13-line-breaking-pass-detection).
 
-**Status:** Complete — implemented in Phase 13. See [PLAN.md §8.5](PLAN.md#85--phase-13-line-breaking-pass-detection).
+**Status:** Complete (Phase 13, PR #18)
 **License:** Apache 2.0 ([parmacalcio1913/line-breaking-passes](https://github.com/parmacalcio1913/line-breaking-passes))
-**References:** Stats Perform Opta Vision methodology; Parma Calcio research notebook
 
-Detects which defensive lines (attack / midfield / defense) a pass breaks using hierarchical clustering of opponent positions + geometric segment intersection. Fills the analytical gap between the blunt `is_progressive` flag (radial distance) and full spatial models (pitch control).
-
-### Why it matters
-
-A short lateral pass that splits two centre-backs is not "progressive" by the 0.75 distance ratio, but it's one of the most tactically valuable actions in football. Line-breaking pass detection captures this.
-
-### Two data paths
-
-| Data Source | Matches | Approach |
-|-------------|---------|----------|
-| **StatsBomb 360 freeze frames** | 323 | Cluster opponent positions at pass moment, single-frame intersection test |
-| **Tracking data** (Metrica/IDSSE/SkillCorner) | 20 | Full dual-frame algorithm (intersection at both start and end frame) |
-
-The 360 freeze-frame path is the higher-leverage starting point — 16x more matches, zero new data ingestion.
-
-### Adaptation needed
-
-- **Coordinate system**: Their code uses 105x68m corner-origin; luxury-lakehouse uses 120x80. Parameterize pitch dimensions.
-- **Data format**: Their code uses Metrica wide-format CSV; luxury-lakehouse `fct_tracking_frames` is narrow (one row per player per frame). Adapt clustering to work on narrow DataFrames or pivot.
-- **PyTorch dependency**: Used for vectorized cross-product math in the intersection test. Rewrite in pure NumPy (the math is trivial — no GPU needed).
-
-### Potential artifacts
-
-| Artifact | Layer | Description |
-|----------|-------|-------------|
-| `src/ingestion/line_breaking.py` | Ingestion | Clustering + intersection logic, adapted for narrow format + 360 freeze frames |
-| `stg_statsbomb__line_breaking.sql` | dbt staging | Join 360 freeze frames with pass events, flag line-breaking passes |
-| `fct_passes.sql` (update) | dbt marts | Add `is_line_breaking`, `lines_broken`, `line_breaking_type` columns |
-| `fct_player_stats.sql` (update) | dbt marts | Add `line_breaking_passes`, `line_breaking_per_90` aggregations |
-| Pass Map page (update) | Streamlit | Visual distinction for line-breaking passes |
-
-### Dependencies
-
-- Phase 6 (StatsBomb 360) — **complete**
-- Phase 10 (tracking data) — **complete** (for dual-frame path)
-- Phase 12 (Movement Analysis) — synergistic: defensive line depth + compactness feed pressing metrics
+Ward hierarchical clustering + cross-product straddle test for defensive line penetration. Two data paths: StatsBomb 360 (323 matches) and Metrica tracking (3 matches). Gold arrows on Pass Map, LB Passes/90 on Player Radar.
 
 ---
 

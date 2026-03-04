@@ -199,13 +199,13 @@ def ingest_events(
     combined = _normalize_mixed_types(combined)
 
     sdf = spark.createDataFrame(combined)
-    validate_dataframe(
+    row_count = validate_dataframe(
         sdf,
         ["eventId", "matchId", "eventName", "playerId", "teamId", "matchPeriod", "eventSec"],
         "wyscout_events",
         logger,
     )
-    write_delta_table(sdf, catalog, schema, "wyscout_events", mode="overwrite", logger=logger)
+    write_delta_table(sdf, catalog, schema, "wyscout_events", mode="overwrite", logger=logger, row_count=row_count)
 
 
 # ---------------------------------------------------------------------------
@@ -246,13 +246,13 @@ def ingest_matches(
     combined = _normalize_mixed_types(combined)
 
     sdf = spark.createDataFrame(combined)
-    validate_dataframe(
+    row_count = validate_dataframe(
         sdf,
         ["wyId", "competitionId", "seasonId", "dateutc"],
         "wyscout_matches",
         logger,
     )
-    write_delta_table(sdf, catalog, schema, "wyscout_matches", mode="overwrite", logger=logger)
+    write_delta_table(sdf, catalog, schema, "wyscout_matches", mode="overwrite", logger=logger, row_count=row_count)
 
 
 # ---------------------------------------------------------------------------

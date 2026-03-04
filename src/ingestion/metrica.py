@@ -625,8 +625,16 @@ def ingest_tracking(
             "match_id",
             "frame_rate",
         ]
-        validate_dataframe(sdf, required_cols, "metrica_tracking", logger)
-        write_delta_table(sdf, catalog, schema, "metrica_tracking", mode="overwrite", logger=logger)
+        row_count = validate_dataframe(sdf, required_cols, "metrica_tracking", logger)
+        write_delta_table(
+            sdf,
+            catalog,
+            schema,
+            "metrica_tracking",
+            mode="overwrite",
+            logger=logger,
+            row_count=row_count,
+        )
 
 
 def ingest_events(
@@ -656,13 +664,13 @@ def ingest_events(
     if all_events:
         combined = pd.concat(all_events, ignore_index=True)
         sdf = spark.createDataFrame(combined)
-        validate_dataframe(
+        row_count = validate_dataframe(
             sdf,
             ["event_id", "type", "period", "start_frame", "end_frame", "team", "player", "match_id"],
             "metrica_events",
             logger,
         )
-        write_delta_table(sdf, catalog, schema, "metrica_events", mode="overwrite", logger=logger)
+        write_delta_table(sdf, catalog, schema, "metrica_events", mode="overwrite", logger=logger, row_count=row_count)
 
 
 # ---------------------------------------------------------------------------

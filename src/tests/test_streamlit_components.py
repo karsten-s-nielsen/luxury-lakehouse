@@ -11,7 +11,7 @@ from streamlit_app.components.pitch import (
     categorize_passes,
     plot_heatmap,
     plot_pass_map,
-    plot_pass_network,
+    plot_pass_network_interactive,
     plot_physics_pitch_control,
     plot_pitch_control,
     plot_shot_map,
@@ -249,10 +249,12 @@ class TestPlotHeatmap:
         assert isinstance(fig, matplotlib.figure.Figure)
 
 
-class TestPlotPassNetwork:
-    """Test pass network visualization."""
+class TestPlotPassNetworkInteractive:
+    """Test interactive Plotly pass network visualization."""
 
-    def test_returns_figure_with_data(self) -> None:
+    def test_returns_plotly_figure_with_data(self) -> None:
+        import plotly.graph_objects as go
+
         nodes = pd.DataFrame(
             {
                 "player_id": [1, 2, 3],
@@ -267,34 +269,22 @@ class TestPlotPassNetwork:
                 "passer_id": [1, 2],
                 "receiver_id": [2, 3],
                 "pair_count": [5, 3],
-                "avg_start_x": [30.0, 50.0],
-                "avg_start_y": [40.0, 30.0],
-                "avg_end_x": [50.0, 70.0],
-                "avg_end_y": [30.0, 50.0],
             }
         )
-        fig = plot_pass_network(nodes, edges)
-        assert isinstance(fig, matplotlib.figure.Figure)
+        fig = plot_pass_network_interactive(nodes, edges)
+        assert isinstance(fig, go.Figure)
 
     def test_returns_figure_with_empty_nodes(self) -> None:
+        import plotly.graph_objects as go
+
         nodes = pd.DataFrame(columns=pd.Index(["player_id", "player_display_name", "avg_x", "avg_y", "pass_count"]))
-        edges = pd.DataFrame(
-            columns=pd.Index(
-                [
-                    "passer_id",
-                    "receiver_id",
-                    "pair_count",
-                    "avg_start_x",
-                    "avg_start_y",
-                    "avg_end_x",
-                    "avg_end_y",
-                ]
-            )
-        )
-        fig = plot_pass_network(nodes, edges)
-        assert isinstance(fig, matplotlib.figure.Figure)
+        edges = pd.DataFrame(columns=pd.Index(["passer_id", "receiver_id", "pair_count"]))
+        fig = plot_pass_network_interactive(nodes, edges)
+        assert isinstance(fig, go.Figure)
 
     def test_returns_figure_with_empty_edges(self) -> None:
+        import plotly.graph_objects as go
+
         nodes = pd.DataFrame(
             {
                 "player_id": [1, 2],
@@ -304,23 +294,13 @@ class TestPlotPassNetwork:
                 "pass_count": [5, 5],
             }
         )
-        edges = pd.DataFrame(
-            columns=pd.Index(
-                [
-                    "passer_id",
-                    "receiver_id",
-                    "pair_count",
-                    "avg_start_x",
-                    "avg_start_y",
-                    "avg_end_x",
-                    "avg_end_y",
-                ]
-            )
-        )
-        fig = plot_pass_network(nodes, edges)
-        assert isinstance(fig, matplotlib.figure.Figure)
+        edges = pd.DataFrame(columns=pd.Index(["passer_id", "receiver_id", "pair_count"]))
+        fig = plot_pass_network_interactive(nodes, edges)
+        assert isinstance(fig, go.Figure)
 
     def test_single_edge(self) -> None:
+        import plotly.graph_objects as go
+
         nodes = pd.DataFrame(
             {
                 "player_id": [1, 2],
@@ -335,14 +315,10 @@ class TestPlotPassNetwork:
                 "passer_id": [1],
                 "receiver_id": [2],
                 "pair_count": [3],
-                "avg_start_x": [30.0],
-                "avg_start_y": [40.0],
-                "avg_end_x": [60.0],
-                "avg_end_y": [40.0],
             }
         )
-        fig = plot_pass_network(nodes, edges)
-        assert isinstance(fig, matplotlib.figure.Figure)
+        fig = plot_pass_network_interactive(nodes, edges)
+        assert isinstance(fig, go.Figure)
 
 
 class TestBuildNetwork:

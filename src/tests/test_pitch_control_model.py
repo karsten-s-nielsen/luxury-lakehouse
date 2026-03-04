@@ -55,19 +55,18 @@ class TestPitchControlParams:
     def test_default_values(self) -> None:
         p = PitchControlParams()
         assert p.reaction_time == 0.7
-        assert p.max_speed == 5.0
         assert p.max_acceleration == 7.0
         assert p.sigma == 0.45
         assert p.grid_cells_x == 50
         assert p.grid_cells_y == 32
 
     def test_custom_override(self) -> None:
-        p = PitchControlParams(reaction_time=0.5, max_speed=6.0, grid_cells_x=100)
+        p = PitchControlParams(reaction_time=0.5, max_acceleration=8.0, grid_cells_x=100)
         assert p.reaction_time == 0.5
-        assert p.max_speed == 6.0
+        assert p.max_acceleration == 8.0
         assert p.grid_cells_x == 100
         # Defaults preserved
-        assert p.max_acceleration == 7.0
+        assert p.sigma == 0.45
 
 
 class TestCoordinateConversion:

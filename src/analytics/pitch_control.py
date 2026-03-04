@@ -21,7 +21,6 @@ class PitchControlParams:
     """Parameters for the physics-based pitch control model."""
 
     reaction_time: float = 0.7  # seconds before player begins moving
-    max_speed: float = 5.0  # m/s — reserved for two-phase TTI (not yet implemented)
     max_acceleration: float = 7.0  # m/s² acceleration capability
     sigma: float = 0.45  # seconds — controls logistic curve steepness
     grid_cells_x: int = 50

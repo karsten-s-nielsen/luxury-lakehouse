@@ -170,6 +170,7 @@ def write_delta_table(
     mode: str = "overwrite",
     replace_where: str | None = None,
     logger: logging.Logger | None = None,
+    row_count: int | None = None,
 ) -> int:
     """Write a Spark DataFrame to a Delta table with audit columns.
 
@@ -181,6 +182,9 @@ def write_delta_table(
         mode: Write mode (``overwrite``, ``append``, etc.).
         replace_where: Optional partition predicate for ``replaceWhere``.
         logger: Optional logger for row-count reporting.
+        row_count: Pre-computed row count from ``validate_dataframe()``.
+            When provided, skips the internal ``df.count()`` call to
+            avoid redundant Spark DAG recomputation.
 
     Returns:
         Number of rows written.
@@ -194,7 +198,8 @@ def write_delta_table(
 
     full_table = f"{catalog}.{schema}.{table_name}"
     df = add_audit_columns(df)
-    row_count = df.count()
+    if row_count is None:
+        row_count = int(df.count())
 
     writer = df.write.format("delta").option("mergeSchema", "true")
 
@@ -272,7 +277,7 @@ def validate_dataframe(
     required_columns: list[str],
     source_name: str,
     logger: logging.Logger | None = None,
-) -> None:
+) -> int:
     """Verify that *df* contains all required columns and is non-empty.
 
     Args:
@@ -280,6 +285,10 @@ def validate_dataframe(
         required_columns: Column names that must be present.
         source_name: Human-readable data source name for error messages.
         logger: Optional logger for success reporting.
+
+    Returns:
+        Number of rows in the DataFrame (avoids redundant ``df.count()``
+        in downstream callers).
 
     Raises:
         ValueError: If required columns are missing or the DataFrame is empty.
@@ -303,3 +312,5 @@ def validate_dataframe(
             len(actual_columns),
             row_count,
         )
+
+    return row_count
