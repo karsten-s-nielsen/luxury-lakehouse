@@ -1,0 +1,37 @@
+version: 2
+
+sources:
+  - name: line_breaking
+    description: >
+      Line-breaking pass detection results produced by the Ward clustering
+      and cross-product straddle test pipeline. Contains per-pass boolean
+      flags and line counts for passes that break through opponent defensive
+      formations.
+    database: soccer_analytics
+    schema: bronze
+    loader: python_wheel
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 24, period: hour}
+        error_after: {count: 72, period: hour}
+
+    tables:
+      - name: line_breaking_results
+        description: >
+          Per-pass line-breaking detection results. Each row represents one
+          pass event with its line-breaking classification. Data sources
+          include StatsBomb 360 freeze frames and Metrica tracking data.
+        columns:
+          - name: event_id
+            description: Pass event identifier (matches event_id in passes)
+          - name: match_id
+            description: Match identifier
+          - name: is_line_breaking
+            description: Whether the pass breaks through at least one defensive line
+          - name: lines_broken
+            description: Number of defensive lines broken (0-3)
+          - name: line_breaking_type
+            description: Type of line break (through, around, or NULL)
+          - name: data_source
+            description: Data path used (statsbomb_360, metrica_tracking)

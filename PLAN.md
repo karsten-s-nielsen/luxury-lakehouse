@@ -1,7 +1,7 @@
 # Databricks Lakebase Implementation Plan — Soccer Analytics Platform
 
-> **Status**: Phase 11 complete — 8 Streamlit pages, 214 unit tests, 271 dbt data tests, 10 synced tables, physics-based pitch control.
-> **Last Updated**: 2026-03-03
+> **Status**: Phase 13 complete — 8 Streamlit pages, 257 unit tests, 285 dbt data tests, 10 synced tables, line-breaking pass detection.
+> **Last Updated**: 2026-03-04
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready from day one
 
@@ -195,7 +195,7 @@ System Boundary: Soccer Analytics Platform (Databricks on AWS)
   │   Responsibility: Low-latency OLTP queries for the Streamlit app
   │
   └── Streamlit Dashboard          [Databricks App]
-      Technology: Python + Streamlit + mplsoccer + psycopg2
+      Technology: Python + Streamlit + mplsoccer + Plotly + psycopg2
       Responsibility: Interactive analytics UI for coaches/analysts
 ```
 
@@ -311,7 +311,7 @@ luxury-lakehouse/
 │   │   ├── pages/                    # 8 pages (+ player_search.py planned)
 │   │   └── components/               # filters.py, pitch.py, charts.py
 │   │
-│   └── tests/                        # 214 unit tests (12 test modules)
+│   └── tests/                        # 257 unit tests (12 test modules)
 │       ├── test_statsbomb.py
 │       ├── test_metrica.py
 │       ├── test_wyscout.py
@@ -335,7 +335,7 @@ luxury-lakehouse/
 │   └── seeds/                        # competition_metadata.csv, position_mapping.csv
 │
 ├── scripts/
-│   ├── create_indexes.py             # PG indexes on Lakebase synced tables (12 indexes, 4 tables, --verify flag)
+│   ├── create_indexes.py             # PG indexes on Lakebase synced tables (14 indexes, 5 tables, --verify flag)
 │   ├── delete_synced_table.py        # Delete synced table + drop PG ghost table
 │   ├── import_synced_tables.sh       # Terraform import workflow
 │   ├── lakebase_grants.sql           # PG GRANT SELECT for Streamlit SP
@@ -407,7 +407,7 @@ All code must pass these gates before merge:
 
 | Level | What | How |
 |-------|------|-----|
-| Unit | Ingestion logic, utility functions, analytics models | pytest (214 tests) |
+| Unit | Ingestion logic, utility functions, analytics models | pytest (257 tests) |
 | Integration | dbt models compile and run | `dbt build --target ci` |
 | Data quality | Row counts, value ranges, referential integrity | dbt tests (271) + dbt-expectations |
 | E2E | Streamlit pages render with real data | Manual smoke test |
@@ -420,7 +420,7 @@ Lakebase and Databricks performance standards are codified in [CLAUDE.md § Data
 - **Lakebase (PG):** Index every filtered column on fact tables >100K rows. No `ON ONLY` indexes (partitioned tables). Avoid `SELECT DISTINCT` on large tables — use recursive CTE. Re-run `scripts/create_indexes.py` after every synced table recreation.
 - **Databricks (Spark/dbt):** Avoid double `df.count()`, prefer `replaceWhere` over bare append, don't `.toPandas()` unbounded tables, extract repeated window functions into CTEs.
 
-Currently 12 btree indexes across 4 fact tables covering all 19 Streamlit query patterns. Managed by `scripts/create_indexes.py` with `--verify` for EXPLAIN ANALYZE validation.
+Currently 14 btree indexes across 5 fact tables covering all Streamlit query patterns. Managed by `scripts/create_indexes.py` with `--verify` for EXPLAIN ANALYZE validation.
 
 ### 6.7 — Architecture Documentation
 
@@ -446,6 +446,7 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 | **9** | SPADL/VAEP Action Valuation | "Fetch Once, Fork Twice" — `spadl_adapter.py` + `spadl_vaep.py`, socceraction + XGBoost, 9.5M VAEP-scored actions, Action Values page (3 views), Player Radar VAEP/90, 155 tests |
 | **10** | Additional Tracking Data (IDSSE + SkillCorner) | 7 Bundesliga IDSSE matches (25fps via stdlib XML parser) + 10 A-League SkillCorner matches (10fps via kloppy), per-row `frame_rate` + `source_provider`, `fct_tracking_frames` UNION ALL 3 sources (38.1M rows) |
 | **11** | Physics-Based Pitch Control Model | Spearman (2017) model in `src/analytics/pitch_control.py`, NumPy-vectorized TTI + logistic sigmoid, continuous heatmap overlay with RdBu colormap, Physics/Voronoi toggle on Pitch Control page, 214 tests |
+| **13** | Line-Breaking Pass Detection | Ward hierarchical clustering + cross-product straddle test in `src/analytics/line_breaking.py`, dual data paths (StatsBomb 360 + Metrica tracking), `is_line_breaking`/`lines_broken`/`line_breaking_type` in `fct_passes`, Pass Map gold arrows, Player Radar LB/90, 257 tests |
 
 ### Key Design Decisions (from completed phases)
 
@@ -482,7 +483,7 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 - `logical_database_name = "databricks_postgres"` — standard Lakebase database
 - **Autoscaling workaround (provider v1.110.0):** `databricks_database_synced_database_table` only supports `database_instance_name` (Provisioned). Synced tables targeting Autoscaling projects must be created via Databricks UI, then imported into Terraform. `lifecycle { ignore_changes = all }` prevents drift. This applies to any new synced table.
 - **Schema changes:** Must delete synced table, drop ghost PG table, recreate via API, re-import into Terraform.
-- **PG indexes:** 12 custom btree indexes across 4 fact tables (tracking, passes, shots, action_values). Dropped on synced table recreation — re-run `scripts/create_indexes.py` alongside `scripts/lakebase_grants.sql`.
+- **PG indexes:** 14 custom btree indexes across 5 fact tables (tracking, passes, shots, action_values, player_stats). Dropped on synced table recreation — re-run `scripts/create_indexes.py` alongside `scripts/lakebase_grants.sql`.
 - **Credential API:** REST endpoint is `/api/2.0/postgres/credentials` (NOT `/api/2.0/database/credentials`).
 
 ### Streamlit App
@@ -495,7 +496,7 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 | Match Summary | Scorecard + xG metrics + horizontal bar chart | `fct_match_summary_synced` |
 | Pitch Control | Physics (Spearman 2017) + Voronoi toggle from tracking data | `fct_tracking_frames_synced` |
 | Heat Map | Action density per player/team/match | `fct_passes_synced`, `fct_shots_synced` |
-| Pass Network | Player-to-player graph with scaled nodes/edges | `fct_passes_synced` |
+| Pass Network | Interactive Plotly graph with hover tooltips | `fct_passes_synced` |
 | Action Values | VAEP rankings, action type breakdown, timeline | `fct_action_values_synced`, `fct_player_stats_synced` |
 
 ---
@@ -551,7 +552,7 @@ Each new source follows the established pattern: `src/ingestion/<source>.py` →
 
 | Feature | Status | License | Key Insight |
 |---------|--------|---------|-------------|
-| **Line-Breaking Pass Detection** | **Phase 13** (promoted) | Apache 2.0 | Geometric detection of defensive line penetration via hierarchical clustering + segment intersection |
+| **Line-Breaking Pass Detection** | **Complete** (Phase 13) | Apache 2.0 | Geometric detection of defensive line penetration via hierarchical clustering + segment intersection |
 | **Visual Exploratory Behavior** | Blocked by pose data | BSD 3-Clause | Probabilistic vision model (FoV + occlusion) — requires `head_angle` + `shoulders_angle` from Respo.Vision |
 | **Graph-Based Tactical Patterns** | Research direction | CC BY | TGNets (Raabe et al. 2022) for classifying defensive outcomes from tracking graphs |
 | **Decision Optimization** | Research direction | N/A | RL-based pass selection optimization (Rahimian et al.) — requires commercial tracking data |
@@ -575,7 +576,7 @@ Each new source follows the established pattern: `src/ingestion/<source>.py` →
 
 ### 8.5 — Phase 13: Line-Breaking Pass Detection
 
-**Status:** Planned. Geometric detection of defensive line penetration using hierarchical clustering + segment intersection.
+**Status:** Complete. Geometric detection of defensive line penetration using hierarchical clustering + segment intersection.
 
 **License:** Apache 2.0 ([parmacalcio1913/line-breaking-passes](https://github.com/parmacalcio1913/line-breaking-passes)). Attribution required, no other restrictions.
 

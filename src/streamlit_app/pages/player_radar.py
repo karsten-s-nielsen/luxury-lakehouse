@@ -24,6 +24,7 @@ _DEFAULT_METRICS: list[tuple[str, str, tuple[float, float]]] = [
     ("progressive_passes_per_90", "Prog. Passes/90", (0, 12)),
     ("pass_completion_pct", "Pass %", (40, 100)),
     ("xg_overperformance", "xG Over-perf", (-5, 5)),
+    ("line_breaking_per_90", "LB Passes/90", (0, 5)),
     ("vaep_per_90", "VAEP/90", (-0.5, 1.5)),
     ("offensive_vaep_per_90", "Off. VAEP/90", (-0.5, 1.5)),
     ("defensive_vaep_per_90", "Def. VAEP/90", (-0.5, 1.0)),
@@ -39,15 +40,27 @@ def _load_player_stats(competition_id: int, player_ids: list[int]) -> Any:
 
     @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading player stats...")
     def _query(comp_id: int, p_ids: tuple[int, ...]) -> Any:
+        # Use ROW_NUMBER to pick the season with most minutes per player,
+        # avoiding duplicates when a competition spans multiple seasons.
         return execute_query(
-            f"SELECT ps.player_id, p.player_display_name, "  # noqa: S608
-            f"  ps.minutes_played, ps.goals_per_90, ps.xg_per_90, "
-            f"  ps.passes_per_90, ps.progressive_passes_per_90, "
-            f"  ps.pass_completion_pct, ps.xg_overperformance, "
-            f"  ps.vaep_per_90, ps.offensive_vaep_per_90, ps.defensive_vaep_per_90 "
-            f"FROM {t('fct_player_stats_synced')} ps "
-            f"JOIN {t('dim_players_synced')} p ON ps.player_id = p.player_id "
-            f"WHERE ps.competition_id = %s AND ps.player_id IN ({placeholders}) ",
+            f"SELECT player_id, player_display_name, "  # noqa: S608
+            f"  minutes_played, goals_per_90, xg_per_90, "
+            f"  passes_per_90, progressive_passes_per_90, "
+            f"  pass_completion_pct, xg_overperformance, "
+            f"  line_breaking_per_90, "
+            f"  vaep_per_90, offensive_vaep_per_90, defensive_vaep_per_90 "
+            f"FROM ("
+            f"  SELECT ps.player_id, p.player_display_name, "
+            f"    ps.minutes_played, ps.goals_per_90, ps.xg_per_90, "
+            f"    ps.passes_per_90, ps.progressive_passes_per_90, "
+            f"    ps.pass_completion_pct, ps.xg_overperformance, "
+            f"    ps.line_breaking_per_90, "
+            f"    ps.vaep_per_90, ps.offensive_vaep_per_90, ps.defensive_vaep_per_90, "
+            f"    ROW_NUMBER() OVER (PARTITION BY ps.player_id ORDER BY ps.minutes_played DESC) AS rn "
+            f"  FROM {t('fct_player_stats_synced')} ps "
+            f"  JOIN {t('dim_players_synced')} p ON ps.player_id = p.player_id "
+            f"  WHERE ps.competition_id = %s AND ps.player_id IN ({placeholders})"
+            f") sub WHERE rn = 1",
             (comp_id, *p_ids),
         )
 
@@ -102,8 +115,11 @@ def page() -> None:
         player_names.append(str(row["player_display_name"]))
 
     title = " vs ".join(player_names)
-    fig = plot_player_radar(players_data, metric_keys, labels, ranges, title=title)
-    st.pyplot(fig)
+    fig = plot_player_radar(players_data, metric_keys, labels, ranges, title=title, player_names=player_names)
+
+    _, col_radar, _ = st.columns([1, 2, 1])
+    with col_radar:
+        st.pyplot(fig)
 
     with st.expander("Raw Data"):
         st.dataframe(stats, use_container_width=True)

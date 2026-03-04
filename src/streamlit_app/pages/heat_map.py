@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
+import pandas as pd
 import streamlit as st
 
 from streamlit_app.components.filters import (
@@ -65,14 +67,24 @@ def _load_actions(
         s_where: str,
         params: tuple[Any, ...],
     ) -> Any:
+        # Aggregate server-side: round coordinates to bin centers and count.
+        # Returns ~96 rows (12x8 grid) instead of 500K+ individual actions.
         # SECURITY: WHERE clauses are built from hardcoded conditions only;
         # all user values use %s parameterized placeholders.
         return execute_query(
-            f"SELECT p.start_x AS x, p.start_y AS y, 'pass' AS action_type "  # noqa: S608
-            f"FROM {passes_tbl} p WHERE {p_where} "
-            f"UNION ALL "
-            f"SELECT s.location_x AS x, s.location_y AS y, 'shot' AS action_type "
-            f"FROM {shots_tbl} s WHERE {s_where}",
+            f"SELECT x, y, action_type, sum(cnt) AS cnt FROM ("  # noqa: S608
+            f"  SELECT round(p.start_x / 10) * 10 + 5 AS x,"
+            f"    round(p.start_y / 10) * 10 + 5 AS y,"
+            f"    'pass' AS action_type, count(*) AS cnt "
+            f"  FROM {passes_tbl} p WHERE {p_where} "
+            f"  GROUP BY round(p.start_x / 10), round(p.start_y / 10) "
+            f"  UNION ALL "
+            f"  SELECT round(s.location_x / 10) * 10 + 5 AS x,"
+            f"    round(s.location_y / 10) * 10 + 5 AS y,"
+            f"    'shot' AS action_type, count(*) AS cnt "
+            f"  FROM {shots_tbl} s WHERE {s_where} "
+            f"  GROUP BY round(s.location_x / 10), round(s.location_y / 10)"
+            f") agg GROUP BY x, y, action_type",
             params,
         )
 
@@ -119,22 +131,30 @@ def page() -> None:
         st.warning("No actions found for the selected filters.")
         return
 
-    col_viz, col_stats = st.columns([3, 1])
+    # Expand pre-aggregated rows (x, y, action_type, cnt) for bin_statistic
+    counts = actions["cnt"].astype(int).values
+    expanded_x = np.repeat(actions["x"].values, counts)
+    expanded_y = np.repeat(actions["y"].values, counts)
+
+    heatmap_df = pd.DataFrame({"x": expanded_x, "y": expanded_y})
+
+    _, col_viz, col_stats = st.columns([1, 2, 1])
 
     with col_viz:
-        fig = plot_heatmap(actions, title="Action Density Heat Map")
+        fig = plot_heatmap(heatmap_df, title="Action Density Heat Map")
         st.pyplot(fig)
 
     with col_stats:
-        total = len(actions)
-        passes = int((actions["action_type"] == "pass").sum())
-        shots = int((actions["action_type"] == "shot").sum())
+        total = int(counts.sum())
+        passes = int(actions.loc[actions["action_type"] == "pass", "cnt"].sum())
+        shots = int(actions.loc[actions["action_type"] == "shot", "cnt"].sum())
 
         st.metric("Total Actions", total)
         st.metric("Passes", passes)
         st.metric("Shots", shots)
 
         # Most active zone (3x3 grid)
-        zones = actions.apply(lambda r: _classify_zone(r["x"], r["y"]), axis=1)
-        most_active = zones.value_counts().idxmax()
+        actions["zone"] = actions.apply(lambda r: _classify_zone(float(r["x"]), float(r["y"])), axis=1)
+        zone_counts = actions.groupby("zone")["cnt"].sum()
+        most_active = str(zone_counts.idxmax())
         st.metric("Most Active Zone", most_active)

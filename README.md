@@ -62,11 +62,11 @@ Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by 
 
 - **Expected Goals (xG)** — Shot quality model using distance, angle, body part
 - **Expected Threat (xT)** — Pitch zone valuation via Markov chains
-- **Pass Networks** — Team passing structure, player connections, and progressive passes
+- **Pass Networks** — Interactive team passing structure with hover tooltips (Plotly)
 - **Heat Maps** — Action density visualization for players and teams
 - **VAEP Action Valuation** — Player contribution scoring beyond goals/assists (SPADL + VAEP)
 - **Pitch Control** — Physics-based (Spearman 2017) and Voronoi models from tracking data
-- **Line-Breaking Passes** — Geometric detection of defensive line penetration via clustering + intersection *(planned)*
+- **Line-Breaking Passes** — Ward clustering + cross-product straddle test for defensive line penetration (StatsBomb 360)
 - **Movement Analysis** — Physical performance metrics and off-ball spatial analysis from tracking data *(planned)*
 - **Player Similarity** — pgvector cosine-distance search ("Find players like X") *(planned)*
 - **Player Radar Charts** — Per-90 stat comparison across multiple metrics
@@ -77,7 +77,7 @@ Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by 
 luxury-lakehouse/
 ├── terraform/          # Infrastructure as Code (Databricks on AWS)
 ├── src/
-│   ├── analytics/      # Pure-Python analytics models (pitch control)
+│   ├── analytics/      # Pure-Python analytics models (pitch control, line-breaking)
 │   ├── ingestion/      # Data ingestion (StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner)
 │   └── streamlit_app/  # Interactive analytics dashboard
 ├── dbt_project/        # Bronze → Silver → Gold transformations
@@ -91,7 +91,7 @@ luxury-lakehouse/
 
 ## Status
 
-**Phase 11 complete** — 8 Streamlit pages, 214 unit tests, 271 dbt data tests, physics-based pitch control (Spearman 2017) with Voronoi toggle. See [PLAN.md](PLAN.md) for the implementation plan and [ROADMAP.md](ROADMAP.md) for research directions.
+**Phase 13 complete** — 8 Streamlit pages, 257 unit tests, 285 dbt data tests, line-breaking pass detection with Ward clustering + straddle test. See [PLAN.md](PLAN.md) for the implementation plan and [ROADMAP.md](ROADMAP.md) for research directions.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -110,7 +110,7 @@ luxury-lakehouse/
 | 10 | Additional Tracking Data (IDSSE, SkillCorner) | Complete |
 | 11 | Physics-Based Pitch Control (Spearman 2017) | Complete |
 | 12 | Movement Analysis | Planned |
-| 13 | Line-Breaking Pass Detection | Planned |
+| 13 | Line-Breaking Pass Detection | Complete |
 
 ## Tech Stack
 
@@ -122,7 +122,7 @@ luxury-lakehouse/
 | OLTP Database | Databricks Lakebase (PostgreSQL 17, autoscaling) |
 | Transformations | dbt-core + dbt-databricks |
 | Orchestration | Databricks Serverless Workflows |
-| Application | Streamlit + mplsoccer |
+| Application | Streamlit + mplsoccer + Plotly |
 | Vector Search | pgvector (native in Lakebase) |
 | Python | 3.10+ (Databricks serverless), managed with uv |
 | Linting | ruff + sqlfluff |

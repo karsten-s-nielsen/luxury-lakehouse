@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import matplotlib.figure
+import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -22,6 +23,7 @@ _INCOMPLETE_COLOR = "#6c757d"
 _HOME_COLOR = "#457b9d"
 _AWAY_COLOR = "#e63946"
 _BALL_COLOR = "#f4d03f"
+_LINE_BREAKING_COLOR = "#f4a261"
 _NETWORK_NODE_COLOR = "#f4d03f"
 _NETWORK_EDGE_COLOR = "#e0e0e0"
 
@@ -80,14 +82,57 @@ def plot_shot_map(shots: pd.DataFrame, title: str = "Shot Map") -> matplotlib.fi
     return fig
 
 
+def categorize_passes(
+    passes: pd.DataFrame,
+    highlight_progressive: bool = True,
+    highlight_line_breaking: bool = True,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Categorize passes into rendering groups: incomplete, complete, progressive, line-breaking.
+
+    Incomplete passes are always categorized as incomplete regardless of is_progressive
+    or is_line_breaking flags. Progressive and line-breaking categories only apply to
+    completed passes.
+
+    Returns (incomplete, complete, progressive, line_breaking) DataFrames.
+    """
+    has_lb = highlight_line_breaking and "is_line_breaking" in passes.columns
+
+    # Split by completion first — incomplete passes are always grey
+    if "is_complete" in passes.columns:
+        incomplete = pd.DataFrame(passes[passes["is_complete"] != 1])
+        completed = pd.DataFrame(passes[passes["is_complete"] == 1])
+    else:
+        incomplete = pd.DataFrame()
+        completed = passes
+
+    # Among completed passes, apply line-breaking > progressive > complete hierarchy
+    if has_lb:
+        lb = pd.DataFrame(completed[completed["is_line_breaking"] == 1])
+        remaining = pd.DataFrame(completed[completed["is_line_breaking"] != 1])
+    else:
+        lb = pd.DataFrame()
+        remaining = completed
+
+    if highlight_progressive and "is_progressive" in remaining.columns:
+        prog = pd.DataFrame(remaining[remaining["is_progressive"] == 1])
+        complete = pd.DataFrame(remaining[remaining["is_progressive"] != 1])
+    else:
+        prog = pd.DataFrame()
+        complete = remaining
+
+    return incomplete, complete, prog, lb
+
+
 def plot_pass_map(
     passes: pd.DataFrame,
     highlight_progressive: bool = True,
+    highlight_line_breaking: bool = True,
     title: str = "Pass Map",
 ) -> matplotlib.figure.Figure:
     """Plot passes as arrows on a full pitch.
 
     Expected columns: start_x, start_y, end_x, end_y, is_complete, is_progressive.
+    Optional: is_line_breaking (for line-breaking highlight).
     Returns a matplotlib Figure.
     """
     pitch = Pitch(pitch_type="statsbomb", pitch_color=_BG_COLOR, line_color=_LINE_COLOR)
@@ -100,21 +145,13 @@ def plot_pass_map(
         ax.set_title(title, color=_LINE_COLOR, fontsize=14, pad=10)
         return fig
 
-    if highlight_progressive and "is_progressive" in passes.columns:
-        prog = passes[passes["is_progressive"] == 1]
-        non_prog = passes[passes["is_progressive"] != 1]
-    else:
-        prog = pd.DataFrame()
-        non_prog = passes
-
-    # Split non-progressive by completion
-    complete = non_prog[non_prog["is_complete"] == 1] if "is_complete" in non_prog.columns else non_prog
-    incomplete = non_prog[non_prog["is_complete"] != 1] if "is_complete" in non_prog.columns else pd.DataFrame()
+    incomplete, complete, prog, lb = categorize_passes(passes, highlight_progressive, highlight_line_breaking)
 
     for subset, color, alpha, width in [
         (incomplete, _INCOMPLETE_COLOR, 0.3, 1.0),
         (complete, _COMPLETE_COLOR, 0.5, 1.5),
         (prog, _PROGRESSIVE_COLOR, 0.8, 2.0),
+        (lb, _LINE_BREAKING_COLOR, 0.9, 2.5),
     ]:
         if not subset.empty:
             pitch.arrows(
@@ -129,6 +166,27 @@ def plot_pass_map(
                 headwidth=5,
                 headlength=5,
             )
+
+    # Build legend showing active pass categories
+    legend_entries: list[tuple[str, str, float]] = [
+        ("Incomplete", _INCOMPLETE_COLOR, 0.5),
+        ("Complete", _COMPLETE_COLOR, 0.7),
+    ]
+    if highlight_progressive:
+        legend_entries.append(("Progressive", _PROGRESSIVE_COLOR, 0.9))
+    if highlight_line_breaking and "is_line_breaking" in passes.columns:
+        legend_entries.append(("Line-Breaking", _LINE_BREAKING_COLOR, 0.95))
+
+    handles = [mpatches.Patch(color=c, alpha=a, label=lbl) for lbl, c, a in legend_entries]
+    ax.legend(
+        handles=handles,
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.08),
+        ncol=len(handles),
+        fontsize=9,
+        frameon=False,
+        labelcolor=_LINE_COLOR,
+    )
 
     ax.set_title(title, color=_LINE_COLOR, fontsize=14, pad=10)
     plt.close(fig)
@@ -398,22 +456,28 @@ def plot_pass_network(
         plt.close(fig)
         return fig
 
-    # Draw edges
-    if not edges.empty:
+    # Draw edges — use node positions so lines connect to player circles
+    if not edges.empty and not nodes.empty:
+        node_pos = nodes.set_index("player_id")[["avg_x", "avg_y"]]
         max_pair = edges["pair_count"].max()
         min_pair = edges["pair_count"].min()
         pair_range = max(max_pair - min_pair, 1)
 
         for _, edge in edges.iterrows():
+            passer_id = edge["passer_id"]
+            receiver_id = edge["receiver_id"]
+            if passer_id not in node_pos.index or receiver_id not in node_pos.index:
+                continue
+
             weight = (edge["pair_count"] - min_pair) / pair_range
             lw = 0.5 + weight * 4.5
             alpha = 0.3 + weight * 0.7
 
             pitch.lines(
-                edge["avg_start_x"],
-                edge["avg_start_y"],
-                edge["avg_end_x"],
-                edge["avg_end_y"],
+                node_pos.loc[passer_id, "avg_x"],
+                node_pos.loc[passer_id, "avg_y"],
+                node_pos.loc[receiver_id, "avg_x"],
+                node_pos.loc[receiver_id, "avg_y"],
                 lw=lw,
                 color=_NETWORK_EDGE_COLOR,
                 alpha=alpha,
@@ -454,4 +518,154 @@ def plot_pass_network(
 
     ax.set_title(title, color=_LINE_COLOR, fontsize=14, pad=10)
     plt.close(fig)
+    return fig
+
+
+def plot_pass_network_interactive(
+    nodes: pd.DataFrame,
+    edges: pd.DataFrame,
+    title: str = "Pass Network",
+) -> Any:
+    """Plot an interactive pass network using Plotly with hover tooltips.
+
+    Expected node columns: player_id, player_display_name, avg_x, avg_y, pass_count.
+    Expected edge columns: passer_id, receiver_id, pair_count.
+    Returns a plotly Figure.
+    """
+    import plotly.graph_objects as go
+
+    fig = go.Figure()
+
+    # --- Pitch markings (StatsBomb 120x80) ---
+    pitch_shapes: list[dict[str, Any]] = []
+    line_opts: dict[str, Any] = {"color": _LINE_COLOR, "width": 1}
+
+    # Outer boundary
+    pitch_shapes.append({"type": "rect", "x0": 0, "y0": 0, "x1": 120, "y1": 80, "line": line_opts})
+    # Halfway line
+    pitch_shapes.append({"type": "line", "x0": 60, "y0": 0, "x1": 60, "y1": 80, "line": line_opts})
+    # Left penalty area (18-yard box)
+    pitch_shapes.append({"type": "rect", "x0": 0, "y0": 18, "x1": 18, "y1": 62, "line": line_opts})
+    # Right penalty area
+    pitch_shapes.append({"type": "rect", "x0": 102, "y0": 18, "x1": 120, "y1": 62, "line": line_opts})
+    # Left 6-yard box
+    pitch_shapes.append({"type": "rect", "x0": 0, "y0": 30, "x1": 6, "y1": 50, "line": line_opts})
+    # Right 6-yard box
+    pitch_shapes.append({"type": "rect", "x0": 114, "y0": 30, "x1": 120, "y1": 50, "line": line_opts})
+    # Centre circle
+    pitch_shapes.append(
+        {"type": "circle", "x0": 60 - 10, "y0": 40 - 10, "x1": 60 + 10, "y1": 40 + 10, "line": line_opts}
+    )
+
+    # --- Edges + midpoint hover targets ---
+    edge_mid_x: list[float] = []
+    edge_mid_y: list[float] = []
+    edge_hover: list[str] = []
+
+    if not edges.empty and not nodes.empty:
+        node_pos = nodes.set_index("player_id")[["avg_x", "avg_y", "player_display_name"]]
+        max_pair = edges["pair_count"].max()
+        min_pair = edges["pair_count"].min()
+        pair_range = max(max_pair - min_pair, 1)
+
+        for _, edge in edges.iterrows():
+            pid = edge["passer_id"]
+            rid = edge["receiver_id"]
+            if pid not in node_pos.index or rid not in node_pos.index:
+                continue
+
+            px, py = float(node_pos.loc[pid, "avg_x"]), float(node_pos.loc[pid, "avg_y"])
+            rx, ry = float(node_pos.loc[rid, "avg_x"]), float(node_pos.loc[rid, "avg_y"])
+            p_name = str(node_pos.loc[pid, "player_display_name"])
+            r_name = str(node_pos.loc[rid, "player_display_name"])
+            count = int(edge["pair_count"])
+            weight = (count - min_pair) / pair_range
+            width = 1 + weight * 6
+            opacity = 0.3 + weight * 0.5
+
+            # Visible line (hover disabled — midpoint marker handles it)
+            fig.add_trace(
+                go.Scatter(
+                    x=[px, rx],
+                    y=[py, ry],
+                    mode="lines",
+                    line={"color": _NETWORK_EDGE_COLOR, "width": width},
+                    opacity=opacity,
+                    hoverinfo="skip",
+                    showlegend=False,
+                )
+            )
+
+            # Collect midpoint for hover
+            edge_mid_x.append((px + rx) / 2)
+            edge_mid_y.append((py + ry) / 2)
+            edge_hover.append(f"{p_name} \u2192 {r_name}<br>Passes: {count}")
+
+    # Invisible midpoint markers for edge hover
+    if edge_mid_x:
+        fig.add_trace(
+            go.Scatter(
+                x=edge_mid_x,
+                y=edge_mid_y,
+                mode="markers",
+                marker={"size": 15, "color": "rgba(0,0,0,0)"},
+                hoverinfo="text",
+                hovertext=edge_hover,
+                showlegend=False,
+            )
+        )
+
+    # --- Nodes ---
+    if not nodes.empty:
+        max_passes = nodes["pass_count"].max()
+        min_passes = nodes["pass_count"].min()
+        pass_range = max(max_passes - min_passes, 1)
+        sizes = 10 + (nodes["pass_count"] - min_passes) / pass_range * 25
+
+        fig.add_trace(
+            go.Scatter(
+                x=nodes["avg_x"],
+                y=nodes["avg_y"],
+                mode="markers+text",
+                marker={
+                    "size": sizes,
+                    "color": _NETWORK_NODE_COLOR,
+                    "line": {"color": _LINE_COLOR, "width": 1},
+                },
+                text=nodes["player_display_name"],
+                textposition="top center",
+                textfont={"color": "white", "size": 10},
+                hoverinfo="text",
+                hovertext=[
+                    f"{row['player_display_name']}<br>Involvements: {row['pass_count']}" for _, row in nodes.iterrows()
+                ],
+                showlegend=False,
+            )
+        )
+
+    fig.update_layout(
+        title={"text": title, "font": {"color": _LINE_COLOR, "size": 18}, "x": 0.5},
+        plot_bgcolor=_BG_COLOR,
+        paper_bgcolor=_BG_COLOR,
+        xaxis={
+            "range": [-2, 122],
+            "showgrid": False,
+            "zeroline": False,
+            "showticklabels": False,
+            "constrain": "domain",
+        },
+        yaxis={
+            "range": [-2, 82],
+            "showgrid": False,
+            "zeroline": False,
+            "showticklabels": False,
+            "scaleanchor": "x",
+            "scaleratio": 1,
+        },
+        shapes=pitch_shapes,
+        margin={"l": 10, "r": 10, "t": 50, "b": 10},
+        hoverlabel={"bgcolor": "#333355", "font_size": 13, "font_color": "white"},
+        height=700,
+    )
+
     return fig

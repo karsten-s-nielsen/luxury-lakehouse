@@ -91,14 +91,15 @@ def render_player_filter(
 
     if team_id is not None:
         team_id = int(team_id)
+        # Use EXISTS instead of SELECT DISTINCT to avoid full table scans on
+        # fct_passes (3M+ rows) and fct_shots. EXISTS stops after first match.
         shots_tbl = t("fct_shots_synced")
         passes_tbl = t("fct_passes_synced")
         conditions.append(
-            f"ps.player_id IN ("  # noqa: S608
-            f"  SELECT DISTINCT player_id FROM {shots_tbl} WHERE team_id = %s"
-            f"  UNION"
-            f"  SELECT DISTINCT player_id FROM {passes_tbl} WHERE team_id = %s"
-            f")"
+            f"(EXISTS (SELECT 1 FROM {shots_tbl} sh"  # noqa: S608
+            f"         WHERE sh.player_id = ps.player_id AND sh.team_id = %s)"
+            f" OR EXISTS (SELECT 1 FROM {passes_tbl} pa"
+            f"            WHERE pa.player_id = ps.player_id AND pa.team_id = %s))"
         )
         params.extend([team_id, team_id])
 

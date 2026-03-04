@@ -229,6 +229,29 @@ models:
               config:
                 severity: warn
                 where: "pass_recipient_id is not null AND data_source = 'statsbomb'"
+      - name: is_line_breaking
+        description: >
+          Whether the pass breaks through at least one opponent defensive line.
+          Detected via Ward hierarchical clustering of opponent positions.
+          Available for StatsBomb 360 matches and Metrica tracking matches only.
+      - name: lines_broken
+        description: Number of defensive lines broken (0-3)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 3
+      - name: line_breaking_type
+        description: >
+          Type of line break — 'through' (between defenders) or 'around'
+          (outside outermost defender via sideline). NULL for non-line-breaking passes.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['through', 'around']
+              config:
+                severity: warn
+                where: "line_breaking_type is not null"
 
   - name: fct_player_stats
     description: >
@@ -301,6 +324,18 @@ models:
         description: Assists per 90 minutes (NULL until assist data available)
       - name: xg_overperformance
         description: Goals minus xG (positive = clinical finisher)
+      - name: line_breaking_passes
+        description: Total number of line-breaking passes
+      - name: line_breaking_per_90
+        description: Line-breaking passes per 90 minutes
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 20
+                row_condition: "line_breaking_per_90 is not null"
+              config:
+                severity: warn
       - name: total_vaep
         description: Total VAEP value across all actions
       - name: total_offensive_vaep

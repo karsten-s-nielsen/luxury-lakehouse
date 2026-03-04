@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the [phased plan](PLAN.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-03-03
+**Last updated**: 2026-03-04
 
 ---
 
@@ -10,7 +10,7 @@ Research directions, long-horizon features, and exploratory ideas beyond the [ph
 
 > **Promoted to Phase 13** — see [TODO.md](TODO.md) and [PLAN.md §8.5](PLAN.md#85--phase-13-line-breaking-pass-detection) for the phased plan.
 
-**Status:** Ready to implement (no new data ingestion required)
+**Status:** Complete — implemented in Phase 13. See [PLAN.md §8.5](PLAN.md#85--phase-13-line-breaking-pass-detection).
 **License:** Apache 2.0 ([parmacalcio1913/line-breaking-passes](https://github.com/parmacalcio1913/line-breaking-passes))
 **References:** Stats Perform Opta Vision methodology; Parma Calcio research notebook
 

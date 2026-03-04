@@ -1,0 +1,44 @@
+version: 2
+
+models:
+  - name: stg_line_breaking__results
+    description: >
+      Staging view for line-breaking pass detection results. Deduplicates
+      bronze data by event_id, keeping the most recent ingestion.
+    columns:
+      - name: event_id
+        description: Pass event identifier
+        data_tests:
+          - not_null
+      - name: match_id
+        description: Match identifier
+        data_tests:
+          - not_null
+      - name: is_line_breaking
+        description: Whether the pass breaks through at least one defensive line
+        data_tests:
+          - not_null
+      - name: lines_broken
+        description: Number of defensive lines broken (0-3)
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 3
+      - name: line_breaking_type
+        description: Type of line break (through, around, or NULL)
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['through', 'around']
+              config:
+                severity: warn
+                where: "line_breaking_type is not null"
+      - name: data_source
+        description: Data path used for detection
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['statsbomb_360', 'metrica_tracking']

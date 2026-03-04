@@ -22,7 +22,7 @@ def _load_passes(competition_id: int, team_id: int, match_id: int) -> Any:
     def _query(comp_id: int, t_id: int, m_id: int) -> Any:
         return execute_query(
             f"SELECT start_x, start_y, end_x, end_y, is_complete, is_progressive, "  # noqa: S608
-            f"  minute, second "
+            f"  is_line_breaking, minute, second "
             f"FROM {tbl} "
             f"WHERE competition_id = %s AND team_id = %s AND match_id = %s "
             f"ORDER BY minute, second",
@@ -55,16 +55,24 @@ def page() -> None:
 
     with col_viz:
         highlight = st.checkbox("Highlight progressive passes", value=True)
-        fig = plot_pass_map(passes, highlight_progressive=highlight)
+        highlight_lb = st.checkbox("Highlight line-breaking passes", value=True)
+        fig = plot_pass_map(passes, highlight_progressive=highlight, highlight_line_breaking=highlight_lb)
         st.pyplot(fig)
 
     with col_stats:
         total = len(passes)
         completed = int(passes["is_complete"].sum()) if "is_complete" in passes.columns else 0
-        progressive = int(passes["is_progressive"].sum()) if "is_progressive" in passes.columns else 0
+        complete_mask = passes["is_complete"] == 1 if "is_complete" in passes.columns else passes.index.notnull()
+        progressive = (
+            int(passes.loc[complete_mask, "is_progressive"].sum()) if "is_progressive" in passes.columns else 0
+        )
+        line_breaking = (
+            int(passes.loc[complete_mask, "is_line_breaking"].sum()) if "is_line_breaking" in passes.columns else 0
+        )
         pct = (completed / total * 100) if total > 0 else 0.0
 
         st.metric("Total Passes", total)
         st.metric("Completed", completed)
         st.metric("Completion %", f"{pct:.1f}%")
         st.metric("Progressive", progressive)
+        st.metric("Line-Breaking", line_breaking)
