@@ -61,3 +61,10 @@ SPADL representation and VAEP framework described in: Decroos, T. et al.
 (2019). "Actions Speak Louder than Goals: Valuing Player Actions in
 Soccer." Proceedings of the 25th ACM SIGKDD. Implementation via the
 socceraction library (see Third-Party Libraries above).
+
+The line-breaking pass detection algorithm (src/analytics/line_breaking.py)
+is adapted from: parmacalcio1913/line-breaking-passes, licensed under the
+Apache License, Version 2.0. The implementation is rewritten from PyTorch
+to NumPy, adapted for StatsBomb 120x80 coordinates, and extended with
+sideline extensions and batch processing.
+See: https://github.com/parmacalcio1913/line-breaking-passes

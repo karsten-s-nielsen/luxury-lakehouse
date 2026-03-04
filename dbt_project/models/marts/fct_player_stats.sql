@@ -58,7 +58,8 @@ player_passes_agg as (
         sum(case when is_progressive then 1 else 0 end) as progressive_passes,
         sum(case when is_cross then 1 else 0 end)       as total_crosses,
         sum(case when is_through_ball then 1 else 0 end) as total_through_balls,
-        sum(case when is_switch then 1 else 0 end)      as total_switches
+        sum(case when is_switch then 1 else 0 end)      as total_switches,
+        sum(case when is_line_breaking then 1 else 0 end) as line_breaking_passes
 
     from passes
     group by player_id, competition_id, season_id
@@ -143,6 +144,13 @@ final as (
 
         -- xG overperformance (goals - xG, positive = clinical finisher)
         coalesce(s.total_goals, 0) - coalesce(s.total_xg, 0) as xg_overperformance,
+
+        -- Line-breaking passes
+        coalesce(p.line_breaking_passes, 0)              as line_breaking_passes,
+        case
+            when m.total_minutes_played > 0
+            then round((coalesce(p.line_breaking_passes, 0) * 1.0 / m.total_minutes_played) * {{ var('minutes_per_match') }}, 2)
+        end                                             as line_breaking_per_90,
 
         -- VAEP action valuation
         coalesce(v.total_vaep, 0)                       as total_vaep,

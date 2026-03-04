@@ -2,13 +2,13 @@
 
 Quick-reference action items. Full details in [PLAN.md](PLAN.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
 
-**Last updated**: 2026-03-03
+**Last updated**: 2026-03-04
 
 ---
 
 ## Completed Phases
 
-Phases 0–11 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for the summary table and git history for implementation details.
+Phases 0–11, 13 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for the summary table and git history for implementation details.
 
 ---
 
@@ -30,16 +30,6 @@ Phases 0–11 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for th
 - [ ] Off-Ball xT — `pitch_control × xT` per frame per player
 - [ ] Space creation quantification (Fernandez & Bornn 2018)
 - [ ] Depends on Phase 10 + Phase 11
-
-### Phase 13 — Line-Breaking Pass Detection (PLAN §8.5)
-
-- [ ] Adapt clustering + intersection algorithm for 120x80 coordinate system (rewrite PyTorch → NumPy)
-- [ ] **Path A (360 freeze frames):** Single-frame intersection on 323 StatsBomb matches — cluster opponent positions at pass moment
-- [ ] **Path B (tracking):** Full dual-frame intersection on 20 tracking matches
-- [ ] Add `is_line_breaking`, `lines_broken`, `line_breaking_type` columns to `fct_passes`
-- [ ] Add `line_breaking_passes`, `line_breaking_per_90` to `fct_player_stats`
-- [ ] Update Pass Map page with line-breaking visual distinction
-- [ ] Depends on Phase 6 (360 data) + Phase 10 (tracking) — both complete
 
 ### Phase 14 — Cross-Source Player Entity Resolution (PLAN §8.6)
 
@@ -80,6 +70,13 @@ Phases 0–11 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for th
 - [ ] **`fct_tracking_frames` missing `CLUSTER BY`** — No Z-ordering on gold Delta table. Pitch control queries scan all files before synced table indexes apply. Fix: add `CLUSTER BY (match_id)` to dbt config.
 - [ ] **`pitch_control_value` column still NULL** — `fct_tracking_frames.pitch_control_value` is provisioned but not populated. Batch computation deferred from Phase 11. Requires running `compute_pitch_control_frame()` across all frames and writing back to Delta.
 - [ ] **Pitch control `max_speed` unused** — `PitchControlParams.max_speed` is defined but not used in the TTI calculation. The Spearman model uses single-phase acceleration only (no velocity cap). Implement two-phase TTI (acceleration + constant speed) for full model fidelity.
+- [ ] **Line-breaking Path B limited to Metrica only** — IDSSE (7 matches) and SkillCorner (10 matches) have tracking but no event data. Line-breaking for these 17 matches requires event data procurement or ball trajectory discontinuity detection.
+- [ ] **Single-frame 360 analysis** — Path A uses opponent positions at pass moment only. Dual-frame analysis (start + receipt) would be more robust but 360 freeze frames lack temporal resolution.
+- [ ] **`line_breaking_results` append duplicates** — `replaceWhere` on `(data_source, match_id)` prevents full duplicates, but partial retry within a batch can produce duplicates. Mitigated by dbt `ROW_NUMBER()` dedup. Fix: finer-grained `replaceWhere`.
+- [ ] **Fixed 3-cluster assumption** — Ward clustering with `n_clusters=3` assumes attack/midfield/defense. Breaks down for 5-depth formations (e.g., 3-1-4-2). Dynamic cluster count via silhouette score would be more robust.
+- [ ] **No set-piece exclusion** — Corners, free kicks, throw-ins have non-standard formations. Could filter via `pass_type` or develop set-piece-aware algorithm.
+- [ ] **`plot_pass_network` (matplotlib) unused** — `pass_network.py` now uses `plot_pass_network_interactive` (Plotly). The original matplotlib function in `pitch.py` is only referenced by existing tests. Remove after updating tests to use the Plotly version.
+- [ ] **Heat Map pre-aggregation lossy** — Server-side `GROUP BY round(x/10)` reduces 500K rows to ~200 but bins coordinates into 10-yard cells before `bin_statistic`. Per-action precision is lost. Acceptable for density visualization; not suitable for action-level drill-down.
 
 ## Research & Future Work
 

@@ -51,18 +51,23 @@ INDEXES: list[tuple[str, str, str]] = [
     ("idx_passes_comp_team_match", "fct_passes_synced", "competition_id, team_id, match_id"),
     # H-1: heat_map player filter (comp + player, no team)
     ("idx_passes_comp_player", "fct_passes_synced", "competition_id, player_id"),
-    # F-3: player filter subquery (team_id only)
-    ("idx_passes_team_id", "fct_passes_synced", "team_id"),
+    # F-3: player filter EXISTS subquery (player_id + team_id)
+    ("idx_passes_player_team", "fct_passes_synced", "player_id, team_id"),
     # ── fct_shots_synced — 100K+ rows ───────────────────────────────────
     # S-1, H-1: shot_map + heat_map (comp + optional team + optional player)
     ("idx_shots_comp_team_player", "fct_shots_synced", "competition_id, team_id, player_id"),
-    # F-3: player filter subquery (team_id only)
-    ("idx_shots_team_id", "fct_shots_synced", "team_id"),
+    # F-3: player filter EXISTS subquery (player_id + team_id)
+    ("idx_shots_player_team", "fct_shots_synced", "player_id, team_id"),
     # ── fct_action_values_synced — 2M+ rows ─────────────────────────────
     # AV-2, AV-3: action breakdown + player options (comp + team + player prefix)
     ("idx_action_values_comp_team_player", "fct_action_values_synced", "competition_id, team_id, player_id"),
     # AV-4: match action timeline (match_id)
     ("idx_action_values_match_id", "fct_action_values_synced", "match_id"),
+    # ── fct_player_stats_synced — 10K+ rows ───────────────────────────
+    # F-3, R-1, AV-1: player filter + radar + VAEP rankings (competition_id prefix)
+    ("idx_player_stats_comp_id", "fct_player_stats_synced", "competition_id"),
+    # R-2: radar player lookup (competition_id + player_id)
+    ("idx_player_stats_comp_player", "fct_player_stats_synced", "competition_id, player_id"),
 ]
 
 # Verification queries for --verify flag: (description, query)
@@ -76,8 +81,8 @@ VERIFY_QUERIES: list[tuple[str, str]] = [
         " WHERE competition_id = 11 AND team_id = 217 AND match_id = 3788741 LIMIT 1",
     ),
     (
-        "fct_passes: team_id only (idx_passes_team_id)",
-        f"SELECT DISTINCT player_id FROM {SCHEMA}.fct_passes_synced WHERE team_id = 217 LIMIT 1",  # noqa: S608
+        "fct_passes: player+team EXISTS (idx_passes_player_team)",
+        f"SELECT 1 FROM {SCHEMA}.fct_passes_synced WHERE player_id = 5503 AND team_id = 217 LIMIT 1",  # noqa: S608
     ),
     (
         "fct_shots: comp+team+player prefix (idx_shots_comp_team_player)",
@@ -91,6 +96,10 @@ VERIFY_QUERIES: list[tuple[str, str]] = [
     (
         "fct_action_values: match_id (idx_action_values_match_id)",
         f"SELECT * FROM {SCHEMA}.fct_action_values_synced WHERE match_id = 3788741 LIMIT 1",  # noqa: S608
+    ),
+    (
+        "fct_player_stats: comp_id (idx_player_stats_comp_id)",
+        f"SELECT * FROM {SCHEMA}.fct_player_stats_synced WHERE competition_id = 11 LIMIT 1",  # noqa: S608
     ),
 ]
 

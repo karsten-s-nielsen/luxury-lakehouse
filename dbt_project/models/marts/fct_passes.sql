@@ -1,9 +1,10 @@
 -- fct_passes.sql
--- Gold-layer pass fact table with progressive pass metrics.
+-- Gold-layer pass fact table with progressive and line-breaking pass metrics.
 --
 -- Contains every pass from all data sources with:
 --   - Pass success/failure classification
 --   - Progressive pass identification (25% closer to goal)
+--   - Line-breaking pass detection (Ward clustering + straddle test)
 --   - Pass direction and distance metrics
 --   - Pass type categorization
 --
@@ -11,6 +12,12 @@
 --   A pass moves the ball at least 25% closer to the opponent's goal center.
 --   Formally: distance_to_goal(end) < 0.75 * distance_to_goal(start)
 --   This metric (popularized by @Ssjocke) captures passes that advance play.
+--
+-- Line-breaking pass definition:
+--   A pass whose trajectory intersects at least one opponent defensive line,
+--   detected via Ward hierarchical clustering of opponent positions into 3
+--   lines and a cross-product straddle test. Available for StatsBomb 360
+--   matches and Metrica tracking matches only.
 --
 -- Downstream consumers:
 --   - fct_player_stats (pass aggregations per player)
@@ -26,6 +33,12 @@ with unified_passes as (
 matches as (
 
     select * from {{ ref('stg_statsbomb__matches') }}
+
+),
+
+line_breaking as (
+
+    select * from {{ ref('stg_line_breaking__results') }}
 
 ),
 
@@ -86,12 +99,19 @@ final as (
             else 'lateral'
         end                                             as pass_direction,
 
+        -- Line-breaking pass detection
+        coalesce(lb.is_line_breaking, false)             as is_line_breaking,
+        coalesce(lb.lines_broken, 0)                     as lines_broken,
+        lb.line_breaking_type,
+
         -- Data provenance
         unified_passes.data_source
 
     from unified_passes
     left join matches
         on unified_passes.match_id = matches.match_id
+    left join line_breaking lb
+        on unified_passes.event_id = lb.event_id
 
 )
 

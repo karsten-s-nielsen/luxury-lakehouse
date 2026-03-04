@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from streamlit_app.components.filters import render_competition_filter, render_match_filter, render_team_filter
-from streamlit_app.components.pitch import plot_pass_network
+from streamlit_app.components.pitch import plot_pass_network_interactive
 from streamlit_app.config import get_settings
 from streamlit_app.db import execute_query, t
 
@@ -130,8 +130,8 @@ def page() -> None:
     col_viz, col_stats = st.columns([3, 1])
 
     with col_viz:
-        fig = plot_pass_network(nodes, edges, title="Pass Network")
-        st.pyplot(fig)
+        fig = plot_pass_network_interactive(nodes, edges, title="Pass Network")
+        st.plotly_chart(fig, use_container_width=True)
 
     with col_stats:
         total_passes = len(passes)
@@ -146,5 +146,5 @@ def page() -> None:
             receiver_name = nodes.loc[nodes["player_id"] == top_edge["receiver_id"], "player_display_name"].values
             p_name = passer_name[0] if len(passer_name) > 0 else "?"
             r_name = receiver_name[0] if len(receiver_name) > 0 else "?"
-            st.metric("Most Frequent Pair", f"{p_name} -> {r_name}")
-            st.metric("Pair Count", int(top_edge["pair_count"]))
+            st.metric("Top Pair Count", int(top_edge["pair_count"]))
+            st.caption(f"**{p_name}**  \n\u2192 {r_name}")

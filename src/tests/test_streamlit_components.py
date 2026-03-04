@@ -8,6 +8,7 @@ import pandas as pd
 
 from streamlit_app.components.charts import plot_match_comparison_bars, plot_player_radar
 from streamlit_app.components.pitch import (
+    categorize_passes,
     plot_heatmap,
     plot_pass_map,
     plot_pass_network,
@@ -134,6 +135,25 @@ class TestPlotPlayerRadar:
             ranges=[(0, 1.5), (0, 1.5), (0, 80)],
         )
         assert isinstance(fig, matplotlib.figure.Figure)
+
+    def test_legend_with_player_names(self) -> None:
+        players = [
+            {"goals": 0.5, "xg": 0.4, "passes": 50.0},
+            {"goals": 0.8, "xg": 0.6, "passes": 30.0},
+        ]
+        fig = plot_player_radar(
+            players,
+            metrics=["goals", "xg", "passes"],
+            labels=["Goals/90", "xG/90", "Passes/90"],
+            ranges=[(0, 1.5), (0, 1.5), (0, 80)],
+            player_names=["Player A", "Player B"],
+        )
+        assert isinstance(fig, matplotlib.figure.Figure)
+        ax = fig.axes[0]
+        legend = ax.get_legend()
+        assert legend is not None
+        texts = [t.get_text() for t in legend.get_texts()]
+        assert texts == ["Player A", "Player B"]
 
 
 class TestPlotMatchComparisonBars:
@@ -435,3 +455,210 @@ class TestPlotPhysicsPitchControl:
         fig = plot_physics_pitch_control(players, surface, grid_x, grid_y)
         # The figure should have more than 1 axes (pitch + colorbar)
         assert len(fig.get_axes()) > 1
+
+
+class TestPlotPassMapLineBreaking:
+    """Test line-breaking pass visualization on pass map."""
+
+    def _make_passes_with_lb(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "start_x": [30.0, 50.0, 40.0, 60.0],
+                "start_y": [40.0, 30.0, 50.0, 20.0],
+                "end_x": [60.0, 80.0, 70.0, 90.0],
+                "end_y": [40.0, 35.0, 50.0, 30.0],
+                "is_complete": [1, 1, 0, 1],
+                "is_progressive": [1, 0, 0, 1],
+                "is_line_breaking": [0, 0, 0, 1],
+            }
+        )
+
+    def test_line_breaking_highlight_enabled(self) -> None:
+        passes = self._make_passes_with_lb()
+        fig = plot_pass_map(passes, highlight_line_breaking=True)
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+    def test_line_breaking_highlight_disabled(self) -> None:
+        passes = self._make_passes_with_lb()
+        fig = plot_pass_map(passes, highlight_line_breaking=False)
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+    def test_no_line_breaking_column(self) -> None:
+        """Pass map without is_line_breaking column should work normally."""
+        passes = pd.DataFrame(
+            {
+                "start_x": [30.0],
+                "start_y": [40.0],
+                "end_x": [60.0],
+                "end_y": [40.0],
+                "is_complete": [1],
+                "is_progressive": [1],
+            }
+        )
+        fig = plot_pass_map(passes, highlight_line_breaking=True)
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+    def test_all_line_breaking(self) -> None:
+        """All passes are line-breaking — all should render in gold."""
+        passes = pd.DataFrame(
+            {
+                "start_x": [30.0, 50.0],
+                "start_y": [40.0, 30.0],
+                "end_x": [60.0, 80.0],
+                "end_y": [40.0, 35.0],
+                "is_complete": [1, 1],
+                "is_progressive": [1, 0],
+                "is_line_breaking": [1, 1],
+            }
+        )
+        fig = plot_pass_map(passes, highlight_line_breaking=True)
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+    def test_empty_passes_with_lb_column(self) -> None:
+        passes = pd.DataFrame(
+            {
+                "start_x": [],
+                "start_y": [],
+                "end_x": [],
+                "end_y": [],
+                "is_complete": [],
+                "is_progressive": [],
+                "is_line_breaking": [],
+            }
+        )
+        fig = plot_pass_map(passes, highlight_line_breaking=True)
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+
+class TestCategorizePasses:
+    """Test pass categorization ensures incomplete passes are never progressive or line-breaking."""
+
+    def test_incomplete_progressive_stays_incomplete(self) -> None:
+        """A pass that is incomplete but is_progressive=1 must be categorized as incomplete."""
+        passes = pd.DataFrame(
+            {
+                "start_x": [30.0, 50.0],
+                "start_y": [40.0, 30.0],
+                "end_x": [60.0, 80.0],
+                "end_y": [40.0, 35.0],
+                "is_complete": [0, 1],
+                "is_progressive": [1, 1],
+            }
+        )
+        incomplete, _complete, prog, _lb = categorize_passes(passes)
+        assert len(incomplete) == 1, "Incomplete progressive pass must stay in incomplete group"
+        assert len(prog) == 1, "Only the complete progressive pass should be in prog group"
+        assert int(prog.iloc[0]["is_complete"]) == 1
+
+    def test_incomplete_line_breaking_stays_incomplete(self) -> None:
+        """A pass that is incomplete but is_line_breaking=1 must be categorized as incomplete."""
+        passes = pd.DataFrame(
+            {
+                "start_x": [30.0, 50.0],
+                "start_y": [40.0, 30.0],
+                "end_x": [60.0, 80.0],
+                "end_y": [40.0, 35.0],
+                "is_complete": [0, 1],
+                "is_progressive": [0, 0],
+                "is_line_breaking": [1, 1],
+            }
+        )
+        incomplete, _complete, _prog, lb = categorize_passes(passes)
+        assert len(incomplete) == 1, "Incomplete line-breaking pass must stay in incomplete group"
+        assert len(lb) == 1, "Only the complete line-breaking pass should be in lb group"
+        assert int(lb.iloc[0]["is_complete"]) == 1
+
+    def test_incomplete_both_progressive_and_line_breaking(self) -> None:
+        """A pass that is incomplete with both flags set must be categorized as incomplete."""
+        passes = pd.DataFrame(
+            {
+                "start_x": [30.0],
+                "start_y": [40.0],
+                "end_x": [60.0],
+                "end_y": [40.0],
+                "is_complete": [0],
+                "is_progressive": [1],
+                "is_line_breaking": [1],
+            }
+        )
+        incomplete, _complete, prog, lb = categorize_passes(passes)
+        assert len(incomplete) == 1
+        assert len(prog) == 0
+        assert len(lb) == 0
+
+    def test_all_complete_passes_categorized_correctly(self) -> None:
+        """Complete passes should be split by line-breaking > progressive > complete."""
+        passes = pd.DataFrame(
+            {
+                "start_x": [30.0, 50.0, 70.0],
+                "start_y": [40.0, 30.0, 20.0],
+                "end_x": [60.0, 80.0, 100.0],
+                "end_y": [40.0, 35.0, 30.0],
+                "is_complete": [1, 1, 1],
+                "is_progressive": [0, 1, 1],
+                "is_line_breaking": [0, 0, 1],
+            }
+        )
+        incomplete, complete, prog, lb = categorize_passes(passes)
+        assert len(incomplete) == 0
+        assert len(complete) == 1  # Non-progressive, non-LB
+        assert len(prog) == 1  # Progressive but not LB
+        assert len(lb) == 1  # Line-breaking (supersedes progressive)
+
+    def test_no_progressive_in_incomplete_group(self) -> None:
+        """Regression: verify no pass in incomplete group has is_progressive=1 in output."""
+        passes = pd.DataFrame(
+            {
+                "start_x": [30.0, 40.0, 50.0, 60.0],
+                "start_y": [40.0, 40.0, 40.0, 40.0],
+                "end_x": [60.0, 70.0, 80.0, 90.0],
+                "end_y": [40.0, 40.0, 40.0, 40.0],
+                "is_complete": [0, 0, 1, 1],
+                "is_progressive": [1, 0, 1, 0],
+                "is_line_breaking": [0, 0, 0, 0],
+            }
+        )
+        incomplete, _complete, prog, _lb = categorize_passes(passes)
+        assert len(incomplete) == 2, "Both incomplete passes should be in incomplete group"
+        assert len(prog) == 1, "Only the complete progressive pass should be progressive"
+        # The incomplete pass with is_progressive=1 must NOT appear in prog
+        assert all(int(row["is_complete"]) == 1 for _, row in prog.iterrows())
+
+    def test_no_line_breaking_in_incomplete_group(self) -> None:
+        """Regression: verify no pass in incomplete group has is_line_breaking=1 in output."""
+        passes = pd.DataFrame(
+            {
+                "start_x": [30.0, 40.0, 50.0, 60.0],
+                "start_y": [40.0, 40.0, 40.0, 40.0],
+                "end_x": [60.0, 70.0, 80.0, 90.0],
+                "end_y": [40.0, 40.0, 40.0, 40.0],
+                "is_complete": [0, 0, 1, 1],
+                "is_progressive": [0, 0, 0, 0],
+                "is_line_breaking": [1, 0, 1, 0],
+            }
+        )
+        incomplete, _complete, _prog, lb = categorize_passes(passes)
+        assert len(incomplete) == 2, "Both incomplete passes should be in incomplete group"
+        assert len(lb) == 1, "Only the complete line-breaking pass should be line-breaking"
+        assert all(int(row["is_complete"]) == 1 for _, row in lb.iterrows())
+
+    def test_highlight_flags_off_groups_all_as_complete_or_incomplete(self) -> None:
+        """When highlights are off, only complete and incomplete groups should have passes."""
+        passes = pd.DataFrame(
+            {
+                "start_x": [30.0, 50.0],
+                "start_y": [40.0, 30.0],
+                "end_x": [60.0, 80.0],
+                "end_y": [40.0, 35.0],
+                "is_complete": [1, 0],
+                "is_progressive": [1, 1],
+                "is_line_breaking": [1, 1],
+            }
+        )
+        incomplete, complete, prog, lb = categorize_passes(
+            passes, highlight_progressive=False, highlight_line_breaking=False
+        )
+        assert len(incomplete) == 1
+        assert len(complete) == 1
+        assert len(prog) == 0
+        assert len(lb) == 0

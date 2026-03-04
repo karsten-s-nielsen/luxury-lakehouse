@@ -69,11 +69,11 @@ def page() -> None:
     st.divider()
 
     # xG comparison
-    col_hxg, col_axg = st.columns(2)
+    _, col_hxg, col_axg, _ = st.columns([1, 1, 1, 1])
     with col_hxg:
-        st.metric("Home xG", f"{float(m.get('home_xg', 0) or 0):.2f}")
+        st.subheader(f"xG: {float(m.get('home_xg', 0) or 0):.2f}")
     with col_axg:
-        st.metric("Away xG", f"{float(m.get('away_xg', 0) or 0):.2f}")
+        st.subheader(f"xG: {float(m.get('away_xg', 0) or 0):.2f}")
 
     st.divider()
 
@@ -116,4 +116,7 @@ def page() -> None:
         home_name=str(m.get("home_team_name", "Home")),
         away_name=str(m.get("away_team_name", "Away")),
     )
-    st.pyplot(fig)
+
+    _, col_chart, _ = st.columns([1, 2, 1])
+    with col_chart:
+        st.pyplot(fig)

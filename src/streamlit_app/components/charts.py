@@ -6,6 +6,7 @@ from typing import Any
 
 import matplotlib.colors as mcolors
 import matplotlib.figure
+import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -22,6 +23,7 @@ def plot_player_radar(
     labels: list[str],
     ranges: list[tuple[float, float]],
     title: str = "Player Comparison",
+    player_names: list[str] | None = None,
 ) -> matplotlib.figure.Figure:
     """Plot a radar chart comparing 1-3 players across metrics.
 
@@ -31,6 +33,7 @@ def plot_player_radar(
         labels: Display labels for each metric spoke.
         ranges: (low, high) tuple per metric for normalization.
         title: Chart title.
+        player_names: Display names for legend (must match len of players).
 
     Returns a matplotlib Figure.
     """
@@ -39,14 +42,14 @@ def plot_player_radar(
 
     radar = Radar(labels, low, high, round_int=[False] * len(labels), num_rings=4)
 
-    result: Any = radar.setup_axis(figsize=(8, 8), facecolor=_BG_COLOR)
+    result: Any = radar.setup_axis(figsize=(6, 6), facecolor=_BG_COLOR)
     fig: matplotlib.figure.Figure = result[0]
     ax: Any = result[1]
     fig.set_facecolor(_BG_COLOR)
 
     radar.draw_circles(ax=ax, facecolor=_BG_COLOR, edgecolor="#333355")
 
-    radar.draw_param_labels(ax=ax, color=_LINE_COLOR, fontsize=10)
+    radar.draw_param_labels(ax=ax, color=_LINE_COLOR, fontsize=8)
 
     for i, player in enumerate(players[:3]):
         values = [player.get(m, 0.0) for m in metrics]
@@ -65,7 +68,23 @@ def plot_player_radar(
             kwargs_rings={"facecolor": "none"},
         )
 
-    ax.set_title(title, color=_LINE_COLOR, fontsize=14, pad=20, fontweight="bold")
+    # Legend mapping colors to player names
+    if player_names:
+        handles = [
+            mpatches.Patch(color=_PLAYER_COLORS[i % len(_PLAYER_COLORS)], alpha=0.6, label=name)
+            for i, name in enumerate(player_names[: len(players)])
+        ]
+        ax.legend(
+            handles=handles,
+            loc="lower center",
+            bbox_to_anchor=(0.5, -0.06),
+            ncol=len(handles),
+            fontsize=8,
+            frameon=False,
+            labelcolor=_LINE_COLOR,
+        )
+
+    ax.set_title(title, color=_LINE_COLOR, fontsize=11, pad=15, fontweight="bold")
     plt.close(fig)
     return fig
 

@@ -32,6 +32,7 @@ app = [
     "streamlit>=1.36.0",
     "psycopg2-binary>=2.9.9",
     "databricks-sdk>=0.20.0",
+    "plotly>=5.18.0",
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
 ]
@@ -64,6 +65,7 @@ backfill_statsbomb_extra = "ingestion.statsbomb:backfill_extra_json_main"
 compute_spadl_vaep = "ingestion.spadl_vaep:main"
 ingest_idsse = "ingestion.idsse:main"
 ingest_skillcorner = "ingestion.skillcorner:main"
+compute_line_breaking = "ingestion.line_breaking:main"
 
 [tool.ruff]
 target-version = "py310"
