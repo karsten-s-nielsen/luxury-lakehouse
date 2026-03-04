@@ -30,6 +30,12 @@ _DEFAULT_METRICS: list[tuple[str, str, tuple[float, float]]] = [
     ("defensive_vaep_per_90", "Def. VAEP/90", (-0.5, 1.0)),
 ]
 
+# Physical metrics — only shown when tracking data exists for the player
+_PHYSICAL_METRICS: list[tuple[str, str, tuple[float, float]]] = [
+    ("avg_distance_per_min", "Dist/Min (m)", (0, 150)),
+    ("avg_max_speed_ms", "Top Speed (m/s)", (0, 12)),
+]
+
 
 def _load_player_stats(competition_id: int, player_ids: list[int]) -> Any:
     """Load per-90 stats for selected players in a competition."""
@@ -42,13 +48,15 @@ def _load_player_stats(competition_id: int, player_ids: list[int]) -> Any:
     def _query(comp_id: int, p_ids: tuple[int, ...]) -> Any:
         # Use ROW_NUMBER to pick the season with most minutes per player,
         # avoiding duplicates when a competition spans multiple seasons.
+        # LEFT JOIN physical stats averaged across tracking matches.
         return execute_query(
-            f"SELECT player_id, player_display_name, "  # noqa: S608
-            f"  minutes_played, goals_per_90, xg_per_90, "
-            f"  passes_per_90, progressive_passes_per_90, "
-            f"  pass_completion_pct, xg_overperformance, "
-            f"  line_breaking_per_90, "
-            f"  vaep_per_90, offensive_vaep_per_90, defensive_vaep_per_90 "
+            f"SELECT sub.player_id, sub.player_display_name, "  # noqa: S608
+            f"  sub.minutes_played, sub.goals_per_90, sub.xg_per_90, "
+            f"  sub.passes_per_90, sub.progressive_passes_per_90, "
+            f"  sub.pass_completion_pct, sub.xg_overperformance, "
+            f"  sub.line_breaking_per_90, "
+            f"  sub.vaep_per_90, sub.offensive_vaep_per_90, sub.defensive_vaep_per_90, "
+            f"  phys.avg_distance_per_min, phys.avg_max_speed_ms "
             f"FROM ("
             f"  SELECT ps.player_id, p.player_display_name, "
             f"    ps.minutes_played, ps.goals_per_90, ps.xg_per_90, "
@@ -60,7 +68,15 @@ def _load_player_stats(competition_id: int, player_ids: list[int]) -> Any:
             f"  FROM {t('fct_player_stats_synced')} ps "
             f"  JOIN {t('dim_players_synced')} p ON ps.player_id = p.player_id "
             f"  WHERE ps.competition_id = %s AND ps.player_id IN ({placeholders})"
-            f") sub WHERE rn = 1",
+            f") sub "
+            f"LEFT JOIN ("
+            f"  SELECT player_id, "
+            f"    AVG(distance_per_minute_m) AS avg_distance_per_min, "
+            f"    AVG(max_speed_ms) AS avg_max_speed_ms "
+            f"  FROM {t('fct_physical_stats_synced')} "
+            f"  GROUP BY player_id"
+            f") phys ON sub.player_id::text = phys.player_id "
+            f"WHERE sub.rn = 1",
             (comp_id, *p_ids),
         )
 
@@ -90,18 +106,22 @@ def page() -> None:
         st.info("Select 1-3 players to compare.")
         return
 
-    # Metric selection
-    all_labels = [m[1] for m in _DEFAULT_METRICS]
-    selected_labels = st.multiselect("Metrics", all_labels, default=all_labels)
-
-    selected = [m for m in _DEFAULT_METRICS if m[1] in selected_labels]
-    if len(selected) < 3:
-        st.warning("Select at least 3 metrics for a meaningful radar chart.")
-        return
-
     stats = _load_player_stats(competition_id, player_ids)
     if stats.empty:
         st.warning("No stats found for selected players.")
+        return
+
+    # Metric selection — include physical metrics when tracking data exists
+    available_metrics = list(_DEFAULT_METRICS)
+    if stats["avg_distance_per_min"].notna().any():
+        available_metrics.extend(_PHYSICAL_METRICS)
+
+    all_labels = [m[1] for m in available_metrics]
+    selected_labels = st.multiselect("Metrics", all_labels, default=all_labels)
+
+    selected = [m for m in available_metrics if m[1] in selected_labels]
+    if len(selected) < 3:
+        st.warning("Select at least 3 metrics for a meaningful radar chart.")
         return
 
     metric_keys = [m[0] for m in selected]

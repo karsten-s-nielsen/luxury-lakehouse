@@ -1,6 +1,6 @@
 # Databricks Lakebase Implementation Plan — Soccer Analytics Platform
 
-> **Status**: Phase 13 complete — 8 Streamlit pages, 257 unit tests, 282 dbt data tests, 10 synced tables, line-breaking pass detection.
+> **Status**: Phase 13 complete — 9 Streamlit pages, 290 unit tests, 11 synced tables, line-breaking pass detection with Ward clustering + straddle test.
 > **Last Updated**: 2026-03-04
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready from day one
@@ -24,7 +24,7 @@
 
 ## 1. Executive Summary
 
-This plan implements the Databricks Lakebase architecture to build a serverless soccer analytics platform. The pipeline ingests open-source match data (StatsBomb, Metrica Sports, Wyscout), transforms it through a medallion architecture (Bronze → Silver → Gold), synchronizes curated tables into Lakebase (PostgreSQL 17), and serves a Streamlit dashboard for coaches and analysts.
+This plan implements the Databricks Lakebase architecture to build a serverless soccer analytics platform. The pipeline ingests open-source match data (StatsBomb, Metrica Sports, Wyscout, IDSSE, SkillCorner), transforms it through a medallion architecture (Bronze → Silver → Gold), synchronizes curated tables into Lakebase (PostgreSQL 17), and serves a Streamlit dashboard for coaches and analysts.
 
 **Why Lakebase over Traditional AWS?**
 
@@ -93,6 +93,7 @@ This plan implements the Databricks Lakebase architecture to build a serverless 
 │  │  GOLD (business logic, analytics-ready):                        │    │
 │  │  • fct_shots, fct_passes, fct_player_stats, fct_match_summary  │    │
 │  │  • fct_tracking_frames, fct_action_values, fct_player_embeddings│    │
+│  │  • fct_physical_stats                                           │    │
 │  │  • dim_players, dim_teams, dim_competitions                     │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
@@ -122,8 +123,9 @@ This plan implements the Databricks Lakebase architecture to build a serverless 
 │  │  Deployed as Databricks App (serverless runtime)                │    │
 │  │  • OAuth M2M auth (automatic token rotation, no passwords)      │    │
 │  │  • Connects to Lakebase via psycopg2 (ThreadedConnectionPool)   │    │
-│  │  • 8 pages: Shot Map, Pass Map, Heat Map, Pass Network,        │    │
-│  │    Action Values, Player Radar, Match Summary, Pitch Control    │    │
+│  │  • 9 pages: Shot Map, Pass Map, Heat Map, Pass Network,        │    │
+│  │    Action Values, Player Radar, Match Summary, Pitch Control,  │    │
+│  │    Movement Analysis                                            │    │
 │  └──────────────────────────────────────────────────────────────────┘    │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
@@ -281,7 +283,7 @@ luxury-lakehouse/
 │   │   ├── lakebase/                 # Lakebase Autoscaling (PG 17)
 │   │   ├── sql_warehouse/            # Serverless SQL Warehouse
 │   │   ├── workflows/                # Ingestion job definitions
-│   │   ├── synced_tables/            # Gold → Lakebase sync (10 tables)
+│   │   ├── synced_tables/            # Gold → Lakebase sync (11 tables)
 │   │   ├── app/                      # Databricks App (Streamlit)
 │   │   ├── service_principals/       # Ingestion SP, App SP, CI SP + federation
 │   │   ├── github_oidc/              # AWS IAM OIDC provider + scoped role
@@ -293,7 +295,8 @@ luxury-lakehouse/
 ├── src/
 │   ├── analytics/
 │   │   ├── pitch_control.py          # Spearman (2017) physics-based pitch control model
-│   │   └── line_breaking.py          # Ward clustering + straddle test for line-breaking passes
+│   │   ├── line_breaking.py          # Ward clustering + straddle test for line-breaking passes
+│   │   └── off_ball_xt.py            # Off-ball xT: pitch control × expected threat zones
 │   │
 │   ├── ingestion/
 │   │   ├── statsbomb.py              # StatsBomb API ingestion (5 bronze tables + 360 backfill)
@@ -302,6 +305,7 @@ luxury-lakehouse/
 │   │   ├── idsse.py                  # IDSSE Bundesliga DFL tracking (7 matches, stdlib XML)
 │   │   ├── skillcorner.py            # SkillCorner A-League broadcast tracking (10 matches, kloppy)
 │   │   ├── line_breaking.py          # Line-breaking pass batch computation (360 + tracking)
+│   │   ├── off_ball_xt.py            # Off-ball xT batch computation (gold → bronze)
 │   │   ├── spadl_adapter.py          # Bronze-to-socceraction format adapters
 │   │   ├── spadl_vaep.py             # SPADL conversion + VAEP scoring pipeline
 │   │   └── utils.py                  # Shared CLI, logging, HTTP, Delta helpers
@@ -310,10 +314,10 @@ luxury-lakehouse/
 │   │   ├── app.py                    # Entrypoint: st.navigation, page routing
 │   │   ├── config.py                 # Pydantic BaseSettings
 │   │   ├── db.py                     # OAuth M2M, ThreadedConnectionPool, parameterized queries
-│   │   ├── pages/                    # 8 pages (+ player_search.py planned)
+│   │   ├── pages/                    # 9 pages (+ player_search.py planned)
 │   │   └── components/               # filters.py, pitch.py, charts.py
 │   │
-│   └── tests/                        # 257 unit tests (13 test modules)
+│   └── tests/                        # 290 unit tests (14 test modules)
 │       ├── test_statsbomb.py
 │       ├── test_metrica.py
 │       ├── test_wyscout.py
@@ -324,23 +328,25 @@ luxury-lakehouse/
 │       ├── test_ingestion_utils.py
 │       ├── test_pitch_control_model.py
 │       ├── test_line_breaking.py
+│       ├── test_off_ball_xt.py
 │       ├── test_streamlit_components.py
 │       ├── test_streamlit_config.py
 │       └── test_streamlit_db.py
 │
 ├── dbt_project/
 │   ├── models/
-│   │   ├── staging/                  # SILVER: statsbomb/, metrica/, wyscout/, spadl/, idsse/, skillcorner/, line_breaking/
+│   │   ├── staging/                  # SILVER: statsbomb/, metrica/, wyscout/, spadl/, idsse/, skillcorner/, line_breaking/, off_ball_xt/
 │   │   ├── intermediate/             # Cross-source joins (ephemeral)
-│   │   └── marts/                    # GOLD: 7 fact + 3 dimension tables
+│   │   └── marts/                    # GOLD: 8 fact + 3 dimension tables
 │   ├── tests/                        # Custom data tests
 │   ├── macros/                       # distance_to_goal, shot_angle
-│   └── seeds/                        # competition_metadata.csv, position_mapping.csv
+│   └── seeds/                        # competition_metadata.csv, position_mapping.csv, expected_threat_grid.csv
 │
 ├── scripts/
-│   ├── create_indexes.py             # PG indexes on Lakebase synced tables (14 indexes, 5 tables, --verify flag)
+│   ├── create_indexes.py             # PG indexes on Lakebase synced tables (18 indexes, 7 tables, --verify flag)
+│   ├── refresh_synced_tables.py      # Trigger SNAPSHOT refresh on synced tables (--wait, --tables)
 │   ├── delete_synced_table.py        # Delete synced table + drop PG ghost table
-│   ├── import_synced_tables.sh       # Terraform import workflow
+│   ├── import_synced_tables.sh       # Terraform import workflow (11 tables)
 │   ├── lakebase_grants.sql           # PG GRANT SELECT for Streamlit SP
 │   └── deploy.sh                     # Databricks sync + app deploy
 │
@@ -410,9 +416,9 @@ All code must pass these gates before merge:
 
 | Level | What | How |
 |-------|------|-----|
-| Unit | Ingestion logic, utility functions, analytics models | pytest (257 tests) |
+| Unit | Ingestion logic, utility functions, analytics models | pytest (290 tests) |
 | Integration | dbt models compile and run | `dbt build --target ci` |
-| Data quality | Row counts, value ranges, referential integrity | dbt tests (282) + dbt-expectations |
+| Data quality | Row counts, value ranges, referential integrity | dbt tests (316) + dbt-expectations |
 | E2E | Streamlit pages render with real data | Manual smoke test |
 | Infrastructure | Terraform validates | `terraform validate` + `terraform plan` |
 
@@ -423,7 +429,7 @@ Lakebase and Databricks performance standards are codified in [CLAUDE.md § Data
 - **Lakebase (PG):** Index every filtered column on fact tables >100K rows. No `ON ONLY` indexes (partitioned tables). Avoid `SELECT DISTINCT` on large tables — use recursive CTE. Re-run `scripts/create_indexes.py` after every synced table recreation.
 - **Databricks (Spark/dbt):** `validate_dataframe()` returns row count to `write_delta_table()` (no double `df.count()`), all writes use `replaceWhere` for idempotency, don't `.toPandas()` unbounded tables, extract repeated window functions into CTEs, `fct_tracking_frames` uses `CLUSTER BY match_id` for Z-ordering.
 
-Currently 14 btree indexes across 5 fact tables covering all Streamlit query patterns. Managed by `scripts/create_indexes.py` with `--verify` for EXPLAIN ANALYZE validation.
+Currently 18 btree indexes across 7 fact tables covering all Streamlit query patterns. Managed by `scripts/create_indexes.py` with `--verify` for EXPLAIN ANALYZE validation.
 
 ### 6.7 — Architecture Documentation
 
@@ -439,7 +445,7 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 | **1** | Serverless Infrastructure | 7 Terraform modules (workspace, catalog, sql_warehouse, lakebase, workflows, synced_tables, app), 27+ resource files |
 | **2** | Data Ingestion | 3 ingestion modules → 9 bronze tables, 31.4M+ rows; shared utils with CLI, logging, HTTP, Delta helpers; 55 unit tests |
 | **3** | Transformation (dbt) | 20 dbt models (staging → intermediate → marts), 225 data tests, position_mapping seed, dbt-expectations range tests |
-| **4** | Zero-ETL Synchronization | 10 synced tables (Gold Delta → Lakebase PG), snapshot scheduling, sub-10ms OLTP queries |
+| **4** | Zero-ETL Synchronization | Synced tables (Gold Delta → Lakebase PG), snapshot scheduling, sub-10ms OLTP queries |
 | **5** | Streamlit Application | 4 initial pages (Shot Map, Pass Map, Player Radar, Match Summary), OAuth M2M auth, ThreadedConnectionPool, deployed as Databricks App |
 | **5.5** | Lakebase Autoscaling Migration | PG 16 → PG 17, `databricks_postgres_project` + endpoint, scale-to-zero (0.5–4 CU), `sslmode=require` |
 | **5.6** | IAM OIDC + OAuth M2M + KMS | PAT → OAuth M2M for local dev, GitHub OIDC federation for secretless CI, KMS CMK for state encryption |
@@ -449,6 +455,7 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 | **9** | SPADL/VAEP Action Valuation | "Fetch Once, Fork Twice" — `spadl_adapter.py` + `spadl_vaep.py`, socceraction + XGBoost, 9.5M VAEP-scored actions, Action Values page (3 views), Player Radar VAEP/90, 155 tests |
 | **10** | Additional Tracking Data (IDSSE + SkillCorner) | 7 Bundesliga IDSSE matches (25fps via stdlib XML parser) + 10 A-League SkillCorner matches (10fps via kloppy), per-row `frame_rate` + `source_provider`, `fct_tracking_frames` UNION ALL 3 sources (38.1M rows) |
 | **11** | Physics-Based Pitch Control Model | Spearman (2017) model in `src/analytics/pitch_control.py`, NumPy-vectorized TTI + logistic sigmoid, continuous heatmap overlay with RdBu colormap, Physics/Voronoi toggle on Pitch Control page, 214 tests |
+| **12** | Movement Analysis | PPDA pressing (StatsBomb events), physical performance metrics (tracking), off-ball xT (pitch control × xT zones). `fct_physical_stats` mart, `speed_ms`/`acceleration_ms2` in `fct_tracking_frames`, Movement Analysis page (3 views), 290 tests |
 | **13** | Line-Breaking Pass Detection | Ward hierarchical clustering + cross-product straddle test in `src/analytics/line_breaking.py`, dual data paths (StatsBomb 360 + Metrica tracking), `is_line_breaking`/`lines_broken`/`line_breaking_type` in `fct_passes`, Pass Map gold arrows, Player Radar LB/90, 257 tests |
 
 ### Key Design Decisions (from completed phases)
@@ -476,6 +483,7 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 | `dev_gold.fct_tracking_frames` | `fct_tracking_frames_synced` | `tracking_id` | 38,118,607 |
 | `dev_gold.fct_action_values` | `fct_action_values_synced` | `action_value_id` | ~9,500,000 |
 | `dev_gold.fct_player_embeddings` | `fct_player_embeddings_synced` | `embedding_id` | 0 |
+| `dev_gold.fct_physical_stats` | `fct_physical_stats_synced` | `physical_stats_id` | 616 |
 | `dev_gold.dim_players` | `dim_players_synced` | `player_id` | 10,803 |
 | `dev_gold.dim_teams` | `dim_teams_synced` | `team_id` | 453 |
 | `dev_gold.dim_competitions` | `dim_competitions_synced` | `competition_id` | 21 |
@@ -486,7 +494,8 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 - `logical_database_name = "databricks_postgres"` — standard Lakebase database
 - **Autoscaling workaround (provider v1.110.0):** `databricks_database_synced_database_table` only supports `database_instance_name` (Provisioned). Synced tables targeting Autoscaling projects must be created via Databricks UI, then imported into Terraform. `lifecycle { ignore_changes = all }` prevents drift. This applies to any new synced table.
 - **Schema changes:** Must delete synced table, drop ghost PG table, recreate via API, re-import into Terraform.
-- **PG indexes:** 14 custom btree indexes across 5 fact tables (tracking, passes, shots, action_values, player_stats). Dropped on synced table recreation — re-run `scripts/create_indexes.py` alongside `scripts/lakebase_grants.sql`.
+- **PG indexes:** 18 custom btree indexes across 7 fact tables (tracking, passes, shots, action_values, player_stats, physical_stats, match_summary). Dropped on synced table recreation — re-run `scripts/create_indexes.py` alongside `scripts/lakebase_grants.sql`.
+- **SNAPSHOT refresh:** Synced tables with `scheduling_policy = "SNAPSHOT"` do not auto-refresh. Run `scripts/refresh_synced_tables.py` after upstream dbt rebuilds. Supports `--wait` (poll until IDLE) and `--tables` (comma-separated subset). The Terraform provider has no schedule/cron field — this is the operational workaround.
 - **Credential API:** REST endpoint is `/api/2.0/postgres/credentials` (NOT `/api/2.0/database/credentials`).
 
 ### Streamlit App
@@ -501,6 +510,7 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 | Heat Map | Action density per player/team/match | `fct_passes_synced`, `fct_shots_synced` |
 | Pass Network | Interactive Plotly graph with hover tooltips | `fct_passes_synced` |
 | Action Values | VAEP rankings, action type breakdown, timeline | `fct_action_values_synced`, `fct_player_stats_synced` |
+| Movement Analysis | Physical performance, PPDA pressing, off-ball xT | `fct_physical_stats_synced`, `fct_match_summary_synced` |
 
 ---
 
@@ -562,20 +572,21 @@ Each new source follows the established pattern: `src/ingestion/<source>.py` →
 
 ### 8.4 — Phase 12: Movement Analysis
 
-**Status:** Planned. Physical and tactical movement analysis from tracking data.
+**Status:** Complete. Three-tier movement analysis: PPDA pressing metrics, physical performance (distance/speed/sprints), and off-ball xT.
 
-| Tier | Scope | Data Source | Dependencies |
-|------|-------|-------------|-------------|
-| **Tier 1: Event-data proxies** | PPDA, pressure event analysis | StatsBomb + Wyscout events (all matches) | None — feasible now |
-| **Tier 2: Physical performance** | Distance, HSR, sprints, accelerations, metabolic power | Tracking data (Metrica + IDSSE + SkillCorner) | Phase 10 |
-| **Tier 3: Off-ball spatial** | Off-ball xT, space creation, OBSO | Tracking + pitch control surface | Phase 10 + Phase 11 |
+| Tier | Scope | Data Source | Status |
+|------|-------|-------------|--------|
+| **Tier 1: PPDA** | Passes Per Defensive Action — team pressing intensity | StatsBomb events (all matches) | Complete — `home_ppda`/`away_ppda` in `fct_match_summary` |
+| **Tier 2: Physical performance** | Distance, HSR, sprints, accelerations per player per match | Tracking data (Metrica + IDSSE + SkillCorner) | Complete — `fct_physical_stats` mart, `speed_ms`/`acceleration_ms2` in `fct_tracking_frames` |
+| **Tier 3: Off-ball xT** | pitch_control x xT per frame per player | Tracking + pitch control | Complete — `src/analytics/off_ball_xt.py` + `src/ingestion/off_ball_xt.py` batch pipeline |
 
-**Key libraries:**
-- [`floodlight`](https://github.com/floodlight-sports/floodlight) (v1.1+, MIT) — Full kinematics pipeline
-- [`databallpy`](https://github.com/Alek050/databallpy) (MIT) — Gaussian space model, pressure calculation
-- [`kloppy`](https://github.com/PySport/kloppy) (BSD-3) — Data loading/normalization (Phase 10)
+**No new library dependencies.** All computation is pure dbt SQL + existing `src/analytics/pitch_control.py`. Floodlight/databallpy were evaluated but not needed — anisotropic speed scaling and distance formulas implemented directly.
 
-**Key references:** Spearman 2018 (OBSO), Fernandez & Bornn 2018 ("Wide Open Spaces"), Soccermatics Lesson 7 (off-ball xT), Kempe et al. 2024 (movement analysis framework).
+**Critical bug fix:** `fct_tracking_frames.speed` was in StatsBomb coordinate units/second (120x80), not m/s. Sprint threshold (7.0 m/s) was compared against wrong units in `fct_player_embeddings`. Fixed with anisotropic per-component conversion: `velocity_x_ms = velocity_x * (105/120)`, `velocity_y_ms = velocity_y * (68/80)`, `speed_ms = sqrt(vx_ms^2 + vy_ms^2)`.
+
+**Key references:** Karun Singh (2018) Expected Threat grid, Soccermatics Lesson 7 (off-ball xT concept), Spearman (2017) pitch control.
+
+**Streamlit:** New Movement Analysis page with 3 views (Physical Performance, PPDA/Pressing Intensity, Off-Ball xT). Updated Match Summary with PPDA display, Player Radar with physical metrics.
 
 ### 8.5 — Phase 13: Line-Breaking Pass Detection
 
@@ -644,7 +655,7 @@ pgvector nearest-neighbor search (`player_search.py`). "Find players like X." De
 
 | Page | Description | Dependencies |
 |------|-------------|-------------|
-| **Movement Analysis** | Speed heatmaps, distance profiles, sprint timelines, pressing intensity | Phase 12 |
+| **Movement Analysis** | PPDA pressing intensity, distance/HSR/sprint profiles, off-ball xT | Phase 12 (complete) |
 | **Player Similarity** | pgvector nearest-neighbor search | Phase 15 + 16 |
 
 ---
@@ -695,7 +706,7 @@ pgvector nearest-neighbor search (`player_search.py`). "Find players like X." De
 | 09 | Clustering, progressive passes | `fct_passes`, `fct_player_stats` |
 | 10 | Streamlit web app | `src/streamlit_app/` |
 | — | SPADL action valuation (VAEP) | `fct_action_values` (Phase 9) |
-| — | Movement analysis | Phase 12 — PPDA, physical metrics, off-ball xT |
+| — | Movement analysis | Phase 12 — complete (PPDA, physical metrics, off-ball xT) |
 | — | Line-breaking pass detection | Phase 13 — clustering + segment intersection |
 | — | Defensive contribution (DEFCON) | Phase 17 — EPV decomposition + credit assignment |
 

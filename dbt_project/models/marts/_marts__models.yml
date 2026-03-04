@@ -639,6 +639,30 @@ models:
         description: Away team progressive passes
       - name: xg_difference
         description: Home xG minus away xG (positive = home advantage)
+      - name: home_ppda
+        description: >
+          Home team Passes Per Defensive Action. Lower = more aggressive press.
+          NULL when zero defensive actions. StatsBomb matches only.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 100
+                row_condition: "home_ppda is not null"
+              config:
+                severity: warn
+      - name: away_ppda
+        description: >
+          Away team Passes Per Defensive Action. Lower = more aggressive press.
+          NULL when zero defensive actions. StatsBomb matches only.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 100
+                row_condition: "away_ppda is not null"
+              config:
+                severity: warn
 
   - name: fct_tracking_frames
     description: >
@@ -701,9 +725,30 @@ models:
       - name: ball_y
         description: Ball Y coordinate (80-yard scale)
       - name: velocity_x
-        description: Player velocity in X direction (yards/second)
+        description: Player velocity in X direction (coordinate-units/second)
       - name: velocity_y
-        description: Player velocity in Y direction (yards/second)
+        description: Player velocity in Y direction (coordinate-units/second)
+      - name: velocity_x_ms
+        description: Player velocity in X direction (m/s, anisotropic-scaled)
+      - name: velocity_y_ms
+        description: Player velocity in Y direction (m/s, anisotropic-scaled)
+      - name: speed_ms
+        description: >
+          Player speed in m/s. Uses anisotropic scaling (x*105/120, y*68/80)
+          since StatsBomb x and y scales differ. NULL for the first frame of
+          each (match_id, player_id, period) partition.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 15
+                row_condition: "speed_ms is not null"
+              config:
+                severity: warn
+      - name: acceleration_ms2
+        description: >
+          Player acceleration in m/s^2. Computed as (speed_ms - prev_speed_ms)
+          * frame_rate. NULL for the first two frames of each partition.
       - name: voronoi_area
         description: Voronoi cell area controlled by player (NULL until spatial pipeline)
 
@@ -782,6 +827,100 @@ models:
         description: Percentage of frames in the attacking third
       - name: avg_distance_to_ball
         description: Average distance to ball during the match
+
+  - name: fct_physical_stats
+    description: >
+      Per-player per-match physical performance metrics from tracking data.
+      Aggregates distance, speed, acceleration, and sprint metrics from
+      fct_tracking_frames. One row per (player_id, match_id). Only available
+      for tracking matches (Metrica, IDSSE, SkillCorner).
+    columns:
+      - name: physical_stats_id
+        description: Surrogate key (player_id + match_id)
+        data_tests:
+          - unique
+          - not_null
+      - name: player_id
+        description: Player identifier
+        data_tests:
+          - not_null
+      - name: match_id
+        description: Match identifier
+        data_tests:
+          - not_null
+      - name: source_provider
+        description: Tracking data provider (metrica, idsse, skillcorner)
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['metrica', 'idsse', 'skillcorner']
+      - name: frame_rate
+        description: Frame rate in fps
+      - name: minutes_played
+        description: Estimated minutes played (from frame range)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 150
+                row_condition: "minutes_played is not null"
+              config:
+                severity: warn
+      - name: total_distance_m
+        description: Total distance covered in meters
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 20000
+                row_condition: "total_distance_m is not null"
+              config:
+                severity: warn
+      - name: total_distance_km
+        description: Total distance covered in kilometers
+      - name: hsr_distance_m
+        description: Distance covered at high speed (>= 5.5 m/s) in meters
+      - name: sprint_distance_m
+        description: Distance covered at sprint speed (>= 7.0 m/s) in meters
+      - name: sprint_frame_count
+        description: Number of frames at sprint speed
+      - name: high_accel_count
+        description: Number of frames with acceleration >= 3.0 m/s^2
+      - name: high_decel_count
+        description: Number of frames with deceleration <= -3.0 m/s^2
+      - name: distance_per_minute_m
+        description: Distance covered per minute in meters
+      - name: avg_speed_ms
+        description: Average speed in m/s
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 10
+                row_condition: "avg_speed_ms is not null"
+              config:
+                severity: warn
+      - name: max_speed_ms
+        description: Maximum speed in m/s
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 15
+                row_condition: "max_speed_ms is not null"
+              config:
+                severity: warn
+      - name: avg_x
+        description: Average X position during the match
+      - name: avg_y
+        description: Average Y position during the match
+      - name: total_off_ball_xt
+        description: Total Off-Ball xT contribution (NULL until batch computed)
+      - name: avg_off_ball_xt
+        description: Average Off-Ball xT contribution per frame
+      - name: off_ball_xt_frames_sampled
+        description: Number of frames sampled for Off-Ball xT computation
 
   # ── Dimension Tables ──────────────────────────────────────────────────
 

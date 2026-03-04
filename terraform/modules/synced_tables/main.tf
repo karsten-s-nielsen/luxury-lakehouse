@@ -148,6 +148,22 @@ resource "databricks_database_synced_database_table" "fct_tracking_frames" {
   }
 }
 
+resource "databricks_database_synced_database_table" "fct_physical_stats" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_physical_stats_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_physical_stats"
+    primary_key_columns    = ["physical_stats_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
 # ── Dimension Tables ─────────────────────────────────────────────────────────
 
 resource "databricks_database_synced_database_table" "dim_players" {

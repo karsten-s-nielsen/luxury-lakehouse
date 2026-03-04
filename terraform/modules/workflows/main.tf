@@ -10,6 +10,7 @@
 #   idsse             — Bundesliga DFL tracking (25fps, 7 matches from UC Volume)
 #   skillcorner       — A-League broadcast tracking (10fps, 10 matches via kloppy)
 #   compute_spadl_vaep — SPADL conversion + VAEP scoring (depends on statsbomb + wyscout)
+#   compute_off_ball_xt — Off-Ball xT from tracking + pitch control (depends on tracking tasks)
 #
 # Schedule: Daily at 06:00 UTC (before business hours in US/EU timezones)
 #
@@ -158,6 +159,36 @@ resource "databricks_job" "data_ingestion" {
     }
 
     environment_key = "analytics"
+  }
+
+  # ── Task: Compute Off-Ball xT from tracking data ───────────────────
+  # Depends on all three tracking providers completing first.
+  task {
+    task_key        = "compute_off_ball_xt"
+    timeout_seconds = 3600
+    max_retries     = 1
+
+    depends_on {
+      task_key = "ingest_metrica"
+    }
+    depends_on {
+      task_key = "ingest_idsse"
+    }
+    depends_on {
+      task_key = "ingest_skillcorner"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_off_ball_xt"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "default"
   }
 
   # ── Environment definition for serverless tasks ──────────────────────────

@@ -28,7 +28,7 @@ def _load_match(match_id: int) -> Any:
             f"  home_completed_passes, away_completed_passes, "
             f"  home_progressive_passes, away_progressive_passes, "
             f"  home_pass_completion_pct, away_pass_completion_pct, "
-            f"  home_possession_pct "
+            f"  home_possession_pct, home_ppda, away_ppda "
             f"FROM {tbl} WHERE match_id = %s",
             (m_id,),
         )
@@ -87,6 +87,7 @@ def page() -> None:
         "Progressive Passes",
         "Pass Completion %",
         "Possession %",
+        "PPDA",
     ]
     home_vals = [
         float(m.get("home_shots", 0) or 0),
@@ -97,6 +98,7 @@ def page() -> None:
         float(m.get("home_progressive_passes", 0) or 0),
         float(m.get("home_pass_completion_pct", 0) or 0),
         float(m.get("home_possession_pct", 0) or 0),
+        float(m.get("home_ppda", 0) or 0),
     ]
     away_vals = [
         float(m.get("away_shots", 0) or 0),
@@ -107,6 +109,7 @@ def page() -> None:
         float(m.get("away_progressive_passes", 0) or 0),
         float(m.get("away_pass_completion_pct", 0) or 0),
         100.0 - float(m.get("home_possession_pct", 50) or 50),
+        float(m.get("away_ppda", 0) or 0),
     ]
 
     fig = plot_match_comparison_bars(

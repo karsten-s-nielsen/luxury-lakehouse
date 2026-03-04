@@ -1,0 +1,67 @@
+version: 2
+
+seeds:
+  - name: position_mapping
+    description: >
+      Maps StatsBomb position IDs (1-25) to broad position groups
+      (Goalkeeper, Defender, Midfielder, Forward). Joined into dim_players.
+    columns:
+      - name: position_id
+        data_tests:
+          - unique
+          - not_null
+      - name: position_name
+        data_tests:
+          - not_null
+      - name: position_group
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Goalkeeper', 'Defender', 'Midfielder', 'Forward']
+
+  - name: competition_metadata
+    description: >
+      Enrichment seed for competition display metadata. Joined into dim_competitions.
+    columns:
+      - name: competition_id
+        data_tests:
+          - unique
+          - not_null
+
+  - name: expected_threat_grid
+    description: >
+      12x8 Expected Threat (xT) grid from Karun Singh (2018). Each cell
+      represents the probability of scoring from that zone. Zone indices
+      map to StatsBomb 120x80 coordinates where each zone is 10x10 units.
+      Used by the Off-Ball xT analytics module.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - zone_x
+            - zone_y
+    columns:
+      - name: zone_x
+        description: Horizontal zone index (0-11, left to right)
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 11
+      - name: zone_y
+        description: Vertical zone index (0-7, bottom to top)
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 7
+      - name: xt_value
+        description: Expected threat probability (0-1) for this zone
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1

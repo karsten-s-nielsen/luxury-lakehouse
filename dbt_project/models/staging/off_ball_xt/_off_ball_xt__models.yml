@@ -1,0 +1,51 @@
+version: 2
+
+models:
+  - name: stg_off_ball_xt__results
+    description: >
+      Staging view for Off-Ball xT results. Deduplicates bronze data by
+      (player_id, match_id), keeping the most recent ingestion.
+    columns:
+      - name: player_id
+        description: Player identifier
+        data_tests:
+          - not_null
+      - name: match_id
+        description: Match identifier
+        data_tests:
+          - not_null
+      - name: total_off_ball_xt
+        description: >
+          Sum of per-frame off-ball xT contributions. NULL for players where
+          pitch control returned NaN on all sampled frames (boundary conditions).
+        data_tests:
+          - not_null:
+              config:
+                severity: warn
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1000
+              config:
+                severity: warn
+      - name: avg_off_ball_xt
+        description: >
+          Average per-frame off-ball xT contribution. NULL when total is NULL.
+        data_tests:
+          - not_null:
+              config:
+                severity: warn
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+              config:
+                severity: warn
+      - name: frames_sampled
+        description: Number of frames sampled for this match
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 1
+                max_value: 10000
