@@ -516,43 +516,7 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 
 ## 8. Future Work
 
-### 8.1 — Phase 10: Additional Public Tracking Datasets
-
-**Status:** Complete. Expanded tracking corpus from 3 to 20 matches across 3 providers.
-
-| Dataset | Matches | Tracking Format | Frame Rate | Bronze Rows | Parser |
-|---------|---------|----------------|------------|-------------|--------|
-| **Metrica Sports** | 3 | CSV + EPTS | 25fps | 9,458,316 | `requests` + custom CSV/EPTS |
-| **Bundesliga IDSSE** | 7 | DFL position XML | 25fps | 21,874,234 | `xml.etree.ElementTree` (stdlib) |
-| **SkillCorner Open Data** | 10 | JSONL (broadcast) | 10fps | 6,786,057 | `kloppy` (BSD-3) |
-| **Total** | **20** | | | **38,118,607** | |
-
-**Key decisions:**
-- IDSSE uses stdlib XML parser (not floodlight) — avoids numpy ABI conflicts on serverless, h5py dependency, and figshare DNS issues. Pre-downloaded DFL XML files stored on UC Volume.
-- SkillCorner uses kloppy for open data download + parsing (separate Databricks environment).
-- Each provider writes narrow-format bronze (one row per player per frame) with per-row `frame_rate`.
-- Match IDs prefixed by provider (`idsse_`, `skillcorner_`) to prevent surrogate key collisions.
-- `fct_tracking_frames` UNION ALL from 3 staging models with per-row `frame_rate * delta_position` velocity.
-- Velocity `lag()` partitions by `(match_id, player_id, period)` to avoid cross-half spikes.
-
-### 8.2 — Phase 11: Physics-Based Pitch Control Model
-
-**Status:** Complete. Physics model implemented; Voronoi retained as toggle.
-
-Pure-Python implementation of Spearman (2017) physics-based pitch control in `src/analytics/pitch_control.py`. Accounts for player position, velocity, and time-to-intercept using kinematic equations and logistic sigmoid influence functions. NumPy-vectorized for <100ms per frame on a 50x32 grid with 22 players.
-
-**Delivered:**
-1. `src/analytics/` package with `PitchControlParams`, `compute_pitch_control_frame()`, `compute_pitch_control_at_point()`
-2. Continuous heatmap overlay via `plot_physics_pitch_control()` with diverging RdBu colormap
-3. Streamlit Pitch Control page with "Physics (Spearman)" / "Voronoi" model toggle
-4. Physics-mode stats: Home Control %, Away Control %, Control at Ball
-5. 27 new unit tests (22 model + 5 visualization), 214 total passing
-
-**Deferred:** Batch population of `pitch_control_value` in `fct_tracking_frames` (stays NULL — separate follow-up).
-
-**Data requirements:** Tracking data with positions and velocities — available from Metrica (Phase 7) and IDSSE/SkillCorner (Phase 10).
-
-### 8.3 — Future Data Sources
+### 8.1 — Future Data Sources
 
 | Source | Data Type | Status | Notes |
 |--------|-----------|--------|-------|
@@ -561,7 +525,7 @@ Pure-Python implementation of Spearman (2017) physics-based pitch control in `sr
 
 Each new source follows the established pattern: `src/ingestion/<source>.py` → Bronze → dbt staging/marts → Synced Tables → Lakebase.
 
-### 8.3.1 — Research-Driven Features (see [ROADMAP.md](ROADMAP.md))
+### 8.1.1 — Research-Driven Features (see [ROADMAP.md](ROADMAP.md))
 
 | Feature | Status | License | Key Insight |
 |---------|--------|---------|-------------|
@@ -570,57 +534,7 @@ Each new source follows the established pattern: `src/ingestion/<source>.py` →
 | **Graph-Based Tactical Patterns** | Research direction | CC BY | TGNets (Raabe et al. 2022) for classifying defensive outcomes from tracking graphs |
 | **Decision Optimization** | Research direction | N/A | RL-based pass selection optimization (Rahimian et al.) — requires commercial tracking data |
 
-### 8.4 — Phase 12: Movement Analysis
-
-**Status:** Complete. Three-tier movement analysis: PPDA pressing metrics, physical performance (distance/speed/sprints), and off-ball xT.
-
-| Tier | Scope | Data Source | Status |
-|------|-------|-------------|--------|
-| **Tier 1: PPDA** | Passes Per Defensive Action — team pressing intensity | StatsBomb events (all matches) | Complete — `home_ppda`/`away_ppda` in `fct_match_summary` |
-| **Tier 2: Physical performance** | Distance, HSR, sprints, accelerations per player per match | Tracking data (Metrica + IDSSE + SkillCorner) | Complete — `fct_physical_stats` mart, `speed_ms`/`acceleration_ms2` in `fct_tracking_frames` |
-| **Tier 3: Off-ball xT** | pitch_control x xT per frame per player | Tracking + pitch control | Complete — `src/analytics/off_ball_xt.py` + `src/ingestion/off_ball_xt.py` batch pipeline |
-
-**No new library dependencies.** All computation is pure dbt SQL + existing `src/analytics/pitch_control.py`. Floodlight/databallpy were evaluated but not needed — anisotropic speed scaling and distance formulas implemented directly.
-
-**Critical bug fix:** `fct_tracking_frames.speed` was in StatsBomb coordinate units/second (120x80), not m/s. Sprint threshold (7.0 m/s) was compared against wrong units in `fct_player_embeddings`. Fixed with anisotropic per-component conversion: `velocity_x_ms = velocity_x * (105/120)`, `velocity_y_ms = velocity_y * (68/80)`, `speed_ms = sqrt(vx_ms^2 + vy_ms^2)`.
-
-**Key references:** Karun Singh (2018) Expected Threat grid, Soccermatics Lesson 7 (off-ball xT concept), Spearman (2017) pitch control.
-
-**Streamlit:** New Movement Analysis page with 3 views (Physical Performance, PPDA/Pressing Intensity, Off-Ball xT). Updated Match Summary with PPDA display, Player Radar with physical metrics.
-
-### 8.5 — Phase 13: Line-Breaking Pass Detection
-
-**Status:** Complete. Geometric detection of defensive line penetration using hierarchical clustering + segment intersection.
-
-**License:** Apache 2.0 ([parmacalcio1913/line-breaking-passes](https://github.com/parmacalcio1913/line-breaking-passes)). Attribution required, no other restrictions.
-
-**Algorithm:** For each pass, Ward hierarchical clustering groups outfield defenders into 3 depth lines (attack/midfield/defense). Segments connect adjacent players in each line. A cross-product straddle test checks whether the pass trajectory intersects any line segment. Distance constraints (>= 1m from line) and forward-pass filter eliminate noise. Passes are classified as "through" (between defenders) or "around" (outside outermost defender).
-
-**Two data paths:**
-
-| Path | Data Source | Matches | Approach |
-|------|-------------|---------|----------|
-| **A (360)** | StatsBomb freeze frames | 323 | Cluster opponent positions at pass moment, single-frame intersection |
-| **B (tracking)** | Metrica/IDSSE/SkillCorner | 20 | Full dual-frame intersection (start + end frame of pass) |
-
-**Adaptations needed:**
-- Coordinate system: 105x68m → 120x80 (parameterize pitch dimensions)
-- Data format: wide CSV → narrow `fct_tracking_frames` (adapt clustering or pivot)
-- PyTorch → NumPy (trivial — used only for vectorized cross-product math)
-
-**Artifacts:**
-
-| Artifact | Layer | Description |
-|----------|-------|-------------|
-| `src/ingestion/line_breaking.py` | Ingestion | Clustering + intersection, adapted for narrow + 360 formats |
-| `stg_statsbomb__line_breaking.sql` | dbt staging | Join 360 freeze frames with pass events |
-| `fct_passes.sql` (update) | dbt marts | `is_line_breaking`, `lines_broken`, `line_breaking_type` |
-| `fct_player_stats.sql` (update) | dbt marts | `line_breaking_passes`, `line_breaking_per_90` |
-| Pass Map page (update) | Streamlit | Visual distinction for line-breaking passes |
-
-**Dependencies:** Phase 6 (360) + Phase 10 (tracking) — both complete. Synergistic with Phase 12 (defensive line depth feeds pressing metrics).
-
-### 8.6 — Phase 14: Cross-Source Player Entity Resolution
+### 8.2 — Phase 14: Cross-Source Player Entity Resolution
 
 `dim_players` currently deduplicates within each source, but StatsBomb, Metrica, and Wyscout use independent player IDs. The same player exists as separate rows per source.
 
@@ -628,15 +542,15 @@ Each new source follows the established pattern: `src/ingestion/<source>.py` →
 
 **Integration path:** `int_player_xref` mapping → refactor `dim_players` → downstream tables automatically benefit.
 
-### 8.7 — Phase 15: pgvector Player Embeddings
+### 8.3 — Phase 15: pgvector Player Embeddings
 
 `fct_player_embeddings` and its synced table are provisioned (0 rows). Design feature vector from `fct_player_stats` per-90 metrics, generate embeddings, enable pgvector `<=>` cosine distance queries. Depends on Phase 14 for cross-source identity (within-source feasible without it).
 
-### 8.8 — Phase 16: Player Similarity Streamlit Page
+### 8.4 — Phase 16: Player Similarity Streamlit Page
 
 pgvector nearest-neighbor search (`player_search.py`). "Find players like X." Depends on Phase 15.
 
-### 8.9 — Phase 17: DEFCON-Inspired Defensive Valuation
+### 8.5 — Phase 17: DEFCON-Inspired Defensive Valuation
 
 **Paper:** Kim, H.S. et al. (2025). "Better Prevent than Tackle: Valuing Defense in Soccer Based on Graph Neural Networks." *arXiv:2512.10355*.
 
@@ -647,15 +561,14 @@ pgvector nearest-neighbor search (`player_search.py`). "Find players like X." De
 | Tier | Approach | Data Needed | Feasibility |
 |------|----------|-------------|-------------|
 | **Tier 1: VAEP** | SPADL + VAEP scoring | Events only (3,000+ matches) | **Complete** (Phase 9) |
-| **Tier 2: Pitch Control** | Physics-based model | Tracking (3–20 matches) | Phase 11 |
+| **Tier 2: Pitch Control** | Physics-based model | Tracking (3–20 matches) | **Complete** (Phase 11) |
 | **Tier 3: DEFCON-lite** | Tabular model (VAEP + spatial features, no GNN) | ~20 matches with tracking | Feasible after Phase 10 |
 | **Tier 4: Full GNN DEFCON** | Graph Attention Networks on player graphs | 500+ matches with tracking | Requires commercial data |
 
-### 8.10 — Additional Streamlit Pages
+### 8.6 — Additional Streamlit Pages
 
 | Page | Description | Dependencies |
 |------|-------------|-------------|
-| **Movement Analysis** | PPDA pressing intensity, distance/HSR/sprint profiles, off-ball xT | Phase 12 (complete) |
 | **Player Similarity** | pgvector nearest-neighbor search | Phase 15 + 16 |
 
 ---

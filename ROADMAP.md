@@ -6,20 +6,372 @@ Research directions, long-horizon features, and exploratory ideas beyond the [ph
 
 ---
 
-## Line-Breaking Pass Detection
+## Observability Layer (OpenTelemetry)
 
-> **Complete** — implemented in Phase 13. See [PLAN.md §8.5](PLAN.md#85--phase-13-line-breaking-pass-detection).
+**Status:** Research complete, ready for implementation
+**Budget:** ~$1-2/month (personal) or enterprise-swappable via config
 
-**Status:** Complete (Phase 13, PR #18)
-**License:** Apache 2.0 ([parmacalcio1913/line-breaking-passes](https://github.com/parmacalcio1913/line-breaking-passes))
+The platform currently has minimal observability (PLAN.md &sect;6.4): Databricks audit logs, dbt test results, and Streamlit built-in metrics. No structured telemetry, no model validation, no pipeline performance tracking. This section defines a proper observability layer using OpenTelemetry as the instrumentation standard.
 
-Ward hierarchical clustering + cross-product straddle test for defensive line penetration. Two data paths: StatsBomb 360 (323 matches) and Metrica tracking (3 matches). Gold arrows on Pass Map, LB Passes/90 on Player Radar.
+### Core principle: instrument once, observe anywhere
+
+OpenTelemetry's dual-export pattern decouples instrumentation from backend. Application code emits telemetry via the OTel SDK. An OTel Collector routes signals to cheap local storage or enterprise backends &mdash; controlled by a single environment variable, zero code changes.
+
+```
+Application Code (OTel SDK)
+         |
+    OTLP/HTTP
+         |
+    OTel Collector
+         |
+    +----+----+
+    |         |
+ personal  enterprise
+    |         |
+  S3 bucket  Grafana Cloud / Datadog / etc.
+```
+
+**Mode switching:** Layered Collector config files selected by `OTEL_MODE` env var. The `awss3exporter` (contrib) writes time-partitioned OTLP JSON directly to S3. The `otlp/http` exporter sends to any OTLP-compatible backend. Both can run simultaneously (fan-out).
+
+### Cost tiers
+
+| Tier | Stack | Monthly Cost |
+|------|-------|-------------|
+| **Personal** | OTel Collector &rarr; S3 + DuckDB/Athena queries | ~$1-2 |
+| **Mid-range** | Grafana LGTM (Loki + Tempo + Mimir) on t3.medium | ~$35 |
+| **Enterprise** | Swap Collector config to Grafana Cloud / Datadog / Splunk | Varies |
+
+The personal tier has no always-on infrastructure. S3 storage is $0.023/GB/month. Query with DuckDB locally (`duckdb-otlp` community extension) or Athena serverlessly ($5/TB scanned). The `otlp2parquet` tool can convert OTLP to Parquet/Iceberg for columnar analytics.
+
+### Pipeline instrumentation layers
+
+Each layer of the platform gets structured telemetry with configurable granularity:
+
+| Layer | Instrumentation | Signal Type | Auto/Manual |
+|-------|----------------|-------------|-------------|
+| **Ingestion** (StatsBomb, Metrica, etc.) | HTTP calls, Delta writes, row counts, duration | Traces + Metrics | Auto (`requests`) + manual spans |
+| **dbt transformations** | Per-model execution time, test pass/fail, row counts | Metrics | Parse `run_results.json` post-build |
+| **Analytics models** (xG, xT, VAEP, pitch control) | Input/output stats, drift metrics, validation status | Traces + Metrics | Manual spans with `analytics.*` attributes |
+| **Streamlit app** | Lakebase query latency, page render time | Traces | Auto (`psycopg2`) + manual spans |
+
+**Python OTel SDK** (v1.39.1, stable): Auto-instrumentation available for `requests` and `psycopg2` via `opentelemetry-instrumentation-*` packages. No Streamlit or PySpark auto-instrumentation &mdash; use manual spans around key operations.
+
+**Custom attribute namespace** for analytics models (no official OTel semantic conventions exist for traditional ML):
+
+| Attribute | Example |
+|-----------|---------|
+| `analytics.model.name` | `"xg_logistic"`, `"vaep_spadl"`, `"pitch_control_spearman"` |
+| `analytics.model.version` | `"v2"` |
+| `analytics.model.input_count` | `3400` |
+| `analytics.model.output_mean` | `0.098` |
+| `analytics.model.output_p90` | `0.312` |
+| `analytics.model.drift_psi` | `0.15` |
+| `analytics.pipeline.source` | `"statsbomb"`, `"skillcorner"` |
+
+### Model validation: catching offside runners
+
+Detect when analytics models produce bad outputs using statistical process control and drift detection. All methods use `scipy` + `numpy` only &mdash; no new dependencies.
+
+| Model | Monitor | Detection | Threshold |
+|-------|---------|-----------|-----------|
+| **xG** | Mean prediction per match | PSI (Population Stability Index) | PSI > 0.2 = significant shift |
+| **xT** | Zone coverage distribution | Wasserstein distance vs reference grid | Quantifies magnitude of shift |
+| **VAEP** | Fraction of negative actions, distribution shape | KS test + Wasserstein | Two-sample distribution comparison |
+| **Pitch Control** | Field sum &asymp; 1.0 | Hard constraint check | > 5% error = calculation bug |
+| **Line-breaking** | Detection rate per match | CUSUM (cumulative sum) | Sustained drift beyond 3&sigma; |
+| **Physical stats** | Max speed, acceleration | Range bound | Max speed > 15 m/s = unit conversion error |
+
+**CUSUM** is particularly valuable: O(n), ~10 lines of pure Python, detects sustained small shifts that single-match thresholds miss. Ideal for catching a slowly miscalibrating model over a season.
+
+**Reference baselines** stored as dbt seeds (following the `expected_threat_grid.csv` pattern) or a small Delta table `dev_gold.model_baselines`.
+
+### Open-source monitoring tools (all Apache 2.0)
+
+| Tool | Key Capability | Integration Path |
+|------|---------------|-----------------|
+| **Evidently AI** | 100+ pre-built drift metrics, HTML reports | Prometheus bridge &rarr; OTel Collector |
+| **NannyML** | CBPE: estimate performance *without ground truth* | DataFrame output &rarr; OTel metric emission |
+| **WhyLogs** | Lightweight statistical profiles, Spark-compatible | Profile diffs &rarr; OTel attributes |
+
+NannyML's CBPE (Confidence-Based Performance Estimation) is especially relevant for models like xT and pitch control where "correct answers" are ambiguous &mdash; it estimates performance degradation from output distribution alone.
+
+### MLflow integration (included in Databricks workspace)
+
+MLflow provides model registry and batch evaluation at no additional cost:
+
+- `mlflow.evaluate()` for post-match batch validation (Brier score, calibration error)
+- Unity Catalog Model Registry for version tracking and aliases (`@champion`, `@challenger`)
+- Native OTel dual export (`MLFLOW_TRACE_ENABLE_OTLP_DUAL_EXPORT=true`) writes spans to both MLflow Tracking and any external OTLP endpoint
+- Databricks managed OTLP endpoint (Zerobus) writes telemetry to Delta tables in Unity Catalog
+
+### dbt pipeline observability
+
+Three approaches evaluated; **artifact parsing** is recommended for dbt Core:
+
+| Approach | Maturity | Fit |
+|----------|----------|-----|
+| **dbt Fusion native OTLP** | Preview (2026) | Future &mdash; requires dbt Core migration |
+| **Elementary** | Production | Rich features, but no native OTel export |
+| **Artifact parsing** (recommended) | Stable | Parse `target/run_results.json`, emit OTel counters. Zero dependency. |
+
+Post-run parsing captures per-model execution time, test pass/fail counts, failure details, and source freshness &mdash; all emitted as OTel metrics.
+
+### Databricks constraints
+
+- OTel Collector **cannot run as sidecar** in serverless compute (Databricks-managed infrastructure)
+- SDK-level OTLP/HTTP export works from within jobs/notebooks to an external endpoint
+- Databricks system tables (`system.compute`, `system.workflow`, `system.audit`) cover infrastructure; OTel covers application logic &mdash; they are complementary and coexist in Unity Catalog
+- MLflow dual export is the cleanest integration path for Databricks workloads
+
+### Key tools
+
+| Tool | Purpose |
+|------|---------|
+| `opentelemetry-sdk` (v1.39.1) | Python instrumentation API |
+| `opentelemetry-instrumentation-requests` | Auto-instrument HTTP calls |
+| `opentelemetry-instrumentation-psycopg2` | Auto-instrument Lakebase queries |
+| `awss3exporter` (Collector contrib) | Write OTLP to S3, time-partitioned |
+| `otlp2parquet` | Convert OTLP to Parquet/Iceberg |
+| `duckdb-otlp` | Query OTLP data from S3 via DuckDB |
+
+### Open questions
+
+1. **Collector location**: Sidecar in Streamlit App container? Separate ECS task? Lambda?
+2. **S3 bucket**: Dedicated telemetry bucket or partition within existing infrastructure?
+3. **Query interface**: DuckDB (free, local) vs Athena (serverless, pay-per-query)?
+4. **Ingestion granularity**: Per-match spans or per-batch spans?
+5. **Real-time UI**: Is the $35/month Grafana LGTM tier worth it, or is S3 + DuckDB sufficient?
+
+### Dependencies
+
+- No blocking dependencies &mdash; can be implemented at any time
+- Synergistic with Staging Environment (observability validates staging deployments)
+- Foundation for DEFCON (Phase 17) model monitoring
+
+---
+
+## Pipeline Optimization & Scaling (Enterprise Integration Patterns)
+
+**Status:** Research complete, ready for implementation
+**Budget:** $0 incremental (uses existing serverless compute + Delta Lake)
+**References:** Hohpe & Woolf (2003) *Enterprise Integration Patterns*; Sp&auml;ti, *DEDP/PoDE* (dedp.online, open access)
+
+The platform's ingestion and analytics pipelines currently run sequentially on single-node compute. As data volume grows &mdash; especially with Respo.Vision 3D pose tracking (est. ~7M rows/match vs ~1.9M current) &mdash; horizontal scaling via established Enterprise Integration Patterns becomes essential. Complementary caching layers prevent redundant work across the full stack.
+
+### Core principle: split, scatter, cache
+
+Classic EIP patterns map directly to Databricks primitives. The medallion architecture is already Pipes and Filters; extending with Splitter, Aggregator, and Scatter-Gather enables horizontal scaling without infrastructure upgrades.
+
+| EIP Pattern | Data Engineering Equivalent | Application |
+|-------------|---------------------------|-------------|
+| **Splitter** | Partition into independent chunks | `for_each_task` inputs, Spark `repartition` |
+| **Aggregator** | Delta table as accumulator | `replaceWhere` idempotent writes per partition |
+| **Scatter-Gather** | Fan-out with coordinator/finalizer | `for_each_task` workers + validation step |
+| **Content-Based Router** | Provider manifest &rarr; dynamic dispatch | Route ingestion by `data_source` type |
+| **Claim Check** | Store payload in Delta, pass reference | `match_id` references instead of full DataFrames |
+| **Dead Letter Channel** | Failed item quarantine | `bronze.dead_letters` Delta table |
+| **Pipes and Filters** | Medallion architecture | Bronze &rarr; Silver &rarr; Gold (already implemented) |
+
+### Horizontal scaling: `for_each_task`
+
+Databricks `for_each_task` (GA since 2023, enhanced July 2025) is the core fan-out primitive: max 100 concurrent tasks, 48KB task value limit, serverless compute, independent retry per iteration.
+
+**Coordinator-Worker-Finalizer pattern:**
+
+```
+Coordinator (discover work units)
+    &darr; outputs [{match_id, source, params}, ...]
+for_each_task: Worker (process one unit)
+    &darr; each writes to Delta partition via replaceWhere
+Finalizer (validate completeness, emit OTel metrics)
+```
+
+### Existing pain point fixes
+
+| Pain Point | Current Issue | EIP Fix |
+|-----------|---------------|---------|
+| **StatsBomb N+1** (TODO #3) | ~3,500 sequential per-match queries | Scatter-Gather at competition-season level + `asyncio`/`httpx` within workers |
+| **SPADL/VAEP OOM** (TODO #4) | Full bronze tables collected to driver | Claim Check + Splitter &mdash; partition by `(comp_id, season_id)`, bounded `toPandas()` + `gc.collect()` |
+| **Off-Ball xT loop** (TODO #12) | Sequential per-match at 1fps | `mapInPandas` grouped by `match_id` &mdash; Spark distributes across executors |
+
+### Respo.Vision scale planning
+
+50+ keypoints per player at up to 60fps produces ~1.07B float values per match. A wide-per-player schema (`head_x, head_y, head_z, left_shoulder_x, ...` ~150 columns) keeps rows at ~7M/match &mdash; only 2.4&times; current tracking volume. Strategy: Splitter at match level, liquid clustering on `(match_id, frame_id)`, `for_each_task` for parallel ingestion.
+
+### Caching &amp; storage layers
+
+Five complementary caching layers prevent redundant work across the full stack:
+
+**Layer 1 &mdash; HTTP response caching.** `requests-cache` (Apache 2.0) with persistent SQLite backend as drop-in for `fetch_url()`. StatsBomb open data: `expire_after=None` (static). SkillCorner/Wyscout: 24h/7d TTL. Bronze Delta tables remain the durable cache; HTTP cache avoids redundant network round-trips during development and retry.
+
+**Layer 2 &mdash; Training data versioning.** Delta Lake time travel + MLflow `log_input()` with `delta://table@version` URIs. Zero data duplication. Requires explicit `delta.deletedFileRetentionDuration` table properties (30d gold, 7d bronze) ahead of DBR 18.0 changes where `RETAIN X HOURS` in manual VACUUM is ignored.
+
+**Layer 3 &mdash; Intermediate result caching.** Match-level existence check before expensive computation (skip 100% of pitch control loop on re-runs). `joblib.Memory` for disk-backed memoization of static lookups (xT grid). Future: `np.memmap` for memory-mapped NumPy arrays when Respo.Vision 3D pose feature matrices exceed RAM.
+
+**Layer 4 &mdash; Query result caching.** Databricks remote result cache (24h, survives warehouse restarts &mdash; automatic). Lakebase materialized views for pre-aggregated dashboard data. Streamlit `@st.cache_resource` connection pool (swap per-query connections for `SimpleConnectionPool`).
+
+**Layer 5 &mdash; Cost controls.** Predictive Optimization auto-VACUUMs Unity Catalog managed tables. S3 Intelligent Tiering deferred until Respo.Vision volumes justify monitoring fees.
+
+### Delta Lake optimization
+
+- **Liquid clustering** preferred over Z-ordering for new tables (incremental, automatic layout)
+- **Change Data Feed** for incremental downstream consumption (`table_changes()` queries)
+- **Deletion vectors** + auto-compaction for write performance
+
+### dbt optimization
+
+| Pattern | Benefit | When |
+|---------|---------|------|
+| **Incremental models** | Process only new/changed rows | Fact tables with `_ingested_at` partitioning |
+| **Slim CI** (`state:modified+`) | Only build/test changed models | PR validation in GitHub Actions |
+| **`dbt clone`** | Zero-copy table references | Staging environment testing |
+| **Model contracts** | Schema enforcement at build time | Gold layer |
+| **`--empty` flag** | Zero-cost CI validation (DDL only) | Schema change validation |
+
+### Open questions
+
+1. **Coordinator implementation**: Python notebook or lightweight Databricks SQL task?
+2. **Dead Letter Channel**: Separate Delta table or partition within existing bronze?
+3. **`for_each_task` vs `mapInPandas`**: When to fan out at job level vs within a single Spark job?
+4. **Liquid clustering migration**: Convert existing Z-ordered tables or only apply to new tables?
+5. **Respo.Vision schema**: Wide-per-player (150 float cols) vs normalized keypoints table?
+6. **Incremental dbt**: Which fact tables benefit most from incremental strategy?
+7. **Connection pool size**: `SimpleConnectionPool(2)` or `(5)` for single-instance Streamlit?
+
+### Dependencies
+
+- No blocking dependencies &mdash; caching layers can be implemented incrementally
+- Synergistic with Observability (OTel traces measure optimization impact)
+- `for_each_task` patterns require Databricks workflow refactoring (currently single-task jobs)
+- Delta retention policy changes should precede any MLflow training data versioning
+
+---
+
+## Deep Learning Infrastructure &amp; Pre-trained Models
+
+**Status:** Research complete, ready for incremental implementation
+**Budget:** ~$6-14/month incremental (external GPU training + existing Databricks governance)
+**References:** DeepMind AlphaEvolve/FunSearch (Apache 2.0); TacticAI (Nature Communications, 2024); SoccerNet benchmarks
+
+The platform's analytics models are currently traditional ML (logistic regression xG, grid-based xT, SPADL/VAEP). Multiple planned phases &mdash; DEFCON GNN (Phase 17), pgvector embeddings (Phase 15), and Space Creation (ROADMAP) &mdash; assume deep learning capability but no infrastructure exists to train, version, serve, or iteratively improve neural models. This section defines the end-to-end DL stack and catalogs pre-trained models that provide a head start.
+
+### Core principle: train cheap, govern centrally
+
+Databricks GPU training costs 3-5&times; more than external providers. The hybrid pattern uses Databricks for data preparation, experiment tracking (MLflow), and model registry governance, while offloading actual GPU training to budget-friendly providers.
+
+```
+Delta Lake (training data)
+    &darr; MosaicML StreamingDataset (stream to external GPU)
+External GPU (RunPod spot ~$0.35/hr, Lambda Labs ~$0.75/hr)
+    &darr; PyTorch/JAX training, MLflow remote logging
+Unity Catalog Model Registry (@Champion / @Challenger aliases)
+    &darr; Batch inference (Databricks serverless CPU job)
+Delta Lake &rarr; Synced tables &rarr; Lakebase &rarr; Streamlit
+```
+
+**MLflow 3** (current): `LoggedModel` as first-class citizen, Unity Catalog default registry (`catalog.schema.model_name`), Champion/Challenger aliases decouple inference code from version numbers. Pre-trained weights stored in UC Volumes (`/Volumes/soccer_analytics/dev_gold/model_weights/`). `HF_HOME` pointed at UC Volume to cache HuggingFace downloads across sessions.
+
+### Budget architecture
+
+| Component | Provider | Est. Monthly Cost |
+|-----------|----------|-------------------|
+| GNN training (2 hr/week on RTX 4090) | RunPod spot | ~$3-5 |
+| Embedding batch inference | Databricks Serverless (CPU) | ~$2-5 |
+| Model serving (CPU, scale-to-zero) | Databricks Model Serving | ~$0-2 |
+| MLflow tracking + model registry | Included in workspace | $0 |
+| Pre-trained weight storage (UC Volume, ~10GB) | Delta storage | ~$1-2 |
+
+### DeepMind-inspired optimization patterns
+
+Three approaches from DeepMind's recent work apply directly to soccer analytics at individual-developer scale:
+
+**FunSearch / AlphaEvolve pattern.** LLM-driven algorithm evolution: define an `evaluate(candidate) &rarr; score` function, let an LLM generate and mutate candidates, keep the best. [OpenEvolve](https://huggingface.co/blog/codelion/openevolve) (MIT) is a community implementation that works with any LLM API. Targets: evolve `expected_threat_grid.csv` values against StatsBomb event data; optimize pitch control kernel vectorization strategies. Cost: ~$5-20 for a weekend search run, CPU only.
+
+**JAX `vmap` vectorization.** Single highest-leverage tool for existing code. `jax.vmap` vectorizes `compute_pitch_control_at_point()` from ~2,700 serial Python calls per second to one array operation &mdash; unlocking full Space Creation (Fernandez &amp; Bornn 2018 OBSO) on the existing budget without GPU. JAX compiles to vectorized CPU operations via XLA; no infrastructure change required.
+
+**Continual learning (EWC / Knowledge Distillation).** DeepMind's Elastic Weight Consolidation (Kirkpatrick et al. 2017) prevents catastrophic forgetting when adapting models to new seasons or competitions. The practical variant &mdash; Knowledge Distillation (Learning without Forgetting) &mdash; maps directly to the MLflow Champion/Challenger pattern: the `@Champion` model provides soft labels for `@Challenger` training on new data, preserving historical calibration.
+
+### Data augmentation for limited tracking data
+
+With only 20 tracking matches, synthetic data multiplication is critical:
+
+| Technique | Multiplier | Compute | Basis |
+|-----------|-----------|---------|-------|
+| **Symmetry augmentation** (H-flip, V-flip, team swap) | 8&times; | Zero (NumPy) | TacticAI (DeepMind, 2024) |
+| **Physics-based perturbation** (position/velocity jitter within constraints) | 10&times; per frame | Minimal (NumPy) | Counterfactual simulation |
+| **dm_control MuJoCo Soccer** (synthetic match generation) | Unlimited | CPU | Pretrain-then-fine-tune pattern |
+
+### Pre-trained models: immediately usable
+
+Models with available weights compatible with current data sources:
+
+| Model | Domain | Data Compatibility | License | Compute |
+|-------|--------|-------------------|---------|---------|
+| [**football2vec**](https://github.com/ofirmg/football2vec) | Player/action embeddings | StatsBomb (exact match) | MIT | Hours / CPU |
+| [**OpenSTARLab**](https://github.com/open-starlab) (LEM, FMS, Seq2Event) | Event prediction, match simulation | StatsBomb + Wyscout | Apache 2.0 | Minimal |
+| [**Foundation Model for Soccer**](https://arxiv.org/abs/2407.14558) | Action prediction transformer | FAWSL (fine-tune on SB) | Research | Days / 1 GPU |
+| [**RTMPose**](https://github.com/open-mmlab/mmpose) (MMPose) | Pose estimation from video | Broadcast footage | Apache 2.0 | 1-2 days / 4 GPU |
+
+### Pre-trained models: available with fine-tuning
+
+| Model | Domain | License | Fine-tune Compute |
+|-------|--------|---------|-------------------|
+| [**T-DEED**](https://github.com/arturxe2/T-DEED) | Video event spotting (SoccerNet 2024 winner) | Research | 1-2 GPU-days |
+| [**PRTReID**](https://github.com/SoccerNet/sn-gamestate) (SoccerNet GSR) | Player re-identification | Research | 1 GPU-day |
+| [**TranSPORTmer**](https://arxiv.org/abs/2410.17785) | Multi-task trajectory prediction | Academic | 1-2 GPU-days |
+
+### Watch list (pending weight release)
+
+| Model | Domain | Status | Why It Matters |
+|-------|--------|--------|----------------|
+| [**SoccerMaster**](https://arxiv.org/abs/2512.11016) | Vision foundation (multi-task) | Dec 2024, weights pending | First soccer-specific foundation model; if released, becomes dominant backbone |
+| [**SportMamba**](https://arxiv.org/abs/2506.03335) | Video tracking (Mamba SSM) | CVPR 2025 | State-of-the-art multi-object tracking for team sports |
+
+### Relationship to existing phases
+
+| Phase | DL Infrastructure Enables |
+|-------|--------------------------|
+| **Phase 15** (pgvector embeddings) | football2vec or learned embeddings from VAEP sequences instead of simple per-90 stat vectors |
+| **Phase 17** (DEFCON GNN) | GNN pre-trained on StatsBomb 360 freeze frames (15.58M rows), fine-tuned for defensive valuation |
+| **Space Creation** (ROADMAP) | JAX `vmap` pitch control vectorization makes full OBSO feasible on CPU |
+| **Graph Tactical Patterns** (ROADMAP) | PyTorch Geometric GNN on tracking data with symmetry augmentation |
+| **Visual Exploratory Behavior** (ROADMAP) | RTMPose for pose estimation if Respo.Vision data requires broadcast video processing |
+
+### Key tools
+
+| Tool | Purpose | License |
+|------|---------|---------|
+| **JAX** + `vmap` | Pitch control vectorization, array computation | Apache 2.0 |
+| **PyTorch Geometric** | GNN training (player interaction graphs) | MIT |
+| **Flax NNX** | JAX neural networks (2024 rewrite, clean API) | Apache 2.0 |
+| **Optax** | EWC-compatible optimizers, LR schedules | Apache 2.0 |
+| **OpenEvolve** | AlphaEvolve-style algorithm evolution | MIT |
+| **MosaicML StreamingDataset** | Stream Delta to external GPU DataLoaders | Apache 2.0 |
+| **MLflow 3** | Experiment tracking, model registry, deployment | Apache 2.0 |
+
+### Open questions
+
+1. **JAX vs PyTorch**: JAX `vmap` for pitch control is compelling, but GNN ecosystem is PyTorch-centric. Maintain both or pick one?
+2. **External GPU provider**: RunPod (cheapest) vs Lambda Labs (more reliable, SSD-backed)?
+3. **football2vec**: Use pre-trained weights directly or retrain on full 3,000-match StatsBomb corpus?
+4. **Feature store scope**: Which player features justify formal Databricks Feature Engineering tables?
+5. **Serving strategy**: CPU batch inference (simple, scheduled) vs scale-to-zero endpoint (real-time)?
+6. **SoccerMaster timeline**: Monitor GitHub for weight release &mdash; could consolidate multiple point solutions
+
+### Dependencies
+
+- No blocking dependencies for JAX `vmap` or symmetry augmentation (Tier 1)
+- GNN pre-training depends on PyTorch Geometric + external GPU access
+- football2vec / OpenSTARLab usable immediately with existing StatsBomb/Wyscout data
+- Full model serving pipeline depends on MLflow 3 + Unity Catalog (already provisioned)
+- Synergistic with Observability (OTel traces measure model performance and drift)
+- Synergistic with Pipeline Optimization (`for_each_task` for distributed inference jobs)
 
 ---
 
 ## Visual Exploratory Behavior (Pose-Enhanced Tracking)
 
-**Status:** Blocked by data procurement — active paths being pursued
+**Status:** Blocked by data procurement &mdash; active paths being pursued
 **License:** BSD 3-Clause ([USSoccerFederation/ssac26_visual_exploratory_behavior](https://github.com/USSoccerFederation/ssac26_visual_exploratory_behavior))
 **Paper:** Bekkers (2026), "Wide Open Gazes: Quantifying Visual Exploratory Behavior in Soccer with Pose Enhanced Positional Data" (SSAC26)
 
@@ -184,9 +536,8 @@ Phase 12 implemented a simpler Off-Ball xT metric: `pitch_control(player_locatio
 - [ ] Voronoi area persistence — pre-compute in dbt (lower priority if Phase 11 replaces Voronoi)
 - [ ] Pitch Control animation — frame-by-frame playback in Streamlit
 - [ ] Event overlay on Pitch Control — render events on pitch control view
-- [ ] Respo.Vision 3D pose tracking — skeletal keypoints from broadcast video (user pursuing via network)
 - [ ] Wyscout match metadata — formations, coaches, venue (not in public Figshare dataset)
-- [ ] Parallelized Databricks ingestion — fan-out patterns for concurrent provider ingestion
+
 
 ---
 
