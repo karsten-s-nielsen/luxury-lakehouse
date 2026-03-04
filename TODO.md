@@ -8,28 +8,11 @@ Quick-reference action items. Full details in [PLAN.md](PLAN.md). For research d
 
 ## Completed Phases
 
-Phases 0–11, 13 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for the summary table and git history for implementation details.
+Phases 0–13 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for the summary table and git history for implementation details.
 
 ---
 
 ## Next Up
-
-### Phase 12 — Movement Analysis (PLAN §8.4)
-
-**Tier 1 — Event-data proxies (all matches):**
-- [ ] PPDA (Passes Per Defensive Action) — team pressing intensity
-- [ ] Pressure event analysis — StatsBomb `type='Pressure'` density maps
-- [ ] Add pressing metrics to `fct_match_summary` or new `fct_pressing_stats`
-
-**Tier 2 — Physical performance (tracking matches):**
-- [ ] Physical dashboard — distance, HSR, sprints, accelerations per player per match
-- [ ] Use [`floodlight`](https://github.com/floodlight-sports/floodlight) (v1.1+, MIT) for kinematics
-- [ ] New Streamlit **Movement Analysis page**
-
-**Tier 3 — Off-ball spatial (tracking + pitch control):**
-- [ ] Off-Ball xT — `pitch_control × xT` per frame per player
-- [ ] Space creation quantification (Fernandez & Bornn 2018)
-- [ ] Depends on Phase 10 + Phase 11
 
 ### Phase 14 — Cross-Source Player Entity Resolution (PLAN §8.6)
 
@@ -64,7 +47,7 @@ Phases 0–11, 13 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) fo
 
 | # | Item | Location | Description | Blocker |
 |---|------|----------|-------------|---------|
-| 1 | Synced tables Terraform workaround | `terraform/` | Must create synced tables via UI + import due to missing provider fields. `lifecycle { ignore_changes = all }`. | Waiting on Databricks provider to add `database_project`/`branch` fields. |
+| 1 | Synced tables Terraform workaround | `terraform/` | Must create synced tables via UI + import due to missing provider fields. `lifecycle { ignore_changes = all }`. No schedule/cron field on resource — SNAPSHOT refresh requires manual trigger or external job. Workaround: `scripts/refresh_synced_tables.py`. | Waiting on Databricks provider to add `database_project`/`branch` fields and pipeline schedule support. |
 | 2 | PG index recreation after synced table changes | `scripts/create_indexes.py` | Custom indexes dropped on synced table recreation. Must re-run script manually. | Operational procedure; automated via `create_indexes.py --verify`. |
 | 3 | StatsBomb `backfill_extra_json` N+1 | `statsbomb.py:438` | ~3,500 per-match `SELECT * + toPandas()` queries in a loop. Each triggers full DAG plan. | High risk — batch `.toPandas()` on ~10M rows could OOM. Needs careful memory budgeting. |
 | 4 | SPADL/VAEP `.toPandas()` OOM risk | `spadl_vaep.py:170` | Full bronze tables collected to driver memory. Works at ~3M events, will OOM at 2x. | Requires Spark-native rewrite of socceraction pipeline. Large effort. |
@@ -75,6 +58,13 @@ Phases 0–11, 13 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) fo
 | 9 | Fixed 3-cluster assumption | `analytics/line_breaking.py` | Ward clustering with `n_clusters=3` assumes 3 defensive lines. Breaks for 5-depth formations. | Research task — needs silhouette score analysis. Part of Phase 12+. |
 | 10 | No set-piece exclusion | `analytics/line_breaking.py` | Corners, free kicks, throw-ins have non-standard formations. | Research task — needs `pass_type` filtering or set-piece-aware algorithm. |
 | 11 | Heat Map pre-aggregation lossy | `heat_map.py` | Server-side `GROUP BY round(x/10)` bins into 10-yard cells before `bin_statistic`. Per-action precision lost. | Acceptable trade-off for density visualization. Not needed for current use case. |
+| 12 | Off-Ball xT 1fps sampling | `off_ball_xt.py` | 1fps sampling (~5,400 frames/match) is a compute-time trade-off. Full 25fps would be 25x slower with marginal accuracy gain. | Performance budget. Consider GPU batch if higher resolution needed. |
+| 13 | PPDA StatsBomb-only | `fct_match_summary.sql` | PPDA uses StatsBomb defensive actions (`Duel`, `Interception`, `Foul Committed`, `Block`). NULL for Wyscout-only competitions (different event taxonomy). | Data limitation. Would require event type mapping or different pressing proxy. |
+| 14 | Space creation deferred | ROADMAP.md | Full Fernandez & Bornn 2018 OBSO requires N+1 pitch control computations per frame — too expensive for current compute budget. | Move to ROADMAP.md as research direction. |
+| 15 | Acceleration noise | `fct_tracking_frames.sql` | Frame-to-frame speed differencing amplifies sensor noise. May show unrealistic acceleration spikes. | Consider Savitzky-Golay smoothing in Python pre-processing if spikes observed in practice. |
+| 16 | Physical stats tracking-only | `fct_physical_stats.sql` | Only 20 matches (Metrica 3, IDSSE 7, SkillCorner 10) have physical data. ~3,000 event-only matches have none. | Data limitation — no tracking for StatsBomb/Wyscout. |
+| 17 | xT grid static | `expected_threat_grid.csv` | Karun Singh standard 12x8 seed. Could be computed dynamically per competition from pass/shot data for more accurate values. | Enhancement — current static grid is standard practice. |
+| 18 | Off-Ball xT NaN values | `off_ball_xt_results` | 470/616 player rows have NULL xT due to NaN propagation from pitch control boundary conditions. Code fixed with `math.isnan()` guard but batch job needs re-run to populate clean data. | Requires ~45 min Databricks job re-run. |
 
 ## Research & Future Work
 
@@ -84,6 +74,7 @@ See [ROADMAP.md](ROADMAP.md) for research directions, long-horizon features, and
 - **Staging Environment** — Lakebase branching for pre-production validation
 - **Graph-Based Tactical Patterns** — GNN research direction (Raabe et al. 2022)
 - **Decision Optimization** — RL-based pass optimization beyond VAEP (Rahimian et al.)
+- **Space Creation** — Fernandez & Bornn 2018 OBSO (deferred from Phase 12, requires GPU compute)
 
 ## Infrastructure Notes
 

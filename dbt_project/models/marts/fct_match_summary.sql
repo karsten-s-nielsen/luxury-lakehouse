@@ -6,6 +6,10 @@
 --
 -- The matches table has team names but no team IDs (statsbombpy flattening).
 -- We derive the team_name → team_id mapping from events per match.
+--
+-- PPDA (Passes Per Defensive Action): opponent passes allowed in the defending
+-- team's defensive 40% of pitch, divided by team defensive actions in that zone.
+-- StatsBomb coordinates are from the acting team's perspective (x=0 own goal).
 
 with matches as (
 
@@ -64,6 +68,38 @@ match_passes as (
         sum(case when is_progressive then 1 else 0 end) as progressive_passes
 
     from passes
+    group by match_id, team_id
+
+),
+
+-- PPDA: defensive actions per team pressing HIGH in the opponent's 60% of pitch.
+-- StatsBomb coords: x=0 own goal, x=120 opponent goal.
+-- Pressing zone = x > pitch_length * 0.4 (opponent's 60%, where team presses)
+defensive_actions as (
+
+    select
+        match_id,
+        team_id,
+        count(*) as def_action_count
+    from {{ ref('stg_statsbomb__events') }}
+    where event_type in ('Duel', 'Interception', 'Foul Committed', 'Block')
+      and location_x > {{ var('pitch_length') }} * 0.4
+    group by match_id, team_id
+
+),
+
+-- Opponent passes under pressure: passes made in the passer's own 60%.
+-- These are passes the pressing team "allowed" in the pressing zone.
+-- The 60% threshold matches the defensive action zone (other team's x > 40%).
+opponent_passes_in_def_zone as (
+
+    select
+        match_id,
+        team_id,
+        count(*) as opp_pass_count
+    from {{ ref('stg_statsbomb__events') }}
+    where event_type = 'Pass'
+      and location_x < {{ var('pitch_length') }} * 0.6
     group by match_id, team_id
 
 ),
@@ -129,6 +165,24 @@ final as (
         -- xG difference (positive = home advantage)
         coalesce(hs.total_xg, 0) - coalesce(aws.total_xg, 0) as xg_difference,
 
+        -- PPDA: Passes Per Defensive Action
+        -- Home PPDA = away passes in home zone / home defensive actions
+        case
+            when coalesce(hda.def_action_count, 0) > 0
+            then round(
+                coalesce(aop.opp_pass_count, 0) * 1.0 / hda.def_action_count, 2
+            )
+            else null
+        end                                             as home_ppda,
+        -- Away PPDA = home passes in away zone / away defensive actions
+        case
+            when coalesce(ada.def_action_count, 0) > 0
+            then round(
+                coalesce(hop.opp_pass_count, 0) * 1.0 / ada.def_action_count, 2
+            )
+            else null
+        end                                             as away_ppda,
+
         -- Match result
         case
             when m.home_score > m.away_score then 'home_win'
@@ -147,6 +201,11 @@ final as (
     left join match_shots aws on m.match_id = aws.match_id and atm.team_id = aws.team_id
     left join match_passes hp on m.match_id = hp.match_id and htm.team_id = hp.team_id
     left join match_passes ap on m.match_id = ap.match_id and atm.team_id = ap.team_id
+    -- PPDA joins: home def actions + away passes in home zone (and vice versa)
+    left join defensive_actions hda on m.match_id = hda.match_id and htm.team_id = hda.team_id
+    left join defensive_actions ada on m.match_id = ada.match_id and atm.team_id = ada.team_id
+    left join opponent_passes_in_def_zone aop on m.match_id = aop.match_id and atm.team_id = aop.team_id
+    left join opponent_passes_in_def_zone hop on m.match_id = hop.match_id and htm.team_id = hop.team_id
 
 )
 

@@ -54,8 +54,8 @@ with tracking_features as (
         -- Speed features
         avg(speed)                                      as avg_speed,
         max(speed)                                      as max_speed,
-        -- Sprint count: frames where speed exceeds sprint threshold
-        sum(case when speed > {{ var('sprint_speed_threshold') }} then 1 else 0 end)   as sprint_count,
+        -- Sprint count: frames where speed_ms exceeds sprint threshold (m/s)
+        sum(case when speed_ms > {{ var('sprint_speed_threshold') }} then 1 else 0 end)   as sprint_count,
 
         -- Third occupancy (percentage of frames in each pitch third)
         -- Boundaries derived from pitch_length: defensive < length/3, middle, attacking >= 2*length/3

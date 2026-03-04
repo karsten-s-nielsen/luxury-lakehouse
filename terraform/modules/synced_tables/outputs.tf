@@ -10,6 +10,9 @@ output "synced_fact_tables" {
     fct_player_stats      = databricks_database_synced_database_table.fct_player_stats.name
     fct_match_summary     = databricks_database_synced_database_table.fct_match_summary.name
     fct_player_embeddings = databricks_database_synced_database_table.fct_player_embeddings.name
+    fct_action_values     = databricks_database_synced_database_table.fct_action_values.name
+    fct_tracking_frames   = databricks_database_synced_database_table.fct_tracking_frames.name
+    fct_physical_stats    = databricks_database_synced_database_table.fct_physical_stats.name
   }
 }
 

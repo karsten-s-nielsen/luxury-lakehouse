@@ -68,3 +68,16 @@ Apache License, Version 2.0. The implementation is rewritten from PyTorch
 to NumPy, adapted for StatsBomb 120x80 coordinates, and extended with
 sideline extensions and batch processing.
 See: https://github.com/parmacalcio1913/line-breaking-passes
+
+The Expected Threat (xT) grid (dbt_project/seeds/expected_threat_grid.csv)
+uses the 12x8 zone probability values from: Karun Singh (2018),
+"Introducing Expected Threat (xT)." The grid is a mathematical probability
+table derived from publicly available match data. No license required
+(mathematical facts), but attribution is professional courtesy.
+See: https://karun.in/blog/expected-threat.html
+
+The Off-Ball Expected Threat module (src/analytics/off_ball_xt.py) combines
+pitch control (Spearman 2017, credited above) with xT zones to quantify
+off-ball positional value. The concept follows Soccermatics Lesson 7 by
+David Sumpter. The implementation is an independent Python translation,
+not derived from any source code.

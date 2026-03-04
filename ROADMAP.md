@@ -88,7 +88,7 @@ Currently the platform has a single `dev` environment. Adding a `staging` enviro
 | Lakebase project | `soccer-analytics-dev` | `soccer-analytics-staging` |
 | Lakebase branch | `production` | `staging` (branched from dev production) |
 | dbt target | `dev` | `staging` |
-| Synced tables | 10 tables | Subset (fact tables only for validation) |
+| Synced tables | 11 tables | Subset (fact tables only for validation) |
 | Terraform | `terraform/environments/dev/` | `terraform/environments/staging/` |
 | Budget | Under $100/month | Minimal incremental (scale-to-zero) |
 
@@ -151,6 +151,31 @@ Extends VAEP (Phase 9) from *valuing what happened* to *optimizing what should h
 ### Not immediately actionable
 
 Requires commercial-grade tracking data (Belgian Pro League / Stats Perform) — significantly beyond current public datasets. Filed as a long-horizon research direction.
+
+---
+
+## Space Creation Quantification (Fernandez & Bornn 2018)
+
+**Status:** Research direction — deferred from Phase 12
+**Paper:** Fernandez & Bornn (2018), "Wide Open Spaces: A statistical technique for measuring space creation in professional soccer"
+
+Full OBSO (Off-Ball Scoring Opportunity) requires computing N+1 pitch control surfaces per frame (one counterfactual surface with each player removed) to measure each player's space creation contribution. At 25fps with 22 players, this is ~2,700 pitch control evaluations per second of play — prohibitively expensive for the current compute budget.
+
+### What was implemented instead
+
+Phase 12 implemented a simpler Off-Ball xT metric: `pitch_control(player_location) x xT(player_zone)`, computed at 1fps sampling. This captures positional value without the counterfactual computation.
+
+### What would be needed
+
+- GPU-accelerated pitch control (vectorized TTI computation across grid)
+- ~25x compute budget increase (from 1fps to 25fps full OBSO)
+- Differential pitch control: `PC_with_player - PC_without_player` per player per frame
+
+### Dependencies
+
+- Phase 11 (pitch control) — complete
+- Phase 12 (off-ball xT) — complete (provides foundation)
+- GPU compute infrastructure (not currently available)
 
 ---
 

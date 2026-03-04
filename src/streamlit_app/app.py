@@ -7,6 +7,7 @@ import streamlit as st
 from streamlit_app.pages.action_values import page as action_values_page
 from streamlit_app.pages.heat_map import page as heat_map_page
 from streamlit_app.pages.match_summary import page as match_summary_page
+from streamlit_app.pages.movement_analysis import page as movement_analysis_page
 from streamlit_app.pages.pass_map import page as pass_map_page
 from streamlit_app.pages.pass_network import page as pass_network_page
 from streamlit_app.pages.pitch_control import page as pitch_control_page
@@ -32,6 +33,12 @@ def main() -> None:
         st.Page(action_values_page, title="Action Values", icon=":material/trending_up:", url_path="action-values"),
         st.Page(player_radar_page, title="Player Radar", icon=":material/radar:", url_path="player-radar"),
         st.Page(match_summary_page, title="Match Summary", icon=":material/scoreboard:", url_path="match-summary"),
+        st.Page(
+            movement_analysis_page,
+            title="Movement Analysis",
+            icon=":material/directions_run:",
+            url_path="movement-analysis",
+        ),
         st.Page(pitch_control_page, title="Pitch Control", icon=":material/grid_on:", url_path="pitch-control"),
     ]
 

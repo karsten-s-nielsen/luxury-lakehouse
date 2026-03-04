@@ -68,6 +68,16 @@ INDEXES: list[tuple[str, str, str]] = [
     ("idx_player_stats_comp_id", "fct_player_stats_synced", "competition_id"),
     # R-2: radar player lookup (competition_id + player_id)
     ("idx_player_stats_comp_player", "fct_player_stats_synced", "competition_id, player_id"),
+    # ── fct_physical_stats_synced — ~600 rows (Movement Analysis) ──
+    # MA-1: match filter (match_id)
+    ("idx_physical_stats_match", "fct_physical_stats_synced", "match_id"),
+    # MA-2: player + match lookup (player_id, match_id)
+    ("idx_physical_stats_player_match", "fct_physical_stats_synced", "player_id, match_id"),
+    # MA-3: provider filter in recursive CTE match listing
+    ("idx_physical_stats_provider", "fct_physical_stats_synced", "source_provider, match_id"),
+    # ── fct_match_summary_synced — ~3K rows (PPDA) ──────────────────
+    # MS-1: competition + PPDA filter
+    ("idx_match_summary_comp_id", "fct_match_summary_synced", "competition_id"),
 ]
 
 # Verification queries for --verify flag: (description, query)

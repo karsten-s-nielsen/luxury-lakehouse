@@ -66,6 +66,7 @@ compute_spadl_vaep = "ingestion.spadl_vaep:main"
 ingest_idsse = "ingestion.idsse:main"
 ingest_skillcorner = "ingestion.skillcorner:main"
 compute_line_breaking = "ingestion.line_breaking:main"
+compute_off_ball_xt = "ingestion.off_ball_xt:main"
 
 [tool.ruff]
 target-version = "py310"

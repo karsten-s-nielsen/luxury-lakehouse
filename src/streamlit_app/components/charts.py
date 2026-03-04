@@ -1,4 +1,4 @@
-"""matplotlib chart wrappers for radar, bar, scatter, and VAEP visualizations."""
+"""matplotlib chart wrappers for radar, bar, scatter, physical, and VAEP visualizations."""
 
 from __future__ import annotations
 
@@ -196,6 +196,103 @@ def plot_action_type_breakdown(
     ax.set_xlabel("Total VAEP", color=_LINE_COLOR, fontsize=11)
     ax.set_title(title, color=_LINE_COLOR, fontsize=14, pad=10, fontweight="bold")
     ax.tick_params(axis="both", colors=_LINE_COLOR, labelcolor=_LINE_COLOR)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["bottom"].set_color("#333355")
+    ax.spines["left"].set_color("#333355")
+    plt.tight_layout()
+    plt.close(fig)
+    return fig
+
+
+def plot_physical_bars(
+    data: pd.DataFrame,
+    metric: str,
+    label: str,
+    title: str = "Physical Performance",
+) -> matplotlib.figure.Figure:
+    """Plot a horizontal bar chart of a physical metric per player.
+
+    Args:
+        data: DataFrame with ``player_id`` and the given metric column.
+        metric: Column name to plot (e.g., ``total_distance_km``).
+        label: X-axis label for the metric.
+        title: Chart title.
+
+    Returns a matplotlib Figure.
+    """
+    n = len(data) if not data.empty else 1
+    fig, ax = plt.subplots(figsize=(8, max(2, min(n * 0.18, 4))), dpi=72)
+    fig.set_facecolor(_BG_COLOR)
+    ax.set_facecolor(_BG_COLOR)
+
+    if not data.empty and metric in data.columns:
+        sorted_df = data.sort_values(metric, ascending=True)
+        player_labels = sorted_df["player_id"].astype(str)
+        values = sorted_df[metric].astype(float)
+        ax.barh(player_labels, values, color="#2a9d8f", alpha=0.85, height=0.6)
+
+    ax.set_xlabel(label, color=_LINE_COLOR, fontsize=8)
+    ax.set_title(title, color=_LINE_COLOR, fontsize=10, pad=6, fontweight="bold")
+    ax.tick_params(axis="both", colors=_LINE_COLOR, labelcolor=_LINE_COLOR, labelsize=7)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["bottom"].set_color("#333355")
+    ax.spines["left"].set_color("#333355")
+    plt.tight_layout()
+    plt.close(fig)
+    return fig
+
+
+def plot_ppda_bars(
+    data: pd.DataFrame,
+    title: str = "PPDA by Match",
+) -> matplotlib.figure.Figure:
+    """Plot grouped bar chart of home vs away PPDA per match.
+
+    Args:
+        data: DataFrame with ``match_id``, ``home_ppda``, ``away_ppda``,
+            ``home_team_name``, ``away_team_name`` columns.
+        title: Chart title.
+
+    Returns a matplotlib Figure.
+    """
+    # Limit to most recent matches to keep chart readable
+    plot_data = data.tail(25) if len(data) > 25 else data
+
+    fig, ax = plt.subplots(figsize=(12, max(4, min(len(plot_data) * 0.5, 14))))
+    fig.set_facecolor(_BG_COLOR)
+    ax.set_facecolor(_BG_COLOR)
+
+    if not plot_data.empty and "home_ppda" in plot_data.columns and "away_ppda" in plot_data.columns:
+        labels = [
+            f"{row.get('home_team_name', 'Home')} v {row.get('away_team_name', 'Away')}"
+            for _, row in plot_data.iterrows()
+        ]
+        y_pos = np.arange(len(labels))
+        home_vals = plot_data["home_ppda"].fillna(0).astype(float)
+        away_vals = plot_data["away_ppda"].fillna(0).astype(float)
+
+        ax.barh(y_pos + 0.15, home_vals, height=0.3, color="#e63946", alpha=0.85, label="Home PPDA")
+        ax.barh(y_pos - 0.15, away_vals, height=0.3, color="#457b9d", alpha=0.85, label="Away PPDA")
+
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels(labels, color=_LINE_COLOR, fontsize=9)
+        ax.legend(loc="upper right", facecolor=_BG_COLOR, edgecolor="#333355", labelcolor=_LINE_COLOR)
+
+        if len(data) > 25:
+            ax.annotate(
+                f"Showing last 25 of {len(data)} matches",
+                xy=(0.5, -0.04),
+                xycoords="axes fraction",
+                ha="center",
+                fontsize=8,
+                color="#888888",
+            )
+
+    ax.set_xlabel("PPDA (lower = more aggressive press)", color=_LINE_COLOR, fontsize=11)
+    ax.set_title(title, color=_LINE_COLOR, fontsize=14, pad=10, fontweight="bold")
+    ax.tick_params(axis="x", colors=_LINE_COLOR)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.spines["bottom"].set_color("#333355")

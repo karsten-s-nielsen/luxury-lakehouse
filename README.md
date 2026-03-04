@@ -67,7 +67,7 @@ Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by 
 - **VAEP Action Valuation** — Player contribution scoring beyond goals/assists (SPADL + VAEP)
 - **Pitch Control** — Physics-based (Spearman 2017) and Voronoi models from tracking data
 - **Line-Breaking Passes** — Ward clustering + cross-product straddle test for defensive line penetration (StatsBomb 360)
-- **Movement Analysis** — Physical performance metrics and off-ball spatial analysis from tracking data *(planned)*
+- **Movement Analysis** — PPDA pressing intensity, physical performance metrics (distance, HSR, sprints), and off-ball xT from tracking data
 - **Player Similarity** — pgvector cosine-distance search ("Find players like X") *(planned)*
 - **Player Radar Charts** — Per-90 stat comparison across multiple metrics
 
@@ -91,7 +91,7 @@ luxury-lakehouse/
 
 ## Status
 
-**Phase 13 complete** — 8 Streamlit pages, 257 unit tests, 282 dbt data tests, line-breaking pass detection with Ward clustering + straddle test. See [PLAN.md](PLAN.md) for the implementation plan and [ROADMAP.md](ROADMAP.md) for research directions.
+**Phase 13 complete** — 9 Streamlit pages, 290 unit tests, 11 synced tables, line-breaking pass detection via Ward clustering + cross-product straddle test. See [PLAN.md](PLAN.md) for the implementation plan and [ROADMAP.md](ROADMAP.md) for research directions.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -109,7 +109,7 @@ luxury-lakehouse/
 | 9 | SPADL/VAEP Action Valuation | Complete |
 | 10 | Additional Tracking Data (IDSSE, SkillCorner) | Complete |
 | 11 | Physics-Based Pitch Control (Spearman 2017) | Complete |
-| 12 | Movement Analysis | Planned |
+| 12 | Movement Analysis | Complete |
 | 13 | Line-Breaking Pass Detection | Complete |
 
 ## Tech Stack

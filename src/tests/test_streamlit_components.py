@@ -6,7 +6,12 @@ import matplotlib.figure
 import numpy as np
 import pandas as pd
 
-from streamlit_app.components.charts import plot_match_comparison_bars, plot_player_radar
+from streamlit_app.components.charts import (
+    plot_match_comparison_bars,
+    plot_physical_bars,
+    plot_player_radar,
+    plot_ppda_bars,
+)
 from streamlit_app.components.pitch import (
     categorize_passes,
     plot_heatmap,
@@ -638,3 +643,62 @@ class TestCategorizePasses:
         assert len(complete) == 1
         assert len(prog) == 0
         assert len(lb) == 0
+
+
+# ---------------------------------------------------------------------------
+# Movement Analysis chart tests
+# ---------------------------------------------------------------------------
+
+
+class TestPlotPhysicalBars:
+    """Test physical performance bar chart."""
+
+    def test_returns_figure_with_data(self) -> None:
+        data = pd.DataFrame(
+            {
+                "player_id": ["p1", "p2", "p3"],
+                "total_distance_km": [10.5, 11.2, 9.8],
+            }
+        )
+        fig = plot_physical_bars(data, "total_distance_km", "Distance (km)")
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+    def test_returns_figure_with_empty_data(self) -> None:
+        data = pd.DataFrame({"player_id": pd.Series(dtype=str), "total_distance_km": pd.Series(dtype=float)})
+        fig = plot_physical_bars(data, "total_distance_km", "Distance (km)")
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+    def test_custom_title(self) -> None:
+        data = pd.DataFrame({"player_id": ["p1"], "sprint_distance_m": [500.0]})
+        fig = plot_physical_bars(data, "sprint_distance_m", "Sprint (m)", title="Sprint Distance")
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+
+class TestPlotPpdaBars:
+    """Test PPDA bar chart."""
+
+    def test_returns_figure_with_data(self) -> None:
+        data = pd.DataFrame(
+            {
+                "match_id": [1, 2],
+                "home_ppda": [8.5, 12.3],
+                "away_ppda": [10.1, 7.8],
+                "home_team_name": ["Team A", "Team C"],
+                "away_team_name": ["Team B", "Team D"],
+            }
+        )
+        fig = plot_ppda_bars(data)
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+    def test_returns_figure_with_empty_data(self) -> None:
+        data = pd.DataFrame(
+            {
+                "match_id": pd.Series(dtype=int),
+                "home_ppda": pd.Series(dtype=float),
+                "away_ppda": pd.Series(dtype=float),
+                "home_team_name": pd.Series(dtype=str),
+                "away_team_name": pd.Series(dtype=str),
+            }
+        )
+        fig = plot_ppda_bars(data)
+        assert isinstance(fig, matplotlib.figure.Figure)
