@@ -14,24 +14,24 @@ Phases 0–13 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for th
 
 ## Next Up
 
-### Phase 14 — Cross-Source Player Entity Resolution (PLAN §8.6)
+### Phase 14 — Cross-Source Player Entity Resolution (PLAN §8.2)
 
 - [ ] Request license from `parmacalcio1913/players-matcher` (currently unlicensed)
 - [ ] Build `int_player_xref` mapping across StatsBomb, Metrica, Wyscout
 - [ ] Refactor `dim_players` to merge cross-source records
 
-### Phase 15 — pgvector Player Embeddings (PLAN §8.7)
+### Phase 15 — pgvector Player Embeddings (PLAN §8.3)
 
 - [ ] Design feature vector from `fct_player_stats` per-90 metrics
 - [ ] Populate `fct_player_embeddings` (0 rows, table provisioned)
 - [ ] Depends on Phase 14 for cross-source identity (within-source feasible without it)
 
-### Phase 16 — Player Similarity Streamlit Page (PLAN §8.8)
+### Phase 16 — Player Similarity Streamlit Page (PLAN §8.4)
 
 - [ ] pgvector nearest-neighbor search (`player_search.py`)
 - [ ] Depends on Phase 15
 
-### Phase 17 — DEFCON Defensive Valuation (PLAN §8.9)
+### Phase 17 — DEFCON Defensive Valuation (PLAN §8.5)
 
 - [ ] DEFCON repo has no license — must reimplement from paper equations
 - [ ] EPV decomposition from VAEP (Phase 9) + pitch control (Phase 11)
@@ -70,11 +70,14 @@ Phases 0–13 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for th
 
 See [ROADMAP.md](ROADMAP.md) for research directions, long-horizon features, and unscheduled ideas including:
 
+- **Observability Layer (OpenTelemetry)** — instrument once, observe anywhere; ~$1-2/month personal tier
+- **Pipeline Optimization & Scaling (EIP)** — Splitter/Aggregator/Scatter-Gather patterns, caching layers, Respo.Vision scale planning
+- **Deep Learning Infrastructure** — hybrid GPU training, pre-trained soccer models, DeepMind-inspired optimization
 - **Visual Exploratory Behavior** — blocked by pose data procurement (BSD 3-Clause)
 - **Staging Environment** — Lakebase branching for pre-production validation
 - **Graph-Based Tactical Patterns** — GNN research direction (Raabe et al. 2022)
 - **Decision Optimization** — RL-based pass optimization beyond VAEP (Rahimian et al.)
-- **Space Creation** — Fernandez & Bornn 2018 OBSO (deferred from Phase 12, requires GPU compute)
+- **Space Creation** — Fernandez & Bornn 2018 OBSO (deferred from Phase 12; JAX `vmap` may unblock)
 
 ## Infrastructure Notes
 
