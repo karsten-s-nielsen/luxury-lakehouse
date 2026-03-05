@@ -73,6 +73,7 @@ See [ROADMAP.md](ROADMAP.md) for research directions, long-horizon features, and
 - **Observability Layer (OpenTelemetry)** — instrument once, observe anywhere; ~$1-2/month personal tier
 - **Pipeline Optimization & Scaling (EIP)** — Splitter/Aggregator/Scatter-Gather patterns, caching layers, Respo.Vision scale planning
 - **Deep Learning Infrastructure** — hybrid GPU training, pre-trained soccer models, DeepMind-inspired optimization
+- **Provider Abstraction** — configurable multi-tier ingestion; free/open tiers default, commercial activates via credentials
 - **Visual Exploratory Behavior** — blocked by pose data procurement (BSD 3-Clause)
 - **Staging Environment** — Lakebase branching for pre-production validation
 - **Graph-Based Tactical Patterns** — GNN research direction (Raabe et al. 2022)

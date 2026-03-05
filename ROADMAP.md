@@ -369,6 +369,93 @@ Models with available weights compatible with current data sources:
 
 ---
 
+## Provider Abstraction &amp; Multi-Tier Ingestion
+
+**Status:** Research complete, ready for implementation
+**Budget:** $0 incremental (refactoring existing code)
+**EIP Pattern:** Content-Based Router + Provider Manifest
+
+The platform ingests from five data sources, each with a dedicated Python module. The shared `utils.py` abstracts infrastructure plumbing (CLI, logging, Spark, Delta writes, HTTP), but provider identity &mdash; URLs, match lists, table names, partition keys, schemas &mdash; is hardcoded in each module. Adding a new source means writing a module from scratch; switching a provider's data tier (e.g., Wyscout Figshare &rarr; Wyscout Commercial API) means editing code.
+
+### Core principle: configure, don't code
+
+A provider registry pattern where each data source has a configuration manifest defining its available tiers, endpoints, auth mechanism, format, and partition strategy. Users select a tier via config &mdash; commercial tiers activate only when credentials are provided; **free/open tiers are the default**.
+
+```
+Provider Manifest (YAML / dataclass)
+        |
+   Content-Based Router (dispatch by source + tier)
+        |
+   +----+----+----+----+----+
+   |    |    |    |    |    |
+  SB  Wyscout Meta IDSSE SK  ...
+   |    |    |    |    |    |
+   Provider Adapters (fetch + normalize)
+        |
+   Shared Pipeline (validate &rarr; audit &rarr; Delta write)
+```
+
+Each adapter implements a common interface: `discover_matches()`, `fetch_events()`, `fetch_tracking()`. The orchestrator calls the adapter, receives normalized DataFrames, and handles Delta writes via existing `utils.py`.
+
+### Provider catalog
+
+| Provider | Default (Free/Open) Tier | Commercial Tier | Config Switch |
+|----------|-------------------------|-----------------|---------------|
+| **StatsBomb** | GitHub JSON via `statsbombpy` | Same library, authenticated endpoints | Set `SB_USERNAME`/`SB_PASSWORD` env vars |
+| **Wyscout** | Figshare ZIP download | REST API (`/v3/matches/{id}/events`) + API key | API key env var + new fetch logic |
+| **SkillCorner** | `kloppy` open data loader | `skillcorner-py` client + bearer token | Token env var + client swap |
+| **Metrica** | GitHub sample CSV/JSON | GameCloud portal download (same CSV format) | File source change only |
+| **IDSSE / Sportec** | Pre-downloaded DFL XML on UC Volume | S3/FTP push from DFL Data Hub (same XML parser) | File source change only |
+
+### Future provider templates
+
+Providers not yet implemented but with known delivery patterns ready for adapter development:
+
+| Provider | Delivery | Auth | Format | Notes |
+|----------|----------|------|--------|-------|
+| **Opta / Stats Perform** | REST, FTP push, S3 drop, or WebSocket (customer chooses) | API key | JSON (SDAPI) or XML (F-series legacy) | Most complex &mdash; multiple delivery modes |
+| **Second Spectrum** | REST JSON via Stats Perform "Insight Feed" | Bearer token | JSON/JSONL per half | Combined event + tracking in one feed |
+| **Respo.Vision** | REST API, &lt;12hrs post-match | Bearer token | JSON (3D pose, 40+ keypoints) | Wide-per-player schema needed |
+| **Catapult** | REST API (`/parameters`, `/activities`) | Bearer token | JSON | Session-based, not match-based &mdash; different data model |
+| **STATSports** | SONRA REST API | API key | JSON | Same session-based model as Catapult |
+| **Kinexon** | REST + real-time UWB streaming | API key | JSON/CSV | LPS (sub-10cm accuracy), Bundesliga EPTS certified |
+
+### Delivery patterns
+
+The framework needs to support three ingestion triggers (batch first, streaming deferred):
+
+| Pattern | Providers | Implementation |
+|---------|-----------|----------------|
+| **Scheduled REST poll** (primary) | StatsBomb, Wyscout, SkillCorner, Catapult, Kinexon, Respo.Vision | Databricks workflow on schedule or post-match trigger |
+| **S3 event-driven** | Stats Perform, Sportec/DFL, Hawk-Eye | S3 event notification &rarr; EventBridge &rarr; Databricks workflow |
+| **WebSocket subscription** (deferred) | StatsBomb Live, Stats Perform, Genius Sports | Persistent connection &mdash; fundamentally different architecture |
+
+### What already works (no refactoring needed)
+
+StatsBomb's open-to-commercial switch is already zero-code: `statsbombpy` checks for `SB_USERNAME`/`SB_PASSWORD` env vars and switches endpoints automatically. This is the gold standard the other providers should match.
+
+### Industry context
+
+Post-match batch via REST API polling is the dominant pattern across the industry. Clubs like K.V. Mechelen describe their pipeline as "script polls Wyscout API on a schedule." Push-based delivery (webhooks, S3 drops, WebSocket) exists primarily for real-time use cases (betting, broadcast, live coaching). No universal cross-vendor data exchange standard exists &mdash; the closest are Opta's F-series XML schema (de facto event standard), FIFA EPTS certification (tracking accuracy), and `kloppy`'s vendor-neutral Python data model.
+
+### Open questions
+
+1. **Config format**: YAML manifest (12-factor, user-friendly) vs Python dataclass registry (type-safe, IDE support)?
+2. **Adapter granularity**: One adapter per provider with tier as config, or separate adapters per tier?
+3. **kloppy integration**: Delegate to kloppy where it has parsers (SkillCorner, Metrica, Second Spectrum, TRACAB, Opta), or maintain independent parsers for control?
+4. **Wearable data model**: GPS/LPS data is session-centric (training), not match-centric. Separate pipeline or unified with match ingestion?
+5. **Credential management**: Env vars (current, simple) vs Databricks Secrets (more secure, workspace-bound) vs AWS Secrets Manager (centralized)?
+
+### Dependencies
+
+- No blocking dependencies &mdash; can refactor existing modules incrementally
+- Synergistic with Pipeline Optimization (adapters become `for_each_task` workers in Scatter-Gather)
+- Synergistic with Observability (OTel spans per adapter, per provider, per tier)
+- StatsBomb adapter is effectively already done (zero-code tier switch via env vars)
+- `kloppy` (BSD-3) provides vendor-neutral parsing for SkillCorner, Metrica, Second Spectrum, TRACAB, Opta &mdash; reduces adapter implementation effort
+
+---
+
 ## Visual Exploratory Behavior (Pose-Enhanced Tracking)
 
 **Status:** Blocked by data procurement &mdash; active paths being pursued
