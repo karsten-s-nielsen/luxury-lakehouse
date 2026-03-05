@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the [phased plan](PLAN.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-03-04
+**Last updated**: 2026-03-05
 
 ---
 
@@ -615,6 +615,123 @@ Phase 12 implemented a simpler Off-Ball xT metric: `pitch_control(player_locatio
 - Phase 11 (pitch control) — complete
 - Phase 12 (off-ball xT) — complete (provides foundation)
 - GPU compute infrastructure (not currently available)
+
+---
+
+## <img src="assets/hf-logo.png" height="28" align="top"> HuggingFace Hub Integration (Open Model & Dataset Ecosystem)
+
+**Status:** Research complete, ready for incremental implementation
+**Budget:** $0 (free tier) or $9/month (PRO for priority GPU access)
+**References:** [Databricks &hearts; HuggingFace](https://www.databricks.com/blog/contributing-spark-loader-for-hugging-face-datasets); [PyG Hub Integration](https://github.com/pyg-team/pytorch_geometric/issues/7170); [SoccerNet on HF](https://huggingface.co/SoccerNet)
+
+HuggingFace is the open-source AI community's central hub &mdash; model weights, datasets, and interactive demos, all freely accessible without gatekeeping. Their commitment to open science aligns with this project's values: luxury-lakehouse is built on open data (StatsBomb, Wyscout Figshare, Metrica, SoccerNet) and open tools (dbt, Streamlit, socceraction, kloppy). Integrating with HuggingFace is a deliberate choice to participate in and contribute back to that ecosystem, not just consume from it.
+
+As Phases 14&ndash;17 introduce deep learning (entity resolution, learned embeddings, DEFCON GNN), the project needs an artifact ecosystem for model weights, training datasets, and community sharing. HuggingFace Hub provides this at zero cost for public artifacts, with native Databricks integration via MLflow's `transformers` flavor and Unity Catalog model registry.
+
+### Core principle: publish openly, consume freely
+
+HuggingFace's model is consumption-free: anyone can download public models and datasets without an account. Publishing is free for public repos (10 GB/repo Git LFS). A HuggingFace Organization (e.g., `luxury-lakehouse`) provides a namespace for all artifacts, with collaborators using their own free accounts. Compute costs (GPU Spaces, HF Jobs) are per-user &mdash; the org pays nothing when others train on published data.
+
+```
+Delta Lake (source of truth)
+    ↓ export / stream
+HuggingFace Hub (public artifacts)
+    ├── Models: safetensors weights + model cards
+    ├── Datasets: Parquet + dataset cards + streaming
+    └── Spaces: public demo (Streamlit/Gradio)
+    ↓ consume
+Community (zero cost to download/use)
+    ↓ train / fine-tune
+Their own compute (HF Jobs, RunPod, Databricks)
+```
+
+### Integration tiers
+
+| Tier | Action | Phase Alignment | Cost |
+|------|--------|----------------|------|
+| **1 &mdash; Consume** | Pull pre-trained models (football2vec, sentence-transformers) for entity resolution and embeddings | Phase 14&ndash;15 | $0 |
+| **2 &mdash; Publish** | Push trained model weights (safetensors) and processed datasets (Parquet) to HF Hub | Phase 15, 17 | $0 |
+| **3 &mdash; Train** | Use HF Jobs or ZeroGPU Spaces for GNN training; compare pricing vs RunPod | Phase 17 | $9/mo PRO + per-job |
+| **4 &mdash; Demo** | Host a public Streamlit/Gradio Space with cached data subsets as a portfolio showcase | Post-Phase 16 | $0 (CPU) |
+
+### Tier 1 &mdash; Consume pre-trained models
+
+Models with immediate applicability to planned phases:
+
+| Model | Source | License | Relevance |
+|-------|--------|---------|-----------|
+| [**sentence-transformers**](https://sbert.net/) (`all-mpnet-base-v2`) | HF Hub | Apache 2.0 | Phase 14 entity resolution &mdash; embed player names + metadata for cosine similarity matching via pgvector. Handles transliteration, accented characters, name variants better than `rapidfuzz`. |
+| [**football2vec**](https://github.com/ofirmg/football2vec) | GitHub (MIT) | MIT | Phase 15 embeddings &mdash; pre-trained player/action embeddings on StatsBomb data. Could replace or complement simple per-90 stat vectors. |
+| [**OpenSTARLab**](https://arxiv.org/html/2502.02785v2) (LEM, FMS, Seq2Event) | GitHub (Apache 2.0) | Apache 2.0 | Event prediction and match simulation on StatsBomb + Wyscout data. Foundation for Phase 17 and Decision Optimization. |
+| [**microsoft/SportsBERT**](https://huggingface.co/microsoft/SportsBERT) | HF Hub | MIT | Sports-domain BERT for NLP-based player search or commentary enrichment. Lower priority. |
+
+**Databricks integration path:** `HF_HOME` &rarr; UC Volume caches downloads across sessions. Models logged via `mlflow.transformers.log_model()`, registered in Unity Catalog with `@Champion`/`@Challenger` aliases.
+
+### Tier 2 &mdash; Publish models and datasets
+
+Artifacts the project could publish to the community:
+
+| Artifact | Format | Est. Size | Publication Trigger |
+|----------|--------|-----------|-------------------|
+| Player embedding model + vectors | safetensors + Parquet | ~50&ndash;200 MB | Phase 15 completion |
+| DEFCON GNN weights | safetensors via `PyGModelHubMixin` | ~50&ndash;200 MB | Phase 17 completion |
+| SPADL/VAEP action value dataset | Parquet (auto-streaming) | ~500 MB&ndash;2 GB | Available now (optional) |
+| Evolved xT grid (if OpenEvolve used) | CSV + model card | <1 MB | Post-DL Infrastructure |
+| Line-breaking pass detection results | Parquet | ~50 MB | Available now (optional) |
+
+All artifacts fit within HF's free 10 GB/repo Git LFS limit. Dataset repos get automatic Parquet conversion, DuckDB-queryable dataset viewer, and streaming support.
+
+**Model cards** document methodology, training data provenance (StatsBomb open data, Wyscout Figshare), coordinate systems, and reproduction steps &mdash; the same rigor as the project's existing documentation standards.
+
+### Tier 3 &mdash; GPU training on HuggingFace
+
+| | RunPod Spot | HF Jobs | HF ZeroGPU (PRO) |
+|---|---|---|---|
+| **RTX 4090** | ~$0.35/hr | &mdash; | &mdash; |
+| **A100 80 GB** | ~$1.59/hr | Available | Queue-based |
+| **H200** | &mdash; | Available (PRO) | Priority (PRO) |
+| **Ecosystem** | Raw GPU | `hf jobs run`, auto-push to Hub | Spaces integration |
+| **Min cost** | Per-hour only | Per-hour only | $9/month base |
+
+**Decision point:** Compare HF Jobs vs RunPod pricing when Phase 17 GNN training begins. HF's advantage is ecosystem integration (train &rarr; push &rarr; serve in one flow). RunPod is cheaper for raw GPU-hours. Both are compatible with MLflow remote logging back to Databricks.
+
+### Tier 4 &mdash; Public demo Space
+
+A HuggingFace Space (Streamlit or Gradio) hosting a read-only demo with pre-cached data subsets. Not a replacement for the Databricks Apps deployment (which has live Lakebase connectivity), but a public portfolio piece for:
+
+- Interactive pitch control visualization
+- Player embedding similarity explorer
+- xG model playground
+- Line-breaking pass detection examples
+
+**Constraint:** No Lakebase connectivity from HF Spaces. All data must be pre-exported as static Parquet/CSV files bundled with the Space. This limits the demo to curated subsets rather than full interactive queries.
+
+### Account and organization model
+
+| Role | Account Type | Cost | Access |
+|------|-------------|------|--------|
+| **Project owner** | HF Org admin | $0 (free) or $9/mo (PRO) | Full control |
+| **Collaborators** | Their own free HF account | $0 | Push to org repos |
+| **Consumers** | No account needed | $0 | Download models/datasets |
+| **GPU users** | Their own account + billing | Their cost | HF Jobs / Spaces |
+
+### Open questions
+
+1. **Org name**: `luxury-lakehouse`, `soccer-analytics-lab`, or personal namespace?
+2. **football2vec evaluation**: Test pre-trained weights against StatsBomb data before committing to Phase 15 approach?
+3. **sentence-transformers for entity resolution**: Benchmark against `rapidfuzz` on known player name variants?
+4. **Publishing priority**: Start with datasets (lower effort) or wait until Phase 15 produces model weights?
+5. **Space framework**: Streamlit (reuse existing code) or Gradio (better for model demos)?
+6. **HF Jobs vs RunPod**: Defer comparison until Phase 17, or benchmark early with a small training run?
+
+### Dependencies
+
+- No blocking dependencies &mdash; Tier 1 (consume) can begin immediately
+- Tier 2 (publish) activates as Phases 14&ndash;17 produce artifacts
+- Tier 3 (train) depends on DL Infrastructure (ROADMAP) for training pipeline
+- Tier 4 (demo) depends on sufficient published artifacts to make a compelling showcase
+- Synergistic with DL Infrastructure (HF models flow into MLflow + UC model registry)
+- Synergistic with Provider Abstraction (football2vec/OpenSTARLab consume same StatsBomb/Wyscout data)
 
 ---
 

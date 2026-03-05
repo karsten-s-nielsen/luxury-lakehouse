@@ -273,7 +273,8 @@ luxury-lakehouse/
 ├── uv.lock                           # Deterministic dependency lock
 │
 ├── assets/                           # Images and branding
-│   └── luxury-lakehouse.jpg
+│   ├── luxury-lakehouse.jpg
+│   └── hf-logo.png                  # HuggingFace logo (ROADMAP § HF Hub Integration)
 │
 ├── terraform/
 │   ├── environments/dev/             # Dev environment composition
