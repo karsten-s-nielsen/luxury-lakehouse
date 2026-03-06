@@ -598,7 +598,7 @@ pgvector nearest-neighbor search (`player_search.py`). "Find players like X." De
 | R6 | Streamlit performance with mplsoccer | Medium | Low | Figure caching; pre-computed static images for common views. |
 | R7 | Unity Catalog ACL complexity | Low | Low | Single admin user for dev; RBAC deferred to prod. |
 | R8 | DEFCON repo has no license | ~~High~~ Resolved | ~~Medium~~ | Apache-2.0 license added to `hyunsungkim-ds/defcon`. Implementation uses paper equations and open-source libraries. |
-| R9 | `players-matcher` has no license | High | Medium | Request from maintainer. Fallback: `rapidfuzz`. |
+| R9 | `players-matcher` has no license | ~~High~~ Resolved | ~~Medium~~ | Apache-2.0 license added by maintainer (Matteo Matteotti) on 2026-03-06, merging PR #2. `rapidfuzz` remains primary approach; `players-matcher` available as reference. |
 | R10 | Public tracking data insufficient for GNN training | High | High | Tiers 1–3 feasible with public data. Full GNN deferred. |
 
 ---

@@ -735,6 +735,80 @@ A HuggingFace Space (Streamlit or Gradio) hosting a read-only demo with pre-cach
 
 ---
 
+## PAUSA: Optimal Pass Timing &amp; OBSO Value Surface
+
+**Status:** Research complete, license pending (contacting author)
+**Paper:** Lee, Jo, Hong, Bauer &amp; Ko (2026), "Valuing La Pausa: Quantifying Optimal Pass Timing Beyond Speed" (MIT Sloan 2026 finalist, top 7 of 200+)
+**Repo:** [`leemingo/mitssac-pausa`](https://github.com/leemingo/mitssac-pausa) (public, **no license yet** &mdash; Apache-2.0 PR planned)
+**License status:** Author (Minho Lee) contacted via LinkedIn at SSAC26. Awaiting response to contribute Apache-2.0 license.
+
+The PAUSA metric (Passing Ability Under Spatiotemporal Awareness) decomposes pass quality into two axes: **Temporal Judgment** (was the pass released at the optimal moment?) and **Spatial Selection** (was the target location the best available?). Both are quantified using OBSO (Off-Ball Scoring Opportunity), Spearman's 2018 continuous value surface that evaluates all 22 players' positions to estimate scoring probability at every pitch location.
+
+### Why it matters
+
+Traditional speed-of-play metrics penalize players who hold the ball. PAUSA distinguishes between slow decision-making and elite playmaking &mdash; the deliberate, strategic delay ("la pausa") that draws defenders out of position and manipulates defensive structure. The paper shows PAUSA correlates more strongly with team performance (Bundesliga points) than traditional speed-based metrics.
+
+### Technical components
+
+The repo implements four layers, each with clear Luxury Lakehouse integration potential:
+
+| Component | What it does | Lakehouse overlap |
+|-----------|-------------|-------------------|
+| **ELASTIC** (`elastic/`) | Synchronizes discrete event data with 25fps tracking using ball acceleration and player-ball distance features. 95.5% exact alignment, 0.023s mean error. Kim, H.S. et al. (2025). "ELASTIC: Event-Tracking Data Synchronization in Soccer Without Annotated Event Locations." ECML-PKDD MLSA 2025. [arXiv:2508.09238](https://arxiv.org/abs/2508.09238). | **None** &mdash; fills a real gap. We have events and tracking as separate streams with no alignment engine. |
+| **Pitch Control** (`pitch_control.py`) | Spearman 2018 PPCF, 50x32 grid, **Numba JIT** accelerated. Includes `for_virtual` variant for counterfactual ghost trajectories. | **High** &mdash; same math as `src/analytics/pitch_control.py`, but faster (Numba) and with counterfactual support we lack. |
+| **OBSO** (`obso.py`) | `PPCF &times; Transition &times; EPV` scoring surface. Requires pre-computed transition probability matrix (64&times;100 Gaussian) and EPV grid (32&times;50). | **None** &mdash; novel. Our Off-Ball xT (Phase 12) is a simpler `pitch_control &times; xT` without the transition model. OBSO is the full version of what Space Creation (Fernandez &amp; Bornn 2018) requires. |
+| **PAUSA** (`calculate_obso.py --unit virtual`) | For each pass: generates ghost trajectories (constant-velocity extrapolation, 3s before to 1s after), computes PPCF+OBSO at each counterfactual frame, decomposes into spatial selection and temporal judgment. | **None** &mdash; novel metric. |
+
+### Data situation
+
+The repo runs on the **same 7 IDSSE Bundesliga matches** we already ingest in Phase 10. Same DFL XML files, same `kloppy` parsing, same 25fps TRACAB tracking. Zero data procurement needed for prototyping.
+
+Static data assets included in the repo (not currently in our stack):
+- `EPV_grid.csv` (32&times;50 Expected Possession Value surface)
+- `Transition_gauss.csv` (64&times;100 Gaussian ball transition probability matrix)
+- `xT_grid.json` (Karun Singh 12&times;8, equivalent to our dbt seed)
+
+### Compute profile
+
+Virtual mode is the heavy-lifter: each pass generates ~100 ghost frames &times; 1,600 grid cells of pitch control. The repo parallelizes via `joblib` with `n_jobs=-1`. For 7 matches this is feasible locally; at scale it needs distributed compute (Databricks serverless or GPU).
+
+### Integration path (if license secured)
+
+| Step | Module | Description |
+|------|--------|-------------|
+| 1 | `src/analytics/elastic_sync.py` | Adapt ELASTIC sync engine for our tracking+event schema. Align IDSSE events with tracking frames. |
+| 2 | `src/analytics/obso.py` | OBSO value surface: combine existing pitch control with transition and EPV grids. |
+| 3 | `src/analytics/pausa.py` | PAUSA metric: ghost trajectory generation + temporal/spatial decomposition. |
+| 4 | `src/ingestion/pausa.py` | Batch pipeline writing `fct_pausa_values` to Delta. |
+| 5 | dbt model | `fct_pass_timing` mart aggregating PAUSA per player per match. |
+| 6 | Streamlit page | Pass Timing page: actual vs optimal timing snapshots with OBSO heatmap overlay. |
+
+### Relationship to existing work
+
+- **Phase 11** (pitch control): OBSO extends PPCF with transition and EPV layers. Numba JIT from this repo could accelerate our existing pitch control.
+- **Phase 12** (off-ball xT): Our `pitch_control &times; xT` is a simplified OBSO. Full OBSO subsumes it.
+- **Space Creation** (roadmap): Full OBSO is a prerequisite for Fernandez &amp; Bornn counterfactual space creation. PAUSA's ghost trajectory infrastructure directly enables it.
+- **Decision Optimization** (roadmap): PAUSA answers "when should the player have passed?" &mdash; complementary to the RL-based "where should the player have passed?"
+
+### Open questions
+
+1. **License**: Awaiting Apache-2.0 from Minho Lee. No code adaptation until license is secured.
+2. **Numba adoption**: Should we add Numba to our pitch control module? Adds a compiled dependency but significant speedup.
+3. **Coordinate system**: Their code uses centered coordinates (&minus;52.5 to +52.5). Our stack uses StatsBomb 120&times;80. Adapter or full migration?
+4. **Static grids**: The EPV and Transition grids are pre-computed (provenance unclear). Train our own from StatsBomb data, or use theirs as-is?
+5. **Scope**: Full PAUSA pipeline (heavy) or start with ELASTIC sync + OBSO surface only (lighter, more broadly useful)?
+
+### Dependencies
+
+- License from `leemingo/mitssac-pausa` (blocker)
+- Phase 10 (IDSSE tracking) &mdash; **complete** (same 7 matches)
+- Phase 11 (pitch control) &mdash; **complete** (foundation for OBSO)
+- Phase 12 (off-ball xT) &mdash; **complete** (OBSO is the full version)
+- Synergistic with DL Infrastructure (Numba JIT, joblib parallelization)
+- Synergistic with Space Creation (OBSO + ghost trajectories enable counterfactual analysis)
+
+---
+
 ## Other Ideas (Unscheduled)
 
 - [ ] Voronoi area persistence — pre-compute in dbt (lower priority if Phase 11 replaces Voronoi)
