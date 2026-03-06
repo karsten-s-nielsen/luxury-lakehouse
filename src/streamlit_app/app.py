@@ -5,6 +5,7 @@ from __future__ import annotations
 import streamlit as st
 
 from streamlit_app.pages.action_values import page as action_values_page
+from streamlit_app.pages.defensive_valuation import page as defensive_valuation_page
 from streamlit_app.pages.heat_map import page as heat_map_page
 from streamlit_app.pages.match_summary import page as match_summary_page
 from streamlit_app.pages.movement_analysis import page as movement_analysis_page
@@ -23,6 +24,12 @@ def main() -> None:
         layout="wide",
     )
 
+    # Expand sidebar nav so all page links are visible without "view more"
+    st.markdown(
+        "<style>section[data-testid='stSidebar'] nav > ul { max-height: none !important; }</style>",
+        unsafe_allow_html=True,
+    )
+
     st.title(":material/sports_soccer: (Right! Luxury!) Lakehouse")
 
     pages = [
@@ -31,18 +38,24 @@ def main() -> None:
         st.Page(heat_map_page, title="Heat Map", icon=":material/local_fire_department:", url_path="heat-map"),
         st.Page(pass_network_page, title="Pass Network", icon=":material/hub:", url_path="pass-network"),
         st.Page(action_values_page, title="Action Values", icon=":material/trending_up:", url_path="action-values"),
-        st.Page(player_radar_page, title="Player Radar", icon=":material/radar:", url_path="player-radar"),
         st.Page(match_summary_page, title="Match Summary", icon=":material/scoreboard:", url_path="match-summary"),
+        st.Page(player_radar_page, title="Player Radar", icon=":material/radar:", url_path="player-radar"),
         st.Page(
             movement_analysis_page,
-            title="Movement Analysis",
+            title="Movement",
             icon=":material/directions_run:",
             url_path="movement-analysis",
         ),
         st.Page(pitch_control_page, title="Pitch Control", icon=":material/grid_on:", url_path="pitch-control"),
+        st.Page(
+            defensive_valuation_page,
+            title="Def. Pressure",
+            icon=":material/shield:",
+            url_path="defensive-valuation",
+        ),
     ]
 
-    nav = st.navigation({"Analysis": pages})
+    nav = st.navigation(pages)
 
     with st.sidebar:
         st.caption("Soccer analytics powered by StatsBomb, Metrica Sports & Wyscout open data.")

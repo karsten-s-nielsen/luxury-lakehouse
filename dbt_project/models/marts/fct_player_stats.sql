@@ -88,6 +88,24 @@ vaep_agg as (
 
 ),
 
+{% if var('defcon_enabled', false) %}
+defcon_agg as (
+
+    select
+        player_id,
+        competition_id,
+        season_id,
+        sum(total_defcon_value)                             as total_defcon,
+        sum(intercept_value)                                as total_intercept,
+        sum(deter_value)                                    as total_deter,
+        sum(total_credits)                                  as defcon_credits
+
+    from {{ ref('fct_defensive_values') }}
+    group by player_id, competition_id, season_id
+
+),
+{% endif %}
+
 final as (
 
     select
@@ -170,6 +188,31 @@ final as (
             then round((coalesce(v.total_defensive_vaep, 0) / m.total_minutes_played) * {{ var('minutes_per_match') }}, 3)
         end                                             as defensive_vaep_per_90
 
+        {% if var('defcon_enabled', false) %}
+        ,
+        coalesce(d.total_defcon, 0)                         as total_defcon,
+        coalesce(d.defcon_credits, 0)                       as defcon_credits,
+        case
+            when m.total_minutes_played > 0
+            then round((coalesce(d.total_defcon, 0) / m.total_minutes_played) * {{ var('minutes_per_match') }}, 3)
+        end                                                 as defcon_per_90,
+        case
+            when m.total_minutes_played > 0
+            then round((coalesce(d.total_intercept, 0) / m.total_minutes_played) * {{ var('minutes_per_match') }}, 3)
+        end                                                 as intercept_per_90,
+        case
+            when m.total_minutes_played > 0
+            then round((coalesce(d.total_deter, 0) / m.total_minutes_played) * {{ var('minutes_per_match') }}, 3)
+        end                                                 as deter_per_90
+        {% else %}
+        ,
+        cast(null as double)                                as total_defcon,
+        cast(null as int)                                   as defcon_credits,
+        cast(null as double)                                as defcon_per_90,
+        cast(null as double)                                as intercept_per_90,
+        cast(null as double)                                as deter_per_90
+        {% endif %}
+
     from player_shots_agg s
     full outer join player_passes_agg p
         on s.player_id = p.player_id
@@ -183,6 +226,12 @@ final as (
         on coalesce(s.player_id, p.player_id) = v.player_id
         and coalesce(s.competition_id, p.competition_id) = v.competition_id
         and coalesce(s.season_id, p.season_id) = v.season_id
+    {% if var('defcon_enabled', false) %}
+    left join defcon_agg d
+        on coalesce(s.player_id, p.player_id) = d.player_id
+        and coalesce(s.competition_id, p.competition_id) = d.competition_id
+        and coalesce(s.season_id, p.season_id) = d.season_id
+    {% endif %}
 
 )
 

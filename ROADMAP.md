@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the [phased plan](PLAN.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-03-05
+**Last updated**: 2026-03-06
 
 ---
 
@@ -253,7 +253,7 @@ Five complementary caching layers prevent redundant work across the full stack:
 **Budget:** ~$6-14/month incremental (external GPU training + existing Databricks governance)
 **References:** DeepMind AlphaEvolve/FunSearch (Apache 2.0); TacticAI (Nature Communications, 2024); SoccerNet benchmarks
 
-The platform's analytics models are currently traditional ML (logistic regression xG, grid-based xT, SPADL/VAEP). Multiple planned phases &mdash; DEFCON GNN (Phase 17), pgvector embeddings (Phase 15), and Space Creation (ROADMAP) &mdash; assume deep learning capability but no infrastructure exists to train, version, serve, or iteratively improve neural models. This section defines the end-to-end DL stack and catalogs pre-trained models that provide a head start.
+The platform's analytics models are currently traditional ML (logistic regression xG, grid-based xT, SPADL/VAEP). Multiple planned phases &mdash; DEFCON Tier 4 GNN, pgvector embeddings (Phase 15), and Space Creation (ROADMAP) &mdash; assume deep learning capability but no infrastructure exists to train, version, serve, or iteratively improve neural models. This section defines the end-to-end DL stack and catalogs pre-trained models that provide a head start.
 
 ### Core principle: train cheap, govern centrally
 
@@ -332,7 +332,7 @@ Models with available weights compatible with current data sources:
 | Phase | DL Infrastructure Enables |
 |-------|--------------------------|
 | **Phase 15** (pgvector embeddings) | football2vec or learned embeddings from VAEP sequences instead of simple per-90 stat vectors |
-| **Phase 17** (DEFCON GNN) | GNN pre-trained on StatsBomb 360 freeze frames (15.58M rows), fine-tuned for defensive valuation |
+| **DEFCON Tier 4** (GNN) | GNN pre-trained on StatsBomb 360 freeze frames (15.58M rows), fine-tuned for defensive valuation. Tier 3 tabular model complete (Phase 17). |
 | **Space Creation** (ROADMAP) | JAX `vmap` pitch control vectorization makes full OBSO feasible on CPU |
 | **Graph Tactical Patterns** (ROADMAP) | PyTorch Geometric GNN on tracking data with symmetry augmentation |
 | **Visual Exploratory Behavior** (ROADMAP) | RTMPose for pose estimation if Respo.Vision data requires broadcast video processing |
@@ -564,7 +564,7 @@ Proposes **Tactical Graphs** — representing players as graph nodes and spatial
 
 - **Phase 11** (pitch control): TGNets could classify game states by pitch control regime
 - **Phase 12** (movement analysis): Graph features complement physical metrics
-- **Phase 17** (DEFCON): The DEFCON paper also uses Graph Attention Networks — shared infrastructure
+- **DEFCON Tier 4**: The DEFCON paper also uses Graph Attention Networks — shared infrastructure. Tier 3 tabular model complete (Phase 17).
 - Would require a new `src/analytics/` module for graph construction and model training
 
 ### Not immediately actionable
@@ -626,7 +626,7 @@ Phase 12 implemented a simpler Off-Ball xT metric: `pitch_control(player_locatio
 
 HuggingFace is the open-source AI community's central hub &mdash; model weights, datasets, and interactive demos, all freely accessible without gatekeeping. Their commitment to open science aligns with this project's values: luxury-lakehouse is built on open data (StatsBomb, Wyscout Figshare, Metrica, SoccerNet) and open tools (dbt, Streamlit, socceraction, kloppy). Integrating with HuggingFace is a deliberate choice to participate in and contribute back to that ecosystem, not just consume from it.
 
-As Phases 14&ndash;17 introduce deep learning (entity resolution, learned embeddings, DEFCON GNN), the project needs an artifact ecosystem for model weights, training datasets, and community sharing. HuggingFace Hub provides this at zero cost for public artifacts, with native Databricks integration via MLflow's `transformers` flavor and Unity Catalog model registry.
+As Phases 14&ndash;16 and DEFCON Tier 4 introduce deep learning (entity resolution, learned embeddings, full GNN), the project needs an artifact ecosystem for model weights, training datasets, and community sharing. HuggingFace Hub provides this at zero cost for public artifacts, with native Databricks integration via MLflow's `transformers` flavor and Unity Catalog model registry.
 
 ### Core principle: publish openly, consume freely
 
@@ -651,7 +651,7 @@ Their own compute (HF Jobs, RunPod, Databricks)
 |------|--------|----------------|------|
 | **1 &mdash; Consume** | Pull pre-trained models (football2vec, sentence-transformers) for entity resolution and embeddings | Phase 14&ndash;15 | $0 |
 | **2 &mdash; Publish** | Push trained model weights (safetensors) and processed datasets (Parquet) to HF Hub | Phase 15, 17 | $0 |
-| **3 &mdash; Train** | Use HF Jobs or ZeroGPU Spaces for GNN training; compare pricing vs RunPod | Phase 17 | $9/mo PRO + per-job |
+| **3 &mdash; Train** | Use HF Jobs or ZeroGPU Spaces for GNN training; compare pricing vs RunPod | DEFCON Tier 4 | $9/mo PRO + per-job |
 | **4 &mdash; Demo** | Host a public Streamlit/Gradio Space with cached data subsets as a portfolio showcase | Post-Phase 16 | $0 (CPU) |
 
 ### Tier 1 &mdash; Consume pre-trained models
@@ -674,7 +674,7 @@ Artifacts the project could publish to the community:
 | Artifact | Format | Est. Size | Publication Trigger |
 |----------|--------|-----------|-------------------|
 | Player embedding model + vectors | safetensors + Parquet | ~50&ndash;200 MB | Phase 15 completion |
-| DEFCON GNN weights | safetensors via `PyGModelHubMixin` | ~50&ndash;200 MB | Phase 17 completion |
+| DEFCON GNN weights | safetensors via `PyGModelHubMixin` | ~50&ndash;200 MB | DEFCON Tier 4 completion |
 | SPADL/VAEP action value dataset | Parquet (auto-streaming) | ~500 MB&ndash;2 GB | Available now (optional) |
 | Evolved xT grid (if OpenEvolve used) | CSV + model card | <1 MB | Post-DL Infrastructure |
 | Line-breaking pass detection results | Parquet | ~50 MB | Available now (optional) |

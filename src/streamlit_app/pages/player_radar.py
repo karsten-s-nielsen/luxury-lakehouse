@@ -28,6 +28,7 @@ _DEFAULT_METRICS: list[tuple[str, str, tuple[float, float]]] = [
     ("vaep_per_90", "VAEP/90", (-0.5, 1.5)),
     ("offensive_vaep_per_90", "Off. VAEP/90", (-0.5, 1.5)),
     ("defensive_vaep_per_90", "Def. VAEP/90", (-0.5, 1.0)),
+    ("defcon_per_90", "DEFCON/90", (-0.5, 2.0)),
 ]
 
 # Physical metrics — only shown when tracking data exists for the player
@@ -56,6 +57,7 @@ def _load_player_stats(competition_id: int, player_ids: list[int]) -> Any:
             f"  sub.pass_completion_pct, sub.xg_overperformance, "
             f"  sub.line_breaking_per_90, "
             f"  sub.vaep_per_90, sub.offensive_vaep_per_90, sub.defensive_vaep_per_90, "
+            f"  sub.defcon_per_90, "
             f"  phys.avg_distance_per_min, phys.avg_max_speed_ms "
             f"FROM ("
             f"  SELECT ps.player_id, p.player_display_name, "
@@ -64,6 +66,7 @@ def _load_player_stats(competition_id: int, player_ids: list[int]) -> Any:
             f"    ps.pass_completion_pct, ps.xg_overperformance, "
             f"    ps.line_breaking_per_90, "
             f"    ps.vaep_per_90, ps.offensive_vaep_per_90, ps.defensive_vaep_per_90, "
+            f"    ps.defcon_per_90, "
             f"    ROW_NUMBER() OVER (PARTITION BY ps.player_id ORDER BY ps.minutes_played DESC) AS rn "
             f"  FROM {t('fct_player_stats_synced')} ps "
             f"  JOIN {t('dim_players_synced')} p ON ps.player_id = p.player_id "

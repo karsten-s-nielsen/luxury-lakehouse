@@ -78,6 +78,29 @@ INDEXES: list[tuple[str, str, str]] = [
     # ── fct_match_summary_synced — ~3K rows (PPDA) ──────────────────
     # MS-1: competition + PPDA filter
     ("idx_match_summary_comp_id", "fct_match_summary_synced", "competition_id"),
+    # ── fct_match_summary_synced — Match lookups ────────────────────────
+    # MS-1: competition + PPDA filter (already above as idx_match_summary_comp_id)
+    # MS-2: match_id join for DEFCON team filter
+    ("idx_match_summary_match_id", "fct_match_summary_synced", "match_id"),
+    # ── fct_defensive_values_synced — Rankings + Breakdown ─────────────
+    # DV-1: rankings by competition
+    ("idx_defcon_values_comp_id", "fct_defensive_values_synced", "competition_id"),
+    # DV-2: player + competition breakdown
+    ("idx_defcon_values_comp_player", "fct_defensive_values_synced", "competition_id, player_id"),
+    # DV-3: match_id for team filter CTE
+    ("idx_defcon_values_match_id", "fct_defensive_values_synced", "match_id"),
+    # ── fct_defcon_actions_synced — Match Timeline ─────────────────────
+    # DA-1: match timeline
+    ("idx_defcon_actions_match", "fct_defcon_actions_synced", "match_id"),
+    # DA-2: player + competition lookup
+    ("idx_defcon_actions_player_comp", "fct_defcon_actions_synced", "player_id, competition_id"),
+    # ── fct_defcon_pressure_synced — Pressure Rankings + Breakdown ────
+    # DP-1: rankings by competition
+    ("idx_defcon_pressure_comp_id", "fct_defcon_pressure_synced", "competition_id"),
+    # DP-2: player + competition breakdown
+    ("idx_defcon_pressure_comp_player", "fct_defcon_pressure_synced", "competition_id, player_id"),
+    # DP-3: match_id for team filter join
+    ("idx_defcon_pressure_match_id", "fct_defcon_pressure_synced", "match_id"),
 ]
 
 # Verification queries for --verify flag: (description, query)
@@ -110,6 +133,20 @@ VERIFY_QUERIES: list[tuple[str, str]] = [
     (
         "fct_player_stats: comp_id (idx_player_stats_comp_id)",
         f"SELECT * FROM {SCHEMA}.fct_player_stats_synced WHERE competition_id = 11 LIMIT 1",  # noqa: S608
+    ),
+    (
+        "fct_defcon_pressure: comp+player (idx_defcon_pressure_comp_player)",
+        f"SELECT * FROM {SCHEMA}.fct_defcon_pressure_synced"  # noqa: S608
+        " WHERE competition_id = 11 AND player_id = 5503 LIMIT 1",
+    ),
+    (
+        "fct_defensive_values: comp+player (idx_defcon_values_comp_player)",
+        f"SELECT * FROM {SCHEMA}.fct_defensive_values_synced"  # noqa: S608
+        " WHERE competition_id = 11 AND player_id = 5503 LIMIT 1",
+    ),
+    (
+        "fct_defcon_actions: match (idx_defcon_actions_match)",
+        f"SELECT * FROM {SCHEMA}.fct_defcon_actions_synced WHERE match_id = '3788741' LIMIT 1",  # noqa: S608
     ),
 ]
 

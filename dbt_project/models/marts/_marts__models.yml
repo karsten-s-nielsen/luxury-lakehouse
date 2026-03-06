@@ -374,6 +374,24 @@ models:
                 row_condition: "defensive_vaep_per_90 is not null"
               config:
                 severity: warn
+      - name: total_defcon
+        description: Total DEFCON value (NULL if defcon_enabled is false)
+      - name: defcon_credits
+        description: Total number of defensive credits
+      - name: defcon_per_90
+        description: DEFCON-lite total value per 90 minutes
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -5
+                max_value: 10
+                row_condition: "defcon_per_90 is not null"
+              config:
+                severity: warn
+      - name: intercept_per_90
+        description: DEFCON Intercept value per 90 minutes
+      - name: deter_per_90
+        description: DEFCON Deter value per 90 minutes
 
   - name: fct_action_values
     description: >
@@ -921,6 +939,130 @@ models:
         description: Average Off-Ball xT contribution per frame
       - name: off_ball_xt_frames_sampled
         description: Number of frames sampled for Off-Ball xT computation
+
+  - name: fct_defensive_values
+    description: >
+      Per-defender per-match defensive valuation summary. Aggregates DEFCON-lite
+      credits into per-match totals and breakdowns by credit type (Intercept,
+      Concede, Disturb, Deter). One row per defender per match.
+    columns:
+      - name: defensive_value_id
+        description: Surrogate key (player_id + match_id)
+        data_tests:
+          - unique
+          - not_null
+      - name: player_id
+        description: Foreign key to dim_players
+        data_tests:
+          - not_null
+      - name: match_id
+        description: Match identifier
+        data_tests:
+          - not_null
+      - name: total_defcon_value
+        description: Total DEFCON value across all credit types
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -5
+                max_value: 50
+                row_condition: "total_defcon_value is not null"
+              config:
+                severity: warn
+      - name: data_source
+        description: Data provenance (statsbomb_360, metrica_tracking)
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['statsbomb_360', 'metrica_tracking']
+
+  - name: fct_defcon_actions
+    description: >
+      Per-defender per-action defensive credits. Full granularity DEFCON-lite
+      results for timeline visualization. One row per credited defender per
+      action. Coordinate system: SPADL 105x68 meters.
+    columns:
+      - name: defcon_action_id
+        description: Surrogate key (event_id + defender_player_id + data_source)
+        data_tests:
+          - unique
+          - not_null
+      - name: event_id
+        description: Original event ID
+        data_tests:
+          - not_null
+      - name: player_id
+        description: Credited defender player ID
+        data_tests:
+          - not_null
+      - name: credit_type
+        description: Credit category
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['intercept', 'concede', 'disturb', 'deter']
+      - name: confidence
+        description: Confidence level
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['high', 'approximate']
+      - name: defcon_value
+        description: Estimated defensive value
+        data_tests:
+          - not_null:
+              config:
+                severity: warn
+      - name: data_source
+        description: Data provenance
+        data_tests:
+          - not_null
+
+  - name: fct_defcon_pressure
+    description: >
+      Per-attacker per-match defensive pressure summary. Aggregates DEFCON-lite
+      credits by action_player_id (the real player who performed the action)
+      rather than defender_player_id. Shows how much defensive attention each
+      attacker attracted. One row per attacker per match.
+    columns:
+      - name: pressure_id
+        description: Surrogate key (action_player_id + match_id)
+        data_tests:
+          - unique
+          - not_null
+      - name: player_id
+        description: Foreign key to dim_players (real attacker player_id)
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_players')
+              field: player_id
+              config:
+                severity: warn
+      - name: match_id
+        description: Match identifier
+        data_tests:
+          - not_null
+      - name: total_pressure
+        description: Total defensive pressure value received
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -5
+                max_value: 50
+                row_condition: "total_pressure is not null"
+              config:
+                severity: warn
+      - name: data_source
+        description: Data provenance (statsbomb_360, metrica_tracking)
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['statsbomb_360', 'metrica_tracking']
 
   # ── Dimension Tables ──────────────────────────────────────────────────
 
