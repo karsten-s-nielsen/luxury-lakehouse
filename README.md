@@ -68,8 +68,9 @@ Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by 
 - **Pitch Control** — Physics-based (Spearman 2017) and Voronoi models from tracking data
 - **Line-Breaking Passes** — Ward clustering + cross-product straddle test for defensive line penetration (StatsBomb 360)
 - **Movement Analysis** — PPDA pressing intensity, physical performance metrics (distance, HSR, sprints), and off-ball xT from tracking data
+- **Defensive Pressure (DEFCON-lite)** — Attacker-perspective defensive credit assignment (intercept/concede/disturb/deter) based on Kim et al. (2025)
 - **Player Similarity** — pgvector cosine-distance search ("Find players like X") *(planned)*
-- **Player Radar Charts** — Per-90 stat comparison across multiple metrics
+- **Player Radar Charts** — Per-90 stat comparison across multiple metrics (incl. DEFCON pressure/90)
 
 ## Project Structure
 
@@ -91,7 +92,7 @@ luxury-lakehouse/
 
 ## Status
 
-**Phase 13 complete** — 9 Streamlit pages, 290 unit tests, 11 synced tables, line-breaking pass detection via Ward clustering + cross-product straddle test. See [PLAN.md](PLAN.md) for the implementation plan and [ROADMAP.md](ROADMAP.md) for research directions.
+**Phase 17 complete** — 10 Streamlit pages, 319 unit tests, 14 synced tables, DEFCON-lite defensive pressure analysis. See [PLAN.md](PLAN.md) for the implementation plan and [ROADMAP.md](ROADMAP.md) for research directions.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -111,6 +112,7 @@ luxury-lakehouse/
 | 11 | Physics-Based Pitch Control (Spearman 2017) | Complete |
 | 12 | Movement Analysis | Complete |
 | 13 | Line-Breaking Pass Detection | Complete |
+| 17 | DEFCON-lite Defensive Pressure | Complete |
 
 ## Tech Stack
 

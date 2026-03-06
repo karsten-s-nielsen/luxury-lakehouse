@@ -1,0 +1,79 @@
+version: 2
+
+models:
+  - name: stg_defcon__results
+    description: >
+      Staging view for DEFCON-lite results. Deduplicates bronze data by
+      (event_id, defender_player_id, data_source), keeping the most recent
+      ingestion.
+    columns:
+      - name: event_id
+        description: Original event ID from source data
+        data_tests:
+          - not_null
+      - name: match_id
+        description: Match identifier
+        data_tests:
+          - not_null
+      - name: defender_player_id
+        description: Player ID of the credited defender
+        data_tests:
+          - not_null
+      - name: credit_type
+        description: Credit category
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['intercept', 'concede', 'disturb', 'deter']
+      - name: confidence
+        description: Confidence level
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['high', 'approximate']
+      - name: defcon_value
+        description: Estimated defensive value
+        data_tests:
+          - not_null:
+              config:
+                severity: warn
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -1
+                max_value: 5
+                row_condition: "defcon_value is not null"
+              config:
+                severity: warn
+      - name: data_source
+        description: Data provenance
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['statsbomb_360', 'metrica_tracking']
+      - name: defender_x
+        description: Defender X coordinate (0-105 meters, SPADL)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 105
+                row_condition: "defender_x is not null"
+              config:
+                severity: warn
+      - name: defender_y
+        description: Defender Y coordinate (0-68 meters, SPADL)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 68
+                row_condition: "defender_y is not null"
+              config:
+                severity: warn
+      - name: dist_to_ball
+        description: Distance from defender to action point (meters)
+      - name: pitch_control_at_action
+        description: Pitch control probability at action location

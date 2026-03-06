@@ -164,6 +164,54 @@ resource "databricks_database_synced_database_table" "fct_physical_stats" {
   }
 }
 
+resource "databricks_database_synced_database_table" "fct_defensive_values" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_defensive_values_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_defensive_values"
+    primary_key_columns    = ["defensive_value_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+resource "databricks_database_synced_database_table" "fct_defcon_pressure" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_defcon_pressure_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_defcon_pressure"
+    primary_key_columns    = ["pressure_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+resource "databricks_database_synced_database_table" "fct_defcon_actions" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_defcon_actions_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_defcon_actions"
+    primary_key_columns    = ["defcon_action_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
 # ── Dimension Tables ─────────────────────────────────────────────────────────
 
 resource "databricks_database_synced_database_table" "dim_players" {

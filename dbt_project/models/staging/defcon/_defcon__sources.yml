@@ -1,0 +1,38 @@
+version: 2
+
+sources:
+  - name: defcon
+    description: >
+      DEFCON-lite defensive valuation results produced by the heuristic credit
+      assignment + XGBoost value estimation batch pipeline. Contains per-defender
+      per-action defensive credits.
+    database: soccer_analytics
+    schema: bronze
+    loader: python_wheel
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 24, period: hour}
+        error_after: {count: 72, period: hour}
+
+    tables:
+      - name: defcon_results
+        description: >
+          Per-defender per-action defensive credits. Each row is one defender
+          credited with one defensive contribution (Intercept, Concede, Disturb,
+          or Deter) for one on-ball action, with an estimated DEFCON value.
+        columns:
+          - name: event_id
+            description: Original event ID from source data
+          - name: match_id
+            description: Match identifier
+          - name: defender_player_id
+            description: Player ID of the credited defender
+          - name: credit_type
+            description: Credit category (intercept, concede, disturb, deter)
+          - name: confidence
+            description: Confidence level (high, approximate)
+          - name: defcon_value
+            description: Estimated defensive value from XGBoost
+          - name: data_source
+            description: Data provenance (statsbomb_360, metrica_tracking)
