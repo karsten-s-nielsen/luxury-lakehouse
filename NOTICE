@@ -81,3 +81,13 @@ pitch control (Spearman 2017, credited above) with xT zones to quantify
 off-ball positional value. The concept follows Soccermatics Lesson 7 by
 David Sumpter. The implementation is an independent Python translation,
 not derived from any source code.
+
+The DEFCON-lite defensive credit assignment (src/analytics/defcon_lite.py)
+implements the heuristic credit assignment framework and defensive action
+taxonomy described in: Kim, H.S. et al. (2025). "Better Prevent than
+Tackle: Valuing Defense in Soccer Based on Graph Neural Networks."
+arXiv:2512.10355. The implementation is an independent Python translation
+of the paper's Tier 1-3 equations (intercept/concede/disturb/deter
+classification, spatial features, XGBoost confidence), not derived from
+the authors' source code. Licensed under the Apache License, Version 2.0.
+See: https://github.com/hyunsungkim-ds/defcon
