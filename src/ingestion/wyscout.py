@@ -7,14 +7,17 @@ from Figshare for Databricks runtime.
   England, Italy, Spain, France, Germany, European Championship, World Cup
 
 The Figshare dataset stores events and matches as ZIP archives containing
-one JSON file per competition (e.g. ``events_England.json``).
+one JSON file per competition (e.g. ``events_England.json``).  Players are
+a flat JSON array (not ZIP-wrapped).
 
-JSON columns (``positions``, ``tags``) are serialized to JSON strings before
-Delta write so dbt staging models can parse them with SQL JSON functions.
+JSON columns (``positions``, ``tags``, ``role``, ``passportArea``, ``birthArea``)
+are serialized to JSON strings before Delta write so dbt staging models can
+parse them with SQL JSON functions.
 
 Bronze tables produced:
   - wyscout_events
   - wyscout_matches
+  - wyscout_players
 """
 
 from __future__ import annotations
@@ -46,6 +49,7 @@ if TYPE_CHECKING:
 # IMPORTANT: Use ndownloader.figshare.com subdomain (figshare.com/ndownloader returns 202)
 _EVENTS_ZIP_URL = "https://ndownloader.figshare.com/files/14464685"
 _MATCHES_ZIP_URL = "https://ndownloader.figshare.com/files/14464622"
+_PLAYERS_URL = "https://ndownloader.figshare.com/files/15073721"
 
 _COMPETITIONS = [
     "England",
@@ -256,6 +260,66 @@ def ingest_matches(
 
 
 # ---------------------------------------------------------------------------
+# Player metadata ingestion (flat JSON, not ZIP)
+# ---------------------------------------------------------------------------
+
+
+def _load_players(
+    data_dir: pathlib.Path | None,
+    logger: logging.Logger,
+) -> pd.DataFrame:
+    """Load Wyscout player metadata from local file or Figshare download.
+
+    Returns a DataFrame with one row per player. JSON columns (role,
+    passportArea, birthArea) are serialized to strings for Spark/Delta.
+    """
+    if data_dir is not None:
+        local_path = data_dir / "players.json"
+        if local_path.exists():
+            logger.info("Loading local players file: %s", local_path)
+            df = pd.read_json(local_path)
+            df = serialize_json_columns(df, ["role", "passportArea", "birthArea"])
+            return df
+
+    logger.info("Downloading players.json from Figshare")
+    resp = fetch_url(_PLAYERS_URL, timeout=(10, 60))
+    data = resp.json()
+    df = pd.DataFrame(data)
+    df = serialize_json_columns(df, ["role", "passportArea", "birthArea"])
+    logger.info("Loaded %d players from Figshare", len(df))
+    return df
+
+
+def ingest_players(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    data_dir: pathlib.Path | None,
+    logger: logging.Logger,
+) -> None:
+    """Load and write Wyscout player metadata."""
+    pdf = _load_players(data_dir, logger)
+    pdf = _normalize_mixed_types(pdf)
+
+    sdf = spark.createDataFrame(pdf)
+    row_count = validate_dataframe(
+        sdf,
+        ["wyId", "firstName", "lastName", "shortName", "birthDate"],
+        "wyscout_players",
+        logger,
+    )
+    write_delta_table(
+        sdf,
+        catalog,
+        schema,
+        "wyscout_players",
+        mode="overwrite",
+        logger=logger,
+        row_count=row_count,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -276,6 +340,7 @@ def main() -> None:
 
     ingest_events(spark, args.catalog, args.schema, data_dir, logger)
     ingest_matches(spark, args.catalog, args.schema, data_dir, logger)
+    ingest_players(spark, args.catalog, args.schema, data_dir, logger)
 
     logger.info("Wyscout ingestion complete")
 

@@ -64,6 +64,8 @@ vars:
   off_ball_xt_enabled: false
   # DEFCON-lite join toggle — set to true after running compute_defcon_lite pipeline
   defcon_enabled: false
+  # Entity resolution toggle — set to true after running resolve_players pipeline
+  entity_resolution_enabled: false
   progressive_pass_ratio: 0.75       # end distance < 75% of start distance to goal
   pass_direction_threshold: 5        # yards — forward/backward deadband
   # DEPRECATED: frame_duration_seconds is no longer used in fct_tracking_frames.

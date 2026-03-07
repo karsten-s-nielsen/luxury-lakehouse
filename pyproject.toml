@@ -27,6 +27,9 @@ analytics = [
     "socceraction==1.5.3",
     "xgboost==3.2.0",
     "multimethod==1.12",
+    "rapidfuzz>=3.6.0",
+    "unidecode>=1.3.0",
+    "sparse-dot-topn>=1.1.0",
 ]
 app = [
     "streamlit>=1.36.0",
@@ -68,6 +71,7 @@ ingest_skillcorner = "ingestion.skillcorner:main"
 compute_line_breaking = "ingestion.line_breaking:main"
 compute_off_ball_xt = "ingestion.off_ball_xt:main"
 compute_defcon_lite = "ingestion.defcon_lite:main"
+resolve_players = "ingestion.entity_resolution:main"
 
 [tool.ruff]
 target-version = "py310"

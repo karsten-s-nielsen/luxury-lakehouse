@@ -1,0 +1,38 @@
+version: 2
+
+sources:
+  - name: entity_resolution
+    description: >
+      Cross-source player entity resolution results produced by the TF-IDF +
+      rapidfuzz + bidirectional validation pipeline. Contains automated matches
+      between StatsBomb and Wyscout player IDs.
+    database: soccer_analytics
+    schema: bronze
+    loader: python_wheel
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 24, period: hour}
+        error_after: {count: 72, period: hour}
+
+    tables:
+      - name: player_xref_raw
+        description: >
+          Automated cross-source player matches from the three-layer entity
+          resolution pipeline. Each row maps one StatsBomb player_id to one
+          Wyscout player_id with a confidence score and match layer.
+        columns:
+          - name: player_id_a
+            description: StatsBomb player identifier
+          - name: player_id_b
+            description: Wyscout player identifier (wyId)
+          - name: confidence
+            description: Match confidence score (0-100)
+          - name: match_method
+            description: Algorithm variant used (e.g. layer1_tfidf_rapidfuzz_bidirectional)
+          - name: match_layer
+            description: Resolution layer (1=strict, 2=standard, 3=relaxed)
+          - name: source_a
+            description: Source A provider name (statsbomb)
+          - name: source_b
+            description: Source B provider name (wyscout)

@@ -1,4 +1,4 @@
-"""Tests for ingestion.wyscout — event/match normalization and JSON serialization."""
+"""Tests for ingestion.wyscout — event/match/player normalization and JSON serialization."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from ingestion.wyscout import (
     _download_and_extract_zip,
     _load_all_competitions,
     _load_json_local,
+    _load_players,
 )
 
 _FIXTURES = pathlib.Path(__file__).parent / "fixtures"
@@ -196,3 +197,87 @@ class TestLoadAllCompetitions:
         assert len(result) == len(_COMPETITIONS)
         for comp in _COMPETITIONS:
             assert comp in result
+
+
+class TestIngestPlayers:
+    """Tests for Wyscout player metadata ingestion."""
+
+    def test_loads_players_from_local_json(self, tmp_path: pathlib.Path) -> None:
+        """Local players.json loads correctly."""
+        players = [
+            {
+                "wyId": 32777,
+                "firstName": "Harun",
+                "middleName": "",
+                "lastName": "Tekin",
+                "shortName": "H. Tekin",
+                "birthDate": "1989-06-17",
+                "role": {"code2": "GK", "code3": "GKP", "name": "Goalkeeper"},
+                "currentTeamId": 4502,
+                "foot": "right",
+                "height": 187,
+                "weight": 78,
+                "passportArea": {"name": "Turkey", "id": "792", "alpha3code": "TUR", "alpha2code": "TR"},
+                "birthArea": {"name": "Turkey", "id": "792", "alpha3code": "TUR", "alpha2code": "TR"},
+                "currentNationalTeamId": 4687,
+            }
+        ]
+        players_path = tmp_path / "players.json"
+        players_path.write_text(json.dumps(players))
+
+        df = _load_players(tmp_path, logging.getLogger("test"))
+        assert len(df) == 1
+        assert df["wyId"].iloc[0] == 32777
+        assert df["firstName"].iloc[0] == "Harun"
+        assert df["lastName"].iloc[0] == "Tekin"
+        assert df["birthDate"].iloc[0] == "1989-06-17"
+        # role should be serialized to JSON string
+        assert isinstance(df["role"].iloc[0], str)
+
+    def test_loads_multiple_players(self, tmp_path: pathlib.Path) -> None:
+        """Multiple players load and count correctly."""
+        players = [
+            {
+                "wyId": 1,
+                "firstName": "A",
+                "lastName": "B",
+                "shortName": "AB",
+                "birthDate": "1990-01-01",
+                "role": {"code2": "GK", "name": "Goalkeeper"},
+            },
+            {
+                "wyId": 2,
+                "firstName": "C",
+                "lastName": "D",
+                "shortName": "CD",
+                "birthDate": "1991-02-02",
+                "role": {"code2": "FW", "name": "Forward"},
+            },
+        ]
+        (tmp_path / "players.json").write_text(json.dumps(players))
+
+        df = _load_players(tmp_path, logging.getLogger("test"))
+        assert len(df) == 2
+
+    def test_json_columns_serialized(self, tmp_path: pathlib.Path) -> None:
+        """Role, passportArea, birthArea are serialized to JSON strings."""
+        players = [
+            {
+                "wyId": 1,
+                "firstName": "Test",
+                "lastName": "Player",
+                "shortName": "T. Player",
+                "birthDate": "1990-01-01",
+                "role": {"code2": "MF", "name": "Midfielder"},
+                "passportArea": {"name": "Spain", "alpha3code": "ESP"},
+                "birthArea": {"name": "Spain", "alpha3code": "ESP"},
+            }
+        ]
+        (tmp_path / "players.json").write_text(json.dumps(players))
+
+        df = _load_players(tmp_path, logging.getLogger("test"))
+        assert isinstance(df["role"].iloc[0], str)
+        parsed_role = json.loads(df["role"].iloc[0])
+        assert parsed_role["code2"] == "MF"
+        assert isinstance(df["passportArea"].iloc[0], str)
+        assert isinstance(df["birthArea"].iloc[0], str)

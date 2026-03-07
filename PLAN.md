@@ -1,7 +1,7 @@
 # Databricks Lakebase Implementation Plan — Soccer Analytics Platform
 
-> **Status**: Phase 17 complete — 10 Streamlit pages, 319 unit tests, 14 synced tables, DEFCON-lite defensive pressure analysis.
-> **Last Updated**: 2026-03-06
+> **Status**: Phase 14 complete — 10 Streamlit pages, 14 synced tables, cross-source player entity resolution (11,918 unified players).
+> **Last Updated**: 2026-03-07
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready from day one
 
@@ -63,6 +63,7 @@ This plan implements the Databricks Lakebase architecture to build a serverless 
 │  │  • kloppy → SkillCorner broadcast tracking from open data       │    │
 │  │  • spadl_vaep → SPADL conversion + VAEP scoring from bronze     │    │
 │  │  • defcon_lite → DEFCON-lite defensive credit assignment       │    │
+│  │  • resolve_players → cross-source entity resolution           │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
@@ -72,10 +73,11 @@ This plan implements the Databricks Lakebase architecture to build a serverless 
 │  │  Delta Lake tables (raw, append-only, schema-on-read)           │    │
 │  │  • statsbomb: competitions, matches, events, lineups, 360      │    │
 │  │  • metrica: tracking, events                                    │    │
-│  │  • wyscout: events, matches                                     │    │
+│  │  • wyscout: events, matches, players                             │    │
 │  │  • idsse: tracking (7 Bundesliga matches, 25fps)                │    │
 │  │  • skillcorner: tracking (10 A-League matches, 10fps)           │    │
 │  │  • spadl: actions, action_values                                 │    │
+│  │  • entity_resolution: player_xref_raw                           │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
@@ -87,7 +89,7 @@ This plan implements the Databricks Lakebase architecture to build a serverless 
 │  │  SILVER (cleaned, typed, deduplicated):                         │    │
 │  │  • stg_statsbomb__events, shots, matches, lineups, 360         │    │
 │  │  • stg_metrica__tracking, events                                │    │
-│  │  • stg_wyscout__events                                          │    │
+│  │  • stg_wyscout__events, stg_wyscout__players                    │    │
 │  │  • stg_idsse__tracking, stg_skillcorner__tracking               │    │
 │  │  • stg_spadl__action_values                                     │    │
 │  │                                                                  │    │
@@ -300,7 +302,8 @@ luxury-lakehouse/
 │   │   ├── pitch_control.py          # Spearman (2017) physics-based pitch control model
 │   │   ├── line_breaking.py          # Ward clustering + straddle test for line-breaking passes
 │   │   ├── off_ball_xt.py            # Off-ball xT: pitch control × expected threat zones
-│   │   └── defcon_lite.py            # DEFCON-lite: heuristic defensive credit assignment + XGBoost
+│   │   ├── defcon_lite.py            # DEFCON-lite: heuristic defensive credit assignment + XGBoost
+│   │   └── entity_resolution.py     # Three-layer progressive player matching (TF-IDF + rapidfuzz)
 │   │
 │   ├── ingestion/
 │   │   ├── statsbomb.py              # StatsBomb API ingestion (5 bronze tables + 360 backfill)
@@ -311,6 +314,7 @@ luxury-lakehouse/
 │   │   ├── line_breaking.py          # Line-breaking pass batch computation (360 + tracking)
 │   │   ├── off_ball_xt.py            # Off-ball xT batch computation (gold → bronze)
 │   │   ├── defcon_lite.py            # DEFCON-lite batch computation (gold+bronze → bronze)
+│   │   ├── entity_resolution.py     # Cross-source player entity resolution (StatsBomb × Wyscout → bronze)
 │   │   ├── spadl_adapter.py          # Bronze-to-socceraction format adapters
 │   │   ├── spadl_vaep.py             # SPADL conversion + VAEP scoring pipeline
 │   │   └── utils.py                  # Shared CLI, logging, HTTP, Delta helpers
@@ -322,7 +326,7 @@ luxury-lakehouse/
 │   │   ├── pages/                    # 10 pages (+ player_search.py planned)
 │   │   └── components/               # filters.py, pitch.py, charts.py
 │   │
-│   └── tests/                        # 319 unit tests (15 test modules)
+│   └── tests/                        # 16 test modules
 │       ├── test_statsbomb.py
 │       ├── test_metrica.py
 │       ├── test_wyscout.py
@@ -335,18 +339,19 @@ luxury-lakehouse/
 │       ├── test_line_breaking.py
 │       ├── test_off_ball_xt.py
 │       ├── test_defcon_lite.py
+│       ├── test_entity_resolution.py
 │       ├── test_streamlit_components.py
 │       ├── test_streamlit_config.py
 │       └── test_streamlit_db.py
 │
 ├── dbt_project/
 │   ├── models/
-│   │   ├── staging/                  # SILVER: statsbomb/, metrica/, wyscout/, spadl/, idsse/, skillcorner/, line_breaking/, off_ball_xt/, defcon/
+│   │   ├── staging/                  # SILVER: statsbomb/, metrica/, wyscout/, spadl/, idsse/, skillcorner/, line_breaking/, off_ball_xt/, defcon/, entity_resolution/
 │   │   ├── intermediate/             # Cross-source joins (ephemeral)
 │   │   └── marts/                    # GOLD: 11 fact + 3 dimension tables
 │   ├── tests/                        # Custom data tests
 │   ├── macros/                       # distance_to_goal, shot_angle
-│   └── seeds/                        # competition_metadata.csv, position_mapping.csv, expected_threat_grid.csv
+│   └── seeds/                        # competition_metadata.csv, position_mapping.csv, expected_threat_grid.csv, player_xref_overrides.csv
 │
 ├── scripts/
 │   ├── create_indexes.py             # PG indexes on Lakebase synced tables (27 indexes, 10 tables, --verify flag)
@@ -422,9 +427,9 @@ All code must pass these gates before merge:
 
 | Level | What | How |
 |-------|------|-----|
-| Unit | Ingestion logic, utility functions, analytics models | pytest (290 tests) |
+| Unit | Ingestion logic, utility functions, analytics models | pytest (303+ tests) |
 | Integration | dbt models compile and run | `dbt build --target ci` |
-| Data quality | Row counts, value ranges, referential integrity | dbt tests (316) + dbt-expectations |
+| Data quality | Row counts, value ranges, referential integrity | dbt tests (381) + dbt-expectations |
 | E2E | Streamlit pages render with real data | Manual smoke test |
 | Infrastructure | Terraform validates | `terraform validate` + `terraform plan` |
 
@@ -463,6 +468,7 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 | **11** | Physics-Based Pitch Control Model | Spearman (2017) model in `src/analytics/pitch_control.py`, NumPy-vectorized TTI + logistic sigmoid, continuous heatmap overlay with RdBu colormap, Physics/Voronoi toggle on Pitch Control page, 214 tests |
 | **12** | Movement Analysis | PPDA pressing (StatsBomb events), physical performance metrics (tracking), off-ball xT (pitch control × xT zones). `fct_physical_stats` mart, `speed_ms`/`acceleration_ms2` in `fct_tracking_frames`, Movement Analysis page (3 views), 290 tests |
 | **13** | Line-Breaking Pass Detection | Ward hierarchical clustering + cross-product straddle test in `src/analytics/line_breaking.py`, dual data paths (StatsBomb 360 + Metrica tracking), `is_line_breaking`/`lines_broken`/`line_breaking_type` in `fct_passes`, Pass Map gold arrows, Player Radar LB/90, 257 tests |
+| **14** | Cross-Source Player Entity Resolution | Three-layer progressive matching (glass_onion-inspired, BSD 3-Clause): TF-IDF + sparse_dot_topn candidate generation, rapidfuzz multi-attribute scoring, bidirectional validation. 2,388 cross-source matches (Layer 2: 2,148 name+DOB, Layer 3: 240 name+position). `dim_players` unified to 11,918 rows with `canonical_player_id`. Bronze: `wyscout_players` (3,603), `player_xref_raw` (2,388). dbt: `int_player_xref` (ephemeral), `stg_wyscout__players` (view), `player_xref_overrides` seed. `entity_resolution_enabled` feature toggle. 303+ tests |
 | **17** | DEFCON-lite Defensive Pressure | Tier 3 tabular DEFCON: heuristic credit assignment (intercept/concede/disturb/deter) + XGBoost confidence. `defcon_lite.py` analytics + ingestion, `fct_defensive_values` + `fct_defcon_actions` + `fct_defcon_pressure` marts, Def. Pressure page (attacker-perspective rankings, breakdown, timeline), 5 DEFCON cols in `fct_player_stats`, 319 tests |
 
 ### Key Design Decisions (from completed phases)
@@ -494,7 +500,7 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 | `dev_gold.fct_defcon_actions` | `fct_defcon_actions_synced` | `defcon_action_id` | 829,377 |
 | `dev_gold.fct_defcon_pressure` | `fct_defcon_pressure_synced` | `pressure_id` | ~28,000 |
 | `dev_gold.fct_player_embeddings` | `fct_player_embeddings_synced` | `embedding_id` | 0 |
-| `dev_gold.dim_players` | `dim_players_synced` | `player_id` | 10,803 |
+| `dev_gold.dim_players` | `dim_players_synced` | `canonical_player_id` | 11,918 |
 | `dev_gold.dim_teams` | `dim_teams_synced` | `team_id` | 453 |
 | `dev_gold.dim_competitions` | `dim_competitions_synced` | `competition_id` | 21 |
 
@@ -545,17 +551,13 @@ Each new source follows the established pattern: `src/ingestion/<source>.py` →
 | **Graph-Based Tactical Patterns** | Research direction | CC BY | TGNets (Raabe et al. 2022) for classifying defensive outcomes from tracking graphs |
 | **Decision Optimization** | Research direction | N/A | RL-based pass selection optimization (Rahimian et al.) — requires commercial tracking data |
 
-### 8.2 — Phase 14: Cross-Source Player Entity Resolution
+### 8.2 — Phase 14: Cross-Source Player Entity Resolution — **COMPLETE**
 
-`dim_players` currently deduplicates within each source, but StatsBomb, Metrica, and Wyscout use independent player IDs. The same player exists as separate rows per source.
-
-**Planned approach:** Consider `rapidfuzz` as primary approach, [`parmacalcio1913/players-matcher`](https://github.com/parmacalcio1913/players-matcher) as reference.
-
-**Integration path:** `int_player_xref` mapping → refactor `dim_players` → downstream tables automatically benefit.
+See [§7 Completed Phases](#7-completed-phases) for summary. Three-layer progressive matching inspired by [glass_onion](https://github.com/USSoccerFederation/glass_onion) (BSD 3-Clause). 2,388 matches from 3,603 Wyscout players. `dim_players` unified to 11,918 rows with `canonical_player_id`, `data_sources`, and Wyscout enrichment (birth_date, nationality).
 
 ### 8.3 — Phase 15: pgvector Player Embeddings
 
-`fct_player_embeddings` and its synced table are provisioned (0 rows). Design feature vector from `fct_player_stats` per-90 metrics, generate embeddings, enable pgvector `<=>` cosine distance queries. Depends on Phase 14 for cross-source identity (within-source feasible without it).
+`fct_player_embeddings` and its synced table are provisioned (0 rows). Design feature vector from `fct_player_stats` per-90 metrics, generate embeddings, enable pgvector `<=>` cosine distance queries. Phase 14 cross-source identity is complete — full unified player roster available.
 
 ### 8.4 — Phase 16: Player Similarity Streamlit Page
 

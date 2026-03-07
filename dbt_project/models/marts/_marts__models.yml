@@ -1068,24 +1068,30 @@ models:
 
   - name: dim_players
     description: >
-      Player dimension table. Deduplicated player master data combining
-      information from all data sources. One row per unique player.
+      Player dimension table combining StatsBomb and Wyscout data via cross-source
+      entity resolution (Phase 14). Players matched across sources share a
+      canonical_player_id; unmatched players retain their source-native ID.
+      One row per unique canonical_player_id.
     columns:
-      - name: player_id
-        description: Primary key — canonical player identifier
+      - name: canonical_player_id
+        description: Surrogate key for cross-source identity (unique per player)
         data_tests:
           - unique
           - not_null
+      - name: player_id
+        description: Source-native player identifier
+        data_tests:
+          - not_null
       - name: player_name
-        description: Player display name
+        description: Player full name
         data_tests:
           - not_null
       - name: player_display_name
-        description: Preferred display name (nickname if available)
+        description: Preferred display name (nickname or short_name if available)
         data_tests:
           - not_null
       - name: primary_position
-        description: Most common playing position
+        description: Most common playing position from source data
       - name: position_group
         description: >
           Broad position category (Goalkeeper, Defender, Midfielder, Forward)
@@ -1096,13 +1102,27 @@ models:
                 values: ['Goalkeeper', 'Defender', 'Midfielder', 'Forward']
               config:
                 severity: warn
-      - name: data_source
-        description: Data provider
+      - name: statsbomb_player_id
+        description: StatsBomb player_id (null for Wyscout-only players)
+      - name: wyscout_player_id
+        description: Wyscout wyId (null for unmatched StatsBomb players)
+      - name: match_confidence
+        description: Entity resolution confidence score (0-100, null if unmatched)
+      - name: match_layer
+        description: >
+          Resolution layer (0=manual override, 1=strict, 2=standard, 3=relaxed,
+          null if unmatched)
+      - name: birth_date
+        description: Date of birth from Wyscout (YYYY-MM-DD, null if unmatched)
+      - name: nationality
+        description: Country name from Wyscout passportArea (null if unmatched)
+      - name: data_sources
+        description: Comma-separated list of data providers for this player
         data_tests:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb']
+                values: ['statsbomb', 'wyscout', 'statsbomb,wyscout']
 
   - name: dim_teams
     description: >

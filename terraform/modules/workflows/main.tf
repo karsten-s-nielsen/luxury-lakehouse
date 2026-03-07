@@ -12,6 +12,7 @@
 #   compute_spadl_vaep — SPADL conversion + VAEP scoring (depends on statsbomb + wyscout)
 #   compute_off_ball_xt — Off-Ball xT from tracking + pitch control (depends on tracking tasks)
 #   compute_defcon_lite — DEFCON-lite defensive valuation (depends on SPADL/VAEP)
+#   resolve_players   — Cross-source entity resolution (depends on statsbomb + wyscout)
 #
 # Schedule: Daily at 06:00 UTC (before business hours in US/EU timezones)
 #
@@ -217,6 +218,34 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "analytics"
   }
 
+  # ── Task: Resolve cross-source player identity ───────────────────────────
+  # Matches StatsBomb and Wyscout players via TF-IDF + rapidfuzz.
+  # Writes player_xref_raw bronze table for dbt int_player_xref → dim_players.
+  task {
+    task_key        = "resolve_players"
+    timeout_seconds = 1800
+    max_retries     = 1
+
+    depends_on {
+      task_key = "ingest_statsbomb"
+    }
+    depends_on {
+      task_key = "ingest_wyscout"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "resolve_players"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "analytics"
+  }
+
   # ── Environment definition for serverless tasks ──────────────────────────
   environment {
     environment_key = "default"
@@ -242,7 +271,10 @@ resource "databricks_job" "data_ingestion" {
         var.wheel_path,
         "socceraction==1.5.3",
         "xgboost==3.2.0",
-        "multimethod==1.12"
+        "multimethod==1.12",
+        "rapidfuzz>=3.6.0",
+        "unidecode>=1.3.0",
+        "sparse-dot-topn>=1.1.0"
       ]
     }
   }

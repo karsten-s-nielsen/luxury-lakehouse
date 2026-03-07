@@ -69,6 +69,7 @@ Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by 
 - **Line-Breaking Passes** — Ward clustering + cross-product straddle test for defensive line penetration (StatsBomb 360)
 - **Movement Analysis** — PPDA pressing intensity, physical performance metrics (distance, HSR, sprints), and off-ball xT from tracking data
 - **Defensive Pressure (DEFCON-lite)** — Attacker-perspective defensive credit assignment (intercept/concede/disturb/deter) based on Kim et al. (2025)
+- **Cross-Source Entity Resolution** — Three-layer progressive player matching (TF-IDF + rapidfuzz + bidirectional validation) inspired by US Soccer's glass_onion
 - **Player Similarity** — pgvector cosine-distance search ("Find players like X") *(planned)*
 - **Player Radar Charts** — Per-90 stat comparison across multiple metrics (incl. DEFCON pressure/90)
 
@@ -78,7 +79,7 @@ Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by 
 luxury-lakehouse/
 ├── terraform/          # Infrastructure as Code (Databricks on AWS)
 ├── src/
-│   ├── analytics/      # Pure-Python analytics models (pitch control, line-breaking)
+│   ├── analytics/      # Pure-Python analytics models (pitch control, line-breaking, entity resolution, DEFCON)
 │   ├── ingestion/      # Data ingestion (StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner)
 │   └── streamlit_app/  # Interactive analytics dashboard
 ├── dbt_project/        # Bronze → Silver → Gold transformations
@@ -92,7 +93,7 @@ luxury-lakehouse/
 
 ## Status
 
-**Phase 17 complete** — 10 Streamlit pages, 319 unit tests, 14 synced tables, DEFCON-lite defensive pressure analysis. See [PLAN.md](PLAN.md) for the implementation plan and [ROADMAP.md](ROADMAP.md) for research directions.
+**Phase 14 complete** — 10 Streamlit pages, 14 synced tables, cross-source player entity resolution (11,918 unified players). See [PLAN.md](PLAN.md) for the implementation plan and [ROADMAP.md](ROADMAP.md) for research directions.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -112,6 +113,7 @@ luxury-lakehouse/
 | 11 | Physics-Based Pitch Control (Spearman 2017) | Complete |
 | 12 | Movement Analysis | Complete |
 | 13 | Line-Breaking Pass Detection | Complete |
+| 14 | Cross-Source Player Entity Resolution | Complete |
 | 17 | DEFCON-lite Defensive Pressure | Complete |
 
 ## Tech Stack
@@ -127,7 +129,7 @@ luxury-lakehouse/
 | Application | Streamlit + mplsoccer + Plotly |
 | Vector Search | pgvector (native in Lakebase) |
 | Python | 3.10+ (Databricks serverless), managed with uv |
-| Linting | ruff + sqlfluff |
+| Linting | ruff + pyright + sqlfluff |
 | CI/CD | GitHub Actions |
 | Architecture Docs | C4 diagrams (Structurizr DSL) |
 

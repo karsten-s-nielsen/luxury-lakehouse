@@ -131,6 +131,51 @@ models:
       - name: is_first_time
         description: Whether the shot was first-time (NULL for Wyscout)
 
+  - name: int_player_xref
+    description: >
+      Cross-source player identity mapping combining automated entity resolution
+      results with manual overrides. Automated matches come from the TF-IDF +
+      rapidfuzz + bidirectional pipeline; overrides allow force_match and
+      force_reject corrections. Materialized as ephemeral (CTE).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - statsbomb_player_id
+            - wyscout_player_id
+    columns:
+      - name: statsbomb_player_id
+        description: StatsBomb player identifier
+        data_tests:
+          - not_null
+      - name: wyscout_player_id
+        description: Wyscout player identifier (wyId)
+        data_tests:
+          - not_null
+      - name: confidence
+        description: Match confidence score (0-100)
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 100
+      - name: match_layer
+        description: >
+          Resolution layer (0=manual override, 1=strict name+DOB+jersey+team,
+          2=standard name+DOB, 3=relaxed name+position)
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [0, 1, 2, 3]
+      - name: resolution_type
+        description: How the match was produced (automated or manual_override)
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['automated', 'manual_override']
+
   - name: int_minutes_played
     description: >
       Approximate minutes played per player per competition per season,
