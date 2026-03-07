@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the [phased plan](PLAN.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-03-06
+**Last updated**: 2026-03-07
 
 ---
 
@@ -626,7 +626,7 @@ Phase 12 implemented a simpler Off-Ball xT metric: `pitch_control(player_locatio
 
 HuggingFace is the open-source AI community's central hub &mdash; model weights, datasets, and interactive demos, all freely accessible without gatekeeping. Their commitment to open science aligns with this project's values: luxury-lakehouse is built on open data (StatsBomb, Wyscout Figshare, Metrica, SoccerNet) and open tools (dbt, Streamlit, socceraction, kloppy). Integrating with HuggingFace is a deliberate choice to participate in and contribute back to that ecosystem, not just consume from it.
 
-As Phases 14&ndash;16 and DEFCON Tier 4 introduce deep learning (entity resolution, learned embeddings, full GNN), the project needs an artifact ecosystem for model weights, training datasets, and community sharing. HuggingFace Hub provides this at zero cost for public artifacts, with native Databricks integration via MLflow's `transformers` flavor and Unity Catalog model registry.
+Phase 14 (entity resolution) is complete using TF-IDF + rapidfuzz. As Phases 15&ndash;16 and DEFCON Tier 4 introduce deep learning (learned embeddings, full GNN), the project needs an artifact ecosystem for model weights, training datasets, and community sharing. HuggingFace Hub provides this at zero cost for public artifacts, with native Databricks integration via MLflow's `transformers` flavor and Unity Catalog model registry.
 
 ### Core principle: publish openly, consume freely
 
@@ -649,7 +649,7 @@ Their own compute (HF Jobs, RunPod, Databricks)
 
 | Tier | Action | Phase Alignment | Cost |
 |------|--------|----------------|------|
-| **1 &mdash; Consume** | Pull pre-trained models (football2vec, sentence-transformers) for entity resolution and embeddings | Phase 14&ndash;15 | $0 |
+| **1 &mdash; Consume** | Pull pre-trained models (football2vec, sentence-transformers) for embeddings | Phase 15 | $0 |
 | **2 &mdash; Publish** | Push trained model weights (safetensors) and processed datasets (Parquet) to HF Hub | Phase 15, 17 | $0 |
 | **3 &mdash; Train** | Use HF Jobs or ZeroGPU Spaces for GNN training; compare pricing vs RunPod | DEFCON Tier 4 | $9/mo PRO + per-job |
 | **4 &mdash; Demo** | Host a public Streamlit/Gradio Space with cached data subsets as a portfolio showcase | Post-Phase 16 | $0 (CPU) |
@@ -719,7 +719,7 @@ A HuggingFace Space (Streamlit or Gradio) hosting a read-only demo with pre-cach
 
 1. **Org name**: `luxury-lakehouse`, `soccer-analytics-lab`, or personal namespace?
 2. **football2vec evaluation**: Test pre-trained weights against StatsBomb data before committing to Phase 15 approach?
-3. **sentence-transformers for entity resolution**: Benchmark against `rapidfuzz` on known player name variants?
+3. ~~**sentence-transformers for entity resolution**: Benchmark against `rapidfuzz`?~~ Resolved &mdash; Phase 14 complete using TF-IDF + rapidfuzz (2,388 matches). Sentence-transformers remains an option for future embedding-based matching if needed.
 4. **Publishing priority**: Start with datasets (lower effort) or wait until Phase 15 produces model weights?
 5. **Space framework**: Streamlit (reuse existing code) or Gradio (better for model demos)?
 6. **HF Jobs vs RunPod**: Defer comparison until Phase 17, or benchmark early with a small training run?
@@ -727,7 +727,7 @@ A HuggingFace Space (Streamlit or Gradio) hosting a read-only demo with pre-cach
 ### Dependencies
 
 - No blocking dependencies &mdash; Tier 1 (consume) can begin immediately
-- Tier 2 (publish) activates as Phases 14&ndash;17 produce artifacts
+- Tier 2 (publish) activates as Phases 15&ndash;17 produce artifacts (Phase 14 entity resolution complete)
 - Tier 3 (train) depends on DL Infrastructure (ROADMAP) for training pipeline
 - Tier 4 (demo) depends on sufficient published artifacts to make a compelling showcase
 - Synergistic with DL Infrastructure (HF models flow into MLflow + UC model registry)

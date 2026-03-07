@@ -29,6 +29,32 @@ seeds:
           - unique
           - not_null
 
+  - name: player_xref_overrides
+    description: >
+      Manual overrides for cross-source player entity resolution.
+      Rows with action=force_match force a link between StatsBomb and Wyscout
+      player IDs. Rows with action=force_reject suppress a false positive.
+    config:
+      column_types:
+        statsbomb_player_id: int
+        wyscout_player_id: int
+        action: string
+    columns:
+      - name: statsbomb_player_id
+        description: StatsBomb player_id
+        data_tests:
+          - not_null
+      - name: wyscout_player_id
+        description: Wyscout wyId
+        data_tests:
+          - not_null
+      - name: action
+        description: Override action (force_match or force_reject)
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['force_match', 'force_reject']
+
   - name: expected_threat_grid
     description: >
       12x8 Expected Threat (xT) grid from Karun Singh (2018). Each cell

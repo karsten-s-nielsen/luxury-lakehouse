@@ -91,3 +91,14 @@ of the paper's Tier 1-3 equations (intercept/concede/disturb/deter
 classification, spatial features, XGBoost confidence), not derived from
 the authors' source code. Licensed under the Apache License, Version 2.0.
 See: https://github.com/hyunsungkim-ds/defcon
+
+The cross-source player entity resolution pipeline
+(src/analytics/entity_resolution.py) uses a three-layer progressive
+matching strategy inspired by: USSoccerFederation/glass_onion, licensed
+under the BSD 3-Clause License. Copyright (c) 2024 U.S. Soccer Federation.
+The multi-layer progressive strategy, DOB month/day swap detection, and
+jersey-as-constraint patterns are adapted from the glass_onion design.
+The implementation is an independent Python translation using TF-IDF
+character n-grams (sparse_dot_topn) and rapidfuzz multi-attribute scoring,
+not derived from the authors' source code.
+See: https://github.com/USSoccerFederation/glass_onion

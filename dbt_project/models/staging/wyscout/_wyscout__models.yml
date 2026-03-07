@@ -1,6 +1,52 @@
 version: 2
 
 models:
+  - name: stg_wyscout__players
+    description: >
+      Cleaned Wyscout player metadata. Extracts role, nationality, and
+      physical attributes from serialized JSON columns. One row per player.
+    columns:
+      - name: player_id
+        description: Wyscout player identifier (wyId)
+        data_tests:
+          - unique
+          - not_null
+      - name: player_name
+        description: Full name (firstName + lastName)
+        data_tests:
+          - not_null
+      - name: first_name
+        description: Player first name
+      - name: last_name
+        description: Player last name
+      - name: short_name
+        description: Abbreviated display name (e.g. "H. Kane")
+      - name: birth_date
+        description: Date of birth (YYYY-MM-DD)
+      - name: position_name
+        description: Position from role JSON (Goalkeeper, Defender, Midfielder, Forward)
+      - name: position_code
+        description: Position code from role JSON (GK, DF, MF, FW)
+      - name: current_team_id
+        description: Current team identifier at time of data collection
+      - name: foot
+        description: Preferred foot (left, right, both)
+      - name: height_cm
+        description: Player height in centimeters
+      - name: weight_kg
+        description: Player weight in kilograms
+      - name: nationality
+        description: Country name from passportArea
+      - name: nationality_code
+        description: ISO 3166-1 alpha-3 country code
+      - name: data_source
+        description: Data provider identifier
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['wyscout']
+
   - name: stg_wyscout__events
     description: >
       Cleaned and normalized Wyscout event data. Extracts start/end

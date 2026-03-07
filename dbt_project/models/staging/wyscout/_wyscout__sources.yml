@@ -48,6 +48,18 @@ sources:
               JSON array of tag objects with id field.
               Tag IDs encode event outcomes (e.g. 101=Goal, 1801=Accurate).
 
+      - name: wyscout_players
+        description: >
+          Wyscout player metadata from Figshare (3,603 players across
+          7 competitions, 2017/18 season). Includes names, birth date,
+          position role, nationality, and physical attributes.
+        columns:
+          - name: wyId
+            description: Wyscout player identifier
+            data_tests:
+              - not_null
+              - unique
+
       - name: wyscout_matches
         description: >
           Wyscout match metadata. One row per match with competition,

@@ -2,29 +2,23 @@
 
 Quick-reference action items. Full details in [PLAN.md](PLAN.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
 
-**Last updated**: 2026-03-06
+**Last updated**: 2026-03-07
 
 ---
 
 ## Completed Phases
 
-Phases 0–17 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for the summary table and git history for implementation details.
+Phases 0–17 and 14 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for the summary table and git history for implementation details.
 
 ---
 
 ## Next Up
 
-### Phase 14 — Cross-Source Player Entity Resolution (PLAN §8.2)
-
-- [ ] Build `int_player_xref` mapping across StatsBomb, Metrica, Wyscout
-- [ ] Refactor `dim_players` to merge cross-source records
-- [ ] Consider `rapidfuzz` as primary approach, `parmacalcio1913/players-matcher` as reference
-
 ### Phase 15 — pgvector Player Embeddings (PLAN §8.3)
 
 - [ ] Design feature vector from `fct_player_stats` per-90 metrics
 - [ ] Populate `fct_player_embeddings` (0 rows, table provisioned)
-- [ ] Depends on Phase 14 for cross-source identity (within-source feasible without it)
+- [ ] Phase 14 cross-source identity complete — full player roster available
 
 ### Phase 16 — Player Similarity Streamlit Page (PLAN §8.4)
 
