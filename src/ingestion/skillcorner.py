@@ -19,6 +19,7 @@ Coordinate system (preserved in bronze):
 
 from __future__ import annotations
 
+import gc
 import logging
 import math
 from typing import TYPE_CHECKING
@@ -52,6 +53,17 @@ SKILLCORNER_MATCH_IDS: list[str] = [
 
 # SkillCorner broadcast tracking is 10fps
 _FRAME_RATE = 10
+
+
+def _smooth_tracking(df: pd.DataFrame) -> pd.DataFrame:
+    """Apply Savitzky-Golay smoothing and clamp to pitch bounds."""
+    from analytics.smoothing import smooth_positions
+
+    result = smooth_positions(df)
+    # Clamp to SkillCorner center-origin pitch: x ∈ [-52.5, 52.5], y ∈ [-34, 34]
+    result["x"] = result["x"].clip(-52.5, 52.5)
+    result["y"] = result["y"].clip(-34.0, 34.0)
+    return result
 
 
 def _dataset_to_rows(
@@ -149,10 +161,10 @@ def ingest_skillcorner(
     from kloppy import skillcorner
 
     ids_to_ingest = match_ids or SKILLCORNER_MATCH_IDS
-    all_rows: list[dict[str, object]] = []
+    required_cols = ["period", "frame", "timestamp", "player_id", "team", "x", "y", "match_id", "frame_rate"]
 
-    for mid in ids_to_ingest:
-        logger.info("Loading SkillCorner match %s via kloppy", mid)
+    for i, mid in enumerate(ids_to_ingest):
+        logger.info("Loading SkillCorner match %s (%d/%d) via kloppy", mid, i + 1, len(ids_to_ingest))
 
         dataset = skillcorner.load_open_data(
             match_id=mid,
@@ -162,26 +174,24 @@ def ingest_skillcorner(
 
         rows = _dataset_to_rows(dataset, mid)
         logger.info("Parsed %d tracking rows for SkillCorner match %s", len(rows), mid)
-        all_rows.extend(rows)
 
-    if all_rows:
-        df = pd.DataFrame(all_rows)
-        sdf = spark.createDataFrame(df)
-        row_count = validate_dataframe(
-            sdf,
-            ["period", "frame", "timestamp", "player_id", "team", "x", "y", "match_id", "frame_rate"],
-            "skillcorner_tracking",
-            logger,
-        )
-        write_delta_table(
-            sdf,
-            catalog,
-            schema,
-            "skillcorner_tracking",
-            mode="overwrite",
-            logger=logger,
-            row_count=row_count,
-        )
+        if rows:
+            df = pd.DataFrame(rows)
+            df = _smooth_tracking(df)
+            sdf = spark.createDataFrame(df)
+            row_count = validate_dataframe(sdf, required_cols, "skillcorner_tracking", logger)
+            replace_expr = f"match_id = 'skillcorner_{mid}'"
+            write_delta_table(
+                sdf,
+                catalog,
+                schema,
+                "skillcorner_tracking",
+                replace_where=replace_expr,
+                logger=logger,
+                row_count=row_count,
+            )
+            del df, sdf, rows
+            gc.collect()
 
 
 def main() -> None:

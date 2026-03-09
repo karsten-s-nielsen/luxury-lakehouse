@@ -26,8 +26,8 @@ from analytics.line_breaking import LineBreakingParams, detect_line_breaking
 from ingestion.utils import (
     configure_logging,
     get_spark_session,
+    merge_delta_table,
     parse_ingestion_args,
-    write_delta_table,
 )
 
 if TYPE_CHECKING:
@@ -204,12 +204,12 @@ def _process_statsbomb_360(
         if results:
             result_df = pd.DataFrame(results)
             sdf = spark.createDataFrame(result_df)
-            written = write_delta_table(
+            written = merge_delta_table(
                 sdf,
                 catalog,
                 schema,
                 _TABLE_NAME,
-                replace_where=f"data_source = 'statsbomb_360' AND match_id = '{match_id}'",
+                merge_key="event_id",
                 logger=logger,
             )
             total_written += written
@@ -333,12 +333,12 @@ def _process_metrica_tracking(
         if results:
             result_df = pd.DataFrame(results)
             sdf = spark.createDataFrame(result_df)
-            written = write_delta_table(
+            written = merge_delta_table(
                 sdf,
                 catalog,
                 schema,
                 _TABLE_NAME,
-                replace_where=f"data_source = 'metrica_tracking' AND match_id = '{match_id}'",
+                merge_key="event_id",
                 logger=logger,
             )
             total_written += written
