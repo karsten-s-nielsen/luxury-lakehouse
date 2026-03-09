@@ -1,0 +1,37 @@
+version: 2
+
+sources:
+  - name: embeddings
+    description: >
+      Player behavioral and statistical embedding vectors produced by the
+      football2vec pipeline. Contains dual-vector representations (Doc2Vec
+      behavioral + z-score statistical) for player similarity search.
+    database: "{{ var('catalog', 'soccer_analytics') }}"
+    schema: bronze
+    loader: python_wheel
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 48, period: hour}
+        error_after: {count: 168, period: hour}
+
+    tables:
+      - name: player_embeddings_raw
+        description: >
+          Player behavioral + statistical embedding vectors from football2vec
+          pipeline. Each row contains a 32-dim Doc2Vec behavioral vector and an
+          optional 13-dim z-score normalized per-90 stat vector for one player
+          in one match.
+        columns:
+          - name: canonical_player_id
+            description: Unified player identifier (from dim_players Phase 14)
+          - name: match_id
+            description: Match identifier
+          - name: data_source
+            description: Source provider (statsbomb or wyscout)
+          - name: behavioral_vector
+            description: 32-dim Doc2Vec embedding from football2vec
+          - name: stat_vector
+            description: 13-dim z-score normalized per-90 stats (nullable)
+          - name: _ingested_at
+            description: UTC timestamp of ingestion

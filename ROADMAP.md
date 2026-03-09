@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the [phased plan](PLAN.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-03-07
+**Last updated**: 2026-03-09
 
 ---
 
@@ -331,8 +331,8 @@ Models with available weights compatible with current data sources:
 
 | Phase | DL Infrastructure Enables |
 |-------|--------------------------|
-| **Phase 15** (pgvector embeddings) | football2vec or learned embeddings from VAEP sequences instead of simple per-90 stat vectors |
-| **DEFCON Tier 4** (GNN) | GNN pre-trained on StatsBomb 360 freeze frames (15.58M rows), fine-tuned for defensive valuation. Tier 3 tabular model complete (Phase 17). |
+| **Phase 15** (pgvector embeddings) | **Complete** — retrained football2vec (32-dim Doc2Vec) + 13-dim z-score stat vectors. Model published to HF Hub. |
+| **DEFCON Tier 4** (GNN) | GNN pre-trained on StatsBomb 360 freeze frames (15.58M rows), fine-tuned for defensive valuation. Tier 3 tabular model **complete** (Phase 17). |
 | **Space Creation** (ROADMAP) | JAX `vmap` pitch control vectorization makes full OBSO feasible on CPU |
 | **Graph Tactical Patterns** (ROADMAP) | PyTorch Geometric GNN on tracking data with symmetry augmentation |
 | **Visual Exploratory Behavior** (ROADMAP) | RTMPose for pose estimation if Respo.Vision data requires broadcast video processing |
@@ -353,7 +353,7 @@ Models with available weights compatible with current data sources:
 
 1. **JAX vs PyTorch**: JAX `vmap` for pitch control is compelling, but GNN ecosystem is PyTorch-centric. Maintain both or pick one?
 2. **External GPU provider**: RunPod (cheapest) vs Lambda Labs (more reliable, SSD-backed)?
-3. **football2vec**: Use pre-trained weights directly or retrain on full 3,000-match StatsBomb corpus?
+3. ~~**football2vec**~~ Resolved &mdash; retrained on full ~3,000-match StatsBomb corpus (Phase 15 complete).
 4. **Feature store scope**: Which player features justify formal Databricks Feature Engineering tables?
 5. **Serving strategy**: CPU batch inference (simple, scheduled) vs scale-to-zero endpoint (real-time)?
 6. **SoccerMaster timeline**: Monitor GitHub for weight release &mdash; could consolidate multiple point solutions
@@ -527,7 +527,7 @@ Currently the platform has a single `dev` environment. Adding a `staging` enviro
 | Lakebase project | `soccer-analytics-dev` | `soccer-analytics-staging` |
 | Lakebase branch | `production` | `staging` (branched from dev production) |
 | dbt target | `dev` | `staging` |
-| Synced tables | 11 tables | Subset (fact tables only for validation) |
+| Synced tables | 16 tables | Subset (fact tables only for validation) |
 | Terraform | `terraform/environments/dev/` | `terraform/environments/staging/` |
 | Budget | Under $100/month | Minimal incremental (scale-to-zero) |
 
@@ -717,18 +717,18 @@ A HuggingFace Space (Streamlit or Gradio) hosting a read-only demo with pre-cach
 
 ### Open questions
 
-1. **Org name**: `luxury-lakehouse`, `soccer-analytics-lab`, or personal namespace?
-2. **football2vec evaluation**: Test pre-trained weights against StatsBomb data before committing to Phase 15 approach?
-3. ~~**sentence-transformers for entity resolution**: Benchmark against `rapidfuzz`?~~ Resolved &mdash; Phase 14 complete using TF-IDF + rapidfuzz (2,388 matches). Sentence-transformers remains an option for future embedding-based matching if needed.
-4. **Publishing priority**: Start with datasets (lower effort) or wait until Phase 15 produces model weights?
+1. ~~**Org name**~~ Resolved &mdash; `luxury-lakehouse` (created, model published).
+2. ~~**football2vec evaluation**~~ Resolved &mdash; retrained on full ~3,000-match StatsBomb corpus (not pre-trained weights). 32-dim Doc2Vec model saved to UC Volume + HF Hub.
+3. ~~**sentence-transformers for entity resolution**~~ Resolved &mdash; Phase 14 complete using TF-IDF + rapidfuzz (2,388 matches). Sentence-transformers remains an option for future embedding-based matching if needed.
+4. ~~**Publishing priority**~~ Resolved &mdash; Phase 15 model weights published to `luxury-lakehouse/football2vec-statsbomb-wyscout`.
 5. **Space framework**: Streamlit (reuse existing code) or Gradio (better for model demos)?
-6. **HF Jobs vs RunPod**: Defer comparison until Phase 17, or benchmark early with a small training run?
+6. **HF Jobs vs RunPod**: Defer comparison until DEFCON Tier 4, or benchmark early with a small training run?
 
 ### Dependencies
 
-- No blocking dependencies &mdash; Tier 1 (consume) can begin immediately
-- Tier 2 (publish) activates as Phases 15&ndash;17 produce artifacts (Phase 14 entity resolution complete)
-- Tier 3 (train) depends on DL Infrastructure (ROADMAP) for training pipeline
+- Tier 1 (consume) &mdash; **complete** (football2vec retrained on StatsBomb corpus)
+- Tier 2 (publish) &mdash; **complete** (model published to `luxury-lakehouse/football2vec-statsbomb-wyscout`)
+- Tier 3 (train) depends on DL Infrastructure (ROADMAP) for GNN training pipeline
 - Tier 4 (demo) depends on sufficient published artifacts to make a compelling showcase
 - Synergistic with DL Infrastructure (HF models flow into MLflow + UC model registry)
 - Synergistic with Provider Abstraction (football2vec/OpenSTARLab consume same StatsBomb/Wyscout data)

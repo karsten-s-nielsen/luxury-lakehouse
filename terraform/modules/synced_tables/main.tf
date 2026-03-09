@@ -116,6 +116,38 @@ resource "databricks_database_synced_database_table" "fct_player_embeddings" {
   }
 }
 
+resource "databricks_database_synced_database_table" "fct_player_embeddings_season" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_player_embeddings_season_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_player_embeddings_season"
+    primary_key_columns    = ["embedding_season_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+resource "databricks_database_synced_database_table" "fct_player_embeddings_career" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_player_embeddings_career_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_player_embeddings_career"
+    primary_key_columns    = ["canonical_player_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
 resource "databricks_database_synced_database_table" "fct_action_values" {
   name                   = "${var.catalog_name}.${var.gold_schema}.fct_action_values_synced"
   database_instance_name = var.database_instance_name

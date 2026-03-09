@@ -1,7 +1,7 @@
 # Databricks Lakebase Implementation Plan — Soccer Analytics Platform
 
-> **Status**: Phase 14 complete — 10 Streamlit pages, 14 synced tables, cross-source player entity resolution (11,918 unified players).
-> **Last Updated**: 2026-03-07
+> **Status**: Phase 17 complete — 11 Streamlit pages, 16 synced tables, 31 PG indexes, 470 unit tests. Player embeddings with HuggingFace Hub integration and pgvector similarity search.
+> **Last Updated**: 2026-03-09
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready from day one
 
@@ -64,6 +64,7 @@ This plan implements the Databricks Lakebase architecture to build a serverless 
 │  │  • spadl_vaep → SPADL conversion + VAEP scoring from bronze     │    │
 │  │  • defcon_lite → DEFCON-lite defensive credit assignment       │    │
 │  │  • resolve_players → cross-source entity resolution           │    │
+│  │  • compute_embeddings → Doc2Vec + z-score player embeddings  │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
@@ -97,7 +98,7 @@ This plan implements the Databricks Lakebase architecture to build a serverless 
 │  │  • fct_shots, fct_passes, fct_player_stats, fct_match_summary  │    │
 │  │  • fct_tracking_frames, fct_action_values, fct_player_embeddings│    │
 │  │  • fct_physical_stats, fct_defensive_values, fct_defcon_actions │    │
-│  │  • fct_defcon_pressure                                         │    │
+│  │  • fct_defcon_pressure, fct_player_embeddings_season/career    │    │
 │  │  • dim_players, dim_teams, dim_competitions                     │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
@@ -116,7 +117,7 @@ This plan implements the Databricks Lakebase architecture to build a serverless 
 │  ┌──────────────────────────────────────────────────────────────────┐    │
 │  │  Serverless OLTP • Scale-to-zero • OAuth M2M auth               │    │
 │  │  • Standard PostgreSQL wire protocol (JDBC/psycopg2)            │    │
-│  │  • Native pgvector for future embedding search                  │    │
+│  │  • Native pgvector with HNSW indexes for player similarity       │    │
 │  │  • Copy-on-write database branching for dev/test                │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
@@ -127,9 +128,9 @@ This plan implements the Databricks Lakebase architecture to build a serverless 
 │  │  Deployed as Databricks App (serverless runtime)                │    │
 │  │  • OAuth M2M auth (automatic token rotation, no passwords)      │    │
 │  │  • Connects to Lakebase via psycopg2 (ThreadedConnectionPool)   │    │
-│  │  • 10 pages: Shot Map, Pass Map, Heat Map, Pass Network,       │    │
+│  │  • 11 pages: Shot Map, Pass Map, Heat Map, Pass Network,       │    │
 │  │    Action Values, Player Radar, Match Summary, Pitch Control,  │    │
-│  │    Movement Analysis, Defensive Pressure                       │    │
+│  │    Movement Analysis, Defensive Pressure, Player Similarity    │    │
 │  └──────────────────────────────────────────────────────────────────┘    │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
@@ -288,7 +289,7 @@ luxury-lakehouse/
 │   │   ├── lakebase/                 # Lakebase Autoscaling (PG 17)
 │   │   ├── sql_warehouse/            # Serverless SQL Warehouse
 │   │   ├── workflows/                # Ingestion job definitions
-│   │   ├── synced_tables/            # Gold → Lakebase sync (14 tables)
+│   │   ├── synced_tables/            # Gold → Lakebase sync (16 synced tables)
 │   │   ├── app/                      # Databricks App (Streamlit)
 │   │   ├── service_principals/       # Ingestion SP, App SP, CI SP + federation
 │   │   ├── github_oidc/              # AWS IAM OIDC provider + scoped role
@@ -303,7 +304,8 @@ luxury-lakehouse/
 │   │   ├── line_breaking.py          # Ward clustering + straddle test for line-breaking passes
 │   │   ├── off_ball_xt.py            # Off-ball xT: pitch control × expected threat zones
 │   │   ├── defcon_lite.py            # DEFCON-lite: heuristic defensive credit assignment + XGBoost
-│   │   └── entity_resolution.py     # Three-layer progressive player matching (TF-IDF + rapidfuzz)
+│   │   ├── entity_resolution.py     # Three-layer progressive player matching (TF-IDF + rapidfuzz)
+│   │   └── football2vec.py          # Doc2Vec behavioral embeddings (tokenizer, training, inference)
 │   │
 │   ├── ingestion/
 │   │   ├── statsbomb.py              # StatsBomb API ingestion (5 bronze tables + 360 backfill)
@@ -315,6 +317,7 @@ luxury-lakehouse/
 │   │   ├── off_ball_xt.py            # Off-ball xT batch computation (gold → bronze)
 │   │   ├── defcon_lite.py            # DEFCON-lite batch computation (gold+bronze → bronze)
 │   │   ├── entity_resolution.py     # Cross-source player entity resolution (StatsBomb × Wyscout → bronze)
+│   │   ├── player_embeddings.py     # Player embedding inference + stat vector computation
 │   │   ├── spadl_adapter.py          # Bronze-to-socceraction format adapters
 │   │   ├── spadl_vaep.py             # SPADL conversion + VAEP scoring pipeline
 │   │   └── utils.py                  # Shared CLI, logging, HTTP, Delta helpers
@@ -323,10 +326,10 @@ luxury-lakehouse/
 │   │   ├── app.py                    # Entrypoint: st.navigation, page routing
 │   │   ├── config.py                 # Pydantic BaseSettings
 │   │   ├── db.py                     # OAuth M2M, ThreadedConnectionPool, parameterized queries
-│   │   ├── pages/                    # 10 pages (+ player_search.py planned)
+│   │   ├── pages/                    # 11 pages (incl. player_similarity.py)
 │   │   └── components/               # filters.py, pitch.py, charts.py
 │   │
-│   └── tests/                        # 16 test modules
+│   └── tests/                        # 19 test modules
 │       ├── test_statsbomb.py
 │       ├── test_metrica.py
 │       ├── test_wyscout.py
@@ -340,6 +343,9 @@ luxury-lakehouse/
 │       ├── test_off_ball_xt.py
 │       ├── test_defcon_lite.py
 │       ├── test_entity_resolution.py
+│       ├── test_football2vec.py
+│       ├── test_player_embeddings.py
+│       ├── test_player_similarity.py
 │       ├── test_streamlit_components.py
 │       ├── test_streamlit_config.py
 │       └── test_streamlit_db.py
@@ -348,16 +354,19 @@ luxury-lakehouse/
 │   ├── models/
 │   │   ├── staging/                  # SILVER: statsbomb/, metrica/, wyscout/, spadl/, idsse/, skillcorner/, line_breaking/, off_ball_xt/, defcon/, entity_resolution/
 │   │   ├── intermediate/             # Cross-source joins (ephemeral)
-│   │   └── marts/                    # GOLD: 11 fact + 3 dimension tables
+│   │   └── marts/                    # GOLD: 11 fact + 4 dimension tables
 │   ├── tests/                        # Custom data tests
 │   ├── macros/                       # distance_to_goal, shot_angle
 │   └── seeds/                        # competition_metadata.csv, position_mapping.csv, expected_threat_grid.csv, player_xref_overrides.csv
 │
+├── notebooks/
+│   └── train_football2vec.py         # Databricks notebook: Doc2Vec training + HuggingFace Hub publishing
+│
 ├── scripts/
-│   ├── create_indexes.py             # PG indexes on Lakebase synced tables (27 indexes, 10 tables, --verify flag)
+│   ├── create_indexes.py             # PG indexes on Lakebase synced tables (31 indexes, 10+ tables, --verify flag)
 │   ├── refresh_synced_tables.py      # Trigger SNAPSHOT refresh on synced tables (--wait, --tables)
 │   ├── delete_synced_table.py        # Delete synced table + drop PG ghost table
-│   ├── import_synced_tables.sh       # Terraform import workflow (14 tables)
+│   ├── import_synced_tables.sh       # Terraform import workflow (16 tables)
 │   ├── lakebase_grants.sql           # PG GRANT SELECT for Streamlit SP
 │   └── deploy.sh                     # Databricks sync + app deploy
 │
@@ -366,9 +375,11 @@ luxury-lakehouse/
 │   ├── terraform-plan.yml            # Plan on PR (OIDC auth)
 │   └── dbt-ci.yml                    # dbt build --target ci
 │
-└── docs/c4/
-    ├── architecture.dsl              # Structurizr DSL source
-    └── architecture.html             # Generated: self-contained HTML
+└── docs/
+    ├── c4/
+    │   ├── architecture.dsl          # Structurizr DSL source
+    │   └── architecture.html         # Generated: self-contained HTML
+    └── huggingface-setup.md          # HuggingFace Hub integration guide (forks)
 ```
 
 ---
@@ -427,7 +438,7 @@ All code must pass these gates before merge:
 
 | Level | What | How |
 |-------|------|-----|
-| Unit | Ingestion logic, utility functions, analytics models | pytest (303+ tests) |
+| Unit | Ingestion logic, utility functions, analytics models | pytest (470 tests) |
 | Integration | dbt models compile and run | `dbt build --target ci` |
 | Data quality | Row counts, value ranges, referential integrity | dbt tests (381) + dbt-expectations |
 | E2E | Streamlit pages render with real data | Manual smoke test |
@@ -440,7 +451,7 @@ Lakebase and Databricks performance standards are codified in [CLAUDE.md § Data
 - **Lakebase (PG):** Index every filtered column on fact tables >100K rows. No `ON ONLY` indexes (partitioned tables). Avoid `SELECT DISTINCT` on large tables — use recursive CTE. Re-run `scripts/create_indexes.py` after every synced table recreation.
 - **Databricks (Spark/dbt):** `validate_dataframe()` returns row count to `write_delta_table()` (no double `df.count()`), all writes use `replaceWhere` for idempotency, don't `.toPandas()` unbounded tables, extract repeated window functions into CTEs, `fct_tracking_frames` uses `CLUSTER BY match_id` for Z-ordering.
 
-Currently 27 btree indexes across 10 fact tables covering all Streamlit query patterns. Managed by `scripts/create_indexes.py` with `--verify` for EXPLAIN ANALYZE validation.
+Currently 27 btree indexes across 10 fact tables + 4 HNSW vector indexes on embedding tables (31 total) covering all Streamlit query patterns. Managed by `scripts/create_indexes.py` with `--verify` for EXPLAIN ANALYZE validation.
 
 ### 6.7 — Architecture Documentation
 
@@ -469,6 +480,8 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 | **12** | Movement Analysis | PPDA pressing (StatsBomb events), physical performance metrics (tracking), off-ball xT (pitch control × xT zones). `fct_physical_stats` mart, `speed_ms`/`acceleration_ms2` in `fct_tracking_frames`, Movement Analysis page (3 views), 290 tests |
 | **13** | Line-Breaking Pass Detection | Ward hierarchical clustering + cross-product straddle test in `src/analytics/line_breaking.py`, dual data paths (StatsBomb 360 + Metrica tracking), `is_line_breaking`/`lines_broken`/`line_breaking_type` in `fct_passes`, Pass Map gold arrows, Player Radar LB/90, 257 tests |
 | **14** | Cross-Source Player Entity Resolution | Three-layer progressive matching (glass_onion-inspired, BSD 3-Clause): TF-IDF + sparse_dot_topn candidate generation, rapidfuzz multi-attribute scoring, bidirectional validation. 2,388 cross-source matches (Layer 2: 2,148 name+DOB, Layer 3: 240 name+position). `dim_players` unified to 11,918 rows with `canonical_player_id`. Bronze: `wyscout_players` (3,603), `player_xref_raw` (2,388). dbt: `int_player_xref` (ephemeral), `stg_wyscout__players` (view), `player_xref_overrides` seed. `entity_resolution_enabled` feature toggle. 303+ tests |
+| **15** | Player Embeddings (Doc2Vec + z-score) | Dual-vector player representation: 32-dim Doc2Vec behavioral embeddings (action sequences via gensim) + 13-dim statistical z-score vectors. `src/analytics/football2vec.py` (tokenizer + training), `src/ingestion/player_embeddings.py` (batch pipeline). Model artifacts in UC Volume + HuggingFace Hub (`luxury-lakehouse/football2vec-statsbomb-wyscout`). `fct_player_embeddings` + season/career aggregation marts, pgvector HNSW indexes. 87,035 per-match embeddings, 8,950 players |
+| **16** | Player Similarity Page (pgvector HNSW) | `player_similarity.py` Streamlit page: "Find players like X" with pgvector `<=>` cosine distance search. Behavioral (32-d) and statistical (13-d) search modes, radar chart comparison overlay, data source badges. `fct_player_embeddings_career_synced` and `fct_player_embeddings_season_synced` with HNSW indexes for sub-10ms similarity queries. 11th Streamlit page |
 | **17** | DEFCON-lite Defensive Pressure | Tier 3 tabular DEFCON: heuristic credit assignment (intercept/concede/disturb/deter) + XGBoost confidence. `defcon_lite.py` analytics + ingestion, `fct_defensive_values` + `fct_defcon_actions` + `fct_defcon_pressure` marts, Def. Pressure page (attacker-perspective rankings, breakdown, timeline), 5 DEFCON cols in `fct_player_stats`, 319 tests |
 
 ### Key Design Decisions (from completed phases)
@@ -499,7 +512,9 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 | `dev_gold.fct_defensive_values` | `fct_defensive_values_synced` | `defensive_value_id` | 829,377 |
 | `dev_gold.fct_defcon_actions` | `fct_defcon_actions_synced` | `defcon_action_id` | 829,377 |
 | `dev_gold.fct_defcon_pressure` | `fct_defcon_pressure_synced` | `pressure_id` | ~28,000 |
-| `dev_gold.fct_player_embeddings` | `fct_player_embeddings_synced` | `embedding_id` | 0 |
+| `dev_gold.fct_player_embeddings` | `fct_player_embeddings_synced` | `embedding_id` | ~87,035 |
+| `dev_gold.fct_player_embeddings_season` | `fct_player_embeddings_season_synced` | `embedding_season_id` | ~8,950 |
+| `dev_gold.fct_player_embeddings_career` | `fct_player_embeddings_career_synced` | `embedding_career_id` | ~8,950 |
 | `dev_gold.dim_players` | `dim_players_synced` | `canonical_player_id` | 11,918 |
 | `dev_gold.dim_teams` | `dim_teams_synced` | `team_id` | 453 |
 | `dev_gold.dim_competitions` | `dim_competitions_synced` | `competition_id` | 21 |
@@ -510,7 +525,7 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 - `logical_database_name = "databricks_postgres"` — standard Lakebase database
 - **Autoscaling workaround (provider v1.110.0):** `databricks_database_synced_database_table` only supports `database_instance_name` (Provisioned). Synced tables targeting Autoscaling projects must be created via Databricks UI, then imported into Terraform. `lifecycle { ignore_changes = all }` prevents drift. This applies to any new synced table.
 - **Schema changes:** Must delete synced table, drop ghost PG table, recreate via API, re-import into Terraform.
-- **PG indexes:** 27 custom btree indexes across 10 fact tables (tracking, passes, shots, action_values, player_stats, physical_stats, match_summary, defensive_values, defcon_actions, defcon_pressure). Dropped on synced table recreation — re-run `scripts/create_indexes.py` alongside `scripts/lakebase_grants.sql`.
+- **PG indexes:** 27 btree indexes across 10 fact tables + 4 HNSW vector indexes on embedding tables = 31 total. Dropped on synced table recreation — re-run `scripts/create_indexes.py` alongside `scripts/lakebase_grants.sql`.
 - **SNAPSHOT refresh:** Synced tables with `scheduling_policy = "SNAPSHOT"` do not auto-refresh. Run `scripts/refresh_synced_tables.py` after upstream dbt rebuilds. Supports `--wait` (poll until IDLE) and `--tables` (comma-separated subset). The Terraform provider has no schedule/cron field — this is the operational workaround.
 - **Credential API:** REST endpoint is `/api/2.0/postgres/credentials` (NOT `/api/2.0/database/credentials`).
 
@@ -528,6 +543,7 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 | Action Values | VAEP rankings, action type breakdown, timeline | `fct_action_values_synced`, `fct_player_stats_synced` |
 | Movement Analysis | Physical performance, PPDA pressing, off-ball xT | `fct_physical_stats_synced`, `fct_match_summary_synced` |
 | Def. Pressure | DEFCON-lite attacker pressure rankings, breakdown, match timeline | `fct_defcon_pressure_synced`, `fct_defcon_actions_synced` |
+| Player Similarity | pgvector nearest-neighbor search ("Find players like X"), radar overlay | `fct_player_embeddings_career_synced`, `fct_player_embeddings_season_synced`, `fct_player_stats_synced` |
 
 ---
 
@@ -555,13 +571,13 @@ Each new source follows the established pattern: `src/ingestion/<source>.py` →
 
 See [§7 Completed Phases](#7-completed-phases) for summary. Three-layer progressive matching inspired by [glass_onion](https://github.com/USSoccerFederation/glass_onion) (BSD 3-Clause). 2,388 matches from 3,603 Wyscout players. `dim_players` unified to 11,918 rows with `canonical_player_id`, `data_sources`, and Wyscout enrichment (birth_date, nationality).
 
-### 8.3 — Phase 15: pgvector Player Embeddings
+### 8.3 — Phase 15: pgvector Player Embeddings — **COMPLETE**
 
-`fct_player_embeddings` and its synced table are provisioned (0 rows). Design feature vector from `fct_player_stats` per-90 metrics, generate embeddings, enable pgvector `<=>` cosine distance queries. Phase 14 cross-source identity is complete — full unified player roster available.
+See [&sect;7 Completed Phases](#7-completed-phases) for summary. Dual-vector player representation: 32-dim Doc2Vec behavioral embeddings (gensim) + 13-dim statistical z-score vectors. Model published to HuggingFace Hub (`luxury-lakehouse/football2vec-statsbomb-wyscout`). Artifacts cached in UC Volume. pgvector HNSW indexes for sub-10ms similarity queries. See [HuggingFace setup guide](docs/huggingface-setup.md) for fork instructions.
 
-### 8.4 — Phase 16: Player Similarity Streamlit Page
+### 8.4 — Phase 16: Player Similarity Streamlit Page — **COMPLETE**
 
-pgvector nearest-neighbor search (`player_search.py`). "Find players like X." Depends on Phase 15.
+See [&sect;7 Completed Phases](#7-completed-phases) for summary. pgvector `<=>` cosine distance nearest-neighbor search with position filtering and radar chart comparison overlay. 11th Streamlit page.
 
 ### 8.5 — DEFCON-Inspired Defensive Valuation (Tier 4)
 
@@ -582,9 +598,7 @@ pgvector nearest-neighbor search (`player_search.py`). "Find players like X." De
 
 ### 8.6 — Additional Streamlit Pages
 
-| Page | Description | Dependencies |
-|------|-------------|-------------|
-| **Player Similarity** | pgvector nearest-neighbor search | Phase 15 + 16 |
+All planned pages are complete. 11 pages deployed.
 
 ---
 

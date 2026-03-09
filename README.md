@@ -42,6 +42,7 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 | **Synchronization** | Lakeflow Synced Tables | Zero-ETL continuous sync from Gold → Lakebase |
 | **Serving** | Lakebase PostgreSQL 17 (Autoscaling) | Sub-10ms OLTP queries, native pgvector, scale-to-zero |
 | **Application** | Streamlit on Databricks Apps | Interactive dashboards with mplsoccer visualizations |
+| **ML Artifacts** | HuggingFace Hub | Publish football2vec model weights for community access |
 | **Security** | OAuth M2M + OIDC Federation + KMS | Zero-secret CI, least-privilege SPs, encrypted state |
 | **Infrastructure** | Terraform + Databricks Provider | Everything as code |
 
@@ -70,7 +71,8 @@ Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by 
 - **Movement Analysis** — PPDA pressing intensity, physical performance metrics (distance, HSR, sprints), and off-ball xT from tracking data
 - **Defensive Pressure (DEFCON-lite)** — Attacker-perspective defensive credit assignment (intercept/concede/disturb/deter) based on Kim et al. (2025)
 - **Cross-Source Entity Resolution** — Three-layer progressive player matching (TF-IDF + rapidfuzz + bidirectional validation) inspired by US Soccer's glass_onion
-- **Player Similarity** — pgvector cosine-distance search ("Find players like X") *(planned)*
+- **Player Embeddings** — Dual-vector player representation: 32-dim Doc2Vec behavioral + 13-dim statistical z-score, published to HuggingFace Hub
+- **Player Similarity** — pgvector HNSW cosine-distance search ("Find players like X") with interactive Streamlit page
 - **Player Radar Charts** — Per-90 stat comparison across multiple metrics (incl. DEFCON pressure/90)
 
 ## Project Structure
@@ -79,13 +81,15 @@ Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by 
 luxury-lakehouse/
 ├── terraform/          # Infrastructure as Code (Databricks on AWS)
 ├── src/
-│   ├── analytics/      # Pure-Python analytics models (pitch control, line-breaking, entity resolution, DEFCON)
+│   ├── analytics/      # Pure-Python analytics models (pitch control, line-breaking, entity resolution, DEFCON, football2vec)
 │   ├── ingestion/      # Data ingestion (StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner)
 │   └── streamlit_app/  # Interactive analytics dashboard
+├── notebooks/          # Databricks notebooks (football2vec training + HF Hub publishing)
 ├── dbt_project/        # Bronze → Silver → Gold transformations
 ├── scripts/            # Operational scripts (PG indexes, grants, synced table management)
 ├── docs/
-│   └── c4/             # C4 architecture diagrams (Structurizr DSL)
+│   ├── c4/             # C4 architecture diagrams (Structurizr DSL)
+│   └── huggingface-setup.md  # HuggingFace Hub integration guide
 ├── assets/             # Images and branding
 ├── PLAN.md             # Detailed implementation plan
 └── ROADMAP.md          # Research directions and future ideas
@@ -93,7 +97,7 @@ luxury-lakehouse/
 
 ## Status
 
-**Phase 14 complete** — 10 Streamlit pages, 14 synced tables, cross-source player entity resolution (11,918 unified players). See [PLAN.md](PLAN.md) for the implementation plan and [ROADMAP.md](ROADMAP.md) for research directions.
+**Phase 17 complete** — 11 Streamlit pages, 16 synced tables, 31 PG indexes, 470 unit tests. See [PLAN.md](PLAN.md) for the implementation plan and [ROADMAP.md](ROADMAP.md) for research directions.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -114,6 +118,8 @@ luxury-lakehouse/
 | 12 | Movement Analysis | Complete |
 | 13 | Line-Breaking Pass Detection | Complete |
 | 14 | Cross-Source Player Entity Resolution | Complete |
+| 15 | Player Embeddings (Doc2Vec + z-score) | Complete |
+| 16 | Player Similarity Page (pgvector HNSW) | Complete |
 | 17 | DEFCON-lite Defensive Pressure | Complete |
 
 ## Tech Stack
@@ -127,7 +133,8 @@ luxury-lakehouse/
 | Transformations | dbt-core + dbt-databricks |
 | Orchestration | Databricks Serverless Workflows |
 | Application | Streamlit + mplsoccer + Plotly |
-| Vector Search | pgvector (native in Lakebase) |
+| Vector Search | pgvector HNSW (native in Lakebase) |
+| Embeddings | gensim (Doc2Vec) + huggingface_hub (model publishing) |
 | Python | 3.10+ (Databricks serverless), managed with uv |
 | Linting | ruff + pyright + sqlfluff |
 | CI/CD | GitHub Actions |
