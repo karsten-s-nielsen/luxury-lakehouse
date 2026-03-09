@@ -78,4 +78,4 @@ uv run pytest src/tests/ -v    # Unit tests
 - **Entry points**: Each ingestion module exposes a `main()` function registered in `pyproject.toml`.
 - **Delta tables**: All bronze writes include `_ingested_at` audit column with UTC timestamp.
 - **Partition overwrite**: Use `replaceWhere` for incremental loads, not full table overwrites.
-- **HuggingFace Hub**: Org is `luxury-lakehouse`. Model artifacts cached in UC Volume `/Volumes/soccer_analytics/dev_gold/model_weights/`. Set `HF_HOME` env var for local cache location. Use `huggingface_hub` for model publish/download (no torch dependency). See `docs/huggingface-setup.md`.
+- **HuggingFace Hub**: Org is `luxury-lakehouse`. Model artifacts cached in UC Volume `/Volumes/soccer_analytics/dev_gold/model_weights/`. Set `HF_HOME` env var for local cache location. Use `huggingface_hub` for model publish/download (no torch dependency). See `docs/huggingface-setup.md`. Model card and org card source of truth: `docs/huggingface/model-card.md` and `docs/huggingface/org-card.md` (pushed to HF Hub 2026-03-09).

@@ -2,6 +2,8 @@
 
 This guide covers how to use the pre-trained football2vec model, retrain on your own data, and set up your own HuggingFace org for publishing.
 
+> **See also:** [Model card](huggingface/model-card.md) (source of truth for the [HF model page](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout)) and [Org card](huggingface/org-card.md) (source of truth for the [HF org page](https://huggingface.co/luxury-lakehouse)).
+
 ---
 
 ## 1. Using the Pre-Trained Model (Forks)

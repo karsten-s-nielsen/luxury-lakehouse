@@ -379,7 +379,11 @@ luxury-lakehouse/
     ├── c4/
     │   ├── architecture.dsl          # Structurizr DSL source
     │   └── architecture.html         # Generated: self-contained HTML
-    └── huggingface-setup.md          # HuggingFace Hub integration guide (forks)
+    ├── huggingface/
+    │   ├── model-card.md             # HF Hub model card (source of truth)
+    │   └── org-card.md               # HF Hub org card (source of truth)
+    ├── huggingface-setup.md          # HuggingFace Hub integration guide (forks)
+    └── plans/                        # Implementation design documents
 ```
 
 ---

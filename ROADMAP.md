@@ -681,7 +681,7 @@ Artifacts the project could publish to the community:
 
 All artifacts fit within HF's free 10 GB/repo Git LFS limit. Dataset repos get automatic Parquet conversion, DuckDB-queryable dataset viewer, and streaming support.
 
-**Model cards** document methodology, training data provenance (StatsBomb open data, Wyscout Figshare), coordinate systems, and reproduction steps &mdash; the same rigor as the project's existing documentation standards.
+**Model cards** document methodology, training data provenance (StatsBomb open data, Wyscout Figshare), coordinate systems, and reproduction steps &mdash; the same rigor as the project's existing documentation standards. Source files are maintained in [`docs/huggingface/`](docs/huggingface/) and pushed to HF Hub as the canonical README.
 
 ### Tier 3 &mdash; GPU training on HuggingFace
 
@@ -727,7 +727,7 @@ A HuggingFace Space (Streamlit or Gradio) hosting a read-only demo with pre-cach
 ### Dependencies
 
 - Tier 1 (consume) &mdash; **complete** (football2vec retrained on StatsBomb corpus)
-- Tier 2 (publish) &mdash; **complete** (model published to `luxury-lakehouse/football2vec-statsbomb-wyscout`)
+- Tier 2 (publish) &mdash; **complete** (model published to [`luxury-lakehouse/football2vec-statsbomb-wyscout`](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout); [model card](docs/huggingface/model-card.md) and [org card](docs/huggingface/org-card.md) pushed to HF Hub)
 - Tier 3 (train) depends on DL Infrastructure (ROADMAP) for GNN training pipeline
 - Tier 4 (demo) depends on sufficient published artifacts to make a compelling showcase
 - Synergistic with DL Infrastructure (HF models flow into MLflow + UC model registry)

@@ -56,7 +56,7 @@ See [ROADMAP.md](ROADMAP.md) for research directions, long-horizon features, and
 - **Graph-Based Tactical Patterns** — GNN research direction (Raabe et al. 2022)
 - **Decision Optimization** — RL-based pass optimization beyond VAEP (Rahimian et al.)
 - **Space Creation** — Fernandez & Bornn 2018 OBSO (deferred from Phase 12; JAX `vmap` may unblock)
-- **HuggingFace Hub Integration** — Tier 1-2 complete (football2vec published to `luxury-lakehouse/football2vec-statsbomb-wyscout`); remaining: Tier 3 GPU training, Tier 4 public demo Space
+- **HuggingFace Hub Integration** — Tier 1-2 complete (football2vec published to [`luxury-lakehouse/football2vec-statsbomb-wyscout`](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout), model card + org card live); remaining: Tier 3 GPU training, Tier 4 public demo Space
 
 ## Infrastructure Notes
 
