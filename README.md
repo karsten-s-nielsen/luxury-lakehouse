@@ -161,6 +161,14 @@ Quality gates invoked at key project milestones — architecture visualization, 
 
 Development methodology framework by [Jesse Vincent](https://github.com/obra) that provides the underlying workflow discipline — brainstorming before building, planning before coding, TDD before implementing, verification before claiming done. Superpowers runs automatically in every session and dispatches the appropriate methodology skill based on context.
 
+## Giving Back
+
+> *"En Del Af Noget Større"* (A Part of Something Bigger)
+
+This project is, and always will be, free and open source. If you find value in this work, I encourage you to consider a donation to **Scottish Football for Rwanda** rather than any personal gift. I am volunteering as a goalkeeper coach in Rwanda in June 2026 — 100% of donations go directly to local kids, coaches, and community organizations.
+
+[![Donate](https://img.shields.io/badge/Donate-JustGiving-E42C64?style=flat-square)](https://www.justgiving.com/page/gk-coach-karsten-for-rwanda)
+
 ## License
 
 [Apache License 2.0](LICENSE) &mdash; see [NOTICE](NOTICE) for third-party data attribution.
