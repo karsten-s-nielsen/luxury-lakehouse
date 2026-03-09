@@ -92,6 +92,15 @@ classification, spatial features, XGBoost confidence), not derived from
 the authors' source code. Licensed under the Apache License, Version 2.0.
 See: https://github.com/hyunsungkim-ds/defcon
 
+The player embedding pipeline (src/analytics/football2vec.py) implements
+the spatial tokenization and Doc2Vec embedding approach described in:
+Theiner, J. et al. (2022). "Exploring the Relationship Between Football
+Players' Positions and Their Attributes through Network Analysis" (also
+known as "Football2Vec"). The implementation is an independent Python
+translation using gensim Doc2Vec. Model weights are published to
+HuggingFace Hub (luxury-lakehouse/football2vec-statsbomb-wyscout).
+Reference implementation: https://github.com/ofirmg/football2vec (MIT).
+
 The cross-source player entity resolution pipeline
 (src/analytics/entity_resolution.py) uses a three-layer progressive
 matching strategy inspired by: USSoccerFederation/glass_onion, licensed

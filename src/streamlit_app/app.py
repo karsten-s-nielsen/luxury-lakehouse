@@ -13,6 +13,7 @@ from streamlit_app.pages.pass_map import page as pass_map_page
 from streamlit_app.pages.pass_network import page as pass_network_page
 from streamlit_app.pages.pitch_control import page as pitch_control_page
 from streamlit_app.pages.player_radar import page as player_radar_page
+from streamlit_app.pages.player_similarity import page as player_similarity_page
 from streamlit_app.pages.shot_map import page as shot_map_page
 
 
@@ -52,6 +53,12 @@ def main() -> None:
             title="Def. Pressure",
             icon=":material/shield:",
             url_path="defensive-valuation",
+        ),
+        st.Page(
+            player_similarity_page,
+            title="Player Similarity",
+            icon=":material/search:",
+            url_path="player-similarity",
         ),
     ]
 

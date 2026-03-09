@@ -2,28 +2,13 @@
 
 Quick-reference action items. Full details in [PLAN.md](PLAN.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
 
-**Last updated**: 2026-03-07
+**Last updated**: 2026-03-09
 
 ---
 
 ## Completed Phases
 
-Phases 0–17 and 14 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for the summary table and git history for implementation details.
-
----
-
-## Next Up
-
-### Phase 15 — pgvector Player Embeddings (PLAN §8.3)
-
-- [ ] Design feature vector from `fct_player_stats` per-90 metrics
-- [ ] Populate `fct_player_embeddings` (0 rows, table provisioned)
-- [ ] Phase 14 cross-source identity complete — full player roster available
-
-### Phase 16 — Player Similarity Streamlit Page (PLAN §8.4)
-
-- [ ] pgvector nearest-neighbor search (`player_search.py`)
-- [ ] Depends on Phase 15
+Phases 0–17 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for the summary table and git history for implementation details.
 
 ---
 
@@ -46,7 +31,7 @@ Phases 0–17 and 14 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases)
 | 11 | Heat Map pre-aggregation lossy | `heat_map.py` | Server-side `GROUP BY round(x/10)` bins into 10-yard cells before `bin_statistic`. Per-action precision lost. | Acceptable trade-off for density visualization. |
 | 12 | Off-Ball xT 1fps sampling | `off_ball_xt.py` | 1fps sampling (~5,400 frames/match) is a compute-time trade-off. Full 25fps would be 25x slower with marginal accuracy gain. | Performance budget. Consider GPU batch if higher resolution needed. |
 | 13 | PPDA StatsBomb-only | `fct_match_summary.sql` | PPDA uses StatsBomb defensive actions. NULL for Wyscout-only competitions (different event taxonomy). | Data limitation. Would require event type mapping or different pressing proxy. |
-| 14 | Space creation deferred | ROADMAP.md | Full Fernandez & Bornn 2018 OBSO requires N+1 pitch control computations per frame — too expensive for current compute budget. | Move to ROADMAP.md as research direction. |
+| 14 | Space creation deferred | ROADMAP.md | Full Fernandez & Bornn 2018 OBSO requires N+1 pitch control computations per frame — too expensive for current compute budget. | Research direction in ROADMAP.md. |
 | 15 | Acceleration noise | `fct_tracking_frames.sql` | Frame-to-frame speed differencing amplifies sensor noise. May show unrealistic acceleration spikes. | Consider Savitzky-Golay smoothing in Python pre-processing if spikes observed in practice. |
 | 16 | Physical stats tracking-only | `fct_physical_stats.sql` | Only 20 matches (Metrica 3, IDSSE 7, SkillCorner 10) have physical data. ~3,000 event-only matches have none. | Data limitation — no tracking for StatsBomb/Wyscout. |
 | 17 | xT grid static | `expected_threat_grid.csv` | Karun Singh standard 12x8 seed. Could be computed dynamically per competition from pass/shot data for more accurate values. | Enhancement — current static grid is standard practice. |
@@ -71,7 +56,7 @@ See [ROADMAP.md](ROADMAP.md) for research directions, long-horizon features, and
 - **Graph-Based Tactical Patterns** — GNN research direction (Raabe et al. 2022)
 - **Decision Optimization** — RL-based pass optimization beyond VAEP (Rahimian et al.)
 - **Space Creation** — Fernandez & Bornn 2018 OBSO (deferred from Phase 12; JAX `vmap` may unblock)
-- **HuggingFace Hub Integration** — open model/dataset ecosystem; consume pre-trained soccer models, publish weights & datasets, GPU training, public demo Space
+- **HuggingFace Hub Integration** — Tier 1-2 complete (football2vec published to `luxury-lakehouse/football2vec-statsbomb-wyscout`); remaining: Tier 3 GPU training, Tier 4 public demo Space
 
 ## Infrastructure Notes
 

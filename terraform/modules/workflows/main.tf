@@ -13,6 +13,7 @@
 #   compute_off_ball_xt — Off-Ball xT from tracking + pitch control (depends on tracking tasks)
 #   compute_defcon_lite — DEFCON-lite defensive valuation (depends on SPADL/VAEP)
 #   resolve_players   — Cross-source entity resolution (depends on statsbomb + wyscout)
+#   compute_embeddings — Player behavioral + statistical embeddings (depends on entity resolution)
 #
 # Schedule: Daily at 06:00 UTC (before business hours in US/EU timezones)
 #
@@ -246,6 +247,31 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "analytics"
   }
 
+  # ── Task: Compute player embeddings ─────────────────────────────────────
+  # Generates behavioral (Doc2Vec action sequences) and statistical (z-score)
+  # player embedding vectors for similarity search via pgvector.
+  task {
+    task_key        = "compute_embeddings"
+    timeout_seconds = 3600
+    max_retries     = 1
+
+    depends_on {
+      task_key = "resolve_players"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_embeddings"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+      ]
+    }
+
+    environment_key = "embeddings"
+  }
+
   # ── Environment definition for serverless tasks ──────────────────────────
   environment {
     environment_key = "default"
@@ -290,6 +316,23 @@ resource "databricks_job" "data_ingestion" {
         var.wheel_path,
         "kloppy>=3.17.0,<4.0"
       ]
+    }
+  }
+
+  # ── Environment for player embeddings (gensim Doc2Vec + HF Hub) ────────
+  environment {
+    environment_key = "embeddings"
+
+    spec {
+      client = "1"
+
+      dependencies = concat(
+        [var.wheel_path],
+        [
+          "gensim>=4.3.0",
+          "huggingface_hub>=0.25.0",
+        ]
+      )
     }
   }
 

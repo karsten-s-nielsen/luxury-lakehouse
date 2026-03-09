@@ -103,6 +103,35 @@ INDEXES: list[tuple[str, str, str]] = [
     ("idx_defcon_pressure_match_id", "fct_defcon_pressure_synced", "match_id"),
 ]
 
+# pgvector HNSW index definitions: (index_name, table, using_clause)
+# These use a DIFFERENT syntax: CREATE INDEX ... ON table USING hnsw ((expr) ops_class)
+HNSW_INDEXES: list[tuple[str, str, str]] = [
+    # ── fct_player_embeddings_career_synced — Behavioral similarity ──────
+    (
+        "idx_embeddings_career_behavioral_hnsw",
+        "fct_player_embeddings_career_synced",
+        "USING hnsw ((behavioral_vector::text::vector(32)) vector_cosine_ops)",
+    ),
+    # ── fct_player_embeddings_career_synced — Statistical similarity ─────
+    (
+        "idx_embeddings_career_stat_hnsw",
+        "fct_player_embeddings_career_synced",
+        "USING hnsw ((stat_vector::text::vector(13)) vector_cosine_ops)",
+    ),
+    # ── fct_player_embeddings_season_synced — Behavioral similarity ──────
+    (
+        "idx_embeddings_season_behavioral_hnsw",
+        "fct_player_embeddings_season_synced",
+        "USING hnsw ((behavioral_vector::text::vector(32)) vector_cosine_ops)",
+    ),
+    # ── fct_player_embeddings_season_synced — Statistical similarity ─────
+    (
+        "idx_embeddings_season_stat_hnsw",
+        "fct_player_embeddings_season_synced",
+        "USING hnsw ((stat_vector::text::vector(13)) vector_cosine_ops)",
+    ),
+]
+
 # Verification queries for --verify flag: (description, query)
 # Each query should exercise a specific index on a fact table >100K rows.
 # Uses LIMIT 1 to keep execution fast; EXPLAIN ANALYZE still shows the plan.
@@ -148,6 +177,12 @@ VERIFY_QUERIES: list[tuple[str, str]] = [
         "fct_defcon_actions: match (idx_defcon_actions_match)",
         f"SELECT * FROM {SCHEMA}.fct_defcon_actions_synced WHERE match_id = '3788741' LIMIT 1",  # noqa: S608
     ),
+    (
+        "fct_player_embeddings_career: behavioral cosine kNN (idx_embeddings_career_behavioral_hnsw)",
+        f"SELECT canonical_player_id FROM {SCHEMA}.fct_player_embeddings_career_synced"  # noqa: S608
+        " ORDER BY behavioral_vector::text::vector(32) <=> (SELECT behavioral_vector::text::vector(32)"
+        f" FROM {SCHEMA}.fct_player_embeddings_career_synced LIMIT 1) LIMIT 5",
+    ),
 ]
 
 
@@ -184,12 +219,41 @@ def _create_indexes(conn: psycopg2.extensions.connection) -> int:
     errors = 0
 
     with conn.cursor() as cur:
+        # Enable pgvector extension for HNSW similarity indexes
+        print("Enabling pgvector extension...")
+        try:
+            cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+            print("  pgvector extension: OK")
+        except Exception as exc:
+            print(f"  pgvector extension: ERROR — {exc}")
+            errors += 1
+
+        # ── B-tree indexes (standard column lookups) ─────────────────────
         for idx_name, table, columns in INDEXES:
             fqn = f"{SCHEMA}.{table}"
             # All values are compile-time constants from INDEXES — no user input.
             ddl = f"CREATE INDEX IF NOT EXISTS {idx_name} ON {fqn} ({columns})"
             try:
                 print(f"  {idx_name} ON {table}({columns})...", end=" ", flush=True)
+                t0 = time.time()
+                cur.execute(ddl)
+                elapsed = time.time() - t0
+                print(f"OK ({elapsed:.1f}s)")
+                created += 1
+            except psycopg2.OperationalError:
+                # Connection-level error — no point continuing
+                raise
+            except Exception as exc:
+                print(f"ERROR: {exc}")
+                errors += 1
+
+        # ── HNSW indexes (pgvector cosine similarity) ────────────────────
+        for idx_name, table, using_clause in HNSW_INDEXES:
+            fqn = f"{SCHEMA}.{table}"
+            # All values are compile-time constants from HNSW_INDEXES — no user input.
+            ddl = f"CREATE INDEX IF NOT EXISTS {idx_name} ON {fqn} {using_clause}"
+            try:
+                print(f"  {idx_name} ON {table} {using_clause}...", end=" ", flush=True)
                 t0 = time.time()
                 cur.execute(ddl)
                 elapsed = time.time() - t0
