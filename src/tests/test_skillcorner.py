@@ -7,7 +7,10 @@ import pathlib
 from datetime import timedelta
 from unittest.mock import MagicMock
 
-from ingestion.skillcorner import SKILLCORNER_MATCH_IDS, _dataset_to_rows
+import numpy as np
+import pandas as pd
+
+from ingestion.skillcorner import SKILLCORNER_MATCH_IDS, _dataset_to_rows, _smooth_tracking
 
 _FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 
@@ -171,6 +174,68 @@ class TestDatasetToRows:
             "frame_rate",
         }
         assert set(rows[0].keys()) == expected_keys
+
+
+class TestSmoothTracking:
+    """Tests for _smooth_tracking integration."""
+
+    def test_per_player_independence(self) -> None:
+        """Smoothing is applied per player — no cross-player contamination."""
+        rng = np.random.default_rng(42)
+        n = 15
+
+        df = pd.DataFrame(
+            {
+                "player_id": ["P1"] * n + ["P2"] * n,
+                "period": [1] * n + [1] * n,
+                "match_id": ["skillcorner_M1"] * (2 * n),
+                "frame": list(range(n)) * 2,
+                "timestamp": [i / 10.0 for i in range(n)] * 2,
+                "team": ["home"] * (2 * n),
+                "x": np.concatenate(
+                    [
+                        np.linspace(-20, -10, n) + rng.normal(0, 0.02, n),
+                        np.linspace(30, 40, n) + rng.normal(0, 0.02, n),
+                    ]
+                ),
+                "y": np.zeros(2 * n),
+                "ball_x": [0.0] * (2 * n),
+                "ball_y": [0.0] * (2 * n),
+                "frame_rate": [10] * (2 * n),
+            }
+        )
+
+        smoothed = _smooth_tracking(df)
+
+        p1 = smoothed[smoothed["player_id"] == "P1"]
+        p2 = smoothed[smoothed["player_id"] == "P2"]
+        assert p1["x"].max() < 0, "P1 x contaminated by P2"
+        assert p2["x"].min() > 25, "P2 x contaminated by P1"
+
+    def test_reduces_noise(self) -> None:
+        """Smoothing reduces frame-to-frame jitter."""
+        rng = np.random.default_rng(99)
+        n = 30
+        df = pd.DataFrame(
+            {
+                "player_id": "P1",
+                "period": 1,
+                "match_id": "skillcorner_M1",
+                "frame": range(n),
+                "timestamp": [i / 10.0 for i in range(n)],
+                "team": "home",
+                "x": np.linspace(0, 20, n) + rng.normal(0, 0.05, n),
+                "y": np.linspace(0, 10, n) + rng.normal(0, 0.05, n),
+                "ball_x": 0.0,
+                "ball_y": 0.0,
+                "frame_rate": 10,
+            }
+        )
+        raw_jitter = df["x"].diff().std()
+
+        smoothed = _smooth_tracking(df)
+
+        assert smoothed["x"].diff().std() < raw_jitter
 
 
 class TestSkillCornerMatchIDs:

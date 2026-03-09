@@ -1,6 +1,6 @@
 # Databricks Lakebase Implementation Plan — Soccer Analytics Platform
 
-> **Status**: Phase 17 complete — 11 Streamlit pages, 16 synced tables, 31 PG indexes, 470 unit tests. Player embeddings with HuggingFace Hub integration and pgvector similarity search.
+> **Status**: Phase 17 complete — 11 Streamlit pages, 16 synced tables, 31 PG indexes, 489 unit tests. Player embeddings with HuggingFace Hub integration and pgvector similarity search.
 > **Last Updated**: 2026-03-09
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready from day one
@@ -305,7 +305,8 @@ luxury-lakehouse/
 │   │   ├── off_ball_xt.py            # Off-ball xT: pitch control × expected threat zones
 │   │   ├── defcon_lite.py            # DEFCON-lite: heuristic defensive credit assignment + XGBoost
 │   │   ├── entity_resolution.py     # Three-layer progressive player matching (TF-IDF + rapidfuzz)
-│   │   └── football2vec.py          # Doc2Vec behavioral embeddings (tokenizer, training, inference)
+│   │   ├── football2vec.py          # Doc2Vec behavioral embeddings (tokenizer, training, inference)
+│   │   └── smoothing.py             # Savitzky-Golay position smoothing for tracking data
 │   │
 │   ├── ingestion/
 │   │   ├── statsbomb.py              # StatsBomb API ingestion (5 bronze tables + 360 backfill)
@@ -329,7 +330,7 @@ luxury-lakehouse/
 │   │   ├── pages/                    # 11 pages (incl. player_similarity.py)
 │   │   └── components/               # filters.py, pitch.py, charts.py
 │   │
-│   └── tests/                        # 19 test modules
+│   └── tests/                        # 21 test modules
 │       ├── test_statsbomb.py
 │       ├── test_metrica.py
 │       ├── test_wyscout.py
@@ -346,6 +347,8 @@ luxury-lakehouse/
 │       ├── test_football2vec.py
 │       ├── test_player_embeddings.py
 │       ├── test_player_similarity.py
+│       ├── test_smoothing.py
+│       ├── test_merge_delta.py
 │       ├── test_streamlit_components.py
 │       ├── test_streamlit_config.py
 │       └── test_streamlit_db.py
@@ -442,7 +445,7 @@ All code must pass these gates before merge:
 
 | Level | What | How |
 |-------|------|-----|
-| Unit | Ingestion logic, utility functions, analytics models | pytest (470 tests) |
+| Unit | Ingestion logic, utility functions, analytics models | pytest (489 tests) |
 | Integration | dbt models compile and run | `dbt build --target ci` |
 | Data quality | Row counts, value ranges, referential integrity | dbt tests (381) + dbt-expectations |
 | E2E | Streamlit pages render with real data | Manual smoke test |
@@ -571,19 +574,7 @@ Each new source follows the established pattern: `src/ingestion/<source>.py` →
 | **Graph-Based Tactical Patterns** | Research direction | CC BY | TGNets (Raabe et al. 2022) for classifying defensive outcomes from tracking graphs |
 | **Decision Optimization** | Research direction | N/A | RL-based pass selection optimization (Rahimian et al.) — requires commercial tracking data |
 
-### 8.2 — Phase 14: Cross-Source Player Entity Resolution — **COMPLETE**
-
-See [§7 Completed Phases](#7-completed-phases) for summary. Three-layer progressive matching inspired by [glass_onion](https://github.com/USSoccerFederation/glass_onion) (BSD 3-Clause). 2,388 matches from 3,603 Wyscout players. `dim_players` unified to 11,918 rows with `canonical_player_id`, `data_sources`, and Wyscout enrichment (birth_date, nationality).
-
-### 8.3 — Phase 15: pgvector Player Embeddings — **COMPLETE**
-
-See [&sect;7 Completed Phases](#7-completed-phases) for summary. Dual-vector player representation: 32-dim Doc2Vec behavioral embeddings (gensim) + 13-dim statistical z-score vectors. Model published to HuggingFace Hub (`luxury-lakehouse/football2vec-statsbomb-wyscout`). Artifacts cached in UC Volume. pgvector HNSW indexes for sub-10ms similarity queries. See [HuggingFace setup guide](docs/huggingface-setup.md) for fork instructions.
-
-### 8.4 — Phase 16: Player Similarity Streamlit Page — **COMPLETE**
-
-See [&sect;7 Completed Phases](#7-completed-phases) for summary. pgvector `<=>` cosine distance nearest-neighbor search with position filtering and radar chart comparison overlay. 11th Streamlit page.
-
-### 8.5 — DEFCON-Inspired Defensive Valuation (Tier 4)
+### 8.2 — DEFCON-Inspired Defensive Valuation (Tier 4)
 
 **Paper:** Kim, H.S. et al. (2025). "Better Prevent than Tackle: Valuing Defense in Soccer Based on Graph Neural Networks." *arXiv:2512.10355*.
 
@@ -599,10 +590,6 @@ See [&sect;7 Completed Phases](#7-completed-phases) for summary. pgvector `<=>` 
 | **Tier 4: Full GNN DEFCON** | Graph Attention Networks on player graphs | 500+ matches with tracking | Requires commercial data |
 
 **Note:** Tier 3 uses attacker-perspective framing (`fct_defcon_pressure`) because StatsBomb 360 freeze frames have anonymous defenders (synthetic IDs). Real defender attribution requires Tier 4 with tracking data.
-
-### 8.6 — Additional Streamlit Pages
-
-All planned pages are complete. 11 pages deployed.
 
 ---
 

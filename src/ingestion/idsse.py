@@ -66,6 +66,18 @@ _SECTION_TO_PERIOD = {"firstHalf": 1, "secondHalf": 2}
 # Frame rate for all IDSSE matches (DFL position data is 25fps)
 _FRAME_RATE = 25
 
+
+def _smooth_tracking(df: pd.DataFrame) -> pd.DataFrame:
+    """Apply Savitzky-Golay smoothing and clamp to pitch bounds."""
+    from analytics.smoothing import smooth_positions
+
+    result = smooth_positions(df)
+    # Clamp to DFL center-origin pitch: x ∈ [-52.5, 52.5], y ∈ [-34, 34]
+    result["x"] = result["x"].clip(-52.5, 52.5)
+    result["y"] = result["y"].clip(-34.0, 34.0)
+    return result
+
+
 # Default Volume path for pre-downloaded IDSSE data
 _DEFAULT_DATA_DIR = "/Volumes/soccer_analytics/bronze/libs/idsse_data"
 
@@ -264,6 +276,7 @@ def ingest_idsse(
 
         if rows:
             df = pd.DataFrame(rows)
+            df = _smooth_tracking(df)
             sdf = spark.createDataFrame(df)
             row_count = validate_dataframe(sdf, required_cols, "idsse_tracking", logger)
             replace_expr = f"match_id = 'idsse_{mid}'"

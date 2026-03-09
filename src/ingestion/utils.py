@@ -216,6 +216,72 @@ def write_delta_table(
     return row_count
 
 
+def merge_delta_table(
+    df: DataFrame,
+    catalog: str,
+    schema: str,
+    table_name: str,
+    merge_key: str,
+    logger: logging.Logger | None = None,
+) -> int:
+    """Upsert rows into a Delta table using MERGE on a unique key.
+
+    Matching rows (by *merge_key*) are updated with all source columns;
+    non-matching rows are inserted.  The ``_ingested_at`` audit column is
+    added automatically, same as :func:`write_delta_table`.
+
+    Falls back to :func:`write_delta_table` with ``mode="overwrite"`` if
+    the target table does not yet exist.
+
+    Args:
+        df: Spark DataFrame to upsert.
+        catalog: Unity Catalog name.
+        schema: Target schema (e.g. ``bronze``).
+        table_name: Destination table name.
+        merge_key: Column name used as the join key for MERGE.
+        logger: Optional logger for row-count reporting.
+
+    Returns:
+        Number of rows in the source DataFrame (upserted).
+
+    Raises:
+        ValueError: If *table_name* fails identifier validation.
+    """
+    if not _IDENTIFIER_RE.match(table_name):
+        msg = f"Invalid table_name '{table_name}': must match {_IDENTIFIER_RE.pattern}"
+        raise ValueError(msg)
+
+    full_table = f"{catalog}.{schema}.{table_name}"
+    df = add_audit_columns(df)
+    row_count = int(df.count())
+
+    try:
+        from delta.tables import DeltaTable
+
+        target = DeltaTable.forName(df.sparkSession, full_table)
+    except Exception:
+        # Table doesn't exist yet — fall back to initial write
+        if logger:
+            logger.info("Table %s does not exist yet — creating via overwrite", full_table)
+        df.write.format("delta").option("mergeSchema", "true").mode("overwrite").saveAsTable(full_table)
+        if logger:
+            logger.info("Wrote %d rows to %s (initial create)", row_count, full_table)
+        return row_count
+
+    (
+        target.alias("target")
+        .merge(df.alias("source"), f"target.{merge_key} = source.{merge_key}")
+        .whenMatchedUpdateAll()
+        .whenNotMatchedInsertAll()
+        .execute()
+    )
+
+    if logger:
+        logger.info("Merged %d rows into %s (key: %s)", row_count, full_table, merge_key)
+
+    return row_count
+
+
 # ---------------------------------------------------------------------------
 # 5. HTTP Client
 # ---------------------------------------------------------------------------

@@ -98,7 +98,7 @@ luxury-lakehouse/
 
 ## Status
 
-**Phase 17 complete** — 11 Streamlit pages, 16 synced tables, 31 PG indexes, 470 unit tests. See [PLAN.md](PLAN.md) for the implementation plan and [ROADMAP.md](ROADMAP.md) for research directions.
+**Phase 17 complete** — 11 Streamlit pages, 16 synced tables, 31 PG indexes, 489 unit tests. See [PLAN.md](PLAN.md) for the implementation plan and [ROADMAP.md](ROADMAP.md) for research directions.
 
 | Phase | Description | Status |
 |-------|-------------|--------|

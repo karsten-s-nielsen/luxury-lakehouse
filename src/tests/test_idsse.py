@@ -6,7 +6,10 @@ import logging
 import os
 import tempfile
 
-from ingestion.idsse import IDSSE_MATCH_IDS, _parse_positions_xml, _parse_teams
+import numpy as np
+import pandas as pd
+
+from ingestion.idsse import IDSSE_MATCH_IDS, _parse_positions_xml, _parse_teams, _smooth_tracking
 
 _logger = logging.getLogger("test_idsse")
 
@@ -201,6 +204,59 @@ class TestParsePositionsXML:
             "frame_rate",
         }
         assert set(rows[0].keys()) == expected
+
+
+class TestSmoothTracking:
+    """Tests for _smooth_tracking integration."""
+
+    def test_reduces_noise_in_parsed_data(self) -> None:
+        """Smoothing reduces frame-to-frame jitter on realistic tracking data."""
+        rng = np.random.default_rng(42)
+        n = 50
+        df = pd.DataFrame(
+            {
+                "player_id": "H001",
+                "period": 1,
+                "frame": range(n),
+                "timestamp": [i / 25.0 for i in range(n)],
+                "team": "home",
+                "x": np.linspace(-10, 10, n) + rng.normal(0, 0.02, n),
+                "y": np.linspace(5, 15, n) + rng.normal(0, 0.02, n),
+                "ball_x": 0.0,
+                "ball_y": 0.0,
+                "match_id": "idsse_J03WMX",
+                "frame_rate": 25,
+            }
+        )
+        raw_jitter = df["x"].diff().std()
+
+        smoothed = _smooth_tracking(df)
+
+        smooth_jitter = smoothed["x"].diff().std()
+        assert smooth_jitter < raw_jitter
+        assert len(smoothed) == len(df)
+
+    def test_short_sequence_unchanged(self) -> None:
+        """Sequences shorter than window_length pass through unmodified."""
+        df = pd.DataFrame(
+            {
+                "player_id": ["H001"] * 3,
+                "period": [1] * 3,
+                "frame": [0, 1, 2],
+                "timestamp": [0.0, 0.04, 0.08],
+                "team": ["home"] * 3,
+                "x": [1.0, 2.0, 3.0],
+                "y": [4.0, 5.0, 6.0],
+                "ball_x": [0.0] * 3,
+                "ball_y": [0.0] * 3,
+                "match_id": ["idsse_J03WMX"] * 3,
+                "frame_rate": [25] * 3,
+            }
+        )
+
+        smoothed = _smooth_tracking(df)
+
+        pd.testing.assert_series_equal(smoothed["x"], df["x"], check_names=False)
 
 
 class TestIDSSEMatchIDs:
