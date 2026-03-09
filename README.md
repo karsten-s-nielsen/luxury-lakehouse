@@ -42,7 +42,7 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 | **Synchronization** | Lakeflow Synced Tables | Zero-ETL continuous sync from Gold → Lakebase |
 | **Serving** | Lakebase PostgreSQL 17 (Autoscaling) | Sub-10ms OLTP queries, native pgvector, scale-to-zero |
 | **Application** | Streamlit on Databricks Apps | Interactive dashboards with mplsoccer visualizations |
-| **ML Artifacts** | HuggingFace Hub | Publish football2vec model weights for community access |
+| **ML Artifacts** | [HuggingFace Hub](https://huggingface.co/luxury-lakehouse) | Publish [football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) model weights for community access |
 | **Security** | OAuth M2M + OIDC Federation + KMS | Zero-secret CI, least-privilege SPs, encrypted state |
 | **Infrastructure** | Terraform + Databricks Provider | Everything as code |
 
@@ -89,6 +89,7 @@ luxury-lakehouse/
 ├── scripts/            # Operational scripts (PG indexes, grants, synced table management)
 ├── docs/
 │   ├── c4/             # C4 architecture diagrams (Structurizr DSL)
+│   ├── huggingface/          # HF Hub model card and org card (source of truth)
 │   └── huggingface-setup.md  # HuggingFace Hub integration guide
 ├── assets/             # Images and branding
 ├── PLAN.md             # Detailed implementation plan
@@ -139,6 +140,26 @@ luxury-lakehouse/
 | Linting | ruff + pyright + sqlfluff |
 | CI/CD | GitHub Actions |
 | Architecture Docs | C4 diagrams (Structurizr DSL) |
+
+## Engineering Process
+
+This project's architectural quality is maintained through [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skills that enforce structured engineering practices at every development cycle.
+
+### [mad-scientist-skills](https://github.com/karsten-s-nielsen/mad-scientist-skills)
+
+Quality gates invoked at key project milestones — architecture visualization, security hardening, and (in beta) observability and optimization reviews. These skills align directly with the engineering standards codified in [CLAUDE.md](CLAUDE.md).
+
+| Skill | Purpose | Invoke |
+|-------|---------|--------|
+| **c4** | Generate interactive C4 architecture diagrams from Structurizr DSL | `/mad-scientist-skills:c4` |
+| **final-review** | Pre-commit quality gate — code review, documentation check, C4 diagram refresh | `/mad-scientist-skills:final-review` |
+| **security-audit** | STRIDE threat modeling, OWASP Top 10, infrastructure hardening (Standard/Enterprise tiers) | `/mad-scientist-skills:security-audit` |
+| **optimization-audit** | Algorithm efficiency, query performance, caching, concurrency, cloud cost (beta) | `/mad-scientist-skills:optimization-audit` |
+| **observability-audit** | Instrumentation, logging, metrics, tracing, alerting, SLIs/SLOs (beta) | `/mad-scientist-skills:observability-audit` |
+
+### [superpowers](https://github.com/obra/superpowers)
+
+Development methodology framework by [Jesse Vincent](https://github.com/obra) that provides the underlying workflow discipline — brainstorming before building, planning before coding, TDD before implementing, verification before claiming done. Superpowers runs automatically in every session and dispatches the appropriate methodology skill based on context.
 
 ## License
 
