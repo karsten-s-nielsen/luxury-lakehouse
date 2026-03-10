@@ -10,19 +10,24 @@ Two data paths:
   - **Path B (Metrica tracking):** Metrica matches with frame-level tracking
     joined to event data.
 
+Architecture: Uses ``applyInPandas`` to distribute line-breaking detection
+across Spark executors instead of sequential per-match driver loops.  Each
+match group is processed independently via ``detect_line_breaking_batch``
+with Ward cluster caching.
+
 Design: "Read from bronze, compute, write to bronze." No external API calls.
 """
 
 from __future__ import annotations
 
-import gc
 import json
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from analytics.line_breaking import LineBreakingParams, detect_line_breaking
+from analytics.line_breaking import LineBreakingParams
 from ingestion.utils import (
     configure_logging,
     get_spark_session,
@@ -101,6 +106,173 @@ def _parse_tracking_json(json_str: object) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# applyInPandas UDF closures
+# ---------------------------------------------------------------------------
+
+_RESULT_COLUMNS = ["event_id", "match_id", "is_line_breaking", "lines_broken", "line_breaking_type", "data_source"]
+
+
+def _make_statsbomb_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
+    """Build the ``applyInPandas`` UDF closure for StatsBomb 360 data.
+
+    The UDF receives a pandas DataFrame containing one match's worth of
+    joined pass + opponent rows (one row per pass-opponent pair).  It
+    reconstructs the per-event opponent grouping, parses locations, builds
+    ``detect_line_breaking_batch`` inputs, and returns results.
+
+    Returns:
+        A callable ``(pd.DataFrame) -> pd.DataFrame`` suitable for
+        ``applyInPandas``.
+    """
+
+    def _udf(pdf: pd.DataFrame) -> pd.DataFrame:
+        import pandas as _pd
+
+        from analytics.line_breaking import LineBreakingParams as _LBParams
+        from analytics.line_breaking import detect_line_breaking_batch as _detect_batch
+
+        if pdf.empty:
+            return _pd.DataFrame(columns=_pd.Index(_RESULT_COLUMNS))
+
+        params = _LBParams()
+        match_id = str(pdf["pass_match_id"].iloc[0])
+
+        # Deduplicate passes — each pass appears once per opponent row in the join
+        pass_cols = ["pass_id", "pass_location", "pass_end_location", "pass_match_id"]
+        passes_dedup = pdf[pass_cols].drop_duplicates(subset=["pass_id"])  # type: ignore[call-overload]
+
+        # Build per-event opponent dict
+        opponent_groups = pdf.groupby("pass_id")
+
+        passes_list: list[dict[str, object]] = []
+        opponents_by_event: dict[str, _pd.DataFrame] = {}
+
+        for _, pass_row in passes_dedup.iterrows():
+            event_id = str(pass_row["pass_id"])
+
+            # Parse pass start/end from JSON location arrays
+            start_xy = _parse_location(pass_row["pass_location"])
+            end_xy = _parse_location(pass_row["pass_end_location"])
+            if start_xy is None or end_xy is None:
+                continue
+
+            # Get opponents for this event
+            try:
+                event_opps = opponent_groups.get_group(pass_row["pass_id"])
+            except KeyError:
+                continue
+
+            opp_loc_series: _pd.Series[object] = event_opps["opp_location"]  # type: ignore[assignment]
+            opp_positions = _parse_locations_series(opp_loc_series)
+            if len(opp_positions) < params.min_opponents:
+                continue
+
+            passes_list.append(
+                {
+                    "event_id": event_id,
+                    "start_x": start_xy[0],
+                    "start_y": start_xy[1],
+                    "end_x": end_xy[0],
+                    "end_y": end_xy[1],
+                }
+            )
+            opponents_by_event[event_id] = opp_positions
+
+        if not passes_list:
+            return _pd.DataFrame(columns=_pd.Index(_RESULT_COLUMNS))
+
+        passes_df = _pd.DataFrame(passes_list)
+        result_df: _pd.DataFrame = _detect_batch(passes_df, opponents_by_event, params)
+
+        result_df["match_id"] = match_id
+        result_df["data_source"] = "statsbomb_360"
+
+        return _pd.DataFrame(result_df[_RESULT_COLUMNS])
+
+    return _udf
+
+
+def _make_metrica_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
+    """Build the ``applyInPandas`` UDF closure for Metrica tracking data.
+
+    The UDF receives a pandas DataFrame containing one match's worth of
+    joined pass + tracking rows (one row per pass with tracking JSON).
+    It parses opponent positions from the JSON columns, converts Metrica
+    0-1 coordinates to StatsBomb 120x80, and runs detection.
+
+    Returns:
+        A callable ``(pd.DataFrame) -> pd.DataFrame`` suitable for
+        ``applyInPandas``.
+    """
+
+    def _udf(pdf: pd.DataFrame) -> pd.DataFrame:
+        import pandas as _pd
+
+        from analytics.line_breaking import LineBreakingParams as _LBParams
+        from analytics.line_breaking import detect_line_breaking_batch as _detect_batch
+
+        if pdf.empty:
+            return _pd.DataFrame(columns=_pd.Index(_RESULT_COLUMNS))
+
+        params = _LBParams()
+        match_id = str(pdf["evt_match_id"].iloc[0])
+
+        passes_list: list[dict[str, object]] = []
+        opponents_by_event: dict[str, _pd.DataFrame] = {}
+
+        for _, row in pdf.iterrows():
+            event_id = str(row.get("evt_event_id", ""))
+
+            # Determine opponent team from event's team field
+            event_team = str(row.get("evt_team", ""))
+            if event_team == "Home":
+                opp_json_str = row.get("trk_away_players")
+            elif event_team == "Away":
+                opp_json_str = row.get("trk_home_players")
+            else:
+                continue
+
+            # Parse opponent positions from JSON dict
+            opp_positions = _parse_tracking_json(opp_json_str)
+            if len(opp_positions) < params.min_opponents:
+                continue
+
+            # Convert Metrica 0-1 -> StatsBomb 120x80 (y-flip: Metrica y=0 is top)
+            opp_positions["x"] = opp_positions["x"] * 120.0
+            opp_positions["y"] = (1.0 - opp_positions["y"]) * 80.0
+
+            # Pass coordinates (also 0-1 -> 120x80 with y-flip)
+            start_x = float(row.get("evt_start_x", 0) or 0) * 120.0
+            start_y = (1.0 - float(row.get("evt_start_y", 0) or 0)) * 80.0
+            end_x = float(row.get("evt_end_x", 0) or 0) * 120.0
+            end_y = (1.0 - float(row.get("evt_end_y", 0) or 0)) * 80.0
+
+            passes_list.append(
+                {
+                    "event_id": event_id,
+                    "start_x": start_x,
+                    "start_y": start_y,
+                    "end_x": end_x,
+                    "end_y": end_y,
+                }
+            )
+            opponents_by_event[event_id] = opp_positions
+
+        if not passes_list:
+            return _pd.DataFrame(columns=_pd.Index(_RESULT_COLUMNS))
+
+        passes_df = _pd.DataFrame(passes_list)
+        result_df: _pd.DataFrame = _detect_batch(passes_df, opponents_by_event, params)
+
+        result_df["match_id"] = match_id
+        result_df["data_source"] = "metrica_tracking"
+
+        return _pd.DataFrame(result_df[_RESULT_COLUMNS])
+
+    return _udf
+
+
+# ---------------------------------------------------------------------------
 # Path A — StatsBomb 360 freeze frames
 # ---------------------------------------------------------------------------
 
@@ -114,9 +286,9 @@ def _process_statsbomb_360(
 ) -> int:
     """Detect line-breaking passes using StatsBomb 360 freeze frame data.
 
-    Processes per-match to avoid OOM on the full events/360 tables.
-    Reads ``statsbomb_events`` (passes) and ``statsbomb_360`` (opponent
-    positions), computes line-breaking per pass, writes to Delta.
+    Joins passes and opponent freeze frames in Spark, then uses
+    ``groupBy("pass_match_id").applyInPandas`` to distribute detection
+    across executors.
 
     Returns number of rows written.
     """
@@ -159,93 +331,72 @@ def _process_statsbomb_360(
     if not new_match_ids:
         return 0
 
-    total_written = 0
+    # --- pyspark imports deferred past early-exit guards (not installed in test env) ---
+    from pyspark.sql import functions as F  # noqa: N812
+    from pyspark.sql.types import BooleanType, IntegerType, StringType, StructField, StructType
 
-    for match_id in new_match_ids:
-        # Pull only passes for this match (Spark-side filter to avoid OOM)
-        try:
-            passes_pdf = spark.table(events_table).filter(f"type = 'Pass' AND match_id = {int(match_id)}").toPandas()
-        except Exception:
-            logger.warning("Cannot read events for match %s — skipping", match_id)
-            continue
+    # Build Spark DFs for passes and opponents, filtered to new matches only
+    new_ids_int = [int(mid) for mid in new_match_ids]
 
-        if passes_pdf.empty:
-            continue
+    passes_df = (
+        spark.table(events_table)
+        .filter(F.col("type") == "Pass")
+        .filter(F.col("match_id").isin(new_ids_int))
+        .select(
+            F.col("id").alias("pass_id"),
+            F.col("match_id").alias("pass_match_id"),
+            F.col("location").alias("pass_location"),
+            F.col("pass_end_location"),
+        )
+    )
 
-        # Pull only opponent 360 frames for this match
-        try:
-            opponents_pdf = (
-                spark.table(ff_table)
-                .filter(f"match_id = {int(match_id)} AND teammate = false AND actor = false AND keeper = false")
-                .toPandas()
-            )
-        except Exception:
-            logger.warning("Cannot read 360 for match %s — skipping", match_id)
-            continue
+    opponents_df = (
+        spark.table(ff_table)
+        .filter(F.col("match_id").isin(new_ids_int))
+        .filter(~F.col("teammate"))
+        .filter(~F.col("actor"))
+        .filter(~F.col("keeper"))
+        .select(
+            F.col("id").alias("opp_event_id"),
+            F.col("location").alias("opp_location"),
+        )
+    )
 
-        if opponents_pdf.empty:
-            continue
+    # Join passes x opponents on event_id (360 id = events id)
+    joined = passes_df.join(opponents_df, passes_df["pass_id"] == opponents_df["opp_event_id"], "inner").drop(
+        "opp_event_id"
+    )
 
-        logger.info("Match %s: %d passes, %d opponent frames", match_id, len(passes_pdf), len(opponents_pdf))
+    # Define output schema for applyInPandas
+    result_schema = StructType(
+        [
+            StructField("event_id", StringType(), nullable=True),
+            StructField("match_id", StringType(), nullable=True),
+            StructField("is_line_breaking", BooleanType(), nullable=True),
+            StructField("lines_broken", IntegerType(), nullable=True),
+            StructField("line_breaking_type", StringType(), nullable=True),
+            StructField("data_source", StringType(), nullable=True),
+        ]
+    )
 
-        results: list[dict[str, object]] = []
+    udf_fn = _make_statsbomb_udf()
 
-        # Pre-build grouped lookup for O(1) opponent retrieval per pass (was O(n) filter)
-        opponent_groups = opponents_pdf.groupby("id")
+    result_sdf = joined.groupBy("pass_match_id").applyInPandas(
+        udf_fn,  # type: ignore[arg-type]
+        schema=result_schema,
+    )
 
-        for _, pass_row in passes_pdf.iterrows():
-            event_id = str(pass_row["id"])
+    written = merge_delta_table(
+        result_sdf,
+        catalog,
+        schema,
+        _TABLE_NAME,
+        merge_key="event_id",
+        logger=logger,
+    )
 
-            # Get opponents for this event (360 id = events id)
-            try:
-                event_opponents = opponent_groups.get_group(pass_row["id"])
-            except KeyError:
-                continue
-
-            # Parse opponent locations from JSON '[x, y]' strings
-            opp_positions = _parse_locations_series(event_opponents["location"])
-            if len(opp_positions) < params.min_opponents:
-                continue
-
-            # Parse pass start/end from JSON location arrays
-            start_xy = _parse_location(pass_row.get("location"))
-            end_xy = _parse_location(pass_row.get("pass_end_location"))
-
-            if start_xy is None or end_xy is None:
-                continue
-
-            result = detect_line_breaking(start_xy[0], start_xy[1], end_xy[0], end_xy[1], opp_positions, params)
-
-            results.append(
-                {
-                    "event_id": event_id,
-                    "match_id": str(match_id),
-                    "is_line_breaking": result.is_line_breaking,
-                    "lines_broken": result.lines_broken,
-                    "line_breaking_type": result.line_breaking_type,
-                    "data_source": "statsbomb_360",
-                }
-            )
-
-        if results:
-            result_df = pd.DataFrame(results)
-            sdf = spark.createDataFrame(result_df)
-            written = merge_delta_table(
-                sdf,
-                catalog,
-                schema,
-                _TABLE_NAME,
-                merge_key="event_id",
-                logger=logger,
-            )
-            total_written += written
-            logger.info("Match %s: %d line-breaking results written", match_id, written)
-
-        del passes_pdf, opponents_pdf
-        gc.collect()
-
-    logger.info("Path A complete: %d rows written", total_written)
-    return total_written
+    logger.info("Path A complete: %d rows written", written)
+    return written
 
 
 # ---------------------------------------------------------------------------
@@ -262,30 +413,28 @@ def _process_metrica_tracking(
 ) -> int:
     """Detect line-breaking passes using Metrica tracking + event data.
 
-    Reads ``metrica_events`` (passes) and ``metrica_tracking`` (player
-    positions as JSON dicts), joins at pass frame, computes line-breaking.
-
-    Metrica has only 3 matches — small enough for full toPandas().
+    Joins pass events with tracking frames in Spark on match_id and frame,
+    then uses ``groupBy("evt_match_id").applyInPandas`` to distribute
+    detection across executors.
 
     Returns number of rows written.
     """
     events_table = f"{catalog}.{schema}.metrica_events"
     tracking_table = f"{catalog}.{schema}.metrica_tracking"
 
+    # Get distinct match_ids from pass events
     try:
-        # Filter to PASS events in Spark; Metrica tracking is ~9.5M rows
-        # but only 3 matches — pull per-match below
-        events_pdf = spark.table(events_table).filter("type = 'PASS'").toPandas()
+        match_ids_rows = spark.table(events_table).filter("type = 'PASS'").select("match_id").distinct().collect()
     except Exception:
         logger.exception("Cannot read Metrica events table")
         return 0
 
-    if events_pdf.empty:
+    if not match_ids_rows:
         logger.info("No PASS events in Metrica events — skipping Path B")
         return 0
 
-    match_ids = events_pdf["match_id"].unique().tolist()
-    logger.info("Path B: %d matches, %d passes", len(match_ids), len(events_pdf))
+    match_ids = [row["match_id"] for row in match_ids_rows]
+    logger.info("Path B: %d matches with PASS events", len(match_ids))
 
     # Incremental skip — only process matches not already in results table
     results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
@@ -313,94 +462,79 @@ def _process_metrica_tracking(
     if not new_match_ids:
         return 0
 
-    total_written = 0
+    # --- pyspark imports deferred past early-exit guards (not installed in test env) ---
+    from pyspark.sql import functions as F  # noqa: N812
+    from pyspark.sql.types import BooleanType, IntegerType, StringType, StructField, StructType
 
-    for match_id in new_match_ids:
-        match_passes = events_pdf[events_pdf["match_id"] == match_id]
+    # Build Spark DFs for passes and tracking, filtered to new matches
+    new_ids_str = [str(mid) for mid in new_match_ids]
 
-        # Pull tracking for this match only (Spark-side filter)
-        try:
-            match_tracking = spark.table(tracking_table).filter(f"match_id = '{match_id}'").toPandas()
-        except Exception:
-            logger.warning("Cannot read tracking for match %s — skipping", match_id)
-            continue
+    passes_df = (
+        spark.table(events_table)
+        .filter(F.col("type") == "PASS")
+        .filter(F.col("match_id").isin(new_ids_str))
+        .select(
+            F.col("event_id").alias("evt_event_id"),
+            F.col("match_id").alias("evt_match_id"),
+            F.col("team").alias("evt_team"),
+            F.col("start_frame").alias("evt_start_frame"),
+            F.col("start_x").alias("evt_start_x"),
+            F.col("start_y").alias("evt_start_y"),
+            F.col("end_x").alias("evt_end_x"),
+            F.col("end_y").alias("evt_end_y"),
+        )
+        .filter(F.col("evt_start_frame").isNotNull())
+    )
 
-        if match_tracking.empty:
-            continue
+    tracking_df = (
+        spark.table(tracking_table)
+        .filter(F.col("match_id").isin(new_ids_str))
+        .select(
+            F.col("match_id").alias("trk_match_id"),
+            F.col("frame").alias("trk_frame"),
+            F.col("home_players").alias("trk_home_players"),
+            F.col("away_players").alias("trk_away_players"),
+        )
+    )
 
-        logger.info("Match %s: %d passes, %d tracking frames", match_id, len(match_passes), len(match_tracking))
+    # Join passes x tracking on match_id and frame = start_frame
+    joined = passes_df.join(
+        tracking_df,
+        (passes_df["evt_match_id"] == tracking_df["trk_match_id"])
+        & (passes_df["evt_start_frame"].cast("int") == tracking_df["trk_frame"]),
+        "inner",
+    ).drop("trk_match_id", "trk_frame")
 
-        results: list[dict[str, object]] = []
+    # Define output schema for applyInPandas
+    result_schema = StructType(
+        [
+            StructField("event_id", StringType(), nullable=True),
+            StructField("match_id", StringType(), nullable=True),
+            StructField("is_line_breaking", BooleanType(), nullable=True),
+            StructField("lines_broken", IntegerType(), nullable=True),
+            StructField("line_breaking_type", StringType(), nullable=True),
+            StructField("data_source", StringType(), nullable=True),
+        ]
+    )
 
-        for _, pass_row in match_passes.iterrows():
-            event_id = str(pass_row.get("event_id", ""))
-            start_frame = pass_row.get("start_frame")
+    udf_fn = _make_metrica_udf()
 
-            if start_frame is None or pd.isna(start_frame):
-                continue
+    result_sdf = joined.groupBy("evt_match_id").applyInPandas(
+        udf_fn,  # type: ignore[arg-type]
+        schema=result_schema,
+    )
 
-            # Get tracking data at pass frame
-            frame_data = match_tracking[match_tracking["frame"] == int(start_frame)]
-            if frame_data.empty:
-                continue
+    written = merge_delta_table(
+        result_sdf,
+        catalog,
+        schema,
+        _TABLE_NAME,
+        merge_key="event_id",
+        logger=logger,
+    )
 
-            # Determine opponent team from event's team field
-            event_team = str(pass_row.get("team", ""))
-            if event_team == "Home":
-                opp_json_col = "away_players"
-            elif event_team == "Away":
-                opp_json_col = "home_players"
-            else:
-                continue
-
-            # Parse opponent positions from JSON dict
-            opp_json_str = frame_data.iloc[0].get(opp_json_col)
-            opp_positions = _parse_tracking_json(opp_json_str)
-            if len(opp_positions) < params.min_opponents:
-                continue
-
-            # Convert Metrica 0-1 → StatsBomb 120x80 (y-flip: Metrica y=0 is top)
-            opp_positions["x"] = opp_positions["x"] * 120.0
-            opp_positions["y"] = (1.0 - opp_positions["y"]) * 80.0
-
-            # Pass coordinates (also 0-1 → 120x80 with y-flip)
-            start_x = float(pass_row.get("start_x", 0) or 0) * 120.0
-            start_y = (1.0 - float(pass_row.get("start_y", 0) or 0)) * 80.0
-            end_x = float(pass_row.get("end_x", 0) or 0) * 120.0
-            end_y = (1.0 - float(pass_row.get("end_y", 0) or 0)) * 80.0
-
-            result = detect_line_breaking(start_x, start_y, end_x, end_y, opp_positions, params)
-
-            results.append(
-                {
-                    "event_id": event_id,
-                    "match_id": str(match_id),
-                    "is_line_breaking": result.is_line_breaking,
-                    "lines_broken": result.lines_broken,
-                    "line_breaking_type": result.line_breaking_type,
-                    "data_source": "metrica_tracking",
-                }
-            )
-
-        if results:
-            result_df = pd.DataFrame(results)
-            sdf = spark.createDataFrame(result_df)
-            written = merge_delta_table(
-                sdf,
-                catalog,
-                schema,
-                _TABLE_NAME,
-                merge_key="event_id",
-                logger=logger,
-            )
-            total_written += written
-            logger.info("Match %s: %d line-breaking results written", match_id, written)
-
-        del match_tracking
-        gc.collect()
-
-    logger.info("Path B complete: %d rows written", total_written)
-    return total_written
+    logger.info("Path B complete: %d rows written", written)
+    return written
 
 
 # ---------------------------------------------------------------------------
