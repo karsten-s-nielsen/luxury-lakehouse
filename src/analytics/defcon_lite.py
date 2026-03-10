@@ -314,13 +314,67 @@ def estimate_defcon_values(
     return result
 
 
-def compute_defcon_match(
+# Column schema for empty DEFCON DataFrames
+_CREDITS_COLS = pd.Index(
+    [
+        "event_id",
+        "match_id",
+        "competition_id",
+        "season_id",
+        "defender_player_id",
+        "defender_team_id",
+        "defender_x",
+        "defender_y",
+        "action_player_id",
+        "action_type",
+        "action_x",
+        "action_y",
+        "credit_type",
+        "confidence",
+        "dist_to_ball",
+        "pitch_control_at_action",
+        "offensive_value",
+        "vaep_target",
+    ]
+)
+
+_OUTPUT_COLS = pd.Index(
+    [
+        "event_id",
+        "match_id",
+        "competition_id",
+        "season_id",
+        "defender_player_id",
+        "defender_team_id",
+        "defender_x",
+        "defender_y",
+        "action_player_id",
+        "action_type",
+        "action_x",
+        "action_y",
+        "credit_type",
+        "confidence",
+        "defcon_value",
+        "dist_to_ball",
+        "pitch_control_at_action",
+        "data_source",
+    ]
+)
+
+
+def assign_credits_for_period(
     actions_df: pd.DataFrame,
     freeze_frames_df: pd.DataFrame,
     params: DefconLiteParams | None = None,
-    data_source: str = "statsbomb_360",
 ) -> pd.DataFrame:
-    """Compute DEFCON-lite credits for all actions in a single match.
+    """Assign defensive credits for a batch of actions (Stage 1).
+
+    This function is the parallelizable portion of the DEFCON pipeline.
+    It processes whatever actions it receives — the caller is responsible
+    for grouping by period (or any other partitioning scheme).
+
+    The returned DataFrame includes ``offensive_value`` and ``vaep_target``
+    columns needed by :func:`estimate_values_for_match`.
 
     Args:
         actions_df: VAEP action values with columns [event_id, match_id,
@@ -330,41 +384,21 @@ def compute_defcon_match(
             [event_id, player_id, team_id, teammate, x, y, velocity_x,
             velocity_y].
         params: DEFCON-lite parameters.
-        data_source: Provenance tag (statsbomb_360, metrica_tracking).
 
     Returns:
-        DataFrame with bronze schema columns, one row per credit.
+        DataFrame of credit assignments with ``offensive_value`` and
+        ``vaep_target`` columns, one row per credited defender.
     """
     if params is None:
         params = DefconLiteParams()
 
-    _empty_cols = pd.Index(
-        [
-            "event_id",
-            "match_id",
-            "competition_id",
-            "season_id",
-            "defender_player_id",
-            "defender_team_id",
-            "defender_x",
-            "defender_y",
-            "action_player_id",
-            "action_type",
-            "action_x",
-            "action_y",
-            "credit_type",
-            "confidence",
-            "defcon_value",
-            "dist_to_ball",
-            "pitch_control_at_action",
-            "data_source",
-        ]
-    )
-
     if actions_df.empty:
-        return pd.DataFrame(columns=_empty_cols)
+        return pd.DataFrame(columns=_CREDITS_COLS)
 
     all_credits: list[dict[str, object]] = []
+
+    # Pre-build grouped lookup for O(1) opponent retrieval per action
+    opponent_groups = freeze_frames_df[~freeze_frames_df["teammate"]].groupby("event_id")
 
     for _, action_row in actions_df.iterrows():
         event_id = str(action_row["event_id"])
@@ -380,8 +414,9 @@ def compute_defcon_match(
             "offensive_value": float(action_row.get("offensive_value", 0.0) or 0.0),
         }
 
-        opponents = freeze_frames_df[(freeze_frames_df["event_id"] == event_id) & (~freeze_frames_df["teammate"])]
-        if opponents.empty:
+        try:
+            opponents = opponent_groups.get_group(event_id)
+        except KeyError:
             continue
 
         vel_x = np.asarray(opponents["velocity_x"]) if "velocity_x" in opponents.columns else np.zeros(len(opponents))
@@ -402,7 +437,7 @@ def compute_defcon_match(
         all_credits.extend(credits)
 
     if not all_credits:
-        return pd.DataFrame(columns=_empty_cols)
+        return pd.DataFrame(columns=_CREDITS_COLS)
 
     credits_df = pd.DataFrame(all_credits)
 
@@ -410,8 +445,75 @@ def compute_defcon_match(
     credits_df["offensive_value"] = credits_df["event_id"].map(action_values).fillna(0.0)  # type: ignore[arg-type]
     credits_df["vaep_target"] = credits_df["offensive_value"].abs()
 
-    credits_df = estimate_defcon_values(credits_df, params)
-    credits_df["data_source"] = data_source
-    credits_df = credits_df.drop(columns=["offensive_value", "vaep_target"], errors="ignore")
-
     return credits_df
+
+
+def estimate_values_for_match(
+    credits_df: pd.DataFrame,
+    params: DefconLiteParams | None = None,
+) -> pd.DataFrame:
+    """Estimate DEFCON values for all credits in a match (Stage 2).
+
+    Wraps :func:`estimate_defcon_values` and drops intermediate columns
+    (``offensive_value``, ``vaep_target``).  The caller is responsible
+    for tagging ``data_source``.
+
+    Args:
+        credits_df: DataFrame from :func:`assign_credits_for_period` with
+            ``offensive_value`` and ``vaep_target`` columns.
+        params: DEFCON-lite parameters.
+
+    Returns:
+        DataFrame with ``defcon_value`` column added and intermediate
+        columns removed.
+    """
+    if params is None:
+        params = DefconLiteParams()
+
+    if credits_df.empty:
+        result = pd.DataFrame(columns=_OUTPUT_COLS)
+        return result.drop(columns=["data_source"])
+
+    valued = estimate_defcon_values(credits_df, params)
+    valued = valued.drop(columns=["offensive_value", "vaep_target"], errors="ignore")
+
+    return valued
+
+
+def compute_defcon_match(
+    actions_df: pd.DataFrame,
+    freeze_frames_df: pd.DataFrame,
+    params: DefconLiteParams | None = None,
+    data_source: str = "statsbomb_360",
+) -> pd.DataFrame:
+    """Compute DEFCON-lite credits for all actions in a single match.
+
+    Convenience wrapper that calls :func:`assign_credits_for_period`
+    (Stage 1) followed by :func:`estimate_values_for_match` (Stage 2),
+    then tags the ``data_source`` column.
+
+    Args:
+        actions_df: VAEP action values with columns [event_id, match_id,
+            competition_id, season_id, player_id, team_id, action_type,
+            start_x, start_y, offensive_value].
+        freeze_frames_df: Opponent positions per action with columns
+            [event_id, player_id, team_id, teammate, x, y, velocity_x,
+            velocity_y].
+        params: DEFCON-lite parameters.
+        data_source: Provenance tag (statsbomb_360, metrica_tracking).
+
+    Returns:
+        DataFrame with bronze schema columns, one row per credit.
+    """
+    if params is None:
+        params = DefconLiteParams()
+
+    credits_df = assign_credits_for_period(actions_df, freeze_frames_df, params)
+
+    if credits_df.empty:
+        return pd.DataFrame(columns=_OUTPUT_COLS)
+
+    result = estimate_values_for_match(credits_df, params)
+    result["data_source"] = data_source
+
+    return result

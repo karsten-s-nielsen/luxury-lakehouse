@@ -12,9 +12,11 @@ from analytics.defcon_lite import (
     DefconLiteParams,
     _euclidean_dist,
     _is_in_cone,
+    assign_credits_for_period,
     assign_defensive_credits,
     compute_defcon_match,
     estimate_defcon_values,
+    estimate_values_for_match,
     extract_features,
 )
 
@@ -418,3 +420,194 @@ class TestComputeDefconMatch:
         if not result.empty:
             assert "vaep_target" not in result.columns
             assert "offensive_value" not in result.columns
+
+
+# ---------------------------------------------------------------------------
+# TestAssignCreditsForPeriod
+# ---------------------------------------------------------------------------
+
+
+class TestAssignCreditsForPeriod:
+    """Test Stage 1 credit assignment extracted from compute_defcon_match."""
+
+    def test_returns_credits_with_vaep_columns(self) -> None:
+        """Credits should include offensive_value and vaep_target for Stage 2."""
+        actions, ff = _make_match_data()
+        credits_df = assign_credits_for_period(actions, ff, _PARAMS)
+        assert not credits_df.empty
+        assert "offensive_value" in credits_df.columns
+        assert "vaep_target" in credits_df.columns
+
+    def test_vaep_target_is_abs_offensive_value(self) -> None:
+        actions, ff = _make_match_data()
+        credits_df = assign_credits_for_period(actions, ff, _PARAMS)
+        if not credits_df.empty:
+            pd.testing.assert_series_equal(
+                credits_df["vaep_target"].astype(float),
+                credits_df["offensive_value"].astype(float).abs(),
+                check_names=False,
+            )
+
+    def test_empty_actions_returns_empty(self) -> None:
+        empty = pd.DataFrame(
+            columns=pd.Index(
+                [
+                    "event_id",
+                    "match_id",
+                    "competition_id",
+                    "season_id",
+                    "player_id",
+                    "team_id",
+                    "action_type",
+                    "start_x",
+                    "start_y",
+                    "offensive_value",
+                ]
+            )
+        )
+        ff = pd.DataFrame(
+            columns=pd.Index(["event_id", "player_id", "team_id", "teammate", "x", "y", "velocity_x", "velocity_y"])
+        )
+        result = assign_credits_for_period(empty, ff, _PARAMS)
+        assert len(result) == 0
+
+    def test_no_defcon_value_column(self) -> None:
+        """Stage 1 should NOT produce defcon_value — that is Stage 2."""
+        actions, ff = _make_match_data()
+        credits_df = assign_credits_for_period(actions, ff, _PARAMS)
+        assert "defcon_value" not in credits_df.columns
+
+    def test_credit_types_present(self) -> None:
+        actions, ff = _make_match_data()
+        credits_df = assign_credits_for_period(actions, ff, _PARAMS)
+        assert not credits_df.empty
+        assert set(credits_df["credit_type"].unique()).issubset({ct.value for ct in CreditType})
+
+    def test_default_params(self) -> None:
+        """Should work with params=None (uses default)."""
+        actions, ff = _make_match_data()
+        credits_df = assign_credits_for_period(actions, ff)
+        assert not credits_df.empty
+
+
+# ---------------------------------------------------------------------------
+# TestEstimateValuesForMatch
+# ---------------------------------------------------------------------------
+
+
+class TestEstimateValuesForMatch:
+    """Test Stage 2 value estimation extracted from compute_defcon_match."""
+
+    def test_adds_defcon_value(self) -> None:
+        actions, ff = _make_match_data()
+        credits_df = assign_credits_for_period(actions, ff, _PARAMS)
+        result = estimate_values_for_match(credits_df, _PARAMS)
+        assert "defcon_value" in result.columns
+        assert len(result) == len(credits_df)
+
+    def test_drops_intermediate_columns(self) -> None:
+        """Stage 2 should drop offensive_value and vaep_target."""
+        actions, ff = _make_match_data()
+        credits_df = assign_credits_for_period(actions, ff, _PARAMS)
+        result = estimate_values_for_match(credits_df, _PARAMS)
+        assert "offensive_value" not in result.columns
+        assert "vaep_target" not in result.columns
+
+    def test_no_data_source_column(self) -> None:
+        """data_source tagging is the caller's responsibility."""
+        actions, ff = _make_match_data()
+        credits_df = assign_credits_for_period(actions, ff, _PARAMS)
+        result = estimate_values_for_match(credits_df, _PARAMS)
+        assert "data_source" not in result.columns
+
+    def test_empty_credits_returns_empty(self) -> None:
+        empty = pd.DataFrame(
+            columns=pd.Index(
+                [
+                    "event_id",
+                    "match_id",
+                    "competition_id",
+                    "season_id",
+                    "defender_player_id",
+                    "defender_team_id",
+                    "defender_x",
+                    "defender_y",
+                    "action_player_id",
+                    "action_type",
+                    "action_x",
+                    "action_y",
+                    "credit_type",
+                    "confidence",
+                    "dist_to_ball",
+                    "pitch_control_at_action",
+                    "offensive_value",
+                    "vaep_target",
+                ]
+            )
+        )
+        result = estimate_values_for_match(empty, _PARAMS)
+        assert len(result) == 0
+
+    def test_default_params(self) -> None:
+        """Should work with params=None (uses default)."""
+        actions, ff = _make_match_data()
+        credits_df = assign_credits_for_period(actions, ff, _PARAMS)
+        result = estimate_values_for_match(credits_df)
+        assert "defcon_value" in result.columns
+
+
+# ---------------------------------------------------------------------------
+# TestSplitEquivalence
+# ---------------------------------------------------------------------------
+
+
+class TestSplitEquivalence:
+    """Verify that the split functions produce the same result as the wrapper."""
+
+    def test_split_matches_wrapper(self) -> None:
+        """assign_credits_for_period + estimate_values_for_match + data_source
+        must produce identical output to compute_defcon_match."""
+        actions, ff = _make_match_data()
+
+        # Wrapper path
+        wrapper_result = compute_defcon_match(actions, ff, _PARAMS, data_source="statsbomb_360")
+
+        # Split path
+        credits_df = assign_credits_for_period(actions, ff, _PARAMS)
+        valued_df = estimate_values_for_match(credits_df, _PARAMS)
+        valued_df["data_source"] = "statsbomb_360"
+
+        # Both should have the same columns (order may differ)
+        assert set(wrapper_result.columns) == set(valued_df.columns)
+
+        # Align columns and compare
+        valued_df = valued_df[wrapper_result.columns]
+        pd.testing.assert_frame_equal(wrapper_result, valued_df)
+
+    def test_split_matches_wrapper_empty(self) -> None:
+        """Both paths should produce identical empty DataFrames."""
+        empty_actions = pd.DataFrame(
+            columns=pd.Index(
+                [
+                    "event_id",
+                    "match_id",
+                    "competition_id",
+                    "season_id",
+                    "player_id",
+                    "team_id",
+                    "action_type",
+                    "start_x",
+                    "start_y",
+                    "offensive_value",
+                ]
+            )
+        )
+        empty_ff = pd.DataFrame(
+            columns=pd.Index(["event_id", "player_id", "team_id", "teammate", "x", "y", "velocity_x", "velocity_y"])
+        )
+
+        wrapper_result = compute_defcon_match(empty_actions, empty_ff, _PARAMS)
+        credits_df = assign_credits_for_period(empty_actions, empty_ff, _PARAMS)
+
+        assert len(wrapper_result) == 0
+        assert len(credits_df) == 0
