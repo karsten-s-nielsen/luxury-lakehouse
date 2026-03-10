@@ -29,28 +29,13 @@ with frames as (
         y,
         speed_ms,
         acceleration_ms2,
-        -- Re-derive per-frame displacement using LAG (Option B from plan)
-        lag(x) over (partition by match_id, player_id, period order by frame) as prev_x,
-        lag(y) over (partition by match_id, player_id, period order by frame) as prev_y
+        -- Per-frame displacement: speed_ms / frame_rate avoids redundant LAG on x/y.
+        -- Derivation: displacement_m = speed_ms / frame_rate, since
+        -- speed_ms = sqrt((dx * x_scale * frame_rate)^2 + (dy * y_scale * frame_rate)^2).
+        -- First frame per player/period has null speed_ms (no prior position) → 0.
+        coalesce(speed_ms / frame_rate, 0) as displacement_m
     from {{ ref('fct_tracking_frames') }}
     where player_id is not null
-
-),
-
-with_displacement as (
-
-    select
-        *,
-        -- Per-frame displacement in meters (anisotropic scaling)
-        case
-            when prev_x is not null and prev_y is not null then
-                sqrt(
-                    power((x - prev_x) * (105.0 / {{ var('pitch_length') }}), 2)
-                    + power((y - prev_y) * (68.0 / {{ var('pitch_width') }}), 2)
-                )
-            else 0
-        end as displacement_m
-    from frames
 
 ),
 
@@ -99,7 +84,7 @@ player_match_stats as (
         avg(x)                                              as avg_x,
         avg(y)                                              as avg_y
 
-    from with_displacement
+    from frames
     group by player_id, match_id
 
 ),

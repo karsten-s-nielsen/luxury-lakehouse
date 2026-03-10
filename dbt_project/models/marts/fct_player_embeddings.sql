@@ -12,8 +12,10 @@
 -- element-wise mean.
 
 {{ config(
-    materialized='table',
-    enabled=var('embeddings_enabled', false)
+    materialized='incremental',
+    unique_key='embedding_id',
+    enabled=var('embeddings_enabled', false),
+    incremental_strategy='merge'
 ) }}
 
 select
@@ -24,3 +26,8 @@ select
     behavioral_vector,
     stat_vector
 from {{ ref('stg_player_embeddings') }}
+{% if is_incremental() %}
+where {{ dbt_utils.generate_surrogate_key(['canonical_player_id', 'match_id']) }} not in (
+    select embedding_id from {{ this }}
+)
+{% endif %}
