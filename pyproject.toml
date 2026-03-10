@@ -3,13 +3,12 @@ name = "luxury-lakehouse"
 version = "0.1.0"
 description = "Serverless soccer analytics platform built on Databricks Lakebase"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.11"
 license = { text = "Apache-2.0" }
 dependencies = [
     # Core ingestion dependencies (must work on Databricks serverless Python 3.10)
     # NOTE: pandas and numpy are pre-installed on Databricks serverless runtime.
     # Do NOT pin them here — version conflicts break the Python kernel.
-    "statsbombpy>=1.13.0",
     "requests>=2.31.0",
 ]
 
@@ -116,3 +115,8 @@ packages = ["src/ingestion", "src/streamlit_app", "src/analytics"]
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest-benchmark>=5.2.3",
+]
