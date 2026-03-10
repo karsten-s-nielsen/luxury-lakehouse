@@ -1,4 +1,9 @@
-{{ config(cluster_by=["match_id"]) }}
+{{ config(
+    materialized='incremental',
+    unique_key='tracking_id',
+    cluster_by=['match_id'],
+    incremental_strategy='merge'
+) }}
 -- fct_tracking_frames.sql
 -- Enriched tracking data from all providers (Metrica, IDSSE, SkillCorner).
 --
@@ -20,10 +25,19 @@
 with tracking as (
 
     select * from {{ ref('stg_metrica__tracking') }}
+    {% if is_incremental() %}
+    where match_id not in (select distinct match_id from {{ this }})
+    {% endif %}
     union all
     select * from {{ ref('stg_idsse__tracking') }}
+    {% if is_incremental() %}
+    where match_id not in (select distinct match_id from {{ this }})
+    {% endif %}
     union all
     select * from {{ ref('stg_skillcorner__tracking') }}
+    {% if is_incremental() %}
+    where match_id not in (select distinct match_id from {{ this }})
+    {% endif %}
 
 ),
 
