@@ -10,13 +10,12 @@ Concept follows Soccermatics Lesson 7 by David Sumpter.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
 
-from analytics.pitch_control import PitchControlParams, compute_pitch_control_at_point
+from analytics.pitch_control import PitchControlParams, compute_pitch_control_at_points
 
 
 @dataclass(frozen=True)
@@ -83,38 +82,31 @@ def compute_off_ball_xt_frame(
             columns=pd.Index(["player_id", "team", "x", "y", "xt_value", "pitch_control", "off_ball_xt"])
         )
 
-    if pitch_control_params is None:
-        pitch_control_params = PitchControlParams()
-
     xs = _col_f64(players_df, "x")
     ys = _col_f64(players_df, "y")
+    target_points = np.column_stack([xs, ys])  # (N, 2)
 
-    results: list[dict[str, object]] = []
-    for i in range(len(players_df)):
-        x_val = float(xs[i])
-        y_val = float(ys[i])
+    # Single batched call — one matrix setup for all players
+    pc_values = compute_pitch_control_at_points(players_df, target_points, pitch_control_params)
 
-        xt_val = _lookup_xt(x_val, y_val, xt_grid)
-        pc = compute_pitch_control_at_point(players_df, x_val, y_val, pitch_control_params)
+    # xT lookup per player
+    xt_values = np.array([_lookup_xt(x, y, xt_grid) for x, y in zip(xs, ys, strict=True)])
 
-        row = players_df.iloc[i]
-        team = str(row["team"])
-        # For home players, PC is their control; for away, invert
-        player_pc = pc if team == "home" else 1.0 - pc
+    # Adjust PC for away team (pitch control is from home perspective)
+    teams = np.asarray(players_df["team"].values)
+    adjusted_pc = np.where(teams == "home", pc_values, 1.0 - pc_values)
 
-        results.append(
-            {
-                "player_id": row["player_id"],
-                "team": team,
-                "x": x_val,
-                "y": y_val,
-                "xt_value": xt_val,
-                "pitch_control": player_pc,
-                "off_ball_xt": player_pc * xt_val,
-            }
-        )
-
-    return pd.DataFrame(results)
+    return pd.DataFrame(
+        {
+            "player_id": players_df["player_id"].values,
+            "team": teams,
+            "x": xs,
+            "y": ys,
+            "xt_value": xt_values,
+            "pitch_control": adjusted_pc,
+            "off_ball_xt": xt_values * adjusted_pc,
+        }
+    )
 
 
 def compute_off_ball_xt_match(
@@ -157,9 +149,8 @@ def compute_off_ball_xt_match(
     period_frames = pd.DataFrame(tracking_df[["period", "frame"]].drop_duplicates()).sort_values(by=["period", "frame"])
     sampled_pf = period_frames.iloc[::sample_every]
 
-    # Accumulate per-player xT
-    player_xt: dict[str, float] = {}
-    player_count: dict[str, int] = {}
+    # Accumulate per-player xT via concat + groupby (vectorized)
+    all_frame_results: list[pd.DataFrame] = []
     frames_sampled = 0
 
     for _, pf_row in sampled_pf.iterrows():
@@ -177,25 +168,31 @@ def compute_off_ball_xt_match(
 
         frame_results = compute_off_ball_xt_frame(frame_df, xt_grid, pitch_control_params)
         frames_sampled += 1
+        all_frame_results.append(frame_results)
 
-        for _, row in frame_results.iterrows():
-            pid = str(row["player_id"])
-            xt_contribution = float(row["off_ball_xt"])
-            # Skip NaN contributions — pitch control can produce NaN at
-            # boundary conditions (e.g., first frame with no velocity data).
-            # Without this guard, a single NaN poisons the entire sum.
-            if math.isnan(xt_contribution):
-                continue
-            player_xt[pid] = player_xt.get(pid, 0.0) + xt_contribution
-            player_count[pid] = player_count.get(pid, 0) + 1
+    if not all_frame_results:
+        return pd.DataFrame(
+            columns=pd.Index(["player_id", "match_id", "total_off_ball_xt", "avg_off_ball_xt", "frames_sampled"])
+        )
+
+    # Concatenate all frame results and aggregate per player
+    combined = pd.concat(all_frame_results, ignore_index=True)
+    # Filter NaN contributions — pitch control can produce NaN at
+    # boundary conditions (e.g., first frame with no velocity data).
+    combined = combined[combined["off_ball_xt"].notna()]
+    combined["player_id"] = combined["player_id"].astype(str)
+
+    agg = combined.groupby("player_id")["off_ball_xt"].agg(["sum", "count"]).reset_index()
+    agg.columns = pd.Index(["player_id", "total_off_ball_xt", "frame_count"])
 
     # Build output
     rows: list[dict[str, object]] = []
-    for pid, total_xt in player_xt.items():
-        count = player_count[pid]
+    for _, agg_row in agg.iterrows():
+        count = int(agg_row["frame_count"])
+        total_xt = float(agg_row["total_off_ball_xt"])
         rows.append(
             {
-                "player_id": pid,
+                "player_id": agg_row["player_id"],
                 "match_id": match_id,
                 "total_off_ball_xt": total_xt,
                 "avg_off_ball_xt": total_xt / count if count > 0 else 0.0,
