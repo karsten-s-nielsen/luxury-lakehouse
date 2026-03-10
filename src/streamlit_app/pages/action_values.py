@@ -91,7 +91,8 @@ def _load_match_timeline_query(where: str, params: tuple[Any, ...], tbl: str) ->
         f"  action_type, action_result, vaep_value, "
         f"  offensive_value, defensive_value, player_id "
         f"FROM {tbl} WHERE {where} "
-        f"ORDER BY period, time_seconds",
+        f"ORDER BY period, time_seconds "
+        f"LIMIT 2000",
         params,
     )
 
@@ -114,14 +115,27 @@ def _load_match_timeline(match_id: int, team_id: int | None) -> Any:
 
 @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner=False)
 def _load_player_options(comp: int, team: int, tbl: str, players_tbl: str) -> Any:
-    """Load player options for a team within a competition."""
+    """Load player options for a team within a competition.
+
+    Uses a recursive CTE to gather distinct player_ids from the fact table
+    (avoids the full sequential scan that SELECT DISTINCT forces), then
+    joins to the dimension table for display names.
+    """
     return execute_query(
-        f"SELECT DISTINCT a.player_id, p.player_display_name "  # noqa: S608
-        f"FROM {tbl} a "
-        f"JOIN {players_tbl} p ON a.player_id = p.player_id "
-        f"WHERE a.competition_id = %s AND a.team_id = %s "
+        f"WITH RECURSIVE dp AS ("  # noqa: S608
+        f"  SELECT MIN(player_id) AS player_id FROM {tbl}"
+        f"  WHERE competition_id = %s AND team_id = %s"
+        f"  UNION ALL"
+        f"  SELECT (SELECT MIN(player_id) FROM {tbl}"
+        f"          WHERE competition_id = %s AND team_id = %s AND player_id > dp.player_id)"
+        f"  FROM dp WHERE dp.player_id IS NOT NULL"
+        f") "
+        f"SELECT dp.player_id, p.player_display_name "
+        f"FROM dp "
+        f"JOIN {players_tbl} p ON dp.player_id = p.player_id "
+        f"WHERE dp.player_id IS NOT NULL "
         f"ORDER BY p.player_display_name",
-        (comp, team),
+        (comp, team, comp, team),
     )
 
 

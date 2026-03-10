@@ -19,19 +19,36 @@ def _load_rankings(competition_id: int, team_id: int | None) -> Any:
 
     @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading rankings...")
     def _query(comp_id: int, t_id: int | None) -> Any:
-        conditions = ["dp.competition_id = %s"]
-        params: list[Any] = [comp_id]
-
+        av_tbl = t("fct_action_values_synced")
         if t_id is not None:
-            conditions.append(
-                "dp.player_id IN ("  # noqa: S608
-                "SELECT DISTINCT player_id FROM "
-                + t("fct_action_values_synced")
-                + " WHERE competition_id = %s AND team_id = %s)"
+            # Recursive CTE collects distinct player_ids from the action-values fact table
+            # without a sequential scan, then filters pressure rows to those players.
+            return execute_query(
+                f"WITH RECURSIVE team_players AS ("  # noqa: S608
+                f"  SELECT MIN(player_id) AS player_id FROM {av_tbl}"
+                f"  WHERE competition_id = %s AND team_id = %s"
+                f"  UNION ALL"
+                f"  SELECT (SELECT MIN(player_id) FROM {av_tbl}"
+                f"          WHERE competition_id = %s AND team_id = %s AND player_id > team_players.player_id)"
+                f"  FROM team_players WHERE team_players.player_id IS NOT NULL"
+                f") "
+                f"SELECT dp.player_id, p.player_display_name, "
+                f"  SUM(dp.total_pressure) as total_pressure, "
+                f"  SUM(dp.total_defensive_actions) as total_actions, "
+                f"  SUM(dp.intercept_count) as intercepts, "
+                f"  SUM(dp.concede_count) as concedes, "
+                f"  SUM(dp.disturb_count) as disturbs, "
+                f"  SUM(dp.deter_count) as deters, "
+                f"  COUNT(DISTINCT dp.match_id) as matches "
+                f"FROM {tbl} dp "
+                f"JOIN {dim_p} p ON dp.player_id = p.player_id "
+                f"JOIN team_players tp ON tp.player_id = dp.player_id "
+                f"WHERE dp.competition_id = %s "
+                f"GROUP BY dp.player_id, p.player_display_name "
+                f"ORDER BY total_pressure DESC "
+                f"LIMIT 50",
+                (comp_id, t_id, comp_id, t_id, comp_id),
             )
-            params.extend([comp_id, t_id])
-
-        where = " AND ".join(conditions)
         return execute_query(
             f"SELECT dp.player_id, p.player_display_name, "  # noqa: S608
             f"  SUM(dp.total_pressure) as total_pressure, "
@@ -43,11 +60,11 @@ def _load_rankings(competition_id: int, team_id: int | None) -> Any:
             f"  COUNT(DISTINCT dp.match_id) as matches "
             f"FROM {tbl} dp "
             f"JOIN {dim_p} p ON dp.player_id = p.player_id "
-            f"WHERE {where} "
+            f"WHERE dp.competition_id = %s "
             f"GROUP BY dp.player_id, p.player_display_name "
             f"ORDER BY total_pressure DESC "
             f"LIMIT 50",
-            tuple(params),
+            (comp_id,),
         )
 
     return _query(int(competition_id), int(team_id) if team_id is not None else None)

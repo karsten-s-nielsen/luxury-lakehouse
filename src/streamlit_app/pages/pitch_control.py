@@ -4,12 +4,20 @@ from __future__ import annotations
 
 from typing import Any
 
+import pandas as pd
 import streamlit as st
 
 from analytics.pitch_control import compute_pitch_control_at_point, compute_pitch_control_frame
 from streamlit_app.components.pitch import plot_physics_pitch_control, plot_pitch_control
 from streamlit_app.config import get_settings
 from streamlit_app.db import execute_query, t
+
+
+@st.cache_data(ttl=300)
+def _compute_cached_pc_grid(frame_data_json: str) -> tuple[Any, Any, Any]:
+    """Compute pitch control grid with caching; input serialised as JSON string."""
+    frame_data = pd.read_json(frame_data_json)
+    return compute_pitch_control_frame(frame_data)
 
 
 def _load_matches(provider: str | None = None) -> Any:
@@ -156,7 +164,7 @@ def page() -> None:
             physics_data["velocity_x"] = physics_data["velocity_x"].fillna(0.0)
             physics_data["velocity_y"] = physics_data["velocity_y"].fillna(0.0)
 
-            grid_x, grid_y, surface = compute_pitch_control_frame(physics_data)
+            grid_x, grid_y, surface = _compute_cached_pc_grid(physics_data.to_json())
             fig = plot_physics_pitch_control(
                 physics_data, surface, grid_x, grid_y, ball_x, ball_y, show_velocity, title=title
             )
