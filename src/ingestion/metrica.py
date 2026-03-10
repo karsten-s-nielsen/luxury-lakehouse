@@ -43,6 +43,9 @@ from ingestion.utils import (
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
+# Pre-compiled regex for sanitizing DataFrame column names (Delta Lake rejects spaces/special chars)
+_COLUMN_CLEAN_RE = re.compile(r"[^a-zA-Z0-9_]")
+
 # GitHub raw URLs for Metrica open data (HTTPS only)
 _BASE_URL = "https://raw.githubusercontent.com/metrica-sports/sample-data/master/data"
 
@@ -566,7 +569,7 @@ def _download_and_parse_events(
     df = df.rename(columns=actual_renames)
 
     # Sanitize remaining column names: Delta Lake rejects spaces and special chars
-    df.columns = [re.sub(r"[^a-zA-Z0-9_]", "_", col).strip("_").lower() for col in df.columns]
+    df.columns = [_COLUMN_CLEAN_RE.sub("_", col).strip("_").lower() for col in df.columns]
 
     # Ensure event_id exists
     if "event_id" not in df.columns:
@@ -589,13 +592,33 @@ def ingest_tracking(
     schema: str,
     logger: logging.Logger,
 ) -> None:
-    """Download and ingest tracking data for all sample games (CSV + EPTS)."""
-    all_tracking: list[pd.DataFrame] = []
+    """Download and ingest tracking data per match to avoid OOM on batch concat."""
+    required_cols = [
+        "period",
+        "frame",
+        "timestamp",
+        "ball_x",
+        "ball_y",
+        "home_players",
+        "away_players",
+        "match_id",
+        "frame_rate",
+    ]
 
     # Games 1-2: CSV format
     for match_id, urls in _TRACKING_URLS.items():
         tracking_df = _download_and_parse_tracking(urls["home"], urls["away"], match_id, logger)
-        all_tracking.append(tracking_df)
+        sdf = spark.createDataFrame(tracking_df)
+        row_count = validate_dataframe(sdf, required_cols, "metrica_tracking", logger)
+        write_delta_table(
+            sdf,
+            catalog,
+            schema,
+            "metrica_tracking",
+            replace_where=f"match_id = '{match_id}'",
+            logger=logger,
+            row_count=row_count,
+        )
 
     # Game 3: EPTS format
     for match_id, urls in _EPTS_URLS.items():
@@ -609,29 +632,14 @@ def ingest_tracking(
 
         tracking_df = pd.DataFrame(rows)
         logger.info("Parsed %d EPTS tracking frames for %s", len(tracking_df), match_id)
-        all_tracking.append(tracking_df)
-
-    if all_tracking:
-        combined = pd.concat(all_tracking, ignore_index=True)
-        sdf = spark.createDataFrame(combined)
-        required_cols = [
-            "period",
-            "frame",
-            "timestamp",
-            "ball_x",
-            "ball_y",
-            "home_players",
-            "away_players",
-            "match_id",
-            "frame_rate",
-        ]
+        sdf = spark.createDataFrame(tracking_df)
         row_count = validate_dataframe(sdf, required_cols, "metrica_tracking", logger)
         write_delta_table(
             sdf,
             catalog,
             schema,
             "metrica_tracking",
-            mode="overwrite",
+            replace_where=f"match_id = '{match_id}'",
             logger=logger,
             row_count=row_count,
         )
@@ -643,13 +651,23 @@ def ingest_events(
     schema: str,
     logger: logging.Logger,
 ) -> None:
-    """Download and ingest event data for all sample games (CSV + EPTS)."""
-    all_events: list[pd.DataFrame] = []
+    """Download and ingest event data per match to avoid OOM on batch concat."""
+    required_cols = ["event_id", "type", "period", "start_frame", "end_frame", "team", "player", "match_id"]
 
     # Games 1-2: CSV format
     for match_id, url in _EVENT_URLS.items():
         events_df = _download_and_parse_events(url, match_id, logger)
-        all_events.append(events_df)
+        sdf = spark.createDataFrame(events_df)
+        row_count = validate_dataframe(sdf, required_cols, "metrica_events", logger)
+        write_delta_table(
+            sdf,
+            catalog,
+            schema,
+            "metrica_events",
+            replace_where=f"match_id = '{match_id}'",
+            logger=logger,
+            row_count=row_count,
+        )
 
     # Game 3: EPTS JSON format
     for match_id, urls in _EPTS_URLS.items():
@@ -659,18 +677,17 @@ def ingest_events(
         events_data: list[dict[str, object]] = events_json.get("data", events_json)
         events_df = _parse_epts_events(events_data, match_id)
         logger.info("Parsed %d EPTS events for %s", len(events_df), match_id)
-        all_events.append(events_df)
-
-    if all_events:
-        combined = pd.concat(all_events, ignore_index=True)
-        sdf = spark.createDataFrame(combined)
-        row_count = validate_dataframe(
+        sdf = spark.createDataFrame(events_df)
+        row_count = validate_dataframe(sdf, required_cols, "metrica_events", logger)
+        write_delta_table(
             sdf,
-            ["event_id", "type", "period", "start_frame", "end_frame", "team", "player", "match_id"],
+            catalog,
+            schema,
             "metrica_events",
-            logger,
+            replace_where=f"match_id = '{match_id}'",
+            logger=logger,
+            row_count=row_count,
         )
-        write_delta_table(sdf, catalog, schema, "metrica_events", mode="overwrite", logger=logger, row_count=row_count)
 
 
 # ---------------------------------------------------------------------------
