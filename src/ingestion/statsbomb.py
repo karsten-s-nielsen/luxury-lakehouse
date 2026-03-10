@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
@@ -34,6 +35,9 @@ from ingestion.utils import (
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
+
+# Max concurrent HTTP requests to StatsBomb API (polite concurrency limit)
+_HTTP_MAX_WORKERS = 4
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +148,36 @@ def _safe_fetch(
         return None
 
 
+def _fetch_match_details(
+    match_id: int,
+    logger: logging.Logger,
+) -> tuple[pd.DataFrame | None, Any, pd.DataFrame | None, dict[str, str] | None]:
+    """Fetch events, lineups, 360 frames, and extra JSON for a single match.
+
+    All four HTTP fetches are independent so they run concurrently via
+    ``ThreadPoolExecutor``. This function is the unit of work submitted
+    to the pool — it is called from a worker thread.
+
+    Returns:
+        ``(events_pdf, lineups_raw, frames_pdf, extra_map)`` — any element
+        may be ``None`` on fetch failure.
+    """
+    events_pdf = _safe_fetch(sb.events, match_id=match_id, logger=logger, label="events")
+
+    lineups_raw = _safe_fetch(sb.lineups, match_id=match_id, logger=logger, label="lineups")
+
+    frames_pdf = _safe_fetch(sb.frames, match_id=match_id, logger=logger, label="360")
+
+    extra_map: dict[str, str] | None = None
+    if events_pdf is not None and not events_pdf.empty:
+        try:
+            extra_map = _build_raw_extra_json(match_id, logger)
+        except Exception:
+            logger.exception("Failed to build _raw_extra_json for match %d", match_id)
+
+    return events_pdf, lineups_raw, frames_pdf, extra_map
+
+
 def ingest_matches_and_details(
     spark: SparkSession,
     catalog: str,
@@ -219,36 +253,43 @@ def ingest_matches_and_details(
         lineups_batch: list[pd.DataFrame] = []
         frames_batch: list[pd.DataFrame] = []
 
-        for match_id in new_match_ids:
-            # Events
-            events_pdf = _safe_fetch(sb.events, match_id=match_id, logger=logger, label="events")
-            if events_pdf is not None and not events_pdf.empty:
-                events_pdf["match_id"] = match_id
-                events_pdf["competition_id"] = comp_id
-                events_pdf["season_id"] = season_id
-
-                # Enrich with raw extra JSON for SPADL adapter
+        # Fetch match details concurrently (events, lineups, 360, extra JSON)
+        with ThreadPoolExecutor(max_workers=_HTTP_MAX_WORKERS) as executor:
+            futures = {executor.submit(_fetch_match_details, match_id, logger): match_id for match_id in new_match_ids}
+            for future in as_completed(futures):
+                match_id = futures[future]
                 try:
-                    extra_map = _build_raw_extra_json(match_id, logger)
-                    events_pdf["_raw_extra_json"] = events_pdf["id"].map(extra_map).fillna("{}")  # type: ignore[arg-type]
+                    result = future.result()
                 except Exception:
-                    logger.exception("Failed to build _raw_extra_json for match %d", match_id)
-                    events_pdf["_raw_extra_json"] = "{}"
+                    logger.exception("Unexpected error fetching details for match %d", match_id)
+                    continue
 
-                events_batch.append(events_pdf)
+                events_pdf, lineups_raw, frames_pdf, extra_map = result
 
-            # Lineups
-            lineups_raw = _safe_fetch(sb.lineups, match_id=match_id, logger=logger, label="lineups")
-            if lineups_raw is not None:
-                _process_lineups(lineups_raw, match_id, comp_id, season_id, lineups_batch)
+                # Events
+                if events_pdf is not None and not events_pdf.empty:
+                    events_pdf["match_id"] = match_id
+                    events_pdf["competition_id"] = comp_id
+                    events_pdf["season_id"] = season_id
 
-            # 360 frames
-            frames_pdf = _safe_fetch(sb.frames, match_id=match_id, logger=logger, label="360")
-            if frames_pdf is not None and not frames_pdf.empty:
-                frames_pdf["match_id"] = match_id
-                frames_pdf["competition_id"] = comp_id
-                frames_pdf["season_id"] = season_id
-                frames_batch.append(frames_pdf)
+                    # Enrich with raw extra JSON for SPADL adapter
+                    if extra_map is not None:
+                        events_pdf["_raw_extra_json"] = events_pdf["id"].map(extra_map).fillna("{}")  # type: ignore[arg-type]
+                    else:
+                        events_pdf["_raw_extra_json"] = "{}"
+
+                    events_batch.append(events_pdf)
+
+                # Lineups
+                if lineups_raw is not None:
+                    _process_lineups(lineups_raw, match_id, comp_id, season_id, lineups_batch)
+
+                # 360 frames
+                if frames_pdf is not None and not frames_pdf.empty:
+                    frames_pdf["match_id"] = match_id
+                    frames_pdf["competition_id"] = comp_id
+                    frames_pdf["season_id"] = season_id
+                    frames_batch.append(frames_pdf)
 
         # Batch write per competition/season
         _write_batch(
@@ -443,10 +484,29 @@ def backfill_extra_json(
 
     logger.info("Found %d match partitions needing _raw_extra_json backfill", len(needs_backfill_rows))
 
+    # Pre-fetch all extra JSON maps concurrently (HTTP is the bottleneck)
+    match_ids_to_backfill = [int(row["match_id"]) for row in needs_backfill_rows]
+    extra_maps: dict[int, dict[str, str]] = {}
+
+    with ThreadPoolExecutor(max_workers=_HTTP_MAX_WORKERS) as executor:
+        futures = {executor.submit(_build_raw_extra_json, mid, logger): mid for mid in match_ids_to_backfill}
+        for future in as_completed(futures):
+            mid = futures[future]
+            try:
+                extra_maps[mid] = future.result()
+            except Exception:
+                logger.exception("Failed to fetch _raw_extra_json for match %d", mid)
+
+    logger.info("Fetched extra JSON for %d/%d matches", len(extra_maps), len(match_ids_to_backfill))
+
+    # Apply extra JSON maps sequentially (Spark read/write is driver-bound)
     for row in needs_backfill_rows:
         match_id = int(row["match_id"])
         comp_id = int(row["competition_id"])
         season_id = int(row["season_id"])
+
+        if match_id not in extra_maps:
+            continue
 
         try:
             # Read existing events for this match
@@ -458,8 +518,8 @@ def backfill_extra_json(
             if match_events.empty:
                 continue
 
-            # Build extra JSON mapping
-            extra_map = _build_raw_extra_json(match_id, logger)
+            # Apply pre-fetched extra JSON mapping
+            extra_map = extra_maps[match_id]
             match_events["_raw_extra_json"] = match_events["id"].map(extra_map).fillna("{}")
 
             # Re-serialize any JSON columns and write back
