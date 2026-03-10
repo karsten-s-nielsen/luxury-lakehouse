@@ -117,13 +117,17 @@ def _load_player_matches(player_id: int, competition_id: int, team_id: int | Non
 
         where = " AND ".join(conditions)
         return execute_query(
-            f"SELECT DISTINCT dp.match_id, "  # noqa: S608
-            f"  ms.match_date, ms.home_team_name, ms.away_team_name, "
-            f"  ms.home_score, ms.away_score "
+            f"SELECT dp.match_id, "  # noqa: S608
+            f"  MAX(ms.match_date) as match_date, "
+            f"  MAX(ms.home_team_name) as home_team_name, "
+            f"  MAX(ms.away_team_name) as away_team_name, "
+            f"  MAX(ms.home_score) as home_score, "
+            f"  MAX(ms.away_score) as away_score "
             f"FROM {tbl} dp "
             f"LEFT JOIN {ms} ms ON dp.match_id::bigint = ms.match_id "
             f"WHERE {where} "
-            f"ORDER BY ms.match_date DESC",
+            f"GROUP BY dp.match_id "
+            f"ORDER BY MAX(ms.match_date) DESC",
             tuple(params),
         )
 
@@ -190,9 +194,12 @@ def _render_optional_team_filter(competition_id: int | None) -> int | None:
     @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner=False)
     def _query(comp_id: int) -> Any:
         return execute_query(
-            f"WITH pressure_matches AS ("  # noqa: S608
-            f"  SELECT DISTINCT match_id::bigint AS match_id"
-            f"  FROM {dp} WHERE competition_id = %s"
+            f"WITH RECURSIVE pressure_matches AS ("  # noqa: S608
+            f"  SELECT MIN(match_id)::bigint AS match_id FROM {dp} WHERE competition_id = %s"
+            f"  UNION ALL"
+            f"  SELECT (SELECT MIN(match_id)::bigint FROM {dp}"
+            f"          WHERE competition_id = %s AND match_id::bigint > pressure_matches.match_id)"
+            f"  FROM pressure_matches WHERE pressure_matches.match_id IS NOT NULL"
             f") "
             f"SELECT DISTINCT dt.team_id, dt.team_name "
             f"FROM {dim_t} dt "
@@ -200,7 +207,7 @@ def _render_optional_team_filter(competition_id: int | None) -> int | None:
             f"  ON ms.home_team_id = dt.team_id OR ms.away_team_id = dt.team_id "
             f"JOIN pressure_matches pm ON pm.match_id = ms.match_id "
             f"ORDER BY dt.team_name",
-            (comp_id,),
+            (comp_id, comp_id),
         )
 
     teams = _query(int(competition_id))
@@ -226,7 +233,11 @@ def _build_player_options(rankings: pd.DataFrame) -> dict[str, int]:
 
 
 def _load_breakdown_player_ids(competition_id: int, team_id: int | None) -> set[int]:
-    """Return player_ids that have pressure breakdown rows for the given filters."""
+    """Return player_ids that have pressure breakdown rows for the given filters.
+
+    Without a team filter: recursive CTE avoids a full sequential scan on the fact table.
+    With a team filter: GROUP BY on the join result (DISTINCT would force a seq scan after JOIN).
+    """
     tbl = t("fct_defcon_pressure_synced")
     ms = t("fct_match_summary_synced")
 
@@ -234,17 +245,23 @@ def _load_breakdown_player_ids(competition_id: int, team_id: int | None) -> set[
     def _query(comp_id: int, t_id: int | None) -> Any:
         if t_id is not None:
             return execute_query(
-                f"SELECT DISTINCT dp.player_id "  # noqa: S608
+                f"SELECT dp.player_id "  # noqa: S608
                 f"FROM {tbl} dp "
                 f"JOIN {ms} ms ON dp.match_id::bigint = ms.match_id "
                 f"WHERE dp.competition_id = %s "
-                f"AND (ms.home_team_id = %s OR ms.away_team_id = %s)",
+                f"AND (ms.home_team_id = %s OR ms.away_team_id = %s) "
+                f"GROUP BY dp.player_id",
                 (comp_id, t_id, t_id),
             )
         return execute_query(
-            f"SELECT DISTINCT dp.player_id FROM {tbl} dp "  # noqa: S608
-            f"WHERE dp.competition_id = %s",
-            (comp_id,),
+            f"WITH RECURSIVE dp_players AS ("  # noqa: S608
+            f"  SELECT MIN(player_id) AS player_id FROM {tbl} WHERE competition_id = %s"
+            f"  UNION ALL"
+            f"  SELECT (SELECT MIN(player_id) FROM {tbl}"
+            f"          WHERE competition_id = %s AND player_id > dp_players.player_id)"
+            f"  FROM dp_players WHERE dp_players.player_id IS NOT NULL"
+            f") SELECT player_id FROM dp_players WHERE player_id IS NOT NULL",
+            (comp_id, comp_id),
         )
 
     result = _query(int(competition_id), int(team_id) if team_id is not None else None)
@@ -254,7 +271,11 @@ def _load_breakdown_player_ids(competition_id: int, team_id: int | None) -> set[
 
 
 def _load_timeline_player_ids(competition_id: int, team_id: int | None) -> set[int]:
-    """Return action_player_ids that have DEFCON action rows for the given filters."""
+    """Return action_player_ids that have DEFCON action rows for the given filters.
+
+    Without a team filter: recursive CTE avoids a full sequential scan on the fact table.
+    With a team filter: GROUP BY on the join result (DISTINCT would force a seq scan after JOIN).
+    """
     tbl = t("fct_defcon_actions_synced")
     ms = t("fct_match_summary_synced")
 
@@ -262,17 +283,23 @@ def _load_timeline_player_ids(competition_id: int, team_id: int | None) -> set[i
     def _query(comp_id: int, t_id: int | None) -> Any:
         if t_id is not None:
             return execute_query(
-                f"SELECT DISTINCT da.action_player_id as player_id "  # noqa: S608
+                f"SELECT da.action_player_id as player_id "  # noqa: S608
                 f"FROM {tbl} da "
                 f"JOIN {ms} ms ON da.match_id::bigint = ms.match_id "
                 f"WHERE da.competition_id = %s "
-                f"AND (ms.home_team_id = %s OR ms.away_team_id = %s)",
+                f"AND (ms.home_team_id = %s OR ms.away_team_id = %s) "
+                f"GROUP BY da.action_player_id",
                 (comp_id, t_id, t_id),
             )
         return execute_query(
-            f"SELECT DISTINCT da.action_player_id as player_id FROM {tbl} da "  # noqa: S608
-            f"WHERE da.competition_id = %s",
-            (comp_id,),
+            f"WITH RECURSIVE da_players AS ("  # noqa: S608
+            f"  SELECT MIN(action_player_id) AS player_id FROM {tbl} WHERE competition_id = %s"
+            f"  UNION ALL"
+            f"  SELECT (SELECT MIN(action_player_id) FROM {tbl}"
+            f"          WHERE competition_id = %s AND action_player_id > da_players.player_id)"
+            f"  FROM da_players WHERE da_players.player_id IS NOT NULL"
+            f") SELECT player_id FROM da_players WHERE player_id IS NOT NULL",
+            (comp_id, comp_id),
         )
 
     result = _query(int(competition_id), int(team_id) if team_id is not None else None)
