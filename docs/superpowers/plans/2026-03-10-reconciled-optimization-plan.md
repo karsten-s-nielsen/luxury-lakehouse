@@ -49,20 +49,23 @@ Expected: FAIL
 
 In `src/ingestion/player_embeddings.py`, replace the buggy `source_matches` query (lines 377-384) with a query that reliably gets all match_ids that should have embeddings. The fix has two parts:
 
-1. Query source match_ids from the actual events tables (bronze) instead of `fct_match_summary`, OR fix the `data_source` filter to match actual values in `fct_match_summary`
+1. Fix the `data_source` filter to match actual values in `fct_match_summary` (the current filter uses `'statsbomb'`/`'wyscout'` but the table may store different values like `'statsbomb_360'`)
 2. Add a defensive fallback: if the results table has data but `source_matches` is empty, log a warning and return early (prevents silent OOM)
 
 ```python
-# Part 1: Get all match_ids that have events (the actual source of truth)
+# Part 1: Fix data_source filter — check actual values in fct_match_summary
+# The bug: WHERE data_source IN ('statsbomb', 'wyscout') returns 0 rows
+# because fct_match_summary stores values like 'statsbomb_360', 'metrica', etc.
+# Fix: query ALL match_ids that have events (not filtered by data_source)
 source_query = f"""
-    SELECT DISTINCT match_id FROM {catalog}.{schema}.fct_action_values
+    SELECT DISTINCT match_id FROM {catalog}.{gold_schema}.fct_match_summary
 """
 source_rows = spark.sql(source_query).collect()
 source_matches = {str(row["match_id"]) for row in source_rows}
 
 # Part 2: Defensive fallback
 if not source_matches and existing_matches:
-    logger.info("No source matches found but embeddings exist — skipping recompute")
+    logger.info("No source matches found but %d embeddings exist — skipping recompute", len(existing_matches))
     return
 
 new_matches = source_matches - existing_matches
@@ -167,16 +170,16 @@ def test_cached_query_cache_key_stability(self):
 In `filters.py`, replace lines 14-21:
 
 ```python
-# Before (broken):
-def _cached_query(query: str, params: tuple | None = None) -> pd.DataFrame:
-    @st.cache_data(ttl=600)
-    def _run(q: str, p: tuple | None = None) -> pd.DataFrame:
+# Before (broken — inner function re-decorated on every call):
+def _cached_query(query: str, params: tuple[Any, ...] | None = None) -> pd.DataFrame:
+    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner=False)
+    def _run(q: str, p: tuple[Any, ...] | None) -> pd.DataFrame:
         return execute_query(q, p)
     return _run(query, params)
 
-# After (fixed):
-@st.cache_data(ttl=600)
-def _cached_query(query: str, params: tuple | None = None) -> pd.DataFrame:
+# After (fixed — decorator applied once at module level):
+@st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner=False)
+def _cached_query(query: str, params: tuple[Any, ...] | None = None) -> pd.DataFrame:
     return execute_query(query, params)
 ```
 
@@ -431,9 +434,9 @@ try:
 except Exception:
     existing_ids = set()
 
-new_match_ids = [mid for mid in all_match_ids if str(mid) not in existing_ids]
+new_match_ids = [mid for mid in match_ids if str(mid) not in existing_ids]
 if not new_match_ids:
-    logger.info("All %d matches already processed — skipping", len(all_match_ids))
+    logger.info("All %d matches already processed — skipping", len(match_ids))
     return 0
 logger.info("Processing %d new matches (skipping %d existing)", len(new_match_ids), len(existing_ids))
 ```
@@ -544,16 +547,16 @@ def compute_pitch_control_at_points(
         _sb_to_meters_y(_col_f64(home, "y"), params),
     ])
     home_vel = np.column_stack([
-        _col_f64(home, "vx") * params.pitch_length_m / params.sb_length,
-        _col_f64(home, "vy") * params.pitch_width_m / params.sb_width,
+        _sb_to_meters_x(_col_f64(home, "velocity_x"), params),
+        _sb_to_meters_y(_col_f64(home, "velocity_y"), params),
     ])
     away_pos = np.column_stack([
         _sb_to_meters_x(_col_f64(away, "x"), params),
         _sb_to_meters_y(_col_f64(away, "y"), params),
     ])
     away_vel = np.column_stack([
-        _col_f64(away, "vx") * params.pitch_length_m / params.sb_length,
-        _col_f64(away, "vy") * params.pitch_width_m / params.sb_width,
+        _sb_to_meters_x(_col_f64(away, "velocity_x"), params),
+        _sb_to_meters_y(_col_f64(away, "velocity_y"), params),
     ])
 
     # Convert targets to meters (done ONCE)
@@ -570,12 +573,14 @@ def compute_pitch_control_at_points(
     home_min_tti = np.min(home_tti, axis=0)  # (n_targets,)
     away_min_tti = np.min(away_tti, axis=0)  # (n_targets,)
 
-    home_influence = _compute_team_influence(home_min_tti, away_min_tti, params)
-    away_influence = _compute_team_influence(away_min_tti, home_min_tti, params)
+    # _compute_team_influence takes FULL (n_players, n_targets) TTI, not the min
+    home_influence = _compute_team_influence(home_tti, away_min_tti, params)
+    away_influence = _compute_team_influence(away_tti, home_min_tti, params)
 
     total = home_influence + away_influence
-    safe_total = np.where(total > 0, total, 1.0)
-    return home_influence / safe_total
+    safe_total = np.where(total > 1e-10, total, 1.0)
+    control = np.where(total > 1e-10, home_influence / safe_total, 0.5)
+    return np.clip(control, 0.0, 1.0)
 ```
 
 - [ ] **Step 4: Run tests — expect PASS**
@@ -814,7 +819,7 @@ git commit -m "refactor(defcon): split compute_defcon_match into credit assignme
 - Modify: `src/ingestion/defcon_lite.py:183-365` (`_process_tracking_matches`)
 
 Replace per-match `toPandas()` loops with two-pass distributed execution:
-- Pass 1: `groupBy("match_id", "period").applyInPandas(assign_credits_udf)` — credit assignment
+- Pass 1: `groupBy("match_id", "period_id").applyInPandas(assign_credits_udf)` — credit assignment (NOTE: `period_id` must be added to the actions SELECT at `ingestion/defcon_lite.py:93-104` — SPADL provides `period_id` via `fct_action_values`)
 - Pass 2: `groupBy("match_id").applyInPandas(estimate_values_udf)` — XGBoost value estimation
 
 - [ ] **Step 1: Implement UDF wrappers for both passes**
@@ -845,7 +850,7 @@ joined_sdf = actions_sdf.join(ff_sdf, on="event_id", how="inner")
 
 # Pass 1: credits by (match_id, period) — distributed
 credits_schema = "..."  # full credit column list
-credits_sdf = joined_sdf.groupBy("match_id", "period").applyInPandas(_assign_credits_udf, schema=credits_schema)
+credits_sdf = joined_sdf.groupBy("match_id", "period_id").applyInPandas(_assign_credits_udf, schema=credits_schema)
 
 # Pass 2: values by match_id — XGBoost training per match
 valued_schema = "..."  # credits + defcon_value
@@ -899,6 +904,8 @@ def detect_line_breaking_batch(
     if params is None:
         params = LineBreakingParams()
 
+    import dataclasses
+
     cluster_cache: dict[bytes, tuple[list[np.ndarray], np.ndarray]] = {}
     results = []
 
@@ -906,7 +913,7 @@ def detect_line_breaking_batch(
         event_id = str(row["event_id"])
         opponents = opponents_by_event.get(event_id)
         if opponents is None or len(opponents) < params.min_opponents:
-            results.append({"event_id": event_id, **LineBreakingResult(False, 0, "none")._asdict()})
+            results.append({"event_id": event_id, **dataclasses.asdict(LineBreakingResult(False, 0, None))})
             continue
 
         # Hash opponent positions for cache key
