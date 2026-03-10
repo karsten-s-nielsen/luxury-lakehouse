@@ -66,8 +66,7 @@ def _load_xt_grid() -> np.ndarray:
             df = pd.read_csv(workspace_path)
 
     grid = np.zeros((12, 8), dtype=np.float64)
-    for _, row in df.iterrows():
-        grid[int(row["zone_x"]), int(row["zone_y"])] = float(row["xt_value"])
+    grid[df["zone_x"].astype(int).values, df["zone_y"].astype(int).values] = df["xt_value"].values
     return grid
 
 
@@ -80,8 +79,7 @@ def _load_xt_grid_from_spark(spark: SparkSession, catalog: str) -> np.ndarray:
         seed_table = f"{catalog}.dev_silver.expected_threat_grid"
         df = spark.table(seed_table).toPandas()
         grid = np.zeros((12, 8), dtype=np.float64)
-        for _, row in df.iterrows():
-            grid[int(row["zone_x"]), int(row["zone_y"])] = float(row["xt_value"])
+        grid[df["zone_x"].astype(int).values, df["zone_y"].astype(int).values] = df["xt_value"].values
         return grid
     except Exception:
         return _load_xt_grid()

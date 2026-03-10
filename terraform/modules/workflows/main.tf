@@ -22,7 +22,8 @@
 # ──────────────────────────────────────────────────────────────────────────────
 
 resource "databricks_job" "data_ingestion" {
-  name = "soccer-analytics-ingestion-${var.environment}"
+  name                = "soccer-analytics-ingestion-${var.environment}"
+  max_concurrent_runs = 1
 
   # ── Run as: dedicated ingestion service principal ────────────────────────
   dynamic "run_as" {
@@ -55,14 +56,14 @@ resource "databricks_job" "data_ingestion" {
       ]
     }
 
-    # Use serverless compute for the task
-    environment_key = "default"
+    # Uses statsbomb environment (statsbombpy not in core deps)
+    environment_key = "statsbomb"
   }
 
   # ── Task: Ingest Metrica tracking data ───────────────────────────────────
   task {
     task_key        = "ingest_metrica"
-    timeout_seconds = 1800
+    timeout_seconds = 900
     max_retries     = 1
 
     python_wheel_task {
@@ -81,7 +82,7 @@ resource "databricks_job" "data_ingestion" {
   # ── Task: Ingest Wyscout data ────────────────────────────────────────────
   task {
     task_key        = "ingest_wyscout"
-    timeout_seconds = 1800
+    timeout_seconds = 900
     max_retries     = 1
 
     python_wheel_task {
@@ -199,7 +200,7 @@ resource "databricks_job" "data_ingestion" {
   # credits per-defender per-action, trains XGBoost value estimators.
   task {
     task_key        = "compute_defcon_lite"
-    timeout_seconds = 3600
+    timeout_seconds = 7200
     max_retries     = 1
 
     depends_on {
@@ -224,7 +225,7 @@ resource "databricks_job" "data_ingestion" {
   # Writes player_xref_raw bronze table for dbt int_player_xref → dim_players.
   task {
     task_key        = "resolve_players"
-    timeout_seconds = 1800
+    timeout_seconds = 900
     max_retries     = 1
 
     depends_on {
@@ -281,6 +282,20 @@ resource "databricks_job" "data_ingestion" {
 
       dependencies = [
         var.wheel_path
+      ]
+    }
+  }
+
+  # ── Environment for StatsBomb ingestion (statsbombpy API client) ────────
+  environment {
+    environment_key = "statsbomb"
+
+    spec {
+      client = "1"
+
+      dependencies = [
+        var.wheel_path,
+        "statsbombpy>=1.13.0"
       ]
     }
   }

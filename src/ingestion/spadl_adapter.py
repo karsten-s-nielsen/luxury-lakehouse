@@ -155,10 +155,10 @@ def resolve_wyscout_home_team_ids(matches_pdf: pd.DataFrame) -> dict[int, int]:
         Mapping of ``match_id`` (wyId) -> ``home_team_id``.
     """
     result: dict[int, int] = {}
-    for _, row in matches_pdf.iterrows():
-        raw_td: str = str(row["teamsData"]) if row["teamsData"] is not None else "{}"
-        teams_data: dict[str, object] = json.loads(raw_td) if raw_td else {}
+    for wy_id, raw_td in zip(matches_pdf["wyId"], matches_pdf["teamsData"], strict=False):
+        td_str: str = str(raw_td) if raw_td is not None else "{}"
+        teams_data: dict[str, object] = json.loads(td_str) if td_str else {}
         if teams_data:
             home_id = int(next(iter(teams_data)))
-            result[int(row["wyId"])] = home_id
+            result[int(wy_id)] = home_id
     return result
