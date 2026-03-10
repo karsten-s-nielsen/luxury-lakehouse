@@ -241,6 +241,92 @@ def compute_pitch_control_frame(
     return grid_x_sb, grid_y_sb, surface
 
 
+def compute_pitch_control_at_points(
+    players_df: pd.DataFrame,
+    target_points: np.ndarray,
+    params: PitchControlParams | None = None,
+) -> np.ndarray:
+    """Compute pitch control at multiple target points in a single pass.
+
+    Vectorised alternative to calling ``compute_pitch_control_at_point`` in a
+    loop.  Coordinate conversion, team splitting and TTI computation are each
+    performed **once** for the full batch, eliminating redundant work.
+
+    Parameters
+    ----------
+    players_df : DataFrame with columns: player_id, team, x, y, velocity_x, velocity_y.
+        Coordinates in StatsBomb system (120x80).  Velocities in StatsBomb units/s.
+    target_points : (N, 2) array of (x, y) target positions in StatsBomb coordinates.
+    params : Pitch control parameters (uses defaults if ``None``).
+
+    Returns
+    -------
+    (N,) array of home-team pitch control values in [0, 1].
+    """
+    if params is None:
+        params = PitchControlParams()
+    if len(target_points) == 0:
+        return np.empty(0)
+
+    home = pd.DataFrame(players_df[players_df["team"] == "home"])
+    away = pd.DataFrame(players_df[players_df["team"] == "away"])
+
+    if home.empty or away.empty:
+        fallback = 0.5 if (home.empty and away.empty) else (1.0 if away.empty else 0.0)
+        return np.full(len(target_points), fallback)
+
+    # Single coordinate conversion (done ONCE, not per-target)
+    home_pos = np.column_stack(
+        [
+            _sb_to_meters_x(_col_f64(home, "x"), params),
+            _sb_to_meters_y(_col_f64(home, "y"), params),
+        ]
+    )
+    home_vel = np.column_stack(
+        [
+            _sb_to_meters_x(_col_f64(home, "velocity_x"), params),
+            _sb_to_meters_y(_col_f64(home, "velocity_y"), params),
+        ]
+    )
+    away_pos = np.column_stack(
+        [
+            _sb_to_meters_x(_col_f64(away, "x"), params),
+            _sb_to_meters_y(_col_f64(away, "y"), params),
+        ]
+    )
+    away_vel = np.column_stack(
+        [
+            _sb_to_meters_x(_col_f64(away, "velocity_x"), params),
+            _sb_to_meters_y(_col_f64(away, "velocity_y"), params),
+        ]
+    )
+
+    # Convert targets to meters
+    targets_m = np.column_stack(
+        [
+            _sb_to_meters_x(target_points[:, 0], params),
+            _sb_to_meters_y(target_points[:, 1], params),
+        ]
+    )
+
+    # Single TTI computation for all targets (vectorized)
+    home_tti = _compute_time_to_intercept(home_pos, home_vel, targets_m, params)
+    away_tti = _compute_time_to_intercept(away_pos, away_vel, targets_m, params)
+
+    # Compute min TTI for opponent penalty
+    home_min_tti = np.min(home_tti, axis=0)  # (n_targets,)
+    away_min_tti = np.min(away_tti, axis=0)  # (n_targets,)
+
+    # _compute_team_influence takes FULL (n_players, n_targets) TTI
+    home_influence = _compute_team_influence(home_tti, away_min_tti, params)
+    away_influence = _compute_team_influence(away_tti, home_min_tti, params)
+
+    total = home_influence + away_influence
+    safe_total = np.where(total > 1e-10, total, 1.0)
+    control = np.where(total > 1e-10, home_influence / safe_total, 0.5)
+    return np.clip(control, 0.0, 1.0)
+
+
 def compute_pitch_control_at_point(
     players_df: pd.DataFrame,
     target_x: float,

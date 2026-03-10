@@ -14,6 +14,7 @@ from analytics.pitch_control import (
     _sb_to_meters_x,
     _sb_to_meters_y,
     compute_pitch_control_at_point,
+    compute_pitch_control_at_points,
     compute_pitch_control_frame,
 )
 
@@ -300,3 +301,53 @@ class TestPitchControlAtPoint:
         )
         control = compute_pitch_control_at_point(players, 60.0, 40.0)
         assert 0.3 < control < 0.7
+
+
+class TestBatchPitchControl:
+    """Test batched pitch control computation at multiple points."""
+
+    def test_single_point_matches_scalar(self) -> None:
+        """Batch with 1 target must match compute_pitch_control_at_point."""
+        players = _make_players(
+            home_positions=[(30.0, 40.0)],
+            away_positions=[(90.0, 40.0)],
+        )
+        scalar = compute_pitch_control_at_point(players, 45.0, 30.0)
+        batch = compute_pitch_control_at_points(players, np.array([[45.0, 30.0]]))
+        assert batch.shape == (1,)
+        np.testing.assert_allclose(batch[0], scalar, atol=1e-10)
+
+    def test_multiple_points_shape(self) -> None:
+        """Batch with N targets returns (N,) array."""
+        players = _make_players(
+            home_positions=[(30.0, 40.0), (60.0, 20.0)],
+            away_positions=[(90.0, 40.0), (60.0, 60.0)],
+        )
+        targets = np.array([[10.0, 10.0], [60.0, 40.0], [100.0, 70.0], [30.0, 40.0], [90.0, 40.0]])
+        result = compute_pitch_control_at_points(players, targets)
+        assert result.shape == (5,)
+
+    def test_values_bounded_zero_one(self) -> None:
+        """All batch values must be in [0, 1]."""
+        players = _make_players(
+            home_positions=[(30.0, 40.0), (50.0, 20.0)],
+            away_positions=[(90.0, 40.0), (70.0, 60.0)],
+            home_velocities=[(3.0, 1.0), (-1.0, 2.0)],
+            away_velocities=[(-2.0, 0.5), (1.0, -1.0)],
+        )
+        targets = np.array(
+            [[0.0, 0.0], [60.0, 40.0], [120.0, 80.0], [30.0, 40.0], [90.0, 40.0], [10.0, 70.0], [110.0, 10.0]]
+        )
+        result = compute_pitch_control_at_points(players, targets)
+        assert result.shape == (7,)
+        assert np.all(result >= 0.0)
+        assert np.all(result <= 1.0)
+
+    def test_empty_targets_returns_empty(self) -> None:
+        """Empty target array returns empty result."""
+        players = _make_players(
+            home_positions=[(30.0, 40.0)],
+            away_positions=[(90.0, 40.0)],
+        )
+        result = compute_pitch_control_at_points(players, np.empty((0, 2)))
+        assert result.shape == (0,)
