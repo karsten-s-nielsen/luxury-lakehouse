@@ -192,7 +192,7 @@ Finalizer (validate completeness, emit OTel metrics)
 |-----------|---------------|---------|
 | **StatsBomb N+1** (TODO #3) | ~3,500 sequential per-match queries | Scatter-Gather at competition-season level + `asyncio`/`httpx` within workers |
 | **SPADL/VAEP OOM** (TODO #4) | Full bronze tables collected to driver | Claim Check + Splitter &mdash; partition by `(comp_id, season_id)`, bounded `toPandas()` + `gc.collect()` |
-| **Off-Ball xT loop** (TODO #12) | Sequential per-match at 1fps | `mapInPandas` grouped by `match_id` &mdash; Spark distributes across executors |
+| ~~**Off-Ball xT loop** (TODO #12)~~ | ~~Sequential per-match at 1fps~~ | ~~Resolved (2026-03-10): Migrated to `applyInPandas` grouped by `match_id`. Spark distributes across executors. 1fps sampling rate retained as correct accuracy/compute trade-off.~~ |
 
 ### Respo.Vision scale planning
 
