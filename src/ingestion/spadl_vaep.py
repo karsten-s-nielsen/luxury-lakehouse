@@ -26,7 +26,6 @@ from typing import TYPE_CHECKING, Any
 import pandas as pd
 import socceraction.spadl as spadl
 import socceraction.vaep.features as fs
-import socceraction.vaep.formula as vaepformula
 import socceraction.vaep.labels as labels
 from xgboost import XGBClassifier
 
@@ -654,76 +653,163 @@ def _load_or_train_models(
 # ---------------------------------------------------------------------------
 
 
-def _score_competition(
-    actions: pd.DataFrame,
-    model_scores: XGBClassifier,
-    model_concedes: XGBClassifier,
-    logger: logging.Logger,
-) -> pd.DataFrame:
-    """Extract features and score a single competition's actions.
+def _make_scoring_udf(scores_path: str, concedes_path: str) -> object:
+    """Build the ``applyInPandas`` UDF closure for VAEP scoring.
 
-    This avoids holding features for all competitions in memory at once.
+    Models are loaded from UC Volume paths and cached in a module-level
+    dict so each executor loads them only once.  All library imports happen
+    inside the closure so they are available on Spark executors.
+
+    Args:
+        scores_path: UC Volume path to the XGBoost scores model JSON.
+        concedes_path: UC Volume path to the XGBoost concedes model JSON.
+
+    Returns:
+        A callable ``(pd.DataFrame) -> pd.DataFrame`` suitable for
+        ``applyInPandas``.
     """
-    named = spadl.add_names(actions)  # type: ignore[arg-type]
-    game_ids = named["game_id"].unique()
+    _nb_prev = _NB_PREV_ACTIONS
 
-    all_scored: list[pd.DataFrame] = []
-    for game_id in game_ids:
-        game_actions = named[named["game_id"] == game_id].reset_index(drop=True)
-        if len(game_actions) < 2:
-            continue
-        try:
-            gamestates = fs.gamestates(game_actions, nb_prev_actions=_NB_PREV_ACTIONS)  # type: ignore[arg-type]
-            x_game = pd.concat([fn(gamestates) for fn in _FEATURE_FNS], axis=1)
+    def _udf(pdf: pd.DataFrame) -> pd.DataFrame:
+        """Score one competition's SPADL actions with VAEP models."""
+        import pandas as _pd
 
-            p_scores = pd.Series(model_scores.predict_proba(x_game)[:, 1])
-            p_concedes = pd.Series(model_concedes.predict_proba(x_game)[:, 1])
-            values = vaepformula.value(game_actions, p_scores, p_concedes)  # type: ignore[arg-type]
+        _output_cols = _pd.Index(
+            [
+                "game_id",
+                "original_event_id",
+                "period_id",
+                "time_seconds",
+                "team_id",
+                "player_id",
+                "start_x",
+                "start_y",
+                "end_x",
+                "end_y",
+                "type_id",
+                "action_type",
+                "result_id",
+                "action_result",
+                "bodypart_id",
+                "bodypart",
+                "offensive_value",
+                "defensive_value",
+                "vaep_value",
+                "competition_id",
+                "season_id",
+                "data_source",
+            ]
+        )
 
-            game_out = pd.DataFrame(
-                game_actions[
-                    [
-                        c
-                        for c in [
-                            "game_id",
-                            "original_event_id",
-                            "period_id",
-                            "time_seconds",
-                            "team_id",
-                            "player_id",
-                            "start_x",
-                            "start_y",
-                            "end_x",
-                            "end_y",
-                            "type_id",
-                            "type_name",
-                            "result_id",
-                            "result_name",
-                            "bodypart_id",
-                            "bodypart_name",
+        if pdf.empty:
+            return _pd.DataFrame(columns=_output_cols)
+
+        import socceraction.spadl as _spadl
+        import socceraction.vaep.features as _fs
+        import socceraction.vaep.formula as _vaepformula
+
+        _feature_fns: list = [
+            _fs.actiontype_onehot,
+            _fs.result_onehot,
+            _fs.bodypart_onehot,
+            _fs.time,
+            _fs.startlocation,
+            _fs.endlocation,
+            _fs.startpolar,
+            _fs.endpolar,
+            _fs.movement,
+            _fs.team,
+            _fs.time_delta,
+        ]
+
+        # Load models with executor-level caching
+        if not hasattr(_udf, "_model_cache"):
+            _udf._model_cache = {}  # type: ignore[attr-defined]
+
+        cache: dict = _udf._model_cache  # type: ignore[attr-defined]
+        if "scores" not in cache:
+            from xgboost import XGBClassifier
+
+            m_scores = XGBClassifier()
+            m_scores.load_model(scores_path)
+            cache["scores"] = m_scores
+
+            m_concedes = XGBClassifier()
+            m_concedes.load_model(concedes_path)
+            cache["concedes"] = m_concedes
+
+        model_scores = cache["scores"]
+        model_concedes = cache["concedes"]
+
+        named = _spadl.add_names(pdf)  # type: ignore[arg-type]
+        game_ids = named["game_id"].unique()
+
+        all_scored: list[_pd.DataFrame] = []
+        for game_id in game_ids:
+            game_actions = named[named["game_id"] == game_id].reset_index(drop=True)
+            if len(game_actions) < 2:
+                continue
+            try:
+                gamestates = _fs.gamestates(game_actions, nb_prev_actions=_nb_prev)  # type: ignore[arg-type]
+                x_game = _pd.concat([fn(gamestates) for fn in _feature_fns], axis=1)
+
+                p_scores = _pd.Series(model_scores.predict_proba(x_game)[:, 1])
+                p_concedes = _pd.Series(model_concedes.predict_proba(x_game)[:, 1])
+                values = _vaepformula.value(game_actions, p_scores, p_concedes)  # type: ignore[arg-type]
+
+                game_out = _pd.DataFrame(
+                    game_actions[
+                        [
+                            c
+                            for c in [
+                                "game_id",
+                                "original_event_id",
+                                "period_id",
+                                "time_seconds",
+                                "team_id",
+                                "player_id",
+                                "start_x",
+                                "start_y",
+                                "end_x",
+                                "end_y",
+                                "type_id",
+                                "type_name",
+                                "result_id",
+                                "result_name",
+                                "bodypart_id",
+                                "bodypart_name",
+                            ]
+                            if c in game_actions.columns
                         ]
-                        if c in game_actions.columns
-                    ]
-                ].copy()
-            )
-            game_out = game_out.rename(
-                columns={
-                    "type_name": "action_type",
-                    "result_name": "action_result",
-                    "bodypart_name": "bodypart",
-                }
-            )
-            game_out["offensive_value"] = values["offensive_value"].values
-            game_out["defensive_value"] = values["defensive_value"].values
-            game_out["vaep_value"] = values["vaep_value"].values
-            all_scored.append(game_out)
-        except Exception:
-            logger.exception("Failed scoring game %s", game_id)
+                    ].copy()
+                )
+                game_out = game_out.rename(
+                    columns={
+                        "type_name": "action_type",
+                        "result_name": "action_result",
+                        "bodypart_name": "bodypart",
+                    }
+                )
+                game_out["offensive_value"] = values["offensive_value"].values
+                game_out["defensive_value"] = values["defensive_value"].values
+                game_out["vaep_value"] = values["vaep_value"].values
 
-    if not all_scored:
-        return pd.DataFrame()
+                # Carry through partition keys from the input
+                game_out["competition_id"] = pdf["competition_id"].iloc[0]
+                game_out["season_id"] = pdf["season_id"].iloc[0]
+                game_out["data_source"] = pdf["data_source"].iloc[0]
 
-    return pd.concat(all_scored, ignore_index=True)
+                all_scored.append(game_out)
+            except Exception:  # noqa: S110
+                pass  # executor — cannot log; skip failed games silently
+
+        if not all_scored:
+            return _pd.DataFrame(columns=_output_cols)
+
+        result: _pd.DataFrame = _pd.concat(all_scored, ignore_index=True)[_output_cols]  # type: ignore[assignment]
+        return result
+
+    return _udf
 
 
 # ---------------------------------------------------------------------------
@@ -805,64 +891,77 @@ def run_pipeline(
 
     model_scores, model_concedes = models
 
-    # Phase D: Score per-competition from Delta (incremental — skip scored games)
+    # Phase D: Score unscored games via applyInPandas (distributed on executors)
     existing_vaep_games = _read_existing_game_ids(spark, catalog, schema, _VAEP_TABLE, logger)
     if existing_vaep_games:
         logger.info("Found %d games already scored in %s — will skip", len(existing_vaep_games), _VAEP_TABLE)
 
-    comp_source_rows = spadl_sdf.select("competition_id", "data_source").distinct().collect()
+    # Resolve the model paths saved during training
+    training_hash = hashlib.sha256(json.dumps(sorted(training_game_ids)).encode()).hexdigest()[:12]
+    model_dir = f"/Volumes/{catalog}/{schema}/vaep_models"
+    scores_path = f"{model_dir}/scores_{training_hash}.json"
+    concedes_path = f"{model_dir}/concedes_{training_hash}.json"
 
-    total_scored = 0
+    # Ensure models are persisted for executor access (they should already be
+    # saved by _load_or_train_models, but verify)
+    if not os.path.exists(scores_path) or not os.path.exists(concedes_path):
+        os.makedirs(model_dir, exist_ok=True)
+        model_scores.save_model(scores_path)
+        model_concedes.save_model(concedes_path)
+        logger.info("Saved VAEP models to %s for executor access", model_dir)
 
-    for row in comp_source_rows:
-        comp_id, source = int(row["competition_id"]), str(row["data_source"])
-        try:
-            # Check game IDs via Spark BEFORE pulling into pandas
-            comp_filter = (spark_fn.col("competition_id") == comp_id) & (spark_fn.col("data_source") == source)
-            comp_game_rows = spadl_sdf.filter(comp_filter).select("game_id").distinct().collect()
-            comp_game_ids = [int(r["game_id"]) for r in comp_game_rows]
+    # Filter SPADL to unscored games only
+    all_game_rows = spadl_sdf.select("game_id").distinct().collect()
+    all_game_ids = [int(r["game_id"]) for r in all_game_rows]
+    unscored_game_ids = [gid for gid in all_game_ids if gid not in existing_vaep_games]
 
-            new_game_ids = [gid for gid in comp_game_ids if gid not in existing_vaep_games]
-            if not new_game_ids:
-                logger.info("Comp %d (%s): all %d games already scored — skipping", comp_id, source, len(comp_game_ids))
-                continue
+    if not unscored_game_ids:
+        logger.info("All %d games already scored — nothing to do", len(all_game_ids))
+        return
 
-            # Pull only unscored games into pandas
-            comp_pdf = spadl_sdf.filter(comp_filter).filter(spark_fn.col("game_id").isin(new_game_ids)).toPandas()
+    logger.info("Scoring %d unscored games (of %d total) via applyInPandas", len(unscored_game_ids), len(all_game_ids))
 
-            if comp_pdf.empty:
-                continue
+    unscored_sdf = spadl_sdf.filter(spark_fn.col("game_id").isin(unscored_game_ids))
 
-            scored = _score_competition(comp_pdf, model_scores, model_concedes, logger)
-            if scored.empty:
-                del comp_pdf
-                gc.collect()
-                continue
+    # Define output schema for scored actions
+    from pyspark.sql.types import DoubleType, LongType, StringType, StructField, StructType
 
-            for col in ["data_source", "competition_id", "season_id"]:
-                if col in comp_pdf.columns and col not in scored.columns:
-                    scored[col] = comp_pdf[col].values[: len(scored)]
+    vaep_schema = StructType(
+        [
+            StructField("game_id", LongType()),
+            StructField("original_event_id", StringType()),
+            StructField("period_id", LongType()),
+            StructField("time_seconds", DoubleType()),
+            StructField("team_id", LongType()),
+            StructField("player_id", LongType()),
+            StructField("start_x", DoubleType()),
+            StructField("start_y", DoubleType()),
+            StructField("end_x", DoubleType()),
+            StructField("end_y", DoubleType()),
+            StructField("type_id", LongType()),
+            StructField("action_type", StringType()),
+            StructField("result_id", LongType()),
+            StructField("action_result", StringType()),
+            StructField("bodypart_id", LongType()),
+            StructField("bodypart", StringType()),
+            StructField("offensive_value", DoubleType()),
+            StructField("defensive_value", DoubleType()),
+            StructField("vaep_value", DoubleType()),
+            StructField("competition_id", LongType()),
+            StructField("season_id", LongType()),
+            StructField("data_source", StringType()),
+        ]
+    )
 
-            scored = _clean_spadl_for_spark(scored)
-            sdf = spark.createDataFrame(scored)
-            replace_expr = f"competition_id = {comp_id} AND data_source = '{source}'"
-            write_delta_table(sdf, catalog, schema, _VAEP_TABLE, replace_where=replace_expr, logger=logger)
-            total_scored += len(scored)
+    scoring_udf = _make_scoring_udf(scores_path, concedes_path)
+    scored_sdf = unscored_sdf.groupBy("competition_id", "data_source").applyInPandas(
+        scoring_udf,  # type: ignore[arg-type]
+        schema=vaep_schema,
+    )
 
-            logger.info(
-                "Scored comp %d (%s): %d actions (total: %d)",
-                comp_id,
-                source,
-                len(scored),
-                total_scored,
-            )
-            del comp_pdf, scored, sdf
-        except Exception:
-            logger.exception("Failed scoring comp %d (%s)", comp_id, source)
-        finally:
-            gc.collect()
+    write_delta_table(scored_sdf, catalog, schema, _VAEP_TABLE, logger=logger)
 
-    logger.info("SPADL/VAEP pipeline complete — %d actions scored", total_scored)
+    logger.info("SPADL/VAEP pipeline complete — scoring distributed across executors")
 
 
 # ---------------------------------------------------------------------------
