@@ -104,7 +104,13 @@ def _zscore_normalize(
 # ---------------------------------------------------------------------------
 
 
-def _load_events(spark: SparkSession, catalog: str, schema: str) -> pd.DataFrame:
+def _load_events(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    *,
+    match_ids: set[str] | None = None,
+) -> pd.DataFrame:
     """Load StatsBomb + Wyscout events joined to dim_players.
 
     Reads events from dbt staging views (which parse JSON columns and
@@ -116,6 +122,8 @@ def _load_events(spark: SparkSession, catalog: str, schema: str) -> pd.DataFrame
         spark: Active Spark session.
         catalog: Unity Catalog name (e.g. ``soccer_analytics``).
         schema: Bronze schema name (unused — queries staging views directly).
+        match_ids: If provided, only load events for these match IDs.
+            Prevents unbounded ``.toPandas()`` on large event tables.
 
     Returns:
         pandas DataFrame with columns: canonical_player_id, match_id,
@@ -185,7 +193,15 @@ def _load_events(spark: SparkSession, catalog: str, schema: str) -> pd.DataFrame
         INNER JOIN {catalog}.{gold}.fct_match_summary m
             ON CAST(ae.match_id AS STRING) = CAST(m.match_id AS STRING)
     """  # noqa: S608
-    return spark.sql(query).toPandas()
+    events_sdf = spark.sql(query)
+
+    # Filter to only new match IDs to prevent unbounded .toPandas()
+    if match_ids:
+        from pyspark.sql import functions as spark_fn
+
+        events_sdf = events_sdf.filter(spark_fn.col("match_id").isin(list(match_ids)))
+
+    return events_sdf.toPandas()
 
 
 # ---------------------------------------------------------------------------
@@ -409,8 +425,8 @@ def main() -> None:
         len(new_matches),
     )
 
-    # 1. Load events
-    events_df = _load_events(spark, catalog, schema)
+    # 1. Load events (filtered to new matches only to avoid unbounded toPandas)
+    events_df = _load_events(spark, catalog, schema, match_ids=new_matches)
     if events_df.empty:
         logger.warning("No events found — exiting")
         return

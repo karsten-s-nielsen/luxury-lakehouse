@@ -332,6 +332,73 @@ class TestLoadEvents:
         _load_events(mock_spark, "catalog", "schema")
         assert mock_spark.sql.called
 
+    @patch.dict("sys.modules", {"pyspark.sql": MagicMock(), "pyspark.sql.functions": MagicMock()})
+    def test_filters_by_match_ids_when_provided(self) -> None:
+        """When match_ids is provided, a .filter() is applied before .toPandas()."""
+        mock_spark = MagicMock()
+        mock_sdf = MagicMock()
+        mock_spark.sql.return_value = mock_sdf
+
+        # The filtered SDF should have toPandas called on it, not the original
+        mock_filtered_sdf = MagicMock()
+        mock_sdf.filter.return_value = mock_filtered_sdf
+
+        empty_pdf = pd.DataFrame(
+            {
+                "canonical_player_id": [],
+                "match_id": [],
+                "event_type": [],
+                "x": [],
+                "y": [],
+                "event_index": [],
+                "data_source": [],
+                "play_pattern": [],
+                "pass_cross": [],
+                "sub_event_type": [],
+                "competition_id": [],
+                "season_id": [],
+            }
+        )
+        mock_filtered_sdf.toPandas.return_value = empty_pdf
+
+        _load_events(mock_spark, "catalog", "schema", match_ids={"m1", "m2"})
+
+        # filter() should have been called on the SQL result
+        mock_sdf.filter.assert_called_once()
+        # toPandas() should be called on the filtered DF, not the original
+        mock_filtered_sdf.toPandas.assert_called_once()
+
+    def test_no_filter_when_match_ids_none(self) -> None:
+        """When match_ids is None, no filter is applied."""
+        mock_spark = MagicMock()
+        mock_sdf = MagicMock()
+        mock_spark.sql.return_value = mock_sdf
+
+        empty_pdf = pd.DataFrame(
+            {
+                "canonical_player_id": [],
+                "match_id": [],
+                "event_type": [],
+                "x": [],
+                "y": [],
+                "event_index": [],
+                "data_source": [],
+                "play_pattern": [],
+                "pass_cross": [],
+                "sub_event_type": [],
+                "competition_id": [],
+                "season_id": [],
+            }
+        )
+        mock_sdf.toPandas.return_value = empty_pdf
+
+        _load_events(mock_spark, "catalog", "schema", match_ids=None)
+
+        # filter() should NOT be called
+        mock_sdf.filter.assert_not_called()
+        # toPandas() called directly on SQL result
+        mock_sdf.toPandas.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # _compute_stat_vectors (mocked Spark)
