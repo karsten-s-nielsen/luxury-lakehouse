@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import inspect
+
 import matplotlib.figure
 import numpy as np
 import pandas as pd
@@ -12,6 +14,7 @@ from streamlit_app.components.charts import (
     plot_player_radar,
     plot_ppda_bars,
 )
+from streamlit_app.components.filters import _cached_query
 from streamlit_app.components.pitch import (
     categorize_passes,
     plot_heatmap,
@@ -22,6 +25,37 @@ from streamlit_app.components.pitch import (
     plot_shot_map,
 )
 from streamlit_app.pages.pass_network import _build_network
+
+
+class TestCachedQueryModuleLevel:
+    """Verify CACHE-01 fix: _cached_query must be decorated at module level."""
+
+    def test_cached_query_is_not_a_plain_function(self) -> None:
+        """_cached_query must be wrapped by st.cache_data — not a plain function.
+
+        Before the fix, _cached_query was a plain def that created a new
+        @st.cache_data-decorated inner function on every invocation, giving
+        each call a fresh cache key.  After the fix, the function itself is
+        decorated, so it carries a __wrapped__ attribute set by Streamlit.
+        """
+        assert hasattr(_cached_query, "__wrapped__"), (
+            "_cached_query must be decorated with @st.cache_data at module level "
+            "(missing __wrapped__ attribute — the decorator was not applied)"
+        )
+
+    def test_cached_query_source_has_no_inner_run_function(self) -> None:
+        """The source of _cached_query must not define an inner '_run' helper.
+
+        The old broken pattern nested a @st.cache_data-decorated '_run' function
+        inside _cached_query, regenerating the cache key on every outer call.
+        """
+        # Inspect the *unwrapped* original function to read its source.
+        unwrapped = getattr(_cached_query, "__wrapped__", _cached_query)
+        source = inspect.getsource(unwrapped)
+        assert "def _run" not in source, (
+            "_cached_query must NOT contain an inner '_run' function — "
+            "the cache decorator must be applied directly to _cached_query"
+        )
 
 
 class TestPlotShotMap:
