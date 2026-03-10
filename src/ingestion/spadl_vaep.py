@@ -167,40 +167,52 @@ def _convert_statsbomb_from_bronze(
     matches_table = f"{catalog}.{schema}.statsbomb_matches"
 
     try:
-        all_events_pdf = spark.table(events_table).toPandas()
         all_matches_pdf = spark.table(matches_table).toPandas()
     except Exception:
-        logger.exception("Cannot read StatsBomb bronze tables")
+        logger.exception("Cannot read StatsBomb matches bronze table")
         return False
 
-    if all_events_pdf.empty:
+    # Pull only team lookup columns (tiny vs full table) for home_team_id resolution
+    try:
+        team_lookup_pdf = spark.table(events_table).select("match_id", "team_id", "team").distinct().toPandas()
+    except Exception:
+        logger.exception("Cannot read StatsBomb events bronze table")
+        return False
+
+    if team_lookup_pdf.empty:
         logger.info("StatsBomb bronze events table is empty — skipping")
         return False
 
-    # Resolve home_team_id per match
-    home_team_map = resolve_statsbomb_home_team_ids(all_matches_pdf, all_events_pdf)
+    home_team_map = resolve_statsbomb_home_team_ids(all_matches_pdf, team_lookup_pdf)
 
-    # Group by competition/season for partition-level writes
-    if "competition_id" not in all_events_pdf.columns or "season_id" not in all_events_pdf.columns:
+    # Get distinct comp/season pairs from Spark (avoids full-table toPandas OOM)
+    try:
+        comp_seasons = spark.table(events_table).select("competition_id", "season_id").distinct().toPandas()
+    except Exception:
         logger.warning("StatsBomb events missing competition_id/season_id — skipping")
         return False
 
-    comp_seasons = all_events_pdf[["competition_id", "season_id"]].drop_duplicates()
+    if comp_seasons.empty:
+        logger.warning("StatsBomb events have no competition_id/season_id — skipping")
+        return False
+
     logger.info("StatsBomb: %d competition-seasons found in bronze", len(comp_seasons))
 
     wrote_any = False
+
+    from pyspark.sql import functions as spark_fn
 
     for _, cs_row in comp_seasons.iterrows():
         comp_id = int(cs_row["competition_id"])
         season_id = int(cs_row["season_id"])
 
-        cs_events = all_events_pdf[
-            (all_events_pdf["competition_id"] == comp_id) & (all_events_pdf["season_id"] == season_id)
-        ]
-        match_ids = cs_events["match_id"].unique()
+        # Check match IDs via Spark (tiny result) BEFORE pulling events into pandas
+        partition_filter = f"competition_id = {comp_id} AND season_id = {season_id}"
+        match_id_rows = spark.table(events_table).filter(partition_filter).select("match_id").distinct().collect()
+        match_ids = [int(row["match_id"]) for row in match_id_rows]
 
         # Filter to new games only (incremental)
-        new_match_ids = [mid for mid in match_ids if int(mid) not in existing_games]
+        new_match_ids = [mid for mid in match_ids if mid not in existing_games]
         if not new_match_ids:
             logger.info(
                 "SB comp %d/%d: all %d games already converted — skipping",
@@ -216,6 +228,14 @@ def _convert_statsbomb_from_bronze(
             season_id,
             len(new_match_ids),
             len(match_ids),
+        )
+
+        # Pull only new-game events into pandas (avoids loading already-converted data)
+        cs_events = (
+            spark.table(events_table)
+            .filter(partition_filter)
+            .filter(spark_fn.col("match_id").isin(new_match_ids))
+            .toPandas()
         )
 
         all_actions: list[pd.DataFrame] = []
@@ -270,15 +290,19 @@ def _convert_wyscout_from_bronze(
     matches_table = f"{catalog}.{schema}.wyscout_matches"
 
     try:
-        all_events_pdf = spark.table(events_table).toPandas()
         all_matches_pdf = spark.table(matches_table).toPandas()
     except Exception:
-        logger.exception("Cannot read Wyscout bronze tables")
+        logger.exception("Cannot read Wyscout matches bronze table")
         return False
 
-    if all_events_pdf.empty:
-        logger.info("Wyscout bronze events table is empty — skipping")
+    # Determine match ID column name from events schema (metadata only, no scan)
+    try:
+        events_columns = spark.table(events_table).columns
+    except Exception:
+        logger.exception("Cannot read Wyscout events bronze table")
         return False
+
+    match_id_col = "matchId" if "matchId" in events_columns else "match_id"
 
     # Resolve home_team_id per match
     home_team_map = resolve_wyscout_home_team_ids(all_matches_pdf)
@@ -290,31 +314,32 @@ def _convert_wyscout_from_bronze(
 
     wrote_any = False
 
+    from pyspark.sql import functions as spark_fn
+
     for comp_id in comp_ids:
         comp_id = int(comp_id)
         comp_matches = all_matches_pdf[all_matches_pdf["competitionId"] == comp_id]
-        comp_match_ids = comp_matches["wyId"].unique()
+        comp_match_ids = [int(mid) for mid in comp_matches["wyId"].unique()]
 
-        # Get events for this competition's matches
-        match_id_col = "matchId" if "matchId" in all_events_pdf.columns else "match_id"
-        comp_events = all_events_pdf[all_events_pdf[match_id_col].isin(comp_match_ids)]
-
-        if comp_events.empty:
-            continue
-
-        game_ids_in_comp = comp_events[match_id_col].unique()
-        new_game_ids = [gid for gid in game_ids_in_comp if int(gid) not in existing_games]
+        # Check which games are new via set difference BEFORE pulling events into pandas
+        new_game_ids = [gid for gid in comp_match_ids if gid not in existing_games]
 
         if not new_game_ids:
-            logger.info("WS comp %d: all %d games already converted — skipping", comp_id, len(game_ids_in_comp))
+            logger.info("WS comp %d: all %d games already converted — skipping", comp_id, len(comp_match_ids))
             continue
 
         logger.info(
             "WS comp %d: converting %d new games (of %d total)",
             comp_id,
             len(new_game_ids),
-            len(game_ids_in_comp),
+            len(comp_match_ids),
         )
+
+        # Pull only new-game events into pandas (avoids loading already-converted data)
+        comp_events = spark.table(events_table).filter(spark_fn.col(match_id_col).isin(new_game_ids)).toPandas()
+
+        if comp_events.empty:
+            continue
 
         # Derive season_id from matches (Wyscout has seasonId)
         season_id = int(comp_matches["seasonId"].iloc[0]) if "seasonId" in comp_matches.columns else 0
@@ -601,13 +626,12 @@ def run_pipeline(
         logger.error(msg)
         raise RuntimeError(msg)
 
-    # Verify SPADL table has data
-    total_actions = spark.table(spadl_table).count()
-    if total_actions == 0:
+    # Verify SPADL table has data (limit(1) avoids full DAG recomputation — exact count not needed here)
+    if spark.table(spadl_table).limit(1).count() == 0:
         msg = "SPADL table exists but is empty — no actions to score"
         logger.error(msg)
         raise RuntimeError(msg)
-    logger.info("Total SPADL actions in Delta: %d", total_actions)
+    logger.info("SPADL table %s has data — proceeding to training", spadl_table)
 
     # Phase C: Train on a representative sample read from Delta
     spadl_sdf = spark.table(spadl_table)
@@ -658,20 +682,21 @@ def run_pipeline(
     for row in comp_source_rows:
         comp_id, source = int(row["competition_id"]), str(row["data_source"])
         try:
-            comp_pdf = spadl_sdf.filter(
-                (spark_fn.col("competition_id") == comp_id) & (spark_fn.col("data_source") == source)
-            ).toPandas()
+            # Check game IDs via Spark BEFORE pulling into pandas
+            comp_filter = (spark_fn.col("competition_id") == comp_id) & (spark_fn.col("data_source") == source)
+            comp_game_rows = spadl_sdf.filter(comp_filter).select("game_id").distinct().collect()
+            comp_game_ids = [int(r["game_id"]) for r in comp_game_rows]
+
+            new_game_ids = [gid for gid in comp_game_ids if gid not in existing_vaep_games]
+            if not new_game_ids:
+                logger.info("Comp %d (%s): all %d games already scored — skipping", comp_id, source, len(comp_game_ids))
+                continue
+
+            # Pull only unscored games into pandas
+            comp_pdf = spadl_sdf.filter(comp_filter).filter(spark_fn.col("game_id").isin(new_game_ids)).toPandas()
 
             if comp_pdf.empty:
                 continue
-
-            # Filter out already-scored games
-            if existing_vaep_games:
-                new_games_mask = ~comp_pdf["game_id"].isin(existing_vaep_games)
-                comp_pdf = comp_pdf[new_games_mask]
-                if comp_pdf.empty:
-                    logger.info("Comp %d (%s): all games already scored — skipping", comp_id, source)
-                    continue
 
             scored = _score_competition(comp_pdf, model_scores, model_concedes, logger)
             if scored.empty:
