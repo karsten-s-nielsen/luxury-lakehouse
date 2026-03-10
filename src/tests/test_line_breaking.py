@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+from unittest.mock import MagicMock
+
 import numpy as np
 import pandas as pd
 
@@ -15,6 +18,7 @@ from analytics.line_breaking import (
     detect_line_breaking,
     detect_line_breaking_batch,
 )
+from ingestion.line_breaking import _process_metrica_tracking, _process_statsbomb_360
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -392,3 +396,267 @@ class TestEdgeCases:
         result = detect_line_breaking_batch(passes, {})
         assert len(result) == 1
         assert not result.iloc[0]["is_line_breaking"]
+
+
+# ---------------------------------------------------------------------------
+# TestIncrementalSkipGuard — Path A (StatsBomb 360)
+# ---------------------------------------------------------------------------
+
+
+class TestIncrementalSkipGuardPathA:
+    """Test incremental skip guard for _process_statsbomb_360."""
+
+    def _make_logger(self) -> logging.Logger:
+        return logging.getLogger("test_lb_skip")
+
+    def test_all_matches_already_processed_skips(self) -> None:
+        """When all 360 match_ids exist in results, processing should be skipped entirely."""
+        spark = MagicMock()
+        logger = self._make_logger()
+        params = LineBreakingParams()
+
+        # spark.table(ff_table).select("match_id").distinct().toPandas()
+        # returns match_ids 100, 200
+        ff_pdf = pd.DataFrame({"match_id": [100, 200]})
+        # spark.table(results_table).filter(...).select("match_id").distinct().collect()
+        # returns same match_ids
+        existing_row_1 = MagicMock()
+        existing_row_1.__getitem__ = lambda self, k: "100"
+        existing_row_2 = MagicMock()
+        existing_row_2.__getitem__ = lambda self, k: "200"
+
+        # First call: ff_table → toPandas returns match IDs
+        # Second call: results_table → filter → select → distinct → collect returns existing IDs
+        ff_table_mock = MagicMock()
+        ff_table_mock.select.return_value.distinct.return_value.toPandas.return_value = ff_pdf
+
+        results_table_mock = MagicMock()
+        results_table_mock.filter.return_value.select.return_value.distinct.return_value.collect.return_value = [
+            existing_row_1,
+            existing_row_2,
+        ]
+
+        def table_side_effect(name: str) -> MagicMock:
+            if name.endswith("statsbomb_360"):
+                return ff_table_mock
+            if name.endswith("line_breaking_results"):
+                return results_table_mock
+            return MagicMock()
+
+        spark.table.side_effect = table_side_effect
+
+        result = _process_statsbomb_360(spark, "cat", "bronze", logger, params)
+
+        assert result == 0
+        # Should NOT have tried to read events (no per-match processing)
+        # The events table should never be accessed
+        events_calls = [c for c in spark.table.call_args_list if "statsbomb_events" in str(c)]
+        assert len(events_calls) == 0
+
+    def test_partial_skip_processes_only_new(self) -> None:
+        """When some matches exist in results, only new matches should be processed."""
+        spark = MagicMock()
+        logger = self._make_logger()
+        params = LineBreakingParams()
+
+        # 360 table has match_ids 100, 200, 300
+        ff_pdf = pd.DataFrame({"match_id": [100, 200, 300]})
+        # Results table has match_ids 100, 200 (so only 300 is new)
+        existing_row_1 = MagicMock()
+        existing_row_1.__getitem__ = lambda self, k: "100"
+        existing_row_2 = MagicMock()
+        existing_row_2.__getitem__ = lambda self, k: "200"
+
+        ff_table_mock = MagicMock()
+        ff_table_mock.select.return_value.distinct.return_value.toPandas.return_value = ff_pdf
+
+        results_table_mock = MagicMock()
+        results_table_mock.filter.return_value.select.return_value.distinct.return_value.collect.return_value = [
+            existing_row_1,
+            existing_row_2,
+        ]
+
+        # Events table for the new match (match_id=300) — return empty to keep test simple
+        events_table_mock = MagicMock()
+        events_table_mock.filter.return_value.toPandas.return_value = pd.DataFrame()
+
+        def table_side_effect(name: str) -> MagicMock:
+            if name.endswith("statsbomb_360"):
+                return ff_table_mock
+            if name.endswith("line_breaking_results"):
+                return results_table_mock
+            if name.endswith("statsbomb_events"):
+                return events_table_mock
+            return MagicMock()
+
+        spark.table.side_effect = table_side_effect
+
+        result = _process_statsbomb_360(spark, "cat", "bronze", logger, params)
+
+        assert result == 0  # no rows written (empty passes for match 300)
+        # Verify events table was accessed for match 300 only
+        events_calls = [c for c in spark.table.call_args_list if "statsbomb_events" in str(c)]
+        assert len(events_calls) == 1
+        # The filter should contain match_id 300, not 100 or 200
+        filter_calls = events_table_mock.filter.call_args_list
+        assert len(filter_calls) == 1
+        assert "300" in str(filter_calls[0])
+
+    def test_no_results_table_processes_all(self) -> None:
+        """When results table doesn't exist, all matches should be processed."""
+        spark = MagicMock()
+        logger = self._make_logger()
+        params = LineBreakingParams()
+
+        # 360 table has match_ids 100, 200
+        ff_pdf = pd.DataFrame({"match_id": [100, 200]})
+
+        ff_table_mock = MagicMock()
+        ff_table_mock.select.return_value.distinct.return_value.toPandas.return_value = ff_pdf
+
+        # Results table doesn't exist — raise exception
+        results_table_mock = MagicMock()
+        results_table_mock.filter.side_effect = Exception("Table not found")
+
+        # Events table — return empty to keep test simple
+        events_table_mock = MagicMock()
+        events_table_mock.filter.return_value.toPandas.return_value = pd.DataFrame()
+
+        def table_side_effect(name: str) -> MagicMock:
+            if name.endswith("statsbomb_360"):
+                return ff_table_mock
+            if name.endswith("line_breaking_results"):
+                return results_table_mock
+            if name.endswith("statsbomb_events"):
+                return events_table_mock
+            return MagicMock()
+
+        spark.table.side_effect = table_side_effect
+
+        _process_statsbomb_360(spark, "cat", "bronze", logger, params)
+
+        # Should have tried to read events for both matches
+        events_calls = [c for c in spark.table.call_args_list if "statsbomb_events" in str(c)]
+        assert len(events_calls) == 2
+
+
+# ---------------------------------------------------------------------------
+# TestIncrementalSkipGuard — Path B (Metrica Tracking)
+# ---------------------------------------------------------------------------
+
+
+class TestIncrementalSkipGuardPathB:
+    """Test incremental skip guard for _process_metrica_tracking."""
+
+    def _make_logger(self) -> logging.Logger:
+        return logging.getLogger("test_lb_skip_b")
+
+    def test_all_matches_already_processed_skips(self) -> None:
+        """When all Metrica match_ids exist in results, processing should be skipped."""
+        spark = MagicMock()
+        logger = self._make_logger()
+        params = LineBreakingParams()
+
+        # Events table returns PASS events for matches m1, m2
+        events_pdf = pd.DataFrame(
+            {
+                "match_id": ["m1", "m2"],
+                "type": ["PASS", "PASS"],
+                "event_id": ["e1", "e2"],
+                "start_frame": [100, 200],
+                "team": ["Home", "Away"],
+                "start_x": [0.5, 0.5],
+                "start_y": [0.5, 0.5],
+                "end_x": [0.8, 0.8],
+                "end_y": [0.5, 0.5],
+            }
+        )
+
+        # Results table has m1, m2 already
+        existing_row_1 = MagicMock()
+        existing_row_1.__getitem__ = lambda self, k: "m1"
+        existing_row_2 = MagicMock()
+        existing_row_2.__getitem__ = lambda self, k: "m2"
+
+        events_table_mock = MagicMock()
+        events_table_mock.filter.return_value.toPandas.return_value = events_pdf
+
+        results_table_mock = MagicMock()
+        results_table_mock.filter.return_value.select.return_value.distinct.return_value.collect.return_value = [
+            existing_row_1,
+            existing_row_2,
+        ]
+
+        def table_side_effect(name: str) -> MagicMock:
+            if name.endswith("metrica_events"):
+                return events_table_mock
+            if name.endswith("line_breaking_results"):
+                return results_table_mock
+            return MagicMock()
+
+        spark.table.side_effect = table_side_effect
+
+        result = _process_metrica_tracking(spark, "cat", "bronze", logger, params)
+
+        assert result == 0
+        # Should NOT have tried to read tracking data (all matches skipped)
+        tracking_calls = [c for c in spark.table.call_args_list if "metrica_tracking" in str(c)]
+        assert len(tracking_calls) == 0
+
+    def test_partial_skip_processes_only_new(self) -> None:
+        """When some Metrica matches exist, only new matches should be processed."""
+        spark = MagicMock()
+        logger = self._make_logger()
+        params = LineBreakingParams()
+
+        # Events table returns PASS events for matches m1, m2, m3
+        events_pdf = pd.DataFrame(
+            {
+                "match_id": ["m1", "m2", "m3"],
+                "type": ["PASS", "PASS", "PASS"],
+                "event_id": ["e1", "e2", "e3"],
+                "start_frame": [100, 200, 300],
+                "team": ["Home", "Away", "Home"],
+                "start_x": [0.5, 0.5, 0.5],
+                "start_y": [0.5, 0.5, 0.5],
+                "end_x": [0.8, 0.8, 0.8],
+                "end_y": [0.5, 0.5, 0.5],
+            }
+        )
+
+        # Results table has m1, m2 already (so only m3 is new)
+        existing_row_1 = MagicMock()
+        existing_row_1.__getitem__ = lambda self, k: "m1"
+        existing_row_2 = MagicMock()
+        existing_row_2.__getitem__ = lambda self, k: "m2"
+
+        events_table_mock = MagicMock()
+        events_table_mock.filter.return_value.toPandas.return_value = events_pdf
+
+        results_table_mock = MagicMock()
+        results_table_mock.filter.return_value.select.return_value.distinct.return_value.collect.return_value = [
+            existing_row_1,
+            existing_row_2,
+        ]
+
+        # Tracking table for the new match (m3) — return empty to keep test simple
+        tracking_table_mock = MagicMock()
+        tracking_table_mock.filter.return_value.toPandas.return_value = pd.DataFrame()
+
+        def table_side_effect(name: str) -> MagicMock:
+            if name.endswith("metrica_events"):
+                return events_table_mock
+            if name.endswith("line_breaking_results"):
+                return results_table_mock
+            if name.endswith("metrica_tracking"):
+                return tracking_table_mock
+            return MagicMock()
+
+        spark.table.side_effect = table_side_effect
+
+        result = _process_metrica_tracking(spark, "cat", "bronze", logger, params)
+
+        assert result == 0  # no rows written (empty tracking for m3)
+        # Tracking table was accessed only for m3
+        tracking_calls = [c for c in spark.table.call_args_list if "metrica_tracking" in str(c)]
+        assert len(tracking_calls) == 1

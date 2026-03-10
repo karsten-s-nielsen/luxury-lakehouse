@@ -137,9 +137,31 @@ def _process_statsbomb_360(
     match_ids = match_ids_pdf["match_id"].tolist()
     logger.info("Path A: %d matches with 360 data", len(match_ids))
 
+    # Incremental skip — only process matches not already in results table
+    results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+    existing_ids: set[str] = set()
+    try:
+        existing_rows = (
+            spark.table(results_table).filter("data_source = 'statsbomb_360'").select("match_id").distinct().collect()
+        )
+        existing_ids = {str(row["match_id"]) for row in existing_rows}
+    except Exception:
+        logger.info("No existing %s table — processing all matches", results_table)
+
+    new_match_ids = [mid for mid in match_ids if str(mid) not in existing_ids]
+    logger.info(
+        "Path A: %d matches total, %d already processed, %d to process",
+        len(match_ids),
+        len(existing_ids),
+        len(new_match_ids),
+    )
+
+    if not new_match_ids:
+        return 0
+
     total_written = 0
 
-    for match_id in match_ids:
+    for match_id in new_match_ids:
         # Pull only passes for this match (Spark-side filter to avoid OOM)
         try:
             passes_pdf = spark.table(events_table).filter(f"type = 'Pass' AND match_id = {int(match_id)}").toPandas()
@@ -168,12 +190,16 @@ def _process_statsbomb_360(
 
         results: list[dict[str, object]] = []
 
+        # Pre-build grouped lookup for O(1) opponent retrieval per pass (was O(n) filter)
+        opponent_groups = opponents_pdf.groupby("id")
+
         for _, pass_row in passes_pdf.iterrows():
             event_id = str(pass_row["id"])
 
             # Get opponents for this event (360 id = events id)
-            event_opponents = opponents_pdf[opponents_pdf["id"] == pass_row["id"]]
-            if event_opponents.empty:
+            try:
+                event_opponents = opponent_groups.get_group(pass_row["id"])
+            except KeyError:
                 continue
 
             # Parse opponent locations from JSON '[x, y]' strings
@@ -258,12 +284,38 @@ def _process_metrica_tracking(
         logger.info("No PASS events in Metrica events — skipping Path B")
         return 0
 
-    match_ids = events_pdf["match_id"].unique()
+    match_ids = events_pdf["match_id"].unique().tolist()
     logger.info("Path B: %d matches, %d passes", len(match_ids), len(events_pdf))
+
+    # Incremental skip — only process matches not already in results table
+    results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+    existing_ids: set[str] = set()
+    try:
+        existing_rows = (
+            spark.table(results_table)
+            .filter("data_source = 'metrica_tracking'")
+            .select("match_id")
+            .distinct()
+            .collect()
+        )
+        existing_ids = {str(row["match_id"]) for row in existing_rows}
+    except Exception:
+        logger.info("No existing %s table — processing all matches", results_table)
+
+    new_match_ids = [mid for mid in match_ids if str(mid) not in existing_ids]
+    logger.info(
+        "Path B: %d matches total, %d already processed, %d to process",
+        len(match_ids),
+        len(existing_ids),
+        len(new_match_ids),
+    )
+
+    if not new_match_ids:
+        return 0
 
     total_written = 0
 
-    for match_id in match_ids:
+    for match_id in new_match_ids:
         match_passes = events_pdf[events_pdf["match_id"] == match_id]
 
         # Pull tracking for this match only (Spark-side filter)
