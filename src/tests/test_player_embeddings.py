@@ -495,6 +495,81 @@ class TestMainFunction:
     @patch("ingestion.player_embeddings.get_spark_session")
     @patch("ingestion.player_embeddings.parse_ingestion_args")
     @patch("ingestion.player_embeddings._load_events")
+    def test_skips_when_all_matches_have_embeddings(
+        self,
+        mock_events: MagicMock,
+        mock_args: MagicMock,
+        mock_spark: MagicMock,
+    ) -> None:
+        """Pipeline returns early when all source matches already have embeddings."""
+        args = MagicMock()
+        args.catalog = "cat"
+        args.schema = "bronze"
+        mock_args.return_value = args
+
+        spark = MagicMock()
+        mock_spark.return_value = spark
+
+        # existing_matches: spark.table().select().distinct().collect() returns m1, m2
+        existing_row_1 = MagicMock()
+        existing_row_1.__getitem__ = lambda self, k: "m1"
+        existing_row_2 = MagicMock()
+        existing_row_2.__getitem__ = lambda self, k: "m2"
+        spark.table.return_value.select.return_value.distinct.return_value.collect.return_value = [
+            existing_row_1,
+            existing_row_2,
+        ]
+
+        # source_matches: spark.sql().collect() returns m1, m2 (same set)
+        source_row_1 = MagicMock()
+        source_row_1.__getitem__ = lambda self, k: "m1"
+        source_row_2 = MagicMock()
+        source_row_2.__getitem__ = lambda self, k: "m2"
+        spark.sql.return_value.collect.return_value = [source_row_1, source_row_2]
+
+        from ingestion.player_embeddings import main
+
+        main()
+
+        # _load_events should NOT be called — pipeline skipped
+        mock_events.assert_not_called()
+
+    @patch("ingestion.player_embeddings.get_spark_session")
+    @patch("ingestion.player_embeddings.parse_ingestion_args")
+    @patch("ingestion.player_embeddings._load_events")
+    def test_defensive_fallback_no_source_matches_but_existing_embeddings(
+        self,
+        mock_events: MagicMock,
+        mock_args: MagicMock,
+        mock_spark: MagicMock,
+    ) -> None:
+        """If source_matches query returns empty but existing embeddings exist, skip."""
+        args = MagicMock()
+        args.catalog = "cat"
+        args.schema = "bronze"
+        mock_args.return_value = args
+
+        spark = MagicMock()
+        mock_spark.return_value = spark
+
+        # existing_matches: spark.table().select().distinct().collect() returns m1
+        existing_row = MagicMock()
+        existing_row.__getitem__ = lambda self, k: "m1"
+        spark.table.return_value.select.return_value.distinct.return_value.collect.return_value = [existing_row]
+
+        # source_matches: spark.sql().collect() returns empty (simulating query failure/mismatch)
+        spark.sql.return_value.collect.return_value = []
+
+        from ingestion.player_embeddings import main
+
+        main()
+
+        # _load_events should NOT be called — defensive fallback triggered
+        mock_events.assert_not_called()
+
+    @patch("ingestion.player_embeddings.get_spark_session")
+    @patch("ingestion.player_embeddings.parse_ingestion_args")
+    @patch("ingestion.player_embeddings._load_events")
     def test_empty_events_exits_early(
         self,
         mock_events: MagicMock,

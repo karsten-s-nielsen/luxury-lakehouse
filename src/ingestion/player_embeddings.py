@@ -238,18 +238,9 @@ def _compute_stat_vectors(
 
     normalized, params = _zscore_normalize(df, STAT_FEATURES)
 
-    # Build stat_vector column as list[float | None]
-    def _row_to_vector(row: Any) -> list[float | None]:
-        vec: list[float | None] = []
-        for feat in STAT_FEATURES:
-            val = row[feat]
-            if pd.isna(val):
-                vec.append(None)
-            else:
-                vec.append(float(val))
-        return vec
-
-    normalized["stat_vector"] = normalized.apply(_row_to_vector, axis=1)
+    # Build stat_vector column as list[float | None] (vectorized via NumPy array access)
+    stat_arr = normalized[STAT_FEATURES].values
+    normalized["stat_vector"] = [[None if pd.isna(v) else float(v) for v in row] for row in stat_arr]
 
     result_df = cast(pd.DataFrame, normalized[["canonical_player_id", "competition_id", "season_id", "stat_vector"]])
     return result_df, params
@@ -278,10 +269,14 @@ def _merge_vectors(
     """
     # Build lookup: (player_id, comp_id, season_id) → stat_vector
     lookup: dict[tuple[str, str, str], list[float | None]] = {}
-    for _, row in stat_df.iterrows():
-        key = (str(row["canonical_player_id"]), str(row["competition_id"]), str(row["season_id"]))
-        stat_vec = cast(list[float | None], row["stat_vector"])
-        lookup[key] = stat_vec
+    for pid, comp, season, vec in zip(
+        stat_df["canonical_player_id"].astype(str),
+        stat_df["competition_id"].astype(str),
+        stat_df["season_id"].astype(str),
+        stat_df["stat_vector"],
+        strict=True,
+    ):
+        lookup[(pid, comp, season)] = cast(list[float | None], vec)
 
     result: dict[tuple[str, str], list[float | None] | None] = {}
     for player_id, match_id in behavioral_keys:
@@ -367,6 +362,53 @@ def main() -> None:
 
     logger.info("Starting player embedding pipeline for %s.%s", catalog, schema)
 
+    # 0. Incremental check — skip if all source matches already have embeddings
+    results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+    try:
+        existing_matches = {
+            str(row["match_id"]) for row in spark.table(results_table).select("match_id").distinct().collect()
+        }
+    except Exception:
+        existing_matches = set()  # table doesn't exist yet
+
+    # Count source matches from fct_match_summary (all sources — embeddings
+    # cover every match that has events joined to dim_players)
+    gold = _GOLD_SCHEMA
+    try:
+        source_match_query = (
+            f"SELECT DISTINCT CAST(match_id AS STRING) AS match_id "  # noqa: S608
+            f"FROM {catalog}.{gold}.fct_match_summary"
+        )
+        source_matches = {str(row["match_id"]) for row in spark.sql(source_match_query).collect()}
+    except Exception:
+        source_matches = set()
+
+    # Defensive fallback: if source query returned nothing but embeddings
+    # already exist, the query may have a transient issue — skip rather
+    # than recomputing everything and risking OOM.
+    if not source_matches and existing_matches:
+        logger.warning(
+            "Source match query returned 0 rows but %d existing embeddings found — "
+            "skipping to avoid unnecessary full recompute",
+            len(existing_matches),
+        )
+        return
+
+    new_matches = source_matches - existing_matches
+    if source_matches and not new_matches:
+        logger.info(
+            "All %d matches already have embeddings — skipping full recompute",
+            len(existing_matches),
+        )
+        return
+
+    logger.info(
+        "%d source matches, %d existing, %d new — running full pipeline",
+        len(source_matches),
+        len(existing_matches),
+        len(new_matches),
+    )
+
     # 1. Load events
     events_df = _load_events(spark, catalog, schema)
     if events_df.empty:
@@ -380,10 +422,15 @@ def main() -> None:
     match_meta = match_meta_cols.drop_duplicates(subset="match_id")
     match_competition_map: dict[str, tuple[str, str]] = {}
     source_map: dict[str, str] = {}
-    for _, row in match_meta.iterrows():
-        mid = str(row["match_id"])
-        match_competition_map[mid] = (str(row["competition_id"]), str(row["season_id"]))
-        source_map[mid] = str(row["data_source"])
+    for mid, comp, season, source in zip(
+        match_meta["match_id"].astype(str),
+        match_meta["competition_id"].astype(str),
+        match_meta["season_id"].astype(str),
+        match_meta["data_source"].astype(str),
+        strict=True,
+    ):
+        match_competition_map[mid] = (comp, season)
+        source_map[mid] = source
 
     # 3. Load trained model
     model = _load_model(catalog)
