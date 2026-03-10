@@ -213,6 +213,7 @@ def _compute_stat_vectors(
     spark: SparkSession,
     catalog: str,
     gold_schema: str,
+    player_ids: set[int] | None = None,
 ) -> tuple[pd.DataFrame, dict[str, dict[str, float]]]:
     """Load fct_player_stats, z-score normalize, and return stat vectors.
 
@@ -220,12 +221,18 @@ def _compute_stat_vectors(
         spark: Active Spark session.
         catalog: Unity Catalog name.
         gold_schema: Gold schema name (e.g. ``dev_gold``).
+        player_ids: If provided, only load stats for these canonical player IDs.
+            Prevents unbounded ``.toPandas()`` on full fct_player_stats table.
 
     Returns:
         Tuple of (DataFrame with canonical_player_id, competition_id,
         season_id, stat_vector columns; normalization params dict).
     """
     feature_cols = ", ".join(f"ps.{f}" for f in STAT_FEATURES)
+    player_filter = ""
+    if player_ids:
+        ids_csv = ", ".join(str(pid) for pid in player_ids)
+        player_filter = f"AND dp.canonical_player_id IN ({ids_csv})"
     query = f"""
         SELECT
             CAST(dp.canonical_player_id AS STRING) AS canonical_player_id,
@@ -236,6 +243,7 @@ def _compute_stat_vectors(
         INNER JOIN {catalog}.{gold_schema}.dim_players dp
             ON ps.player_id = dp.player_id
         WHERE dp.canonical_player_id IS NOT NULL
+        {player_filter}
     """  # noqa: S608
     df = spark.sql(query).toPandas()
 
@@ -462,8 +470,15 @@ def main() -> None:
     behavioral_vectors = infer_vectors(model, sequences)
     logger.info("Inferred %d behavioral vectors", len(behavioral_vectors))
 
-    # 5. Compute stat vectors
-    stat_df, norm_params = _compute_stat_vectors(spark, catalog, _GOLD_SCHEMA)
+    # 5. Compute stat vectors (filtered to players present in events)
+    raw_ids = events_df["canonical_player_id"].dropna().unique()
+    event_player_ids: set[int] = set()
+    for pid in raw_ids:
+        try:
+            event_player_ids.add(int(pid))
+        except (ValueError, TypeError):
+            pass  # non-numeric IDs are skipped — stat filter remains broad
+    stat_df, norm_params = _compute_stat_vectors(spark, catalog, _GOLD_SCHEMA, player_ids=event_player_ids or None)
     logger.info("Computed stat vectors for %d player-comp-season entries", len(stat_df))
 
     # Save normalization params alongside model artifacts

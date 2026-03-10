@@ -464,6 +464,62 @@ class TestComputeStatVectors:
         for idx in defcon_indices:
             assert vec[idx] is None or (isinstance(vec[idx], float) and np.isnan(vec[idx]))
 
+    def test_player_ids_filter_included_in_sql(self) -> None:
+        """When player_ids is provided, the SQL should include an IN clause."""
+        mock_spark = MagicMock()
+        mock_pdf = pd.DataFrame(
+            {
+                "canonical_player_id": ["p1"],
+                "competition_id": ["c1"],
+                "season_id": ["s1"],
+                **{f: [1.0] for f in STAT_FEATURES},
+            }
+        )
+        mock_spark.sql.return_value.toPandas.return_value = mock_pdf
+
+        _compute_stat_vectors(mock_spark, "cat", "dev_gold", player_ids={42, 99})
+
+        sql_called = mock_spark.sql.call_args[0][0]
+        assert "IN (" in sql_called
+        assert "42" in sql_called
+        assert "99" in sql_called
+
+    def test_no_player_ids_filter_when_none(self) -> None:
+        """When player_ids is None, the SQL should NOT include an IN clause."""
+        mock_spark = MagicMock()
+        mock_pdf = pd.DataFrame(
+            {
+                "canonical_player_id": ["p1"],
+                "competition_id": ["c1"],
+                "season_id": ["s1"],
+                **{f: [1.0] for f in STAT_FEATURES},
+            }
+        )
+        mock_spark.sql.return_value.toPandas.return_value = mock_pdf
+
+        _compute_stat_vectors(mock_spark, "cat", "dev_gold", player_ids=None)
+
+        sql_called = mock_spark.sql.call_args[0][0]
+        assert "canonical_player_id IN" not in sql_called
+
+    def test_empty_player_ids_set_no_filter(self) -> None:
+        """When player_ids is an empty set (falsy), no IN clause should be added."""
+        mock_spark = MagicMock()
+        mock_pdf = pd.DataFrame(
+            {
+                "canonical_player_id": pd.Series(dtype="str"),
+                "competition_id": pd.Series(dtype="str"),
+                "season_id": pd.Series(dtype="str"),
+                **{f: pd.Series(dtype="float") for f in STAT_FEATURES},
+            }
+        )
+        mock_spark.sql.return_value.toPandas.return_value = mock_pdf
+
+        _compute_stat_vectors(mock_spark, "cat", "dev_gold", player_ids=set())
+
+        sql_called = mock_spark.sql.call_args[0][0]
+        assert "canonical_player_id IN" not in sql_called
+
 
 # ---------------------------------------------------------------------------
 # main() — mock Spark + Delta writes
