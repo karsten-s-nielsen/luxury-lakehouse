@@ -86,6 +86,14 @@ uv run pytest src/tests/ -v    # Unit tests
 - **No internet in UDFs**: All data must come from Delta tables or UC Volumes. No HTTP calls inside UDF function bodies.
 - **Lazy closure capture**: Variables are captured at action time, not definition time. Use frozen dataclasses for all config passed to `applyInPandas`. Never mutate variables between function definition and the `.applyInPandas()` call.
 
+### Performance Budgets
+
+- **Pipeline task timeout**: ingest tasks ≤15 min, compute tasks ≤2 hr
+- **Streamlit page load**: ≤3 seconds (first load), ≤500ms (cached interaction)
+- **UDF group memory**: ≤800 MB peak (1 GB limit minus overhead)
+- **Batched pitch control**: ≤5ms per frame for 22 targets (benchmark baseline)
+- **Line-breaking detection**: ≤2ms per pass (benchmark baseline)
+
 ## Streamlit Performance
 
 - **`@st.cache_data` functions must be at module level**: Never define a `@st.cache_data`-decorated function inside another function — the decorator is re-applied on every call, creating a new cache key each time. This silently defeats caching.
