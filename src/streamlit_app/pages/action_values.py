@@ -34,7 +34,8 @@ def _load_vaep_rankings(competition_id: int, min_minutes: int) -> Any:
         f"WHERE ps.competition_id = %s "
         f"  AND ps.minutes_played >= %s "
         f"  AND ps.vaep_per_90 IS NOT NULL "
-        f"ORDER BY ps.vaep_per_90 DESC",
+        f"ORDER BY ps.vaep_per_90 DESC "
+        f"LIMIT 500",
         (competition_id, min_minutes),
     )
 
