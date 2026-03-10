@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
@@ -351,6 +351,50 @@ class TestDetectLineBreakingBatch:
         result = detect_line_breaking_batch(passes, {})
         assert len(result) == 0
         assert "event_id" in result.columns
+
+    def test_cluster_cache_avoids_redundant_ward_calls(self) -> None:
+        """Three passes sharing identical opponents should cluster only once."""
+        opponents = _make_442_opponents()
+        passes = pd.DataFrame(
+            {
+                "event_id": ["e1", "e2", "e3"],
+                "start_x": [50.0, 45.0, 40.0],
+                "start_y": [40.0, 30.0, 50.0],
+                "end_x": [95.0, 90.0, 100.0],
+                "end_y": [40.0, 35.0, 45.0],
+            }
+        )
+        # All three passes share the same opponent positions
+        opponents_by_event = {"e1": opponents, "e2": opponents, "e3": opponents}
+
+        with patch("analytics.line_breaking._cluster_opponents", wraps=_cluster_opponents) as mock_cluster:
+            result = detect_line_breaking_batch(passes, opponents_by_event)
+
+        assert len(result) == 3
+        # With caching, _cluster_opponents should be called exactly once
+        assert mock_cluster.call_count == 1
+
+    def test_cluster_cache_distinct_opponents_clustered_separately(self) -> None:
+        """Passes with different opponent positions should cluster independently."""
+        opponents_a = _make_opponents([(60.0, 20.0), (60.0, 40.0), (60.0, 60.0), (80.0, 20.0), (80.0, 60.0)])
+        opponents_b = _make_442_opponents()
+        passes = pd.DataFrame(
+            {
+                "event_id": ["e1", "e2"],
+                "start_x": [50.0, 50.0],
+                "start_y": [40.0, 40.0],
+                "end_x": [95.0, 95.0],
+                "end_y": [40.0, 40.0],
+            }
+        )
+        opponents_by_event = {"e1": opponents_a, "e2": opponents_b}
+
+        with patch("analytics.line_breaking._cluster_opponents", wraps=_cluster_opponents) as mock_cluster:
+            result = detect_line_breaking_batch(passes, opponents_by_event)
+
+        assert len(result) == 2
+        # Different opponent positions → _cluster_opponents called twice
+        assert mock_cluster.call_count == 2
 
 
 # ---------------------------------------------------------------------------

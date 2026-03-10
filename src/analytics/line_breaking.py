@@ -313,12 +313,25 @@ def detect_line_breaking(
     )
 
 
+def _empty_row(event_id: str) -> dict[str, object]:
+    """Return a non-line-breaking result dict for a single event."""
+    return {
+        "event_id": event_id,
+        "is_line_breaking": False,
+        "lines_broken": 0,
+        "line_breaking_type": None,
+    }
+
+
 def detect_line_breaking_batch(
     passes_df: pd.DataFrame,
     opponents_by_event: dict[str, pd.DataFrame],
     params: LineBreakingParams | None = None,
 ) -> pd.DataFrame:
     """Detect line-breaking passes for a batch of passes.
+
+    Caches Ward clustering results per unique opponent position snapshot so that
+    multiple passes sharing the same freeze-frame opponents only cluster once.
 
     Parameters
     ----------
@@ -336,27 +349,86 @@ def detect_line_breaking_batch(
     if params is None:
         params = LineBreakingParams()
 
+    # Cache Ward clusters + line segments keyed by opponent position bytes.
+    # Within a single frame, many passes share identical opponent positions;
+    # Ward linkage is O(n^2) so avoiding redundant calls is worthwhile.
+    cluster_cache: dict[bytes, tuple[list[np.ndarray], np.ndarray]] = {}
+
     results: list[dict[str, object]] = []
 
     for _, row in passes_df.iterrows():
         event_id = str(row["event_id"])
-        opponents = opponents_by_event.get(event_id, pd.DataFrame(columns=pd.Index(["x", "y"])))
+        pass_start_x = float(row["start_x"])
+        pass_start_y = float(row["start_y"])
+        pass_end_x = float(row["end_x"])
+        pass_end_y = float(row["end_y"])
 
-        result = detect_line_breaking(
-            float(row["start_x"]),
-            float(row["start_y"]),
-            float(row["end_x"]),
-            float(row["end_y"]),
-            opponents,
-            params,
-        )
+        # --- Early-exit guards (same as detect_line_breaking) ---
+        if pass_end_x <= pass_start_x:
+            results.append(_empty_row(event_id))
+            continue
+
+        dx = pass_end_x - pass_start_x
+        dy = pass_end_y - pass_start_y
+        length = np.sqrt(dx * dx + dy * dy)
+        if length < params.min_pass_length:
+            results.append(_empty_row(event_id))
+            continue
+
+        opponents = opponents_by_event.get(event_id, pd.DataFrame(columns=pd.Index(["x", "y"])))
+        valid_opponents = opponents.dropna(subset=["x", "y"])
+        if len(valid_opponents) < params.min_opponents:
+            results.append(_empty_row(event_id))
+            continue
+
+        positions = np.column_stack([_col_f64(valid_opponents, "x"), _col_f64(valid_opponents, "y")])
+
+        x_spread = float(positions[:, 0].max() - positions[:, 0].min())
+        if x_spread < params.min_x_spread:
+            results.append(_empty_row(event_id))
+            continue
+
+        # --- Cached clustering ---
+        cache_key = positions.tobytes()
+        if cache_key not in cluster_cache:
+            clusters = _cluster_opponents(positions, params)
+            segments = _build_line_segments(clusters, params) if clusters else np.empty((0, 2, 2), dtype=np.float64)
+            cluster_cache[cache_key] = (clusters, segments)
+
+        clusters, segments = cluster_cache[cache_key]
+
+        if not clusters or len(segments) == 0:
+            results.append(_empty_row(event_id))
+            continue
+
+        # --- Intersection test ---
+        pass_start = np.array([pass_start_x, pass_start_y])
+        pass_end = np.array([pass_end_x, pass_end_y])
+        intersect_mask = _segments_intersect(pass_start, pass_end, segments)
+
+        if not intersect_mask.any():
+            results.append(_empty_row(event_id))
+            continue
+
+        # Count lines broken
+        seg_idx = 0
+        cluster_broken = set[int]()
+        for cluster_i, cluster in enumerate(clusters):
+            n_segs = len(cluster) + 1
+            cluster_mask = intersect_mask[seg_idx : seg_idx + n_segs]
+            if cluster_mask.any():
+                cluster_broken.add(cluster_i)
+            seg_idx += n_segs
+
+        lines_broken = len(cluster_broken)
+        lb_type = _classify_intersection(pass_start, pass_end, clusters, segments, intersect_mask, params)
 
         results.append(
             {
                 "event_id": event_id,
-                "is_line_breaking": result.is_line_breaking,
-                "lines_broken": result.lines_broken,
-                "line_breaking_type": result.line_breaking_type,
+                "is_line_breaking": True,
+                "lines_broken": lines_broken,
+                "line_breaking_type": lb_type,
             }
         )
 
