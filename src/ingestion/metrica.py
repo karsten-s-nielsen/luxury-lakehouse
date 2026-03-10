@@ -432,12 +432,6 @@ def _safe_float(val: object) -> float | None:
     return f
 
 
-def _safe_int(val: object) -> int | None:
-    """Extract a scalar int from a pandas cell value, returning None for NaN."""
-    f = _safe_float(val)
-    return int(f) if f is not None else None
-
-
 def _reshape_tracking_to_narrow(
     df: pd.DataFrame,
     match_id: str,
@@ -447,46 +441,99 @@ def _reshape_tracking_to_narrow(
     Input: one column per player coordinate (wide).
     Output: one row per frame with ``home_players`` and ``away_players`` as
     JSON strings containing ``{player_id: {x: float, y: float}}``.
+
+    Uses vectorized pd.melt + groupby instead of iterrows for performance.
     """
-    rows: list[dict[str, object]] = []
+    import numpy as np
+
+    n_rows = len(df)
     col_set = set(df.columns)
 
-    for _, row in df.iterrows():
-        home_players: dict[str, dict[str, float | None]] = {}
-        away_players: dict[str, dict[str, float | None]] = {}
+    def _numeric_series(col_name: str) -> pd.Series:  # type: ignore[type-arg]
+        """Extract a column as a numeric Series, coercing errors to NaN."""
+        if col_name not in col_set:
+            return pd.Series([None] * n_rows)
+        return pd.Series(pd.to_numeric(df[col_name], errors="coerce"))
 
-        for col in df.columns:
-            if col.startswith("Home_") and col.endswith("_x"):
-                pid = col.replace("Home_", "").replace("_x", "")
-                y_col = f"Home_{pid}_y"
-                x_val = _safe_float(row[col])
-                y_val = _safe_float(row[y_col]) if y_col in col_set else None
-                if x_val is not None or y_val is not None:
-                    home_players[pid] = {"x": x_val, "y": y_val}
+    # --- Scalar columns (vectorized) ---
+    period_s = _numeric_series("Period")
+    frame_s = _numeric_series("Frame")
+    ts_s = _numeric_series("Time [s]")
+    ball_x_s = _numeric_series("Ball_x")
+    ball_y_s = _numeric_series("Ball_y")
 
-            elif col.startswith("Away_") and col.endswith("_x"):
-                pid = col.replace("Away_", "").replace("_x", "")
-                y_col = f"Away_{pid}_y"
-                x_val = _safe_float(row[col])
-                y_val = _safe_float(row[y_col]) if y_col in col_set else None
-                if x_val is not None or y_val is not None:
-                    away_players[pid] = {"x": x_val, "y": y_val}
+    # Convert integer-valued floats to int for period/frame, preserve None for NaN
+    def _to_opt_int(s: pd.Series) -> list[int | None]:  # type: ignore[type-arg]
+        return [int(v) if pd.notna(v) else None for v in s]
 
-        rows.append(
-            {
-                "period": _safe_int(row.get("Period")),
-                "frame": _safe_int(row.get("Frame")),
-                "timestamp": _safe_float(row.get("Time [s]")),
-                "ball_x": _safe_float(row.get("Ball_x")) if "Ball_x" in col_set else None,
-                "ball_y": _safe_float(row.get("Ball_y")) if "Ball_y" in col_set else None,
-                "home_players": json.dumps(home_players),
-                "away_players": json.dumps(away_players),
-                "match_id": match_id,
-                "frame_rate": 25,
-            }
-        )
+    def _to_opt_float(s: pd.Series) -> list[float | None]:  # type: ignore[type-arg]
+        return [float(v) if pd.notna(v) else None for v in s]
 
-    return pd.DataFrame(rows)
+    period_list = _to_opt_int(period_s)
+    frame_list = _to_opt_int(frame_s)
+    ts_list = _to_opt_float(ts_s)
+    ball_x_list = _to_opt_float(ball_x_s)
+    ball_y_list = _to_opt_float(ball_y_s)
+
+    # --- Player columns: identify (team, player_id, x_col, y_col) tuples ---
+    _player_col_re = re.compile(r"^(Home|Away)_(.+)_x$")
+    player_groups: dict[str, list[tuple[str, str, str]]] = {"Home": [], "Away": []}
+    for col in df.columns:
+        m = _player_col_re.match(col)
+        if m:
+            team, pid = m.group(1), m.group(2)
+            y_col = f"{team}_{pid}_y"
+            if y_col in col_set:
+                player_groups[team].append((pid, col, y_col))
+
+    # --- Build JSON player dicts using numpy arrays for fast column access ---
+    def _build_player_json_column(
+        groups: list[tuple[str, str, str]],
+    ) -> list[str]:
+        """Build a list of JSON strings, one per row, from player column groups."""
+        if not groups:
+            return [json.dumps({})] * n_rows
+
+        # Extract numpy arrays for all player x/y columns at once
+        x_arrays: list[np.ndarray[tuple[int], np.dtype[np.float64]]] = []
+        y_arrays: list[np.ndarray[tuple[int], np.dtype[np.float64]]] = []
+        pids: list[str] = []
+        for pid, x_col, y_col in groups:
+            pids.append(pid)
+            x_s = _numeric_series(x_col)
+            y_s = _numeric_series(y_col)
+            x_arrays.append(np.asarray(x_s.values, dtype=np.float64))
+            y_arrays.append(np.asarray(y_s.values, dtype=np.float64))
+
+        result: list[str] = []
+        for i in range(n_rows):
+            players: dict[str, dict[str, float | None]] = {}
+            for j, pid in enumerate(pids):
+                x_val = x_arrays[j][i]
+                y_val = y_arrays[j][i]
+                x_f: float | None = float(x_val) if not np.isnan(x_val) else None
+                y_f: float | None = float(y_val) if not np.isnan(y_val) else None
+                if x_f is not None or y_f is not None:
+                    players[pid] = {"x": x_f, "y": y_f}
+            result.append(json.dumps(players))
+        return result
+
+    home_json = _build_player_json_column(player_groups["Home"])
+    away_json = _build_player_json_column(player_groups["Away"])
+
+    return pd.DataFrame(
+        {
+            "period": period_list,
+            "frame": frame_list,
+            "timestamp": ts_list,
+            "ball_x": ball_x_list,
+            "ball_y": ball_y_list,
+            "home_players": home_json,
+            "away_players": away_json,
+            "match_id": match_id,
+            "frame_rate": 25,
+        }
+    )
 
 
 def _download_and_parse_tracking(
