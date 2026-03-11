@@ -17,10 +17,7 @@ incremental runs by skipping games already converted / scored.
 from __future__ import annotations
 
 import gc
-import hashlib
-import json
 import logging
-import os
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
@@ -600,28 +597,14 @@ def _load_or_train_models(
     training_game_ids: list[int],
     training_pdf: pd.DataFrame,
 ) -> tuple[XGBClassifier, XGBClassifier] | None:
-    """Load cached models from UC Volume if hash matches, else train and save.
+    """Train VAEP models on the driver.
 
-    Model cache key is a SHA-256 hash of the sorted training game IDs.
     Returns None if training fails (empty features).
+
+    Note: UC Volume FUSE on serverless does not support XGBoost's C-level
+    file I/O (save_model/load_model), so models are kept in memory and
+    serialized to bytes for executor distribution via ``get_booster().save_raw()``.
     """
-    training_hash = hashlib.sha256(json.dumps(sorted(training_game_ids)).encode()).hexdigest()[:12]
-    model_dir = f"/Volumes/{catalog}/{schema}/vaep_models"
-    scores_path = f"{model_dir}/scores_{training_hash}.json"
-    concedes_path = f"{model_dir}/concedes_{training_hash}.json"
-
-    # Try loading cached models
-    try:
-        if os.path.exists(scores_path) and os.path.exists(concedes_path):
-            model_scores = XGBClassifier()
-            model_scores.load_model(scores_path)
-            model_concedes = XGBClassifier()
-            model_concedes.load_model(concedes_path)
-            logger.info("Loaded cached VAEP models (hash=%s)", training_hash)
-            return model_scores, model_concedes
-    except Exception:
-        logger.warning("Failed to load cached models — will retrain", exc_info=True)
-
     # Extract features and train
     x_train, y_scores, y_concedes = _extract_features_for_games(
         training_pdf,
@@ -636,15 +619,6 @@ def _load_or_train_models(
     logger.info("Training features: %d rows x %d cols", len(x_train), x_train.shape[1])
     model_scores, model_concedes = train_vaep_models(x_train, y_scores, y_concedes, logger)
 
-    # Save models to UC Volume
-    try:
-        os.makedirs(model_dir, exist_ok=True)
-        model_scores.save_model(scores_path)
-        model_concedes.save_model(concedes_path)
-        logger.info("Saved VAEP models to %s (hash=%s)", model_dir, training_hash)
-    except Exception:
-        logger.warning("Failed to save models to UC Volume — training still succeeded", exc_info=True)
-
     return model_scores, model_concedes
 
 
@@ -653,16 +627,17 @@ def _load_or_train_models(
 # ---------------------------------------------------------------------------
 
 
-def _make_scoring_udf(scores_path: str, concedes_path: str) -> object:
+def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
     """Build the ``applyInPandas`` UDF closure for VAEP scoring.
 
-    Models are loaded from UC Volume paths and cached in a module-level
-    dict so each executor loads them only once.  All library imports happen
-    inside the closure so they are available on Spark executors.
+    Models are deserialized from raw bytes (captured in the closure) and
+    cached in a function-level dict so each executor deserializes only once.
+    This avoids UC Volume FUSE limitations on serverless where XGBoost's
+    C-level file I/O cannot read/write Volume paths.
 
     Args:
-        scores_path: UC Volume path to the XGBoost scores model JSON.
-        concedes_path: UC Volume path to the XGBoost concedes model JSON.
+        scores_raw: Raw bytes from ``model.get_booster().save_raw("json")``.
+        concedes_raw: Raw bytes from ``model.get_booster().save_raw("json")``.
 
     Returns:
         A callable ``(pd.DataFrame) -> pd.DataFrame`` suitable for
@@ -722,7 +697,7 @@ def _make_scoring_udf(scores_path: str, concedes_path: str) -> object:
             _fs.time_delta,
         ]
 
-        # Load models with executor-level caching
+        # Load models with executor-level caching (deserialize from bytes)
         if not hasattr(_udf, "_model_cache"):
             _udf._model_cache = {}  # type: ignore[attr-defined]
 
@@ -731,11 +706,11 @@ def _make_scoring_udf(scores_path: str, concedes_path: str) -> object:
             from xgboost import XGBClassifier
 
             m_scores = XGBClassifier()
-            m_scores.load_model(scores_path)
+            m_scores.load_model(bytearray(scores_raw))
             cache["scores"] = m_scores
 
             m_concedes = XGBClassifier()
-            m_concedes.load_model(concedes_path)
+            m_concedes.load_model(bytearray(concedes_raw))
             cache["concedes"] = m_concedes
 
         model_scores = cache["scores"]
@@ -896,19 +871,12 @@ def run_pipeline(
     if existing_vaep_games:
         logger.info("Found %d games already scored in %s — will skip", len(existing_vaep_games), _VAEP_TABLE)
 
-    # Resolve the model paths saved during training
-    training_hash = hashlib.sha256(json.dumps(sorted(training_game_ids)).encode()).hexdigest()[:12]
-    model_dir = f"/Volumes/{catalog}/{schema}/vaep_models"
-    scores_path = f"{model_dir}/scores_{training_hash}.json"
-    concedes_path = f"{model_dir}/concedes_{training_hash}.json"
-
-    # Ensure models are persisted for executor access (they should already be
-    # saved by _load_or_train_models, but verify)
-    if not os.path.exists(scores_path) or not os.path.exists(concedes_path):
-        os.makedirs(model_dir, exist_ok=True)
-        model_scores.save_model(scores_path)
-        model_concedes.save_model(concedes_path)
-        logger.info("Saved VAEP models to %s for executor access", model_dir)
+    # Serialize models to bytes for executor distribution via UDF closure.
+    # XGBoost's C-level save_model/load_model cannot use UC Volume FUSE on
+    # serverless, so we pass raw bytes through the closure instead.
+    scores_raw = bytes(model_scores.get_booster().save_raw("json"))
+    concedes_raw = bytes(model_concedes.get_booster().save_raw("json"))
+    logger.info("Serialized VAEP models: scores=%d bytes, concedes=%d bytes", len(scores_raw), len(concedes_raw))
 
     # Filter SPADL to unscored games only
     all_game_rows = spadl_sdf.select("game_id").distinct().collect()
@@ -953,7 +921,7 @@ def run_pipeline(
         ]
     )
 
-    scoring_udf = _make_scoring_udf(scores_path, concedes_path)
+    scoring_udf = _make_scoring_udf(scores_raw, concedes_raw)
     scored_sdf = unscored_sdf.groupBy("competition_id", "data_source").applyInPandas(
         scoring_udf,  # type: ignore[arg-type]
         schema=vaep_schema,
