@@ -87,7 +87,7 @@ resource "aws_iam_role_policy" "terraform_state_access" {
       {
         Sid      = "BudgetRead"
         Effect   = "Allow"
-        Action   = ["budgets:ViewBudget"]
+        Action   = ["budgets:ViewBudget", "budgets:ListTagsForResource"]
         Resource = ["arn:aws:budgets::*:budget/luxury-lakehouse-*"]
       },
       {
