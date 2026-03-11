@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 
 import pandas as pd
@@ -223,6 +224,10 @@ class TestResolveWyscoutHomeTeamIds:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(
+    not importlib.util.find_spec("statsbombpy"),
+    reason="statsbombpy not installed (optional dependency)",
+)
 class TestBuildRawExtraJson:
     """Test _build_raw_extra_json extraction logic."""
 
