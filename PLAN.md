@@ -1,7 +1,7 @@
 # Databricks Lakebase Implementation Plan — Soccer Analytics Platform
 
-> **Status**: Phase 17 complete — 11 Streamlit pages, 16 synced tables, 31 PG indexes, 489 unit tests. Player embeddings with HuggingFace Hub integration and pgvector similarity search.
-> **Last Updated**: 2026-03-09
+> **Status**: Phase 17 complete — 11 Streamlit pages, 16 synced tables, 34 PG indexes, 545 unit tests. Optimization audit complete — all compute pipelines migrated to `applyInPandas`, incremental skip guards on all ingestion modules, pytest-benchmark baselines established.
+> **Last Updated**: 2026-03-11
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready from day one
 
@@ -330,7 +330,7 @@ luxury-lakehouse/
 │   │   ├── pages/                    # 11 pages (incl. player_similarity.py)
 │   │   └── components/               # filters.py, pitch.py, charts.py
 │   │
-│   └── tests/                        # 21 test modules
+│   └── tests/                        # 22 test modules
 │       ├── test_statsbomb.py
 │       ├── test_metrica.py
 │       ├── test_wyscout.py
@@ -349,6 +349,7 @@ luxury-lakehouse/
 │       ├── test_player_similarity.py
 │       ├── test_smoothing.py
 │       ├── test_merge_delta.py
+│       ├── test_benchmarks.py
 │       ├── test_streamlit_components.py
 │       ├── test_streamlit_config.py
 │       └── test_streamlit_db.py
@@ -366,7 +367,7 @@ luxury-lakehouse/
 │   └── train_football2vec.py         # Databricks notebook: Doc2Vec training + HuggingFace Hub publishing
 │
 ├── scripts/
-│   ├── create_indexes.py             # PG indexes on Lakebase synced tables (31 indexes, 10+ tables, --verify flag)
+│   ├── create_indexes.py             # PG indexes on Lakebase synced tables (34 indexes, 11 tables, --verify + ANALYZE)
 │   ├── refresh_synced_tables.py      # Trigger SNAPSHOT refresh on synced tables (--wait, --tables)
 │   ├── delete_synced_table.py        # Delete synced table + drop PG ghost table
 │   ├── import_synced_tables.sh       # Terraform import workflow (16 tables)
@@ -445,7 +446,7 @@ All code must pass these gates before merge:
 
 | Level | What | How |
 |-------|------|-----|
-| Unit | Ingestion logic, utility functions, analytics models | pytest (489 tests) |
+| Unit | Ingestion logic, utility functions, analytics models | pytest (545 tests, incl. pytest-benchmark baselines) |
 | Integration | dbt models compile and run | `dbt build --target ci` |
 | Data quality | Row counts, value ranges, referential integrity | dbt tests (381) + dbt-expectations |
 | E2E | Streamlit pages render with real data | Manual smoke test |
@@ -458,7 +459,7 @@ Lakebase and Databricks performance standards are codified in [CLAUDE.md § Data
 - **Lakebase (PG):** Index every filtered column on fact tables >100K rows. No `ON ONLY` indexes (partitioned tables). Avoid `SELECT DISTINCT` on large tables — use recursive CTE. Re-run `scripts/create_indexes.py` after every synced table recreation.
 - **Databricks (Spark/dbt):** `validate_dataframe()` returns row count to `write_delta_table()` (no double `df.count()`), all writes use `replaceWhere` for idempotency, don't `.toPandas()` unbounded tables, extract repeated window functions into CTEs, `fct_tracking_frames` uses `CLUSTER BY match_id` for Z-ordering.
 
-Currently 27 btree indexes across 10 fact tables + 4 HNSW vector indexes on embedding tables (31 total) covering all Streamlit query patterns. Managed by `scripts/create_indexes.py` with `--verify` for EXPLAIN ANALYZE validation.
+Currently 30 btree indexes across 11 tables + 4 HNSW vector indexes on embedding tables (34 total) covering all Streamlit query patterns. Managed by `scripts/create_indexes.py` with `ANALYZE` for planner statistics and `--verify` for EXPLAIN ANALYZE validation.
 
 ### 6.7 — Architecture Documentation
 
@@ -532,7 +533,7 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 - `logical_database_name = "databricks_postgres"` — standard Lakebase database
 - **Autoscaling workaround (provider v1.110.0):** `databricks_database_synced_database_table` only supports `database_instance_name` (Provisioned). Synced tables targeting Autoscaling projects must be created via Databricks UI, then imported into Terraform. `lifecycle { ignore_changes = all }` prevents drift. This applies to any new synced table.
 - **Schema changes:** Must delete synced table, drop ghost PG table, recreate via API, re-import into Terraform.
-- **PG indexes:** 27 btree indexes across 10 fact tables + 4 HNSW vector indexes on embedding tables = 31 total. Dropped on synced table recreation — re-run `scripts/create_indexes.py` alongside `scripts/lakebase_grants.sql`.
+- **PG indexes:** 30 btree indexes across 11 tables + 4 HNSW vector indexes on embedding tables = 34 total. Dropped on synced table recreation — re-run `scripts/create_indexes.py` alongside `scripts/lakebase_grants.sql`. Script now runs `ANALYZE` on all indexed tables to ensure the query planner uses indexes.
 - **SNAPSHOT refresh:** Synced tables with `scheduling_policy = "SNAPSHOT"` do not auto-refresh. Run `scripts/refresh_synced_tables.py` after upstream dbt rebuilds. Supports `--wait` (poll until IDLE) and `--tables` (comma-separated subset). The Terraform provider has no schedule/cron field — this is the operational workaround.
 - **Credential API:** REST endpoint is `/api/2.0/postgres/credentials` (NOT `/api/2.0/database/credentials`).
 

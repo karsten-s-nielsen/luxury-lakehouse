@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [PLAN.md](PLAN.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
 
-**Last updated**: 2026-03-10 (added #26 IDSSE XML ordering, #27 Respo.Vision architecture)
+**Last updated**: 2026-03-11 (optimization audit complete — closed #19, #20, #21, #22, #23; added Spark vs Python note)
 
 ---
 
@@ -36,11 +36,11 @@ Phases 0–17 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for th
 | 16 | Physical stats tracking-only | `fct_physical_stats.sql` | Only 20 matches (Metrica 3, IDSSE 7, SkillCorner 10) have physical data. ~3,000 event-only matches have none. | Data limitation — no tracking for StatsBomb/Wyscout. |
 | 17 | xT grid static | `expected_threat_grid.csv` | Karun Singh standard 12x8 seed. Could be computed dynamically per competition from pass/shot data for more accurate values. | Enhancement — current static grid is standard practice. |
 | 18 | DEFCON-lite anonymous defenders | `ingestion/defcon_lite.py` | StatsBomb 360 freeze frames are anonymous — `defender_player_id` is synthetic. `fct_defensive_values` cannot attribute credit to real defenders. Mitigated: `fct_defcon_pressure` pivots to attacker perspective (real `action_player_id`). | Full fix requires Tier 4 GNN with tracking data (500+ matches needed). |
-| 19 | No AWS budget alarm | Terraform | `$100/month` budget not enforced by AWS. Silent overspend risk. Add `aws_budgets_budget` resource. | Low effort, high value. |
-| 20 | Action values unbounded query | `pages/action_values.py:107` | No LIMIT on match action timeline query. Can return 2K+ actions per match. | Add reasonable LIMIT. |
-| ~~21~~ | ~~StatsBomb backfill SELECT *~~ | ~~`statsbomb.py:454`~~ | ~~Resolved: Per-match `SELECT *` is bounded by `WHERE match_id = {match_id}`. Full row needed for JSON re-serialization — column projection not applicable. Memory profile is per-match (bounded), not full-table. Backfill pattern confirmed intentional.~~ | ~~Resolved~~ |
-| 22 | Redundant LAG windows in fct_physical_stats | `fct_physical_stats.sql:33-34` | Recomputes displacement LAG already available in upstream `fct_tracking_frames`. Add `displacement_m` to upstream model. | Medium effort — dbt model change + synced table recreation. |
-| 23 | S3 lifecycle rule for state versions | Terraform | No lifecycle policy for non-current S3 state versions. Storage hygiene. | Blocked on IAM `s3:PutLifecycleConfiguration` for DevOpsAgent role. |
+| ~~19~~ | ~~No AWS budget alarm~~ | ~~Terraform~~ | ~~Resolved: `aws_budgets_budget` resource with $100/month limit and 80%/100% threshold notifications. Conditional on `alert_email` in tfvars.~~ | ~~Resolved~~ |
+| ~~20~~ | ~~Action values unbounded query~~ | ~~`pages/action_values.py`~~ | ~~Resolved: LIMIT 2000 on match timeline, LIMIT 500 on rankings, recursive CTE for DISTINCT on fact tables.~~ | ~~Resolved~~ |
+| ~~21~~ | ~~StatsBomb backfill SELECT *~~ | ~~`statsbomb.py`~~ | ~~Resolved: Delta MERGE replaces read-modify-write cycle — updates only `_raw_extra_json` column without reading all columns to driver.~~ | ~~Resolved~~ |
+| ~~22~~ | ~~Redundant LAG windows in fct_physical_stats~~ | ~~`fct_physical_stats.sql`~~ | ~~Resolved: Removed redundant LAG computation. `displacement_m` derived from existing upstream columns.~~ | ~~Resolved~~ |
+| ~~23~~ | ~~S3 lifecycle rule for state versions~~ | ~~Terraform~~ | ~~Resolved: `aws_s3_bucket_lifecycle_configuration` expires non-current state versions after 90 days.~~ | ~~Resolved~~ |
 | ~~24~~ | ~~Metrica tracking reshape iterrows~~ | ~~`metrica.py:451`~~ | ~~Resolved: Replaced with `pd.melt()` vectorized wide-to-narrow reshape. Per-match DataFrame never needs row iteration — columnar transformation handles ~9.5M frames efficiently.~~ | ~~Resolved~~ |
 | 25 | Lakebase CU right-sizing | Terraform | `autoscaling_max_cu = 4` may be overprovisioned for dev. Reduce to 2. | Blocked — Terraform provider cannot update `initial_endpoint_spec` after creation. Needs UI change. |
 | 26 | IDSSE XML ball-before-player ordering assumption | `src/ingestion/idsse.py` | Single-pass XML merge assumes ball FrameSets precede player FrameSets in DFL position XML. Validated by inspection of current 7 files but not asserted in code. Add a runtime check or unit test that verifies ball coords are available when player frames are processed. If DFL ever delivers files with interleaved ordering, `ball_x`/`ball_y` will silently degrade to NULL. | Low priority — graceful degradation, but should validate. |
@@ -69,6 +69,15 @@ Phases 0–17 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for th
 | ~~O13~~ | Entity resolution Delta schema merge | Explicit `int64`/`float64` dtypes on all empty DataFrame code paths in `entity_resolution.py` (lines 140, 407, 573). Eliminates `DELTA_FAILED_TO_MERGE_FIELDS` on `player_id_a`. |
 | ~~O14~~ | Off-ball xT missing seed CSV | xT grid CSV uploaded to UC Volume (`/Volumes/soccer_analytics/bronze/libs/expected_threat_grid.csv`). Fallback chain: dbt seed table → UC Volume → workspace path. |
 | ~~O15~~ | IDSSE tracking intermittent OOM | Per-period processing: `_parse_positions_xml()` returns rows bucketed by period, each half processed/written/released independently. Halves peak DataFrame memory. |
+| ~~O16~~ | AWS budget alarm missing | `aws_budgets_budget` with $100/month limit, 80%/100% email alerts. |
+| ~~O17~~ | Action values unbounded queries | LIMIT 2000 on timeline, LIMIT 500 on rankings, recursive CTE for DISTINCT. |
+| ~~O18~~ | StatsBomb backfill SELECT * | Delta MERGE replaces full read-modify-write — updates only `_raw_extra_json` without pulling all columns. |
+| ~~O19~~ | Redundant LAG in fct_physical_stats | Removed duplicate LAG windows. Displacement derived from upstream tracking columns. |
+| ~~O20~~ | S3 state version retention | `aws_s3_bucket_lifecycle_configuration` expires non-current versions after 90 days. |
+| ~~O21~~ | Incremental skip guards missing | All 5 ingestion modules (metrica, skillcorner, statsbomb, wyscout, idsse) now check existing match IDs before re-processing. |
+| ~~O22~~ | DEFCON type mismatches | `IntegerType`→`LongType` for competition/season/player/team IDs in all `applyInPandas` schemas. `.cast("string")` on match_id filters. |
+| ~~O23~~ | VAEP model distribution broken on serverless | XGBoost models serialized to bytes via `get_booster().save_raw()` — passed through closure instead of UC Volume FUSE. |
+| ~~O24~~ | DEFCON timeline Seq Scan timeout | Missing `(competition_id, action_player_id)` index on `fct_defcon_actions_synced` caused Seq Scan on 829K rows. Added DA-4 composite index + `ANALYZE` on all fact tables + `LIMIT 2000` on match timeline query. `create_indexes.py` now runs ANALYZE automatically. |
 
 ## Research & Future Work
 

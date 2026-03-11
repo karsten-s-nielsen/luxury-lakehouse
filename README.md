@@ -96,9 +96,24 @@ luxury-lakehouse/
 └── ROADMAP.md          # Research directions and future ideas
 ```
 
+## Spark vs Python: Scale vs Simplicity
+
+All compute pipelines use `applyInPandas` to distribute work across Spark executors — the driver never touches raw data. This matters at enterprise scale (millions of rows per match, hundreds of matches) where driver-bound Python loops hit OOM walls.
+
+For community/personal use on Databricks Community Edition or smaller datasets, the pure-Python analytics modules (`src/analytics/`) work standalone without Spark. The tradeoff:
+
+| | PySpark (`applyInPandas`) | Pure Python (pandas) |
+|---|---|---|
+| **Scale** | Hundreds of matches, 38M+ tracking rows | Single matches, <5M rows |
+| **Setup** | Databricks Serverless or cluster | `pip install` + local notebook |
+| **Driver memory** | 16 GB fixed (serverless) | Your machine's RAM |
+| **Effort** | Higher (Spark schemas, UDF closures) | Lower (direct function calls) |
+
+The `src/analytics/` modules (pitch control, line-breaking, DEFCON, off-ball xT, entity resolution) are pure Python/NumPy/pandas — no Spark dependency. The `src/ingestion/` modules handle Spark orchestration around them. This separation means the analytics are usable outside Databricks.
+
 ## Status
 
-**Phase 17 complete** — 11 Streamlit pages, 16 synced tables, 31 PG indexes, 489 unit tests. See [PLAN.md](PLAN.md) for the implementation plan and [ROADMAP.md](ROADMAP.md) for research directions.
+**Phase 17 complete** — 11 Streamlit pages, 16 synced tables, 34 PG indexes, 545 unit tests. Optimization audit complete — all compute pipelines migrated to `applyInPandas`, incremental skip guards on all ingestion modules, pytest-benchmark baselines established. See [PLAN.md](PLAN.md) for the implementation plan and [ROADMAP.md](ROADMAP.md) for research directions.
 
 | Phase | Description | Status |
 |-------|-------------|--------|

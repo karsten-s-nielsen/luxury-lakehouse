@@ -96,6 +96,8 @@ INDEXES: list[tuple[str, str, str]] = [
     ("idx_defcon_actions_player_comp", "fct_defcon_actions_synced", "player_id, competition_id"),
     # DA-3: match + action player for filtered timeline
     ("idx_defcon_actions_match_player", "fct_defcon_actions_synced", "match_id, action_player_id"),
+    # DA-4: competition + action player for recursive CTE distinct player list
+    ("idx_defcon_actions_comp_action_player", "fct_defcon_actions_synced", "competition_id, action_player_id"),
     # ── fct_defcon_pressure_synced — Pressure Rankings + Breakdown ────
     # DP-1: rankings by competition
     ("idx_defcon_pressure_comp_id", "fct_defcon_pressure_synced", "competition_id"),
@@ -183,6 +185,16 @@ VERIFY_QUERIES: list[tuple[str, str]] = [
         f"SELECT * FROM {SCHEMA}.fct_defcon_actions_synced WHERE match_id = '3788741' LIMIT 1",  # noqa: S608
     ),
     (
+        "fct_defcon_actions: match+action_player (idx_defcon_actions_match_player)",
+        f"SELECT * FROM {SCHEMA}.fct_defcon_actions_synced"  # noqa: S608
+        " WHERE match_id = '3788741' AND action_player_id = 5503 LIMIT 1",
+    ),
+    (
+        "fct_defcon_actions: comp+action_player CTE (idx_defcon_actions_comp_action_player)",
+        f"SELECT MIN(action_player_id) FROM {SCHEMA}.fct_defcon_actions_synced"  # noqa: S608
+        " WHERE competition_id = 11 LIMIT 1",
+    ),
+    (
         "fct_player_embeddings_career: behavioral cosine kNN (idx_embeddings_career_behavioral_hnsw)",
         f"SELECT canonical_player_id FROM {SCHEMA}.fct_player_embeddings_career_synced"  # noqa: S608
         " ORDER BY behavioral_vector::text::vector(32) <=> (SELECT behavioral_vector::text::vector(32)"
@@ -267,6 +279,21 @@ def _create_indexes(conn: psycopg2.extensions.connection) -> int:
             except psycopg2.OperationalError:
                 # Connection-level error — no point continuing
                 raise
+            except Exception as exc:
+                print(f"ERROR: {exc}")
+                errors += 1
+
+        # ── ANALYZE fact tables so planner uses indexes ──────────────────
+        fact_tables = sorted({table for _, table, _ in INDEXES})
+        print(f"\nRunning ANALYZE on {len(fact_tables)} tables...")
+        for table in fact_tables:
+            fqn = f"{SCHEMA}.{table}"
+            try:
+                print(f"  ANALYZE {table}...", end=" ", flush=True)
+                t0 = time.time()
+                cur.execute(f"ANALYZE {fqn}")
+                elapsed = time.time() - t0
+                print(f"OK ({elapsed:.1f}s)")
             except Exception as exc:
                 print(f"ERROR: {exc}")
                 errors += 1

@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the [phased plan](PLAN.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-03-09
+**Last updated**: 2026-03-11
 
 ---
 
@@ -152,11 +152,11 @@ Post-run parsing captures per-model execution time, test pass/fail counts, failu
 
 ## Pipeline Optimization & Scaling (Enterprise Integration Patterns)
 
-**Status:** Research complete, ready for implementation
+**Status:** Initial optimization complete (2026-03-11); EIP patterns ready for next-level scaling
 **Budget:** $0 incremental (uses existing serverless compute + Delta Lake)
 **References:** Hohpe & Woolf (2003) *Enterprise Integration Patterns*; Sp&auml;ti, *DEDP/PoDE* (dedp.online, open access)
 
-The platform's ingestion and analytics pipelines currently run sequentially on single-node compute. As data volume grows &mdash; especially with Respo.Vision 3D pose tracking (est. ~7M rows/match vs ~1.9M current) &mdash; horizontal scaling via established Enterprise Integration Patterns becomes essential. Complementary caching layers prevent redundant work across the full stack.
+The platform's compute pipelines have been migrated from driver-bound loops to `applyInPandas` (Spark-distributed), with incremental skip guards and per-partition memory management on all ingestion modules. The pure-Python analytics modules (`src/analytics/`) work standalone without Spark for community/personal use. As data volume grows &mdash; especially with Respo.Vision 3D pose tracking (est. ~7M rows/match vs ~1.9M current) &mdash; horizontal scaling via Enterprise Integration Patterns enables the next level of throughput.
 
 ### Core principle: split, scatter, cache
 
@@ -190,8 +190,8 @@ Finalizer (validate completeness, emit OTel metrics)
 
 | Pain Point | Current Issue | EIP Fix |
 |-----------|---------------|---------|
-| **StatsBomb N+1** (TODO #3) | ~3,500 sequential per-match queries | Scatter-Gather at competition-season level + `asyncio`/`httpx` within workers |
-| **SPADL/VAEP OOM** (TODO #4) | Full bronze tables collected to driver | Claim Check + Splitter &mdash; partition by `(comp_id, season_id)`, bounded `toPandas()` + `gc.collect()` |
+| ~~**StatsBomb N+1** (TODO #3)~~ | ~~~3,500 sequential per-match queries~~ | ~~Resolved: Each per-match `SELECT *` is bounded by `WHERE match_id = {match_id}`. Backfill uses Delta MERGE instead of read-modify-write.~~ |
+| ~~**SPADL/VAEP OOM** (TODO #4)~~ | ~~Full bronze tables collected to driver~~ | ~~Resolved: Per-partition Spark pulls replace full-table `.toPandas()`. XGBoost models serialized to bytes via closure (UC Volume FUSE broken on serverless).~~ |
 | ~~**Off-Ball xT loop** (TODO #12)~~ | ~~Sequential per-match at 1fps~~ | ~~Resolved (2026-03-10): Migrated to `applyInPandas` grouped by `match_id`. Spark distributes across executors. 1fps sampling rate retained as correct accuracy/compute trade-off.~~ |
 
 ### Respo.Vision scale planning
@@ -693,7 +693,7 @@ All artifacts fit within HF's free 10 GB/repo Git LFS limit. Dataset repos get a
 | **Ecosystem** | Raw GPU | `hf jobs run`, auto-push to Hub | Spaces integration |
 | **Min cost** | Per-hour only | Per-hour only | $9/month base |
 
-**Decision point:** Compare HF Jobs vs RunPod pricing when Phase 17 GNN training begins. HF's advantage is ecosystem integration (train &rarr; push &rarr; serve in one flow). RunPod is cheaper for raw GPU-hours. Both are compatible with MLflow remote logging back to Databricks.
+**Decision point:** Compare HF Jobs vs RunPod pricing when DEFCON Tier 4 GNN training begins. HF's advantage is ecosystem integration (train &rarr; push &rarr; serve in one flow). RunPod is cheaper for raw GPU-hours. Both are compatible with MLflow remote logging back to Databricks.
 
 ### Tier 4 &mdash; Public demo Space
 

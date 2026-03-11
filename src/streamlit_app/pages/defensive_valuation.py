@@ -94,7 +94,8 @@ def _load_pressure_breakdown(player_id: int, competition_id: int, team_id: int |
             f"FROM {tbl} dp "
             f"LEFT JOIN {ms} ms ON dp.match_id::bigint = ms.match_id "
             f"WHERE {where} "
-            f"ORDER BY dp.match_id",
+            f"ORDER BY dp.match_id "
+            f"LIMIT 200",
             tuple(params),
         )
 
@@ -127,7 +128,8 @@ def _load_player_matches(player_id: int, competition_id: int, team_id: int | Non
             f"LEFT JOIN {ms} ms ON dp.match_id::bigint = ms.match_id "
             f"WHERE {where} "
             f"GROUP BY dp.match_id "
-            f"ORDER BY MAX(ms.match_date) DESC",
+            f"ORDER BY MAX(ms.match_date) DESC "
+            f"LIMIT 200",
             tuple(params),
         )
 
@@ -147,7 +149,8 @@ def _load_match_timeline(match_id: str, player_id: int) -> Any:
             f"  da.dist_to_ball "
             f"FROM {tbl} da "
             f"WHERE da.match_id = %s AND da.action_player_id = %s "
-            f"ORDER BY da.event_id",
+            f"ORDER BY da.event_id "
+            f"LIMIT 2000",
             (mid, pid),
         )
 
