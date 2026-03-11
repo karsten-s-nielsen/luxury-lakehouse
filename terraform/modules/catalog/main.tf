@@ -94,6 +94,33 @@ resource "databricks_grant" "ingestion_sp_bronze_schema" {
   privileges = ["USE_SCHEMA", "CREATE_TABLE", "MODIFY", "SELECT"]
 }
 
+resource "databricks_grant" "ingestion_sp_silver_schema" {
+  count = var.enable_ingestion_sp_grants && var.silver_schema_override != "" ? 1 : 0
+
+  schema = "${var.catalog_name}.${var.silver_schema_override}"
+
+  principal  = var.ingestion_sp_application_id
+  privileges = ["USE_SCHEMA", "SELECT"]
+}
+
+resource "databricks_grant" "ingestion_sp_gold_schema" {
+  count = var.enable_ingestion_sp_grants && var.gold_schema_override != "" ? 1 : 0
+
+  schema = "${var.catalog_name}.${var.gold_schema_override}"
+
+  principal  = var.ingestion_sp_application_id
+  privileges = ["USE_SCHEMA", "SELECT"]
+}
+
+resource "databricks_grant" "ingestion_sp_gold_model_weights_volume" {
+  count = var.enable_ingestion_sp_grants && var.gold_schema_override != "" ? 1 : 0
+
+  volume = "${var.catalog_name}.${var.gold_schema_override}.model_weights"
+
+  principal  = var.ingestion_sp_application_id
+  privileges = ["READ_VOLUME", "WRITE_VOLUME"]
+}
+
 resource "databricks_grant" "ingestion_sp_libs_volume" {
   count = var.enable_ingestion_sp_grants ? 1 : 0
 

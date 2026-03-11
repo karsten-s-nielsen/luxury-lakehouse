@@ -199,6 +199,8 @@ module "github_oidc" {
 # var.alert_email in terraform.tfvars (not checked in).
 
 resource "aws_budgets_budget" "monthly" {
+  count = var.alert_email != "" ? 1 : 0
+
   name         = "luxury-lakehouse-monthly-${var.environment}"
   budget_type  = "COST"
   limit_amount = "100"

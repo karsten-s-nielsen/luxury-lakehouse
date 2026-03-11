@@ -31,6 +31,12 @@ variable "app_sp_application_id" {
   default     = ""
 }
 
+variable "silver_schema_override" {
+  description = "Override for the silver schema name (e.g. dev_silver when dbt prefixes with environment)"
+  type        = string
+  default     = ""
+}
+
 variable "gold_schema_override" {
   description = "Override for the gold schema name (e.g. dev_gold when dbt prefixes with environment)"
   type        = string
