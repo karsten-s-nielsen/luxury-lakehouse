@@ -8,11 +8,15 @@ results to a new ``off_ball_xt_results`` bronze table.
 Design: "Read from gold, compute, write to bronze." The gold mart provides
 the standardised schema (x, y, velocity_x, velocity_y, etc.) that raw bronze
 tables lack.  The xT grid is loaded from the dbt seed table at runtime.
+
+Architecture: Uses ``applyInPandas`` to distribute frame-batch computation
+across Spark executors instead of a sequential per-match driver loop.
+Pass 1 computes per-player xT per frame-batch on executors; Pass 2
+aggregates across batches via Spark-native ``groupBy.agg``.
 """
 
 from __future__ import annotations
 
-import gc
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -20,7 +24,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-from analytics.off_ball_xt import OffBallXtParams, compute_off_ball_xt_match
+from analytics.off_ball_xt import OffBallXtParams
 from analytics.pitch_control import PitchControlParams
 from ingestion.utils import (
     configure_logging,
@@ -35,6 +39,12 @@ if TYPE_CHECKING:
 _TABLE_NAME = "off_ball_xt_results"
 _GOLD_SCHEMA = "dev_gold"
 
+# Default number of source frames per batch group.  Each batch is processed
+# as a single ``applyInPandas`` partition on an executor.  A value of 500
+# at 25 fps ≈ 20 seconds of play — large enough to amortise per-group
+# overhead, small enough to stay within the 1 GB executor memory budget.
+_DEFAULT_BATCH_SIZE = 500
+
 
 def _load_xt_grid() -> np.ndarray:
     """Load the 12x8 xT grid from the seed CSV.
@@ -47,12 +57,16 @@ def _load_xt_grid() -> np.ndarray:
     try:
         df = pd.read_csv(str(local_path))
     except FileNotFoundError:
-        # On Databricks, the seed file is in the workspace
-        df = pd.read_csv("/Workspace/dbt_project/seeds/expected_threat_grid.csv")
+        # On Databricks serverless, try UC Volume first, then workspace path
+        volume_path = "/Volumes/soccer_analytics/bronze/libs/expected_threat_grid.csv"
+        workspace_path = "/Workspace/dbt_project/seeds/expected_threat_grid.csv"
+        try:
+            df = pd.read_csv(volume_path)
+        except FileNotFoundError:
+            df = pd.read_csv(workspace_path)
 
     grid = np.zeros((12, 8), dtype=np.float64)
-    for _, row in df.iterrows():
-        grid[int(row["zone_x"]), int(row["zone_y"])] = float(row["xt_value"])
+    grid[df["zone_x"].astype(int).values, df["zone_y"].astype(int).values] = df["xt_value"].values
     return grid
 
 
@@ -65,11 +79,96 @@ def _load_xt_grid_from_spark(spark: SparkSession, catalog: str) -> np.ndarray:
         seed_table = f"{catalog}.dev_silver.expected_threat_grid"
         df = spark.table(seed_table).toPandas()
         grid = np.zeros((12, 8), dtype=np.float64)
-        for _, row in df.iterrows():
-            grid[int(row["zone_x"]), int(row["zone_y"])] = float(row["xt_value"])
+        grid[df["zone_x"].astype(int).values, df["zone_y"].astype(int).values] = df["xt_value"].values
         return grid
     except Exception:
         return _load_xt_grid()
+
+
+def _make_batch_udf(
+    xt_grid: np.ndarray,
+    sample_fps: float,
+    pc_grid_cells_x: int,
+    pc_grid_cells_y: int,
+) -> object:
+    """Build the ``applyInPandas`` UDF closure.
+
+    The xT grid (96 floats) and scalar params are captured by the closure
+    so they are serialised with the UDF and available on executors without
+    network access.
+
+    Returns:
+        A callable ``(pd.DataFrame) -> pd.DataFrame`` suitable for
+        ``applyInPandas``.
+    """
+    # Serialise grid as list-of-lists so pickle has no ndarray dependency issues
+    grid_data: list[list[float]] = xt_grid.tolist()
+
+    def _udf(pdf: pd.DataFrame) -> pd.DataFrame:
+        """Compute per-player off-ball xT for one (match_id, frame_batch_id) group."""
+        # Lazy imports — executors have the wheel installed but no internet
+        import numpy as _np
+        import pandas as _pd
+
+        from analytics.off_ball_xt import compute_off_ball_xt_frame
+        from analytics.pitch_control import PitchControlParams as _PCParams
+
+        grid = _np.array(grid_data, dtype=_np.float64)
+        pc_params = _PCParams(grid_cells_x=pc_grid_cells_x, grid_cells_y=pc_grid_cells_y)
+
+        _empty = _pd.DataFrame(columns=_pd.Index(["match_id", "player_id", "off_ball_xt_sum", "frame_count"]))
+
+        if pdf.empty:
+            return _empty
+
+        match_id = str(pdf["match_id"].iloc[0])
+
+        # Filter out ball rows (player_id is null for ball)
+        pdf = _pd.DataFrame(pdf[pdf["player_id"].notna()])
+        if pdf.empty:
+            return _empty
+
+        # Sample frames at desired fps
+        frame_rate = int(pdf["frame_rate"].iloc[0]) if "frame_rate" in pdf.columns else 25
+        sample_every = max(1, int(frame_rate / sample_fps))
+
+        # Get unique (period, frame) combinations, then sample
+        period_frames = _pd.DataFrame(pdf[["period", "frame"]].drop_duplicates()).sort_values(by=["period", "frame"])
+        sampled_pf = period_frames.iloc[::sample_every]
+
+        all_frame_results: list[_pd.DataFrame] = []
+
+        for _, pf_row in sampled_pf.iterrows():
+            period = pf_row["period"]
+            frame = pf_row["frame"]
+            frame_df = _pd.DataFrame(pdf[(pdf["period"] == period) & (pdf["frame"] == frame)])
+
+            if frame_df.empty:
+                continue
+
+            # Only process frames with players from both teams
+            teams_present = list(frame_df["team"].unique())
+            if len(teams_present) < 2:
+                continue
+
+            frame_results = compute_off_ball_xt_frame(frame_df, grid, pc_params)
+            all_frame_results.append(frame_results)
+
+        if not all_frame_results:
+            return _empty
+
+        combined = _pd.concat(all_frame_results, ignore_index=True)
+        combined = combined[combined["off_ball_xt"].notna()]
+        combined["player_id"] = combined["player_id"].astype(str)
+
+        # Per-player aggregation within this batch
+        agg = combined.groupby("player_id")["off_ball_xt"].agg(["sum", "count"]).reset_index()
+        agg.columns = _pd.Index(["player_id", "off_ball_xt_sum", "frame_count"])
+        agg["match_id"] = match_id
+
+        return _pd.DataFrame(agg[["match_id", "player_id", "off_ball_xt_sum", "frame_count"]])
+
+    return _udf
 
 
 def _process_matches(
@@ -81,94 +180,126 @@ def _process_matches(
     params: OffBallXtParams,
     pc_params: PitchControlParams,
 ) -> int:
-    """Process all matches from fct_tracking_frames.
+    """Process all matches from fct_tracking_frames via applyInPandas.
+
+    Pass 1: ``groupBy(match_id, frame_batch_id).applyInPandas`` computes
+    per-player xT per batch on executors.
+    Pass 2: Spark-native ``groupBy(match_id, player_id).agg`` aggregates
+    across batches to produce the final per-player per-match output.
 
     Returns number of rows written.
     """
+    from pyspark.sql import functions as F  # noqa: N812
+    from pyspark.sql.types import DoubleType, IntegerType, StringType, StructField, StructType
+
     gold_table = f"{catalog}.{_GOLD_SCHEMA}.fct_tracking_frames"
+    results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
 
     try:
-        match_ids_df = spark.table(gold_table).select("match_id").distinct().toPandas()
+        match_id_rows = spark.table(gold_table).select("match_id").distinct().collect()
     except Exception:
         logger.warning("Cannot read table %s", gold_table)
         return 0
 
-    if match_ids_df.empty:
+    if not match_id_rows:
         logger.info("No matches in %s", gold_table)
         return 0
 
-    match_ids = match_ids_df["match_id"].unique()
-    logger.info("%d matches to process from %s", len(match_ids), gold_table)
-    total_written = 0
+    all_match_ids = [row["match_id"] for row in match_id_rows]
 
-    for match_id in match_ids:
-        try:
-            match_df = (
-                spark.table(gold_table)
-                .filter(f"match_id = '{match_id}'")
-                .select(
-                    "match_id",
-                    "player_id",
-                    "team",
-                    "source_provider",
-                    "x",
-                    "y",
-                    "velocity_x",
-                    "velocity_y",
-                    "frame",
-                    "period",
-                    "frame_rate",
-                )
-                .toPandas()
-            )
-        except Exception:
-            logger.warning("Cannot read tracking for match %s — skipping", match_id)
-            continue
+    # Check which matches already have off-ball xT results (incremental)
+    existing_ids: set[str] = set()
+    try:
+        existing_rows = spark.table(results_table).select("match_id").distinct().collect()
+        existing_ids = {str(row["match_id"]) for row in existing_rows}
+    except Exception:
+        logger.info("No existing %s table — processing all matches", results_table)
 
-        if match_df.empty:
-            continue
+    new_match_ids = [mid for mid in all_match_ids if str(mid) not in existing_ids]
+    logger.info(
+        "%d matches total, %d already processed, %d to process",
+        len(all_match_ids),
+        len(existing_ids),
+        len(new_match_ids),
+    )
 
-        # Filter out ball rows (player_id is null for ball)
-        match_df = pd.DataFrame(match_df[match_df["player_id"].notna()])
-        match_df["match_id"] = str(match_id)
+    if not new_match_ids:
+        return 0
 
-        provider = match_df["source_provider"].iloc[0] if not match_df.empty else "unknown"
-
-        logger.info(
-            "Processing match %s (%s): %d player frames",
-            match_id,
-            provider,
-            len(match_df),
+    # Build filter predicate for all new matches at once
+    new_ids_str = [str(mid) for mid in new_match_ids]
+    tracking_df = (
+        spark.table(gold_table)
+        .filter(F.col("match_id").isin(new_ids_str))
+        .select(
+            "match_id",
+            "player_id",
+            "team",
+            "x",
+            "y",
+            "velocity_x",
+            "velocity_y",
+            "frame",
+            "period",
+            "frame_rate",
         )
+    )
 
-        try:
-            result = compute_off_ball_xt_match(match_df, xt_grid, params, pc_params)
-        except Exception:
-            logger.exception("Error computing Off-Ball xT for match %s", match_id)
-            continue
+    # Add synthetic partition key: frame_batch_id groups frames into
+    # batches of _DEFAULT_BATCH_SIZE for uniform executor distribution.
+    tracking_df = tracking_df.withColumn(
+        "frame_batch_id",
+        (F.col("frame") / F.lit(_DEFAULT_BATCH_SIZE)).cast("int"),
+    )
 
-        if result.empty:
-            logger.info("Match %s: no Off-Ball xT results", match_id)
-            continue
+    # Build UDF closure with captured grid and params
+    udf_fn = _make_batch_udf(
+        xt_grid=xt_grid,
+        sample_fps=params.sample_fps,
+        pc_grid_cells_x=pc_params.grid_cells_x,
+        pc_grid_cells_y=pc_params.grid_cells_y,
+    )
 
-        # Write to bronze
-        sdf = spark.createDataFrame(result)
-        written = write_delta_table(
-            sdf,
-            catalog,
-            schema,
-            _TABLE_NAME,
-            replace_where=f"match_id = '{match_id}'",
-            logger=logger,
+    # Pass 1: per-batch computation on executors
+    batch_schema = StructType(
+        [
+            StructField("match_id", StringType(), nullable=False),
+            StructField("player_id", StringType(), nullable=False),
+            StructField("off_ball_xt_sum", DoubleType(), nullable=False),
+            StructField("frame_count", IntegerType(), nullable=False),
+        ]
+    )
+
+    batch_results = tracking_df.groupBy("match_id", "frame_batch_id").applyInPandas(
+        udf_fn,  # type: ignore[arg-type]
+        schema=batch_schema,
+    )
+
+    # Pass 2: aggregate across batches per (match_id, player_id)
+    final_df = (
+        batch_results.groupBy("match_id", "player_id")
+        .agg(
+            F.sum("off_ball_xt_sum").alias("total_off_ball_xt"),
+            F.sum("frame_count").alias("frames_sampled"),
         )
-        total_written += written
-        logger.info("Match %s: %d Off-Ball xT rows written", match_id, written)
+        .withColumn(
+            "avg_off_ball_xt",
+            F.when(F.col("frames_sampled") > 0, F.col("total_off_ball_xt") / F.col("frames_sampled")).otherwise(0.0),
+        )
+        .select("player_id", "match_id", "total_off_ball_xt", "avg_off_ball_xt", "frames_sampled")
+    )
 
-        del match_df, result
-        gc.collect()
+    # Write all results in one pass
+    written = write_delta_table(
+        final_df,
+        catalog,
+        schema,
+        _TABLE_NAME,
+        logger=logger,
+    )
 
-    logger.info("Off-Ball xT processing complete: %d rows written", total_written)
-    return total_written
+    logger.info("Off-Ball xT processing complete: %d rows written", written)
+    return written
 
 
 def run_pipeline(

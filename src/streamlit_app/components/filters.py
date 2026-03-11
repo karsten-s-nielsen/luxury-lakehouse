@@ -7,18 +7,19 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-from streamlit_app.config import get_settings
 from streamlit_app.db import execute_query, t
 
 
+@st.cache_data(ttl=600, show_spinner=False)
 def _cached_query(query: str, params: tuple[Any, ...] | None = None) -> pd.DataFrame:
-    """Execute a query with Streamlit caching."""
+    """Execute a query with Streamlit caching.
 
-    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner=False)
-    def _run(q: str, p: tuple[Any, ...] | None) -> pd.DataFrame:
-        return execute_query(q, p)
-
-    return _run(query, params)
+    The TTL matches the default of ``AppSettings.cache_ttl_seconds`` (600 s).
+    The decorator is applied once at module import so Streamlit assigns a
+    stable cache key; the previous nested ``_run`` pattern re-applied the
+    decorator on every call, making every invocation a cache miss (CACHE-01).
+    """
+    return execute_query(query, params)
 
 
 def render_competition_filter() -> int | None:

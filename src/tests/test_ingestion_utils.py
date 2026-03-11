@@ -9,7 +9,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
+import ingestion.utils as utils_mod
 from ingestion.utils import (
+    _get_session,
     configure_logging,
     fetch_url,
     parse_ingestion_args,
@@ -102,8 +104,46 @@ class TestConfigureLogging:
 # ---------------------------------------------------------------------------
 
 
+class TestGetSession:
+    """Tests for the _get_session helper."""
+
+    def test_returns_requests_session(self) -> None:
+        session = _get_session()
+        assert isinstance(session, requests.Session)
+
+    def test_ssl_verification_enabled(self) -> None:
+        session = _get_session()
+        assert session.verify is True
+
+    def test_returns_same_session_on_repeated_calls(self) -> None:
+        """Session object must be reused — proves TCP keep-alive is in effect."""
+        session_a = _get_session()
+        session_b = _get_session()
+        assert session_a is session_b
+
+    def test_session_reset_creates_new_instance(self) -> None:
+        """After resetting the module-level singleton, a fresh session is created."""
+        original = utils_mod._session
+        try:
+            utils_mod._session = None
+            new_session = _get_session()
+            assert isinstance(new_session, requests.Session)
+            assert new_session.verify is True
+        finally:
+            utils_mod._session = original
+
+
 class TestFetchUrl:
-    """Tests for fetch_url."""
+    """Tests for fetch_url.
+
+    fetch_url uses the module-level session (_get_session), so we patch
+    session.get rather than requests.get directly.
+    """
+
+    def _make_mock_session(self) -> MagicMock:
+        """Return a mock that replaces the module-level session."""
+        mock_session = MagicMock(spec=requests.Session)
+        return mock_session
 
     def test_rejects_http_url(self) -> None:
         with pytest.raises(ValueError, match="Only HTTPS URLs are allowed"):
@@ -113,72 +153,82 @@ class TestFetchUrl:
         with pytest.raises(ValueError, match="Only HTTPS URLs are allowed"):
             fetch_url("ftp://example.com/data.json")
 
-    @patch("ingestion.utils.requests.get")
-    def test_successful_request(self, mock_get: MagicMock) -> None:
+    def test_successful_request(self) -> None:
+        mock_session = self._make_mock_session()
         mock_response = MagicMock(spec=requests.Response)
         mock_response.status_code = 200
-        mock_get.return_value = mock_response
+        mock_session.get.return_value = mock_response
 
-        result = fetch_url("https://example.com/data.json")
+        with patch("ingestion.utils._get_session", return_value=mock_session):
+            result = fetch_url("https://example.com/data.json")
+
         assert result == mock_response
-        mock_get.assert_called_once_with("https://example.com/data.json", timeout=(10, 30), verify=True)
+        mock_session.get.assert_called_once_with("https://example.com/data.json", timeout=(10, 30))
 
     @patch("ingestion.utils.time.sleep")
-    @patch("ingestion.utils.requests.get")
-    def test_retries_on_429(self, mock_get: MagicMock, mock_sleep: MagicMock) -> None:
+    def test_retries_on_429(self, mock_sleep: MagicMock) -> None:
+        mock_session = self._make_mock_session()
         mock_429 = MagicMock(spec=requests.Response)
         mock_429.status_code = 429
         mock_200 = MagicMock(spec=requests.Response)
         mock_200.status_code = 200
-        mock_get.side_effect = [mock_429, mock_200]
+        mock_session.get.side_effect = [mock_429, mock_200]
 
-        result = fetch_url("https://example.com/data.json")
+        with patch("ingestion.utils._get_session", return_value=mock_session):
+            result = fetch_url("https://example.com/data.json")
+
         assert result == mock_200
-        assert mock_get.call_count == 2
+        assert mock_session.get.call_count == 2
         mock_sleep.assert_called_once_with(1)  # 2**0 = 1
 
     @patch("ingestion.utils.time.sleep")
-    @patch("ingestion.utils.requests.get")
-    def test_retries_on_503(self, mock_get: MagicMock, mock_sleep: MagicMock) -> None:
+    def test_retries_on_503(self, mock_sleep: MagicMock) -> None:
+        mock_session = self._make_mock_session()
         mock_503 = MagicMock(spec=requests.Response)
         mock_503.status_code = 503
         mock_200 = MagicMock(spec=requests.Response)
         mock_200.status_code = 200
-        mock_get.side_effect = [mock_503, mock_503, mock_200]
+        mock_session.get.side_effect = [mock_503, mock_503, mock_200]
 
-        result = fetch_url("https://example.com/data.json")
+        with patch("ingestion.utils._get_session", return_value=mock_session):
+            result = fetch_url("https://example.com/data.json")
+
         assert result == mock_200
-        assert mock_get.call_count == 3
+        assert mock_session.get.call_count == 3
 
     @patch("ingestion.utils.time.sleep")
-    @patch("ingestion.utils.requests.get")
-    def test_raises_after_max_retries(self, mock_get: MagicMock, mock_sleep: MagicMock) -> None:
+    def test_raises_after_max_retries(self, mock_sleep: MagicMock) -> None:
+        mock_session = self._make_mock_session()
         mock_500 = MagicMock(spec=requests.Response)
         mock_500.status_code = 500
         mock_500.raise_for_status.side_effect = requests.HTTPError("Server Error")
-        mock_get.return_value = mock_500
+        mock_session.get.return_value = mock_500
 
-        with pytest.raises(requests.HTTPError):
-            fetch_url("https://example.com/data.json", max_retries=3)
+        with patch("ingestion.utils._get_session", return_value=mock_session):
+            with pytest.raises(requests.HTTPError):
+                fetch_url("https://example.com/data.json", max_retries=3)
 
-    @patch("ingestion.utils.requests.get")
-    def test_raises_immediately_on_404(self, mock_get: MagicMock) -> None:
+    def test_raises_immediately_on_404(self) -> None:
+        mock_session = self._make_mock_session()
         mock_404 = MagicMock(spec=requests.Response)
         mock_404.status_code = 404
         mock_404.raise_for_status.side_effect = requests.HTTPError("Not Found")
-        mock_get.return_value = mock_404
+        mock_session.get.return_value = mock_404
 
-        with pytest.raises(requests.HTTPError):
-            fetch_url("https://example.com/missing.json")
+        with patch("ingestion.utils._get_session", return_value=mock_session):
+            with pytest.raises(requests.HTTPError):
+                fetch_url("https://example.com/missing.json")
 
-    @patch("ingestion.utils.requests.get")
-    def test_custom_timeout(self, mock_get: MagicMock) -> None:
+    def test_custom_timeout(self) -> None:
+        mock_session = self._make_mock_session()
         mock_response = MagicMock(spec=requests.Response)
         mock_response.status_code = 200
-        mock_get.return_value = mock_response
+        mock_session.get.return_value = mock_response
 
-        fetch_url("https://example.com/data.json", timeout=(5, 15))
-        mock_get.assert_called_once_with("https://example.com/data.json", timeout=(5, 15), verify=True)
+        with patch("ingestion.utils._get_session", return_value=mock_session):
+            fetch_url("https://example.com/data.json", timeout=(5, 15))
+
+        mock_session.get.assert_called_once_with("https://example.com/data.json", timeout=(5, 15))
 
 
 # ---------------------------------------------------------------------------

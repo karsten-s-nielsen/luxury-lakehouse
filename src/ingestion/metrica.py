@@ -43,6 +43,9 @@ from ingestion.utils import (
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
+# Pre-compiled regex for sanitizing DataFrame column names (Delta Lake rejects spaces/special chars)
+_COLUMN_CLEAN_RE = re.compile(r"[^a-zA-Z0-9_]")
+
 # GitHub raw URLs for Metrica open data (HTTPS only)
 _BASE_URL = "https://raw.githubusercontent.com/metrica-sports/sample-data/master/data"
 
@@ -429,12 +432,6 @@ def _safe_float(val: object) -> float | None:
     return f
 
 
-def _safe_int(val: object) -> int | None:
-    """Extract a scalar int from a pandas cell value, returning None for NaN."""
-    f = _safe_float(val)
-    return int(f) if f is not None else None
-
-
 def _reshape_tracking_to_narrow(
     df: pd.DataFrame,
     match_id: str,
@@ -444,46 +441,99 @@ def _reshape_tracking_to_narrow(
     Input: one column per player coordinate (wide).
     Output: one row per frame with ``home_players`` and ``away_players`` as
     JSON strings containing ``{player_id: {x: float, y: float}}``.
+
+    Uses vectorized pd.melt + groupby instead of iterrows for performance.
     """
-    rows: list[dict[str, object]] = []
+    import numpy as np
+
+    n_rows = len(df)
     col_set = set(df.columns)
 
-    for _, row in df.iterrows():
-        home_players: dict[str, dict[str, float | None]] = {}
-        away_players: dict[str, dict[str, float | None]] = {}
+    def _numeric_series(col_name: str) -> pd.Series:  # type: ignore[type-arg]
+        """Extract a column as a numeric Series, coercing errors to NaN."""
+        if col_name not in col_set:
+            return pd.Series([None] * n_rows)
+        return pd.Series(pd.to_numeric(df[col_name], errors="coerce"))
 
-        for col in df.columns:
-            if col.startswith("Home_") and col.endswith("_x"):
-                pid = col.replace("Home_", "").replace("_x", "")
-                y_col = f"Home_{pid}_y"
-                x_val = _safe_float(row[col])
-                y_val = _safe_float(row[y_col]) if y_col in col_set else None
-                if x_val is not None or y_val is not None:
-                    home_players[pid] = {"x": x_val, "y": y_val}
+    # --- Scalar columns (vectorized) ---
+    period_s = _numeric_series("Period")
+    frame_s = _numeric_series("Frame")
+    ts_s = _numeric_series("Time [s]")
+    ball_x_s = _numeric_series("Ball_x")
+    ball_y_s = _numeric_series("Ball_y")
 
-            elif col.startswith("Away_") and col.endswith("_x"):
-                pid = col.replace("Away_", "").replace("_x", "")
-                y_col = f"Away_{pid}_y"
-                x_val = _safe_float(row[col])
-                y_val = _safe_float(row[y_col]) if y_col in col_set else None
-                if x_val is not None or y_val is not None:
-                    away_players[pid] = {"x": x_val, "y": y_val}
+    # Convert integer-valued floats to int for period/frame, preserve None for NaN
+    def _to_opt_int(s: pd.Series) -> list[int | None]:  # type: ignore[type-arg]
+        return [int(v) if pd.notna(v) else None for v in s]
 
-        rows.append(
-            {
-                "period": _safe_int(row.get("Period")),
-                "frame": _safe_int(row.get("Frame")),
-                "timestamp": _safe_float(row.get("Time [s]")),
-                "ball_x": _safe_float(row.get("Ball_x")) if "Ball_x" in col_set else None,
-                "ball_y": _safe_float(row.get("Ball_y")) if "Ball_y" in col_set else None,
-                "home_players": json.dumps(home_players),
-                "away_players": json.dumps(away_players),
-                "match_id": match_id,
-                "frame_rate": 25,
-            }
-        )
+    def _to_opt_float(s: pd.Series) -> list[float | None]:  # type: ignore[type-arg]
+        return [float(v) if pd.notna(v) else None for v in s]
 
-    return pd.DataFrame(rows)
+    period_list = _to_opt_int(period_s)
+    frame_list = _to_opt_int(frame_s)
+    ts_list = _to_opt_float(ts_s)
+    ball_x_list = _to_opt_float(ball_x_s)
+    ball_y_list = _to_opt_float(ball_y_s)
+
+    # --- Player columns: identify (team, player_id, x_col, y_col) tuples ---
+    _player_col_re = re.compile(r"^(Home|Away)_(.+)_x$")
+    player_groups: dict[str, list[tuple[str, str, str]]] = {"Home": [], "Away": []}
+    for col in df.columns:
+        m = _player_col_re.match(col)
+        if m:
+            team, pid = m.group(1), m.group(2)
+            y_col = f"{team}_{pid}_y"
+            if y_col in col_set:
+                player_groups[team].append((pid, col, y_col))
+
+    # --- Build JSON player dicts using numpy arrays for fast column access ---
+    def _build_player_json_column(
+        groups: list[tuple[str, str, str]],
+    ) -> list[str]:
+        """Build a list of JSON strings, one per row, from player column groups."""
+        if not groups:
+            return [json.dumps({})] * n_rows
+
+        # Extract numpy arrays for all player x/y columns at once
+        x_arrays: list[np.ndarray[tuple[int], np.dtype[np.float64]]] = []
+        y_arrays: list[np.ndarray[tuple[int], np.dtype[np.float64]]] = []
+        pids: list[str] = []
+        for pid, x_col, y_col in groups:
+            pids.append(pid)
+            x_s = _numeric_series(x_col)
+            y_s = _numeric_series(y_col)
+            x_arrays.append(np.asarray(x_s.values, dtype=np.float64))
+            y_arrays.append(np.asarray(y_s.values, dtype=np.float64))
+
+        result: list[str] = []
+        for i in range(n_rows):
+            players: dict[str, dict[str, float | None]] = {}
+            for j, pid in enumerate(pids):
+                x_val = x_arrays[j][i]
+                y_val = y_arrays[j][i]
+                x_f: float | None = float(x_val) if not np.isnan(x_val) else None
+                y_f: float | None = float(y_val) if not np.isnan(y_val) else None
+                if x_f is not None or y_f is not None:
+                    players[pid] = {"x": x_f, "y": y_f}
+            result.append(json.dumps(players))
+        return result
+
+    home_json = _build_player_json_column(player_groups["Home"])
+    away_json = _build_player_json_column(player_groups["Away"])
+
+    return pd.DataFrame(
+        {
+            "period": period_list,
+            "frame": frame_list,
+            "timestamp": ts_list,
+            "ball_x": ball_x_list,
+            "ball_y": ball_y_list,
+            "home_players": home_json,
+            "away_players": away_json,
+            "match_id": match_id,
+            "frame_rate": 25,
+        }
+    )
 
 
 def _download_and_parse_tracking(
@@ -566,7 +616,7 @@ def _download_and_parse_events(
     df = df.rename(columns=actual_renames)
 
     # Sanitize remaining column names: Delta Lake rejects spaces and special chars
-    df.columns = [re.sub(r"[^a-zA-Z0-9_]", "_", col).strip("_").lower() for col in df.columns]
+    df.columns = [_COLUMN_CLEAN_RE.sub("_", col).strip("_").lower() for col in df.columns]
 
     # Ensure event_id exists
     if "event_id" not in df.columns:
@@ -589,16 +639,62 @@ def ingest_tracking(
     schema: str,
     logger: logging.Logger,
 ) -> None:
-    """Download and ingest tracking data for all sample games (CSV + EPTS)."""
-    all_tracking: list[pd.DataFrame] = []
+    """Download and ingest tracking data per match to avoid OOM on batch concat."""
+    required_cols = [
+        "period",
+        "frame",
+        "timestamp",
+        "ball_x",
+        "ball_y",
+        "home_players",
+        "away_players",
+        "match_id",
+        "frame_rate",
+    ]
+
+    # Incremental skip: check which matches already exist in the Delta table
+    all_match_ids = list(_TRACKING_URLS.keys()) + list(_EPTS_URLS.keys())
+    existing_ids: set[str] = set()
+    try:
+        existing_rows = spark.table(f"{catalog}.{schema}.metrica_tracking").select("match_id").distinct().collect()
+        existing_ids = {str(row["match_id"]) for row in existing_rows}
+    except Exception:
+        logger.info("No existing metrica_tracking table — processing all matches")
+
+    new_match_ids = [mid for mid in all_match_ids if mid not in existing_ids]
+    logger.info(
+        "%d matches total, %d already processed, %d to process",
+        len(all_match_ids),
+        len(all_match_ids) - len(new_match_ids),
+        len(new_match_ids),
+    )
+
+    if not new_match_ids:
+        return
 
     # Games 1-2: CSV format
     for match_id, urls in _TRACKING_URLS.items():
+        if match_id in existing_ids:
+            logger.info("Tracking for %s already ingested — skipping", match_id)
+            continue
         tracking_df = _download_and_parse_tracking(urls["home"], urls["away"], match_id, logger)
-        all_tracking.append(tracking_df)
+        sdf = spark.createDataFrame(tracking_df)
+        row_count = validate_dataframe(sdf, required_cols, "metrica_tracking", logger)
+        write_delta_table(
+            sdf,
+            catalog,
+            schema,
+            "metrica_tracking",
+            replace_where=f"match_id = '{match_id}'",
+            logger=logger,
+            row_count=row_count,
+        )
 
     # Game 3: EPTS format
     for match_id, urls in _EPTS_URLS.items():
+        if match_id in existing_ids:
+            logger.info("Tracking for %s already ingested — skipping", match_id)
+            continue
         logger.info("Downloading EPTS metadata for %s", match_id)
         metadata_resp = fetch_url(urls["metadata"])
         metadata = _parse_epts_metadata(metadata_resp.text)
@@ -609,29 +705,14 @@ def ingest_tracking(
 
         tracking_df = pd.DataFrame(rows)
         logger.info("Parsed %d EPTS tracking frames for %s", len(tracking_df), match_id)
-        all_tracking.append(tracking_df)
-
-    if all_tracking:
-        combined = pd.concat(all_tracking, ignore_index=True)
-        sdf = spark.createDataFrame(combined)
-        required_cols = [
-            "period",
-            "frame",
-            "timestamp",
-            "ball_x",
-            "ball_y",
-            "home_players",
-            "away_players",
-            "match_id",
-            "frame_rate",
-        ]
+        sdf = spark.createDataFrame(tracking_df)
         row_count = validate_dataframe(sdf, required_cols, "metrica_tracking", logger)
         write_delta_table(
             sdf,
             catalog,
             schema,
             "metrica_tracking",
-            mode="overwrite",
+            replace_where=f"match_id = '{match_id}'",
             logger=logger,
             row_count=row_count,
         )
@@ -643,34 +724,69 @@ def ingest_events(
     schema: str,
     logger: logging.Logger,
 ) -> None:
-    """Download and ingest event data for all sample games (CSV + EPTS)."""
-    all_events: list[pd.DataFrame] = []
+    """Download and ingest event data per match to avoid OOM on batch concat."""
+    required_cols = ["event_id", "type", "period", "start_frame", "end_frame", "team", "player", "match_id"]
+
+    # Incremental skip: check which matches already exist in the Delta table
+    all_match_ids = list(_EVENT_URLS.keys()) + list(_EPTS_URLS.keys())
+    existing_ids: set[str] = set()
+    try:
+        existing_rows = spark.table(f"{catalog}.{schema}.metrica_events").select("match_id").distinct().collect()
+        existing_ids = {str(row["match_id"]) for row in existing_rows}
+    except Exception:
+        logger.info("No existing metrica_events table — processing all matches")
+
+    new_match_ids = [mid for mid in all_match_ids if mid not in existing_ids]
+    logger.info(
+        "%d matches total, %d already processed, %d to process",
+        len(all_match_ids),
+        len(all_match_ids) - len(new_match_ids),
+        len(new_match_ids),
+    )
+
+    if not new_match_ids:
+        return
 
     # Games 1-2: CSV format
     for match_id, url in _EVENT_URLS.items():
+        if match_id in existing_ids:
+            logger.info("Events for %s already ingested — skipping", match_id)
+            continue
         events_df = _download_and_parse_events(url, match_id, logger)
-        all_events.append(events_df)
+        sdf = spark.createDataFrame(events_df)
+        row_count = validate_dataframe(sdf, required_cols, "metrica_events", logger)
+        write_delta_table(
+            sdf,
+            catalog,
+            schema,
+            "metrica_events",
+            replace_where=f"match_id = '{match_id}'",
+            logger=logger,
+            row_count=row_count,
+        )
 
     # Game 3: EPTS JSON format
     for match_id, urls in _EPTS_URLS.items():
+        if match_id in existing_ids:
+            logger.info("Events for %s already ingested — skipping", match_id)
+            continue
         logger.info("Downloading EPTS events for %s", match_id)
         resp = fetch_url(urls["events"])
         events_json = resp.json()
         events_data: list[dict[str, object]] = events_json.get("data", events_json)
         events_df = _parse_epts_events(events_data, match_id)
         logger.info("Parsed %d EPTS events for %s", len(events_df), match_id)
-        all_events.append(events_df)
-
-    if all_events:
-        combined = pd.concat(all_events, ignore_index=True)
-        sdf = spark.createDataFrame(combined)
-        row_count = validate_dataframe(
+        sdf = spark.createDataFrame(events_df)
+        row_count = validate_dataframe(sdf, required_cols, "metrica_events", logger)
+        write_delta_table(
             sdf,
-            ["event_id", "type", "period", "start_frame", "end_frame", "team", "player", "match_id"],
+            catalog,
+            schema,
             "metrica_events",
-            logger,
+            replace_where=f"match_id = '{match_id}'",
+            logger=logger,
+            row_count=row_count,
         )
-        write_delta_table(sdf, catalog, schema, "metrica_events", mode="overwrite", logger=logger, row_count=row_count)
 
 
 # ---------------------------------------------------------------------------

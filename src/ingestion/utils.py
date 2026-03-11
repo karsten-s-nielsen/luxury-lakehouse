@@ -201,12 +201,14 @@ def write_delta_table(
     if row_count is None:
         row_count = int(df.count())
 
-    writer = df.write.format("delta").option("mergeSchema", "true")
+    writer = df.write.format("delta")
 
     if replace_where is not None:
-        writer = writer.option("replaceWhere", replace_where).mode("overwrite")
+        writer = writer.option("mergeSchema", "true").option("replaceWhere", replace_where).mode("overwrite")
+    elif mode == "overwrite":
+        writer = writer.option("overwriteSchema", "true").mode("overwrite")
     else:
-        writer = writer.mode(mode)
+        writer = writer.option("mergeSchema", "true").mode(mode)
 
     writer.saveAsTable(full_table)
 
@@ -223,6 +225,7 @@ def merge_delta_table(
     table_name: str,
     merge_key: str,
     logger: logging.Logger | None = None,
+    row_count: int | None = None,
 ) -> int:
     """Upsert rows into a Delta table using MERGE on a unique key.
 
@@ -240,6 +243,7 @@ def merge_delta_table(
         table_name: Destination table name.
         merge_key: Column name used as the join key for MERGE.
         logger: Optional logger for row-count reporting.
+        row_count: Pre-computed row count to avoid redundant ``df.count()``.
 
     Returns:
         Number of rows in the source DataFrame (upserted).
@@ -253,7 +257,8 @@ def merge_delta_table(
 
     full_table = f"{catalog}.{schema}.{table_name}"
     df = add_audit_columns(df)
-    row_count = int(df.count())
+    if row_count is None:
+        row_count = int(df.count())
 
     try:
         from delta.tables import DeltaTable
@@ -286,6 +291,22 @@ def merge_delta_table(
 # 5. HTTP Client
 # ---------------------------------------------------------------------------
 
+_session: requests.Session | None = None
+
+
+def _get_session() -> requests.Session:
+    """Return the module-level shared :class:`requests.Session`, creating it on first call.
+
+    Reusing a single session across calls enables TCP keep-alive and TLS session
+    resumption, eliminating per-request handshake overhead when hitting the same
+    host repeatedly (e.g. the StatsBomb open-data API).
+    """
+    global _session
+    if _session is None:
+        _session = requests.Session()
+        _session.verify = True
+    return _session
+
 
 def fetch_url(
     url: str,
@@ -293,6 +314,9 @@ def fetch_url(
     max_retries: int = 3,
 ) -> requests.Response:
     """Fetch a URL with HTTPS enforcement, SSL verification, and retry logic.
+
+    Uses a module-level :class:`requests.Session` so that sequential calls to
+    the same host benefit from TCP keep-alive and TLS session resumption.
 
     Args:
         url: The resource URL. Must use ``https://``.
@@ -310,10 +334,11 @@ def fetch_url(
         msg = f"Only HTTPS URLs are allowed, got: {url}"
         raise ValueError(msg)
 
+    session = _get_session()
     last_response: requests.Response | None = None
 
     for attempt in range(max_retries):
-        response = requests.get(url, timeout=timeout, verify=True)
+        response = session.get(url, timeout=timeout)
         last_response = response
 
         if response.status_code < 400:

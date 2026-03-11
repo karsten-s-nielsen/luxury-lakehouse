@@ -19,6 +19,20 @@ resource "aws_kms_alias" "terraform_state" {
   target_key_id = aws_kms_key.terraform_state.key_id
 }
 
+# Lifecycle rule: expire non-current state versions after 90 days
+resource "aws_s3_bucket_lifecycle_configuration" "state" {
+  bucket = var.state_bucket
+
+  rule {
+    id     = "expire-noncurrent-state-versions"
+    status = "Enabled"
+
+    noncurrent_version_expiration {
+      noncurrent_days = 90
+    }
+  }
+}
+
 # Enable S3 Bucket Key to reduce KMS API costs (~99 % fewer KMS calls)
 resource "aws_s3_bucket_server_side_encryption_configuration" "state" {
   bucket = var.state_bucket

@@ -42,3 +42,9 @@ variable "notification_emails" {
   type        = list(string)
   default     = []
 }
+
+variable "alert_email" {
+  description = "Email address for AWS budget alarm notifications"
+  type        = string
+  default     = ""
+}

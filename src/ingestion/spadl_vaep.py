@@ -17,24 +17,16 @@ incremental runs by skipping games already converted / scored.
 from __future__ import annotations
 
 import gc
-import hashlib
-import json
 import logging
-import os
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import socceraction.spadl as spadl
-import socceraction.spadl.statsbomb as spadl_sb
-import socceraction.spadl.wyscout as spadl_ws
 import socceraction.vaep.features as fs
-import socceraction.vaep.formula as vaepformula
 import socceraction.vaep.labels as labels
 from xgboost import XGBClassifier
 
 from ingestion.spadl_adapter import (
-    adapt_statsbomb_events,
-    adapt_wyscout_events,
     resolve_statsbomb_home_team_ids,
     resolve_wyscout_home_team_ids,
 )
@@ -152,6 +144,72 @@ def _read_existing_game_ids(
 # ---------------------------------------------------------------------------
 
 
+def _make_sb_spadl_udf() -> object:
+    """Build the ``applyInPandas`` UDF closure for StatsBomb SPADL conversion.
+
+    All library imports happen inside the closure so they are available
+    on Spark executors without requiring module-level serialisation.
+
+    Returns:
+        A callable ``(pd.DataFrame) -> pd.DataFrame`` suitable for
+        ``applyInPandas``.
+    """
+
+    def _udf(pdf: pd.DataFrame) -> pd.DataFrame:
+        """Convert one game's StatsBomb events to SPADL actions."""
+        import pandas as _pd
+
+        from ingestion.spadl_adapter import adapt_statsbomb_events as _adapt
+
+        _spadl_cols = _pd.Index(
+            [
+                "game_id",
+                "original_event_id",
+                "period_id",
+                "time_seconds",
+                "team_id",
+                "player_id",
+                "start_x",
+                "start_y",
+                "end_x",
+                "end_y",
+                "type_id",
+                "result_id",
+                "bodypart_id",
+                "competition_id",
+                "season_id",
+                "data_source",
+            ]
+        )
+
+        if pdf.empty:
+            return _pd.DataFrame(columns=_spadl_cols)
+
+        import socceraction.spadl.statsbomb as _spadl_sb
+
+        home_team_id = int(pdf["home_team_id"].iloc[0])
+        competition_id = int(pdf["competition_id"].iloc[0])
+        season_id = int(pdf["season_id"].iloc[0])
+
+        try:
+            adapted = _adapt(pdf, home_team_id)
+            actions = _spadl_sb.convert_to_actions(adapted, home_team_id)
+        except Exception:
+            return _pd.DataFrame(columns=_spadl_cols)
+
+        actions["competition_id"] = competition_id
+        actions["season_id"] = season_id
+        actions["data_source"] = "statsbomb"
+
+        # Keep only the expected output columns (drop any extras from socceraction)
+        for col in _spadl_cols:
+            if col not in actions.columns:
+                actions[col] = 0
+        return _pd.DataFrame(actions[_spadl_cols])
+
+    return _udf
+
+
 def _convert_statsbomb_from_bronze(
     spark: SparkSession,
     catalog: str,
@@ -161,98 +219,172 @@ def _convert_statsbomb_from_bronze(
 ) -> bool:
     """Read StatsBomb events from bronze, adapt, convert to SPADL, write Delta.
 
+    Uses ``groupBy("match_id").applyInPandas`` to distribute per-game
+    SPADL conversion across Spark executors instead of sequential driver
+    loops with ``.toPandas()``.
+
     Returns whether any data was written.
     """
+    from pyspark.sql import functions as spark_fn
+    from pyspark.sql.types import DoubleType, LongType, StringType, StructField, StructType
+
     events_table = f"{catalog}.{schema}.statsbomb_events"
     matches_table = f"{catalog}.{schema}.statsbomb_matches"
 
     try:
-        all_events_pdf = spark.table(events_table).toPandas()
         all_matches_pdf = spark.table(matches_table).toPandas()
     except Exception:
-        logger.exception("Cannot read StatsBomb bronze tables")
+        logger.exception("Cannot read StatsBomb matches bronze table")
         return False
 
-    if all_events_pdf.empty:
+    # Pull only team lookup columns (tiny vs full table) for home_team_id resolution
+    try:
+        team_lookup_pdf = spark.table(events_table).select("match_id", "team_id", "team").distinct().toPandas()
+    except Exception:
+        logger.exception("Cannot read StatsBomb events bronze table")
+        return False
+
+    if team_lookup_pdf.empty:
         logger.info("StatsBomb bronze events table is empty — skipping")
         return False
 
-    # Resolve home_team_id per match
-    home_team_map = resolve_statsbomb_home_team_ids(all_matches_pdf, all_events_pdf)
+    home_team_map = resolve_statsbomb_home_team_ids(all_matches_pdf, team_lookup_pdf)
 
-    # Group by competition/season for partition-level writes
-    if "competition_id" not in all_events_pdf.columns or "season_id" not in all_events_pdf.columns:
-        logger.warning("StatsBomb events missing competition_id/season_id — skipping")
+    # Find new game_ids via Spark (tiny result)
+    events_sdf = spark.table(events_table)
+    all_game_rows = events_sdf.select("match_id").distinct().collect()
+    all_game_ids = [int(row["match_id"]) for row in all_game_rows]
+    new_game_ids = [gid for gid in all_game_ids if gid not in existing_games]
+
+    # Also filter out games where home_team_id is unknown
+    new_game_ids = [gid for gid in new_game_ids if home_team_map.get(gid, 0) != 0]
+
+    if not new_game_ids:
+        logger.info("StatsBomb: all %d games already converted — skipping", len(all_game_ids))
         return False
 
-    comp_seasons = all_events_pdf[["competition_id", "season_id"]].drop_duplicates()
-    logger.info("StatsBomb: %d competition-seasons found in bronze", len(comp_seasons))
+    logger.info("StatsBomb: converting %d new games (of %d total)", len(new_game_ids), len(all_game_ids))
 
-    wrote_any = False
-
-    for _, cs_row in comp_seasons.iterrows():
-        comp_id = int(cs_row["competition_id"])
-        season_id = int(cs_row["season_id"])
-
-        cs_events = all_events_pdf[
-            (all_events_pdf["competition_id"] == comp_id) & (all_events_pdf["season_id"] == season_id)
+    # Build home_team_id lookup as Spark DataFrame and join to events
+    home_rows = [(gid, home_team_map[gid]) for gid in new_game_ids]
+    home_schema = StructType(
+        [
+            StructField("match_id", LongType()),
+            StructField("home_team_id", LongType()),
         ]
-        match_ids = cs_events["match_id"].unique()
+    )
+    home_sdf = spark.createDataFrame(home_rows, schema=home_schema)
 
-        # Filter to new games only (incremental)
-        new_match_ids = [mid for mid in match_ids if int(mid) not in existing_games]
-        if not new_match_ids:
-            logger.info(
-                "SB comp %d/%d: all %d games already converted — skipping",
-                comp_id,
-                season_id,
-                len(match_ids),
-            )
-            continue
+    # Filter events to new games and join home_team_id
+    new_events_sdf = events_sdf.filter(spark_fn.col("match_id").isin(new_game_ids)).join(
+        home_sdf, on="match_id", how="inner"
+    )
 
-        logger.info(
-            "SB comp %d/%d: converting %d new games (of %d total)",
-            comp_id,
-            season_id,
-            len(new_match_ids),
-            len(match_ids),
+    # Define SPADL output schema
+    spadl_schema = StructType(
+        [
+            StructField("game_id", LongType()),
+            StructField("original_event_id", StringType()),
+            StructField("period_id", LongType()),
+            StructField("time_seconds", DoubleType()),
+            StructField("team_id", LongType()),
+            StructField("player_id", LongType()),
+            StructField("start_x", DoubleType()),
+            StructField("start_y", DoubleType()),
+            StructField("end_x", DoubleType()),
+            StructField("end_y", DoubleType()),
+            StructField("type_id", LongType()),
+            StructField("result_id", LongType()),
+            StructField("bodypart_id", LongType()),
+            StructField("competition_id", LongType()),
+            StructField("season_id", LongType()),
+            StructField("data_source", StringType()),
+        ]
+    )
+
+    udf_fn = _make_sb_spadl_udf()
+    spadl_sdf = new_events_sdf.groupBy("match_id").applyInPandas(
+        udf_fn,  # type: ignore[arg-type]
+        schema=spadl_schema,
+    )
+
+    write_delta_table(
+        spadl_sdf,
+        catalog,
+        schema,
+        _SPADL_TABLE,
+        replace_where="data_source = 'statsbomb'",
+        logger=logger,
+    )
+
+    logger.info("StatsBomb: SPADL conversion complete for %d games", len(new_game_ids))
+    return True
+
+
+def _make_ws_spadl_udf() -> object:
+    """Build the ``applyInPandas`` UDF closure for Wyscout SPADL conversion.
+
+    All library imports happen inside the closure so they are available
+    on Spark executors without requiring module-level serialisation.
+
+    Returns:
+        A callable ``(pd.DataFrame) -> pd.DataFrame`` suitable for
+        ``applyInPandas``.
+    """
+
+    def _udf(pdf: pd.DataFrame) -> pd.DataFrame:
+        """Convert one game's Wyscout events to SPADL actions."""
+        import pandas as _pd
+
+        from ingestion.spadl_adapter import adapt_wyscout_events as _adapt
+
+        _spadl_cols = _pd.Index(
+            [
+                "game_id",
+                "original_event_id",
+                "period_id",
+                "time_seconds",
+                "team_id",
+                "player_id",
+                "start_x",
+                "start_y",
+                "end_x",
+                "end_y",
+                "type_id",
+                "result_id",
+                "bodypart_id",
+                "competition_id",
+                "season_id",
+                "data_source",
+            ]
         )
 
-        all_actions: list[pd.DataFrame] = []
-        for match_id in new_match_ids:
-            match_id = int(match_id)
-            home_team_id = home_team_map.get(match_id, 0)
-            if home_team_id == 0:
-                logger.warning("SB match %d: cannot resolve home_team_id — skipping", match_id)
-                continue
+        if pdf.empty:
+            return _pd.DataFrame(columns=_spadl_cols)
 
-            game_events = cs_events[cs_events["match_id"] == match_id]
-            try:
-                adapted = adapt_statsbomb_events(game_events, home_team_id)
-                actions = spadl_sb.convert_to_actions(adapted, home_team_id)
-                actions["competition_id"] = comp_id
-                actions["season_id"] = season_id
-                all_actions.append(actions)
-            except Exception:
-                logger.exception("Failed SB SPADL conversion for match %d", match_id)
+        import socceraction.spadl.wyscout as _spadl_ws
 
-        if not all_actions:
-            continue
+        home_team_id = int(pdf["home_team_id"].iloc[0])
+        competition_id = int(pdf["competition_id"].iloc[0])
+        season_id = int(pdf["season_id"].iloc[0])
 
-        comp_actions = pd.concat(all_actions, ignore_index=True)
-        comp_actions["data_source"] = "statsbomb"
-        comp_actions = _clean_spadl_for_spark(comp_actions)
+        try:
+            adapted = _adapt(pdf)
+            actions = _spadl_ws.convert_to_actions(adapted, home_team_id)
+        except Exception:
+            return _pd.DataFrame(columns=_spadl_cols)
 
-        sdf = spark.createDataFrame(comp_actions)
-        replace_expr = f"competition_id = {comp_id} AND season_id = {season_id} AND data_source = 'statsbomb'"
-        write_delta_table(sdf, catalog, schema, _SPADL_TABLE, replace_where=replace_expr, logger=logger)
-        wrote_any = True
+        actions["competition_id"] = competition_id
+        actions["season_id"] = season_id
+        actions["data_source"] = "wyscout"
 
-        logger.info("SB comp %d/%d: %d actions written", comp_id, season_id, len(comp_actions))
-        del all_actions, comp_actions, sdf
-        gc.collect()
+        # Keep only the expected output columns (drop any extras from socceraction)
+        for col in _spadl_cols:
+            if col not in actions.columns:
+                actions[col] = 0
+        return _pd.DataFrame(actions[_spadl_cols])
 
-    return wrote_any
+    return _udf
 
 
 def _convert_wyscout_from_bronze(
@@ -264,96 +396,120 @@ def _convert_wyscout_from_bronze(
 ) -> bool:
     """Read Wyscout events from bronze, adapt, convert to SPADL, write Delta.
 
+    Uses ``groupBy(match_id_col).applyInPandas`` to distribute per-game
+    SPADL conversion across Spark executors instead of sequential driver
+    loops with ``.toPandas()``.
+
     Returns whether any data was written.
     """
+    from pyspark.sql import functions as spark_fn
+    from pyspark.sql.types import DoubleType, LongType, StringType, StructField, StructType
+
     events_table = f"{catalog}.{schema}.wyscout_events"
     matches_table = f"{catalog}.{schema}.wyscout_matches"
 
     try:
-        all_events_pdf = spark.table(events_table).toPandas()
         all_matches_pdf = spark.table(matches_table).toPandas()
     except Exception:
-        logger.exception("Cannot read Wyscout bronze tables")
+        logger.exception("Cannot read Wyscout matches bronze table")
         return False
 
-    if all_events_pdf.empty:
-        logger.info("Wyscout bronze events table is empty — skipping")
+    # Determine match ID column name from events schema (metadata only, no scan)
+    try:
+        events_columns = spark.table(events_table).columns
+    except Exception:
+        logger.exception("Cannot read Wyscout events bronze table")
         return False
+
+    match_id_col = "matchId" if "matchId" in events_columns else "match_id"
 
     # Resolve home_team_id per match
     home_team_map = resolve_wyscout_home_team_ids(all_matches_pdf)
 
-    # Wyscout events use matchId (renamed to game_id by adapter), group by competition
-    # Wyscout matches have competitionId column
-    comp_ids = all_matches_pdf["competitionId"].unique() if "competitionId" in all_matches_pdf.columns else []
-    logger.info("Wyscout: %d competitions found in bronze", len(comp_ids))
+    # Get all game IDs from events via Spark (tiny result)
+    all_game_rows = spark.table(events_table).select(match_id_col).distinct().collect()
+    all_game_ids = [int(row[match_id_col]) for row in all_game_rows]
+    new_game_ids = [gid for gid in all_game_ids if gid not in existing_games]
 
-    wrote_any = False
+    # Also filter out games where home_team_id is unknown
+    new_game_ids = [gid for gid in new_game_ids if home_team_map.get(gid, 0) != 0]
 
-    for comp_id in comp_ids:
-        comp_id = int(comp_id)
-        comp_matches = all_matches_pdf[all_matches_pdf["competitionId"] == comp_id]
-        comp_match_ids = comp_matches["wyId"].unique()
+    if not new_game_ids:
+        logger.info("Wyscout: all %d games already converted — skipping", len(all_game_ids))
+        return False
 
-        # Get events for this competition's matches
-        match_id_col = "matchId" if "matchId" in all_events_pdf.columns else "match_id"
-        comp_events = all_events_pdf[all_events_pdf[match_id_col].isin(comp_match_ids)]
+    logger.info("Wyscout: converting %d new games (of %d total)", len(new_game_ids), len(all_game_ids))
 
-        if comp_events.empty:
-            continue
+    # Build lookup DataFrame with home_team_id, competition_id, season_id per game
+    # Derive competition_id and season_id from matches metadata
+    match_meta: dict[int, tuple[int, int]] = {}
+    if "competitionId" in all_matches_pdf.columns:
+        for _, mrow in all_matches_pdf.iterrows():
+            game_id = int(mrow["wyId"])
+            comp_id = int(mrow["competitionId"])
+            season_id = int(mrow["seasonId"]) if "seasonId" in all_matches_pdf.columns else 0
+            match_meta[game_id] = (comp_id, season_id)
 
-        game_ids_in_comp = comp_events[match_id_col].unique()
-        new_game_ids = [gid for gid in game_ids_in_comp if int(gid) not in existing_games]
+    lookup_rows = [
+        (gid, home_team_map[gid], match_meta.get(gid, (0, 0))[0], match_meta.get(gid, (0, 0))[1])
+        for gid in new_game_ids
+    ]
+    lookup_schema = StructType(
+        [
+            StructField(match_id_col, LongType()),
+            StructField("home_team_id", LongType()),
+            StructField("competition_id", LongType()),
+            StructField("season_id", LongType()),
+        ]
+    )
+    lookup_sdf = spark.createDataFrame(lookup_rows, schema=lookup_schema)
 
-        if not new_game_ids:
-            logger.info("WS comp %d: all %d games already converted — skipping", comp_id, len(game_ids_in_comp))
-            continue
+    # Filter events to new games and join metadata
+    new_events_sdf = (
+        spark.table(events_table)
+        .filter(spark_fn.col(match_id_col).isin(new_game_ids))
+        .join(lookup_sdf, on=match_id_col, how="inner")
+    )
 
-        logger.info(
-            "WS comp %d: converting %d new games (of %d total)",
-            comp_id,
-            len(new_game_ids),
-            len(game_ids_in_comp),
-        )
+    # Define SPADL output schema (same as StatsBomb)
+    spadl_schema = StructType(
+        [
+            StructField("game_id", LongType()),
+            StructField("original_event_id", StringType()),
+            StructField("period_id", LongType()),
+            StructField("time_seconds", DoubleType()),
+            StructField("team_id", LongType()),
+            StructField("player_id", LongType()),
+            StructField("start_x", DoubleType()),
+            StructField("start_y", DoubleType()),
+            StructField("end_x", DoubleType()),
+            StructField("end_y", DoubleType()),
+            StructField("type_id", LongType()),
+            StructField("result_id", LongType()),
+            StructField("bodypart_id", LongType()),
+            StructField("competition_id", LongType()),
+            StructField("season_id", LongType()),
+            StructField("data_source", StringType()),
+        ]
+    )
 
-        # Derive season_id from matches (Wyscout has seasonId)
-        season_id = int(comp_matches["seasonId"].iloc[0]) if "seasonId" in comp_matches.columns else 0
+    udf_fn = _make_ws_spadl_udf()
+    spadl_sdf = new_events_sdf.groupBy(match_id_col).applyInPandas(
+        udf_fn,  # type: ignore[arg-type]
+        schema=spadl_schema,
+    )
 
-        all_actions: list[pd.DataFrame] = []
-        for game_id in new_game_ids:
-            game_id = int(game_id)
-            home_team_id = home_team_map.get(game_id, 0)
-            if home_team_id == 0:
-                logger.warning("WS game %d: cannot resolve home_team_id — skipping", game_id)
-                continue
+    write_delta_table(
+        spadl_sdf,
+        catalog,
+        schema,
+        _SPADL_TABLE,
+        replace_where="data_source = 'wyscout'",
+        logger=logger,
+    )
 
-            game_events = comp_events[comp_events[match_id_col] == game_id]
-            try:
-                adapted = adapt_wyscout_events(game_events)
-                actions = spadl_ws.convert_to_actions(adapted, home_team_id)
-                actions["competition_id"] = comp_id
-                actions["season_id"] = season_id
-                all_actions.append(actions)
-            except Exception:
-                logger.exception("Failed WS SPADL conversion for game %d", game_id)
-
-        if not all_actions:
-            continue
-
-        comp_actions = pd.concat(all_actions, ignore_index=True)
-        comp_actions["data_source"] = "wyscout"
-        comp_actions = _clean_spadl_for_spark(comp_actions)
-
-        sdf = spark.createDataFrame(comp_actions)
-        replace_expr = f"competition_id = {comp_id} AND season_id = {season_id} AND data_source = 'wyscout'"
-        write_delta_table(sdf, catalog, schema, _SPADL_TABLE, replace_where=replace_expr, logger=logger)
-        wrote_any = True
-
-        logger.info("WS comp %d: %d actions written", comp_id, len(comp_actions))
-        del all_actions, comp_actions, sdf
-        gc.collect()
-
-    return wrote_any
+    logger.info("Wyscout: SPADL conversion complete for %d games", len(new_game_ids))
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -441,28 +597,14 @@ def _load_or_train_models(
     training_game_ids: list[int],
     training_pdf: pd.DataFrame,
 ) -> tuple[XGBClassifier, XGBClassifier] | None:
-    """Load cached models from UC Volume if hash matches, else train and save.
+    """Train VAEP models on the driver.
 
-    Model cache key is a SHA-256 hash of the sorted training game IDs.
     Returns None if training fails (empty features).
+
+    Note: UC Volume FUSE on serverless does not support XGBoost's C-level
+    file I/O (save_model/load_model), so models are kept in memory and
+    serialized to bytes for executor distribution via ``get_booster().save_raw()``.
     """
-    training_hash = hashlib.sha256(json.dumps(sorted(training_game_ids)).encode()).hexdigest()[:12]
-    model_dir = f"/Volumes/{catalog}/{schema}/vaep_models"
-    scores_path = f"{model_dir}/scores_{training_hash}.json"
-    concedes_path = f"{model_dir}/concedes_{training_hash}.json"
-
-    # Try loading cached models
-    try:
-        if os.path.exists(scores_path) and os.path.exists(concedes_path):
-            model_scores = XGBClassifier()
-            model_scores.load_model(scores_path)
-            model_concedes = XGBClassifier()
-            model_concedes.load_model(concedes_path)
-            logger.info("Loaded cached VAEP models (hash=%s)", training_hash)
-            return model_scores, model_concedes
-    except Exception:
-        logger.warning("Failed to load cached models — will retrain", exc_info=True)
-
     # Extract features and train
     x_train, y_scores, y_concedes = _extract_features_for_games(
         training_pdf,
@@ -477,15 +619,6 @@ def _load_or_train_models(
     logger.info("Training features: %d rows x %d cols", len(x_train), x_train.shape[1])
     model_scores, model_concedes = train_vaep_models(x_train, y_scores, y_concedes, logger)
 
-    # Save models to UC Volume
-    try:
-        os.makedirs(model_dir, exist_ok=True)
-        model_scores.save_model(scores_path)
-        model_concedes.save_model(concedes_path)
-        logger.info("Saved VAEP models to %s (hash=%s)", model_dir, training_hash)
-    except Exception:
-        logger.warning("Failed to save models to UC Volume — training still succeeded", exc_info=True)
-
     return model_scores, model_concedes
 
 
@@ -494,76 +627,164 @@ def _load_or_train_models(
 # ---------------------------------------------------------------------------
 
 
-def _score_competition(
-    actions: pd.DataFrame,
-    model_scores: XGBClassifier,
-    model_concedes: XGBClassifier,
-    logger: logging.Logger,
-) -> pd.DataFrame:
-    """Extract features and score a single competition's actions.
+def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
+    """Build the ``applyInPandas`` UDF closure for VAEP scoring.
 
-    This avoids holding features for all competitions in memory at once.
+    Models are deserialized from raw bytes (captured in the closure) and
+    cached in a function-level dict so each executor deserializes only once.
+    This avoids UC Volume FUSE limitations on serverless where XGBoost's
+    C-level file I/O cannot read/write Volume paths.
+
+    Args:
+        scores_raw: Raw bytes from ``model.get_booster().save_raw("json")``.
+        concedes_raw: Raw bytes from ``model.get_booster().save_raw("json")``.
+
+    Returns:
+        A callable ``(pd.DataFrame) -> pd.DataFrame`` suitable for
+        ``applyInPandas``.
     """
-    named = spadl.add_names(actions)  # type: ignore[arg-type]
-    game_ids = named["game_id"].unique()
+    _nb_prev = _NB_PREV_ACTIONS
 
-    all_scored: list[pd.DataFrame] = []
-    for game_id in game_ids:
-        game_actions = named[named["game_id"] == game_id].reset_index(drop=True)
-        if len(game_actions) < 2:
-            continue
-        try:
-            gamestates = fs.gamestates(game_actions, nb_prev_actions=_NB_PREV_ACTIONS)  # type: ignore[arg-type]
-            x_game = pd.concat([fn(gamestates) for fn in _FEATURE_FNS], axis=1)
+    def _udf(pdf: pd.DataFrame) -> pd.DataFrame:
+        """Score one competition's SPADL actions with VAEP models."""
+        import pandas as _pd
 
-            p_scores = pd.Series(model_scores.predict_proba(x_game)[:, 1])
-            p_concedes = pd.Series(model_concedes.predict_proba(x_game)[:, 1])
-            values = vaepformula.value(game_actions, p_scores, p_concedes)  # type: ignore[arg-type]
+        _output_cols = _pd.Index(
+            [
+                "game_id",
+                "original_event_id",
+                "period_id",
+                "time_seconds",
+                "team_id",
+                "player_id",
+                "start_x",
+                "start_y",
+                "end_x",
+                "end_y",
+                "type_id",
+                "action_type",
+                "result_id",
+                "action_result",
+                "bodypart_id",
+                "bodypart",
+                "offensive_value",
+                "defensive_value",
+                "vaep_value",
+                "competition_id",
+                "season_id",
+                "data_source",
+            ]
+        )
 
-            game_out = pd.DataFrame(
-                game_actions[
-                    [
-                        c
-                        for c in [
-                            "game_id",
-                            "original_event_id",
-                            "period_id",
-                            "time_seconds",
-                            "team_id",
-                            "player_id",
-                            "start_x",
-                            "start_y",
-                            "end_x",
-                            "end_y",
-                            "type_id",
-                            "type_name",
-                            "result_id",
-                            "result_name",
-                            "bodypart_id",
-                            "bodypart_name",
+        if pdf.empty:
+            return _pd.DataFrame(columns=_output_cols)
+
+        import socceraction.spadl as _spadl
+        import socceraction.vaep.features as _fs
+        import socceraction.vaep.formula as _vaepformula
+
+        _feature_fns: list = [
+            _fs.actiontype_onehot,
+            _fs.result_onehot,
+            _fs.bodypart_onehot,
+            _fs.time,
+            _fs.startlocation,
+            _fs.endlocation,
+            _fs.startpolar,
+            _fs.endpolar,
+            _fs.movement,
+            _fs.team,
+            _fs.time_delta,
+        ]
+
+        # Load models with executor-level caching (deserialize from bytes)
+        if not hasattr(_udf, "_model_cache"):
+            _udf._model_cache = {}  # type: ignore[attr-defined]
+
+        cache: dict = _udf._model_cache  # type: ignore[attr-defined]
+        if "scores" not in cache:
+            from xgboost import XGBClassifier
+
+            m_scores = XGBClassifier()
+            m_scores.load_model(bytearray(scores_raw))
+            cache["scores"] = m_scores
+
+            m_concedes = XGBClassifier()
+            m_concedes.load_model(bytearray(concedes_raw))
+            cache["concedes"] = m_concedes
+
+        model_scores = cache["scores"]
+        model_concedes = cache["concedes"]
+
+        named = _spadl.add_names(pdf)  # type: ignore[arg-type]
+        game_ids = named["game_id"].unique()
+
+        all_scored: list[_pd.DataFrame] = []
+        for game_id in game_ids:
+            game_actions = named[named["game_id"] == game_id].reset_index(drop=True)
+            if len(game_actions) < 2:
+                continue
+            try:
+                gamestates = _fs.gamestates(game_actions, nb_prev_actions=_nb_prev)  # type: ignore[arg-type]
+                x_game = _pd.concat([fn(gamestates) for fn in _feature_fns], axis=1)
+
+                p_scores = _pd.Series(model_scores.predict_proba(x_game)[:, 1])
+                p_concedes = _pd.Series(model_concedes.predict_proba(x_game)[:, 1])
+                values = _vaepformula.value(game_actions, p_scores, p_concedes)  # type: ignore[arg-type]
+
+                game_out = _pd.DataFrame(
+                    game_actions[
+                        [
+                            c
+                            for c in [
+                                "game_id",
+                                "original_event_id",
+                                "period_id",
+                                "time_seconds",
+                                "team_id",
+                                "player_id",
+                                "start_x",
+                                "start_y",
+                                "end_x",
+                                "end_y",
+                                "type_id",
+                                "type_name",
+                                "result_id",
+                                "result_name",
+                                "bodypart_id",
+                                "bodypart_name",
+                            ]
+                            if c in game_actions.columns
                         ]
-                        if c in game_actions.columns
-                    ]
-                ].copy()
-            )
-            game_out = game_out.rename(
-                columns={
-                    "type_name": "action_type",
-                    "result_name": "action_result",
-                    "bodypart_name": "bodypart",
-                }
-            )
-            game_out["offensive_value"] = values["offensive_value"].values
-            game_out["defensive_value"] = values["defensive_value"].values
-            game_out["vaep_value"] = values["vaep_value"].values
-            all_scored.append(game_out)
-        except Exception:
-            logger.exception("Failed scoring game %s", game_id)
+                    ].copy()
+                )
+                game_out = game_out.rename(
+                    columns={
+                        "type_name": "action_type",
+                        "result_name": "action_result",
+                        "bodypart_name": "bodypart",
+                    }
+                )
+                game_out["offensive_value"] = values["offensive_value"].values
+                game_out["defensive_value"] = values["defensive_value"].values
+                game_out["vaep_value"] = values["vaep_value"].values
 
-    if not all_scored:
-        return pd.DataFrame()
+                # Carry through partition keys from the input
+                game_out["competition_id"] = pdf["competition_id"].iloc[0]
+                game_out["season_id"] = pdf["season_id"].iloc[0]
+                game_out["data_source"] = pdf["data_source"].iloc[0]
 
-    return pd.concat(all_scored, ignore_index=True)
+                all_scored.append(game_out)
+            except Exception:  # noqa: S110
+                pass  # executor — cannot log; skip failed games silently
+
+        if not all_scored:
+            return _pd.DataFrame(columns=_output_cols)
+
+        result: _pd.DataFrame = _pd.concat(all_scored, ignore_index=True)[_output_cols]  # type: ignore[assignment]
+        return result
+
+    return _udf
 
 
 # ---------------------------------------------------------------------------
@@ -601,13 +822,12 @@ def run_pipeline(
         logger.error(msg)
         raise RuntimeError(msg)
 
-    # Verify SPADL table has data
-    total_actions = spark.table(spadl_table).count()
-    if total_actions == 0:
+    # Verify SPADL table has data (limit(1) avoids full DAG recomputation — exact count not needed here)
+    if spark.table(spadl_table).limit(1).count() == 0:
         msg = "SPADL table exists but is empty — no actions to score"
         logger.error(msg)
         raise RuntimeError(msg)
-    logger.info("Total SPADL actions in Delta: %d", total_actions)
+    logger.info("SPADL table %s has data — proceeding to training", spadl_table)
 
     # Phase C: Train on a representative sample read from Delta
     spadl_sdf = spark.table(spadl_table)
@@ -646,63 +866,70 @@ def run_pipeline(
 
     model_scores, model_concedes = models
 
-    # Phase D: Score per-competition from Delta (incremental — skip scored games)
+    # Phase D: Score unscored games via applyInPandas (distributed on executors)
     existing_vaep_games = _read_existing_game_ids(spark, catalog, schema, _VAEP_TABLE, logger)
     if existing_vaep_games:
         logger.info("Found %d games already scored in %s — will skip", len(existing_vaep_games), _VAEP_TABLE)
 
-    comp_source_rows = spadl_sdf.select("competition_id", "data_source").distinct().collect()
+    # Serialize models to bytes for executor distribution via UDF closure.
+    # XGBoost's C-level save_model/load_model cannot use UC Volume FUSE on
+    # serverless, so we pass raw bytes through the closure instead.
+    scores_raw = bytes(model_scores.get_booster().save_raw("json"))
+    concedes_raw = bytes(model_concedes.get_booster().save_raw("json"))
+    logger.info("Serialized VAEP models: scores=%d bytes, concedes=%d bytes", len(scores_raw), len(concedes_raw))
 
-    total_scored = 0
+    # Filter SPADL to unscored games only
+    all_game_rows = spadl_sdf.select("game_id").distinct().collect()
+    all_game_ids = [int(r["game_id"]) for r in all_game_rows]
+    unscored_game_ids = [gid for gid in all_game_ids if gid not in existing_vaep_games]
 
-    for row in comp_source_rows:
-        comp_id, source = int(row["competition_id"]), str(row["data_source"])
-        try:
-            comp_pdf = spadl_sdf.filter(
-                (spark_fn.col("competition_id") == comp_id) & (spark_fn.col("data_source") == source)
-            ).toPandas()
+    if not unscored_game_ids:
+        logger.info("All %d games already scored — nothing to do", len(all_game_ids))
+        return
 
-            if comp_pdf.empty:
-                continue
+    logger.info("Scoring %d unscored games (of %d total) via applyInPandas", len(unscored_game_ids), len(all_game_ids))
 
-            # Filter out already-scored games
-            if existing_vaep_games:
-                new_games_mask = ~comp_pdf["game_id"].isin(existing_vaep_games)
-                comp_pdf = comp_pdf[new_games_mask]
-                if comp_pdf.empty:
-                    logger.info("Comp %d (%s): all games already scored — skipping", comp_id, source)
-                    continue
+    unscored_sdf = spadl_sdf.filter(spark_fn.col("game_id").isin(unscored_game_ids))
 
-            scored = _score_competition(comp_pdf, model_scores, model_concedes, logger)
-            if scored.empty:
-                del comp_pdf
-                gc.collect()
-                continue
+    # Define output schema for scored actions
+    from pyspark.sql.types import DoubleType, LongType, StringType, StructField, StructType
 
-            for col in ["data_source", "competition_id", "season_id"]:
-                if col in comp_pdf.columns and col not in scored.columns:
-                    scored[col] = comp_pdf[col].values[: len(scored)]
+    vaep_schema = StructType(
+        [
+            StructField("game_id", LongType()),
+            StructField("original_event_id", StringType()),
+            StructField("period_id", LongType()),
+            StructField("time_seconds", DoubleType()),
+            StructField("team_id", LongType()),
+            StructField("player_id", LongType()),
+            StructField("start_x", DoubleType()),
+            StructField("start_y", DoubleType()),
+            StructField("end_x", DoubleType()),
+            StructField("end_y", DoubleType()),
+            StructField("type_id", LongType()),
+            StructField("action_type", StringType()),
+            StructField("result_id", LongType()),
+            StructField("action_result", StringType()),
+            StructField("bodypart_id", LongType()),
+            StructField("bodypart", StringType()),
+            StructField("offensive_value", DoubleType()),
+            StructField("defensive_value", DoubleType()),
+            StructField("vaep_value", DoubleType()),
+            StructField("competition_id", LongType()),
+            StructField("season_id", LongType()),
+            StructField("data_source", StringType()),
+        ]
+    )
 
-            scored = _clean_spadl_for_spark(scored)
-            sdf = spark.createDataFrame(scored)
-            replace_expr = f"competition_id = {comp_id} AND data_source = '{source}'"
-            write_delta_table(sdf, catalog, schema, _VAEP_TABLE, replace_where=replace_expr, logger=logger)
-            total_scored += len(scored)
+    scoring_udf = _make_scoring_udf(scores_raw, concedes_raw)
+    scored_sdf = unscored_sdf.groupBy("competition_id", "data_source").applyInPandas(
+        scoring_udf,  # type: ignore[arg-type]
+        schema=vaep_schema,
+    )
 
-            logger.info(
-                "Scored comp %d (%s): %d actions (total: %d)",
-                comp_id,
-                source,
-                len(scored),
-                total_scored,
-            )
-            del comp_pdf, scored, sdf
-        except Exception:
-            logger.exception("Failed scoring comp %d (%s)", comp_id, source)
-        finally:
-            gc.collect()
+    write_delta_table(scored_sdf, catalog, schema, _VAEP_TABLE, logger=logger)
 
-    logger.info("SPADL/VAEP pipeline complete — %d actions scored", total_scored)
+    logger.info("SPADL/VAEP pipeline complete — scoring distributed across executors")
 
 
 # ---------------------------------------------------------------------------

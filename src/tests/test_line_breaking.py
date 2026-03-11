@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import logging
+from unittest.mock import MagicMock, patch
+
 import numpy as np
 import pandas as pd
 
@@ -14,6 +18,12 @@ from analytics.line_breaking import (
     _segments_intersect,
     detect_line_breaking,
     detect_line_breaking_batch,
+)
+from ingestion.line_breaking import (
+    _make_metrica_udf,
+    _make_statsbomb_udf,
+    _process_metrica_tracking,
+    _process_statsbomb_360,
 )
 
 # ---------------------------------------------------------------------------
@@ -207,7 +217,7 @@ class TestClassifyIntersection:
     """Test line-breaking type classification."""
 
     def test_through_interior(self) -> None:
-        """Intersection between defenders (no sideline extension) → 'through'."""
+        """Intersection between defenders (no sideline extension) -> 'through'."""
         clusters = [np.array([[60.0, 30.0], [60.0, 50.0]])]
         segments = _build_line_segments(clusters, _DEFAULT_PARAMS)
         pass_start = np.array([40.0, 40.0])
@@ -217,7 +227,7 @@ class TestClassifyIntersection:
         assert result == "through"
 
     def test_around_sideline(self) -> None:
-        """Intersection at sideline extension → 'around'."""
+        """Intersection at sideline extension -> 'around'."""
         # Cluster centered high: only segment near y=0 will be intersected
         clusters = [np.array([[60.0, 60.0], [60.0, 70.0]])]
         segments = _build_line_segments(clusters, _DEFAULT_PARAMS)
@@ -251,7 +261,7 @@ class TestDetectLineBreaking:
         opponents = _make_442_opponents()
         # Strictly lateral pass won't break lines (end_x == start_x)
         result2 = detect_line_breaking(50.0, 20.0, 50.0, 60.0, opponents)
-        assert not result2.is_line_breaking  # end_x == start_x → backward/equal guard
+        assert not result2.is_line_breaking  # end_x == start_x -> backward/equal guard
 
     def test_backward_pass(self) -> None:
         """A backward pass should never be line-breaking."""
@@ -348,6 +358,50 @@ class TestDetectLineBreakingBatch:
         assert len(result) == 0
         assert "event_id" in result.columns
 
+    def test_cluster_cache_avoids_redundant_ward_calls(self) -> None:
+        """Three passes sharing identical opponents should cluster only once."""
+        opponents = _make_442_opponents()
+        passes = pd.DataFrame(
+            {
+                "event_id": ["e1", "e2", "e3"],
+                "start_x": [50.0, 45.0, 40.0],
+                "start_y": [40.0, 30.0, 50.0],
+                "end_x": [95.0, 90.0, 100.0],
+                "end_y": [40.0, 35.0, 45.0],
+            }
+        )
+        # All three passes share the same opponent positions
+        opponents_by_event = {"e1": opponents, "e2": opponents, "e3": opponents}
+
+        with patch("analytics.line_breaking._cluster_opponents", wraps=_cluster_opponents) as mock_cluster:
+            result = detect_line_breaking_batch(passes, opponents_by_event)
+
+        assert len(result) == 3
+        # With caching, _cluster_opponents should be called exactly once
+        assert mock_cluster.call_count == 1
+
+    def test_cluster_cache_distinct_opponents_clustered_separately(self) -> None:
+        """Passes with different opponent positions should cluster independently."""
+        opponents_a = _make_opponents([(60.0, 20.0), (60.0, 40.0), (60.0, 60.0), (80.0, 20.0), (80.0, 60.0)])
+        opponents_b = _make_442_opponents()
+        passes = pd.DataFrame(
+            {
+                "event_id": ["e1", "e2"],
+                "start_x": [50.0, 50.0],
+                "start_y": [40.0, 40.0],
+                "end_x": [95.0, 95.0],
+                "end_y": [40.0, 40.0],
+            }
+        )
+        opponents_by_event = {"e1": opponents_a, "e2": opponents_b}
+
+        with patch("analytics.line_breaking._cluster_opponents", wraps=_cluster_opponents) as mock_cluster:
+            result = detect_line_breaking_batch(passes, opponents_by_event)
+
+        assert len(result) == 2
+        # Different opponent positions -> _cluster_opponents called twice
+        assert mock_cluster.call_count == 2
+
 
 # ---------------------------------------------------------------------------
 # TestEdgeCases
@@ -369,7 +423,7 @@ class TestEdgeCases:
         )
         # Should not raise; 3 valid opponents remain
         result = detect_line_breaking(40.0, 40.0, 80.0, 40.0, opponents)
-        # May or may not break — just ensure no error and valid result
+        # May or may not break -- just ensure no error and valid result
         assert isinstance(result, LineBreakingResult)
 
     def test_empty_opponents(self) -> None:
@@ -392,3 +446,382 @@ class TestEdgeCases:
         result = detect_line_breaking_batch(passes, {})
         assert len(result) == 1
         assert not result.iloc[0]["is_line_breaking"]
+
+
+# ---------------------------------------------------------------------------
+# TestApplyInPandasUDFs — StatsBomb 360
+# ---------------------------------------------------------------------------
+
+
+class TestStatsBombUdf:
+    """Test the applyInPandas UDF for StatsBomb 360 data."""
+
+    def test_line_breaking_detected(self) -> None:
+        """UDF should detect line-breaking passes from joined pass+opponent data."""
+        # Build a joined DataFrame as applyInPandas would receive:
+        # One pass with 10 opponent rows (4-4-2 formation)
+        opponents = _make_442_opponents()
+        n_opps = len(opponents)
+
+        pdf = pd.DataFrame(
+            {
+                "pass_id": ["evt1"] * n_opps,
+                "pass_match_id": [100] * n_opps,
+                "pass_location": [json.dumps([50.0, 40.0])] * n_opps,
+                "pass_end_location": [json.dumps([95.0, 40.0])] * n_opps,
+                "opp_location": [json.dumps([opponents.iloc[i]["x"], opponents.iloc[i]["y"]]) for i in range(n_opps)],
+            }
+        )
+
+        udf_fn = _make_statsbomb_udf()
+        result = udf_fn(pdf)
+
+        assert len(result) == 1
+        assert result.iloc[0]["event_id"] == "evt1"
+        assert result.iloc[0]["match_id"] == "100"
+        assert result.iloc[0]["is_line_breaking"]
+        assert result.iloc[0]["lines_broken"] >= 1
+        assert result.iloc[0]["data_source"] == "statsbomb_360"
+
+    def test_backward_pass_not_line_breaking(self) -> None:
+        """Backward pass should not be detected as line-breaking."""
+        opponents = _make_442_opponents()
+        n_opps = len(opponents)
+
+        pdf = pd.DataFrame(
+            {
+                "pass_id": ["evt1"] * n_opps,
+                "pass_match_id": [100] * n_opps,
+                "pass_location": [json.dumps([90.0, 40.0])] * n_opps,
+                "pass_end_location": [json.dumps([50.0, 40.0])] * n_opps,
+                "opp_location": [json.dumps([opponents.iloc[i]["x"], opponents.iloc[i]["y"]]) for i in range(n_opps)],
+            }
+        )
+
+        udf_fn = _make_statsbomb_udf()
+        result = udf_fn(pdf)
+
+        assert len(result) == 1
+        assert not result.iloc[0]["is_line_breaking"]
+
+    def test_empty_input_returns_empty(self) -> None:
+        """Empty input should return empty DataFrame with correct columns."""
+        from ingestion.line_breaking import _RESULT_COLUMNS
+
+        pdf = pd.DataFrame(
+            columns=pd.Index(["pass_id", "pass_match_id", "pass_location", "pass_end_location", "opp_location"])
+        )
+
+        udf_fn = _make_statsbomb_udf()
+        result = udf_fn(pdf)
+
+        assert len(result) == 0
+        for col in _RESULT_COLUMNS:
+            assert col in result.columns
+
+    def test_multiple_passes_in_same_match(self) -> None:
+        """UDF should handle multiple passes in the same match group."""
+        opponents = _make_442_opponents()
+        n_opps = len(opponents)
+
+        # Two passes: one forward (line-breaking), one backward (not)
+        rows = []
+        for i in range(n_opps):
+            rows.append(
+                {
+                    "pass_id": "fwd",
+                    "pass_match_id": 100,
+                    "pass_location": json.dumps([50.0, 40.0]),
+                    "pass_end_location": json.dumps([95.0, 40.0]),
+                    "opp_location": json.dumps([opponents.iloc[i]["x"], opponents.iloc[i]["y"]]),
+                }
+            )
+        for i in range(n_opps):
+            rows.append(
+                {
+                    "pass_id": "bwd",
+                    "pass_match_id": 100,
+                    "pass_location": json.dumps([90.0, 40.0]),
+                    "pass_end_location": json.dumps([50.0, 40.0]),
+                    "opp_location": json.dumps([opponents.iloc[i]["x"], opponents.iloc[i]["y"]]),
+                }
+            )
+
+        pdf = pd.DataFrame(rows)
+        udf_fn = _make_statsbomb_udf()
+        result = udf_fn(pdf)
+
+        assert len(result) == 2
+        fwd_row = result[result["event_id"] == "fwd"].iloc[0]
+        bwd_row = result[result["event_id"] == "bwd"].iloc[0]
+        assert fwd_row["is_line_breaking"]
+        assert not bwd_row["is_line_breaking"]
+
+
+# ---------------------------------------------------------------------------
+# TestApplyInPandasUDFs — Metrica Tracking
+# ---------------------------------------------------------------------------
+
+
+class TestMetricaUdf:
+    """Test the applyInPandas UDF for Metrica tracking data."""
+
+    def test_line_breaking_detected(self) -> None:
+        """UDF should detect line-breaking from Metrica tracking JSON."""
+        # Build opponent positions in Metrica 0-1 coordinates
+        # 4-4-2 in StatsBomb 120x80 -> convert to Metrica 0-1 (y-flipped)
+        opp_sb = _make_442_opponents()
+        metrica_opps: dict[str, dict[str, float]] = {}
+        for i, (_, row) in enumerate(opp_sb.iterrows()):
+            metrica_opps[str(i)] = {
+                "x": row["x"] / 120.0,
+                "y": 1.0 - row["y"] / 80.0,
+            }
+
+        pdf = pd.DataFrame(
+            {
+                "evt_event_id": ["e1"],
+                "evt_match_id": ["m1"],
+                "evt_team": ["Home"],
+                "evt_start_frame": [100],
+                "evt_start_x": [50.0 / 120.0],
+                "evt_start_y": [1.0 - 40.0 / 80.0],
+                "evt_end_x": [95.0 / 120.0],
+                "evt_end_y": [1.0 - 40.0 / 80.0],
+                "trk_home_players": [json.dumps({})],
+                "trk_away_players": [json.dumps(metrica_opps)],
+            }
+        )
+
+        udf_fn = _make_metrica_udf()
+        result = udf_fn(pdf)
+
+        assert len(result) == 1
+        assert result.iloc[0]["event_id"] == "e1"
+        assert result.iloc[0]["match_id"] == "m1"
+        assert result.iloc[0]["is_line_breaking"]
+        assert result.iloc[0]["data_source"] == "metrica_tracking"
+
+    def test_away_team_uses_home_opponents(self) -> None:
+        """When event team is Away, opponents should be taken from home_players."""
+        opp_sb = _make_442_opponents()
+        metrica_opps: dict[str, dict[str, float]] = {}
+        for i, (_, row) in enumerate(opp_sb.iterrows()):
+            metrica_opps[str(i)] = {
+                "x": row["x"] / 120.0,
+                "y": 1.0 - row["y"] / 80.0,
+            }
+
+        pdf = pd.DataFrame(
+            {
+                "evt_event_id": ["e1"],
+                "evt_match_id": ["m1"],
+                "evt_team": ["Away"],
+                "evt_start_frame": [100],
+                "evt_start_x": [50.0 / 120.0],
+                "evt_start_y": [1.0 - 40.0 / 80.0],
+                "evt_end_x": [95.0 / 120.0],
+                "evt_end_y": [1.0 - 40.0 / 80.0],
+                "trk_home_players": [json.dumps(metrica_opps)],
+                "trk_away_players": [json.dumps({})],
+            }
+        )
+
+        udf_fn = _make_metrica_udf()
+        result = udf_fn(pdf)
+
+        assert len(result) == 1
+        assert result.iloc[0]["is_line_breaking"]
+
+    def test_empty_input_returns_empty(self) -> None:
+        """Empty input should return empty DataFrame with correct columns."""
+        from ingestion.line_breaking import _RESULT_COLUMNS
+
+        pdf = pd.DataFrame(
+            columns=pd.Index(
+                [
+                    "evt_event_id",
+                    "evt_match_id",
+                    "evt_team",
+                    "evt_start_frame",
+                    "evt_start_x",
+                    "evt_start_y",
+                    "evt_end_x",
+                    "evt_end_y",
+                    "trk_home_players",
+                    "trk_away_players",
+                ]
+            )
+        )
+
+        udf_fn = _make_metrica_udf()
+        result = udf_fn(pdf)
+
+        assert len(result) == 0
+        for col in _RESULT_COLUMNS:
+            assert col in result.columns
+
+
+# ---------------------------------------------------------------------------
+# TestIncrementalSkipGuard — Path A (StatsBomb 360)
+# ---------------------------------------------------------------------------
+
+
+class TestIncrementalSkipGuardPathA:
+    """Test incremental skip guard for _process_statsbomb_360."""
+
+    def _make_logger(self) -> logging.Logger:
+        return logging.getLogger("test_lb_skip")
+
+    def test_all_matches_already_processed_skips(self) -> None:
+        """When all 360 match_ids exist in results, processing should be skipped entirely."""
+        spark = MagicMock()
+        logger = self._make_logger()
+        params = LineBreakingParams()
+
+        # spark.table(ff_table).select("match_id").distinct().toPandas()
+        # returns match_ids 100, 200
+        ff_pdf = pd.DataFrame({"match_id": [100, 200]})
+        # spark.table(results_table).filter(...).select("match_id").distinct().collect()
+        # returns same match_ids
+        existing_row_1 = MagicMock()
+        existing_row_1.__getitem__ = lambda self, k: "100"
+        existing_row_2 = MagicMock()
+        existing_row_2.__getitem__ = lambda self, k: "200"
+
+        # First call: ff_table -> toPandas returns match IDs
+        # Second call: results_table -> filter -> select -> distinct -> collect returns existing IDs
+        ff_table_mock = MagicMock()
+        ff_table_mock.select.return_value.distinct.return_value.toPandas.return_value = ff_pdf
+
+        results_table_mock = MagicMock()
+        results_table_mock.filter.return_value.select.return_value.distinct.return_value.collect.return_value = [
+            existing_row_1,
+            existing_row_2,
+        ]
+
+        def table_side_effect(name: str) -> MagicMock:
+            if name.endswith("statsbomb_360"):
+                return ff_table_mock
+            if name.endswith("line_breaking_results"):
+                return results_table_mock
+            return MagicMock()
+
+        spark.table.side_effect = table_side_effect
+
+        result = _process_statsbomb_360(spark, "cat", "bronze", logger, params)
+
+        assert result == 0
+        # Should NOT have tried to read events (no new matches to process)
+        events_calls = [c for c in spark.table.call_args_list if "statsbomb_events" in str(c)]
+        assert len(events_calls) == 0
+
+    def test_no_360_data_returns_zero(self) -> None:
+        """When 360 table is empty, should return 0."""
+        spark = MagicMock()
+        logger = self._make_logger()
+        params = LineBreakingParams()
+
+        ff_table_mock = MagicMock()
+        ff_table_mock.select.return_value.distinct.return_value.toPandas.return_value = pd.DataFrame(
+            columns=pd.Index(["match_id"])
+        )
+
+        spark.table.return_value = ff_table_mock
+
+        result = _process_statsbomb_360(spark, "cat", "bronze", logger, params)
+        assert result == 0
+
+    def test_360_table_exception_returns_zero(self) -> None:
+        """When 360 table cannot be read, should return 0."""
+        spark = MagicMock()
+        logger = self._make_logger()
+        params = LineBreakingParams()
+
+        spark.table.side_effect = Exception("Table not found")
+
+        result = _process_statsbomb_360(spark, "cat", "bronze", logger, params)
+        assert result == 0
+
+
+# ---------------------------------------------------------------------------
+# TestIncrementalSkipGuard — Path B (Metrica Tracking)
+# ---------------------------------------------------------------------------
+
+
+class TestIncrementalSkipGuardPathB:
+    """Test incremental skip guard for _process_metrica_tracking."""
+
+    def _make_logger(self) -> logging.Logger:
+        return logging.getLogger("test_lb_skip_b")
+
+    def test_all_matches_already_processed_skips(self) -> None:
+        """When all Metrica match_ids exist in results, processing should be skipped."""
+        spark = MagicMock()
+        logger = self._make_logger()
+        params = LineBreakingParams()
+
+        # Events table returns PASS events for matches m1, m2
+        events_match_row_1 = MagicMock()
+        events_match_row_1.__getitem__ = lambda self, k: "m1"
+        events_match_row_2 = MagicMock()
+        events_match_row_2.__getitem__ = lambda self, k: "m2"
+
+        # Results table has m1, m2 already
+        existing_row_1 = MagicMock()
+        existing_row_1.__getitem__ = lambda self, k: "m1"
+        existing_row_2 = MagicMock()
+        existing_row_2.__getitem__ = lambda self, k: "m2"
+
+        events_table_mock = MagicMock()
+        events_table_mock.filter.return_value.select.return_value.distinct.return_value.collect.return_value = [
+            events_match_row_1,
+            events_match_row_2,
+        ]
+
+        results_table_mock = MagicMock()
+        results_table_mock.filter.return_value.select.return_value.distinct.return_value.collect.return_value = [
+            existing_row_1,
+            existing_row_2,
+        ]
+
+        def table_side_effect(name: str) -> MagicMock:
+            if name.endswith("metrica_events"):
+                return events_table_mock
+            if name.endswith("line_breaking_results"):
+                return results_table_mock
+            return MagicMock()
+
+        spark.table.side_effect = table_side_effect
+
+        result = _process_metrica_tracking(spark, "cat", "bronze", logger, params)
+
+        assert result == 0
+        # Should NOT have tried to read tracking data (all matches skipped)
+        tracking_calls = [c for c in spark.table.call_args_list if "metrica_tracking" in str(c)]
+        assert len(tracking_calls) == 0
+
+    def test_no_pass_events_returns_zero(self) -> None:
+        """When there are no PASS events, should return 0."""
+        spark = MagicMock()
+        logger = self._make_logger()
+        params = LineBreakingParams()
+
+        events_table_mock = MagicMock()
+        events_table_mock.filter.return_value.select.return_value.distinct.return_value.collect.return_value = []
+
+        spark.table.return_value = events_table_mock
+
+        result = _process_metrica_tracking(spark, "cat", "bronze", logger, params)
+        assert result == 0
+
+    def test_events_table_exception_returns_zero(self) -> None:
+        """When events table cannot be read, should return 0."""
+        spark = MagicMock()
+        logger = self._make_logger()
+        params = LineBreakingParams()
+
+        spark.table.side_effect = Exception("Table not found")
+
+        result = _process_metrica_tracking(spark, "cat", "bronze", logger, params)
+        assert result == 0

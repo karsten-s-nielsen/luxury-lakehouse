@@ -22,6 +22,7 @@ Bronze tables produced:
 
 from __future__ import annotations
 
+import gc
 import io
 import json
 import logging
@@ -171,6 +172,100 @@ def _load_all_competitions(
 
 
 # ---------------------------------------------------------------------------
+# Per-competition helpers (load one, write one, release)
+# ---------------------------------------------------------------------------
+
+
+def _load_local_competition(
+    data_dir: pathlib.Path | None,
+    file_prefix: str,
+    competition: str,
+    logger: logging.Logger,
+) -> pd.DataFrame | None:
+    """Load a single competition JSON from local disk, or return None."""
+    if data_dir is None:
+        return None
+    local_path = data_dir / f"{file_prefix}_{competition}.json"
+    return _load_json_local(local_path, logger)
+
+
+def _write_events_competition(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    df: pd.DataFrame,
+    competition: str,
+    logger: logging.Logger,
+) -> int:
+    """Serialize, validate, and write events for one competition. Returns row count."""
+    if df.empty:
+        return 0
+    df["competition_name"] = competition
+    df = serialize_json_columns(df, ["positions", "tags"])
+    df = _normalize_mixed_types(df)
+    sdf = spark.createDataFrame(df)
+    row_count = validate_dataframe(
+        sdf,
+        ["eventId", "matchId", "eventName", "playerId", "teamId", "matchPeriod", "eventSec"],
+        "wyscout_events",
+        logger,
+    )
+    write_delta_table(
+        sdf,
+        catalog,
+        schema,
+        "wyscout_events",
+        replace_where=f"competition_name = '{competition}'",
+        logger=logger,
+        row_count=row_count,
+    )
+    return row_count
+
+
+def _write_matches_competition(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    df: pd.DataFrame,
+    competition: str,
+    logger: logging.Logger,
+) -> int:
+    """Serialize, validate, and write matches for one competition. Returns row count."""
+    if df.empty:
+        return 0
+    df["competition_name"] = competition
+    json_cols: list[str] = []
+    for c in df.columns:
+        sample = df[c].dropna()
+        if not sample.empty and isinstance(sample.iloc[0], dict | list):
+            json_cols.append(str(c))
+    df = serialize_json_columns(df, json_cols)
+    df = _normalize_mixed_types(df)
+    # Cast datetime columns to string to prevent Delta schema merge conflicts
+    # across competitions (e.g. league 'date' may infer as DateType while
+    # tournament 'date' infers as StringType).
+    for c in df.select_dtypes(include=["datetime64", "datetimetz"]).columns:
+        df[c] = df[c].astype(str)
+    sdf = spark.createDataFrame(df)
+    row_count = validate_dataframe(
+        sdf,
+        ["wyId", "competitionId", "seasonId", "dateutc"],
+        "wyscout_matches",
+        logger,
+    )
+    write_delta_table(
+        sdf,
+        catalog,
+        schema,
+        "wyscout_matches",
+        replace_where=f"competition_name = '{competition}'",
+        logger=logger,
+        row_count=row_count,
+    )
+    return row_count
+
+
+# ---------------------------------------------------------------------------
 # Event ingestion
 # ---------------------------------------------------------------------------
 
@@ -182,34 +277,66 @@ def ingest_events(
     data_dir: pathlib.Path | None,
     logger: logging.Logger,
 ) -> None:
-    """Load and write Wyscout events for all competitions."""
-    comp_data = _load_all_competitions(_EVENTS_ZIP_URL, data_dir, "events", logger)
+    """Load and write Wyscout events one competition at a time.
 
-    all_events: list[pd.DataFrame] = []
-    for competition, df in comp_data.items():
-        if not df.empty:
-            df["competition_name"] = competition
-            all_events.append(df)
-            logger.info("Loaded %d events for %s", len(df), competition)
+    Each competition is loaded, written, and released before the next to
+    keep peak memory at ~1/7th of loading all competitions at once.
+    """
+    # Incremental skip: detect competitions already in Delta
+    existing_comps: set[str] = set()
+    try:
+        existing_rows = (
+            spark.table(f"{catalog}.{schema}.wyscout_events").select("competition_name").distinct().collect()
+        )
+        existing_comps = {str(row["competition_name"]) for row in existing_rows}
+    except Exception:
+        logger.info("No existing wyscout_events table — processing all competitions")
 
-    if not all_events:
+    new_comps = [c for c in _COMPETITIONS if c not in existing_comps]
+    logger.info(
+        "wyscout_events: %d total, %d already processed, %d to process",
+        len(_COMPETITIONS),
+        len(existing_comps & set(_COMPETITIONS)),
+        len(new_comps),
+    )
+    if not new_comps:
+        logger.info("All competitions already ingested — skipping wyscout_events")
+        return
+
+    total_rows = 0
+    loaded_comps: set[str] = set()
+
+    # Process local files one at a time (load -> write -> release)
+    for competition in new_comps:
+        df = _load_local_competition(data_dir, "events", competition, logger)
+        if df is not None:
+            loaded_comps.add(competition)
+            total_rows += _write_events_competition(spark, catalog, schema, df, competition, logger)
+            del df
+            gc.collect()
+
+    # Download ZIP for any missing competitions (among new_comps only)
+    missing = [c for c in new_comps if c not in loaded_comps]
+    if missing:
+        try:
+            zip_data = _download_and_extract_zip(_EVENTS_ZIP_URL, logger)
+            for comp in missing:
+                if comp in zip_data:
+                    df = zip_data.pop(comp)
+                    loaded_comps.add(comp)
+                    total_rows += _write_events_competition(spark, catalog, schema, df, comp, logger)
+                    del df
+                    gc.collect()
+            del zip_data
+            gc.collect()
+        except Exception:
+            logger.exception("Failed to download events ZIP from Figshare")
+
+    if not loaded_comps:
         msg = "No Wyscout event data loaded — all downloads failed"
         raise RuntimeError(msg)
 
-    combined = pd.concat(all_events, ignore_index=True)
-
-    # Serialize JSON columns (positions and tags)
-    combined = serialize_json_columns(combined, ["positions", "tags"])
-    combined = _normalize_mixed_types(combined)
-
-    sdf = spark.createDataFrame(combined)
-    row_count = validate_dataframe(
-        sdf,
-        ["eventId", "matchId", "eventName", "playerId", "teamId", "matchPeriod", "eventSec"],
-        "wyscout_events",
-        logger,
-    )
-    write_delta_table(sdf, catalog, schema, "wyscout_events", mode="overwrite", logger=logger, row_count=row_count)
+    logger.info("Wrote %d total events across %d competitions", total_rows, len(loaded_comps))
 
 
 # ---------------------------------------------------------------------------
@@ -224,39 +351,60 @@ def ingest_matches(
     data_dir: pathlib.Path | None,
     logger: logging.Logger,
 ) -> None:
-    """Load and write Wyscout match metadata for all competitions."""
-    comp_data = _load_all_competitions(_MATCHES_ZIP_URL, data_dir, "matches", logger)
+    """Load and write Wyscout match metadata one competition at a time."""
+    # Incremental skip: detect competitions already in Delta
+    existing_comps: set[str] = set()
+    try:
+        existing_rows = (
+            spark.table(f"{catalog}.{schema}.wyscout_matches").select("competition_name").distinct().collect()
+        )
+        existing_comps = {str(row["competition_name"]) for row in existing_rows}
+    except Exception:
+        logger.info("No existing wyscout_matches table — processing all competitions")
 
-    all_matches: list[pd.DataFrame] = []
-    for competition, df in comp_data.items():
-        if not df.empty:
-            df["competition_name"] = competition
-            all_matches.append(df)
-            logger.info("Loaded %d matches for %s", len(df), competition)
+    new_comps = [c for c in _COMPETITIONS if c not in existing_comps]
+    logger.info(
+        "wyscout_matches: %d total, %d already processed, %d to process",
+        len(_COMPETITIONS),
+        len(existing_comps & set(_COMPETITIONS)),
+        len(new_comps),
+    )
+    if not new_comps:
+        logger.info("All competitions already ingested — skipping wyscout_matches")
+        return
 
-    if not all_matches:
+    total_rows = 0
+    loaded_comps: set[str] = set()
+
+    for competition in new_comps:
+        df = _load_local_competition(data_dir, "matches", competition, logger)
+        if df is not None:
+            loaded_comps.add(competition)
+            total_rows += _write_matches_competition(spark, catalog, schema, df, competition, logger)
+            del df
+            gc.collect()
+
+    missing = [c for c in new_comps if c not in loaded_comps]
+    if missing:
+        try:
+            zip_data = _download_and_extract_zip(_MATCHES_ZIP_URL, logger)
+            for comp in missing:
+                if comp in zip_data:
+                    df = zip_data.pop(comp)
+                    loaded_comps.add(comp)
+                    total_rows += _write_matches_competition(spark, catalog, schema, df, comp, logger)
+                    del df
+                    gc.collect()
+            del zip_data
+            gc.collect()
+        except Exception:
+            logger.exception("Failed to download matches ZIP from Figshare")
+
+    if not loaded_comps:
         msg = "No Wyscout match data loaded — all downloads failed"
         raise RuntimeError(msg)
 
-    combined = pd.concat(all_matches, ignore_index=True)
-
-    # Serialize any nested JSON columns (teamsData is typically a dict)
-    json_cols: list[str] = []
-    for c in combined.columns:
-        sample = combined[c].dropna()
-        if not sample.empty and isinstance(sample.iloc[0], dict | list):
-            json_cols.append(str(c))
-    combined = serialize_json_columns(combined, json_cols)
-    combined = _normalize_mixed_types(combined)
-
-    sdf = spark.createDataFrame(combined)
-    row_count = validate_dataframe(
-        sdf,
-        ["wyId", "competitionId", "seasonId", "dateutc"],
-        "wyscout_matches",
-        logger,
-    )
-    write_delta_table(sdf, catalog, schema, "wyscout_matches", mode="overwrite", logger=logger, row_count=row_count)
+    logger.info("Wrote %d total matches across %d competitions", total_rows, len(loaded_comps))
 
 
 # ---------------------------------------------------------------------------
@@ -298,6 +446,15 @@ def ingest_players(
     logger: logging.Logger,
 ) -> None:
     """Load and write Wyscout player metadata."""
+    # Incremental skip: if table already has rows, skip entirely
+    try:
+        existing_count = spark.table(f"{catalog}.{schema}.wyscout_players").count()
+        if existing_count > 0:
+            logger.info("wyscout_players already has %d rows — skipping", existing_count)
+            return
+    except Exception:
+        logger.info("No existing wyscout_players table — will ingest")
+
     pdf = _load_players(data_dir, logger)
     pdf = _normalize_mixed_types(pdf)
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
@@ -34,6 +35,9 @@ from ingestion.utils import (
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
+
+# Max concurrent HTTP requests to StatsBomb API (polite concurrency limit)
+_HTTP_MAX_WORKERS = 4
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +91,16 @@ def ingest_competitions(
     Returns:
         The competitions pandas DataFrame (used to iterate matches).
     """
+    # Skip guard: return existing data if table already populated
+    try:
+        existing_sdf = spark.table(f"{catalog}.{schema}.statsbomb_competitions")
+        existing_count = existing_sdf.count()
+        if existing_count > 0:
+            logger.info("statsbomb_competitions already has %d rows — skipping", existing_count)
+            return existing_sdf.toPandas()
+    except Exception:
+        logger.info("No existing statsbomb_competitions table — will fetch from API")
+
     logger.info("Fetching StatsBomb competitions")
     raw = sb.competitions()
     competitions_pdf: pd.DataFrame = pd.DataFrame(raw) if not isinstance(raw, pd.DataFrame) else raw
@@ -144,6 +158,36 @@ def _safe_fetch(
         return None
 
 
+def _fetch_match_details(
+    match_id: int,
+    logger: logging.Logger,
+) -> tuple[pd.DataFrame | None, Any, pd.DataFrame | None, dict[str, str] | None]:
+    """Fetch events, lineups, 360 frames, and extra JSON for a single match.
+
+    All four HTTP fetches are independent so they run concurrently via
+    ``ThreadPoolExecutor``. This function is the unit of work submitted
+    to the pool — it is called from a worker thread.
+
+    Returns:
+        ``(events_pdf, lineups_raw, frames_pdf, extra_map)`` — any element
+        may be ``None`` on fetch failure.
+    """
+    events_pdf = _safe_fetch(sb.events, match_id=match_id, logger=logger, label="events")
+
+    lineups_raw = _safe_fetch(sb.lineups, match_id=match_id, logger=logger, label="lineups")
+
+    frames_pdf = _safe_fetch(sb.frames, match_id=match_id, logger=logger, label="360")
+
+    extra_map: dict[str, str] | None = None
+    if events_pdf is not None and not events_pdf.empty:
+        try:
+            extra_map = _build_raw_extra_json(match_id, logger)
+        except Exception:
+            logger.exception("Failed to build _raw_extra_json for match %d", match_id)
+
+    return events_pdf, lineups_raw, frames_pdf, extra_map
+
+
 def ingest_matches_and_details(
     spark: SparkSession,
     catalog: str,
@@ -158,6 +202,20 @@ def ingest_matches_and_details(
     """
     existing_event_match_ids = _read_existing_match_ids(spark, catalog, schema, "statsbomb_events", logger)
 
+    # Read existing (competition_id, season_id) combos to skip re-fetching matches
+    existing_match_combos: set[tuple[int, int]] = set()
+    try:
+        combo_rows = (
+            spark.table(f"{catalog}.{schema}.statsbomb_matches")
+            .select("competition_id", "season_id")
+            .distinct()
+            .collect()
+        )
+        existing_match_combos = {(int(row["competition_id"]), int(row["season_id"])) for row in combo_rows}
+        logger.info("Found %d existing competition/season combos in statsbomb_matches", len(existing_match_combos))
+    except Exception:
+        logger.info("No existing statsbomb_matches table — will fetch all combos")
+
     unique_combos = competitions_pdf[["competition_id", "season_id"]].drop_duplicates()
     total = len(unique_combos)
 
@@ -165,6 +223,18 @@ def ingest_matches_and_details(
         comp_id = int(row["competition_id"])
         season_id = int(row["season_id"])
         logger.info("Processing competition %d, season %d (%d/%d)", comp_id, season_id, idx + 1, total)
+
+        # Skip guard: if this combo already exists in statsbomb_matches, skip the
+        # matches fetch+write entirely. The matches data rarely changes for
+        # completed seasons, and new match detection is handled downstream by the
+        # existing events skip guard (_read_existing_match_ids).
+        if (comp_id, season_id) in existing_match_combos:
+            logger.info(
+                "Matches already ingested for comp=%d season=%d — skipping fetch+write",
+                comp_id,
+                season_id,
+            )
+            continue
 
         # --- Matches ---
         matches_pdf = _safe_fetch(
@@ -219,36 +289,43 @@ def ingest_matches_and_details(
         lineups_batch: list[pd.DataFrame] = []
         frames_batch: list[pd.DataFrame] = []
 
-        for match_id in new_match_ids:
-            # Events
-            events_pdf = _safe_fetch(sb.events, match_id=match_id, logger=logger, label="events")
-            if events_pdf is not None and not events_pdf.empty:
-                events_pdf["match_id"] = match_id
-                events_pdf["competition_id"] = comp_id
-                events_pdf["season_id"] = season_id
-
-                # Enrich with raw extra JSON for SPADL adapter
+        # Fetch match details concurrently (events, lineups, 360, extra JSON)
+        with ThreadPoolExecutor(max_workers=_HTTP_MAX_WORKERS) as executor:
+            futures = {executor.submit(_fetch_match_details, match_id, logger): match_id for match_id in new_match_ids}
+            for future in as_completed(futures):
+                match_id = futures[future]
                 try:
-                    extra_map = _build_raw_extra_json(match_id, logger)
-                    events_pdf["_raw_extra_json"] = events_pdf["id"].map(extra_map).fillna("{}")  # type: ignore[arg-type]
+                    result = future.result()
                 except Exception:
-                    logger.exception("Failed to build _raw_extra_json for match %d", match_id)
-                    events_pdf["_raw_extra_json"] = "{}"
+                    logger.exception("Unexpected error fetching details for match %d", match_id)
+                    continue
 
-                events_batch.append(events_pdf)
+                events_pdf, lineups_raw, frames_pdf, extra_map = result
 
-            # Lineups
-            lineups_raw = _safe_fetch(sb.lineups, match_id=match_id, logger=logger, label="lineups")
-            if lineups_raw is not None:
-                _process_lineups(lineups_raw, match_id, comp_id, season_id, lineups_batch)
+                # Events
+                if events_pdf is not None and not events_pdf.empty:
+                    events_pdf["match_id"] = match_id
+                    events_pdf["competition_id"] = comp_id
+                    events_pdf["season_id"] = season_id
 
-            # 360 frames
-            frames_pdf = _safe_fetch(sb.frames, match_id=match_id, logger=logger, label="360")
-            if frames_pdf is not None and not frames_pdf.empty:
-                frames_pdf["match_id"] = match_id
-                frames_pdf["competition_id"] = comp_id
-                frames_pdf["season_id"] = season_id
-                frames_batch.append(frames_pdf)
+                    # Enrich with raw extra JSON for SPADL adapter
+                    if extra_map is not None:
+                        events_pdf["_raw_extra_json"] = events_pdf["id"].map(extra_map).fillna("{}")  # type: ignore[arg-type]
+                    else:
+                        events_pdf["_raw_extra_json"] = "{}"
+
+                    events_batch.append(events_pdf)
+
+                # Lineups
+                if lineups_raw is not None:
+                    _process_lineups(lineups_raw, match_id, comp_id, season_id, lineups_batch)
+
+                # 360 frames
+                if frames_pdf is not None and not frames_pdf.empty:
+                    frames_pdf["match_id"] = match_id
+                    frames_pdf["competition_id"] = comp_id
+                    frames_pdf["season_id"] = season_id
+                    frames_batch.append(frames_pdf)
 
         # Batch write per competition/season
         _write_batch(
@@ -443,30 +520,47 @@ def backfill_extra_json(
 
     logger.info("Found %d match partitions needing _raw_extra_json backfill", len(needs_backfill_rows))
 
+    # Pre-fetch all extra JSON maps concurrently (HTTP is the bottleneck)
+    match_ids_to_backfill = [int(row["match_id"]) for row in needs_backfill_rows]
+    extra_maps: dict[int, dict[str, str]] = {}
+
+    with ThreadPoolExecutor(max_workers=_HTTP_MAX_WORKERS) as executor:
+        futures = {executor.submit(_build_raw_extra_json, mid, logger): mid for mid in match_ids_to_backfill}
+        for future in as_completed(futures):
+            mid = futures[future]
+            try:
+                extra_maps[mid] = future.result()
+            except Exception:
+                logger.exception("Failed to fetch _raw_extra_json for match %d", mid)
+
+    logger.info("Fetched extra JSON for %d/%d matches", len(extra_maps), len(match_ids_to_backfill))
+
+    # Apply extra JSON maps via Delta MERGE — updates only _raw_extra_json
+    # without reading/writing all columns (P0-07).
     for row in needs_backfill_rows:
         match_id = int(row["match_id"])
         comp_id = int(row["competition_id"])
         season_id = int(row["season_id"])
 
-        try:
-            # Read existing events for this match
-            match_events = spark.sql(
-                f"SELECT * FROM {events_table} "  # noqa: S608
-                f"WHERE match_id = {match_id}"
-            ).toPandas()
+        if match_id not in extra_maps:
+            continue
 
-            if match_events.empty:
+        try:
+            extra_map = extra_maps[match_id]
+            if not extra_map:
                 continue
 
-            # Build extra JSON mapping
-            extra_map = _build_raw_extra_json(match_id, logger)
-            match_events["_raw_extra_json"] = match_events["id"].map(extra_map).fillna("{}")
+            # Build a small mapping DataFrame with (event_id, extra_json)
+            mapping_rows = [(eid, ejson) for eid, ejson in extra_map.items()]
+            mapping_sdf = spark.createDataFrame(mapping_rows, ["_eid", "_extra_json"])
+            mapping_sdf.createOrReplaceTempView("_backfill_map")
 
-            # Re-serialize any JSON columns and write back
-            match_events = serialize_json_columns(match_events)
-            sdf = spark.createDataFrame(match_events)
-            replace_expr = f"match_id = {match_id}"
-            write_delta_table(sdf, catalog, schema, "statsbomb_events", replace_where=replace_expr, logger=logger)
+            spark.sql(
+                f"MERGE INTO {events_table} AS t "
+                f"USING _backfill_map AS s "
+                f"ON t.id = s._eid AND t.match_id = {match_id} "
+                "WHEN MATCHED THEN UPDATE SET t._raw_extra_json = s._extra_json"
+            )
 
             logger.info("Backfilled _raw_extra_json for match %d (comp=%d, season=%d)", match_id, comp_id, season_id)
         except Exception:

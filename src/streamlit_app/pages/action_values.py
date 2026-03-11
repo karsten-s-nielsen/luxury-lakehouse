@@ -21,29 +21,41 @@ from streamlit_app.db import execute_query, t
 # ---------------------------------------------------------------------------
 
 
+@st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading VAEP rankings...")
 def _load_vaep_rankings(competition_id: int, min_minutes: int) -> Any:
     """Load VAEP player rankings for a competition."""
-    # L-3: Explicit type assertion before query
-    competition_id = int(competition_id)
-    min_minutes = int(min_minutes)
+    return execute_query(
+        f"SELECT ps.player_id, p.player_display_name, p.position_group, "  # noqa: S608
+        f"  ps.minutes_played, ps.total_vaep, ps.vaep_per_90, "
+        f"  ps.offensive_vaep_per_90, ps.defensive_vaep_per_90, "
+        f"  ps.total_actions "
+        f"FROM {t('fct_player_stats_synced')} ps "
+        f"JOIN {t('dim_players_synced')} p ON ps.player_id = p.player_id "
+        f"WHERE ps.competition_id = %s "
+        f"  AND ps.minutes_played >= %s "
+        f"  AND ps.vaep_per_90 IS NOT NULL "
+        f"ORDER BY ps.vaep_per_90 DESC "
+        f"LIMIT 500",
+        (competition_id, min_minutes),
+    )
 
-    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading VAEP rankings...")
-    def _query(comp_id: int, min_min: int) -> Any:
-        return execute_query(
-            f"SELECT ps.player_id, p.player_display_name, p.position_group, "  # noqa: S608
-            f"  ps.minutes_played, ps.total_vaep, ps.vaep_per_90, "
-            f"  ps.offensive_vaep_per_90, ps.defensive_vaep_per_90, "
-            f"  ps.total_actions "
-            f"FROM {t('fct_player_stats_synced')} ps "
-            f"JOIN {t('dim_players_synced')} p ON ps.player_id = p.player_id "
-            f"WHERE ps.competition_id = %s "
-            f"  AND ps.minutes_played >= %s "
-            f"  AND ps.vaep_per_90 IS NOT NULL "
-            f"ORDER BY ps.vaep_per_90 DESC",
-            (comp_id, min_min),
-        )
 
-    return _query(competition_id, min_minutes)
+@st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading action breakdown...")
+def _load_action_type_breakdown_query(where: str, params: tuple[Any, ...], tbl: str) -> Any:
+    """Execute the action type breakdown query with pre-built WHERE clause."""
+    # SECURITY: WHERE clause built from hardcoded conditions only;
+    # all user values use %s parameterized placeholders.
+    return execute_query(
+        f"SELECT action_type, "  # noqa: S608
+        f"  sum(vaep_value) AS total_vaep, "
+        f"  sum(offensive_value) AS total_offensive, "
+        f"  sum(defensive_value) AS total_defensive, "
+        f"  count(*) AS action_count "
+        f"FROM {tbl} WHERE {where} "
+        f"GROUP BY action_type "
+        f"ORDER BY sum(vaep_value) DESC",
+        params,
+    )
 
 
 def _load_action_type_breakdown(
@@ -68,24 +80,21 @@ def _load_action_type_breakdown(
 
     where = " AND ".join(conditions)
     tbl = t("fct_action_values_synced")
+    return _load_action_type_breakdown_query(where, tuple(params), tbl)
 
-    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading action breakdown...")
-    def _query(w: str, p: tuple[Any, ...]) -> Any:
-        # SECURITY: WHERE clause built from hardcoded conditions only;
-        # all user values use %s parameterized placeholders.
-        return execute_query(
-            f"SELECT action_type, "  # noqa: S608
-            f"  sum(vaep_value) AS total_vaep, "
-            f"  sum(offensive_value) AS total_offensive, "
-            f"  sum(defensive_value) AS total_defensive, "
-            f"  count(*) AS action_count "
-            f"FROM {tbl} WHERE {w} "
-            f"GROUP BY action_type "
-            f"ORDER BY sum(vaep_value) DESC",
-            p,
-        )
 
-    return _query(where, tuple(params))
+@st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading match timeline...")
+def _load_match_timeline_query(where: str, params: tuple[Any, ...], tbl: str) -> Any:
+    """Execute the match timeline query with pre-built WHERE clause."""
+    return execute_query(
+        f"SELECT time_seconds, period, minute, second, "  # noqa: S608
+        f"  action_type, action_result, vaep_value, "
+        f"  offensive_value, defensive_value, player_id "
+        f"FROM {tbl} WHERE {where} "
+        f"ORDER BY period, time_seconds "
+        f"LIMIT 2000",
+        params,
+    )
 
 
 def _load_match_timeline(match_id: int, team_id: int | None) -> Any:
@@ -101,19 +110,33 @@ def _load_match_timeline(match_id: int, team_id: int | None) -> Any:
 
     where = " AND ".join(conditions)
     tbl = t("fct_action_values_synced")
+    return _load_match_timeline_query(where, tuple(params), tbl)
 
-    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading match timeline...")
-    def _query(w: str, p: tuple[Any, ...]) -> Any:
-        return execute_query(
-            f"SELECT time_seconds, period, minute, second, "  # noqa: S608
-            f"  action_type, action_result, vaep_value, "
-            f"  offensive_value, defensive_value, player_id "
-            f"FROM {tbl} WHERE {w} "
-            f"ORDER BY period, time_seconds",
-            p,
-        )
 
-    return _query(where, tuple(params))
+@st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner=False)
+def _load_player_options(comp: int, team: int, tbl: str, players_tbl: str) -> Any:
+    """Load player options for a team within a competition.
+
+    Uses a recursive CTE to gather distinct player_ids from the fact table
+    (avoids the full sequential scan that SELECT DISTINCT forces), then
+    joins to the dimension table for display names.
+    """
+    return execute_query(
+        f"WITH RECURSIVE dp AS ("  # noqa: S608
+        f"  SELECT MIN(player_id) AS player_id FROM {tbl}"
+        f"  WHERE competition_id = %s AND team_id = %s"
+        f"  UNION ALL"
+        f"  SELECT (SELECT MIN(player_id) FROM {tbl}"
+        f"          WHERE competition_id = %s AND team_id = %s AND player_id > dp.player_id)"
+        f"  FROM dp WHERE dp.player_id IS NOT NULL"
+        f") "
+        f"SELECT dp.player_id, p.player_display_name "
+        f"FROM dp "
+        f"JOIN {players_tbl} p ON dp.player_id = p.player_id "
+        f"WHERE dp.player_id IS NOT NULL "
+        f"ORDER BY p.player_display_name",
+        (comp, team, comp, team),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +172,7 @@ def _render_rankings() -> None:
         st.info("Select a competition to view VAEP rankings.")
         return
 
-    rankings = _load_vaep_rankings(competition_id, min_minutes)
+    rankings = _load_vaep_rankings(int(competition_id), int(min_minutes))
     if rankings.empty:
         st.warning("No VAEP data available for the selected competition.")
         return
@@ -189,18 +212,7 @@ def _render_breakdown() -> None:
         tbl = t("fct_action_values_synced")
         players_tbl = t("dim_players_synced")
 
-        @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner=False)
-        def _player_options(comp: int, team: int) -> Any:
-            return execute_query(
-                f"SELECT DISTINCT a.player_id, p.player_display_name "  # noqa: S608
-                f"FROM {tbl} a "
-                f"JOIN {players_tbl} p ON a.player_id = p.player_id "
-                f"WHERE a.competition_id = %s AND a.team_id = %s "
-                f"ORDER BY p.player_display_name",
-                (comp, team),
-            )
-
-        player_opts = _player_options(int(competition_id), int(team_id))
+        player_opts = _load_player_options(int(competition_id), int(team_id), tbl, players_tbl)
         if not player_opts.empty:
             with st.sidebar:
                 selected = st.selectbox(

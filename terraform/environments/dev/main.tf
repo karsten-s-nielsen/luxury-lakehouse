@@ -99,6 +99,7 @@ module "catalog" {
   ingestion_sp_application_id = module.service_principals.ingestion_sp_application_id
   enable_ingestion_sp_grants  = true
   app_sp_application_id       = module.app.service_principal_client_id
+  silver_schema_override      = "${var.environment}_silver"
   gold_schema_override        = "${var.environment}_gold"
 }
 
@@ -191,4 +192,34 @@ module "github_oidc" {
   github_repository = "karsten-s-nielsen/luxury-lakehouse"
   state_bucket      = "karstenskyt-terraform-state"
   kms_key_arn       = module.state_kms.kms_key_arn
+}
+
+# ── AWS Budget: Monthly cost alarm (COST-01) ─────────────────────────────────
+# Alerts at 80% and 100% of $100/month budget. Subscriber email is set via
+# var.alert_email in terraform.tfvars (not checked in).
+
+resource "aws_budgets_budget" "monthly" {
+  count = var.alert_email != "" ? 1 : 0
+
+  name         = "luxury-lakehouse-monthly-${var.environment}"
+  budget_type  = "COST"
+  limit_amount = "100"
+  limit_unit   = "USD"
+  time_unit    = "MONTHLY"
+
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 80
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "ACTUAL"
+    subscriber_email_addresses = [var.alert_email]
+  }
+
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 100
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "ACTUAL"
+    subscriber_email_addresses = [var.alert_email]
+  }
 }
