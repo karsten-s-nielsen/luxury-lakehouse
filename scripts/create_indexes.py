@@ -94,6 +94,8 @@ INDEXES: list[tuple[str, str, str]] = [
     ("idx_defcon_actions_match", "fct_defcon_actions_synced", "match_id"),
     # DA-2: player + competition lookup
     ("idx_defcon_actions_player_comp", "fct_defcon_actions_synced", "player_id, competition_id"),
+    # DA-3: match + action player for filtered timeline
+    ("idx_defcon_actions_match_player", "fct_defcon_actions_synced", "match_id, action_player_id"),
     # ── fct_defcon_pressure_synced — Pressure Rankings + Breakdown ────
     # DP-1: rankings by competition
     ("idx_defcon_pressure_comp_id", "fct_defcon_pressure_synced", "competition_id"),
@@ -101,6 +103,9 @@ INDEXES: list[tuple[str, str, str]] = [
     ("idx_defcon_pressure_comp_player", "fct_defcon_pressure_synced", "competition_id, player_id"),
     # DP-3: match_id for team filter join
     ("idx_defcon_pressure_match_id", "fct_defcon_pressure_synced", "match_id"),
+    # ── dim_players_synced — Embedding point lookups ───────────────────
+    # PL-1: canonical_player_id for embedding joins
+    ("idx_players_canonical_id", "dim_players_synced", "canonical_player_id"),
 ]
 
 # pgvector HNSW index definitions: (index_name, table, using_clause)

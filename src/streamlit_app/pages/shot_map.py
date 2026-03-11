@@ -46,7 +46,8 @@ def _load_shots(
             f"FROM {t('fct_shots_synced')} s "
             f"JOIN {t('dim_players_synced')} p ON s.player_id = p.player_id "
             f"WHERE {w} "
-            f"ORDER BY s.minute, s.second",
+            f"ORDER BY s.minute, s.second "
+            f"LIMIT 10000",
             p,
         )
 

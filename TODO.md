@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [PLAN.md](PLAN.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
 
-**Last updated**: 2026-03-10 (optimization audit epilogue — closed #3, #12, #21, #24)
+**Last updated**: 2026-03-10 (added #26 IDSSE XML ordering, #27 Respo.Vision architecture)
 
 ---
 
@@ -43,6 +43,8 @@ Phases 0–17 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for th
 | 23 | S3 lifecycle rule for state versions | Terraform | No lifecycle policy for non-current S3 state versions. Storage hygiene. | Blocked on IAM `s3:PutLifecycleConfiguration` for DevOpsAgent role. |
 | ~~24~~ | ~~Metrica tracking reshape iterrows~~ | ~~`metrica.py:451`~~ | ~~Resolved: Replaced with `pd.melt()` vectorized wide-to-narrow reshape. Per-match DataFrame never needs row iteration — columnar transformation handles ~9.5M frames efficiently.~~ | ~~Resolved~~ |
 | 25 | Lakebase CU right-sizing | Terraform | `autoscaling_max_cu = 4` may be overprovisioned for dev. Reduce to 2. | Blocked — Terraform provider cannot update `initial_endpoint_spec` after creation. Needs UI change. |
+| 26 | IDSSE XML ball-before-player ordering assumption | `src/ingestion/idsse.py` | Single-pass XML merge assumes ball FrameSets precede player FrameSets in DFL position XML. Validated by inspection of current 7 files but not asserted in code. Add a runtime check or unit test that verifies ball coords are available when player frames are processed. If DFL ever delivers files with interleaved ordering, `ball_x`/`ball_y` will silently degrade to NULL. | Low priority — graceful degradation, but should validate. |
+| 27 | Respo.Vision ingestion architecture | `src/ingestion/` | Respo.Vision 3D pose tracking (50+ keypoints × 22 players × 60fps = ~2.14B floats/match, ~17 GB raw) cannot use current ingestion patterns. Requirements: (1) streaming download (`requests.get(url, stream=True)` + chunked write to UC Volume), (2) Spark-native file reading (`spark.read.parquet()` or `spark.read.json()` — no pandas on driver), (3) incremental skip guard on `match_id`, (4) `applyInPandas` for all per-match analytics (driver must never see raw tracking data), (5) schema decision: narrow `(match_id, frame_id, player_id, keypoint_id, x, y, z)` ~2B rows/match vs semi-narrow `(match_id, frame_id, player_id, keypoints_json)` ~14M rows/match. Design before any data arrives. | Blocked on Respo.Vision data access (user pursuing via network). |
 
 ### Resolved
 
@@ -73,7 +75,7 @@ Phases 0–17 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for th
 See [ROADMAP.md](ROADMAP.md) for research directions, long-horizon features, and unscheduled ideas including:
 
 - **Observability Layer (OpenTelemetry)** — instrument once, observe anywhere; ~$1-2/month personal tier
-- **Pipeline Optimization & Scaling (EIP)** — Splitter/Aggregator/Scatter-Gather patterns, caching layers, Respo.Vision scale planning
+- **Pipeline Optimization & Scaling (EIP)** — Splitter/Aggregator/Scatter-Gather patterns, caching layers, Respo.Vision scale planning (see TODO #26, #27)
 - **Deep Learning Infrastructure** — hybrid GPU training, pre-trained soccer models, DeepMind-inspired optimization
 - **Provider Abstraction** — configurable multi-tier ingestion; free/open tiers default, commercial activates via credentials
 - **Visual Exploratory Behavior** — blocked by pose data procurement (BSD 3-Clause)
