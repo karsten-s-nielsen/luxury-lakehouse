@@ -60,7 +60,8 @@ resource "aws_iam_role_policy" "terraform_state_access" {
         Effect = "Allow"
         Action = [
           "s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket",
-          "s3:GetBucketVersioning", "s3:GetEncryptionConfiguration"
+          "s3:GetBucketVersioning", "s3:GetEncryptionConfiguration",
+          "s3:GetLifecycleConfiguration"
         ]
         Resource = [
           "arn:aws:s3:::${var.state_bucket}",
@@ -82,6 +83,12 @@ resource "aws_iam_role_policy" "terraform_state_access" {
         Effect   = "Allow"
         Action   = ["kms:ListAliases"]
         Resource = ["*"]
+      },
+      {
+        Sid      = "BudgetRead"
+        Effect   = "Allow"
+        Action   = ["budgets:ViewBudget"]
+        Resource = ["arn:aws:budgets::*:budget/luxury-lakehouse-*"]
       },
       {
         Sid    = "IAMReadOIDC"
