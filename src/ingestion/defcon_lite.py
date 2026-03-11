@@ -376,7 +376,7 @@ def _process_360_matches(
     Returns number of rows written.
     """
     from pyspark.sql import functions as F  # noqa: N812
-    from pyspark.sql.types import DoubleType, IntegerType, StringType, StructField, StructType
+    from pyspark.sql.types import DoubleType, LongType, StringType, StructField, StructType
 
     action_table = f"{catalog}.{_GOLD_SCHEMA}.fct_action_values"
     ff_table = f"{catalog}.bronze.statsbomb_360"
@@ -421,11 +421,11 @@ def _process_360_matches(
 
     actions_df = (
         spark.table(action_table)
-        .filter(F.col("match_id").isin(new_ids_str))
+        .filter(F.col("match_id").cast("string").isin(new_ids_str))
         .filter("original_event_id IS NOT NULL AND original_event_id != 'None'")
         .select(
             F.col("original_event_id").alias("act_event_id"),
-            F.col("match_id").alias("act_match_id"),
+            F.col("match_id").cast("string").alias("act_match_id"),
             F.col("competition_id").alias("act_competition_id"),
             F.col("season_id").alias("act_season_id"),
             F.col("player_id").alias("act_player_id"),
@@ -439,7 +439,7 @@ def _process_360_matches(
 
     ff_df = (
         spark.table(ff_table)
-        .filter(F.col("match_id").isin(new_ids_str))
+        .filter(F.col("match_id").cast("string").isin(new_ids_str))
         .selectExpr(
             "id as ff_event_id",
             "teammate as ff_teammate",
@@ -469,10 +469,10 @@ def _process_360_matches(
         [
             StructField("event_id", StringType(), nullable=True),
             StructField("match_id", StringType(), nullable=True),
-            StructField("competition_id", StringType(), nullable=True),
-            StructField("season_id", StringType(), nullable=True),
-            StructField("defender_player_id", IntegerType(), nullable=True),
-            StructField("defender_team_id", IntegerType(), nullable=True),
+            StructField("competition_id", LongType(), nullable=True),
+            StructField("season_id", LongType(), nullable=True),
+            StructField("defender_player_id", LongType(), nullable=True),
+            StructField("defender_team_id", LongType(), nullable=True),
             StructField("defender_x", DoubleType(), nullable=True),
             StructField("defender_y", DoubleType(), nullable=True),
             StructField("action_player_id", StringType(), nullable=True),
@@ -505,10 +505,10 @@ def _process_360_matches(
         [
             StructField("event_id", StringType(), nullable=True),
             StructField("match_id", StringType(), nullable=True),
-            StructField("competition_id", StringType(), nullable=True),
-            StructField("season_id", StringType(), nullable=True),
-            StructField("defender_player_id", IntegerType(), nullable=True),
-            StructField("defender_team_id", IntegerType(), nullable=True),
+            StructField("competition_id", LongType(), nullable=True),
+            StructField("season_id", LongType(), nullable=True),
+            StructField("defender_player_id", LongType(), nullable=True),
+            StructField("defender_team_id", LongType(), nullable=True),
             StructField("defender_x", DoubleType(), nullable=True),
             StructField("defender_y", DoubleType(), nullable=True),
             StructField("action_player_id", StringType(), nullable=True),
@@ -572,7 +572,7 @@ def _process_tracking_matches(
     Returns number of rows written.
     """
     from pyspark.sql import functions as F  # noqa: N812
-    from pyspark.sql.types import DoubleType, IntegerType, StringType, StructField, StructType
+    from pyspark.sql.types import DoubleType, LongType, StringType, StructField, StructType
 
     action_table = f"{catalog}.{_GOLD_SCHEMA}.fct_action_values"
     tracking_table = f"{catalog}.{_GOLD_SCHEMA}.fct_tracking_frames"
@@ -619,12 +619,22 @@ def _process_tracking_matches(
     # Build Spark DataFrames for all new matches at once
     new_ids_str = [str(mid) for mid in new_match_ids]
 
+    # Early-out: check if fct_action_values has ANY matching entries.
+    # Metrica tracking has no SPADL action values (SPADL only covers StatsBomb/Wyscout).
+    # Cast to string avoids BIGINT mismatch when match_ids are strings like "Sample_Game_2".
+    matching_action_count = (
+        spark.table(action_table).filter(F.col("match_id").cast("string").isin(new_ids_str)).limit(1).count()
+    )
+    if matching_action_count == 0:
+        logger.info("No matching action values for %d tracking matches — skipping DEFCON tracking", len(new_match_ids))
+        return 0
+
     actions_df = (
         spark.table(action_table)
-        .filter(F.col("match_id").isin(new_ids_str))
+        .filter(F.col("match_id").cast("string").isin(new_ids_str))
         .select(
             F.col("original_event_id").alias("act_event_id"),
-            F.col("match_id").alias("act_match_id"),
+            F.col("match_id").cast("string").alias("act_match_id"),
             F.col("competition_id").alias("act_competition_id"),
             F.col("season_id").alias("act_season_id"),
             F.col("player_id").alias("act_player_id"),
@@ -663,10 +673,10 @@ def _process_tracking_matches(
         [
             StructField("event_id", StringType(), nullable=True),
             StructField("match_id", StringType(), nullable=True),
-            StructField("competition_id", StringType(), nullable=True),
-            StructField("season_id", StringType(), nullable=True),
-            StructField("defender_player_id", IntegerType(), nullable=True),
-            StructField("defender_team_id", IntegerType(), nullable=True),
+            StructField("competition_id", LongType(), nullable=True),
+            StructField("season_id", LongType(), nullable=True),
+            StructField("defender_player_id", LongType(), nullable=True),
+            StructField("defender_team_id", LongType(), nullable=True),
             StructField("defender_x", DoubleType(), nullable=True),
             StructField("defender_y", DoubleType(), nullable=True),
             StructField("action_player_id", StringType(), nullable=True),
@@ -699,10 +709,10 @@ def _process_tracking_matches(
         [
             StructField("event_id", StringType(), nullable=True),
             StructField("match_id", StringType(), nullable=True),
-            StructField("competition_id", StringType(), nullable=True),
-            StructField("season_id", StringType(), nullable=True),
-            StructField("defender_player_id", IntegerType(), nullable=True),
-            StructField("defender_team_id", IntegerType(), nullable=True),
+            StructField("competition_id", LongType(), nullable=True),
+            StructField("season_id", LongType(), nullable=True),
+            StructField("defender_player_id", LongType(), nullable=True),
+            StructField("defender_team_id", LongType(), nullable=True),
             StructField("defender_x", DoubleType(), nullable=True),
             StructField("defender_y", DoubleType(), nullable=True),
             StructField("action_player_id", StringType(), nullable=True),
