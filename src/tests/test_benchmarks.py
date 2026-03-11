@@ -1,4 +1,13 @@
-"""Performance benchmarks for critical-path functions."""
+"""Performance benchmarks for critical-path analytics functions.
+
+Uses pytest-benchmark to measure execution time of the four hot-path functions
+that run inside ``applyInPandas`` on Databricks serverless executors, where the
+1 GB UDF memory cap makes per-call efficiency critical.
+
+Performance budgets (from CLAUDE.md):
+    - Batched pitch control: <=5 ms per frame for 22 targets
+    - Line-breaking detection: <=2 ms per pass
+"""
 
 from __future__ import annotations
 
@@ -6,75 +15,231 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from analytics.defcon_lite import DefconLiteParams, assign_defensive_credits
 from analytics.line_breaking import LineBreakingParams, detect_line_breaking
 from analytics.off_ball_xt import compute_off_ball_xt_frame
-from analytics.pitch_control import compute_pitch_control_at_points
+from analytics.pitch_control import PitchControlParams, compute_pitch_control_at_points
+
+# ---------------------------------------------------------------------------
+# Fixtures — shared across all benchmarks
+# ---------------------------------------------------------------------------
 
 
-def _make_players_df(n_home: int = 11, n_away: int = 11) -> pd.DataFrame:
-    """Create a realistic players DataFrame for benchmarking."""
+@pytest.fixture
+def players_df() -> pd.DataFrame:
+    """Create a realistic 22-player DataFrame for benchmarking."""
     rng = np.random.default_rng(42)
-    n = n_home + n_away
+    n_home, n_away = 11, 11
+    home = pd.DataFrame(
+        {
+            "player_id": [f"home_{i}" for i in range(n_home)],
+            "team": "home",
+            "x": rng.uniform(10, 110, n_home),  # StatsBomb 120x80
+            "y": rng.uniform(5, 75, n_home),
+            "velocity_x": rng.uniform(-3, 3, n_home),
+            "velocity_y": rng.uniform(-3, 3, n_home),
+        }
+    )
+    away = pd.DataFrame(
+        {
+            "player_id": [f"away_{i}" for i in range(n_away)],
+            "team": "away",
+            "x": rng.uniform(10, 110, n_away),
+            "y": rng.uniform(5, 75, n_away),
+            "velocity_x": rng.uniform(-3, 3, n_away),
+            "velocity_y": rng.uniform(-3, 3, n_away),
+        }
+    )
+    return pd.concat([home, away], ignore_index=True)
+
+
+@pytest.fixture
+def target_points_22() -> np.ndarray:
+    """22 target points matching player positions — one per player on the pitch."""
+    rng = np.random.default_rng(99)
+    return np.column_stack(
+        [
+            rng.uniform(10, 110, 22),
+            rng.uniform(5, 75, 22),
+        ]
+    )
+
+
+@pytest.fixture
+def pitch_control_params() -> PitchControlParams:
+    """Default pitch control parameters."""
+    return PitchControlParams()
+
+
+@pytest.fixture
+def xt_grid() -> np.ndarray:
+    """Synthetic 12x8 expected-threat grid (Karun Singh dimensions)."""
+    rng = np.random.default_rng(7)
+    # Values should increase toward the opponent goal (left-to-right in StatsBomb coords)
+    base = np.linspace(0.0, 0.15, 12).reshape(12, 1) * np.ones((1, 8))
+    noise = rng.uniform(-0.01, 0.01, (12, 8))
+    return base + noise
+
+
+@pytest.fixture
+def defenders_df() -> pd.DataFrame:
+    """Six nearby defenders in SPADL 105x68 coordinates for DEFCON benchmarking."""
+    rng = np.random.default_rng(42)
+    n = 6
     return pd.DataFrame(
         {
-            "player_id": range(n),
-            "team": ["home"] * n_home + ["away"] * n_away,
-            "x": rng.uniform(0, 120, n),
-            "y": rng.uniform(0, 80, n),
-            "velocity_x": rng.uniform(-5, 5, n),
-            "velocity_y": rng.uniform(-5, 5, n),
+            "player_id": list(range(1, n + 1)),
+            "team_id": [100] * n,
+            "x": rng.uniform(50, 100, n),  # SPADL 105x68
+            "y": rng.uniform(10, 58, n),
+            "velocity_x": rng.uniform(-2, 2, n),
+            "velocity_y": rng.uniform(-2, 2, n),
         }
     )
 
 
-class TestBenchmarks:
-    def test_bench_batched_pitch_control(self, benchmark: Any) -> None:
-        """Benchmark: batched pitch control for 60 target points."""
-        players = _make_players_df()
-        targets = np.array([[x, y] for x in range(10, 111, 20) for y in range(10, 71, 20)], dtype=np.float64)
-        benchmark(compute_pitch_control_at_points, players, targets)
+@pytest.fixture
+def defcon_action() -> dict[str, object]:
+    """A representative offensive action dict for DEFCON credit assignment."""
+    return {
+        "event_id": "bench_evt_001",
+        "match_id": "3788741",
+        "competition_id": "11",
+        "season_id": "90",
+        "action_player_id": 5503,
+        "action_type": "pass",
+        "action_x": 65.0,  # SPADL 105x68
+        "action_y": 34.0,
+        "offensive_value": 0.042,
+    }
 
-    def test_bench_off_ball_xt_frame(self, benchmark: Any) -> None:
-        """Benchmark: off-ball xT for one frame (22 players)."""
-        players = _make_players_df()
-        xt_grid = np.random.default_rng(42).random((12, 8))
-        benchmark(compute_off_ball_xt_frame, players, xt_grid)
 
-    def test_bench_defcon_credit_assignment(self, benchmark: Any) -> None:
-        """Benchmark: DEFCON credit assignment for one action."""
-        rng = np.random.default_rng(42)
-        action: dict[str, object] = {
-            "event_id": "test_1",
-            "match_id": "1",
-            "competition_id": "2",
-            "season_id": "3",
-            "action_player_id": 1,
-            "action_type": "pass",
-            "action_x": 60.0,
-            "action_y": 34.0,
-            "offensive_value": 0.05,
+@pytest.fixture
+def opponents_df() -> pd.DataFrame:
+    """Ten opponents in StatsBomb 120x80 coords for line-breaking detection."""
+    rng = np.random.default_rng(42)
+    n = 10
+    return pd.DataFrame(
+        {
+            "x": rng.uniform(40, 110, n),
+            "y": rng.uniform(5, 75, n),
         }
-        defenders = pd.DataFrame(
-            {
-                "player_id": range(11),
-                "team_id": [0] * 11,
-                "x": rng.uniform(30, 105, 11),
-                "y": rng.uniform(0, 68, 11),
-                "velocity_x": rng.uniform(-3, 3, 11),
-                "velocity_y": rng.uniform(-3, 3, 11),
-            }
-        )
-        benchmark(assign_defensive_credits, action, defenders, DefconLiteParams())
+    )
 
-    def test_bench_line_breaking_detection(self, benchmark: Any) -> None:
-        """Benchmark: line-breaking detection for one pass."""
-        rng = np.random.default_rng(42)
-        opponents = pd.DataFrame(
-            {
-                "x": rng.uniform(30, 105, 10),
-                "y": rng.uniform(0, 68, 10),
-            }
+
+# ---------------------------------------------------------------------------
+# Benchmark tests
+# ---------------------------------------------------------------------------
+
+
+class TestBenchmarks:
+    """Performance benchmarks for critical-path analytics functions.
+
+    Each test calls ``benchmark()`` with the function under test and its
+    arguments.  pytest-benchmark handles warmup iterations, statistical
+    sampling, and report generation.
+
+    Tests that have an explicit performance budget also assert that the
+    median execution time stays within the budget.
+    """
+
+    # -- Pitch control (budget: <=5 ms for 22 targets) ----------------------
+
+    def test_bench_batched_pitch_control(
+        self,
+        benchmark: Any,
+        players_df: pd.DataFrame,
+        target_points_22: np.ndarray,
+        pitch_control_params: PitchControlParams,
+    ) -> None:
+        """Batched pitch control for 22 target points (one per player).
+
+        Budget: <=5 ms per frame for 22 targets.
+        """
+        result = benchmark(compute_pitch_control_at_points, players_df, target_points_22, pitch_control_params)
+
+        # Sanity: result shape and range
+        assert result.shape == (22,)
+        assert np.all((result >= 0.0) & (result <= 1.0))
+
+        # Performance budget: median must be <= 5 ms
+        # benchmark.stats is None when --benchmark-disable is used
+        if benchmark.stats is not None:
+            median_seconds: float = benchmark.stats["median"]
+            assert median_seconds <= 0.005, (
+                f"Batched pitch control median {median_seconds * 1000:.2f} ms exceeds 5 ms budget"
+            )
+
+    # -- Off-ball xT (no explicit budget, but depends on pitch control) -----
+
+    def test_bench_off_ball_xt_frame(
+        self,
+        benchmark: Any,
+        players_df: pd.DataFrame,
+        xt_grid: np.ndarray,
+        pitch_control_params: PitchControlParams,
+    ) -> None:
+        """Off-ball xT for a single 22-player frame.
+
+        No hard budget, but this wraps ``compute_pitch_control_at_points``
+        internally so it should stay close to the pitch-control budget.
+        """
+        result = benchmark(compute_off_ball_xt_frame, players_df, xt_grid, pitch_control_params)
+
+        # Sanity: one row per player
+        assert len(result) == 22
+        expected_cols = {"player_id", "team", "x", "y", "xt_value", "pitch_control", "off_ball_xt"}
+        assert expected_cols.issubset(set(result.columns))
+
+    # -- DEFCON credit assignment (no explicit budget) ----------------------
+
+    def test_bench_defcon_credit_assignment(
+        self,
+        benchmark: Any,
+        defcon_action: dict[str, object],
+        defenders_df: pd.DataFrame,
+    ) -> None:
+        """DEFCON credit assignment for one action with 6 nearby defenders."""
+        result = benchmark(assign_defensive_credits, defcon_action, defenders_df, DefconLiteParams())
+
+        # Sanity: result is a list of credit dicts
+        assert isinstance(result, list)
+        for credit in result:
+            assert "event_id" in credit
+            assert "defender_player_id" in credit
+
+    # -- Line-breaking detection (budget: <=2 ms per pass) ------------------
+
+    def test_bench_line_breaking_detection(
+        self,
+        benchmark: Any,
+        opponents_df: pd.DataFrame,
+    ) -> None:
+        """Line-breaking detection for a single forward pass.
+
+        Budget: <=2 ms per pass.
+        """
+        result = benchmark(
+            detect_line_breaking,
+            40.0,  # pass_start_x (StatsBomb 120x80)
+            40.0,  # pass_start_y
+            85.0,  # pass_end_x — forward pass
+            42.0,  # pass_end_y — slight lateral shift
+            opponents_df,
+            LineBreakingParams(),
         )
-        benchmark(detect_line_breaking, 40.0, 40.0, 80.0, 40.0, opponents, LineBreakingParams())
+
+        # Sanity: result has expected attributes
+        assert hasattr(result, "is_line_breaking")
+        assert hasattr(result, "lines_broken")
+        assert hasattr(result, "line_breaking_type")
+
+        # Performance budget: median must be <= 2 ms
+        # benchmark.stats is None when --benchmark-disable is used
+        if benchmark.stats is not None:
+            median_seconds: float = benchmark.stats["median"]
+            assert median_seconds <= 0.002, (
+                f"Line-breaking detection median {median_seconds * 1000:.2f} ms exceeds 2 ms budget"
+            )

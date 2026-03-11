@@ -49,14 +49,16 @@ def render_team_filter(competition_id: int | None) -> int | None:
 
     # L-3: Explicit type assertion before query
     competition_id = int(competition_id)
+    # UNION instead of OR join to allow index scans on home_team_id and away_team_id
     df = _cached_query(
         f"SELECT DISTINCT t.team_id, t.team_name "  # noqa: S608
         f"FROM {t('dim_teams_synced')} t "
-        f"JOIN {t('fct_match_summary_synced')} m "
-        f"  ON t.team_id = m.home_team_id OR t.team_id = m.away_team_id "
-        f"WHERE m.competition_id = %s "
-        f"ORDER BY t.team_name",
-        (competition_id,),
+        f"WHERE t.team_id IN ("
+        f"  SELECT m.home_team_id FROM {t('fct_match_summary_synced')} m WHERE m.competition_id = %s "
+        f"  UNION "
+        f"  SELECT m.away_team_id FROM {t('fct_match_summary_synced')} m WHERE m.competition_id = %s"
+        f") ORDER BY t.team_name",
+        (competition_id, competition_id),
     )
     if df.empty:
         st.info("No teams found for this competition.")

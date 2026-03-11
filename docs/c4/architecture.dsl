@@ -64,7 +64,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
                 macros = component "Custom Macros" "distance_to_goal and shot_angle geometry calculations for xG features" "Jinja SQL Macros"
                 testSuite = component "Test Suite" "381 data tests: unique, not_null, accepted_values, range bounds, composite keys, relationships, source freshness" "dbt-expectations, dbt-utils"
             }
-            syncedTables = container "Synced Tables Pipeline" "16 synced tables (13 fact, 3 dimension) replicate Gold Delta tables into Lakebase via SNAPSHOT scheduling. 31 indexes (27 btree + 4 HNSW) across fact tables for sub-100ms queries." "Lakeflow Synced Database Tables, Terraform" "Queue"
+            syncedTables = container "Synced Tables Pipeline" "16 synced tables (13 fact, 3 dimension) replicate Gold Delta tables into Lakebase via SNAPSHOT scheduling. 34 indexes (30 btree + 4 HNSW) across fact tables for sub-100ms queries." "Lakeflow Synced Database Tables, Terraform" "Queue"
             lakebase = container "Lakebase PostgreSQL 17 (Autoscaling)" "Managed OLTP database with autoscaling (0.5–4 CU) and scale-to-zero, providing sub-10ms query latency for the Streamlit app, with native pgvector support for cosine-distance player similarity search. OAuth M2M authentication, SSL enforced." "PostgreSQL 17, Autoscaling, pgvector" "Database"
             streamlit = container "Streamlit Dashboard" "Interactive analytics dashboard deployed as a Databricks App with 11 pages covering event analysis, player comparison, player similarity search, movement analysis, defensive pressure, and multi-source tracking visualization" "Python, Streamlit, mplsoccer, psycopg2, Databricks Apps" {
                 appEntry = component "App Entry Point" "st.navigation page routing, dark theme, sidebar branding" "app.py, Streamlit 1.36+"
@@ -294,7 +294,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
             ingestion -> catalog "Writes 12 bronze Delta tables with audit columns"
             dbt -> catalog "Transforms Bronze to Silver to Gold (381 data tests)"
             syncedTables -> catalog "Reads Gold Delta tables"
-            syncedTables -> lakebase "Syncs 16 tables via Lakeflow, 31 indexes (27 btree + 4 HNSW) on partitions"
+            syncedTables -> lakebase "Syncs 16 tables via Lakeflow, 34 indexes (30 btree + 4 HNSW) on partitions"
             streamlit -> lakebase "Queries analytics data with recursive CTE optimization"
             autoLayout
         }

@@ -46,6 +46,9 @@ if TYPE_CHECKING:
 # Pre-compiled regex for sanitizing DataFrame column names (Delta Lake rejects spaces/special chars)
 _COLUMN_CLEAN_RE = re.compile(r"[^a-zA-Z0-9_]")
 
+# Pre-compiled regex for extracting player (team, id) from tracking column names
+_PLAYER_COL_RE = re.compile(r"^(Home|Away)_(.+)_x$")
+
 # GitHub raw URLs for Metrica open data (HTTPS only)
 _BASE_URL = "https://raw.githubusercontent.com/metrica-sports/sample-data/master/data"
 
@@ -476,7 +479,7 @@ def _reshape_tracking_to_narrow(
     ball_y_list = _to_opt_float(ball_y_s)
 
     # --- Player columns: identify (team, player_id, x_col, y_col) tuples ---
-    _player_col_re = re.compile(r"^(Home|Away)_(.+)_x$")
+    _player_col_re = _PLAYER_COL_RE
     player_groups: dict[str, list[tuple[str, str, str]]] = {"Home": [], "Away": []}
     for col in df.columns:
         m = _player_col_re.match(col)

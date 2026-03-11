@@ -1,4 +1,9 @@
-{{ config(cluster_by=["match_id"]) }}
+{{ config(
+    materialized='incremental',
+    unique_key='physical_stats_id',
+    cluster_by=['match_id'],
+    incremental_strategy='merge'
+) }}
 -- fct_physical_stats.sql
 -- Per-player per-match physical performance aggregation from tracking data.
 --
@@ -16,7 +21,17 @@
 --
 -- Off-Ball xT columns are populated via LEFT JOIN from stg_off_ball_xt__results.
 
-with frames as (
+with
+
+{% if is_incremental() %}
+existing_matches as (
+
+    select distinct match_id from {{ this }}
+
+),
+{% endif %}
+
+frames as (
 
     select
         player_id,
@@ -36,6 +51,9 @@ with frames as (
         coalesce(speed_ms / frame_rate, 0) as displacement_m
     from {{ ref('fct_tracking_frames') }}
     where player_id is not null
+    {% if is_incremental() %}
+    and match_id not in (select match_id from existing_matches)
+    {% endif %}
 
 ),
 

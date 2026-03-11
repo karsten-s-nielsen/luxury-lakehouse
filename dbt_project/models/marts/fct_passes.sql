@@ -1,3 +1,9 @@
+{{ config(
+    materialized='incremental',
+    unique_key='pass_id',
+    cluster_by=['match_id'],
+    incremental_strategy='merge'
+) }}
 -- fct_passes.sql
 -- Gold-layer pass fact table with progressive and line-breaking pass metrics.
 --
@@ -27,6 +33,9 @@
 with unified_passes as (
 
     select * from {{ ref('int_unified_passes') }}
+    {% if is_incremental() %}
+    where match_id not in (select distinct match_id from {{ this }})
+    {% endif %}
 
 ),
 

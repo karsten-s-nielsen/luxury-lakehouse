@@ -258,10 +258,6 @@ def _compute_stat_vectors(
         season_id, stat_vector columns; normalization params dict).
     """
     feature_cols = ", ".join(f"ps.{f}" for f in STAT_FEATURES)
-    player_filter = ""
-    if player_ids:
-        ids_csv = ", ".join(str(pid) for pid in player_ids)
-        player_filter = f"AND dp.canonical_player_id IN ({ids_csv})"
     query = f"""
         SELECT
             CAST(dp.canonical_player_id AS STRING) AS canonical_player_id,
@@ -272,9 +268,15 @@ def _compute_stat_vectors(
         INNER JOIN {catalog}.{gold_schema}.dim_players dp
             ON ps.player_id = dp.player_id
         WHERE dp.canonical_player_id IS NOT NULL
-        {player_filter}
     """  # noqa: S608
-    df = spark.sql(query).toPandas()
+    sdf = spark.sql(query)
+    if player_ids:
+        # Use DataFrame .filter() with a SQL expression instead of f-string
+        # interpolation in the main query. The player IDs are internal ints
+        # from Delta table lookups, cast to str for type safety.
+        id_list = [str(pid) for pid in player_ids]
+        sdf = sdf.filter(sdf["canonical_player_id"].isin(id_list))
+    df = sdf.toPandas()
 
     if df.empty:
         return (

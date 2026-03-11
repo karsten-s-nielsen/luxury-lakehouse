@@ -8,8 +8,23 @@ import streamlit as st
 
 from streamlit_app.components.charts import plot_match_comparison_bars
 from streamlit_app.components.filters import render_competition_filter, render_match_filter, render_team_filter
-from streamlit_app.config import get_settings
 from streamlit_app.db import execute_query, t
+
+
+@st.cache_data(ttl=600, show_spinner="Loading match data...")
+def _fetch_match_summary(tbl: str, m_id: int) -> Any:
+    return execute_query(
+        f"SELECT match_id, match_date, home_team_name, away_team_name, "  # noqa: S608
+        f"  home_score, away_score, home_xg, away_xg, "
+        f"  home_shots, away_shots, home_shots_on_target, away_shots_on_target, "
+        f"  home_total_passes, away_total_passes, "
+        f"  home_completed_passes, away_completed_passes, "
+        f"  home_progressive_passes, away_progressive_passes, "
+        f"  home_pass_completion_pct, away_pass_completion_pct, "
+        f"  home_possession_pct, home_ppda, away_ppda "
+        f"FROM {tbl} WHERE match_id = %s",
+        (m_id,),
+    )
 
 
 def _load_match(match_id: int) -> Any:
@@ -17,23 +32,7 @@ def _load_match(match_id: int) -> Any:
     # L-3: Explicit type assertion before query
     match_id = int(match_id)
     tbl = t("fct_match_summary_synced")
-
-    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading match data...")
-    def _query(m_id: int) -> Any:
-        return execute_query(
-            f"SELECT match_id, match_date, home_team_name, away_team_name, "  # noqa: S608
-            f"  home_score, away_score, home_xg, away_xg, "
-            f"  home_shots, away_shots, home_shots_on_target, away_shots_on_target, "
-            f"  home_total_passes, away_total_passes, "
-            f"  home_completed_passes, away_completed_passes, "
-            f"  home_progressive_passes, away_progressive_passes, "
-            f"  home_pass_completion_pct, away_pass_completion_pct, "
-            f"  home_possession_pct, home_ppda, away_ppda "
-            f"FROM {tbl} WHERE match_id = %s",
-            (m_id,),
-        )
-
-    return _query(match_id)
+    return _fetch_match_summary(tbl, match_id)
 
 
 def page() -> None:

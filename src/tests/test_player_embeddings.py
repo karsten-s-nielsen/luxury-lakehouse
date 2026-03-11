@@ -515,8 +515,8 @@ class TestComputeStatVectors:
         for idx in defcon_indices:
             assert vec[idx] is None or (isinstance(vec[idx], float) and np.isnan(vec[idx]))
 
-    def test_player_ids_filter_included_in_sql(self) -> None:
-        """When player_ids is provided, the SQL should include an IN clause."""
+    def test_player_ids_filter_applied_via_dataframe(self) -> None:
+        """When player_ids is provided, a DataFrame .filter() should be applied."""
         mock_spark = MagicMock()
         mock_pdf = pd.DataFrame(
             {
@@ -526,14 +526,16 @@ class TestComputeStatVectors:
                 **{f: [1.0] for f in STAT_FEATURES},
             }
         )
-        mock_spark.sql.return_value.toPandas.return_value = mock_pdf
+        mock_sdf = mock_spark.sql.return_value
+        mock_sdf.filter.return_value.toPandas.return_value = mock_pdf
 
         _compute_stat_vectors(mock_spark, "cat", "dev_gold", player_ids={42, 99})
 
+        # SQL should NOT contain IN clause (filter is via DataFrame API)
         sql_called = mock_spark.sql.call_args[0][0]
-        assert "IN (" in sql_called
-        assert "42" in sql_called
-        assert "99" in sql_called
+        assert "canonical_player_id IN" not in sql_called
+        # DataFrame .filter() should have been called
+        mock_sdf.filter.assert_called_once()
 
     def test_no_player_ids_filter_when_none(self) -> None:
         """When player_ids is None, the SQL should NOT include an IN clause."""

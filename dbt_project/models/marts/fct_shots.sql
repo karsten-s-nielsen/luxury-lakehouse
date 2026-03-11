@@ -1,3 +1,9 @@
+{{ config(
+    materialized='incremental',
+    unique_key='shot_id',
+    cluster_by=['match_id'],
+    incremental_strategy='merge'
+) }}
 -- fct_shots.sql
 -- Gold-layer shot fact table with xG features for ML model training.
 --
@@ -23,6 +29,9 @@
 with unified_shots as (
 
     select * from {{ ref('int_unified_shots') }}
+    {% if is_incremental() %}
+    where match_id not in (select distinct match_id from {{ this }})
+    {% endif %}
 
 ),
 

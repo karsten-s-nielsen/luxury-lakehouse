@@ -231,18 +231,30 @@ def _convert_statsbomb_from_bronze(
     events_table = f"{catalog}.{schema}.statsbomb_events"
     matches_table = f"{catalog}.{schema}.statsbomb_matches"
 
+    # Check for new games BEFORE pulling metadata tables to driver (avoid
+    # wasted .toPandas() on no-op runs).
+    try:
+        events_sdf = spark.table(events_table)
+    except Exception:
+        logger.exception("Cannot read StatsBomb events bronze table")
+        return False
+
+    all_game_rows = events_sdf.select("match_id").distinct().collect()
+    all_game_ids = [int(row["match_id"]) for row in all_game_rows]
+    new_game_ids = [gid for gid in all_game_ids if gid not in existing_games]
+
+    if not new_game_ids:
+        logger.info("StatsBomb: all %d games already converted — skipping", len(all_game_ids))
+        return False
+
+    # Only now pull metadata tables needed for home_team_id resolution
     try:
         all_matches_pdf = spark.table(matches_table).toPandas()
     except Exception:
         logger.exception("Cannot read StatsBomb matches bronze table")
         return False
 
-    # Pull only team lookup columns (tiny vs full table) for home_team_id resolution
-    try:
-        team_lookup_pdf = spark.table(events_table).select("match_id", "team_id", "team").distinct().toPandas()
-    except Exception:
-        logger.exception("Cannot read StatsBomb events bronze table")
-        return False
+    team_lookup_pdf = events_sdf.select("match_id", "team_id", "team").distinct().toPandas()
 
     if team_lookup_pdf.empty:
         logger.info("StatsBomb bronze events table is empty — skipping")
@@ -250,13 +262,7 @@ def _convert_statsbomb_from_bronze(
 
     home_team_map = resolve_statsbomb_home_team_ids(all_matches_pdf, team_lookup_pdf)
 
-    # Find new game_ids via Spark (tiny result)
-    events_sdf = spark.table(events_table)
-    all_game_rows = events_sdf.select("match_id").distinct().collect()
-    all_game_ids = [int(row["match_id"]) for row in all_game_rows]
-    new_game_ids = [gid for gid in all_game_ids if gid not in existing_games]
-
-    # Also filter out games where home_team_id is unknown
+    # Filter out games where home_team_id is unknown
     new_game_ids = [gid for gid in new_game_ids if home_team_map.get(gid, 0) != 0]
 
     if not new_game_ids:
@@ -408,13 +414,7 @@ def _convert_wyscout_from_bronze(
     events_table = f"{catalog}.{schema}.wyscout_events"
     matches_table = f"{catalog}.{schema}.wyscout_matches"
 
-    try:
-        all_matches_pdf = spark.table(matches_table).toPandas()
-    except Exception:
-        logger.exception("Cannot read Wyscout matches bronze table")
-        return False
-
-    # Determine match ID column name from events schema (metadata only, no scan)
+    # Check for new games BEFORE pulling metadata tables to driver
     try:
         events_columns = spark.table(events_table).columns
     except Exception:
@@ -423,15 +423,24 @@ def _convert_wyscout_from_bronze(
 
     match_id_col = "matchId" if "matchId" in events_columns else "match_id"
 
-    # Resolve home_team_id per match
-    home_team_map = resolve_wyscout_home_team_ids(all_matches_pdf)
-
-    # Get all game IDs from events via Spark (tiny result)
     all_game_rows = spark.table(events_table).select(match_id_col).distinct().collect()
     all_game_ids = [int(row[match_id_col]) for row in all_game_rows]
     new_game_ids = [gid for gid in all_game_ids if gid not in existing_games]
 
-    # Also filter out games where home_team_id is unknown
+    if not new_game_ids:
+        logger.info("Wyscout: all %d games already converted — skipping", len(all_game_ids))
+        return False
+
+    # Only now pull metadata tables needed for home_team_id resolution
+    try:
+        all_matches_pdf = spark.table(matches_table).toPandas()
+    except Exception:
+        logger.exception("Cannot read Wyscout matches bronze table")
+        return False
+
+    home_team_map = resolve_wyscout_home_team_ids(all_matches_pdf)
+
+    # Filter out games where home_team_id is unknown
     new_game_ids = [gid for gid in new_game_ids if home_team_map.get(gid, 0) != 0]
 
     if not new_game_ids:
@@ -927,7 +936,17 @@ def run_pipeline(
         schema=vaep_schema,
     )
 
-    write_delta_table(scored_sdf, catalog, schema, _VAEP_TABLE, logger=logger)
+    # Build replaceWhere predicate targeting only unscored game_ids so
+    # existing VAEP scores are preserved (not destroyed by bare overwrite).
+    ids_sql = ", ".join(str(gid) for gid in unscored_game_ids)
+    write_delta_table(
+        scored_sdf,
+        catalog,
+        schema,
+        _VAEP_TABLE,
+        replace_where=f"game_id IN ({ids_sql})",
+        logger=logger,
+    )
 
     logger.info("SPADL/VAEP pipeline complete — scoring distributed across executors")
 

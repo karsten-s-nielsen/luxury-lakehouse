@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [PLAN.md](PLAN.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
 
-**Last updated**: 2026-03-11 (optimization audit complete — closed #19, #20, #21, #22, #23; added Spark vs Python note)
+**Last updated**: 2026-03-11 (optimization audit complete, documentation cleanup)
 
 ---
 
@@ -20,64 +20,58 @@ Phases 0–17 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for th
 |---|------|----------|-------------|---------|
 | 1 | Synced tables Terraform workaround | `terraform/` | Must create synced tables via UI + import due to missing provider fields. `lifecycle { ignore_changes = all }`. No schedule/cron field on resource — SNAPSHOT refresh requires manual trigger or external job. Workaround: `scripts/refresh_synced_tables.py`. Root cause: the `/api/2.0/postgres/` surface (Autoscaling) has zero synced table endpoints — UI is the only method. The Provisioned API (`/api/2.0/database/synced_tables`) uses `database_instance_name` with no project/branch equivalent. GitHub issue filed: [terraform-provider-databricks#5456](https://github.com/databricks/terraform-provider-databricks/issues/5456). Related: [#5389](https://github.com/databricks/terraform-provider-databricks/issues/5389) (same gap for `databricks_database_database_catalog`). **Update 2026-03-06:** Connected with a Databricks Solution Architect at SSAC26 conference (LinkedIn). Bug report reference being forwarded for internal triage. | Blocked on Databricks API team adding synced table endpoints to `/api/2.0/postgres/`. Provider cannot be fixed until upstream API exists. |
 | 2 | PG index recreation after synced table changes | `scripts/create_indexes.py` | Custom indexes dropped on synced table recreation. Must re-run script manually. | Operational procedure; automated via `create_indexes.py --verify`. |
-| ~~3~~ | ~~StatsBomb `backfill_extra_json` N+1~~ | ~~`statsbomb.py:438`~~ | ~~Resolved: Each per-match `SELECT *` is bounded by `WHERE match_id = {match_id}` — not a full table scan. The `_raw_extra_json` mapping requires the full row for re-serialization, so column projection provides no benefit here. OOM risk is per-match (bounded), not cumulative. Backfill pattern is intentional.~~ | ~~Resolved~~ |
-| ~~4~~ | ~~SPADL/VAEP `.toPandas()` OOM risk~~ | ~~`spadl_vaep.py:170`~~ | ~~Resolved: per-partition Spark pulls replace full-table `.toPandas()`. StatsBomb events pulled per `(competition_id, season_id)`, Wyscout events pulled per competition match set.~~ | ~~Resolved~~ |
 | 5 | `pitch_control_value` column still NULL | `fct_tracking_frames` | Column provisioned but not populated. Batch computation deferred from Phase 11. | Requires compute-heavy Databricks job across 38M frames. |
 | 6 | Line-breaking Path B limited to Metrica only | `line_breaking.py` | IDSSE (7 matches) and SkillCorner (10 matches) have tracking but no event data. | Blocked on event data procurement or ball trajectory detection. |
 | 7 | Single-frame 360 analysis | `line_breaking.py` | Path A uses opponent positions at pass moment only. Dual-frame would be more robust. | 360 freeze frames lack temporal resolution. Data limitation. |
-| ~~8~~ | ~~`line_breaking_results` append duplicates~~ | ~~`ingestion/line_breaking.py`~~ | ~~Resolved: Delta MERGE on `event_id` key eliminates structural duplicates at write time.~~ | ~~Resolved~~ |
 | 9 | Fixed 3-cluster assumption | `analytics/line_breaking.py` | Ward clustering with `n_clusters=3` assumes 3 defensive lines. Breaks for 5-depth formations. | Research task — needs silhouette score analysis. |
 | 10 | No set-piece exclusion | `analytics/line_breaking.py` | Corners, free kicks, throw-ins have non-standard formations. | Research task — needs `pass_type` filtering or set-piece-aware algorithm. |
 | 11 | Heat Map pre-aggregation lossy | `heat_map.py` | Server-side `GROUP BY round(x/10)` bins into 10-yard cells before `bin_statistic`. Per-action precision lost. | Acceptable trade-off for density visualization. |
-| ~~12~~ | ~~Off-Ball xT 1fps sampling~~ | ~~`off_ball_xt.py`~~ | ~~Resolved: Ingestion migrated to `applyInPandas` (grouped by `match_id`). Sequential per-match loop eliminated — Spark distributes across executors. 1fps sampling rate retained as correct accuracy/compute trade-off. GPU batch path available via ROADMAP.md EIP section if higher resolution needed in future.~~ | ~~Resolved~~ |
 | 13 | PPDA StatsBomb-only | `fct_match_summary.sql` | PPDA uses StatsBomb defensive actions. NULL for Wyscout-only competitions (different event taxonomy). | Data limitation. Would require event type mapping or different pressing proxy. |
 | 14 | Space creation deferred | ROADMAP.md | Full Fernandez & Bornn 2018 OBSO requires N+1 pitch control computations per frame — too expensive for current compute budget. | Research direction in ROADMAP.md. |
-| ~~15~~ | ~~Acceleration noise~~ | ~~`fct_tracking_frames.sql`~~ | ~~Resolved: Savitzky-Golay smoothing (window=7, polyorder=2) applied at ingestion in `_smooth_tracking()`. Positions clamped to pitch bounds.~~ | ~~Resolved~~ |
 | 16 | Physical stats tracking-only | `fct_physical_stats.sql` | Only 20 matches (Metrica 3, IDSSE 7, SkillCorner 10) have physical data. ~3,000 event-only matches have none. | Data limitation — no tracking for StatsBomb/Wyscout. |
 | 17 | xT grid static | `expected_threat_grid.csv` | Karun Singh standard 12x8 seed. Could be computed dynamically per competition from pass/shot data for more accurate values. | Enhancement — current static grid is standard practice. |
 | 18 | DEFCON-lite anonymous defenders | `ingestion/defcon_lite.py` | StatsBomb 360 freeze frames are anonymous — `defender_player_id` is synthetic. `fct_defensive_values` cannot attribute credit to real defenders. Mitigated: `fct_defcon_pressure` pivots to attacker perspective (real `action_player_id`). | Full fix requires Tier 4 GNN with tracking data (500+ matches needed). |
-| ~~19~~ | ~~No AWS budget alarm~~ | ~~Terraform~~ | ~~Resolved: `aws_budgets_budget` resource with $100/month limit and 80%/100% threshold notifications. Conditional on `alert_email` in tfvars.~~ | ~~Resolved~~ |
-| ~~20~~ | ~~Action values unbounded query~~ | ~~`pages/action_values.py`~~ | ~~Resolved: LIMIT 2000 on match timeline, LIMIT 500 on rankings, recursive CTE for DISTINCT on fact tables.~~ | ~~Resolved~~ |
-| ~~21~~ | ~~StatsBomb backfill SELECT *~~ | ~~`statsbomb.py`~~ | ~~Resolved: Delta MERGE replaces read-modify-write cycle — updates only `_raw_extra_json` column without reading all columns to driver.~~ | ~~Resolved~~ |
-| ~~22~~ | ~~Redundant LAG windows in fct_physical_stats~~ | ~~`fct_physical_stats.sql`~~ | ~~Resolved: Removed redundant LAG computation. `displacement_m` derived from existing upstream columns.~~ | ~~Resolved~~ |
-| ~~23~~ | ~~S3 lifecycle rule for state versions~~ | ~~Terraform~~ | ~~Resolved: `aws_s3_bucket_lifecycle_configuration` expires non-current state versions after 90 days.~~ | ~~Resolved~~ |
-| ~~24~~ | ~~Metrica tracking reshape iterrows~~ | ~~`metrica.py:451`~~ | ~~Resolved: Replaced with `pd.melt()` vectorized wide-to-narrow reshape. Per-match DataFrame never needs row iteration — columnar transformation handles ~9.5M frames efficiently.~~ | ~~Resolved~~ |
 | 25 | Lakebase CU right-sizing | Terraform | `autoscaling_max_cu = 4` may be overprovisioned for dev. Reduce to 2. | Blocked — Terraform provider cannot update `initial_endpoint_spec` after creation. Needs UI change. |
 | 26 | IDSSE XML ball-before-player ordering assumption | `src/ingestion/idsse.py` | Single-pass XML merge assumes ball FrameSets precede player FrameSets in DFL position XML. Validated by inspection of current 7 files but not asserted in code. Add a runtime check or unit test that verifies ball coords are available when player frames are processed. If DFL ever delivers files with interleaved ordering, `ball_x`/`ball_y` will silently degrade to NULL. | Low priority — graceful degradation, but should validate. |
-| 27 | Respo.Vision ingestion architecture | `src/ingestion/` | Respo.Vision 3D pose tracking (50+ keypoints × 22 players × 60fps = ~2.14B floats/match, ~17 GB raw) cannot use current ingestion patterns. Requirements: (1) streaming download (`requests.get(url, stream=True)` + chunked write to UC Volume), (2) Spark-native file reading (`spark.read.parquet()` or `spark.read.json()` — no pandas on driver), (3) incremental skip guard on `match_id`, (4) `applyInPandas` for all per-match analytics (driver must never see raw tracking data), (5) schema decision: narrow `(match_id, frame_id, player_id, keypoint_id, x, y, z)` ~2B rows/match vs semi-narrow `(match_id, frame_id, player_id, keypoints_json)` ~14M rows/match. Design before any data arrives. | Blocked on Respo.Vision data access (user pursuing via network). |
+| 27 | Respo.Vision ingestion architecture | `src/ingestion/` | Respo.Vision 3D pose tracking (50+ keypoints × 22 players × 60fps = ~2.14B floats/match, ~17 GB raw) cannot use current ingestion patterns. Requirements: (1) streaming download (`requests.get(url, stream=True)` + chunked write to UC Volume), (2) Spark-native file reading (`spark.read.parquet()` or `spark.read.json()` — no pandas on driver), (3) incremental skip guard on `match_id`, (4) `applyInPandas` for all per-match analytics (driver must never see raw tracking data), (5) schema decision: narrow `(match_id, frame_id, player_id, keypoint_id, x, y, z)` ~2B rows/match vs semi-narrow `(match_id, frame_id, player_id, keypoints_json)` ~14M rows/match. Design before any data arrives. | Blocked on own-footage recording + Respo.Vision processing. |
 
 ### Resolved
 
+Items resolved during phases or the optimization audit (2026-03-11). Details preserved in git history.
+
 | # | Item | Resolution |
 |---|------|------------|
-| ~~4~~ | SPADL/VAEP `.toPandas()` OOM | Per-partition Spark pulls replace full-table `.toPandas()`. SB events pulled per `(comp_id, season_id)`, Wyscout events per competition match set. |
-| ~~8~~ | Line-breaking append duplicates | Delta MERGE on `event_id` key replaces `replaceWhere` — structural deduplication at write time. dbt `ROW_NUMBER()` dedup retained as defense in depth. |
-| ~~15~~ | Acceleration noise | Savitzky-Golay smoothing (`window_length=7, polyorder=2`) applied at ingestion via `analytics/smoothing.py`. Positions clamped to pitch bounds after smoothing. SkillCorner restructured to per-match processing (matching IDSSE pattern) for memory efficiency. |
-| ~~18~~ | Off-Ball xT NaN values | Batch re-run completed as part of Phase 17. Code fix (`math.isnan()` guard) was already in place. |
-| ~~O1~~ | Wyscout OOM on ingestion | Per-competition load-release: load one JSON, write with `replaceWhere`, `del` + `gc.collect()`. Datetime cols cast to string for Delta schema merge. |
-| ~~O2~~ | Metrica batch concat OOM risk | Per-match writes with `replaceWhere=f"match_id = '{match_id}'"` replace `pd.concat()` + `mode="overwrite"`. |
-| ~~O3~~ | DataFrame filter inside iterrows | Pre-built `groupby()` for DEFCON (`defcon_lite.py:383`) and line-breaking (`line_breaking.py:175`). |
-| ~~O4~~ | Nested iterrows for pseudo-freeze-frames | Replaced with pre-extracted arrays + zip comprehension (`ingestion/defcon_lite.py:257`). |
-| ~~O5~~ | Off-ball xT accumulation loop | Vectorized `pd.concat()` + `.groupby().agg()` replaces per-player iterrows (`analytics/off_ball_xt.py`). |
-| ~~O6~~ | Player embeddings iterrows/apply | NumPy `.values` + zip replaces `.apply(axis=1)` and iterrows for dict building (`player_embeddings.py`). |
-| ~~O7~~ | Entity resolution iterrows | Zip replaces iterrows for rapidfuzz scoring loops (`analytics/entity_resolution.py`). |
-| ~~O8~~ | Double `df.count()` on merge writes | `write_delta_table()` now accepts optional `row_count` param to skip redundant Spark DAG recomputation. |
-| ~~O9~~ | Shot map unbounded query | Added `LIMIT 10000` to competition-wide shot query (`pages/shot_map.py`). |
-| ~~O10~~ | Missing PG indexes | Added composite `(match_id, action_player_id)` on `fct_defcon_actions_synced` and btree on `canonical_player_id` for embedding lookups. |
-| ~~O11~~ | `statsbombpy` in core deps | Moved to optional `[statsbomb]` extra. Terraform workflow uses dedicated `statsbomb` env. |
-| ~~O12~~ | No `max_concurrent_runs` | Set `max_concurrent_runs = 1` on ingestion workflow. |
-| ~~O13~~ | Entity resolution Delta schema merge | Explicit `int64`/`float64` dtypes on all empty DataFrame code paths in `entity_resolution.py` (lines 140, 407, 573). Eliminates `DELTA_FAILED_TO_MERGE_FIELDS` on `player_id_a`. |
-| ~~O14~~ | Off-ball xT missing seed CSV | xT grid CSV uploaded to UC Volume (`/Volumes/soccer_analytics/bronze/libs/expected_threat_grid.csv`). Fallback chain: dbt seed table → UC Volume → workspace path. |
-| ~~O15~~ | IDSSE tracking intermittent OOM | Per-period processing: `_parse_positions_xml()` returns rows bucketed by period, each half processed/written/released independently. Halves peak DataFrame memory. |
-| ~~O16~~ | AWS budget alarm missing | `aws_budgets_budget` with $100/month limit, 80%/100% email alerts. |
-| ~~O17~~ | Action values unbounded queries | LIMIT 2000 on timeline, LIMIT 500 on rankings, recursive CTE for DISTINCT. |
-| ~~O18~~ | StatsBomb backfill SELECT * | Delta MERGE replaces full read-modify-write — updates only `_raw_extra_json` without pulling all columns. |
-| ~~O19~~ | Redundant LAG in fct_physical_stats | Removed duplicate LAG windows. Displacement derived from upstream tracking columns. |
-| ~~O20~~ | S3 state version retention | `aws_s3_bucket_lifecycle_configuration` expires non-current versions after 90 days. |
-| ~~O21~~ | Incremental skip guards missing | All 5 ingestion modules (metrica, skillcorner, statsbomb, wyscout, idsse) now check existing match IDs before re-processing. |
-| ~~O22~~ | DEFCON type mismatches | `IntegerType`→`LongType` for competition/season/player/team IDs in all `applyInPandas` schemas. `.cast("string")` on match_id filters. |
-| ~~O23~~ | VAEP model distribution broken on serverless | XGBoost models serialized to bytes via `get_booster().save_raw()` — passed through closure instead of UC Volume FUSE. |
-| ~~O24~~ | DEFCON timeline Seq Scan timeout | Missing `(competition_id, action_player_id)` index on `fct_defcon_actions_synced` caused Seq Scan on 829K rows. Added DA-4 composite index + `ANALYZE` on all fact tables + `LIMIT 2000` on match timeline query. `create_indexes.py` now runs ANALYZE automatically. |
+| 3 | StatsBomb `backfill_extra_json` N+1 | Each per-match `SELECT *` is bounded by `WHERE match_id`. Delta MERGE replaces read-modify-write. OOM risk is per-match (bounded). |
+| 4 | SPADL/VAEP `.toPandas()` OOM | Per-partition Spark pulls replace full-table `.toPandas()`. SB events pulled per `(comp_id, season_id)`, Wyscout events per competition match set. |
+| 8 | Line-breaking append duplicates | Delta MERGE on `event_id` key replaces `replaceWhere` — structural deduplication at write time. |
+| 12 | Off-Ball xT 1fps sampling | Migrated to `applyInPandas` grouped by `match_id`. 1fps retained as correct accuracy/compute trade-off. |
+| 15 | Acceleration noise | Savitzky-Golay smoothing (`window_length=7, polyorder=2`) via `analytics/smoothing.py`. Positions clamped to pitch bounds. |
+| 18 | Off-Ball xT NaN values | Batch re-run completed as part of Phase 17. `math.isnan()` guard in place. |
+| 19 | No AWS budget alarm | `aws_budgets_budget` with $100/month limit, 80%/100% email alerts. |
+| 20 | Action values unbounded query | LIMIT 2000 on timeline, LIMIT 500 on rankings, recursive CTE for DISTINCT. |
+| 21 | StatsBomb backfill SELECT * | Delta MERGE replaces read-modify-write — updates only `_raw_extra_json`. |
+| 22 | Redundant LAG in fct_physical_stats | Removed duplicate LAG. Displacement derived from upstream columns. |
+| 23 | S3 lifecycle rule | `aws_s3_bucket_lifecycle_configuration` expires non-current versions after 90 days. |
+| 24 | Metrica tracking reshape iterrows | `pd.melt()` vectorized wide-to-narrow reshape replaces per-row iteration. |
+| O1 | Wyscout OOM on ingestion | Per-competition load-release with `replaceWhere`, `del` + `gc.collect()`. |
+| O2 | Metrica batch concat OOM | Per-match writes with `replaceWhere` replace `pd.concat()` + `mode="overwrite"`. |
+| O3 | DataFrame filter inside iterrows | Pre-built `groupby()` for DEFCON and line-breaking. |
+| O4 | Nested iterrows for pseudo-freeze-frames | Pre-extracted arrays + zip comprehension. |
+| O5 | Off-ball xT accumulation loop | Vectorized `pd.concat()` + `.groupby().agg()` replaces per-player iterrows. |
+| O6 | Player embeddings iterrows/apply | NumPy `.values` + zip replaces `.apply(axis=1)` and iterrows. |
+| O7 | Entity resolution iterrows | Zip replaces iterrows for rapidfuzz scoring loops. |
+| O8 | Double `df.count()` on merge writes | `write_delta_table()` accepts optional `row_count` to skip redundant DAG. |
+| O9 | Shot map unbounded query | `LIMIT 10000` on competition-wide shot query. |
+| O10 | Missing PG indexes | Composite `(match_id, action_player_id)` on DEFCON, btree on `canonical_player_id`. |
+| O11 | `statsbombpy` in core deps | Moved to optional `[statsbomb]` extra. |
+| O12 | No `max_concurrent_runs` | Set `max_concurrent_runs = 1` on ingestion workflow. |
+| O13 | Entity resolution Delta schema merge | Explicit `int64`/`float64` dtypes on empty DataFrame code paths. |
+| O14 | Off-ball xT missing seed CSV | xT grid CSV uploaded to UC Volume with fallback chain. |
+| O15 | IDSSE tracking intermittent OOM | Per-period processing halves peak DataFrame memory. |
+| O21 | Incremental skip guards missing | All 5 ingestion modules check existing match IDs before re-processing. |
+| O22 | DEFCON type mismatches | `IntegerType`→`LongType` for IDs in `applyInPandas` schemas. |
+| O23 | VAEP model distribution broken on serverless | XGBoost models serialized to bytes via closure. |
+| O24 | DEFCON timeline Seq Scan timeout | Composite `(competition_id, action_player_id)` index + `ANALYZE` + `LIMIT 2000`. |
 
 ## Research & Future Work
 
@@ -87,7 +81,7 @@ See [ROADMAP.md](ROADMAP.md) for research directions, long-horizon features, and
 - **Pipeline Optimization & Scaling (EIP)** — Splitter/Aggregator/Scatter-Gather patterns, caching layers, Respo.Vision scale planning (see TODO #26, #27)
 - **Deep Learning Infrastructure** — hybrid GPU training, pre-trained soccer models, DeepMind-inspired optimization
 - **Provider Abstraction** — configurable multi-tier ingestion; free/open tiers default, commercial activates via credentials
-- **Visual Exploratory Behavior** — blocked by pose data procurement (BSD 3-Clause)
+- **Visual Exploratory Behavior** — blocked by own-footage Respo.Vision data (BSD 3-Clause)
 - **Staging Environment** — Lakebase branching for pre-production validation
 - **Graph-Based Tactical Patterns** — GNN research direction (Raabe et al. 2022)
 - **Decision Optimization** — RL-based pass optimization beyond VAEP (Rahimian et al.)

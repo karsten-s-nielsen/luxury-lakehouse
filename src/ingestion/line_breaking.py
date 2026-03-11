@@ -297,16 +297,16 @@ def _process_statsbomb_360(
 
     # Get distinct match_ids that have 360 data (small query — just unique IDs)
     try:
-        match_ids_pdf = spark.table(ff_table).select("match_id").distinct().toPandas()
+        match_id_rows = spark.table(ff_table).select("match_id").distinct().collect()
     except Exception:
         logger.exception("Cannot read StatsBomb 360 table")
         return 0
 
-    if match_ids_pdf.empty:
+    if not match_id_rows:
         logger.info("No 360 data available — skipping Path A")
         return 0
 
-    match_ids = match_ids_pdf["match_id"].tolist()
+    match_ids = [row["match_id"] for row in match_id_rows]
     logger.info("Path A: %d matches with 360 data", len(match_ids))
 
     # Incremental skip — only process matches not already in results table

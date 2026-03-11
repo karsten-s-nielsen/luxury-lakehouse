@@ -1,3 +1,9 @@
+{{ config(
+    materialized='incremental',
+    unique_key='pressure_id',
+    cluster_by=['match_id'],
+    incremental_strategy='merge'
+) }}
 -- fct_defcon_pressure.sql
 -- Per-attacker per-match defensive pressure summary.
 --
@@ -15,6 +21,9 @@ with defcon as (
 
     select * from {{ ref('stg_defcon__results') }}
     where action_player_id is not null
+    {% if is_incremental() %}
+    and match_id not in (select distinct match_id from {{ this }})
+    {% endif %}
 
 ),
 

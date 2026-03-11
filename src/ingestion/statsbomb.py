@@ -94,9 +94,8 @@ def ingest_competitions(
     # Skip guard: return existing data if table already populated
     try:
         existing_sdf = spark.table(f"{catalog}.{schema}.statsbomb_competitions")
-        existing_count = existing_sdf.count()
-        if existing_count > 0:
-            logger.info("statsbomb_competitions already has %d rows — skipping", existing_count)
+        if existing_sdf.limit(1).count() > 0:
+            logger.info("statsbomb_competitions already populated — skipping")
             return existing_sdf.toPandas()
     except Exception:
         logger.info("No existing statsbomb_competitions table — will fetch from API")

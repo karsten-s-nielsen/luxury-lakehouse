@@ -138,20 +138,19 @@ def _make_batch_udf(
 
         all_frame_results: list[_pd.DataFrame] = []
 
-        for _, pf_row in sampled_pf.iterrows():
-            period = pf_row["period"]
-            frame = pf_row["frame"]
-            frame_df = _pd.DataFrame(pdf[(pdf["period"] == period) & (pdf["frame"] == frame)])
+        # Pre-group by (period, frame) for O(1) lookups instead of O(n) filter per row
+        grouped = pdf.groupby(["period", "frame"])
+        sampled_keys = set(zip(sampled_pf["period"], sampled_pf["frame"], strict=False))
 
-            if frame_df.empty:
+        for key, frame_df in grouped:
+            if key not in sampled_keys:
                 continue
 
             # Only process frames with players from both teams
-            teams_present = list(frame_df["team"].unique())
-            if len(teams_present) < 2:
+            if frame_df["team"].nunique() < 2:
                 continue
 
-            frame_results = compute_off_ball_xt_frame(frame_df, grid, pc_params)
+            frame_results = compute_off_ball_xt_frame(_pd.DataFrame(frame_df), grid, pc_params)
             all_frame_results.append(frame_results)
 
         if not all_frame_results:
@@ -289,12 +288,16 @@ def _process_matches(
         .select("player_id", "match_id", "total_off_ball_xt", "avg_off_ball_xt", "frames_sampled")
     )
 
-    # Write all results in one pass
+    # Write results with replaceWhere for idempotent incremental writes.
+    # Build a predicate that targets only the new match_ids so existing
+    # results are preserved (not destroyed by a bare mode="overwrite").
+    ids_sql = ", ".join(f"'{mid}'" for mid in new_ids_str)
     written = write_delta_table(
         final_df,
         catalog,
         schema,
         _TABLE_NAME,
+        replace_where=f"match_id IN ({ids_sql})",
         logger=logger,
     )
 

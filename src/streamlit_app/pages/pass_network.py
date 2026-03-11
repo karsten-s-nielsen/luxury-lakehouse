@@ -9,8 +9,26 @@ import streamlit as st
 
 from streamlit_app.components.filters import render_competition_filter, render_match_filter, render_team_filter
 from streamlit_app.components.pitch import plot_pass_network_interactive
-from streamlit_app.config import get_settings
 from streamlit_app.db import execute_query, t
+
+
+@st.cache_data(ttl=600, show_spinner="Loading passes...")
+def _fetch_network_passes(
+    passes_tbl: str, passer_tbl: str, receiver_tbl: str, comp_id: int, t_id: int, m_id: int
+) -> Any:
+    return execute_query(
+        f"SELECT p.player_id, p.pass_recipient_id, "  # noqa: S608
+        f"  p.start_x, p.start_y, p.end_x, p.end_y, p.is_complete, "
+        f"  passer.player_display_name AS passer_name, "
+        f"  receiver.player_display_name AS receiver_name "
+        f"FROM {passes_tbl} p "
+        f"JOIN {passer_tbl} passer ON p.player_id = passer.player_id "
+        f"LEFT JOIN {receiver_tbl} receiver ON p.pass_recipient_id = receiver.player_id "
+        f"WHERE p.competition_id = %s AND p.team_id = %s AND p.match_id = %s "
+        f"  AND p.is_complete = true AND p.pass_recipient_id IS NOT NULL "
+        f"ORDER BY p.minute, p.second LIMIT 2000",
+        (comp_id, t_id, m_id),
+    )
 
 
 def _load_passes(competition_id: int, team_id: int, match_id: int) -> Any:
@@ -20,24 +38,7 @@ def _load_passes(competition_id: int, team_id: int, match_id: int) -> Any:
     passes_tbl = t("fct_passes_synced")
     passer_tbl = t("dim_players_synced")
     receiver_tbl = t("dim_players_synced")
-
-    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading passes...")
-    def _query(comp_id: int, t_id: int, m_id: int) -> Any:
-        return execute_query(
-            f"SELECT p.player_id, p.pass_recipient_id, "  # noqa: S608
-            f"  p.start_x, p.start_y, p.end_x, p.end_y, p.is_complete, "
-            f"  passer.player_display_name AS passer_name, "
-            f"  receiver.player_display_name AS receiver_name "
-            f"FROM {passes_tbl} p "
-            f"JOIN {passer_tbl} passer ON p.player_id = passer.player_id "
-            f"LEFT JOIN {receiver_tbl} receiver ON p.pass_recipient_id = receiver.player_id "
-            f"WHERE p.competition_id = %s AND p.team_id = %s AND p.match_id = %s "
-            f"  AND p.is_complete = true AND p.pass_recipient_id IS NOT NULL "
-            f"ORDER BY p.minute, p.second",
-            (comp_id, t_id, m_id),
-        )
-
-    return _query(competition_id, team_id, match_id)
+    return _fetch_network_passes(passes_tbl, passer_tbl, receiver_tbl, competition_id, team_id, match_id)
 
 
 def _build_network(

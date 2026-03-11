@@ -22,21 +22,32 @@
 --   - Very large table (~3M rows per 25fps match, ~680K per 10fps match)
 --   - Downstream queries should always filter by match_id and period
 
-with tracking as (
+with
+
+{% if is_incremental() %}
+-- Compute existing match_ids once to avoid 3 separate full scans of {{ this }}.
+existing_matches as (
+
+    select distinct match_id from {{ this }}
+
+),
+{% endif %}
+
+tracking as (
 
     select * from {{ ref('stg_metrica__tracking') }}
     {% if is_incremental() %}
-    where match_id not in (select distinct match_id from {{ this }})
+    where match_id not in (select match_id from existing_matches)
     {% endif %}
     union all
     select * from {{ ref('stg_idsse__tracking') }}
     {% if is_incremental() %}
-    where match_id not in (select distinct match_id from {{ this }})
+    where match_id not in (select match_id from existing_matches)
     {% endif %}
     union all
     select * from {{ ref('stg_skillcorner__tracking') }}
     {% if is_incremental() %}
-    where match_id not in (select distinct match_id from {{ this }})
+    where match_id not in (select match_id from existing_matches)
     {% endif %}
 
 ),
