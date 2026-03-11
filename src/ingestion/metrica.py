@@ -652,8 +652,31 @@ def ingest_tracking(
         "frame_rate",
     ]
 
+    # Incremental skip: check which matches already exist in the Delta table
+    all_match_ids = list(_TRACKING_URLS.keys()) + list(_EPTS_URLS.keys())
+    existing_ids: set[str] = set()
+    try:
+        existing_rows = spark.table(f"{catalog}.{schema}.metrica_tracking").select("match_id").distinct().collect()
+        existing_ids = {str(row["match_id"]) for row in existing_rows}
+    except Exception:
+        logger.info("No existing metrica_tracking table — processing all matches")
+
+    new_match_ids = [mid for mid in all_match_ids if mid not in existing_ids]
+    logger.info(
+        "%d matches total, %d already processed, %d to process",
+        len(all_match_ids),
+        len(all_match_ids) - len(new_match_ids),
+        len(new_match_ids),
+    )
+
+    if not new_match_ids:
+        return
+
     # Games 1-2: CSV format
     for match_id, urls in _TRACKING_URLS.items():
+        if match_id in existing_ids:
+            logger.info("Tracking for %s already ingested — skipping", match_id)
+            continue
         tracking_df = _download_and_parse_tracking(urls["home"], urls["away"], match_id, logger)
         sdf = spark.createDataFrame(tracking_df)
         row_count = validate_dataframe(sdf, required_cols, "metrica_tracking", logger)
@@ -669,6 +692,9 @@ def ingest_tracking(
 
     # Game 3: EPTS format
     for match_id, urls in _EPTS_URLS.items():
+        if match_id in existing_ids:
+            logger.info("Tracking for %s already ingested — skipping", match_id)
+            continue
         logger.info("Downloading EPTS metadata for %s", match_id)
         metadata_resp = fetch_url(urls["metadata"])
         metadata = _parse_epts_metadata(metadata_resp.text)
@@ -701,8 +727,31 @@ def ingest_events(
     """Download and ingest event data per match to avoid OOM on batch concat."""
     required_cols = ["event_id", "type", "period", "start_frame", "end_frame", "team", "player", "match_id"]
 
+    # Incremental skip: check which matches already exist in the Delta table
+    all_match_ids = list(_EVENT_URLS.keys()) + list(_EPTS_URLS.keys())
+    existing_ids: set[str] = set()
+    try:
+        existing_rows = spark.table(f"{catalog}.{schema}.metrica_events").select("match_id").distinct().collect()
+        existing_ids = {str(row["match_id"]) for row in existing_rows}
+    except Exception:
+        logger.info("No existing metrica_events table — processing all matches")
+
+    new_match_ids = [mid for mid in all_match_ids if mid not in existing_ids]
+    logger.info(
+        "%d matches total, %d already processed, %d to process",
+        len(all_match_ids),
+        len(all_match_ids) - len(new_match_ids),
+        len(new_match_ids),
+    )
+
+    if not new_match_ids:
+        return
+
     # Games 1-2: CSV format
     for match_id, url in _EVENT_URLS.items():
+        if match_id in existing_ids:
+            logger.info("Events for %s already ingested — skipping", match_id)
+            continue
         events_df = _download_and_parse_events(url, match_id, logger)
         sdf = spark.createDataFrame(events_df)
         row_count = validate_dataframe(sdf, required_cols, "metrica_events", logger)
@@ -718,6 +767,9 @@ def ingest_events(
 
     # Game 3: EPTS JSON format
     for match_id, urls in _EPTS_URLS.items():
+        if match_id in existing_ids:
+            logger.info("Events for %s already ingested — skipping", match_id)
+            continue
         logger.info("Downloading EPTS events for %s", match_id)
         resp = fetch_url(urls["events"])
         events_json = resp.json()

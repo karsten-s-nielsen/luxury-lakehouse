@@ -124,11 +124,18 @@ def _parse_positions_xml(
     player_team_map: dict[str, str],
     match_id: str,
     logger: logging.Logger,
-) -> list[dict[str, object]]:
-    """Parse DFL position XML into narrow-format row dicts.
+) -> dict[int, list[dict[str, object]]]:
+    """Parse DFL position XML into narrow-format row dicts, split by period.
 
-    Uses iterative XML parsing to avoid loading the entire ~400MB file into
-    memory at once. Each FrameSet contains frames for one person in one half.
+    Uses single-pass iterative XML parsing to avoid loading the entire ~400MB
+    file into memory at once. Each FrameSet contains frames for one person in
+    one half. Ball FrameSets appear before player FrameSets in the DFL XML
+    format, so ball coordinates are available for lookup when player frames are
+    processed. If a ball coordinate is not yet available for a given frame, the
+    lookup returns None — graceful degradation identical to missing ball data.
+
+    Returns rows grouped by period so callers can process and release each
+    half independently, halving peak DataFrame memory.
 
     Args:
         pos_path: Path to position XML file.
@@ -137,103 +144,90 @@ def _parse_positions_xml(
         logger: Logger instance.
 
     Returns:
-        List of row dicts ready for DataFrame construction.
+        Mapping of period number → list of row dicts.
     """
-    rows: list[dict[str, object]] = []
+    rows_by_period: dict[int, list[dict[str, object]]] = {1: [], 2: []}
     prefixed_match_id = f"idsse_{match_id}"
 
-    # Collect ball frames per (period, frame_n) for lookup
+    # Ball frames per (period, frame_n) for lookup — populated as ball FrameSets are encountered
     ball_coords: dict[tuple[int, int], tuple[float, float]] = {}
 
-    # First pass: collect ball coordinates
-    for _event, elem in ET.iterparse(pos_path, events=("end",)):  # noqa: S314
-        if elem.tag != "FrameSet":
-            continue
-
-        team_id = elem.get("TeamId", "").lower()
-        if team_id != "ball":
-            elem.clear()
-            continue
-
-        section = elem.get("GameSection", "")
-        period = _SECTION_TO_PERIOD.get(section)
-        if period is None:
-            elem.clear()
-            continue
-
-        for frame_el in elem.iter("Frame"):
-            n = int(frame_el.get("N", "0"))
-            x_str = frame_el.get("X", "")
-            y_str = frame_el.get("Y", "")
-            if x_str and y_str:
-                bx = float(x_str)
-                by = float(y_str)
-                if not (math.isnan(bx) or math.isnan(by)):
-                    ball_coords[(period, n)] = (round(bx, 4), round(by, 4))
-
-        elem.clear()
-
-    logger.info("Parsed %d ball frames for match %s", len(ball_coords), match_id)
-
-    # Second pass: collect player coordinates
+    # Single pass: ball FrameSets populate ball_coords, player FrameSets emit rows
     for _event, elem in ET.iterparse(pos_path, events=("end",)):  # noqa: S314
         if elem.tag != "FrameSet":
             continue
 
         team_id = elem.get("TeamId", "")
-        person_id = elem.get("PersonId", "")
-        section = elem.get("GameSection", "")
+        team_id_lower = team_id.lower()
 
-        # Skip ball and referee FrameSets
-        if team_id.lower() in ("ball", "referee"):
+        # Skip referee FrameSets
+        if team_id_lower == "referee":
             elem.clear()
             continue
 
+        section = elem.get("GameSection", "")
         period = _SECTION_TO_PERIOD.get(section)
         if period is None:
             elem.clear()
             continue
 
-        team_label = player_team_map.get(person_id, "unknown")
+        if team_id_lower == "ball":
+            # Collect ball coordinates
+            for frame_el in elem.iter("Frame"):
+                n = int(frame_el.get("N", "0"))
+                x_str = frame_el.get("X", "")
+                y_str = frame_el.get("Y", "")
+                if x_str and y_str:
+                    bx = float(x_str)
+                    by = float(y_str)
+                    if not (math.isnan(bx) or math.isnan(by)):
+                        ball_coords[(period, n)] = (round(bx, 4), round(by, 4))
+        else:
+            # Player FrameSet — emit tracking rows
+            person_id = elem.get("PersonId", "")
+            team_label = player_team_map.get(person_id, "unknown")
+            period_rows = rows_by_period[period]
 
-        for frame_el in elem.iter("Frame"):
-            n = int(frame_el.get("N", "0"))
-            x_str = frame_el.get("X", "")
-            y_str = frame_el.get("Y", "")
+            for frame_el in elem.iter("Frame"):
+                n = int(frame_el.get("N", "0"))
+                x_str = frame_el.get("X", "")
+                y_str = frame_el.get("Y", "")
 
-            if not x_str or not y_str:
-                continue
+                if not x_str or not y_str:
+                    continue
 
-            px = float(x_str)
-            py = float(y_str)
+                px = float(x_str)
+                py = float(y_str)
 
-            if math.isnan(px) or math.isnan(py):
-                continue
+                if math.isnan(px) or math.isnan(py):
+                    continue
 
-            timestamp = n / _FRAME_RATE
-            ball = ball_coords.get((period, n))
-            ball_x = ball[0] if ball else None
-            ball_y = ball[1] if ball else None
+                timestamp = n / _FRAME_RATE
+                ball = ball_coords.get((period, n))
+                ball_x = ball[0] if ball else None
+                ball_y = ball[1] if ball else None
 
-            rows.append(
-                {
-                    "period": period,
-                    "frame": n,
-                    "timestamp": round(timestamp, 4),
-                    "player_id": person_id,
-                    "team": team_label,
-                    "x": round(px, 4),
-                    "y": round(py, 4),
-                    "ball_x": ball_x,
-                    "ball_y": ball_y,
-                    "match_id": prefixed_match_id,
-                    "frame_rate": _FRAME_RATE,
-                }
-            )
+                period_rows.append(
+                    {
+                        "period": period,
+                        "frame": n,
+                        "timestamp": round(timestamp, 4),
+                        "player_id": person_id,
+                        "team": team_label,
+                        "x": round(px, 4),
+                        "y": round(py, 4),
+                        "ball_x": ball_x,
+                        "ball_y": ball_y,
+                        "match_id": prefixed_match_id,
+                        "frame_rate": _FRAME_RATE,
+                    }
+                )
 
         elem.clear()
 
-    return rows
+    logger.info("Parsed %d ball frames for match %s", len(ball_coords), match_id)
+
+    return rows_by_period
 
 
 def ingest_idsse(
@@ -261,8 +255,27 @@ def ingest_idsse(
     ids_to_ingest = match_ids or IDSSE_MATCH_IDS
     required_cols = ["period", "frame", "timestamp", "player_id", "team", "x", "y", "match_id", "frame_rate"]
 
-    for i, mid in enumerate(ids_to_ingest):
-        logger.info("Parsing IDSSE match %s (%d/%d)", mid, i + 1, len(ids_to_ingest))
+    # Incremental skip: check which matches already exist in the Delta table
+    existing_ids: set[str] = set()
+    try:
+        existing_rows = spark.table(f"{catalog}.{schema}.idsse_tracking").select("match_id").distinct().collect()
+        existing_ids = {str(row["match_id"]) for row in existing_rows}
+    except Exception:
+        logger.info("No existing idsse_tracking table — processing all matches")
+
+    new_match_ids = [mid for mid in ids_to_ingest if f"idsse_{mid}" not in existing_ids]
+    logger.info(
+        "%d matches total, %d already processed, %d to process",
+        len(ids_to_ingest),
+        len(ids_to_ingest) - len(new_match_ids),
+        len(new_match_ids),
+    )
+
+    if not new_match_ids:
+        return
+
+    for i, mid in enumerate(new_match_ids):
+        logger.info("Parsing IDSSE match %s (%d/%d)", mid, i + 1, len(new_match_ids))
 
         comp = _MATCH_COMPETITION[mid]
         info_path = f"{data_dir}/DFL_02_01_matchinformation_{comp}_DFL-MAT-{mid}.xml"
@@ -271,15 +284,21 @@ def ingest_idsse(
         _home_id, _away_id, player_team_map = _parse_teams(info_path)
         logger.info("Found %d players in match info", len(player_team_map))
 
-        rows = _parse_positions_xml(pos_path, player_team_map, mid, logger)
-        logger.info("Parsed %d tracking rows for IDSSE match %s", len(rows), mid)
+        rows_by_period = _parse_positions_xml(pos_path, player_team_map, mid, logger)
+        total_rows = sum(len(r) for r in rows_by_period.values())
+        logger.info("Parsed %d tracking rows for IDSSE match %s", total_rows, mid)
 
-        if rows:
-            df = pd.DataFrame(rows)
+        # Process each half independently to halve peak DataFrame memory
+        for period, period_rows in rows_by_period.items():
+            if not period_rows:
+                continue
+            df = pd.DataFrame(period_rows)
+            del period_rows  # Release raw rows before smoothing
+            rows_by_period[period] = []
             df = _smooth_tracking(df)
             sdf = spark.createDataFrame(df)
             row_count = validate_dataframe(sdf, required_cols, "idsse_tracking", logger)
-            replace_expr = f"match_id = 'idsse_{mid}'"
+            replace_expr = f"match_id = 'idsse_{mid}' AND period = {period}"
             write_delta_table(
                 sdf,
                 catalog,
@@ -289,8 +308,10 @@ def ingest_idsse(
                 logger=logger,
                 row_count=row_count,
             )
-            del df, sdf, rows  # Free memory between matches
+            del df, sdf
             gc.collect()
+        del rows_by_period
+        gc.collect()
 
 
 def main() -> None:

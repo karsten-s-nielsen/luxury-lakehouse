@@ -163,8 +163,27 @@ def ingest_skillcorner(
     ids_to_ingest = match_ids or SKILLCORNER_MATCH_IDS
     required_cols = ["period", "frame", "timestamp", "player_id", "team", "x", "y", "match_id", "frame_rate"]
 
-    for i, mid in enumerate(ids_to_ingest):
-        logger.info("Loading SkillCorner match %s (%d/%d) via kloppy", mid, i + 1, len(ids_to_ingest))
+    # Check which matches already have tracking data (incremental skip)
+    existing_ids: set[str] = set()
+    try:
+        existing_rows = spark.table(f"{catalog}.{schema}.skillcorner_tracking").select("match_id").distinct().collect()
+        existing_ids = {str(row["match_id"]) for row in existing_rows}
+    except Exception:
+        logger.info("No existing skillcorner_tracking table — processing all matches")
+
+    new_match_ids = [mid for mid in ids_to_ingest if f"skillcorner_{mid}" not in existing_ids]
+    logger.info(
+        "%d matches total, %d already processed, %d to process",
+        len(ids_to_ingest),
+        len(ids_to_ingest) - len(new_match_ids),
+        len(new_match_ids),
+    )
+
+    if not new_match_ids:
+        return
+
+    for i, mid in enumerate(new_match_ids):
+        logger.info("Loading SkillCorner match %s (%d/%d) via kloppy", mid, i + 1, len(new_match_ids))
 
         dataset = skillcorner.load_open_data(
             match_id=mid,

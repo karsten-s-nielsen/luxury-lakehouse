@@ -91,6 +91,16 @@ def ingest_competitions(
     Returns:
         The competitions pandas DataFrame (used to iterate matches).
     """
+    # Skip guard: return existing data if table already populated
+    try:
+        existing_sdf = spark.table(f"{catalog}.{schema}.statsbomb_competitions")
+        existing_count = existing_sdf.count()
+        if existing_count > 0:
+            logger.info("statsbomb_competitions already has %d rows — skipping", existing_count)
+            return existing_sdf.toPandas()
+    except Exception:
+        logger.info("No existing statsbomb_competitions table — will fetch from API")
+
     logger.info("Fetching StatsBomb competitions")
     raw = sb.competitions()
     competitions_pdf: pd.DataFrame = pd.DataFrame(raw) if not isinstance(raw, pd.DataFrame) else raw
@@ -192,6 +202,20 @@ def ingest_matches_and_details(
     """
     existing_event_match_ids = _read_existing_match_ids(spark, catalog, schema, "statsbomb_events", logger)
 
+    # Read existing (competition_id, season_id) combos to skip re-fetching matches
+    existing_match_combos: set[tuple[int, int]] = set()
+    try:
+        combo_rows = (
+            spark.table(f"{catalog}.{schema}.statsbomb_matches")
+            .select("competition_id", "season_id")
+            .distinct()
+            .collect()
+        )
+        existing_match_combos = {(int(row["competition_id"]), int(row["season_id"])) for row in combo_rows}
+        logger.info("Found %d existing competition/season combos in statsbomb_matches", len(existing_match_combos))
+    except Exception:
+        logger.info("No existing statsbomb_matches table — will fetch all combos")
+
     unique_combos = competitions_pdf[["competition_id", "season_id"]].drop_duplicates()
     total = len(unique_combos)
 
@@ -199,6 +223,18 @@ def ingest_matches_and_details(
         comp_id = int(row["competition_id"])
         season_id = int(row["season_id"])
         logger.info("Processing competition %d, season %d (%d/%d)", comp_id, season_id, idx + 1, total)
+
+        # Skip guard: if this combo already exists in statsbomb_matches, skip the
+        # matches fetch+write entirely. The matches data rarely changes for
+        # completed seasons, and new match detection is handled downstream by the
+        # existing events skip guard (_read_existing_match_ids).
+        if (comp_id, season_id) in existing_match_combos:
+            logger.info(
+                "Matches already ingested for comp=%d season=%d — skipping fetch+write",
+                comp_id,
+                season_id,
+            )
+            continue
 
         # --- Matches ---
         matches_pdf = _safe_fetch(
@@ -499,7 +535,8 @@ def backfill_extra_json(
 
     logger.info("Fetched extra JSON for %d/%d matches", len(extra_maps), len(match_ids_to_backfill))
 
-    # Apply extra JSON maps sequentially (Spark read/write is driver-bound)
+    # Apply extra JSON maps via Delta MERGE — updates only _raw_extra_json
+    # without reading/writing all columns (P0-07).
     for row in needs_backfill_rows:
         match_id = int(row["match_id"])
         comp_id = int(row["competition_id"])
@@ -509,24 +546,21 @@ def backfill_extra_json(
             continue
 
         try:
-            # Read existing events for this match
-            match_events = spark.sql(
-                f"SELECT * FROM {events_table} "  # noqa: S608
-                f"WHERE match_id = {match_id}"
-            ).toPandas()
-
-            if match_events.empty:
+            extra_map = extra_maps[match_id]
+            if not extra_map:
                 continue
 
-            # Apply pre-fetched extra JSON mapping
-            extra_map = extra_maps[match_id]
-            match_events["_raw_extra_json"] = match_events["id"].map(extra_map).fillna("{}")
+            # Build a small mapping DataFrame with (event_id, extra_json)
+            mapping_rows = [(eid, ejson) for eid, ejson in extra_map.items()]
+            mapping_sdf = spark.createDataFrame(mapping_rows, ["_eid", "_extra_json"])
+            mapping_sdf.createOrReplaceTempView("_backfill_map")
 
-            # Re-serialize any JSON columns and write back
-            match_events = serialize_json_columns(match_events)
-            sdf = spark.createDataFrame(match_events)
-            replace_expr = f"match_id = {match_id}"
-            write_delta_table(sdf, catalog, schema, "statsbomb_events", replace_where=replace_expr, logger=logger)
+            spark.sql(
+                f"MERGE INTO {events_table} AS t "
+                f"USING _backfill_map AS s "
+                f"ON t.id = s._eid AND t.match_id = {match_id} "
+                "WHEN MATCHED THEN UPDATE SET t._raw_extra_json = s._extra_json"
+            )
 
             logger.info("Backfilled _raw_extra_json for match %d (comp=%d, season=%d)", match_id, comp_id, season_id)
         except Exception:

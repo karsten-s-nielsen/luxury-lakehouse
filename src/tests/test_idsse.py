@@ -128,7 +128,9 @@ class TestParsePositionsXML:
         pos_path = _write_temp_xml(_POSITIONS_XML)
         try:
             _h, _a, ptm = _parse_teams(info_path)
-            return _parse_positions_xml(pos_path, ptm, "J03WMX", _logger)
+            rows_by_period = _parse_positions_xml(pos_path, ptm, "J03WMX", _logger)
+            # Flatten period-bucketed rows into a single list for test assertions
+            return [row for period_rows in rows_by_period.values() for row in period_rows]
         finally:
             os.unlink(info_path)
             os.unlink(pos_path)
