@@ -137,9 +137,9 @@ def generate_candidates(
     if len(coo.row) == 0:
         return pd.DataFrame(
             {
-                "player_id_a": pd.Series(dtype="int"),
-                "player_id_b": pd.Series(dtype="int"),
-                "tfidf_score": pd.Series(dtype="float"),
+                "player_id_a": pd.Series(dtype="int64"),
+                "player_id_b": pd.Series(dtype="int64"),
+                "tfidf_score": pd.Series(dtype="float64"),
             }
         )
 
@@ -406,9 +406,9 @@ def _run_layer(
     """
     _empty = pd.DataFrame(
         {
-            "player_id_a": pd.Series(dtype="int"),
-            "player_id_b": pd.Series(dtype="int"),
-            "confidence": pd.Series(dtype="float"),
+            "player_id_a": pd.Series(dtype="int64"),
+            "player_id_b": pd.Series(dtype="int64"),
+            "confidence": pd.Series(dtype="float64"),
         }
     )
 
@@ -464,11 +464,11 @@ def _run_layer(
     # Forward scoring (A->B)
     scores_fwd = [
         {
-            "player_id_a": r["player_id_a"],
-            "player_id_b": r["player_id_b"],
-            "score": _score_pair(r["player_id_a"], r["player_id_b"]),
+            "player_id_a": pid_a,
+            "player_id_b": pid_b,
+            "score": _score_pair(pid_a, pid_b),
         }
-        for _, r in candidates.iterrows()
+        for pid_a, pid_b in zip(candidates["player_id_a"], candidates["player_id_b"], strict=True)
     ]
     forward = pd.DataFrame(scores_fwd)
 
@@ -485,11 +485,11 @@ def _run_layer(
 
     scores_rev = [
         {
-            "player_id_a": r["player_id_a"],
-            "player_id_b": r["player_id_b"],
-            "score": _score_pair(r["player_id_b"], r["player_id_a"]),
+            "player_id_a": pid_a,
+            "player_id_b": pid_b,
+            "score": _score_pair(pid_b, pid_a),
         }
-        for _, r in candidates_rev.iterrows()
+        for pid_a, pid_b in zip(candidates_rev["player_id_a"], candidates_rev["player_id_b"], strict=True)
     ]
     reverse = pd.DataFrame(scores_rev)
 
@@ -570,7 +570,14 @@ def resolve_players(
 
     if not all_matches:
         logger.info("No cross-source matches found across all layers")
-        return pd.DataFrame({c: pd.Series(dtype="object") for c in _result_cols})
+        _col_dtypes = {
+            "player_id_a": "int64",
+            "player_id_b": "int64",
+            "confidence": "float64",
+            "match_method": "object",
+            "match_layer": "int64",
+        }
+        return pd.DataFrame({c: pd.Series(dtype=_col_dtypes.get(c, "object")) for c in _result_cols})
 
     result = cast(pd.DataFrame, pd.concat(all_matches, ignore_index=True))
 
