@@ -561,7 +561,7 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 
 | Source | Data Type | Status | Notes |
 |--------|-----------|--------|-------|
-| **Respo.Vision** | 3D pose tracking from broadcast video | Planned | User pursuing via network; skeletal keypoints at 25fps. Required for Visual Exploratory Behavior model (see [ROADMAP.md](ROADMAP.md)). |
+| **Respo.Vision** | 3D pose tracking from broadcast video | Planned | Own-footage recording in broadcast mode; skeletal keypoints at 25fps. As data originator, no league/broadcast copyrights. Required for Visual Exploratory Behavior model (see [ROADMAP.md](ROADMAP.md)). |
 | **Wyscout match metadata** | Match details (formations, coaches, venue) | Deferred | Not in public Figshare dataset |
 
 Each new source follows the established pattern: `src/ingestion/<source>.py` → Bronze → dbt staging/marts → Synced Tables → Lakebase.
@@ -571,7 +571,7 @@ Each new source follows the established pattern: `src/ingestion/<source>.py` →
 | Feature | Status | License | Key Insight |
 |---------|--------|---------|-------------|
 | **Line-Breaking Pass Detection** | **Complete** (Phase 13) | Apache 2.0 | Geometric detection of defensive line penetration via hierarchical clustering + segment intersection |
-| **Visual Exploratory Behavior** | Blocked by pose data | BSD 3-Clause | Probabilistic vision model (FoV + occlusion) — requires `head_angle` + `shoulders_angle` from Respo.Vision |
+| **Visual Exploratory Behavior** | Blocked by pose data | BSD 3-Clause | Probabilistic vision model (FoV + occlusion) — requires `head_angle` + `shoulders_angle` from Respo.Vision on own footage |
 | **Graph-Based Tactical Patterns** | Research direction | CC BY | TGNets (Raabe et al. 2022) for classifying defensive outcomes from tracking graphs |
 | **Decision Optimization** | Research direction | N/A | RL-based pass selection optimization (Rahimian et al.) — requires commercial tracking data |
 

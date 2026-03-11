@@ -43,7 +43,7 @@ resource "databricks_job" "data_ingestion" {
   # ── Task: Ingest StatsBomb data ──────────────────────────────────────────
   task {
     task_key        = "ingest_statsbomb"
-    timeout_seconds = 3600
+    timeout_seconds = 900
     max_retries     = 1
 
     python_wheel_task {
@@ -104,7 +104,7 @@ resource "databricks_job" "data_ingestion" {
   # No floodlight dependency needed (only pandas from default env).
   task {
     task_key        = "ingest_idsse"
-    timeout_seconds = 3600
+    timeout_seconds = 900
     max_retries     = 1
 
     python_wheel_task {
@@ -123,7 +123,7 @@ resource "databricks_job" "data_ingestion" {
   # ── Task: Ingest SkillCorner A-League tracking data ────────────────────
   task {
     task_key        = "ingest_skillcorner"
-    timeout_seconds = 1800
+    timeout_seconds = 900
     max_retries     = 1
 
     python_wheel_task {

@@ -26,8 +26,3 @@ select
     behavioral_vector,
     stat_vector
 from {{ ref('stg_player_embeddings') }}
-{% if is_incremental() %}
-where {{ dbt_utils.generate_surrogate_key(['canonical_player_id', 'match_id']) }} not in (
-    select embedding_id from {{ this }}
-)
-{% endif %}

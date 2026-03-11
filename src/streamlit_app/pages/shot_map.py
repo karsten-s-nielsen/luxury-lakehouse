@@ -8,8 +8,22 @@ import streamlit as st
 
 from streamlit_app.components.filters import render_competition_filter, render_player_filter, render_team_filter
 from streamlit_app.components.pitch import plot_shot_map
-from streamlit_app.config import get_settings
 from streamlit_app.db import execute_query, t
+
+
+@st.cache_data(ttl=600, show_spinner="Loading shots...")
+def _fetch_shots(shots_tbl: str, players_tbl: str, w: str, p: tuple[Any, ...]) -> Any:
+    return execute_query(
+        f"SELECT s.location_x, s.location_y, s.statsbomb_xg, s.is_goal, "  # noqa: S608
+        f"  s.shot_outcome, s.shot_body_part, s.distance_to_goal, s.shot_angle, "
+        f"  s.minute, p.player_display_name "
+        f"FROM {shots_tbl} s "
+        f"JOIN {players_tbl} p ON s.player_id = p.player_id "
+        f"WHERE {w} "
+        f"ORDER BY s.minute, s.second "
+        f"LIMIT 10000",
+        p,
+    )
 
 
 def _load_shots(
@@ -37,21 +51,7 @@ def _load_shots(
     # (never user input). All user-supplied values use %s parameterized placeholders.
     where = " AND ".join(conditions)
 
-    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading shots...")
-    def _query(w: str, p: tuple[Any, ...]) -> Any:
-        return execute_query(
-            f"SELECT s.location_x, s.location_y, s.statsbomb_xg, s.is_goal, "  # noqa: S608
-            f"  s.shot_outcome, s.shot_body_part, s.distance_to_goal, s.shot_angle, "
-            f"  s.minute, p.player_display_name "
-            f"FROM {t('fct_shots_synced')} s "
-            f"JOIN {t('dim_players_synced')} p ON s.player_id = p.player_id "
-            f"WHERE {w} "
-            f"ORDER BY s.minute, s.second "
-            f"LIMIT 10000",
-            p,
-        )
-
-    return _query(where, tuple(params))
+    return _fetch_shots(t("fct_shots_synced"), t("dim_players_synced"), where, tuple(params))
 
 
 def page() -> None:

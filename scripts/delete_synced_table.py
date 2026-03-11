@@ -12,6 +12,7 @@ Requires:
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 import uuid
 
@@ -59,6 +60,13 @@ def main() -> None:
     args = parser.parse_args()
 
     table_name: str = args.table_name
+
+    # Validate table name to prevent SQL injection in DDL statement
+    _identifier_re = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+    if not _identifier_re.match(table_name):
+        print(f"ERROR: Invalid table name '{table_name}': must match {_identifier_re.pattern}")
+        sys.exit(1)
+
     full_name = f"{CATALOG}.{SCHEMA}.{table_name}"
 
     ws = WorkspaceClient()

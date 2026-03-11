@@ -42,7 +42,7 @@ jobs:
                 schema: ci
                 host: "ci-placeholder.cloud.databricks.com"
                 http_path: "/sql/1.0/warehouses/ci-placeholder"
-                token: "dapi-ci-placeholder"
+                token: "__CI_PLACEHOLDER__"
                 threads: 1
           PROFILES
 

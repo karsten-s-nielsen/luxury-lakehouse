@@ -47,3 +47,14 @@ jobs:
 
       - name: Audit dependencies
         run: uv run pip-audit
+
+      - name: Generate SBOM (CycloneDX)
+        run: uv run pip-audit --format cyclonedx-json -o sbom.json
+
+      - name: Upload SBOM artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sbom
+          path: sbom.json
+          retention-days: 90

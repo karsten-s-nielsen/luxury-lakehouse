@@ -46,6 +46,8 @@ final as (
 
 )
 
--- TODO: Add Wyscout competitions once wyscout_matches is fully parsed
+-- Wyscout competitions (La Liga, PL, Serie A, Bundesliga, Ligue 1) are a
+-- strict subset of StatsBomb competitions already captured above. No union
+-- needed — Wyscout uses its own competition IDs with no staging model.
 
 select * from final

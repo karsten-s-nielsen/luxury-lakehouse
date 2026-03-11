@@ -1,3 +1,9 @@
+{{ config(
+    materialized='incremental',
+    unique_key='player_stats_id',
+    cluster_by=['competition_id', 'season_id'],
+    incremental_strategy='merge'
+) }}
 -- fct_player_stats.sql
 -- Per-90 minute player aggregation table for player comparison.
 --
@@ -6,6 +12,9 @@
 -- Formula: stat_per_90 = (raw_count / minutes_played) * 90
 --
 -- Aggregation grain: one row per player per competition per season.
+-- Incremental: merge strategy upserts on player_stats_id surrogate key.
+-- Since this is a cross-match aggregation, source CTEs are not filtered —
+-- the merge handles deduplication and updates changed rows.
 
 with shots as (
 

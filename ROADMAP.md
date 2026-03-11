@@ -415,7 +415,7 @@ Providers not yet implemented but with known delivery patterns ready for adapter
 |----------|----------|------|--------|-------|
 | **Opta / Stats Perform** | REST, FTP push, S3 drop, or WebSocket (customer chooses) | API key | JSON (SDAPI) or XML (F-series legacy) | Most complex &mdash; multiple delivery modes |
 | **Second Spectrum** | REST JSON via Stats Perform "Insight Feed" | Bearer token | JSON/JSONL per half | Combined event + tracking in one feed |
-| **Respo.Vision** | REST API, &lt;12hrs post-match | Bearer token | JSON (3D pose, 40+ keypoints) | Wide-per-player schema needed |
+| **Respo.Vision** | REST API, &lt;12hrs post-match | Bearer token | JSON (3D pose, 40+ keypoints) | Own-footage recording in broadcast mode; wide-per-player schema needed |
 | **Catapult** | REST API (`/parameters`, `/activities`) | Bearer token | JSON | Session-based, not match-based &mdash; different data model |
 | **STATSports** | SONRA REST API | API key | JSON | Same session-based model as Catapult |
 | **Kinexon** | REST + real-time UWB streaming | API key | JSON/CSV | LPS (sub-10cm accuracy), Bundesliga EPTS certified |
@@ -458,7 +458,7 @@ Post-match batch via REST API polling is the dominant pattern across the industr
 
 ## Visual Exploratory Behavior (Pose-Enhanced Tracking)
 
-**Status:** Blocked by data procurement &mdash; active paths being pursued
+**Status:** Blocked by pose data &mdash; Respo.Vision on own footage planned
 **License:** BSD 3-Clause ([USSoccerFederation/ssac26_visual_exploratory_behavior](https://github.com/USSoccerFederation/ssac26_visual_exploratory_behavior))
 **Paper:** Bekkers (2026), "Wide Open Gazes: Quantifying Visual Exploratory Behavior in Soccer with Pose Enhanced Positional Data" (SSAC26)
 
@@ -476,8 +476,9 @@ The model requires **`head_angle`** and **`shoulders_angle`** per player per fra
 |-------------|-----------------|---------|
 | Metrica / IDSSE / SkillCorner tracking | No | No |
 | StatsBomb 360 freeze frames | No | No |
-| **Respo.Vision** (commercial) | Yes | Yes — active inquiry |
-| **Parma Calcio contact** (sample data) | Possibly | Yes — active inquiry |
+| **Respo.Vision** (on own footage) | Yes | Yes — planned |
+
+**Acquisition path:** Record own footage in Respo.Vision-compatible "broadcast" mode. As data originator, this footage has no league or broadcast copyrights attached — a completely clean slate. Vendor EULAs for existing league data would block any third-party data sharing, so own-footage is the only viable path.
 
 ### What's ready now
 
@@ -499,7 +500,7 @@ The `Vision` class is a clean NumPy/scipy implementation. Once pose data arrives
 
 ### Dependencies
 
-- Pose-enhanced tracking data procurement (blocker)
+- Own-footage recording + Respo.Vision processing (blocker)
 - Phase 11 (pitch control) — for vision x pitch control x pitch value framework
 - Phase 10 (tracking) — **complete** (velocity computation ready)
 

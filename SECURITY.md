@@ -1,7 +1,7 @@
 # Security Audit Report — (Right! Luxury!) Lakehouse
 
-**Audit date:** 2026-02-27
-**Skill version:** `mad-skills:security-audit` v1.5.0
+**Audit date:** 2026-02-27 (updated 2026-03-11)
+**Skill version:** `mad-scientist-skills:security-audit` v1.6.0
 **Mode:** Audit (existing codebase)
 **Auditor:** Claude Opus 4.6
 
@@ -34,7 +34,7 @@ All actionable findings from the February 2026 audit have been resolved. The 3 a
 | ID | Area | Description |
 |----|------|-------------|
 | I-1 | Data | No PII in data stores — all sources are public sports statistics of professional athletes. |
-| I-2 | CI/CD | No SBOM generation pipeline (`cyclonedx-bom`). Recommended for production incident response. |
+| ~~I-2~~ | ~~CI/CD~~ | ~~No SBOM generation pipeline.~~ **Resolved** (2026-03-11): CycloneDX SBOM generation added to `python-ci.yml` during optimization audit. |
 | I-3 | Monitoring | No centralized SIEM/log aggregation. Logs flow to Databricks built-in capture. Acceptable for dev. |
 | I-4 | Monitoring | Referenced runbooks (`docs/runbooks/`) do not exist in repo. |
 
@@ -76,6 +76,7 @@ All actionable findings from the February 2026 audit have been resolved. The 3 a
 - All GitHub Actions pinned to full SHA hashes
 - Minimal `permissions:` blocks on all workflows
 - `pip-audit` in CI — zero known vulnerabilities
+- CycloneDX SBOM generation in CI — `cyclonedx-py` produces JSON SBOM on every build
 - `uv.lock` committed with SHA-256 content hashes
 - `uv sync --frozen` in Python CI and dbt CI
 - Dependabot configured for pip, GitHub Actions, and Terraform

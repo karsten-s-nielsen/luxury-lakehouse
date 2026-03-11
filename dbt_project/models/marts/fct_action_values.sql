@@ -1,3 +1,9 @@
+{{ config(
+    materialized='incremental',
+    unique_key='action_value_id',
+    cluster_by=['match_id'],
+    incremental_strategy='merge'
+) }}
 -- fct_action_values.sql
 -- Gold-layer SPADL action values with VAEP scores.
 --
@@ -11,6 +17,9 @@
 with action_values as (
 
     select * from {{ ref('stg_spadl__action_values') }}
+    {% if is_incremental() %}
+    where match_id not in (select distinct match_id from {{ this }})
+    {% endif %}
 
 ),
 

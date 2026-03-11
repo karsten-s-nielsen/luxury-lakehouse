@@ -8,7 +8,6 @@ import streamlit as st
 
 from streamlit_app.components.charts import plot_physical_bars, plot_ppda_bars
 from streamlit_app.components.filters import render_competition_filter
-from streamlit_app.config import get_settings
 from streamlit_app.db import execute_query, t
 
 _PROVIDER_OPTIONS = ["All", "metrica", "idsse", "skillcorner"]
@@ -18,72 +17,72 @@ _PROVIDER_OPTIONS = ["All", "metrica", "idsse", "skillcorner"]
 # ---------------------------------------------------------------------------
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _fetch_physical_stats_matches(tbl: str, prov: str | None) -> Any:
+    if prov:
+        return execute_query(
+            f"WITH RECURSIVE dm AS ("  # noqa: S608
+            f"  SELECT MIN(match_id) AS match_id FROM {tbl} WHERE source_provider = %s"
+            f"  UNION ALL"
+            f"  SELECT (SELECT MIN(match_id) FROM {tbl}"
+            f"          WHERE source_provider = %s AND match_id > dm.match_id)"
+            f"  FROM dm WHERE dm.match_id IS NOT NULL"
+            f") SELECT match_id FROM dm WHERE match_id IS NOT NULL ORDER BY match_id",
+            (prov, prov),
+        )
+    return execute_query(
+        f"WITH RECURSIVE dm AS ("  # noqa: S608
+        f"  SELECT MIN(match_id) AS match_id FROM {tbl}"
+        f"  UNION ALL"
+        f"  SELECT (SELECT MIN(match_id) FROM {tbl} WHERE match_id > dm.match_id)"
+        f"  FROM dm WHERE dm.match_id IS NOT NULL"
+        f") SELECT match_id FROM dm WHERE match_id IS NOT NULL ORDER BY match_id"
+    )
+
+
 def _load_tracking_matches(provider: str | None = None) -> Any:
     """Load distinct match IDs from fct_physical_stats using recursive CTE."""
     tbl = t("fct_physical_stats_synced")
+    return _fetch_physical_stats_matches(tbl, provider)
 
-    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner=False)
-    def _query(prov: str | None) -> Any:
-        if prov:
-            return execute_query(
-                f"WITH RECURSIVE dm AS ("  # noqa: S608
-                f"  SELECT MIN(match_id) AS match_id FROM {tbl} WHERE source_provider = %s"
-                f"  UNION ALL"
-                f"  SELECT (SELECT MIN(match_id) FROM {tbl}"
-                f"          WHERE source_provider = %s AND match_id > dm.match_id)"
-                f"  FROM dm WHERE dm.match_id IS NOT NULL"
-                f") SELECT match_id FROM dm WHERE match_id IS NOT NULL ORDER BY match_id",
-                (prov, prov),
-            )
-        return execute_query(
-            f"WITH RECURSIVE dm AS ("  # noqa: S608
-            f"  SELECT MIN(match_id) AS match_id FROM {tbl}"
-            f"  UNION ALL"
-            f"  SELECT (SELECT MIN(match_id) FROM {tbl} WHERE match_id > dm.match_id)"
-            f"  FROM dm WHERE dm.match_id IS NOT NULL"
-            f") SELECT match_id FROM dm WHERE match_id IS NOT NULL ORDER BY match_id"
-        )
 
-    return _query(provider)
+@st.cache_data(ttl=600, show_spinner="Loading physical stats...")
+def _fetch_physical_stats(tbl: str, m_id: str) -> Any:
+    return execute_query(
+        f"SELECT player_id, match_id, source_provider, minutes_played, "  # noqa: S608
+        f"  total_distance_m, total_distance_km, hsr_distance_m, sprint_distance_m, "
+        f"  sprint_frame_count, high_accel_count, high_decel_count, "
+        f"  distance_per_minute_m, avg_speed_ms, max_speed_ms, "
+        f"  total_off_ball_xt, avg_off_ball_xt "
+        f"FROM {tbl} WHERE match_id = %s "
+        f"ORDER BY total_distance_m DESC",
+        (m_id,),
+    )
 
 
 def _load_physical_stats(match_id: str) -> Any:
     """Load physical stats for a specific match."""
     tbl = t("fct_physical_stats_synced")
+    return _fetch_physical_stats(tbl, str(match_id))
 
-    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading physical stats...")
-    def _query(m_id: str) -> Any:
-        return execute_query(
-            f"SELECT player_id, match_id, source_provider, minutes_played, "  # noqa: S608
-            f"  total_distance_m, total_distance_km, hsr_distance_m, sprint_distance_m, "
-            f"  sprint_frame_count, high_accel_count, high_decel_count, "
-            f"  distance_per_minute_m, avg_speed_ms, max_speed_ms, "
-            f"  total_off_ball_xt, avg_off_ball_xt "
-            f"FROM {tbl} WHERE match_id = %s "
-            f"ORDER BY total_distance_m DESC",
-            (m_id,),
-        )
 
-    return _query(str(match_id))
+@st.cache_data(ttl=600, show_spinner="Loading PPDA data...")
+def _fetch_ppda_data(tbl: str, comp_id: int) -> Any:
+    return execute_query(
+        f"SELECT match_id, match_date, home_team_name, away_team_name, "  # noqa: S608
+        f"  home_ppda, away_ppda, home_possession_pct "
+        f"FROM {tbl} "
+        f"WHERE competition_id = %s AND home_ppda IS NOT NULL "
+        f"ORDER BY match_date",
+        (comp_id,),
+    )
 
 
 def _load_ppda_data(competition_id: int) -> Any:
     """Load PPDA data for a competition."""
     competition_id = int(competition_id)
     tbl = t("fct_match_summary_synced")
-
-    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading PPDA data...")
-    def _query(comp_id: int) -> Any:
-        return execute_query(
-            f"SELECT match_id, match_date, home_team_name, away_team_name, "  # noqa: S608
-            f"  home_ppda, away_ppda, home_possession_pct "
-            f"FROM {tbl} "
-            f"WHERE competition_id = %s AND home_ppda IS NOT NULL "
-            f"ORDER BY match_date",
-            (comp_id,),
-        )
-
-    return _query(competition_id)
+    return _fetch_ppda_data(tbl, competition_id)
 
 
 # ---------------------------------------------------------------------------

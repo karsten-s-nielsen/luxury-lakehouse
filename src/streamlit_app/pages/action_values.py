@@ -13,7 +13,6 @@ from streamlit_app.components.filters import (
     render_minutes_filter,
     render_team_filter,
 )
-from streamlit_app.config import get_settings
 from streamlit_app.db import execute_query, t
 
 # ---------------------------------------------------------------------------
@@ -21,7 +20,7 @@ from streamlit_app.db import execute_query, t
 # ---------------------------------------------------------------------------
 
 
-@st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading VAEP rankings...")
+@st.cache_data(ttl=600, show_spinner="Loading VAEP rankings...")
 def _load_vaep_rankings(competition_id: int, min_minutes: int) -> Any:
     """Load VAEP player rankings for a competition."""
     return execute_query(
@@ -40,7 +39,7 @@ def _load_vaep_rankings(competition_id: int, min_minutes: int) -> Any:
     )
 
 
-@st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading action breakdown...")
+@st.cache_data(ttl=600, show_spinner="Loading action breakdown...")
 def _load_action_type_breakdown_query(where: str, params: tuple[Any, ...], tbl: str) -> Any:
     """Execute the action type breakdown query with pre-built WHERE clause."""
     # SECURITY: WHERE clause built from hardcoded conditions only;
@@ -83,7 +82,7 @@ def _load_action_type_breakdown(
     return _load_action_type_breakdown_query(where, tuple(params), tbl)
 
 
-@st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading match timeline...")
+@st.cache_data(ttl=600, show_spinner="Loading match timeline...")
 def _load_match_timeline_query(where: str, params: tuple[Any, ...], tbl: str) -> Any:
     """Execute the match timeline query with pre-built WHERE clause."""
     return execute_query(
@@ -113,7 +112,7 @@ def _load_match_timeline(match_id: int, team_id: int | None) -> Any:
     return _load_match_timeline_query(where, tuple(params), tbl)
 
 
-@st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def _load_player_options(comp: int, team: int, tbl: str, players_tbl: str) -> Any:
     """Load player options for a team within a competition.
 

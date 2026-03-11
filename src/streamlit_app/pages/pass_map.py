@@ -8,8 +8,19 @@ import streamlit as st
 
 from streamlit_app.components.filters import render_competition_filter, render_match_filter, render_team_filter
 from streamlit_app.components.pitch import plot_pass_map
-from streamlit_app.config import get_settings
 from streamlit_app.db import execute_query, t
+
+
+@st.cache_data(ttl=600, show_spinner="Loading passes...")
+def _fetch_passes(tbl: str, comp_id: int, t_id: int, m_id: int) -> Any:
+    return execute_query(
+        f"SELECT start_x, start_y, end_x, end_y, is_complete, is_progressive, "  # noqa: S608
+        f"  is_line_breaking, minute, second "
+        f"FROM {tbl} "
+        f"WHERE competition_id = %s AND team_id = %s AND match_id = %s "
+        f"ORDER BY minute, second LIMIT 2000",
+        (comp_id, t_id, m_id),
+    )
 
 
 def _load_passes(competition_id: int, team_id: int, match_id: int) -> Any:
@@ -17,19 +28,7 @@ def _load_passes(competition_id: int, team_id: int, match_id: int) -> Any:
     # L-3: Explicit type assertion before query
     competition_id, team_id, match_id = int(competition_id), int(team_id), int(match_id)
     tbl = t("fct_passes_synced")
-
-    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading passes...")
-    def _query(comp_id: int, t_id: int, m_id: int) -> Any:
-        return execute_query(
-            f"SELECT start_x, start_y, end_x, end_y, is_complete, is_progressive, "  # noqa: S608
-            f"  is_line_breaking, minute, second "
-            f"FROM {tbl} "
-            f"WHERE competition_id = %s AND team_id = %s AND match_id = %s "
-            f"ORDER BY minute, second",
-            (comp_id, t_id, m_id),
-        )
-
-    return _query(competition_id, team_id, match_id)
+    return _fetch_passes(tbl, competition_id, team_id, match_id)
 
 
 def page() -> None:

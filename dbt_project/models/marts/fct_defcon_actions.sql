@@ -1,3 +1,9 @@
+{{ config(
+    materialized='incremental',
+    unique_key='defcon_action_id',
+    cluster_by=['match_id'],
+    incremental_strategy='merge'
+) }}
 -- fct_defcon_actions.sql
 -- Per-defender per-action defensive credits for timeline visualization.
 --
@@ -13,6 +19,9 @@
 with defcon as (
 
     select * from {{ ref('stg_defcon__results') }}
+    {% if is_incremental() %}
+    where match_id not in (select distinct match_id from {{ this }})
+    {% endif %}
 
 ),
 

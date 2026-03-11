@@ -1,3 +1,9 @@
+{{ config(
+    materialized='incremental',
+    unique_key='defensive_value_id',
+    cluster_by=['match_id'],
+    incremental_strategy='merge'
+) }}
 -- fct_defensive_values.sql
 -- Per-defender per-match defensive valuation summary.
 --
@@ -12,6 +18,9 @@
 with defcon as (
 
     select * from {{ ref('stg_defcon__results') }}
+    {% if is_incremental() %}
+    where match_id not in (select distinct match_id from {{ this }})
+    {% endif %}
 
 ),
 

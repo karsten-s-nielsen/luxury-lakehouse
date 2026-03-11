@@ -15,8 +15,37 @@ from streamlit_app.components.filters import (
     render_team_filter,
 )
 from streamlit_app.components.pitch import plot_heatmap
-from streamlit_app.config import get_settings
 from streamlit_app.db import execute_query, t
+
+
+@st.cache_data(ttl=600, show_spinner="Loading actions...")
+def _fetch_heatmap_actions(
+    passes_tbl: str,
+    shots_tbl: str,
+    p_where: str,
+    s_where: str,
+    params: tuple[Any, ...],
+) -> Any:
+    # Aggregate server-side: round coordinates to bin centers and count.
+    # Returns ~96 rows (12x8 grid) instead of 500K+ individual actions.
+    # SECURITY: WHERE clauses are built from hardcoded conditions only;
+    # all user values use %s parameterized placeholders.
+    return execute_query(
+        f"SELECT x, y, action_type, sum(cnt) AS cnt FROM ("  # noqa: S608
+        f"  SELECT round(p.start_x / 10) * 10 + 5 AS x,"
+        f"    round(p.start_y / 10) * 10 + 5 AS y,"
+        f"    'pass' AS action_type, count(*) AS cnt "
+        f"  FROM {passes_tbl} p WHERE {p_where} "
+        f"  GROUP BY round(p.start_x / 10), round(p.start_y / 10) "
+        f"  UNION ALL "
+        f"  SELECT round(s.location_x / 10) * 10 + 5 AS x,"
+        f"    round(s.location_y / 10) * 10 + 5 AS y,"
+        f"    'shot' AS action_type, count(*) AS cnt "
+        f"  FROM {shots_tbl} s WHERE {s_where} "
+        f"  GROUP BY round(s.location_x / 10), round(s.location_y / 10)"
+        f") agg GROUP BY x, y, action_type",
+        params,
+    )
 
 
 def _load_actions(
@@ -61,34 +90,7 @@ def _load_actions(
     passes_tbl = t("fct_passes_synced")
     shots_tbl = t("fct_shots_synced")
 
-    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading actions...")
-    def _query(
-        p_where: str,
-        s_where: str,
-        params: tuple[Any, ...],
-    ) -> Any:
-        # Aggregate server-side: round coordinates to bin centers and count.
-        # Returns ~96 rows (12x8 grid) instead of 500K+ individual actions.
-        # SECURITY: WHERE clauses are built from hardcoded conditions only;
-        # all user values use %s parameterized placeholders.
-        return execute_query(
-            f"SELECT x, y, action_type, sum(cnt) AS cnt FROM ("  # noqa: S608
-            f"  SELECT round(p.start_x / 10) * 10 + 5 AS x,"
-            f"    round(p.start_y / 10) * 10 + 5 AS y,"
-            f"    'pass' AS action_type, count(*) AS cnt "
-            f"  FROM {passes_tbl} p WHERE {p_where} "
-            f"  GROUP BY round(p.start_x / 10), round(p.start_y / 10) "
-            f"  UNION ALL "
-            f"  SELECT round(s.location_x / 10) * 10 + 5 AS x,"
-            f"    round(s.location_y / 10) * 10 + 5 AS y,"
-            f"    'shot' AS action_type, count(*) AS cnt "
-            f"  FROM {shots_tbl} s WHERE {s_where} "
-            f"  GROUP BY round(s.location_x / 10), round(s.location_y / 10)"
-            f") agg GROUP BY x, y, action_type",
-            params,
-        )
-
-    return _query(pass_where, shot_where, all_params)
+    return _fetch_heatmap_actions(passes_tbl, shots_tbl, pass_where, shot_where, all_params)
 
 
 def _classify_zone(x: float, y: float) -> str:

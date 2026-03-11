@@ -13,7 +13,6 @@ from streamlit_app.components.filters import (
     render_player_filter,
     render_team_filter,
 )
-from streamlit_app.config import get_settings
 from streamlit_app.db import execute_query, t
 
 # Default metrics with display labels and reasonable ranges
@@ -38,52 +37,61 @@ _PHYSICAL_METRICS: list[tuple[str, str, tuple[float, float]]] = [
 ]
 
 
+@st.cache_data(ttl=600, show_spinner="Loading player stats...")
+def _fetch_player_radar_stats(
+    stats_tbl: str, players_tbl: str, phys_tbl: str, placeholders: str, comp_id: int, p_ids: tuple[int, ...]
+) -> Any:
+    # Use ROW_NUMBER to pick the season with most minutes per player,
+    # avoiding duplicates when a competition spans multiple seasons.
+    # LEFT JOIN physical stats averaged across tracking matches.
+    return execute_query(
+        f"SELECT sub.player_id, sub.player_display_name, "  # noqa: S608
+        f"  sub.minutes_played, sub.goals_per_90, sub.xg_per_90, "
+        f"  sub.passes_per_90, sub.progressive_passes_per_90, "
+        f"  sub.pass_completion_pct, sub.xg_overperformance, "
+        f"  sub.line_breaking_per_90, "
+        f"  sub.vaep_per_90, sub.offensive_vaep_per_90, sub.defensive_vaep_per_90, "
+        f"  sub.defcon_per_90, "
+        f"  phys.avg_distance_per_min, phys.avg_max_speed_ms "
+        f"FROM ("
+        f"  SELECT ps.player_id, p.player_display_name, "
+        f"    ps.minutes_played, ps.goals_per_90, ps.xg_per_90, "
+        f"    ps.passes_per_90, ps.progressive_passes_per_90, "
+        f"    ps.pass_completion_pct, ps.xg_overperformance, "
+        f"    ps.line_breaking_per_90, "
+        f"    ps.vaep_per_90, ps.offensive_vaep_per_90, ps.defensive_vaep_per_90, "
+        f"    ps.defcon_per_90, "
+        f"    ROW_NUMBER() OVER (PARTITION BY ps.player_id ORDER BY ps.minutes_played DESC) AS rn "
+        f"  FROM {stats_tbl} ps "
+        f"  JOIN {players_tbl} p ON ps.player_id = p.player_id "
+        f"  WHERE ps.competition_id = %s AND ps.player_id IN ({placeholders})"
+        f") sub "
+        f"LEFT JOIN ("
+        f"  SELECT player_id, "
+        f"    AVG(distance_per_minute_m) AS avg_distance_per_min, "
+        f"    AVG(max_speed_ms) AS avg_max_speed_ms "
+        f"  FROM {phys_tbl} "
+        f"  GROUP BY player_id"
+        f") phys ON sub.player_id::text = phys.player_id "
+        f"WHERE sub.rn = 1",
+        (comp_id, *p_ids),
+    )
+
+
 def _load_player_stats(competition_id: int, player_ids: list[int]) -> Any:
     """Load per-90 stats for selected players in a competition."""
     # L-3: Explicit type assertion before query
     competition_id = int(competition_id)
     player_ids = [int(pid) for pid in player_ids]
     placeholders = ", ".join(["%s"] * len(player_ids))
-
-    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading player stats...")
-    def _query(comp_id: int, p_ids: tuple[int, ...]) -> Any:
-        # Use ROW_NUMBER to pick the season with most minutes per player,
-        # avoiding duplicates when a competition spans multiple seasons.
-        # LEFT JOIN physical stats averaged across tracking matches.
-        return execute_query(
-            f"SELECT sub.player_id, sub.player_display_name, "  # noqa: S608
-            f"  sub.minutes_played, sub.goals_per_90, sub.xg_per_90, "
-            f"  sub.passes_per_90, sub.progressive_passes_per_90, "
-            f"  sub.pass_completion_pct, sub.xg_overperformance, "
-            f"  sub.line_breaking_per_90, "
-            f"  sub.vaep_per_90, sub.offensive_vaep_per_90, sub.defensive_vaep_per_90, "
-            f"  sub.defcon_per_90, "
-            f"  phys.avg_distance_per_min, phys.avg_max_speed_ms "
-            f"FROM ("
-            f"  SELECT ps.player_id, p.player_display_name, "
-            f"    ps.minutes_played, ps.goals_per_90, ps.xg_per_90, "
-            f"    ps.passes_per_90, ps.progressive_passes_per_90, "
-            f"    ps.pass_completion_pct, ps.xg_overperformance, "
-            f"    ps.line_breaking_per_90, "
-            f"    ps.vaep_per_90, ps.offensive_vaep_per_90, ps.defensive_vaep_per_90, "
-            f"    ps.defcon_per_90, "
-            f"    ROW_NUMBER() OVER (PARTITION BY ps.player_id ORDER BY ps.minutes_played DESC) AS rn "
-            f"  FROM {t('fct_player_stats_synced')} ps "
-            f"  JOIN {t('dim_players_synced')} p ON ps.player_id = p.player_id "
-            f"  WHERE ps.competition_id = %s AND ps.player_id IN ({placeholders})"
-            f") sub "
-            f"LEFT JOIN ("
-            f"  SELECT player_id, "
-            f"    AVG(distance_per_minute_m) AS avg_distance_per_min, "
-            f"    AVG(max_speed_ms) AS avg_max_speed_ms "
-            f"  FROM {t('fct_physical_stats_synced')} "
-            f"  GROUP BY player_id"
-            f") phys ON sub.player_id::text = phys.player_id "
-            f"WHERE sub.rn = 1",
-            (comp_id, *p_ids),
-        )
-
-    return _query(competition_id, tuple(player_ids))
+    return _fetch_player_radar_stats(
+        t("fct_player_stats_synced"),
+        t("dim_players_synced"),
+        t("fct_physical_stats_synced"),
+        placeholders,
+        competition_id,
+        tuple(player_ids),
+    )
 
 
 def page() -> None:

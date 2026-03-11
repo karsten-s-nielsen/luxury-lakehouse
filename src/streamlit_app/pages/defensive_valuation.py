@@ -8,49 +8,24 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from streamlit_app.config import get_settings
 from streamlit_app.db import execute_query, t
 
 
-def _load_rankings(competition_id: int, team_id: int | None) -> Any:
-    """Load top attackers by total defensive pressure received for a competition."""
-    tbl = t("fct_defcon_pressure_synced")
-    dim_p = t("dim_players_synced")
-
-    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading rankings...")
-    def _query(comp_id: int, t_id: int | None) -> Any:
-        av_tbl = t("fct_action_values_synced")
-        if t_id is not None:
-            # Recursive CTE collects distinct player_ids from the action-values fact table
-            # without a sequential scan, then filters pressure rows to those players.
-            return execute_query(
-                f"WITH RECURSIVE team_players AS ("  # noqa: S608
-                f"  SELECT MIN(player_id) AS player_id FROM {av_tbl}"
-                f"  WHERE competition_id = %s AND team_id = %s"
-                f"  UNION ALL"
-                f"  SELECT (SELECT MIN(player_id) FROM {av_tbl}"
-                f"          WHERE competition_id = %s AND team_id = %s AND player_id > team_players.player_id)"
-                f"  FROM team_players WHERE team_players.player_id IS NOT NULL"
-                f") "
-                f"SELECT dp.player_id, p.player_display_name, "
-                f"  SUM(dp.total_pressure) as total_pressure, "
-                f"  SUM(dp.total_defensive_actions) as total_actions, "
-                f"  SUM(dp.intercept_count) as intercepts, "
-                f"  SUM(dp.concede_count) as concedes, "
-                f"  SUM(dp.disturb_count) as disturbs, "
-                f"  SUM(dp.deter_count) as deters, "
-                f"  COUNT(DISTINCT dp.match_id) as matches "
-                f"FROM {tbl} dp "
-                f"JOIN {dim_p} p ON dp.player_id = p.player_id "
-                f"JOIN team_players tp ON tp.player_id = dp.player_id "
-                f"WHERE dp.competition_id = %s "
-                f"GROUP BY dp.player_id, p.player_display_name "
-                f"ORDER BY total_pressure DESC "
-                f"LIMIT 50",
-                (comp_id, t_id, comp_id, t_id, comp_id),
-            )
+@st.cache_data(ttl=600, show_spinner="Loading rankings...")
+def _fetch_pressure_rankings(tbl: str, dim_p: str, av_tbl: str, comp_id: int, t_id: int | None) -> Any:
+    if t_id is not None:
+        # Recursive CTE collects distinct player_ids from the action-values fact table
+        # without a sequential scan, then filters pressure rows to those players.
         return execute_query(
-            f"SELECT dp.player_id, p.player_display_name, "  # noqa: S608
+            f"WITH RECURSIVE team_players AS ("  # noqa: S608
+            f"  SELECT MIN(player_id) AS player_id FROM {av_tbl}"
+            f"  WHERE competition_id = %s AND team_id = %s"
+            f"  UNION ALL"
+            f"  SELECT (SELECT MIN(player_id) FROM {av_tbl}"
+            f"          WHERE competition_id = %s AND team_id = %s AND player_id > team_players.player_id)"
+            f"  FROM team_players WHERE team_players.player_id IS NOT NULL"
+            f") "
+            f"SELECT dp.player_id, p.player_display_name, "
             f"  SUM(dp.total_pressure) as total_pressure, "
             f"  SUM(dp.total_defensive_actions) as total_actions, "
             f"  SUM(dp.intercept_count) as intercepts, "
@@ -60,101 +35,141 @@ def _load_rankings(competition_id: int, team_id: int | None) -> Any:
             f"  COUNT(DISTINCT dp.match_id) as matches "
             f"FROM {tbl} dp "
             f"JOIN {dim_p} p ON dp.player_id = p.player_id "
+            f"JOIN team_players tp ON tp.player_id = dp.player_id "
             f"WHERE dp.competition_id = %s "
             f"GROUP BY dp.player_id, p.player_display_name "
             f"ORDER BY total_pressure DESC "
             f"LIMIT 50",
-            (comp_id,),
+            (comp_id, t_id, comp_id, t_id, comp_id),
         )
+    return execute_query(
+        f"SELECT dp.player_id, p.player_display_name, "  # noqa: S608
+        f"  SUM(dp.total_pressure) as total_pressure, "
+        f"  SUM(dp.total_defensive_actions) as total_actions, "
+        f"  SUM(dp.intercept_count) as intercepts, "
+        f"  SUM(dp.concede_count) as concedes, "
+        f"  SUM(dp.disturb_count) as disturbs, "
+        f"  SUM(dp.deter_count) as deters, "
+        f"  COUNT(DISTINCT dp.match_id) as matches "
+        f"FROM {tbl} dp "
+        f"JOIN {dim_p} p ON dp.player_id = p.player_id "
+        f"WHERE dp.competition_id = %s "
+        f"GROUP BY dp.player_id, p.player_display_name "
+        f"ORDER BY total_pressure DESC "
+        f"LIMIT 50",
+        (comp_id,),
+    )
 
-    return _query(int(competition_id), int(team_id) if team_id is not None else None)
+
+def _load_rankings(competition_id: int, team_id: int | None) -> Any:
+    """Load top attackers by total defensive pressure received for a competition."""
+    tbl = t("fct_defcon_pressure_synced")
+    dim_p = t("dim_players_synced")
+    av_tbl = t("fct_action_values_synced")
+    return _fetch_pressure_rankings(
+        tbl, dim_p, av_tbl, int(competition_id), int(team_id) if team_id is not None else None
+    )
+
+
+@st.cache_data(ttl=600, show_spinner="Loading breakdown...")
+def _fetch_pressure_breakdown(tbl: str, ms: str, pid: int, comp_id: int, t_id: int | None) -> Any:
+    conditions = ["dp.player_id = %s", "dp.competition_id = %s"]
+    params: list[Any] = [pid, comp_id]
+
+    if t_id is not None:
+        conditions.append("(ms.home_team_id = %s OR ms.away_team_id = %s)")
+        params.extend([t_id, t_id])
+
+    where = " AND ".join(conditions)
+    return execute_query(
+        f"SELECT dp.match_id, "  # noqa: S608
+        f"  ms.home_team_name || ' v ' || ms.away_team_name as match_label, "
+        f"  dp.intercept_pressure, dp.concede_pressure, "
+        f"  dp.disturb_pressure, dp.deter_pressure, "
+        f"  dp.total_pressure, dp.total_defensive_actions "
+        f"FROM {tbl} dp "
+        f"LEFT JOIN {ms} ms ON dp.match_id::bigint = ms.match_id "
+        f"WHERE {where} "
+        f"ORDER BY dp.match_id "
+        f"LIMIT 200",
+        tuple(params),
+    )
 
 
 def _load_pressure_breakdown(player_id: int, competition_id: int, team_id: int | None) -> Any:
     """Load per-match pressure breakdown for a specific attacker."""
     tbl = t("fct_defcon_pressure_synced")
     ms = t("fct_match_summary_synced")
+    return _fetch_pressure_breakdown(
+        tbl, ms, int(player_id), int(competition_id), int(team_id) if team_id is not None else None
+    )
 
-    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading breakdown...")
-    def _query(pid: int, comp_id: int, t_id: int | None) -> Any:
-        conditions = ["dp.player_id = %s", "dp.competition_id = %s"]
-        params: list[Any] = [pid, comp_id]
 
-        if t_id is not None:
-            conditions.append("(ms.home_team_id = %s OR ms.away_team_id = %s)")
-            params.extend([t_id, t_id])
+@st.cache_data(ttl=600, show_spinner=False)
+def _fetch_player_defcon_matches(tbl: str, ms: str, pid: int, comp_id: int, t_id: int | None) -> Any:
+    conditions = ["dp.player_id = %s", "dp.competition_id = %s"]
+    params: list[Any] = [pid, comp_id]
 
-        where = " AND ".join(conditions)
-        return execute_query(
-            f"SELECT dp.match_id, "  # noqa: S608
-            f"  ms.home_team_name || ' v ' || ms.away_team_name as match_label, "
-            f"  dp.intercept_pressure, dp.concede_pressure, "
-            f"  dp.disturb_pressure, dp.deter_pressure, "
-            f"  dp.total_pressure, dp.total_defensive_actions "
-            f"FROM {tbl} dp "
-            f"LEFT JOIN {ms} ms ON dp.match_id::bigint = ms.match_id "
-            f"WHERE {where} "
-            f"ORDER BY dp.match_id "
-            f"LIMIT 200",
-            tuple(params),
-        )
+    if t_id is not None:
+        conditions.append("(ms.home_team_id = %s OR ms.away_team_id = %s)")
+        params.extend([t_id, t_id])
 
-    return _query(int(player_id), int(competition_id), int(team_id) if team_id is not None else None)
+    where = " AND ".join(conditions)
+    return execute_query(
+        f"SELECT dp.match_id, "  # noqa: S608
+        f"  MAX(ms.match_date) as match_date, "
+        f"  MAX(ms.home_team_name) as home_team_name, "
+        f"  MAX(ms.away_team_name) as away_team_name, "
+        f"  MAX(ms.home_score) as home_score, "
+        f"  MAX(ms.away_score) as away_score "
+        f"FROM {tbl} dp "
+        f"LEFT JOIN {ms} ms ON dp.match_id::bigint = ms.match_id "
+        f"WHERE {where} "
+        f"GROUP BY dp.match_id "
+        f"ORDER BY MAX(ms.match_date) DESC "
+        f"LIMIT 200",
+        tuple(params),
+    )
 
 
 def _load_player_matches(player_id: int, competition_id: int, team_id: int | None) -> Any:
     """Load matches where an attacker has DEFCON pressure data, for the match dropdown."""
     tbl = t("fct_defcon_pressure_synced")
     ms = t("fct_match_summary_synced")
+    return _fetch_player_defcon_matches(
+        tbl, ms, int(player_id), int(competition_id), int(team_id) if team_id is not None else None
+    )
 
-    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner=False)
-    def _query(pid: int, comp_id: int, t_id: int | None) -> Any:
-        conditions = ["dp.player_id = %s", "dp.competition_id = %s"]
-        params: list[Any] = [pid, comp_id]
 
-        if t_id is not None:
-            conditions.append("(ms.home_team_id = %s OR ms.away_team_id = %s)")
-            params.extend([t_id, t_id])
-
-        where = " AND ".join(conditions)
-        return execute_query(
-            f"SELECT dp.match_id, "  # noqa: S608
-            f"  MAX(ms.match_date) as match_date, "
-            f"  MAX(ms.home_team_name) as home_team_name, "
-            f"  MAX(ms.away_team_name) as away_team_name, "
-            f"  MAX(ms.home_score) as home_score, "
-            f"  MAX(ms.away_score) as away_score "
-            f"FROM {tbl} dp "
-            f"LEFT JOIN {ms} ms ON dp.match_id::bigint = ms.match_id "
-            f"WHERE {where} "
-            f"GROUP BY dp.match_id "
-            f"ORDER BY MAX(ms.match_date) DESC "
-            f"LIMIT 200",
-            tuple(params),
-        )
-
-    return _query(int(player_id), int(competition_id), int(team_id) if team_id is not None else None)
+@st.cache_data(ttl=600, show_spinner="Loading timeline...")
+def _fetch_match_timeline(tbl: str, mid: str, pid: int) -> Any:
+    return execute_query(
+        f"SELECT da.event_id, da.player_id as opposing_player_id, "  # noqa: S608
+        f"  da.credit_type, da.confidence, da.defcon_value, "
+        f"  da.action_type, da.action_x, da.action_y, "
+        f"  da.dist_to_ball "
+        f"FROM {tbl} da "
+        f"WHERE da.match_id = %s AND da.action_player_id = %s "
+        f"ORDER BY da.event_id "
+        f"LIMIT 2000",
+        (mid, pid),
+    )
 
 
 def _load_match_timeline(match_id: str, player_id: int) -> Any:
     """Load per-action credits for a specific player in a specific match."""
     tbl = t("fct_defcon_actions_synced")
+    return _fetch_match_timeline(tbl, str(match_id), int(player_id))
 
-    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading timeline...")
-    def _query(mid: str, pid: int) -> Any:
-        return execute_query(
-            f"SELECT da.event_id, da.player_id as opposing_player_id, "  # noqa: S608
-            f"  da.credit_type, da.confidence, da.defcon_value, "
-            f"  da.action_type, da.action_x, da.action_y, "
-            f"  da.dist_to_ball "
-            f"FROM {tbl} da "
-            f"WHERE da.match_id = %s AND da.action_player_id = %s "
-            f"ORDER BY da.event_id "
-            f"LIMIT 2000",
-            (mid, pid),
-        )
 
-    return _query(str(match_id), int(player_id))
+@st.cache_data(ttl=600, show_spinner=False)
+def _fetch_pressure_competitions(dp: str, dc: str) -> Any:
+    return execute_query(
+        f"SELECT DISTINCT c.competition_id, c.competition_name, c.country "  # noqa: S608
+        f"FROM {dc} c "
+        f"JOIN {dp} dp ON dp.competition_id = c.competition_id "
+        f"ORDER BY c.country, c.competition_name",
+    )
 
 
 def _render_pressure_competition_filter() -> int | None:
@@ -162,16 +177,7 @@ def _render_pressure_competition_filter() -> int | None:
     dp = t("fct_defcon_pressure_synced")
     dc = t("dim_competitions_synced")
 
-    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner=False)
-    def _query() -> Any:
-        return execute_query(
-            f"SELECT DISTINCT c.competition_id, c.competition_name, c.country "  # noqa: S608
-            f"FROM {dc} c "
-            f"JOIN {dp} dp ON dp.competition_id = c.competition_id "
-            f"ORDER BY c.country, c.competition_name",
-        )
-
-    df = _query()
+    df = _fetch_pressure_competitions(dp, dc)
     if df is None or len(df) == 0:
         st.warning("No competitions with DEFCON-lite data found.")
         return None
@@ -185,6 +191,26 @@ def _render_pressure_competition_filter() -> int | None:
     return options[idx]["competition_id"]  # type: ignore[return-value]
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _fetch_pressure_teams(dp: str, ms: str, dim_t: str, comp_id: int) -> Any:
+    return execute_query(
+        f"WITH RECURSIVE pressure_matches AS ("  # noqa: S608
+        f"  SELECT MIN(match_id)::bigint AS match_id FROM {dp} WHERE competition_id = %s"
+        f"  UNION ALL"
+        f"  SELECT (SELECT MIN(match_id)::bigint FROM {dp}"
+        f"          WHERE competition_id = %s AND match_id::bigint > pressure_matches.match_id)"
+        f"  FROM pressure_matches WHERE pressure_matches.match_id IS NOT NULL"
+        f") "
+        f"SELECT DISTINCT dt.team_id, dt.team_name "
+        f"FROM {dim_t} dt "
+        f"JOIN {ms} ms"
+        f"  ON ms.home_team_id = dt.team_id OR ms.away_team_id = dt.team_id "
+        f"JOIN pressure_matches pm ON pm.match_id = ms.match_id "
+        f"ORDER BY dt.team_name",
+        (comp_id, comp_id),
+    )
+
+
 def _render_optional_team_filter(competition_id: int | None) -> int | None:
     """Render team selectbox with 'All teams' default."""
     if competition_id is None:
@@ -194,26 +220,7 @@ def _render_optional_team_filter(competition_id: int | None) -> int | None:
     ms = t("fct_match_summary_synced")
     dim_t = t("dim_teams_synced")
 
-    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner=False)
-    def _query(comp_id: int) -> Any:
-        return execute_query(
-            f"WITH RECURSIVE pressure_matches AS ("  # noqa: S608
-            f"  SELECT MIN(match_id)::bigint AS match_id FROM {dp} WHERE competition_id = %s"
-            f"  UNION ALL"
-            f"  SELECT (SELECT MIN(match_id)::bigint FROM {dp}"
-            f"          WHERE competition_id = %s AND match_id::bigint > pressure_matches.match_id)"
-            f"  FROM pressure_matches WHERE pressure_matches.match_id IS NOT NULL"
-            f") "
-            f"SELECT DISTINCT dt.team_id, dt.team_name "
-            f"FROM {dim_t} dt "
-            f"JOIN {ms} ms"
-            f"  ON ms.home_team_id = dt.team_id OR ms.away_team_id = dt.team_id "
-            f"JOIN pressure_matches pm ON pm.match_id = ms.match_id "
-            f"ORDER BY dt.team_name",
-            (comp_id, comp_id),
-        )
-
-    teams = _query(int(competition_id))
+    teams = _fetch_pressure_teams(dp, ms, dim_t, int(competition_id))
     if teams is None or len(teams) == 0:
         return None
 
@@ -235,6 +242,30 @@ def _build_player_options(rankings: pd.DataFrame) -> dict[str, int]:
     return {str(row["player_display_name"]): int(row["player_id"]) for _, row in rankings.iterrows()}
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _fetch_breakdown_player_ids(tbl: str, ms: str, comp_id: int, t_id: int | None) -> Any:
+    if t_id is not None:
+        return execute_query(
+            f"SELECT dp.player_id "  # noqa: S608
+            f"FROM {tbl} dp "
+            f"JOIN {ms} ms ON dp.match_id::bigint = ms.match_id "
+            f"WHERE dp.competition_id = %s "
+            f"AND (ms.home_team_id = %s OR ms.away_team_id = %s) "
+            f"GROUP BY dp.player_id",
+            (comp_id, t_id, t_id),
+        )
+    return execute_query(
+        f"WITH RECURSIVE dp_players AS ("  # noqa: S608
+        f"  SELECT MIN(player_id) AS player_id FROM {tbl} WHERE competition_id = %s"
+        f"  UNION ALL"
+        f"  SELECT (SELECT MIN(player_id) FROM {tbl}"
+        f"          WHERE competition_id = %s AND player_id > dp_players.player_id)"
+        f"  FROM dp_players WHERE dp_players.player_id IS NOT NULL"
+        f") SELECT player_id FROM dp_players WHERE player_id IS NOT NULL",
+        (comp_id, comp_id),
+    )
+
+
 def _load_breakdown_player_ids(competition_id: int, team_id: int | None) -> set[int]:
     """Return player_ids that have pressure breakdown rows for the given filters.
 
@@ -243,34 +274,34 @@ def _load_breakdown_player_ids(competition_id: int, team_id: int | None) -> set[
     """
     tbl = t("fct_defcon_pressure_synced")
     ms = t("fct_match_summary_synced")
-
-    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner=False)
-    def _query(comp_id: int, t_id: int | None) -> Any:
-        if t_id is not None:
-            return execute_query(
-                f"SELECT dp.player_id "  # noqa: S608
-                f"FROM {tbl} dp "
-                f"JOIN {ms} ms ON dp.match_id::bigint = ms.match_id "
-                f"WHERE dp.competition_id = %s "
-                f"AND (ms.home_team_id = %s OR ms.away_team_id = %s) "
-                f"GROUP BY dp.player_id",
-                (comp_id, t_id, t_id),
-            )
-        return execute_query(
-            f"WITH RECURSIVE dp_players AS ("  # noqa: S608
-            f"  SELECT MIN(player_id) AS player_id FROM {tbl} WHERE competition_id = %s"
-            f"  UNION ALL"
-            f"  SELECT (SELECT MIN(player_id) FROM {tbl}"
-            f"          WHERE competition_id = %s AND player_id > dp_players.player_id)"
-            f"  FROM dp_players WHERE dp_players.player_id IS NOT NULL"
-            f") SELECT player_id FROM dp_players WHERE player_id IS NOT NULL",
-            (comp_id, comp_id),
-        )
-
-    result = _query(int(competition_id), int(team_id) if team_id is not None else None)
+    result = _fetch_breakdown_player_ids(tbl, ms, int(competition_id), int(team_id) if team_id is not None else None)
     if result is None or len(result) == 0:
         return set()
     return set(int(x) for x in result["player_id"])
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _fetch_timeline_player_ids(tbl: str, ms: str, comp_id: int, t_id: int | None) -> Any:
+    if t_id is not None:
+        return execute_query(
+            f"SELECT da.action_player_id as player_id "  # noqa: S608
+            f"FROM {tbl} da "
+            f"JOIN {ms} ms ON da.match_id::bigint = ms.match_id "
+            f"WHERE da.competition_id = %s "
+            f"AND (ms.home_team_id = %s OR ms.away_team_id = %s) "
+            f"GROUP BY da.action_player_id",
+            (comp_id, t_id, t_id),
+        )
+    return execute_query(
+        f"WITH RECURSIVE da_players AS ("  # noqa: S608
+        f"  SELECT MIN(action_player_id) AS player_id FROM {tbl} WHERE competition_id = %s"
+        f"  UNION ALL"
+        f"  SELECT (SELECT MIN(action_player_id) FROM {tbl}"
+        f"          WHERE competition_id = %s AND action_player_id > da_players.player_id)"
+        f"  FROM da_players WHERE da_players.player_id IS NOT NULL"
+        f") SELECT player_id FROM da_players WHERE player_id IS NOT NULL",
+        (comp_id, comp_id),
+    )
 
 
 def _load_timeline_player_ids(competition_id: int, team_id: int | None) -> set[int]:
@@ -281,31 +312,7 @@ def _load_timeline_player_ids(competition_id: int, team_id: int | None) -> set[i
     """
     tbl = t("fct_defcon_actions_synced")
     ms = t("fct_match_summary_synced")
-
-    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner=False)
-    def _query(comp_id: int, t_id: int | None) -> Any:
-        if t_id is not None:
-            return execute_query(
-                f"SELECT da.action_player_id as player_id "  # noqa: S608
-                f"FROM {tbl} da "
-                f"JOIN {ms} ms ON da.match_id::bigint = ms.match_id "
-                f"WHERE da.competition_id = %s "
-                f"AND (ms.home_team_id = %s OR ms.away_team_id = %s) "
-                f"GROUP BY da.action_player_id",
-                (comp_id, t_id, t_id),
-            )
-        return execute_query(
-            f"WITH RECURSIVE da_players AS ("  # noqa: S608
-            f"  SELECT MIN(action_player_id) AS player_id FROM {tbl} WHERE competition_id = %s"
-            f"  UNION ALL"
-            f"  SELECT (SELECT MIN(action_player_id) FROM {tbl}"
-            f"          WHERE competition_id = %s AND action_player_id > da_players.player_id)"
-            f"  FROM da_players WHERE da_players.player_id IS NOT NULL"
-            f") SELECT player_id FROM da_players WHERE player_id IS NOT NULL",
-            (comp_id, comp_id),
-        )
-
-    result = _query(int(competition_id), int(team_id) if team_id is not None else None)
+    result = _fetch_timeline_player_ids(tbl, ms, int(competition_id), int(team_id) if team_id is not None else None)
     if result is None or len(result) == 0:
         return set()
     return set(int(x) for x in result["player_id"])

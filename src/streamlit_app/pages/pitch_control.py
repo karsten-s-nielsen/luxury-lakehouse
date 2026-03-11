@@ -9,7 +9,6 @@ import streamlit as st
 
 from analytics.pitch_control import compute_pitch_control_at_point, compute_pitch_control_frame
 from streamlit_app.components.pitch import plot_physics_pitch_control, plot_pitch_control
-from streamlit_app.config import get_settings
 from streamlit_app.db import execute_query, t
 
 
@@ -20,6 +19,29 @@ def _compute_cached_pc_grid(frame_data_json: str) -> tuple[Any, Any, Any]:
     return compute_pitch_control_frame(frame_data)
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _fetch_tracking_matches(tbl: str, prov: str | None) -> Any:
+    if prov:
+        return execute_query(
+            f"WITH RECURSIVE dm AS ("  # noqa: S608
+            f"  SELECT MIN(match_id) AS match_id FROM {tbl} WHERE source_provider = %s"
+            f"  UNION ALL"
+            f"  SELECT (SELECT MIN(match_id) FROM {tbl}"
+            f"          WHERE source_provider = %s AND match_id > dm.match_id)"
+            f"  FROM dm WHERE dm.match_id IS NOT NULL"
+            f") SELECT match_id FROM dm WHERE match_id IS NOT NULL ORDER BY match_id",
+            (prov, prov),
+        )
+    return execute_query(
+        f"WITH RECURSIVE dm AS ("  # noqa: S608
+        f"  SELECT MIN(match_id) AS match_id FROM {tbl}"
+        f"  UNION ALL"
+        f"  SELECT (SELECT MIN(match_id) FROM {tbl} WHERE match_id > dm.match_id)"
+        f"  FROM dm WHERE dm.match_id IS NOT NULL"
+        f") SELECT match_id FROM dm WHERE match_id IS NOT NULL ORDER BY match_id"
+    )
+
+
 def _load_matches(provider: str | None = None) -> Any:
     """Load distinct match IDs from the tracking synced table, optionally filtered by provider.
 
@@ -28,86 +50,63 @@ def _load_matches(provider: str | None = None) -> Any:
     lookups via the btree on match_id instead of a sequential scan.
     """
     tbl = t("fct_tracking_frames_synced")
+    return _fetch_tracking_matches(tbl, provider)
 
-    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner=False)
-    def _query(prov: str | None) -> Any:
-        if prov:
-            return execute_query(
-                f"WITH RECURSIVE dm AS ("  # noqa: S608
-                f"  SELECT MIN(match_id) AS match_id FROM {tbl} WHERE source_provider = %s"
-                f"  UNION ALL"
-                f"  SELECT (SELECT MIN(match_id) FROM {tbl}"
-                f"          WHERE source_provider = %s AND match_id > dm.match_id)"
-                f"  FROM dm WHERE dm.match_id IS NOT NULL"
-                f") SELECT match_id FROM dm WHERE match_id IS NOT NULL ORDER BY match_id",
-                (prov, prov),
-            )
-        return execute_query(
-            f"WITH RECURSIVE dm AS ("  # noqa: S608
-            f"  SELECT MIN(match_id) AS match_id FROM {tbl}"
-            f"  UNION ALL"
-            f"  SELECT (SELECT MIN(match_id) FROM {tbl} WHERE match_id > dm.match_id)"
-            f"  FROM dm WHERE dm.match_id IS NOT NULL"
-            f") SELECT match_id FROM dm WHERE match_id IS NOT NULL ORDER BY match_id"
-        )
 
-    return _query(provider)
+@st.cache_data(ttl=600, show_spinner=False)
+def _fetch_frame_range(tbl: str, m: str, p: int) -> tuple[int, int]:
+    df = execute_query(
+        f"SELECT MIN(frame) as min_frame, MAX(frame) as max_frame "  # noqa: S608
+        f"FROM {tbl} "
+        f"WHERE match_id = %s AND period = %s",
+        (m, p),
+    )
+    if df.empty:
+        return (0, 0)
+    return (int(df.iloc[0]["min_frame"]), int(df.iloc[0]["max_frame"]))
 
 
 def _load_frame_range(match_id: str, period: int) -> tuple[int, int]:
     """Get min/max frame numbers for a match and period."""
     match_id = str(match_id)
     period = int(period)
+    return _fetch_frame_range(t("fct_tracking_frames_synced"), match_id, period)
 
-    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner=False)
-    def _query(m: str, p: int) -> tuple[int, int]:
-        df = execute_query(
-            f"SELECT MIN(frame) as min_frame, MAX(frame) as max_frame "  # noqa: S608
-            f"FROM {t('fct_tracking_frames_synced')} "
-            f"WHERE match_id = %s AND period = %s",
-            (m, p),
-        )
-        if df.empty:
-            return (0, 0)
-        return (int(df.iloc[0]["min_frame"]), int(df.iloc[0]["max_frame"]))
 
-    return _query(match_id, period)
+@st.cache_data(ttl=600, show_spinner=False)
+def _fetch_frame_rate(tbl: str, m: str) -> int:
+    df = execute_query(
+        f"SELECT frame_rate FROM {tbl} "  # noqa: S608
+        f"WHERE match_id = %s LIMIT 1",
+        (m,),
+    )
+    if df.empty:
+        return 25
+    return int(df.iloc[0]["frame_rate"])
 
 
 def _load_frame_rate(match_id: str) -> int:
     """Get the frame rate for a specific match."""
     match_id = str(match_id)
+    return _fetch_frame_rate(t("fct_tracking_frames_synced"), match_id)
 
-    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner=False)
-    def _query(m: str) -> int:
-        df = execute_query(
-            f"SELECT frame_rate FROM {t('fct_tracking_frames_synced')} "  # noqa: S608
-            f"WHERE match_id = %s LIMIT 1",
-            (m,),
-        )
-        if df.empty:
-            return 25
-        return int(df.iloc[0]["frame_rate"])
 
-    return _query(match_id)
+@st.cache_data(ttl=600, show_spinner="Loading frame...")
+def _fetch_frame_data(tbl: str, m: str, f: int) -> Any:
+    return execute_query(
+        f"SELECT player_id, team, x, y, ball_x, ball_y, "  # noqa: S608
+        f"  velocity_x, velocity_y, speed, distance_to_ball "
+        f"FROM {tbl} "
+        f"WHERE match_id = %s AND frame = %s",
+        (m, f),
+    )
 
 
 def _load_frame_data(match_id: str, frame: int) -> Any:
     """Load all player rows for a specific frame."""
     match_id = str(match_id)
     frame = int(frame)
-
-    @st.cache_data(ttl=get_settings().cache_ttl_seconds, show_spinner="Loading frame...")
-    def _query(m: str, f: int) -> Any:
-        return execute_query(
-            f"SELECT player_id, team, x, y, ball_x, ball_y, "  # noqa: S608
-            f"  velocity_x, velocity_y, speed, distance_to_ball "
-            f"FROM {t('fct_tracking_frames_synced')} "
-            f"WHERE match_id = %s AND frame = %s",
-            (m, f),
-        )
-
-    return _query(match_id, frame)
+    return _fetch_frame_data(t("fct_tracking_frames_synced"), match_id, frame)
 
 
 def page() -> None:
