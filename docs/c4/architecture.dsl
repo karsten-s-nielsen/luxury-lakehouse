@@ -14,7 +14,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         idsse = softwareSystem "IDSSE Bundesliga Dataset" "Figshare collection providing DFL position tracking XML at 25fps for 7 Bundesliga matches (CC-BY 4.0)" "External"
         skillcorner = softwareSystem "SkillCorner Open Data" "GitHub JSONL repository providing broadcast tracking data at 10fps for 10 A-League matches (MIT)" "External"
         github = softwareSystem "GitHub" "Source control and CI/CD pipeline via GitHub Actions with OIDC federation for secretless authentication to AWS and Databricks" "External"
-        hfHub = softwareSystem "HuggingFace Hub" "Model registry hosting the football2vec Doc2Vec checkpoint and z-score parameters at luxury-lakehouse/football2vec-statsbomb-wyscout" "External"
+        hfHub = softwareSystem "HuggingFace Hub" "ML artifact registry hosting the football2vec model, 4 published datasets (SPADL/VAEP, Line-Breaking Passes, Player Embeddings, Pitch Control), and Gradio demo Space at luxury-lakehouse/" "External"
         aws = softwareSystem "AWS" "Underlying cloud infrastructure providing S3 storage (KMS CMK-encrypted state), IAM OIDC provider, and networking for the Databricks workspace" "External"
 
         // --- Main System ---
@@ -100,7 +100,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         platform -> wyscout "Fetches event stream JSON data" "HTTPS"
         platform -> idsse "Reads pre-downloaded DFL position tracking XML (7 matches)" "xml.etree, UC Volume"
         platform -> skillcorner "Fetches broadcast tracking JSONL (10 matches)" "kloppy, HTTPS"
-        platform -> hfHub "Publishes trained football2vec model artifacts for community consumption" "huggingface_hub, HTTPS"
+        platform -> hfHub "Publishes football2vec model, 4 datasets, and Gradio demo Space" "huggingface_hub, HTTPS"
         platform -> aws "Runs on" "Databricks on AWS"
         github -> platform "Deploys infrastructure and code changes" "GitHub Actions OIDC, Terraform"
         github -> aws "Authenticates via OIDC federation" "IAM AssumeRoleWithWebIdentity"
@@ -112,7 +112,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         ingestion -> idsse "Reads pre-downloaded DFL position tracking XML for 7 Bundesliga matches" "xml.etree, UC Volume"
         ingestion -> skillcorner "Fetches broadcast tracking JSONL for 10 A-League matches" "kloppy, HTTPS"
         ingestion -> catalog "Writes raw data to Bronze schema" "Delta Lake API"
-        ingestion -> hfHub "Publishes trained football2vec model via training notebook" "huggingface_hub, HTTPS"
+        ingestion -> hfHub "Publishes football2vec model and 4 datasets via notebooks" "huggingface_hub, HTTPS"
 
         // --- Relationships: Component level (Ingestion) ---
         sbComp -> statsbomb "Fetches competitions, matches, events, lineups, 360 frames" "statsbombpy API"
@@ -146,7 +146,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         embeddingsPipeline -> catalog "Reads bronze events and gold fct_player_stats, writes per-match embeddings to Bronze" "PySpark SQL, Delta Lake API"
         embeddingsPipeline -> analytics "Calls football2vec tokenizer, Doc2Vec training, z-score normalization" ""
         embeddingsPipeline -> utilsComp "Uses Delta writer, logging, validation" ""
-        embeddingsPipeline -> hfHub "Publishes trained Doc2Vec model and z-score params for community access" "huggingface_hub, HTTPS"
+        embeddingsPipeline -> hfHub "Publishes trained Doc2Vec model and z-score params" "huggingface_hub, HTTPS"
         utilsComp -> catalog "Writes DataFrames to Bronze Delta tables with audit columns" "PySpark, Delta Lake API"
 
         // --- Relationships: Component level (dbt) ---

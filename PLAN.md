@@ -1,7 +1,7 @@
 # Databricks Lakebase Implementation Plan — Soccer Analytics Platform
 
-> **Status**: Phase 17 complete — 11 Streamlit pages, 16 synced tables, 34 PG indexes, 542 unit tests (+3 skipped). Optimization audit complete — all compute pipelines migrated to `applyInPandas`, incremental skip guards on all ingestion modules, pytest-benchmark baselines established. EIP reconciliation complete — liquid clustering, model contracts, predictive optimization, auto-compaction, `requests-cache`, dbt slim CI.
-> **Last Updated**: 2026-03-11
+> **Status**: Phase 18 complete — 11 Streamlit pages, 16 synced tables, 34 PG indexes, 505 unit tests (+3 skipped). HuggingFace Hub Expansion: 4 datasets published, Gradio demo Space, pitch control batch pipeline, JAX kernel, TacticAI symmetry augmentation.
+> **Last Updated**: 2026-03-12
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready from day one
 
@@ -79,6 +79,7 @@ This plan implements the Databricks Lakebase architecture to build a serverless 
 │  │  • skillcorner: tracking (10 A-League matches, 10fps)            │    │
 │  │  • spadl: actions, action_values                                 │    │
 │  │  • entity_resolution: player_xref_raw                            │    │
+│  │  • pitch_control_batch: pitch_control_values                    │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
@@ -92,7 +93,7 @@ This plan implements the Databricks Lakebase architecture to build a serverless 
 │  │  • stg_metrica__tracking, events                                 │    │
 │  │  • stg_wyscout__events, stg_wyscout__players                     │    │
 │  │  • stg_idsse__tracking, stg_skillcorner__tracking                │    │
-│  │  • stg_spadl__action_values                                      │    │
+│  │  • stg_spadl__action_values, stg_pitch_control__values             │    │
 │  │                                                                  │    │
 │  │  GOLD (business logic, analytics-ready):                         │    │
 │  │  • fct_shots, fct_passes, fct_player_stats, fct_match_summary    │    │
@@ -306,6 +307,7 @@ luxury-lakehouse/
 │   │   ├── defcon_lite.py            # DEFCON-lite: heuristic defensive credit assignment + XGBoost
 │   │   ├── entity_resolution.py     # Three-layer progressive player matching (TF-IDF + rapidfuzz)
 │   │   ├── football2vec.py          # Doc2Vec behavioral embeddings (tokenizer, training, inference)
+│   │   ├── symmetry.py             # TacticAI symmetry augmentation (H-flip, V-flip, team swap → 8× data)
 │   │   └── smoothing.py             # Savitzky-Golay position smoothing for tracking data
 │   │
 │   ├── ingestion/
@@ -319,6 +321,7 @@ luxury-lakehouse/
 │   │   ├── defcon_lite.py            # DEFCON-lite batch computation (gold+bronze → bronze)
 │   │   ├── entity_resolution.py     # Cross-source player entity resolution (StatsBomb × Wyscout → bronze)
 │   │   ├── player_embeddings.py     # Player embedding inference + stat vector computation
+│   │   ├── pitch_control_batch.py  # Pitch control batch pipeline (applyInPandas + frame_batch_id)
 │   │   ├── spadl_adapter.py          # Bronze-to-socceraction format adapters
 │   │   ├── spadl_vaep.py             # SPADL conversion + VAEP scoring pipeline
 │   │   └── utils.py                  # Shared CLI, logging, HTTP, Delta helpers
@@ -330,7 +333,7 @@ luxury-lakehouse/
 │   │   ├── pages/                    # 11 pages (incl. player_similarity.py)
 │   │   └── components/               # filters.py, pitch.py, charts.py
 │   │
-│   └── tests/                        # 22 test modules
+│   └── tests/                        # 24 test modules
 │       ├── test_statsbomb.py
 │       ├── test_metrica.py
 │       ├── test_wyscout.py
@@ -348,6 +351,8 @@ luxury-lakehouse/
 │       ├── test_player_embeddings.py
 │       ├── test_player_similarity.py
 │       ├── test_smoothing.py
+│       ├── test_pitch_control_batch.py
+│       ├── test_symmetry.py
 │       ├── test_merge_delta.py
 │       ├── test_benchmarks.py
 │       ├── test_streamlit_components.py
@@ -356,7 +361,7 @@ luxury-lakehouse/
 │
 ├── dbt_project/
 │   ├── models/
-│   │   ├── staging/                  # SILVER: statsbomb/, metrica/, wyscout/, spadl/, idsse/, skillcorner/, line_breaking/, off_ball_xt/, defcon/, entity_resolution/
+│   │   ├── staging/                  # SILVER: statsbomb/, metrica/, wyscout/, spadl/, idsse/, skillcorner/, line_breaking/, off_ball_xt/, defcon/, entity_resolution/, pitch_control/
 │   │   ├── intermediate/             # Cross-source joins (ephemeral)
 │   │   └── marts/                    # GOLD: 11 fact + 4 dimension tables
 │   ├── tests/                        # Custom data tests
@@ -364,7 +369,8 @@ luxury-lakehouse/
 │   └── seeds/                        # competition_metadata.csv, position_mapping.csv, expected_threat_grid.csv, player_xref_overrides.csv
 │
 ├── notebooks/
-│   └── train_football2vec.py         # Databricks notebook: Doc2Vec training + HuggingFace Hub publishing
+│   ├── train_football2vec.py         # Databricks notebook: Doc2Vec training + HuggingFace Hub publishing
+│   └── publish_datasets.py           # Databricks notebook: Export Gold tables as Parquet to HF Hub (4 datasets + model card)
 │
 ├── scripts/
 │   ├── create_indexes.py             # PG indexes on Lakebase synced tables (34 indexes, 11 tables, --verify + ANALYZE)
@@ -379,13 +385,18 @@ luxury-lakehouse/
 │   ├── terraform-plan.yml            # Plan on PR (OIDC auth)
 │   └── dbt-ci.yml                    # dbt slim CI (state:modified+, --empty, --defer)
 │
+├── demo_space/                      # HuggingFace Gradio demo Space (player similarity, shot map, pass quality)
+│   └── app.py                       # Gradio app with pre-cached Parquet subsets
+│
 └── docs/
     ├── c4/
     │   ├── architecture.dsl          # Structurizr DSL source
     │   └── architecture.html         # Generated: self-contained HTML
     ├── huggingface/
     │   ├── model-card.md             # HF Hub model card (source of truth)
-    │   └── org-card.md               # HF Hub org card (source of truth)
+    │   ├── org-card.md               # HF Hub org card (source of truth)
+    │   ├── org-interests.md          # HF Hub org "AI & ML interests" (paste via web UI)
+    │   └── dataset-cards/            # HF Hub dataset cards (4 datasets: SPADL/VAEP, line-breaking, embeddings, pitch control)
     ├── huggingface-setup.md          # HuggingFace Hub integration guide (forks)
     └── plans/                        # Implementation design documents
 ```
@@ -446,7 +457,7 @@ All code must pass these gates before merge:
 
 | Level | What | How |
 |-------|------|-----|
-| Unit | Ingestion logic, utility functions, analytics models | pytest (542 passed + 3 skipped, incl. pytest-benchmark baselines) |
+| Unit | Ingestion logic, utility functions, analytics models | pytest (502 passed + 3 skipped, incl. pytest-benchmark baselines) |
 | Integration | dbt models compile and run | dbt slim CI (`state:modified+`, `--empty`, `--defer`) |
 | Data quality | Row counts, value ranges, referential integrity | dbt tests (381) + dbt-expectations |
 | E2E | Streamlit pages render with real data | Manual smoke test |
@@ -491,6 +502,7 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 | **15** | Player Embeddings (Doc2Vec + z-score) | Dual-vector player representation: 32-dim Doc2Vec behavioral embeddings (action sequences via gensim) + 13-dim statistical z-score vectors. `src/analytics/football2vec.py` (tokenizer + training), `src/ingestion/player_embeddings.py` (batch pipeline). Model artifacts in UC Volume + HuggingFace Hub (`luxury-lakehouse/football2vec-statsbomb-wyscout`). `fct_player_embeddings` + season/career aggregation marts, pgvector HNSW indexes. 87,035 per-match embeddings, 8,950 players |
 | **16** | Player Similarity Page (pgvector HNSW) | `player_similarity.py` Streamlit page: "Find players like X" with pgvector `<=>` cosine distance search. Behavioral (32-d) and statistical (13-d) search modes, radar chart comparison overlay, data source badges. `fct_player_embeddings_career_synced` and `fct_player_embeddings_season_synced` with HNSW indexes for sub-10ms similarity queries. 11th Streamlit page |
 | **17** | DEFCON-lite Defensive Pressure | Tier 3 tabular DEFCON: heuristic credit assignment (intercept/concede/disturb/deter) + XGBoost confidence. `defcon_lite.py` analytics + ingestion, `fct_defensive_values` + `fct_defcon_actions` + `fct_defcon_pressure` marts, Def. Pressure page (attacker-perspective rankings, breakdown, timeline), 5 DEFCON cols in `fct_player_stats`, 319 tests |
+| **18** | HuggingFace Hub Expansion | HF Tiers 2+4: 4 datasets published (SPADL/VAEP, Line-Breaking Passes, Player Embeddings, Pitch Control), Gradio demo Space (`demo_space/`), pitch control batch pipeline (`pitch_control_batch.py` + `applyInPandas` + dbt staging), JAX pitch control kernel (optional `@jax.jit` backend), TacticAI symmetry augmentation (`symmetry.py`), dataset publishing notebook (`publish_datasets.py`), updated model/org cards |
 
 ### Key Design Decisions (from completed phases)
 

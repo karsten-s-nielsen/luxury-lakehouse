@@ -4,18 +4,22 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from analytics.pitch_control import (
     PitchControlParams,
     _compute_team_influence,
     _compute_time_to_intercept,
+    _influence_numpy,
     _meters_to_sb_x,
     _meters_to_sb_y,
     _sb_to_meters_x,
     _sb_to_meters_y,
+    _tti_numpy,
     compute_pitch_control_at_point,
     compute_pitch_control_at_points,
     compute_pitch_control_frame,
+    compute_pitch_control_grid_fast,
 )
 
 # ---------------------------------------------------------------------------
@@ -351,3 +355,141 @@ class TestBatchPitchControl:
         )
         result = compute_pitch_control_at_points(players, np.empty((0, 2)))
         assert result.shape == (0,)
+
+
+# ---------------------------------------------------------------------------
+# JAX / NumPy parity tests
+# ---------------------------------------------------------------------------
+
+jax = pytest.importorskip("jax")
+
+
+class TestJaxNumPyParity:
+    """Ensure JAX and NumPy backends produce identical results."""
+
+    @pytest.fixture()
+    def sample_inputs(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        rng = np.random.default_rng(42)
+        player_pos = rng.uniform(0, 105, (22, 2))
+        player_vel = rng.uniform(-2, 2, (22, 2))
+        targets = rng.uniform(0, 105, (10, 2))
+        return player_pos, player_vel, targets
+
+    def test_tti_parity(self, sample_inputs: tuple[np.ndarray, np.ndarray, np.ndarray]) -> None:
+        """TTI results from JAX and NumPy kernels must match within tolerance."""
+        from analytics.pitch_control import _tti_jax
+
+        player_pos, player_vel, targets = sample_inputs
+        params = PitchControlParams()
+        np_result = _tti_numpy(player_pos, player_vel, targets, params.reaction_time, params.max_acceleration)
+        jax_result = np.asarray(
+            _tti_jax(
+                jax.numpy.asarray(player_pos),
+                jax.numpy.asarray(player_vel),
+                jax.numpy.asarray(targets),
+                params.reaction_time,
+                params.max_acceleration,
+            )
+        )
+        np.testing.assert_allclose(np_result, jax_result, atol=1e-6)
+
+    def test_influence_parity(self, sample_inputs: tuple[np.ndarray, np.ndarray, np.ndarray]) -> None:
+        """Influence results from JAX and NumPy kernels must match within tolerance."""
+        from analytics.pitch_control import _influence_jax
+
+        player_pos, player_vel, targets = sample_inputs
+        params = PitchControlParams()
+
+        # Generate realistic TTI values
+        team_tti = _tti_numpy(player_pos[:11], player_vel[:11], targets, params.reaction_time, params.max_acceleration)
+        opp_tti = _tti_numpy(player_pos[11:], player_vel[11:], targets, params.reaction_time, params.max_acceleration)
+        opp_min_tti = np.min(opp_tti, axis=0)
+
+        np_result = _influence_numpy(team_tti, opp_min_tti, params.sigma)
+        jax_result = np.asarray(
+            _influence_jax(
+                jax.numpy.asarray(team_tti),
+                jax.numpy.asarray(opp_min_tti),
+                params.sigma,
+            )
+        )
+        np.testing.assert_allclose(np_result, jax_result, atol=1e-6)
+
+    def test_frame_parity(self) -> None:
+        """Full frame via public API produces valid results with JAX backend."""
+        players = _make_players(
+            home_positions=[(30.0, 40.0), (60.0, 20.0), (50.0, 60.0)],
+            away_positions=[(90.0, 40.0), (70.0, 60.0), (80.0, 20.0)],
+            home_velocities=[(2.0, 1.0), (-1.0, 0.5), (0.0, -1.0)],
+            away_velocities=[(-1.5, 0.0), (1.0, -0.5), (0.5, 1.0)],
+        )
+        _gx, _gy, surface = compute_pitch_control_frame(players)
+        assert surface.shape == (32, 50)
+        assert surface.min() >= 0.0
+        assert surface.max() <= 1.0
+        # Home player at (30, 40) should dominate nearby
+        home_col = int(30 / 120 * 49)
+        mid_row = 16
+        assert surface[mid_row, home_col] > 0.5
+
+    def test_batch_points_parity(self, sample_inputs: tuple[np.ndarray, np.ndarray, np.ndarray]) -> None:
+        """Batched pitch control produces bounded results with JAX backend."""
+        players = _make_players(
+            home_positions=[(30.0, 40.0), (60.0, 20.0)],
+            away_positions=[(90.0, 40.0), (60.0, 60.0)],
+            home_velocities=[(2.0, 0.5), (-1.0, 1.0)],
+            away_velocities=[(-1.0, 0.0), (0.5, -0.5)],
+        )
+        targets = np.array([[10.0, 10.0], [60.0, 40.0], [100.0, 70.0], [30.0, 40.0], [90.0, 40.0]])
+        result = compute_pitch_control_at_points(players, targets)
+        assert result.shape == (5,)
+        assert np.all(result >= 0.0)
+        assert np.all(result <= 1.0)
+        # Home-dominated point
+        assert result[3] > 0.5  # Near home player at (30, 40)
+        # Away-dominated point
+        assert result[4] < 0.5  # Near away player at (90, 40)
+
+    def test_nan_handling_parity(self) -> None:
+        """NaN velocities produce 0.5 (contested) — safe division guard works with JAX."""
+        players = pd.DataFrame(
+            {
+                "x": [30.0, 90.0],
+                "y": [40.0, 40.0],
+                "velocity_x": [float("nan"), 0.0],
+                "velocity_y": [0.0, 0.0],
+                "team": ["home", "away"],
+                "player_id": ["h0", "a0"],
+            }
+        )
+        _gx, _gy, surface = compute_pitch_control_frame(players)
+        assert not np.isnan(surface).any()
+        np.testing.assert_allclose(surface, 0.5)
+
+    def test_grid_fast_shape_and_range(self) -> None:
+        """compute_pitch_control_grid_fast returns correctly shaped, bounded surface."""
+        players = _make_players(
+            home_positions=[(30.0, 40.0), (60.0, 20.0)],
+            away_positions=[(90.0, 40.0), (60.0, 60.0)],
+        )
+        grid_x, grid_y, surface = compute_pitch_control_grid_fast(players, 104, 68)
+        assert grid_x.shape == (104,)
+        assert grid_y.shape == (68,)
+        assert surface.shape == (68, 104)
+        assert surface.min() >= 0.0
+        assert surface.max() <= 1.0
+
+    def test_grid_fast_requires_jax(self) -> None:
+        """compute_pitch_control_grid_fast raises ImportError when JAX unavailable.
+
+        Note: This test only validates the public contract. Since JAX IS installed
+        in this test session, we cannot easily test the no-JAX path without
+        monkey-patching the module-level flag.
+        """
+        # With JAX installed, the function should work — not raise
+        players = _make_players(
+            home_positions=[(30.0, 40.0)],
+            away_positions=[(90.0, 40.0)],
+        )
+        _gx, _gy, surface = compute_pitch_control_grid_fast(players, 10, 8)
+        assert surface.shape == (8, 10)

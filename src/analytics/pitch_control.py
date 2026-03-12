@@ -15,6 +15,14 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+try:
+    import jax
+    import jax.numpy as jnp
+
+    _USE_JAX = True
+except ImportError:
+    _USE_JAX = False
+
 
 @dataclass(frozen=True)
 class PitchControlParams:
@@ -66,23 +74,22 @@ def _meters_to_sb_y(y: np.ndarray, params: PitchControlParams) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
-def _compute_time_to_intercept(
+def _tti_numpy(
     player_pos_m: np.ndarray,
     player_vel_m: np.ndarray,
     target_m: np.ndarray,
-    params: PitchControlParams,
+    reaction_time: float,
+    max_acceleration: float,
 ) -> np.ndarray:
-    """Compute time-to-intercept for each player to each target point.
-
-    Uses kinematic equation:
-        TTI = reaction_time + (-v_proj + sqrt(v_proj² + 2*a_max*d)) / a_max
+    """NumPy TTI kernel — extracted from _compute_time_to_intercept.
 
     Parameters
     ----------
     player_pos_m : (n_players, 2) array of player positions in meters
     player_vel_m : (n_players, 2) array of player velocities in m/s
     target_m : (n_targets, 2) array of target positions in meters
-    params : PitchControlParams
+    reaction_time : seconds before player begins moving
+    max_acceleration : m/s² acceleration capability
 
     Returns
     -------
@@ -102,13 +109,107 @@ def _compute_time_to_intercept(
     v_proj = np.sum(player_vel_m[:, np.newaxis, :] * direction, axis=2)
 
     # Kinematic TTI: time to cover distance d with initial velocity v_proj and max acceleration
-    a_max = params.max_acceleration
-    discriminant = v_proj**2 + 2.0 * a_max * distance
-    # Discriminant is always >= 0 since distance >= 0 and a_max > 0
-    tti = params.reaction_time + (-v_proj + np.sqrt(discriminant)) / a_max
+    discriminant = v_proj**2 + 2.0 * max_acceleration * distance
+    # Discriminant is always >= 0 since distance >= 0 and max_acceleration > 0
+    tti = reaction_time + (-v_proj + np.sqrt(discriminant)) / max_acceleration
 
     # Clamp to reaction_time minimum (player already at target)
-    return np.maximum(tti, params.reaction_time)
+    return np.maximum(tti, reaction_time)
+
+
+if _USE_JAX:
+
+    @jax.jit  # type: ignore[misc]
+    def _tti_jax(
+        player_pos_m: jax.Array,
+        player_vel_m: jax.Array,
+        target_m: jax.Array,
+        reaction_time: float,
+        max_acceleration: float,
+    ) -> jax.Array:
+        """JAX JIT TTI kernel — identical math to _tti_numpy."""
+        displacement = target_m[jnp.newaxis, :, :] - player_pos_m[:, jnp.newaxis, :]
+        distance = jnp.sqrt(jnp.sum(displacement**2, axis=2))
+        safe_distance = jnp.maximum(distance, 1e-10)
+        direction = displacement / safe_distance[:, :, jnp.newaxis]
+        v_proj = jnp.sum(player_vel_m[:, jnp.newaxis, :] * direction, axis=2)
+        discriminant = v_proj**2 + 2.0 * max_acceleration * distance
+        tti = reaction_time + (-v_proj + jnp.sqrt(discriminant)) / max_acceleration
+        return jnp.maximum(tti, reaction_time)
+
+
+def _compute_time_to_intercept(
+    player_pos_m: np.ndarray,
+    player_vel_m: np.ndarray,
+    target_m: np.ndarray,
+    params: PitchControlParams,
+) -> np.ndarray:
+    """Compute time-to-intercept for each player to each target point.
+
+    Dispatches to JAX JIT kernel when available, falling back to NumPy.
+
+    Uses kinematic equation:
+        TTI = reaction_time + (-v_proj + sqrt(v_proj² + 2*a_max*d)) / a_max
+
+    Parameters
+    ----------
+    player_pos_m : (n_players, 2) array of player positions in meters
+    player_vel_m : (n_players, 2) array of player velocities in m/s
+    target_m : (n_targets, 2) array of target positions in meters
+    params : PitchControlParams
+
+    Returns
+    -------
+    (n_players, n_targets) array of time-to-intercept values in seconds
+    """
+    if _USE_JAX:
+        result = _tti_jax(
+            jnp.asarray(player_pos_m),
+            jnp.asarray(player_vel_m),
+            jnp.asarray(target_m),
+            params.reaction_time,
+            params.max_acceleration,
+        )
+        return np.asarray(result)
+    return _tti_numpy(player_pos_m, player_vel_m, target_m, params.reaction_time, params.max_acceleration)
+
+
+def _influence_numpy(
+    team_tti: np.ndarray,
+    opponent_min_tti: np.ndarray,
+    sigma: float,
+) -> np.ndarray:
+    """NumPy influence kernel — extracted from _compute_team_influence.
+
+    Parameters
+    ----------
+    team_tti : (n_players, n_targets) array of TTI values for one team
+    opponent_min_tti : (n_targets,) array of minimum opponent TTI per cell
+    sigma : logistic curve steepness parameter (seconds)
+
+    Returns
+    -------
+    (n_targets,) array of summed team influence values
+    """
+    k = math.pi / math.sqrt(3.0) / sigma
+    exponent = -k * (opponent_min_tti[np.newaxis, :] - team_tti)
+    individual_influence = 1.0 / (1.0 + np.exp(np.clip(exponent, -50.0, 50.0)))
+    return np.sum(individual_influence, axis=0)
+
+
+if _USE_JAX:
+
+    @jax.jit  # type: ignore[misc]
+    def _influence_jax(
+        team_tti: jax.Array,
+        opponent_min_tti: jax.Array,
+        sigma: float,
+    ) -> jax.Array:
+        """JAX JIT influence kernel — identical math to _influence_numpy."""
+        k = jnp.pi / jnp.sqrt(3.0) / sigma
+        exponent = -k * (opponent_min_tti[jnp.newaxis, :] - team_tti)
+        individual = 1.0 / (1.0 + jnp.exp(jnp.clip(exponent, -50.0, 50.0)))
+        return jnp.sum(individual, axis=0)
 
 
 def _compute_team_influence(
@@ -117,6 +218,8 @@ def _compute_team_influence(
     params: PitchControlParams,
 ) -> np.ndarray:
     """Compute team influence at each grid cell using logistic sigmoid.
+
+    Dispatches to JAX JIT kernel when available, falling back to NumPy.
 
     Parameters
     ----------
@@ -128,13 +231,14 @@ def _compute_team_influence(
     -------
     (n_targets,) array of summed team influence values
     """
-    # Logistic sigmoid: influence_i = 1 / (1 + exp(-pi/sqrt(3)/sigma * (tau_opp_min - t_i)))
-    k = math.pi / math.sqrt(3.0) / params.sigma
-    exponent = -k * (opponent_min_tti[np.newaxis, :] - team_tti)
-    individual_influence = 1.0 / (1.0 + np.exp(np.clip(exponent, -50.0, 50.0)))
-
-    # Sum across all players in the team
-    return np.sum(individual_influence, axis=0)
+    if _USE_JAX:
+        result = _influence_jax(
+            jnp.asarray(team_tti),
+            jnp.asarray(opponent_min_tti),
+            params.sigma,
+        )
+        return np.asarray(result)
+    return _influence_numpy(team_tti, opponent_min_tti, params.sigma)
 
 
 # ---------------------------------------------------------------------------
@@ -398,3 +502,56 @@ def compute_pitch_control_at_point(
     if total < 1e-10:
         return 0.5
     return float(np.clip(home_influence[0] / total, 0.0, 1.0))
+
+
+def compute_pitch_control_grid_fast(
+    players_df: pd.DataFrame,
+    grid_cells_x: int = 104,
+    grid_cells_y: int = 68,
+    params: PitchControlParams | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Compute pitch control over a dense grid using JAX acceleration.
+
+    Designed for OBSO-style value surfaces where a fine-grained control grid
+    is needed (e.g. 104x68 = 7,072 cells).  Uses the JAX JIT kernels for
+    the heavy TTI and influence computations, delegating to
+    ``compute_pitch_control_at_points`` for the actual math.
+
+    Parameters
+    ----------
+    players_df : DataFrame with columns: player_id, team, x, y, velocity_x, velocity_y.
+        Coordinates in StatsBomb system (120x80).
+    grid_cells_x : Number of grid cells along the x-axis.
+    grid_cells_y : Number of grid cells along the y-axis.
+    params : Pitch control parameters (uses defaults if ``None``).
+
+    Returns
+    -------
+    grid_x : (grid_cells_x,) array of StatsBomb x-coordinates.
+    grid_y : (grid_cells_y,) array of StatsBomb y-coordinates.
+    surface : (grid_cells_y, grid_cells_x) array of control values in [0, 1].
+
+    Raises
+    ------
+    ImportError
+        If JAX is not installed.
+    """
+    if not _USE_JAX:
+        raise ImportError("JAX required for compute_pitch_control_grid_fast")
+
+    if params is None:
+        params = PitchControlParams()
+
+    # Build StatsBomb-coordinate grid
+    grid_x = np.linspace(0, params.sb_length, grid_cells_x)
+    grid_y = np.linspace(0, params.sb_width, grid_cells_y)
+
+    # Flatten grid to (grid_cells_x * grid_cells_y, 2) target points
+    xx, yy = np.meshgrid(grid_x, grid_y)
+    target_points = np.column_stack([xx.ravel(), yy.ravel()])
+
+    # Use the existing batched API which auto-dispatches to JAX
+    control = compute_pitch_control_at_points(players_df, target_points, params)
+
+    surface = control.reshape(grid_cells_y, grid_cells_x)
+    return grid_x, grid_y, surface

@@ -11,6 +11,7 @@
 #   skillcorner       — A-League broadcast tracking (10fps, 10 matches via kloppy)
 #   compute_spadl_vaep — SPADL conversion + VAEP scoring (depends on statsbomb + wyscout)
 #   compute_off_ball_xt — Off-Ball xT from tracking + pitch control (depends on tracking tasks)
+#   compute_pitch_control — Spearman 2017 pitch control values (depends on tracking tasks)
 #   compute_defcon_lite — DEFCON-lite defensive valuation (depends on SPADL/VAEP)
 #   resolve_players   — Cross-source entity resolution (depends on statsbomb + wyscout)
 #   compute_embeddings — Player behavioral + statistical embeddings (depends on entity resolution)
@@ -185,6 +186,37 @@ resource "databricks_job" "data_ingestion" {
     python_wheel_task {
       package_name = "luxury_lakehouse"
       entry_point  = "compute_off_ball_xt"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "default"
+  }
+
+  # ── Task: Compute pitch control values for tracking data ───────────────
+  # Reads gold fct_tracking_frames, computes Spearman 2017 pitch control
+  # at each player's position, writes bronze.pitch_control_values.
+  task {
+    task_key        = "compute_pitch_control"
+    timeout_seconds = 7200
+    max_retries     = 1
+
+    depends_on {
+      task_key = "ingest_metrica"
+    }
+    depends_on {
+      task_key = "ingest_idsse"
+    }
+    depends_on {
+      task_key = "ingest_skillcorner"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_pitch_control"
 
       parameters = [
         "--catalog", var.catalog_name,

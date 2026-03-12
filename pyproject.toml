@@ -50,6 +50,9 @@ embeddings = [
     "gensim>=4.3.0",
     "huggingface_hub>=0.25.0",
 ]
+jax = [
+    "jax[cpu]>=0.4.35",
+]
 # NOTE: kloppy (SkillCorner tracking) is NOT listed here — it runs in a separate
 # Databricks task environment defined in terraform/modules/workflows/main.tf.
 # IDSSE tracking uses stdlib xml.etree.ElementTree and needs no extra dependencies.
@@ -77,10 +80,12 @@ compute_off_ball_xt = "ingestion.off_ball_xt:main"
 compute_defcon_lite = "ingestion.defcon_lite:main"
 resolve_players = "ingestion.entity_resolution:main"
 compute_embeddings = "ingestion.player_embeddings:main"
+compute_pitch_control = "ingestion.pitch_control_batch:main"
 
 [tool.ruff]
 target-version = "py310"
 line-length = 120
+exclude = ["demo_space"]
 
 [tool.ruff.lint]
 select = [
@@ -105,6 +110,7 @@ known-first-party = ["analytics", "ingestion", "streamlit_app"]
 pythonVersion = "3.10"
 typeCheckingMode = "basic"
 reportMissingImports = "warning"  # pyspark only available in Databricks runtime
+exclude = ["demo_space"]
 
 [tool.pytest.ini_options]
 testpaths = ["src/tests"]

@@ -71,6 +71,7 @@ uv run pytest src/tests/ -v    # Unit tests
 - **Always pass `row_count`**: When `validate_dataframe()` returns a row count, pass it to `write_delta_table(row_count=row_count)` and `merge_delta_table(row_count=row_count)` to avoid redundant `df.count()` DAG recomputation.
 - **Prefer `replaceWhere` over bare `mode="append"`**: Append without partition guards risks duplicates on retry. Use `replaceWhere` keyed on the logical partition (e.g., `match_id`, `competition_id`) for idempotent writes.
 - **Avoid `.toPandas()` on unbounded tables**: Never pull an entire fact table to driver memory. Use Spark-native operations or filter to bounded subsets first. Budget: <5M rows for `.toPandas()`.
+- **Prefer Spark executors over driver-bound processing**: Always exhaust executor-side options before resorting to `.toPandas()` chunk-and-release on the driver. Decision hierarchy: (1) `applyInPandas` / `mapInPandas` for per-group compute, (2) `df.write.parquet()` to UC Volume for file exports (Spark writes to cloud storage, driver reads for upload), (3) per-partition `.toPandas()` with `del` + `gc.collect()` only as last resort when Spark cannot write to the target. On serverless, Spark can write to UC Volumes and Delta tables but NOT to local filesystem (`file://` forbidden, DBFS disabled).
 - **Prefer `applyInPandas` over driver-bound loops**: Never use `for match_id in ...: spark.sql(...).toPandas()` loops for compute pipelines. Use `spark.groupBy(key).applyInPandas(func, schema)` to distribute computation across executors. The driver should only handle metadata (match IDs, config), never raw data.
 - **Group sizing for `applyInPandas`**: Each group materializes as one pandas DataFrame on an executor. Keep groups under 800 MB (1 GB UDF memory limit minus overhead). Use synthetic partition keys (e.g., `frame_batch_id = (frame / batch_size).cast("int")`) to subdivide large natural groups.
 - **Multi-pass `applyInPandas`**: When a computation has independent phases (e.g., credit assignment is per-period but value estimation needs the full match), chain two `applyInPandas` calls with different group keys rather than pulling everything to the driver.
@@ -101,6 +102,7 @@ The platform's architecture maps to classic EIP patterns (Hohpe & Woolf 2003). C
 - **No `df.cache()` / `df.persist()`**: Write intermediate results to Delta temp tables if re-reads are needed.
 - **No internet in UDFs**: All data must come from Delta tables or UC Volumes. No HTTP calls inside UDF function bodies.
 - **Lazy closure capture**: Variables are captured at action time, not definition time. Use frozen dataclasses for all config passed to `applyInPandas`. Never mutate variables between function definition and the `.applyInPandas()` call.
+- **No local filesystem writes from Spark**: DBFS root is disabled and `file://` scheme is forbidden. Spark can write to UC Volumes (`/Volumes/...`) and Delta tables only. For file exports (e.g., Parquet for HF Hub upload), write to a UC Volume staging path, then read from the Volume path on the driver for upload.
 
 ### Performance Budgets
 

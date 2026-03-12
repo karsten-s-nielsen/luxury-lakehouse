@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the [phased plan](PLAN.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-03-11
+**Last updated**: 2026-03-12
 
 ---
 
@@ -190,7 +190,7 @@ Three approaches from DeepMind's recent work apply directly to soccer analytics 
 
 **FunSearch / AlphaEvolve pattern.** LLM-driven algorithm evolution: define an `evaluate(candidate) &rarr; score` function, let an LLM generate and mutate candidates, keep the best. [OpenEvolve](https://huggingface.co/blog/codelion/openevolve) (MIT) is a community implementation that works with any LLM API. Targets: evolve `expected_threat_grid.csv` values against StatsBomb event data; optimize pitch control kernel vectorization strategies. Cost: ~$5-20 for a weekend search run, CPU only.
 
-**JAX `vmap` vectorization.** Single highest-leverage tool for existing code. `jax.vmap` vectorizes `compute_pitch_control_at_point()` from ~2,700 serial Python calls per second to one array operation &mdash; unlocking full Space Creation (Fernandez &amp; Bornn 2018 OBSO) on the existing budget without GPU. JAX compiles to vectorized CPU operations via XLA; no infrastructure change required.
+**JAX `vmap` vectorization.** Single highest-leverage tool for existing code. `jax.vmap` vectorizes `compute_pitch_control_at_point()` from ~2,700 serial Python calls per second to one array operation &mdash; unlocking full Space Creation (Fernandez &amp; Bornn 2018 OBSO) on the existing budget without GPU. JAX compiles to vectorized CPU operations via XLA; no infrastructure change required. **Implemented in Phase 18:** `compute_pitch_control_grid_fast()` with `@jax.jit` backend in `src/analytics/pitch_control.py`. Dual NumPy/JAX backend auto-dispatches based on JAX availability.
 
 **Continual learning (EWC / Knowledge Distillation).** DeepMind's Elastic Weight Consolidation (Kirkpatrick et al. 2017) prevents catastrophic forgetting when adapting models to new seasons or competitions. The practical variant &mdash; Knowledge Distillation (Learning without Forgetting) &mdash; maps directly to the MLflow Champion/Challenger pattern: the `@Champion` model provides soft labels for `@Challenger` training on new data, preserving historical calibration.
 
@@ -200,7 +200,7 @@ With only 20 tracking matches, synthetic data multiplication is critical:
 
 | Technique | Multiplier | Compute | Basis |
 |-----------|-----------|---------|-------|
-| **Symmetry augmentation** (H-flip, V-flip, team swap) | 8&times; | Zero (NumPy) | TacticAI (DeepMind, 2024) |
+| **Symmetry augmentation** (H-flip, V-flip, team swap) | 8&times; | Zero (NumPy) | TacticAI (DeepMind, 2024) — **Implemented (Phase 18):** `src/analytics/symmetry.py` |
 | **Physics-based perturbation** (position/velocity jitter within constraints) | 10&times; per frame | Minimal (NumPy) | Counterfactual simulation |
 | **dm_control MuJoCo Soccer** (synthetic match generation) | Unlimited | CPU | Pretrain-then-fine-tune pattern |
 
@@ -236,7 +236,7 @@ Models with available weights compatible with current data sources:
 |-------|--------------------------|
 | **Phase 15** (pgvector embeddings) | **Complete** — retrained football2vec (32-dim Doc2Vec) + 13-dim z-score stat vectors. Model published to HF Hub. |
 | **DEFCON Tier 4** (GNN) | GNN pre-trained on StatsBomb 360 freeze frames (15.58M rows), fine-tuned for defensive valuation. Tier 3 tabular model **complete** (Phase 17). |
-| **Space Creation** (ROADMAP) | JAX `vmap` pitch control vectorization makes full OBSO feasible on CPU |
+| **Space Creation** (ROADMAP) | JAX `vmap` pitch control vectorization makes full OBSO feasible on CPU — **JAX kernel implemented (Phase 18)** |
 | **Graph Tactical Patterns** (ROADMAP) | PyTorch Geometric GNN on tracking data with symmetry augmentation |
 | **Visual Exploratory Behavior** (ROADMAP) | RTMPose for pose estimation if Respo.Vision data requires broadcast video processing |
 
@@ -254,7 +254,7 @@ Models with available weights compatible with current data sources:
 
 ### Open questions
 
-1. **JAX vs PyTorch**: JAX `vmap` for pitch control is compelling, but GNN ecosystem is PyTorch-centric. Maintain both or pick one?
+1. **JAX vs PyTorch**: JAX `vmap` for pitch control implemented (Phase 18). GNN ecosystem is PyTorch-centric. Currently maintaining both: JAX for array computation (pitch control, OBSO), PyTorch Geometric for GNN training.
 2. **External GPU provider**: RunPod (cheapest) vs Lambda Labs (more reliable, SSD-backed)?
 3. ~~**football2vec**~~ Resolved &mdash; retrained on full ~3,000-match StatsBomb corpus (Phase 15 complete).
 4. **Feature store scope**: Which player features justify formal Databricks Feature Engineering tables?
@@ -263,7 +263,7 @@ Models with available weights compatible with current data sources:
 
 ### Dependencies
 
-- No blocking dependencies for JAX `vmap` or symmetry augmentation (Tier 1)
+- JAX `vmap` and symmetry augmentation **complete** (Phase 18) — no longer blocked
 - GNN pre-training depends on PyTorch Geometric + external GPU access
 - football2vec / OpenSTARLab usable immediately with existing StatsBomb/Wyscout data
 - Full model serving pipeline depends on MLflow 3 + Unity Catalog (already provisioned)
@@ -510,21 +510,23 @@ Phase 12 implemented a simpler Off-Ball xT metric: `pitch_control(player_locatio
 
 ### What would be needed
 
-- GPU-accelerated pitch control (vectorized TTI computation across grid)
-- ~25x compute budget increase (from 1fps to 25fps full OBSO)
+- ~~GPU-accelerated pitch control (vectorized TTI computation across grid)~~ **Partially addressed (Phase 18):** `compute_pitch_control_grid_fast()` with `@jax.jit` backend enables dense 50&times;32 grid computation on CPU via XLA vectorization
+- ~25x compute budget increase (from 1fps to 25fps full OBSO) — JAX kernel reduces this requirement significantly
 - Differential pitch control: `PC_with_player - PC_without_player` per player per frame
+- Counterfactual ghost trajectories (available in PAUSA repo, see PAUSA section)
 
 ### Dependencies
 
-- Phase 11 (pitch control) — complete
-- Phase 12 (off-ball xT) — complete (provides foundation)
-- GPU compute infrastructure (not currently available)
+- Phase 11 (pitch control) — **complete**
+- Phase 12 (off-ball xT) — **complete** (provides foundation)
+- Phase 18 (JAX kernel) — **complete** (enables dense grid computation for OBSO)
+- ~~GPU compute infrastructure~~ JAX CPU vectorization may be sufficient for batch processing
 
 ---
 
 ## <img src="assets/hf-logo.png" height="28" align="top"> HuggingFace Hub Integration (Open Model & Dataset Ecosystem)
 
-**Status:** Research complete, ready for incremental implementation
+**Status:** Tiers 1&ndash;2 complete, Tier 4 complete (Gradio demo Space). Tier 3 deferred to DEFCON Tier 4.
 **Budget:** $0 (free tier) or $9/month (PRO for priority GPU access)
 **References:** [Databricks &hearts; HuggingFace](https://www.databricks.com/blog/contributing-spark-loader-for-hugging-face-datasets); [PyG Hub Integration](https://github.com/pyg-team/pytorch_geometric/issues/7170); [SoccerNet on HF](https://huggingface.co/SoccerNet)
 
@@ -625,15 +627,15 @@ A HuggingFace Space (Streamlit or Gradio) hosting a read-only demo with pre-cach
 2. ~~**football2vec evaluation**~~ Resolved &mdash; retrained on full ~3,000-match StatsBomb corpus (not pre-trained weights). 32-dim Doc2Vec model saved to UC Volume + HF Hub.
 3. ~~**sentence-transformers for entity resolution**~~ Resolved &mdash; Phase 14 complete using TF-IDF + rapidfuzz (2,388 matches). Sentence-transformers remains an option for future embedding-based matching if needed.
 4. ~~**Publishing priority**~~ Resolved &mdash; Phase 15 model weights published to `luxury-lakehouse/football2vec-statsbomb-wyscout`.
-5. **Space framework**: Streamlit (reuse existing code) or Gradio (better for model demos)?
+5. ~~**Space framework**~~ Resolved &mdash; Gradio chosen for model/dataset demos. Deployed at `luxury-lakehouse/soccer-analytics-demo`. Streamlit remains the primary Databricks Apps deployment for live Lakebase connectivity.
 6. **HF Jobs vs RunPod**: Defer comparison until DEFCON Tier 4, or benchmark early with a small training run?
 
 ### Dependencies
 
 - Tier 1 (consume) &mdash; **complete** (football2vec retrained on StatsBomb corpus)
-- Tier 2 (publish) &mdash; **complete** (model published to [`luxury-lakehouse/football2vec-statsbomb-wyscout`](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout); [model card](docs/huggingface/model-card.md) and [org card](docs/huggingface/org-card.md) pushed to HF Hub)
+- Tier 2 (publish) &mdash; **complete** (model + 4 datasets published: [SPADL/VAEP](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values), [Line-Breaking Passes](https://huggingface.co/datasets/luxury-lakehouse/line-breaking-passes), [Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings), [Pitch Control](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking))
 - Tier 3 (train) depends on DL Infrastructure (ROADMAP) for GNN training pipeline
-- Tier 4 (demo) depends on sufficient published artifacts to make a compelling showcase
+- Tier 4 (demo) &mdash; **complete** (Gradio Space at [`luxury-lakehouse/soccer-analytics-demo`](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with player similarity, shot map, pass quality tabs)
 - Synergistic with DL Infrastructure (HF models flow into MLflow + UC model registry)
 - Synergistic with Provider Abstraction (football2vec/OpenSTARLab consume same StatsBomb/Wyscout data)
 

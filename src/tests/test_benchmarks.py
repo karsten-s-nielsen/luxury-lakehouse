@@ -20,7 +20,12 @@ import pytest
 from analytics.defcon_lite import DefconLiteParams, assign_defensive_credits
 from analytics.line_breaking import LineBreakingParams, detect_line_breaking
 from analytics.off_ball_xt import compute_off_ball_xt_frame
-from analytics.pitch_control import PitchControlParams, compute_pitch_control_at_points
+from analytics.pitch_control import (
+    _USE_JAX,
+    PitchControlParams,
+    compute_pitch_control_at_points,
+    compute_pitch_control_grid_fast,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures — shared across all benchmarks
@@ -243,3 +248,40 @@ class TestBenchmarks:
             assert median_seconds <= 0.002, (
                 f"Line-breaking detection median {median_seconds * 1000:.2f} ms exceeds 2 ms budget"
             )
+
+
+class TestJaxBenchmarks:
+    """Performance benchmarks for JAX-accelerated pitch control kernels.
+
+    Skipped when JAX is not installed.
+    """
+
+    @pytest.mark.skipif(not _USE_JAX, reason="JAX not installed")
+    def test_bench_jax_batched_pitch_control(
+        self,
+        benchmark: Any,
+        players_df: pd.DataFrame,
+        target_points_22: np.ndarray,
+        pitch_control_params: PitchControlParams,
+    ) -> None:
+        """JAX-accelerated batched pitch control for 22 targets (includes JIT warmup)."""
+        # JIT warmup — first call triggers compilation
+        compute_pitch_control_at_points(players_df, target_points_22, pitch_control_params)
+        result = benchmark(compute_pitch_control_at_points, players_df, target_points_22, pitch_control_params)
+        assert result.shape == (22,)
+        assert np.all((result >= 0.0) & (result <= 1.0))
+
+    @pytest.mark.skipif(not _USE_JAX, reason="JAX not installed")
+    def test_bench_jax_dense_grid(
+        self,
+        benchmark: Any,
+        players_df: pd.DataFrame,
+        pitch_control_params: PitchControlParams,
+    ) -> None:
+        """JAX-accelerated dense grid (104x68 = 7,072 cells) pitch control."""
+        # JIT warmup — first call triggers compilation
+        compute_pitch_control_grid_fast(players_df, 104, 68, pitch_control_params)
+        grid_x, grid_y, surface = benchmark(compute_pitch_control_grid_fast, players_df, 104, 68, pitch_control_params)
+        assert grid_x.shape == (104,)
+        assert grid_y.shape == (68,)
+        assert surface.shape == (68, 104)
