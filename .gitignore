@@ -88,3 +88,6 @@ LUXURY-REVIEW.md
 
 # HTTP cache (requests-cache SQLite database)
 luxury_lakehouse_http_cache.sqlite
+
+# Demo Space sample data (generated from Databricks, uploaded to HF directly)
+demo_space/data/*.parquet

@@ -1,0 +1,22 @@
+version: 2
+
+models:
+  - name: stg_pitch_control__values
+    description: "Deduplicated pitch control values from bronze layer."
+    columns:
+      - name: tracking_id
+        description: "FK to fct_tracking_frames"
+        data_tests:
+          - unique
+          - not_null
+      - name: match_id
+        description: "Match identifier"
+        data_tests:
+          - not_null
+      - name: pitch_control_value
+        description: "Home-team control probability [0,1]"
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0.0
+              max_value: 1.0

@@ -8,6 +8,8 @@
 
 ---
 
+[![Try the Demo](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Live%20Demo-yellow?style=flat-square)](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) [![Datasets](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Datasets-blue?style=flat-square)](https://huggingface.co/luxury-lakehouse) [![Model](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-football2vec-green?style=flat-square)](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout)
+
 ## What Is This?
 
 A serverless soccer analytics platform built on **Databricks Lakebase** — replacing a 6-service traditional AWS pipeline with a unified lakehouse architecture that scales to zero.
@@ -42,7 +44,7 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 | **Synchronization** | Lakeflow Synced Tables | Zero-ETL continuous sync from Gold → Lakebase |
 | **Serving** | Lakebase PostgreSQL 17 (Autoscaling) | Sub-10ms OLTP queries, native pgvector, scale-to-zero |
 | **Application** | Streamlit on Databricks Apps | Interactive dashboards with mplsoccer visualizations |
-| **ML Artifacts** | [HuggingFace Hub](https://huggingface.co/luxury-lakehouse) | Publish [football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) model weights for community access |
+| **ML Artifacts** | [HuggingFace Hub](https://huggingface.co/luxury-lakehouse) | Publish [model weights](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout), [4 datasets](https://huggingface.co/luxury-lakehouse), and [demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) |
 | **Security** | OAuth M2M + OIDC Federation + KMS | Zero-secret CI, least-privilege SPs, encrypted state |
 | **Infrastructure** | Terraform + Databricks Provider | Everything as code |
 
@@ -81,15 +83,16 @@ Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by 
 luxury-lakehouse/
 ├── terraform/          # Infrastructure as Code (Databricks on AWS)
 ├── src/
-│   ├── analytics/      # Pure-Python analytics models (pitch control, line-breaking, entity resolution, DEFCON, football2vec)
-│   ├── ingestion/      # Data ingestion (StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner)
+│   ├── analytics/      # Pure-Python analytics models (pitch control, line-breaking, entity resolution, DEFCON, football2vec, symmetry)
+│   ├── ingestion/      # Data ingestion + compute pipelines (StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner, pitch control batch)
 │   └── streamlit_app/  # Interactive analytics dashboard
-├── notebooks/          # Databricks notebooks (football2vec training + HF Hub publishing)
+├── notebooks/          # Databricks notebooks (football2vec training, dataset publishing to HF Hub)
+├── demo_space/         # HuggingFace Gradio demo Space (player similarity, shot map, pass quality)
 ├── dbt_project/        # Bronze → Silver → Gold transformations
 ├── scripts/            # Operational scripts (PG indexes, grants, synced table management)
 ├── docs/
 │   ├── c4/             # C4 architecture diagrams (Structurizr DSL)
-│   ├── huggingface/          # HF Hub model card and org card (source of truth)
+│   ├── huggingface/          # HF Hub model card, org card, dataset cards (source of truth)
 │   └── huggingface-setup.md  # HuggingFace Hub integration guide
 ├── assets/             # Images and branding
 ├── PLAN.md             # Detailed implementation plan
@@ -113,7 +116,7 @@ The `src/analytics/` modules (pitch control, line-breaking, DEFCON, off-ball xT,
 
 ## Status
 
-**Phase 17 complete** — 11 Streamlit pages, 16 synced tables, 34 PG indexes, 542 unit tests (+3 skipped). Optimization audit complete — all compute pipelines migrated to `applyInPandas`, incremental skip guards on all ingestion modules, pytest-benchmark baselines established. EIP reconciliation complete — liquid clustering, model contracts, predictive optimization, auto-compaction, `requests-cache`, dbt slim CI. See [PLAN.md](PLAN.md) for the implementation plan and [ROADMAP.md](ROADMAP.md) for research directions.
+**Phase 18 complete** — 11 Streamlit pages, 16 synced tables, 34 PG indexes, 505 unit tests (+3 skipped). HuggingFace Hub Expansion: 4 datasets published ([SPADL/VAEP](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values), [Line-Breaking Passes](https://huggingface.co/datasets/luxury-lakehouse/line-breaking-passes), [Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings), [Pitch Control](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking)), [Gradio demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo), pitch control batch pipeline, JAX kernel, TacticAI symmetry augmentation. See [PLAN.md](PLAN.md) for the implementation plan and [ROADMAP.md](ROADMAP.md) for research directions.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -137,6 +140,7 @@ The `src/analytics/` modules (pitch control, line-breaking, DEFCON, off-ball xT,
 | 15 | Player Embeddings (Doc2Vec + z-score) | Complete |
 | 16 | Player Similarity Page (pgvector HNSW) | Complete |
 | 17 | DEFCON-lite Defensive Pressure | Complete |
+| 18 | HuggingFace Hub Expansion | Complete |
 
 ## Tech Stack
 

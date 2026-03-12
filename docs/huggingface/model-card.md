@@ -13,7 +13,10 @@ tags:
   - wyscout
   - gensim
 datasets:
-  - statsbomb/open-data
+  - luxury-lakehouse/spadl-vaep-action-values
+  - luxury-lakehouse/line-breaking-passes
+  - luxury-lakehouse/football2vec-player-embeddings
+  - luxury-lakehouse/pitch-control-tracking
 pipeline_tag: feature-extraction
 ---
 
@@ -130,17 +133,7 @@ with open(f"{model_dir}/zscore_params.json") as f:
 
 ## Citation
 
-If you use this model, please cite the original Football2Vec paper:
-
-```bibtex
-@article{theiner2022football2vec,
-  title={Exploring the Relationship Between Football Players' Positions and Their Attributes through Network Analysis},
-  author={Theiner, Jonas and others},
-  year={2022}
-}
-```
-
-And the Doc2Vec method:
+If you use this model, please cite the Doc2Vec method and this repository:
 
 ```bibtex
 @inproceedings{le2014distributed,
@@ -148,6 +141,15 @@ And the Doc2Vec method:
   author={Le, Quoc and Mikolov, Tomas},
   booktitle={International Conference on Machine Learning},
   year={2014}
+}
+```
+
+```bibtex
+@software{nielsen2026football2vec,
+  title={Football2Vec: Player Behavioral Embeddings from Event Sequences},
+  author={Nielsen, Karsten Skytt},
+  year={2026},
+  url={https://github.com/karsten-s-nielsen/luxury-lakehouse}
 }
 ```
 
@@ -159,6 +161,21 @@ player2vec.model.dv.vectors.npy -- document vectors (numpy)
 player2vec.model.wv.vectors.npy -- word vectors (numpy)
 zscore_params.json             -- z-score normalization parameters
 ```
+
+## Companion Datasets
+
+Pre-computed datasets derived from this model and the platform's analytics pipelines:
+
+| Dataset | Description |
+|---------|-------------|
+| [SPADL/VAEP Action Values](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values) | Per-action offensive/defensive VAEP valuations |
+| [Line-Breaking Passes](https://huggingface.co/datasets/luxury-lakehouse/line-breaking-passes) | Pass dataset with defensive line-breaking labels |
+| [Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings) | Pre-computed behavioral + statistical vectors (career/season/match) |
+| [Pitch Control Tracking](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking) | Per-player per-frame pitch control values from tracking data |
+
+## Demo
+
+Try the interactive [Soccer Analytics Explorer](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) &mdash; search for similar players by behavioral embedding, explore shot maps, and visualize line-breaking passes.
 
 ## More Information
 

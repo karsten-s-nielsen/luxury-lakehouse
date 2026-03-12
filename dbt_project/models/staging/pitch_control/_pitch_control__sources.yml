@@ -1,0 +1,27 @@
+version: 2
+
+sources:
+  - name: pitch_control
+    description: >
+      Per-player per-frame pitch control values computed by the Spearman 2017
+      physics-based model.
+    database: soccer_analytics
+    schema: bronze
+    loader: python_wheel
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 24, period: hour}
+        error_after: {count: 72, period: hour}
+
+    tables:
+      - name: pitch_control_values
+        description: >
+          Per-player per-frame pitch control probability [0,1].
+        columns:
+          - name: tracking_id
+            description: "FK to fct_tracking_frames.tracking_id"
+          - name: match_id
+            description: "Match identifier for partition filtering"
+          - name: pitch_control_value
+            description: "Home-team control probability [0,1]"

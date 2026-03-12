@@ -468,7 +468,7 @@ models:
         data_type: double
         description: Total DEFCON value (NULL if defcon_enabled is false)
       - name: defcon_credits
-        data_type: bigint
+        data_type: int
         description: Total number of defensive credits
       - name: defcon_per_90
         data_type: double
@@ -1285,7 +1285,7 @@ models:
               arguments:
                 values: ['statsbomb_360', 'metrica_tracking']
       - name: total_credits
-        data_type: bigint
+        data_type: int
         description: Total number of defensive credits
       - name: intercept_value
         data_type: double
@@ -1300,22 +1300,22 @@ models:
         data_type: double
         description: Total Deter credit value
       - name: intercept_count
-        data_type: bigint
+        data_type: int
         description: Number of Intercept credits
       - name: concede_count
-        data_type: bigint
+        data_type: int
         description: Number of Concede credits
       - name: disturb_count
-        data_type: bigint
+        data_type: int
         description: Number of Disturb credits
       - name: deter_count
-        data_type: bigint
+        data_type: int
         description: Number of Deter credits
       - name: high_confidence_count
-        data_type: bigint
+        data_type: int
         description: Number of high-confidence credits
       - name: approx_confidence_count
-        data_type: bigint
+        data_type: int
         description: Number of approximate-confidence credits
       - name: _loaded_at
         data_type: timestamp
@@ -1473,7 +1473,7 @@ models:
               arguments:
                 values: ['statsbomb_360', 'metrica_tracking']
       - name: total_defensive_actions
-        data_type: bigint
+        data_type: int
         description: Total number of defensive actions credited
       - name: intercept_pressure
         data_type: double
@@ -1488,22 +1488,22 @@ models:
         data_type: double
         description: Total Deter pressure value
       - name: intercept_count
-        data_type: bigint
+        data_type: int
         description: Number of Intercept actions
       - name: concede_count
-        data_type: bigint
+        data_type: int
         description: Number of Concede actions
       - name: disturb_count
-        data_type: bigint
+        data_type: int
         description: Number of Disturb actions
       - name: deter_count
-        data_type: bigint
+        data_type: int
         description: Number of Deter actions
       - name: high_confidence_count
-        data_type: bigint
+        data_type: int
         description: Number of high-confidence credits
       - name: approx_confidence_count
-        data_type: bigint
+        data_type: int
         description: Number of approximate-confidence credits
       - name: _loaded_at
         data_type: timestamp
@@ -1566,7 +1566,7 @@ models:
         data_type: double
         description: Entity resolution confidence score (0-100, null if unmatched)
       - name: match_layer
-        data_type: bigint
+        data_type: int
         description: >
           Resolution layer (0=manual override, 1=strict, 2=standard, 3=relaxed,
           null if unmatched)
