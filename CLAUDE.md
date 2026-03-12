@@ -76,6 +76,22 @@ uv run pytest src/tests/ -v    # Unit tests
 - **Multi-pass `applyInPandas`**: When a computation has independent phases (e.g., credit assignment is per-period but value estimation needs the full match), chain two `applyInPandas` calls with different group keys rather than pulling everything to the driver.
 - **Model loading on executors**: Use module-level `_model_cache: dict[str, object]` for lazy-loading ML models from UC Volume inside UDFs. Spark reuses Python workers across groups, so the model loads once per executor, not once per group.
 - **Use CTEs for repeated window functions in dbt**: Extract `LAG()` / `LEAD()` into a CTE rather than repeating the window expression in derived columns. Spark may not deduplicate window evaluations across column expressions.
+- **Liquid clustering over Z-ordering**: All mart tables use `liquid_clustered_by` (not `cluster_by`) for incremental, automatic data layout. Liquid clustering is preferred for all new tables.
+- **Auto-compaction and optimizeWrite**: All mart tables have `delta.autoOptimize.autoCompact` and `delta.autoOptimize.optimizeWrite` enabled via dbt `tblproperties`. These are NOT on by default for serverless.
+- **Predictive Optimization**: Enabled at catalog level (`enable_predictive_optimization = "ENABLE"` in Terraform). Auto-VACUUMs and auto-OPTIMIZEs Unity Catalog managed tables.
+- **Deletion vectors**: Enabled by default on Serverless DBR 14.1+ for new tables. No action needed.
+
+### Enterprise Integration Patterns (EIP)
+
+The platform's architecture maps to classic EIP patterns (Hohpe & Woolf 2003). Consider these patterns when designing new pipelines:
+
+| EIP Pattern | Implementation | Example |
+|-------------|---------------|---------|
+| **Splitter** | `applyInPandas` grouped by natural key | Compute pipelines split by `match_id` |
+| **Aggregator** | `replaceWhere` idempotent Delta writes | Per-partition overwrite accumulates into full table |
+| **Content-Based Router** | Skip guards + feature toggles | `existing` set check routes to skip/process |
+| **Claim Check** | `match_id` references, not full DataFrames | Driver passes IDs; executors load data from Delta |
+| **Pipes and Filters** | Medallion architecture | Bronze → Silver → Gold via dbt/workflows |
 
 ### Databricks Serverless Constraints
 
@@ -109,6 +125,8 @@ uv run pytest src/tests/ -v    # Unit tests
 - **Delta tables**: All bronze writes include `_ingested_at` audit column with UTC timestamp.
 - **Partition overwrite**: Use `replaceWhere` for incremental loads, not full table overwrites.
 - **Incremental skip guards**: Every compute pipeline must check for already-processed results before expensive work. Pattern: `existing = {str(row["match_id"]) for row in spark.table(results).select("match_id").distinct().collect()}`. The `str()` normalization is critical — Spark returns `int`, Delta stores `string`.
+- **dbt model contracts**: All gold-layer models have `contract: {enforced: true}` with explicit `data_type` on every column. When adding or changing columns in a mart model, update the `_marts__models.yml` contract to match. `on_schema_change: fail` ensures mismatches are caught at build time.
+- **dbt slim CI**: PR builds use `state:modified+` to only build/test changed models. The `--empty` flag validates schema contracts with zero-cost DDL (no data movement).
 - **Pre-compile regex at module level**: Never use `re.compile()`, `re.sub()`, or `re.match()` with raw pattern strings inside function bodies or loops. Compile patterns as module-level constants.
-- **Use `requests.Session` for repeated calls**: When making multiple HTTP requests to the same host, use a `requests.Session` for TCP connection reuse and keep-alive.
+- **HTTP caching via `requests-cache`**: The shared `fetch_url()` session uses `requests_cache.CachedSession` with SQLite backend. Static open-data sources (StatsBomb GitHub) are cached indefinitely; other sources use a 24-hour TTL. Set `LUXURY_LAKEHOUSE_HTTP_CACHE=0` to disable. Bronze Delta tables remain the durable cache; HTTP cache avoids redundant network round-trips during development and retry.
 - **HuggingFace Hub**: Org is `luxury-lakehouse`. Model artifacts cached in UC Volume `/Volumes/soccer_analytics/dev_gold/model_weights/`. Set `HF_HOME` env var for local cache location. Use `huggingface_hub` for model publish/download (no torch dependency). See `docs/huggingface-setup.md`. Model card and org card source of truth: `docs/huggingface/model-card.md` and `docs/huggingface/org-card.md` (pushed to HF Hub 2026-03-09).

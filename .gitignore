@@ -85,3 +85,6 @@ data/
 # Working artifacts (not source code)
 job_update.json
 LUXURY-REVIEW.md
+
+# HTTP cache (requests-cache SQLite database)
+luxury_lakehouse_http_cache.sqlite
