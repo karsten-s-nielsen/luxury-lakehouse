@@ -1,6 +1,6 @@
 # Databricks Lakebase Implementation Plan — Soccer Analytics Platform
 
-> **Status**: Phase 17 complete — 11 Streamlit pages, 16 synced tables, 34 PG indexes, 545 unit tests. Optimization audit complete — all compute pipelines migrated to `applyInPandas`, incremental skip guards on all ingestion modules, pytest-benchmark baselines established.
+> **Status**: Phase 17 complete — 11 Streamlit pages, 16 synced tables, 34 PG indexes, 542 unit tests (+3 skipped). Optimization audit complete — all compute pipelines migrated to `applyInPandas`, incremental skip guards on all ingestion modules, pytest-benchmark baselines established. EIP reconciliation complete — liquid clustering, model contracts, predictive optimization, auto-compaction, `requests-cache`, dbt slim CI.
 > **Last Updated**: 2026-03-11
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready from day one
@@ -44,93 +44,93 @@ This plan implements the Databricks Lakebase architecture to build a serverless 
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────────────────┐
-│                              DATA SOURCES (Open Source)                                │
-│  ┌───────────┐  ┌────────────────┐  ┌─────────┐  ┌───────────┐  ┌──────────────┐     │
-│  │ StatsBomb  │  │ Metrica Sports │  │ Wyscout │  │   IDSSE   │  │ SkillCorner  │     │
-│  │ (JSON API) │  │ (CSV tracking) │  │ (JSON)  │  │   (XML)   │  │   (JSONL)    │     │
-│  └─────┬─────┘  └───────┬────────┘  └────┬────┘  └─────┬─────┘  └──────┬───────┘     │
-└────────┼────────────────┼─────────────────┼─────────────┼───────────────┼──────────────┘
+│                              DATA SOURCES (Open Source)                               │
+│  ┌───────────┐  ┌────────────────┐   ┌─────────┐  ┌───────────┐  ┌──────────────┐     │
+│  │ StatsBomb │  │ Metrica Sports │   │ Wyscout │  │   IDSSE   │  │ SkillCorner  │     │
+│  │ (JSON API)│  │ (CSV tracking) │   │ (JSON)  │  │   (XML)   │  │   (JSONL)    │     │
+│  └─────┬─────┘  └───────┬────────┘   └────┬────┘  └─────┬─────┘  └──────┬───────┘     │
+└────────┼────────────────┼─────────────────┼─────────────┼───────────────┼─────────────┘
          │                │                 │             │               │
          ▼                ▼                 ▼             ▼               ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
 │              DATABRICKS SERVERLESS WORKFLOWS                             │
 │  ┌──────────────────────────────────────────────────────────────────┐    │
-│  │  Python ingestion tasks on Serverless Compute (scheduled)       │    │
-│  │  • statsbombpy → competitions, matches, events, lineups, 360   │    │
-│  │  • requests → Metrica sample-data CSV + EPTS                    │    │
-│  │  • requests → Wyscout public JSON datasets                      │    │
-│  │  • xml.etree → IDSSE DFL position XML from UC Volume            │    │
-│  │  • kloppy → SkillCorner broadcast tracking from open data       │    │
-│  │  • spadl_vaep → SPADL conversion + VAEP scoring from bronze     │    │
-│  │  • defcon_lite → DEFCON-lite defensive credit assignment       │    │
-│  │  • resolve_players → cross-source entity resolution           │    │
-│  │  • compute_embeddings → Doc2Vec + z-score player embeddings  │    │
+│  │  Python ingestion tasks on Serverless Compute (scheduled)        │    │
+│  │  • statsbombpy → competitions, matches, events, lineups, 360     │    │
+│  │  • requests → Metrica sample-data CSV + EPTS                     │    │
+│  │  • requests → Wyscout public JSON datasets                       │    │
+│  │  • xml.etree → IDSSE DFL position XML from UC Volume             │    │
+│  │  • kloppy → SkillCorner broadcast tracking from open data        │    │
+│  │  • spadl_vaep → SPADL conversion + VAEP scoring from bronze      │    │
+│  │  • defcon_lite → DEFCON-lite defensive credit assignment         │    │
+│  │  • resolve_players → cross-source entity resolution              │    │
+│  │  • compute_embeddings → Doc2Vec + z-score player embeddings      │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                    UNITY CATALOG — BRONZE LAYER                          │
 │  ┌──────────────────────────────────────────────────────────────────┐    │
-│  │  Delta Lake tables (raw, append-only, schema-on-read)           │    │
-│  │  • statsbomb: competitions, matches, events, lineups, 360      │    │
-│  │  • metrica: tracking, events                                    │    │
+│  │  Delta Lake tables (raw, append-only, schema-on-read)            │    │
+│  │  • statsbomb: competitions, matches, events, lineups, 360        │    │
+│  │  • metrica: tracking, events                                     │    │
 │  │  • wyscout: events, matches, players                             │    │
-│  │  • idsse: tracking (7 Bundesliga matches, 25fps)                │    │
-│  │  • skillcorner: tracking (10 A-League matches, 10fps)           │    │
+│  │  • idsse: tracking (7 Bundesliga matches, 25fps)                 │    │
+│  │  • skillcorner: tracking (10 A-League matches, 10fps)            │    │
 │  │  • spadl: actions, action_values                                 │    │
-│  │  • entity_resolution: player_xref_raw                           │    │
+│  │  • entity_resolution: player_xref_raw                            │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
 │          DATABRICKS SERVERLESS SQL + dbt                                 │
 │  ┌──────────────────────────────────────────────────────────────────┐    │
-│  │  dbt-databricks models on Serverless SQL Warehouse              │    │
+│  │  dbt-databricks models on Serverless SQL Warehouse               │    │
 │  │                                                                  │    │
-│  │  SILVER (cleaned, typed, deduplicated):                         │    │
-│  │  • stg_statsbomb__events, shots, matches, lineups, 360         │    │
-│  │  • stg_metrica__tracking, events                                │    │
-│  │  • stg_wyscout__events, stg_wyscout__players                    │    │
-│  │  • stg_idsse__tracking, stg_skillcorner__tracking               │    │
-│  │  • stg_spadl__action_values                                     │    │
+│  │  SILVER (cleaned, typed, deduplicated):                          │    │
+│  │  • stg_statsbomb__events, shots, matches, lineups, 360           │    │
+│  │  • stg_metrica__tracking, events                                 │    │
+│  │  • stg_wyscout__events, stg_wyscout__players                     │    │
+│  │  • stg_idsse__tracking, stg_skillcorner__tracking                │    │
+│  │  • stg_spadl__action_values                                      │    │
 │  │                                                                  │    │
-│  │  GOLD (business logic, analytics-ready):                        │    │
-│  │  • fct_shots, fct_passes, fct_player_stats, fct_match_summary  │    │
-│  │  • fct_tracking_frames, fct_action_values, fct_player_embeddings│    │
-│  │  • fct_physical_stats, fct_defensive_values, fct_defcon_actions │    │
-│  │  • fct_defcon_pressure, fct_player_embeddings_season/career    │    │
-│  │  • dim_players, dim_teams, dim_competitions                     │    │
+│  │  GOLD (business logic, analytics-ready):                         │    │
+│  │  • fct_shots, fct_passes, fct_player_stats, fct_match_summary    │    │
+│  │  • fct_tracking_frames, fct_action_values, fct_player_embeddings │    │
+│  │  • fct_physical_stats, fct_defensive_values, fct_defcon_actions  │    │
+│  │  • fct_defcon_pressure, fct_player_embeddings_season/career      │    │
+│  │  • dim_players, dim_teams, dim_competitions                      │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
 │              SYNCED TABLES — ZERO-ETL                                    │
 │  ┌──────────────────────────────────────────────────────────────────┐    │
-│  │  Lakeflow Declarative Pipelines                                 │    │
-│  │  Gold Delta tables → continuous async sync → Lakebase           │    │
-│  │  (read-only PostgreSQL-queryable mirrors, sub-10ms latency)     │    │
+│  │  Lakeflow Declarative Pipelines                                  │    │
+│  │  Gold Delta tables → continuous async sync → Lakebase            │    │
+│  │  (read-only PostgreSQL-queryable mirrors, sub-10ms latency)      │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
 │          LAKEBASE AUTOSCALING (PostgreSQL 17)                            │
 │  ┌──────────────────────────────────────────────────────────────────┐    │
-│  │  Serverless OLTP • Scale-to-zero • OAuth M2M auth               │    │
-│  │  • Standard PostgreSQL wire protocol (JDBC/psycopg2)            │    │
+│  │  Serverless OLTP • Scale-to-zero • OAuth M2M auth                │    │
+│  │  • Standard PostgreSQL wire protocol (JDBC/psycopg2)             │    │
 │  │  • Native pgvector with HNSW indexes for player similarity       │    │
-│  │  • Copy-on-write database branching for dev/test                │    │
+│  │  • Copy-on-write database branching for dev/test                 │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
 │          STREAMLIT APPLICATION                                           │
 │  ┌──────────────────────────────────────────────────────────────────┐    │
-│  │  Deployed as Databricks App (serverless runtime)                │    │
-│  │  • OAuth M2M auth (automatic token rotation, no passwords)      │    │
-│  │  • Connects to Lakebase via psycopg2 (ThreadedConnectionPool)   │    │
-│  │  • 11 pages: Shot Map, Pass Map, Heat Map, Pass Network,       │    │
-│  │    Action Values, Player Radar, Match Summary, Pitch Control,  │    │
-│  │    Movement Analysis, Defensive Pressure, Player Similarity    │    │
+│  │  Deployed as Databricks App (serverless runtime)                 │    │
+│  │  • OAuth M2M auth (automatic token rotation, no passwords)       │    │
+│  │  • Connects to Lakebase via psycopg2 (ThreadedConnectionPool)    │    │
+│  │  • 11 pages: Shot Map, Pass Map, Heat Map, Pass Network,         │    │
+│  │    Action Values, Player Radar, Match Summary, Pitch Control,    │    │
+│  │    Movement Analysis, Defensive Pressure, Player Similarity      │    │
 │  └──────────────────────────────────────────────────────────────────┘    │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
@@ -377,7 +377,7 @@ luxury-lakehouse/
 ├── .github/workflows/
 │   ├── python-ci.yml                 # ruff + pyright + pytest
 │   ├── terraform-plan.yml            # Plan on PR (OIDC auth)
-│   └── dbt-ci.yml                    # dbt build --target ci
+│   └── dbt-ci.yml                    # dbt slim CI (state:modified+, --empty, --defer)
 │
 └── docs/
     ├── c4/
@@ -446,8 +446,8 @@ All code must pass these gates before merge:
 
 | Level | What | How |
 |-------|------|-----|
-| Unit | Ingestion logic, utility functions, analytics models | pytest (545 tests, incl. pytest-benchmark baselines) |
-| Integration | dbt models compile and run | `dbt build --target ci` |
+| Unit | Ingestion logic, utility functions, analytics models | pytest (542 passed + 3 skipped, incl. pytest-benchmark baselines) |
+| Integration | dbt models compile and run | dbt slim CI (`state:modified+`, `--empty`, `--defer`) |
 | Data quality | Row counts, value ranges, referential integrity | dbt tests (381) + dbt-expectations |
 | E2E | Streamlit pages render with real data | Manual smoke test |
 | Infrastructure | Terraform validates | `terraform validate` + `terraform plan` |
@@ -457,7 +457,7 @@ All code must pass these gates before merge:
 Lakebase and Databricks performance standards are codified in [CLAUDE.md § Database Performance](CLAUDE.md#database-performance). Key rules:
 
 - **Lakebase (PG):** Index every filtered column on fact tables >100K rows. No `ON ONLY` indexes (partitioned tables). Avoid `SELECT DISTINCT` on large tables — use recursive CTE. Re-run `scripts/create_indexes.py` after every synced table recreation.
-- **Databricks (Spark/dbt):** `validate_dataframe()` returns row count to `write_delta_table()` (no double `df.count()`), all writes use `replaceWhere` for idempotency, don't `.toPandas()` unbounded tables, extract repeated window functions into CTEs, `fct_tracking_frames` uses `CLUSTER BY match_id` for Z-ordering.
+- **Databricks (Spark/dbt):** `validate_dataframe()` returns row count to `write_delta_table()` (no double `df.count()`), all writes use `replaceWhere` for idempotency, don't `.toPandas()` unbounded tables, extract repeated window functions into CTEs. All 9 mart fact tables use `liquid_clustered_by` for automatic data layout (replaced static Z-ordering). Predictive Optimization enabled at catalog level. Auto-compaction and `optimizeWrite` enabled via `+tblproperties` on all mart tables. All 16 mart models enforce dbt model contracts (`contract: {enforced: true}`, `on_schema_change: fail`).
 
 Currently 30 btree indexes across 11 tables + 4 HNSW vector indexes on embedding tables (34 total) covering all Streamlit query patterns. Managed by `scripts/create_indexes.py` with `ANALYZE` for planner statistics and `--verify` for EXPLAIN ANALYZE validation.
 

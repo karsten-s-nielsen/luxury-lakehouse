@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import requests
+import requests_cache
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame, SparkSession
@@ -293,17 +294,38 @@ def merge_delta_table(
 
 _session: requests.Session | None = None
 
+# Default SQLite cache path for requests-cache (user home directory)
+_CACHE_DB_NAME = "luxury_lakehouse_http_cache"
+
 
 def _get_session() -> requests.Session:
-    """Return the module-level shared :class:`requests.Session`, creating it on first call.
+    """Return the module-level shared :class:`requests_cache.CachedSession`, creating it on first call.
 
-    Reusing a single session across calls enables TCP keep-alive and TLS session
-    resumption, eliminating per-request handshake overhead when hitting the same
-    host repeatedly (e.g. the StatsBomb open-data API).
+    Uses ``requests-cache`` with a persistent SQLite backend to avoid redundant
+    HTTP round-trips during development and retry.  Static open-data sources
+    (StatsBomb) are cached indefinitely; other sources use a 24-hour TTL.
+
+    The cache is transparent — responses are identical to a plain
+    :class:`requests.Session`.  Set the ``LUXURY_LAKEHOUSE_HTTP_CACHE=0``
+    environment variable to disable caching entirely.
     """
     global _session
     if _session is None:
-        _session = requests.Session()
+        import os
+
+        if os.environ.get("LUXURY_LAKEHOUSE_HTTP_CACHE", "1") == "0":
+            _session = requests.Session()
+        else:
+            _session = requests_cache.CachedSession(
+                _CACHE_DB_NAME,
+                backend="sqlite",
+                expire_after=86400,  # 24h default TTL
+                urls_expire_after={
+                    "raw.githubusercontent.com/statsbomb": requests_cache.DO_NOT_CACHE,
+                    "raw.githubusercontent.com": -1,  # never expire (static open data)
+                },
+                stale_if_error=True,
+            )
         _session.verify = True
     return _session
 

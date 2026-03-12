@@ -4,6 +4,9 @@ models:
   # ── Fact Tables ───────────────────────────────────────────────────────
 
   - name: fct_shots
+    config:
+      contract:
+        enforced: true
     description: >
       Gold-layer shot fact table with xG features. Contains every shot from
       all data sources with computed geometry features (distance to goal,
@@ -11,23 +14,28 @@ models:
       for ML model training. One row per shot.
     columns:
       - name: shot_id
+        data_type: string
         description: Unique shot identifier (surrogate key)
         data_tests:
           - unique
           - not_null
       - name: match_id
+        data_type: bigint
         description: Foreign key to fct_match_summary
         data_tests:
           - not_null
       - name: player_id
+        data_type: int
         description: Foreign key to dim_players
         data_tests:
           - not_null
       - name: team_id
+        data_type: int
         description: Foreign key to dim_teams
         data_tests:
           - not_null
       - name: location_x
+        data_type: double
         description: Shot X coordinate (0-120). May slightly exceed bounds for off-pitch events.
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -38,6 +46,7 @@ models:
               config:
                 severity: warn
       - name: location_y
+        data_type: double
         description: Shot Y coordinate (0-80)
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -48,6 +57,7 @@ models:
               config:
                 severity: warn
       - name: statsbomb_xg
+        data_type: double
         description: StatsBomb xG value (NULL for non-StatsBomb data)
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -56,6 +66,7 @@ models:
                 max_value: 1
                 row_condition: "statsbomb_xg is not null"
       - name: distance_to_goal
+        data_type: double
         description: Euclidean distance from shot location to goal center (yards)
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -66,6 +77,7 @@ models:
               config:
                 severity: warn
       - name: shot_angle
+        data_type: double
         description: Angle subtended at the goal posts (radians)
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -76,10 +88,12 @@ models:
               config:
                 severity: warn
       - name: shot_outcome
+        data_type: string
         description: Shot outcome classification
         data_tests:
           - not_null
       - name: is_goal
+        data_type: int
         description: Binary goal indicator (1=goal, 0=no goal)
         data_tests:
           - not_null
@@ -87,6 +101,7 @@ models:
               arguments:
                 values: [0, 1]
       - name: period
+        data_type: bigint
         description: Match period
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -95,6 +110,7 @@ models:
                 max_value: 5
                 row_condition: "period is not null"
       - name: data_source
+        data_type: string
         description: Data provider (statsbomb, wyscout)
         data_tests:
           - not_null
@@ -102,46 +118,64 @@ models:
               arguments:
                 values: ['statsbomb', 'wyscout']
       - name: competition_id
+        data_type: int
         description: Foreign key to dim_competitions
       - name: season_id
+        data_type: int
         description: Season identifier
       - name: minute
+        data_type: bigint
         description: Match minute of the shot
       - name: second
+        data_type: bigint
         description: Match second of the shot
       - name: end_location_x
+        data_type: double
         description: X coordinate where the shot ended
       - name: end_location_y
+        data_type: double
         description: Y coordinate where the shot ended
       - name: shot_body_part
+        data_type: string
         description: Body part used for the shot
       - name: shot_technique
+        data_type: string
         description: Shot technique classification
       - name: shot_type
+        data_type: string
         description: Shot type classification (Open Play, Free Kick, Penalty, etc.)
       - name: is_first_time
+        data_type: boolean
         description: Whether the shot was taken first-time
 
   - name: fct_passes
+    config:
+      contract:
+        enforced: true
     description: >
       Gold-layer pass fact table with progressive pass identification.
       Contains every pass from all sources with pass metrics, progressive
       pass flag, and pass network building blocks. One row per pass.
     columns:
       - name: pass_id
+        data_type: string
         description: Unique pass identifier (surrogate key)
         data_tests:
           - unique
           - not_null
       - name: match_id
+        data_type: bigint
         description: Foreign key to fct_match_summary
         data_tests:
           - not_null
       - name: player_id
+        data_type: int
         description: Foreign key to dim_players
       - name: team_id
+        data_type: int
         description: Foreign key to dim_teams
       - name: start_x
+        data_type: double
         description: Starting X coordinate (120-yard scale). May slightly exceed bounds.
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -152,6 +186,7 @@ models:
               config:
                 severity: warn
       - name: start_y
+        data_type: double
         description: Starting Y coordinate (80-yard scale)
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -162,14 +197,19 @@ models:
               config:
                 severity: warn
       - name: end_x
+        data_type: double
         description: Ending X coordinate (120-yard scale)
       - name: end_y
+        data_type: double
         description: Ending Y coordinate (80-yard scale)
       - name: is_progressive
+        data_type: boolean
         description: Whether the pass moved the ball significantly closer to goal
       - name: is_complete
+        data_type: boolean
         description: Whether the pass was completed successfully
       - name: pass_outcome
+        data_type: string
         description: Pass result (Complete, Incomplete, Out, etc.)
         data_tests:
           - accepted_values:
@@ -178,12 +218,14 @@ models:
               config:
                 severity: warn
       - name: pass_direction
+        data_type: string
         description: Pass direction (forward, backward, lateral)
         data_tests:
           - accepted_values:
               arguments:
                 values: ['forward', 'backward', 'lateral']
       - name: period
+        data_type: bigint
         description: Match period
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -192,34 +234,48 @@ models:
                 max_value: 5
                 row_condition: "period is not null"
       - name: data_source
+        data_type: string
         description: Data provider (statsbomb, wyscout)
         data_tests:
           - not_null
       - name: competition_id
+        data_type: int
         description: Foreign key to dim_competitions
       - name: season_id
+        data_type: int
         description: Season identifier
       - name: minute
+        data_type: bigint
         description: Match minute of the pass
       - name: second
+        data_type: bigint
         description: Match second of the pass
       - name: pass_type
+        data_type: string
         description: Pass type classification
       - name: pass_height
+        data_type: string
         description: Pass height (Ground Pass, Low Pass, High Pass)
       - name: body_part
+        data_type: string
         description: Body part used for the pass
       - name: pass_length
+        data_type: double
         description: Pass length in yards
       - name: pass_angle_radians
+        data_type: double
         description: Pass angle in radians
       - name: is_cross
+        data_type: boolean
         description: Whether the pass was a cross
       - name: is_switch
+        data_type: boolean
         description: Whether the pass was a switch of play
       - name: is_through_ball
+        data_type: boolean
         description: Whether the pass was a through ball
       - name: pass_recipient_id
+        data_type: int
         description: Foreign key to dim_players — player who received the pass (NULL for Wyscout and incomplete passes)
         data_tests:
           - relationships:
@@ -230,11 +286,13 @@ models:
                 severity: warn
                 where: "pass_recipient_id is not null AND data_source = 'statsbomb'"
       - name: is_line_breaking
+        data_type: boolean
         description: >
           Whether the pass breaks through at least one opponent defensive line.
           Detected via Ward hierarchical clustering of opponent positions.
           Available for StatsBomb 360 matches and Metrica tracking matches only.
       - name: lines_broken
+        data_type: int
         description: Number of defensive lines broken (0-3)
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -242,6 +300,7 @@ models:
                 min_value: 0
                 max_value: 3
       - name: line_breaking_type
+        data_type: string
         description: >
           Type of line break — 'through' (between defenders) or 'around'
           (outside outermost defender via sideline). NULL for non-line-breaking passes.
@@ -254,6 +313,9 @@ models:
                 where: "line_breaking_type is not null"
 
   - name: fct_player_stats
+    config:
+      contract:
+        enforced: true
     description: >
       Per-90-minute player aggregation table. Contains rolling and seasonal
       statistics normalized to per-90 rates for fair comparison across
@@ -261,27 +323,36 @@ models:
       competition per season.
     columns:
       - name: player_stats_id
+        data_type: string
         description: Surrogate key (player_id + competition_id + season_id)
         data_tests:
           - unique
           - not_null
       - name: player_id
+        data_type: int
         description: Foreign key to dim_players
         data_tests:
           - not_null
       - name: competition_id
+        data_type: int
         description: Foreign key to dim_competitions
       - name: season_id
+        data_type: int
         description: Season identifier
       - name: minutes_played
+        data_type: bigint
         description: Total minutes played
       - name: total_shots
+        data_type: bigint
         description: Total shots taken
       - name: total_goals
+        data_type: bigint
         description: Total goals scored
       - name: total_xg
+        data_type: double
         description: Total expected goals
       - name: pass_completion_pct
+        data_type: decimal(26,1)
         description: Pass completion percentage (0-100)
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -289,6 +360,7 @@ models:
                 min_value: 0
                 max_value: 100
       - name: goals_per_90
+        data_type: decimal(28,2)
         description: Goals scored per 90 minutes
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -299,6 +371,7 @@ models:
               config:
                 severity: warn
       - name: xg_per_90
+        data_type: double
         description: Expected goals per 90 minutes
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -309,24 +382,34 @@ models:
               config:
                 severity: warn
       - name: passes_per_90
+        data_type: decimal(28,2)
         description: Total passes attempted per 90 minutes
       - name: progressive_passes_per_90
+        data_type: decimal(28,2)
         description: Progressive passes per 90 minutes
       - name: shots_on_target
+        data_type: bigint
         description: Total shots on target
       - name: total_passes
+        data_type: bigint
         description: Total passes attempted
       - name: completed_passes
+        data_type: bigint
         description: Total passes completed
       - name: progressive_passes
+        data_type: bigint
         description: Total progressive passes
       - name: assists_per_90
+        data_type: double
         description: Assists per 90 minutes (NULL until assist data available)
       - name: xg_overperformance
+        data_type: double
         description: Goals minus xG (positive = clinical finisher)
       - name: line_breaking_passes
+        data_type: bigint
         description: Total number of line-breaking passes
       - name: line_breaking_per_90
+        data_type: decimal(28,2)
         description: Line-breaking passes per 90 minutes
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -337,14 +420,19 @@ models:
               config:
                 severity: warn
       - name: total_vaep
+        data_type: double
         description: Total VAEP value across all actions
       - name: total_offensive_vaep
+        data_type: double
         description: Total offensive VAEP value
       - name: total_defensive_vaep
+        data_type: double
         description: Total defensive VAEP value
       - name: total_actions
+        data_type: bigint
         description: Total number of SPADL actions
       - name: vaep_per_90
+        data_type: double
         description: Net VAEP per 90 minutes
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -355,6 +443,7 @@ models:
               config:
                 severity: warn
       - name: offensive_vaep_per_90
+        data_type: double
         description: Offensive VAEP per 90 minutes
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -365,6 +454,7 @@ models:
               config:
                 severity: warn
       - name: defensive_vaep_per_90
+        data_type: double
         description: Defensive VAEP per 90 minutes
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -375,10 +465,13 @@ models:
               config:
                 severity: warn
       - name: total_defcon
+        data_type: double
         description: Total DEFCON value (NULL if defcon_enabled is false)
       - name: defcon_credits
+        data_type: bigint
         description: Total number of defensive credits
       - name: defcon_per_90
+        data_type: double
         description: DEFCON-lite total value per 90 minutes
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -389,11 +482,16 @@ models:
               config:
                 severity: warn
       - name: intercept_per_90
+        data_type: double
         description: DEFCON Intercept value per 90 minutes
       - name: deter_per_90
+        data_type: double
         description: DEFCON Deter value per 90 minutes
 
   - name: fct_action_values
+    config:
+      contract:
+        enforced: true
     description: >
       Gold-layer SPADL action values with VAEP scores. Contains every on-ball
       action from all data sources converted to the SPADL unified format,
@@ -403,27 +501,34 @@ models:
       One row per action.
     columns:
       - name: action_value_id
+        data_type: string
         description: Unique action identifier (surrogate key)
         data_tests:
           - unique
           - not_null
       - name: match_id
+        data_type: bigint
         description: Match identifier
         data_tests:
           - not_null
       - name: player_id
+        data_type: int
         description: Foreign key to dim_players
         data_tests:
           - not_null
       - name: team_id
+        data_type: int
         description: Foreign key to dim_teams
         data_tests:
           - not_null
       - name: competition_id
+        data_type: int
         description: Foreign key to dim_competitions
       - name: season_id
+        data_type: int
         description: Season identifier
       - name: period
+        data_type: int
         description: Match period (1-5)
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -432,12 +537,16 @@ models:
                 max_value: 5
                 row_condition: "period is not null"
       - name: time_seconds
+        data_type: double
         description: Seconds from period start
       - name: minute
+        data_type: int
         description: Match minute derived from time_seconds
       - name: second
+        data_type: int
         description: Match second derived from time_seconds
       - name: start_x
+        data_type: double
         description: Action start X coordinate (0-105 meters)
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -448,6 +557,7 @@ models:
               config:
                 severity: warn
       - name: start_y
+        data_type: double
         description: Action start Y coordinate (0-68 meters)
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -458,10 +568,13 @@ models:
               config:
                 severity: warn
       - name: end_x
+        data_type: double
         description: Action end X coordinate (0-105 meters)
       - name: end_y
+        data_type: double
         description: Action end Y coordinate (0-68 meters)
       - name: action_type
+        data_type: string
         description: SPADL action type name (23 types)
         data_tests:
           - not_null
@@ -492,6 +605,7 @@ models:
                   - dribble
                   - goalkick
       - name: action_result
+        data_type: string
         description: Action result (success, fail, offside, owngoal, yellow_card, red_card)
         data_tests:
           - not_null
@@ -499,8 +613,10 @@ models:
               arguments:
                 values: ['success', 'fail', 'offside', 'owngoal', 'yellow_card', 'red_card']
       - name: bodypart
+        data_type: string
         description: Body part used for the action
       - name: offensive_value
+        data_type: double
         description: VAEP offensive value (change in scoring probability)
         data_tests:
           - not_null
@@ -512,6 +628,7 @@ models:
               config:
                 severity: warn
       - name: defensive_value
+        data_type: double
         description: VAEP defensive value (change in conceding probability)
         data_tests:
           - not_null
@@ -523,6 +640,7 @@ models:
               config:
                 severity: warn
       - name: vaep_value
+        data_type: double
         description: Net VAEP value (offensive + defensive)
         data_tests:
           - not_null
@@ -534,6 +652,7 @@ models:
               config:
                 severity: warn
       - name: data_source
+        data_type: string
         description: Data provider (statsbomb, wyscout)
         data_tests:
           - not_null
@@ -541,30 +660,44 @@ models:
               arguments:
                 values: ['statsbomb', 'wyscout']
       - name: original_event_id
+        data_type: string
         description: Original event ID from source data (NULL for synthetic dribbles)
+      - name: _loaded_at
+        data_type: timestamp
+        description: Timestamp when the action values were loaded into the gold table
 
   - name: fct_match_summary
+    config:
+      contract:
+        enforced: true
     description: >
       Match-level aggregate metrics. Contains one row per match with
       team-level statistics including xG, possession percentage, pass
       completion rate, shot counts, and other summary metrics.
     columns:
       - name: match_id
+        data_type: bigint
         description: Primary key — unique match identifier
         data_tests:
           - unique
           - not_null
       - name: competition_id
+        data_type: int
         description: Foreign key to dim_competitions
       - name: season_id
+        data_type: int
         description: Season identifier
       - name: home_team_id
+        data_type: int
         description: Foreign key to dim_teams
       - name: away_team_id
+        data_type: int
         description: Foreign key to dim_teams
       - name: match_date
+        data_type: date
         description: Date the match was played
       - name: home_xg
+        data_type: double
         description: Total home team expected goals
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -575,6 +708,7 @@ models:
               config:
                 severity: warn
       - name: away_xg
+        data_type: double
         description: Total away team expected goals
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -585,6 +719,7 @@ models:
               config:
                 severity: warn
       - name: home_score
+        data_type: int
         description: Final home team score
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -593,6 +728,7 @@ models:
                 max_value: 30
                 row_condition: "home_score is not null"
       - name: away_score
+        data_type: int
         description: Final away team score
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -601,6 +737,7 @@ models:
                 max_value: 30
                 row_condition: "away_score is not null"
       - name: home_possession_pct
+        data_type: decimal(26,1)
         description: Home team possession percentage
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -608,6 +745,7 @@ models:
                 min_value: 0
                 max_value: 100
       - name: home_pass_completion_pct
+        data_type: decimal(26,1)
         description: Home team pass completion percentage
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -615,6 +753,7 @@ models:
                 min_value: 0
                 max_value: 100
       - name: away_pass_completion_pct
+        data_type: decimal(26,1)
         description: Away team pass completion percentage
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -622,42 +761,59 @@ models:
                 min_value: 0
                 max_value: 100
       - name: match_result
+        data_type: string
         description: Match result (home_win, away_win, draw)
         data_tests:
           - accepted_values:
               arguments:
                 values: ['home_win', 'away_win', 'draw']
       - name: home_team_name
+        data_type: string
         description: Home team display name
       - name: away_team_name
+        data_type: string
         description: Away team display name
       - name: home_shots
+        data_type: bigint
         description: Total home team shots
       - name: home_goals
+        data_type: bigint
         description: Total home team goals (from shot events)
       - name: home_shots_on_target
+        data_type: bigint
         description: Home team shots on target
       - name: away_shots
+        data_type: bigint
         description: Total away team shots
       - name: away_goals
+        data_type: bigint
         description: Total away team goals (from shot events)
       - name: away_shots_on_target
+        data_type: bigint
         description: Away team shots on target
       - name: home_total_passes
+        data_type: bigint
         description: Total home team passes
       - name: home_completed_passes
+        data_type: bigint
         description: Home team completed passes
       - name: home_progressive_passes
+        data_type: bigint
         description: Home team progressive passes
       - name: away_total_passes
+        data_type: bigint
         description: Total away team passes
       - name: away_completed_passes
+        data_type: bigint
         description: Away team completed passes
       - name: away_progressive_passes
+        data_type: bigint
         description: Away team progressive passes
       - name: xg_difference
+        data_type: double
         description: Home xG minus away xG (positive = home advantage)
       - name: home_ppda
+        data_type: decimal(25,2)
         description: >
           Home team Passes Per Defensive Action. Lower = more aggressive press.
           NULL when zero defensive actions. StatsBomb matches only.
@@ -670,6 +826,7 @@ models:
               config:
                 severity: warn
       - name: away_ppda
+        data_type: decimal(25,2)
         description: >
           Away team Passes Per Defensive Action. Lower = more aggressive press.
           NULL when zero defensive actions. StatsBomb matches only.
@@ -683,6 +840,9 @@ models:
                 severity: warn
 
   - name: fct_tracking_frames
+    config:
+      contract:
+        enforced: true
     description: >
       Enriched tracking data from all providers (Metrica, IDSSE, SkillCorner).
       Contains spatial analysis outputs including player speeds, distance to
@@ -690,19 +850,23 @@ models:
       Metrica/IDSSE, 10fps SkillCorner). One row per player per frame.
     columns:
       - name: tracking_id
+        data_type: string
         description: Primary key from staging models
         data_tests:
           - unique
           - not_null
       - name: match_id
+        data_type: string
         description: Match identifier (prefixed by provider)
         data_tests:
           - not_null
       - name: player_id
+        data_type: string
         description: Player identifier
         data_tests:
           - not_null
       - name: source_provider
+        data_type: string
         description: Tracking data provider (metrica, idsse, skillcorner)
         data_tests:
           - not_null
@@ -710,6 +874,7 @@ models:
               arguments:
                 values: ['metrica', 'idsse', 'skillcorner']
       - name: frame_rate
+        data_type: bigint
         description: Frame rate in fps (25 for Metrica/IDSSE, 10 for SkillCorner)
         data_tests:
           - not_null
@@ -717,40 +882,56 @@ models:
               arguments:
                 values: [10, 25]
       - name: distance_to_ball
+        data_type: double
         description: Euclidean distance from player to ball (yards)
       - name: speed
+        data_type: double
         description: >
           Player speed in coordinate-units/second (120x80 pitch scale).
           NULL for the first frame of each (match_id, player_id, period) partition.
       - name: pitch_control_value
+        data_type: double
         description: >
           Pitch control probability [0,1] at this player's location.
           Computed using Fernandez & Bornn (2018) model. NULL until ML pipeline.
       - name: period
+        data_type: int
         description: Match period (1 or 2)
       - name: frame
+        data_type: int
         description: Frame number within the period
       - name: timestamp_seconds
+        data_type: double
         description: Timestamp in seconds from period start
       - name: team
+        data_type: string
         description: Team affiliation (home or away)
       - name: x
+        data_type: double
         description: Player X coordinate (120-yard scale)
       - name: y
+        data_type: double
         description: Player Y coordinate (80-yard scale)
       - name: ball_x
+        data_type: double
         description: Ball X coordinate (120-yard scale)
       - name: ball_y
+        data_type: double
         description: Ball Y coordinate (80-yard scale)
       - name: velocity_x
+        data_type: double
         description: Player velocity in X direction (coordinate-units/second)
       - name: velocity_y
+        data_type: double
         description: Player velocity in Y direction (coordinate-units/second)
       - name: velocity_x_ms
+        data_type: double
         description: Player velocity in X direction (m/s, anisotropic-scaled)
       - name: velocity_y_ms
+        data_type: double
         description: Player velocity in Y direction (m/s, anisotropic-scaled)
       - name: speed_ms
+        data_type: double
         description: >
           Player speed in m/s. Uses anisotropic scaling (x*105/120, y*68/80)
           since StatsBomb x and y scales differ. NULL for the first frame of
@@ -764,13 +945,18 @@ models:
               config:
                 severity: warn
       - name: acceleration_ms2
+        data_type: double
         description: >
           Player acceleration in m/s^2. Computed as (speed_ms - prev_speed_ms)
           * frame_rate. NULL for the first two frames of each partition.
       - name: voronoi_area
+        data_type: double
         description: Voronoi cell area controlled by player (NULL until spatial pipeline)
 
   - name: fct_player_embeddings
+    config:
+      contract:
+        enforced: true
     description: >
       Per-match player embedding vectors for similarity search. Dual-vector
       design: behavioral_vector (32-dim Doc2Vec from football2vec event
@@ -778,11 +964,13 @@ models:
       One row per player per match.
     columns:
       - name: embedding_id
+        data_type: string
         description: Surrogate key (canonical_player_id + match_id)
         data_tests:
           - unique
           - not_null
       - name: canonical_player_id
+        data_type: string
         description: Foreign key to dim_players (unified player identifier)
         data_tests:
           - not_null
@@ -792,10 +980,12 @@ models:
               config:
                 severity: warn
       - name: match_id
+        data_type: string
         description: Match identifier
         data_tests:
           - not_null
       - name: data_source
+        data_type: string
         description: Data provider (statsbomb, wyscout)
         data_tests:
           - not_null
@@ -803,17 +993,22 @@ models:
               arguments:
                 values: ['statsbomb', 'wyscout']
       - name: behavioral_vector
+        data_type: array<double>
         description: >
           32-dim Doc2Vec embedding capturing playing style from event sequences
           (action type + pitch grid location tokens). Generated by football2vec.
         data_tests:
           - not_null
       - name: stat_vector
+        data_type: array<double>
         description: >
           13-dim z-score normalized per-90 statistics (nullable). Contains
           goals, assists, xG, key passes, etc. NULL when stat data unavailable.
 
   - name: fct_player_embeddings_season
+    config:
+      contract:
+        enforced: true
     description: >
       Per player-competition-season aggregation of embedding vectors.
       Behavioral vectors are averaged element-wise across all matches in the
@@ -821,11 +1016,13 @@ models:
       analysis. One row per player per competition per season.
     columns:
       - name: embedding_season_id
+        data_type: string
         description: Surrogate key (canonical_player_id + competition_id + season_id)
         data_tests:
           - unique
           - not_null
       - name: canonical_player_id
+        data_type: string
         description: Foreign key to dim_players (unified player identifier)
         data_tests:
           - not_null
@@ -835,24 +1032,29 @@ models:
               config:
                 severity: warn
       - name: competition_id
+        data_type: int
         description: Foreign key to dim_competitions
         data_tests:
           - not_null
       - name: season_id
+        data_type: int
         description: Season identifier
         data_tests:
           - not_null
       - name: behavioral_vector
+        data_type: array<double>
         description: >
           Element-wise mean of 32-dim behavioral vectors across all matches
           in this competition-season.
         data_tests:
           - not_null
       - name: stat_vector
+        data_type: array<double>
         description: >
           13-dim stat vector (any_value from the competition-season group).
           NULL when stat data unavailable.
       - name: matches_in_sample
+        data_type: bigint
         description: Number of matches contributing to this aggregation
         data_tests:
           - not_null
@@ -861,9 +1063,13 @@ models:
                 min_value: 1
                 max_value: 100
       - name: data_sources
+        data_type: array<string>
         description: Array of distinct data providers contributing to this aggregation
 
   - name: fct_player_embeddings_career
+    config:
+      contract:
+        enforced: true
     description: >
       Career-level aggregation of player embedding vectors. Averages all
       match-level embeddings across competitions and seasons into a single
@@ -871,6 +1077,7 @@ models:
       averaged element-wise. One row per canonical_player_id.
     columns:
       - name: canonical_player_id
+        data_type: string
         description: Primary key — unified player identifier
         data_tests:
           - unique
@@ -881,17 +1088,20 @@ models:
               config:
                 severity: warn
       - name: behavioral_vector
+        data_type: array<double>
         description: >
           Element-wise mean of 32-dim behavioral vectors across all career
           matches.
         data_tests:
           - not_null
       - name: stat_vector
+        data_type: array<double>
         description: >
           Element-wise mean of 13-dim stat vectors across all career matches.
           NULL stat_vectors are excluded from the mean. NULL when no stat
           data available for any match.
       - name: total_matches
+        data_type: bigint
         description: Total number of matches contributing to this career embedding
         data_tests:
           - not_null
@@ -900,9 +1110,13 @@ models:
                 min_value: 1
                 max_value: 1000
       - name: data_sources
+        data_type: array<string>
         description: Array of distinct data providers contributing to this aggregation
 
   - name: fct_physical_stats
+    config:
+      contract:
+        enforced: true
     description: >
       Per-player per-match physical performance metrics from tracking data.
       Aggregates distance, speed, acceleration, and sprint metrics from
@@ -910,19 +1124,23 @@ models:
       for tracking matches (Metrica, IDSSE, SkillCorner).
     columns:
       - name: physical_stats_id
+        data_type: string
         description: Surrogate key (player_id + match_id)
         data_tests:
           - unique
           - not_null
       - name: player_id
+        data_type: string
         description: Player identifier
         data_tests:
           - not_null
       - name: match_id
+        data_type: string
         description: Match identifier
         data_tests:
           - not_null
       - name: source_provider
+        data_type: string
         description: Tracking data provider (metrica, idsse, skillcorner)
         data_tests:
           - not_null
@@ -930,8 +1148,10 @@ models:
               arguments:
                 values: ['metrica', 'idsse', 'skillcorner']
       - name: frame_rate
+        data_type: bigint
         description: Frame rate in fps
       - name: minutes_played
+        data_type: decimal(36,25)
         description: Estimated minutes played (from frame range)
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -942,6 +1162,7 @@ models:
               config:
                 severity: warn
       - name: total_distance_m
+        data_type: double
         description: Total distance covered in meters
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -952,20 +1173,28 @@ models:
               config:
                 severity: warn
       - name: total_distance_km
+        data_type: double
         description: Total distance covered in kilometers
       - name: hsr_distance_m
+        data_type: double
         description: Distance covered at high speed (>= 5.5 m/s) in meters
       - name: sprint_distance_m
+        data_type: double
         description: Distance covered at sprint speed (>= 7.0 m/s) in meters
       - name: sprint_frame_count
+        data_type: bigint
         description: Number of frames at sprint speed
       - name: high_accel_count
+        data_type: bigint
         description: Number of frames with acceleration >= 3.0 m/s^2
       - name: high_decel_count
+        data_type: bigint
         description: Number of frames with deceleration <= -3.0 m/s^2
       - name: distance_per_minute_m
+        data_type: double
         description: Distance covered per minute in meters
       - name: avg_speed_ms
+        data_type: double
         description: Average speed in m/s
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -976,6 +1205,7 @@ models:
               config:
                 severity: warn
       - name: max_speed_ms
+        data_type: double
         description: Maximum speed in m/s
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -986,36 +1216,48 @@ models:
               config:
                 severity: warn
       - name: avg_x
+        data_type: double
         description: Average X position during the match
       - name: avg_y
+        data_type: double
         description: Average Y position during the match
       - name: total_off_ball_xt
+        data_type: double
         description: Total Off-Ball xT contribution (NULL until batch computed)
       - name: avg_off_ball_xt
+        data_type: double
         description: Average Off-Ball xT contribution per frame
       - name: off_ball_xt_frames_sampled
+        data_type: int
         description: Number of frames sampled for Off-Ball xT computation
 
   - name: fct_defensive_values
+    config:
+      contract:
+        enforced: true
     description: >
       Per-defender per-match defensive valuation summary. Aggregates DEFCON-lite
       credits into per-match totals and breakdowns by credit type (Intercept,
       Concede, Disturb, Deter). One row per defender per match.
     columns:
       - name: defensive_value_id
+        data_type: string
         description: Surrogate key (player_id + match_id)
         data_tests:
           - unique
           - not_null
       - name: player_id
+        data_type: int
         description: Foreign key to dim_players
         data_tests:
           - not_null
       - name: match_id
+        data_type: string
         description: Match identifier
         data_tests:
           - not_null
       - name: total_defcon_value
+        data_type: double
         description: Total DEFCON value across all credit types
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -1025,34 +1267,87 @@ models:
                 row_condition: "total_defcon_value is not null"
               config:
                 severity: warn
+      - name: competition_id
+        data_type: int
+        description: Foreign key to dim_competitions
+      - name: season_id
+        data_type: int
+        description: Season identifier
+      - name: team_id
+        data_type: int
+        description: Foreign key to dim_teams
       - name: data_source
+        data_type: string
         description: Data provenance (statsbomb_360, metrica_tracking)
         data_tests:
           - not_null
           - accepted_values:
               arguments:
                 values: ['statsbomb_360', 'metrica_tracking']
+      - name: total_credits
+        data_type: bigint
+        description: Total number of defensive credits
+      - name: intercept_value
+        data_type: double
+        description: Total Intercept credit value
+      - name: concede_value
+        data_type: double
+        description: Total Concede credit value
+      - name: disturb_value
+        data_type: double
+        description: Total Disturb credit value
+      - name: deter_value
+        data_type: double
+        description: Total Deter credit value
+      - name: intercept_count
+        data_type: bigint
+        description: Number of Intercept credits
+      - name: concede_count
+        data_type: bigint
+        description: Number of Concede credits
+      - name: disturb_count
+        data_type: bigint
+        description: Number of Disturb credits
+      - name: deter_count
+        data_type: bigint
+        description: Number of Deter credits
+      - name: high_confidence_count
+        data_type: bigint
+        description: Number of high-confidence credits
+      - name: approx_confidence_count
+        data_type: bigint
+        description: Number of approximate-confidence credits
+      - name: _loaded_at
+        data_type: timestamp
+        description: Timestamp when the defensive values were loaded into the gold table
 
   - name: fct_defcon_actions
+    config:
+      contract:
+        enforced: true
     description: >
       Per-defender per-action defensive credits. Full granularity DEFCON-lite
       results for timeline visualization. One row per credited defender per
       action. Coordinate system: SPADL 105x68 meters.
     columns:
       - name: defcon_action_id
+        data_type: string
         description: Surrogate key (event_id + defender_player_id + data_source)
         data_tests:
           - unique
           - not_null
       - name: event_id
+        data_type: string
         description: Original event ID
         data_tests:
           - not_null
       - name: player_id
+        data_type: int
         description: Credited defender player ID
         data_tests:
           - not_null
       - name: credit_type
+        data_type: string
         description: Credit category
         data_tests:
           - not_null
@@ -1060,6 +1355,7 @@ models:
               arguments:
                 values: ['intercept', 'concede', 'disturb', 'deter']
       - name: confidence
+        data_type: string
         description: Confidence level
         data_tests:
           - not_null
@@ -1067,17 +1363,63 @@ models:
               arguments:
                 values: ['high', 'approximate']
       - name: defcon_value
+        data_type: double
         description: Estimated defensive value
         data_tests:
           - not_null:
               config:
                 severity: warn
+      - name: match_id
+        data_type: string
+        description: Match identifier
+        data_tests:
+          - not_null
+      - name: competition_id
+        data_type: int
+        description: Foreign key to dim_competitions
+      - name: season_id
+        data_type: int
+        description: Season identifier
+      - name: team_id
+        data_type: int
+        description: Foreign key to dim_teams
+      - name: defender_x
+        data_type: double
+        description: Defender X coordinate (SPADL 105x68 meters)
+      - name: defender_y
+        data_type: double
+        description: Defender Y coordinate (SPADL 105x68 meters)
+      - name: action_player_id
+        data_type: int
+        description: Player who performed the action
+      - name: action_type
+        data_type: string
+        description: SPADL action type that triggered the credit
+      - name: action_x
+        data_type: double
+        description: Action X coordinate (SPADL 105x68 meters)
+      - name: action_y
+        data_type: double
+        description: Action Y coordinate (SPADL 105x68 meters)
+      - name: dist_to_ball
+        data_type: double
+        description: Defender distance to ball at action time (meters)
+      - name: pitch_control_at_action
+        data_type: double
+        description: Pitch control value at the action location
       - name: data_source
+        data_type: string
         description: Data provenance
         data_tests:
           - not_null
+      - name: _loaded_at
+        data_type: timestamp
+        description: Timestamp when loaded into the gold table
 
   - name: fct_defcon_pressure
+    config:
+      contract:
+        enforced: true
     description: >
       Per-attacker per-match defensive pressure summary. Aggregates DEFCON-lite
       credits by action_player_id (the real player who performed the action)
@@ -1085,11 +1427,13 @@ models:
       attacker attracted. One row per attacker per match.
     columns:
       - name: pressure_id
+        data_type: string
         description: Surrogate key (action_player_id + match_id)
         data_tests:
           - unique
           - not_null
       - name: player_id
+        data_type: int
         description: Foreign key to dim_players (real attacker player_id)
         data_tests:
           - not_null
@@ -1099,10 +1443,12 @@ models:
               config:
                 severity: warn
       - name: match_id
+        data_type: string
         description: Match identifier
         data_tests:
           - not_null
       - name: total_pressure
+        data_type: double
         description: Total defensive pressure value received
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
@@ -1112,17 +1458,63 @@ models:
                 row_condition: "total_pressure is not null"
               config:
                 severity: warn
+      - name: competition_id
+        data_type: int
+        description: Foreign key to dim_competitions
+      - name: season_id
+        data_type: int
+        description: Season identifier
       - name: data_source
+        data_type: string
         description: Data provenance (statsbomb_360, metrica_tracking)
         data_tests:
           - not_null
           - accepted_values:
               arguments:
                 values: ['statsbomb_360', 'metrica_tracking']
+      - name: total_defensive_actions
+        data_type: bigint
+        description: Total number of defensive actions credited
+      - name: intercept_pressure
+        data_type: double
+        description: Total Intercept pressure value
+      - name: concede_pressure
+        data_type: double
+        description: Total Concede pressure value
+      - name: disturb_pressure
+        data_type: double
+        description: Total Disturb pressure value
+      - name: deter_pressure
+        data_type: double
+        description: Total Deter pressure value
+      - name: intercept_count
+        data_type: bigint
+        description: Number of Intercept actions
+      - name: concede_count
+        data_type: bigint
+        description: Number of Concede actions
+      - name: disturb_count
+        data_type: bigint
+        description: Number of Disturb actions
+      - name: deter_count
+        data_type: bigint
+        description: Number of Deter actions
+      - name: high_confidence_count
+        data_type: bigint
+        description: Number of high-confidence credits
+      - name: approx_confidence_count
+        data_type: bigint
+        description: Number of approximate-confidence credits
+      - name: _loaded_at
+        data_type: timestamp
+        description: Timestamp when loaded into the gold table
 
   # ── Dimension Tables ──────────────────────────────────────────────────
 
   - name: dim_players
+    config:
+      contract:
+        enforced: true
     description: >
       Player dimension table combining StatsBomb and Wyscout data via cross-source
       entity resolution (Phase 14). Players matched across sources share a
@@ -1130,25 +1522,31 @@ models:
       One row per unique canonical_player_id.
     columns:
       - name: canonical_player_id
+        data_type: string
         description: Surrogate key for cross-source identity (unique per player)
         data_tests:
           - unique
           - not_null
       - name: player_id
+        data_type: int
         description: Source-native player identifier
         data_tests:
           - not_null
       - name: player_name
+        data_type: string
         description: Player full name
         data_tests:
           - not_null
       - name: player_display_name
+        data_type: string
         description: Preferred display name (nickname or short_name if available)
         data_tests:
           - not_null
       - name: primary_position
+        data_type: string
         description: Most common playing position from source data
       - name: position_group
+        data_type: string
         description: >
           Broad position category (Goalkeeper, Defender, Midfielder, Forward)
           mapped from primary_position via position_mapping seed
@@ -1159,20 +1557,27 @@ models:
               config:
                 severity: warn
       - name: statsbomb_player_id
+        data_type: int
         description: StatsBomb player_id (null for Wyscout-only players)
       - name: wyscout_player_id
+        data_type: int
         description: Wyscout wyId (null for unmatched StatsBomb players)
       - name: match_confidence
+        data_type: double
         description: Entity resolution confidence score (0-100, null if unmatched)
       - name: match_layer
+        data_type: bigint
         description: >
           Resolution layer (0=manual override, 1=strict, 2=standard, 3=relaxed,
           null if unmatched)
       - name: birth_date
+        data_type: string
         description: Date of birth from Wyscout (YYYY-MM-DD, null if unmatched)
       - name: nationality
+        data_type: string
         description: Country name from Wyscout passportArea (null if unmatched)
       - name: data_sources
+        data_type: string
         description: Comma-separated list of data providers for this player
         data_tests:
           - not_null
@@ -1181,18 +1586,24 @@ models:
                 values: ['statsbomb', 'wyscout', 'statsbomb,wyscout']
 
   - name: dim_teams
+    config:
+      contract:
+        enforced: true
     description: >
       Team dimension table. Deduplicated team master data from all
       data sources. One row per unique team.
     columns:
       - name: team_id
+        data_type: bigint
         description: Primary key — canonical team identifier
         data_tests:
           - unique
           - not_null
       - name: team_name
+        data_type: string
         description: Team display name (NULL for Wyscout — names not in open data)
       - name: data_source
+        data_type: string
         description: Data provider
         data_tests:
           - not_null
@@ -1201,23 +1612,30 @@ models:
                 values: ['statsbomb', 'wyscout']
 
   - name: dim_competitions
+    config:
+      contract:
+        enforced: true
     description: >
       Competition dimension table. Combines competition metadata from
       StatsBomb and Wyscout sources with seed data enrichment.
       One row per unique competition.
     columns:
       - name: competition_id
+        data_type: int
         description: Primary key — canonical competition identifier
         data_tests:
           - unique
           - not_null
       - name: competition_name
+        data_type: string
         description: Competition display name
         data_tests:
           - not_null
       - name: country
+        data_type: string
         description: Country where the competition is held
       - name: gender
+        data_type: string
         description: Gender category (male, female)
         data_tests:
           - accepted_values:

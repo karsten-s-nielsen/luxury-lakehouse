@@ -1,7 +1,7 @@
 {{ config(
     materialized='incremental',
     unique_key='action_value_id',
-    cluster_by=['match_id'],
+    liquid_clustered_by=['match_id'],
     incremental_strategy='merge'
 ) }}
 -- fct_action_values.sql

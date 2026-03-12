@@ -20,6 +20,11 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+      # Fetch main branch for dbt state comparison on PRs
+      - name: Fetch main branch for slim CI
+        if: github.event_name == 'pull_request'
+        run: git fetch origin main:refs/remotes/origin/main
+
       - name: Install uv
         uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098 # v7.3.1
 
@@ -53,3 +58,23 @@ jobs:
       - name: dbt parse (validate SQL)
         working-directory: dbt_project
         run: uv run dbt parse --profiles-dir .
+
+      # Generate manifest from main branch for state comparison on PRs
+      - name: Generate main branch manifest (PR only)
+        if: github.event_name == 'pull_request'
+        working-directory: dbt_project
+        run: |
+          git stash --include-untracked
+          git checkout origin/main -- .
+          uv run dbt deps --profiles-dir .
+          uv run dbt parse --profiles-dir .
+          mkdir -p target-main
+          cp target/manifest.json target-main/manifest.json
+          git checkout - -- .
+          git stash pop || true
+
+      # Schema-only validation of modified models (zero-cost DDL check)
+      - name: dbt build --empty (modified models, PR only)
+        if: github.event_name == 'pull_request'
+        working-directory: dbt_project
+        run: uv run dbt build --empty --select state:modified+ --defer --state target-main --profiles-dir .

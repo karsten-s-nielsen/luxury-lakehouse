@@ -38,8 +38,12 @@ models:
       +materialized: table
       +schema: gold
       +tags: ["marts"]
+      +on_schema_change: fail
       +grants:
         select: "{{ var('grant_select_to', ['account users']) }}"
+      +tblproperties:
+        delta.autoOptimize.autoCompact: "true"
+        delta.autoOptimize.optimizeWrite: "true"
 
 seeds:
   soccer_analytics:

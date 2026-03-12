@@ -113,7 +113,7 @@ The `src/analytics/` modules (pitch control, line-breaking, DEFCON, off-ball xT,
 
 ## Status
 
-**Phase 17 complete** — 11 Streamlit pages, 16 synced tables, 34 PG indexes, 545 unit tests. Optimization audit complete — all compute pipelines migrated to `applyInPandas`, incremental skip guards on all ingestion modules, pytest-benchmark baselines established. See [PLAN.md](PLAN.md) for the implementation plan and [ROADMAP.md](ROADMAP.md) for research directions.
+**Phase 17 complete** — 11 Streamlit pages, 16 synced tables, 34 PG indexes, 542 unit tests (+3 skipped). Optimization audit complete — all compute pipelines migrated to `applyInPandas`, incremental skip guards on all ingestion modules, pytest-benchmark baselines established. EIP reconciliation complete — liquid clustering, model contracts, predictive optimization, auto-compaction, `requests-cache`, dbt slim CI. See [PLAN.md](PLAN.md) for the implementation plan and [ROADMAP.md](ROADMAP.md) for research directions.
 
 | Phase | Description | Status |
 |-------|-------------|--------|

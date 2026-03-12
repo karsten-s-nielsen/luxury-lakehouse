@@ -1,7 +1,7 @@
 {{ config(
     materialized='incremental',
     unique_key='physical_stats_id',
-    cluster_by=['match_id'],
+    liquid_clustered_by=['match_id'],
     incremental_strategy='merge'
 ) }}
 -- fct_physical_stats.sql

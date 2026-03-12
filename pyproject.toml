@@ -10,6 +10,7 @@ dependencies = [
     # NOTE: pandas and numpy are pre-installed on Databricks serverless runtime.
     # Do NOT pin them here — version conflicts break the Python kernel.
     "requests>=2.31.0",
+    "requests-cache>=1.2.0",
 ]
 
 [project.optional-dependencies]

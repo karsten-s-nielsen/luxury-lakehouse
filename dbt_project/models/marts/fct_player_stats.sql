@@ -1,7 +1,7 @@
 {{ config(
     materialized='incremental',
     unique_key='player_stats_id',
-    cluster_by=['competition_id', 'season_id'],
+    liquid_clustered_by=['competition_id', 'season_id'],
     incremental_strategy='merge'
 ) }}
 -- fct_player_stats.sql
