@@ -1,14 +1,36 @@
 # (Right! Luxury!) Lakehouse — TODO
 
-Quick-reference action items. Full details in [PLAN.md](PLAN.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
+Quick-reference action items. Full details in [ARCHITECTURE.md](ARCHITECTURE.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
 
 **Last updated**: 2026-03-12 (Phase 18 — HF Hub Expansion: 4 datasets, Gradio demo Space, pitch control batch, JAX kernel, symmetry augmentation)
 
 ---
 
+## On Deck
+
+Tasks warming up in the on-deck circle.
+
+| Size | What it means |
+|------|---------------|
+| **Monstah** | Multi-phase epic — clear the wall or go home |
+| **Wicked** | Looks small, surprisingly impactful |
+| **Dunkin'** | Quick run, keeps things moving |
+
+| # | Task | Size | Source | Notes |
+|---|------|------|--------|-------|
+| D1 | HF Space — Pitch Control + Velocity Arrows | Wicked | Phase 18 follow-on | Ship `pitch_control.py` (pure NumPy), sample tracking Parquet (recognizable matches via Databricks export), new Gradio tab: frame slider + physics heatmap (RdBu) + velocity arrow toggle |
+| D2 | HF Space — DEFCON Pressure Breakdown | Wicked | Phase 17 follow-on | Export denormalized pressure data (player names + match labels pre-joined), new Gradio tab: player search + Plotly grouped bar chart (intercept/concede/disturb/deter). Add `plotly` dep |
+| D3 | Dynamic xT Grid | Wicked | Tech Debt #17 | Data-driven Markov chain replaces static 12×8 Karun Singh seed. Compute transition probabilities from ~131K pass/shot events per competition. JAX kernel available |
+| D4 | Pitch Control Animation | Dunkin' | D1 follow-on | Frame-by-frame pitch control playback in HF Space. Animate physics heatmap with play/pause controls. Depends on D1 tracking data |
+| D5 | OpenSTARLab Pre-Trained Models | Wicked | [ROADMAP.md](ROADMAP.md) | Apache 2.0 inference (Seq2Event, LEM, FMS) on existing StatsBomb/Wyscout data. Publish predictions to HF Hub |
+| D6 | Custom xG Model | Wicked | [ROADMAP.md](ROADMAP.md) | Train competition-specific xG from ~131K StatsBomb shots. Logistic regression baseline + gradient boosted. Publish to HF Hub |
+| D7 | Observability Layer (OTel) | Monstah | [ROADMAP.md](ROADMAP.md) | Research complete, ready for implementation. Instrument once, observe anywhere. ~$1-2/month personal tier |
+
+---
+
 ## Completed Phases
 
-Phases 0–18 are complete. See [PLAN.md §7](PLAN.md#7-completed-phases) for the summary table and git history for implementation details.
+Phases 0–18 are complete. See git history for implementation details.
 
 ---
 
@@ -92,6 +114,7 @@ Items resolved during phases or the optimization audit (2026-03-11). Details pre
 See [ROADMAP.md](ROADMAP.md) for research directions, long-horizon features, and unscheduled ideas including:
 
 - **Observability Layer (OpenTelemetry)** — instrument once, observe anywhere; ~$1-2/month personal tier
+- **Cognitive Interface Audit** (`cognitive-interface-audit`) — mental model alignment, error tolerance (Wood 7-layer), cognitive load, visual grounding (Gergle); beta complete in mad-scientist-skills v1.7.0
 - **Pipeline Optimization & Scaling** — EIP core patterns implemented (Splitter, Aggregator, Router, Pipes & Filters); remaining deferred items below
 - **Deep Learning Infrastructure** — hybrid GPU training, pre-trained soccer models, DeepMind-inspired optimization
 - **Provider Abstraction** — configurable multi-tier ingestion; free/open tiers default, commercial activates via credentials

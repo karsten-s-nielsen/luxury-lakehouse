@@ -1,6 +1,6 @@
 # (Right! Luxury!) Lakehouse — Roadmap
 
-Research directions, long-horizon features, and exploratory ideas beyond the [phased plan](PLAN.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
+Research directions, long-horizon features, and exploratory ideas beyond the current [architecture](ARCHITECTURE.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
 **Last updated**: 2026-03-12
 
@@ -11,7 +11,7 @@ Research directions, long-horizon features, and exploratory ideas beyond the [ph
 **Status:** Research complete, ready for implementation
 **Budget:** ~$1-2/month (personal) or enterprise-swappable via config
 
-The platform currently has minimal observability (PLAN.md &sect;6.4): Databricks audit logs, dbt test results, and Streamlit built-in metrics. No structured telemetry, no model validation, no pipeline performance tracking. This section defines a proper observability layer using OpenTelemetry as the instrumentation standard.
+The platform currently has minimal observability (ARCHITECTURE.md &sect;6.4): Databricks audit logs, dbt test results, and Streamlit built-in metrics. No structured telemetry, no model validation, no pipeline performance tracking. This section defines a proper observability layer using OpenTelemetry as the instrumentation standard.
 
 ### Core principle: instrument once, observe anywhere
 
@@ -147,6 +147,108 @@ Post-run parsing captures per-model execution time, test pass/fail counts, failu
 - No blocking dependencies &mdash; can be implemented at any time
 - Synergistic with Staging Environment (observability validates staging deployments)
 - Foundation for DEFCON (Phase 17) model monitoring
+
+---
+
+## UI/HCI Audit Skill (Mental Model &amp; Error Tolerance)
+
+**Status:** Beta complete &mdash; `cognitive-interface-audit` skill authored in [mad-scientist-skills](https://github.com/karsten-s-nielsen/mad-scientist-skills) v1.7.0 (SKILL.md + 5 templates)
+**Budget:** Zero &mdash; Claude Code skill (no infrastructure)
+**References:** Wood &amp; Byrne 2002 (error-tolerant interfaces); Gergle et al. 2004/2013 (visual grounding &amp; common ground); Brinck, Gergle &amp; Wood 2001 (*Usability for the Web*, Morgan Kaufmann); Rasmussen 1983 (Skills-Rules-Knowledge); Card, Moran &amp; Newell 1983 (GOMS)
+
+A new [mad-scientist-skills](https://github.com/karsten-s-nielsen/mad-scientist-skills) skill that audits user interfaces and human workflows for **mental model alignment** &mdash; ensuring that the way an interface structures tasks matches how users actually think about those tasks. Visual polish (colors, spacing, typography) matters, but the real value &mdash; like rock-solid infrastructure &mdash; is in the underlying task models that users never consciously see but always feel when they&rsquo;re wrong.
+
+### Core principle: the interface should think the way the user thinks
+
+The best interfaces are invisible. Users complete tasks without friction because the system&rsquo;s workflow mirrors their existing mental model &mdash; same vocabulary, same sequence, same chunking of operations. When the interface&rsquo;s task model diverges from the user&rsquo;s mental model, errors aren&rsquo;t &ldquo;user mistakes&rdquo; &mdash; they&rsquo;re design failures.
+
+### Academic foundations
+
+Three research threads converge into a single audit methodology:
+
+#### 1. Task Model &amp; Error Tolerance (Wood, Byrne, Rasmussen)
+
+Scott D. Wood&rsquo;s dissertation (*Extending GOMS to Human Error and Applying it to Error-Tolerant Design*, University of Michigan, 2000) extended **GOMS (Goals, Operators, Methods, Selection rules)** to predict where human errors will occur in an interface. His 2002 paper with Mike Byrne (&ldquo;A Cognitive Approach to Designing Human Error Tolerant Interfaces&rdquo;) provides a **7-layer defense framework** mapped to stages of erroneous performance:
+
+| Layer | Stage | Audit Question |
+|-------|-------|----------------|
+| Prevention | Before error | Can this error class be eliminated by design constraints? |
+| Reduction | Before error | Does the task model minimize opportunities for this error? |
+| Detection | After commission | Will the user notice something went wrong? |
+| Identification | After detection | Can the user understand *what* went wrong? |
+| Correction | After identification | Is fixing it straightforward and discoverable? |
+| Resumption | After correction | Can the user return to their task without losing context? |
+| Mitigation | Unrecoverable | Is damage minimized when all else fails? |
+
+Built on **Rasmussen&rsquo;s Skills-Rules-Knowledge (SRK) framework**: skill-based errors (slips) need different defenses than rule-based errors (misapplication) and knowledge-based errors (wrong mental model). The audit must classify error risks by SRK level. Wood&rsquo;s extension also introduced two key error mechanisms from Reason&rsquo;s taxonomy: **similarity matching** (wrong-but-similar rule fires) and **frequency gambling** (most-used routine executes even when context demands otherwise).
+
+**Key references (open access):** [eScholarship](https://escholarship.org/uc/item/4nr8x5b1) &mdash; Wood &amp; Byrne, CogSci 2002; [IITSEC 2002](https://web.eecs.umich.edu/~kieras/docs/GOMS/Wood_IITSEC2002.pdf) &mdash; Wood, &ldquo;Modeling Human Error for Experimentation, Training, and Error-Tolerant Design&rdquo;. Dissertation: [ProQuest](https://www.proquest.com/openview/7a8b78bcf5d8ab261d06fed9d096bdba/) (abstract free, full text paywalled; author copy available on request).
+
+#### 2. Visual Grounding &amp; Common Ground (Gergle, Kraut, Fussell)
+
+Darren Gergle&rsquo;s research at Northwestern (CollabLab, CHI Academy 2026) demonstrates that **shared visual information** directly affects task performance through two distinct mechanisms:
+
+- **Situation awareness** &mdash; does the user understand the current state of the system?
+- **Conversational grounding** &mdash; does the interface provide enough shared context for efficient communication (between user and system, or between collaborating users)?
+
+His work shows that not just the *availability* but the *form* of visual information differentially affects coordination. Key findings for audit criteria:
+
+- Delayed visual feedback degrades collaborative performance (latency thresholds)
+- Display characteristics affect spatial task performance
+- Age and demographic bias can be embedded in computational systems (sentiment analysis, data contribution)
+- Accessibility barriers in collaborative tools are systematic, not incidental
+
+Gergle also co-developed the **Joint Action Storyboard** framework (&ldquo;Joint Action Storyboards: A Framework for Visualizing Communication Grounding Costs&rdquo;, CSCW 2021) &mdash; a structured method that maps each UI interaction to its grounding cost, identifying exactly where the design forces users to do extra cognitive work. This is essentially a ready-made audit tool for Phase 4.
+
+**Key references:** Gergle, Kraut &amp; Fussell, &ldquo;Using Visual Information for Grounding and Awareness&rdquo; (*Human-Computer Interaction*, 2013); &ldquo;Language Efficiency and Visual Technology&rdquo; (*JLSP*, 2004); &ldquo;Joint Action Storyboards&rdquo; (CSCW 2021); &ldquo;Addressing Age-Related Bias in Sentiment Analysis&rdquo; (CHI 2018, Best Paper); &ldquo;Model Positionality and Computational Reflexivity&rdquo; (CHI 2022, Best Paper HM). Also: Brinck, Gergle &amp; Wood, *Usability for the Web: Designing Web Sites that Work* (Morgan Kaufmann, 2001) &mdash; a &ldquo;pervasive usability&rdquo; framework with stage-by-stage checklists. Note: Wood and Gergle co-authored this book &mdash; the two primary academic foundations for this skill converge in a single prior collaboration.
+
+#### 3. Cognitive Load (Sweller, Madsen, NASA-TLX)
+
+Cognitive load theory provides the quantitative backbone: every interface decision either consumes or conserves working memory. The **NASA-TLX** framework (6 dimensions: mental demand, physical demand, temporal demand, effort, performance, frustration) offers structured evaluation of interface complexity. Jes Buster Madsen&rsquo;s work on cognitive load in team sports (&ldquo;Evaluation of Cognitive Load in Team Sports&rdquo;, *PeerJ*, 2021) confirms that as cognitive load increases, decision-making accuracy decreases &mdash; directly applicable to information-dense dashboards and multi-step workflows.
+
+### Proposed audit phases
+
+| Phase | Focus | Primary Framework |
+|-------|-------|-------------------|
+| 0. Task Model Mapping | Map user goals &rarr; tasks &rarr; operations. Identify where the interface&rsquo;s task decomposition diverges from users&rsquo; mental models. Evaluate across the **user expertise spectrum** (kiosk/first-time &rarr; regular &rarr; power user) &mdash; each has a different task decomposition and the interface must degrade gracefully across all three | GOMS (Card, Moran &amp; Newell) |
+| 1. Consistency &amp; Convention | Same patterns for same operations across the entire interface. Leverage existing knowledge (platform conventions, domain standards) | Nielsen&rsquo;s heuristics + GOMS |
+| 2. Error Tolerance | For each critical task path, evaluate all 7 defense layers. Classify error risks by Rasmussen SRK level | Wood &amp; Byrne 7-layer |
+| 3. Cognitive Load | Information density per screen, decision points per task, working memory demands, progressive disclosure | NASA-TLX + Sweller CLT |
+| 4. Visual Grounding | Feedback sufficiency, state visibility, shared context for collaborative workflows, latency tolerance | Gergle grounding theory |
+| 5. Accessibility &amp; Inclusion | Demographic bias in data presentation, age/ability inclusivity, assistive technology compatibility | Gergle bias research + WCAG |
+| 6. Information Architecture | Navigation coherence, error recovery paths, undo/resume affordances, breadcrumb trails | Combined frameworks |
+
+### Coded rules (complementary to skill)
+
+In addition to the skill&rsquo;s manual audit phases, codify machine-checkable rules for common task model violations:
+
+- **Inconsistent action vocabulary** &mdash; same operation uses different labels/icons across pages (grep-detectable in Streamlit/React codebases)
+- **Missing confirmation on destructive actions** &mdash; delete/overwrite without undo or confirmation dialog
+- **Dead-end states** &mdash; error pages or empty states with no clear recovery path
+- **Orphaned navigation** &mdash; pages reachable only by direct URL, not discoverable from the UI
+- **Overloaded screens** &mdash; more than N interactive elements per viewport (configurable threshold)
+- **Inconsistent response patterns** &mdash; success feedback uses different mechanisms across features (toast vs inline vs redirect)
+
+### Relationship to existing skills
+
+| Skill | Overlap | Distinction |
+|-------|---------|-------------|
+| `security-audit` | Both scan code for anti-patterns | Security focuses on attack surface; UI/HCI focuses on task model alignment |
+| `optimization-audit` | Both evaluate response latency | Optimization focuses on server-side; UI/HCI focuses on perceived responsiveness and cognitive cost |
+| `observability-audit` | Both care about feedback loops | Observability instruments for engineers; UI/HCI audits feedback *for end users* |
+| `final-review` | Both run before commit | Final review checks code quality and docs; UI/HCI audits the human experience |
+
+### Implementation approach
+
+1. **Skill authoring** &mdash; new `cognitive-interface-audit` skill in [mad-scientist-skills](https://github.com/karsten-s-nielsen/mad-scientist-skills) following the existing security/optimization/observability pattern (planning + audit modes, severity classification, phase-based execution). Beta version complete &mdash; SKILL.md + 5 templates authored
+2. **Coded rules** &mdash; Ruff-style grep patterns for common UI anti-patterns, integrated into Phase 0 (fast scan before deeper analysis)
+3. **Framework templates** &mdash; `templates/task-model-analysis.md`, `templates/error-tolerance-checklist.md`, `templates/cognitive-load-assessment.md` following the template pattern established in the optimization and security audit skills
+
+### Dependencies
+
+- No blocking dependencies &mdash; skill can be authored at any time
+- First test target: this project&rsquo;s Streamlit app (11 pages, data-dense dashboards &mdash; ideal candidate for mental model audit)
+- Synergistic with HF Space expansion (D1/D2) &mdash; Gradio UI would benefit from audit before shipping
 
 ---
 
@@ -717,12 +819,13 @@ Virtual mode is the heavy-lifter: each pass generates ~100 ghost frames &times; 
 
 ## Other Ideas (Unscheduled)
 
-- [ ] Voronoi area persistence — pre-compute in dbt (lower priority if Phase 11 replaces Voronoi)
-- [ ] Pitch Control animation — frame-by-frame playback in Streamlit
-- [ ] Event overlay on Pitch Control — render events on pitch control view
-- [ ] Wyscout match metadata — formations, coaches, venue (not in public Figshare dataset)
+- [ ] Voronoi area persistence &mdash; pre-compute in dbt (lower priority if Phase 11 replaces Voronoi)
+- [ ] Pitch Control animation &mdash; frame-by-frame playback in Streamlit
+- [ ] Event overlay on Pitch Control &mdash; render events on pitch control view
+- [ ] Wyscout match metadata &mdash; formations, coaches, venue (not in public Figshare dataset)
+- [ ] **Local GPU Compute Sidecar** &mdash; optional local GPU acceleration for ML workloads (training, inference, CV) using Docker + NVIDIA Container Toolkit. Cloud by default, local if GPU available. Pattern: `delta-rs` reads input from Unity Catalog, GPU container runs computation, writes results back to Delta. Triton Inference Server or MLflow model serving for persistent endpoints. Relevant when neural xG training, DEFCON Tier 4 GNN, or computer vision workloads begin. Not needed for current CPU-based pipelines
 
 
 ---
 
-*Items graduate from this roadmap into numbered phases in [PLAN.md](PLAN.md) when prerequisites are met and the scope is well-defined.*
+*Items graduate from this roadmap into numbered phases in [ARCHITECTURE.md](ARCHITECTURE.md) when prerequisites are met and the scope is well-defined.*
