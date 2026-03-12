@@ -1,9 +1,9 @@
-# Databricks Lakebase Implementation Plan — Soccer Analytics Platform
+# Databricks Lakebase Architecture — Soccer Analytics Platform
 
 > **Status**: Phase 18 complete — 11 Streamlit pages, 16 synced tables, 34 PG indexes, 505 unit tests (+3 skipped). HuggingFace Hub Expansion: 4 datasets published, Gradio demo Space, pitch control batch pipeline, JAX kernel, TacticAI symmetry augmentation.
 > **Last Updated**: 2026-03-12
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
-> **Approach**: Professional-grade IaC, best practices, production-ready from day one
+> **Approach**: Professional-grade IaC, best practices, production-ready
 
 ---
 
@@ -15,16 +15,14 @@
 4. [Technology Decisions](#4-technology-decisions)
 5. [Repository Structure](#5-repository-structure)
 6. [Cross-Cutting Concerns](#6-cross-cutting-concerns)
-7. [Completed Phases](#7-completed-phases)
-8. [Future Work](#8-future-work)
-9. [Risk Register](#9-risk-register)
-10. [Appendices](#10-appendices)
+7. [Risk Register](#7-risk-register)
+8. [Appendices](#8-appendices)
 
 ---
 
 ## 1. Executive Summary
 
-This plan implements the Databricks Lakebase architecture to build a serverless soccer analytics platform. The pipeline ingests open-source match data (StatsBomb, Metrica Sports, Wyscout, IDSSE, SkillCorner), transforms it through a medallion architecture (Bronze → Silver → Gold), synchronizes curated tables into Lakebase (PostgreSQL 17), and serves a Streamlit dashboard for coaches and analysts.
+A serverless soccer analytics platform built on the Databricks Lakebase architecture. The pipeline ingests open-source match data (StatsBomb, Metrica Sports, Wyscout, IDSSE, SkillCorner), transforms it through a medallion architecture (Bronze → Silver → Gold), synchronizes curated tables into Lakebase (PostgreSQL 17), and serves a Streamlit dashboard for coaches and analysts.
 
 **Why Lakebase over Traditional AWS?**
 
@@ -79,7 +77,7 @@ This plan implements the Databricks Lakebase architecture to build a serverless 
 │  │  • skillcorner: tracking (10 A-League matches, 10fps)            │    │
 │  │  • spadl: actions, action_values                                 │    │
 │  │  • entity_resolution: player_xref_raw                            │    │
-│  │  • pitch_control_batch: pitch_control_values                    │    │
+│  │  • pitch_control_batch: pitch_control_values                     │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
@@ -93,7 +91,7 @@ This plan implements the Databricks Lakebase architecture to build a serverless 
 │  │  • stg_metrica__tracking, events                                 │    │
 │  │  • stg_wyscout__events, stg_wyscout__players                     │    │
 │  │  • stg_idsse__tracking, stg_skillcorner__tracking                │    │
-│  │  • stg_spadl__action_values, stg_pitch_control__values             │    │
+│  │  • stg_spadl__action_values, stg_pitch_control__values           │    │
 │  │                                                                  │    │
 │  │  GOLD (business logic, analytics-ready):                         │    │
 │  │  • fct_shots, fct_passes, fct_player_stats, fct_match_summary    │    │
@@ -135,6 +133,53 @@ This plan implements the Databricks Lakebase architecture to build a serverless 
 │  └──────────────────────────────────────────────────────────────────┘    │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
+
+### Synced Tables (Gold → Lakebase)
+
+| Source Table | Synced Table | Primary Key | Rows |
+|-------------|-------------|-------------|------|
+| `dev_gold.fct_shots` | `fct_shots_synced` | `shot_id` | 131,077 |
+| `dev_gold.fct_passes` | `fct_passes_synced` | `pass_id` | 5,052,415 |
+| `dev_gold.fct_player_stats` | `fct_player_stats_synced` | `player_stats_id` | 19,154 |
+| `dev_gold.fct_match_summary` | `fct_match_summary_synced` | `match_id` | 3,464 |
+| `dev_gold.fct_tracking_frames` | `fct_tracking_frames_synced` | `tracking_id` | 38,118,607 |
+| `dev_gold.fct_action_values` | `fct_action_values_synced` | `action_value_id` | ~9,500,000 |
+| `dev_gold.fct_physical_stats` | `fct_physical_stats_synced` | `physical_stats_id` | 616 |
+| `dev_gold.fct_defensive_values` | `fct_defensive_values_synced` | `defensive_value_id` | 829,377 |
+| `dev_gold.fct_defcon_actions` | `fct_defcon_actions_synced` | `defcon_action_id` | 829,377 |
+| `dev_gold.fct_defcon_pressure` | `fct_defcon_pressure_synced` | `pressure_id` | ~28,000 |
+| `dev_gold.fct_player_embeddings` | `fct_player_embeddings_synced` | `embedding_id` | ~87,035 |
+| `dev_gold.fct_player_embeddings_season` | `fct_player_embeddings_season_synced` | `embedding_season_id` | ~8,950 |
+| `dev_gold.fct_player_embeddings_career` | `fct_player_embeddings_career_synced` | `embedding_career_id` | ~8,950 |
+| `dev_gold.dim_players` | `dim_players_synced` | `canonical_player_id` | 11,918 |
+| `dev_gold.dim_teams` | `dim_teams_synced` | `team_id` | 453 |
+| `dev_gold.dim_competitions` | `dim_competitions_synced` | `competition_id` | 21 |
+
+**Implementation notes:**
+
+- `scheduling_policy = "SNAPSHOT"` — initial sync with on-demand refresh
+- `logical_database_name = "databricks_postgres"` — standard Lakebase database
+- **Autoscaling workaround (provider v1.110.0):** `databricks_database_synced_database_table` only supports `database_instance_name` (Provisioned). Synced tables targeting Autoscaling projects must be created via Databricks UI, then imported into Terraform. `lifecycle { ignore_changes = all }` prevents drift. This applies to any new synced table.
+- **Schema changes:** Must delete synced table, drop ghost PG table, recreate via API, re-import into Terraform.
+- **PG indexes:** 30 btree indexes across 11 tables + 4 HNSW vector indexes on embedding tables = 34 total. Dropped on synced table recreation — re-run `scripts/create_indexes.py` alongside `scripts/lakebase_grants.sql`. Script now runs `ANALYZE` on all indexed tables to ensure the query planner uses indexes.
+- **SNAPSHOT refresh:** Synced tables with `scheduling_policy = "SNAPSHOT"` do not auto-refresh. Run `scripts/refresh_synced_tables.py` after upstream dbt rebuilds. Supports `--wait` (poll until IDLE) and `--tables` (comma-separated subset). The Terraform provider has no schedule/cron field — this is the operational workaround.
+- **Credential API:** REST endpoint is `/api/2.0/postgres/credentials` (NOT `/api/2.0/database/credentials`).
+
+### Streamlit Application Pages
+
+| Page | Visualization | Data Source |
+|------|--------------|-------------|
+| Shot Map | Half-pitch shots sized by xG, colored by outcome | `fct_shots_synced` |
+| Pass Map | Full pitch arrows, progressive pass highlighting | `fct_passes_synced` |
+| Player Radar | Per-90 metrics comparison (1-3 players), incl. VAEP/90 | `fct_player_stats_synced` |
+| Match Summary | Scorecard + xG metrics + horizontal bar chart | `fct_match_summary_synced` |
+| Pitch Control | Physics (Spearman 2017) + Voronoi toggle from tracking data | `fct_tracking_frames_synced` |
+| Heat Map | Action density per player/team/match | `fct_passes_synced`, `fct_shots_synced` |
+| Pass Network | Interactive Plotly graph with hover tooltips | `fct_passes_synced` |
+| Action Values | VAEP rankings, action type breakdown, timeline | `fct_action_values_synced`, `fct_player_stats_synced` |
+| Movement Analysis | Physical performance, PPDA pressing, off-ball xT | `fct_physical_stats_synced`, `fct_match_summary_synced` |
+| Def. Pressure | DEFCON-lite attacker pressure rankings, breakdown, match timeline | `fct_defcon_pressure_synced`, `fct_defcon_actions_synced` |
+| Player Similarity | pgvector nearest-neighbor search ("Find players like X"), radar overlay | `fct_player_embeddings_career_synced`, `fct_player_embeddings_season_synced`, `fct_player_stats_synced` |
 
 ---
 
@@ -262,6 +307,20 @@ docs/c4/
 | **GitHub OIDC** | Secretless CI — AWS IAM + Databricks federation |
 | **Environments** | Dev only (single environment; add prod later) |
 
+### Key Design Decisions
+
+| # | Decision | Impact |
+|---|----------|--------|
+| 1 | Databricks Premium tier | Includes Lakebase, Unity Catalog, Serverless SQL |
+| 2 | AWS us-east-1 | Consistent with existing infrastructure |
+| 3 | Dev only (single environment) | Simplifies structure; add prod later |
+| 4 | Under $100/month budget | Scale-to-zero mandatory everywhere |
+| 5 | All 3 data sources from start | StatsBomb, Metrica, Wyscout all in Phase 2 |
+| 6 | No Kloppy in Phase 9 | Direct bronze adapters simpler; Kloppy deferred to Phase 10 |
+| 7 | "Fetch Once, Fork Twice" | SPADL reads from bronze — no redundant API calls |
+| 8 | Synced tables via UI + import | Provider lacks project/branch fields; `lifecycle { ignore_changes = all }` |
+| 9 | OAuth M2M everywhere | Zero secrets in CI; short-lived JWT (60 min) for app |
+
 ---
 
 ## 5. Repository Structure
@@ -269,9 +328,10 @@ docs/c4/
 ```
 luxury-lakehouse/
 │
-├── PLAN.md                           # This document
+├── ARCHITECTURE.md                    # This document
 ├── CLAUDE.md                         # AI assistant instructions
 ├── README.md                         # Project overview
+├── ROADMAP.md                       # Research directions and future ideas
 ├── SECURITY.md                       # Security audit report
 ├── TODO.md                           # Forward-looking action items
 ├── .pre-commit-config.yaml           # Pre-commit hooks (ruff, terraform_fmt, detect-secrets)
@@ -478,135 +538,7 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 
 ---
 
-## 7. Completed Phases
-
-| Phase | Description | Key Deliverables |
-|-------|-------------|------------------|
-| **0** | Foundation & Prerequisites | Workspace provisioned (Premium, us-east-1), Terraform state backend (S3 + native locking), repo initialized with uv + ruff + pyright + pre-commit, initial C4 diagrams |
-| **1** | Serverless Infrastructure | 7 Terraform modules (workspace, catalog, sql_warehouse, lakebase, workflows, synced_tables, app), 27+ resource files |
-| **2** | Data Ingestion | 3 ingestion modules → 9 bronze tables, 31.4M+ rows; shared utils with CLI, logging, HTTP, Delta helpers; 55 unit tests |
-| **3** | Transformation (dbt) | 20 dbt models (staging → intermediate → marts), 225 data tests, position_mapping seed, dbt-expectations range tests |
-| **4** | Zero-ETL Synchronization | Synced tables (Gold Delta → Lakebase PG), snapshot scheduling, sub-10ms OLTP queries |
-| **5** | Streamlit Application | 4 initial pages (Shot Map, Pass Map, Player Radar, Match Summary), OAuth M2M auth, ThreadedConnectionPool, deployed as Databricks App |
-| **5.5** | Lakebase Autoscaling Migration | PG 16 → PG 17, `databricks_postgres_project` + endpoint, scale-to-zero (0.5–4 CU), `sslmode=require` |
-| **5.6** | IAM OIDC + OAuth M2M + KMS | PAT → OAuth M2M for local dev, GitHub OIDC federation for secretless CI, KMS CMK for state encryption |
-| **6** | StatsBomb 360 Freeze Frames | `backfill_360()` entry point, `stg_statsbomb__360` staging model, 15.58M rows across 323 matches |
-| **7** | Metrica Game 3 + Pitch Control | EPTS format parsers (XML metadata + colon-delimited tracking + JSON events), ball coordinate fix, Voronoi pitch control page, 107 tests |
-| **8** | Heat Map + Pass Network | `pass_recipient_id` through dbt pipeline, Heat Map page (action density), Pass Network page (graph viz), synced table schema migration, 118 tests |
-| **9** | SPADL/VAEP Action Valuation | "Fetch Once, Fork Twice" — `spadl_adapter.py` + `spadl_vaep.py`, socceraction + XGBoost, 9.5M VAEP-scored actions, Action Values page (3 views), Player Radar VAEP/90, 155 tests |
-| **10** | Additional Tracking Data (IDSSE + SkillCorner) | 7 Bundesliga IDSSE matches (25fps via stdlib XML parser) + 10 A-League SkillCorner matches (10fps via kloppy), per-row `frame_rate` + `source_provider`, `fct_tracking_frames` UNION ALL 3 sources (38.1M rows) |
-| **11** | Physics-Based Pitch Control Model | Spearman (2017) model in `src/analytics/pitch_control.py`, NumPy-vectorized TTI + logistic sigmoid, continuous heatmap overlay with RdBu colormap, Physics/Voronoi toggle on Pitch Control page, 214 tests |
-| **12** | Movement Analysis | PPDA pressing (StatsBomb events), physical performance metrics (tracking), off-ball xT (pitch control × xT zones). `fct_physical_stats` mart, `speed_ms`/`acceleration_ms2` in `fct_tracking_frames`, Movement Analysis page (3 views), 290 tests |
-| **13** | Line-Breaking Pass Detection | Ward hierarchical clustering + cross-product straddle test in `src/analytics/line_breaking.py`, dual data paths (StatsBomb 360 + Metrica tracking), `is_line_breaking`/`lines_broken`/`line_breaking_type` in `fct_passes`, Pass Map gold arrows, Player Radar LB/90, 257 tests |
-| **14** | Cross-Source Player Entity Resolution | Three-layer progressive matching (glass_onion-inspired, BSD 3-Clause): TF-IDF + sparse_dot_topn candidate generation, rapidfuzz multi-attribute scoring, bidirectional validation. 2,388 cross-source matches (Layer 2: 2,148 name+DOB, Layer 3: 240 name+position). `dim_players` unified to 11,918 rows with `canonical_player_id`. Bronze: `wyscout_players` (3,603), `player_xref_raw` (2,388). dbt: `int_player_xref` (ephemeral), `stg_wyscout__players` (view), `player_xref_overrides` seed. `entity_resolution_enabled` feature toggle. 303+ tests |
-| **15** | Player Embeddings (Doc2Vec + z-score) | Dual-vector player representation: 32-dim Doc2Vec behavioral embeddings (action sequences via gensim) + 13-dim statistical z-score vectors. `src/analytics/football2vec.py` (tokenizer + training), `src/ingestion/player_embeddings.py` (batch pipeline). Model artifacts in UC Volume + HuggingFace Hub (`luxury-lakehouse/football2vec-statsbomb-wyscout`). `fct_player_embeddings` + season/career aggregation marts, pgvector HNSW indexes. 87,035 per-match embeddings, 8,950 players |
-| **16** | Player Similarity Page (pgvector HNSW) | `player_similarity.py` Streamlit page: "Find players like X" with pgvector `<=>` cosine distance search. Behavioral (32-d) and statistical (13-d) search modes, radar chart comparison overlay, data source badges. `fct_player_embeddings_career_synced` and `fct_player_embeddings_season_synced` with HNSW indexes for sub-10ms similarity queries. 11th Streamlit page |
-| **17** | DEFCON-lite Defensive Pressure | Tier 3 tabular DEFCON: heuristic credit assignment (intercept/concede/disturb/deter) + XGBoost confidence. `defcon_lite.py` analytics + ingestion, `fct_defensive_values` + `fct_defcon_actions` + `fct_defcon_pressure` marts, Def. Pressure page (attacker-perspective rankings, breakdown, timeline), 5 DEFCON cols in `fct_player_stats`, 319 tests |
-| **18** | HuggingFace Hub Expansion | HF Tiers 2+4: 4 datasets published (SPADL/VAEP, Line-Breaking Passes, Player Embeddings, Pitch Control), Gradio demo Space (`demo_space/`), pitch control batch pipeline (`pitch_control_batch.py` + `applyInPandas` + dbt staging), JAX pitch control kernel (optional `@jax.jit` backend), TacticAI symmetry augmentation (`symmetry.py`), dataset publishing notebook (`publish_datasets.py`), updated model/org cards |
-
-### Key Design Decisions (from completed phases)
-
-| # | Decision | Impact |
-|---|----------|--------|
-| 1 | Databricks Premium tier | Includes Lakebase, Unity Catalog, Serverless SQL |
-| 2 | AWS us-east-1 | Consistent with existing infrastructure |
-| 3 | Dev only (single environment) | Simplifies structure; add prod later |
-| 4 | Under $100/month budget | Scale-to-zero mandatory everywhere |
-| 5 | All 3 data sources from start | StatsBomb, Metrica, Wyscout all in Phase 2 |
-| 6 | No Kloppy in Phase 9 | Direct bronze adapters simpler; Kloppy deferred to Phase 10 |
-| 7 | "Fetch Once, Fork Twice" | SPADL reads from bronze — no redundant API calls |
-| 8 | Synced tables via UI + import | Provider lacks project/branch fields; `lifecycle { ignore_changes = all }` |
-| 9 | OAuth M2M everywhere | Zero secrets in CI; short-lived JWT (60 min) for app |
-
-### Synced Tables (Gold → Lakebase)
-
-| Source Table | Synced Table | Primary Key | Rows |
-|-------------|-------------|-------------|------|
-| `dev_gold.fct_shots` | `fct_shots_synced` | `shot_id` | 131,077 |
-| `dev_gold.fct_passes` | `fct_passes_synced` | `pass_id` | 5,052,415 |
-| `dev_gold.fct_player_stats` | `fct_player_stats_synced` | `player_stats_id` | 19,154 |
-| `dev_gold.fct_match_summary` | `fct_match_summary_synced` | `match_id` | 3,464 |
-| `dev_gold.fct_tracking_frames` | `fct_tracking_frames_synced` | `tracking_id` | 38,118,607 |
-| `dev_gold.fct_action_values` | `fct_action_values_synced` | `action_value_id` | ~9,500,000 |
-| `dev_gold.fct_physical_stats` | `fct_physical_stats_synced` | `physical_stats_id` | 616 |
-| `dev_gold.fct_defensive_values` | `fct_defensive_values_synced` | `defensive_value_id` | 829,377 |
-| `dev_gold.fct_defcon_actions` | `fct_defcon_actions_synced` | `defcon_action_id` | 829,377 |
-| `dev_gold.fct_defcon_pressure` | `fct_defcon_pressure_synced` | `pressure_id` | ~28,000 |
-| `dev_gold.fct_player_embeddings` | `fct_player_embeddings_synced` | `embedding_id` | ~87,035 |
-| `dev_gold.fct_player_embeddings_season` | `fct_player_embeddings_season_synced` | `embedding_season_id` | ~8,950 |
-| `dev_gold.fct_player_embeddings_career` | `fct_player_embeddings_career_synced` | `embedding_career_id` | ~8,950 |
-| `dev_gold.dim_players` | `dim_players_synced` | `canonical_player_id` | 11,918 |
-| `dev_gold.dim_teams` | `dim_teams_synced` | `team_id` | 453 |
-| `dev_gold.dim_competitions` | `dim_competitions_synced` | `competition_id` | 21 |
-
-### Synced Tables: Implementation Notes
-
-- `scheduling_policy = "SNAPSHOT"` — initial sync with on-demand refresh
-- `logical_database_name = "databricks_postgres"` — standard Lakebase database
-- **Autoscaling workaround (provider v1.110.0):** `databricks_database_synced_database_table` only supports `database_instance_name` (Provisioned). Synced tables targeting Autoscaling projects must be created via Databricks UI, then imported into Terraform. `lifecycle { ignore_changes = all }` prevents drift. This applies to any new synced table.
-- **Schema changes:** Must delete synced table, drop ghost PG table, recreate via API, re-import into Terraform.
-- **PG indexes:** 30 btree indexes across 11 tables + 4 HNSW vector indexes on embedding tables = 34 total. Dropped on synced table recreation — re-run `scripts/create_indexes.py` alongside `scripts/lakebase_grants.sql`. Script now runs `ANALYZE` on all indexed tables to ensure the query planner uses indexes.
-- **SNAPSHOT refresh:** Synced tables with `scheduling_policy = "SNAPSHOT"` do not auto-refresh. Run `scripts/refresh_synced_tables.py` after upstream dbt rebuilds. Supports `--wait` (poll until IDLE) and `--tables` (comma-separated subset). The Terraform provider has no schedule/cron field — this is the operational workaround.
-- **Credential API:** REST endpoint is `/api/2.0/postgres/credentials` (NOT `/api/2.0/database/credentials`).
-
-### Streamlit App
-
-| Page | Visualization | Data Source |
-|------|--------------|-------------|
-| Shot Map | Half-pitch shots sized by xG, colored by outcome | `fct_shots_synced` |
-| Pass Map | Full pitch arrows, progressive pass highlighting | `fct_passes_synced` |
-| Player Radar | Per-90 metrics comparison (1-3 players), incl. VAEP/90 | `fct_player_stats_synced` |
-| Match Summary | Scorecard + xG metrics + horizontal bar chart | `fct_match_summary_synced` |
-| Pitch Control | Physics (Spearman 2017) + Voronoi toggle from tracking data | `fct_tracking_frames_synced` |
-| Heat Map | Action density per player/team/match | `fct_passes_synced`, `fct_shots_synced` |
-| Pass Network | Interactive Plotly graph with hover tooltips | `fct_passes_synced` |
-| Action Values | VAEP rankings, action type breakdown, timeline | `fct_action_values_synced`, `fct_player_stats_synced` |
-| Movement Analysis | Physical performance, PPDA pressing, off-ball xT | `fct_physical_stats_synced`, `fct_match_summary_synced` |
-| Def. Pressure | DEFCON-lite attacker pressure rankings, breakdown, match timeline | `fct_defcon_pressure_synced`, `fct_defcon_actions_synced` |
-| Player Similarity | pgvector nearest-neighbor search ("Find players like X"), radar overlay | `fct_player_embeddings_career_synced`, `fct_player_embeddings_season_synced`, `fct_player_stats_synced` |
-
----
-
-## 8. Future Work
-
-### 8.1 — Future Data Sources
-
-| Source | Data Type | Status | Notes |
-|--------|-----------|--------|-------|
-| **Respo.Vision** | 3D pose tracking from broadcast video | Planned | Own-footage recording in broadcast mode; skeletal keypoints at 25fps. As data originator, no league/broadcast copyrights. Required for Visual Exploratory Behavior model (see [ROADMAP.md](ROADMAP.md)). |
-| **Wyscout match metadata** | Match details (formations, coaches, venue) | Deferred | Not in public Figshare dataset |
-
-Each new source follows the established pattern: `src/ingestion/<source>.py` → Bronze → dbt staging/marts → Synced Tables → Lakebase.
-
-### 8.1.1 — Research-Driven Features (see [ROADMAP.md](ROADMAP.md))
-
-| Feature | Status | License | Key Insight |
-|---------|--------|---------|-------------|
-| **Line-Breaking Pass Detection** | **Complete** (Phase 13) | Apache 2.0 | Geometric detection of defensive line penetration via hierarchical clustering + segment intersection |
-| **Visual Exploratory Behavior** | Blocked by pose data | BSD 3-Clause | Probabilistic vision model (FoV + occlusion) — requires `head_angle` + `shoulders_angle` from Respo.Vision on own footage |
-| **Graph-Based Tactical Patterns** | Research direction | CC BY | TGNets (Raabe et al. 2022) for classifying defensive outcomes from tracking graphs |
-| **Decision Optimization** | Research direction | N/A | RL-based pass selection optimization (Rahimian et al.) — requires commercial tracking data |
-
-### 8.2 — DEFCON-Inspired Defensive Valuation (Tier 4)
-
-**Paper:** Kim, H.S. et al. (2025). "Better Prevent than Tackle: Valuing Defense in Soccer Based on Graph Neural Networks." *arXiv:2512.10355*.
-
-**License:** [`hyunsungkim-ds/defcon`](https://github.com/hyunsungkim-ds/defcon) — Apache-2.0.
-
-**Tiered approach:**
-
-| Tier | Approach | Data Needed | Status |
-|------|----------|-------------|--------|
-| **Tier 1: VAEP** | SPADL + VAEP scoring | Events only (3,000+ matches) | **Complete** (Phase 9) |
-| **Tier 2: Pitch Control** | Physics-based model | Tracking (3–20 matches) | **Complete** (Phase 11) |
-| **Tier 3: DEFCON-lite** | Tabular model (VAEP + spatial features, no GNN) | ~20 matches with tracking | **Complete** (Phase 17) |
-| **Tier 4: Full GNN DEFCON** | Graph Attention Networks on player graphs | 500+ matches with tracking | Requires commercial data |
-
-**Note:** Tier 3 uses attacker-perspective framing (`fct_defcon_pressure`) because StatsBomb 360 freeze frames have anonymous defenders (synthetic IDs). Real defender attribution requires Tier 4 with tracking data.
-
----
-
-## 9. Risk Register
+## 7. Risk Register
 
 | # | Risk | Likelihood | Impact | Mitigation |
 |---|------|-----------|--------|------------|
@@ -623,7 +555,7 @@ Each new source follows the established pattern: `src/ingestion/<source>.py` →
 
 ---
 
-## 10. Appendices
+## 8. Appendices
 
 ### A. Data Volume Estimates
 
@@ -665,4 +597,4 @@ Each new source follows the established pattern: `src/ingestion/<source>.py` →
 
 ---
 
-*This plan is a living document. Completed phase details are preserved in git history. Future phases are designed to be self-contained with clear inputs, outputs, and verification criteria.*
+*This is a living document. Completed phase details are preserved in git history. See [ROADMAP.md](ROADMAP.md) for future research directions.*

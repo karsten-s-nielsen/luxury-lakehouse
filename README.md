@@ -95,7 +95,7 @@ luxury-lakehouse/
 │   ├── huggingface/          # HF Hub model card, org card, dataset cards (source of truth)
 │   └── huggingface-setup.md  # HuggingFace Hub integration guide
 ├── assets/             # Images and branding
-├── PLAN.md             # Detailed implementation plan
+├── ARCHITECTURE.md     # Platform architecture and design decisions
 └── ROADMAP.md          # Research directions and future ideas
 ```
 
@@ -116,7 +116,7 @@ The `src/analytics/` modules (pitch control, line-breaking, DEFCON, off-ball xT,
 
 ## Status
 
-**Phase 18 complete** — 11 Streamlit pages, 16 synced tables, 34 PG indexes, 505 unit tests (+3 skipped). HuggingFace Hub Expansion: 4 datasets published ([SPADL/VAEP](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values), [Line-Breaking Passes](https://huggingface.co/datasets/luxury-lakehouse/line-breaking-passes), [Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings), [Pitch Control](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking)), [Gradio demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo), pitch control batch pipeline, JAX kernel, TacticAI symmetry augmentation. See [PLAN.md](PLAN.md) for the implementation plan and [ROADMAP.md](ROADMAP.md) for research directions.
+**Phase 18 complete** — 11 Streamlit pages, 16 synced tables, 34 PG indexes, 505 unit tests (+3 skipped). HuggingFace Hub Expansion: 4 datasets published ([SPADL/VAEP](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values), [Line-Breaking Passes](https://huggingface.co/datasets/luxury-lakehouse/line-breaking-passes), [Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings), [Pitch Control](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking)), [Gradio demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo), pitch control batch pipeline, JAX kernel, TacticAI symmetry augmentation. See [ARCHITECTURE.md](ARCHITECTURE.md) for the platform architecture and [ROADMAP.md](ROADMAP.md) for research directions.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
