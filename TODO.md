@@ -21,6 +21,12 @@ Tasks warming up in the on-deck circle.
 | D5 | OpenSTARLab Pre-Trained Models | Wicked | [ROADMAP.md](ROADMAP.md) | Apache 2.0 inference (Seq2Event, LEM, FMS) on existing StatsBomb/Wyscout data. Publish predictions to HF Hub |
 | D6 | Custom xG Model | Wicked | [ROADMAP.md](ROADMAP.md) | Train competition-specific xG from ~131K StatsBomb shots. Logistic regression baseline + gradient boosted. Publish to HF Hub |
 | D8 | Dynamic xT Grid Seed Replacement | Dunkin' | Tech debt #17 | Module ready (`src/analytics/expected_threat.py`). Run `compute_expected_threat` on Databricks to generate data-driven grid, replace static `expected_threat_grid.csv` seed |
+| D9 | ELASTIC Event-Tracking Sync | Wicked | [ROADMAP.md](ROADMAP.md) | Adapt Kim et al. ELASTIC sync engine for IDSSE schema. Aligns discrete events with 25fps tracking (95.5% exact alignment). Independently valuable — any future tracking+event analysis needs this. License: Apache-2.0 (pending, assumed formality) |
+| D10 | OBSO + PAUSA Pipeline | Wicked | [ROADMAP.md](ROADMAP.md) | Full OBSO scoring surface (PPCF × Transition × EPV) + PAUSA temporal/spatial decomposition + ghost trajectories + `fct_pausa_values` Delta table + dbt mart + Streamlit page. Builds on D9 |
+| D11 | MLflow Model Registry & Experiment Tracking | Dunkin' | [ROADMAP.md](ROADMAP.md) | UC Model Registry with Champion/Challenger aliases for D5/D6 models. `mlflow.evaluate()` for batch validation (Brier score, calibration). Cross-cutting enabler for all ML work |
+| D12 | Model Validation & Drift Detection | Dunkin' | [ROADMAP.md](ROADMAP.md) | PSI for xG, Wasserstein for xT/VAEP distributions, CUSUM for sustained drift, range bounds for physical stats. Pure scipy/numpy. Reference baselines as dbt seeds |
+| D13 | Physics-Based Tracking Augmentation | Dunkin' | [ROADMAP.md](ROADMAP.md) | Position/velocity jitter within physical constraints. 10× multiplier on 20 tracking matches. Combined with symmetry augmentation (8×) = 80× effective training data. NumPy only |
+| D14 | Space Creation (Full Counterfactual) | Wicked | [ROADMAP.md](ROADMAP.md) | Fernandez & Bornn 2018 OBSO counterfactual analysis. Differential pitch control per player per frame. Unblocked by D10 (OBSO + ghost trajectories) + D13 (augmented tracking data). JAX kernel ready (Phase 18) |
 | D7 | Observability Layer (OTel) | Monstah | [ROADMAP.md](ROADMAP.md) | Research complete, ready for implementation. Instrument once, observe anywhere. ~$1-2/month personal tier |
 
 ---
