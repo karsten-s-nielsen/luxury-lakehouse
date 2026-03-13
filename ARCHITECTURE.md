@@ -1,6 +1,6 @@
 # Databricks Lakebase Architecture — Soccer Analytics Platform
 
-> **Status**: Phase 18 complete — 11 Streamlit pages, 16 synced tables, 34 PG indexes, 505 unit tests (+3 skipped). HuggingFace Hub Expansion: 4 datasets published, Gradio demo Space, pitch control batch pipeline, JAX kernel, TacticAI symmetry augmentation.
+> **Status**: Phase 18 complete — 11 Streamlit pages, 16 synced tables, 34 PG indexes, 524 unit tests. HuggingFace Hub Expansion: 4 datasets published, Gradio demo Space with luxury flagship theme (5 interactive tabs), pitch control batch pipeline, JAX kernel, TacticAI symmetry augmentation.
 > **Last Updated**: 2026-03-12
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready
@@ -445,8 +445,9 @@ luxury-lakehouse/
 │   ├── terraform-plan.yml            # Plan on PR (OIDC auth)
 │   └── dbt-ci.yml                    # dbt slim CI (state:modified+, --empty, --defer)
 │
-├── demo_space/                      # HuggingFace Gradio demo Space (player similarity, shot map, pass quality)
-│   └── app.py                       # Gradio app with pre-cached Parquet subsets
+├── demo_space/                      # HuggingFace Gradio demo Space (5 tabs: pass quality, pitch control, player similarity, shot map, DEFCON pressure)
+│   ├── app.py                       # Gradio app with luxury flagship theme (dark surfaces, gold accents)
+│   └── pitch_control.py             # Pure NumPy pitch control (Spearman 2017) — no Spark dependency
 │
 └── docs/
     ├── c4/
@@ -517,7 +518,7 @@ All code must pass these gates before merge:
 
 | Level | What | How |
 |-------|------|-----|
-| Unit | Ingestion logic, utility functions, analytics models | pytest (502 passed + 3 skipped, incl. pytest-benchmark baselines) |
+| Unit | Ingestion logic, utility functions, analytics models | pytest (524 passed, incl. pytest-benchmark baselines) |
 | Integration | dbt models compile and run | dbt slim CI (`state:modified+`, `--empty`, `--defer`) |
 | Data quality | Row counts, value ranges, referential integrity | dbt tests (381) + dbt-expectations |
 | E2E | Streamlit pages render with real data | Manual smoke test |

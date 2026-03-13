@@ -80,12 +80,13 @@ compute_off_ball_xt = "ingestion.off_ball_xt:main"
 compute_defcon_lite = "ingestion.defcon_lite:main"
 resolve_players = "ingestion.entity_resolution:main"
 compute_embeddings = "ingestion.player_embeddings:main"
+compute_expected_threat = "ingestion.expected_threat:main"
 compute_pitch_control = "ingestion.pitch_control_batch:main"
 
 [tool.ruff]
 target-version = "py310"
 line-length = 120
-exclude = ["demo_space"]
+exclude = ["demo_space", "notebooks"]
 
 [tool.ruff.lint]
 select = [
@@ -110,7 +111,7 @@ known-first-party = ["analytics", "ingestion", "streamlit_app"]
 pythonVersion = "3.10"
 typeCheckingMode = "basic"
 reportMissingImports = "warning"  # pyspark only available in Databricks runtime
-exclude = ["demo_space"]
+exclude = ["demo_space", "notebooks"]
 
 [tool.pytest.ini_options]
 testpaths = ["src/tests"]

@@ -17,7 +17,7 @@ Open-source soccer analytics platform built on **Databricks Lakebase** &mdash; r
 | [line-breaking-passes](https://huggingface.co/datasets/luxury-lakehouse/line-breaking-passes) | Dataset | All passes with defensive line-breaking labels via Ward clustering |
 | [football2vec-player-embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings) | Dataset | Pre-computed behavioral + statistical vectors (career/season/match) |
 | [pitch-control-tracking](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking) | Dataset | Per-player per-frame Spearman (2017) pitch control from tracking data |
-| [soccer-analytics-demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) | Space | Interactive Gradio demo: player similarity, shot maps, pass quality |
+| [soccer-analytics-demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) | Space | Interactive Gradio demo: pass quality, pitch control, player similarity, shot maps, DEFCON pressure |
 
 ## The Platform
 
