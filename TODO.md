@@ -18,12 +18,9 @@ Tasks warming up in the on-deck circle.
 
 | # | Task | Size | Source | Notes |
 |---|------|------|--------|-------|
-| D1 | HF Space — Pitch Control + Velocity Arrows | Wicked | Phase 18 follow-on | Ship `pitch_control.py` (pure NumPy), sample tracking Parquet (recognizable matches via Databricks export), new Gradio tab: frame slider + physics heatmap (RdBu) + velocity arrow toggle |
-| D2 | HF Space — DEFCON Pressure Breakdown | Wicked | Phase 17 follow-on | Export denormalized pressure data (player names + match labels pre-joined), new Gradio tab: player search + Plotly grouped bar chart (intercept/concede/disturb/deter). Add `plotly` dep |
-| D3 | Dynamic xT Grid | Wicked | Tech Debt #17 | Data-driven Markov chain replaces static 12×8 Karun Singh seed. Compute transition probabilities from ~131K pass/shot events per competition. JAX kernel available |
-| D4 | Pitch Control Animation | Dunkin' | D1 follow-on | Frame-by-frame pitch control playback in HF Space. Animate physics heatmap with play/pause controls. Depends on D1 tracking data |
 | D5 | OpenSTARLab Pre-Trained Models | Wicked | [ROADMAP.md](ROADMAP.md) | Apache 2.0 inference (Seq2Event, LEM, FMS) on existing StatsBomb/Wyscout data. Publish predictions to HF Hub |
 | D6 | Custom xG Model | Wicked | [ROADMAP.md](ROADMAP.md) | Train competition-specific xG from ~131K StatsBomb shots. Logistic regression baseline + gradient boosted. Publish to HF Hub |
+| D8 | Dynamic xT Grid Seed Replacement | Dunkin' | Tech debt #17 | Module ready (`src/analytics/expected_threat.py`). Run `compute_expected_threat` on Databricks to generate data-driven grid, replace static `expected_threat_grid.csv` seed |
 | D7 | Observability Layer (OTel) | Monstah | [ROADMAP.md](ROADMAP.md) | Research complete, ready for implementation. Instrument once, observe anywhere. ~$1-2/month personal tier |
 
 ---
@@ -31,6 +28,15 @@ Tasks warming up in the on-deck circle.
 ## Completed Phases
 
 Phases 0–18 are complete. See git history for implementation details.
+
+### Completed On-Deck Items
+
+| # | Task | Resolution |
+|---|------|------------|
+| D1 | HF Space — Pitch Control + Velocity Arrows | Pitch control tab live with frame slider, physics heatmap (RdBu), velocity arrows. `pitch_control.py` (pure NumPy) + sample tracking Parquet exported from Databricks |
+| D2 | HF Space — DEFCON Pressure Breakdown | DEFCON pressure tab live with filterable player dropdown + Plotly grouped bar chart (intercept/concede/disturb/deter). Data aggregated from `fct_defcon_actions` (9,815 rows, 2,394 players, 323 matches), bundled as Parquet in Space |
+| D3 | Dynamic xT Grid | `src/analytics/expected_threat.py` + `src/ingestion/expected_threat.py` — Markov chain value iteration replaces static Karun Singh seed. Entry point `compute_expected_threat`, tests in `test_expected_threat.py` |
+| ~~D4~~ | ~~Pitch Control Animation~~ | ~~Dropped — per-frame physics computation too expensive for free HF Space tier. Static frame slider (D1) provides equivalent functionality~~ |
 
 ---
 
@@ -42,7 +48,6 @@ Phases 0–18 are complete. See git history for implementation details.
 |---|------|----------|-------------|---------|
 | 1 | Synced tables Terraform workaround | `terraform/` | Must create synced tables via UI + import due to missing provider fields. `lifecycle { ignore_changes = all }`. No schedule/cron field on resource — SNAPSHOT refresh requires manual trigger or external job. Workaround: `scripts/refresh_synced_tables.py`. Root cause: the `/api/2.0/postgres/` surface (Autoscaling) has zero synced table endpoints — UI is the only method. The Provisioned API (`/api/2.0/database/synced_tables`) uses `database_instance_name` with no project/branch equivalent. GitHub issue filed: [terraform-provider-databricks#5456](https://github.com/databricks/terraform-provider-databricks/issues/5456). Related: [#5389](https://github.com/databricks/terraform-provider-databricks/issues/5389) (same gap for `databricks_database_database_catalog`). **Update 2026-03-06:** Connected with a Databricks Solution Architect at SSAC26 conference (LinkedIn). Bug report reference being forwarded for internal triage. | Blocked on Databricks API team adding synced table endpoints to `/api/2.0/postgres/`. Provider cannot be fixed until upstream API exists. |
 | 2 | PG index recreation after synced table changes | `scripts/create_indexes.py` | Custom indexes dropped on synced table recreation. Must re-run script manually. | Operational procedure; automated via `create_indexes.py --verify`. |
-| 5 | ~~`pitch_control_value` column still NULL~~ | `fct_tracking_frames` | **Resolved (Phase 18)**: `pitch_control_batch.py` populates `bronze.pitch_control_values` via `applyInPandas`. Staging model `stg_pitch_control__values` exposes values. HF export JOINs at query time. The `fct_tracking_frames.pitch_control_value` column remains NULL (standalone bronze table pattern). | Resolved |
 | 6 | Line-breaking Path B limited to Metrica only | `line_breaking.py` | IDSSE (7 matches) and SkillCorner (10 matches) have tracking but no event data. | Blocked on event data procurement or ball trajectory detection. |
 | 7 | Single-frame 360 analysis | `line_breaking.py` | Path A uses opponent positions at pass moment only. Dual-frame would be more robust. | 360 freeze frames lack temporal resolution. Data limitation. |
 | 9 | Fixed 3-cluster assumption | `analytics/line_breaking.py` | Ward clustering with `n_clusters=3` assumes 3 defensive lines. Breaks for 5-depth formations. | Research task — needs silhouette score analysis. |
@@ -51,7 +56,6 @@ Phases 0–18 are complete. See git history for implementation details.
 | 13 | PPDA StatsBomb-only | `fct_match_summary.sql` | PPDA uses StatsBomb defensive actions. NULL for Wyscout-only competitions (different event taxonomy). | Data limitation. Would require event type mapping or different pressing proxy. |
 | 14 | Space creation deferred | ROADMAP.md | Full Fernandez & Bornn 2018 OBSO requires N+1 pitch control computations per frame — too expensive for current compute budget. **Update (Phase 18):** JAX kernel (`compute_pitch_control_grid_fast`) enables `vmap` over grid points, partially unblocking OBSO. | Research direction in ROADMAP.md. JAX kernel available. |
 | 16 | Physical stats tracking-only | `fct_physical_stats.sql` | Only 20 matches (Metrica 3, IDSSE 7, SkillCorner 10) have physical data. ~3,000 event-only matches have none. | Data limitation — no tracking for StatsBomb/Wyscout. |
-| 17 | xT grid static | `expected_threat_grid.csv` | Karun Singh standard 12x8 seed. Could be computed dynamically per competition from pass/shot data for more accurate values. **Update (Phase 18):** JAX kernel enables efficient grid computation if needed. | Enhancement — current static grid is standard practice. |
 | 18 | DEFCON-lite anonymous defenders | `ingestion/defcon_lite.py` | StatsBomb 360 freeze frames are anonymous — `defender_player_id` is synthetic. `fct_defensive_values` cannot attribute credit to real defenders. Mitigated: `fct_defcon_pressure` pivots to attacker perspective (real `action_player_id`). | Full fix requires Tier 4 GNN with tracking data (500+ matches needed). |
 | 25 | Lakebase CU right-sizing | Terraform | `autoscaling_max_cu = 4` may be overprovisioned for dev. Reduce to 2. | Blocked — Terraform provider cannot update `initial_endpoint_spec` after creation. Needs UI change. |
 | 26 | IDSSE XML ball-before-player ordering assumption | `src/ingestion/idsse.py` | Single-pass XML merge assumes ball FrameSets precede player FrameSets in DFL position XML. Validated by inspection of current 7 files but not asserted in code. Add a runtime check or unit test that verifies ball coords are available when player frames are processed. If DFL ever delivers files with interleaved ordering, `ball_x`/`ball_y` will silently degrade to NULL. | Low priority — graceful degradation, but should validate. |
@@ -102,6 +106,7 @@ Items resolved during phases or the optimization audit (2026-03-11). Details pre
 | O11 | `statsbombpy` in core deps | Moved to optional `[statsbomb]` extra. |
 | O12 | No `max_concurrent_runs` | Set `max_concurrent_runs = 1` on ingestion workflow. |
 | O13 | Entity resolution Delta schema merge | Explicit `int64`/`float64` dtypes on empty DataFrame code paths. |
+| 5 | `pitch_control_value` column NULL | `pitch_control_batch.py` populates `bronze.pitch_control_values` via `applyInPandas`. Staging model `stg_pitch_control__values` exposes values. HF export JOINs at query time. |
 | O14 | Off-ball xT missing seed CSV | xT grid CSV uploaded to UC Volume with fallback chain. |
 | O15 | IDSSE tracking intermittent OOM | Per-period processing halves peak DataFrame memory. |
 | O21 | Incremental skip guards missing | All 5 ingestion modules check existing match IDs before re-processing. |
@@ -123,7 +128,7 @@ See [ROADMAP.md](ROADMAP.md) for research directions, long-horizon features, and
 - **Graph-Based Tactical Patterns** — GNN research direction (Raabe et al. 2022)
 - **Decision Optimization** — RL-based pass optimization beyond VAEP (Rahimian et al.)
 - **Space Creation** — Fernandez & Bornn 2018 OBSO (deferred from Phase 12; JAX `vmap` may unblock)
-- **HuggingFace Hub Integration** — Tiers 1-2 and 4 complete (model + 4 datasets published, Gradio demo Space live); remaining: Tier 3 GPU training
+- **HuggingFace Hub Integration** — Tiers 1-2 and 4 complete (model + 4 datasets published, Gradio demo Space live with luxury flagship theme); remaining: Tier 3 GPU training
 
 ## Infrastructure Notes
 

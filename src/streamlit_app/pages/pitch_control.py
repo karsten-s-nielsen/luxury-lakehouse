@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 from typing import Any
 
 import pandas as pd
@@ -126,8 +127,8 @@ def page() -> None:
     with st.sidebar:
         viz_mode = st.radio("Model", ["Physics (Spearman)", "Voronoi"], horizontal=True)
         match_id = st.selectbox("Match", matches["match_id"].tolist())
-        period = st.radio("Period", [1, 2], horizontal=True)
-        show_velocity = st.toggle("Show velocity arrows", value=False)
+        period = st.radio("Half", [1, 2], horizontal=True)
+        show_velocity = st.toggle("Show velocity arrows", value=True)
 
     if match_id is None or period is None:
         return
@@ -137,12 +138,22 @@ def page() -> None:
         st.warning("No frames found for this match and period.")
         return
 
-    # Adaptive frame slider step based on source frame rate
+    # Convert frame range to elapsed seconds for time-based slider
     fps = _load_frame_rate(str(match_id))
-    slider_step = fps  # Skip 1 second of frames per slider tick
+    duration_secs = (max_frame - min_frame) // fps
+    dur_min, dur_sec = divmod(duration_secs, 60)
 
     with st.sidebar:
-        frame = st.slider("Frame", min_value=min_frame, max_value=max_frame, value=min_frame, step=slider_step)
+        selected_time = st.slider(
+            f"Time ({fps} fps)",
+            min_value=datetime.time(0, 0, 0),
+            max_value=datetime.time(0, dur_min, dur_sec),
+            value=datetime.time(0, 0, 0),
+            step=datetime.timedelta(seconds=1),
+            format="mm:ss",
+        )
+        elapsed_secs = selected_time.minute * 60 + selected_time.second
+        frame = min_frame + elapsed_secs * fps
 
     frame_data = _load_frame_data(str(match_id), frame)
     if frame_data.empty:
@@ -156,7 +167,7 @@ def page() -> None:
     col_viz, col_stats = st.columns([3, 1])
 
     with col_viz:
-        title = f"Pitch Control — {match_id} P{period} F{frame}"
+        title = f"Pitch Control — {match_id} H{period} {elapsed_secs // 60:02d}:{elapsed_secs % 60:02d}"
         if viz_mode == "Physics (Spearman)":
             # Fill NaN velocities with 0 for physics model
             physics_data = frame_data.copy()

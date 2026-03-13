@@ -628,7 +628,7 @@ Phase 12 implemented a simpler Off-Ball xT metric: `pitch_control(player_locatio
 
 ## <img src="assets/hf-logo.png" height="28" align="top"> HuggingFace Hub Integration (Open Model & Dataset Ecosystem)
 
-**Status:** Tiers 1&ndash;2 complete, Tier 4 complete (Gradio demo Space). Tier 3 deferred to DEFCON Tier 4.
+**Status:** Tiers 1&ndash;2 complete, Tier 4 complete (Gradio demo Space with luxury flagship theme). Tier 3 deferred to DEFCON Tier 4.
 **Budget:** $0 (free tier) or $9/month (PRO for priority GPU access)
 **References:** [Databricks &hearts; HuggingFace](https://www.databricks.com/blog/contributing-spark-loader-for-hugging-face-datasets); [PyG Hub Integration](https://github.com/pyg-team/pytorch_geometric/issues/7170); [SoccerNet on HF](https://huggingface.co/SoccerNet)
 
@@ -705,14 +705,17 @@ All artifacts fit within HF's free 10 GB/repo Git LFS limit. Dataset repos get a
 
 ### Tier 4 &mdash; Public demo Space
 
-A HuggingFace Space (Streamlit or Gradio) hosting a read-only demo with pre-cached data subsets. Not a replacement for the Databricks Apps deployment (which has live Lakebase connectivity), but a public portfolio piece for:
+**Status:** Complete
 
-- Interactive pitch control visualization
-- Player embedding similarity explorer
-- xG model playground
-- Line-breaking pass detection examples
+A Gradio Space hosting a read-only demo with pre-cached Parquet subsets. Not a replacement for the Databricks Apps deployment (which has live Lakebase connectivity), but a public portfolio piece showcasing the platform's analytics capabilities.
 
-**Constraint:** No Lakebase connectivity from HF Spaces. All data must be pre-exported as static Parquet/CSV files bundled with the Space. This limits the demo to curated subsets rather than full interactive queries.
+**Live at:** [`luxury-lakehouse/soccer-analytics-demo`](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+
+**Tabs** (in order): Pass Quality, Pitch Control, Player Similarity, Shot Map, DEFCON Pressure
+
+**Theme:** Luxury flagship &mdash; `gr.themes.Monochrome` with dark surfaces (`#0f0f14`), amber/gold accents (`#f59e0b`), sharp corners, Inter font, and CSS-injected tab navigation with gold bottom-border active state.
+
+**Constraint:** No Lakebase connectivity from HF Spaces. All data must be pre-exported as static Parquet/CSV files bundled with the Space. This limits the demo to curated subsets rather than full interactive queries. Export notebook: `notebooks/export_demo_data.py`.
 
 ### Account and organization model
 
@@ -737,9 +740,83 @@ A HuggingFace Space (Streamlit or Gradio) hosting a read-only demo with pre-cach
 - Tier 1 (consume) &mdash; **complete** (football2vec retrained on StatsBomb corpus)
 - Tier 2 (publish) &mdash; **complete** (model + 4 datasets published: [SPADL/VAEP](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values), [Line-Breaking Passes](https://huggingface.co/datasets/luxury-lakehouse/line-breaking-passes), [Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings), [Pitch Control](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking))
 - Tier 3 (train) depends on DL Infrastructure (ROADMAP) for GNN training pipeline
-- Tier 4 (demo) &mdash; **complete** (Gradio Space at [`luxury-lakehouse/soccer-analytics-demo`](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with player similarity, shot map, pass quality tabs)
+- Tier 4 (demo) &mdash; **complete** (Gradio Space at [`luxury-lakehouse/soccer-analytics-demo`](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme and 5 tabs: pass quality, pitch control, player similarity, shot map, DEFCON pressure)
+- Tier 5 (streaming) &mdash; blocked on Polars `hf://buckets/` merge (see below)
 - Synergistic with DL Infrastructure (HF models flow into MLflow + UC model registry)
 - Synergistic with Provider Abstraction (football2vec/OpenSTARLab consume same StatsBomb/Wyscout data)
+
+### Tier 5 &mdash; Streaming dataset publishing via XET + Polars
+
+**Status:** Research complete, blocked on upstream (Polars branch not yet merged)
+**Discovered:** 2026-03-12 via [Daniel van Strien](https://www.linkedin.com/in/danielvanstrien/) (HuggingFace)
+**Branch:** [`davanstrien/polars:feature/hf-bucket-sink`](https://github.com/davanstrien/polars/tree/feature/hf-bucket-sink)
+**Proof of concept:** 74 GB of Dutch PDFs filtered to 650 MB in 18 minutes on 2 vCPUs, constant memory
+
+Three HF Hub primitives converge to enable a fundamentally better dataset publishing workflow:
+
+#### 1. XET protocol (live, March 2025)
+
+Content-addressed storage replacing Git LFS on HF Hub. Uses Content-Defined Chunking (~64 KB chunks) with chunk-level deduplication. Key implication: **re-publishing a dataset after adding new competitions only uploads changed chunks**, not the entire file. Our published datasets (SPADL 500 MB+, pitch control tracking, embeddings) would benefit immediately.
+
+- [XET blog post](https://huggingface.co/blog/xet-on-the-hub)
+- Chunk-level dedup: editing one row in a 5 GB Parquet file uploads ~64 KB, not 5 GB
+- Already active on all new HF Hub repos
+
+#### 2. Storage Buckets (live)
+
+Non-versioned, mutable S3-like storage on HF Hub. No git overhead, no version history accumulation. Managed via `hf buckets sync` CLI or `huggingface_hub` Python API.
+
+- [Docs](https://huggingface.co/docs/hub/storage-buckets)
+- Example output: [`davanstrien/finepdfs-edu-gold`](https://huggingface.co/buckets/davanstrien/finepdfs-edu-gold) (702 MB filtered Dutch educational PDFs)
+- CDN pre-warming available per-region
+- `hf://buckets/` path protocol for programmatic access
+
+**Applicability to us:** Demo Space data files (`sample_tracking.parquet` 7 MB, `defcon_pressure.parquet` 1.6 MB, `career_embeddings.parquet` 330 KB) are static exports that don&rsquo;t need git versioning. Storage Buckets would be a cleaner fit than the current pattern of committing Parquet files into the Space repo.
+
+#### 3. Polars `sink_parquet` to HF Buckets (branch, not merged)
+
+Rust-level implementation in Polars that adds streaming writes from lazy frames directly to HF Storage Buckets via XET. The architecture uses O(row_group_size) memory instead of O(total_dataset) &mdash; row groups are encoded and streamed as produced, never buffered in full.
+
+Key implementation files in the branch:
+
+| File | Purpose |
+|------|---------|
+| `hf_bucket_sink.rs` | ComputeNode routing `sink_parquet("hf://buckets/...")` |
+| `streaming_upload.rs` | Incremental Parquet encoding + XET streaming via bounded channel |
+| `xet_upload.rs` | Session management using `xet-session` from `huggingface/xet-core` |
+| `lower_ir.rs` | URL routing for `hf://buckets/` path detection |
+
+Token refresh for long-running uploads (XET tokens expire ~1 hour) is handled. Uses `spawn_blocking` for XetSession creation to avoid async runtime conflicts.
+
+```python
+# Current publishing workflow (5 steps, local staging required):
+# 1. Spark SQL → UC Volume (Parquet directory)
+# 2. databricks fs cp → local download
+# 3. pd.read_parquet() → consolidate part files
+# 4. df.to_parquet() → single file
+# 5. HfApi().upload_folder() → HF Hub
+
+# Future workflow (1 step, zero local staging):
+pl.scan_parquet("hf://datasets/luxury-lakehouse/spadl-vaep-action-values/**/*.parquet")
+  .vstack(new_season_data)
+  .sink_parquet("hf://buckets/luxury-lakehouse/staging/spadl-vaep.parquet")
+```
+
+#### When to act
+
+| Signal | Action |
+|--------|--------|
+| Polars merges `hf://buckets/` sink support | Evaluate for dataset refresh automation |
+| Published datasets exceed 1 GB per repo | Migrate to XET-aware incremental updates |
+| Respo.Vision 3D pose data arrives | Streaming writes essential (large video-derived datasets) |
+| CI/CD dataset publishing needed | Storage Buckets as staging + `hf buckets sync` in GitHub Actions |
+
+#### Immediate low-effort wins (no Polars dependency)
+
+Even before the Polars branch merges, two things are actionable today:
+
+1. **XET is already active** &mdash; our existing `HfApi().upload_folder()` calls already benefit from chunk-level dedup when updating published datasets. No code change needed.
+2. **Storage Buckets for demo data** &mdash; could migrate `demo_space/data/` from git-tracked Parquet to a bucket, reducing Space repo size and avoiding git history bloat when demo data is refreshed. Requires updating `app.py` to read from `hf://buckets/luxury-lakehouse/demo-data/` instead of local paths.
 
 ---
 

@@ -15,7 +15,10 @@ import gradio as gr
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import plotly.express as px
 from mplsoccer import Pitch
+
+from pitch_control import PitchControlParams, compute_pitch_control_frame
 
 DATA_DIR = Path(__file__).parent / "data"
 
@@ -35,6 +38,8 @@ def _load_parquet(name: str) -> pd.DataFrame:
 embeddings_df = _load_parquet("career_embeddings.parquet")
 shots_df = _load_parquet("sample_shots.parquet")
 passes_df = _load_parquet("sample_passes.parquet")
+tracking_df = _load_parquet("sample_tracking.parquet")
+pressure_df = _load_parquet("defcon_pressure.parquet")
 
 # Coerce string booleans from Spark Parquet export to proper types
 if not shots_df.empty and "is_goal" in shots_df.columns:
@@ -60,6 +65,12 @@ for _col in _NUMERIC_COLS:
     if not passes_df.empty and _col in passes_df.columns:
         passes_df[_col] = pd.to_numeric(passes_df[_col], errors="coerce")
 
+# Coerce tracking numeric columns
+_TRACKING_NUMERIC = ["x", "y", "velocity_x", "velocity_y", "ball_x", "ball_y", "speed_ms"]
+for _col in _TRACKING_NUMERIC:
+    if not tracking_df.empty and _col in tracking_df.columns:
+        tracking_df[_col] = pd.to_numeric(tracking_df[_col], errors="coerce")
+
 
 # ---------------------------------------------------------------------------
 # Player Similarity
@@ -80,32 +91,16 @@ def _extract_vectors(df: pd.DataFrame, col: str) -> np.ndarray:
     return np.array(parsed, dtype=np.float64)
 
 
-def _match_players(query: str) -> pd.DataFrame:
-    """Find players whose name contains the query string."""
-    if embeddings_df.empty or "player_name" not in embeddings_df.columns:
-        return pd.DataFrame()
-    if not query or len(query) < 2:
-        return pd.DataFrame()
-    return embeddings_df[embeddings_df["player_name"].astype(str).str.contains(query, case=False, na=False)]
-
-
-def update_player_dropdown(query: str) -> gr.Dropdown:
-    """Update the player dropdown based on the search query."""
-    matches = _match_players(query)
-    if matches.empty:
-        placeholder = "No matches — try another name" if query and len(query) >= 2 else "Type at least 2 characters..."
-        return gr.Dropdown(choices=[], value=None, label="Matching players", info=placeholder)
-    # Cap at 10 options, show name + match count for disambiguation
-    options = []
-    for _, row in matches.head(10).iterrows():
-        name = row["player_name"]
+# Pre-build sorted player choices for similarity dropdown
+_similarity_players: list[tuple[str, str]] = []
+_default_similarity_player: str | None = None
+if not embeddings_df.empty and "player_name" in embeddings_df.columns:
+    for _, row in embeddings_df.sort_values("player_name").iterrows():
+        name = str(row["player_name"])
         total = row.get("total_matches", "")
-        label = f"{name} ({total} matches)" if total else name
-        options.append((label, name))
-    default = options[0][1] if len(options) == 1 else None
-    n_total = len(matches)
-    info = f"{n_total} players found" if n_total > 10 else f"{n_total} player{'s' if n_total != 1 else ''} found"
-    return gr.Dropdown(choices=options, value=default, label="Matching players", info=info)
+        label = f"{name} ({int(total)} matches)" if total else name
+        _similarity_players.append((label, name))
+    _default_similarity_player = _similarity_players[0][1] if _similarity_players else None
 
 
 def find_similar_players(selected_player: str | None, top_k: int = 10) -> pd.DataFrame:
@@ -376,10 +371,487 @@ def create_pass_map(
 
 
 # ---------------------------------------------------------------------------
+# Pitch Control (mplsoccer + physics model)
+# ---------------------------------------------------------------------------
+
+_PC_PARAMS = PitchControlParams()
+
+
+def _get_tracking_matches() -> list[str]:
+    """Return sorted list of match IDs from tracking data."""
+    if tracking_df.empty or "match_id" not in tracking_df.columns:
+        return []
+    return sorted(tracking_df["match_id"].unique().tolist())
+
+
+def _get_frame_rate(match_id: str) -> int:
+    """Return frame rate for a given match."""
+    if tracking_df.empty or "frame_rate" not in tracking_df.columns:
+        return 25
+    match_rows = tracking_df[tracking_df["match_id"] == match_id]
+    if match_rows.empty:
+        return 25
+    return int(match_rows["frame_rate"].iloc[0])
+
+
+def _fmt_time(seconds: int) -> str:
+    """Format seconds as MM:SS."""
+    return f"{seconds // 60:02d}:{seconds % 60:02d}"
+
+
+def _get_duration_seconds(match_id: str, period: int) -> int:
+    """Return duration in whole seconds for a given match and period."""
+    if tracking_df.empty:
+        return 0
+    mask = (tracking_df["match_id"] == match_id) & (tracking_df["period"] == period)
+    subset = tracking_df.loc[mask, "frame"]
+    if subset.empty:
+        return 0
+    fps = _get_frame_rate(match_id)
+    return (int(subset.max()) - int(subset.min())) // fps
+
+
+def _seconds_to_frame(match_id: str, period: int, elapsed_sec: int) -> int:
+    """Convert elapsed seconds back to the nearest frame number."""
+    if tracking_df.empty:
+        return 0
+    mask = (tracking_df["match_id"] == match_id) & (tracking_df["period"] == period)
+    subset = tracking_df.loc[mask, "frame"]
+    if subset.empty:
+        return 0
+    fps = _get_frame_rate(match_id)
+    return int(subset.min()) + elapsed_sec * fps
+
+
+def _update_time_slider(match_id: str, period: int) -> gr.Slider:
+    """Update time slider range when match or half changes."""
+    duration = _get_duration_seconds(match_id, period)
+    fps = _get_frame_rate(match_id)
+    return gr.Slider(
+        minimum=0,
+        maximum=duration,
+        value=0,
+        step=1,
+        label=f"Time: 00:00 \u2014 {_fmt_time(duration)} ({fps} fps)",
+        elem_id="pc-time-slider",
+    )
+
+
+def create_pitch_control_plot(
+    match_id: str,
+    period: int,
+    elapsed_sec: int,
+    show_velocity: bool,
+) -> plt.Figure:
+    """Create a pitch control surface plot for a single tracking frame."""
+    pitch = Pitch(pitch_type="statsbomb", pitch_color="#1a1a2e", line_color="#cccccc")
+    fig, ax = pitch.draw(figsize=(12, 8))
+    fig.set_facecolor("#1a1a2e")
+
+    if tracking_df.empty:
+        ax.text(60, 40, "No tracking data loaded.", ha="center", va="center", color="white", fontsize=14)
+        return fig
+
+    # Convert elapsed seconds to frame number
+    frame = _seconds_to_frame(match_id, period, int(elapsed_sec))
+
+    # Filter to exact frame
+    mask = (
+        (tracking_df["match_id"] == match_id)
+        & (tracking_df["period"] == period)
+        & (tracking_df["frame"] == frame)
+    )
+    frame_df = tracking_df.loc[mask].copy()
+
+    if frame_df.empty:
+        ax.text(60, 40, "No data for this frame.", ha="center", va="center", color="white", fontsize=14)
+        return fig
+
+    # Prepare player DataFrame for pitch control computation
+    players = frame_df[["player_id", "team", "x", "y", "velocity_x", "velocity_y"]].copy()
+    players = players.dropna(subset=["x", "y"])
+
+    # Fill missing velocities with zero
+    players["velocity_x"] = players["velocity_x"].fillna(0.0)
+    players["velocity_y"] = players["velocity_y"].fillna(0.0)
+
+    # Compute pitch control surface
+    grid_x, grid_y, surface = compute_pitch_control_frame(players, _PC_PARAMS)
+
+    # Plot heatmap — surface is (ny, nx), extent maps to StatsBomb coordinates
+    ax.imshow(
+        surface,
+        extent=[grid_x[0], grid_x[-1], grid_y[-1], grid_y[0]],
+        cmap="RdBu",
+        alpha=0.6,
+        vmin=0.0,
+        vmax=1.0,
+        aspect="auto",
+        interpolation="bilinear",
+        zorder=1,
+    )
+
+    # Draw players
+    home = frame_df[frame_df["team"] == "home"]
+    away = frame_df[frame_df["team"] == "away"]
+
+    if not home.empty:
+        pitch.scatter(
+            home["x"],
+            home["y"],
+            ax=ax,
+            c="#457b9d",
+            s=120,
+            edgecolors="white",
+            linewidth=1.5,
+            zorder=4,
+            label=f"Home ({len(home)})",
+        )
+    if not away.empty:
+        pitch.scatter(
+            away["x"],
+            away["y"],
+            ax=ax,
+            c="#e63946",
+            s=120,
+            edgecolors="white",
+            linewidth=1.5,
+            zorder=4,
+            label=f"Away ({len(away)})",
+        )
+
+    # Draw velocity arrows if enabled
+    if show_velocity:
+        arrow_scale = 3.0  # Scale factor for visibility
+        for _, row in frame_df.iterrows():
+            vx = float(row.get("velocity_x", 0) or 0)
+            vy = float(row.get("velocity_y", 0) or 0)
+            if abs(vx) > 0.1 or abs(vy) > 0.1:
+                color = "#457b9d" if row["team"] == "home" else "#e63946"
+                ax.arrow(
+                    float(row["x"]),
+                    float(row["y"]),
+                    vx * arrow_scale,
+                    vy * arrow_scale,
+                    head_width=1.0,
+                    head_length=0.5,
+                    fc=color,
+                    ec=color,
+                    alpha=0.7,
+                    zorder=5,
+                )
+
+    # Draw ball position (if available)
+    ball_x_val = frame_df["ball_x"].dropna()
+    ball_y_val = frame_df["ball_y"].dropna()
+    if not ball_x_val.empty and not ball_y_val.empty:
+        bx = float(ball_x_val.iloc[0])
+        by = float(ball_y_val.iloc[0])
+        ax.plot(
+            bx,
+            by,
+            marker="h",
+            markersize=14,
+            color="#f1fa8c",
+            markeredgecolor="black",
+            markeredgewidth=1.5,
+            zorder=6,
+            label="Ball",
+        )
+
+    # Compute control percentages
+    home_control = float(np.mean(surface)) * 100
+    away_control = 100.0 - home_control
+
+    # Get timestamp for title
+    ts_col = frame_df["timestamp_seconds"]
+    timestamp = float(ts_col.iloc[0]) if not ts_col.empty else 0.0
+    minutes = int(timestamp // 60)
+    seconds = int(timestamp % 60)
+
+    title = (
+        f"Pitch Control \u2014 {match_id} | H{period} {minutes:02d}:{seconds:02d} | "
+        f"Home {home_control:.0f}% \u2013 Away {away_control:.0f}%"
+    )
+    ax.set_title(title, color="white", fontsize=13, pad=8)
+    ax.legend(loc="upper left", fontsize=9, facecolor="#1a1a2e", edgecolor="white", labelcolor="white")
+
+    plt.tight_layout()
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# DEFCON Pressure (Plotly)
+# ---------------------------------------------------------------------------
+
+
+_pressure_players: list[str] = (
+    sorted(pressure_df["player_name"].unique().tolist()) if not pressure_df.empty else []
+)
+_default_pressure_player: str | None = _pressure_players[0] if _pressure_players else None
+
+
+def create_pressure_chart(player_name: str | None) -> plt.Figure:
+    """Create a DEFCON pressure breakdown chart for a selected player.
+
+    Returns a Plotly figure with grouped bars showing pressure by category per match.
+    """
+    # Return empty matplotlib figure as placeholder when no player selected
+    if not player_name:
+        fig_empty, ax_empty = plt.subplots(figsize=(10, 5))
+        fig_empty.set_facecolor("#1a1a2e")
+        ax_empty.set_facecolor("#1a1a2e")
+        ax_empty.text(
+            0.5,
+            0.5,
+            "Search for a player and select from the dropdown.",
+            ha="center",
+            va="center",
+            color="white",
+            fontsize=14,
+            transform=ax_empty.transAxes,
+        )
+        ax_empty.set_xticks([])
+        ax_empty.set_yticks([])
+        for spine in ax_empty.spines.values():
+            spine.set_visible(False)
+        return fig_empty
+
+    if pressure_df.empty:
+        fig_empty, ax_empty = plt.subplots(figsize=(10, 5))
+        fig_empty.set_facecolor("#1a1a2e")
+        ax_empty.set_facecolor("#1a1a2e")
+        ax_empty.text(
+            0.5, 0.5, "No pressure data loaded.", ha="center", va="center", color="white", fontsize=14,
+            transform=ax_empty.transAxes,
+        )
+        ax_empty.set_xticks([])
+        ax_empty.set_yticks([])
+        for spine in ax_empty.spines.values():
+            spine.set_visible(False)
+        return fig_empty
+
+    # Filter to selected player
+    player_data = pressure_df[pressure_df["player_name"] == player_name].copy()
+    if player_data.empty:
+        fig_empty, ax_empty = plt.subplots(figsize=(10, 5))
+        fig_empty.set_facecolor("#1a1a2e")
+        ax_empty.set_facecolor("#1a1a2e")
+        ax_empty.text(
+            0.5, 0.5, f"No data for '{player_name}'.", ha="center", va="center", color="white", fontsize=14,
+            transform=ax_empty.transAxes,
+        )
+        ax_empty.set_xticks([])
+        ax_empty.set_yticks([])
+        for spine in ax_empty.spines.values():
+            spine.set_visible(False)
+        return fig_empty
+
+    # Melt pressure columns for grouped bar chart
+    pressure_cols = ["intercept_pressure", "concede_pressure", "disturb_pressure", "deter_pressure"]
+    id_cols = ["match_label"]
+
+    melted = player_data[id_cols + pressure_cols].melt(
+        id_vars=id_cols,
+        value_vars=pressure_cols,
+        var_name="pressure_type",
+        value_name="pressure_value",
+    )
+
+    # Clean up category names for display
+    category_map = {
+        "intercept_pressure": "Intercept",
+        "concede_pressure": "Concede",
+        "disturb_pressure": "Disturb",
+        "deter_pressure": "Deter",
+    }
+    melted["pressure_type"] = melted["pressure_type"].map(category_map)
+
+    color_map = {
+        "Intercept": "#e63946",
+        "Concede": "#f4a261",
+        "Disturb": "#457b9d",
+        "Deter": "#2a9d8f",
+    }
+
+    n_matches = player_data["match_id"].nunique()
+    total_actions = int(player_data["total_defensive_actions"].sum())
+
+    plotly_fig = px.bar(
+        melted,
+        x="match_label",
+        y="pressure_value",
+        color="pressure_type",
+        barmode="group",
+        color_discrete_map=color_map,
+        labels={
+            "match_label": "Match",
+            "pressure_value": "Pressure Value",
+            "pressure_type": "Category",
+        },
+        title=f"DEFCON Pressure \u2014 {player_name} ({n_matches} matches, {total_actions} defensive actions)",
+    )
+
+    plotly_fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="#1a1a2e",
+        plot_bgcolor="#1a1a2e",
+        font={"color": "white"},
+        xaxis_tickangle=-45,
+        legend={"title": "Pressure Type"},
+        height=500,
+    )
+
+    return plotly_fig
+
+
+# ---------------------------------------------------------------------------
 # Gradio App
 # ---------------------------------------------------------------------------
 
-demo = gr.Blocks(title="Soccer Analytics Explorer", theme=gr.themes.Base(primary_hue="blue", neutral_hue="slate"))
+_SLIDER_JS = """
+function() {
+  function fmt(n) {
+    n = parseInt(n);
+    if (isNaN(n) || n < 0) return String(n);
+    var m = Math.floor(n / 60);
+    var s = n % 60;
+    return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+  }
+  function reformatSlider() {
+    var el = document.getElementById('pc-time-slider');
+    if (!el) return;
+    el.querySelectorAll('span').forEach(function(span) {
+      var text = span.textContent.trim();
+      if (/^\\d+$/.test(text) && parseInt(text) >= 0) {
+        span.textContent = fmt(text);
+      }
+    });
+  }
+  var obs = new MutationObserver(reformatSlider);
+  function init() {
+    var el = document.getElementById('pc-time-slider');
+    if (el) {
+      obs.observe(el, {childList: true, subtree: true, characterData: true});
+      reformatSlider();
+    } else {
+      setTimeout(init, 500);
+    }
+  }
+  init();
+}
+"""
+
+# ---------------------------------------------------------------------------
+# Luxury Flagship theme — dark surfaces, gold accents, sharp corners
+# ---------------------------------------------------------------------------
+_FLAGSHIP_THEME = gr.themes.Monochrome(
+    primary_hue="amber",
+    secondary_hue="stone",
+    neutral_hue="zinc",
+    radius_size=gr.themes.sizes.radius_none,
+    font=(gr.themes.GoogleFont("Inter"), "system-ui", "sans-serif"),
+    font_mono=(gr.themes.GoogleFont("JetBrains Mono"), "ui-monospace", "monospace"),
+).set(
+    body_background_fill="#0f0f14",
+    body_background_fill_dark="#0f0f14",
+    body_text_color="#e4e4e7",
+    body_text_color_dark="#e4e4e7",
+    body_text_color_subdued="#71717a",
+    body_text_color_subdued_dark="#71717a",
+    background_fill_primary="#18181f",
+    background_fill_primary_dark="#18181f",
+    background_fill_secondary="#1f1f28",
+    background_fill_secondary_dark="#1f1f28",
+    block_background_fill="#1f1f28",
+    block_background_fill_dark="#1f1f28",
+    block_border_color="#2e2e3a",
+    block_border_color_dark="#2e2e3a",
+    block_border_width="1px",
+    block_shadow="0 2px 12px rgba(0,0,0,0.5)",
+    block_shadow_dark="0 2px 12px rgba(0,0,0,0.5)",
+    block_label_text_color="#f59e0b",
+    block_label_text_color_dark="#f59e0b",
+    block_label_background_fill="#18181f",
+    block_label_background_fill_dark="#18181f",
+    block_title_text_color="#f59e0b",
+    block_title_text_color_dark="#f59e0b",
+    input_background_fill="#18181f",
+    input_background_fill_dark="#18181f",
+    input_border_color="#3f3f4a",
+    input_border_color_dark="#3f3f4a",
+    input_border_color_focus="#f59e0b",
+    input_border_color_focus_dark="#f59e0b",
+    border_color_primary="#2e2e3a",
+    border_color_primary_dark="#2e2e3a",
+    border_color_accent="#f59e0b",
+    border_color_accent_dark="#f59e0b",
+    button_primary_background_fill="#f59e0b",
+    button_primary_background_fill_hover="#fbbf24",
+    button_primary_background_fill_dark="#f59e0b",
+    button_primary_background_fill_hover_dark="#fbbf24",
+    button_primary_text_color="#0f0f14",
+    button_primary_text_color_dark="#0f0f14",
+    button_secondary_background_fill="transparent",
+    button_secondary_background_fill_dark="transparent",
+    button_secondary_border_color="#3f3f4a",
+    button_secondary_border_color_dark="#3f3f4a",
+    button_secondary_text_color="#e4e4e7",
+    button_secondary_text_color_dark="#e4e4e7",
+    slider_color="#f59e0b",
+    slider_color_dark="#f59e0b",
+    link_text_color="#f59e0b",
+    link_text_color_dark="#f59e0b",
+    table_even_background_fill="#1f1f28",
+    table_even_background_fill_dark="#1f1f28",
+    table_odd_background_fill="#18181f",
+    table_odd_background_fill_dark="#18181f",
+    table_border_color="#2e2e3a",
+    table_border_color_dark="#2e2e3a",
+    panel_background_fill="#18181f",
+    panel_background_fill_dark="#18181f",
+    code_background_fill="#0f0f14",
+    code_background_fill_dark="#0f0f14",
+)
+
+_FLAGSHIP_CSS = """
+/* --- Tab navigation: prominent gold-accented pills --- */
+.tab-nav {
+    background: #18181f !important;
+    border-bottom: 2px solid #2e2e3a !important;
+    padding: 8px 12px 0 12px !important;
+    gap: 4px !important;
+}
+.tab-nav button {
+    font-size: 0.95rem !important;
+    font-weight: 600 !important;
+    padding: 10px 22px !important;
+    color: #a1a1aa !important;
+    background: transparent !important;
+    border: none !important;
+    border-bottom: 3px solid transparent !important;
+    transition: all 0.2s ease !important;
+    margin-bottom: -2px !important;
+}
+.tab-nav button:hover {
+    color: #e4e4e7 !important;
+    background: rgba(245, 158, 11, 0.08) !important;
+}
+.tab-nav button[aria-selected="true"] {
+    color: #f59e0b !important;
+    border-bottom: 3px solid #f59e0b !important;
+    background: rgba(245, 158, 11, 0.06) !important;
+}
+/* Hide time-slider non-range inputs (pitch control) */
+#pc-time-slider input:not([type='range']), #pc-time-slider button { display: none !important; }
+"""
+
+demo = gr.Blocks(
+    title="Soccer Analytics Explorer",
+    theme=_FLAGSHIP_THEME,
+    js=_SLIDER_JS,
+    css=_FLAGSHIP_CSS,
+)
 
 with demo:
     gr.Markdown(
@@ -387,49 +859,14 @@ with demo:
     # Soccer Analytics Explorer
 
     Interactive demo for the [Luxury Lakehouse](https://huggingface.co/luxury-lakehouse)
-    soccer analytics platform. Explore player embeddings, shot maps, and pass quality
-    from open-source soccer data.
+    soccer analytics platform. Explore player embeddings, shot maps, pass quality,
+    pitch control surfaces, and defensive pressure profiles from open-source soccer data.
 
     **Data sources:** [StatsBomb Open Data](https://github.com/statsbomb/open-data) (CC-BY 4.0),
-    [Wyscout Public Dataset](https://figshare.com/collections/Soccer_match_event_dataset/4415000) (CC-BY 4.0)
+    [Wyscout Public Dataset](https://figshare.com/collections/Soccer_match_event_dataset/4415000) (CC-BY 4.0),
+    [Metrica Sports Sample Data](https://github.com/metrica-sports/sample-data) (CC-BY 4.0)
     """
     )
-
-    with gr.Tab("Player Similarity"):
-        gr.Markdown(
-            "Find players with similar playing styles using Doc2Vec behavioral embeddings.\n\n"
-            "*Match counts reflect the number of games in the open dataset used to build each player's"
-            " behavioral embedding. Higher counts indicate more robust similarity scores.*"
-        )
-        with gr.Row():
-            player_input = gr.Textbox(label="Search by name", placeholder="e.g. Messi, Neymar, David...")
-            top_k_input = gr.Slider(minimum=5, maximum=50, value=10, step=1, label="Top K results")
-        player_dropdown = gr.Dropdown(
-            choices=[], label="Matching players", info="Type at least 2 characters...", interactive=True
-        )
-        results_table = gr.Dataframe(label="Similar Players")
-        player_input.change(fn=update_player_dropdown, inputs=[player_input], outputs=[player_dropdown])
-        player_dropdown.change(fn=find_similar_players, inputs=[player_dropdown, top_k_input], outputs=results_table)
-        top_k_input.change(fn=find_similar_players, inputs=[player_dropdown, top_k_input], outputs=results_table)
-
-    with gr.Tab("Shot Map"):
-        gr.Markdown(
-            "Visualize shot locations colored by outcome (goal in red, no goal in blue).\n\n"
-            "*Sample of 1,000 shots across 39 matches from StatsBomb Open Data — "
-            "La Liga, Serie A, Bundesliga, Ligue 1, Women's World Cup, and Africa Cup of Nations.*"
-        )
-        _shot_comp_choices = (
-            [("All competitions", "All")]
-            + [(_comp_label(c), str(c)) for c in sorted(shots_df["competition_id"].unique())]
-            if not shots_df.empty
-            else []
-        )
-        with gr.Row():
-            shot_comp = gr.Dropdown(choices=_shot_comp_choices, value="All", label="Competition", interactive=True)
-            shot_goals_only = gr.Checkbox(value=False, label="Goals only")
-        shot_plot = gr.Plot(label="Shot Map", value=create_shot_map("All", False))
-        shot_comp.change(fn=create_shot_map, inputs=[shot_comp, shot_goals_only], outputs=shot_plot)
-        shot_goals_only.change(fn=create_shot_map, inputs=[shot_comp, shot_goals_only], outputs=shot_plot)
 
     with gr.Tab("Pass Quality"):
         gr.Markdown(
@@ -455,6 +892,122 @@ with demo:
         lb_toggle.change(fn=create_pass_map, inputs=_pass_inputs, outputs=pass_plot)
         completed_toggle.change(fn=create_pass_map, inputs=_pass_inputs, outputs=pass_plot)
 
+    with gr.Tab("Pitch Control"):
+        gr.Markdown(
+            "Physics-based pitch control surfaces (Spearman 2017) computed from tracking data.\n\n"
+            "*Blue regions are controlled by the home team, red by the away team. "
+            "The model uses kinematic time-to-intercept equations accounting for player positions, "
+            "velocities, and reaction time. Data from "
+            "[Metrica Sports sample games](https://github.com/metrica-sports/sample-data) (CC-BY 4.0).*"
+        )
+        _tracking_matches = _get_tracking_matches()
+        _default_match = _tracking_matches[0] if _tracking_matches else ""
+        _default_fps = _get_frame_rate(_default_match) if _default_match else 25
+        _default_duration = _get_duration_seconds(_default_match, 1) if _default_match else 0
+
+        with gr.Row():
+            pc_match = gr.Dropdown(
+                choices=_tracking_matches,
+                value=_default_match,
+                label="Match",
+                interactive=True,
+            )
+            pc_period = gr.Radio(
+                choices=[1, 2],
+                value=1,
+                label="Half",
+            )
+        with gr.Row():
+            pc_time = gr.Slider(
+                minimum=0,
+                maximum=_default_duration,
+                value=0,
+                step=1,
+                label=f"Time: 00:00 \u2014 {_fmt_time(_default_duration)} ({_default_fps} fps)",
+                elem_id="pc-time-slider",
+            )
+            pc_velocity = gr.Checkbox(value=True, label="Show velocity arrows")
+
+        pc_plot = gr.Plot(label="Pitch Control")
+
+        # Event bindings: match/half change updates slider range
+        pc_match.change(fn=_update_time_slider, inputs=[pc_match, pc_period], outputs=[pc_time])
+        pc_period.change(fn=_update_time_slider, inputs=[pc_match, pc_period], outputs=[pc_time])
+
+        # Time slider or velocity toggle triggers plot refresh
+        _pc_inputs = [pc_match, pc_period, pc_time, pc_velocity]
+        pc_time.release(fn=create_pitch_control_plot, inputs=_pc_inputs, outputs=pc_plot)
+        pc_velocity.change(fn=create_pitch_control_plot, inputs=_pc_inputs, outputs=pc_plot)
+
+        # Render initial plot after page loads (avoids blocking startup)
+        demo.load(fn=create_pitch_control_plot, inputs=_pc_inputs, outputs=pc_plot)
+
+    with gr.Tab("Player Similarity"):
+        gr.Markdown(
+            "Find players with similar playing styles using Doc2Vec behavioral embeddings.\n\n"
+            "*Match counts reflect the number of games in the open dataset used to build each player's"
+            " behavioral embedding. Higher counts indicate more robust similarity scores.*"
+        )
+        with gr.Row():
+            player_dropdown = gr.Dropdown(
+                choices=_similarity_players,
+                value=_default_similarity_player,
+                label="Player",
+                info=f"{len(_similarity_players)} players available",
+                interactive=True,
+                filterable=True,
+            )
+            top_k_input = gr.Slider(minimum=5, maximum=50, value=10, step=1, label="Top K results")
+        _initial_similarity = (
+            find_similar_players(_default_similarity_player) if _default_similarity_player else pd.DataFrame()
+        )
+        results_table = gr.Dataframe(label="Similar Players", value=_initial_similarity)
+        player_dropdown.change(fn=find_similar_players, inputs=[player_dropdown, top_k_input], outputs=results_table)
+        top_k_input.change(fn=find_similar_players, inputs=[player_dropdown, top_k_input], outputs=results_table)
+
+    with gr.Tab("Shot Map"):
+        gr.Markdown(
+            "Visualize shot locations colored by outcome (goal in red, no goal in blue).\n\n"
+            "*Sample of 1,000 shots across 39 matches from StatsBomb Open Data — "
+            "La Liga, Serie A, Bundesliga, Ligue 1, Women's World Cup, and Africa Cup of Nations.*"
+        )
+        _shot_comp_choices = (
+            [("All competitions", "All")]
+            + [(_comp_label(c), str(c)) for c in sorted(shots_df["competition_id"].unique())]
+            if not shots_df.empty
+            else []
+        )
+        with gr.Row():
+            shot_comp = gr.Dropdown(choices=_shot_comp_choices, value="All", label="Competition", interactive=True)
+            shot_goals_only = gr.Checkbox(value=False, label="Goals only")
+        shot_plot = gr.Plot(label="Shot Map", value=create_shot_map("All", False))
+        shot_comp.change(fn=create_shot_map, inputs=[shot_comp, shot_goals_only], outputs=shot_plot)
+        shot_goals_only.change(fn=create_shot_map, inputs=[shot_comp, shot_goals_only], outputs=shot_plot)
+
+    with gr.Tab("DEFCON Pressure"):
+        gr.Markdown(
+            "DEFCON defensive pressure profiles per player per match.\n\n"
+            "*DEFCON (Defensive Contribution) quantifies how each defender's actions affect the "
+            "probability of the attacking team scoring. Four categories: **Intercept** (ball won), "
+            "**Concede** (shot/goal allowed), **Disturb** (disrupted possession), and **Deter** "
+            "(prevented progression). Data from 323 StatsBomb 360 matches.*"
+        )
+        defcon_dropdown = gr.Dropdown(
+            choices=_pressure_players,
+            value=_default_pressure_player,
+            label="Player",
+            info=f"{len(_pressure_players)} players available",
+            interactive=True,
+            filterable=True,
+        )
+
+        _initial_defcon = (
+            create_pressure_chart(_default_pressure_player) if _default_pressure_player else None
+        )
+        defcon_plot = gr.Plot(label="DEFCON Pressure Breakdown", value=_initial_defcon)
+
+        defcon_dropdown.change(fn=create_pressure_chart, inputs=[defcon_dropdown], outputs=defcon_plot)
+
     gr.Markdown(
         """
     ---
@@ -464,7 +1017,8 @@ with demo:
     [Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings) |
     [Pitch Control](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking)
 
-    **Model:** [football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout)
+    **Model:** [football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) |
+    **Tracking data:** [Metrica Sports](https://github.com/metrica-sports/sample-data) (CC-BY 4.0)
     """
     )
 

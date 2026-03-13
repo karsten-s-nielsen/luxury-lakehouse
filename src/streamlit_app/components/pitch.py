@@ -327,7 +327,7 @@ def plot_pitch_control(
     _draw_players_and_ball(pitch, ax, players, ball_x, ball_y, show_velocity)
 
     ax.set_xlim(-2, 122)
-    ax.set_ylim(-2, 82)
+    ax.set_ylim(82, -2)
 
     ax.set_title(title, color=_LINE_COLOR, fontsize=14, pad=10)
     plt.close(fig)
@@ -396,7 +396,7 @@ def plot_physics_pitch_control(
     _draw_players_and_ball(pitch, ax, players, ball_x, ball_y, show_velocity)
 
     ax.set_xlim(-2, 122)
-    ax.set_ylim(-2, 82)
+    ax.set_ylim(82, -2)
 
     ax.set_title(title, color=_LINE_COLOR, fontsize=14, pad=10)
     plt.close(fig)
