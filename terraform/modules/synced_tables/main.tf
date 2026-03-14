@@ -25,6 +25,7 @@
 #   - fct_player_stats:     Aggregated per-player-per-match statistics
 #   - fct_match_summary:    Match-level aggregates (score, possession, xG)
 #   - fct_player_embeddings: Vector embeddings for player similarity search
+#   - fct_xg_predictions:   xG model predictions (logistic + gradient boosted) per shot
 #   - fct_action_values:    SPADL/VAEP action-level offensive and defensive values
 #   - fct_tracking_frames:  Tracking data (Metrica, IDSSE, SkillCorner) with velocity metrics
 #
@@ -43,6 +44,22 @@ resource "databricks_database_synced_database_table" "fct_shots" {
 
   spec = {
     source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_shots"
+    primary_key_columns    = ["shot_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+resource "databricks_database_synced_database_table" "fct_xg_predictions" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_xg_predictions_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_xg_predictions"
     primary_key_columns    = ["shot_id"]
     scheduling_policy      = "SNAPSHOT"
   }

@@ -86,6 +86,9 @@ final as (
         -- xG features (situational)
         unified_shots.is_first_time,
 
+        -- Play pattern context
+        unified_shots.play_pattern,
+
         -- StatsBomb xG (benchmark / label comparison)
         unified_shots.statsbomb_xg,
 

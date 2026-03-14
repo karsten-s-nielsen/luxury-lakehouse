@@ -1,0 +1,36 @@
+version: 2
+
+sources:
+  - name: xg
+    description: >
+      Custom xG model predictions produced by the compute_xg_model scoring
+      pipeline. Contains logistic regression baseline and calibrated XGBoost
+      expected goals values for every shot.
+    database: soccer_analytics
+    schema: bronze
+    loader: python_wheel
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 24, period: hour}
+        error_after: {count: 72, period: hour}
+
+    tables:
+      - name: xg_predictions
+        description: >
+          Custom xG model predictions for all shots. Each row is one shot with
+          logistic regression baseline and calibrated XGBoost xG values.
+          Written by the compute_xg_model pipeline.
+        columns:
+          - name: shot_id
+            description: FK to fct_shots (surrogate key)
+          - name: match_id
+            description: FK to fct_match_summary
+          - name: competition_id
+            description: FK to dim_competitions
+          - name: xg_logistic
+            description: Logistic regression baseline xG (distance + angle only)
+          - name: xg_gradient_boosted
+            description: Calibrated XGBoost xG (all 13 features)
+          - name: _ingested_at
+            description: UTC timestamp when the row was written

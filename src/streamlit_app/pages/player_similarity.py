@@ -265,8 +265,10 @@ def page() -> None:
     """Render the Player Similarity page."""
     st.header(":material/search: Player Similarity")
     st.caption(
-        "Find statistically similar players using pgvector cosine distance "
-        "on behavioral (32-d) or statistical (13-d) embedding vectors."
+        "Find similar players using pgvector cosine distance on behavioral (32-d) or statistical (13-d) "
+        "embedding vectors. Behavioral embeddings via "
+        "[Theiner et al. (2022)](https://doi.org/10.1007/978-3-031-02044-5_2) football2vec "
+        "with [Doc2Vec (Le & Mikolov 2014)](https://arxiv.org/abs/1405.4053)."
     )
 
     with st.sidebar:

@@ -46,6 +46,11 @@ INDEXES: list[tuple[str, str, str]] = [
     ("idx_tracking_provider_match", "fct_tracking_frames_synced", "source_provider, match_id"),
     ("idx_tracking_match_frame", "fct_tracking_frames_synced", "match_id, frame"),
     ("idx_tracking_match_period_frame", "fct_tracking_frames_synced", "match_id, period, frame"),
+    # ── fct_xg_predictions_synced — ~88K rows (Shot Map xG overlay) ─────
+    # XG-1: match_id for match-level filtering
+    ("idx_xg_predictions_match", "fct_xg_predictions_synced", "match_id"),
+    # XG-2: competition_id for competition-level queries
+    ("idx_xg_predictions_comp", "fct_xg_predictions_synced", "competition_id"),
     # ── fct_passes_synced — 3.17M+ rows ─────────────────────────────────
     # P-1, PN-1: pass_map + pass_network (comp + team + match exact)
     ("idx_passes_comp_team_match", "fct_passes_synced", "competition_id, team_id, match_id"),

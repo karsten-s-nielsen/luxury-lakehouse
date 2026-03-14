@@ -14,7 +14,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         idsse = softwareSystem "IDSSE Bundesliga Dataset" "Figshare collection providing DFL position tracking XML at 25fps for 7 Bundesliga matches (CC-BY 4.0)" "External"
         skillcorner = softwareSystem "SkillCorner Open Data" "GitHub JSONL repository providing broadcast tracking data at 10fps for 10 A-League matches (MIT)" "External"
         github = softwareSystem "GitHub" "Source control and CI/CD pipeline via GitHub Actions with OIDC federation for secretless authentication to AWS and Databricks" "External"
-        hfHub = softwareSystem "HuggingFace Hub" "ML artifact registry hosting the football2vec model, 4 published datasets (SPADL/VAEP, Line-Breaking Passes, Player Embeddings, Pitch Control), and Gradio demo Space at luxury-lakehouse/" "External"
+        hfHub = softwareSystem "HuggingFace Hub" "ML artifact registry hosting 2 models (football2vec, xG), 5 published datasets (SPADL/VAEP, Line-Breaking Passes, Player Embeddings, Pitch Control, Expected Threat), and Gradio demo Space at luxury-lakehouse/" "External"
         aws = softwareSystem "AWS" "Underlying cloud infrastructure providing S3 storage (KMS CMK-encrypted state), IAM OIDC provider, and networking for the Databricks workspace" "External"
 
         // --- Main System ---
@@ -34,8 +34,10 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
                 defconLitePipeline = component "DEFCON-lite Pipeline" "Batch computation: reads 360 freeze frames (StatsBomb) and tracking data (Metrica), calls assign_defensive_credits() per action, estimates DEFCON values via XGBoost, writes defcon_results to Bronze with replaceWhere." "Python, analytics.defcon_lite"
                 entityResComp = component "Entity Resolution Pipeline" "Cross-source player identity matching: reads StatsBomb and Wyscout player tables from Bronze, runs three-layer progressive resolution (TF-IDF + rapidfuzz), writes player_xref_raw to Bronze with replaceWhere." "Python, analytics.entity_resolution"
                 embeddingsPipeline = component "Embeddings Pipeline" "Training notebook tokenizes StatsBomb events, trains Doc2Vec (32-dim behavioral embeddings), and publishes to HuggingFace Hub. Ingestion task loads model from UC Volume, infers embeddings for all players, computes 13-dim z-score stat vectors, writes per-match embeddings to Bronze." "Python, analytics.football2vec, gensim, huggingface_hub"
+                xgModelComp = component "xG Model Pipeline" "Batch scoring: loads calibrated XGBoost xG model from UC Volume, reads gold fct_shots with 13-feature vectors, scores 87,999 shots, writes xg_predictions to Bronze with replaceWhere. Training and HF publishing via notebook." "Python, analytics.xg_model, xgboost, sklearn"
+                expectedThreatComp = component "Expected Threat Pipeline" "Data-driven xT grid computation: converts 2.2M SPADL actions to move/shot transitions on 12x8 grid, solves Markov chain for xT values. Replaces static seed CSV. Runs on HF Jobs GPU." "Python, analytics.expected_threat, NumPy"
             }
-            analytics = container "Analytics Models" "Pure-Python analytics library providing physics-based pitch control (Spearman 2017), line-breaking pass detection (Ward clustering + straddle test), and off-ball expected threat valuation" "Python, NumPy, SciPy" {
+            analytics = container "Analytics Models" "Pure-Python analytics library providing physics-based pitch control (Spearman 2017), line-breaking pass detection (Ward clustering + straddle test), off-ball expected threat valuation, xG model inference, and data-driven xT grid computation" "Python, NumPy, SciPy" {
                 pitchControlModel = component "Pitch Control Model" "Spearman (2017) physics-based model: kinematic TTI, logistic sigmoid influence, vectorized 50x32 grid computation. PitchControlParams frozen dataclass." "pitch_control.py, NumPy"
                 lineBreakingModel = component "Line-Breaking Model" "Ward hierarchical clustering of opponent positions into 3 defensive lines, cross-product straddle test for pass-line intersection. Dual data paths: StatsBomb 360 freeze frames and Metrica tracking." "line_breaking.py, NumPy, SciPy"
                 offBallXtModel = component "Off-Ball xT Model" "Weights pitch control by Expected Threat grid (Karun Singh 2018) to quantify off-ball player contributions. 1fps sampling, per-player per-match aggregation." "off_ball_xt.py, NumPy"
@@ -43,6 +45,8 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
                 entityResModel = component "Entity Resolution Model" "Three-layer progressive player matching: Layer 1 strict (name+DOB+jersey+team), Layer 2 standard (name+DOB), Layer 3 relaxed (name+position). TF-IDF character n-grams with sparse_dot_topn blocking, rapidfuzz multi-attribute scoring, bidirectional validation." "entity_resolution.py, rapidfuzz, sparse_dot_topn, sklearn"
                 football2vecModel = component "Football2Vec Model" "Doc2Vec behavioral embeddings (32-dim) trained on tokenized StatsBomb event sequences per player per match. Tokenizer converts events to action_bodypart_result trigrams. Z-score normalization for 13-dim statistical vectors." "football2vec.py, gensim Doc2Vec, NumPy"
                 smoothingModel = component "Position Smoothing" "Savitzky-Golay filter (window=7, polyorder=2) applied per player per period to reduce tracking sensor noise in x,y positions. Downstream velocity and acceleration derivatives are naturally cleaner. Short sequences pass through unmodified." "smoothing.py, SciPy"
+                xgModel = component "xG Model" "Custom calibrated XGBoost expected goals model (13 features, ROC-AUC 0.979). Logistic baseline + CalibratedClassifierCV. Feature extraction from shot attributes (distance, angle, body part, play pattern, freeze frame counts). Published to HuggingFace Hub." "xg_model.py, xgboost, sklearn"
+                expectedThreatModel = component "Expected Threat Model" "Data-driven xT grid computation via Markov chain iteration on 12x8 pitch zones. Converts SPADL actions to move/shot transition matrices, iterates to convergence. Replaces static Karun Singh seed values with empirical probabilities from 2.2M actions." "expected_threat.py, NumPy"
             }
             catalog = container "Unity Catalog" "Governed data storage across the medallion architecture with Bronze (raw), Silver (cleaned), and Gold (analytics-ready) schemas" "Delta Lake, Apache Parquet" "Database"
             sqlWarehouse = container "Serverless SQL Warehouse" "Executes dbt transformations and ad-hoc analytical queries using the Photon engine" "Databricks Serverless SQL, Photon"
@@ -58,13 +62,14 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
                 stagingDefcon = component "DEFCON Staging" "1 view: DEFCON-lite results. Deduplicates on (event_id, defender_player_id, data_source) via ROW_NUMBER by _ingested_at DESC" "SQL Views, Silver Schema"
                 stagingEntityRes = component "Entity Resolution Staging" "1 source definition: player_xref_raw. References Bronze entity_resolution schema for cross-source player identity matches." "SQL Source, Bronze Schema"
                 stagingEmbeddings = component "Embeddings Staging" "1 view: player embeddings. Deduplicates on (canonical_player_id, match_id) via ROW_NUMBER by _ingested_at DESC, casts vector arrays" "SQL Views, Silver Schema"
+                stagingXgPredictions = component "xG Predictions Staging" "1 view: xG predictions. Deduplicates on event_id via ROW_NUMBER by _ingested_at DESC, casts probability columns" "SQL Views, Silver Schema"
                 intermediate = component "Intermediate Layer" "4 ephemeral CTEs: unified shots, unified passes, minutes played, player cross-reference (int_player_xref). Cross-source unification with progressive pass detection and entity resolution override merging." "Ephemeral Models"
-                factTables = component "Fact Tables" "13 tables: shots, passes (line-breaking), player stats (VAEP, LB, DEFCON per-90), match summary (PPDA), tracking frames (3 sources), player embeddings (per-match, per-season, per-career with dual vectors), action values, physical stats (off-ball xT), defensive values, DEFCON actions, DEFCON pressure (attacker perspective). All tables use liquid clustering, model contracts, auto-compaction, and optimizeWrite." "Delta Tables, Gold Schema"
+                factTables = component "Fact Tables" "14 tables: shots, passes (line-breaking), player stats (VAEP, LB, DEFCON per-90), match summary (PPDA), tracking frames (3 sources), player embeddings (per-match, per-season, per-career with dual vectors), action values, physical stats (off-ball xT), defensive values, DEFCON actions, DEFCON pressure (attacker perspective), xG predictions (87,999 scored shots). All tables use liquid clustering, model contracts, auto-compaction, and optimizeWrite." "Delta Tables, Gold Schema"
                 dimTables = component "Dimension Tables" "3 tables: players (11,918 unified via canonical_player_id with entity resolution), teams, competitions. Deduplicated master data from all sources with cross-source identity mapping." "Delta Tables, Gold Schema"
                 macros = component "Custom Macros" "distance_to_goal and shot_angle geometry calculations for xG features" "Jinja SQL Macros"
                 testSuite = component "Test Suite" "381 data tests: unique, not_null, accepted_values, range bounds, composite keys, relationships, source freshness" "dbt-expectations, dbt-utils"
             }
-            syncedTables = container "Synced Tables Pipeline" "16 synced tables (13 fact, 3 dimension) replicate Gold Delta tables into Lakebase via SNAPSHOT scheduling. 34 indexes (30 btree + 4 HNSW) across fact tables for sub-100ms queries." "Lakeflow Synced Database Tables, Terraform" "Queue"
+            syncedTables = container "Synced Tables Pipeline" "17 synced tables (14 fact, 3 dimension) replicate Gold Delta tables into Lakebase via SNAPSHOT scheduling. 36 indexes (32 btree + 4 HNSW) across fact tables for sub-100ms queries." "Lakeflow Synced Database Tables, Terraform" "Queue"
             lakebase = container "Lakebase PostgreSQL 17 (Autoscaling)" "Managed OLTP database with autoscaling (0.5–4 CU) and scale-to-zero, providing sub-10ms query latency for the Streamlit app, with native pgvector support for cosine-distance player similarity search. OAuth M2M authentication, SSL enforced." "PostgreSQL 17, Autoscaling, pgvector" "Database"
             streamlit = container "Streamlit Dashboard" "Interactive analytics dashboard deployed as a Databricks App with 11 pages covering event analysis, player comparison, player similarity search, movement analysis, defensive pressure, and multi-source tracking visualization" "Python, Streamlit, mplsoccer, psycopg2, Databricks Apps" {
                 appEntry = component "App Entry Point" "st.navigation page routing, dark theme, sidebar branding" "app.py, Streamlit 1.36+"
@@ -100,7 +105,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         platform -> wyscout "Fetches event stream JSON data" "HTTPS"
         platform -> idsse "Reads pre-downloaded DFL position tracking XML (7 matches)" "xml.etree, UC Volume"
         platform -> skillcorner "Fetches broadcast tracking JSONL (10 matches)" "kloppy, HTTPS"
-        platform -> hfHub "Publishes football2vec model, 4 datasets, and Gradio demo Space" "huggingface_hub, HTTPS"
+        platform -> hfHub "Publishes 2 models (football2vec, xG), 5 datasets, and Gradio demo Space" "huggingface_hub, HTTPS"
         platform -> aws "Runs on" "Databricks on AWS"
         github -> platform "Deploys infrastructure and code changes" "GitHub Actions OIDC, Terraform"
         github -> aws "Authenticates via OIDC federation" "IAM AssumeRoleWithWebIdentity"
@@ -112,7 +117,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         ingestion -> idsse "Reads pre-downloaded DFL position tracking XML for 7 Bundesliga matches" "xml.etree, UC Volume"
         ingestion -> skillcorner "Fetches broadcast tracking JSONL for 10 A-League matches" "kloppy, HTTPS"
         ingestion -> catalog "Writes raw data to Bronze schema" "Delta Lake API"
-        ingestion -> hfHub "Publishes football2vec model and 4 datasets via notebooks" "huggingface_hub, HTTPS"
+        ingestion -> hfHub "Publishes 2 models (football2vec, xG) and 5 datasets via notebooks" "huggingface_hub, HTTPS"
 
         // --- Relationships: Component level (Ingestion) ---
         sbComp -> statsbomb "Fetches competitions, matches, events, lineups, 360 frames" "statsbombpy API"
@@ -147,6 +152,12 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         embeddingsPipeline -> analytics "Calls football2vec tokenizer, Doc2Vec training, z-score normalization" ""
         embeddingsPipeline -> utilsComp "Uses Delta writer, logging, validation" ""
         embeddingsPipeline -> hfHub "Publishes trained Doc2Vec model and z-score params" "huggingface_hub, HTTPS"
+        xgModelComp -> catalog "Reads gold fct_shots for 13-feature vectors, writes xg_predictions to Bronze" "PySpark SQL, Delta Lake API"
+        xgModelComp -> analytics "Calls xG model inference (logistic + XGBoost ensemble)" ""
+        xgModelComp -> utilsComp "Uses Delta writer, logging, validation" ""
+        expectedThreatComp -> catalog "Reads SPADL actions from Bronze, writes expected_threat_grids to Delta" "PySpark SQL, Delta Lake API"
+        expectedThreatComp -> analytics "Calls compute_expected_threat() Markov chain solver" ""
+        expectedThreatComp -> utilsComp "Uses Delta writer, logging, validation" ""
         utilsComp -> catalog "Writes DataFrames to Bronze Delta tables with audit columns" "PySpark, Delta Lake API"
 
         // --- Relationships: Component level (dbt) ---
@@ -161,6 +172,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         stagingDefcon -> catalog "Reads Bronze DEFCON-lite results, writes Silver view" "Databricks SQL"
         stagingEntityRes -> catalog "References Bronze entity_resolution.player_xref_raw" "Databricks SQL"
         stagingEmbeddings -> catalog "Reads Bronze player embeddings, writes Silver view" "Databricks SQL"
+        stagingXgPredictions -> catalog "Reads Bronze xG predictions, writes Silver view" "Databricks SQL"
         intermediate -> stagingStatsbomb "Unifies shots, passes, minutes from StatsBomb" ""
         intermediate -> stagingWyscout "Unifies shots and passes from Wyscout" ""
         intermediate -> stagingMetrica "References Metrica tracking data" ""
@@ -177,6 +189,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         factTables -> stagingOffBallXt "LEFT JOINs off-ball xT results into fct_physical_stats" ""
         factTables -> stagingDefcon "Builds fct_defensive_values, fct_defcon_actions, fct_defcon_pressure from DEFCON staging" ""
         factTables -> stagingEmbeddings "Builds fct_player_embeddings (per-match), fct_player_embeddings_season, fct_player_embeddings_career from embeddings staging" ""
+        factTables -> stagingXgPredictions "Builds fct_xg_predictions from xG predictions staging" ""
         dimTables -> stagingStatsbomb "Deduplicates players, teams, competitions" ""
         dimTables -> stagingWyscout "Merges Wyscout team and player data" ""
         dimTables -> intermediate "Joins int_player_xref for cross-source identity mapping in dim_players" ""
@@ -189,6 +202,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
         testSuite -> stagingDefcon "Validates DEFCON-lite result data quality" "dbt-expectations"
         testSuite -> stagingEntityRes "Validates entity resolution match data quality" "dbt-expectations"
         testSuite -> stagingEmbeddings "Validates embedding vector data quality" "dbt-expectations"
+        testSuite -> stagingXgPredictions "Validates xG prediction data quality" "dbt-expectations"
         factTables -> catalog "Writes Gold Delta tables" "Databricks SQL"
         dimTables -> catalog "Writes Gold dimension tables" "Databricks SQL"
 
@@ -294,7 +308,7 @@ workspace "(Right! Luxury!) Lakehouse" "Serverless soccer analytics platform bui
             ingestion -> catalog "Writes 12 bronze Delta tables with audit columns"
             dbt -> catalog "Transforms Bronze to Silver to Gold (381 data tests)"
             syncedTables -> catalog "Reads Gold Delta tables"
-            syncedTables -> lakebase "Syncs 16 tables via Lakeflow, 34 indexes (30 btree + 4 HNSW) on partitions"
+            syncedTables -> lakebase "Syncs 17 tables via Lakeflow, 36 indexes (32 btree + 4 HNSW) on partitions"
             streamlit -> lakebase "Queries analytics data with recursive CTE optimization"
             autoLayout
         }

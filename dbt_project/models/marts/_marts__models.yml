@@ -147,6 +147,9 @@ models:
       - name: is_first_time
         data_type: boolean
         description: Whether the shot was taken first-time
+      - name: play_pattern
+        data_type: string
+        description: "Play pattern (e.g., Regular Play, From Corner). StatsBomb only; NULL for Wyscout."
 
   - name: fct_passes
     config:
@@ -468,7 +471,7 @@ models:
         data_type: double
         description: Total DEFCON value (NULL if defcon_enabled is false)
       - name: defcon_credits
-        data_type: int
+        data_type: bigint
         description: Total number of defensive credits
       - name: defcon_per_90
         data_type: double
@@ -1285,7 +1288,7 @@ models:
               arguments:
                 values: ['statsbomb_360', 'metrica_tracking']
       - name: total_credits
-        data_type: int
+        data_type: bigint
         description: Total number of defensive credits
       - name: intercept_value
         data_type: double
@@ -1300,22 +1303,22 @@ models:
         data_type: double
         description: Total Deter credit value
       - name: intercept_count
-        data_type: int
+        data_type: bigint
         description: Number of Intercept credits
       - name: concede_count
-        data_type: int
+        data_type: bigint
         description: Number of Concede credits
       - name: disturb_count
-        data_type: int
+        data_type: bigint
         description: Number of Disturb credits
       - name: deter_count
-        data_type: int
+        data_type: bigint
         description: Number of Deter credits
       - name: high_confidence_count
-        data_type: int
+        data_type: bigint
         description: Number of high-confidence credits
       - name: approx_confidence_count
-        data_type: int
+        data_type: bigint
         description: Number of approximate-confidence credits
       - name: _loaded_at
         data_type: timestamp
@@ -1473,7 +1476,7 @@ models:
               arguments:
                 values: ['statsbomb_360', 'metrica_tracking']
       - name: total_defensive_actions
-        data_type: int
+        data_type: bigint
         description: Total number of defensive actions credited
       - name: intercept_pressure
         data_type: double
@@ -1488,26 +1491,70 @@ models:
         data_type: double
         description: Total Deter pressure value
       - name: intercept_count
-        data_type: int
+        data_type: bigint
         description: Number of Intercept actions
       - name: concede_count
-        data_type: int
+        data_type: bigint
         description: Number of Concede actions
       - name: disturb_count
-        data_type: int
+        data_type: bigint
         description: Number of Disturb actions
       - name: deter_count
-        data_type: int
+        data_type: bigint
         description: Number of Deter actions
       - name: high_confidence_count
-        data_type: int
+        data_type: bigint
         description: Number of high-confidence credits
       - name: approx_confidence_count
-        data_type: int
+        data_type: bigint
         description: Number of approximate-confidence credits
       - name: _loaded_at
         data_type: timestamp
         description: Timestamp when loaded into the gold table
+
+  - name: fct_xg_predictions
+    config:
+      contract:
+        enforced: true
+    description: >
+      Custom xG model predictions per shot. Contains logistic regression
+      baseline and calibrated XGBoost xG values. INNER JOIN to fct_shots
+      ensures referential integrity. One row per scored shot.
+    columns:
+      - name: shot_id
+        data_type: string
+        description: FK to fct_shots (surrogate key)
+        data_tests:
+          - unique
+          - not_null
+      - name: match_id
+        data_type: bigint
+        description: FK to fct_match_summary
+        data_tests:
+          - not_null
+      - name: competition_id
+        data_type: int
+        description: FK to dim_competitions
+      - name: xg_logistic
+        data_type: double
+        description: Logistic regression baseline xG (distance + angle only)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+              config:
+                severity: warn
+      - name: xg_gradient_boosted
+        data_type: double
+        description: Calibrated XGBoost xG (all 13 features)
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+              config:
+                severity: warn
 
   # ── Dimension Tables ──────────────────────────────────────────────────
 
@@ -1566,7 +1613,7 @@ models:
         data_type: double
         description: Entity resolution confidence score (0-100, null if unmatched)
       - name: match_layer
-        data_type: int
+        data_type: bigint
         description: >
           Resolution layer (0=manual override, 1=strict, 2=standard, 3=relaxed,
           null if unmatched)

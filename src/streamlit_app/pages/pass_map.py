@@ -34,6 +34,11 @@ def _load_passes(competition_id: int, team_id: int, match_id: int) -> Any:
 def page() -> None:
     """Render the Pass Map page."""
     st.header(":material/arrow_forward: Pass Map")
+    st.caption(
+        "Line-breaking detection adapted from "
+        "[Parma Calcio 1913 line-breaking-passes](https://github.com/parmacalcio1913/line-breaking-passes) "
+        "(Apache-2.0). Ward clustering on StatsBomb 360 freeze-frame positions."
+    )
 
     with st.sidebar:
         competition_id = render_competition_filter()

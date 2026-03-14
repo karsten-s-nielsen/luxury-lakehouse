@@ -10,6 +10,7 @@
 #   idsse             — Bundesliga DFL tracking (25fps, 7 matches from UC Volume)
 #   skillcorner       — A-League broadcast tracking (10fps, 10 matches via kloppy)
 #   compute_spadl_vaep — SPADL conversion + VAEP scoring (depends on statsbomb + wyscout)
+#   compute_xg_model   — Custom xG model scoring (depends on SPADL/VAEP)
 #   compute_off_ball_xt — Off-Ball xT from tracking + pitch control (depends on tracking tasks)
 #   compute_pitch_control — Spearman 2017 pitch control values (depends on tracking tasks)
 #   compute_defcon_lite — DEFCON-lite defensive valuation (depends on SPADL/VAEP)
@@ -166,8 +167,53 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "analytics"
   }
 
+  # ── Task: Compute Expected Threat grids from SPADL actions ─────────
+  task {
+    task_key        = "compute_expected_threat"
+    timeout_seconds = 900
+    max_retries     = 1
+
+    depends_on {
+      task_key = "compute_spadl_vaep"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_expected_threat"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "default"
+  }
+
+  # ── Task: Score shots with custom xG models ─────────────────────────
+  task {
+    task_key        = "compute_xg_model"
+    timeout_seconds = 3600
+    max_retries     = 1
+
+    depends_on {
+      task_key = "compute_spadl_vaep"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_xg_model"
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+      ]
+    }
+
+    environment_key = "analytics"
+  }
+
   # ── Task: Compute Off-Ball xT from tracking data ───────────────────
-  # Depends on all three tracking providers completing first.
+  # Depends on all three tracking providers + xT grid computation.
   task {
     task_key        = "compute_off_ball_xt"
     timeout_seconds = 3600
@@ -181,6 +227,9 @@ resource "databricks_job" "data_ingestion" {
     }
     depends_on {
       task_key = "ingest_skillcorner"
+    }
+    depends_on {
+      task_key = "compute_expected_threat"
     }
 
     python_wheel_task {

@@ -113,6 +113,12 @@ def _load_frame_data(match_id: str, frame: int) -> Any:
 def page() -> None:
     """Render the Pitch Control page."""
     st.header(":material/grid_on: Pitch Control")
+    st.caption(
+        "Physics-based pitch control model by "
+        "[Spearman (2017)](https://www.researchgate.net/publication/315166647_Beyond_Expected_Goals) "
+        '"Beyond Expected Goals." '
+        "Voronoi baseline also available."
+    )
 
     with st.sidebar:
         provider_options = ["All", "metrica", "idsse", "skillcorner"]

@@ -17,7 +17,6 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 from mplsoccer import Pitch
-
 from pitch_control import PitchControlParams, compute_pitch_control_frame
 
 DATA_DIR = Path(__file__).parent / "data"
@@ -456,11 +455,7 @@ def create_pitch_control_plot(
     frame = _seconds_to_frame(match_id, period, int(elapsed_sec))
 
     # Filter to exact frame
-    mask = (
-        (tracking_df["match_id"] == match_id)
-        & (tracking_df["period"] == period)
-        & (tracking_df["frame"] == frame)
-    )
+    mask = (tracking_df["match_id"] == match_id) & (tracking_df["period"] == period) & (tracking_df["frame"] == frame)
     frame_df = tracking_df.loc[mask].copy()
 
     if frame_df.empty:
@@ -585,9 +580,7 @@ def create_pitch_control_plot(
 # ---------------------------------------------------------------------------
 
 
-_pressure_players: list[str] = (
-    sorted(pressure_df["player_name"].unique().tolist()) if not pressure_df.empty else []
-)
+_pressure_players: list[str] = sorted(pressure_df["player_name"].unique().tolist()) if not pressure_df.empty else []
 _default_pressure_player: str | None = _pressure_players[0] if _pressure_players else None
 
 
@@ -622,7 +615,13 @@ def create_pressure_chart(player_name: str | None) -> plt.Figure:
         fig_empty.set_facecolor("#1a1a2e")
         ax_empty.set_facecolor("#1a1a2e")
         ax_empty.text(
-            0.5, 0.5, "No pressure data loaded.", ha="center", va="center", color="white", fontsize=14,
+            0.5,
+            0.5,
+            "No pressure data loaded.",
+            ha="center",
+            va="center",
+            color="white",
+            fontsize=14,
             transform=ax_empty.transAxes,
         )
         ax_empty.set_xticks([])
@@ -638,7 +637,13 @@ def create_pressure_chart(player_name: str | None) -> plt.Figure:
         fig_empty.set_facecolor("#1a1a2e")
         ax_empty.set_facecolor("#1a1a2e")
         ax_empty.text(
-            0.5, 0.5, f"No data for '{player_name}'.", ha="center", va="center", color="white", fontsize=14,
+            0.5,
+            0.5,
+            f"No data for '{player_name}'.",
+            ha="center",
+            va="center",
+            color="white",
+            fontsize=14,
             transform=ax_empty.transAxes,
         )
         ax_empty.set_xticks([])
@@ -872,7 +877,9 @@ with demo:
         gr.Markdown(
             "Pass origins on the pitch with line-breaking passes highlighted in red.\n\n"
             "*A line-breaking pass penetrates at least one defensive line (detected via Ward clustering "
-            "on StatsBomb 360 freeze-frame positions). Sample of 2,000 passes from Women's World Cup matches.*"
+            "on StatsBomb 360 freeze-frame positions). Algorithm adapted from "
+            "[Parma Calcio 1913 line-breaking-passes](https://github.com/parmacalcio1913/line-breaking-passes) "
+            "(Apache-2.0). Sample of 2,000 passes from Women's World Cup matches.*"
         )
         _pass_type_choices = (
             ["All", *sorted(passes_df["pass_type"].dropna().unique().tolist())] if not passes_df.empty else ["All"]
@@ -894,9 +901,10 @@ with demo:
 
     with gr.Tab("Pitch Control"):
         gr.Markdown(
-            "Physics-based pitch control surfaces (Spearman 2017) computed from tracking data.\n\n"
-            "*Blue regions are controlled by the home team, red by the away team. "
-            "The model uses kinematic time-to-intercept equations accounting for player positions, "
+            "Physics-based pitch control surfaces computed from tracking data.\n\n"
+            "*Model by [Spearman (2017)](https://www.researchgate.net/publication/315166647_Beyond_Expected_Goals) "
+            '"Beyond Expected Goals." '
+            "Uses kinematic time-to-intercept equations accounting for player positions, "
             "velocities, and reaction time. Data from "
             "[Metrica Sports sample games](https://github.com/metrica-sports/sample-data) (CC-BY 4.0).*"
         )
@@ -945,8 +953,9 @@ with demo:
     with gr.Tab("Player Similarity"):
         gr.Markdown(
             "Find players with similar playing styles using Doc2Vec behavioral embeddings.\n\n"
-            "*Match counts reflect the number of games in the open dataset used to build each player's"
-            " behavioral embedding. Higher counts indicate more robust similarity scores.*"
+            "*Embeddings via [Theiner et al. (2022)](https://doi.org/10.1007/978-3-031-02044-5_2) football2vec "
+            "with [Doc2Vec (Le & Mikolov 2014)](https://arxiv.org/abs/1405.4053). "
+            "Match counts reflect games in the open dataset; higher counts indicate more robust similarity.*"
         )
         with gr.Row():
             player_dropdown = gr.Dropdown(
@@ -987,7 +996,8 @@ with demo:
     with gr.Tab("DEFCON Pressure"):
         gr.Markdown(
             "DEFCON defensive pressure profiles per player per match.\n\n"
-            "*DEFCON (Defensive Contribution) quantifies how each defender's actions affect the "
+            "*[Kim et al. (2025)](https://github.com/hyunsungkim-ds/defcon) DEFCON (Defensive Contribution) "
+            "quantifies how each defender's actions affect the "
             "probability of the attacking team scoring. Four categories: **Intercept** (ball won), "
             "**Concede** (shot/goal allowed), **Disturb** (disrupted possession), and **Deter** "
             "(prevented progression). Data from 323 StatsBomb 360 matches.*"
@@ -1001,9 +1011,7 @@ with demo:
             filterable=True,
         )
 
-        _initial_defcon = (
-            create_pressure_chart(_default_pressure_player) if _default_pressure_player else None
-        )
+        _initial_defcon = create_pressure_chart(_default_pressure_player) if _default_pressure_player else None
         defcon_plot = gr.Plot(label="DEFCON Pressure Breakdown", value=_initial_defcon)
 
         defcon_dropdown.change(fn=create_pressure_chart, inputs=[defcon_dropdown], outputs=defcon_plot)

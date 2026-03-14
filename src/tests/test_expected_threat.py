@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from analytics.expected_threat import (
     _MOVE_TYPES,
@@ -14,6 +15,7 @@ from analytics.expected_threat import (
     _value_iteration_numpy,
     compute_expected_threat_grid,
     grid_to_dataframe,
+    validate_xt_grid,
 )
 
 # ---------------------------------------------------------------------------
@@ -259,3 +261,33 @@ class TestConstants:
 
     def test_no_overlap(self) -> None:
         assert _MOVE_TYPES.isdisjoint(_SHOT_TYPES)
+
+
+# ---------------------------------------------------------------------------
+# Grid validation
+# ---------------------------------------------------------------------------
+
+
+class TestGridValidation:
+    """Tests for pipeline-level data quality checks."""
+
+    def test_validate_grid_passes_valid_grid(self) -> None:
+        grid = np.array([[0.01 * (x + 1) for y in range(8)] for x in range(12)])
+        validate_xt_grid(grid)  # Should not raise
+
+    def test_validate_grid_rejects_out_of_range(self) -> None:
+        grid = np.full((12, 8), 0.1)
+        grid[0, 0] = 0.0001  # Below 0.001 lower bound
+        with pytest.raises(ValueError, match="out of expected range"):
+            validate_xt_grid(grid)
+
+    def test_validate_grid_rejects_wrong_shape(self) -> None:
+        grid = np.zeros((10, 6))
+        with pytest.raises(ValueError, match="shape"):
+            validate_xt_grid(grid)
+
+    def test_validate_grid_checks_monotonicity(self) -> None:
+        # Reversed gradient: high values at x=0, low at x=11 — fails monotonicity
+        grid = np.array([[0.3 - 0.02 * x for y in range(8)] for x in range(12)])
+        with pytest.raises(ValueError, match="monoton"):
+            validate_xt_grid(grid)

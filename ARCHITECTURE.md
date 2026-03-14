@@ -1,7 +1,7 @@
 # Databricks Lakebase Architecture — Soccer Analytics Platform
 
-> **Status**: Phase 18 complete — 11 Streamlit pages, 16 synced tables, 34 PG indexes, 524 unit tests. HuggingFace Hub Expansion: 4 datasets published, Gradio demo Space with luxury flagship theme (5 interactive tabs), pitch control batch pipeline, JAX kernel, TacticAI symmetry augmentation.
-> **Last Updated**: 2026-03-12
+> **Status**: Phase 18 complete + predictive models deployed — 11 Streamlit pages, 17 synced tables, 36 PG indexes, 614 unit tests. HuggingFace Hub: 2 models + 5 datasets published, Gradio demo Space with luxury flagship theme (5 interactive tabs).
+> **Last Updated**: 2026-03-14
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready
 
@@ -63,6 +63,8 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • defcon_lite → DEFCON-lite defensive credit assignment         │    │
 │  │  • resolve_players → cross-source entity resolution              │    │
 │  │  • compute_embeddings → Doc2Vec + z-score player embeddings      │    │
+│  │  • compute_xg_model → Custom xG scoring (logistic + XGBoost)    │    │
+│  │  • compute_expected_threat → Data-driven xT grid from SPADL      │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
@@ -78,6 +80,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • spadl: actions, action_values                                 │    │
 │  │  • entity_resolution: player_xref_raw                            │    │
 │  │  • pitch_control_batch: pitch_control_values                     │    │
+│  │  • xg_predictions, expected_threat_grids                         │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
@@ -95,9 +98,10 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │                                                                  │    │
 │  │  GOLD (business logic, analytics-ready):                         │    │
 │  │  • fct_shots, fct_passes, fct_player_stats, fct_match_summary    │    │
-│  │  • fct_tracking_frames, fct_action_values, fct_player_embeddings │    │
-│  │  • fct_physical_stats, fct_defensive_values, fct_defcon_actions  │    │
-│  │  • fct_defcon_pressure, fct_player_embeddings_season/career      │    │
+│  │  • fct_xg_predictions, fct_tracking_frames, fct_action_values   │    │
+│  │  • fct_player_embeddings, fct_physical_stats                     │    │
+│  │  • fct_defensive_values, fct_defcon_actions, fct_defcon_pressure │    │
+│  │  • fct_player_embeddings_season/career                           │    │
 │  │  • dim_players, dim_teams, dim_competitions                      │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
@@ -139,6 +143,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 | Source Table | Synced Table | Primary Key | Rows |
 |-------------|-------------|-------------|------|
 | `dev_gold.fct_shots` | `fct_shots_synced` | `shot_id` | 131,077 |
+| `dev_gold.fct_xg_predictions` | `fct_xg_predictions_synced` | `shot_id` | 87,999 |
 | `dev_gold.fct_passes` | `fct_passes_synced` | `pass_id` | 5,052,415 |
 | `dev_gold.fct_player_stats` | `fct_player_stats_synced` | `player_stats_id` | 19,154 |
 | `dev_gold.fct_match_summary` | `fct_match_summary_synced` | `match_id` | 3,464 |
@@ -161,7 +166,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 - `logical_database_name = "databricks_postgres"` — standard Lakebase database
 - **Autoscaling workaround (provider v1.110.0):** `databricks_database_synced_database_table` only supports `database_instance_name` (Provisioned). Synced tables targeting Autoscaling projects must be created via Databricks UI, then imported into Terraform. `lifecycle { ignore_changes = all }` prevents drift. This applies to any new synced table.
 - **Schema changes:** Must delete synced table, drop ghost PG table, recreate via API, re-import into Terraform.
-- **PG indexes:** 30 btree indexes across 11 tables + 4 HNSW vector indexes on embedding tables = 34 total. Dropped on synced table recreation — re-run `scripts/create_indexes.py` alongside `scripts/lakebase_grants.sql`. Script now runs `ANALYZE` on all indexed tables to ensure the query planner uses indexes.
+- **PG indexes:** 32 btree indexes across 12 tables + 4 HNSW vector indexes on embedding tables = 36 total. Dropped on synced table recreation — re-run `scripts/create_indexes.py` alongside `scripts/lakebase_grants.sql`. Script now runs `ANALYZE` on all indexed tables to ensure the query planner uses indexes.
 - **SNAPSHOT refresh:** Synced tables with `scheduling_policy = "SNAPSHOT"` do not auto-refresh. Run `scripts/refresh_synced_tables.py` after upstream dbt rebuilds. Supports `--wait` (poll until IDLE) and `--tables` (comma-separated subset). The Terraform provider has no schedule/cron field — this is the operational workaround.
 - **Credential API:** REST endpoint is `/api/2.0/postgres/credentials` (NOT `/api/2.0/database/credentials`).
 
@@ -169,7 +174,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 
 | Page | Visualization | Data Source |
 |------|--------------|-------------|
-| Shot Map | Half-pitch shots sized by xG, colored by outcome | `fct_shots_synced` |
+| Shot Map | Half-pitch shots sized by xG, colored by outcome, custom xG overlay | `fct_shots_synced`, `fct_xg_predictions_synced` |
 | Pass Map | Full pitch arrows, progressive pass highlighting | `fct_passes_synced` |
 | Player Radar | Per-90 metrics comparison (1-3 players), incl. VAEP/90 | `fct_player_stats_synced` |
 | Match Summary | Scorecard + xG metrics + horizontal bar chart | `fct_match_summary_synced` |
@@ -350,7 +355,7 @@ luxury-lakehouse/
 │   │   ├── lakebase/                 # Lakebase Autoscaling (PG 17)
 │   │   ├── sql_warehouse/            # Serverless SQL Warehouse
 │   │   ├── workflows/                # Ingestion job definitions
-│   │   ├── synced_tables/            # Gold → Lakebase sync (16 synced tables)
+│   │   ├── synced_tables/            # Gold → Lakebase sync (17 synced tables)
 │   │   ├── app/                      # Databricks App (Streamlit)
 │   │   ├── service_principals/       # Ingestion SP, App SP, CI SP + federation
 │   │   ├── github_oidc/              # AWS IAM OIDC provider + scoped role
@@ -367,6 +372,7 @@ luxury-lakehouse/
 │   │   ├── defcon_lite.py            # DEFCON-lite: heuristic defensive credit assignment + XGBoost
 │   │   ├── entity_resolution.py     # Three-layer progressive player matching (TF-IDF + rapidfuzz)
 │   │   ├── football2vec.py          # Doc2Vec behavioral embeddings (tokenizer, training, inference)
+│   │   ├── xg_model.py             # Custom xG: logistic baseline + calibrated XGBoost (JSON serialization, no pickle)
 │   │   ├── symmetry.py             # TacticAI symmetry augmentation (H-flip, V-flip, team swap → 8× data)
 │   │   └── smoothing.py             # Savitzky-Golay position smoothing for tracking data
 │   │
@@ -381,6 +387,7 @@ luxury-lakehouse/
 │   │   ├── defcon_lite.py            # DEFCON-lite batch computation (gold+bronze → bronze)
 │   │   ├── entity_resolution.py     # Cross-source player entity resolution (StatsBomb × Wyscout → bronze)
 │   │   ├── player_embeddings.py     # Player embedding inference + stat vector computation
+│   │   ├── xg_model.py             # xG model scoring pipeline (load weights from UC Volume, score shots)
 │   │   ├── pitch_control_batch.py  # Pitch control batch pipeline (applyInPandas + frame_batch_id)
 │   │   ├── spadl_adapter.py          # Bronze-to-socceraction format adapters
 │   │   ├── spadl_vaep.py             # SPADL conversion + VAEP scoring pipeline
@@ -393,7 +400,7 @@ luxury-lakehouse/
 │   │   ├── pages/                    # 11 pages (incl. player_similarity.py)
 │   │   └── components/               # filters.py, pitch.py, charts.py
 │   │
-│   └── tests/                        # 24 test modules
+│   └── tests/                        # 26 test modules
 │       ├── test_statsbomb.py
 │       ├── test_metrica.py
 │       ├── test_wyscout.py
@@ -409,6 +416,8 @@ luxury-lakehouse/
 │       ├── test_entity_resolution.py
 │       ├── test_football2vec.py
 │       ├── test_player_embeddings.py
+│       ├── test_xg_model.py
+│       ├── test_expected_threat.py
 │       ├── test_player_similarity.py
 │       ├── test_smoothing.py
 │       ├── test_pitch_control_batch.py
@@ -423,20 +432,23 @@ luxury-lakehouse/
 │   ├── models/
 │   │   ├── staging/                  # SILVER: statsbomb/, metrica/, wyscout/, spadl/, idsse/, skillcorner/, line_breaking/, off_ball_xt/, defcon/, entity_resolution/, pitch_control/
 │   │   ├── intermediate/             # Cross-source joins (ephemeral)
-│   │   └── marts/                    # GOLD: 11 fact + 4 dimension tables
+│   │   └── marts/                    # GOLD: 14 fact + 3 dimension tables
 │   ├── tests/                        # Custom data tests
 │   ├── macros/                       # distance_to_goal, shot_angle
-│   └── seeds/                        # competition_metadata.csv, position_mapping.csv, expected_threat_grid.csv, player_xref_overrides.csv
+│   └── seeds/                        # competition_metadata.csv, position_mapping.csv, player_xref_overrides.csv
 │
 ├── notebooks/
 │   ├── train_football2vec.py         # Databricks notebook: Doc2Vec training + HuggingFace Hub publishing
-│   └── publish_datasets.py           # Databricks notebook: Export Gold tables as Parquet to HF Hub (4 datasets + model card)
+│   ├── train_xg_model.py            # Databricks notebook: xG model training (logistic + XGBoost) + HF Hub publishing
+│   ├── sync_hf_weights.py           # Databricks notebook: Download model weights from HF Hub to UC Volume
+│   └── publish_datasets.py           # Databricks notebook: Export Gold tables as Parquet to HF Hub (5 datasets + model cards)
 │
 ├── scripts/
-│   ├── create_indexes.py             # PG indexes on Lakebase synced tables (34 indexes, 11 tables, --verify + ANALYZE)
+│   ├── create_indexes.py             # PG indexes on Lakebase synced tables (36 indexes, 12 tables, --verify + ANALYZE)
+│   ├── compute_xt_grid_hf.py        # HF Jobs UV script: compute data-driven xT grid from SPADL actions
 │   ├── refresh_synced_tables.py      # Trigger SNAPSHOT refresh on synced tables (--wait, --tables)
 │   ├── delete_synced_table.py        # Delete synced table + drop PG ghost table
-│   ├── import_synced_tables.sh       # Terraform import workflow (16 tables)
+│   ├── import_synced_tables.sh       # Terraform import workflow (17 tables)
 │   ├── lakebase_grants.sql           # PG GRANT SELECT for Streamlit SP
 │   └── deploy.sh                     # Databricks sync + app deploy
 │
@@ -454,10 +466,11 @@ luxury-lakehouse/
     │   ├── architecture.dsl          # Structurizr DSL source
     │   └── architecture.html         # Generated: self-contained HTML
     ├── huggingface/
-    │   ├── model-card.md             # HF Hub model card (source of truth)
+    │   ├── model-card.md             # HF Hub model card: football2vec (source of truth)
+    │   ├── xg-model-card.md          # HF Hub model card: xG model (source of truth)
     │   ├── org-card.md               # HF Hub org card (source of truth)
     │   ├── org-interests.md          # HF Hub org "AI & ML interests" (paste via web UI)
-    │   └── dataset-cards/            # HF Hub dataset cards (4 datasets: SPADL/VAEP, line-breaking, embeddings, pitch control)
+    │   └── dataset-cards/            # HF Hub dataset cards (5 datasets)
     ├── huggingface-setup.md          # HuggingFace Hub integration guide (forks)
     └── plans/                        # Implementation design documents
 ```
@@ -518,7 +531,7 @@ All code must pass these gates before merge:
 
 | Level | What | How |
 |-------|------|-----|
-| Unit | Ingestion logic, utility functions, analytics models | pytest (524 passed, incl. pytest-benchmark baselines) |
+| Unit | Ingestion logic, utility functions, analytics models | pytest (614 passed, incl. pytest-benchmark baselines) |
 | Integration | dbt models compile and run | dbt slim CI (`state:modified+`, `--empty`, `--defer`) |
 | Data quality | Row counts, value ranges, referential integrity | dbt tests (381) + dbt-expectations |
 | E2E | Streamlit pages render with real data | Manual smoke test |
@@ -529,9 +542,9 @@ All code must pass these gates before merge:
 Lakebase and Databricks performance standards are codified in [CLAUDE.md § Database Performance](CLAUDE.md#database-performance). Key rules:
 
 - **Lakebase (PG):** Index every filtered column on fact tables >100K rows. No `ON ONLY` indexes (partitioned tables). Avoid `SELECT DISTINCT` on large tables — use recursive CTE. Re-run `scripts/create_indexes.py` after every synced table recreation.
-- **Databricks (Spark/dbt):** `validate_dataframe()` returns row count to `write_delta_table()` (no double `df.count()`), all writes use `replaceWhere` for idempotency, don't `.toPandas()` unbounded tables, extract repeated window functions into CTEs. All 9 mart fact tables use `liquid_clustered_by` for automatic data layout (replaced static Z-ordering). Predictive Optimization enabled at catalog level. Auto-compaction and `optimizeWrite` enabled via `+tblproperties` on all mart tables. All 16 mart models enforce dbt model contracts (`contract: {enforced: true}`, `on_schema_change: fail`).
+- **Databricks (Spark/dbt):** `validate_dataframe()` returns row count to `write_delta_table()` (no double `df.count()`), all writes use `replaceWhere` for idempotency, don't `.toPandas()` unbounded tables, extract repeated window functions into CTEs. All 14 mart fact tables use `liquid_clustered_by` for automatic data layout (replaced static Z-ordering). Predictive Optimization enabled at catalog level. Auto-compaction and `optimizeWrite` enabled via `+tblproperties` on all mart tables. All 17 mart models enforce dbt model contracts (`contract: {enforced: true}`, `on_schema_change: fail`).
 
-Currently 30 btree indexes across 11 tables + 4 HNSW vector indexes on embedding tables (34 total) covering all Streamlit query patterns. Managed by `scripts/create_indexes.py` with `ANALYZE` for planner statistics and `--verify` for EXPLAIN ANALYZE validation.
+Currently 32 btree indexes across 12 tables + 4 HNSW vector indexes on embedding tables (36 total) covering all Streamlit query patterns. Managed by `scripts/create_indexes.py` with `ANALYZE` for planner statistics and `--verify` for EXPLAIN ANALYZE validation.
 
 ### 6.7 — Architecture Documentation
 

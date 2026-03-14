@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from collections import namedtuple
+from unittest.mock import MagicMock
+
 import numpy as np
 import pandas as pd
+import pytest
 
 from analytics.off_ball_xt import (
     OffBallXtParams,
@@ -318,3 +322,32 @@ class TestEdgeCases:
         if not result.empty:
             for _, row in result.iterrows():
                 assert row["total_off_ball_xt"] >= row["avg_off_ball_xt"]
+
+
+# ---------------------------------------------------------------------------
+# TestLoadXtGridFromSpark
+# ---------------------------------------------------------------------------
+
+
+class TestLoadXtGridFromSpark:
+    """Tests for Delta table grid loading."""
+
+    def test_loads_from_delta_table(self) -> None:
+        from ingestion.off_ball_xt import _load_xt_grid_from_spark
+
+        Row = namedtuple("Row", ["zone_x", "zone_y", "xt_value"])
+        mock_rows = [Row(x, y, 0.01 * (x + 1)) for x in range(12) for y in range(8)]
+        mock_spark = MagicMock()
+        mock_spark.sql.return_value.collect.return_value = mock_rows
+        grid = _load_xt_grid_from_spark(mock_spark, "soccer_analytics")
+        assert grid.shape == (12, 8)
+        assert grid[0, 0] == pytest.approx(0.01)
+        assert grid[11, 7] == pytest.approx(0.12)
+
+    def test_raises_on_missing_table(self) -> None:
+        from ingestion.off_ball_xt import _load_xt_grid_from_spark
+
+        mock_spark = MagicMock()
+        mock_spark.sql.side_effect = Exception("Table not found")
+        with pytest.raises(RuntimeError, match="Run compute_expected_threat"):
+            _load_xt_grid_from_spark(mock_spark, "soccer_analytics")

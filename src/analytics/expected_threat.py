@@ -180,14 +180,18 @@ def compute_expected_threat_grid(
     shots_per_zone = np.bincount(start_zones[is_shot], minlength=n_zones).astype(np.float64)
     goals_per_zone = np.bincount(start_zones[is_shot & is_success], minlength=n_zones).astype(np.float64)
 
+    # Successful moves — failed moves lose possession (xT=0)
+    successful_moves = is_move & is_success
+    succ_moves_per_zone = np.bincount(start_zones[successful_moves], minlength=n_zones).astype(np.float64)
+
     # Probabilities per zone
     safe_total = np.maximum(total_per_zone, 1.0)
     shot_prob = shots_per_zone / safe_total
     goal_prob = np.where(shots_per_zone > 0, goals_per_zone / shots_per_zone, 0.0)
-    move_prob = 1.0 - shot_prob
+    # Use successful move probability — failed moves contribute xT=0 implicitly
+    move_prob = succ_moves_per_zone / safe_total
 
     # Transition matrix (successful moves only)
-    successful_moves = is_move & is_success
     transition = _build_transition_matrix(
         start_zones[successful_moves],
         end_zones[successful_moves],
@@ -245,3 +249,20 @@ def grid_to_dataframe(
                 row["competition_id"] = competition_id
             rows.append(row)
     return pd.DataFrame(rows)
+
+
+def validate_xt_grid(grid: np.ndarray, params: ExpectedThreatParams | None = None) -> None:
+    """Validate computed xT grid meets data quality requirements."""
+    if params is None:
+        params = ExpectedThreatParams()
+    expected_shape = (params.n_zones_x, params.n_zones_y)
+    if grid.shape != expected_shape:
+        msg = f"Grid shape {grid.shape} != expected {expected_shape}"
+        raise ValueError(msg)
+    if grid.min() < 0.001 or grid.max() > 0.50:
+        msg = f"Grid values out of expected range [0.001, 0.50]: min={grid.min():.4f}, max={grid.max():.4f}"
+        raise ValueError(msg)
+    row_means = grid.mean(axis=1)
+    if not np.all(np.diff(row_means) >= -0.01):
+        msg = "Grid row means not approximately monotonically increasing left-to-right"
+        raise ValueError(msg)
