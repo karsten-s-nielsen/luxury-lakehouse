@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the current [architecture](ARCHITECTURE.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-03-12
+**Last updated**: 2026-03-14
 
 ---
 
@@ -83,7 +83,7 @@ Detect when analytics models produce bad outputs using statistical process contr
 
 **CUSUM** is particularly valuable: O(n), ~10 lines of pure Python, detects sustained small shifts that single-match thresholds miss. Ideal for catching a slowly miscalibrating model over a season.
 
-**Reference baselines** stored as dbt seeds (following the `expected_threat_grid.csv` pattern) or a small Delta table `dev_gold.model_baselines`.
+**Reference baselines** stored as dbt seeds or a small Delta table `dev_gold.model_baselines`.
 
 ### Open-source monitoring tools (all Apache 2.0)
 
@@ -290,7 +290,7 @@ Delta Lake &rarr; Synced tables &rarr; Lakebase &rarr; Streamlit
 
 Three approaches from DeepMind's recent work apply directly to soccer analytics at individual-developer scale:
 
-**FunSearch / AlphaEvolve pattern.** LLM-driven algorithm evolution: define an `evaluate(candidate) &rarr; score` function, let an LLM generate and mutate candidates, keep the best. [OpenEvolve](https://huggingface.co/blog/codelion/openevolve) (MIT) is a community implementation that works with any LLM API. Targets: evolve `expected_threat_grid.csv` values against StatsBomb event data; optimize pitch control kernel vectorization strategies. Cost: ~$5-20 for a weekend search run, CPU only.
+**FunSearch / AlphaEvolve pattern.** LLM-driven algorithm evolution: define an `evaluate(candidate) &rarr; score` function, let an LLM generate and mutate candidates, keep the best. [OpenEvolve](https://huggingface.co/blog/codelion/openevolve) (MIT) is a community implementation that works with any LLM API. Targets: evolve xT grid values against StatsBomb event data; optimize pitch control kernel vectorization strategies. Cost: ~$5-20 for a weekend search run, CPU only.
 
 **JAX `vmap` vectorization.** Single highest-leverage tool for existing code. `jax.vmap` vectorizes `compute_pitch_control_at_point()` from ~2,700 serial Python calls per second to one array operation &mdash; unlocking full Space Creation (Fernandez &amp; Bornn 2018 OBSO) on the existing budget without GPU. JAX compiles to vectorized CPU operations via XLA; no infrastructure change required. **Implemented in Phase 18:** `compute_pitch_control_grid_fast()` with `@jax.jit` backend in `src/analytics/pitch_control.py`. Dual NumPy/JAX backend auto-dispatches based on JAX availability.
 
@@ -313,7 +313,7 @@ Models with available weights compatible with current data sources:
 | Model | Domain | Data Compatibility | License | Compute |
 |-------|--------|-------------------|---------|---------|
 | [**football2vec**](https://github.com/ofirmg/football2vec) | Player/action embeddings | StatsBomb (exact match) | MIT | Hours / CPU |
-| [**OpenSTARLab**](https://github.com/open-starlab) (LEM, FMS, Seq2Event) | Event prediction, match simulation | StatsBomb + Wyscout | Apache 2.0 | Minimal |
+| ~~[**OpenSTARLab**](https://github.com/open-starlab) (LEM, FMS, Seq2Event)~~ | ~~Event prediction, match simulation~~ | ~~StatsBomb + Wyscout~~ | ~~Apache 2.0~~ | ~~Dropped — UEID format incompatible with multi-league data ([decision](docs/decisions/openstarlab-dropped.md))~~ |
 | [**Foundation Model for Soccer**](https://arxiv.org/abs/2407.14558) | Action prediction transformer | FAWSL (fine-tune on SB) | Research | Days / 1 GPU |
 | [**RTMPose**](https://github.com/open-mmlab/mmpose) (MMPose) | Pose estimation from video | Broadcast footage | Apache 2.0 | 1-2 days / 4 GPU |
 
@@ -367,7 +367,7 @@ Models with available weights compatible with current data sources:
 
 - JAX `vmap` and symmetry augmentation **complete** (Phase 18) — no longer blocked
 - GNN pre-training depends on PyTorch Geometric + external GPU access
-- football2vec / OpenSTARLab usable immediately with existing StatsBomb/Wyscout data
+- football2vec usable immediately with existing StatsBomb/Wyscout data (OpenSTARLab dropped — [decision](docs/decisions/openstarlab-dropped.md))
 - Full model serving pipeline depends on MLflow 3 + Unity Catalog (already provisioned)
 - Synergistic with Observability (OTel traces measure model performance and drift)
 - Synergistic with Pipeline Optimization (`for_each_task` for distributed inference jobs)
@@ -533,7 +533,7 @@ Currently the platform has a single `dev` environment. Adding a `staging` enviro
 | Lakebase project | `soccer-analytics-dev` | `soccer-analytics-staging` |
 | Lakebase branch | `production` | `staging` (branched from dev production) |
 | dbt target | `dev` | `staging` |
-| Synced tables | 16 tables | Subset (fact tables only for validation) |
+| Synced tables | 17 tables | Subset (fact tables only for validation) |
 | Terraform | `terraform/environments/dev/` | `terraform/environments/staging/` |
 | Budget | Under $100/month | Minimal incremental (scale-to-zero) |
 
@@ -628,7 +628,7 @@ Phase 12 implemented a simpler Off-Ball xT metric: `pitch_control(player_locatio
 
 ## <img src="assets/hf-logo.png" height="28" align="top"> HuggingFace Hub Integration (Open Model & Dataset Ecosystem)
 
-**Status:** Tiers 1&ndash;2 complete, Tier 4 complete (Gradio demo Space with luxury flagship theme). Tier 3 deferred to DEFCON Tier 4.
+**Status:** Tiers 1&ndash;2 complete (2 models, 5 datasets published), Tier 4 complete (Gradio demo Space with luxury flagship theme). Tier 3 deferred to DEFCON Tier 4.
 **Budget:** $0 (free tier) or $9/month (PRO for priority GPU access)
 **References:** [Databricks &hearts; HuggingFace](https://www.databricks.com/blog/contributing-spark-loader-for-hugging-face-datasets); [PyG Hub Integration](https://github.com/pyg-team/pytorch_geometric/issues/7170); [SoccerNet on HF](https://huggingface.co/SoccerNet)
 
@@ -670,7 +670,7 @@ Models with immediate applicability to planned phases:
 |-------|--------|---------|-----------|
 | [**sentence-transformers**](https://sbert.net/) (`all-mpnet-base-v2`) | HF Hub | Apache 2.0 | Phase 14 entity resolution &mdash; embed player names + metadata for cosine similarity matching via pgvector. Handles transliteration, accented characters, name variants better than `rapidfuzz`. |
 | [**football2vec**](https://github.com/ofirmg/football2vec) | GitHub (MIT) | MIT | Phase 15 embeddings &mdash; pre-trained player/action embeddings on StatsBomb data. Could replace or complement simple per-90 stat vectors. |
-| [**OpenSTARLab**](https://arxiv.org/html/2502.02785v2) (LEM, FMS, Seq2Event) | GitHub (Apache 2.0) | Apache 2.0 | Event prediction and match simulation on StatsBomb + Wyscout data. Foundation for Phase 17 and Decision Optimization. |
+| ~~[**OpenSTARLab**](https://arxiv.org/html/2502.02785v2) (LEM, FMS, Seq2Event)~~ | ~~GitHub (Apache 2.0)~~ | ~~Apache 2.0~~ | ~~Dropped — `openstarlab-event` requires hardcoded La Liga UEID format incompatible with multi-league data. See [decision](docs/decisions/openstarlab-dropped.md).~~ |
 | [**microsoft/SportsBERT**](https://huggingface.co/microsoft/SportsBERT) | HF Hub | MIT | Sports-domain BERT for NLP-based player search or commentary enrichment. Lower priority. |
 
 **Databricks integration path:** `HF_HOME` &rarr; UC Volume caches downloads across sessions. Models logged via `mlflow.transformers.log_model()`, registered in Unity Catalog with `@Champion`/`@Challenger` aliases.
@@ -738,12 +738,12 @@ A Gradio Space hosting a read-only demo with pre-cached Parquet subsets. Not a r
 ### Dependencies
 
 - Tier 1 (consume) &mdash; **complete** (football2vec retrained on StatsBomb corpus)
-- Tier 2 (publish) &mdash; **complete** (model + 4 datasets published: [SPADL/VAEP](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values), [Line-Breaking Passes](https://huggingface.co/datasets/luxury-lakehouse/line-breaking-passes), [Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings), [Pitch Control](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking))
+- Tier 2 (publish) &mdash; **complete** (2 models + 5 datasets published: [football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout), [xG model](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout), [SPADL/VAEP](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values), [Line-Breaking Passes](https://huggingface.co/datasets/luxury-lakehouse/line-breaking-passes), [Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings), [Pitch Control](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking), [Expected Threat Grids](https://huggingface.co/datasets/luxury-lakehouse/expected-threat-grids))
 - Tier 3 (train) depends on DL Infrastructure (ROADMAP) for GNN training pipeline
 - Tier 4 (demo) &mdash; **complete** (Gradio Space at [`luxury-lakehouse/soccer-analytics-demo`](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme and 5 tabs: pass quality, pitch control, player similarity, shot map, DEFCON pressure)
 - Tier 5 (streaming) &mdash; blocked on Polars `hf://buckets/` merge (see below)
 - Synergistic with DL Infrastructure (HF models flow into MLflow + UC model registry)
-- Synergistic with Provider Abstraction (football2vec/OpenSTARLab consume same StatsBomb/Wyscout data)
+- Synergistic with Provider Abstraction (football2vec consumes same StatsBomb/Wyscout data)
 
 ### Tier 5 &mdash; Streaming dataset publishing via XET + Polars
 
@@ -822,10 +822,10 @@ Even before the Polars branch merges, two things are actionable today:
 
 ## PAUSA: Optimal Pass Timing &amp; OBSO Value Surface
 
-**Status:** Research complete, license pending (contacting author)
+**Status:** Research complete, license secured (Apache-2.0)
 **Paper:** Lee, Jo, Hong, Bauer &amp; Ko (2026), "Valuing La Pausa: Quantifying Optimal Pass Timing Beyond Speed" (MIT Sloan 2026 finalist, top 7 of 200+)
-**Repo:** [`leemingo/mitssac-pausa`](https://github.com/leemingo/mitssac-pausa) (public, **no license yet** &mdash; Apache-2.0 PR planned)
-**License status:** Author (Minho Lee) contacted via LinkedIn at SSAC26. Awaiting response to contribute Apache-2.0 license.
+**Repo:** [`leemingo/mitssac-pausa`](https://github.com/leemingo/mitssac-pausa) (public, Apache-2.0)
+**License status:** Apache-2.0 merged by Minho Lee (2026-03-13). No license blocker remaining.
 
 The PAUSA metric (Passing Ability Under Spatiotemporal Awareness) decomposes pass quality into two axes: **Temporal Judgment** (was the pass released at the optimal moment?) and **Spatial Selection** (was the target location the best available?). Both are quantified using OBSO (Off-Ball Scoring Opportunity), Spearman's 2018 continuous value surface that evaluates all 22 players' positions to estimate scoring probability at every pitch location.
 
@@ -851,13 +851,13 @@ The repo runs on the **same 7 IDSSE Bundesliga matches** we already ingest in Ph
 Static data assets included in the repo (not currently in our stack):
 - `EPV_grid.csv` (32&times;50 Expected Possession Value surface)
 - `Transition_gauss.csv` (64&times;100 Gaussian ball transition probability matrix)
-- `xT_grid.json` (Karun Singh 12&times;8, equivalent to our dbt seed)
+- `xT_grid.json` (Karun Singh 12&times;8, equivalent to our `expected_threat_grids` Delta table)
 
 ### Compute profile
 
 Virtual mode is the heavy-lifter: each pass generates ~100 ghost frames &times; 1,600 grid cells of pitch control. The repo parallelizes via `joblib` with `n_jobs=-1`. For 7 matches this is feasible locally; at scale it needs distributed compute (Databricks serverless or GPU).
 
-### Integration path (if license secured)
+### Integration path
 
 | Step | Module | Description |
 |------|--------|-------------|
@@ -877,7 +877,7 @@ Virtual mode is the heavy-lifter: each pass generates ~100 ghost frames &times; 
 
 ### Open questions
 
-1. **License**: Awaiting Apache-2.0 from Minho Lee. No code adaptation until license is secured.
+1. ~~**License**~~: Resolved &mdash; Apache-2.0 merged by Minho Lee (2026-03-13).
 2. **Numba adoption**: Should we add Numba to our pitch control module? Adds a compiled dependency but significant speedup.
 3. **Coordinate system**: Their code uses centered coordinates (&minus;52.5 to +52.5). Our stack uses StatsBomb 120&times;80. Adapter or full migration?
 4. **Static grids**: The EPV and Transition grids are pre-computed (provenance unclear). Train our own from StatsBomb data, or use theirs as-is?
@@ -885,7 +885,7 @@ Virtual mode is the heavy-lifter: each pass generates ~100 ghost frames &times; 
 
 ### Dependencies
 
-- License from `leemingo/mitssac-pausa` (blocker)
+- ~~License from `leemingo/mitssac-pausa`~~ Resolved (Apache-2.0 merged 2026-03-13)
 - Phase 10 (IDSSE tracking) &mdash; **complete** (same 7 matches)
 - Phase 11 (pitch control) &mdash; **complete** (foundation for OBSO)
 - Phase 12 (off-ball xT) &mdash; **complete** (OBSO is the full version)

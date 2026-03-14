@@ -28,6 +28,7 @@ with statsbomb_shots as (
         shot_type,
         statsbomb_xg,
         is_first_time,
+        play_pattern,
         distance_to_goal,
         shot_angle,
         'statsbomb'                                     as data_source
@@ -66,6 +67,7 @@ wyscout_shots as (
         sub_event_type                                  as shot_type,
         cast(null as double)                            as statsbomb_xg,
         cast(null as boolean)                           as is_first_time,
+        cast(null as string)                            as play_pattern,
         -- Compute geometry via macros
         {{ distance_to_goal('start_x', 'start_y') }}   as distance_to_goal,
         {{ shot_angle('start_x', 'start_y') }}         as shot_angle,

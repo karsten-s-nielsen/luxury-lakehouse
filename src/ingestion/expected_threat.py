@@ -2,14 +2,11 @@
 
 Reads SPADL actions from the gold mart (fct_action_values), computes per-competition
 xT grids via Markov chain value iteration, and writes results to Delta.
-
-Also computes a global grid (all competitions) for updating the dbt seed CSV.
 """
 
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -18,6 +15,7 @@ from analytics.expected_threat import (
     ExpectedThreatParams,
     compute_expected_threat_grid,
     grid_to_dataframe,
+    validate_xt_grid,
 )
 from ingestion.utils import (
     configure_logging,
@@ -89,7 +87,6 @@ def run_pipeline(
         return
 
     # Per-competition grids
-    all_grids: list[pd.DataFrame] = []
     competitions = sorted(actions_df["competition_id"].dropna().unique())
     log.info("Computing xT grids for %d competitions", len(competitions))
 
@@ -102,47 +99,32 @@ def run_pipeline(
 
         grid = compute_expected_threat_grid(comp_actions, params)
         grid_df = grid_to_dataframe(grid, competition_id=str(comp_id))
-        all_grids.append(grid_df)
-        log.info(
-            "Competition %s: %d events, max xT=%.5f",
-            comp_id,
-            n_events,
-            float(grid.max()),
+        spark_df = spark.createDataFrame(grid_df)  # type: ignore[union-attr]
+        write_delta_table(
+            spark_df,
+            catalog=catalog,
+            schema=schema,
+            table_name=_TABLE_NAME,
+            replace_where=f"competition_id = '{comp_id}'",
+            logger=log,
         )
+        log.info("Competition %s: %d events, max xT=%.5f", comp_id, n_events, float(grid.max()))
 
     # Global grid (all competitions combined)
     global_grid = compute_expected_threat_grid(actions_df, params)
+    validate_xt_grid(global_grid)
     global_df = grid_to_dataframe(global_grid, competition_id="global")
-    all_grids.append(global_df)
-    log.info(
-        "Global grid: %d events, max xT=%.5f",
-        len(actions_df),
-        float(global_grid.max()),
-    )
-
-    # Combine and write
-    combined_df = pd.concat(all_grids, ignore_index=True)
-    spark_df = spark.createDataFrame(combined_df)  # type: ignore[union-attr]
+    spark_df = spark.createDataFrame(global_df)  # type: ignore[union-attr]
     write_delta_table(
         spark_df,
         catalog=catalog,
         schema=schema,
         table_name=_TABLE_NAME,
-        mode="overwrite",
+        replace_where="competition_id = 'global'",
         logger=log,
     )
-
-    # Export global grid as CSV for dbt seed update.
-    # Only works when run locally — on serverless the seed path doesn't exist.
-    seed_df = grid_to_dataframe(global_grid)
-    seed_path = Path(__file__).resolve().parents[2] / "dbt_project" / "seeds" / "expected_threat_grid.csv"
-    if seed_path.parent.is_dir():
-        seed_df.to_csv(seed_path, index=False)
-        log.info("Updated dbt seed at %s", seed_path)
-    else:
-        log.info("Skipping dbt seed CSV export (path not found: %s)", seed_path.parent)
-
-    log.info("Done — wrote %d grid rows (%d competitions + global)", len(combined_df), len(competitions))
+    log.info("Global grid: %d events, max xT=%.5f", len(actions_df), float(global_grid.max()))
+    log.info("Done — wrote grids for %d competitions + global", len(competitions))
 
 
 def main() -> None:

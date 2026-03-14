@@ -146,6 +146,11 @@ def _load_player_options(comp: int, team: int, tbl: str, players_tbl: str) -> An
 def page() -> None:
     """Render the Action Values page."""
     st.header(":material/trending_up: Action Values (VAEP)")
+    st.caption(
+        "Valuing Actions by Estimating Probabilities — "
+        "[Decroos et al. (2019)](https://doi.org/10.1007/s10994-021-05989-6). "
+        "Implemented via [socceraction](https://github.com/ML-KULeuven/socceraction)."
+    )
 
     view = st.radio(
         "View",

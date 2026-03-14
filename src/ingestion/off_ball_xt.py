@@ -7,7 +7,7 @@ results to a new ``off_ball_xt_results`` bronze table.
 
 Design: "Read from gold, compute, write to bronze." The gold mart provides
 the standardised schema (x, y, velocity_x, velocity_y, etc.) that raw bronze
-tables lack.  The xT grid is loaded from the dbt seed table at runtime.
+tables lack.  The xT grid is loaded from the expected_threat_grids Delta table at runtime.
 
 Architecture: Uses ``applyInPandas`` to distribute frame-batch computation
 across Spark executors instead of a sequential per-match driver loop.
@@ -18,7 +18,6 @@ aggregates across batches via Spark-native ``groupBy.agg``.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -46,43 +45,26 @@ _GOLD_SCHEMA = "dev_gold"
 _DEFAULT_BATCH_SIZE = 500
 
 
-def _load_xt_grid() -> np.ndarray:
-    """Load the 12x8 xT grid from the seed CSV.
+def _load_xt_grid_from_spark(spark: SparkSession, catalog: str, schema: str = "bronze") -> np.ndarray:
+    """Load xT grid from the expected_threat_grids Delta table.
 
-    Returns:
-        numpy array of shape (12, 8) indexed by [zone_x, zone_y].
+    Reads the global grid from {catalog}.{schema}.expected_threat_grids.
+    Raises RuntimeError if the table does not exist — run compute_expected_threat first.
     """
-    # Try local path relative to this module
-    local_path = Path(__file__).resolve().parent.parent.parent / "dbt_project" / "seeds" / "expected_threat_grid.csv"
+    table = f"{catalog}.{schema}.expected_threat_grids"
     try:
-        df = pd.read_csv(str(local_path))
-    except FileNotFoundError:
-        # On Databricks serverless, try UC Volume first, then workspace path
-        volume_path = "/Volumes/soccer_analytics/bronze/libs/expected_threat_grid.csv"
-        workspace_path = "/Workspace/dbt_project/seeds/expected_threat_grid.csv"
-        try:
-            df = pd.read_csv(volume_path)
-        except FileNotFoundError:
-            df = pd.read_csv(workspace_path)
+        rows = spark.sql(
+            f"SELECT zone_x, zone_y, xt_value FROM {table} "  # noqa: S608
+            "WHERE competition_id = 'global'"
+        ).collect()
+    except Exception as exc:
+        msg = f"xT grid table {table} not found. Run compute_expected_threat pipeline first."
+        raise RuntimeError(msg) from exc
 
-    grid = np.zeros((12, 8), dtype=np.float64)
-    grid[df["zone_x"].astype(int).values, df["zone_y"].astype(int).values] = df["xt_value"].values
+    grid = np.zeros((12, 8))
+    for row in rows:
+        grid[int(row.zone_x), int(row.zone_y)] = float(row.xt_value)
     return grid
-
-
-def _load_xt_grid_from_spark(spark: SparkSession, catalog: str) -> np.ndarray:
-    """Load xT grid from the dbt seed table (preferred on Databricks).
-
-    Falls back to CSV if the seed table doesn't exist.
-    """
-    try:
-        seed_table = f"{catalog}.dev_silver.expected_threat_grid"
-        df = spark.table(seed_table).toPandas()
-        grid = np.zeros((12, 8), dtype=np.float64)
-        grid[df["zone_x"].astype(int).values, df["zone_y"].astype(int).values] = df["xt_value"].values
-        return grid
-    except Exception:
-        return _load_xt_grid()
 
 
 def _make_batch_udf(

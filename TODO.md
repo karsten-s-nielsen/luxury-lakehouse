@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [ARCHITECTURE.md](ARCHITECTURE.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
 
-**Last updated**: 2026-03-12 (Phase 18 — HF Hub Expansion: 4 datasets, Gradio demo Space, pitch control batch, JAX kernel, symmetry augmentation)
+**Last updated**: 2026-03-14 (Predictive models deployed: custom xG + data-driven xT, OpenSTARLab dropped, PAUSA license secured)
 
 ---
 
@@ -18,15 +18,15 @@ Tasks warming up in the on-deck circle.
 
 | # | Task | Size | Source | Notes |
 |---|------|------|--------|-------|
-| D5 | OpenSTARLab Pre-Trained Models | Wicked | [ROADMAP.md](ROADMAP.md) | Apache 2.0 inference (Seq2Event, LEM, FMS) on existing StatsBomb/Wyscout data. Publish predictions to HF Hub |
-| D6 | Custom xG Model | Wicked | [ROADMAP.md](ROADMAP.md) | Train competition-specific xG from ~131K StatsBomb shots. Logistic regression baseline + gradient boosted. Publish to HF Hub |
-| D8 | Dynamic xT Grid Seed Replacement | Dunkin' | Tech debt #17 | Module ready (`src/analytics/expected_threat.py`). Run `compute_expected_threat` on Databricks to generate data-driven grid, replace static `expected_threat_grid.csv` seed |
-| D9 | ELASTIC Event-Tracking Sync | Wicked | [ROADMAP.md](ROADMAP.md) | Adapt Kim et al. ELASTIC sync engine for IDSSE schema. Aligns discrete events with 25fps tracking (95.5% exact alignment). Independently valuable — any future tracking+event analysis needs this. License: Apache-2.0 (pending, assumed formality) |
-| D10 | OBSO + PAUSA Pipeline | Wicked | [ROADMAP.md](ROADMAP.md) | Full OBSO scoring surface (PPCF × Transition × EPV) + PAUSA temporal/spatial decomposition + ghost trajectories + `fct_pausa_values` Delta table + dbt mart + Streamlit page. Builds on D9 |
+| D9 | ELASTIC Event-Tracking Sync | Wicked | [ROADMAP.md](ROADMAP.md) | Adapt Kim et al. ELASTIC sync engine for IDSSE schema. Aligns discrete events with 25fps tracking (95.5% exact alignment). Independently valuable — any future tracking+event analysis needs this |
+| D10 | OBSO + PAUSA Pipeline | Wicked | [ROADMAP.md](ROADMAP.md) | Full OBSO scoring surface (PPCF × Transition × EPV) + PAUSA temporal/spatial decomposition + ghost trajectories + `fct_pausa_values` Delta table + dbt mart + Streamlit page. Builds on D9. License: Apache-2.0 (secured 2026-03-13) |
 | D11 | MLflow Model Registry & Experiment Tracking | Dunkin' | [ROADMAP.md](ROADMAP.md) | UC Model Registry with Champion/Challenger aliases for D5/D6 models. `mlflow.evaluate()` for batch validation (Brier score, calibration). Cross-cutting enabler for all ML work |
 | D12 | Model Validation & Drift Detection | Dunkin' | [ROADMAP.md](ROADMAP.md) | PSI for xG, Wasserstein for xT/VAEP distributions, CUSUM for sustained drift, range bounds for physical stats. Pure scipy/numpy. Reference baselines as dbt seeds |
 | D13 | Physics-Based Tracking Augmentation | Dunkin' | [ROADMAP.md](ROADMAP.md) | Position/velocity jitter within physical constraints. 10× multiplier on 20 tracking matches. Combined with symmetry augmentation (8×) = 80× effective training data. NumPy only |
 | D14 | Space Creation (Full Counterfactual) | Wicked | [ROADMAP.md](ROADMAP.md) | Fernandez & Bornn 2018 OBSO counterfactual analysis. Differential pitch control per player per frame. Unblocked by D10 (OBSO + ghost trajectories) + D13 (augmented tracking data). JAX kernel ready (Phase 18) |
+| D16 | OBSO Batch on HF Jobs GPU | Wicked | [ROADMAP.md](ROADMAP.md) | Compute full OBSO value surfaces (PPCF × Transition × EPV) for 7 IDSSE matches using JAX `vmap` on A10G. Keystone that unblocks D10 (PAUSA) and D14 (Space Creation). Static grids from PAUSA repo, JAX kernel from Phase 18 |
+| D17 | xG v2 — Neural Context Model | Wicked | [ROADMAP.md](ROADMAP.md) | Upgrade XGBoost xG (0.979 ROC-AUC) with a small set-encoder that ingests raw 360 freeze-frame defender/GK positions. Train on HF Jobs GPU (A10G). 131K shots + freeze-frame data in Delta. Publish to HF Hub |
+| D18 | Football2vec v2 — Transformer Embeddings | Wicked | [ROADMAP.md](ROADMAP.md) | Replace Doc2Vec (gensim, CPU) with a small transformer on tokenized match sequences. Train on HF Jobs GPU (A10G). 87K player-match documents in Delta. Better player representations for similarity search. Publish to HF Hub |
 | D7 | Observability Layer (OTel) | Monstah | [ROADMAP.md](ROADMAP.md) | Research complete, ready for implementation. Instrument once, observe anywhere. ~$1-2/month personal tier |
 
 ---
@@ -43,6 +43,10 @@ Phases 0–18 are complete. See git history for implementation details.
 | D2 | HF Space — DEFCON Pressure Breakdown | DEFCON pressure tab live with filterable player dropdown + Plotly grouped bar chart (intercept/concede/disturb/deter). Data aggregated from `fct_defcon_actions` (9,815 rows, 2,394 players, 323 matches), bundled as Parquet in Space |
 | D3 | Dynamic xT Grid | `src/analytics/expected_threat.py` + `src/ingestion/expected_threat.py` — Markov chain value iteration replaces static Karun Singh seed. Entry point `compute_expected_threat`, tests in `test_expected_threat.py` |
 | ~~D4~~ | ~~Pitch Control Animation~~ | ~~Dropped — per-frame physics computation too expensive for free HF Space tier. Static frame slider (D1) provides equivalent functionality~~ |
+| ~~D5~~ | ~~OpenSTARLab Pre-Trained Models~~ | Dropped — `openstarlab-event` requires hardcoded La Liga UEID format incompatible with multi-league data. See `docs/decisions/openstarlab-dropped.md` |
+| D6 | Custom xG Model | Calibrated XGBoost (ROC-AUC 0.979) + logistic baseline trained on ~131K shots. Published to [HF Hub](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout). 87,999 predictions scored, `fct_xg_predictions` gold table + synced table deployed |
+| D8 | Dynamic xT Grid | Data-driven 12×8 grid computed from 2.2M SPADL actions via HF Jobs. Static CSV seed deleted, Delta table `expected_threat_grids` is source of truth |
+| ~~D15~~ | ~~OpenSTARLab Seq2Event + FMS~~ | Dropped — depends on D5 |
 
 ---
 
@@ -113,7 +117,7 @@ Items resolved during phases or the optimization audit (2026-03-11). Details pre
 | O12 | No `max_concurrent_runs` | Set `max_concurrent_runs = 1` on ingestion workflow. |
 | O13 | Entity resolution Delta schema merge | Explicit `int64`/`float64` dtypes on empty DataFrame code paths. |
 | 5 | `pitch_control_value` column NULL | `pitch_control_batch.py` populates `bronze.pitch_control_values` via `applyInPandas`. Staging model `stg_pitch_control__values` exposes values. HF export JOINs at query time. |
-| O14 | Off-ball xT missing seed CSV | xT grid CSV uploaded to UC Volume with fallback chain. |
+| O14 | Off-ball xT missing seed CSV | Resolved by D8: data-driven xT grid stored in `expected_threat_grids` Delta table. Static CSV seed deleted. |
 | O15 | IDSSE tracking intermittent OOM | Per-period processing halves peak DataFrame memory. |
 | O21 | Incremental skip guards missing | All 5 ingestion modules check existing match IDs before re-processing. |
 | O22 | DEFCON type mismatches | `IntegerType`→`LongType` for IDs in `applyInPandas` schemas. |
@@ -134,7 +138,7 @@ See [ROADMAP.md](ROADMAP.md) for research directions, long-horizon features, and
 - **Graph-Based Tactical Patterns** — GNN research direction (Raabe et al. 2022)
 - **Decision Optimization** — RL-based pass optimization beyond VAEP (Rahimian et al.)
 - **Space Creation** — Fernandez & Bornn 2018 OBSO (deferred from Phase 12; JAX `vmap` may unblock)
-- **HuggingFace Hub Integration** — Tiers 1-2 and 4 complete (model + 4 datasets published, Gradio demo Space live with luxury flagship theme); remaining: Tier 3 GPU training
+- **HuggingFace Hub Integration** — Tiers 1-2 and 4 complete (2 models + 5 datasets published, Gradio demo Space live with luxury flagship theme); remaining: Tier 3 GPU training
 
 ## Infrastructure Notes
 

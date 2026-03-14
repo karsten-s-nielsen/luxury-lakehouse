@@ -8,7 +8,7 @@
 
 ---
 
-[![Try the Demo](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Live%20Demo-yellow?style=flat-square)](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) [![Datasets](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Datasets-blue?style=flat-square)](https://huggingface.co/luxury-lakehouse) [![Model](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-football2vec-green?style=flat-square)](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout)
+[![Try the Demo](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Live%20Demo-yellow?style=flat-square)](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) [![Datasets](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Datasets-blue?style=flat-square)](https://huggingface.co/luxury-lakehouse) [![football2vec](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-football2vec-green?style=flat-square)](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) [![xG Model](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-xG%20Model-green?style=flat-square)](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout)
 
 ## What Is This?
 
@@ -44,7 +44,7 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 | **Synchronization** | Lakeflow Synced Tables | Zero-ETL continuous sync from Gold → Lakebase |
 | **Serving** | Lakebase PostgreSQL 17 (Autoscaling) | Sub-10ms OLTP queries, native pgvector, scale-to-zero |
 | **Application** | Streamlit on Databricks Apps | Interactive dashboards with mplsoccer visualizations |
-| **ML Artifacts** | [HuggingFace Hub](https://huggingface.co/luxury-lakehouse) | Publish [model weights](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout), [4 datasets](https://huggingface.co/luxury-lakehouse), and [demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) |
+| **ML Artifacts** | [HuggingFace Hub](https://huggingface.co/luxury-lakehouse) | Publish [2 models](https://huggingface.co/luxury-lakehouse) ([football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout), [xG](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout)), [5 datasets](https://huggingface.co/luxury-lakehouse), and [demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) |
 | **Security** | OAuth M2M + OIDC Federation + KMS | Zero-secret CI, least-privilege SPs, encrypted state |
 | **Infrastructure** | Terraform + Databricks Provider | Everything as code |
 
@@ -63,8 +63,8 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 
 Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by David Sumpter:
 
-- **Expected Goals (xG)** — Shot quality model using distance, angle, body part
-- **Expected Threat (xT)** — Pitch zone valuation via Markov chains
+- **Expected Goals (xG)** — Custom calibrated XGBoost (13 features, ROC-AUC 0.979) + logistic baseline, trained on ~131K shots, [published to HuggingFace](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout)
+- **Expected Threat (xT)** — Data-driven pitch zone valuation via Markov chains (computed from 2.2M SPADL actions)
 - **Pass Networks** — Interactive team passing structure with hover tooltips (Plotly)
 - **Heat Maps** — Action density visualization for players and teams
 - **VAEP Action Valuation** — Player contribution scoring beyond goals/assists (SPADL + VAEP)
@@ -83,16 +83,16 @@ Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by 
 luxury-lakehouse/
 ├── terraform/          # Infrastructure as Code (Databricks on AWS)
 ├── src/
-│   ├── analytics/      # Pure-Python analytics models (pitch control, line-breaking, entity resolution, DEFCON, football2vec, symmetry)
+│   ├── analytics/      # Pure-Python analytics models (pitch control, line-breaking, entity resolution, DEFCON, football2vec, xG, xT, symmetry, smoothing)
 │   ├── ingestion/      # Data ingestion + compute pipelines (StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner, pitch control batch)
 │   └── streamlit_app/  # Interactive analytics dashboard
-├── notebooks/          # Databricks notebooks (football2vec training, dataset publishing to HF Hub)
+├── notebooks/          # Databricks notebooks (football2vec/xG training, model weight sync, dataset publishing to HF Hub)
 ├── demo_space/         # HuggingFace Gradio demo Space (pass quality, pitch control, player similarity, shot map, DEFCON pressure)
 ├── dbt_project/        # Bronze → Silver → Gold transformations
 ├── scripts/            # Operational scripts (PG indexes, grants, synced table management)
 ├── docs/
 │   ├── c4/             # C4 architecture diagrams (Structurizr DSL)
-│   ├── huggingface/          # HF Hub model card, org card, dataset cards (source of truth)
+│   ├── huggingface/          # HF Hub model cards (football2vec, xG), org card, dataset cards (source of truth)
 │   └── huggingface-setup.md  # HuggingFace Hub integration guide
 ├── assets/             # Images and branding
 ├── ARCHITECTURE.md     # Platform architecture and design decisions
@@ -116,7 +116,7 @@ The `src/analytics/` modules (pitch control, line-breaking, DEFCON, off-ball xT,
 
 ## Status
 
-**Phase 18 complete** — 11 Streamlit pages, 16 synced tables, 34 PG indexes, 524 unit tests. HuggingFace Hub Expansion: 4 datasets published ([SPADL/VAEP](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values), [Line-Breaking Passes](https://huggingface.co/datasets/luxury-lakehouse/line-breaking-passes), [Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings), [Pitch Control](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking)), [Gradio demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme (5 interactive tabs), pitch control batch pipeline, JAX kernel, TacticAI symmetry augmentation. See [ARCHITECTURE.md](ARCHITECTURE.md) for the platform architecture and [ROADMAP.md](ROADMAP.md) for research directions.
+**Phase 18 complete + predictive models deployed** — 11 Streamlit pages, 17 synced tables, 36 PG indexes, 614 unit tests. HuggingFace Hub: 2 models ([football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout), [xG](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout)) + 5 datasets published, [Gradio demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme. Custom xG model (calibrated XGBoost, ROC-AUC 0.979) scoring 87,999 shots. Data-driven xT grid computed from 2.2M SPADL actions. See [ARCHITECTURE.md](ARCHITECTURE.md) for the platform architecture and [ROADMAP.md](ROADMAP.md) for research directions.
 
 | Phase | Description | Status |
 |-------|-------------|--------|

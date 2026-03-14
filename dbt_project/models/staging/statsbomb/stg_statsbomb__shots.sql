@@ -37,6 +37,9 @@ shots as (
         shot_first_time                                    as is_first_time,
         shot_one_on_one                                    as is_one_on_one,
 
+        -- Play pattern (e.g., Regular Play, From Corner)
+        play_pattern,
+
         -- End location (parse JSON string "[x, y, z]" — use get() for safe access)
         get(from_json(shot_end_location, 'ARRAY<DOUBLE>'), 0) as end_location_x,
         get(from_json(shot_end_location, 'ARRAY<DOUBLE>'), 1) as end_location_y,

@@ -93,6 +93,13 @@ def _load_ppda_data(competition_id: int) -> Any:
 def page() -> None:
     """Render the Movement Analysis page."""
     st.header(":material/directions_run: Movement Analysis")
+    st.caption(
+        "Off-Ball xT combines pitch control "
+        "([Spearman 2017](https://www.researchgate.net/publication/315166647_Beyond_Expected_Goals)) "
+        "with Expected Threat zones "
+        "([Karun Singh 2018](https://karun.in/blog/expected-threat.html)). "
+        "Physical metrics from tracking data."
+    )
 
     view = st.radio(
         "View",

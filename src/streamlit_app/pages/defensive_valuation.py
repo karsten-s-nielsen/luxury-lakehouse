@@ -323,7 +323,8 @@ def page() -> None:
     st.header(":material/shield: Defensive Pressure (DEFCON-lite)")
     st.caption(
         "How much defensive attention does each attacker attract? "
-        "Tier 3 tabular approximation of Kim et al. (2025). "
+        "Tier 3 tabular approximation of "
+        "[Kim et al. (2025)](https://github.com/hyunsungkim-ds/defcon) DEFCON framework. "
         "Credits: Intercept, Concede, Disturb, Deter."
     )
 

@@ -2,19 +2,31 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
+import numpy as np
+import pandas as pd
 import streamlit as st
 
 from streamlit_app.components.filters import render_competition_filter, render_player_filter, render_team_filter
 from streamlit_app.components.pitch import plot_shot_map
 from streamlit_app.db import execute_query, t
 
+logger = logging.getLogger(__name__)
+
+# ── Model label → column mapping ──────────────────────────────────────────────
+_XG_MODEL_OPTIONS: dict[str, str] = {
+    "StatsBomb": "statsbomb_xg",
+    "Custom (Logistic)": "xg_logistic",
+    "Custom (XGBoost)": "xg_gradient_boosted",
+}
+
 
 @st.cache_data(ttl=600, show_spinner="Loading shots...")
 def _fetch_shots(shots_tbl: str, players_tbl: str, w: str, p: tuple[Any, ...]) -> Any:
     return execute_query(
-        f"SELECT s.location_x, s.location_y, s.statsbomb_xg, s.is_goal, "  # noqa: S608
+        f"SELECT s.shot_id, s.location_x, s.location_y, s.statsbomb_xg, s.is_goal, "  # noqa: S608
         f"  s.shot_outcome, s.shot_body_part, s.distance_to_goal, s.shot_angle, "
         f"  s.minute, p.player_display_name "
         f"FROM {shots_tbl} s "
@@ -24,6 +36,20 @@ def _fetch_shots(shots_tbl: str, players_tbl: str, w: str, p: tuple[Any, ...]) -
         f"LIMIT 10000",
         p,
     )
+
+
+@st.cache_data(ttl=600, show_spinner="Loading xG predictions...")
+def _fetch_xg_predictions(xg_tbl: str) -> pd.DataFrame:
+    """Fetch custom xG predictions. Returns empty DataFrame if the table does not exist."""
+    try:
+        return execute_query(
+            f"SELECT shot_id, xg_logistic, xg_gradient_boosted "  # noqa: S608
+            f"FROM {xg_tbl} "
+            f"LIMIT 100000",
+        )
+    except Exception:
+        logger.warning("fct_xg_predictions_synced not available — custom xG disabled")
+        return pd.DataFrame()
 
 
 def _load_shots(
@@ -54,6 +80,33 @@ def _load_shots(
     return _fetch_shots(t("fct_shots_synced"), t("dim_players_synced"), where, tuple(params))
 
 
+def _join_xg_predictions(shots: pd.DataFrame) -> tuple[pd.DataFrame, bool]:
+    """LEFT JOIN xG predictions onto shots. Returns (merged_df, has_custom_xg)."""
+    if shots.empty or "shot_id" not in shots.columns:
+        return shots, False
+
+    xg_preds = _fetch_xg_predictions(t("fct_xg_predictions_synced"))
+    if xg_preds.empty:
+        return shots, False
+
+    merged = shots.merge(xg_preds, on="shot_id", how="left")
+    return merged, True
+
+
+def _compute_brier_score(is_goal: pd.Series, xg_values: pd.Series) -> float | None:  # type: ignore[type-arg]
+    """Compute Brier score for xG predictions vs actual outcomes.
+
+    Returns None if fewer than 10 valid observations.
+    """
+    valid_mask = is_goal.notna() & xg_values.notna()
+    n_valid = int(valid_mask.sum())
+    if n_valid < 10:
+        return None
+    goals = is_goal[valid_mask].astype(float)
+    xg = xg_values[valid_mask].astype(float)
+    return float(np.mean((xg - goals) ** 2))
+
+
 def page() -> None:
     """Render the Shot Map page."""
     st.header(":material/target: Shot Map")
@@ -75,19 +128,47 @@ def page() -> None:
         st.warning("No shots found for the selected filters.")
         return
 
+    # Join custom xG predictions (graceful degradation if table missing)
+    shots, has_custom_xg = _join_xg_predictions(shots)
+
+    if not has_custom_xg:
+        st.info("Custom xG predictions not yet available. Showing StatsBomb xG only.")
+
+    # Model selector in sidebar
+    with st.sidebar:
+        if has_custom_xg:
+            selected_model = st.radio(
+                "xG Model",
+                list(_XG_MODEL_OPTIONS.keys()),
+                index=0,
+            )
+        else:
+            selected_model = "StatsBomb"
+
+    xg_col = _XG_MODEL_OPTIONS[selected_model]
+
+    # Prepare xG column for visualization — plot_shot_map reads "statsbomb_xg"
+    # so we overwrite it with the selected model's values for rendering.
+    plot_shots = shots.copy()
+    if xg_col != "statsbomb_xg" and xg_col in plot_shots.columns:
+        plot_shots["statsbomb_xg"] = plot_shots[xg_col].fillna(plot_shots["statsbomb_xg"])
+
     col_viz, col_stats = st.columns([3, 1])
 
     with col_viz:
         title_parts = ["Shot Map"]
         if player_id is not None and not shots.empty:
             title_parts.append(f"— {shots['player_display_name'].iloc[0]}")
-        fig = plot_shot_map(shots, title=" ".join(title_parts))
+        fig = plot_shot_map(plot_shots, title=" ".join(title_parts))
         st.pyplot(fig)
 
     with col_stats:
         total = len(shots)
         goals = int(shots["is_goal"].sum())
-        xg_sum = float(shots["statsbomb_xg"].sum())
+
+        # Use selected model's xG for summary metrics
+        xg_series = shots[xg_col] if xg_col in shots.columns else shots["statsbomb_xg"]
+        xg_sum = float(xg_series.sum())
         conversion = (goals / total * 100) if total > 0 else 0.0
         xg_per_shot = xg_sum / total if total > 0 else 0.0
 
@@ -96,3 +177,10 @@ def page() -> None:
         st.metric("Total xG", f"{xg_sum:.2f}")
         st.metric("Conversion Rate", f"{conversion:.1f}%")
         st.metric("xG / Shot", f"{xg_per_shot:.3f}")
+
+        # Brier score — measures calibration of xG predictions
+        brier = _compute_brier_score(pd.Series(shots["is_goal"]), pd.Series(xg_series))
+        if brier is not None:
+            st.metric("Brier Score", f"{brier:.4f}")
+        else:
+            st.metric("Brier Score", "N/A")
