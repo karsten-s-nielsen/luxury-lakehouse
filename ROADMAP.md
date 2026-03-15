@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the current [architecture](ARCHITECTURE.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-03-14
+**Last updated**: 2026-03-15
 
 ---
 
@@ -508,6 +508,159 @@ The `Vision` class is a clean NumPy/scipy implementation. Once pose data arrives
 - Own-footage recording + Respo.Vision processing (blocker)
 - Phase 11 (pitch control) — for vision x pitch control x pitch value framework
 - Phase 10 (tracking) — **complete** (velocity computation ready)
+
+---
+
+## Team Shape Analysis (Formation Detection &amp; Spatial Metrics)
+
+**Status:** Stage 1 ready for implementation (existing tracking data); Stage 2 blocked by SkillCorner DoD commercial relationship
+**License:** `unravelsports` &mdash; MPL 2.0 ([UnravelSports/unravelsports](https://github.com/UnravelSports/unravelsports))
+
+Formation detection, team spatial metrics, and connected-formation visualizations derived from tracking data. Designed to be immediately useful to non-data-science audiences (parents, youth coaches) &mdash; metrics like team length, defensive line height, and GK-to-backline distance are intuitive without statistical background.
+
+### Why it matters
+
+Team shape metrics are the most relatable tracking-derived analytics for non-expert audiences. "We got stretched in the last 15 minutes" or "defensive line sat at 42% &mdash; we pressed high" communicate tactical reality without requiring explanation of xG, VAEP, or pitch control surfaces. FIFA match reports have normalized these metrics since the 2018 World Cup (EPTS tracking at 25Hz across all 64 matches).
+
+### Stage 1 &mdash; Team Shape from Existing Tracking Data
+
+Works immediately on the 20 matches already in `fct_tracking_frames` (Metrica, IDSSE, SkillCorner open data). No external dependencies.
+
+#### Metrics catalog
+
+**Tier 1 &mdash; Intuitive (no explanation needed)**
+
+| Metric | Definition | Reference Values |
+|--------|-----------|-----------------|
+| **Average position map** | Mean (x, y) per player per phase &mdash; the "where does each player stand" formation diagram | Visual &mdash; dots on pitch with jersey numbers |
+| **Team length** | `max(y) - min(y)` of outfield players along the goal-to-goal axis | &lt;30m defending = compact; &gt;40m = stretched (Fradua et al. 2013) |
+| **Team width** | `max(x) - min(x)` of outfield players | &gt;38m in possession = good width creation |
+| **Defensive line height** | Mean y of back line cluster, normalized to pitch % (0% = own goal, 100% = opponent goal) | &gt;50% = high press; &lt;35% = deep block |
+| **GK-to-backline distance** | GK y minus mean(back line y) | FIFA reports this explicitly in TSG match reports |
+
+**Tier 2 &mdash; One sentence of explanation**
+
+| Metric | Definition |
+|--------|-----------|
+| **Team area (convex hull)** | Area of smallest polygon containing 10 outfield players (`scipy.spatial.ConvexHull`). ~1,000 m&sup2; defending, ~1,500 m&sup2; attacking (Frencken et al. 2011) |
+| **Inter-line gaps** | Distance between defensive &harr; midfield and midfield &harr; attacking line centroids. &lt;12m = compact, &gt;18m = exposed |
+| **Compactness time series** | Team length over match time, annotated with goals/subs |
+| **Stretch index** | Mean distance of all players from team centroid (Bourbousson et al. 2010). More robust than length/width &mdash; not distorted by a single outlier |
+
+**Tier 3 &mdash; Coaching conversation starters**
+
+| Metric | Definition |
+|--------|-----------|
+| **Formation detection** | Automatic classification via EFPI template matching (e.g., "4-3-3 in possession, 4-4-2 out of possession") |
+| **Phase-split shapes** | In-possession vs out-of-possession averages (Shaw &amp; Glickman 2019) |
+| **Shape comparison** | Side-by-side convex hulls: your team vs opponent |
+
+#### Formation detection: EFPI (unravelsports)
+
+The `unravelsports` package implements EFPI &mdash; Elastic Formation and Position Identification (Bekkers &amp; Dabadghao 2025). It uses the Hungarian algorithm (linear sum assignment) with scale-normalized template matching against 65 formation templates from mplsoccer. Key properties:
+
+- Integrates with **kloppy** (already used for SkillCorner/Metrica ingestion)
+- Configurable time windows: per-frame, per-possession, per-5-minutes, per-period
+- Stability filtering (`change_threshold`) prevents spurious formation flips
+- Handles missing players (red cards, substitutions) gracefully
+- Maintained by Joris Bekkers (PySport co-founder) &mdash; connected on LinkedIn, met at MIT Sloan
+
+**Alternative approaches evaluated but not selected:**
+- SoccerCPD (Kim et al., KDD 2022) &mdash; state-of-the-art change-point detection but requires R runtime via `rpy2`, incompatible with Databricks serverless
+- Naive y-sort grouping &mdash; works for static averages but fails during transitions
+- Delaunay triangulation fingerprinting (Narizuka &amp; Yamazaki 2019) &mdash; topology-invariant but outputs abstract distance matrices, not human-readable formation labels
+
+#### Streamlit page design
+
+A "Team Shape" page following the Pitch Control page pattern, with two views:
+
+**Snapshot view** (single frame or phase average):
+- Pitch diagram with player positions (jersey numbers) and connected formation lines (GK &rarr; back line &rarr; midfield &rarr; attack)
+- Convex hull overlay (shaded polygon per team)
+- Sidebar `st.metric` widgets: team length, width, defensive line height, GK-backline distance, convex hull area &mdash; with `delta=` showing difference from match average
+
+**Timeline view** (full match):
+- Time-series chart of team length, width, and defensive line height
+- Annotated with goals, substitutions, formation changes
+- Formation label per 5-minute window (via EFPI)
+- Phase comparison: in-possession vs out-of-possession metric averages
+
+#### Compute approach
+
+All Tier 1 and Tier 2 metrics are lightweight NumPy/scipy operations on per-frame player positions &mdash; no heavy compute pipeline needed:
+- `scipy.spatial.ConvexHull` for team area
+- Basic y-sorting + k-means (k=3 or k=4) for line detection
+- EFPI for formation labels (runs in Streamlit or pre-computed via `applyInPandas`)
+
+Option to pre-compute and persist as a dbt mart (e.g., `fct_team_shape`) for larger datasets, but Streamlit-side computation is sufficient for the current 20-match corpus.
+
+#### Potential artifacts
+
+| Artifact | Layer | Description |
+|----------|-------|-------------|
+| `src/analytics/team_shape.py` | Analytics | Team centroid, convex hull, line detection, shape metrics |
+| `fct_team_shape` (optional) | dbt marts | Pre-computed per-frame or per-window team shape metrics |
+| `src/streamlit_app/pages/team_shape.py` | Streamlit | Team Shape page (snapshot + timeline views) |
+| `src/streamlit_app/components/pitch.py` (update) | Streamlit | Connected-formation diagram renderer, convex hull overlay |
+
+### Stage 2 &mdash; Own-Footage Pipeline (Veo3 &rarr; SkillCorner DoD &rarr; Platform)
+
+Enables team shape analysis on games recorded with Veo3 in broadcast format. The user is the data originator &mdash; no league or broadcast copyrights attached.
+
+#### Pipeline flow
+
+1. **Record** on Veo3 in broadcast format (already happening)
+2. **Upload** to SkillCorner Data on Demand via API (bearer token auth)
+3. **Poll** for processing completion
+4. **Download** tracking CSV (same coordinate system as SkillCorner open data)
+5. **Ingest** via adapted SkillCorner pipeline &rarr; `fct_tracking_frames`
+6. **Analyze** on Team Shape page &mdash; formation detection, spatial metrics, time-series
+
+#### Integration with Provider Framework
+
+SkillCorner DoD is a known tier in the [Provider Abstraction &amp; Multi-Tier Ingestion](#provider-abstraction--multi-tier-ingestion) roadmap item. The adapter would implement:
+
+```
+SkillCorner Open Data (current):  kloppy.skillcorner.load_open_data() → JSON
+SkillCorner DoD (new):            upload video → poll → CSV download → same parser
+```
+
+The CSV format matches the open data schema &mdash; the parser in `src/ingestion/skillcorner.py` and `stg_skillcorner__tracking.sql` would need minimal adaptation. Frame rate may differ (up to 25fps commercial vs 10fps open).
+
+#### What this unlocks
+
+Team shape analysis on actual youth/amateur games &mdash; metrics that resonate with parents and coaches without data science background:
+- "Your team played a 4-3-3 in the first half, shifted to 4-4-2 after the sub at 55'"
+- "Defensive line sat at 42% &mdash; you pressed high"
+- "Team length expanded from 28m to 38m in the last 15 minutes &mdash; shape got stretched when tired"
+
+#### Blockers
+
+- SkillCorner DoD commercial relationship (pricing, API access)
+- `skillcorner-py` client integration (replaces `kloppy` for DoD tier)
+- Upload/poll workflow &mdash; may need lightweight automation (Databricks workflow or script)
+
+### Academic citations
+
+| Paper | Contribution |
+|-------|-------------|
+| Bekkers &amp; Dabadghao (2025), arXiv:2506.23843 | EFPI &mdash; elastic formation detection via template matching + Hungarian algorithm |
+| Bialkowski et al. (2014), IEEE ICDM Workshops | Role assignment via Hungarian algorithm &mdash; seminal formation detection paper |
+| Shaw &amp; Glickman (2019), Barca Sports Analytics Summit | In/out-of-possession formation splits &mdash; dynamic formation analysis |
+| Frencken et al. (2011), J. Sports Sciences | Team centroid + surface area as collective tactical variables |
+| Bourbousson et al. (2010), J. Sports Sciences | Stretch index definition &mdash; mean distance from team centroid |
+| Fradua et al. (2013), Int. J. Performance Analysis in Sport | Reference intervals for team length/width by tactical style |
+| Narizuka &amp; Yamazaki (2019), Scientific Reports 9:13172 | Delaunay triangulation formation fingerprinting |
+| Kim et al. (2022), ACM KDD | SoccerCPD &mdash; formation change-point detection |
+
+### Dependencies
+
+- Phase 10 (tracking data ingestion) &mdash; **complete** (20 matches available)
+- Phase 11 (pitch control) &mdash; **complete** (Streamlit page pattern to follow)
+- `unravelsports` package (MPL 2.0) &mdash; new dependency for EFPI formation detection
+- Stage 2 only: SkillCorner DoD commercial access + [Provider Framework](#provider-abstraction--multi-tier-ingestion) adapter
+- Synergistic with Visual Exploratory Behavior (same own-footage pipeline for Stage 2)
+- Synergistic with Space Creation Quantification (convex hull and spatial control are shared concepts)
 
 ---
 

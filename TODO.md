@@ -28,6 +28,9 @@ Tasks warming up in the on-deck circle.
 | D17 | xG v2 — Neural Context Model | Wicked | [ROADMAP.md](ROADMAP.md) | Upgrade XGBoost xG (0.979 ROC-AUC) with a small set-encoder that ingests raw 360 freeze-frame defender/GK positions. Train on HF Jobs GPU (A10G). 131K shots + freeze-frame data in Delta. Publish to HF Hub |
 | D18 | Football2vec v2 — Transformer Embeddings | Wicked | [ROADMAP.md](ROADMAP.md) | Replace Doc2Vec (gensim, CPU) with a small transformer on tokenized match sequences. Train on HF Jobs GPU (A10G). 87K player-match documents in Delta. Better player representations for similarity search. Publish to HF Hub |
 | U1 | Calibration anchors — league averages and percentile ranks on metrics | Wicked | CHI-AUDIT-180-rev-1 #3 | Compute percentiles per competition in dbt (`PERCENT_RANK()`), surface as `delta=` or reference text on st.metric |
+| D19 | Team Shape Spatial Metrics Module | Dunkin' | [ROADMAP.md](ROADMAP.md) | `src/analytics/team_shape.py` — pure NumPy/scipy: team centroid, convex hull, team length/width, defensive line height, GK-backline distance, stretch index, inter-line gaps. Line detection via k-means. Unit tests with synthetic formations. No new dependencies |
+| D20 | EFPI Formation Detection Integration | Wicked | [ROADMAP.md](ROADMAP.md) | Add `unravelsports` (MPL 2.0). Wire kloppy → EFPI template matching → formation labels per time window. Compatibility testing across Metrica/IDSSE/SkillCorner. Potential friction: kloppy Polars format, 10fps vs 25fps |
+| D21 | Team Shape Streamlit Page | Wicked | [ROADMAP.md](ROADMAP.md) | Snapshot view (connected-formation diagram + convex hull + sidebar metrics) + timeline view (shape metrics time-series + formation labels). New pitch.py visualization components. Builds on D19 + D20 |
 | D7 | Observability Layer (OTel) | Monstah | [ROADMAP.md](ROADMAP.md) | Research complete, ready for implementation. Instrument once, observe anywhere. ~$1-2/month personal tier |
 | U3 | Global player search — search by name across all pages | Monstah | CHI-AUDIT-180-rev-1 #1 | New search component with 11,918-player index + cross-page routing + session state. Needs design decisions |
 | U4 | Uncertainty/confidence bounds on model outputs | Monstah | CHI-AUDIT-180-rev-1 #4 | xG model can output calibration intervals. VAEP/pitch control lack native uncertainty. Partial — model-level changes needed |
@@ -137,6 +140,7 @@ See [ROADMAP.md](ROADMAP.md) for research directions, long-horizon features, and
 - **Pipeline Optimization & Scaling** — EIP core patterns implemented (Splitter, Aggregator, Router, Pipes & Filters); remaining deferred items below
 - **Deep Learning Infrastructure** — hybrid GPU training, pre-trained soccer models, DeepMind-inspired optimization
 - **Provider Abstraction** — configurable multi-tier ingestion; free/open tiers default, commercial activates via credentials
+- **Team Shape Analysis** — formation detection (EFPI) + spatial metrics; Stage 1 on existing data (D19–D21), Stage 2 blocked on SkillCorner DoD
 - **Visual Exploratory Behavior** — blocked by own-footage Respo.Vision data (BSD 3-Clause)
 - **Staging Environment** — Lakebase branching for pre-production validation
 - **Graph-Based Tactical Patterns** — GNN research direction (Raabe et al. 2022)
