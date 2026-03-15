@@ -3,7 +3,7 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # This is the entry point for `terraform apply` in the dev environment.
 # It wires together all modules with dev-appropriate settings (small sizes,
-# aggressive auto-stop, scale-to-zero) to stay within a ~$100/month budget.
+# aggressive auto-stop, scale-to-zero) to stay within a ~$250/month budget.
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ── Shared version constraints ───────────────────────────────────────────────
@@ -195,7 +195,7 @@ module "github_oidc" {
 }
 
 # ── AWS Budget: Monthly cost alarm (COST-01) ─────────────────────────────────
-# Alerts at 80% and 100% of $100/month budget. Subscriber email is set via
+# Alerts at 80% and 100% of $250/month budget. Subscriber email is set via
 # var.alert_email in terraform.tfvars (not checked in).
 
 resource "aws_budgets_budget" "monthly" {
@@ -203,7 +203,7 @@ resource "aws_budgets_budget" "monthly" {
 
   name         = "luxury-lakehouse-monthly-${var.environment}"
   budget_type  = "COST"
-  limit_amount = "100"
+  limit_amount = "250"
   limit_unit   = "USD"
   time_unit    = "MONTHLY"
 
