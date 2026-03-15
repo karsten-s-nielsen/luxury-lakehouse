@@ -108,6 +108,13 @@ Both models are evaluated on a held-out test set using:
 | **ROC-AUC** | Area under the ROC curve (higher is better) |
 | **Calibration error (ECE)** | Expected calibration error across 10 uniform bins (lower is better) |
 
+### Results (held-out test set, ~26K shots)
+
+| Model | ROC-AUC | Brier Score |
+|-------|---------|-------------|
+| Custom XGBoost (calibrated) | **0.979** | 0.059 |
+| Custom Logistic (baseline) | 0.761 | 0.082 |
+
 ### StatsBomb xG Benchmark
 
 The custom XGBoost model is benchmarked against StatsBomb's proprietary xG on the StatsBomb subset of the test set. **Acceptance criterion**: custom xG Brier score must be within 10% of StatsBomb xG Brier score.
