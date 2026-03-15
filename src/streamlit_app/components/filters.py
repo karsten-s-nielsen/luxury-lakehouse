@@ -61,7 +61,7 @@ def render_competition_filter() -> int | None:
     )
     if idx is None:
         return None
-    selected = options[idx]["competition_id"]
+    selected = options[int(idx)]["competition_id"]
     # Reset dependent filters when competition changes
     prev = st.session_state.get("_filter_competition_id")
     if prev is not None and prev != selected:
