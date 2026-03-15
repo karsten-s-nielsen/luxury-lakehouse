@@ -143,6 +143,12 @@ xgb.load_model(bytearray(booster_raw))
 # See training notebook for full feature engineering pipeline
 ```
 
+> **Note:** The raw XGBoost booster above produces uncalibrated probabilities. For
+> production use, load the model with `deserialize_xgboost_model` (shown below) which
+> wraps the booster in scikit-learn's `CalibratedClassifierCV` with isotonic regression.
+> Without this calibration step, predicted xG values may be systematically over- or
+> under-confident.
+
 ### Full Pipeline (with calibration)
 
 For production use with isotonic calibration, use the `deserialize_xgboost_model` and `deserialize_logistic_model` functions from the `analytics.xg_model` module:
@@ -224,6 +230,8 @@ Pre-computed datasets derived from the platform's analytics pipelines:
 ## Demo
 
 Try the interactive [Soccer Analytics Explorer](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) &mdash; explore shot maps, pitch control, player similarity, and more.
+
+> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
 
 ## More Information
 

@@ -9,7 +9,15 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from streamlit_app.components.feedback import (
+    data_freshness,
+    data_scope_note,
+    empty_result,
+    empty_select,
+    render_scope_label,
+)
 from streamlit_app.components.filters import render_competition_filter, render_player_filter, render_team_filter
+from streamlit_app.components.glossary import METRIC_HELP
 from streamlit_app.components.pitch import plot_shot_map
 from streamlit_app.db import execute_query, t
 
@@ -110,6 +118,12 @@ def _compute_brier_score(is_goal: pd.Series, xg_values: pd.Series) -> float | No
 def page() -> None:
     """Render the Shot Map page."""
     st.header(":material/target: Shot Map")
+    st.caption(
+        "Shot locations sized by xG. xG methodology per "
+        "[Rathke (2017)](https://doi.org/10.1515/jqas-2019-0044) "
+        '"An examination of expected goals and shot efficiency." '
+        "Custom model via [XGBoost](https://xgboost.readthedocs.io/) with isotonic calibration."
+    )
 
     with st.sidebar:
         competition_id = render_competition_filter()
@@ -119,20 +133,22 @@ def page() -> None:
             player_id = player_id[0] if player_id else None
 
     if competition_id is None:
-        st.info("Select a competition to view shots.")
+        empty_select("a competition")
         return
+
+    render_scope_label(competition_id, team_id)
 
     shots = _load_shots(competition_id, team_id, player_id)
 
     if shots.empty:
-        st.warning("No shots found for the selected filters.")
+        empty_result("shots")
         return
 
     # Join custom xG predictions (graceful degradation if table missing)
     shots, has_custom_xg = _join_xg_predictions(shots)
 
     if not has_custom_xg:
-        st.info("Custom xG predictions not yet available. Showing StatsBomb xG only.")
+        data_scope_note("Custom xG predictions not yet available. Showing StatsBomb xG only.")
 
     # Model selector in sidebar
     with st.sidebar:
@@ -141,6 +157,8 @@ def page() -> None:
                 "xG Model",
                 list(_XG_MODEL_OPTIONS.keys()),
                 index=0,
+                help="StatsBomb: provider's closed-source xG. Custom Logistic: distance + angle only. "
+                "Custom XGBoost: 13 features with isotonic calibration (production model).",
             )
         else:
             selected_model = "StatsBomb"
@@ -150,8 +168,14 @@ def page() -> None:
     # Prepare xG column for visualization — plot_shot_map reads "statsbomb_xg"
     # so we overwrite it with the selected model's values for rendering.
     plot_shots = shots.copy()
+    nan_fallback_count = 0
     if xg_col != "statsbomb_xg" and xg_col in plot_shots.columns:
+        nan_mask = plot_shots[xg_col].isna()
+        nan_fallback_count = int(nan_mask.sum())
         plot_shots["statsbomb_xg"] = plot_shots[xg_col].fillna(plot_shots["statsbomb_xg"])
+
+    if nan_fallback_count > 0:
+        st.caption(f"{nan_fallback_count} of {len(shots)} shots use StatsBomb xG (custom model has no prediction).")
 
     col_viz, col_stats = st.columns([3, 1])
 
@@ -172,15 +196,44 @@ def page() -> None:
         conversion = (goals / total * 100) if total > 0 else 0.0
         xg_per_shot = xg_sum / total if total > 0 else 0.0
 
-        st.metric("Total Shots", total)
-        st.metric("Goals", goals)
-        st.metric("Total xG", f"{xg_sum:.2f}")
-        st.metric("Conversion Rate", f"{conversion:.1f}%")
-        st.metric("xG / Shot", f"{xg_per_shot:.3f}")
+        st.metric("Total Shots", total, help=METRIC_HELP.get("Total Shots") or None)
+        st.metric("Goals", goals, help=METRIC_HELP.get("Goals") or None)
+        # Show delta vs StatsBomb when using a custom model (M21)
+        xg_delta = None
+        if xg_col != "statsbomb_xg" and "statsbomb_xg" in shots.columns:
+            sb_sum = float(shots["statsbomb_xg"].sum())
+            xg_delta = f"{xg_sum - sb_sum:+.2f} vs StatsBomb"
+        st.metric(
+            "Total xG",
+            f"{xg_sum:.2f}",
+            delta=xg_delta,
+            delta_color="off",
+            help=METRIC_HELP.get("Total xG") or None,
+        )
+        st.metric(
+            "Conversion Rate",
+            f"{conversion:.1f}%",
+            help=METRIC_HELP.get("Conversion Rate") or None,
+        )
+        st.metric(
+            "xG / Shot",
+            f"{xg_per_shot:.3f}",
+            help=METRIC_HELP.get("xG / Shot") or None,
+        )
 
         # Brier score — measures calibration of xG predictions
         brier = _compute_brier_score(pd.Series(shots["is_goal"]), pd.Series(xg_series))
         if brier is not None:
-            st.metric("Brier Score", f"{brier:.4f}")
+            st.metric(
+                "Brier Score",
+                f"{brier:.4f}",
+                help=METRIC_HELP.get("Brier Score") or None,
+            )
         else:
-            st.metric("Brier Score", "N/A")
+            st.metric(
+                "Brier Score",
+                "N/A",
+                help=METRIC_HELP.get("Brier Score") or None,
+            )
+
+    data_freshness()

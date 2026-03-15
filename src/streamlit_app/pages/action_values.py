@@ -7,12 +7,14 @@ from typing import Any
 import streamlit as st
 
 from streamlit_app.components.charts import plot_action_type_breakdown, plot_action_value_timeline
+from streamlit_app.components.feedback import data_freshness, empty_result, empty_select, render_scope_label
 from streamlit_app.components.filters import (
     render_competition_filter,
     render_match_filter,
     render_minutes_filter,
     render_team_filter,
 )
+from streamlit_app.components.glossary import METRIC_HELP
 from streamlit_app.db import execute_query, t
 
 # ---------------------------------------------------------------------------
@@ -112,7 +114,7 @@ def _load_match_timeline(match_id: int, team_id: int | None) -> Any:
     return _load_match_timeline_query(where, tuple(params), tbl)
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner="Loading players...")
 def _load_player_options(comp: int, team: int, tbl: str, players_tbl: str) -> Any:
     """Load player options for a team within a competition.
 
@@ -152,11 +154,11 @@ def page() -> None:
         "Implemented via [socceraction](https://github.com/ML-KULeuven/socceraction)."
     )
 
-    view = st.radio(
-        "View",
-        ["Player VAEP Rankings", "Action Type Breakdown", "Match Action Timeline"],
-        horizontal=True,
-    )
+    with st.sidebar:
+        view = st.radio(
+            "View",
+            ["Player VAEP Rankings", "Action Type Breakdown", "Match Action Timeline"],
+        )
 
     if view == "Player VAEP Rankings":
         _render_rankings()
@@ -173,14 +175,20 @@ def _render_rankings() -> None:
         min_minutes = render_minutes_filter()
 
     if competition_id is None:
-        st.info("Select a competition to view VAEP rankings.")
+        empty_select("a competition")
         return
+
+    render_scope_label(competition_id)
 
     rankings = _load_vaep_rankings(int(competition_id), int(min_minutes))
     if rankings.empty:
-        st.warning("No VAEP data available for the selected competition.")
+        empty_result("VAEP data")
         return
 
+    st.caption(
+        "VAEP/90: higher = more impactful. Off. VAEP/90: offensive contribution. "
+        "Def. VAEP/90: defensive contribution. Values typically range 0.01-1.0."
+    )
     st.dataframe(
         rankings.rename(
             columns={
@@ -198,6 +206,8 @@ def _render_rankings() -> None:
         hide_index=True,
     )
 
+    data_freshness()
+
 
 def _render_breakdown() -> None:
     """Render the action type breakdown view."""
@@ -207,8 +217,10 @@ def _render_breakdown() -> None:
         st.empty()  # Placeholder — player filter rendered below
 
     if competition_id is None:
-        st.info("Select a competition to view action breakdown.")
+        empty_select("a competition")
         return
+
+    render_scope_label(competition_id, team_id)
 
     # Simple player filter via team's players
     player_id: int | None = None
@@ -232,7 +244,7 @@ def _render_breakdown() -> None:
 
     breakdown = _load_action_type_breakdown(competition_id, team_id, player_id)
     if breakdown.empty:
-        st.warning("No VAEP data available for the selected filters.")
+        empty_result("VAEP data")
         return
 
     col_viz, col_stats = st.columns([3, 1])
@@ -246,9 +258,11 @@ def _render_breakdown() -> None:
         total_actions = int(breakdown["action_count"].sum())
         top_type = str(breakdown.iloc[0]["action_type"]) if not breakdown.empty else "N/A"
 
-        st.metric("Total VAEP", f"{total_vaep:.2f}")
-        st.metric("Total Actions", total_actions)
-        st.metric("Top Action Type", top_type)
+        st.metric("Total VAEP", f"{total_vaep:.2f}", help=METRIC_HELP.get("Total VAEP") or None)
+        st.metric("Total Actions", total_actions, help=METRIC_HELP.get("Total Actions"))
+        st.metric("Top Action Type", top_type, help=METRIC_HELP.get("Top Action Type"))
+
+    data_freshness()
 
 
 def _render_timeline() -> None:
@@ -259,16 +273,18 @@ def _render_timeline() -> None:
         match_id = render_match_filter(competition_id, team_id)
 
     if competition_id is None:
-        st.info("Select a competition to view match timelines.")
+        empty_select("a competition")
         return
 
     if match_id is None:
-        st.info("Select a match to view the action timeline.")
+        empty_select("a match")
         return
+
+    render_scope_label(competition_id, team_id)
 
     actions = _load_match_timeline(match_id, team_id)
     if actions.empty:
-        st.warning("No VAEP data available for the selected match.")
+        empty_result("VAEP data")
         return
 
     col_viz, col_stats = st.columns([3, 1])
@@ -282,9 +298,21 @@ def _render_timeline() -> None:
         negative = int((actions["vaep_value"] < 0).sum())
         net_vaep = float(actions["vaep_value"].sum())
 
-        st.metric("Positive Actions", positive)
-        st.metric("Negative Actions", negative)
-        st.metric("Net Match VAEP", f"{net_vaep:.3f}")
+        st.metric(
+            "Positive Actions",
+            positive,
+            help=METRIC_HELP.get("Positive Actions") or None,
+        )
+        st.metric(
+            "Negative Actions",
+            negative,
+            help=METRIC_HELP.get("Negative Actions") or None,
+        )
+        st.metric(
+            "Net Match VAEP",
+            f"{net_vaep:.3f}",
+            help=METRIC_HELP.get("Net Match VAEP") or None,
+        )
 
         # Most valuable action
         if not actions.empty:
@@ -293,7 +321,10 @@ def _render_timeline() -> None:
             st.metric(
                 "Most Valuable Action",
                 f"{best['action_type']} ({best['vaep_value']:.3f})",
+                help=METRIC_HELP.get("Most Valuable Action"),
             )
 
-    with st.expander("Raw Data"):
-        st.dataframe(actions, use_container_width=True)
+    with st.expander("Action Details", icon=":material/table_chart:"):
+        st.dataframe(actions.drop(columns=["player_id"], errors="ignore"), use_container_width=True)
+
+    data_freshness()

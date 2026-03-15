@@ -107,7 +107,7 @@ def plot_match_comparison_bars(
     y_pos = np.arange(len(labels))
 
     ax.barh(y_pos + 0.15, home_vals, height=0.3, color="#e63946", alpha=0.85, label=home_name)
-    ax.barh(y_pos - 0.15, away_vals, height=0.3, color="#457b9d", alpha=0.85, label=away_name)
+    ax.barh(y_pos - 0.15, away_vals, height=0.3, color="#457b9d", alpha=0.85, label=away_name, hatch="///")
 
     ax.set_yticks(y_pos)
     ax.set_yticklabels(labels, color=_LINE_COLOR, fontsize=11)
@@ -119,6 +119,47 @@ def plot_match_comparison_bars(
     ax.spines["left"].set_color("#333355")
 
     ax.set_title("Match Comparison", color=_LINE_COLOR, fontsize=14, pad=10)
+    plt.tight_layout()
+    plt.close(fig)
+    return fig
+
+
+def plot_stat_group_bars(
+    home_vals: list[float],
+    away_vals: list[float],
+    labels: list[str],
+    home_name: str = "Home",
+    away_name: str = "Away",
+    title: str = "",
+) -> matplotlib.figure.Figure:
+    """Plot a small-multiples horizontal bar chart for one stat group.
+
+    Unlike ``plot_match_comparison_bars``, this renders a single group
+    of related stats on their own scale — avoiding the Cleveland & McGill
+    violation of mixing incompatible scales on a shared axis (H15).
+
+    Returns a matplotlib Figure.
+    """
+    fig, ax = plt.subplots(figsize=(6, max(2, len(labels) * 0.6)))
+    fig.set_facecolor(_BG_COLOR)
+    ax.set_facecolor(_BG_COLOR)
+
+    y_pos = np.arange(len(labels))
+
+    ax.barh(y_pos + 0.15, home_vals, height=0.3, color="#e63946", alpha=0.85, label=home_name)
+    ax.barh(y_pos - 0.15, away_vals, height=0.3, color="#457b9d", alpha=0.85, label=away_name, hatch="///")
+
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(labels, color=_LINE_COLOR, fontsize=10)
+    ax.tick_params(axis="x", colors=_LINE_COLOR)
+    ax.legend(loc="lower right", facecolor=_BG_COLOR, edgecolor="#333355", labelcolor=_LINE_COLOR, fontsize=8)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["bottom"].set_color("#333355")
+    ax.spines["left"].set_color("#333355")
+
+    if title:
+        ax.set_title(title, color=_LINE_COLOR, fontsize=11, pad=8, fontweight="bold")
     plt.tight_layout()
     plt.close(fig)
     return fig
@@ -144,12 +185,38 @@ def plot_action_value_timeline(
         minutes = actions["time_seconds"] / 60.0
         values = actions["vaep_value"]
 
-        # Diverging colormap: red (negative) → white (neutral) → green (positive)
-        cmap = mcolors.LinearSegmentedColormap.from_list("vaep", ["#e63946", "#ffffff", "#2a9d8f"])
+        # Diverging colormap: blue (negative) → white → orange (positive) — colorblind-safe (F13)
+        cmap = mcolors.LinearSegmentedColormap.from_list("vaep", ["#457b9d", "#ffffff", "#e76f51"])
         v_abs_max = float(max(abs(values.min()), abs(values.max()), 0.01))
         norm = mcolors.TwoSlopeNorm(vmin=-v_abs_max, vcenter=0, vmax=v_abs_max)
 
-        ax.scatter(minutes, values, c=values, cmap=cmap, norm=norm, s=12, alpha=0.7, edgecolors="none")
+        # Marker differentiation: positive = triangle-up, negative = triangle-down (WCAG 1.4.1)
+        pos_mask = values >= 0
+        neg_mask = ~pos_mask
+        if pos_mask.any():
+            ax.scatter(
+                minutes[pos_mask],
+                values[pos_mask],
+                c=values[pos_mask],
+                cmap=cmap,
+                norm=norm,
+                s=14,
+                alpha=0.7,
+                edgecolors="none",
+                marker="^",
+            )
+        if neg_mask.any():
+            ax.scatter(
+                minutes[neg_mask],
+                values[neg_mask],
+                c=values[neg_mask],
+                cmap=cmap,
+                norm=norm,
+                s=14,
+                alpha=0.7,
+                edgecolors="none",
+                marker="v",
+            )
 
         # Halftime line
         ax.axvline(x=45, color="#555577", linestyle="--", linewidth=1, alpha=0.6)
@@ -210,27 +277,46 @@ def plot_physical_bars(
     metric: str,
     label: str,
     title: str = "Physical Performance",
+    label_col: str = "player_id",
 ) -> matplotlib.figure.Figure:
     """Plot a horizontal bar chart of a physical metric per player.
 
     Args:
-        data: DataFrame with ``player_id`` and the given metric column.
+        data: DataFrame with ``player_id`` (or ``label_col``) and the given metric column.
         metric: Column name to plot (e.g., ``total_distance_km``).
         label: X-axis label for the metric.
         title: Chart title.
+        label_col: Column to use for Y-axis labels (default: ``player_id``).
+            Pass ``player_display_name`` when available to show human-readable names.
 
     Returns a matplotlib Figure.
     """
-    n = len(data) if not data.empty else 1
-    fig, ax = plt.subplots(figsize=(8, max(2, min(n * 0.18, 4))), dpi=72)
+    # Cap at 20 players to prevent label overflow (L4)
+    display_data = data.head(20) if len(data) > 20 else data
+    n = len(display_data) if not display_data.empty else 1
+    fig, ax = plt.subplots(figsize=(8, max(2, min(n * 0.22, 6))), dpi=72)
     fig.set_facecolor(_BG_COLOR)
     ax.set_facecolor(_BG_COLOR)
 
-    if not data.empty and metric in data.columns:
-        sorted_df = data.sort_values(metric, ascending=True)
-        player_labels = sorted_df["player_id"].astype(str)
+    if not display_data.empty and metric in display_data.columns:
+        sorted_df = display_data.sort_values(metric, ascending=True)
+        # Use human-readable labels when available, fall back to player_id
+        if label_col in sorted_df.columns:
+            player_labels = sorted_df[label_col].astype(str)
+        else:
+            player_labels = sorted_df["player_id"].astype(str)
         values = sorted_df[metric].astype(float)
         ax.barh(player_labels, values, color="#2a9d8f", alpha=0.85, height=0.6)
+
+    if len(data) > 20:
+        ax.annotate(
+            f"Showing top 20 of {len(data)} players",
+            xy=(0.5, -0.06),
+            xycoords="axes fraction",
+            ha="center",
+            fontsize=7,
+            color="#888888",
+        )
 
     ax.set_xlabel(label, color=_LINE_COLOR, fontsize=8)
     ax.set_title(title, color=_LINE_COLOR, fontsize=10, pad=6, fontweight="bold")

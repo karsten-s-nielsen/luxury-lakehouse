@@ -70,12 +70,12 @@ Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by 
 - **VAEP Action Valuation** — Player contribution scoring beyond goals/assists (SPADL + VAEP)
 - **Pitch Control** — Physics-based (Spearman 2017) and Voronoi models from tracking data
 - **Line-Breaking Passes** — Ward clustering + cross-product straddle test for defensive line penetration (StatsBomb 360)
-- **Movement Analysis** — PPDA pressing intensity, physical performance metrics (distance, HSR, sprints), and off-ball xT from tracking data
-- **Defensive Pressure (DEFCON-lite)** — Attacker-perspective defensive credit assignment (intercept/concede/disturb/deter) based on Kim et al. (2025)
+- **Movement & Pressing** — PPDA pressing intensity, physical performance metrics (distance, HSR, sprints), and off-ball xT from tracking data
+- **Defensive Impact (DEFCON-lite)** — Attacker-perspective defensive credit assignment (intercept/concede/disturb/deter) based on Kim et al. (2025)
 - **Cross-Source Entity Resolution** — Three-layer progressive player matching (TF-IDF + rapidfuzz + bidirectional validation) inspired by US Soccer's glass_onion
 - **Player Embeddings** — Dual-vector player representation: 32-dim Doc2Vec behavioral + 13-dim statistical z-score, published to HuggingFace Hub
 - **Player Similarity** — pgvector HNSW cosine-distance search ("Find players like X") with interactive Streamlit page
-- **Player Radar Charts** — Per-90 stat comparison across multiple metrics (incl. DEFCON pressure/90)
+- **Player Comparison** — Per-90 stat comparison across multiple metrics (incl. DEFCON pressure/90)
 
 ## Project Structure
 

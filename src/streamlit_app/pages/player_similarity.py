@@ -7,6 +7,7 @@ from typing import Any
 import streamlit as st
 
 from streamlit_app.components.charts import plot_player_radar
+from streamlit_app.components.feedback import data_freshness, empty_result, empty_select
 from streamlit_app.components.filters import render_competition_filter
 from streamlit_app.db import execute_query, t
 
@@ -211,7 +212,7 @@ def _load_radar_stats(canonical_player_ids: list[str], competition_id: int | Non
     )
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner="Loading players...")
 def _fetch_embedding_players(tbl: str, dim_players_tbl: str, tot_col: str, min_m: int, comp_id: int | None) -> Any:
     comp_filter = ""
     params: list[Any] = [min_m]
@@ -248,7 +249,7 @@ def _render_player_select_for_embeddings(
         int(competition_id) if competition_id is not None else None,
     )
     if df is None or len(df) == 0:
-        st.info("No players with embeddings found for the selected filters.")
+        empty_result("players with embeddings")
         return None
 
     options = df.to_dict("records")
@@ -268,7 +269,8 @@ def page() -> None:
         "Find similar players using pgvector cosine distance on behavioral (32-d) or statistical (13-d) "
         "embedding vectors. Behavioral embeddings via "
         "[Theiner et al. (2022)](https://doi.org/10.1007/978-3-031-02044-5_2) football2vec "
-        "with [Doc2Vec (Le & Mikolov 2014)](https://arxiv.org/abs/1405.4053)."
+        "with [Doc2Vec (Le & Mikolov 2014)](https://arxiv.org/abs/1405.4053). "
+        "Model: [luxury-lakehouse/football2vec-statsbomb-wyscout](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout)."
     )
 
     with st.sidebar:
@@ -276,6 +278,8 @@ def page() -> None:
             "Search by",
             ["Playing style", "Statistical output"],
             index=0,
+            help="Playing style: 32-d behavioral embedding from match action sequences. "
+            "Statistical output: 13-d z-score vector from per-90 stats.",
         )  # type: ignore[assignment]
 
         filter_by_competition = st.checkbox("Filter by competition", value=False)
@@ -303,7 +307,7 @@ def page() -> None:
         limit: int = st.selectbox("Results", [5, 10, 20], index=1)  # type: ignore[assignment]
 
     if player_id is None:
-        st.info("Select a player to find similar profiles.")
+        empty_select("a player")
         return
 
     # Fetch target player's vector
@@ -312,12 +316,12 @@ def page() -> None:
     target_result = _fetch_target_vector(table, player_id, competition_id)
 
     if target_result is None or len(target_result) == 0:
-        st.warning("No embedding vector found for the selected player.")
+        empty_result("embedding vector for this player")
         return
 
     raw_vector = target_result.iloc[0][vector_col]
     if raw_vector is None:
-        st.warning(f"Selected player has no {search_type.lower()} vector.")
+        empty_result(f"{search_type.lower()} vector for this player")
         return
 
     # Convert to list if needed (PG may return string or list)
@@ -329,7 +333,10 @@ def page() -> None:
         vector = [float(x) for x in raw_vector]
 
     if len(vector) != vector_dim:
-        st.error(f"Vector dimension mismatch: expected {vector_dim}, got {len(vector)}.")
+        other = "Statistical output" if search_type == "Playing style" else "Playing style"
+        st.warning(
+            f"This player doesn't have a {search_type.lower()} embedding. Try switching to **{other}** search instead."
+        )
         return
 
     vector_str = _format_vector_literal(vector)
@@ -348,17 +355,37 @@ def page() -> None:
     )
 
     if results is None or len(results) == 0:
-        st.info("No similar players found. Try lowering the minimum matches threshold.")
+        empty_result("similar players", scope_hint="Try lowering the minimum matches threshold.")
         return
 
     st.subheader("Similar Players")
-    display_cols = ["player_display_name", "distance", total_col, "data_sources"]
+    st.toast(f"Found {len(results)} similar players.", icon=":material/search:")
+    st.caption("Thresholds: < 0.20 Very Similar | < 0.35 Similar | < 0.50 Moderate | >= 0.50 Different")
+
+    # Add interpretation column (matches HF Space pattern)
+    def _interpret(d: float) -> str:
+        if d < 0.20:
+            return "Very Similar"
+        if d < 0.35:
+            return "Similar"
+        if d < 0.50:
+            return "Moderately Similar"
+        return "Different"
+
+    results["interpretation"] = results["distance"].apply(_interpret)
+
+    # Format raw comma-separated data_sources for display (F29)
+    if "data_sources" in results.columns:
+        results["data_sources"] = results["data_sources"].str.replace(",", " · ")
+
+    display_cols = ["player_display_name", "distance", "interpretation", total_col, "data_sources"]
     available_cols = [c for c in display_cols if c in results.columns]
     st.dataframe(
         results[available_cols].rename(
             columns={
                 "player_display_name": "Player",
                 "distance": "Cosine Distance",
+                "interpretation": "Similarity",
                 total_col: "Matches",
                 "data_sources": "Sources",
             }
@@ -377,7 +404,7 @@ def page() -> None:
         radar_data = _load_radar_stats([player_id, compare_player_id], competition_id)
 
         if radar_data is None or len(radar_data) == 0:
-            st.info("No per-90 stats available for radar comparison.")
+            empty_result("per-90 stats for radar comparison")
             return
 
         metric_keys = [m[0] for m in _DEFAULT_METRICS]
@@ -391,7 +418,7 @@ def page() -> None:
             player_names.append(str(row["player_display_name"]))
 
         if len(players_data) < 1:
-            st.info("Not enough data for radar comparison.")
+            empty_result("radar comparison data")
             return
 
         title = " vs ".join(player_names)
@@ -407,3 +434,18 @@ def page() -> None:
         _, col_radar, _ = st.columns([1, 2, 1])
         with col_radar:
             st.pyplot(fig)
+            # Spoke label legend (F6)
+            spoke_legend = {
+                "Goals/90": "goals per 90",
+                "xG/90": "expected goals per 90",
+                "Passes/90": "passes per 90",
+                "Pass %": "completion rate",
+                "VAEP/90": "action value per 90",
+                "Off. VAEP/90": "offensive per 90",
+                "Def. VAEP/90": "defensive per 90",
+            }
+            parts = [f"**{lbl}** = {spoke_legend[lbl]}" for lbl in labels if lbl in spoke_legend]
+            if parts:
+                st.caption(" · ".join(parts))
+
+    data_freshness()

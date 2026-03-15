@@ -6,8 +6,10 @@ from typing import Any
 
 import streamlit as st
 
-from streamlit_app.components.charts import plot_match_comparison_bars
+from streamlit_app.components.charts import plot_stat_group_bars
+from streamlit_app.components.feedback import data_freshness, empty_result, empty_select, render_scope_label
 from streamlit_app.components.filters import render_competition_filter, render_match_filter, render_team_filter
+from streamlit_app.components.glossary import METRIC_HELP
 from streamlit_app.db import execute_query, t
 
 
@@ -38,6 +40,12 @@ def _load_match(match_id: int) -> Any:
 def page() -> None:
     """Render the Match Summary page."""
     st.header(":material/scoreboard: Match Summary")
+    st.caption(
+        "Match scorecard with Expected Goals (xG) per "
+        "[Rathke (2017)](https://doi.org/10.1515/jqas-2019-0044). "
+        "Pressing intensity via PPDA "
+        "([Trainor & Chassy 2021](https://doi.org/10.3389/fpsyg.2020.531688))."
+    )
 
     with st.sidebar:
         competition_id = render_competition_filter()
@@ -45,80 +53,115 @@ def page() -> None:
         match_id = render_match_filter(competition_id, team_id)
 
     if match_id is None:
-        st.info("Select a competition and match to view the summary.")
+        empty_select("a competition and match")
         return
+
+    render_scope_label(competition_id, team_id)
 
     match_data = _load_match(match_id)
     if match_data.empty:
-        st.warning("No data found for this match.")
+        empty_result("match data")
         return
 
     m = match_data.iloc[0]
+    home_name = str(m.get("home_team_name", "Home"))
+    away_name = str(m.get("away_team_name", "Away"))
+    home_score = int(m.get("home_score", 0) or 0)
+    away_score = int(m.get("away_score", 0) or 0)
+    home_xg = float(m.get("home_xg", 0) or 0)
+    away_xg = float(m.get("away_xg", 0) or 0)
 
-    # Scorecard header
-    col_home, col_score, col_away = st.columns([2, 1, 2])
-    with col_home:
-        st.subheader(str(m.get("home_team_name", "Home")))
-    with col_score:
-        score = f"{int(m.get('home_score', 0) or 0)} — {int(m.get('away_score', 0) or 0)}"
-        st.header(score)
-    with col_away:
-        st.subheader(str(m.get("away_team_name", "Away")))
-
-    st.divider()
-
-    # xG comparison
-    _, col_hxg, col_axg, _ = st.columns([1, 1, 1, 1])
+    # Scorecard — st.metric instead of st.header (M3)
+    # Score metrics use team name as label — universally understood, no help= needed
+    col_h, col_dash, col_a, col_hxg, col_axg = st.columns([1, 0.3, 1, 1, 1])
+    with col_h:
+        st.metric(home_name, home_score, help="Match score.")
+    with col_dash:
+        st.markdown("## —")
+    with col_a:
+        st.metric(away_name, away_score, help="Match score.")
     with col_hxg:
-        st.subheader(f"xG: {float(m.get('home_xg', 0) or 0):.2f}")
+        st.metric(
+            "Home xG",
+            f"{home_xg:.2f}",
+            delta=f"{home_score - home_xg:+.2f} vs actual",
+            delta_color="off",
+            help=METRIC_HELP.get("Home xG") or None,
+        )
     with col_axg:
-        st.subheader(f"xG: {float(m.get('away_xg', 0) or 0):.2f}")
+        st.metric(
+            "Away xG",
+            f"{away_xg:.2f}",
+            delta=f"{away_score - away_xg:+.2f} vs actual",
+            delta_color="off",
+            help=METRIC_HELP.get("Away xG") or None,
+        )
 
     st.divider()
 
-    # Bar chart comparison
-    stat_labels = [
-        "Shots",
-        "Shots on Target",
-        "xG",
-        "Passes",
-        "Completed Passes",
-        "Progressive Passes",
-        "Pass Completion %",
-        "Possession %",
-        "PPDA",
-    ]
-    home_vals = [
-        float(m.get("home_shots", 0) or 0),
-        float(m.get("home_shots_on_target", 0) or 0),
-        float(m.get("home_xg", 0) or 0),
-        float(m.get("home_total_passes", 0) or 0),
-        float(m.get("home_completed_passes", 0) or 0),
-        float(m.get("home_progressive_passes", 0) or 0),
-        float(m.get("home_pass_completion_pct", 0) or 0),
-        float(m.get("home_possession_pct", 0) or 0),
-        float(m.get("home_ppda", 0) or 0),
-    ]
-    away_vals = [
-        float(m.get("away_shots", 0) or 0),
-        float(m.get("away_shots_on_target", 0) or 0),
-        float(m.get("away_xg", 0) or 0),
-        float(m.get("away_total_passes", 0) or 0),
-        float(m.get("away_completed_passes", 0) or 0),
-        float(m.get("away_progressive_passes", 0) or 0),
-        float(m.get("away_pass_completion_pct", 0) or 0),
-        100.0 - float(m.get("home_possession_pct", 50) or 50),
-        float(m.get("away_ppda", 0) or 0),
-    ]
+    # Small-multiples stat groups — per-group scales (H15, Cleveland & McGill fix)
+    col_shooting, col_passing = st.columns(2)
 
-    fig = plot_match_comparison_bars(
-        home_vals,
-        away_vals,
-        stat_labels,
-        home_name=str(m.get("home_team_name", "Home")),
-        away_name=str(m.get("away_team_name", "Away")),
-    )
+    with col_shooting:
+        fig_shoot = plot_stat_group_bars(
+            [float(m.get("home_shots", 0) or 0), float(m.get("home_shots_on_target", 0) or 0), home_xg],
+            [float(m.get("away_shots", 0) or 0), float(m.get("away_shots_on_target", 0) or 0), away_xg],
+            ["Shots", "On Target", "xG"],
+            home_name=home_name,
+            away_name=away_name,
+            title="Shooting",
+        )
+        st.pyplot(fig_shoot)
 
-    _, col_chart, _ = st.columns([1, 2, 1])
-    with col_chart:
-        st.pyplot(fig)
+    with col_passing:
+        fig_pass = plot_stat_group_bars(
+            [
+                float(m.get("home_total_passes", 0) or 0),
+                float(m.get("home_completed_passes", 0) or 0),
+                float(m.get("home_progressive_passes", 0) or 0),
+            ],
+            [
+                float(m.get("away_total_passes", 0) or 0),
+                float(m.get("away_completed_passes", 0) or 0),
+                float(m.get("away_progressive_passes", 0) or 0),
+            ],
+            ["Total", "Completed", "Progressive"],
+            home_name=home_name,
+            away_name=away_name,
+            title="Passing",
+        )
+        st.pyplot(fig_pass)
+
+    col_possession, col_ppda = st.columns(2)
+    with col_possession:
+        fig_poss = plot_stat_group_bars(
+            [
+                float(m.get("home_pass_completion_pct", 0) or 0),
+                float(m.get("home_possession_pct", 0) or 0),
+            ],
+            [
+                float(m.get("away_pass_completion_pct", 0) or 0),
+                100.0 - float(m.get("home_possession_pct", 50) or 50),
+            ],
+            ["Pass %", "Possession %"],
+            home_name=home_name,
+            away_name=away_name,
+            title="Possession",
+        )
+        st.pyplot(fig_poss)
+
+    with col_ppda:
+        home_ppda = float(m.get("home_ppda", 0) or 0)
+        away_ppda = float(m.get("away_ppda", 0) or 0)
+        fig_ppda = plot_stat_group_bars(
+            [home_ppda],
+            [away_ppda],
+            ["PPDA"],
+            home_name=home_name,
+            away_name=away_name,
+            title="Pressing (lower = more aggressive)",
+        )
+        st.pyplot(fig_ppda)
+        st.caption("PPDA: Passes Per Defensive Action. <10 = aggressive pressing, >15 = passive.")
+
+    data_freshness()

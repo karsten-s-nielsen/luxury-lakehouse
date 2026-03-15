@@ -1,6 +1,6 @@
 ---
 title: Soccer Analytics Explorer
-emoji: "\u26BD"
+emoji: ⚽
 colorFrom: yellow
 colorTo: gray
 sdk: gradio
@@ -33,7 +33,7 @@ Interactive demo for the [Luxury Lakehouse](https://huggingface.co/luxury-lakeho
 | **Pitch Control** | Physics-based pitch control (Spearman 2017) with frame slider and velocity arrows |
 | **Player Similarity** | Doc2Vec behavioral embedding search — find players with similar styles |
 | **Shot Map** | Shot locations on a half-pitch, colored by outcome |
-| **DEFCON Pressure** | Defensive contribution breakdown per match — Intercept/Concede/Disturb/Deter |
+| **Defensive Impact** | Defensive contribution breakdown per match — Intercept/Concede/Disturb/Deter |
 
 **Theme:** Luxury flagship — dark surfaces, amber/gold accents, sharp corners, Inter font, prominent tab navigation.
 

@@ -17,6 +17,20 @@ Every on-ball action from **~9.5 million** professional soccer events, converted
 
 Part of the (Right! Luxury!) Lakehouse soccer analytics platform.
 
+## Quick Start
+
+```python
+from datasets import load_dataset
+
+ds = load_dataset("luxury-lakehouse/spadl-vaep-action-values")
+df = ds["train"].to_pandas()
+
+# Top 10 players by total VAEP contribution
+top_players = df.groupby("player_id")["vaep_value"].sum().nlargest(10)
+```
+
+> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+
 ## What is SPADL/VAEP?
 
 **SPADL** (Soccer Player Action Description Language) is a unified event representation that converts vendor-specific event streams into 23 canonical action types with standardized coordinates (105&times;68 meters). This enables cross-source analysis that would otherwise require bespoke adapters per data provider.
@@ -105,5 +119,7 @@ And the socceraction library:
 ```
 
 ## More Information
+
+> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
 
 - **License**: [MIT](https://opensource.org/licenses/MIT)

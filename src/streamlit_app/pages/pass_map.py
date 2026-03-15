@@ -6,7 +6,15 @@ from typing import Any
 
 import streamlit as st
 
+from streamlit_app.components.feedback import (
+    data_freshness,
+    data_scope_note,
+    empty_result,
+    empty_select,
+    render_scope_label,
+)
 from streamlit_app.components.filters import render_competition_filter, render_match_filter, render_team_filter
+from streamlit_app.components.glossary import METRIC_HELP
 from streamlit_app.components.pitch import plot_pass_map
 from streamlit_app.db import execute_query, t
 
@@ -35,10 +43,13 @@ def page() -> None:
     """Render the Pass Map page."""
     st.header(":material/arrow_forward: Pass Map")
     st.caption(
-        "Line-breaking detection adapted from "
-        "[Parma Calcio 1913 line-breaking-passes](https://github.com/parmacalcio1913/line-breaking-passes) "
-        "(Apache-2.0). Ward clustering on StatsBomb 360 freeze-frame positions."
+        "Progressive passes per [Suzuki et al. (2019)](https://doi.org/10.1515/jqas-2019-0060). "
+        "Line-breaking detection via Ward clustering adapted from "
+        "[Parma Calcio 1913](https://github.com/parmacalcio1913/line-breaking-passes) "
+        "(Apache-2.0) on StatsBomb 360 freeze-frame positions."
     )
+
+    data_scope_note("Line-breaking detection requires StatsBomb 360 data (~323 of 380+ matches).")
 
     with st.sidebar:
         competition_id = render_competition_filter()
@@ -46,13 +57,15 @@ def page() -> None:
         match_id = render_match_filter(competition_id, team_id)
 
     if competition_id is None or team_id is None or match_id is None:
-        st.info("Select a competition, team, and match to view the pass map.")
+        empty_select("a competition, team, and match")
         return
+
+    render_scope_label(competition_id, team_id)
 
     passes = _load_passes(competition_id, team_id, match_id)
 
     if passes.empty:
-        st.warning("No passes found for the selected filters.")
+        empty_result("passes")
         return
 
     col_viz, col_stats = st.columns([3, 1])
@@ -75,8 +88,14 @@ def page() -> None:
         )
         pct = (completed / total * 100) if total > 0 else 0.0
 
-        st.metric("Total Passes", total)
-        st.metric("Completed", completed)
-        st.metric("Completion %", f"{pct:.1f}%")
-        st.metric("Progressive", progressive)
-        st.metric("Line-Breaking", line_breaking)
+        st.metric("Total Passes", total, help=METRIC_HELP.get("Total Passes"))
+        st.metric("Completed", completed, help=METRIC_HELP.get("Completed"))
+        st.metric("Completion %", f"{pct:.1f}%", help=METRIC_HELP.get("Completion %"))
+        st.metric("Progressive", progressive, help=METRIC_HELP.get("Progressive") or None)
+        st.metric(
+            "Line-Breaking",
+            line_breaking,
+            help=METRIC_HELP.get("Line-Breaking") or None,
+        )
+
+    data_freshness()

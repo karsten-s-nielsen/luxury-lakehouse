@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 from mplsoccer import Pitch
 from pitch_control import PitchControlParams, compute_pitch_control_frame
 
@@ -90,16 +91,23 @@ def _extract_vectors(df: pd.DataFrame, col: str) -> np.ndarray:
     return np.array(parsed, dtype=np.float64)
 
 
-# Pre-build sorted player choices for similarity dropdown
+# Pre-build sorted player choices for similarity dropdown.
+# Limit to top 500 by match count to avoid loading ~8,950 entries into the DOM (H28).
 _similarity_players: list[tuple[str, str]] = []
 _default_similarity_player: str | None = None
 if not embeddings_df.empty and "player_name" in embeddings_df.columns:
-    for _, row in embeddings_df.sort_values("player_name").iterrows():
+    _top_df = embeddings_df.copy()
+    if "total_matches" in _top_df.columns:
+        _top_df["total_matches"] = pd.to_numeric(_top_df["total_matches"], errors="coerce")
+        _top_df = _top_df.nlargest(500, "total_matches")
+    _top_df = _top_df.sort_values("player_name")
+    for _, row in _top_df.iterrows():
         name = str(row["player_name"])
         total = row.get("total_matches", "")
         label = f"{name} ({int(total)} matches)" if total else name
         _similarity_players.append((label, name))
     _default_similarity_player = _similarity_players[0][1] if _similarity_players else None
+    del _top_df
 
 
 def find_similar_players(selected_player: str | None, top_k: int = 10) -> pd.DataFrame:
@@ -132,10 +140,21 @@ def find_similar_players(selected_player: str | None, top_k: int = 10) -> pd.Dat
 
     result_rows = []
     for idx in top_indices:
+        sim = round(float(similarities[idx]), 3)
+        dist = round(1.0 - sim, 3)  # Convert to cosine distance (matches Streamlit convention)
         row = {
             "rank": len(result_rows) + 1,
             "player_name": embeddings_df.iloc[idx].get("player_name", ""),
-            "similarity": round(float(similarities[idx]), 3),
+            "cosine_distance": dist,
+            "interpretation": (
+                "Very Similar"
+                if dist < 0.20
+                else "Similar"
+                if dist < 0.35
+                else "Moderately Similar"
+                if dist < 0.50
+                else "Different"
+            ),
         }
         if "total_matches" in embeddings_df.columns:
             row["total_matches"] = int(embeddings_df.iloc[idx]["total_matches"])
@@ -474,7 +493,7 @@ def create_pitch_control_plot(
     grid_x, grid_y, surface = compute_pitch_control_frame(players, _PC_PARAMS)
 
     # Plot heatmap — surface is (ny, nx), extent maps to StatsBomb coordinates
-    ax.imshow(
+    im = ax.imshow(
         surface,
         extent=[grid_x[0], grid_x[-1], grid_y[-1], grid_y[0]],
         cmap="RdBu",
@@ -485,6 +504,9 @@ def create_pitch_control_plot(
         interpolation="bilinear",
         zorder=1,
     )
+    cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
+    cbar.set_label("Control (0=Away, 1=Home)", color="white", fontsize=9)
+    cbar.ax.tick_params(colors="white", labelsize=8)
 
     # Draw players
     home = frame_df[frame_df["team"] == "home"]
@@ -576,7 +598,7 @@ def create_pitch_control_plot(
 
 
 # ---------------------------------------------------------------------------
-# DEFCON Pressure (Plotly)
+# Defensive Impact (Plotly)
 # ---------------------------------------------------------------------------
 
 
@@ -584,7 +606,7 @@ _pressure_players: list[str] = sorted(pressure_df["player_name"].unique().tolist
 _default_pressure_player: str | None = _pressure_players[0] if _pressure_players else None
 
 
-def create_pressure_chart(player_name: str | None) -> plt.Figure:
+def create_pressure_chart(player_name: str | None) -> plt.Figure | go.Figure:
     """Create a DEFCON pressure breakdown chart for a selected player.
 
     Returns a Plotly figure with grouped bars showing pressure by category per match.
@@ -694,7 +716,7 @@ def create_pressure_chart(player_name: str | None) -> plt.Figure:
             "pressure_value": "Pressure Value",
             "pressure_type": "Category",
         },
-        title=f"DEFCON Pressure \u2014 {player_name} ({n_matches} matches, {total_actions} defensive actions)",
+        title=f"Defensive Impact \u2014 {player_name} ({n_matches} matches, {total_actions} defensive actions)",
     )
 
     plotly_fig.update_layout(
@@ -847,8 +869,8 @@ _FLAGSHIP_CSS = """
     border-bottom: 3px solid #f59e0b !important;
     background: rgba(245, 158, 11, 0.06) !important;
 }
-/* Hide time-slider non-range inputs (pitch control) */
-#pc-time-slider input:not([type='range']), #pc-time-slider button { display: none !important; }
+/* Style time-slider non-range inputs to be compact but accessible (pitch control) */
+#pc-time-slider input:not([type='range']), #pc-time-slider button { opacity: 0.4; max-width: 50px; }
 """
 
 demo = gr.Blocks(
@@ -867,9 +889,19 @@ with demo:
     soccer analytics platform. Explore player embeddings, shot maps, pass quality,
     pitch control surfaces, and defensive pressure profiles from open-source soccer data.
 
-    **Data sources:** [StatsBomb Open Data](https://github.com/statsbomb/open-data) (CC-BY 4.0),
-    [Wyscout Public Dataset](https://figshare.com/collections/Soccer_match_event_dataset/4415000) (CC-BY 4.0),
-    [Metrica Sports Sample Data](https://github.com/metrica-sports/sample-data) (CC-BY 4.0)
+    > *This Space runs on free CPU. First load may take 30-60 seconds while the container starts.
+    > The full platform has 11 analysis pages with 380+ matches across 5 data providers.*
+
+    **Data:** [StatsBomb](https://github.com/statsbomb/open-data) ·
+    [Wyscout](https://figshare.com/collections/Soccer_match_event_dataset/4415000) ·
+    [Metrica](https://github.com/metrica-sports/sample-data) (all CC-BY 4.0)
+    &nbsp;|&nbsp;
+    **Models:** [football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) ·
+    [xG](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout)
+    &nbsp;|&nbsp;
+    **Datasets:** [SPADL/VAEP](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values) ·
+    [Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings) ·
+    [Pitch Control](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking)
     """
     )
 
@@ -993,9 +1025,9 @@ with demo:
         shot_comp.change(fn=create_shot_map, inputs=[shot_comp, shot_goals_only], outputs=shot_plot)
         shot_goals_only.change(fn=create_shot_map, inputs=[shot_comp, shot_goals_only], outputs=shot_plot)
 
-    with gr.Tab("DEFCON Pressure"):
+    with gr.Tab("Defensive Impact"):
         gr.Markdown(
-            "DEFCON defensive pressure profiles per player per match.\n\n"
+            "Defensive impact profiles per player per match.\n\n"
             "*[Kim et al. (2025)](https://github.com/hyunsungkim-ds/defcon) DEFCON (Defensive Contribution) "
             "quantifies how each defender's actions affect the "
             "probability of the attacking team scoring. Four categories: **Intercept** (ball won), "
@@ -1012,20 +1044,26 @@ with demo:
         )
 
         _initial_defcon = create_pressure_chart(_default_pressure_player) if _default_pressure_player else None
-        defcon_plot = gr.Plot(label="DEFCON Pressure Breakdown", value=_initial_defcon)
+        defcon_plot = gr.Plot(label="Defensive Impact Breakdown", value=_initial_defcon)
 
         defcon_dropdown.change(fn=create_pressure_chart, inputs=[defcon_dropdown], outputs=defcon_plot)
 
     gr.Markdown(
         """
     ---
+    *This is a sample demo with pre-cached data subsets. The full production platform
+    adds: 380+ matches across 5 data providers, custom xG model comparison,
+    match summary scorecards, player comparison radars, PPDA pressing analysis, and
+    cross-player entity resolution across 11,918 unified players.*
+
     **Published datasets:**
     [SPADL/VAEP](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values) |
     [Line-Breaking Passes](https://huggingface.co/datasets/luxury-lakehouse/line-breaking-passes) |
     [Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings) |
     [Pitch Control](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking)
 
-    **Model:** [football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) |
+    **Models:** [football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) |
+    [xG model](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout) |
     **Tracking data:** [Metrica Sports](https://github.com/metrica-sports/sample-data) (CC-BY 4.0)
     """
     )

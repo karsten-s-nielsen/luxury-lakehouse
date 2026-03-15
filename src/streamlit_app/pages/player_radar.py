@@ -7,6 +7,7 @@ from typing import Any
 import streamlit as st
 
 from streamlit_app.components.charts import plot_player_radar
+from streamlit_app.components.feedback import data_freshness, empty_result, empty_select, render_scope_label
 from streamlit_app.components.filters import (
     render_competition_filter,
     render_minutes_filter,
@@ -96,7 +97,13 @@ def _load_player_stats(competition_id: int, player_ids: list[int]) -> Any:
 
 def page() -> None:
     """Render the Player Radar page."""
-    st.header(":material/radar: Player Radar")
+    st.header(":material/radar: Player Comparison")
+    st.caption(
+        "Multi-metric player comparison using "
+        "[mplsoccer](https://mplsoccer.readthedocs.io/) radar chart. "
+        "Metrics from VAEP ([Decroos et al. 2019](https://doi.org/10.1007/s10994-021-05989-6)) "
+        "and tracking data."
+    )
 
     with st.sidebar:
         competition_id = render_competition_filter()
@@ -110,29 +117,40 @@ def page() -> None:
         )
 
     if competition_id is None:
-        st.info("Select a competition to begin.")
+        empty_select("a competition")
         return
 
+    render_scope_label(competition_id, team_id)
+
     if not isinstance(player_ids, list) or len(player_ids) == 0:
-        st.info("Select 1-3 players to compare.")
+        empty_select("1\u20133 players to compare")
         return
 
     stats = _load_player_stats(competition_id, player_ids)
     if stats.empty:
-        st.warning("No stats found for selected players.")
+        empty_result("player stats")
         return
 
     # Metric selection — include physical metrics when tracking data exists
     available_metrics = list(_DEFAULT_METRICS)
-    if stats["avg_distance_per_min"].notna().any():
+    has_physical = stats["avg_distance_per_min"].notna().any()
+    if has_physical:
         available_metrics.extend(_PHYSICAL_METRICS)
+    else:
+        st.caption("Physical metrics (distance, speed) unavailable — requires tracking data (~20 matches).")
 
     all_labels = [m[1] for m in available_metrics]
-    selected_labels = st.multiselect("Metrics", all_labels, default=all_labels)
+    selected_labels = st.multiselect(
+        "Metrics",
+        all_labels,
+        default=all_labels,
+        help="Per-90 stats: Goals, xG, Passes, Pass%, VAEP (action value), DEFCON (defensive pressure). "
+        "See Glossary in sidebar for definitions.",
+    )
 
     selected = [m for m in available_metrics if m[1] in selected_labels]
     if len(selected) < 3:
-        st.warning("Select at least 3 metrics for a meaningful radar chart.")
+        st.info("Select at least 3 metrics for a meaningful radar chart.")
         return
 
     metric_keys = [m[0] for m in selected]
@@ -141,9 +159,17 @@ def page() -> None:
 
     players_data: list[dict[str, float]] = []
     player_names: list[str] = []
+    low_minute_warnings: list[str] = []
     for _, row in stats.iterrows():
         players_data.append({k: float(row.get(k, 0) or 0) for k in metric_keys})
-        player_names.append(str(row["player_display_name"]))
+        name = str(row["player_display_name"])
+        minutes = int(row.get("minutes_played", 0) or 0)
+        player_names.append(f"{name} ({minutes:,} min)")
+        if minutes < 450:
+            low_minute_warnings.append(f"{name} has only {minutes} min — per-90 stats may be unreliable")
+
+    if low_minute_warnings:
+        st.warning(" · ".join(low_minute_warnings))
 
     title = " vs ".join(player_names)
     fig = plot_player_radar(players_data, metric_keys, labels, ranges, title=title, player_names=player_names)
@@ -151,6 +177,27 @@ def page() -> None:
     _, col_radar, _ = st.columns([1, 2, 1])
     with col_radar:
         st.pyplot(fig)
+        # Spoke label legend (F6: radar axes can't have tooltips)
+        spoke_legend = {
+            "Goals/90": "goals per 90 min",
+            "xG/90": "expected goals per 90",
+            "Passes/90": "completed passes per 90",
+            "Prog. Passes/90": "progressive passes per 90",
+            "Pass %": "pass completion rate",
+            "xG Over-perf": "goals minus xG (positive = overperformed)",
+            "LB Passes/90": "line-breaking passes per 90",
+            "VAEP/90": "action value per 90 (higher = more impactful)",
+            "Off. VAEP/90": "offensive contribution per 90",
+            "Def. VAEP/90": "defensive contribution per 90",
+            "DEFCON/90": "defensive pressure received per 90",
+            "Dist/Min (m)": "distance per minute (meters)",
+            "Top Speed (m/s)": "peak sprint speed",
+        }
+        legend_parts = [f"**{lbl}** = {spoke_legend[lbl]}" for lbl in labels if lbl in spoke_legend]
+        if legend_parts:
+            st.caption(" · ".join(legend_parts))
 
-    with st.expander("Raw Data"):
-        st.dataframe(stats, use_container_width=True)
+    with st.expander("Full Stats Table", icon=":material/table_chart:"):
+        st.dataframe(stats.drop(columns=["player_id"], errors="ignore"), use_container_width=True)
+
+    data_freshness()

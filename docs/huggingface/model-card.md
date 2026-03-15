@@ -31,7 +31,7 @@ Part of the (Right! Luxury!) Lakehouse soccer analytics platform.
 Football2Vec represents each player's per-match behavior as a fixed-length vector by:
 
 1. **Tokenizing** match events into spatial action tokens (e.g., `pass_6_4`, `shot_11_3`) on a 12&times;8 pitch grid
-2. **Training** Doc2Vec (PV-DM) on per-player-per-match token sequences
+2. **Training** Doc2Vec (Paragraph Vector -- Distributed Memory, PV-DM) on per-player-per-match token sequences
 3. **Inferring** 32-dim embedding vectors that capture playing style
 
 Players with similar on-pitch behavior produce similar vectors, enabling cosine-distance similarity search ("find players like Messi").
@@ -176,6 +176,8 @@ Pre-computed datasets derived from this model and the platform's analytics pipel
 ## Demo
 
 Try the interactive [Soccer Analytics Explorer](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) &mdash; search for similar players by behavioral embedding, explore shot maps, and visualize line-breaking passes.
+
+> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
 
 ## More Information
 

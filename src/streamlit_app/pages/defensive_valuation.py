@@ -8,6 +8,8 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from streamlit_app.components.feedback import data_freshness, data_scope_note, empty_result, empty_select
+from streamlit_app.components.glossary import METRIC_HELP
 from streamlit_app.db import execute_query, t
 
 
@@ -105,7 +107,7 @@ def _load_pressure_breakdown(player_id: int, competition_id: int, team_id: int |
     )
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner="Loading matches...")
 def _fetch_player_defcon_matches(tbl: str, ms: str, pid: int, comp_id: int, t_id: int | None) -> Any:
     conditions = ["dp.player_id = %s", "dp.competition_id = %s"]
     params: list[Any] = [pid, comp_id]
@@ -162,7 +164,7 @@ def _load_match_timeline(match_id: str, player_id: int) -> Any:
     return _fetch_match_timeline(tbl, str(match_id), int(player_id))
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner="Loading competitions...")
 def _fetch_pressure_competitions(dp: str, dc: str) -> Any:
     return execute_query(
         f"SELECT DISTINCT c.competition_id, c.competition_name, c.country "  # noqa: S608
@@ -179,7 +181,7 @@ def _render_pressure_competition_filter() -> int | None:
 
     df = _fetch_pressure_competitions(dp, dc)
     if df is None or len(df) == 0:
-        st.warning("No competitions with DEFCON-lite data found.")
+        empty_result("competitions with defensive pressure data")
         return None
 
     options = df.to_dict("records")
@@ -191,7 +193,7 @@ def _render_pressure_competition_filter() -> int | None:
     return options[idx]["competition_id"]  # type: ignore[return-value]
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner="Loading teams...")
 def _fetch_pressure_teams(dp: str, ms: str, dim_t: str, comp_id: int) -> Any:
     return execute_query(
         f"WITH RECURSIVE pressure_matches AS ("  # noqa: S608
@@ -242,7 +244,7 @@ def _build_player_options(rankings: pd.DataFrame) -> dict[str, int]:
     return {str(row["player_display_name"]): int(row["player_id"]) for _, row in rankings.iterrows()}
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner="Loading players...")
 def _fetch_breakdown_player_ids(tbl: str, ms: str, comp_id: int, t_id: int | None) -> Any:
     if t_id is not None:
         return execute_query(
@@ -280,7 +282,7 @@ def _load_breakdown_player_ids(competition_id: int, team_id: int | None) -> set[
     return set(int(x) for x in result["player_id"])
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner="Loading players...")
 def _fetch_timeline_player_ids(tbl: str, ms: str, comp_id: int, t_id: int | None) -> Any:
     if t_id is not None:
         return execute_query(
@@ -320,31 +322,52 @@ def _load_timeline_player_ids(competition_id: int, team_id: int | None) -> set[i
 
 def page() -> None:
     """Render the Defensive Pressure page."""
-    st.header(":material/shield: Defensive Pressure (DEFCON-lite)")
+    st.header(":material/shield: Defensive Impact")
     st.caption(
         "How much defensive attention does each attacker attract? "
-        "Tier 3 tabular approximation of "
+        "Tier 3 (tabular heuristic, no GNN) approximation of "
         "[Kim et al. (2025)](https://github.com/hyunsungkim-ds/defcon) DEFCON framework. "
-        "Credits: Intercept, Concede, Disturb, Deter."
+        "Credits: Intercept, Concede, Disturb, Deter. "
+        "Tiers: 1 = full GNN, 2 = simplified GNN, 3 = tabular heuristic (this implementation)."
     )
+    data_scope_note("Requires StatsBomb 360 freeze-frame data (323 of 380+ matches).")
 
     with st.sidebar:
         competition_id = _render_pressure_competition_filter()
         team_id = _render_optional_team_filter(competition_id)
 
     if competition_id is None:
-        st.info("Select a competition to begin.")
+        empty_select("a competition")
         return
 
     rankings = _load_rankings(competition_id, team_id)
     if rankings is None or len(rankings) == 0:
-        st.info("No DEFCON-lite data available for this competition.")
+        empty_result(
+            "defensive pressure data",
+            scope_hint="Requires StatsBomb 360 freeze-frame data (323 of 380+ matches).",
+        )
         return
 
     tab_rankings, tab_breakdown, tab_timeline = st.tabs(["Pressure Rankings", "Pressure Breakdown", "Match Timeline"])
 
     with tab_rankings:
-        st.dataframe(rankings, use_container_width=True, hide_index=True)
+        # Hide internal player_id column (H4); rename attacker-perspective columns (F7)
+        display_cols = [c for c in rankings.columns if c != "player_id"]
+        rename_map = {
+            "player_display_name": "Player",
+            "total_pressure": "Total Pressure",
+            "total_actions": "Actions Faced",
+            "intercepts": "Intercepted",
+            "concedes": "Shots Conceded",
+            "disturbs": "Disturbed",
+            "deters": "Deterred",
+            "matches": "Matches",
+        }
+        st.dataframe(
+            rankings[display_cols].rename(columns=rename_map),
+            use_container_width=True,
+            hide_index=True,
+        )
 
     player_options = _build_player_options(rankings)
 
@@ -352,24 +375,44 @@ def page() -> None:
         bd_pids = _load_breakdown_player_ids(competition_id, team_id)
         bd_options = {k: v for k, v in player_options.items() if v in bd_pids}
         if not bd_options:
-            st.info("No pressure breakdown data available for the selected filters.")
+            empty_result("pressure breakdown data")
         else:
-            selected_name = st.selectbox("Select player", list(bd_options.keys()), key="breakdown_player")
+            selected_name = st.selectbox("Player", list(bd_options.keys()), key="breakdown_player")
             if selected_name:
                 player_id = bd_options[selected_name]
                 breakdown = _load_pressure_breakdown(player_id, competition_id, team_id)
                 if breakdown is None or len(breakdown) == 0:
-                    st.info("No breakdown data for this player in the selected team's matches.")
+                    empty_result("breakdown data for this player")
                 else:
                     col1, col2, col3, col4 = st.columns(4)
-                    col1.metric("Intercept", f"{breakdown['intercept_pressure'].sum():.2f}")
-                    col2.metric("Concede", f"{breakdown['concede_pressure'].sum():.2f}")
-                    col3.metric("Disturb", f"{breakdown['disturb_pressure'].sum():.2f}")
-                    col4.metric("Deter", f"{breakdown['deter_pressure'].sum():.2f}")
+                    col1.metric(
+                        "Intercept",
+                        f"{breakdown['intercept_pressure'].sum():.2f}",
+                        help=METRIC_HELP.get("Intercept") or None,
+                    )
+                    col2.metric(
+                        "Concede",
+                        f"{breakdown['concede_pressure'].sum():.2f}",
+                        help=METRIC_HELP.get("Concede") or None,
+                    )
+                    col3.metric(
+                        "Disturb",
+                        f"{breakdown['disturb_pressure'].sum():.2f}",
+                        help=METRIC_HELP.get("Disturb") or None,
+                    )
+                    col4.metric(
+                        "Deter",
+                        f"{breakdown['deter_pressure'].sum():.2f}",
+                        help=METRIC_HELP.get("Deter") or None,
+                    )
 
                     label_col = "match_label" if breakdown["match_label"].notna().all() else "match_id"
+                    # Limit to 10 matches to prevent bar slivers (M13)
+                    plot_data = breakdown.head(10) if len(breakdown) > 10 else breakdown
+                    if len(breakdown) > 10:
+                        st.caption(f"Showing top 10 of {len(breakdown)} matches.")
                     fig = px.bar(
-                        breakdown,
+                        plot_data,
                         x=label_col,
                         y=["intercept_pressure", "concede_pressure", "disturb_pressure", "deter_pressure"],
                         title=f"Pressure Breakdown: {selected_name}",
@@ -387,15 +430,15 @@ def page() -> None:
         tl_pids = _load_timeline_player_ids(competition_id, team_id)
         tl_options = {k: v for k, v in player_options.items() if v in tl_pids}
         if not tl_options:
-            st.info("No match timeline data available for the selected filters.")
+            empty_result("match timeline data")
         else:
-            selected_tl_name = st.selectbox("Select player", list(tl_options.keys()), key="timeline_player")
+            selected_tl_name = st.selectbox("Player", list(tl_options.keys()), key="timeline_player")
             if selected_tl_name:
                 tl_player_id = tl_options[selected_tl_name]
 
                 matches = _load_player_matches(tl_player_id, competition_id, team_id)
                 if matches is None or len(matches) == 0:
-                    st.info("No match-level data for this player in the selected team's matches.")
+                    empty_result("match-level data for this player")
                 else:
                     match_options = matches.to_dict("records")
                     match_labels = [
@@ -412,6 +455,22 @@ def page() -> None:
                         match_id = str(match_options[match_idx]["match_id"])
                         timeline = _load_match_timeline(match_id, tl_player_id)
                         if timeline is not None and len(timeline) > 0:
-                            st.dataframe(timeline, use_container_width=True, hide_index=True)
+                            display_cols = [c for c in timeline.columns if c not in ("opposing_player_id", "event_id")]
+                            tl_rename = {
+                                "credit_type": "Credit Type",
+                                "confidence": "Confidence (0-1)",
+                                "defcon_value": "DEFCON Value",
+                                "action_type": "Action",
+                                "action_x": "Pitch X (m)",
+                                "action_y": "Pitch Y (m)",
+                                "dist_to_ball": "Dist to Ball (m)",
+                            }
+                            st.dataframe(
+                                timeline[display_cols].rename(columns=tl_rename),
+                                use_container_width=True,
+                                hide_index=True,
+                            )
                         else:
-                            st.info("No DEFCON-lite actions for this match.")
+                            empty_result("defensive actions for this match")
+
+    data_freshness()  # Default table — fct_defcon_pressure_synced lacks match_date

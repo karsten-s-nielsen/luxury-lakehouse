@@ -17,6 +17,21 @@ Per-player per-frame pitch control values from **~38 million rows** of professio
 
 Part of the (Right! Luxury!) Lakehouse soccer analytics platform.
 
+## Quick Start
+
+```python
+from datasets import load_dataset
+
+ds = load_dataset("luxury-lakehouse/pitch-control-tracking")
+df = ds["train"].to_pandas()
+
+# Average home-team pitch control per match
+home_control = df.groupby("match_id")["pitch_control_value"].mean()
+print(home_control.describe())
+```
+
+> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+
 ## What is Pitch Control?
 
 **Pitch control** quantifies which team controls each location on the pitch at every moment in a match. The Spearman (2017) physics-based model estimates control by computing the time for each player to intercept a given point, accounting for reaction time and maximum acceleration kinematics. A logistic influence function converts time-to-intercept into a control probability, and each player's contribution is the fraction of their team's total influence at that location.
@@ -91,5 +106,7 @@ If you use this dataset, please cite the original pitch control paper:
 ```
 
 ## More Information
+
+> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
 
 - **License**: [MIT](https://opensource.org/licenses/MIT)

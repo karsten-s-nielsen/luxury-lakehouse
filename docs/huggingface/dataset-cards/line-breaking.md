@@ -17,6 +17,21 @@ Every pass from **~5 million** professional soccer events, annotated with whethe
 
 Part of the (Right! Luxury!) Lakehouse soccer analytics platform.
 
+## Quick Start
+
+```python
+from datasets import load_dataset
+
+ds = load_dataset("luxury-lakehouse/line-breaking-passes")
+df = ds["train"].to_pandas()
+
+# Filter to confirmed line-breaking passes
+lb_passes = df[df["is_line_breaking"] == True]
+print(f"{len(lb_passes)} line-breaking passes out of {len(df)} total")
+```
+
+> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+
 ## What is a Line-Breaking Pass?
 
 A **line-breaking pass** is a pass that travels through a compact defensive shape, bypassing one or more lines of defenders. They are high-value attacking actions because they disrupt defensive organization and create goal-scoring opportunities in the space behind the defensive block.
@@ -106,5 +121,7 @@ There is no formal paper for this dataset. If you use it, please cite the reposi
 ```
 
 ## More Information
+
+> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
 
 - **License**: [MIT](https://opensource.org/licenses/MIT)
