@@ -40,8 +40,8 @@ All public artifacts are hosted entirely within the HF ecosystem.
 
 | Model | Architecture | Scale |
 |-------|-------------|-------|
-| [football2vec-statsbomb-wyscout](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) | Doc2Vec (PV-DM) 32-dim behavioral embeddings | 87K embeddings across 8,950 players from ~3,000 matches |
-| [xg-model-statsbomb-wyscout](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout) | Calibrated XGBoost + logistic baseline (13 features) | ROC-AUC 0.979, evaluated on 87,999 scored shots |
+| [football2vec-statsbomb-wyscout](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) | Doc2Vec (PV-DM) 32-dim behavioral embeddings | 87K per-match vectors across 8,950 players from ~3,000 matches |
+| [xg-model-statsbomb-wyscout](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout) | Calibrated XGBoost + logistic baseline (13 features) | Trained on ~131K shots, ROC-AUC 0.979 on held-out test set |
 
 All model serialization uses **JSON envelopes** &mdash; zero pickle files (banned by project security policy).
 
@@ -90,7 +90,7 @@ The platform maintains professional-grade engineering standards:
 - **Type safety**: Pyright basic mode, Pydantic models for configuration
 - **Testing**: 614 pytest unit tests (including performance benchmarks), 381 dbt data quality tests
 - **CI/CD**: GitHub Actions with OIDC federation (zero-secret CI), ruff linting, pre-commit hooks
-- **UX discipline**: 50 usability fixes from a cognitive interface audit grounded in 15 HCI frameworks (Norman, Sweller, Gergle, Kahneman, Cleveland &amp; McGill, and others) &mdash; every metric has a help tooltip, every page has academic citations, every analytics term is defined in a context-sensitive glossary
+- **UX discipline**: 50 of 53 findings resolved from a cognitive interface audit grounded in 15 HCI frameworks (Norman, Sweller, Gergle, Kahneman, Cleveland &amp; McGill, and others) &mdash; every metric has a help tooltip, every page has academic citations, every analytics term is defined in a context-sensitive glossary
 
 ## Links
 
