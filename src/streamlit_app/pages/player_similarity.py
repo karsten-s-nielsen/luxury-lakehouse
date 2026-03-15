@@ -269,7 +269,8 @@ def page() -> None:
         "Find similar players using pgvector cosine distance on behavioral (32-d) or statistical (13-d) "
         "embedding vectors. Behavioral embeddings via "
         "[Theiner et al. (2022)](https://doi.org/10.1007/978-3-031-02044-5_2) football2vec "
-        "with [Doc2Vec (Le & Mikolov 2014)](https://arxiv.org/abs/1405.4053)."
+        "with [Doc2Vec (Le & Mikolov 2014)](https://arxiv.org/abs/1405.4053). "
+        "Model: [luxury-lakehouse/football2vec-statsbomb-wyscout](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout)."
     )
 
     with st.sidebar:
@@ -359,6 +360,7 @@ def page() -> None:
 
     st.subheader("Similar Players")
     st.toast(f"Found {len(results)} similar players.", icon=":material/search:")
+    st.caption("Thresholds: < 0.20 Very Similar | < 0.35 Similar | < 0.50 Moderate | >= 0.50 Different")
 
     # Add interpretation column (matches HF Space pattern)
     def _interpret(d: float) -> str:
@@ -371,6 +373,10 @@ def page() -> None:
         return "Different"
 
     results["interpretation"] = results["distance"].apply(_interpret)
+
+    # Format raw comma-separated data_sources for display (F29)
+    if "data_sources" in results.columns:
+        results["data_sources"] = results["data_sources"].str.replace(",", " · ")
 
     display_cols = ["player_display_name", "distance", "interpretation", total_col, "data_sources"]
     available_cols = [c for c in display_cols if c in results.columns]

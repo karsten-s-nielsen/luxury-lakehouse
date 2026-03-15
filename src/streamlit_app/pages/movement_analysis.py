@@ -82,23 +82,27 @@ def _load_tracking_matches(provider: str | None = None) -> Any:
 
 
 @st.cache_data(ttl=600, show_spinner="Loading physical stats...")
-def _fetch_physical_stats(tbl: str, m_id: str) -> Any:
+def _fetch_physical_stats(tbl: str, dim: str, m_id: str) -> Any:
     return execute_query(
-        f"SELECT player_id, match_id, source_provider, minutes_played, "  # noqa: S608
-        f"  total_distance_m, total_distance_km, hsr_distance_m, sprint_distance_m, "
-        f"  sprint_frame_count, high_accel_count, high_decel_count, "
-        f"  distance_per_minute_m, avg_speed_ms, max_speed_ms, "
-        f"  total_off_ball_xt, avg_off_ball_xt "
-        f"FROM {tbl} WHERE match_id = %s "
-        f"ORDER BY total_distance_m DESC",
+        f"SELECT ps.player_id, COALESCE(dp.player_display_name, ps.player_id::text) AS player_name, "  # noqa: S608
+        f"  ps.match_id, ps.source_provider, ps.minutes_played, "
+        f"  ps.total_distance_m, ps.total_distance_km, ps.hsr_distance_m, ps.sprint_distance_m, "
+        f"  ps.sprint_frame_count, ps.high_accel_count, ps.high_decel_count, "
+        f"  ps.distance_per_minute_m, ps.avg_speed_ms, ps.max_speed_ms, "
+        f"  ps.total_off_ball_xt, ps.avg_off_ball_xt "
+        f"FROM {tbl} ps "
+        f"LEFT JOIN {dim} dp ON ps.player_id::text = dp.canonical_player_id::text "
+        f"WHERE ps.match_id = %s "
+        f"ORDER BY ps.total_distance_m DESC",
         (m_id,),
     )
 
 
 def _load_physical_stats(match_id: str) -> Any:
-    """Load physical stats for a specific match."""
+    """Load physical stats for a specific match, joined with player names."""
     tbl = t("fct_physical_stats_synced")
-    return _fetch_physical_stats(tbl, str(match_id))
+    dim = t("dim_players_synced")
+    return _fetch_physical_stats(tbl, dim, str(match_id))
 
 
 @st.cache_data(ttl=600, show_spinner="Loading PPDA data...")
@@ -197,22 +201,22 @@ def _render_physical() -> None:
         help=METRIC_HELP.get("Avg Distance (km)"),
     )
     c3.metric(
-        "Max Speed (m/s)",
-        f"{stats['max_speed_ms'].max():.1f}",
-        help=METRIC_HELP.get("Max Speed") or None,
-    )
-    c4.metric(
         "Max Speed (km/h)",
         f"{stats['max_speed_ms'].max() * 3.6:.1f}",
-        help=METRIC_HELP.get("Max Speed") or None,
+        help=METRIC_HELP.get("Max Speed (km/h)"),
+    )
+    c4.metric(
+        "Max Speed (m/s)",
+        f"{stats['max_speed_ms'].max():.1f}",
+        help=METRIC_HELP.get("Max Speed"),
     )
 
-    fig = plot_physical_bars(stats, col_name, col_label, title=str(selected_metric))
-    st.pyplot(fig, use_container_width=True)
+    fig = plot_physical_bars(stats, col_name, col_label, title=str(selected_metric), label_col="player_name")
+    st.pyplot(fig)
 
-    with st.expander("Full Stats Table"):
+    with st.expander("Full Stats Table", icon=":material/table_chart:"):
         display_cols = [
-            "player_id",
+            "player_name",
             "minutes_played",
             "total_distance_km",
             "hsr_distance_m",
@@ -224,10 +228,9 @@ def _render_physical() -> None:
             "max_speed_ms",
         ]
         st.dataframe(
-            stats[[c for c in display_cols if c in stats.columns]]
-            .drop(columns=["player_id"], errors="ignore")
-            .rename(
+            stats[[c for c in display_cols if c in stats.columns]].rename(
                 columns={
+                    "player_name": "Player",
                     "minutes_played": "Minutes",
                     "total_distance_km": "Distance (km)",
                     "hsr_distance_m": "HSR (m)",
@@ -282,7 +285,7 @@ def _render_ppda() -> None:
     fig = plot_ppda_bars(data, title="PPDA by Match")
     st.pyplot(fig, use_container_width=True)
 
-    with st.expander("PPDA Data"):
+    with st.expander("PPDA Data", icon=":material/table_chart:"):
         st.dataframe(
             data.rename(
                 columns={
@@ -342,15 +345,16 @@ def _render_off_ball_xt() -> None:
         help=METRIC_HELP.get("Max Off-Ball xT") or None,
     )
 
-    fig = plot_physical_bars(xt_stats, "total_off_ball_xt", "Total Off-Ball xT", title="Off-Ball xT by Player")
-    st.pyplot(fig, use_container_width=True)
+    fig = plot_physical_bars(
+        xt_stats, "total_off_ball_xt", "Total Off-Ball xT", title="Off-Ball xT by Player", label_col="player_name"
+    )
+    st.pyplot(fig)
 
-    with st.expander("Off-Ball xT Data"):
+    with st.expander("Off-Ball xT Data", icon=":material/table_chart:"):
         st.dataframe(
-            xt_stats[["player_id", "total_off_ball_xt", "avg_off_ball_xt"]]
-            .drop(columns=["player_id"], errors="ignore")
-            .rename(
+            xt_stats[["player_name", "total_off_ball_xt", "avg_off_ball_xt"]].rename(
                 columns={
+                    "player_name": "Player",
                     "total_off_ball_xt": "Total xT",
                     "avg_off_ball_xt": "Avg xT/Frame",
                 }

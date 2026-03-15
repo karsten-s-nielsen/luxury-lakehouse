@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [ARCHITECTURE.md](ARCHITECTURE.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
 
-**Last updated**: 2026-03-15 (Cognitive interface audit fixes: 61 findings → 21 remaining. UX items U1–U7 added)
+**Last updated**: 2026-03-15 (Cognitive interface audit rev-2: 53 findings, 35 fixed. UX items U1–U4 added)
 
 ---
 

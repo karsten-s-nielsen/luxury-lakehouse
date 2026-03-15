@@ -183,6 +183,10 @@ def _render_rankings() -> None:
         empty_result("VAEP data")
         return
 
+    st.caption(
+        "VAEP/90: higher = more impactful. Off. VAEP/90: offensive contribution. "
+        "Def. VAEP/90: defensive contribution. Values typically range 0.01-1.0."
+    )
     st.dataframe(
         rankings.rename(
             columns={
@@ -310,5 +314,5 @@ def _render_timeline() -> None:
                 help=METRIC_HELP.get("Most Valuable Action"),
             )
 
-    with st.expander("Action Details"):
+    with st.expander("Action Details", icon=":material/table_chart:"):
         st.dataframe(actions.drop(columns=["player_id"], errors="ignore"), use_container_width=True)

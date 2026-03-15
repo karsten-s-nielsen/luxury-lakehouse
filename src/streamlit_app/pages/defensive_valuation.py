@@ -325,9 +325,10 @@ def page() -> None:
     st.header(":material/shield: Defensive Impact")
     st.caption(
         "How much defensive attention does each attacker attract? "
-        "Tier 3 tabular approximation of "
+        "Tier 3 (tabular heuristic, no GNN) approximation of "
         "[Kim et al. (2025)](https://github.com/hyunsungkim-ds/defcon) DEFCON framework. "
-        "Credits: Intercept, Concede, Disturb, Deter."
+        "Credits: Intercept, Concede, Disturb, Deter. "
+        "Tiers: 1 = full GNN, 2 = simplified GNN, 3 = tabular heuristic (this implementation)."
     )
     data_scope_note("Requires StatsBomb 360 freeze-frame data (323 of 380+ matches).")
 
@@ -350,9 +351,23 @@ def page() -> None:
     tab_rankings, tab_breakdown, tab_timeline = st.tabs(["Pressure Rankings", "Pressure Breakdown", "Match Timeline"])
 
     with tab_rankings:
-        # Hide internal player_id column (H4)
+        # Hide internal player_id column (H4); rename attacker-perspective columns (F7)
         display_cols = [c for c in rankings.columns if c != "player_id"]
-        st.dataframe(rankings[display_cols], use_container_width=True, hide_index=True)
+        rename_map = {
+            "player_display_name": "Player",
+            "total_pressure": "Total Pressure",
+            "total_actions": "Actions Faced",
+            "intercepts": "Intercepted",
+            "concedes": "Shots Conceded",
+            "disturbs": "Disturbed",
+            "deters": "Deterred",
+            "matches": "Matches",
+        }
+        st.dataframe(
+            rankings[display_cols].rename(columns=rename_map),
+            use_container_width=True,
+            hide_index=True,
+        )
 
     player_options = _build_player_options(rankings)
 
@@ -441,6 +456,19 @@ def page() -> None:
                         timeline = _load_match_timeline(match_id, tl_player_id)
                         if timeline is not None and len(timeline) > 0:
                             display_cols = [c for c in timeline.columns if c not in ("opposing_player_id", "event_id")]
-                            st.dataframe(timeline[display_cols], use_container_width=True, hide_index=True)
+                            tl_rename = {
+                                "credit_type": "Credit Type",
+                                "confidence": "Confidence (0-1)",
+                                "defcon_value": "DEFCON Value",
+                                "action_type": "Action",
+                                "action_x": "Pitch X (m)",
+                                "action_y": "Pitch Y (m)",
+                                "dist_to_ball": "Dist to Ball (m)",
+                            }
+                            st.dataframe(
+                                timeline[display_cols].rename(columns=tl_rename),
+                                use_container_width=True,
+                                hide_index=True,
+                            )
                         else:
                             empty_result("defensive actions for this match")

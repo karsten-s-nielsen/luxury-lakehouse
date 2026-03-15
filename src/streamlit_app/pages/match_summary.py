@@ -72,16 +72,17 @@ def page() -> None:
     # Score metrics use team name as label — universally understood, no help= needed
     col_h, col_dash, col_a, col_hxg, col_axg = st.columns([1, 0.3, 1, 1, 1])
     with col_h:
-        st.metric(home_name, home_score)
+        st.metric(home_name, home_score, help="Match score.")
     with col_dash:
         st.markdown("## —")
     with col_a:
-        st.metric(away_name, away_score)
+        st.metric(away_name, away_score, help="Match score.")
     with col_hxg:
         st.metric(
             "Home xG",
             f"{home_xg:.2f}",
             delta=f"{home_score - home_xg:+.2f} vs actual",
+            delta_color="off",
             help=METRIC_HELP.get("Home xG") or None,
         )
     with col_axg:
@@ -89,6 +90,7 @@ def page() -> None:
             "Away xG",
             f"{away_xg:.2f}",
             delta=f"{away_score - away_xg:+.2f} vs actual",
+            delta_color="off",
             help=METRIC_HELP.get("Away xG") or None,
         )
 
@@ -127,22 +129,34 @@ def page() -> None:
         )
         st.pyplot(fig_pass)
 
-    col_pressing, _ = st.columns(2)
-    with col_pressing:
-        fig_press = plot_stat_group_bars(
+    col_possession, col_ppda = st.columns(2)
+    with col_possession:
+        fig_poss = plot_stat_group_bars(
             [
                 float(m.get("home_pass_completion_pct", 0) or 0),
                 float(m.get("home_possession_pct", 0) or 0),
-                float(m.get("home_ppda", 0) or 0),
             ],
             [
                 float(m.get("away_pass_completion_pct", 0) or 0),
                 100.0 - float(m.get("home_possession_pct", 50) or 50),
-                float(m.get("away_ppda", 0) or 0),
             ],
-            ["Pass %", "Possession %", "PPDA"],
+            ["Pass %", "Possession %"],
             home_name=home_name,
             away_name=away_name,
-            title="Pressing & Possession",
+            title="Possession",
         )
-        st.pyplot(fig_press)
+        st.pyplot(fig_poss)
+
+    with col_ppda:
+        home_ppda = float(m.get("home_ppda", 0) or 0)
+        away_ppda = float(m.get("away_ppda", 0) or 0)
+        fig_ppda = plot_stat_group_bars(
+            [home_ppda],
+            [away_ppda],
+            ["PPDA"],
+            home_name=home_name,
+            away_name=away_name,
+            title="Pressing (lower = more aggressive)",
+        )
+        st.pyplot(fig_ppda)
+        st.caption("PPDA: Passes Per Defensive Action. <10 = aggressive pressing, >15 = passive.")

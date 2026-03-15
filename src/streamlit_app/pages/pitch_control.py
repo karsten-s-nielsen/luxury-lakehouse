@@ -199,7 +199,7 @@ def page() -> None:
 
     with col_stats:
         player_count = len(frame_data)
-        st.metric("Players", player_count, help="Number of players visible in this frame.")
+        st.metric("Players", player_count, help=METRIC_HELP.get("Players"))
 
         if viz_mode == "Physics-based":
             # Physics-mode stats: control percentages
@@ -222,6 +222,9 @@ def page() -> None:
                     f"{ball_control:.2f}",
                     help=METRIC_HELP.get("Control at Ball") or None,
                 )
+
+        else:
+            st.caption("Voronoi model shows spatial dominance only — control percentages require physics-based mode.")
 
         if "speed" in frame_data.columns:
             valid_speed = frame_data["speed"].dropna()

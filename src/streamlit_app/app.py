@@ -44,7 +44,7 @@ def main() -> None:
             st.Page(match_summary_page, title="Match Summary", icon=":material/scoreboard:", url_path="match-summary"),
         ],
         "Player Analysis": [
-            st.Page(action_values_page, title="Action Values", icon=":material/trending_up:", url_path="action-values"),
+            st.Page(action_values_page, title="Player Impact", icon=":material/trending_up:", url_path="action-values"),
             st.Page(player_radar_page, title="Player Comparison", icon=":material/radar:", url_path="player-radar"),
             st.Page(
                 player_similarity_page,
@@ -84,7 +84,7 @@ def main() -> None:
             "Heat Map": "heat-map",
             "Pass Network": "pass-network",
             "Match Summary": "match-summary",
-            "Action Values": "action-values",
+            "Player Impact": "action-values",
             "Player Comparison": "player-radar",
             "Player Similarity": "player-similarity",
             "Movement & Pressing": "movement-analysis",

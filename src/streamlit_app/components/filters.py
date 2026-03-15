@@ -37,7 +37,13 @@ def render_competition_filter() -> int | None:
     options = df.to_dict("records")
     labels = [f"{r['country']} — {r['competition_name']}" for r in options]
 
-    idx = st.selectbox("Competition", range(len(labels)), format_func=lambda i: labels[i])
+    idx = st.selectbox(
+        "Competition",
+        range(len(labels)),
+        format_func=lambda i: labels[i],
+        index=None,
+        placeholder="Select a competition...",
+    )
     if idx is None:
         return None
     return options[idx]["competition_id"]  # type: ignore[return-value]

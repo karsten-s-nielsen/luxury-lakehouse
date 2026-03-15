@@ -63,7 +63,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • defcon_lite → DEFCON-lite defensive credit assignment         │    │
 │  │  • resolve_players → cross-source entity resolution              │    │
 │  │  • compute_embeddings → Doc2Vec + z-score player embeddings      │    │
-│  │  • compute_xg_model → Custom xG scoring (logistic + XGBoost)    │    │
+│  │  • compute_xg_model → Custom xG scoring (logistic + XGBoost)     │    │
 │  │  • compute_expected_threat → Data-driven xT grid from SPADL      │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
@@ -98,7 +98,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │                                                                  │    │
 │  │  GOLD (business logic, analytics-ready):                         │    │
 │  │  • fct_shots, fct_passes, fct_player_stats, fct_match_summary    │    │
-│  │  • fct_xg_predictions, fct_tracking_frames, fct_action_values   │    │
+│  │  • fct_xg_predictions, fct_tracking_frames, fct_action_values    │    │
 │  │  • fct_player_embeddings, fct_physical_stats                     │    │
 │  │  • fct_defensive_values, fct_defcon_actions, fct_defcon_pressure │    │
 │  │  • fct_player_embeddings_season/career                           │    │
@@ -125,17 +125,17 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│          STREAMLIT APPLICATION                                           │
-│  ┌──────────────────────────────────────────────────────────────────┐    │
-│  │  Deployed as Databricks App (serverless runtime)                 │    │
-│  │  • OAuth M2M auth (automatic token rotation, no passwords)       │    │
-│  │  • Connects to Lakebase via psycopg2 (ThreadedConnectionPool)    │    │
-│  │  • 11 pages: Shot Map, Pass Map, Heat Map, Pass Network,         │    │
-│  │    Action Values, Player Comparison, Match Summary, Pitch Control,│   │
-│  │    Movement & Pressing, Defensive Impact, Player Similarity      │    │
-│  └──────────────────────────────────────────────────────────────────┘    │
-└──────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────┐
+│          STREAMLIT APPLICATION                                            │
+│  ┌───────────────────────────────────────────────────────────────────┐    │
+│  │  Deployed as Databricks App (serverless runtime)                  │    │
+│  │  • OAuth M2M auth (automatic token rotation, no passwords)        │    │
+│  │  • Connects to Lakebase via psycopg2 (ThreadedConnectionPool)     │    │
+│  │  • 11 pages: Shot Map, Pass Map, Heat Map, Pass Network,          │    │
+│  │    Action Values, Player Comparison, Match Summary, Pitch Control,│    │
+│  │    Movement & Pressing, Defensive Impact, Player Similarity       │    │
+│  └───────────────────────────────────────────────────────────────────┘    │
+└───────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Synced Tables (Gold → Lakebase)
@@ -181,7 +181,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 | Pitch Control | Physics (Spearman 2017) + Voronoi toggle from tracking data | `fct_tracking_frames_synced` |
 | Heat Map | Action density per player/team/match | `fct_passes_synced`, `fct_shots_synced` |
 | Pass Network | Interactive Plotly graph with hover tooltips | `fct_passes_synced` |
-| Action Values | VAEP rankings, action type breakdown, timeline | `fct_action_values_synced`, `fct_player_stats_synced` |
+| Player Impact (VAEP) | VAEP rankings, action type breakdown, timeline | `fct_action_values_synced`, `fct_player_stats_synced` |
 | Movement & Pressing | Physical performance, PPDA pressing, off-ball xT | `fct_physical_stats_synced`, `fct_match_summary_synced` |
 | Defensive Impact | DEFCON-lite attacker pressure rankings, breakdown, match timeline | `fct_defcon_pressure_synced`, `fct_defcon_actions_synced` |
 | Player Similarity | pgvector nearest-neighbor search ("Find players like X"), radar overlay | `fct_player_embeddings_career_synced`, `fct_player_embeddings_season_synced`, `fct_player_stats_synced` |
@@ -398,7 +398,7 @@ luxury-lakehouse/
 │   │   ├── config.py                 # Pydantic BaseSettings
 │   │   ├── db.py                     # OAuth M2M, ThreadedConnectionPool, parameterized queries
 │   │   ├── pages/                    # 11 pages (incl. player_similarity.py)
-│   │   └── components/               # filters.py, pitch.py, charts.py
+│   │   └── components/               # filters.py, pitch.py, charts.py, feedback.py, glossary.py
 │   │
 │   └── tests/                        # 26 test modules
 │       ├── test_statsbomb.py

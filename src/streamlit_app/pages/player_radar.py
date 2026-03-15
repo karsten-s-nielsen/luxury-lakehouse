@@ -131,8 +131,11 @@ def page() -> None:
 
     # Metric selection — include physical metrics when tracking data exists
     available_metrics = list(_DEFAULT_METRICS)
-    if stats["avg_distance_per_min"].notna().any():
+    has_physical = stats["avg_distance_per_min"].notna().any()
+    if has_physical:
         available_metrics.extend(_PHYSICAL_METRICS)
+    else:
+        st.caption("Physical metrics (distance, speed) unavailable — requires tracking data (~20 matches).")
 
     all_labels = [m[1] for m in available_metrics]
     selected_labels = st.multiselect(
@@ -145,7 +148,7 @@ def page() -> None:
 
     selected = [m for m in available_metrics if m[1] in selected_labels]
     if len(selected) < 3:
-        st.warning("Select at least 3 metrics for a meaningful radar chart.")
+        st.info("Select at least 3 metrics for a meaningful radar chart.")
         return
 
     metric_keys = [m[0] for m in selected]
@@ -165,5 +168,5 @@ def page() -> None:
     with col_radar:
         st.pyplot(fig)
 
-    with st.expander("Full Stats Table"):
+    with st.expander("Full Stats Table", icon=":material/table_chart:"):
         st.dataframe(stats.drop(columns=["player_id"], errors="ignore"), use_container_width=True)

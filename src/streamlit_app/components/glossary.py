@@ -29,7 +29,8 @@ GLOSSARY: dict[str, str] = {
     ),
     "Off-Ball xT": (
         "Cumulative expected threat gained from a player's off-ball movement — "
-        "measures how well a player positions themselves to receive the ball in dangerous areas."
+        "measures how well a player positions themselves to receive the ball in dangerous areas. "
+        "Typical range: 0.001-0.01 per match."
     ),
     "DEFCON": (
         "Defensive Contribution framework (Kim et al. 2025) — quantifies how defenders "
@@ -109,15 +110,21 @@ METRIC_HELP: dict[str, str] = {
     "Avg Away PPDA": GLOSSARY["PPDA"],
     "Avg Off-Ball xT": GLOSSARY["Off-Ball xT"],
     "Max Off-Ball xT": GLOSSARY["Off-Ball xT"],
+    "Max Speed (km/h)": "Maximum player speed in km/h. Elite sprints reach ~35 km/h.",
     "Intercept": GLOSSARY["Intercept"],
     "Concede": GLOSSARY["Concede"],
     "Disturb": GLOSSARY["Disturb"],
     "Deter": GLOSSARY["Deter"],
     "Home Control": "Percentage of pitch area controlled by the home team at this moment.",
     "Away Control": "Percentage of pitch area controlled by the away team at this moment.",
-    "Control at Ball": "Pitch control value at the ball's location (0 = away, 1 = home).",
+    "Control at Ball": (
+        "Pitch control at the ball's location. 0.0 = full away control, 1.0 = full home control. "
+        "Values near 0.5 indicate contested space."
+    ),
     "Avg Speed": "Average player speed in meters per second.",
+    "Avg Speed (m/s)": "Average player speed in meters per second.",
     "Max Speed": "Maximum player speed in meters per second.",
+    "Max Speed (m/s)": "Maximum player speed in meters per second.",
     "Avg Dist to Ball": "Average distance from players to the ball in meters.",
     "Cosine Distance": GLOSSARY["Cosine Distance"],
     "Completed Passes": "Number of passes that reached the intended recipient.",
@@ -141,6 +148,26 @@ METRIC_HELP: dict[str, str] = {
     "Players": "Number of players visible in the current data scope.",
     "Avg Distance (km)": "Average total distance covered per player in kilometers.",
     "Matches": "Number of matches included in the current analysis.",
+    "Score": "Match score - goals scored by each team.",
+    # Radar spoke labels (F6/F12: Expert Blind Spot — no inline tooltip on chart axes)
+    "Goals/90": "Goals scored per 90 minutes played.",
+    "xG/90": "Expected goals per 90 minutes — shot quality independent of finishing.",
+    "Passes/90": "Completed passes per 90 minutes played.",
+    "Prog. Passes/90": "Progressive passes per 90 minutes — passes that advance the ball significantly toward goal.",
+    "Pass %": "Pass completion percentage — completed passes / attempted passes.",
+    "xG Over-perf": (
+        "Goals scored minus expected goals (xG). Positive = scored more than expected. "
+        "Can reflect finishing skill or luck over small samples."
+    ),
+    "LB Passes/90": "Line-breaking passes per 90 minutes — passes penetrating at least one defensive line.",
+    "DEFCON/90": (
+        "DEFCON pressure credits received per 90 minutes — how much defensive attention "
+        "the attacker attracts. Higher = more pressured."
+    ),
+    "Dist/Min (m)": "Distance covered per minute in meters. Reflects work rate and activity level.",
+    "Top Speed (m/s)": "Peak sprint speed in meters per second. Elite players reach 9-10 m/s.",
+    "HSR Distance (m)": "High-Speed Running distance — meters covered above ~5.5 m/s threshold.",
+    "Sprint Frames": "Number of tracking frames where the player exceeded sprint speed threshold (~7 m/s).",
 }
 
 
@@ -175,9 +202,14 @@ def render_onboarding_sidebar() -> None:
             st.markdown(
                 "**Suggested workflow:**\n\n"
                 "1. **Shot Map** — shot locations and xG\n"
-                "2. **Match Summary** — match overview\n"
-                "3. **Player Similarity** — find comparable players\n"
-                "4. **Movement & Pressing** — tracking and physical data\n\n"
+                "2. **Match Summary** — match overview with xG, passing, pressing\n"
+                "3. **Player Comparison** — per-90 radar chart (1-3 players)\n"
+                "4. **Player Similarity** — find comparable players by style\n"
+                "5. **Action Values** — who contributed most? (VAEP)\n"
+                "6. **Defensive Impact** — pressure on attackers (DEFCON)\n\n"
+                "**How to start:** Use the sidebar filters to select a competition, "
+                "then a team and match. Pages under *Advanced* require tracking data "
+                "(~20 matches from Metrica, IDSSE, SkillCorner).\n\n"
                 "Hover over **?** on any metric for an explanation. "
                 "Use **Glossary** below for terms."
             )

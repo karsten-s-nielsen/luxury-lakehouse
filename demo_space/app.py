@@ -147,9 +147,12 @@ def find_similar_players(selected_player: str | None, top_k: int = 10) -> pd.Dat
             "player_name": embeddings_df.iloc[idx].get("player_name", ""),
             "cosine_distance": dist,
             "interpretation": (
-                "Very Similar" if dist < 0.20
-                else "Similar" if dist < 0.35
-                else "Moderately Similar" if dist < 0.50
+                "Very Similar"
+                if dist < 0.20
+                else "Similar"
+                if dist < 0.35
+                else "Moderately Similar"
+                if dist < 0.50
                 else "Different"
             ),
         }
@@ -866,8 +869,8 @@ _FLAGSHIP_CSS = """
     border-bottom: 3px solid #f59e0b !important;
     background: rgba(245, 158, 11, 0.06) !important;
 }
-/* Hide time-slider non-range inputs (pitch control) */
-#pc-time-slider input:not([type='range']), #pc-time-slider button { display: none !important; }
+/* Style time-slider non-range inputs to be compact but accessible (pitch control) */
+#pc-time-slider input:not([type='range']), #pc-time-slider button { opacity: 0.4; max-width: 50px; }
 """
 
 demo = gr.Blocks(
@@ -889,9 +892,16 @@ with demo:
     > *This Space runs on free CPU. First load may take 30-60 seconds while the container starts.
     > The full platform has 11 analysis pages with 380+ matches across 5 data providers.*
 
-    **Data sources:** [StatsBomb Open Data](https://github.com/statsbomb/open-data) (CC-BY 4.0),
-    [Wyscout Public Dataset](https://figshare.com/collections/Soccer_match_event_dataset/4415000) (CC-BY 4.0),
-    [Metrica Sports Sample Data](https://github.com/metrica-sports/sample-data) (CC-BY 4.0)
+    **Data:** [StatsBomb](https://github.com/statsbomb/open-data) ·
+    [Wyscout](https://figshare.com/collections/Soccer_match_event_dataset/4415000) ·
+    [Metrica](https://github.com/metrica-sports/sample-data) (all CC-BY 4.0)
+    &nbsp;|&nbsp;
+    **Models:** [football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) ·
+    [xG](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout)
+    &nbsp;|&nbsp;
+    **Datasets:** [SPADL/VAEP](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values) ·
+    [Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings) ·
+    [Pitch Control](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking)
     """
     )
 

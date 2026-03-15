@@ -148,6 +148,8 @@ def page() -> None:
                 "xG Model",
                 list(_XG_MODEL_OPTIONS.keys()),
                 index=0,
+                help="StatsBomb: provider's closed-source xG. Custom Logistic: distance + angle only. "
+                "Custom XGBoost: 13 features with isotonic calibration (production model).",
             )
         else:
             selected_model = "StatsBomb"
@@ -196,6 +198,7 @@ def page() -> None:
             "Total xG",
             f"{xg_sum:.2f}",
             delta=xg_delta,
+            delta_color="off",
             help=METRIC_HELP.get("Total xG") or None,
         )
         st.metric(

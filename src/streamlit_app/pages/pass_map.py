@@ -6,7 +6,7 @@ from typing import Any
 
 import streamlit as st
 
-from streamlit_app.components.feedback import empty_result, empty_select
+from streamlit_app.components.feedback import data_scope_note, empty_result, empty_select
 from streamlit_app.components.filters import render_competition_filter, render_match_filter, render_team_filter
 from streamlit_app.components.glossary import METRIC_HELP
 from streamlit_app.components.pitch import plot_pass_map
@@ -41,6 +41,8 @@ def page() -> None:
         "[Parma Calcio 1913 line-breaking-passes](https://github.com/parmacalcio1913/line-breaking-passes) "
         "(Apache-2.0). Ward clustering on StatsBomb 360 freeze-frame positions."
     )
+
+    data_scope_note("Line-breaking detection requires StatsBomb 360 data (~323 of 380+ matches).")
 
     with st.sidebar:
         competition_id = render_competition_filter()

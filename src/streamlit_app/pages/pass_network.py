@@ -7,7 +7,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-from streamlit_app.components.feedback import empty_result, empty_select
+from streamlit_app.components.feedback import data_scope_note, empty_result, empty_select
 from streamlit_app.components.filters import render_competition_filter, render_match_filter, render_team_filter
 from streamlit_app.components.glossary import METRIC_HELP
 from streamlit_app.components.pitch import plot_pass_network_interactive
@@ -114,6 +114,10 @@ def page() -> None:
     st.caption(
         "Network analysis of player-to-player passing connections. "
         "Visualization via [Plotly](https://plotly.com/python/)."
+    )
+
+    data_scope_note(
+        "Wyscout matches do not include pass recipient data. Network is unavailable for those competitions."
     )
 
     with st.sidebar:
