@@ -52,7 +52,7 @@ Both vectors are stored in PostgreSQL with [pgvector](https://github.com/pgvecto
 | Source | Matches | Events | License |
 |--------|---------|--------|---------|
 | [StatsBomb Open Data](https://github.com/statsbomb/open-data) | ~3,000 | ~3M | CC-BY 4.0 |
-| [Wyscout Public Dataset](https://figshare.com/collections/Soccer_match_event_dataset/4415000) | ~1,900 | ~3M | CC-BY 4.0 |
+| [Wyscout Public Dataset](https://figshare.com/collections/Soccer_match_event_dataset/4415000) | ~1,900 | ~3M | CC-BY-NC 4.0 |
 
 Coverage includes the Premier League, La Liga, Serie A, Bundesliga, Ligue 1, Champions League, World Cup, and more.
 

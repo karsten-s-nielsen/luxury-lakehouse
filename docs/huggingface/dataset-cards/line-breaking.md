@@ -94,7 +94,7 @@ This method does not require labeled training data &mdash; it is a deterministic
 | Source | Matches | License |
 |--------|---------|---------|
 | [StatsBomb Open Data](https://github.com/statsbomb/open-data) | ~3,000 | CC-BY 4.0 |
-| [Wyscout Public Dataset](https://figshare.com/collections/Soccer_match_event_dataset/4415000) | ~1,900 | CC-BY 4.0 |
+| [Wyscout Public Dataset](https://figshare.com/collections/Soccer_match_event_dataset/4415000) | ~1,900 | CC-BY-NC 4.0 |
 
 Coverage includes the Premier League, La Liga, Serie A, Bundesliga, Ligue 1, Champions League, World Cup, and more.
 
@@ -116,7 +116,7 @@ There is no formal paper for this dataset. If you use it, please cite the reposi
   author={Nielsen, Karsten Skyt},
   year={2026},
   url={https://github.com/karsten-s-nielsen/luxury-lakehouse},
-  note={Data sourced from StatsBomb Open Data (CC-BY 4.0) and Wyscout Public Dataset (CC-BY 4.0)}
+  note={Data sourced from StatsBomb Open Data (CC-BY 4.0) and Wyscout Public Dataset (CC-BY-NC 4.0)}
 }
 ```
 
