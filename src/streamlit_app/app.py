@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import streamlit as st
 
-from streamlit_app.components.feedback import data_freshness
 from streamlit_app.components.glossary import render_glossary_sidebar, render_onboarding_sidebar
 from streamlit_app.pages.action_values import page as action_values_page
 from streamlit_app.pages.defensive_valuation import page as defensive_valuation_page
@@ -27,9 +26,15 @@ def main() -> None:
         layout="wide",
     )
 
-    # Expand sidebar nav so all page links are visible without "view more"
+    # Expand sidebar nav + amber accent for visual identity bridge with HF Space (F39)
     st.markdown(
-        "<style>section[data-testid='stSidebar'] nav > ul { max-height: none !important; }</style>",
+        "<style>"
+        "section[data-testid='stSidebar'] nav > ul { max-height: none !important; }"
+        "section[data-testid='stSidebar'] { border-top: 3px solid #f59e0b; }"
+        "h1 { background: linear-gradient(90deg, #f59e0b 0%, transparent 60%); "
+        "-webkit-background-clip: text; -webkit-text-fill-color: transparent; "
+        "background-clip: text; }"
+        "</style>",
         unsafe_allow_html=True,
     )
 
@@ -101,9 +106,6 @@ def main() -> None:
             ":material/open_in_new: [Interactive Demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)"
             " · [Published Datasets](https://huggingface.co/luxury-lakehouse)",
         )
-        st.caption("---")
-        data_freshness()
-
     nav.run()
 
 

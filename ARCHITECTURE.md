@@ -132,7 +132,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • OAuth M2M auth (automatic token rotation, no passwords)        │    │
 │  │  • Connects to Lakebase via psycopg2 (ThreadedConnectionPool)     │    │
 │  │  • 11 pages: Shot Map, Pass Map, Heat Map, Pass Network,          │    │
-│  │    Action Values, Player Comparison, Match Summary, Pitch Control,│    │
+│  │    Player Impact, Player Comparison, Match Summary, Pitch Control,│    │
 │  │    Movement & Pressing, Defensive Impact, Player Similarity       │    │
 │  └───────────────────────────────────────────────────────────────────┘    │
 └───────────────────────────────────────────────────────────────────────────┘

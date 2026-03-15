@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from streamlit_app.components.feedback import empty_result, empty_select
+from streamlit_app.components.feedback import data_freshness, empty_result, empty_select, render_scope_label
 from streamlit_app.components.filters import (
     render_competition_filter,
     render_match_filter,
@@ -118,9 +118,11 @@ def page() -> None:
     """Render the Heat Map page."""
     st.header(":material/local_fire_department: Heat Map")
     st.caption(
-        "Action density visualization using "
-        "[mplsoccer](https://mplsoccer.readthedocs.io/) bin statistics "
-        "on StatsBomb coordinate system."
+        "Action density visualization using bin statistics. "
+        "Spatial analysis approach per "
+        "[Anzer & Bauer (2021)](https://doi.org/10.1007/s10994-021-06011-5) "
+        '"A goal scoring probability model based on tracking data." '
+        "Rendered via [mplsoccer](https://mplsoccer.readthedocs.io/)."
     )
 
     with st.sidebar:
@@ -133,6 +135,8 @@ def page() -> None:
     if competition_id is None:
         empty_select("a competition")
         return
+
+    render_scope_label(competition_id, team_id)
 
     actions = _load_actions(competition_id, team_id, player_id, match_id)
 
@@ -171,3 +175,5 @@ def page() -> None:
             most_active,
             help=METRIC_HELP.get("Most Active Zone") or None,
         )
+
+    data_freshness()

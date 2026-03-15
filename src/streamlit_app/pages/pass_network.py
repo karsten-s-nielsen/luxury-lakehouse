@@ -7,7 +7,13 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-from streamlit_app.components.feedback import data_scope_note, empty_result, empty_select
+from streamlit_app.components.feedback import (
+    data_freshness,
+    data_scope_note,
+    empty_result,
+    empty_select,
+    render_scope_label,
+)
 from streamlit_app.components.filters import render_competition_filter, render_match_filter, render_team_filter
 from streamlit_app.components.glossary import METRIC_HELP
 from streamlit_app.components.pitch import plot_pass_network_interactive
@@ -112,7 +118,9 @@ def page() -> None:
     """Render the Pass Network page."""
     st.header(":material/hub: Pass Network")
     st.caption(
-        "Network analysis of player-to-player passing connections. "
+        "Network analysis of passing connections per "
+        "[Pena & Touchette (2012)](https://doi.org/10.48550/arXiv.1206.6904) "
+        '"A network theory analysis of football strategies." '
         "Visualization via [Plotly](https://plotly.com/python/)."
     )
 
@@ -129,6 +137,8 @@ def page() -> None:
     if competition_id is None or team_id is None or match_id is None:
         empty_select("a competition, team, and match")
         return
+
+    render_scope_label(competition_id, team_id)
 
     passes = _load_passes(competition_id, team_id, match_id)
 
@@ -171,3 +181,5 @@ def page() -> None:
                 help=METRIC_HELP.get("Top Pair Count") or None,
             )
             st.caption(f"**{p_name}**  \n\u2192 {r_name}")
+
+    data_freshness()

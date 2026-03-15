@@ -9,7 +9,8 @@ import pandas as pd
 import streamlit as st
 
 from analytics.pitch_control import compute_pitch_control_at_point, compute_pitch_control_frame
-from streamlit_app.components.feedback import data_scope_note, empty_result
+from streamlit_app.components.feedback import data_freshness, data_scope_note, empty_result
+from streamlit_app.components.filters import render_tracking_match_filter
 from streamlit_app.components.glossary import METRIC_HELP
 from streamlit_app.components.pitch import plot_physics_pitch_control, plot_pitch_control
 from streamlit_app.db import execute_query, t
@@ -139,8 +140,7 @@ def page() -> None:
 
     with st.sidebar:
         viz_mode = st.radio("Model", ["Physics-based", "Voronoi"], horizontal=True)
-        match_ids = matches["match_id"].tolist()
-        match_id = st.selectbox("Match", match_ids, format_func=lambda mid: f"Match {mid}")
+        match_id = render_tracking_match_filter(matches, key="pc_match")
         half_label = st.radio("Half", ["1st Half", "2nd Half"], horizontal=True)
         period = 1 if half_label == "1st Half" else 2
         show_velocity = st.toggle("Show velocity arrows", value=True)
@@ -248,3 +248,5 @@ def page() -> None:
                     f"{valid_dist.mean():.1f}",
                     help=METRIC_HELP.get("Avg Dist to Ball") or None,
                 )
+
+    data_freshness()  # Default table — fct_tracking_frames_synced lacks match_date

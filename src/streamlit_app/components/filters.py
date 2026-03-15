@@ -23,8 +23,22 @@ def _cached_query(query: str, params: tuple[Any, ...] | None = None) -> pd.DataF
     return execute_query(query, params)
 
 
+def _find_index(options: list[dict[str, Any]], key: str, session_key: str) -> int | None:
+    """Find the index of a previously-selected value in options, or None."""
+    prev = st.session_state.get(session_key)
+    if prev is None:
+        return None
+    for i, opt in enumerate(options):
+        if opt[key] == prev:
+            return i
+    return None
+
+
 def render_competition_filter() -> int | None:
-    """Render competition selectbox. Returns selected competition_id or None."""
+    """Render competition selectbox. Returns selected competition_id or None.
+
+    Persists selection in st.session_state for cross-page continuity (F9).
+    """
     df = _cached_query(
         f"SELECT competition_id, competition_name, country "  # noqa: S608
         f"FROM {t('dim_competitions_synced')} "
@@ -37,16 +51,24 @@ def render_competition_filter() -> int | None:
     options = df.to_dict("records")
     labels = [f"{r['country']} — {r['competition_name']}" for r in options]
 
+    prev_idx = _find_index(options, "competition_id", "_filter_competition_id")
     idx = st.selectbox(
         "Competition",
         range(len(labels)),
         format_func=lambda i: labels[i],
-        index=None,
+        index=prev_idx,
         placeholder="Select a competition...",
     )
     if idx is None:
         return None
-    return options[idx]["competition_id"]  # type: ignore[return-value]
+    selected = options[idx]["competition_id"]
+    # Reset dependent filters when competition changes
+    prev = st.session_state.get("_filter_competition_id")
+    if prev is not None and prev != selected:
+        st.session_state.pop("_filter_team_id", None)
+        st.session_state.pop("_filter_match_id", None)
+    st.session_state["_filter_competition_id"] = selected
+    return selected  # type: ignore[return-value]
 
 
 def render_team_filter(competition_id: int | None) -> int | None:
@@ -74,10 +96,17 @@ def render_team_filter(competition_id: int | None) -> int | None:
     options = df.to_dict("records")
     labels = [r["team_name"] for r in options]
 
-    idx = st.selectbox("Team", range(len(labels)), format_func=lambda i: labels[i])
+    prev_idx = _find_index(options, "team_id", "_filter_team_id")
+    idx = st.selectbox("Team", range(len(labels)), format_func=lambda i: labels[i], index=prev_idx or 0)
     if idx is None:
         return None
-    return options[idx]["team_id"]  # type: ignore[return-value]
+    selected = options[idx]["team_id"]
+    # Reset match when team changes
+    prev = st.session_state.get("_filter_team_id")
+    if prev is not None and prev != selected:
+        st.session_state.pop("_filter_match_id", None)
+    st.session_state["_filter_team_id"] = selected
+    return selected  # type: ignore[return-value]
 
 
 def render_player_filter(
@@ -194,6 +223,8 @@ def render_match_filter(
         for r in options
     ]
 
+    prev_idx = _find_index(options, "match_id", "_filter_match_id")
+
     if allow_all:
         idx = st.selectbox(
             "Match",
@@ -202,14 +233,48 @@ def render_match_filter(
         )
         if idx is None:
             return None
+        st.session_state["_filter_match_id"] = options[idx]["match_id"]
         return options[idx]["match_id"]  # type: ignore[return-value]
 
-    idx = st.selectbox("Match", range(len(labels)), format_func=lambda i: labels[i])
+    idx = st.selectbox("Match", range(len(labels)), format_func=lambda i: labels[i], index=prev_idx or 0)
     if idx is None:
         return None
+    st.session_state["_filter_match_id"] = options[idx]["match_id"]
     return options[idx]["match_id"]  # type: ignore[return-value]
 
 
 def render_minutes_filter() -> int:
     """Render minimum minutes played slider. Returns the threshold value."""
     return st.slider("Min. Minutes Played", min_value=0, max_value=2000, value=90, step=45)  # type: ignore[return-value]
+
+
+def render_tracking_match_filter(matches: pd.DataFrame, key: str = "match") -> str | None:
+    """Render a match selectbox for tracking-data pages with human-readable labels.
+
+    Joins match IDs with fct_match_summary for "YYYY-MM-DD — Home v Away" labels.
+    Falls back to raw match_id if no summary data exists.
+    """
+    match_ids = matches["match_id"].tolist()
+    if not match_ids:
+        return None
+    placeholders = ", ".join(["%s"] * len(match_ids))
+    labels_df = _cached_query(
+        f"SELECT match_id::text AS match_id, match_date, home_team_name, away_team_name "  # noqa: S608
+        f"FROM {t('fct_match_summary_synced')} "
+        f"WHERE match_id::text IN ({placeholders})",
+        tuple(str(m) for m in match_ids),
+    )
+    label_map: dict[str, str] = {}
+    if not labels_df.empty:
+        label_map = {
+            str(r["match_id"]): f"{r['match_date']} — {r['home_team_name']} v {r['away_team_name']}"
+            for _, r in labels_df.iterrows()
+        }
+
+    idx = st.selectbox(
+        "Match",
+        range(len(match_ids)),
+        format_func=lambda i: label_map.get(str(match_ids[i]), f"Match {match_ids[i]}"),
+        key=key,
+    )
+    return str(match_ids[idx]) if idx is not None else None

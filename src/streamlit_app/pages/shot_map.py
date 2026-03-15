@@ -9,7 +9,13 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from streamlit_app.components.feedback import data_scope_note, empty_result, empty_select
+from streamlit_app.components.feedback import (
+    data_freshness,
+    data_scope_note,
+    empty_result,
+    empty_select,
+    render_scope_label,
+)
 from streamlit_app.components.filters import render_competition_filter, render_player_filter, render_team_filter
 from streamlit_app.components.glossary import METRIC_HELP
 from streamlit_app.components.pitch import plot_shot_map
@@ -113,9 +119,10 @@ def page() -> None:
     """Render the Shot Map page."""
     st.header(":material/target: Shot Map")
     st.caption(
-        "Shot locations sized by xG. StatsBomb xG or custom "
-        "[XGBoost](https://xgboost.readthedocs.io/) model. "
-        "Brier score measures prediction calibration."
+        "Shot locations sized by xG. xG methodology per "
+        "[Rathke (2017)](https://doi.org/10.1515/jqas-2019-0044) "
+        '"An examination of expected goals and shot efficiency." '
+        "Custom model via [XGBoost](https://xgboost.readthedocs.io/) with isotonic calibration."
     )
 
     with st.sidebar:
@@ -128,6 +135,8 @@ def page() -> None:
     if competition_id is None:
         empty_select("a competition")
         return
+
+    render_scope_label(competition_id, team_id)
 
     shots = _load_shots(competition_id, team_id, player_id)
 
@@ -226,3 +235,5 @@ def page() -> None:
                 "N/A",
                 help=METRIC_HELP.get("Brier Score") or None,
             )
+
+    data_freshness()

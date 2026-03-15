@@ -7,8 +7,14 @@ from typing import Any
 import streamlit as st
 
 from streamlit_app.components.charts import plot_physical_bars, plot_ppda_bars
-from streamlit_app.components.feedback import data_scope_note, empty_result, empty_select
-from streamlit_app.components.filters import render_competition_filter
+from streamlit_app.components.feedback import (
+    data_freshness,
+    data_scope_note,
+    empty_result,
+    empty_select,
+    render_scope_label,
+)
+from streamlit_app.components.filters import render_competition_filter, render_tracking_match_filter
 from streamlit_app.components.glossary import METRIC_HELP
 from streamlit_app.db import execute_query, t
 
@@ -16,35 +22,8 @@ _PROVIDER_OPTIONS = ["All", "metrica", "idsse", "skillcorner"]
 
 
 def _render_match_selectbox(matches: Any, key: str = "match") -> str | None:
-    """Render a match selectbox with human-readable labels when available.
-
-    Joins match IDs with fct_match_summary for date + team names.
-    Falls back to raw match_id if no summary data exists.
-    """
-    match_ids = matches["match_id"].tolist()
-    # Try to enrich with match summary labels
-    placeholders = ", ".join(["%s"] * len(match_ids))
-    labels_df = execute_query(
-        f"SELECT match_id::text AS match_id, match_date, home_team_name, away_team_name "  # noqa: S608
-        f"FROM {t('fct_match_summary_synced')} "
-        f"WHERE match_id::text IN ({placeholders})",
-        tuple(str(m) for m in match_ids),
-    )
-    if not labels_df.empty:
-        label_map = {
-            str(r["match_id"]): f"{r['match_date']} — {r['home_team_name']} v {r['away_team_name']}"
-            for _, r in labels_df.iterrows()
-        }
-    else:
-        label_map = {}
-
-    idx = st.selectbox(
-        "Match",
-        range(len(match_ids)),
-        format_func=lambda i: label_map.get(str(match_ids[i]), str(match_ids[i])),
-        key=key,
-    )
-    return str(match_ids[idx]) if idx is not None else None
+    """Render a tracking match selectbox — delegates to shared filter component."""
+    return render_tracking_match_filter(matches, key=key)
 
 
 # ---------------------------------------------------------------------------
@@ -246,6 +225,8 @@ def _render_physical() -> None:
             hide_index=True,
         )
 
+    data_freshness()  # Default table — fct_physical_stats_synced lacks match_date
+
 
 # ---------------------------------------------------------------------------
 # View 2: PPDA / Pressing Intensity (all StatsBomb matches)
@@ -260,6 +241,8 @@ def _render_ppda() -> None:
     if competition_id is None:
         empty_select("a competition")
         return
+
+    render_scope_label(competition_id)
 
     data = _load_ppda_data(competition_id)
     if data.empty:
@@ -300,6 +283,8 @@ def _render_ppda() -> None:
             use_container_width=True,
             hide_index=True,
         )
+
+    data_freshness()
 
 
 # ---------------------------------------------------------------------------
@@ -362,3 +347,5 @@ def _render_off_ball_xt() -> None:
             use_container_width=True,
             hide_index=True,
         )
+
+    data_freshness()  # Default table — fct_physical_stats_synced lacks match_date

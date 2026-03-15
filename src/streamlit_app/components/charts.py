@@ -107,7 +107,7 @@ def plot_match_comparison_bars(
     y_pos = np.arange(len(labels))
 
     ax.barh(y_pos + 0.15, home_vals, height=0.3, color="#e63946", alpha=0.85, label=home_name)
-    ax.barh(y_pos - 0.15, away_vals, height=0.3, color="#457b9d", alpha=0.85, label=away_name)
+    ax.barh(y_pos - 0.15, away_vals, height=0.3, color="#457b9d", alpha=0.85, label=away_name, hatch="///")
 
     ax.set_yticks(y_pos)
     ax.set_yticklabels(labels, color=_LINE_COLOR, fontsize=11)
@@ -147,7 +147,7 @@ def plot_stat_group_bars(
     y_pos = np.arange(len(labels))
 
     ax.barh(y_pos + 0.15, home_vals, height=0.3, color="#e63946", alpha=0.85, label=home_name)
-    ax.barh(y_pos - 0.15, away_vals, height=0.3, color="#457b9d", alpha=0.85, label=away_name)
+    ax.barh(y_pos - 0.15, away_vals, height=0.3, color="#457b9d", alpha=0.85, label=away_name, hatch="///")
 
     ax.set_yticks(y_pos)
     ax.set_yticklabels(labels, color=_LINE_COLOR, fontsize=10)
@@ -185,12 +185,38 @@ def plot_action_value_timeline(
         minutes = actions["time_seconds"] / 60.0
         values = actions["vaep_value"]
 
-        # Diverging colormap: red (negative) → white (neutral) → green (positive)
-        cmap = mcolors.LinearSegmentedColormap.from_list("vaep", ["#e63946", "#ffffff", "#2a9d8f"])
+        # Diverging colormap: blue (negative) → white → orange (positive) — colorblind-safe (F13)
+        cmap = mcolors.LinearSegmentedColormap.from_list("vaep", ["#457b9d", "#ffffff", "#e76f51"])
         v_abs_max = float(max(abs(values.min()), abs(values.max()), 0.01))
         norm = mcolors.TwoSlopeNorm(vmin=-v_abs_max, vcenter=0, vmax=v_abs_max)
 
-        ax.scatter(minutes, values, c=values, cmap=cmap, norm=norm, s=12, alpha=0.7, edgecolors="none")
+        # Marker differentiation: positive = triangle-up, negative = triangle-down (WCAG 1.4.1)
+        pos_mask = values >= 0
+        neg_mask = ~pos_mask
+        if pos_mask.any():
+            ax.scatter(
+                minutes[pos_mask],
+                values[pos_mask],
+                c=values[pos_mask],
+                cmap=cmap,
+                norm=norm,
+                s=14,
+                alpha=0.7,
+                edgecolors="none",
+                marker="^",
+            )
+        if neg_mask.any():
+            ax.scatter(
+                minutes[neg_mask],
+                values[neg_mask],
+                c=values[neg_mask],
+                cmap=cmap,
+                norm=norm,
+                s=14,
+                alpha=0.7,
+                edgecolors="none",
+                marker="v",
+            )
 
         # Halftime line
         ax.axvline(x=45, color="#555577", linestyle="--", linewidth=1, alpha=0.6)

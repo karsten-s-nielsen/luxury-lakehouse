@@ -7,7 +7,7 @@ from typing import Any
 import streamlit as st
 
 from streamlit_app.components.charts import plot_player_radar
-from streamlit_app.components.feedback import empty_result, empty_select
+from streamlit_app.components.feedback import data_freshness, empty_result, empty_select
 from streamlit_app.components.filters import render_competition_filter
 from streamlit_app.db import execute_query, t
 
@@ -434,3 +434,18 @@ def page() -> None:
         _, col_radar, _ = st.columns([1, 2, 1])
         with col_radar:
             st.pyplot(fig)
+            # Spoke label legend (F6)
+            spoke_legend = {
+                "Goals/90": "goals per 90",
+                "xG/90": "expected goals per 90",
+                "Passes/90": "passes per 90",
+                "Pass %": "completion rate",
+                "VAEP/90": "action value per 90",
+                "Off. VAEP/90": "offensive per 90",
+                "Def. VAEP/90": "defensive per 90",
+            }
+            parts = [f"**{lbl}** = {spoke_legend[lbl]}" for lbl in labels if lbl in spoke_legend]
+            if parts:
+                st.caption(" · ".join(parts))
+
+    data_freshness()

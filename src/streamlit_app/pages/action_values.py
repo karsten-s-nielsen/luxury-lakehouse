@@ -7,7 +7,7 @@ from typing import Any
 import streamlit as st
 
 from streamlit_app.components.charts import plot_action_type_breakdown, plot_action_value_timeline
-from streamlit_app.components.feedback import empty_result, empty_select
+from streamlit_app.components.feedback import data_freshness, empty_result, empty_select, render_scope_label
 from streamlit_app.components.filters import (
     render_competition_filter,
     render_match_filter,
@@ -178,6 +178,8 @@ def _render_rankings() -> None:
         empty_select("a competition")
         return
 
+    render_scope_label(competition_id)
+
     rankings = _load_vaep_rankings(int(competition_id), int(min_minutes))
     if rankings.empty:
         empty_result("VAEP data")
@@ -204,6 +206,8 @@ def _render_rankings() -> None:
         hide_index=True,
     )
 
+    data_freshness()
+
 
 def _render_breakdown() -> None:
     """Render the action type breakdown view."""
@@ -215,6 +219,8 @@ def _render_breakdown() -> None:
     if competition_id is None:
         empty_select("a competition")
         return
+
+    render_scope_label(competition_id, team_id)
 
     # Simple player filter via team's players
     player_id: int | None = None
@@ -256,6 +262,8 @@ def _render_breakdown() -> None:
         st.metric("Total Actions", total_actions, help=METRIC_HELP.get("Total Actions"))
         st.metric("Top Action Type", top_type, help=METRIC_HELP.get("Top Action Type"))
 
+    data_freshness()
+
 
 def _render_timeline() -> None:
     """Render the match action timeline view."""
@@ -271,6 +279,8 @@ def _render_timeline() -> None:
     if match_id is None:
         empty_select("a match")
         return
+
+    render_scope_label(competition_id, team_id)
 
     actions = _load_match_timeline(match_id, team_id)
     if actions.empty:
@@ -316,3 +326,5 @@ def _render_timeline() -> None:
 
     with st.expander("Action Details", icon=":material/table_chart:"):
         st.dataframe(actions.drop(columns=["player_id"], errors="ignore"), use_container_width=True)
+
+    data_freshness()

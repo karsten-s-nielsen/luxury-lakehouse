@@ -39,6 +39,38 @@ def data_scope_note(text: str) -> None:
     st.caption(text)
 
 
+def render_scope_label(competition_id: int | None, team_id: int | None = None) -> None:
+    """Show a persistent scope label in the main content area.
+
+    Queries dim tables for human-readable names. Gergle state visibility:
+    users should see what data subset they're viewing without checking the sidebar.
+    """
+    if competition_id is None:
+        return
+    from streamlit_app.db import execute_query, t
+
+    try:
+        comp_df = execute_query(
+            f"SELECT country, competition_name FROM {t('dim_competitions_synced')} "  # noqa: S608
+            f"WHERE competition_id = %s LIMIT 1",
+            (int(competition_id),),
+        )
+        if comp_df.empty:
+            return
+        comp_label = f"{comp_df.iloc[0]['country']} — {comp_df.iloc[0]['competition_name']}"
+        if team_id is not None:
+            team_df = execute_query(
+                f"SELECT team_name FROM {t('dim_teams_synced')} "  # noqa: S608
+                f"WHERE team_id = %s LIMIT 1",
+                (int(team_id),),
+            )
+            if not team_df.empty:
+                comp_label += f" · {team_df.iloc[0]['team_name']}"
+        st.caption(f"Showing: {comp_label}")
+    except Exception:  # noqa: S110
+        pass  # Non-critical — sidebar filters remain visible as fallback
+
+
 def data_freshness(table: str = "fct_match_summary_synced") -> None:
     """Show a 'latest match' date at the bottom of the page.
 

@@ -7,7 +7,7 @@ from typing import Any
 import streamlit as st
 
 from streamlit_app.components.charts import plot_stat_group_bars
-from streamlit_app.components.feedback import empty_result, empty_select
+from streamlit_app.components.feedback import data_freshness, empty_result, empty_select, render_scope_label
 from streamlit_app.components.filters import render_competition_filter, render_match_filter, render_team_filter
 from streamlit_app.components.glossary import METRIC_HELP
 from streamlit_app.db import execute_query, t
@@ -41,9 +41,10 @@ def page() -> None:
     """Render the Match Summary page."""
     st.header(":material/scoreboard: Match Summary")
     st.caption(
-        "Match scorecard with Expected Goals (xG) and key statistics. "
-        "xG model by StatsBomb; custom models via "
-        "[XGBoost](https://xgboost.readthedocs.io/)."
+        "Match scorecard with Expected Goals (xG) per "
+        "[Rathke (2017)](https://doi.org/10.1515/jqas-2019-0044). "
+        "Pressing intensity via PPDA "
+        "([Trainor & Chassy 2021](https://doi.org/10.3389/fpsyg.2020.531688))."
     )
 
     with st.sidebar:
@@ -54,6 +55,8 @@ def page() -> None:
     if match_id is None:
         empty_select("a competition and match")
         return
+
+    render_scope_label(competition_id, team_id)
 
     match_data = _load_match(match_id)
     if match_data.empty:
@@ -160,3 +163,5 @@ def page() -> None:
         )
         st.pyplot(fig_ppda)
         st.caption("PPDA: Passes Per Defensive Action. <10 = aggressive pressing, >15 = passive.")
+
+    data_freshness()

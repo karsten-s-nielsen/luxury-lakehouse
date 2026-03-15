@@ -8,7 +8,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from streamlit_app.components.feedback import data_scope_note, empty_result, empty_select
+from streamlit_app.components.feedback import data_freshness, data_scope_note, empty_result, empty_select
 from streamlit_app.components.glossary import METRIC_HELP
 from streamlit_app.db import execute_query, t
 
@@ -472,3 +472,5 @@ def page() -> None:
                             )
                         else:
                             empty_result("defensive actions for this match")
+
+    data_freshness()  # Default table — fct_defcon_pressure_synced lacks match_date
