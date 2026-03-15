@@ -9,18 +9,20 @@ import pandas as pd
 import streamlit as st
 
 from analytics.pitch_control import compute_pitch_control_at_point, compute_pitch_control_frame
+from streamlit_app.components.feedback import data_scope_note, empty_result
+from streamlit_app.components.glossary import METRIC_HELP
 from streamlit_app.components.pitch import plot_physics_pitch_control, plot_pitch_control
 from streamlit_app.db import execute_query, t
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner="Computing pitch control surface...")
 def _compute_cached_pc_grid(frame_data_json: str) -> tuple[Any, Any, Any]:
     """Compute pitch control grid with caching; input serialised as JSON string."""
     frame_data = pd.read_json(frame_data_json)
     return compute_pitch_control_frame(frame_data)
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner="Loading tracking matches...")
 def _fetch_tracking_matches(tbl: str, prov: str | None) -> Any:
     if prov:
         return execute_query(
@@ -54,7 +56,7 @@ def _load_matches(provider: str | None = None) -> Any:
     return _fetch_tracking_matches(tbl, provider)
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner="Loading frame range...")
 def _fetch_frame_range(tbl: str, m: str, p: int) -> tuple[int, int]:
     df = execute_query(
         f"SELECT MIN(frame) as min_frame, MAX(frame) as max_frame "  # noqa: S608
@@ -74,7 +76,7 @@ def _load_frame_range(match_id: str, period: int) -> tuple[int, int]:
     return _fetch_frame_range(t("fct_tracking_frames_synced"), match_id, period)
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner="Loading frame rate...")
 def _fetch_frame_rate(tbl: str, m: str) -> int:
     df = execute_query(
         f"SELECT frame_rate FROM {tbl} "  # noqa: S608
@@ -125,15 +127,22 @@ def page() -> None:
         provider = st.selectbox("Provider", provider_options, index=0)
         selected_provider = None if provider == "All" else provider
 
+    data_scope_note("Tracking data available for ~20 matches from Metrica, IDSSE, and SkillCorner.")
+
     matches = _load_matches(selected_provider)
     if matches.empty:
-        st.info("No tracking data available. Sync fct_tracking_frames to Lakebase first.")
+        empty_result(
+            "tracking data",
+            scope_hint="Pitch control requires player tracking data (~20 matches from Metrica, IDSSE, SkillCorner).",
+        )
         return
 
     with st.sidebar:
-        viz_mode = st.radio("Model", ["Physics (Spearman)", "Voronoi"], horizontal=True)
-        match_id = st.selectbox("Match", matches["match_id"].tolist())
-        period = st.radio("Half", [1, 2], horizontal=True)
+        viz_mode = st.radio("Model", ["Physics-based", "Voronoi"], horizontal=True)
+        match_ids = matches["match_id"].tolist()
+        match_id = st.selectbox("Match", match_ids, format_func=lambda mid: f"Match {mid}")
+        half_label = st.radio("Half", ["1st Half", "2nd Half"], horizontal=True)
+        period = 1 if half_label == "1st Half" else 2
         show_velocity = st.toggle("Show velocity arrows", value=True)
 
     if match_id is None or period is None:
@@ -141,7 +150,7 @@ def page() -> None:
 
     min_frame, max_frame = _load_frame_range(str(match_id), int(period))
     if min_frame == max_frame == 0:
-        st.warning("No frames found for this match and period.")
+        empty_result("frames for this match and period")
         return
 
     # Convert frame range to elapsed seconds for time-based slider
@@ -163,7 +172,7 @@ def page() -> None:
 
     frame_data = _load_frame_data(str(match_id), frame)
     if frame_data.empty:
-        st.warning("No data for this frame.")
+        empty_result("data for this frame")
         return
 
     # Extract ball position (same for all rows in a frame)
@@ -174,7 +183,7 @@ def page() -> None:
 
     with col_viz:
         title = f"Pitch Control — {match_id} H{period} {elapsed_secs // 60:02d}:{elapsed_secs % 60:02d}"
-        if viz_mode == "Physics (Spearman)":
+        if viz_mode == "Physics-based":
             # Fill NaN velocities with 0 for physics model
             physics_data = frame_data.copy()
             physics_data["velocity_x"] = physics_data["velocity_x"].fillna(0.0)
@@ -190,25 +199,49 @@ def page() -> None:
 
     with col_stats:
         player_count = len(frame_data)
-        st.metric("Players", player_count)
+        st.metric("Players", player_count, help="Number of players visible in this frame.")
 
-        if viz_mode == "Physics (Spearman)":
+        if viz_mode == "Physics-based":
             # Physics-mode stats: control percentages
             home_pct = float(surface.mean()) * 100  # type: ignore[possibly-undefined]
             away_pct = 100.0 - home_pct
-            st.metric("Home Control", f"{home_pct:.1f}%")
-            st.metric("Away Control", f"{away_pct:.1f}%")
+            st.metric(
+                "Home Control",
+                f"{home_pct:.1f}%",
+                help=METRIC_HELP.get("Home Control") or None,
+            )
+            st.metric(
+                "Away Control",
+                f"{away_pct:.1f}%",
+                help=METRIC_HELP.get("Away Control") or None,
+            )
             if ball_x is not None and ball_y is not None:
                 ball_control = compute_pitch_control_at_point(physics_data, ball_x, ball_y)  # type: ignore[possibly-undefined]
-                st.metric("Control at Ball", f"{ball_control:.2f}")
+                st.metric(
+                    "Control at Ball",
+                    f"{ball_control:.2f}",
+                    help=METRIC_HELP.get("Control at Ball") or None,
+                )
 
         if "speed" in frame_data.columns:
             valid_speed = frame_data["speed"].dropna()
             if not valid_speed.empty:
-                st.metric("Avg Speed", f"{valid_speed.mean():.1f}")
-                st.metric("Max Speed", f"{valid_speed.max():.1f}")
+                st.metric(
+                    "Avg Speed (m/s)",
+                    f"{valid_speed.mean():.1f}",
+                    help=METRIC_HELP.get("Avg Speed") or None,
+                )
+                st.metric(
+                    "Max Speed (m/s)",
+                    f"{valid_speed.max():.1f}",
+                    help=METRIC_HELP.get("Max Speed") or None,
+                )
 
         if "distance_to_ball" in frame_data.columns:
             valid_dist = frame_data["distance_to_ball"].dropna()
             if not valid_dist.empty:
-                st.metric("Avg Dist to Ball", f"{valid_dist.mean():.1f}")
+                st.metric(
+                    "Avg Dist to Ball (m)",
+                    f"{valid_dist.mean():.1f}",
+                    help=METRIC_HELP.get("Avg Dist to Ball") or None,
+                )

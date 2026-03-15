@@ -389,9 +389,10 @@ def plot_physics_pitch_control(
 
     # Colorbar
     cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
+    cbar.set_label("Control (0=Away, 1=Home)", color=_LINE_COLOR, fontsize=8)
     cbar.set_ticks([0.0, 0.5, 1.0])
     cbar.set_ticklabels(["Away", "Contested", "Home"])
-    cbar.ax.tick_params(colors=_LINE_COLOR, labelsize=9)
+    cbar.ax.tick_params(colors=_LINE_COLOR, labelsize=7)
 
     _draw_players_and_ball(pitch, ax, players, ball_x, ball_y, show_velocity)
 

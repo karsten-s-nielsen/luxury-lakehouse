@@ -8,12 +8,14 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from streamlit_app.components.feedback import empty_result, empty_select
 from streamlit_app.components.filters import (
     render_competition_filter,
     render_match_filter,
     render_player_filter,
     render_team_filter,
 )
+from streamlit_app.components.glossary import METRIC_HELP
 from streamlit_app.components.pitch import plot_heatmap
 from streamlit_app.db import execute_query, t
 
@@ -115,6 +117,11 @@ def _classify_zone(x: float, y: float) -> str:
 def page() -> None:
     """Render the Heat Map page."""
     st.header(":material/local_fire_department: Heat Map")
+    st.caption(
+        "Action density visualization using "
+        "[mplsoccer](https://mplsoccer.readthedocs.io/) bin statistics "
+        "on StatsBomb coordinate system."
+    )
 
     with st.sidebar:
         competition_id = render_competition_filter()
@@ -124,13 +131,13 @@ def page() -> None:
         match_id = render_match_filter(competition_id, team_id, allow_all=True)
 
     if competition_id is None:
-        st.info("Select a competition to view the heat map.")
+        empty_select("a competition")
         return
 
     actions = _load_actions(competition_id, team_id, player_id, match_id)
 
     if actions.empty:
-        st.warning("No actions found for the selected filters.")
+        empty_result("actions")
         return
 
     # Expand pre-aggregated rows (x, y, action_type, cnt) for bin_statistic
@@ -140,7 +147,7 @@ def page() -> None:
 
     heatmap_df = pd.DataFrame({"x": expanded_x, "y": expanded_y})
 
-    _, col_viz, col_stats = st.columns([1, 2, 1])
+    col_viz, col_stats = st.columns([3, 1])
 
     with col_viz:
         fig = plot_heatmap(heatmap_df, title="Action Density Heat Map")
@@ -151,12 +158,16 @@ def page() -> None:
         passes = int(actions.loc[actions["action_type"] == "pass", "cnt"].sum())
         shots = int(actions.loc[actions["action_type"] == "shot", "cnt"].sum())
 
-        st.metric("Total Actions", total)
-        st.metric("Passes", passes)
-        st.metric("Shots", shots)
+        st.metric("Total Actions", total, help=METRIC_HELP.get("Total Actions"))
+        st.metric("Passes", passes, help=METRIC_HELP.get("Passes"))
+        st.metric("Shots", shots, help=METRIC_HELP.get("Shots"))
 
         # Most active zone (3x3 grid)
         actions["zone"] = actions.apply(lambda r: _classify_zone(float(r["x"]), float(r["y"])), axis=1)
         zone_counts = actions.groupby("zone")["cnt"].sum()
         most_active = str(zone_counts.idxmax())
-        st.metric("Most Active Zone", most_active)
+        st.metric(
+            "Most Active Zone",
+            most_active,
+            help=METRIC_HELP.get("Most Active Zone") or None,
+        )

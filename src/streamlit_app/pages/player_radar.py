@@ -7,6 +7,7 @@ from typing import Any
 import streamlit as st
 
 from streamlit_app.components.charts import plot_player_radar
+from streamlit_app.components.feedback import empty_result, empty_select
 from streamlit_app.components.filters import (
     render_competition_filter,
     render_minutes_filter,
@@ -96,7 +97,13 @@ def _load_player_stats(competition_id: int, player_ids: list[int]) -> Any:
 
 def page() -> None:
     """Render the Player Radar page."""
-    st.header(":material/radar: Player Radar")
+    st.header(":material/radar: Player Comparison")
+    st.caption(
+        "Multi-metric player comparison using "
+        "[mplsoccer](https://mplsoccer.readthedocs.io/) radar chart. "
+        "Metrics from VAEP ([Decroos et al. 2019](https://doi.org/10.1007/s10994-021-05989-6)) "
+        "and tracking data."
+    )
 
     with st.sidebar:
         competition_id = render_competition_filter()
@@ -110,16 +117,16 @@ def page() -> None:
         )
 
     if competition_id is None:
-        st.info("Select a competition to begin.")
+        empty_select("a competition")
         return
 
     if not isinstance(player_ids, list) or len(player_ids) == 0:
-        st.info("Select 1-3 players to compare.")
+        empty_select("1\u20133 players to compare")
         return
 
     stats = _load_player_stats(competition_id, player_ids)
     if stats.empty:
-        st.warning("No stats found for selected players.")
+        empty_result("player stats")
         return
 
     # Metric selection — include physical metrics when tracking data exists
@@ -128,7 +135,13 @@ def page() -> None:
         available_metrics.extend(_PHYSICAL_METRICS)
 
     all_labels = [m[1] for m in available_metrics]
-    selected_labels = st.multiselect("Metrics", all_labels, default=all_labels)
+    selected_labels = st.multiselect(
+        "Metrics",
+        all_labels,
+        default=all_labels,
+        help="Per-90 stats: Goals, xG, Passes, Pass%, VAEP (action value), DEFCON (defensive pressure). "
+        "See Glossary in sidebar for definitions.",
+    )
 
     selected = [m for m in available_metrics if m[1] in selected_labels]
     if len(selected) < 3:
@@ -152,5 +165,5 @@ def page() -> None:
     with col_radar:
         st.pyplot(fig)
 
-    with st.expander("Raw Data"):
-        st.dataframe(stats, use_container_width=True)
+    with st.expander("Full Stats Table"):
+        st.dataframe(stats.drop(columns=["player_id"], errors="ignore"), use_container_width=True)

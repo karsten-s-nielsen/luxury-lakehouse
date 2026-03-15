@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [ARCHITECTURE.md](ARCHITECTURE.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
 
-**Last updated**: 2026-03-14 (Predictive models deployed: custom xG + data-driven xT, OpenSTARLab dropped, PAUSA license secured)
+**Last updated**: 2026-03-15 (Cognitive interface audit fixes: 61 findings → 21 remaining. UX items U1–U7 added)
 
 ---
 
@@ -27,7 +27,11 @@ Tasks warming up in the on-deck circle.
 | D16 | OBSO Batch on HF Jobs GPU | Wicked | [ROADMAP.md](ROADMAP.md) | Compute full OBSO value surfaces (PPCF × Transition × EPV) for 7 IDSSE matches using JAX `vmap` on A10G. Keystone that unblocks D10 (PAUSA) and D14 (Space Creation). Static grids from PAUSA repo, JAX kernel from Phase 18 |
 | D17 | xG v2 — Neural Context Model | Wicked | [ROADMAP.md](ROADMAP.md) | Upgrade XGBoost xG (0.979 ROC-AUC) with a small set-encoder that ingests raw 360 freeze-frame defender/GK positions. Train on HF Jobs GPU (A10G). 131K shots + freeze-frame data in Delta. Publish to HF Hub |
 | D18 | Football2vec v2 — Transformer Embeddings | Wicked | [ROADMAP.md](ROADMAP.md) | Replace Doc2Vec (gensim, CPU) with a small transformer on tokenized match sequences. Train on HF Jobs GPU (A10G). 87K player-match documents in Delta. Better player representations for similarity search. Publish to HF Hub |
+| U1 | Calibration anchors — league averages and percentile ranks on metrics | Wicked | CHI-AUDIT-180-rev-1 #3 | Compute percentiles per competition in dbt (`PERCENT_RANK()`), surface as `delta=` or reference text on st.metric |
+| U2 | Cross-page filter state persistence via st.session_state | Wicked | CHI-AUDIT-180-rev-1 #5 | Persist competition_id/team_id/match_id in session_state, read on each page. ~30 min per page × 11 |
 | D7 | Observability Layer (OTel) | Monstah | [ROADMAP.md](ROADMAP.md) | Research complete, ready for implementation. Instrument once, observe anywhere. ~$1-2/month personal tier |
+| U3 | Global player search — search by name across all pages | Monstah | CHI-AUDIT-180-rev-1 #1 | New search component with 11,918-player index + cross-page routing + session state. Needs design decisions |
+| U4 | Uncertainty/confidence bounds on model outputs | Monstah | CHI-AUDIT-180-rev-1 #4 | xG model can output calibration intervals. VAEP/pitch control lack native uncertainty. Partial — model-level changes needed |
 
 ---
 

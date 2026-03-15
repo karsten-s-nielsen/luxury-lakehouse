@@ -7,10 +7,11 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from streamlit_app.components.feedback import empty_result
 from streamlit_app.db import execute_query, t
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner="Loading filters...")
 def _cached_query(query: str, params: tuple[Any, ...] | None = None) -> pd.DataFrame:
     """Execute a query with Streamlit caching.
 
@@ -30,7 +31,7 @@ def render_competition_filter() -> int | None:
         f"ORDER BY country, competition_name"
     )
     if df.empty:
-        st.warning("No competitions found.")
+        empty_result("competitions")
         return None
 
     options = df.to_dict("records")
@@ -61,7 +62,7 @@ def render_team_filter(competition_id: int | None) -> int | None:
         (competition_id, competition_id),
     )
     if df.empty:
-        st.info("No teams found for this competition.")
+        empty_result("teams for this competition")
         return None
 
     options = df.to_dict("records")
@@ -122,7 +123,7 @@ def render_player_filter(
         tuple(params),
     )
     if df.empty:
-        st.info("No players found matching filters.")
+        empty_result("players matching filters")
         return [] if multiselect else None
 
     options = df.to_dict("records")
@@ -178,7 +179,7 @@ def render_match_filter(
         tuple(params),
     )
     if df.empty:
-        st.info("No matches found.")
+        empty_result("matches")
         return None
 
     options = df.to_dict("records")

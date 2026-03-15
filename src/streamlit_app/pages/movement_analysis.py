@@ -7,17 +7,52 @@ from typing import Any
 import streamlit as st
 
 from streamlit_app.components.charts import plot_physical_bars, plot_ppda_bars
+from streamlit_app.components.feedback import data_scope_note, empty_result, empty_select
 from streamlit_app.components.filters import render_competition_filter
+from streamlit_app.components.glossary import METRIC_HELP
 from streamlit_app.db import execute_query, t
 
 _PROVIDER_OPTIONS = ["All", "metrica", "idsse", "skillcorner"]
+
+
+def _render_match_selectbox(matches: Any, key: str = "match") -> str | None:
+    """Render a match selectbox with human-readable labels when available.
+
+    Joins match IDs with fct_match_summary for date + team names.
+    Falls back to raw match_id if no summary data exists.
+    """
+    match_ids = matches["match_id"].tolist()
+    # Try to enrich with match summary labels
+    placeholders = ", ".join(["%s"] * len(match_ids))
+    labels_df = execute_query(
+        f"SELECT match_id::text AS match_id, match_date, home_team_name, away_team_name "  # noqa: S608
+        f"FROM {t('fct_match_summary_synced')} "
+        f"WHERE match_id::text IN ({placeholders})",
+        tuple(str(m) for m in match_ids),
+    )
+    if not labels_df.empty:
+        label_map = {
+            str(r["match_id"]): f"{r['match_date']} — {r['home_team_name']} v {r['away_team_name']}"
+            for _, r in labels_df.iterrows()
+        }
+    else:
+        label_map = {}
+
+    idx = st.selectbox(
+        "Match",
+        range(len(match_ids)),
+        format_func=lambda i: label_map.get(str(match_ids[i]), str(match_ids[i])),
+        key=key,
+    )
+    return str(match_ids[idx]) if idx is not None else None
+
 
 # ---------------------------------------------------------------------------
 # Data loaders
 # ---------------------------------------------------------------------------
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner="Loading matches...")
 def _fetch_physical_stats_matches(tbl: str, prov: str | None) -> Any:
     if prov:
         return execute_query(
@@ -92,7 +127,7 @@ def _load_ppda_data(competition_id: int) -> Any:
 
 def page() -> None:
     """Render the Movement Analysis page."""
-    st.header(":material/directions_run: Movement Analysis")
+    st.header(":material/directions_run: Movement & Pressing")
     st.caption(
         "Off-Ball xT combines pitch control "
         "([Spearman 2017](https://www.researchgate.net/publication/315166647_Beyond_Expected_Goals)) "
@@ -101,11 +136,11 @@ def page() -> None:
         "Physical metrics from tracking data."
     )
 
-    view = st.radio(
-        "View",
-        ["Physical Performance", "PPDA / Pressing Intensity", "Off-Ball xT"],
-        horizontal=True,
-    )
+    with st.sidebar:
+        view = st.radio(
+            "View",
+            ["Physical Performance", "PPDA / Pressing Intensity", "Off-Ball xT"],
+        )
 
     if view == "Physical Performance":
         _render_physical()
@@ -126,21 +161,23 @@ def _render_physical() -> None:
         provider = st.selectbox("Provider", _PROVIDER_OPTIONS, index=0)
         selected_provider = None if provider == "All" else provider
 
+    data_scope_note("Physical metrics available for ~20 matches with tracking data.")
+
     matches = _load_tracking_matches(selected_provider)
     if matches.empty:
-        st.info("No physical stats available. Run the dbt build after tracking ingestion.")
+        empty_result("physical stats", scope_hint="This page requires tracking data (available for ~20 matches).")
         return
 
     with st.sidebar:
-        match_id = st.selectbox("Match", matches["match_id"].tolist())
+        match_id = _render_match_selectbox(matches, key="phys_match")
 
     if match_id is None:
-        st.info("Select a match.")
+        empty_select("a match")
         return
 
     stats = _load_physical_stats(str(match_id))
     if stats.empty:
-        st.warning("No physical data for this match.")
+        empty_result("physical data for this match")
         return
 
     # Metric selector
@@ -153,10 +190,22 @@ def _render_physical() -> None:
     col_name, col_label = metric_options[selected_metric]  # type: ignore[index]
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Players", len(stats))
-    c2.metric("Avg Distance (km)", f"{stats['total_distance_km'].mean():.1f}")
-    c3.metric("Max Speed (m/s)", f"{stats['max_speed_ms'].max():.1f}")
-    c4.metric("Max Speed (km/h)", f"{stats['max_speed_ms'].max() * 3.6:.1f}")
+    c1.metric("Players", len(stats), help=METRIC_HELP.get("Players"))
+    c2.metric(
+        "Avg Distance (km)",
+        f"{stats['total_distance_km'].mean():.1f}",
+        help=METRIC_HELP.get("Avg Distance (km)"),
+    )
+    c3.metric(
+        "Max Speed (m/s)",
+        f"{stats['max_speed_ms'].max():.1f}",
+        help=METRIC_HELP.get("Max Speed") or None,
+    )
+    c4.metric(
+        "Max Speed (km/h)",
+        f"{stats['max_speed_ms'].max() * 3.6:.1f}",
+        help=METRIC_HELP.get("Max Speed") or None,
+    )
 
     fig = plot_physical_bars(stats, col_name, col_label, title=str(selected_metric))
     st.pyplot(fig, use_container_width=True)
@@ -175,9 +224,10 @@ def _render_physical() -> None:
             "max_speed_ms",
         ]
         st.dataframe(
-            stats[[c for c in display_cols if c in stats.columns]].rename(
+            stats[[c for c in display_cols if c in stats.columns]]
+            .drop(columns=["player_id"], errors="ignore")
+            .rename(
                 columns={
-                    "player_id": "Player",
                     "minutes_played": "Minutes",
                     "total_distance_km": "Distance (km)",
                     "hsr_distance_m": "HSR (m)",
@@ -205,21 +255,29 @@ def _render_ppda() -> None:
         competition_id = render_competition_filter()
 
     if competition_id is None:
-        st.info("Select a competition to view PPDA metrics.")
+        empty_select("a competition")
         return
 
     data = _load_ppda_data(competition_id)
     if data.empty:
-        st.warning("No PPDA data available for this competition.")
+        empty_result("PPDA data")
         return
 
     # Summary stats in a row above the chart
     avg_home = float(data["home_ppda"].mean())
     avg_away = float(data["away_ppda"].mean())
     c1, c2, c3 = st.columns(3)
-    c1.metric("Avg Home PPDA", f"{avg_home:.1f}")
-    c2.metric("Avg Away PPDA", f"{avg_away:.1f}")
-    c3.metric("Matches", len(data))
+    c1.metric(
+        "Avg Home PPDA",
+        f"{avg_home:.1f}",
+        help=METRIC_HELP.get("Avg Home PPDA") or None,
+    )
+    c2.metric(
+        "Avg Away PPDA",
+        f"{avg_away:.1f}",
+        help=METRIC_HELP.get("Avg Away PPDA") or None,
+    )
+    c3.metric("Matches", len(data), help=METRIC_HELP.get("Matches"))
 
     fig = plot_ppda_bars(data, title="PPDA by Match")
     st.pyplot(fig, use_container_width=True)
@@ -254,36 +312,45 @@ def _render_off_ball_xt() -> None:
 
     matches = _load_tracking_matches(selected_provider)
     if matches.empty:
-        st.info("No tracking data available.")
+        empty_result("tracking data", scope_hint="This page requires tracking data (available for ~20 matches).")
         return
 
     with st.sidebar:
-        match_id = st.selectbox("Match", matches["match_id"].tolist(), key="oxt_match")
+        match_id = _render_match_selectbox(matches, key="oxt_match")
 
     if match_id is None:
-        st.info("Select a match.")
+        empty_select("a match")
         return
 
     stats = _load_physical_stats(str(match_id))
     xt_stats = stats[stats["total_off_ball_xt"].notna()] if not stats.empty else stats
 
     if xt_stats.empty:
-        st.warning("No Off-Ball xT data for this match. Run the `compute_off_ball_xt` pipeline and rebuild dbt models.")
+        empty_result("Off-Ball xT data", scope_hint="This page requires tracking data with xT computation.")
         return
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("Players", len(xt_stats))
-    c2.metric("Avg Off-Ball xT", f"{xt_stats['total_off_ball_xt'].mean():.3f}")
-    c3.metric("Max Off-Ball xT", f"{xt_stats['total_off_ball_xt'].max():.3f}")
+    c1.metric("Players", len(xt_stats), help=METRIC_HELP.get("Players"))
+    c2.metric(
+        "Avg Off-Ball xT",
+        f"{xt_stats['total_off_ball_xt'].mean():.3f}",
+        help=METRIC_HELP.get("Avg Off-Ball xT") or None,
+    )
+    c3.metric(
+        "Max Off-Ball xT",
+        f"{xt_stats['total_off_ball_xt'].max():.3f}",
+        help=METRIC_HELP.get("Max Off-Ball xT") or None,
+    )
 
     fig = plot_physical_bars(xt_stats, "total_off_ball_xt", "Total Off-Ball xT", title="Off-Ball xT by Player")
     st.pyplot(fig, use_container_width=True)
 
     with st.expander("Off-Ball xT Data"):
         st.dataframe(
-            xt_stats[["player_id", "total_off_ball_xt", "avg_off_ball_xt"]].rename(
+            xt_stats[["player_id", "total_off_ball_xt", "avg_off_ball_xt"]]
+            .drop(columns=["player_id"], errors="ignore")
+            .rename(
                 columns={
-                    "player_id": "Player",
                     "total_off_ball_xt": "Total xT",
                     "avg_off_ball_xt": "Avg xT/Frame",
                 }

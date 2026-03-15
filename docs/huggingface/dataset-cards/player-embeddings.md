@@ -26,6 +26,22 @@ Pre-computed player embedding vectors from the [football2vec](https://huggingfac
 
 Part of the (Right! Luxury!) Lakehouse soccer analytics platform.
 
+## Quick Start
+
+```python
+from datasets import load_dataset
+import numpy as np
+
+ds = load_dataset("luxury-lakehouse/football2vec-player-embeddings")
+df = ds["train"].to_pandas()
+
+# Extract behavioral vectors as a NumPy matrix
+vectors = np.array(df["behavioral_vector"].tolist())
+print(f"{vectors.shape[0]} players, {vectors.shape[1]}-dim embeddings")
+```
+
+> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+
 ## What Are These Embeddings?
 
 Each embedding is composed of two complementary vectors trained or derived from open event data:
@@ -133,6 +149,8 @@ And the underlying SPADL/VAEP framework:
 ```
 
 ## More Information
+
+> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
 
 - **Model repo**: [`luxury-lakehouse/football2vec-statsbomb-wyscout`](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout)
 - **License**: [MIT](https://opensource.org/licenses/MIT)

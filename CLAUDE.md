@@ -118,6 +118,19 @@ The platform's architecture maps to classic EIP patterns (Hohpe & Woolf 2003). C
 - **Bound all data queries**: Every Streamlit SQL query returning user-facing data must have a `LIMIT` clause. Use `LIMIT 500` for ranking/leaderboard queries, `LIMIT 2000` for timeline queries.
 - **Use recursive CTE for distinct values on fact tables**: `SELECT DISTINCT` forces full sequential scans. Use the recursive CTE loose index scan pattern instead (see Lakebase section above).
 
+## Streamlit UX Standards
+
+These rules prevent cognitive interface debt from accumulating. Derived from CHI-AUDIT-180 (cognitive-interface-audit v1.8.0, 15 frameworks). Every Streamlit or Gradio code change must satisfy all of these.
+
+- **Every `st.metric` must have `help=`**: If the metric name is not universally understood (i.e., anything beyond "Goals", "Passes", "Score"), add a `help=` tooltip explaining what it means and what "good" looks like. Examples: xG, VAEP, PPDA, Brier Score, cosine distance, xT, DEFCON credits.
+- **Every `show_spinner=False` must be justified**: Default to descriptive spinner text (e.g., `show_spinner="Loading rankings..."`). Only suppress spinners on queries that complete in <100ms (e.g., small dimension lookups that are always cached). When in doubt, show the spinner.
+- **Never silently substitute data**: If a fallback, default, or NaN-fill changes what the user sees, surface it. Use `st.info`, `st.caption`, or a visual indicator. The user must be able to tell what data source produced what they're looking at.
+- **Patterns applied to some pages must be applied to all**: When adding a cross-cutting pattern (captions, tooltips, help text, layout changes), apply it to ALL pages in the same commit. If a page is excluded, add a code comment explaining why.
+- **Model selectors need comparison affordance**: When adding a selector that switches between models/algorithms/views, consider the comparison workflow: add `delta=` on metrics, a side-by-side layout, or at minimum persist the previous selection's values visually. Users should not need to remember numbers across radio button clicks.
+- **Navigation labels must be goal-oriented**: Page titles in `st.Page(title=...)` should describe the user's goal, not the implementation. "Player Comparison" not "Player Radar". "Defensive Impact" not "Def. Pressure".
+- **Distinguish "please select" from "no data"**: Use `st.info` for guidance prompts ("Select a competition to begin") and `st.warning` for empty results ("No data found for the selected filters"). Never use the same widget type for both — users cannot distinguish "take action" from "nothing exists."
+- **Raw IDs must never reach the user**: Never display `player_id`, `match_id`, or `team_id` in selectboxes, tables, or chart labels. Always join to dimension tables for human-readable names. Use `format_func` on selectboxes.
+
 ## Project Conventions
 
 - **Python 3.10 (locked)**: Pinned to `>=3.10,<3.11` in `pyproject.toml` and `.python-version`. Databricks serverless only supports Python 3.10 — locking locally ensures tests catch version-specific behavior (e.g., pandas API differences) before they reach production. Run `uv sync` to get a 3.10 venv automatically.

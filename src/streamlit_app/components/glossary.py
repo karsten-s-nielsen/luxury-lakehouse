@@ -1,0 +1,183 @@
+"""Domain glossary — provides tooltip definitions for soccer analytics terms.
+
+Cognitive audit finding H20: 11+ domain-specific terms used without explanation.
+This module provides a central glossary that can be rendered in the sidebar
+and referenced by individual pages for st.metric help= parameters.
+"""
+
+from __future__ import annotations
+
+import streamlit as st
+
+# Canonical definitions — used for both sidebar glossary and st.metric help= text.
+# Keep definitions concise (one sentence) and include a direction indicator where
+# applicable (higher = better, lower = more aggressive, etc.).
+GLOSSARY: dict[str, str] = {
+    "xG (Expected Goals)": (
+        "Probability of scoring from each shot's location and context. "
+        "Higher = better chance. Sum over a match = team's expected output."
+    ),
+    "VAEP": (
+        "Valuing Actions by Estimating Probabilities — how much each on-ball action "
+        "changed the probability of scoring. Positive = helped, negative = hurt."
+    ),
+    "VAEP/90": "VAEP per 90 minutes played. Higher = more impactful player.",
+    "PPDA": ("Passes Per Defensive Action — measures pressing intensity. Lower values = more aggressive pressing."),
+    "xT (Expected Threat)": (
+        "Probability that ball possession in a pitch zone leads to a goal within "
+        "the next few actions. Data-driven Markov chain model."
+    ),
+    "Off-Ball xT": (
+        "Cumulative expected threat gained from a player's off-ball movement — "
+        "measures how well a player positions themselves to receive the ball in dangerous areas."
+    ),
+    "DEFCON": (
+        "Defensive Contribution framework (Kim et al. 2025) — quantifies how defenders "
+        "affect an attacker's scoring probability via four credit categories."
+    ),
+    "Intercept": "Defender successfully won the ball from the attacker.",
+    "Concede": "Attacker received a shot or goal despite defensive pressure.",
+    "Disturb": "Defender disrupted the attacker's possession without winning the ball.",
+    "Deter": "Defender's presence prevented the attacker from progressing.",
+    "Brier Score": (
+        "Prediction calibration metric — lower is better. "
+        "0.0 = perfect predictions, 0.25 = coin flip. Good models score < 0.10."
+    ),
+    "Cosine Distance": (
+        "Similarity measure between player embedding vectors. "
+        "0.0 = identical playing style, 1.0 = completely different."
+    ),
+    "Line-Breaking Pass": (
+        "A pass that penetrates at least one defensive line, detected via "
+        "Ward clustering on StatsBomb 360 freeze-frame defender positions."
+    ),
+    "Pitch Control": (
+        "Physics-based model estimating which team controls each point on the pitch, "
+        "based on player positions, velocities, and time-to-intercept."
+    ),
+    "SPADL": (
+        "Soccer Player Action Description Language — unified event format converting "
+        "vendor-specific event streams into 23 canonical action types (105x68m coordinates)."
+    ),
+    "Progressive Pass": (
+        "A pass that moves the ball significantly closer to the opponent's goal — "
+        "defined by a minimum distance threshold toward the goal line."
+    ),
+}
+
+# Per-page glossary terms — only these terms are shown when the user is on that page.
+# Avoids showing DEFCON definitions on Shot Map or xG on Defensive Impact (Sweller extraneous load).
+PAGE_TERMS: dict[str, list[str]] = {
+    "shot-map": ["xG (Expected Goals)", "Brier Score"],
+    "pass-map": ["Line-Breaking Pass", "Progressive Pass"],
+    "heat-map": [],
+    "pass-network": [],
+    "match-summary": ["xG (Expected Goals)", "PPDA", "Progressive Pass"],
+    "action-values": ["VAEP", "VAEP/90", "SPADL"],
+    "player-radar": [
+        "xG (Expected Goals)",
+        "VAEP",
+        "VAEP/90",
+        "PPDA",
+        "xT (Expected Threat)",
+        "Off-Ball xT",
+        "DEFCON",
+        "Line-Breaking Pass",
+        "Progressive Pass",
+    ],
+    "movement-analysis": ["PPDA", "xT (Expected Threat)", "Off-Ball xT", "Pitch Control"],
+    "pitch-control": ["Pitch Control"],
+    "defensive-valuation": ["DEFCON", "Intercept", "Concede", "Disturb", "Deter"],
+    "player-similarity": ["Cosine Distance"],
+}
+
+# Subset for st.metric help= parameters — keyed by the label as it appears in st.metric()
+METRIC_HELP: dict[str, str] = {
+    "Total xG": GLOSSARY["xG (Expected Goals)"],
+    "xG": GLOSSARY["xG (Expected Goals)"],
+    "Home xG": GLOSSARY["xG (Expected Goals)"],
+    "Away xG": GLOSSARY["xG (Expected Goals)"],
+    "xG / Shot": "Average expected goals per shot — higher indicates better shot quality.",
+    "Brier Score": GLOSSARY["Brier Score"],
+    "Conversion Rate": "Goals / Total Shots — percentage of shots that resulted in goals.",
+    "Total VAEP": GLOSSARY["VAEP"],
+    "VAEP/90": GLOSSARY["VAEP/90"],
+    "Off. VAEP/90": "Offensive VAEP per 90 minutes — contribution to scoring probability.",
+    "Def. VAEP/90": "Defensive VAEP per 90 minutes — contribution to preventing opponent scoring.",
+    "Net Match VAEP": "Sum of all VAEP values in a match — positive = team created more than conceded.",
+    "Avg Home PPDA": GLOSSARY["PPDA"],
+    "Avg Away PPDA": GLOSSARY["PPDA"],
+    "Avg Off-Ball xT": GLOSSARY["Off-Ball xT"],
+    "Max Off-Ball xT": GLOSSARY["Off-Ball xT"],
+    "Intercept": GLOSSARY["Intercept"],
+    "Concede": GLOSSARY["Concede"],
+    "Disturb": GLOSSARY["Disturb"],
+    "Deter": GLOSSARY["Deter"],
+    "Home Control": "Percentage of pitch area controlled by the home team at this moment.",
+    "Away Control": "Percentage of pitch area controlled by the away team at this moment.",
+    "Control at Ball": "Pitch control value at the ball's location (0 = away, 1 = home).",
+    "Avg Speed": "Average player speed in meters per second.",
+    "Max Speed": "Maximum player speed in meters per second.",
+    "Avg Dist to Ball": "Average distance from players to the ball in meters.",
+    "Cosine Distance": GLOSSARY["Cosine Distance"],
+    "Completed Passes": "Number of passes that reached the intended recipient.",
+    "Unique Connections": "Number of distinct passer-receiver pairs above the minimum threshold.",
+    "Top Pair Count": "Number of passes between the most frequent passer-receiver pair.",
+    "Most Active Zone": "The 3x3 pitch zone (e.g., 'Att Center') with the highest action count.",
+    "Progressive": "Passes that move the ball significantly toward the opponent's goal.",
+    "Line-Breaking": GLOSSARY["Line-Breaking Pass"],
+    "Total Shots": "Total number of shots attempted.",
+    "Goals": "Total number of goals scored.",
+    "Positive Actions": "Actions with positive VAEP — contributed to scoring probability.",
+    "Negative Actions": "Actions with negative VAEP — reduced scoring probability.",
+    "Total Passes": "Number of passes attempted by the selected player or team.",
+    "Completed": "Number of passes that reached the intended recipient.",
+    "Completion %": "Percentage of attempted passes successfully completed.",
+    "Total Actions": "Number of on-ball actions (passes, shots, dribbles, etc.) in the selected scope.",
+    "Passes": "Number of pass actions in the selected scope.",
+    "Shots": "Number of shot actions in the selected scope.",
+    "Top Action Type": "The SPADL action type with the highest total VAEP contribution.",
+    "Most Valuable Action": "The single action that contributed most to scoring probability in this match.",
+    "Players": "Number of players visible in the current data scope.",
+    "Avg Distance (km)": "Average total distance covered per player in kilometers.",
+    "Matches": "Number of matches included in the current analysis.",
+}
+
+
+def render_glossary_sidebar(page_url_path: str = "") -> None:
+    """Render a context-filtered glossary in the sidebar.
+
+    Only shows terms relevant to the current page (per PAGE_TERMS mapping).
+    Falls back to the full glossary if the page has no mapping or the mapping is empty.
+    This avoids Sweller extraneous load from showing DEFCON definitions on the Shot Map.
+    """
+    # Check if this page has a mapping (even if the list is empty — empty means "no terms needed")
+    if page_url_path in PAGE_TERMS:
+        terms = PAGE_TERMS[page_url_path]
+        filtered = {k: v for k, v in GLOSSARY.items() if k in terms}
+    else:
+        # Unknown page or empty path — show full glossary as fallback
+        filtered = GLOSSARY
+
+    with st.sidebar:
+        with st.expander("Glossary", expanded=False, icon=":material/help:"):
+            if filtered:
+                for term, definition in filtered.items():
+                    st.markdown(f"**{term}**  \n{definition}")
+            else:
+                st.caption("No domain-specific terms on this page.")
+
+
+def render_onboarding_sidebar() -> None:
+    """Render a getting-started guide in the sidebar, accessible from all pages."""
+    with st.sidebar:
+        with st.expander("Getting Started", expanded=False, icon=":material/school:"):
+            st.markdown(
+                "**Suggested workflow:**\n\n"
+                "1. **Shot Map** — shot locations and xG\n"
+                "2. **Match Summary** — match overview\n"
+                "3. **Player Similarity** — find comparable players\n"
+                "4. **Movement & Pressing** — tracking and physical data\n\n"
+                "Hover over **?** on any metric for an explanation. "
+                "Use **Glossary** below for terms."
+            )

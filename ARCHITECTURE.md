@@ -132,8 +132,8 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • OAuth M2M auth (automatic token rotation, no passwords)       │    │
 │  │  • Connects to Lakebase via psycopg2 (ThreadedConnectionPool)    │    │
 │  │  • 11 pages: Shot Map, Pass Map, Heat Map, Pass Network,         │    │
-│  │    Action Values, Player Radar, Match Summary, Pitch Control,    │    │
-│  │    Movement Analysis, Defensive Pressure, Player Similarity      │    │
+│  │    Action Values, Player Comparison, Match Summary, Pitch Control,│   │
+│  │    Movement & Pressing, Defensive Impact, Player Similarity      │    │
 │  └──────────────────────────────────────────────────────────────────┘    │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
@@ -176,14 +176,14 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 |------|--------------|-------------|
 | Shot Map | Half-pitch shots sized by xG, colored by outcome, custom xG overlay | `fct_shots_synced`, `fct_xg_predictions_synced` |
 | Pass Map | Full pitch arrows, progressive pass highlighting | `fct_passes_synced` |
-| Player Radar | Per-90 metrics comparison (1-3 players), incl. VAEP/90 | `fct_player_stats_synced` |
+| Player Comparison | Per-90 metrics comparison (1-3 players), incl. VAEP/90 | `fct_player_stats_synced` |
 | Match Summary | Scorecard + xG metrics + horizontal bar chart | `fct_match_summary_synced` |
 | Pitch Control | Physics (Spearman 2017) + Voronoi toggle from tracking data | `fct_tracking_frames_synced` |
 | Heat Map | Action density per player/team/match | `fct_passes_synced`, `fct_shots_synced` |
 | Pass Network | Interactive Plotly graph with hover tooltips | `fct_passes_synced` |
 | Action Values | VAEP rankings, action type breakdown, timeline | `fct_action_values_synced`, `fct_player_stats_synced` |
-| Movement Analysis | Physical performance, PPDA pressing, off-ball xT | `fct_physical_stats_synced`, `fct_match_summary_synced` |
-| Def. Pressure | DEFCON-lite attacker pressure rankings, breakdown, match timeline | `fct_defcon_pressure_synced`, `fct_defcon_actions_synced` |
+| Movement & Pressing | Physical performance, PPDA pressing, off-ball xT | `fct_physical_stats_synced`, `fct_match_summary_synced` |
+| Defensive Impact | DEFCON-lite attacker pressure rankings, breakdown, match timeline | `fct_defcon_pressure_synced`, `fct_defcon_actions_synced` |
 | Player Similarity | pgvector nearest-neighbor search ("Find players like X"), radar overlay | `fct_player_embeddings_career_synced`, `fct_player_embeddings_season_synced`, `fct_player_stats_synced` |
 
 ---

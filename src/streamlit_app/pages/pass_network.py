@@ -7,7 +7,9 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from streamlit_app.components.feedback import empty_result, empty_select
 from streamlit_app.components.filters import render_competition_filter, render_match_filter, render_team_filter
+from streamlit_app.components.glossary import METRIC_HELP
 from streamlit_app.components.pitch import plot_pass_network_interactive
 from streamlit_app.db import execute_query, t
 
@@ -109,6 +111,10 @@ def _build_network(
 def page() -> None:
     """Render the Pass Network page."""
     st.header(":material/hub: Pass Network")
+    st.caption(
+        "Network analysis of player-to-player passing connections. "
+        "Visualization via [Plotly](https://plotly.com/python/)."
+    )
 
     with st.sidebar:
         competition_id = render_competition_filter()
@@ -117,13 +123,13 @@ def page() -> None:
         min_passes = st.slider("Min. passes per connection", min_value=1, max_value=10, value=3)
 
     if competition_id is None or team_id is None or match_id is None:
-        st.info("Select a competition, team, and match to view the pass network.")
+        empty_select("a competition, team, and match")
         return
 
     passes = _load_passes(competition_id, team_id, match_id)
 
     if passes.empty:
-        st.warning("No completed passes with recipient data found. Wyscout matches do not include pass recipient.")
+        empty_result("completed passes", scope_hint="Wyscout matches do not include pass recipient data.")
         return
 
     nodes, edges = _build_network(passes, min_pair_count=min_passes)
@@ -138,8 +144,16 @@ def page() -> None:
         total_passes = len(passes)
         unique_connections = len(edges)
 
-        st.metric("Completed Passes", total_passes)
-        st.metric("Unique Connections", unique_connections)
+        st.metric(
+            "Completed Passes",
+            total_passes,
+            help=METRIC_HELP.get("Completed Passes") or None,
+        )
+        st.metric(
+            "Unique Connections",
+            unique_connections,
+            help=METRIC_HELP.get("Unique Connections") or None,
+        )
 
         if not edges.empty:
             top_edge = edges.loc[edges["pair_count"].idxmax()]
@@ -147,5 +161,9 @@ def page() -> None:
             receiver_name = nodes.loc[nodes["player_id"] == top_edge["receiver_id"], "player_display_name"].values
             p_name = passer_name[0] if len(passer_name) > 0 else "?"
             r_name = receiver_name[0] if len(receiver_name) > 0 else "?"
-            st.metric("Top Pair Count", int(top_edge["pair_count"]))
+            st.metric(
+                "Top Pair Count",
+                int(top_edge["pair_count"]),
+                help=METRIC_HELP.get("Top Pair Count") or None,
+            )
             st.caption(f"**{p_name}**  \n\u2192 {r_name}")
