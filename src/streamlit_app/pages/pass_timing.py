@@ -33,7 +33,8 @@ def _fetch_pausa_matches(tbl: str) -> pd.DataFrame:
         f"SELECT DISTINCT pv.match_id, ms.match_date, ms.home_team_name, ms.away_team_name "  # noqa: S608
         f"FROM {tbl} pv "
         f"LEFT JOIN {match_tbl} ms ON pv.match_id::text = ms.match_id::text "
-        f"ORDER BY ms.match_date",
+        f"ORDER BY ms.match_date "
+        f"LIMIT 100",
     )
 
 
@@ -41,7 +42,7 @@ def _fetch_pausa_matches(tbl: str) -> pd.DataFrame:
 def _fetch_teams_for_match(tbl: str, match_id: str) -> pd.DataFrame:
     """Load distinct teams for a given match."""
     return execute_query(
-        f"SELECT DISTINCT team FROM {tbl} WHERE match_id = %s AND team IS NOT NULL ORDER BY team",  # noqa: S608
+        f"SELECT DISTINCT team FROM {tbl} WHERE match_id = %s AND team IS NOT NULL ORDER BY team LIMIT 50",  # noqa: S608
         (match_id,),
     )
 
@@ -55,7 +56,8 @@ def _fetch_players_for_match(pausa_tbl: str, dim_tbl: str, match_id: str, team: 
             f"FROM {pausa_tbl} pv "
             f"LEFT JOIN {dim_tbl} dp ON pv.player_id::text = dp.player_id::text "
             f"WHERE pv.match_id = %s AND pv.team = %s AND pv.player_id IS NOT NULL "
-            f"ORDER BY player_display_name",
+            f"ORDER BY player_display_name "
+            f"LIMIT 50",
             (match_id, team),
         )
     return execute_query(
@@ -63,7 +65,8 @@ def _fetch_players_for_match(pausa_tbl: str, dim_tbl: str, match_id: str, team: 
         f"FROM {pausa_tbl} pv "
         f"LEFT JOIN {dim_tbl} dp ON pv.player_id::text = dp.player_id::text "
         f"WHERE pv.match_id = %s AND pv.player_id IS NOT NULL "
-        f"ORDER BY player_display_name",
+        f"ORDER BY player_display_name "
+        f"LIMIT 50",
         (match_id,),
     )
 
@@ -123,13 +126,17 @@ def _fetch_pausa_passes(tbl: str, dim_tbl: str, match_id: str, team: str | None,
 @st.cache_data(ttl=600, show_spinner="Loading rankings...")
 def _fetch_rankings(timing_tbl: str) -> pd.DataFrame:
     """Load fct_pass_timing rankings (bounded)."""
+    match_tbl = t("fct_match_summary_synced")
     return execute_query(
-        f"SELECT COALESCE(player_display_name, player_id) AS player_display_name, "  # noqa: S608
-        f"  match_id, pass_count, "
-        f"  avg_pausa, avg_temporal_judgment, avg_spatial_selection, "
-        f"  median_pausa, passes_above_median_pausa "
-        f"FROM {timing_tbl} "
-        f"ORDER BY avg_pausa DESC "
+        f"SELECT COALESCE(pt.player_display_name, pt.player_id) AS player_display_name, "  # noqa: S608
+        f"  COALESCE(ms.match_date || ' \u2014 ' || ms.home_team_name || ' v ' || ms.away_team_name, "
+        f"    pt.match_id) AS match_label, "
+        f"  pt.pass_count, "
+        f"  pt.avg_pausa, pt.avg_temporal_judgment, pt.avg_spatial_selection, "
+        f"  pt.median_pausa, pt.passes_above_median_pausa "
+        f"FROM {timing_tbl} pt "
+        f"LEFT JOIN {match_tbl} ms ON pt.match_id::text = ms.match_id::text "
+        f"ORDER BY pt.avg_pausa DESC "
         f"LIMIT 500",
     )
 
@@ -382,7 +389,7 @@ def page() -> None:
             rankings_df.rename(
                 columns={
                     "player_display_name": "Player",
-                    "match_id": "Match",
+                    "match_label": "Match",
                     "pass_count": "Passes",
                     "avg_pausa": "Avg PAUSA",
                     "avg_temporal_judgment": "Avg Temporal",

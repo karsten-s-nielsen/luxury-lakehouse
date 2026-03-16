@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [ARCHITECTURE.md](ARCHITECTURE.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
 
-**Last updated**: 2026-03-15 (Cognitive interface audit rev-2: 53 findings, 35 fixed. UX items U1–U4 added)
+**Last updated**: 2026-03-16 (D9–D16 complete, CHI-AUDIT-190 applied. UX items U1–U4 added)
 
 ---
 
@@ -36,7 +36,7 @@ Tasks warming up in the on-deck circle.
 
 ## Completed Phases
 
-Phases 0–18 are complete. See git history for implementation details.
+Phases 0–19 are complete. See git history for implementation details.
 
 ### Completed On-Deck Items
 
@@ -149,7 +149,7 @@ See [ROADMAP.md](ROADMAP.md) for research directions, long-horizon features, and
 - **Graph-Based Tactical Patterns** — GNN research direction (Raabe et al. 2022)
 - **Decision Optimization** — RL-based pass optimization beyond VAEP (Rahimian et al.)
 - **Space Creation** — Fernandez & Bornn 2018 OBSO (deferred from Phase 12; JAX `vmap` may unblock)
-- **HuggingFace Hub Integration** — Tiers 1-2 and 4 complete (2 models + 5 datasets published, Gradio demo Space live with luxury flagship theme); remaining: Tier 3 GPU training
+- **HuggingFace Hub Integration** — Tiers 1-2 and 4 complete (2 models + 7 datasets published, Gradio demo Space live with luxury flagship theme); remaining: Tier 3 GPU training
 
 ## Infrastructure Notes
 

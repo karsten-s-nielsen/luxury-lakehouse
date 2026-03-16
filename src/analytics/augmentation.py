@@ -14,12 +14,15 @@ augmentation foundation.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
 
 from analytics.symmetry import AugmentationConfig, augment_tracking_frame
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants — StatsBomb and meter-space dimensions
@@ -127,6 +130,7 @@ def perturb_positions(
         ``augmentation`` (``"jitter_0"`` through ``"jitter_{N-1}"``) and
         ``jitter_seed`` columns.  Coordinates in StatsBomb 120x80.
     """
+    logger.info("perturb_positions: input shape %s", df.shape)
     n_pert = config.n_perturbations
     n_players = len(df)
     half_length = config.pitch_length_m / 2.0
@@ -228,6 +232,7 @@ def augment_full(
         List of ``8 * (1 + pert_config.n_perturbations)`` DataFrames,
         all in StatsBomb 120x80 coordinates.
     """
+    logger.info("augment_full: input shape %s", df.shape)
     # Generate 8 symmetry variants (including original)
     symmetry_variants = augment_tracking_frame(df, sym_config, include_original=True)
 

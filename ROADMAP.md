@@ -781,7 +781,7 @@ Phase 12 implemented a simpler Off-Ball xT metric: `pitch_control(player_locatio
 
 ## <img src="assets/hf-logo.png" height="28" align="top"> HuggingFace Hub Integration (Open Model & Dataset Ecosystem)
 
-**Status:** Tiers 1&ndash;2 complete (2 models, 5 datasets published), Tier 4 complete (Gradio demo Space with luxury flagship theme). Tier 3 deferred to DEFCON Tier 4.
+**Status:** Tiers 1&ndash;2 complete (2 models, 7 datasets published), Tier 4 complete (Gradio demo Space with luxury flagship theme). Tier 3 deferred to DEFCON Tier 4.
 **Budget:** $0 (free tier) or $9/month (PRO for priority GPU access)
 **References:** [Databricks &hearts; HuggingFace](https://www.databricks.com/blog/contributing-spark-loader-for-hugging-face-datasets); [PyG Hub Integration](https://github.com/pyg-team/pytorch_geometric/issues/7170); [SoccerNet on HF](https://huggingface.co/SoccerNet)
 
@@ -864,7 +864,7 @@ A Gradio Space hosting a read-only demo with pre-cached Parquet subsets. Not a r
 
 **Live at:** [`luxury-lakehouse/soccer-analytics-demo`](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
 
-**Tabs** (in order): Pass Quality, Pitch Control, Player Similarity, Shot Map, DEFCON Pressure
+**Tabs** (in order): Pass Quality, Pass Timing, Pitch Control, Player Similarity, Shot Map, DEFCON Pressure
 
 **Theme:** Luxury flagship &mdash; `gr.themes.Monochrome` with dark surfaces (`#0f0f14`), amber/gold accents (`#f59e0b`), sharp corners, Inter font, and CSS-injected tab navigation with gold bottom-border active state.
 
@@ -893,7 +893,7 @@ A Gradio Space hosting a read-only demo with pre-cached Parquet subsets. Not a r
 - Tier 1 (consume) &mdash; **complete** (football2vec retrained on StatsBomb corpus)
 - Tier 2 (publish) &mdash; **complete** (2 models + 5 datasets published: [football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout), [xG model](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout), [SPADL/VAEP](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values), [Line-Breaking Passes](https://huggingface.co/datasets/luxury-lakehouse/line-breaking-passes), [Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings), [Pitch Control](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking), [Expected Threat Grids](https://huggingface.co/datasets/luxury-lakehouse/expected-threat-grids))
 - Tier 3 (train) depends on DL Infrastructure (ROADMAP) for GNN training pipeline
-- Tier 4 (demo) &mdash; **complete** (Gradio Space at [`luxury-lakehouse/soccer-analytics-demo`](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme and 5 tabs: pass quality, pitch control, player similarity, shot map, DEFCON pressure)
+- Tier 4 (demo) &mdash; **complete** (Gradio Space at [`luxury-lakehouse/soccer-analytics-demo`](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme and 6 tabs: pass quality, pass timing, pitch control, player similarity, shot map, DEFCON pressure)
 - Tier 5 (streaming) &mdash; blocked on Polars `hf://buckets/` merge (see below)
 - Synergistic with DL Infrastructure (HF models flow into MLflow + UC model registry)
 - Synergistic with Provider Abstraction (football2vec consumes same StatsBomb/Wyscout data)

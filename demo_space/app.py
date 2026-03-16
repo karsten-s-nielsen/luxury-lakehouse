@@ -190,6 +190,27 @@ def _comp_label(cid: str) -> str:
     return _COMP_NAMES.get(str(cid), f"Competition {cid}")
 
 
+# Human-readable match labels (CHI-AUDIT-190 Findings #4, #9, #10)
+_MATCH_NAMES: dict[str, str] = {
+    "game1": "Metrica Game 1",
+    "game2": "Metrica Game 2",
+    "game3": "Metrica Game 3",
+}
+
+# Auto-build IDSSE/PAUSA match labels from team data
+if not pausa_df.empty and "match_id" in pausa_df.columns and "team" in pausa_df.columns:
+    for _mid in pausa_df["match_id"].unique():
+        if str(_mid) not in _MATCH_NAMES:
+            _teams = sorted(pausa_df.loc[pausa_df["match_id"] == _mid, "team"].dropna().unique().tolist())
+            if len(_teams) >= 2:
+                _MATCH_NAMES[str(_mid)] = f"{_teams[0]} v {_teams[1]}"
+
+
+def _match_label(match_id: str) -> str:
+    """Return human-readable label for a match ID."""
+    return _MATCH_NAMES.get(str(match_id), str(match_id))
+
+
 # ---------------------------------------------------------------------------
 # Shot Map (mplsoccer)
 # ---------------------------------------------------------------------------
@@ -470,8 +491,10 @@ def create_pitch_control_plot(
     period: int,
     elapsed_sec: int,
     show_velocity: bool,
+    progress: gr.Progress = gr.Progress(),  # noqa: B008
 ) -> plt.Figure:
     """Create a pitch control surface plot for a single tracking frame."""
+    progress(0, desc="Computing pitch control surface\u2026")
     pitch = Pitch(pitch_type="statsbomb", pitch_color="#1a1a2e", line_color="#cccccc")
     fig, ax = pitch.draw(figsize=(12, 8))
     fig.set_facecolor("#1a1a2e")
@@ -597,7 +620,7 @@ def create_pitch_control_plot(
     seconds = int(timestamp % 60)
 
     title = (
-        f"Pitch Control \u2014 {match_id} | H{period} {minutes:02d}:{seconds:02d} | "
+        f"Pitch Control \u2014 {_match_label(match_id)} | H{period} {minutes:02d}:{seconds:02d} | "
         f"Home {home_control:.0f}% \u2013 Away {away_control:.0f}%"
     )
     ax.set_title(title, color="white", fontsize=13, pad=8)
@@ -723,7 +746,7 @@ def create_pressure_chart(player_name: str | None) -> plt.Figure | go.Figure:
         color_discrete_map=color_map,
         labels={
             "match_label": "Match",
-            "pressure_value": "Pressure Value",
+            "pressure_value": "Pressure Credits (higher = more impact)",
             "pressure_type": "Category",
         },
         title=f"Defensive Impact \u2014 {player_name} ({n_matches} matches, {total_actions} defensive actions)",
@@ -805,16 +828,33 @@ def create_pausa_scatter(match_id: str, team: str, player: str) -> go.Figure:
         color="team" if "team" in df.columns else None,
         hover_data=[name_col, "pausa_score"],
         labels={
-            "temporal_judgment": "Temporal Judgment (when)",
-            "spatial_selection": "Spatial Selection (where)",
+            "temporal_judgment": "Temporal Judgment (0\u20131, higher = better timing)",
+            "spatial_selection": "Spatial Selection (0\u20131, higher = better target)",
             "pausa_score": "PAUSA Score",
         },
-        title=f"Pass Timing \u2014 {match_id}",
+        title=f"Pass Timing \u2014 {_match_label(match_id)}",
         size_max=18,
     )
 
     fig.add_hline(y=0.5, line_dash="dash", line_color="gray", opacity=0.4)
     fig.add_vline(x=0.5, line_dash="dash", line_color="gray", opacity=0.4)
+
+    # Quadrant labels (CHI-AUDIT-190 Finding #5 — port from Streamlit pass_timing.py)
+    _annotations = [
+        {"x": 0.25, "y": 0.75, "text": "Good where,<br>poor when"},
+        {"x": 0.75, "y": 0.75, "text": "Good timing<br>& target"},
+        {"x": 0.25, "y": 0.25, "text": "Poor timing<br>& target"},
+        {"x": 0.75, "y": 0.25, "text": "Good when,<br>poor where"},
+    ]
+    for ann in _annotations:
+        fig.add_annotation(
+            x=ann["x"],
+            y=ann["y"],
+            text=ann["text"],
+            showarrow=False,
+            font={"size": 10, "color": "gray"},
+            opacity=0.6,
+        )
 
     fig.update_layout(
         template="plotly_dark",
@@ -874,7 +914,7 @@ def create_pausa_heatmap(match_id: str, team: str, player: str) -> plt.Figure:
     n_passes = len(valid)
     avg_pausa = float(valid["pausa_score"].mean()) if "pausa_score" in valid.columns else 0.0
     ax.set_title(
-        f"OBSO at Receiver \u2014 {n_passes} passes, Avg PAUSA {avg_pausa:.3f}",
+        f"OBSO at Receiver \u2014 {n_passes} passes, Avg PAUSA {avg_pausa:.3f} (0\u20131, higher = better)",
         color="white", fontsize=13, pad=8,
     )
 
@@ -913,13 +953,87 @@ def create_pausa_rankings(match_id: str) -> pd.DataFrame:
 def _update_pausa_teams(match_id: str) -> gr.Dropdown:
     """Update team dropdown when match changes."""
     teams = _get_pausa_teams(match_id)
-    return gr.Dropdown(choices=teams, value=teams[0] if teams else "All")
+    return gr.Dropdown(choices=teams, value=teams[0] if teams else "All", filterable=True)
 
 
 def _update_pausa_players(match_id: str, team: str) -> gr.Dropdown:
     """Update player dropdown when match/team changes."""
     players = _get_pausa_players(match_id, team)
-    return gr.Dropdown(choices=players, value=players[0] if players else "All")
+    return gr.Dropdown(choices=players, value=players[0] if players else "All", filterable=True)
+
+
+# ---------------------------------------------------------------------------
+# Per-tab glossary (CHI-AUDIT-190 Finding #1)
+# ---------------------------------------------------------------------------
+
+_TAB_GLOSSARY: dict[str, dict[str, str]] = {
+    "Pass Quality": {
+        "Line-Breaking Pass": (
+            "A pass that penetrates at least one defensive line, detected via "
+            "Ward clustering on 360 freeze-frame defender positions."
+        ),
+        "Progressive Pass": (
+            "A pass that moves the ball significantly closer to the opponent's goal."
+        ),
+    },
+    "Pass Timing": {
+        "PAUSA": (
+            "Passing Ability Under Spatiotemporal Awareness. Composite of temporal "
+            "judgment \u00d7 spatial selection. Higher = better pass timing and target "
+            "choice. (Lee et al., MIT Sloan 2026)"
+        ),
+        "Temporal Judgment": (
+            "Was the pass released at the optimal moment? Ratio of actual OBSO at "
+            "release to peak OBSO. 1.0 = perfect timing."
+        ),
+        "Spatial Selection": (
+            "Was the target location the best available? Ratio of actual OBSO at "
+            "target to maximum OBSO across all receivers. 1.0 = optimal target."
+        ),
+        "OBSO": (
+            "Off-Ball Scoring Opportunity. Continuous value surface: Pitch Control "
+            "\u00d7 Ball Transition \u00d7 Expected Possession Value. (Spearman 2018)"
+        ),
+    },
+    "Pitch Control": {
+        "Pitch Control": (
+            "Physics-based model estimating which team controls each point on the "
+            "pitch, based on player positions, velocities, and time-to-intercept."
+        ),
+    },
+    "Player Similarity": {
+        "Cosine Distance": (
+            "Similarity measure between player embedding vectors. "
+            "0.0 = identical playing style, 1.0 = completely different."
+        ),
+    },
+    "Shot Map": {
+        "xG (Expected Goals)": (
+            "Probability of scoring from each shot's location and context. "
+            "Higher = better chance. Sum over a match = team's expected output."
+        ),
+    },
+    "Defensive Impact": {
+        "DEFCON": (
+            "Defensive Contribution framework (Kim et al. 2025) \u2014 quantifies how "
+            "defenders affect an attacker's scoring probability via four categories."
+        ),
+        "Intercept": "Defender successfully won the ball from the attacker.",
+        "Concede": "Attacker received a shot or goal despite defensive pressure.",
+        "Disturb": "Defender disrupted the attacker's possession without winning the ball.",
+        "Deter": "Defender's presence prevented the attacker from progressing.",
+    },
+}
+
+
+def _render_tab_glossary(tab_name: str) -> None:
+    """Render a context-filtered glossary accordion at the bottom of a tab."""
+    terms = _TAB_GLOSSARY.get(tab_name, {})
+    if not terms:
+        return
+    lines = [f"**{term}:** {defn}" for term, defn in terms.items()]
+    with gr.Accordion("Glossary", open=False):
+        gr.Markdown("\n\n".join(lines))
 
 
 # ---------------------------------------------------------------------------
@@ -1080,7 +1194,11 @@ with demo:
     pitch control surfaces, and defensive pressure profiles from open-source soccer data.
 
     > *This Space runs on free CPU. First load may take 30-60 seconds while the container starts.
-    > The full platform has 11 analysis pages with 380+ matches across 5 data providers.*
+    > The full platform has 12 analysis pages with 380+ matches across 5 data providers.*
+
+    > **Getting started:** Click any tab to explore. Start with **Shot Map** for an overview,
+    > then try **Player Similarity** to find comparable players. Each tab has a
+    > **Glossary** accordion at the bottom with term definitions.
 
     **Data:** [StatsBomb](https://github.com/statsbomb/open-data) ·
     [Wyscout](https://figshare.com/collections/Soccer_match_event_dataset/4415000) ·
@@ -1091,7 +1209,8 @@ with demo:
     &nbsp;|&nbsp;
     **Datasets:** [SPADL/VAEP](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values) ·
     [Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings) ·
-    [Pitch Control](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking)
+    [Pitch Control](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking) ·
+    [OBSO/PAUSA](https://huggingface.co/datasets/luxury-lakehouse/obso-pausa-values)
     """
     )
 
@@ -1112,6 +1231,7 @@ with demo:
                 value="All",
                 label="Pass type",
                 interactive=True,
+                filterable=True,
             )
             lb_toggle = gr.Checkbox(value=True, label="Highlight line-breaking")
             completed_toggle = gr.Checkbox(value=False, label="Completed only")
@@ -1120,6 +1240,7 @@ with demo:
         pass_type_dd.change(fn=create_pass_map, inputs=_pass_inputs, outputs=pass_plot)
         lb_toggle.change(fn=create_pass_map, inputs=_pass_inputs, outputs=pass_plot)
         completed_toggle.change(fn=create_pass_map, inputs=_pass_inputs, outputs=pass_plot)
+        _render_tab_glossary("Pass Quality")
 
     with gr.Tab("Pass Timing"):
         gr.Markdown(
@@ -1139,14 +1260,13 @@ with demo:
 
         if not _pausa_matches:
             gr.Markdown(
-                "> **No PAUSA data available.** The `sample_pausa.parquet` file has not been "
-                "generated yet. This tab will populate after the OBSO batch (D16) and PAUSA "
-                "pipeline (D10) are run and results are exported."
+                "> **No PAUSA data available.** Pass timing analysis requires OBSO computation "
+                "and PAUSA pipeline data. Check back after the next data update."
             )
         else:
             with gr.Row():
                 pausa_match_dd = gr.Dropdown(
-                    choices=_pausa_matches,
+                    choices=[(_match_label(m), m) for m in _pausa_matches] if _pausa_matches else [],
                     value=_pausa_default_match,
                     label="Match",
                     interactive=True,
@@ -1165,7 +1285,7 @@ with demo:
                     filterable=True,
                 )
 
-            pausa_heatmap = gr.Plot(label="OBSO Receiver Heatmap")
+            pausa_heatmap = gr.Plot(label="Receiver Locations (Off-Ball Scoring Opportunity)")
             pausa_scatter = gr.Plot(label="Temporal vs Spatial")
             pausa_rankings = gr.Dataframe(label="Player Rankings")
 
@@ -1215,6 +1335,7 @@ with demo:
                 "- **Avg Spatial**: Was the target the best option? 1.0 = optimal receiver choice.\n"
                 "- **Passes**: Number of evaluated passes (more = more reliable average)."
             )
+        _render_tab_glossary("Pass Timing")
 
     with gr.Tab("Pitch Control"):
         gr.Markdown(
@@ -1232,7 +1353,7 @@ with demo:
 
         with gr.Row():
             pc_match = gr.Dropdown(
-                choices=_tracking_matches,
+                choices=[(_match_label(m), m) for m in _tracking_matches] if _tracking_matches else [],
                 value=_default_match,
                 label="Match",
                 interactive=True,
@@ -1266,6 +1387,7 @@ with demo:
 
         # Render initial plot after page loads (avoids blocking startup)
         demo.load(fn=create_pitch_control_plot, inputs=_pc_inputs, outputs=pc_plot)
+        _render_tab_glossary("Pitch Control")
 
     with gr.Tab("Player Similarity"):
         gr.Markdown(
@@ -1288,8 +1410,14 @@ with demo:
             find_similar_players(_default_similarity_player) if _default_similarity_player else pd.DataFrame()
         )
         results_table = gr.Dataframe(label="Similar Players", value=_initial_similarity)
+        gr.Markdown(
+            "*Interpretation: cosine distance < 0.20 = Very Similar, "
+            "< 0.35 = Similar, < 0.50 = Moderately Similar, \u2265 0.50 = Different. "
+            "Lower distance = more similar playing style.*"
+        )
         player_dropdown.change(fn=find_similar_players, inputs=[player_dropdown, top_k_input], outputs=results_table)
         top_k_input.change(fn=find_similar_players, inputs=[player_dropdown, top_k_input], outputs=results_table)
+        _render_tab_glossary("Player Similarity")
 
     with gr.Tab("Shot Map"):
         gr.Markdown(
@@ -1309,6 +1437,7 @@ with demo:
         shot_plot = gr.Plot(label="Shot Map", value=create_shot_map("All", False))
         shot_comp.change(fn=create_shot_map, inputs=[shot_comp, shot_goals_only], outputs=shot_plot)
         shot_goals_only.change(fn=create_shot_map, inputs=[shot_comp, shot_goals_only], outputs=shot_plot)
+        _render_tab_glossary("Shot Map")
 
     with gr.Tab("Defensive Impact"):
         gr.Markdown(
@@ -1332,6 +1461,7 @@ with demo:
         defcon_plot = gr.Plot(label="Defensive Impact Breakdown", value=_initial_defcon)
 
         defcon_dropdown.change(fn=create_pressure_chart, inputs=[defcon_dropdown], outputs=defcon_plot)
+        _render_tab_glossary("Defensive Impact")
 
     gr.Markdown(
         """
@@ -1345,7 +1475,9 @@ with demo:
     [SPADL/VAEP](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values) |
     [Line-Breaking Passes](https://huggingface.co/datasets/luxury-lakehouse/line-breaking-passes) |
     [Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings) |
-    [Pitch Control](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking)
+    [Pitch Control](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking) |
+    [OBSO/PAUSA Inputs](https://huggingface.co/datasets/luxury-lakehouse/obso-pausa-inputs) |
+    [OBSO/PAUSA Values](https://huggingface.co/datasets/luxury-lakehouse/obso-pausa-values)
 
     **Models:** [football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) |
     [xG model](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout) |

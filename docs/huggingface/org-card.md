@@ -17,7 +17,7 @@ pinned: false
 
 Open-source soccer analytics platform built on **Databricks Lakebase** &mdash; replacing a 6-service traditional AWS pipeline with a unified lakehouse architecture that scales to zero. The Hugging Face Hub serves as the public distribution layer for models, datasets, and interactive demos.
 
-> **Try it now:** [Interactive Gradio Demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) &mdash; pass quality, pitch control, player similarity, shot maps, and defensive pressure from open-source soccer data.
+> **Try it now:** [Interactive Gradio Demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) &mdash; pass quality, pass timing, pitch control, player similarity, shot maps, and defensive pressure from open-source soccer data.
 
 ---
 
@@ -30,7 +30,7 @@ The infrastructure uses a **Medallion architecture** (Bronze &rarr; Silver &rarr
 - **12 Streamlit dashboard pages** deployed natively on Databricks Apps, serving coaches, scouts, and analysts
 - **19 synced tables** with Zero-ETL continuous sync from Gold Delta Lake to Lakebase PostgreSQL 17
 - **38 PostgreSQL indexes** (34 btree + 4 HNSW vector indexes) for sub-10ms OLTP queries
-- Pipeline reliability enforced through **704 unit tests** (714+ with gensim) and **381 dbt data tests**
+- Pipeline reliability enforced through **762 unit tests** (774+ with gensim) and **381 dbt data tests**
 
 ## The Hugging Face Footprint
 
@@ -91,9 +91,9 @@ The platform maintains professional-grade engineering standards:
 
 - **Security**: OAuth M2M everywhere, HTTPS-only, zero secrets in code, input validation on all identifiers, SSL verification enforced, JSON-only model serialization
 - **Type safety**: Pyright basic mode, Pydantic models for configuration
-- **Testing**: 704 pytest unit tests (714+ with gensim, including performance benchmarks), 381 dbt data quality tests
+- **Testing**: 762 pytest unit tests (774+ with gensim, including performance benchmarks), 381 dbt data quality tests
 - **CI/CD**: GitHub Actions with OIDC federation (zero-secret CI), ruff linting, pre-commit hooks
-- **UX discipline**: 50 of 53 findings resolved from a cognitive interface audit grounded in 15 HCI frameworks (Norman, Sweller, Gergle, Kahneman, Cleveland &amp; McGill, and others) &mdash; every metric has a help tooltip, every page has academic citations, every analytics term is defined in a context-sensitive glossary
+- **UX discipline**: 71 of 78 findings resolved across two cognitive interface audits (CHI-AUDIT-180, CHI-AUDIT-190), grounded in 15 HCI frameworks (Norman, Sweller, Gergle, Kahneman, Cleveland &amp; McGill, and others) &mdash; every metric has a help tooltip, every page has academic citations, every analytics term is defined in a context-sensitive glossary (Streamlit and HF Space)
 
 ## Links
 

@@ -117,7 +117,7 @@ The `src/analytics/` modules (pitch control, line-breaking, DEFCON, off-ball xT,
 
 ## Status
 
-**Phase 19 complete** — 12 Streamlit pages, 19 synced tables, 38 PG indexes, 704 unit tests (714+ with gensim). HuggingFace Hub: 2 models ([football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout), [xG](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout)) + 7 datasets published, [Gradio demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme (6 tabs). Custom xG model (calibrated XGBoost, ROC-AUC 0.979) scoring 87,999 shots. Data-driven xT grid computed from 2.2M SPADL actions. See [ARCHITECTURE.md](ARCHITECTURE.md) for the platform architecture and [ROADMAP.md](ROADMAP.md) for research directions.
+**Phase 19 complete** — 12 Streamlit pages, 19 synced tables, 38 PG indexes, 762 unit tests (774+ with gensim). HuggingFace Hub: 2 models ([football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout), [xG](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout)) + 7 datasets published, [Gradio demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme (6 tabs). Custom xG model (calibrated XGBoost, ROC-AUC 0.979) scoring 87,999 shots. Data-driven xT grid computed from 2.2M SPADL actions. See [ARCHITECTURE.md](ARCHITECTURE.md) for the platform architecture and [ROADMAP.md](ROADMAP.md) for research directions.
 
 | Phase | Description | Status |
 |-------|-------------|--------|

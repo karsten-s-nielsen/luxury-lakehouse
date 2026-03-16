@@ -19,7 +19,7 @@
 #   compute_pausa     — PAUSA pass timing pipeline (depends on elastic_sync + OBSO import)
 #   resolve_players   — Cross-source entity resolution (depends on statsbomb + wyscout)
 #   compute_embeddings — Player behavioral + statistical embeddings (depends on entity resolution)
-#   run_model_validation — Model drift detection (depends on dbt_build + compute_pausa)
+#   run_model_validation — Model drift detection (depends on compute_pausa)
 #
 # Schedule: Daily at 06:00 UTC (before business hours in US/EU timezones)
 #

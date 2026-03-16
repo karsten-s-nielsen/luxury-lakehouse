@@ -234,9 +234,11 @@ def render_onboarding_sidebar() -> None:
                 "4. **Player Similarity** — find comparable players by style\n"
                 "5. **Action Values** — who contributed most? (VAEP)\n"
                 "6. **Defensive Impact** — pressure on attackers (DEFCON)\n\n"
+                "**Advanced pages** (tracking data, ~20 matches): "
+                "Movement & Pressing, Pitch Control, Pass Timing (PAUSA), "
+                "Defensive Impact.\n\n"
                 "**How to start:** Use the sidebar filters to select a competition, "
-                "then a team and match. Pages under *Advanced* require tracking data "
-                "(~20 matches from Metrica, IDSSE, SkillCorner).\n\n"
+                "then a team and match.\n\n"
                 "Hover over **?** on any metric for an explanation. "
                 "Use **Glossary** below for terms."
             )

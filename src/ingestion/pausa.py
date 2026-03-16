@@ -262,10 +262,11 @@ def run_pipeline(
     catalog: str,
     schema: str,
     logger: logging.Logger,
-) -> None:
+) -> int:
     """Execute the PAUSA computation pipeline."""
     total = _process_matches(spark, catalog, schema, logger)
     logger.info("PAUSA pipeline complete — %d total rows written", total)
+    return total
 
 
 def main() -> None:

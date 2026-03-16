@@ -187,7 +187,7 @@ def _render_physical() -> None:
     c4.metric(
         "Max Speed (m/s)",
         f"{stats['max_speed_ms'].max():.1f}",
-        help=METRIC_HELP.get("Max Speed"),
+        help=METRIC_HELP.get("Max Speed (m/s)"),
     )
 
     fig = plot_physical_bars(stats, col_name, col_label, title=str(selected_metric), label_col="player_name")

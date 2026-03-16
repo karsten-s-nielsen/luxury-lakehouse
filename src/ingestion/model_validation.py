@@ -31,6 +31,7 @@ from ingestion.utils import (
     configure_logging,
     get_spark_session,
     parse_ingestion_args,
+    validate_dataframe,
     write_delta_table,
 )
 
@@ -94,7 +95,7 @@ def _validate_xg_predictions(
     table = f"{catalog}.{_GOLD_SCHEMA}.fct_xg_predictions"
 
     try:
-        xg_df = spark.table(table).select("xg_prediction").toPandas()
+        xg_df = spark.table(table).select("xg_prediction").limit(500_000).toPandas()
     except Exception:
         logger.warning("Cannot read %s — skipping xG validation", table)
         return results
@@ -149,7 +150,7 @@ def _validate_action_values(
     table = f"{catalog}.{_GOLD_SCHEMA}.fct_action_values"
 
     try:
-        vaep_df = spark.table(table).select("vaep_value").toPandas()
+        vaep_df = spark.table(table).select("vaep_value").limit(500_000).toPandas()
     except Exception:
         logger.warning("Cannot read %s — skipping VAEP validation", table)
         return results
@@ -246,7 +247,7 @@ def _validate_physical_stats(
     table = f"{catalog}.{_GOLD_SCHEMA}.fct_physical_stats"
 
     try:
-        phys_df = spark.table(table).select("max_speed_ms").toPandas()
+        phys_df = spark.table(table).select("max_speed_ms").limit(500_000).toPandas()
     except Exception:
         logger.warning("Cannot read %s — skipping physical stats validation", table)
         return results
@@ -338,12 +339,12 @@ def run_pipeline(
     """Execute the full model validation pipeline.
 
     Loads baselines, runs all model-specific validators, writes results to
-    ``dev_gold.model_validation_runs``, and emits structured logs.
+    ``{schema}.model_validation_runs``, and emits structured logs.
 
     Args:
         spark: Active SparkSession.
         catalog: Unity Catalog name.
-        schema: Target schema (unused — always writes to dev_gold).
+        schema: Target schema for writing validation results.
         logger: Structured JSON logger.
 
     Returns:
@@ -393,14 +394,21 @@ def run_pipeline(
     results_pdf = _results_to_dataframe(all_results, run_id, run_date)
     results_sdf = spark.createDataFrame(results_pdf)
 
+    row_count = validate_dataframe(
+        results_sdf,
+        ["run_id", "model_name", "metric_name", "value", "status"],
+        "model_validation_runs",
+        logger,
+    )
+
     written = write_delta_table(
         results_sdf,
         catalog,
-        _GOLD_SCHEMA,
+        schema,
         _TABLE_NAME,
         replace_where=f"run_id = '{run_id}'",
         logger=logger,
-        row_count=len(all_results),
+        row_count=row_count,
     )
 
     logger.info(

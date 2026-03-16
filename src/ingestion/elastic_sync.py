@@ -50,20 +50,6 @@ _TABLE_NAME = "elastic_sync_results"
 
 _RESULT_COLUMNS = ["match_id", "event_id", "frame_id", "alignment_confidence", "alignment_error_seconds"]
 
-# Minimum columns needed from tracking — keeps per-match pandas footprint
-# at ~170 MB instead of the full-width ~240 MB+.
-_TRACKING_SELECT_COLS = [
-    "match_id",
-    "frame",
-    "period",
-    "player_id",
-    "x",
-    "y",
-    "ball_x",
-    "ball_y",
-    "frame_rate",
-]
-
 
 # ---------------------------------------------------------------------------
 # Per-match driver-side processing

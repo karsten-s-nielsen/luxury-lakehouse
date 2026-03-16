@@ -18,7 +18,7 @@ tags:
   - statsbomb
   - pitch-control
   - defcon
-short_description: Pass quality, pitch control, player similarity, DEFCON, pass timing
+short_description: Pass quality, pitch control, similarity, DEFCON, PAUSA
 ---
 
 # Soccer Analytics Explorer

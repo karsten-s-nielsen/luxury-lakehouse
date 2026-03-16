@@ -60,12 +60,12 @@ def extract_ball_features(
         ``ball_vx``, ``ball_vy``, ``ball_speed``, ``ball_accel``.
         One row per unique (period, frame) combination.
     """
-    _ball_feature_cols = pd.Index(
+    ball_feature_cols = pd.Index(
         ["frame", "period", "ball_x", "ball_y", "ball_vx", "ball_vy", "ball_speed", "ball_accel"]
     )
 
     if tracking_df.empty:
-        return pd.DataFrame(columns=_ball_feature_cols)
+        return pd.DataFrame(columns=ball_feature_cols)
 
     # Deduplicate to one row per (period, frame) — take first ball position
     ball_df = (
@@ -77,7 +77,7 @@ def extract_ball_features(
     )
 
     if ball_df.empty:
-        return pd.DataFrame(columns=_ball_feature_cols)
+        return pd.DataFrame(columns=ball_feature_cols)
 
     dt = 1.0 / frame_rate
 
@@ -211,12 +211,12 @@ def align_events_to_frames(
     # Lookup 2: (period, frame, player_id) -> distance — vectorized over all rows
     distance_lookup = _build_player_ball_distance_lookup(tracking_df)
 
-    # Get sorted unique frames per period for candidate window search
-    frames_by_period: dict[int, np.ndarray] = {}
-    for period_val in ball_features["period"].unique():
-        period_int = int(period_val)
-        period_frames = ball_features.loc[ball_features["period"] == period_int, "frame"].values
-        frames_by_period[period_int] = np.sort(np.asarray(period_frames, dtype=np.int64))
+    # Pre-build period index (CLAUDE.md: no boolean mask filter inside loops)
+    _period_groups = dict(iter(ball_features.groupby("period")))
+    frames_by_period: dict[int, np.ndarray] = {
+        int(k): np.sort(np.asarray(g["frame"].values, dtype=np.int64))  # type: ignore[arg-type]
+        for k, g in _period_groups.items()
+    }
 
     window_frames = int(params.window_seconds * frame_rate)
     results: list[dict[str, object]] = []

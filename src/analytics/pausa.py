@@ -20,8 +20,12 @@ Optimal Pass Timing Beyond Speed." MIT Sloan 2026.
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def compute_pausa_scores(df: pd.DataFrame) -> pd.DataFrame:
@@ -35,7 +39,9 @@ def compute_pausa_scores(df: pd.DataFrame) -> pd.DataFrame:
         Input DataFrame augmented with ``temporal_judgment``,
         ``spatial_selection``, and ``pausa_score`` columns.
     """
+    logger.debug("compute_pausa_scores: input shape %s", df.shape)
     if df.empty:
+        logger.debug("compute_pausa_scores: early exit — empty DataFrame")
         result = df.copy()
         result["temporal_judgment"] = pd.Series(dtype=np.float64)
         result["spatial_selection"] = pd.Series(dtype=np.float64)
