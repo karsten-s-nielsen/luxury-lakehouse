@@ -98,7 +98,7 @@ module "catalog" {
   environment                 = var.environment
   ingestion_sp_application_id = module.service_principals.ingestion_sp_application_id
   enable_ingestion_sp_grants  = true
-  app_sp_application_id       = module.app.service_principal_client_id
+  app_sp_application_id       = "" # Databricks App deprecated — Streamlit runs on HF Spaces
   silver_schema_override      = "${var.environment}_silver"
   gold_schema_override        = "${var.environment}_gold"
 }
@@ -151,15 +151,10 @@ module "synced_tables" {
   gold_schema            = "${var.environment}_gold"
 }
 
-# ── Module: App (Streamlit Dashboard) ────────────────────────────────────────
-# Deploys the soccer analytics Streamlit app on Databricks Apps.
-
-module "app" {
-  source = "../../modules/app"
-
-  environment      = var.environment
-  sql_warehouse_id = module.sql_warehouse.warehouse_id
-}
+# ── Databricks App (DEPRECATED) ──────────────────────────────────────────────
+# Streamlit dashboard migrated to HF Spaces (luxury-lakehouse/soccer-analytics-app).
+# The databricks_app resource and terraform/modules/app/ have been removed.
+# Lakebase auth uses PAT-based OAuth via HF Space secrets.
 
 # ── CI Service Principal: Catalog Access ───────────────────────────────────
 # The terraform_ci SP needs ALL_PRIVILEGES on the catalog so terraform plan

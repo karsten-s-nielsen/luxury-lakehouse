@@ -138,7 +138,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 ┌───────────────────────────────────────────────────────────────────────────┐
 │          STREAMLIT APPLICATION                                            │
 │  ┌───────────────────────────────────────────────────────────────────┐    │
-│  │  Deployed as Databricks App (serverless runtime)                  │    │
+│  │  Deployed on HuggingFace Spaces (Docker SDK)                      │    │
 │  │  • OAuth M2M auth (automatic token rotation, no passwords)        │    │
 │  │  • Connects to Lakebase via psycopg2 (ThreadedConnectionPool)     │    │
 │  │  • 12 pages: Shot Map, Pass Map, Heat Map, Pass Network,          │    │
@@ -266,7 +266,7 @@ System Boundary: Soccer Analytics Platform (Databricks on AWS)
   │   Technology: PostgreSQL 17, Autoscaling (0.5–4 CU), pgvector
   │   Responsibility: Low-latency OLTP queries for the Streamlit app
   │
-  └── Streamlit Dashboard          [Databricks App]
+  └── Streamlit Dashboard          [HuggingFace Spaces (Docker SDK)]
       Technology: Python + Streamlit + mplsoccer + Plotly + psycopg2
       Responsibility: Interactive analytics UI for coaches/analysts
 ```
@@ -297,7 +297,7 @@ docs/c4/
 | Decision | Rationale |
 |----------|-----------|
 | **Terraform** with Databricks provider | Official `databricks/databricks` provider; multi-cloud; S3+native-locking state backend |
-| **Terraform modules** | Separate modules per concern: workspace, catalog, lakebase, workflows, sql_warehouse, synced_tables, app, service_principals, github_oidc, state_kms |
+| **Terraform modules** | Separate modules per concern: workspace, catalog, lakebase, workflows, sql_warehouse, synced_tables, service_principals, github_oidc, state_kms |
 | **Remote state** | S3 backend with native locking, KMS CMK encryption |
 
 ### Python Tooling
@@ -370,7 +370,7 @@ luxury-lakehouse/
 │   │   ├── sql_warehouse/            # Serverless SQL Warehouse
 │   │   ├── workflows/                # Ingestion job definitions
 │   │   ├── synced_tables/            # Gold → Lakebase sync (19 synced tables)
-│   │   ├── app/                      # Databricks App (Streamlit)
+│   │   ├── app/                      # (removed — Streamlit migrated to HF Spaces)
 │   │   ├── service_principals/       # Ingestion SP, App SP, CI SP + federation
 │   │   ├── github_oidc/              # AWS IAM OIDC provider + scoped role
 │   │   └── state_kms/                # KMS CMK for Terraform state encryption
@@ -479,7 +479,7 @@ luxury-lakehouse/
 │   ├── import_obso_results.py        # Download OBSO Parquet from HF Hub → bronze Delta tables
 │   ├── import_synced_tables.sh       # Terraform import workflow (19 tables)
 │   ├── lakebase_grants.sql           # PG GRANT SELECT for Streamlit SP
-│   └── deploy.sh                     # Databricks sync + app deploy
+│   └── deploy.sh                     # Wheel build + Terraform apply + ingestion trigger
 │
 ├── .github/workflows/
 │   ├── python-ci.yml                 # ruff + pyright + pytest

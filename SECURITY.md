@@ -24,7 +24,7 @@ All actionable findings from the February 2026 audit have been resolved. The 3 a
 | ID | Severity | Issue | Rationale |
 |----|----------|-------|-----------|
 | M-7 | Medium | No `databricks_ip_access_list` — workspace API reachable from any IP with valid credentials | IP access lists require static IPs — impractical for solo developers and CI runners with dynamic IPs. Effectively an enterprise control. |
-| L-5 | Low | OAuth token stored in plain memory, not zeroed on eviction | Python strings are immutable — cannot be zeroed in place. Token is short-lived (60 min) and only accessible within the Databricks Apps process. |
+| L-5 | Low | OAuth token stored in plain memory, not zeroed on eviction | Python strings are immutable — cannot be zeroed in place. Token is short-lived (60 min) and only accessible within the HF Spaces Docker container process. |
 | L-16 | Low | `sslmode=require` instead of `verify-full` for Lakebase | Databricks Lakebase Autoscaling endpoints require `sslmode=require` — `verify-full` fails because the dynamic endpoint hostname is not in the server certificate SAN. Connection is encrypted; traffic stays within the Databricks-managed VPC. |
 
 ---
@@ -102,7 +102,7 @@ All actionable findings from the February 2026 audit have been resolved. The 3 a
 | Phase | Standard | Enterprise |
 |-------|----------|------------|
 | Phase 0: Code Patterns | 24/24 checked | SAST: not configured |
-| Phase 3: Infrastructure | 9 checks passed | WAF: not applicable (Databricks Apps) |
+| Phase 3: Infrastructure | 9 checks passed | WAF: not applicable (HF Spaces Docker) |
 | Phase 5: Web Headers | 12 checks passed | CDN headers: Databricks-managed |
 | Phase 6: API Security | 10 checks passed | API gateway WAF: not applicable |
 | Phase 7: Auth & Session | 14 checks passed | MFA: Databricks workspace SSO |

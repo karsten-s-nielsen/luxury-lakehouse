@@ -860,7 +860,7 @@ All artifacts fit within HF's free 10 GB/repo Git LFS limit. Dataset repos get a
 
 **Status:** Complete
 
-A Gradio Space hosting a read-only demo with pre-cached Parquet subsets. Not a replacement for the Databricks Apps deployment (which has live Lakebase connectivity), but a public portfolio piece showcasing the platform's analytics capabilities.
+A Gradio Space hosting a read-only demo with pre-cached Parquet subsets. Complements the primary Streamlit deployment on HuggingFace Spaces (which has live Lakebase connectivity) as a lightweight public portfolio piece.
 
 **Live at:** [`luxury-lakehouse/soccer-analytics-demo`](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
 
@@ -885,7 +885,7 @@ A Gradio Space hosting a read-only demo with pre-cached Parquet subsets. Not a r
 2. ~~**football2vec evaluation**~~ Resolved &mdash; retrained on full ~3,000-match StatsBomb corpus (not pre-trained weights). 32-dim Doc2Vec model saved to UC Volume + HF Hub.
 3. ~~**sentence-transformers for entity resolution**~~ Resolved &mdash; Phase 14 complete using TF-IDF + rapidfuzz (2,388 matches). Sentence-transformers remains an option for future embedding-based matching if needed.
 4. ~~**Publishing priority**~~ Resolved &mdash; Phase 15 model weights published to `luxury-lakehouse/football2vec-statsbomb-wyscout`.
-5. ~~**Space framework**~~ Resolved &mdash; Gradio chosen for model/dataset demos. Deployed at `luxury-lakehouse/soccer-analytics-demo`. Streamlit remains the primary Databricks Apps deployment for live Lakebase connectivity.
+5. ~~**Space framework**~~ Resolved &mdash; Gradio chosen for model/dataset demos. Deployed at `luxury-lakehouse/soccer-analytics-demo`. Streamlit primary deployment migrated to HuggingFace Spaces (Docker SDK) at `luxury-lakehouse/soccer-analytics-app` with live Lakebase connectivity.
 6. **HF Jobs vs RunPod**: Defer comparison until DEFCON Tier 4, or benchmark early with a small training run?
 
 ### Dependencies

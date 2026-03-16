@@ -1194,7 +1194,7 @@ with demo:
     pitch control surfaces, and defensive pressure profiles from open-source soccer data.
 
     > *This Space runs on free CPU. First load may take 30-60 seconds while the container starts.
-    > The full platform has 12 analysis pages with 380+ matches across 5 data providers.*
+    > The [full platform](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) has 12 analysis pages with 380+ matches across 5 data providers.*
 
     > **Getting started:** Click any tab to explore. Start with **Shot Map** for an overview,
     > then try **Player Similarity** to find comparable players. Each tab has a
@@ -1466,9 +1466,10 @@ with demo:
     gr.Markdown(
         """
     ---
-    *This is a sample demo with pre-cached data subsets. The full production platform
-    adds: 380+ matches across 5 data providers, custom xG model comparison,
-    match summary scorecards, player comparison radars, PPDA pressing analysis, and
+    *This is a sample demo with pre-cached data subsets.
+    **[Try the full platform →](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)**
+    — 380+ matches across 5 data providers, 12 analysis pages with live data,
+    custom xG model comparison, player comparison radars, PPDA pressing analysis, and
     cross-player entity resolution across 11,918 unified players.*
 
     **Published datasets:**
