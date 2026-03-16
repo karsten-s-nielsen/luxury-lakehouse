@@ -44,7 +44,7 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 | **Synchronization** | Lakeflow Synced Tables | Zero-ETL continuous sync from Gold → Lakebase |
 | **Serving** | Lakebase PostgreSQL 17 (Autoscaling) | Sub-10ms OLTP queries, native pgvector, scale-to-zero |
 | **Application** | Streamlit on Databricks Apps | Interactive dashboards with mplsoccer visualizations |
-| **ML Artifacts** | [HuggingFace Hub](https://huggingface.co/luxury-lakehouse) | Publish [2 models](https://huggingface.co/luxury-lakehouse) ([football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout), [xG](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout)), [5 datasets](https://huggingface.co/luxury-lakehouse), and [demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) |
+| **ML Artifacts** | [HuggingFace Hub](https://huggingface.co/luxury-lakehouse) | Publish [2 models](https://huggingface.co/luxury-lakehouse) ([football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout), [xG](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout)), [7 datasets](https://huggingface.co/luxury-lakehouse), and [demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) |
 | **Security** | OAuth M2M + OIDC Federation + KMS | Zero-secret CI, least-privilege SPs, encrypted state |
 | **Infrastructure** | Terraform + Databricks Provider | Everything as code |
 
@@ -54,8 +54,8 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 |----------|-----------|--------|---------|----------|
 | [StatsBomb Open Data](https://github.com/statsbomb/open-data) | Match events + 360 context | Nested JSON | CC-BY 4.0 | ~3,000 matches |
 | [Metrica Sports](https://github.com/metrica-sports/sample-data) | Optical tracking (25 fps) | CSV/EPTS | Unlicensed | 3 sample matches |
-| [Wyscout](https://figshare.com/collections/Soccer_match_event_dataset/4415000) | Event streams | JSON | CC-BY 4.0 | Top 5 leagues |
-| [IDSSE (Bundesliga)](https://figshare.com/collections/DFL_-_Bundesliga_Data_Shootout/5830772) | DFL tracking (25 fps) | XML | CC-BY 4.0 | 7 matches |
+| [Wyscout](https://figshare.com/collections/Soccer_match_event_dataset/4415000) | Event streams | JSON | CC-BY-NC 4.0 | Top 5 leagues |
+| [IDSSE (Bundesliga)](https://figshare.com/collections/DFL_-_Bundesliga_Data_Shootout/5830772) | DFL tracking (25 fps) + events | XML | CC-BY 4.0 | 7 matches |
 | [SkillCorner](https://github.com/SkillCorner/opendata) | Broadcast tracking (10 fps) | JSONL | MIT | 10 A-League matches |
 | *Respo.Vision* (planned) | 3D pose tracking | JSON | Own footage | Own recordings |
 
@@ -75,6 +75,7 @@ Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by 
 - **Cross-Source Entity Resolution** — Three-layer progressive player matching (TF-IDF + rapidfuzz + bidirectional validation) inspired by US Soccer's glass_onion
 - **Player Embeddings** — Dual-vector player representation: 32-dim Doc2Vec behavioral + 13-dim statistical z-score, published to HuggingFace Hub
 - **Player Similarity** — pgvector HNSW cosine-distance search ("Find players like X") with interactive Streamlit page
+- **PAUSA Pass Timing** — Optimal pass timing decomposition: temporal judgment vs spatial selection, OBSO value surfaces (Lee et al. 2026)
 - **Player Comparison** — Per-90 stat comparison across multiple metrics (incl. DEFCON pressure/90)
 
 ## Project Structure
@@ -87,7 +88,7 @@ luxury-lakehouse/
 │   ├── ingestion/      # Data ingestion + compute pipelines (StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner, pitch control batch)
 │   └── streamlit_app/  # Interactive analytics dashboard
 ├── notebooks/          # Databricks notebooks (football2vec/xG training, model weight sync, dataset publishing to HF Hub)
-├── demo_space/         # HuggingFace Gradio demo Space (pass quality, pitch control, player similarity, shot map, DEFCON pressure)
+├── demo_space/         # HuggingFace Gradio demo Space (pass quality, pitch control, player similarity, shot map, DEFCON pressure, pass timing)
 ├── dbt_project/        # Bronze → Silver → Gold transformations
 ├── scripts/            # Operational scripts (PG indexes, grants, synced table management)
 ├── docs/
@@ -116,7 +117,7 @@ The `src/analytics/` modules (pitch control, line-breaking, DEFCON, off-ball xT,
 
 ## Status
 
-**Phase 18 complete + predictive models deployed** — 11 Streamlit pages, 17 synced tables, 36 PG indexes, 614 unit tests. HuggingFace Hub: 2 models ([football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout), [xG](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout)) + 5 datasets published, [Gradio demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme. Custom xG model (calibrated XGBoost, ROC-AUC 0.979) scoring 87,999 shots. Data-driven xT grid computed from 2.2M SPADL actions. See [ARCHITECTURE.md](ARCHITECTURE.md) for the platform architecture and [ROADMAP.md](ROADMAP.md) for research directions.
+**Phase 19 complete** — 12 Streamlit pages, 19 synced tables, 38 PG indexes, 704 unit tests (714+ with gensim). HuggingFace Hub: 2 models ([football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout), [xG](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout)) + 7 datasets published, [Gradio demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme (6 tabs). Custom xG model (calibrated XGBoost, ROC-AUC 0.979) scoring 87,999 shots. Data-driven xT grid computed from 2.2M SPADL actions. See [ARCHITECTURE.md](ARCHITECTURE.md) for the platform architecture and [ROADMAP.md](ROADMAP.md) for research directions.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -141,6 +142,7 @@ The `src/analytics/` modules (pitch control, line-breaking, DEFCON, off-ball xT,
 | 16 | Player Similarity Page (pgvector HNSW) | Complete |
 | 17 | DEFCON-lite Defensive Pressure | Complete |
 | 18 | HuggingFace Hub Expansion | Complete |
+| 19 | Model Ops & Event Sync (ELASTIC, PAUSA, drift detection) | Complete |
 
 ## Tech Stack
 

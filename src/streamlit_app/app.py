@@ -12,6 +12,7 @@ from streamlit_app.pages.match_summary import page as match_summary_page
 from streamlit_app.pages.movement_analysis import page as movement_analysis_page
 from streamlit_app.pages.pass_map import page as pass_map_page
 from streamlit_app.pages.pass_network import page as pass_network_page
+from streamlit_app.pages.pass_timing import page as pass_timing_page
 from streamlit_app.pages.pitch_control import page as pitch_control_page
 from streamlit_app.pages.player_radar import page as player_radar_page
 from streamlit_app.pages.player_similarity import page as player_similarity_page
@@ -66,6 +67,7 @@ def main() -> None:
                 url_path="movement-analysis",
             ),
             st.Page(pitch_control_page, title="Pitch Control", icon=":material/grid_on:", url_path="pitch-control"),
+            st.Page(pass_timing_page, title="Pass Timing", icon=":material/timer:", url_path="pass-timing"),
             st.Page(
                 defensive_valuation_page,
                 title="Defensive Impact",
@@ -94,6 +96,7 @@ def main() -> None:
             "Player Similarity": "player-similarity",
             "Movement & Pressing": "movement-analysis",
             "Pitch Control": "pitch-control",
+            "Pass Timing": "pass-timing",
             "Defensive Impact": "defensive-valuation",
         }
         current_page = title_to_path.get(title, "")

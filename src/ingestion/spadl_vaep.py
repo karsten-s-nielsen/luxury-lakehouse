@@ -598,6 +598,38 @@ def train_vaep_models(
     return model_scores, model_concedes
 
 
+def _try_load_champion_vaep(
+    logger: logging.Logger,
+) -> tuple[XGBClassifier, XGBClassifier] | None:
+    """Try to load VAEP models from MLflow @Champion alias.
+
+    Returns (model_scores, model_concedes) if found, None otherwise.
+    Falls back gracefully when mlflow is not installed or models are not registered.
+    """
+    try:
+        import importlib
+
+        mlflow_pyfunc = importlib.import_module("mlflow.pyfunc")
+    except (ImportError, ModuleNotFoundError):
+        logger.info("mlflow not available — will train VAEP models from scratch")
+        return None
+
+    model_name = "soccer_analytics.dev_gold.vaep_model"
+    try:
+        model_uri = f"models:/{model_name}@Champion"
+        logger.info("Loading VAEP @Champion from %s", model_uri)
+        champion = mlflow_pyfunc.load_model(model_uri)
+        # The pyfunc wrapper stores both models as a dict of XGBClassifier
+        unwrapped = champion.unwrap_python_model()  # type: ignore[union-attr]
+        model_scores: XGBClassifier = unwrapped.scores_model  # type: ignore[union-attr]
+        model_concedes: XGBClassifier = unwrapped.concedes_model  # type: ignore[union-attr]
+        logger.info("Loaded VAEP @Champion models from MLflow")
+        return model_scores, model_concedes
+    except Exception:
+        logger.info("VAEP @Champion not found in MLflow registry — will train from scratch", exc_info=True)
+        return None
+
+
 def _load_or_train_models(
     spark: SparkSession,
     catalog: str,
@@ -606,15 +638,24 @@ def _load_or_train_models(
     training_game_ids: list[int],
     training_pdf: pd.DataFrame,
 ) -> tuple[XGBClassifier, XGBClassifier] | None:
-    """Train VAEP models on the driver.
+    """Load VAEP models from MLflow @Champion, or train on the driver.
 
-    Returns None if training fails (empty features).
+    Attempts to load pre-registered @Champion models from MLflow first.
+    Falls back to training from scratch if MLflow is unavailable or no
+    Champion model is registered.
+
+    Returns None if both loading and training fail (empty features).
 
     Note: UC Volume FUSE on serverless does not support XGBoost's C-level
     file I/O (save_model/load_model), so models are kept in memory and
     serialized to bytes for executor distribution via ``get_booster().save_raw()``.
     """
-    # Extract features and train
+    # Try MLflow @Champion first
+    champion_models = _try_load_champion_vaep(logger)
+    if champion_models is not None:
+        return champion_models
+
+    # Fall back to training from scratch
     x_train, y_scores, y_concedes = _extract_features_for_games(
         training_pdf,
         training_game_ids,

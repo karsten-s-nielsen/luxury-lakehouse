@@ -1,8 +1,9 @@
 """Batch xG scoring pipeline -- executor-side inference via applyInPandas.
 
-Loads pre-trained logistic and XGBoost models from UC Volume, scores all shots
-from fct_shots grouped by competition_id on Spark executors.  Writes predictions
-to ``{catalog}.{schema}.xg_predictions`` with ``replaceWhere`` per competition_id.
+Loads pre-trained logistic and XGBoost models from MLflow @Champion (preferred)
+or UC Volume (fallback), scores all shots from fct_shots grouped by
+competition_id on Spark executors.  Writes predictions to
+``{catalog}.{schema}.xg_predictions`` with ``replaceWhere`` per competition_id.
 """
 
 from __future__ import annotations
@@ -69,6 +70,53 @@ def _make_scoring_udf(
     return _udf
 
 
+def _try_load_champion_xg(
+    log: logging.Logger,
+) -> tuple[bytes, bytes] | None:
+    """Try to load xG models from MLflow @Champion alias.
+
+    Returns (logistic_bytes, xgboost_bytes) serialized from the registered
+    model, or None if MLflow is not available or Champion is not registered.
+    """
+    try:
+        import importlib
+
+        mlflow_sklearn = importlib.import_module("mlflow.sklearn")
+        mlflow_tracking = importlib.import_module("mlflow.tracking")
+    except (ImportError, ModuleNotFoundError):
+        log.info("mlflow not available — will load xG models from UC Volume")
+        return None
+
+    model_name = "soccer_analytics.dev_gold.xg_model"
+    try:
+        model_uri = f"models:/{model_name}@Champion"
+        log.info("Loading xG @Champion from %s", model_uri)
+        champion_model = mlflow_sklearn.load_model(model_uri)
+
+        # Also load logistic baseline from the same run's artifacts
+        client = mlflow_tracking.MlflowClient()  # type: ignore[union-attr]
+        alias_info = client.get_model_version_by_alias(model_name, "Champion")
+        run_id = alias_info.run_id
+        logistic_uri = f"runs:/{run_id}/logistic_model"
+        logistic_model = mlflow_sklearn.load_model(logistic_uri)
+
+        # Serialize models using our JSON-based serialization (no pickle on executors)
+        from analytics.xg_model import serialize_logistic_model, serialize_xgboost_model
+
+        logistic_bytes = serialize_logistic_model(logistic_model)  # type: ignore[arg-type]
+        xgboost_bytes = serialize_xgboost_model(champion_model)  # type: ignore[arg-type]
+
+        log.info(
+            "Loaded xG @Champion from MLflow (logistic=%d bytes, xgboost=%d bytes)",
+            len(logistic_bytes),
+            len(xgboost_bytes),
+        )
+        return logistic_bytes, xgboost_bytes
+    except Exception:
+        log.info("xG @Champion not found in MLflow registry — will load from UC Volume", exc_info=True)
+        return None
+
+
 def run_pipeline(
     spark: SparkSession,
     catalog: str,
@@ -80,7 +128,7 @@ def run_pipeline(
     Pipeline steps:
       1. Incremental skip guard on ``competition_id``
       2. Load ``fct_shots`` from the gold mart
-      3. Read serialised model bytes from UC Volume via ``binaryFile``
+      3. Load models from MLflow @Champion (preferred) or UC Volume (fallback)
       4. Distribute scoring across executors with ``applyInPandas``
       5. Write per-``competition_id`` with ``replaceWhere`` for idempotency
     """
@@ -123,10 +171,14 @@ def run_pipeline(
     filter_expr = f"CAST(competition_id AS STRING) IN ({new_comp_list})"
     shots_filtered = shots_df.filter(filter_expr)
 
-    # 3. Load serialised model bytes from UC Volume (driver-side read)
-    model_dir = f"/Volumes/{catalog}/dev_gold/model_weights/xg_model"
-    logistic_bytes: bytes = spark.read.format("binaryFile").load(f"{model_dir}/logistic_model.json").first()["content"]
-    xgboost_bytes: bytes = spark.read.format("binaryFile").load(f"{model_dir}/xgboost_model.json").first()["content"]
+    # 3. Load models from MLflow @Champion (preferred) or UC Volume (fallback)
+    champion_result = _try_load_champion_xg(log)
+    if champion_result is not None:
+        logistic_bytes, xgboost_bytes = champion_result
+    else:
+        model_dir = f"/Volumes/{catalog}/dev_gold/model_weights/xg_model"
+        logistic_bytes = spark.read.format("binaryFile").load(f"{model_dir}/logistic_model.json").first()["content"]
+        xgboost_bytes = spark.read.format("binaryFile").load(f"{model_dir}/xgboost_model.json").first()["content"]
 
     # 4. Build UDF and distribute scoring across executors
     scoring_udf = _make_scoring_udf(logistic_bytes, xgboost_bytes)

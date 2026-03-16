@@ -3,9 +3,10 @@ version: 2
 sources:
   - name: idsse
     description: >
-      IDSSE Bundesliga tracking data ingested into the bronze layer via
-      floodlight. Contains DFL position data at 25 fps for 7 Bundesliga
+      IDSSE Bundesliga tracking and event data ingested into the bronze layer.
+      Contains DFL position data at 25 fps and event data for 7 Bundesliga
       matches. Coordinates are center-origin meters on a 105×68m pitch.
+      Data source: Bassek et al. (2025), Scientific Data, Nature. CC-BY 4.0.
     database: soccer_analytics
     schema: bronze
     loader: aws_lambda
@@ -44,3 +45,46 @@ sources:
             description: Match identifier prefixed with 'idsse_'
           - name: frame_rate
             description: Frame rate in fps (always 25 for IDSSE)
+
+      - name: idsse_events
+        description: >
+          DFL event data (DFL_03_02 series) with position information.
+          One row per event. Coordinates use center-origin meters:
+          x ∈ (-52.5, 52.5), y ∈ (-34, 34). Staging transforms to 120×80.
+        columns:
+          - name: match_id
+            description: Match identifier prefixed with 'idsse_'
+          - name: event_id
+            description: Unique event identifier within match
+          - name: event_type
+            description: DFL event type taxonomy (e.g. pass, shot, tackle)
+          - name: timestamp_seconds
+            description: Timestamp in seconds from period start
+          - name: period
+            description: Match half (1 or 2)
+          - name: player_id
+            description: DFL PersonId of the acting player
+          - name: team
+            description: Team affiliation (home or away)
+          - name: x
+            description: Event x-coordinate in center-origin meters (-52.5 to 52.5)
+          - name: y
+            description: Event y-coordinate in center-origin meters (-34 to 34)
+
+      - name: elastic_sync_results
+        description: >
+          ELASTIC event-tracking synchronization results. Maps each event
+          to its best-matching tracking frame via ball acceleration and
+          player-ball proximity features. Reference: Kim et al. (2025),
+          ECML-PKDD MLSA 2025, arXiv:2508.09238.
+        columns:
+          - name: match_id
+            description: Match identifier prefixed with 'idsse_'
+          - name: event_id
+            description: Event identifier linked to idsse_events
+          - name: frame_id
+            description: Best-matching tracking frame number
+          - name: alignment_confidence
+            description: Confidence score of the alignment (0 to 1)
+          - name: alignment_error_seconds
+            description: Time difference between event timestamp and aligned frame

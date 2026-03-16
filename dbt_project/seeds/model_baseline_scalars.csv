@@ -1,0 +1,10 @@
+model_name,metric_name,reference_value,threshold_warn,threshold_alert,computed_from
+xg_xgboost,mean_prediction,0.098,0.04,0.08,statsbomb_la_liga_2015_16
+xg_xgboost,roc_auc,0.979,0.95,0.92,held_out_test_set
+xg_xgboost,brier_score,0.059,0.08,0.10,held_out_test_set
+vaep,negative_action_fraction,0.35,0.05,0.10,statsbomb_2388_matches
+line_breaking,detection_rate,0.18,0.05,0.10,statsbomb_2388_matches
+physical_stats,max_speed_ms,15.0,,15.0,physics
+pitch_control,field_sum,1.0,,0.05,definition
+pausa,temporal_judgment_range,1.0,,1.0,definition
+pausa,spatial_selection_range,1.0,,1.0,definition

@@ -54,3 +54,35 @@ seeds:
           - accepted_values:
               arguments:
                 values: ['force_match', 'force_reject']
+
+  - name: model_baseline_scalars
+    description: >
+      Reference baselines for model validation and drift detection.
+      Each row defines a scalar threshold for one model-metric pair.
+      Used by the model_validation pipeline to compare current metric
+      values against known-good reference values.
+    config:
+      column_types:
+        model_name: string
+        metric_name: string
+        reference_value: float
+        threshold_warn: float
+        threshold_alert: float
+        computed_from: string
+    columns:
+      - name: model_name
+        description: Model identifier (e.g., xg_xgboost, vaep, pitch_control)
+        data_tests:
+          - not_null
+      - name: metric_name
+        description: Metric identifier (e.g., mean_prediction, roc_auc, field_sum)
+        data_tests:
+          - not_null
+      - name: reference_value
+        description: Known-good baseline value for comparison
+        data_tests:
+          - not_null
+      - name: computed_from
+        description: Source description for the baseline (e.g., statsbomb_la_liga_2015_16)
+        data_tests:
+          - not_null

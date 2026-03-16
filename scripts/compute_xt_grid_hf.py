@@ -5,6 +5,7 @@
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
 #     "huggingface-hub>=0.25.0",
+#     "mlflow>=2.17.0",
 # ]
 # ///
 """Compute Expected Threat (xT) grids on HuggingFace Jobs (CPU).
@@ -382,6 +383,56 @@ def main() -> None:
     print(f"  Zone x=0 (defense): {row_means[0]:.5f}")
     print(f"  Zone x=11 (attack): {row_means[-1]:.5f}")
     print(f"  Range: {global_grid.min():.5f} to {global_grid.max():.5f}")
+
+    # ------------------------------------------------------------------
+    # 3b. Log xT grid to MLflow as artifact for provenance
+    # ------------------------------------------------------------------
+    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "")
+    if tracking_uri:
+        import mlflow
+
+        print("\n=== Logging xT grid to MLflow ===")
+        mlflow.set_tracking_uri(tracking_uri)
+        mlflow.set_experiment("/soccer_analytics/expected_threat")
+
+        with mlflow.start_run(run_name="xt_grid_computation"):
+            mlflow.log_params(
+                {
+                    "n_zones_x": params.n_zones_x,
+                    "n_zones_y": params.n_zones_y,
+                    "pitch_length": params.pitch_length,
+                    "pitch_width": params.pitch_width,
+                    "max_iterations": params.max_iterations,
+                    "tolerance": params.tolerance,
+                    "n_competitions": len(all_grids) - 1,
+                    "total_actions": len(all_actions),
+                    "training_env": "hf_jobs_cpu",
+                }
+            )
+            mlflow.log_metrics(
+                {
+                    "global_max_xt": float(global_grid.max()),
+                    "global_min_xt": float(global_grid.min()),
+                    "global_range": float(global_grid.max() - global_grid.min()),
+                }
+            )
+
+            # Save grid as temporary JSON artifact
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as grid_f:
+                grid_json = {
+                    "shape": list(global_grid.shape),
+                    "values": global_grid.tolist(),
+                    "zone_x_labels": list(range(params.n_zones_x)),
+                    "zone_y_labels": list(range(params.n_zones_y)),
+                }
+                json.dump(grid_json, grid_f, indent=2)
+                grid_artifact_path = grid_f.name
+            mlflow.log_artifact(grid_artifact_path, "xt_grid")
+            os.unlink(grid_artifact_path)
+
+        print("  xT grid logged to MLflow")
+    else:
+        print("\n=== MLflow skipped (MLFLOW_TRACKING_URI not set) ===")
 
     # ------------------------------------------------------------------
     # 4. Publish to HF Hub

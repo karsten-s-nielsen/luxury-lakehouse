@@ -40,6 +40,7 @@ shots_df = _load_parquet("sample_shots.parquet")
 passes_df = _load_parquet("sample_passes.parquet")
 tracking_df = _load_parquet("sample_tracking.parquet")
 pressure_df = _load_parquet("defcon_pressure.parquet")
+pausa_df = _load_parquet("sample_pausa.parquet")
 
 # Coerce string booleans from Spark Parquet export to proper types
 if not shots_df.empty and "is_goal" in shots_df.columns:
@@ -70,6 +71,15 @@ _TRACKING_NUMERIC = ["x", "y", "velocity_x", "velocity_y", "ball_x", "ball_y", "
 for _col in _TRACKING_NUMERIC:
     if not tracking_df.empty and _col in tracking_df.columns:
         tracking_df[_col] = pd.to_numeric(tracking_df[_col], errors="coerce")
+
+# Coerce PAUSA numeric columns
+_PAUSA_NUMERIC = [
+    "temporal_judgment", "spatial_selection", "pausa_score",
+    "actual_obso", "peak_obso", "optimal_obso", "receiver_x", "receiver_y",
+]
+for _col in _PAUSA_NUMERIC:
+    if not pausa_df.empty and _col in pausa_df.columns:
+        pausa_df[_col] = pd.to_numeric(pausa_df[_col], errors="coerce")
 
 
 # ---------------------------------------------------------------------------
@@ -733,6 +743,186 @@ def create_pressure_chart(player_name: str | None) -> plt.Figure | go.Figure:
 
 
 # ---------------------------------------------------------------------------
+# Pass Timing (PAUSA)
+# ---------------------------------------------------------------------------
+
+
+def _get_pausa_matches() -> list[str]:
+    """Return sorted list of match IDs from PAUSA data."""
+    if pausa_df.empty or "match_id" not in pausa_df.columns:
+        return []
+    return sorted(pausa_df["match_id"].unique().tolist())
+
+
+def _get_pausa_teams(match_id: str) -> list[str]:
+    """Return sorted list of teams for a match."""
+    if pausa_df.empty or "team" not in pausa_df.columns:
+        return []
+    subset = pausa_df[pausa_df["match_id"] == match_id]
+    teams = subset["team"].dropna().unique().tolist()
+    return ["All"] + sorted(teams)
+
+
+def _get_pausa_players(match_id: str, team: str) -> list[str]:
+    """Return sorted list of player names for a match/team."""
+    if pausa_df.empty:
+        return []
+    subset = pausa_df[pausa_df["match_id"] == match_id]
+    if team and team != "All" and "team" in subset.columns:
+        subset = subset[subset["team"] == team]
+    name_col = "player_display_name" if "player_display_name" in subset.columns else "player_id"
+    players = subset[name_col].dropna().unique().tolist()
+    return ["All"] + sorted([str(p) for p in players])
+
+
+def create_pausa_scatter(match_id: str, team: str, player: str) -> go.Figure:
+    """Create PAUSA temporal vs spatial scatter plot."""
+    if pausa_df.empty:
+        return go.Figure().update_layout(
+            template="plotly_dark", paper_bgcolor="#1a1a2e",
+            title="No PAUSA data available",
+        )
+
+    df = pausa_df[pausa_df["match_id"] == match_id].copy()
+    if team and team != "All" and "team" in df.columns:
+        df = df[df["team"] == team]
+
+    name_col = "player_display_name" if "player_display_name" in df.columns else "player_id"
+    if player and player != "All":
+        df = df[df[name_col].astype(str) == player]
+
+    if df.empty:
+        return go.Figure().update_layout(
+            template="plotly_dark", paper_bgcolor="#1a1a2e",
+            title="No data for selected filters",
+        )
+
+    fig = px.scatter(
+        df,
+        x="temporal_judgment",
+        y="spatial_selection",
+        size="pausa_score",
+        color="team" if "team" in df.columns else None,
+        hover_data=[name_col, "pausa_score"],
+        labels={
+            "temporal_judgment": "Temporal Judgment (when)",
+            "spatial_selection": "Spatial Selection (where)",
+            "pausa_score": "PAUSA Score",
+        },
+        title=f"Pass Timing \u2014 {match_id}",
+        size_max=18,
+    )
+
+    fig.add_hline(y=0.5, line_dash="dash", line_color="gray", opacity=0.4)
+    fig.add_vline(x=0.5, line_dash="dash", line_color="gray", opacity=0.4)
+
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="#1a1a2e",
+        plot_bgcolor="#1a1a2e",
+        xaxis={"range": [0, 1]},
+        yaxis={"range": [0, 1]},
+        height=500,
+    )
+    return fig
+
+
+def create_pausa_heatmap(match_id: str, team: str, player: str) -> plt.Figure:
+    """Create OBSO receiver location heatmap on pitch."""
+    pitch = Pitch(pitch_type="statsbomb", pitch_color="#1a1a2e", line_color="#cccccc")
+    fig, ax = pitch.draw(figsize=(12, 8))
+    fig.set_facecolor("#1a1a2e")
+
+    if pausa_df.empty:
+        ax.text(60, 40, "No PAUSA data available.", ha="center", va="center", color="white", fontsize=14)
+        return fig
+
+    df = pausa_df[pausa_df["match_id"] == match_id].copy()
+    if team and team != "All" and "team" in df.columns:
+        df = df[df["team"] == team]
+
+    name_col = "player_display_name" if "player_display_name" in df.columns else "player_id"
+    if player and player != "All":
+        df = df[df[name_col].astype(str) == player]
+
+    if df.empty or "receiver_x" not in df.columns or "receiver_y" not in df.columns:
+        ax.text(60, 40, "No receiver data for selection.", ha="center", va="center", color="white", fontsize=14)
+        return fig
+
+    valid = df.dropna(subset=["receiver_x", "receiver_y"])
+    if valid.empty:
+        ax.text(60, 40, "No receiver coordinates available.", ha="center", va="center", color="white", fontsize=14)
+        return fig
+
+    # Scatter receivers colored by OBSO value
+    scatter = ax.scatter(
+        valid["receiver_x"],
+        valid["receiver_y"],
+        c=valid["actual_obso"],
+        cmap="YlOrRd",
+        s=40,
+        alpha=0.7,
+        edgecolors="white",
+        linewidth=0.3,
+        zorder=3,
+        vmin=0,
+    )
+    cbar = fig.colorbar(scatter, ax=ax, fraction=0.03, pad=0.02)
+    cbar.set_label("OBSO at Receiver", color="white", fontsize=9)
+    cbar.ax.tick_params(colors="white", labelsize=8)
+
+    n_passes = len(valid)
+    avg_pausa = float(valid["pausa_score"].mean()) if "pausa_score" in valid.columns else 0.0
+    ax.set_title(
+        f"OBSO at Receiver \u2014 {n_passes} passes, Avg PAUSA {avg_pausa:.3f}",
+        color="white", fontsize=13, pad=8,
+    )
+
+    plt.tight_layout()
+    return fig
+
+
+def create_pausa_rankings(match_id: str) -> pd.DataFrame:
+    """Create per-player PAUSA rankings table."""
+    if pausa_df.empty:
+        return pd.DataFrame({"message": ["No PAUSA data loaded."]})
+
+    df = pausa_df[pausa_df["match_id"] == match_id].copy()
+    if df.empty:
+        return pd.DataFrame({"message": ["No data for this match."]})
+
+    name_col = "player_display_name" if "player_display_name" in df.columns else "player_id"
+    agg = df.groupby(name_col).agg(
+        passes=("pausa_score", "count"),
+        avg_pausa=("pausa_score", "mean"),
+        avg_temporal=("temporal_judgment", "mean"),
+        avg_spatial=("spatial_selection", "mean"),
+    ).reset_index()
+
+    agg = agg.sort_values("avg_pausa", ascending=False)
+    agg = agg.rename(columns={
+        name_col: "Player",
+        "passes": "Passes",
+        "avg_pausa": "Avg PAUSA (higher = better timing + target)",
+        "avg_temporal": "Avg Temporal (higher = better timing)",
+        "avg_spatial": "Avg Spatial (higher = better target)",
+    })
+    return agg.round(3)
+
+
+def _update_pausa_teams(match_id: str) -> gr.Dropdown:
+    """Update team dropdown when match changes."""
+    teams = _get_pausa_teams(match_id)
+    return gr.Dropdown(choices=teams, value=teams[0] if teams else "All")
+
+
+def _update_pausa_players(match_id: str, team: str) -> gr.Dropdown:
+    """Update player dropdown when match/team changes."""
+    players = _get_pausa_players(match_id, team)
+    return gr.Dropdown(choices=players, value=players[0] if players else "All")
+
+
+# ---------------------------------------------------------------------------
 # Gradio App
 # ---------------------------------------------------------------------------
 
@@ -930,6 +1120,101 @@ with demo:
         pass_type_dd.change(fn=create_pass_map, inputs=_pass_inputs, outputs=pass_plot)
         lb_toggle.change(fn=create_pass_map, inputs=_pass_inputs, outputs=pass_plot)
         completed_toggle.change(fn=create_pass_map, inputs=_pass_inputs, outputs=pass_plot)
+
+    with gr.Tab("Pass Timing"):
+        gr.Markdown(
+            "PAUSA pass quality: temporal judgment (when) \u00d7 spatial selection (where).\n\n"
+            "*[Lee, Jo, Hong, Bauer & Ko (2026)](https://github.com/leemingo/mitssac-pausa) "
+            "PAUSA metric from MIT Sloan 2026. OBSO value surface by "
+            "[Spearman (2018)](https://www.researchgate.net/publication/315166647_Beyond_Expected_Goals). "
+            "Event-tracking sync via [Kim et al. (2025)](https://arxiv.org/abs/2508.09238) ELASTIC. "
+            "Data from 7 IDSSE Bundesliga matches (CC-BY 4.0).*"
+        )
+        _pausa_matches = _get_pausa_matches()
+        _pausa_default_match = _pausa_matches[0] if _pausa_matches else ""
+        _pausa_default_teams = _get_pausa_teams(_pausa_default_match) if _pausa_default_match else ["All"]
+        _pausa_default_players = (
+            _get_pausa_players(_pausa_default_match, "All") if _pausa_default_match else ["All"]
+        )
+
+        if not _pausa_matches:
+            gr.Markdown(
+                "> **No PAUSA data available.** The `sample_pausa.parquet` file has not been "
+                "generated yet. This tab will populate after the OBSO batch (D16) and PAUSA "
+                "pipeline (D10) are run and results are exported."
+            )
+        else:
+            with gr.Row():
+                pausa_match_dd = gr.Dropdown(
+                    choices=_pausa_matches,
+                    value=_pausa_default_match,
+                    label="Match",
+                    interactive=True,
+                )
+                pausa_team_dd = gr.Dropdown(
+                    choices=_pausa_default_teams,
+                    value="All",
+                    label="Team",
+                    interactive=True,
+                )
+                pausa_player_dd = gr.Dropdown(
+                    choices=_pausa_default_players,
+                    value="All",
+                    label="Player",
+                    interactive=True,
+                    filterable=True,
+                )
+
+            pausa_heatmap = gr.Plot(label="OBSO Receiver Heatmap")
+            pausa_scatter = gr.Plot(label="Temporal vs Spatial")
+            pausa_rankings = gr.Dataframe(label="Player Rankings")
+
+            _pausa_scatter_inputs = [pausa_match_dd, pausa_team_dd, pausa_player_dd]
+            _pausa_heatmap_inputs = [pausa_match_dd, pausa_team_dd, pausa_player_dd]
+
+            pausa_match_dd.change(
+                fn=_update_pausa_teams, inputs=[pausa_match_dd], outputs=[pausa_team_dd]
+            )
+            pausa_match_dd.change(
+                fn=_update_pausa_players, inputs=[pausa_match_dd, pausa_team_dd], outputs=[pausa_player_dd]
+            )
+            pausa_team_dd.change(
+                fn=_update_pausa_players, inputs=[pausa_match_dd, pausa_team_dd], outputs=[pausa_player_dd]
+            )
+
+            pausa_match_dd.change(
+                fn=create_pausa_heatmap, inputs=_pausa_heatmap_inputs, outputs=pausa_heatmap
+            )
+            pausa_match_dd.change(
+                fn=create_pausa_scatter, inputs=_pausa_scatter_inputs, outputs=pausa_scatter
+            )
+            pausa_match_dd.change(
+                fn=create_pausa_rankings, inputs=[pausa_match_dd], outputs=pausa_rankings
+            )
+            pausa_team_dd.change(
+                fn=create_pausa_heatmap, inputs=_pausa_heatmap_inputs, outputs=pausa_heatmap
+            )
+            pausa_team_dd.change(
+                fn=create_pausa_scatter, inputs=_pausa_scatter_inputs, outputs=pausa_scatter
+            )
+            pausa_player_dd.change(
+                fn=create_pausa_heatmap, inputs=_pausa_heatmap_inputs, outputs=pausa_heatmap
+            )
+            pausa_player_dd.change(
+                fn=create_pausa_scatter, inputs=_pausa_scatter_inputs, outputs=pausa_scatter
+            )
+
+            demo.load(fn=create_pausa_heatmap, inputs=_pausa_heatmap_inputs, outputs=pausa_heatmap)
+            demo.load(fn=create_pausa_scatter, inputs=_pausa_scatter_inputs, outputs=pausa_scatter)
+            demo.load(fn=create_pausa_rankings, inputs=[pausa_match_dd], outputs=pausa_rankings)
+
+            gr.Markdown(
+                "**Column guide:**\n"
+                "- **Avg PAUSA**: Composite score (temporal \u00d7 spatial). Higher = better timing AND target.\n"
+                "- **Avg Temporal**: Was the pass released at the best moment? 1.0 = perfect timing.\n"
+                "- **Avg Spatial**: Was the target the best option? 1.0 = optimal receiver choice.\n"
+                "- **Passes**: Number of evaluated passes (more = more reliable average)."
+            )
 
     with gr.Tab("Pitch Control"):
         gr.Markdown(

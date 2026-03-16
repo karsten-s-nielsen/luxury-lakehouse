@@ -1,0 +1,70 @@
+version: 2
+
+models:
+  - name: stg_pausa__values
+    description: >
+      Staging view for PAUSA values. Deduplicates gold data by
+      (pass_id), keeping the most recent ingestion. Enabled by
+      pausa_enabled toggle.
+    columns:
+      - name: pass_id
+        description: Unique pass identifier
+        data_tests:
+          - not_null
+      - name: match_id
+        description: Match identifier
+        data_tests:
+          - not_null
+      - name: player_id
+        description: Passer player identifier
+      - name: team
+        description: Team of the passer
+      - name: temporal_judgment
+        description: >
+          Ratio of actual OBSO at release to peak OBSO in temporal window.
+          1.0 = perfect timing.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+              config:
+                severity: warn
+      - name: spatial_selection
+        description: >
+          Ratio of actual OBSO at target to optimal OBSO across receivers.
+          1.0 = optimal target.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+              config:
+                severity: warn
+      - name: pausa_score
+        description: >
+          Composite PAUSA = temporal_judgment × spatial_selection (0–1).
+          Higher = better pass timing and target choice.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+              config:
+                severity: warn
+      - name: actual_obso
+        description: OBSO value at pass release
+      - name: peak_obso
+        description: Peak OBSO in temporal window
+      - name: optimal_obso
+        description: Optimal OBSO across all receivers
+      - name: receiver_x
+        description: Receiver X coordinate (StatsBomb 120×80)
+      - name: receiver_y
+        description: Receiver Y coordinate (StatsBomb 120×80)
+      - name: period
+        description: Match period
+      - name: timestamp_seconds
+        description: Event timestamp in seconds
+      - name: frame_id
+        description: Aligned tracking frame ID

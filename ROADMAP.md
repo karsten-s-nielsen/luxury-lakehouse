@@ -254,7 +254,7 @@ In addition to the skill&rsquo;s manual audit phases, codify machine-checkable r
 
 ## Deep Learning Infrastructure &amp; Pre-trained Models
 
-**Status:** Research complete, ready for incremental implementation
+**Status:** Partially implemented &mdash; MLflow UC Model Registry active (D11), model validation & drift detection deployed (D12)
 **Budget:** ~$6-14/month incremental (external GPU training + existing Databricks governance)
 **References:** DeepMind AlphaEvolve/FunSearch (Apache 2.0); TacticAI (Nature Communications, 2024); SoccerNet benchmarks
 
@@ -754,7 +754,7 @@ Requires commercial-grade tracking data (Belgian Pro League / Stats Perform) —
 
 ## Space Creation Quantification (Fernandez & Bornn 2018)
 
-**Status:** Research direction — deferred from Phase 12
+**Status:** Research direction — deferred from Phase 12. D16 computed OBSO value surfaces for PAUSA, reducing this from pure research to an incremental extension (differential pitch control per player).
 **Paper:** Fernandez & Bornn (2018), "Wide Open Spaces: A statistical technique for measuring space creation in professional soccer"
 
 Full OBSO (Off-Ball Scoring Opportunity) requires computing N+1 pitch control surfaces per frame (one counterfactual surface with each player removed) to measure each player's space creation contribution. At 25fps with 22 players, this is ~2,700 pitch control evaluations per second of play — prohibitively expensive for the current compute budget.
@@ -975,7 +975,7 @@ Even before the Polars branch merges, two things are actionable today:
 
 ## PAUSA: Optimal Pass Timing &amp; OBSO Value Surface
 
-**Status:** Research complete, license secured (Apache-2.0)
+**Status:** Implemented (D9+D10+D16) &mdash; ELASTIC sync, OBSO surfaces, PAUSA pipeline, Streamlit page, HF Space tab all deployed
 **Paper:** Lee, Jo, Hong, Bauer &amp; Ko (2026), "Valuing La Pausa: Quantifying Optimal Pass Timing Beyond Speed" (MIT Sloan 2026 finalist, top 7 of 200+)
 **Repo:** [`leemingo/mitssac-pausa`](https://github.com/leemingo/mitssac-pausa) (public, Apache-2.0)
 **License status:** Apache-2.0 merged by Minho Lee (2026-03-13). No license blocker remaining.
@@ -1031,10 +1031,10 @@ Virtual mode is the heavy-lifter: each pass generates ~100 ghost frames &times; 
 ### Open questions
 
 1. ~~**License**~~: Resolved &mdash; Apache-2.0 merged by Minho Lee (2026-03-13).
-2. **Numba adoption**: Should we add Numba to our pitch control module? Adds a compiled dependency but significant speedup.
-3. **Coordinate system**: Their code uses centered coordinates (&minus;52.5 to +52.5). Our stack uses StatsBomb 120&times;80. Adapter or full migration?
-4. **Static grids**: The EPV and Transition grids are pre-computed (provenance unclear). Train our own from StatsBomb data, or use theirs as-is?
-5. **Scope**: Full PAUSA pipeline (heavy) or start with ELASTIC sync + OBSO surface only (lighter, more broadly useful)?
+2. ~~**Numba adoption**: Should we add Numba to our pitch control module? Adds a compiled dependency but significant speedup.~~ **Resolved** &mdash; No Numba. JAX kernel extended with ghost trajectory support (Phase D16).
+3. ~~**Coordinate system**: Their code uses centered coordinates (&minus;52.5 to +52.5). Our stack uses StatsBomb 120&times;80. Adapter or full migration?~~ **Resolved** &mdash; StatsBomb 120&times;80 at API boundary, internal meter conversion where physics requires.
+4. ~~**Static grids**: The EPV and Transition grids are pre-computed (provenance unclear). Train our own from StatsBomb data, or use theirs as-is?~~ **Resolved** &mdash; Using PAUSA repo grids as-is. Custom training deferred (tracked in TODO.md).
+5. ~~**Scope**: Full PAUSA pipeline (heavy) or start with ELASTIC sync + OBSO surface only (lighter, more broadly useful)?~~ **Resolved** &mdash; Full PAUSA pipeline implemented (D9+D10+D16).
 
 ### Dependencies
 

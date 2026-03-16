@@ -64,6 +64,24 @@ GLOSSARY: dict[str, str] = {
         "A pass that moves the ball significantly closer to the opponent's goal — "
         "defined by a minimum distance threshold toward the goal line."
     ),
+    "PAUSA": (
+        "Passing Ability Under Spatiotemporal Awareness. Composite of temporal judgment "
+        "\u00d7 spatial selection. Higher = better pass timing and target choice. "
+        "(Lee et al., MIT Sloan 2026)"
+    ),
+    "Temporal Judgment": (
+        "Was the pass released at the optimal moment? Ratio of actual OBSO at release "
+        "to peak OBSO in the \u00b13s/+1s window. 1.0 = perfect timing."
+    ),
+    "Spatial Selection": (
+        "Was the target location the best available? Ratio of actual OBSO at target "
+        "to maximum OBSO across all receivers. 1.0 = optimal target."
+    ),
+    "OBSO": (
+        "Off-Ball Scoring Opportunity. Continuous value surface: Pitch Control "
+        "\u00d7 Ball Transition Probability \u00d7 Expected Possession Value. "
+        "(Spearman 2018, Fernandez & Bornn 2018)"
+    ),
 }
 
 # Per-page glossary terms — only these terms are shown when the user is on that page.
@@ -90,6 +108,7 @@ PAGE_TERMS: dict[str, list[str]] = {
     "pitch-control": ["Pitch Control"],
     "defensive-valuation": ["DEFCON", "Intercept", "Concede", "Disturb", "Deter"],
     "player-similarity": ["Cosine Distance"],
+    "pass-timing": ["PAUSA", "Temporal Judgment", "Spatial Selection", "OBSO"],
 }
 
 # Subset for st.metric help= parameters — keyed by the label as it appears in st.metric()
@@ -168,6 +187,14 @@ METRIC_HELP: dict[str, str] = {
     "Top Speed (m/s)": "Peak sprint speed in meters per second. Elite players reach 9-10 m/s.",
     "HSR Distance (m)": "High-Speed Running distance — meters covered above ~5.5 m/s threshold.",
     "Sprint Frames": "Number of tracking frames where the player exceeded sprint speed threshold (~7 m/s).",
+    "Avg PAUSA": GLOSSARY["PAUSA"],
+    "Avg Temporal Judgment": GLOSSARY["Temporal Judgment"],
+    "Avg Spatial Selection": GLOSSARY["Spatial Selection"],
+    "Median PAUSA": "Median PAUSA composite score across passes. Less sensitive to outliers than mean.",
+    "Pass Count": "Number of passes evaluated for PAUSA scoring.",
+    "Passes Above Median": (
+        "Number of passes with PAUSA score above 0.5 — indicates consistency of high-quality passes."
+    ),
 }
 
 
