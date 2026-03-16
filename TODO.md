@@ -34,6 +34,8 @@ Tasks warming up in the on-deck circle.
 | O1 | `fct_match_summary` incremental materialization | Wicked | OPT-AUDIT-190 #5 | Currently defaults to view — recomputed every dbt run against full events table. Needs `{{ config(materialized='incremental') }}` with `match_id` key + `is_incremental()` guard. Requires full dbt build cycle testing |
 | O2 | SPADL/VAEP training migration to HF Jobs | Wicked | OPT-AUDIT-190 #7 | `spadl_vaep.py:562` accumulates all game feature matrices before single `pd.concat`. At 10K+ matches, OOMs on Databricks serverless (16 GB driver). Training API requires full matrix. Migrate to HF Jobs (A10G, 46 GB RAM) — same pattern as xG and xT training. Extract features to HF Dataset, train on HF Jobs, publish model back to Hub |
 | O3 | Pipeline performance baselines | Wicked | OPT-AUDIT-190 #9 | `docs/performance-baselines.md` timing columns are all TBD. Run each pipeline, record wall clock, establish regression anchors for CI |
+| U5 | Server-side player search for Player Similarity | Wicked | HF-MIGRATION | At enterprise scale (100K+ players), client-side `st.selectbox` filtering won't scale. Replace with `st.text_input` + `ILIKE '%query%'` server-side query with `LIMIT 500` per search. Requires UI refactor (two-step: type → search → select) and PG index on `player_display_name` |
+| M1 | Rotate Databricks PAT for HF Spaces | Dunkin' | HF-MIGRATION | PAT created 2026-03-16 with 90-day lifetime. **Expires ~2026-06-14.** Generate new PAT in Databricks workspace Settings → Developer → Access tokens, then update `DATABRICKS_TOKEN` secret at huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app/settings. Consider migrating to SP OAuth (client_id + client_secret) for no-expiry auth |
 
 ---
 
@@ -169,7 +171,7 @@ Infrastructure IDs are environment-specific. Use `terraform output` for current 
 | Lakebase endpoint | `terraform output lakebase_endpoint_name` |
 | Lakebase DNS (RW) | `terraform output lakebase_read_write_dns` |
 | Ingestion job ID | `DATABRICKS_JOB_ID` env var / `terraform output ingestion_job_id` |
-| Streamlit App URL | `terraform output app_url` |
+| Streamlit App URL | [huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) |
 | GitHub Actions IAM Role | `terraform output github_actions_role_arn` |
 | State KMS Key | `terraform output state_kms_key_arn` |
 | Terraform CI SP | `terraform output terraform_ci_sp_application_id` |

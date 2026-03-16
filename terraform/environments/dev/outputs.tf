@@ -34,24 +34,9 @@ output "ingestion_job_id" {
   value       = module.workflows.ingestion_job_id
 }
 
-output "app_name" {
-  description = "Deployed Streamlit app name"
-  value       = module.app.app_name
-}
-
-output "app_url" {
-  description = "URL of the deployed Streamlit dashboard"
-  value       = module.app.app_url
-}
-
 output "ingestion_sp_application_id" {
   description = "Application ID of the ingestion service principal"
   value       = module.service_principals.ingestion_sp_application_id
-}
-
-output "app_sp_application_id" {
-  description = "Application ID of the app's auto-provisioned service principal"
-  value       = module.app.service_principal_client_id
 }
 
 output "github_actions_role_arn" {
