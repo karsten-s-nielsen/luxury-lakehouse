@@ -91,7 +91,7 @@ def _fetch_ppda_data(tbl: str, comp_id: int) -> Any:
         f"  home_ppda, away_ppda, home_possession_pct "
         f"FROM {tbl} "
         f"WHERE competition_id = %s AND home_ppda IS NOT NULL "
-        f"ORDER BY match_date",
+        f"ORDER BY match_date LIMIT 500",
         (comp_id,),
     )
 
@@ -187,7 +187,7 @@ def _render_physical() -> None:
     c4.metric(
         "Max Speed (m/s)",
         f"{stats['max_speed_ms'].max():.1f}",
-        help=METRIC_HELP.get("Max Speed"),
+        help=METRIC_HELP.get("Max Speed (m/s)"),
     )
 
     fig = plot_physical_bars(stats, col_name, col_label, title=str(selected_metric), label_col="player_name")

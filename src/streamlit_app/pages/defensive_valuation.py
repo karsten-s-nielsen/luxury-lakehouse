@@ -166,10 +166,22 @@ def _load_match_timeline(match_id: str, player_id: int) -> Any:
 
 @st.cache_data(ttl=600, show_spinner="Loading competitions...")
 def _fetch_pressure_competitions(dp: str, dc: str) -> Any:
+    """Load competitions that have pressure data.
+
+    Uses recursive CTE loose index scan on the fact table to avoid
+    SELECT DISTINCT sequential scan, then joins to dimension table.
+    """
     return execute_query(
-        f"SELECT DISTINCT c.competition_id, c.competition_name, c.country "  # noqa: S608
-        f"FROM {dc} c "
-        f"JOIN {dp} dp ON dp.competition_id = c.competition_id "
+        f"WITH RECURSIVE pc AS ("  # noqa: S608
+        f"  SELECT MIN(competition_id) AS competition_id FROM {dp}"
+        f"  UNION ALL"
+        f"  SELECT (SELECT MIN(competition_id) FROM {dp}"
+        f"          WHERE competition_id > pc.competition_id)"
+        f"  FROM pc WHERE pc.competition_id IS NOT NULL"
+        f") SELECT pc.competition_id, c.competition_name, c.country "
+        f"FROM pc "
+        f"JOIN {dc} c ON pc.competition_id = c.competition_id "
+        f"WHERE pc.competition_id IS NOT NULL "
         f"ORDER BY c.country, c.competition_name",
     )
 

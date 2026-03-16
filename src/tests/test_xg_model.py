@@ -520,3 +520,85 @@ class TestMakeScoringUdf:
         result = udf(shots)
         assert np.all(result["xg_logistic"].between(0, 1))
         assert np.all(result["xg_gradient_boosted"].between(0, 1))
+
+
+# ---------------------------------------------------------------------------
+# MLflow Champion loading
+# ---------------------------------------------------------------------------
+
+
+class TestTryLoadChampionXg:
+    """Test _try_load_champion_xg fallback behavior."""
+
+    def test_returns_none_when_mlflow_not_importable(self) -> None:
+        """Should return None gracefully when mlflow is not available."""
+        import logging
+        import sys
+        from unittest.mock import patch
+
+        from ingestion.xg_model import _try_load_champion_xg
+
+        with patch.dict(sys.modules, {"mlflow": None, "mlflow.sklearn": None}):
+            result = _try_load_champion_xg(logging.getLogger("test"))
+        assert result is None
+
+    def test_returns_none_when_champion_not_found(self) -> None:
+        """Should return None when mlflow is available but no Champion registered."""
+        import logging
+        from unittest.mock import MagicMock, patch
+
+        from ingestion.xg_model import _try_load_champion_xg
+
+        mock_mlflow = MagicMock()
+        mock_sklearn = MagicMock()
+        mock_sklearn.load_model.side_effect = Exception("Model not found")
+
+        with patch.dict("sys.modules", {"mlflow": mock_mlflow, "mlflow.sklearn": mock_sklearn}):
+            result = _try_load_champion_xg(logging.getLogger("test"))
+        assert result is None
+
+    def test_returns_bytes_when_champion_found(self) -> None:
+        """Should return (logistic_bytes, xgboost_bytes) when Champion exists."""
+        import logging
+        from unittest.mock import MagicMock, patch
+
+        from ingestion.xg_model import _try_load_champion_xg
+
+        # Create real trained models for serialization
+        shots = _make_synthetic_shots(100)
+        config = XGModelConfig()
+        x, y = build_features(shots, config)
+        logistic = train_logistic_baseline(x, y)
+        xgboost_model = train_xgboost_model(x, y, config)
+
+        # Mock MLflow modules — importlib.import_module uses sys.modules
+        mock_sklearn = MagicMock()
+        mock_sklearn.load_model.side_effect = [xgboost_model, logistic]
+
+        mock_alias_info = MagicMock()
+        mock_alias_info.run_id = "test_run_id"
+
+        mock_client_instance = MagicMock()
+        mock_client_instance.get_model_version_by_alias.return_value = mock_alias_info
+
+        mock_tracking = MagicMock()
+        mock_tracking.MlflowClient.return_value = mock_client_instance
+
+        mock_mlflow = MagicMock()
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "mlflow": mock_mlflow,
+                "mlflow.sklearn": mock_sklearn,
+                "mlflow.tracking": mock_tracking,
+            },
+        ):
+            result = _try_load_champion_xg(logging.getLogger("test"))
+
+        assert result is not None
+        logistic_bytes, xgboost_bytes = result
+        assert isinstance(logistic_bytes, bytes)
+        assert isinstance(xgboost_bytes, bytes)
+        assert len(logistic_bytes) > 0
+        assert len(xgboost_bytes) > 0

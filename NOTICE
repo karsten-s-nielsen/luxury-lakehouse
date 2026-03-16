@@ -15,8 +15,8 @@ Optical tracking data provided by Metrica Sports sample-data repository.
 See: https://github.com/metrica-sports/sample-data
 
 Event stream data provided by the Wyscout public dataset on Figshare
-under the Creative Commons Attribution 4.0 International (CC-BY 4.0)
-license. Citation: Pappalardo et al. "A public data set of
+under the Creative Commons Attribution-NonCommercial 4.0 International
+(CC-BY-NC 4.0) license. Citation: Pappalardo et al. "A public data set of
 spatio-temporal match events in soccer competitions." Scientific Data,
 Nature (2019).
 See: https://figshare.com/collections/Soccer_match_event_dataset/4415000
@@ -111,3 +111,35 @@ The implementation is an independent Python translation using TF-IDF
 character n-grams (sparse_dot_topn) and rapidfuzz multi-attribute scoring,
 not derived from the authors' source code.
 See: https://github.com/USSoccerFederation/glass_onion
+
+The ELASTIC event-tracking synchronization algorithm
+(src/analytics/elastic_sync.py) implements the feature-based alignment
+framework described in: Kim, H.S. et al. (2025). "ELASTIC: Event-Tracking
+Data Synchronization in Soccer Without Annotated Event Locations."
+ECML-PKDD MLSA 2025. arXiv:2508.09238. The implementation is an
+independent Python translation of the published equations. Licensed under
+the Apache License, Version 2.0.
+See: https://github.com/hyunsungkim-ds/defcon
+
+The PAUSA pass timing pipeline (src/ingestion/pausa.py) and OBSO value
+surface computation (src/analytics/obso.py) implement the optimal pass
+timing decomposition described in: Lee, Jo, Hong, Bauer & Ko (2026).
+"Valuing La Pausa: Quantifying Optimal Pass Timing Beyond Speed."
+MIT Sloan Sports Analytics Conference 2026. Licensed under the
+Apache License, Version 2.0.
+See: https://github.com/leemingo/mitssac-pausa
+
+The OBSO (Off-Ball Scoring Opportunity) value surface concept combines
+pitch control, ball transition probability, and expected possession value
+as described in: Spearman, W. (2018). "Beyond Expected Goals." MIT Sloan
+Sports Analytics Conference; and Fernandez, J. & Bornn, L. (2018).
+"Wide Open Spaces: A statistical technique for measuring space creation
+in professional soccer." MIT Sloan Sports Analytics Conference. These are
+independent implementations of published academic concepts.
+
+The physics-based tracking augmentation module
+(src/analytics/augmentation.py) applies positional jitter techniques
+inspired by: Wang, Z. et al. (2024). "TacticAI: an AI assistant for
+football tactics." Nature Communications 15, 1906. The implementation
+is an independent Python translation of augmentation principles, not
+derived from the TacticAI source code.

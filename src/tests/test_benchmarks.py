@@ -17,8 +17,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from analytics.augmentation import PerturbationConfig, perturb_positions
 from analytics.defcon_lite import DefconLiteParams, assign_defensive_credits
 from analytics.line_breaking import LineBreakingParams, detect_line_breaking
+from analytics.obso import compute_obso_surface
 from analytics.off_ball_xt import compute_off_ball_xt_frame
 from analytics.pitch_control import (
     _USE_JAX,
@@ -248,6 +250,62 @@ class TestBenchmarks:
             assert median_seconds <= 0.002, (
                 f"Line-breaking detection median {median_seconds * 1000:.2f} ms exceeds 2 ms budget"
             )
+
+    # -- Position jitter augmentation (budget: <=1 ms for 10 perturbations) -
+
+    def test_perturb_positions_benchmark(
+        self,
+        benchmark: Any,
+        players_df: pd.DataFrame,
+    ) -> None:
+        """Position jitter: <=1ms per frame for 10 perturbations."""
+        config = PerturbationConfig(n_perturbations=10)
+        rng = np.random.default_rng(42)
+
+        result = benchmark(perturb_positions, players_df, config, rng)
+
+        # Sanity: 10 DataFrames, each with 22 players
+        assert len(result) == 10
+        for df in result:
+            assert len(df) == 22
+
+        # Performance budget: median must be <= 1 ms
+        # benchmark.stats is None when --benchmark-disable is used
+        if benchmark.stats is not None:
+            median_seconds: float = benchmark.stats["median"]
+            assert median_seconds <= 0.0015, (
+                f"Perturb positions median {median_seconds * 1000:.2f} ms exceeds 1.5 ms budget"
+            )
+
+    # -- OBSO surface (budget: <=5 ms for 104x68 grid) ----------------------
+
+    def test_obso_surface_benchmark(
+        self,
+        benchmark: Any,
+    ) -> None:
+        """OBSO surface: <=5ms for 104x68 grid.
+
+        Budget: <=5 ms per surface computation.
+        """
+        rng = np.random.default_rng(42)
+        ppcf = rng.uniform(0.0, 1.0, (68, 104))
+        transition = rng.uniform(0.0, 1.0, (64, 100))
+        epv = rng.uniform(0.0, 0.3, (32, 50))
+        grid_x = np.linspace(0, 120, 104)
+        grid_y = np.linspace(0, 80, 68)
+
+        result = benchmark(compute_obso_surface, ppcf, transition, epv, (60.0, 40.0), grid_x, grid_y)
+
+        # Sanity: result shape and range
+        assert result.shape == (68, 104)
+        assert np.all(result >= 0.0)
+        assert np.all(result <= 1.0)
+
+        # Performance budget: median must be <= 5 ms
+        # benchmark.stats is None when --benchmark-disable is used
+        if benchmark.stats is not None:
+            median_seconds: float = benchmark.stats["median"]
+            assert median_seconds <= 0.005, f"OBSO surface median {median_seconds * 1000:.2f} ms exceeds 5 ms budget"
 
 
 class TestJaxBenchmarks:

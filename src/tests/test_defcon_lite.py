@@ -561,6 +561,73 @@ class TestEstimateValuesForMatch:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# MLflow Champion loading
+# ---------------------------------------------------------------------------
+
+
+class TestTryLoadChampionDefcon:
+    """Test _try_load_champion_defcon fallback behavior."""
+
+    def test_returns_none_when_mlflow_not_importable(self) -> None:
+        """Should return None gracefully when mlflow is not available."""
+        import logging
+        import sys
+        from unittest.mock import patch
+
+        from ingestion.defcon_lite import _try_load_champion_defcon
+
+        with patch.dict(sys.modules, {"mlflow": None, "mlflow.pyfunc": None}):
+            result = _try_load_champion_defcon(logging.getLogger("test"))
+        assert result is None
+
+    def test_returns_none_when_champion_not_found(self) -> None:
+        """Should return None when mlflow is available but no Champion registered."""
+        import logging
+        from unittest.mock import MagicMock, patch
+
+        from ingestion.defcon_lite import _try_load_champion_defcon
+
+        mock_mlflow = MagicMock()
+        mock_pyfunc = MagicMock()
+        mock_pyfunc.load_model.side_effect = Exception("Model not found")
+
+        with patch.dict("sys.modules", {"mlflow": mock_mlflow, "mlflow.pyfunc": mock_pyfunc}):
+            result = _try_load_champion_defcon(logging.getLogger("test"))
+        assert result is None
+
+    def test_returns_bytes_when_champion_found(self) -> None:
+        """Should return serialized model bytes when Champion exists."""
+        import logging
+        from unittest.mock import MagicMock, patch
+
+        from ingestion.defcon_lite import _try_load_champion_defcon
+
+        mock_booster = MagicMock()
+        mock_booster.save_raw.return_value = b'{"test": "model_data"}'
+
+        mock_regressor = MagicMock()
+        mock_regressor.get_booster.return_value = mock_booster
+
+        mock_unwrapped = MagicMock()
+        mock_unwrapped.regressor = mock_regressor
+
+        mock_champion = MagicMock()
+        mock_champion.unwrap_python_model.return_value = mock_unwrapped
+
+        mock_pyfunc = MagicMock()
+        mock_pyfunc.load_model.return_value = mock_champion
+
+        mock_mlflow = MagicMock()
+
+        with patch.dict("sys.modules", {"mlflow": mock_mlflow, "mlflow.pyfunc": mock_pyfunc}):
+            result = _try_load_champion_defcon(logging.getLogger("test"))
+
+        assert result is not None
+        assert isinstance(result, bytes)
+        assert len(result) > 0
+
+
 class TestSplitEquivalence:
     """Verify that the split functions produce the same result as the wrapper."""
 

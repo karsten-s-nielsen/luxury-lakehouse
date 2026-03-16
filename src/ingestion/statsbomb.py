@@ -92,11 +92,11 @@ def ingest_competitions(
         The competitions pandas DataFrame (used to iterate matches).
     """
     # Skip guard: return existing data if table already populated
+    full_table_name = f"{catalog}.{schema}.statsbomb_competitions"
     try:
-        existing_sdf = spark.table(f"{catalog}.{schema}.statsbomb_competitions")
-        if existing_sdf.limit(1).count() > 0:
+        if spark.catalog.tableExists(full_table_name):
             logger.info("statsbomb_competitions already populated — skipping")
-            return existing_sdf.toPandas()
+            return spark.table(full_table_name).toPandas()
     except Exception:
         logger.info("No existing statsbomb_competitions table — will fetch from API")
 

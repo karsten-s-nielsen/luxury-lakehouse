@@ -321,8 +321,7 @@ def _get_session() -> requests.Session:
                 backend="sqlite",
                 expire_after=86400,  # 24h default TTL
                 urls_expire_after={
-                    "raw.githubusercontent.com/statsbomb": requests_cache.DO_NOT_CACHE,
-                    "raw.githubusercontent.com": -1,  # never expire (static open data)
+                    "raw.githubusercontent.com": -1,  # never expire (static open data, incl. StatsBomb)
                 },
                 stale_if_error=True,
             )

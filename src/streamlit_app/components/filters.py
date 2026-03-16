@@ -210,7 +210,7 @@ def render_match_filter(
         f"  home_score, away_score "
         f"FROM {t('fct_match_summary_synced')} "
         f"WHERE {where} "
-        f"ORDER BY match_date DESC",
+        f"ORDER BY match_date DESC LIMIT 200",
         tuple(params),
     )
     if df.empty:

@@ -254,7 +254,7 @@ In addition to the skill&rsquo;s manual audit phases, codify machine-checkable r
 
 ## Deep Learning Infrastructure &amp; Pre-trained Models
 
-**Status:** Research complete, ready for incremental implementation
+**Status:** Partially implemented &mdash; MLflow UC Model Registry active (D11), model validation & drift detection deployed (D12)
 **Budget:** ~$6-14/month incremental (external GPU training + existing Databricks governance)
 **References:** DeepMind AlphaEvolve/FunSearch (Apache 2.0); TacticAI (Nature Communications, 2024); SoccerNet benchmarks
 
@@ -754,7 +754,7 @@ Requires commercial-grade tracking data (Belgian Pro League / Stats Perform) —
 
 ## Space Creation Quantification (Fernandez & Bornn 2018)
 
-**Status:** Research direction — deferred from Phase 12
+**Status:** Research direction — deferred from Phase 12. D16 computed OBSO value surfaces for PAUSA, reducing this from pure research to an incremental extension (differential pitch control per player).
 **Paper:** Fernandez & Bornn (2018), "Wide Open Spaces: A statistical technique for measuring space creation in professional soccer"
 
 Full OBSO (Off-Ball Scoring Opportunity) requires computing N+1 pitch control surfaces per frame (one counterfactual surface with each player removed) to measure each player's space creation contribution. At 25fps with 22 players, this is ~2,700 pitch control evaluations per second of play — prohibitively expensive for the current compute budget.
@@ -781,7 +781,7 @@ Phase 12 implemented a simpler Off-Ball xT metric: `pitch_control(player_locatio
 
 ## <img src="assets/hf-logo.png" height="28" align="top"> HuggingFace Hub Integration (Open Model & Dataset Ecosystem)
 
-**Status:** Tiers 1&ndash;2 complete (2 models, 5 datasets published), Tier 4 complete (Gradio demo Space with luxury flagship theme). Tier 3 deferred to DEFCON Tier 4.
+**Status:** Tiers 1&ndash;2 complete (2 models, 7 datasets published), Tier 4 complete (Gradio demo Space with luxury flagship theme). Tier 3 deferred to DEFCON Tier 4.
 **Budget:** $0 (free tier) or $9/month (PRO for priority GPU access)
 **References:** [Databricks &hearts; HuggingFace](https://www.databricks.com/blog/contributing-spark-loader-for-hugging-face-datasets); [PyG Hub Integration](https://github.com/pyg-team/pytorch_geometric/issues/7170); [SoccerNet on HF](https://huggingface.co/SoccerNet)
 
@@ -864,7 +864,7 @@ A Gradio Space hosting a read-only demo with pre-cached Parquet subsets. Not a r
 
 **Live at:** [`luxury-lakehouse/soccer-analytics-demo`](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
 
-**Tabs** (in order): Pass Quality, Pitch Control, Player Similarity, Shot Map, DEFCON Pressure
+**Tabs** (in order): Pass Quality, Pass Timing, Pitch Control, Player Similarity, Shot Map, DEFCON Pressure
 
 **Theme:** Luxury flagship &mdash; `gr.themes.Monochrome` with dark surfaces (`#0f0f14`), amber/gold accents (`#f59e0b`), sharp corners, Inter font, and CSS-injected tab navigation with gold bottom-border active state.
 
@@ -893,7 +893,7 @@ A Gradio Space hosting a read-only demo with pre-cached Parquet subsets. Not a r
 - Tier 1 (consume) &mdash; **complete** (football2vec retrained on StatsBomb corpus)
 - Tier 2 (publish) &mdash; **complete** (2 models + 5 datasets published: [football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout), [xG model](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout), [SPADL/VAEP](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values), [Line-Breaking Passes](https://huggingface.co/datasets/luxury-lakehouse/line-breaking-passes), [Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings), [Pitch Control](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking), [Expected Threat Grids](https://huggingface.co/datasets/luxury-lakehouse/expected-threat-grids))
 - Tier 3 (train) depends on DL Infrastructure (ROADMAP) for GNN training pipeline
-- Tier 4 (demo) &mdash; **complete** (Gradio Space at [`luxury-lakehouse/soccer-analytics-demo`](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme and 5 tabs: pass quality, pitch control, player similarity, shot map, DEFCON pressure)
+- Tier 4 (demo) &mdash; **complete** (Gradio Space at [`luxury-lakehouse/soccer-analytics-demo`](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme and 6 tabs: pass quality, pass timing, pitch control, player similarity, shot map, DEFCON pressure)
 - Tier 5 (streaming) &mdash; blocked on Polars `hf://buckets/` merge (see below)
 - Synergistic with DL Infrastructure (HF models flow into MLflow + UC model registry)
 - Synergistic with Provider Abstraction (football2vec consumes same StatsBomb/Wyscout data)
@@ -975,7 +975,7 @@ Even before the Polars branch merges, two things are actionable today:
 
 ## PAUSA: Optimal Pass Timing &amp; OBSO Value Surface
 
-**Status:** Research complete, license secured (Apache-2.0)
+**Status:** Implemented (D9+D10+D16) &mdash; ELASTIC sync, OBSO surfaces, PAUSA pipeline, Streamlit page, HF Space tab all deployed
 **Paper:** Lee, Jo, Hong, Bauer &amp; Ko (2026), "Valuing La Pausa: Quantifying Optimal Pass Timing Beyond Speed" (MIT Sloan 2026 finalist, top 7 of 200+)
 **Repo:** [`leemingo/mitssac-pausa`](https://github.com/leemingo/mitssac-pausa) (public, Apache-2.0)
 **License status:** Apache-2.0 merged by Minho Lee (2026-03-13). No license blocker remaining.
@@ -1031,10 +1031,10 @@ Virtual mode is the heavy-lifter: each pass generates ~100 ghost frames &times; 
 ### Open questions
 
 1. ~~**License**~~: Resolved &mdash; Apache-2.0 merged by Minho Lee (2026-03-13).
-2. **Numba adoption**: Should we add Numba to our pitch control module? Adds a compiled dependency but significant speedup.
-3. **Coordinate system**: Their code uses centered coordinates (&minus;52.5 to +52.5). Our stack uses StatsBomb 120&times;80. Adapter or full migration?
-4. **Static grids**: The EPV and Transition grids are pre-computed (provenance unclear). Train our own from StatsBomb data, or use theirs as-is?
-5. **Scope**: Full PAUSA pipeline (heavy) or start with ELASTIC sync + OBSO surface only (lighter, more broadly useful)?
+2. ~~**Numba adoption**: Should we add Numba to our pitch control module? Adds a compiled dependency but significant speedup.~~ **Resolved** &mdash; No Numba. JAX kernel extended with ghost trajectory support (Phase D16).
+3. ~~**Coordinate system**: Their code uses centered coordinates (&minus;52.5 to +52.5). Our stack uses StatsBomb 120&times;80. Adapter or full migration?~~ **Resolved** &mdash; StatsBomb 120&times;80 at API boundary, internal meter conversion where physics requires.
+4. ~~**Static grids**: The EPV and Transition grids are pre-computed (provenance unclear). Train our own from StatsBomb data, or use theirs as-is?~~ **Resolved** &mdash; Using PAUSA repo grids as-is. Custom training deferred (tracked in TODO.md).
+5. ~~**Scope**: Full PAUSA pipeline (heavy) or start with ELASTIC sync + OBSO surface only (lighter, more broadly useful)?~~ **Resolved** &mdash; Full PAUSA pipeline implemented (D9+D10+D16).
 
 ### Dependencies
 

@@ -153,10 +153,13 @@ def compute_off_ball_xt_match(
     all_frame_results: list[pd.DataFrame] = []
     frames_sampled = 0
 
+    # Pre-build frame index (CLAUDE.md: no boolean mask filter inside loops)
+    _frame_groups = dict(iter(tracking_df.groupby(["period", "frame"])))
+
     for _, pf_row in sampled_pf.iterrows():
         period = pf_row["period"]
         frame = pf_row["frame"]
-        frame_df = pd.DataFrame(tracking_df[(tracking_df["period"] == period) & (tracking_df["frame"] == frame)])
+        frame_df = pd.DataFrame(_frame_groups.get((period, frame), pd.DataFrame()))
 
         if frame_df.empty:
             continue

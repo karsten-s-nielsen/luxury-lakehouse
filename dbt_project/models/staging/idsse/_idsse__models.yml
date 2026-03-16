@@ -85,3 +85,128 @@ models:
                 min_value: -10
                 max_value: 90
                 row_condition: "ball_y is not null"
+
+  - name: stg_idsse__events
+    description: >
+      Normalized IDSSE Bundesliga event data. Transforms center-origin meter
+      coordinates to the shared 120×80 pitch system. One row per event with
+      position data. Enabled by pausa_enabled toggle.
+    config:
+      enabled: "{{ var('pausa_enabled', false) }}"
+    columns:
+      - name: event_sk
+        description: Surrogate key (match_id + event_id)
+        data_tests:
+          - unique
+          - not_null
+      - name: match_id
+        description: Match identifier (prefixed with 'idsse_')
+        data_tests:
+          - not_null
+      - name: event_id
+        description: Unique event identifier within match
+        data_tests:
+          - not_null
+      - name: event_type
+        description: DFL event type (e.g. pass, shot, tackle)
+        data_tests:
+          - not_null
+      - name: timestamp_seconds
+        description: Timestamp in seconds from period start
+      - name: period
+        description: Match half (1 or 2)
+        data_tests:
+          - not_null
+      - name: player_id
+        description: DFL PersonId of the acting player
+      - name: team
+        description: Team affiliation (home, away, or unknown)
+      - name: source_provider
+        description: Data source identifier (always 'idsse')
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['idsse']
+      - name: x
+        description: Event X coordinate scaled to 120-yard pitch
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -10
+                max_value: 130
+      - name: y
+        description: Event Y coordinate scaled to 80-yard pitch
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -10
+                max_value: 90
+
+  - name: stg_idsse__elastic_sync
+    description: >
+      ELASTIC event-tracking synchronization results joined with event metadata.
+      Maps each IDSSE event to its best-matching tracking frame using ball
+      acceleration and player-ball proximity features. Reference: Kim et al.
+      (2025), ECML-PKDD MLSA 2025, arXiv:2508.09238. Enabled by pausa_enabled.
+    config:
+      enabled: "{{ var('pausa_enabled', false) }}"
+    columns:
+      - name: sync_id
+        description: Surrogate key (match_id + event_id)
+        data_tests:
+          - unique
+          - not_null
+      - name: match_id
+        description: Match identifier (prefixed with 'idsse_')
+        data_tests:
+          - not_null
+      - name: event_id
+        description: Event identifier linked to stg_idsse__events
+        data_tests:
+          - not_null
+      - name: frame_id
+        description: Best-matching tracking frame number
+        data_tests:
+          - not_null
+      - name: alignment_confidence
+        description: >
+          Confidence score (0 to 1) of the event-frame alignment.
+          Higher values indicate stronger ball acceleration / player proximity match.
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0.0
+                max_value: 1.0
+      - name: alignment_error_seconds
+        description: >
+          Absolute time difference in seconds between the event timestamp
+          and the aligned tracking frame timestamp.
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0.0
+                max_value: 5.0
+      - name: event_type
+        description: DFL event type from the event source
+      - name: period
+        description: Match half (1 or 2)
+      - name: player_id
+        description: DFL PersonId of the acting player
+      - name: team
+        description: Team affiliation (home, away, or unknown)
+      - name: event_timestamp_seconds
+        description: Original event timestamp in seconds from period start
+      - name: frame_timestamp_seconds
+        description: Aligned frame timestamp (frame_id / 25.0)
+      - name: source_provider
+        description: Data source identifier (always 'idsse')
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['idsse']

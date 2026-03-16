@@ -8,14 +8,18 @@
 #   metrica           — Tracking data (player coordinates at 25fps)
 #   wyscout           — Match events and player attributes
 #   idsse             — Bundesliga DFL tracking (25fps, 7 matches from UC Volume)
+#   idsse_events      — Bundesliga DFL event XML (7 matches, depends on idsse)
 #   skillcorner       — A-League broadcast tracking (10fps, 10 matches via kloppy)
 #   compute_spadl_vaep — SPADL conversion + VAEP scoring (depends on statsbomb + wyscout)
 #   compute_xg_model   — Custom xG model scoring (depends on SPADL/VAEP)
 #   compute_off_ball_xt — Off-Ball xT from tracking + pitch control (depends on tracking tasks)
 #   compute_pitch_control — Spearman 2017 pitch control values (depends on tracking tasks)
 #   compute_defcon_lite — DEFCON-lite defensive valuation (depends on SPADL/VAEP)
+#   compute_elastic_sync — ELASTIC event-tracking alignment (depends on idsse_events)
+#   compute_pausa     — PAUSA pass timing pipeline (depends on elastic_sync + OBSO import)
 #   resolve_players   — Cross-source entity resolution (depends on statsbomb + wyscout)
 #   compute_embeddings — Player behavioral + statistical embeddings (depends on entity resolution)
+#   run_model_validation — Model drift detection (depends on compute_pausa)
 #
 # Schedule: Daily at 06:00 UTC (before business hours in US/EU timezones)
 #
@@ -352,6 +356,107 @@ resource "databricks_job" "data_ingestion" {
     }
 
     environment_key = "embeddings"
+  }
+
+  # ── Task: Ingest IDSSE event data (DFL event XML) ──────────────────────
+  # Parses DFL event XML from UC Volume for the same 7 Bundesliga matches.
+  # Separate from tracking ingestion — different XML schema.
+  task {
+    task_key        = "ingest_idsse_events"
+    timeout_seconds = 900
+    max_retries     = 1
+
+    depends_on {
+      task_key = "ingest_idsse"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "ingest_idsse_events"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "default"
+  }
+
+  # ── Task: Compute ELASTIC event-tracking alignment ────────────────────
+  # Kim et al. (2025) ELASTIC sync: aligns discrete events with 25fps
+  # tracking frames via ball acceleration + player-ball distance features.
+  task {
+    task_key        = "compute_elastic_sync"
+    timeout_seconds = 3600
+    max_retries     = 1
+
+    depends_on {
+      task_key = "ingest_idsse_events"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_elastic_sync"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "default"
+  }
+
+  # ── Task: Compute PAUSA pass timing values ────────────────────────────
+  # Lee et al. (2026) PAUSA: temporal judgment × spatial selection from
+  # OBSO surfaces. Depends on ELASTIC sync results and pre-computed OBSO
+  # values (imported from HF Jobs GPU run).
+  task {
+    task_key        = "compute_pausa"
+    timeout_seconds = 3600
+    max_retries     = 1
+
+    depends_on {
+      task_key = "compute_elastic_sync"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_pausa"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "default"
+  }
+
+  # ── Task: Run model validation and drift detection ────────────────────
+  # PSI, Wasserstein, CUSUM, and hard bounds across all ML models.
+  # Runs post-dbt and post-PAUSA to validate all model outputs.
+  task {
+    task_key        = "run_model_validation"
+    timeout_seconds = 900
+    max_retries     = 1
+
+    depends_on {
+      task_key = "compute_pausa"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "run_model_validation"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "default"
   }
 
   # ── Environment definition for serverless tasks ──────────────────────────

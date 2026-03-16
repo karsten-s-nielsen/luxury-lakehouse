@@ -16,6 +16,21 @@ from streamlit_app.components.pitch import plot_physics_pitch_control, plot_pitc
 from streamlit_app.db import execute_query, t
 
 
+@st.cache_data(ttl=600, show_spinner="Resolving match...")
+def _fetch_match_label(match_id: str) -> str:
+    """Resolve match_id to human-readable label (CHI-AUDIT-190 #17)."""
+    match_tbl = t("fct_match_summary_synced")
+    df = execute_query(
+        f"SELECT match_date, home_team_name, away_team_name "  # noqa: S608
+        f"FROM {match_tbl} WHERE match_id::text = %s LIMIT 1",
+        (match_id,),
+    )
+    if df.empty:
+        return match_id
+    r = df.iloc[0]
+    return f"{r['match_date']} \u2014 {r['home_team_name']} v {r['away_team_name']}"
+
+
 @st.cache_data(ttl=300, show_spinner="Computing pitch control surface...")
 def _compute_cached_pc_grid(frame_data_json: str) -> tuple[Any, Any, Any]:
     """Compute pitch control grid with caching; input serialised as JSON string."""
@@ -182,7 +197,8 @@ def page() -> None:
     col_viz, col_stats = st.columns([3, 1])
 
     with col_viz:
-        title = f"Pitch Control — {match_id} H{period} {elapsed_secs // 60:02d}:{elapsed_secs % 60:02d}"
+        match_label = _fetch_match_label(str(match_id))
+        title = f"Pitch Control — {match_label} H{period} {elapsed_secs // 60:02d}:{elapsed_secs % 60:02d}"
         if viz_mode == "Physics-based":
             # Fill NaN velocities with 0 for physics model
             physics_data = frame_data.copy()

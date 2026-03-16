@@ -20,6 +20,7 @@ from analytics.pitch_control import (
     compute_pitch_control_at_points,
     compute_pitch_control_frame,
     compute_pitch_control_grid_fast,
+    generate_ghost_trajectories,
 )
 
 # ---------------------------------------------------------------------------
@@ -358,12 +359,135 @@ class TestBatchPitchControl:
 
 
 # ---------------------------------------------------------------------------
+# Ghost trajectory tests
+# ---------------------------------------------------------------------------
+
+
+class TestGhostTrajectories:
+    """Test constant-velocity ghost trajectory generation."""
+
+    def test_ghost_trajectory_count(self) -> None:
+        """3s * 25 + 1s * 25 + 1 = 101 ghost frames."""
+        players = _make_players(
+            home_positions=[(60.0, 40.0)],
+            away_positions=[(80.0, 40.0)],
+        )
+        frames = generate_ghost_trajectories(
+            players, event_frame=100, frame_rate=25, window_before_s=3.0, window_after_s=1.0
+        )
+        assert len(frames) == 101
+
+    def test_ghost_trajectory_constant_velocity(self) -> None:
+        """Positions extrapolate linearly from velocity at event frame."""
+        players = _make_players(
+            home_positions=[(60.0, 40.0)],
+            away_positions=[(80.0, 40.0)],
+            home_velocities=[(10.0, 0.0)],  # Moving right at 10 SB units/s
+            away_velocities=[(0.0, 0.0)],
+        )
+        frames = generate_ghost_trajectories(
+            players, event_frame=100, frame_rate=25, window_before_s=1.0, window_after_s=1.0
+        )
+        # 1s * 25 + 1s * 25 + 1 = 51 frames
+        assert len(frames) == 51
+
+        # Event frame is at index 25 (offset 0)
+        event_idx = 25
+        event_df = frames[event_idx]
+        assert int(event_df["ghost_frame_offset"].iloc[0]) == 0
+
+        # Check home player at event frame: should be at original position
+        home_at_event = pd.DataFrame(event_df[event_df["player_id"] == "h0"])
+        home_x_event = float(home_at_event["x"].iloc[0])
+        np.testing.assert_allclose(home_x_event, 60.0, atol=1e-10)
+
+        # +0.5s later (index 25 + 12 = 37, offset 12):
+        # x = 60 + 10 * (12/25) = 60 + 4.8 = 64.8
+        later_idx = 37
+        later_df = frames[later_idx]
+        home_at_later = pd.DataFrame(later_df[later_df["player_id"] == "h0"])
+        home_x_later = float(home_at_later["x"].iloc[0])
+        np.testing.assert_allclose(home_x_later, 64.8, atol=1e-10)
+
+    def test_ghost_trajectory_stationary_player(self) -> None:
+        """Zero velocity produces the same position in all ghost frames."""
+        players = _make_players(
+            home_positions=[(60.0, 40.0)],
+            away_positions=[(80.0, 40.0)],
+            home_velocities=[(0.0, 0.0)],
+            away_velocities=[(0.0, 0.0)],
+        )
+        frames = generate_ghost_trajectories(
+            players, event_frame=100, frame_rate=25, window_before_s=1.0, window_after_s=1.0
+        )
+        for frame_df in frames:
+            home_rows = pd.DataFrame(frame_df[frame_df["player_id"] == "h0"])
+            home_x = float(home_rows["x"].iloc[0])
+            home_y = float(home_rows["y"].iloc[0])
+            np.testing.assert_allclose(home_x, 60.0, atol=1e-10)
+            np.testing.assert_allclose(home_y, 40.0, atol=1e-10)
+
+    def test_ghost_trajectory_pitch_bounds(self) -> None:
+        """Positions are clamped to [0, 120] x [0, 80]."""
+        # Player near right edge, moving fast right
+        players = _make_players(
+            home_positions=[(115.0, 75.0)],
+            away_positions=[(20.0, 20.0)],
+            home_velocities=[(20.0, 20.0)],  # Will overshoot bounds
+            away_velocities=[(0.0, 0.0)],
+        )
+        frames = generate_ghost_trajectories(
+            players, event_frame=100, frame_rate=25, window_before_s=0.0, window_after_s=2.0
+        )
+        for frame_df in frames:
+            home_row = pd.DataFrame(frame_df[frame_df["player_id"] == "h0"]).iloc[0]
+            assert 0.0 <= float(home_row["x"]) <= 120.0
+            assert 0.0 <= float(home_row["y"]) <= 80.0
+
+    def test_ghost_frame_offset_column(self) -> None:
+        """Each ghost frame has a ghost_frame_offset column."""
+        players = _make_players(
+            home_positions=[(60.0, 40.0)],
+            away_positions=[(80.0, 40.0)],
+        )
+        frames = generate_ghost_trajectories(
+            players, event_frame=100, frame_rate=25, window_before_s=0.2, window_after_s=0.2
+        )
+        # 0.2s * 25 = 5 frames before, 5 after, + 1 = 11 total
+        assert len(frames) == 11
+        offsets = [int(f["ghost_frame_offset"].iloc[0]) for f in frames]
+        assert offsets == list(range(-5, 6))
+
+    def test_ghost_preserves_metadata(self) -> None:
+        """Ghost frames preserve player_id and team columns."""
+        players = _make_players(
+            home_positions=[(60.0, 40.0)],
+            away_positions=[(80.0, 40.0)],
+        )
+        frames = generate_ghost_trajectories(
+            players, event_frame=100, frame_rate=25, window_before_s=0.1, window_after_s=0.1
+        )
+        for frame_df in frames:
+            assert "player_id" in frame_df.columns
+            assert "team" in frame_df.columns
+            assert set(frame_df["player_id"]) == {"h0", "a0"}
+            assert set(frame_df["team"]) == {"home", "away"}
+
+
+# ---------------------------------------------------------------------------
 # JAX / NumPy parity tests
 # ---------------------------------------------------------------------------
 
-jax = pytest.importorskip("jax")
+try:
+    import jax as _jax_mod
+
+    _HAS_JAX = True
+except ImportError:
+    _jax_mod = None  # type: ignore[assignment]
+    _HAS_JAX = False
 
 
+@pytest.mark.skipif(not _HAS_JAX, reason="JAX not installed")
 class TestJaxNumPyParity:
     """Ensure JAX and NumPy backends produce identical results."""
 
@@ -377,6 +501,8 @@ class TestJaxNumPyParity:
 
     def test_tti_parity(self, sample_inputs: tuple[np.ndarray, np.ndarray, np.ndarray]) -> None:
         """TTI results from JAX and NumPy kernels must match within tolerance."""
+        import jax
+
         from analytics.pitch_control import _tti_jax
 
         player_pos, player_vel, targets = sample_inputs
@@ -395,6 +521,8 @@ class TestJaxNumPyParity:
 
     def test_influence_parity(self, sample_inputs: tuple[np.ndarray, np.ndarray, np.ndarray]) -> None:
         """Influence results from JAX and NumPy kernels must match within tolerance."""
+        import jax
+
         from analytics.pitch_control import _influence_jax
 
         player_pos, player_vel, targets = sample_inputs

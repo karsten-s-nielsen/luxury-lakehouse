@@ -77,20 +77,74 @@ def run_pipeline(
 ) -> None:
     """Compute per-competition and global xT grids, write to Delta."""
     params = ExpectedThreatParams()
+    results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
 
-    log.info("Loading SPADL actions from %s.dev_gold.%s", catalog, _GOLD_TABLE)
-    actions_df = _load_actions(spark, catalog)
+    # ── Incremental skip guard on competition_id ──────────────────────
+    existing: set[str] = set()
+    try:
+        existing = {
+            str(row["competition_id"])
+            for row in spark.table(results_table).select("competition_id").distinct().collect()
+        }
+    except Exception:
+        log.info("No existing %s table — will process all competitions", _TABLE_NAME)
+
+    # Determine available competition IDs from the gold mart (cheap Spark query)
+    types_sql = ", ".join(f"'{t}'" for t in _RELEVANT_TYPES)
+    available_comps = {
+        str(row["competition_id"])
+        for row in spark.sql(
+            f"SELECT DISTINCT competition_id FROM {catalog}.dev_gold.{_GOLD_TABLE}"  # noqa: S608
+            f" WHERE action_type IN ({types_sql}) AND competition_id IS NOT NULL"
+        ).collect()
+    }
+
+    # Compute what's missing: per-competition grids + global grid
+    new_comps = sorted(available_comps - existing)
+    need_global = "global" not in existing
+
+    if not new_comps and not need_global:
+        log.info(
+            "All %d xT grids already computed (including global) — skipping",
+            len(existing),
+        )
+        return
+
+    log.info(
+        "Need to compute %d new competition grids%s (existing: %d)",
+        len(new_comps),
+        " + global" if need_global else "",
+        len(existing),
+    )
+
+    # ── Load actions (only for missing competitions + global) ─────────
+    # Global grid needs all actions; per-comp grids only need their slice.
+    # When global is needed, load everything; otherwise load only new comps.
+    if need_global:
+        log.info("Loading all SPADL actions from %s.dev_gold.%s (global grid needed)", catalog, _GOLD_TABLE)
+        actions_df = _load_actions(spark, catalog)
+    else:
+        comp_filter = ", ".join(f"'{c}'" for c in new_comps)
+        query = f"""
+            SELECT
+                competition_id,
+                action_type AS type_name,
+                action_result AS result_name,
+                start_x, start_y, end_x, end_y
+            FROM {catalog}.dev_gold.{_GOLD_TABLE}
+            WHERE action_type IN ({types_sql})
+              AND CAST(competition_id AS STRING) IN ({comp_filter})
+        """  # noqa: S608
+        actions_df = spark.sql(query).toPandas()  # type: ignore[union-attr]
     log.info("Loaded %d relevant actions", len(actions_df))
 
     if actions_df.empty:
         log.warning("No actions found — skipping xT computation")
         return
 
-    # Per-competition grids
-    competitions = sorted(actions_df["competition_id"].dropna().unique())
-    log.info("Computing xT grids for %d competitions", len(competitions))
-
-    for comp_id in competitions:
+    # ── Per-competition grids (only missing ones) ─────────────────────
+    competitions_written = 0
+    for comp_id in new_comps:
         comp_actions = pd.DataFrame(actions_df[actions_df["competition_id"] == comp_id])
         n_events = len(comp_actions)
         if n_events < 100:
@@ -108,23 +162,30 @@ def run_pipeline(
             replace_where=f"competition_id = '{comp_id}'",
             logger=log,
         )
+        competitions_written += 1
         log.info("Competition %s: %d events, max xT=%.5f", comp_id, n_events, float(grid.max()))
 
-    # Global grid (all competitions combined)
-    global_grid = compute_expected_threat_grid(actions_df, params)
-    validate_xt_grid(global_grid)
-    global_df = grid_to_dataframe(global_grid, competition_id="global")
-    spark_df = spark.createDataFrame(global_df)  # type: ignore[union-attr]
-    write_delta_table(
-        spark_df,
-        catalog=catalog,
-        schema=schema,
-        table_name=_TABLE_NAME,
-        replace_where="competition_id = 'global'",
-        logger=log,
+    # ── Global grid (all competitions combined) ───────────────────────
+    if need_global:
+        global_grid = compute_expected_threat_grid(actions_df, params)
+        validate_xt_grid(global_grid)
+        global_df = grid_to_dataframe(global_grid, competition_id="global")
+        spark_df = spark.createDataFrame(global_df)  # type: ignore[union-attr]
+        write_delta_table(
+            spark_df,
+            catalog=catalog,
+            schema=schema,
+            table_name=_TABLE_NAME,
+            replace_where="competition_id = 'global'",
+            logger=log,
+        )
+        log.info("Global grid: %d events, max xT=%.5f", len(actions_df), float(global_grid.max()))
+
+    log.info(
+        "Done — wrote %d competition grids%s",
+        competitions_written,
+        " + global" if need_global else "",
     )
-    log.info("Global grid: %d events, max xT=%.5f", len(actions_df), float(global_grid.max()))
-    log.info("Done — wrote grids for %d competitions + global", len(competitions))
 
 
 def main() -> None:

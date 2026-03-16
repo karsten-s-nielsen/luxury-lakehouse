@@ -113,6 +113,12 @@ INDEXES: list[tuple[str, str, str]] = [
     # ── dim_players_synced — Embedding point lookups ───────────────────
     # PL-1: canonical_player_id for embedding joins
     ("idx_players_canonical_id", "dim_players_synced", "canonical_player_id"),
+    # ── fct_pausa_values_synced — Pass timing (PAUSA) queries ────────
+    # PA-1: match + player lookup for pass timing page
+    ("idx_pausa_values_match_player", "fct_pausa_values_synced", "match_id, player_id"),
+    # ── fct_pass_timing_synced — Player pass timing rankings ─────────
+    # PT-1: match + player lookup for rankings/breakdown
+    ("idx_pass_timing_match_player", "fct_pass_timing_synced", "match_id, player_id"),
 ]
 
 # pgvector HNSW index definitions: (index_name, table, using_clause)

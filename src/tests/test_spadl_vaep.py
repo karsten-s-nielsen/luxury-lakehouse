@@ -245,3 +245,70 @@ class TestModelPersistence:
             preds_loaded = loaded.predict_proba(x)[:, 1]
 
         np.testing.assert_array_almost_equal(preds_original, preds_loaded)
+
+
+# ---------------------------------------------------------------------------
+# MLflow Champion loading
+# ---------------------------------------------------------------------------
+
+
+class TestTryLoadChampionVaep:
+    """Test _try_load_champion_vaep fallback behavior."""
+
+    def test_returns_none_when_mlflow_not_importable(self) -> None:
+        """Should return None gracefully when mlflow is not available."""
+        import logging
+        import sys
+        from unittest.mock import patch
+
+        from ingestion.spadl_vaep import _try_load_champion_vaep
+
+        # Simulate mlflow not being importable
+        with patch.dict(sys.modules, {"mlflow": None, "mlflow.pyfunc": None}):
+            result = _try_load_champion_vaep(logging.getLogger("test"))
+        # Result is None because the import fails inside the function
+        assert result is None
+
+    def test_returns_none_when_champion_not_found(self) -> None:
+        """Should return None when mlflow is available but no Champion registered."""
+        import logging
+        from unittest.mock import MagicMock, patch
+
+        from ingestion.spadl_vaep import _try_load_champion_vaep
+
+        mock_mlflow = MagicMock()
+        mock_pyfunc = MagicMock()
+        mock_pyfunc.load_model.side_effect = Exception("Model not found")
+
+        with patch.dict("sys.modules", {"mlflow": mock_mlflow, "mlflow.pyfunc": mock_pyfunc}):
+            result = _try_load_champion_vaep(logging.getLogger("test"))
+        assert result is None
+
+    def test_returns_models_when_champion_found(self) -> None:
+        """Should return (model_scores, model_concedes) when Champion exists."""
+        import logging
+        from unittest.mock import MagicMock, patch
+
+        from ingestion.spadl_vaep import _try_load_champion_vaep
+
+        mock_scores = MagicMock()
+        mock_concedes = MagicMock()
+
+        mock_unwrapped = MagicMock()
+        mock_unwrapped.scores_model = mock_scores
+        mock_unwrapped.concedes_model = mock_concedes
+
+        mock_champion = MagicMock()
+        mock_champion.unwrap_python_model.return_value = mock_unwrapped
+
+        mock_pyfunc = MagicMock()
+        mock_pyfunc.load_model.return_value = mock_champion
+
+        mock_mlflow = MagicMock()
+
+        with patch.dict("sys.modules", {"mlflow": mock_mlflow, "mlflow.pyfunc": mock_pyfunc}):
+            result = _try_load_champion_vaep(logging.getLogger("test"))
+
+        assert result is not None
+        assert result[0] is mock_scores
+        assert result[1] is mock_concedes

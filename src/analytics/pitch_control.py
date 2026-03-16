@@ -504,6 +504,75 @@ def compute_pitch_control_at_point(
     return float(np.clip(home_influence[0] / total, 0.0, 1.0))
 
 
+def generate_ghost_trajectories(
+    players_df: pd.DataFrame,
+    event_frame: int,
+    frame_rate: int = 25,
+    window_before_s: float = 3.0,
+    window_after_s: float = 1.0,
+) -> list[pd.DataFrame]:
+    """Generate constant-velocity extrapolation for counterfactual frames.
+
+    For each player, extrapolate position linearly from their velocity at
+    ``event_frame``.  The window spans from ``event_frame - window_before_s *
+    frame_rate`` to ``event_frame + window_after_s * frame_rate`` inclusive.
+    Positions are clamped to StatsBomb pitch bounds [0, 120] x [0, 80].
+
+    Args:
+        players_df: Tracking frame with columns: player_id, x, y,
+            velocity_x, velocity_y, team.  Positions in StatsBomb 120x80
+            coordinates.
+        event_frame: The frame number of the event.
+        frame_rate: Frames per second (25 for IDSSE).
+        window_before_s: Seconds before event to extrapolate.
+        window_after_s: Seconds after event to extrapolate.
+
+    Returns:
+        List of DataFrames, one per ghost frame.  Each has the same columns
+        as the input plus ``ghost_frame_offset`` (int, relative to
+        ``event_frame``).
+
+    Reference:
+        Lee, Jo, Hong, Bauer & Ko (2026). "Valuing La Pausa." MIT Sloan 2026.
+    """
+    # Extract positions and velocities as arrays
+    x = np.asarray(players_df["x"], dtype=np.float64)
+    y = np.asarray(players_df["y"], dtype=np.float64)
+    vx = np.asarray(players_df["velocity_x"], dtype=np.float64)
+    vy = np.asarray(players_df["velocity_y"], dtype=np.float64)
+
+    n_players = len(players_df)
+
+    # Compute frame offsets
+    start_offset = -int(window_before_s * frame_rate)
+    end_offset = int(window_after_s * frame_rate)
+
+    # Pre-extract metadata columns once (avoid repeated copies)
+    meta_cols = [c for c in players_df.columns if c not in {"x", "y", "velocity_x", "velocity_y"}]
+    meta_dict = {c: players_df[c].to_numpy() for c in meta_cols}
+
+    frames: list[pd.DataFrame] = []
+    for offset in range(start_offset, end_offset + 1):
+        dt = offset / frame_rate
+
+        # Constant-velocity extrapolation
+        new_x = np.clip(x + vx * dt, 0.0, 120.0)
+        new_y = np.clip(y + vy * dt, 0.0, 80.0)
+
+        data: dict[str, object] = {}
+        for c in meta_cols:
+            data[c] = meta_dict[c].copy()
+        data["x"] = new_x.copy()
+        data["y"] = new_y.copy()
+        data["velocity_x"] = vx.copy()
+        data["velocity_y"] = vy.copy()
+        data["ghost_frame_offset"] = np.full(n_players, offset, dtype=np.int64)
+
+        frames.append(pd.DataFrame(data))
+
+    return frames
+
+
 def compute_pitch_control_grid_fast(
     players_df: pd.DataFrame,
     grid_cells_x: int = 104,

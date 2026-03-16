@@ -74,6 +74,8 @@ vars:
   embeddings_enabled: true
   # Custom xG model toggle — set to true after running compute_xg_model pipeline
   xg_model_enabled: true
+  # PAUSA/ELASTIC toggle — set to true after running ELASTIC sync + PAUSA pipelines
+  pausa_enabled: true
   progressive_pass_ratio: 0.75       # end distance < 75% of start distance to goal
   pass_direction_threshold: 5        # yards — forward/backward deadband
   # DEPRECATED: frame_duration_seconds is no longer used in fct_tracking_frames.

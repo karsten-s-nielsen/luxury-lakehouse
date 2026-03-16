@@ -7,6 +7,7 @@
 # MAGIC
 # MAGIC **Output:**
 # MAGIC - Model weights &rarr; `/Volumes/soccer_analytics/dev_gold/model_weights/xg_model/`
+# MAGIC - MLflow Registry &rarr; `soccer_analytics.dev_gold.xg_model` (`@Champion` XGBoost, `@Baseline` logistic)
 # MAGIC - HuggingFace Hub &rarr; `luxury-lakehouse/xg-model-statsbomb-wyscout`
 
 # COMMAND ----------
@@ -19,6 +20,9 @@
 import sys
 
 sys.path.insert(0, "/Workspace/Users/karstenskyt@gmail.com/luxury-lakehouse/src")
+
+import mlflow  # noqa: E402 — pre-installed on Databricks runtime
+from mlflow.models import infer_signature  # noqa: E402
 
 from analytics.xg_model import (
     XGModelConfig,
@@ -73,61 +77,138 @@ print(f"Train: {len(X_train):,}, Test: {len(X_test):,}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 3. Train Models
-
-# COMMAND ----------
-
-logistic_model = train_logistic_baseline(X_train, y_train, random_state=config.random_state)
-print("Logistic baseline trained")
-
-xgboost_model = train_xgboost_model(X_train, y_train, config)
-print("XGBoost (calibrated) trained")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 4. Evaluate
+# MAGIC ## 3. Train Models with MLflow Tracking
 
 # COMMAND ----------
 
 from sklearn.metrics import brier_score_loss  # noqa: E402 — cell-based notebook import
 
-baseline_cols = [c for c in ["distance_to_goal", "shot_angle"] if c in X_test.columns]
+mlflow.set_experiment("/soccer_analytics/xg_model")
 
-logistic_metrics = evaluate_model(logistic_model, X_test[baseline_cols], y_test)
-xgboost_metrics = evaluate_model(xgboost_model, X_test, y_test)
+with mlflow.start_run(run_name="xg_model_training") as run:
+    # Log training parameters
+    mlflow.log_params({
+        "n_estimators": config.n_estimators,
+        "max_depth": config.max_depth,
+        "learning_rate": config.learning_rate,
+        "calibration_method": config.calibration_method,
+        "test_size": config.test_size,
+        "random_state": config.random_state,
+        "n_features": len(X_train.columns),
+        "n_train": len(X_train),
+        "n_test": len(X_test),
+        "n_shots_total": len(shots_df),
+    })
 
-print("=== Logistic Baseline ===")
-for k, v in logistic_metrics.items():
-    print(f"  {k}: {v:.4f}")
+    # Train models
+    logistic_model = train_logistic_baseline(X_train, y_train, random_state=config.random_state)
+    print("Logistic baseline trained")
 
-print("\n=== XGBoost (Calibrated) ===")
-for k, v in xgboost_metrics.items():
-    print(f"  {k}: {v:.4f}")
+    xgboost_model = train_xgboost_model(X_train, y_train, config)
+    print("XGBoost (calibrated) trained")
 
-# StatsBomb xG benchmark (StatsBomb shots only)
-test_indices = X_test.index
-sb_mask = (shots_df.loc[test_indices, "data_source"] == "statsbomb") & shots_df.loc[test_indices, "statsbomb_xg"].notna()
-if sb_mask.any():
-    sb_xg = shots_df.loc[test_indices[sb_mask], "statsbomb_xg"].clip(0.01, 0.99)
-    sb_y = y_test.loc[sb_mask]
-    sb_brier = brier_score_loss(sb_y, sb_xg)
-    custom_brier = brier_score_loss(sb_y, xgboost_model.predict_proba(X_test.loc[sb_mask])[:, 1])
-    print(f"\n=== StatsBomb Benchmark ===")
-    print(f"  StatsBomb xG Brier: {sb_brier:.4f}")
-    print(f"  Custom xG Brier:    {custom_brier:.4f}")
-    print(f"  Ratio:              {custom_brier / sb_brier:.2%}")
+    # Evaluate
+    baseline_cols = [c for c in ["distance_to_goal", "shot_angle"] if c in X_test.columns]
+    logistic_metrics = evaluate_model(logistic_model, X_test[baseline_cols], y_test)
+    xgboost_metrics = evaluate_model(xgboost_model, X_test, y_test)
 
-    # Spec requirement: custom xG Brier within 10% of StatsBomb xG
-    assert custom_brier <= sb_brier * 1.10, (
-        f"FAIL: Custom Brier {custom_brier:.4f} > 110% of StatsBomb Brier {sb_brier:.4f}"
+    # Log metrics
+    for metric_name, value in logistic_metrics.items():
+        mlflow.log_metric(f"logistic_{metric_name}", value)
+    for metric_name, value in xgboost_metrics.items():
+        mlflow.log_metric(f"xgboost_{metric_name}", value)
+
+    print("=== Logistic Baseline ===")
+    for k, v in logistic_metrics.items():
+        print(f"  {k}: {v:.4f}")
+
+    print("\n=== XGBoost (Calibrated) ===")
+    for k, v in xgboost_metrics.items():
+        print(f"  {k}: {v:.4f}")
+
+    # StatsBomb xG benchmark (StatsBomb shots only)
+    test_indices = X_test.index
+    sb_mask = (shots_df.loc[test_indices, "data_source"] == "statsbomb") & shots_df.loc[test_indices, "statsbomb_xg"].notna()
+    if sb_mask.any():
+        sb_xg = shots_df.loc[test_indices[sb_mask], "statsbomb_xg"].clip(0.01, 0.99)
+        sb_y = y_test.loc[sb_mask]
+        sb_brier = brier_score_loss(sb_y, sb_xg)
+        custom_brier = brier_score_loss(sb_y, xgboost_model.predict_proba(X_test.loc[sb_mask])[:, 1])
+        mlflow.log_metrics({
+            "statsbomb_brier": sb_brier,
+            "custom_brier_on_sb_subset": custom_brier,
+            "brier_ratio": custom_brier / sb_brier,
+        })
+        print("\n=== StatsBomb Benchmark ===")
+        print(f"  StatsBomb xG Brier: {sb_brier:.4f}")
+        print(f"  Custom xG Brier:    {custom_brier:.4f}")
+        print(f"  Ratio:              {custom_brier / sb_brier:.2%}")
+
+        assert custom_brier <= sb_brier * 1.10, (
+            f"FAIL: Custom Brier {custom_brier:.4f} > 110% of StatsBomb Brier {sb_brier:.4f}"
+        )
+        print("  Within 10% threshold")
+
+    # Log XGBoost model to MLflow with signature
+    signature = infer_signature(X_test, xgboost_model.predict_proba(X_test)[:, 1])
+    mlflow.sklearn.log_model(
+        sk_model=xgboost_model,
+        artifact_path="xgboost_model",
+        signature=signature,
+        registered_model_name="soccer_analytics.dev_gold.xg_model",
     )
-    print("  Within 10% threshold")
+
+    # Log logistic baseline and register as @Baseline
+    baseline_signature = infer_signature(X_test[baseline_cols], logistic_model.predict_proba(X_test[baseline_cols])[:, 1])
+    mlflow.sklearn.log_model(
+        sk_model=logistic_model,
+        artifact_path="logistic_model",
+        signature=baseline_signature,
+        registered_model_name="soccer_analytics.dev_gold.xg_model_baseline",
+    )
+
+    # Log feature names as artifact
+    mlflow.log_dict(
+        {"feature_names": list(X_train.columns)},
+        "feature_names.json",
+    )
+
+    run_id = run.info.run_id
+    print(f"\nMLflow run ID: {run_id}")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 5. Save Model Weights
+# MAGIC ## 4. Register @Champion and @Baseline Aliases
+
+# COMMAND ----------
+
+client = mlflow.tracking.MlflowClient()
+
+# Set @Champion on XGBoost (production model)
+xgb_model_name = "soccer_analytics.dev_gold.xg_model"
+xgb_versions = client.search_model_versions(f"name='{xgb_model_name}'", order_by=["version_number DESC"], max_results=1)
+if xgb_versions:
+    xgb_version = xgb_versions[0].version
+    client.set_registered_model_alias(xgb_model_name, "Champion", xgb_version)
+    print(f"Set @Champion alias on {xgb_model_name} version {xgb_version}")
+else:
+    print("WARNING: No XGBoost model versions found — @Champion alias not set")
+
+# Set @Baseline on logistic regression (interpretable reference point)
+baseline_model_name = "soccer_analytics.dev_gold.xg_model_baseline"
+baseline_versions = client.search_model_versions(f"name='{baseline_model_name}'", order_by=["version_number DESC"], max_results=1)
+if baseline_versions:
+    baseline_version = baseline_versions[0].version
+    client.set_registered_model_alias(baseline_model_name, "Baseline", baseline_version)
+    print(f"Set @Baseline alias on {baseline_model_name} version {baseline_version}")
+else:
+    print("WARNING: No logistic model versions found — @Baseline alias not set")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 5. Save Model Weights to UC Volume
 
 # COMMAND ----------
 

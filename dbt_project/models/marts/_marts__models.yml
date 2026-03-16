@@ -1688,3 +1688,86 @@ models:
           - accepted_values:
               arguments:
                 values: ['male', 'female']
+
+  # ── PAUSA Tables ──────────────────────────────────────────────────────
+
+  - name: fct_pass_timing
+    config:
+      contract:
+        enforced: true
+    description: >
+      Per-player per-match PAUSA pass timing aggregation. Temporal judgment,
+      spatial selection, and composite PAUSA score aggregated at the
+      player-match grain. One row per player per match.
+    columns:
+      - name: player_id
+        data_type: string
+        description: Player identifier (foreign key to dim_players)
+      - name: match_id
+        data_type: string
+        description: Match identifier
+      - name: player_display_name
+        data_type: string
+        description: Human-readable player name from dim_players
+      - name: pass_count
+        data_type: int
+        description: Number of passes evaluated for PAUSA
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 1
+                max_value: 500
+              config:
+                severity: warn
+      - name: avg_temporal_judgment
+        data_type: double
+        description: >
+          Average temporal judgment across passes. 1.0 = always released at
+          the peak OBSO moment.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+              config:
+                severity: warn
+      - name: avg_spatial_selection
+        data_type: double
+        description: >
+          Average spatial selection across passes. 1.0 = always chose the
+          optimal receiver.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+              config:
+                severity: warn
+      - name: avg_pausa
+        data_type: double
+        description: >
+          Average PAUSA composite score (temporal × spatial). Higher = better
+          pass timing and target choice.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+              config:
+                severity: warn
+      - name: median_pausa
+        data_type: double
+        description: Median PAUSA composite score
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+              config:
+                severity: warn
+      - name: passes_above_median_pausa
+        data_type: int
+        description: Number of passes with PAUSA score above 0.5
+      - name: _loaded_at
+        data_type: timestamp
+        description: Timestamp when the row was materialized

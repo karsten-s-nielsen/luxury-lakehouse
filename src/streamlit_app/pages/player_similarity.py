@@ -214,19 +214,38 @@ def _load_radar_stats(canonical_player_ids: list[str], competition_id: int | Non
 
 @st.cache_data(ttl=600, show_spinner="Loading players...")
 def _fetch_embedding_players(tbl: str, dim_players_tbl: str, tot_col: str, min_m: int, comp_id: int | None) -> Any:
-    comp_filter = ""
-    params: list[Any] = [min_m]
+    """Load players with embedding vectors meeting the minimum match threshold.
+
+    Uses recursive CTE loose index scan on canonical_player_id to avoid
+    SELECT DISTINCT sequential scan, then joins to dimension table.
+    """
+    comp_filter_inner = ""
     if comp_id is not None:
-        comp_filter = "AND e.competition_id = %s "
-        params.append(comp_id)
+        comp_filter_inner = "AND competition_id = %s "
+
+    # Build parameter list for the recursive CTE (min_m + optional comp_id appear twice:
+    # once in the seed SELECT MIN, once in the recursive subquery).
+    seed_params: list[Any] = [min_m]
+    if comp_id is not None:
+        seed_params.append(comp_id)
+    # Duplicate for the recursive branch
+    cte_params: list[Any] = seed_params + seed_params.copy()
 
     return execute_query(
-        f"SELECT DISTINCT e.canonical_player_id, p.player_display_name "  # noqa: S608
-        f"FROM {tbl} e "
-        f"JOIN {dim_players_tbl} p "
-        f"  ON e.canonical_player_id = p.canonical_player_id "
-        f"WHERE e.{tot_col} >= %s " + comp_filter + "ORDER BY p.player_display_name",
-        tuple(params),
+        f"WITH RECURSIVE ep AS ("  # noqa: S608
+        f"  SELECT MIN(canonical_player_id) AS canonical_player_id FROM {tbl}"
+        f"  WHERE {tot_col} >= %s {comp_filter_inner}"
+        f"  UNION ALL"
+        f"  SELECT (SELECT MIN(canonical_player_id) FROM {tbl}"
+        f"          WHERE {tot_col} >= %s {comp_filter_inner}"
+        f"          AND canonical_player_id > ep.canonical_player_id)"
+        f"  FROM ep WHERE ep.canonical_player_id IS NOT NULL"
+        f") SELECT ep.canonical_player_id, p.player_display_name "
+        f"FROM ep "
+        f"JOIN {dim_players_tbl} p ON ep.canonical_player_id = p.canonical_player_id "
+        f"WHERE ep.canonical_player_id IS NOT NULL "
+        f"ORDER BY p.player_display_name LIMIT 500",
+        tuple(cte_params),
     )
 
 
