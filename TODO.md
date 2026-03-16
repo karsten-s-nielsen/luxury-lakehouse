@@ -31,6 +31,9 @@ Tasks warming up in the on-deck circle.
 | D7 | Observability Layer (OTel) | Monstah | [ROADMAP.md](ROADMAP.md) | Research complete, ready for implementation. Instrument once, observe anywhere. ~$1-2/month personal tier |
 | U3 | Global player search — search by name across all pages | Monstah | CHI-AUDIT-180-rev-1 #1 | New search component with 11,918-player index + cross-page routing + session state. Needs design decisions |
 | U4 | Uncertainty/confidence bounds on model outputs | Monstah | CHI-AUDIT-180-rev-1 #4 | xG model can output calibration intervals. VAEP/pitch control lack native uncertainty. Partial — model-level changes needed |
+| O1 | `fct_match_summary` incremental materialization | Wicked | OPT-AUDIT-190 #5 | Currently defaults to view — recomputed every dbt run against full events table. Needs `{{ config(materialized='incremental') }}` with `match_id` key + `is_incremental()` guard. Requires full dbt build cycle testing |
+| O2 | SPADL/VAEP training migration to HF Jobs | Wicked | OPT-AUDIT-190 #7 | `spadl_vaep.py:562` accumulates all game feature matrices before single `pd.concat`. At 10K+ matches, OOMs on Databricks serverless (16 GB driver). Training API requires full matrix. Migrate to HF Jobs (A10G, 46 GB RAM) — same pattern as xG and xT training. Extract features to HF Dataset, train on HF Jobs, publish model back to Hub |
+| O3 | Pipeline performance baselines | Wicked | OPT-AUDIT-190 #9 | `docs/performance-baselines.md` timing columns are all TBD. Run each pipeline, record wall clock, establish regression anchors for CI |
 
 ---
 

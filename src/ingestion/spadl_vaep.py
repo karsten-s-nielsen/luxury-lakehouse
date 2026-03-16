@@ -249,7 +249,7 @@ def _convert_statsbomb_from_bronze(
 
     # Only now pull metadata tables needed for home_team_id resolution
     try:
-        all_matches_pdf = spark.table(matches_table).toPandas()
+        all_matches_pdf = spark.table(matches_table).select("match_id", "home_team").toPandas()
     except Exception:
         logger.exception("Cannot read StatsBomb matches bronze table")
         return False
@@ -433,7 +433,7 @@ def _convert_wyscout_from_bronze(
 
     # Only now pull metadata tables needed for home_team_id resolution
     try:
-        all_matches_pdf = spark.table(matches_table).toPandas()
+        all_matches_pdf = spark.table(matches_table).select("wyId", "teamsData").toPandas()
     except Exception:
         logger.exception("Cannot read Wyscout matches bronze table")
         return False
@@ -453,11 +453,10 @@ def _convert_wyscout_from_bronze(
     # Derive competition_id and season_id from matches metadata
     match_meta: dict[int, tuple[int, int]] = {}
     if "competitionId" in all_matches_pdf.columns:
-        for _, mrow in all_matches_pdf.iterrows():
-            game_id = int(mrow["wyId"])
-            comp_id = int(mrow["competitionId"])
-            season_id = int(mrow["seasonId"]) if "seasonId" in all_matches_pdf.columns else 0
-            match_meta[game_id] = (comp_id, season_id)
+        indexed = all_matches_pdf.set_index("wyId")
+        comp_ids = indexed["competitionId"].astype(int)
+        season_ids = indexed["seasonId"].astype(int) if "seasonId" in indexed.columns else comp_ids * 0
+        match_meta = {int(k): (int(c), int(s)) for k, c, s in zip(indexed.index, comp_ids, season_ids, strict=True)}
 
     lookup_rows = [
         (gid, home_team_map[gid], match_meta.get(gid, (0, 0))[0], match_meta.get(gid, (0, 0))[1])
@@ -540,8 +539,11 @@ def _extract_features_for_games(
     all_y_scores: list[pd.DataFrame] = []
     all_y_concedes: list[pd.DataFrame] = []
 
+    # Pre-build game index (CLAUDE.md: no boolean mask filter inside loops)
+    _game_groups = dict(iter(named.groupby("game_id")))
+
     for game_id in game_ids:
-        game_actions = named[named["game_id"] == game_id].reset_index(drop=True)
+        game_actions = _game_groups.get(game_id, pd.DataFrame()).reset_index(drop=True)
         if len(game_actions) < 2:
             continue
         try:
@@ -769,9 +771,12 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
         named = _spadl.add_names(pdf)  # type: ignore[arg-type]
         game_ids = named["game_id"].unique()
 
+        # Pre-build game index (CLAUDE.md: no boolean mask filter inside loops)
+        _game_groups = dict(iter(named.groupby("game_id")))
+
         all_scored: list[_pd.DataFrame] = []
         for game_id in game_ids:
-            game_actions = named[named["game_id"] == game_id].reset_index(drop=True)
+            game_actions = _game_groups.get(game_id, _pd.DataFrame()).reset_index(drop=True)
             if len(game_actions) < 2:
                 continue
             try:

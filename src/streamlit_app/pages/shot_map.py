@@ -47,13 +47,15 @@ def _fetch_shots(shots_tbl: str, players_tbl: str, w: str, p: tuple[Any, ...]) -
 
 
 @st.cache_data(ttl=600, show_spinner="Loading xG predictions...")
-def _fetch_xg_predictions(xg_tbl: str) -> pd.DataFrame:
-    """Fetch custom xG predictions. Returns empty DataFrame if the table does not exist."""
+def _fetch_xg_predictions(xg_tbl: str, competition_id: int) -> pd.DataFrame:
+    """Fetch custom xG predictions filtered by competition. Returns empty DataFrame if the table does not exist."""
     try:
         return execute_query(
             f"SELECT shot_id, xg_logistic, xg_gradient_boosted "  # noqa: S608
             f"FROM {xg_tbl} "
+            f"WHERE competition_id = %s "
             f"LIMIT 100000",
+            (competition_id,),
         )
     except Exception:
         logger.warning("fct_xg_predictions_synced not available — custom xG disabled")
@@ -88,12 +90,12 @@ def _load_shots(
     return _fetch_shots(t("fct_shots_synced"), t("dim_players_synced"), where, tuple(params))
 
 
-def _join_xg_predictions(shots: pd.DataFrame) -> tuple[pd.DataFrame, bool]:
+def _join_xg_predictions(shots: pd.DataFrame, competition_id: int) -> tuple[pd.DataFrame, bool]:
     """LEFT JOIN xG predictions onto shots. Returns (merged_df, has_custom_xg)."""
     if shots.empty or "shot_id" not in shots.columns:
         return shots, False
 
-    xg_preds = _fetch_xg_predictions(t("fct_xg_predictions_synced"))
+    xg_preds = _fetch_xg_predictions(t("fct_xg_predictions_synced"), competition_id)
     if xg_preds.empty:
         return shots, False
 
@@ -145,7 +147,7 @@ def page() -> None:
         return
 
     # Join custom xG predictions (graceful degradation if table missing)
-    shots, has_custom_xg = _join_xg_predictions(shots)
+    shots, has_custom_xg = _join_xg_predictions(shots, competition_id)
 
     if not has_custom_xg:
         data_scope_note("Custom xG predictions not yet available. Showing StatsBomb xG only.")

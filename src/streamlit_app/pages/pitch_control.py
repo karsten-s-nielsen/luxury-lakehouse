@@ -16,7 +16,7 @@ from streamlit_app.components.pitch import plot_physics_pitch_control, plot_pitc
 from streamlit_app.db import execute_query, t
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner="Resolving match...")
 def _fetch_match_label(match_id: str) -> str:
     """Resolve match_id to human-readable label (CHI-AUDIT-190 #17)."""
     match_tbl = t("fct_match_summary_synced")

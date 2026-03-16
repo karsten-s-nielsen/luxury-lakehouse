@@ -278,7 +278,7 @@ def _validate_pausa(
     table = f"{catalog}.{_GOLD_SCHEMA}.fct_pausa_values"
 
     try:
-        pausa_df = spark.table(table).select("temporal_judgment", "spatial_selection").toPandas()
+        pausa_df = spark.table(table).select("temporal_judgment", "spatial_selection").limit(500_000).toPandas()
     except Exception:
         logger.warning("Cannot read %s — skipping PAUSA validation", table)
         return results

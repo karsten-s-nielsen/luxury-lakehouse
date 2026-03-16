@@ -276,7 +276,7 @@ def _compute_stat_vectors(
         # from Delta table lookups, cast to str for type safety.
         id_list = [str(pid) for pid in player_ids]
         sdf = sdf.filter(sdf["canonical_player_id"].isin(id_list))
-    df = sdf.toPandas()
+    df = sdf.limit(50_000).toPandas()
 
     if df.empty:
         return (
@@ -692,14 +692,21 @@ def main() -> None:
     match_competition_map: dict[str, tuple[str, str]] = {}
     source_map: dict[str, str] = {}
 
-    for _, row in behavioral_pdf.iterrows():
-        pid = str(row["canonical_player_id"])
-        mid = str(row["match_id"])
-        behavioral_vectors[(pid, mid)] = cast(list[float], row["behavioral_vector"])
-        if mid not in match_competition_map:
-            match_competition_map[mid] = (str(row["competition_id"]), str(row["season_id"]))
-        if mid not in source_map:
-            source_map[mid] = str(row["data_source"])
+    pids = behavioral_pdf["canonical_player_id"].astype(str)
+    mids = behavioral_pdf["match_id"].astype(str)
+    behavioral_vectors = {
+        (pid, mid): cast(list[float], vec)
+        for pid, mid, vec in zip(pids, mids, behavioral_pdf["behavioral_vector"], strict=True)
+    }
+    # First occurrence per match_id wins (drop_duplicates keeps first)
+    meta_dedup = behavioral_pdf.drop_duplicates(subset=["match_id"])
+    match_competition_map = {
+        str(r["match_id"]): (str(r["competition_id"]), str(r["season_id"]))
+        for _, r in meta_dedup[["match_id", "competition_id", "season_id"]].iterrows()
+    }
+    source_map = {
+        str(r["match_id"]): str(r["data_source"]) for _, r in meta_dedup[["match_id", "data_source"]].iterrows()
+    }
 
     logger.info("Inferred %d behavioral vectors via applyInPandas", len(behavioral_vectors))
 

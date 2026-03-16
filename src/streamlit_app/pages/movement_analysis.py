@@ -91,7 +91,7 @@ def _fetch_ppda_data(tbl: str, comp_id: int) -> Any:
         f"  home_ppda, away_ppda, home_possession_pct "
         f"FROM {tbl} "
         f"WHERE competition_id = %s AND home_ppda IS NOT NULL "
-        f"ORDER BY match_date",
+        f"ORDER BY match_date LIMIT 500",
         (comp_id,),
     )
 

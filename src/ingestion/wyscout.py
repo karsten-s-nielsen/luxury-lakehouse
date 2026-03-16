@@ -446,9 +446,10 @@ def ingest_players(
     logger: logging.Logger,
 ) -> None:
     """Load and write Wyscout player metadata."""
-    # Incremental skip: if table already has rows, skip entirely
+    # Incremental skip: if table already exists, skip entirely
+    full_table_name = f"{catalog}.{schema}.wyscout_players"
     try:
-        if spark.table(f"{catalog}.{schema}.wyscout_players").limit(1).count() > 0:
+        if spark.catalog.tableExists(full_table_name):
             logger.info("wyscout_players already populated — skipping")
             return
     except Exception:

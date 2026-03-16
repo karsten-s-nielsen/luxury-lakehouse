@@ -379,7 +379,7 @@ class TestLoadEvents:
                 "season_id": [],
             }
         )
-        mock_spark.sql.return_value.toPandas.return_value = mock_pdf
+        mock_spark.sql.return_value.limit.return_value.toPandas.return_value = mock_pdf
         _load_events(mock_spark, "catalog", "schema")
         assert mock_spark.sql.called
 
@@ -469,7 +469,7 @@ class TestComputeStatVectors:
                 **{f: [1.0, 2.0] for f in STAT_FEATURES},
             }
         )
-        mock_spark.sql.return_value.toPandas.return_value = mock_pdf
+        mock_spark.sql.return_value.limit.return_value.toPandas.return_value = mock_pdf
 
         result, _params = _compute_stat_vectors(mock_spark, "cat", "dev_gold")
         assert "stat_vector" in result.columns
@@ -487,7 +487,7 @@ class TestComputeStatVectors:
                 **{f: [1.0, 2.0] for f in STAT_FEATURES},
             }
         )
-        mock_spark.sql.return_value.toPandas.return_value = mock_pdf
+        mock_spark.sql.return_value.limit.return_value.toPandas.return_value = mock_pdf
 
         result, _ = _compute_stat_vectors(mock_spark, "cat", "dev_gold")
         assert len(result.iloc[0]["stat_vector"]) == 13
@@ -506,7 +506,7 @@ class TestComputeStatVectors:
             else:
                 data[f] = [1.0]
         mock_pdf = pd.DataFrame(data)
-        mock_spark.sql.return_value.toPandas.return_value = mock_pdf
+        mock_spark.sql.return_value.limit.return_value.toPandas.return_value = mock_pdf
 
         result, _ = _compute_stat_vectors(mock_spark, "cat", "dev_gold")
         vec = result.iloc[0]["stat_vector"]
@@ -548,7 +548,7 @@ class TestComputeStatVectors:
                 **{f: [1.0] for f in STAT_FEATURES},
             }
         )
-        mock_spark.sql.return_value.toPandas.return_value = mock_pdf
+        mock_spark.sql.return_value.limit.return_value.toPandas.return_value = mock_pdf
 
         _compute_stat_vectors(mock_spark, "cat", "dev_gold", player_ids=None)
 
@@ -566,7 +566,7 @@ class TestComputeStatVectors:
                 **{f: pd.Series(dtype="float") for f in STAT_FEATURES},
             }
         )
-        mock_spark.sql.return_value.toPandas.return_value = mock_pdf
+        mock_spark.sql.return_value.limit.return_value.toPandas.return_value = mock_pdf
 
         _compute_stat_vectors(mock_spark, "cat", "dev_gold", player_ids=set())
 

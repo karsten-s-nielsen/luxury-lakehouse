@@ -27,12 +27,21 @@ from streamlit_app.db import execute_query, t
 
 @st.cache_data(ttl=600, show_spinner="Loading PAUSA matches...")
 def _fetch_pausa_matches(tbl: str) -> pd.DataFrame:
-    """Load distinct match IDs that have PAUSA data, with match labels."""
+    """Load distinct match IDs that have PAUSA data, with match labels.
+
+    Uses recursive CTE loose index scan to avoid SELECT DISTINCT sequential scan.
+    """
     match_tbl = t("fct_match_summary_synced")
     return execute_query(
-        f"SELECT DISTINCT pv.match_id, ms.match_date, ms.home_team_name, ms.away_team_name "  # noqa: S608
-        f"FROM {tbl} pv "
-        f"LEFT JOIN {match_tbl} ms ON pv.match_id::text = ms.match_id::text "
+        f"WITH RECURSIVE dm AS ("  # noqa: S608
+        f"  SELECT MIN(match_id) AS match_id FROM {tbl}"
+        f"  UNION ALL"
+        f"  SELECT (SELECT MIN(match_id) FROM {tbl} WHERE match_id > dm.match_id)"
+        f"  FROM dm WHERE dm.match_id IS NOT NULL"
+        f") SELECT dm.match_id, ms.match_date, ms.home_team_name, ms.away_team_name "
+        f"FROM dm "
+        f"LEFT JOIN {match_tbl} ms ON dm.match_id::text = ms.match_id::text "
+        f"WHERE dm.match_id IS NOT NULL "
         f"ORDER BY ms.match_date "
         f"LIMIT 100",
     )
@@ -40,34 +49,61 @@ def _fetch_pausa_matches(tbl: str) -> pd.DataFrame:
 
 @st.cache_data(ttl=600, show_spinner="Loading PAUSA teams...")
 def _fetch_teams_for_match(tbl: str, match_id: str) -> pd.DataFrame:
-    """Load distinct teams for a given match."""
+    """Load distinct teams for a given match.
+
+    Uses recursive CTE loose index scan to avoid SELECT DISTINCT sequential scan.
+    """
     return execute_query(
-        f"SELECT DISTINCT team FROM {tbl} WHERE match_id = %s AND team IS NOT NULL ORDER BY team LIMIT 50",  # noqa: S608
-        (match_id,),
+        f"WITH RECURSIVE dt AS ("  # noqa: S608
+        f"  SELECT MIN(team) AS team FROM {tbl} WHERE match_id = %s AND team IS NOT NULL"
+        f"  UNION ALL"
+        f"  SELECT (SELECT MIN(team) FROM {tbl} WHERE match_id = %s AND team IS NOT NULL AND team > dt.team)"
+        f"  FROM dt WHERE dt.team IS NOT NULL"
+        f") SELECT team FROM dt WHERE team IS NOT NULL ORDER BY team LIMIT 50",
+        (match_id, match_id),
     )
 
 
 @st.cache_data(ttl=600, show_spinner="Loading PAUSA players...")
 def _fetch_players_for_match(pausa_tbl: str, dim_tbl: str, match_id: str, team: str | None) -> pd.DataFrame:
-    """Load distinct players for a given match, optionally filtered by team."""
+    """Load distinct players for a given match, optionally filtered by team.
+
+    Uses recursive CTE loose index scan to avoid SELECT DISTINCT sequential scan.
+    """
     if team:
         return execute_query(
-            f"SELECT DISTINCT pv.player_id, COALESCE(dp.player_display_name, pv.player_id) AS player_display_name "  # noqa: S608
-            f"FROM {pausa_tbl} pv "
-            f"LEFT JOIN {dim_tbl} dp ON pv.player_id::text = dp.player_id::text "
-            f"WHERE pv.match_id = %s AND pv.team = %s AND pv.player_id IS NOT NULL "
+            f"WITH RECURSIVE dp AS ("  # noqa: S608
+            f"  SELECT MIN(player_id) AS player_id FROM {pausa_tbl}"
+            f"  WHERE match_id = %s AND team = %s AND player_id IS NOT NULL"
+            f"  UNION ALL"
+            f"  SELECT (SELECT MIN(player_id) FROM {pausa_tbl}"
+            f"          WHERE match_id = %s AND team = %s AND player_id IS NOT NULL"
+            f"          AND player_id > dp.player_id)"
+            f"  FROM dp WHERE dp.player_id IS NOT NULL"
+            f") SELECT dp.player_id, COALESCE(dim.player_display_name, dp.player_id) AS player_display_name "
+            f"FROM dp "
+            f"LEFT JOIN {dim_tbl} dim ON dp.player_id::text = dim.player_id::text "
+            f"WHERE dp.player_id IS NOT NULL "
             f"ORDER BY player_display_name "
             f"LIMIT 50",
-            (match_id, team),
+            (match_id, team, match_id, team),
         )
     return execute_query(
-        f"SELECT DISTINCT pv.player_id, COALESCE(dp.player_display_name, pv.player_id) AS player_display_name "  # noqa: S608
-        f"FROM {pausa_tbl} pv "
-        f"LEFT JOIN {dim_tbl} dp ON pv.player_id::text = dp.player_id::text "
-        f"WHERE pv.match_id = %s AND pv.player_id IS NOT NULL "
+        f"WITH RECURSIVE dp AS ("  # noqa: S608
+        f"  SELECT MIN(player_id) AS player_id FROM {pausa_tbl}"
+        f"  WHERE match_id = %s AND player_id IS NOT NULL"
+        f"  UNION ALL"
+        f"  SELECT (SELECT MIN(player_id) FROM {pausa_tbl}"
+        f"          WHERE match_id = %s AND player_id IS NOT NULL"
+        f"          AND player_id > dp.player_id)"
+        f"  FROM dp WHERE dp.player_id IS NOT NULL"
+        f") SELECT dp.player_id, COALESCE(dim.player_display_name, dp.player_id) AS player_display_name "
+        f"FROM dp "
+        f"LEFT JOIN {dim_tbl} dim ON dp.player_id::text = dim.player_id::text "
+        f"WHERE dp.player_id IS NOT NULL "
         f"ORDER BY player_display_name "
         f"LIMIT 50",
-        (match_id,),
+        (match_id, match_id),
     )
 
 
