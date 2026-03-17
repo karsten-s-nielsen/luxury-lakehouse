@@ -20,6 +20,7 @@ from analytics.pitch_control import (
     compute_pitch_control_at_points,
     compute_pitch_control_frame,
     compute_pitch_control_grid_fast,
+    compute_pitch_control_player_removal,
     generate_ghost_trajectories,
 )
 
@@ -621,3 +622,52 @@ class TestJaxNumPyParity:
         )
         _gx, _gy, surface = compute_pitch_control_grid_fast(players, 10, 8)
         assert surface.shape == (8, 10)
+
+
+@pytest.mark.skipif(not _HAS_JAX, reason="JAX not installed")
+class TestPlayerRemovalBatch:
+    """Test vmap-batched player removal for Space Creation (Fernandez & Bornn 2018)."""
+
+    def test_baseline_matches_standard(self) -> None:
+        """Baseline (all players) must match compute_pitch_control_at_points."""
+        players = _make_players(
+            home_positions=[(30, 30), (50, 40)],
+            away_positions=[(70, 40), (90, 40)],
+        )
+        targets = np.array([[50.0, 34.0], [80.0, 40.0]])
+        standard = compute_pitch_control_at_points(players, targets)
+        baseline, _ = compute_pitch_control_player_removal(players, targets)
+        np.testing.assert_allclose(baseline, standard, atol=1e-4)
+
+    def test_removing_defender_increases_attack_control(self) -> None:
+        """Removing a defender should increase home control near that defender."""
+        players = _make_players(
+            home_positions=[(30, 40)],
+            away_positions=[(60, 40)],
+        )
+        target_near_defender = np.array([[60.0, 40.0]])
+        baseline, removed = compute_pitch_control_player_removal(players, target_near_defender)
+        # removed[1] = away player removed -> home control should increase
+        assert removed[1, 0] > baseline[0]
+
+    def test_output_shapes(self) -> None:
+        """Output shapes must match (n_targets,) and (n_players, n_targets)."""
+        players = _make_players(
+            home_positions=[(30, 30), (50, 40)],
+            away_positions=[(70, 40), (90, 40)],
+        )
+        targets = np.array([[50.0, 34.0], [80.0, 40.0], [60.0, 20.0]])
+        baseline, removed = compute_pitch_control_player_removal(players, targets)
+        assert baseline.shape == (3,)
+        assert removed.shape == (4, 3)  # 4 players x 3 targets
+
+    def test_all_values_in_range(self) -> None:
+        """All pitch control values must be in [0, 1]."""
+        players = _make_players(
+            home_positions=[(30, 30), (50, 40)],
+            away_positions=[(70, 40), (90, 40)],
+        )
+        targets = np.array([[50.0, 34.0]])
+        baseline, removed = compute_pitch_control_player_removal(players, targets)
+        assert np.all(baseline >= 0) and np.all(baseline <= 1)
+        assert np.all(removed >= 0) and np.all(removed <= 1)

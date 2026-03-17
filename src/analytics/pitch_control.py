@@ -573,6 +573,154 @@ def generate_ghost_trajectories(
     return frames
 
 
+def compute_pitch_control_player_removal(
+    players_df: pd.DataFrame,
+    targets: np.ndarray,
+    params: PitchControlParams | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compute pitch control with each player removed (Space Creation).
+
+    Uses ``jax.vmap`` to compute all N+1 variants (baseline + N player removals)
+    in a single GPU dispatch.  Players are represented as a combined array
+    with team indicators; removed players are masked via infinite TTI.
+
+    Parameters
+    ----------
+    players_df : DataFrame with player_id, team, x, y, velocity_x, velocity_y.
+        Coordinates in StatsBomb 120x80.
+    targets : (n_targets, 2) target points in StatsBomb 120x80 coordinates.
+    params : Pitch control parameters.
+
+    Returns
+    -------
+    baseline : (n_targets,) — pitch control with all players.
+    removed : (n_players, n_targets) — pitch control with each player removed.
+
+    Raises
+    ------
+    ImportError
+        If JAX is not available.
+
+    References
+    ----------
+    Fernandez, J. & Bornn, L. (2018). "Wide Open Spaces." MIT SSAC.
+    """
+    if not _USE_JAX:
+        raise ImportError("Space Creation requires JAX for vmap batching")
+    import jax
+    import jax.numpy as jnp
+
+    params = params or PitchControlParams()
+    n_players = len(players_df)
+
+    # Extract arrays and convert to meters (matching compute_pitch_control_at_points)
+    home_mask = (players_df["team"] == "home").values
+    xy = np.column_stack(
+        [
+            _sb_to_meters_x(_col_f64(players_df, "x"), params),
+            _sb_to_meters_y(_col_f64(players_df, "y"), params),
+        ]
+    )
+    vel = np.column_stack(
+        [
+            _sb_to_meters_x(_col_f64(players_df, "velocity_x"), params),
+            _sb_to_meters_y(_col_f64(players_df, "velocity_y"), params),
+        ]
+    )
+    targets_m = np.column_stack(
+        [
+            _sb_to_meters_x(targets[:, 0], params),
+            _sb_to_meters_y(targets[:, 1], params),
+        ]
+    )
+
+    # Build N+1 player masks: row 0 = baseline (all 1s), row i+1 = player i removed
+    masks = np.ones((n_players + 1, n_players), dtype=np.float64)
+    for i in range(n_players):
+        masks[i + 1, i] = 0.0
+
+    # JIT-compiled single-variant function
+    # All params passed as arguments to ensure JAX traceability.
+    @jax.jit  # type: ignore[misc]
+    def _pc_single_variant(
+        mask: jax.Array,
+        xy: jax.Array,
+        vel: jax.Array,
+        home_mask: jax.Array,
+        targets: jax.Array,
+        reaction_time: float,
+        max_accel: float,
+        sigma: float,
+    ) -> jax.Array:
+        large_tti = 1e6
+
+        # Displacement and distance: (n_players, n_targets, 2) and (n_players, n_targets)
+        disp = targets[None, :, :] - xy[:, None, :]
+        dist = jnp.sqrt(jnp.sum(disp**2, axis=-1))
+
+        # Velocity projection onto direction to target
+        direction = disp / jnp.maximum(dist[:, :, None], 1e-10)
+        v_proj = jnp.sum(vel[:, None, :] * direction, axis=-1)
+
+        # TTI via kinematic equation
+        discriminant = v_proj**2 + 2.0 * max_accel * dist
+        tti = reaction_time + (-v_proj + jnp.sqrt(jnp.maximum(discriminant, 0.0))) / max_accel
+        tti = jnp.maximum(tti, reaction_time)
+
+        # Apply mask: removed players get infinite TTI
+        tti = jnp.where(mask[:, None] > 0.5, tti, large_tti)
+
+        # Split by team — masked-out players already have large_tti
+        home_tti = jnp.where(home_mask[:, None], tti, large_tti)
+        away_tti = jnp.where(~home_mask[:, None], tti, large_tti)
+
+        # Min TTI per team per target: (n_targets,)
+        home_min_tti = jnp.min(home_tti, axis=0)
+        away_min_tti = jnp.min(away_tti, axis=0)
+
+        # Sum-of-influences model (matches compute_pitch_control_at_points)
+        k = jnp.pi / jnp.sqrt(3.0) / sigma
+
+        # Home influence: sum of logistic for each home player vs away min TTI
+        home_exp = -k * (away_min_tti[None, :] - home_tti)
+        home_individual = 1.0 / (1.0 + jnp.exp(jnp.clip(home_exp, -50.0, 50.0)))
+        home_influence = jnp.sum(home_individual * home_mask[:, None], axis=0)
+
+        # Away influence: sum of logistic for each away player vs home min TTI
+        away_exp = -k * (home_min_tti[None, :] - away_tti)
+        away_individual = 1.0 / (1.0 + jnp.exp(jnp.clip(away_exp, -50.0, 50.0)))
+        away_influence = jnp.sum(away_individual * (~home_mask[:, None]).astype(jnp.float64), axis=0)
+
+        # Combine: home / (home + away), with safe division
+        total = home_influence + away_influence
+        safe_total = jnp.where(total > 1e-10, total, 1.0)
+        control = jnp.where(total > 1e-10, home_influence / safe_total, 0.5)
+        return jnp.clip(control, 0.0, 1.0)
+
+    # vmap over mask dimension
+    _pc_batched = jax.vmap(
+        _pc_single_variant,
+        in_axes=(0, None, None, None, None, None, None, None),
+    )
+
+    results = np.asarray(
+        _pc_batched(
+            jnp.array(masks),
+            jnp.array(xy),
+            jnp.array(vel),
+            jnp.array(home_mask),
+            jnp.array(targets_m),
+            params.reaction_time,
+            params.max_acceleration,
+            params.sigma,
+        )
+    )
+
+    baseline = results[0]
+    removed = results[1:]
+    return baseline, removed
+
+
 def compute_pitch_control_grid_fast(
     players_df: pd.DataFrame,
     grid_cells_x: int = 104,

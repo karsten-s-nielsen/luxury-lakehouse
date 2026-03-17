@@ -4,6 +4,8 @@ Provides training, evaluation, and pickle-free serialization for two xG models:
 1. Logistic baseline (distance + angle only) -- interpretable reference point.
 2. XGBoost with isotonic calibration (all 13 features) -- production model.
 
+Also provides freeze-frame parsing for v2 set encoder model inference.
+
 Serialization uses JSON envelopes with base64-encoded XGBoost booster bytes,
 avoiding pickle entirely (banned by project security policy).
 """
@@ -12,6 +14,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import warnings
 from dataclasses import dataclass
 from typing import Any, cast
@@ -129,6 +132,44 @@ def build_features(
         y = pd.Series(np.zeros(len(df)), dtype=int)
 
     return x, y
+
+
+# ---------------------------------------------------------------------------
+# Freeze-frame parsing (v2 set encoder)
+# ---------------------------------------------------------------------------
+
+_log = logging.getLogger(__name__)
+
+
+def parse_freeze_frame(json_str: str | None) -> np.ndarray:
+    """Parse shot_freeze_frame JSON to (N, 4) player feature array.
+
+    Columns: [x_norm, y_norm, is_keeper, is_teammate], all normalized to
+    StatsBomb pitch dimensions (120x80).
+
+    Returns empty (0, 4) array for None, empty, or invalid input.
+    """
+    if json_str is None:
+        return np.empty((0, 4), dtype=np.float64)
+    try:
+        players = json.loads(json_str)
+        if not players:
+            return np.empty((0, 4), dtype=np.float64)
+        features: list[list[float]] = []
+        for p in players:
+            loc = p.get("location", [0, 0])
+            features.append(
+                [
+                    loc[0] / 120.0,
+                    loc[1] / 80.0,
+                    float(p.get("keeper", False)),
+                    float(p.get("teammate", False)),
+                ]
+            )
+        return np.array(features, dtype=np.float64)
+    except (json.JSONDecodeError, TypeError, IndexError):
+        _log.debug("Failed to parse freeze frame JSON: %s", json_str[:80] if json_str else "None")
+        return np.empty((0, 4), dtype=np.float64)
 
 
 # ---------------------------------------------------------------------------

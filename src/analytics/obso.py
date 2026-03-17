@@ -23,6 +23,66 @@ from analytics.pitch_control import (
 )
 
 # ---------------------------------------------------------------------------
+# Synthetic grid fallbacks
+# ---------------------------------------------------------------------------
+
+
+def _make_synthetic_reachability_grid(ny: int = 100, nx: int = 64) -> np.ndarray:
+    """Gaussian distance decay proxy for ball reachability.
+
+    Used as fallback when trained grids are not available.
+    Shape: (ny, nx) — OBSO convention.
+    """
+    y = np.linspace(0, 1, ny)
+    x = np.linspace(0, 1, nx)
+    yy, xx = np.meshgrid(y, x, indexing="ij")
+    center_y, center_x = 0.5, 0.5
+    dist = np.sqrt((xx - center_x) ** 2 + (yy - center_y) ** 2)
+    return np.exp(-(dist**2) / (2 * 0.3**2))
+
+
+def _make_synthetic_epv_grid(ny: int = 50, nx: int = 32) -> np.ndarray:
+    """Linear ramp proxy for EPV. Shape: (ny, nx)."""
+    x = np.linspace(0.01, 0.3, nx)
+    return np.tile(x, (ny, 1))
+
+
+def load_trained_grids(
+    reachability_path: str | None = None,
+    epv_path: str | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Load trained 2D spatial grids from Parquet files.
+
+    Both grids use (ny, nx) shape convention matching compute_obso_surface().
+    Falls back to synthetic grids if paths are None (backward compatible).
+
+    Returns:
+        (reachability_grid, epv_grid) — both (ny, nx) shaped.
+    """
+    if reachability_path is not None:
+        df = pd.read_parquet(reachability_path)
+        reachability = df.pivot(
+            index="zone_y",
+            columns="zone_x",
+            values="reachability",
+        ).values.astype(np.float64)
+    else:
+        reachability = _make_synthetic_reachability_grid()
+
+    if epv_path is not None:
+        df = pd.read_parquet(epv_path)
+        epv = df.pivot(
+            index="zone_y",
+            columns="zone_x",
+            values="epv_value",
+        ).values.astype(np.float64)
+    else:
+        epv = _make_synthetic_epv_grid()
+
+    return reachability, epv
+
+
+# ---------------------------------------------------------------------------
 # Grid I/O and interpolation
 # ---------------------------------------------------------------------------
 

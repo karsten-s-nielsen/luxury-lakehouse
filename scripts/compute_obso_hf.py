@@ -575,15 +575,47 @@ def main():
     # ------------------------------------------------------------------
     print("\n=== Loading data from HF Hub ===")
 
-    # Static grids (synthetic for now — production uses trained EPV/Transition)
-    epv_grid, transition_grid = _make_synthetic_grids()
-    print(f"  Using synthetic static grids (EPV: {epv_grid.shape}, Transition: {transition_grid.shape})")
+    # Download trained grids (D23) — fall back to synthetic if not yet published
+    from huggingface_hub import hf_hub_download
+    from huggingface_hub.utils import EntryNotFoundError, HfHubHTTPError, RepositoryNotFoundError
+
+    try:
+        reachability_path = hf_hub_download(
+            repo_id="luxury-lakehouse/obso-trained-grids",
+            filename="data/reachability_grid_global.parquet",
+            repo_type="dataset",
+        )
+        epv_path = hf_hub_download(
+            repo_id="luxury-lakehouse/obso-trained-grids",
+            filename="data/epv_grid_global.parquet",
+            repo_type="dataset",
+        )
+        # Load trained 2D spatial grids
+        _reach_df = pd.read_parquet(reachability_path)
+        reachability_grid = _reach_df.pivot(index="zone_y", columns="zone_x", values="reachability").values.astype(
+            np.float64
+        )
+        _epv_df = pd.read_parquet(epv_path)
+        epv_grid = _epv_df.pivot(index="zone_y", columns="zone_x", values="epv_value").values.astype(np.float64)
+        transition_grid = reachability_grid
+        print(
+            f"  Loaded trained grids from luxury-lakehouse/obso-trained-grids "
+            f"(reachability: {reachability_grid.shape}, EPV: {epv_grid.shape})"
+        )
+    except (HfHubHTTPError, EntryNotFoundError, RepositoryNotFoundError):
+        print("  WARNING: Trained grids unavailable — falling back to synthetic grids")
+        epv_grid, transition_grid = _make_synthetic_grids()
+        print(f"  Using synthetic static grids (EPV: {epv_grid.shape}, Transition: {transition_grid.shape})")
 
     # Load real tracking data (IDSSE partition, StatsBomb 120x80 coordinates)
     tracking_df = _load_tracking_data(hf_token)
 
     # Load events (DFL coords, converted to SB 120x80) and ELASTIC sync results
     events_df, sync_df = _load_events_and_sync(hf_token)
+
+    # Capture dataset commit hashes for reproducibility (E5)
+    _tracking_commit = api.repo_info(repo_id=TRACKING_DATASET, repo_type="dataset").sha
+    _inputs_commit = api.repo_info(repo_id=INPUTS_DATASET, repo_type="dataset").sha
 
     # Prepare pass events with frame alignments
     passes_df = _prepare_pass_events(events_df, sync_df)
@@ -798,6 +830,8 @@ def main():
                     "jax_available": _USE_JAX,
                 }
             )
+            mlflow.log_param("pitch_control_tracking_commit", _tracking_commit)
+            mlflow.log_param("obso_pausa_inputs_commit", _inputs_commit)
             mlflow.log_metrics(
                 {
                     "mean_actual_obso": float(results_df["actual_obso"].mean()),
@@ -906,7 +940,8 @@ JAX-accelerated pitch control on A10G GPU from **{n_passes:,} passes** across
 
 ## Input Data
 
-- **Tracking**: [`luxury-lakehouse/pitch-control-tracking`](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking) (IDSSE partition)
+- **Tracking**: [`luxury-lakehouse/pitch-control-tracking`](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking)
+  (IDSSE partition)
 - **Events + ELASTIC sync**: [`luxury-lakehouse/obso-pausa-inputs`](https://huggingface.co/datasets/luxury-lakehouse/obso-pausa-inputs)
 
 ## References
@@ -915,7 +950,8 @@ JAX-accelerated pitch control on A10G GPU from **{n_passes:,} passes** across
 - Fernandez & Bornn (2018). "Wide Open Spaces." MIT Sloan.
 - Lee, Jo, Hong, Bauer & Ko (2026). "Valuing La Pausa." MIT Sloan 2026.
 - Kim et al. (2025). "ELASTIC." ECML-PKDD MLSA 2025. arXiv:2508.09238.
-- Bassek et al. (2025). "An integrated dataset of spatiotemporal and event data in elite soccer." Scientific Data, Nature.
+- Bassek et al. (2025). "An integrated dataset of spatiotemporal and event data
+  in elite soccer." Scientific Data, Nature.
 
 ## License
 

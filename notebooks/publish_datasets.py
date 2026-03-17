@@ -251,6 +251,41 @@ publish_dataset(
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ## Dataset 5: xG Freeze-Frame Positions (D17)
+
+# COMMAND ----------
+
+print("Publishing xG Freeze-Frame Positions ...")
+
+publish_dataset(
+    sql_query=f"""
+        SELECT
+            e.event_id,
+            e.match_id,
+            e.competition_id,
+            e.season_id,
+            ff.location[0] / 120.0 AS player_x_norm,
+            ff.location[1] / 80.0  AS player_y_norm,
+            COALESCE(ff.keeper, false)   AS is_keeper,
+            COALESCE(ff.teammate, false) AS is_teammate
+        FROM {CATALOG}.dev_silver.stg_statsbomb__events e
+        LATERAL VIEW EXPLODE(
+            from_json(
+                e.shot_freeze_frame,
+                'ARRAY<STRUCT<location:ARRAY<DOUBLE>,teammate:BOOLEAN,actor:BOOLEAN,keeper:BOOLEAN>>'
+            )
+        ) AS ff
+        WHERE e.event_type = 'Shot'
+          AND e.shot_freeze_frame IS NOT NULL
+    """,  # noqa: S608
+    repo_name="xg-freeze-frame-data",
+    card_path=f"{CARD_BASE}/xg-freeze-frame.md",
+    partition_cols=["competition_id"],
+)
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ## Update Model Card on HuggingFace Hub
 
 # COMMAND ----------

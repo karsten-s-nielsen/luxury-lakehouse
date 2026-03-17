@@ -67,7 +67,7 @@ def main() -> None:
     """Read OBSO Parquet from UC Volume and write to Delta tables."""
     # Late import — PySpark only available in Databricks runtime
     from pyspark.sql import SparkSession  # type: ignore[import-not-found]
-    from pyspark.sql import functions as F  # type: ignore[import-not-found]
+    from pyspark.sql import functions as spark_fn  # type: ignore[import-not-found]
 
     logger = _configure_logging()
 
@@ -109,7 +109,7 @@ def main() -> None:
 
     logger.info("Reading PAUSA raw scores from %s", scores_path)
     scores_df = spark.read.parquet(scores_path)
-    scores_df = scores_df.withColumn("_ingested_at", F.current_timestamp())
+    scores_df = scores_df.withColumn("_ingested_at", spark_fn.current_timestamp())
     scores_row_count = int(scores_df.count())
     logger.info("PAUSA raw scores row count: %d", scores_row_count)
 
@@ -149,7 +149,7 @@ def main() -> None:
     try:
         logger.info("Reading OBSO surfaces from %s", surfaces_path)
         surfaces_df = spark.read.parquet(surfaces_path)
-        surfaces_df = surfaces_df.withColumn("_ingested_at", F.current_timestamp())
+        surfaces_df = surfaces_df.withColumn("_ingested_at", spark_fn.current_timestamp())
         surface_row_count = int(surfaces_df.count())
         logger.info("OBSO surfaces row count: %d", surface_row_count)
 

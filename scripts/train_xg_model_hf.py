@@ -209,19 +209,23 @@ def main() -> None:
     shots = shots.dropna(subset=["is_goal"]).reset_index(drop=True)
     print(f"Total shots: {len(shots):,}")
 
+    # Capture dataset commit hash for reproducibility (E5)
+    _dataset_info = api.repo_info(repo_id=SHOTS_DATASET, repo_type="dataset")
+    _dataset_commit = _dataset_info.sha
+
     # ------------------------------------------------------------------
     # 2. Build features and split
     # ------------------------------------------------------------------
     print("\n=== Building features ===")
-    X, y = build_features(shots)
-    X_train, X_test, y_train, y_test = train_test_split(
-        X,
+    x_features, y = build_features(shots)
+    x_train, x_test, y_train, y_test = train_test_split(
+        x_features,
         y,
         test_size=TEST_SIZE,
         random_state=RANDOM_STATE,
         stratify=y,
     )
-    print(f"Train: {len(X_train):,}, Test: {len(X_test):,}")
+    print(f"Train: {len(x_train):,}, Test: {len(x_test):,}")
 
     # ------------------------------------------------------------------
     # 3. Train models
@@ -230,10 +234,10 @@ def main() -> None:
 
     # Logistic baseline
     lr = LogisticRegression(random_state=RANDOM_STATE, max_iter=1000)
-    baseline_cols = [c for c in _BASELINE_FEATURES if c in X_train.columns]
-    lr.fit(X_train[baseline_cols], y_train)
+    baseline_cols = [c for c in _BASELINE_FEATURES if c in x_train.columns]
+    lr.fit(x_train[baseline_cols], y_train)
     logistic_model = CalibratedClassifierCV(lr, cv="prefit", method=CALIBRATION_METHOD)
-    logistic_model.fit(X_train[baseline_cols], y_train)
+    logistic_model.fit(x_train[baseline_cols], y_train)
     print("  Logistic baseline trained")
 
     # XGBoost
@@ -245,17 +249,17 @@ def main() -> None:
         eval_metric="logloss",
         random_state=RANDOM_STATE,
     )
-    xgb.fit(X_train, y_train)
+    xgb.fit(x_train, y_train)
     xgboost_model = CalibratedClassifierCV(xgb, cv="prefit", method=CALIBRATION_METHOD)
-    xgboost_model.fit(X_train, y_train)
+    xgboost_model.fit(x_train, y_train)
     print("  XGBoost (calibrated) trained")
 
     # ------------------------------------------------------------------
     # 4. Evaluate
     # ------------------------------------------------------------------
     print("\n=== Evaluating ===")
-    xgb_proba = xgboost_model.predict_proba(X_test)[:, 1]
-    lr_proba = logistic_model.predict_proba(X_test[baseline_cols])[:, 1]
+    xgb_proba = xgboost_model.predict_proba(x_test)[:, 1]
+    lr_proba = logistic_model.predict_proba(x_test[baseline_cols])[:, 1]
 
     xgb_metrics = {
         "brier_score": brier_score_loss(y_test, xgb_proba),
@@ -289,12 +293,13 @@ def main() -> None:
                     "max_depth": MAX_DEPTH,
                     "learning_rate": LEARNING_RATE,
                     "calibration_method": CALIBRATION_METHOD,
-                    "n_train": len(X_train),
-                    "n_test": len(X_test),
-                    "n_features": len(X_train.columns),
+                    "n_train": len(x_train),
+                    "n_test": len(x_test),
+                    "n_features": len(x_train.columns),
                     "training_env": "hf_jobs_cpu",
                 }
             )
+            mlflow.log_param("xg_shot_data_commit", _dataset_commit)
             for name, value in xgb_metrics.items():
                 mlflow.log_metric(f"xgboost_{name}", value)
             for name, value in lr_metrics.items():
@@ -328,10 +333,10 @@ def main() -> None:
             "max_depth": MAX_DEPTH,
             "learning_rate": LEARNING_RATE,
             "calibration_method": CALIBRATION_METHOD,
-            "n_features": len(X_train.columns),
-            "feature_names": list(X_train.columns),
-            "n_train": len(X_train),
-            "n_test": len(X_test),
+            "n_features": len(x_train.columns),
+            "feature_names": list(x_train.columns),
+            "n_train": len(x_train),
+            "n_test": len(x_test),
         },
     }
 

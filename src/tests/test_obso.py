@@ -11,6 +11,7 @@ from analytics.obso import (
     compute_pass_obso,
     interpolate_grid,
     load_static_grid,
+    load_trained_grids,
 )
 from analytics.pitch_control import generate_ghost_trajectories
 
@@ -316,3 +317,51 @@ class TestComputePassObso:
         )
         for key in ("actual_obso", "peak_obso", "optimal_obso"):
             assert 0.0 <= result[key] <= 1.0, f"{key} = {result[key]} out of [0, 1]"
+
+
+# ---------------------------------------------------------------------------
+# Tests: load_trained_grids
+# ---------------------------------------------------------------------------
+
+
+class TestLoadTrainedGrids:
+    """Test loading trained 2D spatial grids from Parquet files."""
+
+    def test_load_from_parquet(self, tmp_path: object) -> None:
+        """Round-trip: create parquet, load, verify shape."""
+        import pathlib
+
+        rng = np.random.default_rng(42)
+        ny_r, nx_r = 8, 6
+        reach_df = pd.DataFrame(
+            {
+                "zone_y": np.repeat(np.arange(ny_r), nx_r),
+                "zone_x": np.tile(np.arange(nx_r), ny_r),
+                "reachability": rng.random(ny_r * nx_r),
+            }
+        )
+        r_path = pathlib.Path(str(tmp_path)) / "reachability.parquet"
+        reach_df.to_parquet(str(r_path))
+
+        ny_e, nx_e = 5, 4
+        epv_df = pd.DataFrame(
+            {
+                "zone_y": np.repeat(np.arange(ny_e), nx_e),
+                "zone_x": np.tile(np.arange(nx_e), ny_e),
+                "epv_value": rng.random(ny_e * nx_e),
+            }
+        )
+        e_path = pathlib.Path(str(tmp_path)) / "epv.parquet"
+        epv_df.to_parquet(str(e_path))
+
+        reachability, epv = load_trained_grids(str(r_path), str(e_path))
+        assert reachability.shape == (ny_r, nx_r)
+        assert epv.shape == (ny_e, nx_e)
+
+    def test_fallback_to_synthetic(self) -> None:
+        """None paths produce synthetic grids."""
+        reachability, epv = load_trained_grids(None, None)
+        assert reachability.ndim == 2
+        assert epv.ndim == 2
+        assert np.all(reachability >= 0)
+        assert np.all(epv >= 0)

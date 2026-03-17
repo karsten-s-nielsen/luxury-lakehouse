@@ -30,7 +30,7 @@ The infrastructure uses a **Medallion architecture** (Bronze &rarr; Silver &rarr
 - **[12 Streamlit dashboard pages](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)** deployed on HuggingFace Spaces (Docker SDK), querying Lakebase PostgreSQL via OAuth
 - **19 synced tables** with Zero-ETL continuous sync from Gold Delta Lake to Lakebase PostgreSQL 17
 - **38 PostgreSQL indexes** (34 btree + 4 HNSW vector indexes) for sub-10ms OLTP queries
-- Pipeline reliability enforced through **762 unit tests** (774+ with gensim) and **381 dbt data tests**
+- Pipeline reliability enforced through **807 unit tests** (819+ with gensim) and **381 dbt data tests**
 
 ## The Hugging Face Footprint
 
@@ -42,6 +42,8 @@ All public artifacts are hosted entirely within the HF ecosystem.
 |-------|-------------|-------|
 | [football2vec-statsbomb-wyscout](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) | Doc2Vec (PV-DM) 32-dim behavioral embeddings | 87K per-match vectors across 8,950 players from ~3,000 matches |
 | [xg-model-statsbomb-wyscout](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout) | Calibrated XGBoost + logistic baseline (13 features) | Trained on ~131K shots, ROC-AUC 0.979 on held-out test set |
+| [vaep-model-statsbomb-wyscout](https://huggingface.co/luxury-lakehouse/vaep-model-statsbomb-wyscout) | 2&times; XGBClassifier (P(scores) + P(concedes)) | Trained on ~2,388 matches from StatsBomb + Wyscout |
+| [xg-v2-model-set-encoder](https://huggingface.co/luxury-lakehouse/xg-v2-model-set-encoder) | Deep Sets (Zaheer et al. 2017) + MC dropout (Gal &amp; Ghahramani 2016) | ROC-AUC 0.915, trained on ~131K shots with 360 freeze frames |
 
 All model serialization uses **JSON envelopes** &mdash; zero pickle files (banned by project security policy).
 
@@ -56,6 +58,10 @@ All model serialization uses **JSON envelopes** &mdash; zero pickle files (banne
 | [expected-threat-grids](https://huggingface.co/datasets/luxury-lakehouse/expected-threat-grids) | 12x8 grid | Data-driven Expected Threat values computed from 2.2M SPADL actions |
 | [obso-pausa-inputs](https://huggingface.co/datasets/luxury-lakehouse/obso-pausa-inputs) | 7 matches | ELASTIC-synced event-tracking inputs for OBSO/PAUSA computation |
 | [obso-pausa-values](https://huggingface.co/datasets/luxury-lakehouse/obso-pausa-values) | ~3,500 passes | PAUSA pass timing scores with OBSO temporal/spatial decomposition |
+| [obso-trained-grids](https://huggingface.co/datasets/luxury-lakehouse/obso-trained-grids) | 8 competitions + global | Data-driven ball reachability (100&times;64) + EPV (50&times;32) grids for OBSO |
+| [xg-freeze-frame-data](https://huggingface.co/datasets/luxury-lakehouse/xg-freeze-frame-data) | 137K player rows | StatsBomb 360 freeze-frame player positions for xG v2 set encoder |
+| [xg-shot-data](https://huggingface.co/datasets/luxury-lakehouse/xg-shot-data) | 131K shots | Tabular shot features from StatsBomb + Wyscout for xG model training |
+| [space-creation-values](https://huggingface.co/datasets/luxury-lakehouse/space-creation-values) | 875K player-frames | Per-player space creation/destruction via differential OBSO (Fernandez &amp; Bornn 2018) |
 
 ### Interactive Spaces
 
@@ -68,7 +74,13 @@ All model serialization uses **JSON envelopes** &mdash; zero pickle files (banne
 
 While Databricks handles core data engineering, we use **HF Jobs** for workloads where a serverless Python environment is the right tool.
 
-**Example: Expected Threat grid computation** runs as an automated HF Jobs pipeline. It downloads SPADL data directly from an HF Dataset, computes the Markov chain value iteration, and publishes the resulting xT grids back to the Hub &mdash; using PEP 723 inline script metadata for zero-setup reproducibility.
+**Examples:**
+
+- **Expected Threat grids** run as a CPU-based HF Jobs pipeline &mdash; downloads SPADL data from an HF Dataset, computes Markov chain value iteration, and publishes xT grids back to the Hub.
+- **xG v2 neural model** trains on an A10G GPU via HF Jobs &mdash; a Deep Sets architecture with MC dropout, processing 131K shots with 360 freeze-frame context, exporting pure-NumPy weights for serverless inference.
+- **Space Creation** computes per-player counterfactual pitch control surfaces on A10G via JAX double-`vmap` &mdash; 875K player-frame values across 40K frames in under 6 minutes.
+
+All HF Jobs scripts use PEP 723 inline script metadata for zero-setup reproducibility.
 
 Model weights published to HF Hub are synced back to **Databricks UC Volumes** for inference in the production Streamlit app. This creates a bidirectional flow: Databricks produces training data &rarr; HF Hub hosts artifacts &rarr; Databricks consumes model weights for scoring.
 
@@ -86,6 +98,8 @@ Every analytics module is grounded in peer-reviewed research, cited directly in 
 | **Line-Breaking** | Ward clustering on StatsBomb 360 freeze frames; adapted from Parma Calcio 1913 |
 | **xG Model** | Rathke, "An examination of expected goals" (2017); XGBoost with isotonic calibration |
 | **PAUSA** | Lee et al., "Valuing La Pausa: Quantifying Optimal Pass Timing Beyond Speed" (2026) |
+| **Space Creation** | Fernandez &amp; Bornn, "Wide Open Spaces" (2018), differential OBSO integration |
+| **xG v2 Set Encoder** | Zaheer et al., "Deep Sets" (NeurIPS 2017); Gal &amp; Ghahramani, "Dropout as Bayesian Approximation" (ICML 2016) |
 | **Pass Networks** | Pena &amp; Touchette, "A network theory analysis of football strategies" (2012) |
 
 ## Engineering Quality
@@ -94,7 +108,7 @@ The platform maintains professional-grade engineering standards:
 
 - **Security**: OAuth M2M everywhere, HTTPS-only, zero secrets in code, input validation on all identifiers, SSL verification enforced, JSON-only model serialization
 - **Type safety**: Pyright basic mode, Pydantic models for configuration
-- **Testing**: 762 pytest unit tests (774+ with gensim, including performance benchmarks), 381 dbt data quality tests
+- **Testing**: 807 pytest unit tests (819+ with gensim, including performance benchmarks), 381 dbt data quality tests
 - **CI/CD**: GitHub Actions with OIDC federation (zero-secret CI), ruff linting, pre-commit hooks
 - **UX discipline**: 71 of 78 findings resolved across two cognitive interface audits (CHI-AUDIT-180, CHI-AUDIT-190), grounded in 15 HCI frameworks (Norman, Sweller, Gergle, Kahneman, Cleveland &amp; McGill, and others) &mdash; every metric has a help tooltip, every page has academic citations, every analytics term is defined in a context-sensitive glossary (Streamlit and HF Space)
 

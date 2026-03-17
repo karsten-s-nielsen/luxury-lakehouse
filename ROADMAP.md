@@ -254,7 +254,7 @@ In addition to the skill&rsquo;s manual audit phases, codify machine-checkable r
 
 ## Deep Learning Infrastructure &amp; Pre-trained Models
 
-**Status:** Partially implemented &mdash; MLflow UC Model Registry active (D11), model validation & drift detection deployed (D12)
+**Status:** Partially implemented &mdash; MLflow UC Model Registry active (D11), model validation &amp; drift detection deployed (D12). Tier 3 GPU training proven &mdash; xG v2 trained on HF Jobs A10G (D17), VAEP training migrated to HF Jobs (O2)
 **Budget:** ~$6-14/month incremental (external GPU training + existing Databricks governance)
 **References:** DeepMind AlphaEvolve/FunSearch (Apache 2.0); TacticAI (Nature Communications, 2024); SoccerNet benchmarks
 
@@ -754,7 +754,7 @@ Requires commercial-grade tracking data (Belgian Pro League / Stats Perform) —
 
 ## Space Creation Quantification (Fernandez & Bornn 2018)
 
-**Status:** Research direction — deferred from Phase 12. D16 computed OBSO value surfaces for PAUSA, reducing this from pure research to an incremental extension (differential pitch control per player).
+**Status:** Implemented — D14 batch on HF Jobs A10G, `vmap`-batched PC, differential OBSO per player
 **Paper:** Fernandez & Bornn (2018), "Wide Open Spaces: A statistical technique for measuring space creation in professional soccer"
 
 Full OBSO (Off-Ball Scoring Opportunity) requires computing N+1 pitch control surfaces per frame (one counterfactual surface with each player removed) to measure each player's space creation contribution. At 25fps with 22 players, this is ~2,700 pitch control evaluations per second of play — prohibitively expensive for the current compute budget.
@@ -781,7 +781,7 @@ Phase 12 implemented a simpler Off-Ball xT metric: `pitch_control(player_locatio
 
 ## <img src="assets/hf-logo.png" height="28" align="top"> HuggingFace Hub Integration (Open Model & Dataset Ecosystem)
 
-**Status:** Tiers 1&ndash;2 complete (2 models, 7 datasets published), Tier 4 complete (Gradio demo Space with luxury flagship theme). Tier 3 deferred to DEFCON Tier 4.
+**Status:** Tiers 1&ndash;3 complete (2 models, 7 datasets published, GPU training proven on HF Jobs A10G), Tier 4 complete (Gradio demo Space with luxury flagship theme).
 **Budget:** $0 (free tier) or $9/month (PRO for priority GPU access)
 **References:** [Databricks &hearts; HuggingFace](https://www.databricks.com/blog/contributing-spark-loader-for-hugging-face-datasets); [PyG Hub Integration](https://github.com/pyg-team/pytorch_geometric/issues/7170); [SoccerNet on HF](https://huggingface.co/SoccerNet)
 
@@ -892,7 +892,7 @@ A Gradio Space hosting a read-only demo with pre-cached Parquet subsets. Complem
 
 - Tier 1 (consume) &mdash; **complete** (football2vec retrained on StatsBomb corpus)
 - Tier 2 (publish) &mdash; **complete** (2 models + 5 datasets published: [football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout), [xG model](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout), [SPADL/VAEP](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values), [Line-Breaking Passes](https://huggingface.co/datasets/luxury-lakehouse/line-breaking-passes), [Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings), [Pitch Control](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking), [Expected Threat Grids](https://huggingface.co/datasets/luxury-lakehouse/expected-threat-grids))
-- Tier 3 (train) depends on DL Infrastructure (ROADMAP) for GNN training pipeline
+- Tier 3 (train) &mdash; **complete** (xG v2 trained on HF Jobs A10G (D17); VAEP training migrated to HF Jobs (O2); HF Jobs proven as primary external GPU provider)
 - Tier 4 (demo) &mdash; **complete** (Gradio Space at [`luxury-lakehouse/soccer-analytics-demo`](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme and 6 tabs: pass quality, pass timing, pitch control, player similarity, shot map, DEFCON pressure)
 - Tier 5 (streaming) &mdash; blocked on Polars `hf://buckets/` merge (see below)
 - Synergistic with DL Infrastructure (HF models flow into MLflow + UC model registry)

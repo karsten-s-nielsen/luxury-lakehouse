@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [ARCHITECTURE.md](ARCHITECTURE.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
 
-**Last updated**: 2026-03-16 (D9–D16 complete, CHI-AUDIT-190 applied. UX items U1–U4 added)
+**Last updated**: 2026-03-16 (D14, D17, D23, O2, E5 complete)
 
 ---
 
@@ -18,21 +18,17 @@ Tasks warming up in the on-deck circle.
 
 | # | Task | Size | Source | Notes |
 |---|------|------|--------|-------|
-| D14 | Space Creation (Full Counterfactual) | Wicked | [ROADMAP.md](ROADMAP.md) | Fernandez & Bornn 2018 OBSO counterfactual analysis. Differential pitch control per player per frame. Unblocked by D10 (OBSO + ghost trajectories) + D13 (augmented tracking data). JAX kernel ready (Phase 18) |
-| D17 | xG v2 — Neural Context Model | Wicked | [ROADMAP.md](ROADMAP.md) | Upgrade XGBoost xG (0.979 ROC-AUC) with a small set-encoder that ingests raw 360 freeze-frame defender/GK positions. Train on HF Jobs GPU (A10G). 131K shots + freeze-frame data in Delta. Publish to HF Hub |
 | D18 | Football2vec v2 — Transformer Embeddings | Wicked | [ROADMAP.md](ROADMAP.md) | Replace Doc2Vec (gensim, CPU) with a small transformer on tokenized match sequences. Train on HF Jobs GPU (A10G). 87K player-match documents in Delta. Better player representations for similarity search. Publish to HF Hub |
 | U1 | Calibration anchors — league averages and percentile ranks on metrics | Wicked | CHI-AUDIT-180-rev-1 #3 | Compute percentiles per competition in dbt (`PERCENT_RANK()`), surface as `delta=` or reference text on st.metric |
 | D19 | Team Shape Spatial Metrics Module | Dunkin' | [ROADMAP.md](ROADMAP.md) | `src/analytics/team_shape.py` — pure NumPy/scipy: team centroid, convex hull, team length/width, defensive line height, GK-backline distance, stretch index, inter-line gaps. Line detection via k-means. Unit tests with synthetic formations. No new dependencies |
 | D20 | EFPI Formation Detection Integration | Wicked | [ROADMAP.md](ROADMAP.md) | Add `unravelsports` (MPL 2.0). Wire kloppy → EFPI template matching → formation labels per time window. Compatibility testing across Metrica/IDSSE/SkillCorner. Potential friction: kloppy Polars format, 10fps vs 25fps |
 | D21 | Team Shape Streamlit Page | Wicked | [ROADMAP.md](ROADMAP.md) | Snapshot view (connected-formation diagram + convex hull + sidebar metrics) + timeline view (shape metrics time-series + formation labels). New pitch.py visualization components. Builds on D19 + D20 |
 | D22 | NannyML CBPE for Model Monitoring | Dunkin' | [ROADMAP.md](ROADMAP.md) | Confidence-Based Performance Estimation when ground truth is unavailable. Evaluate alongside current scipy-based drift detection (D12) |
-| D23 | Custom EPV/Transition Grid Training | Wicked | [ROADMAP.md](ROADMAP.md) | Train EPV and Transition grids from SPADL data instead of using PAUSA repo static grids. Improves OBSO surface accuracy for non-IDSSE data |
 | D24 | Numba Evaluation for Pitch Control | Dunkin' | [ROADMAP.md](ROADMAP.md) | Benchmark Numba JIT vs JAX for small pitch control workloads where JAX compile time dominates |
 | D7 | Observability Layer (OTel) | Monstah | [ROADMAP.md](ROADMAP.md) | Research complete, ready for implementation. Instrument once, observe anywhere. ~$1-2/month personal tier |
 | U3 | Global player search — search by name across all pages | Monstah | CHI-AUDIT-180-rev-1 #1 | New search component with 11,918-player index + cross-page routing + session state. Needs design decisions |
 | U4 | Uncertainty/confidence bounds on model outputs | Monstah | CHI-AUDIT-180-rev-1 #4 | xG model can output calibration intervals. VAEP/pitch control lack native uncertainty. Partial — model-level changes needed |
 | O1 | `fct_match_summary` incremental materialization | Wicked | OPT-AUDIT-190 #5 | Currently defaults to view — recomputed every dbt run against full events table. Needs `{{ config(materialized='incremental') }}` with `match_id` key + `is_incremental()` guard. Requires full dbt build cycle testing |
-| O2 | SPADL/VAEP training migration to HF Jobs | Wicked | OPT-AUDIT-190 #7 | `spadl_vaep.py:562` accumulates all game feature matrices before single `pd.concat`. At 10K+ matches, OOMs on Databricks serverless (16 GB driver). Training API requires full matrix. Migrate to HF Jobs (A10G, 46 GB RAM) — same pattern as xG and xT training. Extract features to HF Dataset, train on HF Jobs, publish model back to Hub |
 | O3 | Pipeline performance baselines | Wicked | OPT-AUDIT-190 #9 | `docs/performance-baselines.md` timing columns are all TBD. Run each pipeline, record wall clock, establish regression anchors for CI |
 | U5 | Server-side player search for Player Similarity | Wicked | HF-MIGRATION | At enterprise scale (100K+ players), client-side `st.selectbox` filtering won't scale. Replace with `st.text_input` + `ILIKE '%query%'` server-side query with `LIMIT 500` per search. Requires UI refactor (two-step: type → search → select) and PG index on `player_display_name` |
 | M1 | Rotate Databricks PAT for HF Spaces | Dunkin' | HF-MIGRATION | PAT created 2026-03-16 with 90-day lifetime. **Expires ~2026-06-14.** Generate new PAT in Databricks workspace Settings → Developer → Access tokens, then update `DATABRICKS_TOKEN` secret at huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app/settings. Consider migrating to SP OAuth (client_id + client_secret) for no-expiry auth |
@@ -62,6 +58,11 @@ Phases 0–19 are complete. See git history for implementation details.
 | D13 | Physics-Based Tracking Augmentation | `augmentation.py`: position/velocity jitter within physical constraints. 88x in-memory multiplier (8 symmetry x 11 jitter). Pure NumPy |
 | D16 | OBSO Batch on HF Jobs GPU | Full OBSO value surfaces (PPCF x Transition x EPV) for 7 IDSSE matches via JAX `vmap` on A10G. Ghost trajectory support in JAX kernel |
 | U2 | Cross-page filter state persistence | `st.session_state` write/read in `render_competition_filter`, `render_team_filter`, `render_match_filter`. Dependent filters reset on parent change. CHI-AUDIT-180-rev-2 F9/F46 |
+| D14 | Space Creation (Full Counterfactual) | `jax.vmap`-batched pitch control + differential OBSO per player. HF Jobs A10G script. Fernandez & Bornn 2018. |
+| D17 | xG v2 — Neural Context Model | Deep Sets set encoder (Zaheer et al. 2017) + MC dropout uncertainty (Gal & Ghahramani 2016). Pure NumPy inference. HF Jobs A10G training. Published to HF Hub. |
+| D23 | Custom EPV/Transition Grid Training | Data-driven ball reachability (64×100) + EPV (32×50) grids from 2.2M SPADL actions. Replaces synthetic Gaussian proxy. Published to HF Hub. |
+| O2 | SPADL/VAEP training migration to HF Jobs | Standalone PEP 723 script. Driver-side training removed from spadl_vaep.py. Model published to HF Hub. |
+| E5 | Training data versioning | Delta version + HF dataset commit hash logged via MLflow params in all training notebooks and scripts. |
 
 ---
 
@@ -97,7 +98,6 @@ Items from the Pipeline Optimization & Scaling (EIP) roadmap section that were e
 | E2 | Change Data Feed (CDF) | Delta `table_changes()` for incremental downstream consumption. No downstream consumer currently needs change tracking. | When a streaming consumer (e.g., real-time dashboard, ML feature store) is added. |
 | E3 | Dead Letter Channel | Failed record quarantine to `bronze.dead_letters` table. Current retry logic handles transient errors; no persistent failure pattern observed. | When ingestion sources become unreliable or data volume exceeds manual inspection. |
 | E4 | `dbt clone` for staging | Zero-copy table references for pre-production validation. Requires Lakebase branching. | When staging environment (ROADMAP.md) is implemented. |
-| E5 | Training data versioning | Delta time travel + MLflow `log_input()` with `delta://table@version` URIs. | When ML model training becomes iterative (DEFCON Tier 4 GNN, football2vec v2). |
 | E6 | Delta retention policy | Explicit `delta.deletedFileRetentionDuration` (30d gold, 7d bronze) ahead of DBR 18.0. | Before DBR 18.0 upgrade where `RETAIN X HOURS` in manual VACUUM is ignored. |
 
 ### Resolved
@@ -153,8 +153,8 @@ See [ROADMAP.md](ROADMAP.md) for research directions, long-horizon features, and
 - **Staging Environment** — Lakebase branching for pre-production validation
 - **Graph-Based Tactical Patterns** — GNN research direction (Raabe et al. 2022)
 - **Decision Optimization** — RL-based pass optimization beyond VAEP (Rahimian et al.)
-- **Space Creation** — Fernandez & Bornn 2018 OBSO (deferred from Phase 12; JAX `vmap` may unblock)
-- **HuggingFace Hub Integration** — Tiers 1-2 and 4 complete (2 models + 7 datasets published, Gradio demo Space live with luxury flagship theme); remaining: Tier 3 GPU training
+- **Space Creation** — Fernandez & Bornn 2018 OBSO — **complete (D14)**: `vmap`-batched PC, differential OBSO per player, HF Jobs A10G script
+- **HuggingFace Hub Integration** — Tiers 1-4 complete (2 models + 7 datasets published, Gradio demo Space live with luxury flagship theme, Tier 3 GPU training proven with xG v2 + VAEP on HF Jobs A10G)
 
 ## Infrastructure Notes
 

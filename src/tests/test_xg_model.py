@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import numpy as np
+import numpy.testing as npt
 import pandas as pd
 import pytest
 from sklearn.metrics import brier_score_loss
@@ -19,6 +20,7 @@ from analytics.xg_model import (
     deserialize_logistic_model,
     deserialize_xgboost_model,
     evaluate_model,
+    parse_freeze_frame,
     serialize_logistic_model,
     serialize_xgboost_model,
     train_logistic_baseline,
@@ -461,6 +463,62 @@ class TestBenchmarkVsStatsBomb:
 
 
 # ---------------------------------------------------------------------------
+# parse_freeze_frame
+# ---------------------------------------------------------------------------
+
+
+class TestParseFreezeFrame:
+    """Test the freeze-frame JSON parsing for v2 set encoder input."""
+
+    def test_valid_json(self) -> None:
+        ff_json = json.dumps(
+            [
+                {"location": [60, 40], "teammate": True, "keeper": False, "actor": False},
+                {"location": [90, 20], "teammate": False, "keeper": True, "actor": False},
+            ]
+        )
+        result = parse_freeze_frame(ff_json)
+        assert result.shape == (2, 4)
+        npt.assert_allclose(result[0, :2], [60 / 120, 40 / 80])
+        assert result[1, 2] == 1.0  # is_keeper
+
+    def test_none_returns_empty(self) -> None:
+        result = parse_freeze_frame(None)
+        assert result.shape == (0, 4)
+
+    def test_invalid_json_returns_empty(self) -> None:
+        result = parse_freeze_frame("{bad json")
+        assert result.shape == (0, 4)
+
+    def test_empty_array(self) -> None:
+        result = parse_freeze_frame("[]")
+        assert result.shape == (0, 4)
+
+    def test_missing_location_defaults_to_zero(self) -> None:
+        ff_json = json.dumps([{"teammate": True, "keeper": False}])
+        result = parse_freeze_frame(ff_json)
+        assert result.shape == (1, 4)
+        npt.assert_allclose(result[0, :2], [0.0, 0.0])
+
+    def test_missing_boolean_fields_default_to_false(self) -> None:
+        ff_json = json.dumps([{"location": [60, 40]}])
+        result = parse_freeze_frame(ff_json)
+        assert result.shape == (1, 4)
+        assert result[0, 2] == 0.0  # is_keeper
+        assert result[0, 3] == 0.0  # is_teammate
+
+    def test_dtype_is_float64(self) -> None:
+        ff_json = json.dumps([{"location": [60, 40], "teammate": True, "keeper": False}])
+        result = parse_freeze_frame(ff_json)
+        assert result.dtype == np.float64
+
+    def test_multiple_players(self) -> None:
+        players = [{"location": [i * 10, i * 5], "teammate": i % 2 == 0, "keeper": i == 0} for i in range(11)]
+        result = parse_freeze_frame(json.dumps(players))
+        assert result.shape == (11, 4)
+
+
+# ---------------------------------------------------------------------------
 # Pipeline tests (ingestion module)
 # ---------------------------------------------------------------------------
 
@@ -503,6 +561,10 @@ class TestMakeScoringUdf:
         assert "competition_id" in result.columns
         assert "xg_logistic" in result.columns
         assert "xg_gradient_boosted" in result.columns
+        # V2 columns always present (NULL when no v2 model)
+        assert "xg_set_encoder" in result.columns
+        assert "xg_ci_lower" in result.columns
+        assert "xg_ci_upper" in result.columns
         assert len(result) == len(shots)
 
     def test_udf_predictions_in_range(self) -> None:
@@ -520,6 +582,175 @@ class TestMakeScoringUdf:
         result = udf(shots)
         assert np.all(result["xg_logistic"].between(0, 1))
         assert np.all(result["xg_gradient_boosted"].between(0, 1))
+
+    def test_udf_v2_columns_null_without_model(self) -> None:
+        """V2 columns should be NaN when no v2 weights are provided."""
+        logistic_bytes, xgboost_bytes = self._train_and_serialize()
+
+        from ingestion.xg_model import _make_scoring_udf
+
+        udf = _make_scoring_udf(logistic_bytes, xgboost_bytes, v2_weights_bytes=None)
+
+        shots = _make_synthetic_shots(20)
+        shots["shot_id"] = [f"shot_{i}" for i in range(len(shots))]
+        shots["match_id"] = 12345
+        shots["competition_id"] = 1
+
+        result = udf(shots)
+        assert bool(result["xg_set_encoder"].isna().all())
+        assert bool(result["xg_ci_lower"].isna().all())
+        assert bool(result["xg_ci_upper"].isna().all())
+
+
+class TestMakeScoringUdfV2:
+    """Test the v2 path of the applyInPandas UDF with set encoder weights."""
+
+    def _train_and_serialize(self) -> tuple[bytes, bytes]:
+        """Train both v1 models and serialize to bytes."""
+        shots = _make_synthetic_shots(100)
+        config = XGModelConfig()
+        x, y = build_features(shots, config)
+        logistic = train_logistic_baseline(x, y)
+        xgboost_model = train_xgboost_model(x, y, config)
+        return serialize_logistic_model(logistic), serialize_xgboost_model(xgboost_model)
+
+    @staticmethod
+    def _make_dummy_v2_weights(tabular_dim: int) -> bytes:
+        """Create synthetic set encoder weights for testing.
+
+        Args:
+            tabular_dim: Number of tabular feature columns after one-hot encoding.
+                Must match the actual output of ``build_features()``.
+        """
+        from analytics.set_encoder import SetEncoderConfig, serialize_set_encoder_weights
+
+        config = SetEncoderConfig()
+        rng = np.random.default_rng(42)
+        weights: dict[str, np.ndarray] = {
+            "encoder_fc1_weight": rng.standard_normal((config.encoder_hidden, config.player_feature_dim)),
+            "encoder_fc1_bias": rng.standard_normal(config.encoder_hidden),
+            "encoder_fc2_weight": rng.standard_normal((config.context_dim, config.encoder_hidden)),
+            "encoder_fc2_bias": rng.standard_normal(config.context_dim),
+        }
+        # Prediction MLP input dim = tabular features + context_dim
+        pred_input_dim = tabular_dim + config.context_dim
+        weights.update(
+            {
+                "pred_fc1_weight": rng.standard_normal((config.pred_hidden_1, pred_input_dim)),
+                "pred_fc1_bias": rng.standard_normal(config.pred_hidden_1),
+                "pred_fc2_weight": rng.standard_normal((config.pred_hidden_2, config.pred_hidden_1)),
+                "pred_fc2_bias": rng.standard_normal(config.pred_hidden_2),
+                "pred_fc3_weight": rng.standard_normal((1, config.pred_hidden_2)),
+                "pred_fc3_bias": rng.standard_normal(1),
+            }
+        )
+        return serialize_set_encoder_weights(weights)
+
+    @staticmethod
+    def _get_tabular_dim() -> int:
+        """Get the number of tabular feature columns after one-hot encoding.
+
+        Uses the same training data as ``_train_and_serialize`` to ensure
+        the XGBoost expected features align with the dummy weight dimensions.
+        """
+        shots = _make_synthetic_shots(100)
+        config = XGModelConfig()
+        x, y = build_features(shots, config)
+        model = train_xgboost_model(x, y, config)
+        cc = next(iter(model.calibrated_classifiers_))
+        xgb_features = list(cc.estimator.get_booster().feature_names)  # type: ignore[union-attr]
+        return len(xgb_features)
+
+    def test_udf_with_v2_weights_and_freeze_frame(self) -> None:
+        """V2 columns should be populated when weights + freeze frame present."""
+        logistic_bytes, xgboost_bytes = self._train_and_serialize()
+
+        shots = _make_synthetic_shots(10)
+        tabular_dim = self._get_tabular_dim()
+        v2_bytes = self._make_dummy_v2_weights(tabular_dim)
+
+        from ingestion.xg_model import _make_scoring_udf
+
+        udf = _make_scoring_udf(logistic_bytes, xgboost_bytes, v2_weights_bytes=v2_bytes)
+
+        shots["shot_id"] = [f"shot_{i}" for i in range(len(shots))]
+        shots["match_id"] = 12345
+        shots["competition_id"] = 1
+        # Add freeze frame JSON for all shots
+        ff = json.dumps(
+            [
+                {"location": [100, 40], "teammate": False, "keeper": True},
+                {"location": [95, 35], "teammate": False, "keeper": False},
+                {"location": [105, 45], "teammate": True, "keeper": False},
+            ]
+        )
+        shots["shot_freeze_frame"] = ff
+
+        result = udf(shots)
+        # V1 columns still populated
+        assert np.all(result["xg_logistic"].between(0, 1))
+        assert np.all(result["xg_gradient_boosted"].between(0, 1))
+        # V2 columns should be populated (not NaN)
+        assert bool(result["xg_set_encoder"].notna().all())
+        assert bool(result["xg_ci_lower"].notna().all())
+        assert bool(result["xg_ci_upper"].notna().all())
+        # CI bounds should be valid probabilities
+        assert np.all(result["xg_set_encoder"].between(0, 1))
+        assert np.all(result["xg_ci_lower"].between(0, 1))
+        assert np.all(result["xg_ci_upper"].between(0, 1))
+        # Lower bound <= mean <= upper bound
+        assert np.all(result["xg_ci_lower"] <= result["xg_set_encoder"])
+        assert np.all(result["xg_set_encoder"] <= result["xg_ci_upper"])
+
+    def test_udf_v2_null_for_missing_freeze_frame(self) -> None:
+        """V2 columns should be NaN for shots without freeze frame JSON."""
+        logistic_bytes, xgboost_bytes = self._train_and_serialize()
+
+        shots = _make_synthetic_shots(10)
+        tabular_dim = self._get_tabular_dim()
+        v2_bytes = self._make_dummy_v2_weights(tabular_dim)
+
+        from ingestion.xg_model import _make_scoring_udf
+
+        udf = _make_scoring_udf(logistic_bytes, xgboost_bytes, v2_weights_bytes=v2_bytes)
+
+        shots["shot_id"] = [f"shot_{i}" for i in range(len(shots))]
+        shots["match_id"] = 12345
+        shots["competition_id"] = 1
+        shots["shot_freeze_frame"] = None  # No freeze frame
+
+        result = udf(shots)
+        # V1 still works
+        assert np.all(result["xg_logistic"].between(0, 1))
+        # V2 should be NaN
+        assert bool(result["xg_set_encoder"].isna().all())
+
+    def test_udf_v2_mixed_freeze_frame(self) -> None:
+        """Shots with and without freeze frames should both be handled."""
+        logistic_bytes, xgboost_bytes = self._train_and_serialize()
+
+        shots = _make_synthetic_shots(6)
+        tabular_dim = self._get_tabular_dim()
+        v2_bytes = self._make_dummy_v2_weights(tabular_dim)
+
+        from ingestion.xg_model import _make_scoring_udf
+
+        udf = _make_scoring_udf(logistic_bytes, xgboost_bytes, v2_weights_bytes=v2_bytes)
+
+        shots["shot_id"] = [f"shot_{i}" for i in range(len(shots))]
+        shots["match_id"] = 12345
+        shots["competition_id"] = 1
+        ff = json.dumps([{"location": [100, 40], "teammate": False, "keeper": True}])
+        shots["shot_freeze_frame"] = [ff, None, ff, None, ff, None]
+
+        result = udf(shots)
+        # All v1 predictions should be valid
+        assert len(result) == 6
+        assert np.all(result["xg_logistic"].between(0, 1))
+        # Rows with freeze frame should have v2 predictions
+        assert result["xg_set_encoder"].iloc[0] is not None and not np.isnan(result["xg_set_encoder"].iloc[0])
+        # Rows without freeze frame should be NaN
+        assert np.isnan(result["xg_set_encoder"].iloc[1])
 
 
 # ---------------------------------------------------------------------------
