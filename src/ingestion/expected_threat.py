@@ -143,9 +143,13 @@ def run_pipeline(
         return
 
     # ── Per-competition grids (only missing ones) ─────────────────────
+    # Pre-build indexed lookup to avoid O(n*m) boolean mask (F-02 OPT-AUDIT-200)
+    actions_by_comp = dict(iter(actions_df.groupby("competition_id")))
     competitions_written = 0
     for comp_id in new_comps:
-        comp_actions = pd.DataFrame(actions_df[actions_df["competition_id"] == comp_id])
+        comp_actions = actions_by_comp.get(comp_id)
+        if comp_actions is None:
+            continue
         n_events = len(comp_actions)
         if n_events < 100:
             log.warning("Competition %s has only %d events — skipping", comp_id, n_events)

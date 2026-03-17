@@ -166,7 +166,7 @@ def _fetch_rankings(timing_tbl: str) -> pd.DataFrame:
     return execute_query(
         f"SELECT COALESCE(pt.player_display_name, pt.player_id) AS player_display_name, "  # noqa: S608
         f"  COALESCE(ms.match_date || ' \u2014 ' || ms.home_team_name || ' v ' || ms.away_team_name, "
-        f"    pt.match_id) AS match_label, "
+        f"    'Match ' || pt.match_id) AS match_label, "
         f"  pt.pass_count, "
         f"  pt.avg_pausa, pt.avg_temporal_judgment, pt.avg_spatial_selection, "
         f"  pt.median_pausa, pt.passes_above_median_pausa "
@@ -437,6 +437,13 @@ def page() -> None:
             use_container_width=True,
             hide_index=True,
         )
+        # IDSSE tracking data uses DFL object IDs — no human-readable names available
+        # in the source data. Entity resolution covers StatsBomb + Wyscout only.
+        if rankings_df["player_display_name"].str.startswith("DFL-OBJ-").any():
+            st.caption(
+                "Player names shown as DFL identifiers — IDSSE tracking data does not include "
+                "player names. Human-readable names require a DFL roster lookup (not yet available)."
+            )
 
     # Footer
     st.caption(

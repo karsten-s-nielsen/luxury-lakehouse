@@ -106,6 +106,12 @@ The platform's architecture maps to classic EIP patterns (Hohpe & Woolf 2003). C
 - **Lazy closure capture**: Variables are captured at action time, not definition time. Use frozen dataclasses for all config passed to `applyInPandas`. Never mutate variables between function definition and the `.applyInPandas()` call.
 - **No local filesystem writes from Spark**: DBFS root is disabled and `file://` scheme is forbidden. Spark can write to UC Volumes (`/Volumes/...`) and Delta tables only. For file exports (e.g., Parquet for HF Hub upload), write to a UC Volume staging path, then read from the Volume path on the driver for upload.
 
+### Batch Compute Optimization
+
+- **Factor out loop-invariant computation**: When computing `f(variant_i) × constant` for N variants in a loop, compute the constant factor ONCE outside the loop and broadcast. Never call the function N times with the same constant inputs. Example: OBSO surfaces where transition × EPV grids are constant across all player-removal variants — compute the combined multiplier once, then `all_obso = all_ppcf * multiplier[None, :, :]` in a single NumPy broadcast. This is Critical severity because it converts O(N × grid_size) sequential Python calls into O(1) vectorized operations.
+- **Memory budget for HF Jobs**: Before loading a dataset on HF Jobs, verify its size against the container's RAM (`a10g-small`: 15 GB, `a10g-large`: 46 GB, `cpu-basic`: 16 GB). Use column-selective loading (`pd.read_parquet(path, columns=[...])`) and per-partition streaming when full materialization would exceed 50% of available RAM. A 14 GB dataset on a 15 GB container WILL OOM after accounting for Python runtime + JAX CUDA memory.
+- **Pre-build indexes before batch processing**: For tracking-scale batch compute (>100K frames), always `dict(iter(df.groupby(key)))` at both the match level AND the frame level before entering processing loops. Two-level indexing (`match_groups[match_id]` → `frame_groups[frame]`) eliminates all O(n) boolean mask filtering.
+
 ### Performance Budgets
 
 - **Pipeline task timeout**: ingest tasks ≤15 min, compute tasks ≤2 hr

@@ -334,11 +334,9 @@ def _make_synthetic_grids():
         center_dist = abs(j - 16) / 16.0
         epv[j, :] *= 1.0 - 0.3 * center_dist
 
-    # Transition: 64x100, Gaussian centered
-    transition = np.zeros((64, 100), dtype=np.float64)
-    for i in range(64):
-        for j in range(100):
-            transition[i, j] = np.exp(-((i - 32) ** 2 + (j - 50) ** 2) / (2 * 30**2))
+    # Transition: 64x100, Gaussian centered (F-08 OPT-AUDIT-200: vectorized)
+    ii, jj = np.mgrid[0:64, 0:100]
+    transition = np.exp(-((ii - 32) ** 2 + (jj - 50) ** 2) / (2 * 30**2))
 
     return epv, transition
 
@@ -575,15 +573,47 @@ def main():
     # ------------------------------------------------------------------
     print("\n=== Loading data from HF Hub ===")
 
-    # Static grids (synthetic for now — production uses trained EPV/Transition)
-    epv_grid, transition_grid = _make_synthetic_grids()
-    print(f"  Using synthetic static grids (EPV: {epv_grid.shape}, Transition: {transition_grid.shape})")
+    # Download trained grids (D23) — fall back to synthetic if not yet published
+    from huggingface_hub import hf_hub_download
+    from huggingface_hub.utils import EntryNotFoundError, HfHubHTTPError, RepositoryNotFoundError
+
+    try:
+        reachability_path = hf_hub_download(
+            repo_id="luxury-lakehouse/obso-trained-grids",
+            filename="data/reachability_grid_global.parquet",
+            repo_type="dataset",
+        )
+        epv_path = hf_hub_download(
+            repo_id="luxury-lakehouse/obso-trained-grids",
+            filename="data/epv_grid_global.parquet",
+            repo_type="dataset",
+        )
+        # Load trained 2D spatial grids
+        _reach_df = pd.read_parquet(reachability_path)
+        reachability_grid = _reach_df.pivot(index="zone_y", columns="zone_x", values="reachability").values.astype(
+            np.float64
+        )
+        _epv_df = pd.read_parquet(epv_path)
+        epv_grid = _epv_df.pivot(index="zone_y", columns="zone_x", values="epv_value").values.astype(np.float64)
+        transition_grid = reachability_grid
+        print(
+            f"  Loaded trained grids from luxury-lakehouse/obso-trained-grids "
+            f"(reachability: {reachability_grid.shape}, EPV: {epv_grid.shape})"
+        )
+    except (HfHubHTTPError, EntryNotFoundError, RepositoryNotFoundError):
+        print("  WARNING: Trained grids unavailable — falling back to synthetic grids")
+        epv_grid, transition_grid = _make_synthetic_grids()
+        print(f"  Using synthetic static grids (EPV: {epv_grid.shape}, Transition: {transition_grid.shape})")
 
     # Load real tracking data (IDSSE partition, StatsBomb 120x80 coordinates)
     tracking_df = _load_tracking_data(hf_token)
 
     # Load events (DFL coords, converted to SB 120x80) and ELASTIC sync results
     events_df, sync_df = _load_events_and_sync(hf_token)
+
+    # Capture dataset commit hashes for reproducibility (E5)
+    _tracking_commit = api.repo_info(repo_id=TRACKING_DATASET, repo_type="dataset").sha
+    _inputs_commit = api.repo_info(repo_id=INPUTS_DATASET, repo_type="dataset").sha
 
     # Prepare pass events with frame alignments
     passes_df = _prepare_pass_events(events_df, sync_df)
@@ -616,8 +646,13 @@ def main():
     skipped_insufficient_players = 0
     pass_counter = 0
 
+    # Pre-build indexed lookup to avoid O(n*m) boolean mask (F-03 OPT-AUDIT-200)
+    passes_by_match = dict(iter(passes_df.groupby("match_id")))
+
     for match_id in match_ids:
-        match_passes = passes_df[passes_df["match_id"] == match_id]
+        match_passes = passes_by_match.get(match_id)
+        if match_passes is None or match_passes.empty:
+            continue
         print(f"\n  Match {match_id}: {len(match_passes)} passes")
 
         for _, pass_row in match_passes.iterrows():
@@ -674,39 +709,42 @@ def main():
             # Compute PPCF at the event frame
             grid_x, grid_y, ppcf = compute_pitch_control_grid(ghost_frames[event_idx], GRID_NX, GRID_NY, params)
 
-            # Compute OBSO surface at event frame
-            obso = compute_obso_surface(
-                ppcf,
-                transition_grid,
-                epv_grid,
-                (ball_x_sb, ball_y_sb),
-                grid_x,
-                grid_y,
+            # Pre-compute loop-invariant OBSO multiplier ONCE per pass event
+            # (F-05 OPT-AUDIT-200). compute_obso_surface internally re-interpolates
+            # grids and recomputes Gaussian distance weight on every call — all constant
+            # across the ghost frame loop for a given ball position.
+            ny_g, nx_g = GRID_NY, GRID_NX
+            xx_g, yy_g = np.meshgrid(grid_x, grid_y)
+            sigma_x, sigma_y = 30.0, 20.0
+            distance_weight = np.exp(
+                -((xx_g - ball_x_sb) ** 2) / (2.0 * sigma_x**2) - (yy_g - ball_y_sb) ** 2 / (2.0 * sigma_y**2)
             )
+            trans_interp = interpolate_grid(transition_grid, (ny_g, nx_g))
+            epv_interp = interpolate_grid(epv_grid, (ny_g, nx_g))
+            eff_trans = trans_interp * distance_weight
+            max_trans = np.max(eff_trans)
+            if max_trans > 1e-10:
+                eff_trans = eff_trans / max_trans
+            obso_multiplier = eff_trans * epv_interp  # (ny, nx) — constant
+
+            # OBSO at event frame via broadcast
+            obso = np.clip(ppcf * obso_multiplier, 0.0, 1.0)
 
             # --- Actual OBSO at ball release position ---
-            # Map ball position to grid index
             tx_idx = int(np.clip(ball_x_sb / 120.0 * (GRID_NX - 1), 0, GRID_NX - 1))
             ty_idx = int(np.clip(ball_y_sb / 80.0 * (GRID_NY - 1), 0, GRID_NY - 1))
             actual_obso = float(obso[ty_idx, tx_idx])
 
             # --- Peak OBSO: check ball position across ghost frames (every 5th) ---
+            # Uses pre-computed obso_multiplier (F-05 OPT-AUDIT-200)
             peak_obso = actual_obso
             for frame_df in ghost_frames[::5]:
                 _, _, frame_ppcf = compute_pitch_control_grid(frame_df, GRID_NX, GRID_NY, params)
-                frame_obso = compute_obso_surface(
-                    frame_ppcf,
-                    transition_grid,
-                    epv_grid,
-                    (ball_x_sb, ball_y_sb),
-                    grid_x,
-                    grid_y,
-                )
+                frame_obso = np.clip(frame_ppcf * obso_multiplier, 0.0, 1.0)
                 frame_val = float(frame_obso[ty_idx, tx_idx])
                 peak_obso = max(peak_obso, frame_val)
 
             # --- Optimal OBSO: max across all off-ball teammate positions ---
-            # Determine passer's team from tracking data
             event_frame_df = ghost_frames[event_idx]
             passer_team = team  # home or away
             teammates_at_event = event_frame_df[
@@ -716,17 +754,18 @@ def main():
             best_receiver_x = ball_x_sb
             best_receiver_y = ball_y_sb
 
+            # Vectorized teammate OBSO lookup (F-06 OPT-AUDIT-200)
             if len(teammates_at_event) > 0:
-                for _, tm_row in teammates_at_event.iterrows():
-                    tm_x = float(tm_row["x"])
-                    tm_y = float(tm_row["y"])
-                    tm_x_idx = int(np.clip(tm_x / 120.0 * (GRID_NX - 1), 0, GRID_NX - 1))
-                    tm_y_idx = int(np.clip(tm_y / 80.0 * (GRID_NY - 1), 0, GRID_NY - 1))
-                    tm_obso = float(obso[tm_y_idx, tm_x_idx])
-                    if tm_obso > optimal_obso:
-                        optimal_obso = tm_obso
-                        best_receiver_x = tm_x
-                        best_receiver_y = tm_y
+                tm_xs = teammates_at_event["x"].to_numpy()
+                tm_ys = teammates_at_event["y"].to_numpy()
+                tm_x_idxs = np.clip((tm_xs / 120.0 * (GRID_NX - 1)).astype(int), 0, GRID_NX - 1)
+                tm_y_idxs = np.clip((tm_ys / 80.0 * (GRID_NY - 1)).astype(int), 0, GRID_NY - 1)
+                tm_obso_vals = obso[tm_y_idxs, tm_x_idxs]
+                best_idx = int(np.argmax(tm_obso_vals))
+                if tm_obso_vals[best_idx] > optimal_obso:
+                    optimal_obso = float(tm_obso_vals[best_idx])
+                    best_receiver_x = float(tm_xs[best_idx])
+                    best_receiver_y = float(tm_ys[best_idx])
 
             temporal_judgment = actual_obso / max(peak_obso, 1e-10)
             spatial_selection = actual_obso / max(optimal_obso, 1e-10)
@@ -798,6 +837,8 @@ def main():
                     "jax_available": _USE_JAX,
                 }
             )
+            mlflow.log_param("pitch_control_tracking_commit", _tracking_commit)
+            mlflow.log_param("obso_pausa_inputs_commit", _inputs_commit)
             mlflow.log_metrics(
                 {
                     "mean_actual_obso": float(results_df["actual_obso"].mean()),
@@ -906,7 +947,8 @@ JAX-accelerated pitch control on A10G GPU from **{n_passes:,} passes** across
 
 ## Input Data
 
-- **Tracking**: [`luxury-lakehouse/pitch-control-tracking`](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking) (IDSSE partition)
+- **Tracking**: [`luxury-lakehouse/pitch-control-tracking`](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking)
+  (IDSSE partition)
 - **Events + ELASTIC sync**: [`luxury-lakehouse/obso-pausa-inputs`](https://huggingface.co/datasets/luxury-lakehouse/obso-pausa-inputs)
 
 ## References
@@ -915,7 +957,8 @@ JAX-accelerated pitch control on A10G GPU from **{n_passes:,} passes** across
 - Fernandez & Bornn (2018). "Wide Open Spaces." MIT Sloan.
 - Lee, Jo, Hong, Bauer & Ko (2026). "Valuing La Pausa." MIT Sloan 2026.
 - Kim et al. (2025). "ELASTIC." ECML-PKDD MLSA 2025. arXiv:2508.09238.
-- Bassek et al. (2025). "An integrated dataset of spatiotemporal and event data in elite soccer." Scientific Data, Nature.
+- Bassek et al. (2025). "An integrated dataset of spatiotemporal and event data
+  in elite soccer." Scientific Data, Nature.
 
 ## License
 

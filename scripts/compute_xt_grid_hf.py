@@ -326,6 +326,10 @@ def main() -> None:
 
     all_actions = pd.concat(dfs, ignore_index=True)
 
+    # Capture dataset commit hash for reproducibility (E5)
+    _dataset_info = api.repo_info(repo_id=SPADL_DATASET, repo_type="dataset")
+    _dataset_commit = _dataset_info.sha
+
     # Deduplicate in case of overlapping exports
     if "action_value_id" in all_actions.columns:
         before = len(all_actions)
@@ -409,6 +413,7 @@ def main() -> None:
                     "training_env": "hf_jobs_cpu",
                 }
             )
+            mlflow.log_param("spadl_vaep_action_values_commit", _dataset_commit)
             mlflow.log_metrics(
                 {
                     "global_max_xt": float(global_grid.max()),

@@ -9,7 +9,7 @@ import pandas as pd
 import streamlit as st
 
 from analytics.pitch_control import compute_pitch_control_at_point, compute_pitch_control_frame
-from streamlit_app.components.feedback import data_freshness, data_scope_note, empty_result
+from streamlit_app.components.feedback import data_freshness, data_scope_note, empty_result, empty_select
 from streamlit_app.components.filters import render_tracking_match_filter
 from streamlit_app.components.glossary import METRIC_HELP
 from streamlit_app.components.pitch import plot_physics_pitch_control, plot_pitch_control
@@ -161,6 +161,7 @@ def page() -> None:
         show_velocity = st.toggle("Show velocity arrows", value=True)
 
     if match_id is None or period is None:
+        empty_select("a tracking match and half")
         return
 
     min_frame, max_frame = _load_frame_range(str(match_id), int(period))

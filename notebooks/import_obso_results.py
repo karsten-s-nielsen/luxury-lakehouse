@@ -29,8 +29,7 @@ match_ids_str = ", ".join(f"'{mid}'" for mid in match_ids)
 replace_expr = f"match_id IN ({match_ids_str})"
 
 (
-    scores_df.write
-    .format("delta")
+    scores_df.write.format("delta")
     .mode("overwrite")
     .option("replaceWhere", replace_expr)
     .option("overwriteSchema", "true")

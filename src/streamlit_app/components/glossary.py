@@ -36,10 +36,22 @@ GLOSSARY: dict[str, str] = {
         "Defensive Contribution framework (Kim et al. 2025) — quantifies how defenders "
         "affect an attacker's scoring probability via four credit categories."
     ),
-    "Intercept": "Defender successfully won the ball from the attacker.",
-    "Concede": "Attacker received a shot or goal despite defensive pressure.",
-    "Disturb": "Defender disrupted the attacker's possession without winning the ball.",
-    "Deter": "Defender's presence prevented the attacker from progressing.",
+    "Intercept": (
+        "DEFCON credit for winning the ball. Higher = more successful interceptions. "
+        "Typical match total per player: 0.1\u20131.5 credits."
+    ),
+    "Concede": (
+        "DEFCON credit charged when a shot or goal occurs despite pressure. "
+        "Lower is better. Typical match total per player: 0.0\u20130.5 credits."
+    ),
+    "Disturb": (
+        "DEFCON credit for disrupting possession without winning the ball. "
+        "Higher = more effective disruption. Typical match total: 0.1\u20131.0 credits."
+    ),
+    "Deter": (
+        "DEFCON credit for preventing attacker progression through positioning. "
+        "Higher = more effective deterrence. Typical match total: 0.1\u20132.0 credits."
+    ),
     "Brier Score": (
         "Prediction calibration metric — lower is better. "
         "0.0 = perfect predictions, 0.25 = coin flip. Good models score < 0.10."
@@ -140,10 +152,10 @@ METRIC_HELP: dict[str, str] = {
         "Pitch control at the ball's location. 0.0 = full away control, 1.0 = full home control. "
         "Values near 0.5 indicate contested space."
     ),
-    "Avg Speed": "Average player speed in meters per second.",
-    "Avg Speed (m/s)": "Average player speed in meters per second.",
-    "Max Speed": "Maximum player speed in meters per second.",
-    "Max Speed (m/s)": "Maximum player speed in meters per second.",
+    "Avg Speed": "Average player speed in m/s. Typical match average: 1.5\u20132.5 m/s.",
+    "Avg Speed (m/s)": "Average player speed in m/s. Typical match average: 1.5\u20132.5 m/s.",
+    "Max Speed": "Maximum player speed in m/s. Elite sprints reach 9\u201310 m/s (~35 km/h).",
+    "Max Speed (m/s)": "Maximum player speed in m/s. Elite sprints reach 9\u201310 m/s (~35 km/h).",
     "Avg Dist to Ball": "Average distance from players to the ball in meters.",
     "Cosine Distance": GLOSSARY["Cosine Distance"],
     "Completed Passes": "Number of passes that reached the intended recipient.",

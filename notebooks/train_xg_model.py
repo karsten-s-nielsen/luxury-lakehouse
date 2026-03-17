@@ -44,8 +44,7 @@ print("Imports OK")
 # COMMAND ----------
 
 shots_df = spark.sql(  # noqa: F821 — spark is a Databricks runtime global
-    "SELECT * FROM soccer_analytics.dev_gold.fct_shots "
-    "WHERE is_goal IS NOT NULL AND competition_id IS NOT NULL"
+    "SELECT * FROM soccer_analytics.dev_gold.fct_shots WHERE is_goal IS NOT NULL AND competition_id IS NOT NULL"
 ).toPandas()
 shots_df = shots_df.dropna(subset=["is_goal", "competition_id"]).reset_index(drop=True)
 print(f"Loaded {len(shots_df):,} shots")
@@ -69,7 +68,10 @@ print(f"Target: {y.sum():,} goals / {len(y):,} shots ({y.mean():.1%} goal rate)"
 
 # Stratified split by competition_id
 X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=config.test_size, random_state=config.random_state,
+    X,
+    y,
+    test_size=config.test_size,
+    random_state=config.random_state,
     stratify=shots_df["competition_id"],
 )
 print(f"Train: {len(X_train):,}, Test: {len(X_test):,}")
@@ -85,20 +87,28 @@ from sklearn.metrics import brier_score_loss  # noqa: E402 — cell-based notebo
 
 mlflow.set_experiment("/soccer_analytics/xg_model")
 
+# Capture Delta table version for reproducibility (E5)
+_shots_version = spark.sql(  # noqa: F821 — spark is a Databricks runtime global
+    "DESCRIBE HISTORY soccer_analytics.dev_gold.fct_shots LIMIT 1"
+).first()["version"]
+
 with mlflow.start_run(run_name="xg_model_training") as run:
     # Log training parameters
-    mlflow.log_params({
-        "n_estimators": config.n_estimators,
-        "max_depth": config.max_depth,
-        "learning_rate": config.learning_rate,
-        "calibration_method": config.calibration_method,
-        "test_size": config.test_size,
-        "random_state": config.random_state,
-        "n_features": len(X_train.columns),
-        "n_train": len(X_train),
-        "n_test": len(X_test),
-        "n_shots_total": len(shots_df),
-    })
+    mlflow.log_params(
+        {
+            "n_estimators": config.n_estimators,
+            "max_depth": config.max_depth,
+            "learning_rate": config.learning_rate,
+            "calibration_method": config.calibration_method,
+            "test_size": config.test_size,
+            "random_state": config.random_state,
+            "n_features": len(X_train.columns),
+            "n_train": len(X_train),
+            "n_test": len(X_test),
+            "n_shots_total": len(shots_df),
+            "fct_shots_delta_version": int(_shots_version),
+        }
+    )
 
     # Train models
     logistic_model = train_logistic_baseline(X_train, y_train, random_state=config.random_state)
@@ -128,17 +138,21 @@ with mlflow.start_run(run_name="xg_model_training") as run:
 
     # StatsBomb xG benchmark (StatsBomb shots only)
     test_indices = X_test.index
-    sb_mask = (shots_df.loc[test_indices, "data_source"] == "statsbomb") & shots_df.loc[test_indices, "statsbomb_xg"].notna()
+    sb_mask = (shots_df.loc[test_indices, "data_source"] == "statsbomb") & shots_df.loc[
+        test_indices, "statsbomb_xg"
+    ].notna()
     if sb_mask.any():
         sb_xg = shots_df.loc[test_indices[sb_mask], "statsbomb_xg"].clip(0.01, 0.99)
         sb_y = y_test.loc[sb_mask]
         sb_brier = brier_score_loss(sb_y, sb_xg)
         custom_brier = brier_score_loss(sb_y, xgboost_model.predict_proba(X_test.loc[sb_mask])[:, 1])
-        mlflow.log_metrics({
-            "statsbomb_brier": sb_brier,
-            "custom_brier_on_sb_subset": custom_brier,
-            "brier_ratio": custom_brier / sb_brier,
-        })
+        mlflow.log_metrics(
+            {
+                "statsbomb_brier": sb_brier,
+                "custom_brier_on_sb_subset": custom_brier,
+                "brier_ratio": custom_brier / sb_brier,
+            }
+        )
         print("\n=== StatsBomb Benchmark ===")
         print(f"  StatsBomb xG Brier: {sb_brier:.4f}")
         print(f"  Custom xG Brier:    {custom_brier:.4f}")
@@ -159,7 +173,9 @@ with mlflow.start_run(run_name="xg_model_training") as run:
     )
 
     # Log logistic baseline and register as @Baseline
-    baseline_signature = infer_signature(X_test[baseline_cols], logistic_model.predict_proba(X_test[baseline_cols])[:, 1])
+    baseline_signature = infer_signature(
+        X_test[baseline_cols], logistic_model.predict_proba(X_test[baseline_cols])[:, 1]
+    )
     mlflow.sklearn.log_model(
         sk_model=logistic_model,
         artifact_path="logistic_model",
@@ -197,7 +213,9 @@ else:
 
 # Set @Baseline on logistic regression (interpretable reference point)
 baseline_model_name = "soccer_analytics.dev_gold.xg_model_baseline"
-baseline_versions = client.search_model_versions(f"name='{baseline_model_name}'", order_by=["version_number DESC"], max_results=1)
+baseline_versions = client.search_model_versions(
+    f"name='{baseline_model_name}'", order_by=["version_number DESC"], max_results=1
+)
 if baseline_versions:
     baseline_version = baseline_versions[0].version
     client.set_registered_model_alias(baseline_model_name, "Baseline", baseline_version)

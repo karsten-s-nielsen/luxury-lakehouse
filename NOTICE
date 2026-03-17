@@ -143,3 +143,15 @@ inspired by: Wang, Z. et al. (2024). "TacticAI: an AI assistant for
 football tactics." Nature Communications 15, 1906. The implementation
 is an independent Python translation of augmentation principles, not
 derived from the TacticAI source code.
+
+Space Creation Quantification
+Fernandez, J. & Bornn, L. (2018). "Wide Open Spaces: A statistical technique
+for measuring space creation in professional soccer." MIT Sloan Sports Analytics Conference.
+
+Deep Sets (Set Encoder Architecture)
+Zaheer, M., Kottur, S., Ravanbakhsh, S., Poczos, B., Salakhutdinov, R., & Smola, A. (2017).
+"Deep Sets." Advances in Neural Information Processing Systems (NeurIPS).
+
+MC Dropout Uncertainty Quantification
+Gal, Y. & Ghahramani, Z. (2016). "Dropout as a Bayesian Approximation:
+Representing Model Uncertainty in Deep Learning." International Conference on Machine Learning (ICML).

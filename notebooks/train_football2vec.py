@@ -99,32 +99,46 @@ training_config = TrainingConfig()
 
 mlflow.set_experiment("/soccer_analytics/football2vec")
 
+# Capture Delta table versions for reproducibility (E5)
+_sb_version = spark.sql(  # noqa: F821 — spark is a Databricks runtime global
+    "DESCRIBE HISTORY soccer_analytics.dev_silver.stg_statsbomb__events LIMIT 1"
+).first()["version"]
+_ws_version = spark.sql(  # noqa: F821 — spark is a Databricks runtime global
+    "DESCRIBE HISTORY soccer_analytics.dev_silver.stg_wyscout__events LIMIT 1"
+).first()["version"]
+
 with mlflow.start_run(run_name="football2vec_training") as run:
     # Log parameters
-    mlflow.log_params({
-        "vector_size": training_config.vector_size,
-        "window": training_config.window,
-        "min_count": training_config.min_count,
-        "epochs": training_config.epochs,
-        "dm": training_config.dm,
-        "grid_cols": config.grid_cols,
-        "grid_rows": config.grid_rows,
-        "n_statsbomb_docs": len(sb_docs),
-        "n_wyscout_docs": len(wy_docs),
-        "n_total_docs": len(all_docs),
-        "n_statsbomb_events": len(sb_events),
-        "n_wyscout_events": len(wy_events),
-    })
+    mlflow.log_params(
+        {
+            "vector_size": training_config.vector_size,
+            "window": training_config.window,
+            "min_count": training_config.min_count,
+            "epochs": training_config.epochs,
+            "dm": training_config.dm,
+            "grid_cols": config.grid_cols,
+            "grid_rows": config.grid_rows,
+            "n_statsbomb_docs": len(sb_docs),
+            "n_wyscout_docs": len(wy_docs),
+            "n_total_docs": len(all_docs),
+            "n_statsbomb_events": len(sb_events),
+            "n_wyscout_events": len(wy_events),
+            "stg_statsbomb__events_delta_version": int(_sb_version),
+            "stg_wyscout__events_delta_version": int(_ws_version),
+        }
+    )
 
     # Train model
     model = train_model(all_docs, training_config)
 
     # Log training metrics
-    mlflow.log_metrics({
-        "vocabulary_size": len(model.wv),
-        "document_vectors": len(model.dv),
-        "vector_size": model.vector_size,
-    })
+    mlflow.log_metrics(
+        {
+            "vocabulary_size": len(model.wv),
+            "document_vectors": len(model.dv),
+            "vector_size": model.vector_size,
+        }
+    )
 
     print(f"Vocabulary size: {len(model.wv):,}")
     print(f"Document vectors: {len(model.dv):,}")
@@ -139,6 +153,7 @@ with mlflow.start_run(run_name="football2vec_training") as run:
 
     # Save tokenizer config alongside model
     import json  # noqa: E402 — cell-based notebook import
+
     tokenizer_config_data = {
         "grid_cols": config.grid_cols,
         "grid_rows": config.grid_rows,

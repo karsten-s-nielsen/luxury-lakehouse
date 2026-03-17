@@ -44,7 +44,7 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 | **Synchronization** | Lakeflow Synced Tables | Zero-ETL continuous sync from Gold → Lakebase |
 | **Serving** | Lakebase PostgreSQL 17 (Autoscaling) | Sub-10ms OLTP queries, native pgvector, scale-to-zero |
 | **Application** | [Streamlit on HuggingFace Spaces](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) | 12-page interactive dashboard (Docker SDK, Lakebase PostgreSQL) |
-| **ML Artifacts** | [HuggingFace Hub](https://huggingface.co/luxury-lakehouse) | Publish [2 models](https://huggingface.co/luxury-lakehouse) ([football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout), [xG](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout)), [7 datasets](https://huggingface.co/luxury-lakehouse), and [interactive demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) |
+| **ML Artifacts** | [HuggingFace Hub](https://huggingface.co/luxury-lakehouse) | Publish [4 models](https://huggingface.co/luxury-lakehouse) + [11 datasets](https://huggingface.co/luxury-lakehouse), GPU training on HF Jobs, and [interactive demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) |
 | **Security** | OAuth M2M + OIDC Federation + KMS | Zero-secret CI, least-privilege SPs, encrypted state |
 | **Infrastructure** | Terraform + Databricks Provider | Everything as code |
 
@@ -117,7 +117,7 @@ The `src/analytics/` modules (pitch control, line-breaking, DEFCON, off-ball xT,
 
 ## Status
 
-**Phase 19 complete** — 12 Streamlit pages, 19 synced tables, 38 PG indexes, 762 unit tests (774+ with gensim). HuggingFace Hub: 2 models ([football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout), [xG](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout)) + 7 datasets published, [Gradio demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme (6 tabs). Custom xG model (calibrated XGBoost, ROC-AUC 0.979) scoring 87,999 shots. Data-driven xT grid computed from 2.2M SPADL actions. See [ARCHITECTURE.md](ARCHITECTURE.md) for the platform architecture and [ROADMAP.md](ROADMAP.md) for research directions.
+**Phase 19 complete + GPU models v2** — 12 Streamlit pages, 19 synced tables, 38 PG indexes, 807 unit tests (819+ with gensim). HuggingFace Hub: 4 models + 11 datasets published, GPU training on HF Jobs A10G, [Gradio demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme (6 tabs). xG v2 set encoder (ROC-AUC 0.915, MC dropout uncertainty). Data-driven xT/EPV/transition grids. See [ARCHITECTURE.md](ARCHITECTURE.md) for the platform architecture and [ROADMAP.md](ROADMAP.md) for research directions.
 
 | Phase | Description | Status |
 |-------|-------------|--------|

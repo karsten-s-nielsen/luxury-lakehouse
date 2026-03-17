@@ -16,7 +16,6 @@ incremental runs by skipping games already converted / scored.
 
 from __future__ import annotations
 
-import gc
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -56,7 +55,6 @@ _FEATURE_FNS: list[Any] = [
 ]
 
 _NB_PREV_ACTIONS = 3
-_MAX_TRAINING_GAMES = 200
 _SPADL_TABLE = "spadl_actions"
 _VAEP_TABLE = "vaep_action_values"
 
@@ -525,6 +523,9 @@ def _convert_wyscout_from_bronze(
 # ---------------------------------------------------------------------------
 
 
+# NOTE: _extract_features_for_games() and train_vaep_models() are retained
+# for reference and local testing. Production training runs on HF Jobs
+# via scripts/train_vaep_model_hf.py (PEP 723 standalone script).
 def _extract_features_for_games(
     actions: pd.DataFrame,
     game_ids: Any,
@@ -640,38 +641,21 @@ def _load_or_train_models(
     training_game_ids: list[int],
     training_pdf: pd.DataFrame,
 ) -> tuple[XGBClassifier, XGBClassifier] | None:
-    """Load VAEP models from MLflow @Champion, or train on the driver.
+    """Load VAEP models from MLflow @Champion registry.
 
-    Attempts to load pre-registered @Champion models from MLflow first.
-    Falls back to training from scratch if MLflow is unavailable or no
-    Champion model is registered.
-
-    Returns None if both loading and training fail (empty features).
-
-    Note: UC Volume FUSE on serverless does not support XGBoost's C-level
-    file I/O (save_model/load_model), so models are kept in memory and
-    serialized to bytes for executor distribution via ``get_booster().save_raw()``.
+    Training is handled externally by HF Jobs (scripts/train_vaep_model_hf.py).
+    The training_game_ids and training_pdf parameters are retained for signature
+    compatibility but are no longer used for fallback training.
     """
-    # Try MLflow @Champion first
     champion_models = _try_load_champion_vaep(logger)
     if champion_models is not None:
         return champion_models
 
-    # Fall back to training from scratch
-    x_train, y_scores, y_concedes = _extract_features_for_games(
-        training_pdf,
-        training_game_ids,
-        logger,
+    logger.warning(
+        "No Champion VAEP model found in MLflow registry. "
+        "Run scripts/train_vaep_model_hf.py on HF Jobs to train and register a model."
     )
-
-    if x_train.empty:
-        logger.warning("No features extracted — nothing to train")
-        return None
-
-    logger.info("Training features: %d rows x %d cols", len(x_train), x_train.shape[1])
-    model_scores, model_concedes = train_vaep_models(x_train, y_scores, y_concedes, logger)
-
-    return model_scores, model_concedes
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -884,37 +868,18 @@ def run_pipeline(
         raise RuntimeError(msg)
     logger.info("SPADL table %s has data — proceeding to training", spadl_table)
 
-    # Phase C: Train on a representative sample read from Delta
+    # Phase C: Load pre-trained models from MLflow @Champion
+    # Training is handled by HF Jobs (scripts/train_vaep_model_hf.py)
     spadl_sdf = spark.table(spadl_table)
-    training_games_rows = (
-        spadl_sdf.groupBy("game_id").count().orderBy("count", ascending=False).limit(_MAX_TRAINING_GAMES).collect()
-    )
-    training_game_ids = [int(row["game_id"]) for row in training_games_rows]
-
-    if not training_game_ids:
-        logger.warning("No games found for training")
-        return
-
-    from pyspark.sql import functions as spark_fn
-
-    training_pdf = spadl_sdf.filter(spark_fn.col("game_id").isin(training_game_ids)).toPandas()
-
-    logger.info(
-        "Training subset: %d games, %d actions",
-        len(training_game_ids),
-        len(training_pdf),
-    )
 
     models = _load_or_train_models(
         spark,
         catalog,
         schema,
         logger,
-        training_game_ids,
-        training_pdf,
+        training_game_ids=[],
+        training_pdf=pd.DataFrame(),
     )
-    del training_pdf
-    gc.collect()
 
     if models is None:
         return
@@ -932,6 +897,8 @@ def run_pipeline(
     scores_raw = bytes(model_scores.get_booster().save_raw("json"))
     concedes_raw = bytes(model_concedes.get_booster().save_raw("json"))
     logger.info("Serialized VAEP models: scores=%d bytes, concedes=%d bytes", len(scores_raw), len(concedes_raw))
+
+    from pyspark.sql import functions as spark_fn
 
     # Filter SPADL to unscored games only
     all_game_rows = spadl_sdf.select("game_id").distinct().collect()
