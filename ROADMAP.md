@@ -781,7 +781,7 @@ Phase 12 implemented a simpler Off-Ball xT metric: `pitch_control(player_locatio
 
 ## <img src="assets/hf-logo.png" height="28" align="top"> HuggingFace Hub Integration (Open Model & Dataset Ecosystem)
 
-**Status:** Tiers 1&ndash;3 complete (2 models, 7 datasets published, GPU training proven on HF Jobs A10G), Tier 4 complete (Gradio demo Space with luxury flagship theme).
+**Status:** Tiers 1&ndash;3 complete (4 models, 11 datasets published, GPU training proven on HF Jobs A10G), Tier 4 complete (Gradio demo Space with luxury flagship theme).
 **Budget:** $0 (free tier) or $9/month (PRO for priority GPU access)
 **References:** [Databricks &hearts; HuggingFace](https://www.databricks.com/blog/contributing-spark-loader-for-hugging-face-datasets); [PyG Hub Integration](https://github.com/pyg-team/pytorch_geometric/issues/7170); [SoccerNet on HF](https://huggingface.co/SoccerNet)
 
@@ -891,7 +891,7 @@ A Gradio Space hosting a read-only demo with pre-cached Parquet subsets. Complem
 ### Dependencies
 
 - Tier 1 (consume) &mdash; **complete** (football2vec retrained on StatsBomb corpus)
-- Tier 2 (publish) &mdash; **complete** (2 models + 5 datasets published: [football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout), [xG model](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout), [SPADL/VAEP](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values), [Line-Breaking Passes](https://huggingface.co/datasets/luxury-lakehouse/line-breaking-passes), [Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings), [Pitch Control](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking), [Expected Threat Grids](https://huggingface.co/datasets/luxury-lakehouse/expected-threat-grids))
+- Tier 2 (publish) &mdash; **complete** (4 models + 11 datasets published: [football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout), [xG v1](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout), [xG v2 set encoder](https://huggingface.co/luxury-lakehouse/xg-v2-model-set-encoder), [VAEP](https://huggingface.co/luxury-lakehouse/vaep-model-statsbomb-wyscout), plus datasets for SPADL/VAEP, line-breaking, embeddings, pitch control, xT grids, OBSO inputs/values/grids, freeze frames, shots, space creation)
 - Tier 3 (train) &mdash; **complete** (xG v2 trained on HF Jobs A10G (D17); VAEP training migrated to HF Jobs (O2); HF Jobs proven as primary external GPU provider)
 - Tier 4 (demo) &mdash; **complete** (Gradio Space at [`luxury-lakehouse/soccer-analytics-demo`](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme and 6 tabs: pass quality, pass timing, pitch control, player similarity, shot map, DEFCON pressure)
 - Tier 5 (streaming) &mdash; blocked on Polars `hf://buckets/` merge (see below)

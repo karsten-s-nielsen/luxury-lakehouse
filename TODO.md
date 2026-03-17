@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [ARCHITECTURE.md](ARCHITECTURE.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
 
-**Last updated**: 2026-03-16 (D14, D17, D23, O2, E5 complete)
+**Last updated**: 2026-03-17 (D14, D17, D23, O2, E5 complete; OPT-AUDIT-200 applied)
 
 ---
 
@@ -27,7 +27,7 @@ Tasks warming up in the on-deck circle.
 | D24 | Numba Evaluation for Pitch Control | Dunkin' | [ROADMAP.md](ROADMAP.md) | Benchmark Numba JIT vs JAX for small pitch control workloads where JAX compile time dominates |
 | D7 | Observability Layer (OTel) | Monstah | [ROADMAP.md](ROADMAP.md) | Research complete, ready for implementation. Instrument once, observe anywhere. ~$1-2/month personal tier |
 | U3 | Global player search — search by name across all pages | Monstah | CHI-AUDIT-180-rev-1 #1 | New search component with 11,918-player index + cross-page routing + session state. Needs design decisions |
-| U4 | Uncertainty/confidence bounds on model outputs | Monstah | CHI-AUDIT-180-rev-1 #4 | xG model can output calibration intervals. VAEP/pitch control lack native uncertainty. Partial — model-level changes needed |
+| U4 | Uncertainty/confidence bounds on model outputs | Monstah | CHI-AUDIT-180-rev-1 #4 | xG v2 now outputs MC dropout 95% CI (`xg_ci_lower`, `xg_ci_upper`). VAEP/pitch control still lack native uncertainty. Partial — xG done, others remain |
 | O1 | `fct_match_summary` incremental materialization | Wicked | OPT-AUDIT-190 #5 | Currently defaults to view — recomputed every dbt run against full events table. Needs `{{ config(materialized='incremental') }}` with `match_id` key + `is_incremental()` guard. Requires full dbt build cycle testing |
 | O3 | Pipeline performance baselines | Wicked | OPT-AUDIT-190 #9 | `docs/performance-baselines.md` timing columns are all TBD. Run each pipeline, record wall clock, establish regression anchors for CI |
 | U5 | Server-side player search for Player Similarity | Wicked | HF-MIGRATION | At enterprise scale (100K+ players), client-side `st.selectbox` filtering won't scale. Replace with `st.text_input` + `ILIKE '%query%'` server-side query with `LIMIT 500` per search. Requires UI refactor (two-step: type → search → select) and PG index on `player_display_name` |
@@ -80,7 +80,7 @@ Phases 0–19 are complete. See git history for implementation details.
 | 10 | No set-piece exclusion | `analytics/line_breaking.py` | Corners, free kicks, throw-ins have non-standard formations. | Research task — needs `pass_type` filtering or set-piece-aware algorithm. |
 | 11 | Heat Map pre-aggregation lossy | `heat_map.py` | Server-side `GROUP BY round(x/10)` bins into 10-yard cells before `bin_statistic`. Per-action precision lost. | Acceptable trade-off for density visualization. |
 | 13 | PPDA StatsBomb-only | `fct_match_summary.sql` | PPDA uses StatsBomb defensive actions. NULL for Wyscout-only competitions (different event taxonomy). | Data limitation. Would require event type mapping or different pressing proxy. |
-| 14 | Space creation deferred | ROADMAP.md | Full Fernandez & Bornn 2018 OBSO requires N+1 pitch control computations per frame — too expensive for current compute budget. **Update (Phase 18):** JAX kernel (`compute_pitch_control_grid_fast`) enables `vmap` over grid points, partially unblocking OBSO. | Research direction in ROADMAP.md. JAX kernel available. |
+| ~~14~~ | ~~Space creation deferred~~ | ~~ROADMAP.md~~ | ~~Resolved by D14: `jax.vmap`-batched pitch control + differential OBSO per player, deployed on HF Jobs A10G.~~ | Complete. |
 | 16 | Physical stats tracking-only | `fct_physical_stats.sql` | Only 20 matches (Metrica 3, IDSSE 7, SkillCorner 10) have physical data. ~3,000 event-only matches have none. | Data limitation — no tracking for StatsBomb/Wyscout. |
 | 18 | DEFCON-lite anonymous defenders | `ingestion/defcon_lite.py` | StatsBomb 360 freeze frames are anonymous — `defender_player_id` is synthetic. `fct_defensive_values` cannot attribute credit to real defenders. Mitigated: `fct_defcon_pressure` pivots to attacker perspective (real `action_player_id`). | Full fix requires Tier 4 GNN with tracking data (500+ matches needed). |
 | 25 | Lakebase CU right-sizing | Terraform | `autoscaling_max_cu = 4` may be overprovisioned for dev. Reduce to 2. | Blocked — Terraform provider cannot update `initial_endpoint_spec` after creation. Needs UI change. |
@@ -154,7 +154,7 @@ See [ROADMAP.md](ROADMAP.md) for research directions, long-horizon features, and
 - **Graph-Based Tactical Patterns** — GNN research direction (Raabe et al. 2022)
 - **Decision Optimization** — RL-based pass optimization beyond VAEP (Rahimian et al.)
 - **Space Creation** — Fernandez & Bornn 2018 OBSO — **complete (D14)**: `vmap`-batched PC, differential OBSO per player, HF Jobs A10G script
-- **HuggingFace Hub Integration** — Tiers 1-4 complete (2 models + 7 datasets published, Gradio demo Space live with luxury flagship theme, Tier 3 GPU training proven with xG v2 + VAEP on HF Jobs A10G)
+- **HuggingFace Hub Integration** — Tiers 1-4 complete (4 models + 11 datasets published, Gradio demo Space live with luxury flagship theme, Tier 3 GPU training proven with xG v2 + VAEP on HF Jobs A10G)
 
 ## Infrastructure Notes
 

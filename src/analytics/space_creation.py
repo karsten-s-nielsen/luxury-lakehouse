@@ -97,7 +97,7 @@ def compute_frame_space_creation(
         If JAX is not available.
     """
     # Lazy imports to avoid import-time JAX failures
-    from analytics.obso import compute_obso_surface, interpolate_grid
+    from analytics.obso import interpolate_grid
     from analytics.pitch_control import (
         PitchControlParams,
         compute_pitch_control_player_removal,
@@ -126,42 +126,49 @@ def compute_frame_space_creation(
     transition_interp = interpolate_grid(transition_grid, (ny, nx))
     epv_interp = interpolate_grid(epv_grid, (ny, nx))
 
-    # Compute baseline OBSO surface
-    baseline_obso = compute_obso_surface(baseline_surface, transition_interp, epv_interp, ball_position, grid_x, grid_y)
+    # Pre-compute the loop-invariant OBSO multiplier ONCE (F-01 OPT-AUDIT-200).
+    # compute_obso_surface internally re-interpolates grids and recomputes
+    # the Gaussian distance weight on every call — all constant across the
+    # N player-removal variants.  Hoisting converts O(N x grid_size)
+    # redundant work to O(1).
+    ball_x, ball_y = ball_position
+    xx, yy = np.meshgrid(grid_x, grid_y)
+    sigma_x, sigma_y = 30.0, 20.0
+    distance_weight = np.exp(-((xx - ball_x) ** 2) / (2.0 * sigma_x**2) - (yy - ball_y) ** 2 / (2.0 * sigma_y**2))
+    effective_transition = transition_interp * distance_weight
+    max_trans = np.max(effective_transition)
+    if max_trans > 1e-10:
+        effective_transition = effective_transition / max_trans
+    obso_multiplier = effective_transition * epv_interp  # (ny, nx) — constant
+
+    # Baseline OBSO via broadcast
+    baseline_obso = np.clip(baseline_surface * obso_multiplier, 0.0, 1.0)
+
+    # Vectorized per-player OBSO via broadcast: (n_players, ny, nx)
+    n_players = len(players_df)
+    all_removed = removed_pc.reshape(n_players, ny, nx)
+    all_removed_obso = np.clip(all_removed * obso_multiplier[None, :, :], 0.0, 1.0)
 
     # Cell dimensions for area integration
     dx = float(grid_x[1] - grid_x[0]) if len(grid_x) > 1 else 1.0
     dy = float(grid_y[1] - grid_y[0]) if len(grid_y) > 1 else 1.0
     cell_area = dx * dy
 
-    # Compute per-player space creation/destruction
-    n_players = len(players_df)
-    player_ids = list(players_df["player_id"])
-    teams = list(players_df["team"])
-    results: list[dict[str, object]] = []
+    # Vectorized delta computation: (n_players, ny, nx)
+    delta = baseline_obso[None, :, :] - all_removed_obso
+    positive_delta = np.maximum(delta, 0.0)
+    negative_delta = np.minimum(delta, 0.0)
 
-    for i in range(n_players):
-        removed_surface = removed_pc[i].reshape(ny, nx)
-        removed_obso = compute_obso_surface(
-            removed_surface, transition_interp, epv_interp, ball_position, grid_x, grid_y
-        )
+    space_created_arr = np.sum(positive_delta, axis=(1, 2)) * cell_area
+    space_destroyed_arr = np.sum(np.abs(negative_delta), axis=(1, 2)) * cell_area
+    net_space_arr = space_created_arr - space_destroyed_arr
 
-        delta = baseline_obso - removed_obso
-        positive_delta = np.maximum(delta, 0.0)
-        negative_delta = np.minimum(delta, 0.0)
-
-        space_created = float(np.sum(positive_delta) * cell_area)
-        space_destroyed = float(np.sum(np.abs(negative_delta)) * cell_area)
-        net_space = space_created - space_destroyed
-
-        results.append(
-            {
-                "player_id": player_ids[i],
-                "team": teams[i],
-                "space_created_m2": space_created,
-                "space_destroyed_m2": space_destroyed,
-                "net_space_m2": net_space,
-            }
-        )
-
-    return pd.DataFrame(results)
+    return pd.DataFrame(
+        {
+            "player_id": list(players_df["player_id"]),
+            "team": list(players_df["team"]),
+            "space_created_m2": space_created_arr,
+            "space_destroyed_m2": space_destroyed_arr,
+            "net_space_m2": net_space_arr,
+        }
+    )

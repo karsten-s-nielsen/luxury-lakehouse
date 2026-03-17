@@ -94,8 +94,12 @@ def _make_scoring_udf(
                 predict_xg_with_uncertainty,
             )
 
+            # Pre-extract arrays to avoid O(n²) pdf.iloc[i] (F-04 OPT-AUDIT-200)
+            ff_jsons = pdf["shot_freeze_frame"].to_numpy()
+            tabular_rows = x.to_numpy().astype(_np.float64)
+
             for i in range(n_rows):
-                ff_json = pdf.iloc[i].get("shot_freeze_frame")
+                ff_json = ff_jsons[i]
                 if ff_json is None or (isinstance(ff_json, float) and _np.isnan(ff_json)):
                     continue
 
@@ -104,9 +108,7 @@ def _make_scoring_udf(
                     continue
 
                 context_vector = encode_player_set(player_features, v2_weights)
-
-                # Build tabular feature vector for this shot
-                tabular = x.iloc[i].to_numpy().astype(_np.float64)
+                tabular = tabular_rows[i]
 
                 mean, _std, ci_lower, ci_upper = predict_xg_with_uncertainty(tabular, context_vector, v2_weights)
                 xg_set_encoder[i] = mean
@@ -321,9 +323,15 @@ def run_pipeline(
         schema=output_schema,
     )
 
-    # 6. Write per competition_id with replaceWhere for idempotency
+    # 6. Materialize scored_df to avoid re-executing applyInPandas DAG per
+    # competition_id write (F-07 OPT-AUDIT-200).  Without this, each .filter()
+    # triggers a full re-run of the UDF across all groups.
+    _temp_table = f"{catalog}.{schema}._xg_scored_temp"
+    scored_df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(_temp_table)
+    scored_materialized = spark.table(_temp_table)
+
     for comp_id in new_comps:
-        partition = scored_df.filter(f"competition_id = {comp_id}")
+        partition = scored_materialized.filter(f"competition_id = {comp_id}")
         row_count = write_delta_table(
             partition,
             catalog,
@@ -333,6 +341,12 @@ def run_pipeline(
             logger=log,
         )
         log.info("Wrote %d predictions for competition_id=%s", row_count, comp_id)
+
+    # Clean up temp table
+    try:
+        spark.sql(f"DROP TABLE IF EXISTS {_temp_table}")
+    except Exception:
+        log.debug("Could not drop temp table %s", _temp_table, exc_info=True)
 
 
 def main() -> None:
