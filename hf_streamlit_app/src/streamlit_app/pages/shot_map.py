@@ -217,18 +217,32 @@ def page() -> None:
             f"{conversion:.1f}%",
             help=METRIC_HELP.get("Conversion Rate") or None,
         )
+        # Show delta vs StatsBomb for xG/Shot and Brier when using custom model (CHI-AUDIT-200 F6)
+        xg_per_shot_delta = None
+        if xg_col != "statsbomb_xg" and "statsbomb_xg" in shots.columns:
+            sb_per_shot = float(shots["statsbomb_xg"].sum()) / total if total > 0 else 0.0
+            xg_per_shot_delta = f"{xg_per_shot - sb_per_shot:+.4f} vs StatsBomb"
         st.metric(
             "xG / Shot",
             f"{xg_per_shot:.3f}",
+            delta=xg_per_shot_delta,
+            delta_color="off",
             help=METRIC_HELP.get("xG / Shot") or None,
         )
 
         # Brier score — measures calibration of xG predictions
         brier = _compute_brier_score(pd.Series(shots["is_goal"]), pd.Series(xg_series))
+        brier_delta = None
+        if xg_col != "statsbomb_xg" and "statsbomb_xg" in shots.columns and brier is not None:
+            sb_brier = _compute_brier_score(pd.Series(shots["is_goal"]), pd.Series(shots["statsbomb_xg"]))
+            if sb_brier is not None:
+                brier_delta = f"{brier - sb_brier:+.4f} vs StatsBomb"
         if brier is not None:
             st.metric(
                 "Brier Score",
                 f"{brier:.4f}",
+                delta=brier_delta,
+                delta_color="inverse",
                 help=METRIC_HELP.get("Brier Score") or None,
             )
         else:
