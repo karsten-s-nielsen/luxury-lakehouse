@@ -46,7 +46,7 @@ jobs:
         run: uv run pytest
 
       - name: Scan for secrets
-        run: uv run detect-secrets scan --baseline .secrets.baseline
+        run: uv run pip install detect-secrets && uv run detect-secrets scan --baseline .secrets.baseline
 
       - name: Audit dependencies
         run: uv run pip-audit
