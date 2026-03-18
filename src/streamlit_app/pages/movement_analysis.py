@@ -16,7 +16,7 @@ from streamlit_app.components.feedback import (
 )
 from streamlit_app.components.filters import render_competition_filter, render_tracking_match_filter
 from streamlit_app.components.glossary import METRIC_HELP
-from streamlit_app.db import execute_query, t
+from streamlit_app.db import execute_query, t, validate_param_id
 
 _PROVIDER_OPTIONS = ["All", "metrica", "idsse", "skillcorner"]
 
@@ -158,6 +158,7 @@ def _render_physical() -> None:
         empty_select("a match")
         return
 
+    validate_param_id(str(match_id))  # defense-in-depth (SEC-AUDIT-200 F9)
     stats = _load_physical_stats(str(match_id))
     if stats.empty:
         empty_result("physical data for this match")
@@ -310,6 +311,7 @@ def _render_off_ball_xt() -> None:
         empty_select("a match")
         return
 
+    validate_param_id(str(match_id))  # defense-in-depth (SEC-AUDIT-200 F9)
     stats = _load_physical_stats(str(match_id))
     xt_stats = stats[stats["total_off_ball_xt"].notna()] if not stats.empty else stats
 

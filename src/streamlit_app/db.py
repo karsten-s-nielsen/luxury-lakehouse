@@ -23,6 +23,7 @@ from streamlit_app.config import get_settings
 logger = logging.getLogger(__name__)
 
 _IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+_SAFE_ID_RE = re.compile(r"^[a-zA-Z0-9_\-]+$")
 
 # Thread lock for token cache and connection pool state (L-4: thread safety)
 _pool_lock = threading.Lock()
@@ -185,6 +186,21 @@ def validate_table_name(table: str) -> str:
         msg = f"Invalid table name: {table!r}"
         raise ValueError(msg)
     return table
+
+
+def validate_param_id(value: str) -> str:
+    """Validate a parameterized ID value (player_id, match_id, etc.).
+
+    Accepts alphanumeric characters, underscores, and hyphens (covers
+    integer IDs, DFL-OBJ-* IDs, and md5 surrogate keys).
+    Defense-in-depth: these values are always passed via %s placeholders,
+    so SQL injection is not possible regardless. This validates format
+    to catch data corruption or unexpected input early.
+    """
+    if not _SAFE_ID_RE.match(value):
+        msg = f"Invalid ID format: {value!r}"
+        raise ValueError(msg)
+    return value
 
 
 def t(table_name: str) -> str:
