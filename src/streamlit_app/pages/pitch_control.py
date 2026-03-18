@@ -13,7 +13,7 @@ from streamlit_app.components.feedback import data_freshness, data_scope_note, e
 from streamlit_app.components.filters import render_tracking_match_filter
 from streamlit_app.components.glossary import METRIC_HELP
 from streamlit_app.components.pitch import plot_physics_pitch_control, plot_pitch_control
-from streamlit_app.db import execute_query, t
+from streamlit_app.db import execute_query, t, validate_param_id
 
 
 @st.cache_data(ttl=600, show_spinner="Resolving match...")
@@ -164,6 +164,7 @@ def page() -> None:
         empty_select("a tracking match and half")
         return
 
+    validate_param_id(str(match_id))  # defense-in-depth (SEC-AUDIT-200 F9)
     min_frame, max_frame = _load_frame_range(str(match_id), int(period))
     if min_frame == max_frame == 0:
         empty_result("frames for this match and period")

@@ -12,6 +12,7 @@ Requires:
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 import uuid
@@ -20,10 +21,14 @@ import psycopg2
 import requests
 from databricks.sdk import WorkspaceClient
 
+_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
 CATALOG = "soccer_analytics"
 SCHEMA = "dev_gold"
-LAKEBASE_HOST = "ep-spring-rain-d2i6lozx.database.us-east-1.cloud.databricks.com"
-ENDPOINT_NAME = "projects/soccer-analytics-dev/branches/production/endpoints/primary"
+LAKEBASE_HOST = os.environ.get("LAKEBASE_HOST", "ep-spring-rain-d2i6lozx.database.us-east-1.cloud.databricks.com")
+ENDPOINT_NAME = os.environ.get(
+    "LAKEBASE_ENDPOINT_NAME", "projects/soccer-analytics-dev/branches/production/endpoints/primary"
+)
 PG_DATABASE = "databricks_postgres"
 
 
@@ -62,9 +67,8 @@ def main() -> None:
     table_name: str = args.table_name
 
     # Validate table name to prevent SQL injection in DDL statement
-    _identifier_re = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
-    if not _identifier_re.match(table_name):
-        print(f"ERROR: Invalid table name '{table_name}': must match {_identifier_re.pattern}")
+    if not _IDENTIFIER_RE.match(table_name):
+        print(f"ERROR: Invalid table name '{table_name}': must match {_IDENTIFIER_RE.pattern}")
         sys.exit(1)
 
     full_name = f"{CATALOG}.{SCHEMA}.{table_name}"

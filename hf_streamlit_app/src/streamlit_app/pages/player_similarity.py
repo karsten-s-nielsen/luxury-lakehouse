@@ -9,7 +9,7 @@ import streamlit as st
 from streamlit_app.components.charts import plot_player_radar
 from streamlit_app.components.feedback import data_freshness, empty_result, empty_select
 from streamlit_app.components.filters import render_competition_filter
-from streamlit_app.db import execute_query, t
+from streamlit_app.db import execute_query, t, validate_param_id
 
 # Default metrics with display labels and reasonable ranges (mirrors player_radar.py)
 _DEFAULT_METRICS: list[tuple[str, str, tuple[float, float]]] = [
@@ -69,6 +69,7 @@ def _get_table_and_columns(competition_id: int | None) -> tuple[str, str]:
 
 @st.cache_data(ttl=600, show_spinner="Loading player vector...")
 def _fetch_player_embedding_vector(tbl: str, pid: str, comp_id: int | None) -> Any:
+    validate_param_id(pid)  # defense-in-depth (SEC-AUDIT-200 F8)
     if comp_id is not None:
         return execute_query(
             f"SELECT behavioral_vector, stat_vector "  # noqa: S608

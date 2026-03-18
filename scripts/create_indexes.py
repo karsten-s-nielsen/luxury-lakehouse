@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import os
 import subprocess
 import sys
 import time
@@ -31,9 +32,11 @@ import uuid
 import psycopg2
 import requests
 
-DATABRICKS_HOST = "https://dbc-48322be9-16be.cloud.databricks.com"
-LAKEBASE_HOST = "ep-spring-rain-d2i6lozx.database.us-east-1.cloud.databricks.com"
-ENDPOINT_NAME = "projects/soccer-analytics-dev/branches/production/endpoints/primary"
+DATABRICKS_HOST = os.environ.get("DATABRICKS_HOST", "https://dbc-48322be9-16be.cloud.databricks.com")
+LAKEBASE_HOST = os.environ.get("LAKEBASE_HOST", "ep-spring-rain-d2i6lozx.database.us-east-1.cloud.databricks.com")
+ENDPOINT_NAME = os.environ.get(
+    "LAKEBASE_ENDPOINT_NAME", "projects/soccer-analytics-dev/branches/production/endpoints/primary"
+)
 PG_DATABASE = "databricks_postgres"
 SCHEMA = "dev_gold"
 

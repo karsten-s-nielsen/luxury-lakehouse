@@ -23,13 +23,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
 
 import requests
 
-DATABRICKS_HOST = "https://dbc-48322be9-16be.cloud.databricks.com"
+DATABRICKS_HOST = os.environ.get("DATABRICKS_HOST", "https://dbc-48322be9-16be.cloud.databricks.com")
 CATALOG = "soccer_analytics"
 SCHEMA = "dev_gold"
 
