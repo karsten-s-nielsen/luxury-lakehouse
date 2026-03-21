@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from page_template import Citation, Metric, PageConfig, build_page
+from page_template import Citation, ContentBlock, ContentRow, Metric, PageConfig, build_page
 
 page_config = PageConfig(
     title="Heat Map",
@@ -13,7 +13,7 @@ page_config = PageConfig(
         Citation("Anzer & Bauer (2021)", "https://doi.org/10.1007/s10994-021-06011-5"),
         Citation("mplsoccer", "https://mplsoccer.readthedocs.io/"),
     ],
-    image_var="hm_pitch_image",
+    content=[ContentRow([ContentBlock("image", "hm_pitch_image")])],
     empty_message="Select a competition to begin.",
     empty_condition="len(hm_pitch_image) == 0 and len(competition_lov) > 0",
     scope_vars=["hm_scope_label"],

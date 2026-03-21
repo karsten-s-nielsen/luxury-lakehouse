@@ -2,24 +2,24 @@
 
 from __future__ import annotations
 
-from page_template import Citation, Metric, PageConfig, SubView, build_page
+from page_template import Citation, ContentBlock, ContentRow, Metric, PageConfig, SubView, build_page
 
 page_config = PageConfig(
     title="Movement & Pressing",
     icon="directions_run",
     nav_section="Advanced",
     description="Off-Ball xT combines pitch control with Expected Threat zones. Physical metrics from tracking data.",
+    freshness_var="ma_data_freshness",
     citations=[
         Citation("Spearman (2017)", "https://www.researchgate.net/publication/315166647_Beyond_Expected_Goals"),
         Citation("Karun Singh (2018)", "https://karun.in/blog/expected-threat.html"),
     ],
-    image_var="",  # uses sub_views
     empty_message="",
     empty_condition="",
     sub_views=[
         SubView(
             condition='selected_sub_view == "Physical Performance"',
-            image_var="ma_physical_image",
+            content=[ContentRow([ContentBlock("image", "ma_physical_image")])],
             empty_message="Select a match to begin.",
             empty_condition="len(ma_physical_image) == 0 and len(tracking_match_lov) > 0",
             fallback_empty_message="No physical stats for the selected filters. This page requires tracking data (available for ~20 matches).",
@@ -45,7 +45,7 @@ page_config = PageConfig(
         ),
         SubView(
             condition='selected_sub_view == "PPDA / Pressing Intensity"',
-            image_var="ma_ppda_image",
+            content=[ContentRow([ContentBlock("image", "ma_ppda_image")])],
             empty_message="Select a competition to begin.",
             empty_condition="len(ma_ppda_image) == 0 and len(competition_lov) > 0",
             metrics=[
@@ -64,7 +64,7 @@ page_config = PageConfig(
         ),
         SubView(
             condition='selected_sub_view == "Off-Ball xT"',
-            image_var="ma_oxt_image",
+            content=[ContentRow([ContentBlock("image", "ma_oxt_image")])],
             empty_message="Select a match to begin.",
             empty_condition="len(ma_oxt_image) == 0 and len(tracking_match_lov) > 0",
             fallback_empty_message="No tracking data for the selected filters. This page requires tracking data (available for ~20 matches).",

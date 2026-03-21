@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from page_template import Citation, Metric, PageConfig, build_page
+from page_template import Citation, ContentBlock, ContentRow, Metric, PageConfig, build_page
 
 page_config = PageConfig(
     title="Shot Map",
@@ -13,7 +13,7 @@ page_config = PageConfig(
         Citation("Rathke (2017)", "https://doi.org/10.1515/jqas-2019-0044"),
         Citation("XGBoost", "https://xgboost.readthedocs.io/"),
     ],
-    image_var="sm_pitch_image",
+    content=[ContentRow([ContentBlock("image", "sm_pitch_image")])],
     empty_message="Select a competition to begin.",
     empty_condition="len(sm_pitch_image) == 0 and len(sm_empty_message) > 0",
     scope_vars=["sm_scope_label", "sm_data_scope_note", "sm_nan_fallback_note"],

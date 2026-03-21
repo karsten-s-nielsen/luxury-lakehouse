@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from cache import ttl_cache
 from db import execute_query, t
+from filters import fetch_data_freshness
 from render import PITCH_BG_COLOR, TEXT_COLOR, chart_to_file, fmt_int
 
 from state.shared import (
@@ -41,7 +42,9 @@ AV_SUB_VIEW_LOV: list[str] = ["Rankings", "Breakdown", "Timeline"]
 # ---------------------------------------------------------------------------
 
 # Rankings sub-view
-av_rankings_data: pd.DataFrame = pd.DataFrame()
+av_rankings_data: pd.DataFrame = pd.DataFrame(
+    columns=["Player", "Pos", "Min", "Total VAEP", "VAEP per 90", "Off per 90", "Def per 90", "Actions"]
+)
 av_rankings_empty_msg: str = ""
 
 # Breakdown sub-view
@@ -56,10 +59,15 @@ av_negative: str = "--"
 av_net_vaep: str = "--"
 av_most_valuable: str = "--"
 av_timeline_image: str = ""
-av_timeline_data: pd.DataFrame = pd.DataFrame()
+av_timeline_data: pd.DataFrame = pd.DataFrame(
+    columns=["Action", "Minute", "Second", "Period", "Result", "VAEP Value", "Offensive", "Defensive"]
+)
+
+av_data_freshness: str = ""
 
 __all__ = [
     "av_breakdown_image",
+    "av_data_freshness",
     "av_most_valuable",
     "av_negative",
     "av_net_vaep",
@@ -260,23 +268,26 @@ def _format_rankings_table(df: pd.DataFrame) -> pd.DataFrame:
     Returns a renamed DataFrame with human-readable column names.
     """
     if df.empty:
-        return pd.DataFrame()
+        return pd.DataFrame(
+            columns=["Player", "Pos", "Min", "Total VAEP", "VAEP per 90", "Off per 90", "Def per 90", "Actions"]
+        )
 
+    # Taipy table rendering breaks on column names with "/" characters.
     display = df.rename(
         columns={
             "player_display_name": "Player",
             "position_group": "Pos",
             "minutes_played": "Min",
             "total_vaep": "Total VAEP",
-            "vaep_per_90": "VAEP/90",
-            "offensive_vaep_per_90": "Off/90",
-            "defensive_vaep_per_90": "Def/90",
+            "vaep_per_90": "VAEP per 90",
+            "offensive_vaep_per_90": "Off per 90",
+            "defensive_vaep_per_90": "Def per 90",
             "total_actions": "Actions",
         }
     ).drop(columns=["player_id"], errors="ignore")
 
     # Round numeric columns for display
-    for col in ["Total VAEP", "VAEP/90", "Off/90", "Def/90"]:
+    for col in ["Total VAEP", "VAEP per 90", "Off per 90", "Def per 90"]:
         if col in display.columns:
             display[col] = display[col].round(3)
 
@@ -292,7 +303,9 @@ def _refresh_rankings(state: Any) -> None:
     """Refresh the Rankings sub-view."""
     comp_id = get_comp_id(state.selected_competition)
     if comp_id is None:
-        state.av_rankings_data = pd.DataFrame()
+        state.av_rankings_data = pd.DataFrame(
+            columns=["Player", "Pos", "Min", "Total VAEP", "VAEP per 90", "Off per 90", "Def per 90", "Actions"]
+        )
         state.av_rankings_empty_msg = "Select a competition to see VAEP rankings."
         return
 
@@ -302,7 +315,9 @@ def _refresh_rankings(state: Any) -> None:
         rankings = _fetch_rankings(comp_id, min_min)
     except Exception:
         logger.exception("Failed to fetch VAEP rankings")
-        state.av_rankings_data = pd.DataFrame()
+        state.av_rankings_data = pd.DataFrame(
+            columns=["Player", "Pos", "Min", "Total VAEP", "VAEP per 90", "Off per 90", "Def per 90", "Actions"]
+        )
         state.av_rankings_empty_msg = "Error loading rankings."
         return
 
@@ -364,7 +379,9 @@ def _refresh_timeline(state: Any) -> None:
         state.av_net_vaep = "--"
         state.av_most_valuable = "--"
         state.av_timeline_image = ""
-        state.av_timeline_data = pd.DataFrame()
+        state.av_timeline_data = pd.DataFrame(
+            columns=["Action", "Minute", "Second", "Period", "Result", "VAEP Value", "Offensive", "Defensive"]
+        )
         return
 
     team_id = get_team_id(state.selected_team)
@@ -378,7 +395,9 @@ def _refresh_timeline(state: Any) -> None:
         state.av_net_vaep = "Error"
         state.av_most_valuable = "Error"
         state.av_timeline_image = ""
-        state.av_timeline_data = pd.DataFrame()
+        state.av_timeline_data = pd.DataFrame(
+            columns=["Action", "Minute", "Second", "Period", "Result", "VAEP Value", "Offensive", "Defensive"]
+        )
         return
 
     if actions.empty:
@@ -387,7 +406,9 @@ def _refresh_timeline(state: Any) -> None:
         state.av_net_vaep = "0.000"
         state.av_most_valuable = "N/A"
         state.av_timeline_image = ""
-        state.av_timeline_data = pd.DataFrame()
+        state.av_timeline_data = pd.DataFrame(
+            columns=["Action", "Minute", "Second", "Period", "Result", "VAEP Value", "Offensive", "Defensive"]
+        )
         return
 
     # Metrics
@@ -458,6 +479,8 @@ def av_refresh(state: Any) -> None:
         _refresh_timeline(state)
     else:
         logger.warning("Unknown action values sub-view: %r", view)
+
+    state.av_data_freshness = fetch_data_freshness()
 
 
 # ---------------------------------------------------------------------------

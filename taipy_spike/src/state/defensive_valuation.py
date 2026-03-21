@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 from cache import ttl_cache
 from db import execute_query, t
+from filters import fetch_data_freshness
 from render import PITCH_BG_COLOR, TEXT_COLOR, chart_to_file
 
 from state.shared import register_page_refresher
@@ -38,7 +39,17 @@ dv_team_lov: list[str] = []
 dv_view_lov: list[str] = ["Rankings", "Breakdown", "Timeline"]
 
 # Rankings view state
-dv_rankings_data: pd.DataFrame = pd.DataFrame()
+_DV_RANKINGS_COLS = [
+    "Player",
+    "Total Pressure",
+    "Actions Faced",
+    "Intercepted",
+    "Shots Conceded",
+    "Disturbed",
+    "Deterred",
+    "Matches",
+]
+dv_rankings_data: pd.DataFrame = pd.DataFrame(columns=_DV_RANKINGS_COLS)
 
 # Breakdown view state
 dv_breakdown_player_lov: list[str] = []
@@ -54,10 +65,22 @@ dv_timeline_player_lov: list[str] = []
 dv_selected_timeline_player: str | None = None
 dv_timeline_match_lov: list[str] = []
 dv_selected_timeline_match: str | None = None
-dv_timeline_data: pd.DataFrame = pd.DataFrame()
+_DV_TIMELINE_COLS = [
+    "Credit Type",
+    "Confidence (0-1)",
+    "DEFCON Value",
+    "Action",
+    "Pitch X (m)",
+    "Pitch Y (m)",
+    "Dist to Ball (m)",
+]
+dv_timeline_data: pd.DataFrame = pd.DataFrame(columns=_DV_TIMELINE_COLS)
+
+dv_data_freshness: str = ""
 
 __all__ = [
     # Filter state
+    "dv_data_freshness",
     "dv_selected_comp",
     "dv_selected_team",
     "dv_current_view",
@@ -457,7 +480,7 @@ def _render_breakdown_chart(breakdown: pd.DataFrame, player_name: str) -> str:
 def _format_rankings_table(df: pd.DataFrame) -> pd.DataFrame:
     """Format rankings for Taipy <|table|>. Drops player_id, renames columns."""
     if df.empty:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=_DV_RANKINGS_COLS)
 
     rename_map = {
         "player_display_name": "Player",
@@ -482,7 +505,7 @@ def _format_rankings_table(df: pd.DataFrame) -> pd.DataFrame:
 def _format_timeline_table(df: pd.DataFrame) -> pd.DataFrame:
     """Format timeline for Taipy <|table|>. Drops internal IDs, renames columns."""
     if df.empty:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=_DV_TIMELINE_COLS)
 
     display_cols = [c for c in df.columns if c not in ("opposing_player_id", "event_id")]
     rename_map = {
@@ -544,7 +567,7 @@ def _reset_timeline(state: Any) -> None:
     state.dv_timeline_player_lov = []
     state.dv_timeline_match_lov = []
     state.dv_selected_timeline_match = None
-    state.dv_timeline_data = pd.DataFrame()
+    state.dv_timeline_data = pd.DataFrame(columns=_DV_TIMELINE_COLS)
 
 
 # ---------------------------------------------------------------------------
@@ -557,7 +580,7 @@ def _refresh_rankings(state: Any) -> None:
     global _dv_rankings_full
     comp_id = _get_dv_comp_id(state.dv_selected_comp)
     if comp_id is None:
-        state.dv_rankings_data = pd.DataFrame()
+        state.dv_rankings_data = pd.DataFrame(columns=_DV_RANKINGS_COLS)
         _dv_rankings_full = pd.DataFrame()
         return
 
@@ -567,7 +590,7 @@ def _refresh_rankings(state: Any) -> None:
         rankings = _fetch_pressure_rankings(comp_id, team_id)
     except Exception:
         logger.exception("Failed to fetch DEFCON rankings")
-        state.dv_rankings_data = pd.DataFrame()
+        state.dv_rankings_data = pd.DataFrame(columns=_DV_RANKINGS_COLS)
         _dv_rankings_full = pd.DataFrame()
         return
 
@@ -727,7 +750,7 @@ def _load_timeline_matches(state: Any) -> None:
     if comp_id is None or player_name is None:
         state.dv_timeline_match_lov = []
         state.dv_selected_timeline_match = None
-        state.dv_timeline_data = pd.DataFrame()
+        state.dv_timeline_data = pd.DataFrame(columns=_DV_TIMELINE_COLS)
         return
 
     player_id = _dv_timeline_player_map.get(player_name)
@@ -740,13 +763,13 @@ def _load_timeline_matches(state: Any) -> None:
         logger.exception("Failed to fetch DEFCON matches for player %d", player_id)
         state.dv_timeline_match_lov = []
         state.dv_selected_timeline_match = None
-        state.dv_timeline_data = pd.DataFrame()
+        state.dv_timeline_data = pd.DataFrame(columns=_DV_TIMELINE_COLS)
         return
 
     if matches.empty:
         state.dv_timeline_match_lov = []
         state.dv_selected_timeline_match = None
-        state.dv_timeline_data = pd.DataFrame()
+        state.dv_timeline_data = pd.DataFrame(columns=_DV_TIMELINE_COLS)
         return
 
     # Build match labels: "date — Home Score-Score Away" or match_id fallback
@@ -783,21 +806,21 @@ def _load_timeline_data(state: Any) -> None:
     player_name = state.dv_selected_timeline_player
 
     if not match_label or not player_name:
-        state.dv_timeline_data = pd.DataFrame()
+        state.dv_timeline_data = pd.DataFrame(columns=_DV_TIMELINE_COLS)
         return
 
     match_id = _dv_timeline_match_map.get(match_label)
     player_id = _dv_timeline_player_map.get(player_name)
 
     if match_id is None or player_id is None:
-        state.dv_timeline_data = pd.DataFrame()
+        state.dv_timeline_data = pd.DataFrame(columns=_DV_TIMELINE_COLS)
         return
 
     try:
         timeline = _fetch_match_timeline(match_id, player_id)
     except Exception:
         logger.exception("Failed to fetch DEFCON timeline for match=%s player=%d", match_id, player_id)
-        state.dv_timeline_data = pd.DataFrame()
+        state.dv_timeline_data = pd.DataFrame(columns=_DV_TIMELINE_COLS)
         return
 
     state.dv_timeline_data = _format_timeline_table(timeline)
@@ -817,7 +840,7 @@ def dv_on_comp_change(state: Any, var_name: str, var_value: Any) -> None:
     if comp_id is None:
         state.dv_team_lov = []
         state.dv_selected_team = None
-        state.dv_rankings_data = pd.DataFrame()
+        state.dv_rankings_data = pd.DataFrame(columns=_DV_RANKINGS_COLS)
         _reset_breakdown(state)
         _reset_timeline(state)
         return
@@ -919,6 +942,7 @@ def dv_refresh(state: Any) -> None:
         # Competition already selected — just refresh the active view
         _dispatch_view_refresh(state)
 
+    state.dv_data_freshness = fetch_data_freshness()
     logger.info("Defensive Impact page loaded (%d competitions)", len(state.dv_comp_lov))
 
 

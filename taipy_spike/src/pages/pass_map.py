@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from page_template import Citation, Metric, PageConfig, build_page
+from page_template import Citation, ContentBlock, ContentRow, Metric, PageConfig, build_page
 
 page_config = PageConfig(
     title="Pass Map",
@@ -17,7 +17,7 @@ page_config = PageConfig(
         Citation("Suzuki et al. (2019)", "https://doi.org/10.1515/jqas-2019-0060"),
         Citation("Parma Calcio 1913", "https://github.com/parmacalcio1913/line-breaking-passes"),
     ],
-    image_var="pm_pitch_image",
+    content=[ContentRow([ContentBlock("image", "pm_pitch_image")])],
     empty_message="Select a competition, team, and match to begin.",
     empty_condition='len(pm_pitch_image) == 0 and pm_total == "--"',
     scope_vars=["pm_scope_label"],

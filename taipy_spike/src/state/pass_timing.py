@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 from cache import ttl_cache
 from db import execute_query, t
-from filters import fetch_pausa_matches, fetch_pausa_players, fetch_pausa_teams
+from filters import fetch_data_freshness, fetch_pausa_matches, fetch_pausa_players, fetch_pausa_teams
 from render import AMBER, GRAY, PITCH_BG_COLOR, TEXT_COLOR, chart_to_file
 
 from state.shared import register_page_refresher
@@ -58,14 +58,20 @@ pt_heatmap_image: str = ""
 # ---------------------------------------------------------------------------
 # Rankings data
 # ---------------------------------------------------------------------------
-pt_rankings_data: pd.DataFrame = pd.DataFrame()
+pt_rankings_data: pd.DataFrame = pd.DataFrame(
+    columns=["Player", "Match", "Passes", "Avg PAUSA", "Avg Temporal", "Avg Spatial", "Median PAUSA", "Above Median"]
+)
 
-# DFL identifier warning flag
+# DFL identifier warning
 pt_show_dfl_caption: bool = False
+pt_dfl_caption: str = "Player names shown as DFL identifiers \u2014 IDSSE tracking data does not include player names."
+
+pt_data_freshness: str = ""
 
 __all__ = [
     "pt_avg_pausa",
     "pt_avg_spatial",
+    "pt_data_freshness",
     "pt_avg_temporal",
     "pt_heatmap_image",
     "pt_match_lov",
@@ -79,6 +85,7 @@ __all__ = [
     "pt_selected_match",
     "pt_selected_player",
     "pt_selected_team",
+    "pt_dfl_caption",
     "pt_show_dfl_caption",
     "pt_team_lov",
 ]
@@ -418,7 +425,18 @@ def _clear_data(state: Any) -> None:
     state.pt_pass_count = ""
     state.pt_scatter_image = ""
     state.pt_heatmap_image = ""
-    state.pt_rankings_data = pd.DataFrame()
+    state.pt_rankings_data = pd.DataFrame(
+        columns=[
+            "Player",
+            "Match",
+            "Passes",
+            "Avg PAUSA",
+            "Avg Temporal",
+            "Avg Spatial",
+            "Median PAUSA",
+            "Above Median",
+        ]
+    )
     state.pt_show_dfl_caption = False
 
 
@@ -457,7 +475,18 @@ def _refresh_data(state: Any) -> None:
         # Rankings
         rankings_df = _fetch_rankings()
         if rankings_df.empty:
-            state.pt_rankings_data = pd.DataFrame()
+            state.pt_rankings_data = pd.DataFrame(
+                columns=[
+                    "Player",
+                    "Match",
+                    "Passes",
+                    "Avg PAUSA",
+                    "Avg Temporal",
+                    "Avg Spatial",
+                    "Median PAUSA",
+                    "Above Median",
+                ]
+            )
             state.pt_show_dfl_caption = False
         else:
             # Rename columns for display
@@ -512,6 +541,8 @@ def pt_refresh(state: Any) -> None:
             _refresh_data(state)
     except Exception:
         logger.exception("Failed to refresh PAUSA page")
+
+    state.pt_data_freshness = fetch_data_freshness()
 
 
 # ---------------------------------------------------------------------------

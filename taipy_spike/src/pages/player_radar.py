@@ -2,45 +2,7 @@
 
 from __future__ import annotations
 
-from page_template import Citation, PageConfig, build_page
-
-_CONTENT = """\
-<|part|render={pr_comp_selected and pr_player_count == 0 and len(pr_no_data_warning) == 0}|
-Select 1\u20133 players to compare.
-|>
-
-<|part|render={len(pr_no_data_warning) > 0}|
-<|{pr_no_data_warning}|text|>
-|>
-
-<|part|render={pr_player_count > 0 and len(pr_radar_image) > 0}|
-
-<|part|render={len(pr_no_physical_note) > 0}|
-<|{pr_no_physical_note}|text|class_name=ll-reference|>
-|>
-
-<|part|render={len(pr_low_minute_warning) > 0}|
-<|{pr_low_minute_warning}|text|>
-|>
-
-<|{pr_radar_image}|image|label=Player Comparison Radar|width=100%|>
-
-<|part|render={len(pr_spoke_caption) > 0}|class_name=ll-reference|
-<|{pr_spoke_caption}|text|>
-|>
-
-|>
-
-<|part|render={len(pr_stats_table) > 0}|
-<|part|class_name=ll-subtitle|
-Full Stats
-|>
-<|{pr_stats_table}|table|page_size=25|>
-|>
-
-<|part|render={len(pr_data_freshness_text) > 0}|class_name=ll-reference|
-<|{pr_data_freshness_text}|text|>
-|>"""
+from page_template import Citation, ContentBlock, ContentRow, PageConfig, build_page
 
 page_config = PageConfig(
     title="Player Comparison",
@@ -51,9 +13,24 @@ page_config = PageConfig(
         Citation("mplsoccer", "https://mplsoccer.readthedocs.io/"),
         Citation("Decroos et al. (2019)", "https://doi.org/10.1007/s10994-021-05989-6"),
     ],
-    image_var="",
+    content=[
+        ContentRow(
+            [
+                ContentBlock(
+                    "text",
+                    "pr_select_hint",
+                    condition="pr_comp_selected and pr_player_count == 0 and len(pr_no_data_warning) == 0",
+                )
+            ]
+        ),
+        ContentRow([ContentBlock("text", "pr_no_data_warning")]),
+        ContentRow([ContentBlock("text", "pr_no_physical_note")]),
+        ContentRow([ContentBlock("text", "pr_low_minute_warning")]),
+        ContentRow([ContentBlock("image", "pr_radar_image")]),
+        ContentRow([ContentBlock("expandable_table", "pr_stats_table", header="Full Stats", table_page_size=25)]),
+    ],
     empty_message="Select a competition to begin.",
     empty_condition="not pr_comp_selected",
-    pre_image_content=_CONTENT,
+    freshness_var="pr_data_freshness_text",
 )
 page_md = build_page(page_config)

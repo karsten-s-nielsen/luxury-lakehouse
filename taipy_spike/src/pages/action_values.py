@@ -2,39 +2,31 @@
 
 from __future__ import annotations
 
-from page_template import Citation, Metric, PageConfig, SubView, build_page
-
-_TIMELINE_POST = """\
-<|part|render={len(av_timeline_data) > 0}|
-<|part|class_name=ll-subtitle|
-Action Details
-|>
-<|{av_timeline_data}|table|page_size=50|>
-|>"""
+from page_template import Citation, ContentBlock, ContentRow, Metric, PageConfig, SubView, build_page
 
 page_config = PageConfig(
     title="Player Impact",
     icon="trending_up",
     nav_section="Player Analysis",
     description="Valuing Actions by Estimating Probabilities (VAEP).",
+    freshness_var="av_data_freshness",
     citations=[
         Citation("Decroos et al. (2019)", "https://doi.org/10.1007/s10994-021-05989-6"),
         Citation("socceraction", "https://github.com/ML-KULeuven/socceraction"),
     ],
-    image_var="",
     empty_message="",
     empty_condition="",
     sub_views=[
         SubView(
             condition='selected_sub_view == "Rankings"',
-            table_var="av_rankings_data",
+            content=[ContentRow([ContentBlock("table", "av_rankings_data")])],
             scale_notes=["VAEP/90: higher = more impactful (typical range 0.01-1.0)"],
             empty_message="Select a competition to begin.",
             empty_condition="len(av_rankings_data) == 0 and selected_competition is not None",
         ),
         SubView(
             condition='selected_sub_view == "Breakdown"',
-            image_var="av_breakdown_image",
+            content=[ContentRow([ContentBlock("image", "av_breakdown_image")])],
             empty_message="Select a team to see action breakdown.",
             empty_condition="len(av_breakdown_image) == 0 and selected_competition is not None",
             metrics=[
@@ -57,10 +49,12 @@ page_config = PageConfig(
         ),
         SubView(
             condition='selected_sub_view == "Timeline"',
-            image_var="av_timeline_image",
+            content=[
+                ContentRow([ContentBlock("image", "av_timeline_image")]),
+                ContentRow([ContentBlock("expandable_table", "av_timeline_data", header="Action Details")]),
+            ],
             empty_message="Select a match to see action timeline.",
             empty_condition="len(av_timeline_image) == 0 and selected_match is not None",
-            post_content=_TIMELINE_POST,
             metrics=[
                 Metric(
                     "Positive Actions",

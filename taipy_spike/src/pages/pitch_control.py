@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from page_template import Citation, Metric, PageConfig, build_page
+from page_template import Citation, ContentBlock, ContentRow, Metric, PageConfig, build_page
 
 page_config = PageConfig(
     title="Pitch Control",
     icon="grid_on",
     nav_section="Advanced",
+    freshness_var="pc_data_freshness",
     description=(
         "Physics-based pitch control model. Voronoi baseline also available. "
         "Tracking data available for ~20 matches from Metrica, IDSSE, and SkillCorner."
@@ -15,7 +16,7 @@ page_config = PageConfig(
     citations=[
         Citation("Spearman (2017)", "https://www.researchgate.net/publication/315166647_Beyond_Expected_Goals"),
     ],
-    image_var="pc_pitch_image",
+    content=[ContentRow([ContentBlock("image", "pc_pitch_image")])],
     empty_message="Select a tracking match and half to begin.",
     empty_condition="len(pc_pitch_image) == 0 and len(tracking_match_lov) > 0",
     scope_vars=["pc_status"],

@@ -35,6 +35,8 @@ GLOSSARY: dict[str, str] = {
     "Brier Score": "Prediction calibration metric. 0.0 = perfect, 0.25 = coin flip. Lower is better.",
     "VAEP": "Valuing Actions by Estimating Probabilities \u2014 how much each on-ball action changed scoring probability.",
     "VAEP/90": "VAEP per 90 minutes played. Higher = more impactful player.",
+    "Off. VAEP/90": "Offensive VAEP per 90 minutes \u2014 how much a player's actions increase their team's scoring probability. Higher = stronger offensive contribution.",
+    "Def. VAEP/90": "Defensive VAEP per 90 minutes \u2014 how much a player's actions reduce the opponent's scoring probability. Higher = stronger defensive contribution.",
     "PPDA": "Passes Per Defensive Action. Lower = more aggressive pressing. Range: 5\u201315.",
     "Pitch Control": "Physics-based model estimating which team controls each pitch location (Spearman 2017).",
     "PAUSA": "Passing Ability Under Spatiotemporal Awareness. Temporal judgment \u00d7 spatial selection. Higher = better.",
@@ -52,6 +54,11 @@ GLOSSARY: dict[str, str] = {
     "Line-Breaking Pass": "A pass that penetrates at least one defensive line (Ward clustering on 360 freeze frames).",
     "Progressive Pass": "A pass moving the ball significantly closer to the opponent's goal.",
     "SPADL": "Soccer Player Action Description Language \u2014 23 canonical action types (105\u00d768m coordinates).",
+    "Goals/90": "Goals scored per 90 minutes played. Direct scoring output.",
+    "Passes/90": "Completed passes per 90 minutes played.",
+    "Pass %": "Pass completion rate \u2014 percentage of attempted passes successfully completed.",
+    "xG Over-performance": "Goals minus xG. Positive = scored more than expected (clinical finishing). Negative = underperformed chances.",
+    "DEFCON/90": "Defensive pressure received per 90 minutes (DEFCON framework). Higher = more defensive attention attracted.",
 }
 
 PAGE_TERMS: dict[str, list[str]] = {
@@ -60,17 +67,21 @@ PAGE_TERMS: dict[str, list[str]] = {
     "Heat-Map": [],
     "Pass-Network": [],
     "Match-Summary": ["xG (Expected Goals)", "PPDA", "Progressive Pass"],
-    "Player-Impact": ["VAEP", "VAEP/90", "SPADL"],
+    "Player-Impact": ["VAEP", "VAEP/90", "Off. VAEP/90", "Def. VAEP/90", "SPADL"],
     "Player-Comparison": [
+        "Goals/90",
         "xG (Expected Goals)",
+        "xG Over-performance",
+        "Passes/90",
+        "Pass %",
+        "Progressive Pass",
+        "Line-Breaking Pass",
         "VAEP",
         "VAEP/90",
-        "PPDA",
-        "xT (Expected Threat)",
-        "Off-Ball xT",
+        "Off. VAEP/90",
+        "Def. VAEP/90",
         "DEFCON",
-        "Line-Breaking Pass",
-        "Progressive Pass",
+        "DEFCON/90",
     ],
     "Player-Similarity": ["Cosine Distance"],
     "Movement-Pressing": ["PPDA", "xT (Expected Threat)", "Off-Ball xT", "Pitch Control"],
@@ -105,7 +116,7 @@ def _build_glossary_panels() -> str:
 _glossary_panels = _build_glossary_panels()
 
 # fmt: off
-_COMP_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary", "Player-Impact", "Player-Comparison", "Movement-Pressing")
+_COMP_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary", "Player-Impact", "Player-Comparison")
 _TEAM_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary", "Player-Impact", "Player-Comparison")
 _MATCH_PAGES = ("Pass-Map", "Pass-Network", "Match-Summary", "Player-Impact")
 _PLAYER_PAGES = ("Shot-Map", "Heat-Map", "Player-Impact")
@@ -113,7 +124,7 @@ _PLAYER_MULTI_PAGES = ("Player-Comparison",)
 _XG_MODEL_PAGES = ("Shot-Map",)
 _MIN_PASSES_PAGES = ("Pass-Network",)
 _MIN_MINUTES_PAGES = ("Player-Impact", "Player-Comparison")
-_TRACKING_PROVIDER_PAGES = ("Movement-Pressing", "Pitch-Control")
+_TRACKING_PROVIDER_PAGES = ("Pitch-Control",)
 _SUB_VIEW_PAGES = ("Player-Impact", "Movement-Pressing")
 _PASS_OVERLAY_PAGES = ("Pass-Map",)
 _SIMILARITY_PAGES = ("Player-Similarity",)
@@ -256,6 +267,34 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         lov="tracking_match_lov",
         depends_on="selected_provider",
     ),
+    # Movement-specific: view-dependent widget visibility.
+    # PPDA sub-view uses Competition; Physical/Off-Ball xT use Provider + Tracking Match.
+    # These duplicate the shared widgets with Movement-specific render conditions.
+    SidebarWidget(
+        "dropdown",
+        "selected_competition",
+        "Competition",
+        "on_competition_change",
+        condition='current_page == "Movement-Pressing" and selected_sub_view == "PPDA / Pressing Intensity"',
+        lov="competition_lov",
+    ),
+    SidebarWidget(
+        "dropdown",
+        "selected_provider",
+        "Provider",
+        "on_provider_change",
+        condition='current_page == "Movement-Pressing" and selected_sub_view is not None and selected_sub_view != "PPDA / Pressing Intensity"',
+        lov="provider_lov",
+    ),
+    SidebarWidget(
+        "dropdown",
+        "selected_tracking_match",
+        "Tracking Match",
+        "on_tracking_match_change",
+        condition='current_page == "Movement-Pressing" and selected_sub_view is not None and selected_sub_view != "PPDA / Pressing Intensity"',
+        lov="tracking_match_lov",
+        depends_on="selected_provider",
+    ),
     # Pass Timing
     SidebarWidget(
         "dropdown",
@@ -283,7 +322,15 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         lov="pt_player_lov",
         depends_on="pt_selected_match",
     ),
-    # Defensive Impact
+    # Defensive Impact — View first (analytical lens), then data-scoping
+    SidebarWidget(
+        "dropdown",
+        "dv_current_view",
+        "View",
+        "dv_on_view_change",
+        condition=f"current_page in {_DEFCON_PAGES}",
+        lov="dv_view_lov",
+    ),
     SidebarWidget(
         "dropdown",
         "dv_selected_comp",
@@ -299,15 +346,6 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         "dv_on_team_change",
         condition=f"current_page in {_DEFCON_PAGES}",
         lov="dv_team_lov",
-        depends_on="dv_selected_comp",
-    ),
-    SidebarWidget(
-        "dropdown",
-        "dv_current_view",
-        "View",
-        "dv_on_view_change",
-        condition=f"current_page in {_DEFCON_PAGES}",
-        lov="dv_view_lov",
         depends_on="dv_selected_comp",
     ),
     SidebarWidget(
@@ -381,16 +419,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         filter_box_label="<|{pc_time_label}|text|raw|>",
         slider_range_labels=("0:00", ""),
         slider_range_vars=("", "pc_max_time_display"),
-    ),
-    # Player Similarity compare
-    SidebarWidget(
-        "dropdown",
-        "ps_selected_compare",
-        "Compare with",
-        "on_ps_selected_compare_change",
-        condition='current_page == "Player-Similarity"',
-        lov="ps_compare_lov",
-        depends_lov_populated=True,
+        change_delay=300,
     ),
 ]
 
@@ -406,6 +435,15 @@ _SEARCH_WIDGETS: list[SidebarWidget] = [
         "on_ps_selected_competition_change",
         condition="ps_filter_by_competition",
         lov="ps_competition_lov",
+    ),
+    # Compare with — appears after results load (depends_lov_populated gates visibility)
+    SidebarWidget(
+        "dropdown",
+        "ps_selected_compare",
+        "Compare with",
+        "on_ps_selected_compare_change",
+        lov="ps_compare_lov",
+        depends_lov_populated=True,
     ),
 ]
 

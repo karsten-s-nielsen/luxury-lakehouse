@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from page_template import Citation, Metric, PageConfig, SubView, build_page
+from page_template import Citation, ContentBlock, ContentRow, Metric, PageConfig, SubView, build_page
 
 page_config = PageConfig(
     title="Defensive Impact",
     icon="shield",
     nav_section="Advanced",
+    freshness_var="dv_data_freshness",
     description=(
         "Tier 3 (tabular heuristic, no GNN) approximation of the DEFCON framework. "
         "Credits: Intercept, Concede, Disturb, Deter. "
@@ -16,13 +17,12 @@ page_config = PageConfig(
     citations=[
         Citation("Kim et al. (2025)", "https://github.com/hyunsungkim-ds/defcon"),
     ],
-    image_var="",
     empty_message="No competitions with defensive pressure data available.",
     empty_condition="len(dv_comp_lov) == 0",
     sub_views=[
         SubView(
             condition='dv_current_view == "Rankings"',
-            table_var="dv_rankings_data",
+            content=[ContentRow([ContentBlock("table", "dv_rankings_data")])],
             scale_notes=[
                 "Requires StatsBomb 360 freeze-frame data (323 of 380+ matches).",
                 "Total Pressure: higher = more defensive attention attracted (typical range 1-50 per competition)",
@@ -32,7 +32,7 @@ page_config = PageConfig(
         ),
         SubView(
             condition='dv_current_view == "Breakdown"',
-            image_var="dv_breakdown_image",
+            content=[ContentRow([ContentBlock("image", "dv_breakdown_image")])],
             scale_notes=[
                 "Requires StatsBomb 360 freeze-frame data (323 of 380+ matches).",
             ],
@@ -63,7 +63,7 @@ page_config = PageConfig(
         ),
         SubView(
             condition='dv_current_view == "Timeline"',
-            table_var="dv_timeline_data",
+            content=[ContentRow([ContentBlock("table", "dv_timeline_data")])],
             scale_notes=[
                 "Requires StatsBomb 360 freeze-frame data (323 of 380+ matches).",
                 "DEFCON Value: positive = effective defensive contribution. Confidence: 0-1, higher = more certain.",

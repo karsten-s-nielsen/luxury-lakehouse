@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from cache import ttl_cache
 from db import execute_query, t, validate_param_id
-from filters import fetch_embedding_players
+from filters import fetch_data_freshness, fetch_embedding_players
 from mplsoccer import Radar
 from render import PITCH_BG_COLOR, PITCH_LINE_COLOR, PLAYER_COLORS, chart_to_file
 
@@ -77,14 +77,18 @@ ps_result_count: int = 10
 ps_result_count_lov: list[str] = ["5", "10", "20"]
 
 # Results state
-ps_results_data: str = ""  # Stringified table for Taipy table display
+_PS_RESULTS_COLS = ["Player", "Cosine Distance", "Similarity", "Matches", "Sources"]
+ps_results_data: pd.DataFrame = pd.DataFrame(columns=_PS_RESULTS_COLS)
 ps_radar_image: str = ""
 ps_compare_lov: list[str] = []
 ps_selected_compare: str | None = None
 ps_threshold_caption: str = _DISTANCE_THRESHOLDS_CAPTION
 ps_status_message: str = ""
 
+ps_data_freshness: str = ""
+
 __all__ = [
+    "ps_data_freshness",
     "on_ps_filter_by_competition_change",
     "on_ps_min_matches_change",
     "on_ps_result_count_change",
@@ -329,7 +333,7 @@ def _render_comparison_radar(
 
 def _clear_results(state: Any) -> None:
     """Reset result-related state variables."""
-    state.ps_results_data = ""
+    state.ps_results_data = pd.DataFrame(columns=_PS_RESULTS_COLS)
     state.ps_radar_image = ""
     state.ps_compare_lov = []
     state.ps_selected_compare = None
@@ -543,7 +547,7 @@ def _run_similarity_search(state: Any) -> None:
         if "Cosine Distance" in display_df.columns:
             display_df["Cosine Distance"] = display_df["Cosine Distance"].apply(lambda x: f"{x:.4f}")
 
-        state.ps_results_data = display_df.to_dict("records")
+        state.ps_results_data = display_df
         state.ps_compare_lov = list(_ps_compare_map.keys())
         state.ps_selected_compare = None
         state.ps_status_message = f"Found {len(results)} similar players."
@@ -579,6 +583,8 @@ def ps_refresh(state: Any) -> None:
     # If a player is already selected, re-run the search
     if state.ps_selected_player:
         _run_similarity_search(state)
+
+    state.ps_data_freshness = fetch_data_freshness()
 
 
 # ── Registration ─────────────────────────────────────────────────────────────

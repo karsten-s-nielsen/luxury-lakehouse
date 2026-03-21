@@ -47,6 +47,9 @@ class SidebarWidget:
     depends_value: str = ""
     # depends_lov_populated: show only when this widget's own LOV has entries.
     depends_lov_populated: bool = False
+    # Slider-specific: debounce delay in ms. Callback fires only after user stops
+    # moving for this duration. Prevents expensive re-renders during drag.
+    change_delay: int = 0
 
 
 def _build_render_condition(w: SidebarWidget) -> str:
@@ -111,12 +114,13 @@ def _build_sidebar_widget(w: SidebarWidget, f: bool) -> str:
         parts.append("<|part|class_name=ll-filter-label|")
         parts.append(box_label)
         parts.append("|>")
-        step_attr = f"|step={w.slider_step}" if w.slider_step else ""
 
+        step_attr = f"|step={w.slider_step}" if w.slider_step else ""
+        delay_attr = f"|change_delay={w.change_delay}" if w.change_delay else ""
         parts.append(
             f"<|{lb}{w.var}{rb}|slider"
             f"|min={_slider_val(w.slider_min, lb, rb)}|max={_slider_val(w.slider_max, lb, rb)}"
-            f"{step_attr}|on_change={w.on_change}|>"
+            f"{step_attr}{delay_attr}|on_change={w.on_change}|>"
         )
         has_range = w.slider_range_labels[0] or w.slider_range_vars[0] or w.slider_range_vars[1]
         if has_range:
@@ -223,6 +227,37 @@ def build_nav(registry: list[PageEntry]) -> str:
 
 
 @dataclass(frozen=True)
+class ContentBlock:
+    """One piece of content in the diagram area.
+
+    Pages provide only data — kind, variable, optional header/caption.
+    The template controls all structural wrapping and styling.
+    """
+
+    kind: Literal["image", "table", "text", "expandable_table"]
+    var: str  # state variable name
+    header: str = ""  # optional subtitle above the block (ll-subtitle)
+    condition: str = ""  # Taipy render condition (empty = auto len(var) > 0)
+    table_page_size: int = 50  # table and expandable_table only
+    caption: str = ""  # static text below the block
+    caption_var: str = ""  # dynamic caption (state variable)
+    caption_condition: str = ""  # render condition for caption
+
+
+@dataclass(frozen=True)
+class ContentRow:
+    """One horizontal row of ContentBlocks in the diagram area.
+
+    Single block = full width. Multiple blocks = CSS grid columns.
+    Use explicit columns to force alignment across consecutive rows.
+    """
+
+    blocks: list[ContentBlock] = field(default_factory=list)
+    columns: int = 0  # 0 = auto (len(blocks)), explicit forces grid column count
+    condition: str = ""  # row-level render condition (gates entire row)
+
+
+@dataclass(frozen=True)
 class Metric:
     """A single metric displayed in the right column.
 
@@ -258,13 +293,10 @@ class PageConfig:
     nav_section: str  # "Match Analysis", "Player Analysis", "Advanced"
     description: str  # plain text describing the page (no markdown styling)
     citations: list[Citation] = field(default_factory=list)  # academic/tool references
-    image_var: str = ""
     empty_message: str = ""  # static text shown when no data
     empty_condition: str = ""  # Taipy render condition for empty state
     metrics: list[Metric] = field(default_factory=list)
-    # Free-form Taipy markdown — escape hatch for complex layouts.
-    # May use ll-subtitle and ll-reference CSS classes.
-    pre_image_content: str = ""
+    content: list[ContentRow] = field(default_factory=list)
     # Optional: scope/status variables shown above the image
     scope_vars: list[str] = field(default_factory=list)
     # Optional: data freshness variable shown below the image
@@ -291,16 +323,9 @@ class SubView:
     """
 
     condition: str  # Taipy render condition, e.g., 'selected_sub_view == "Rankings"'
-    # Content area (left column in 3fr/1fr, or full width if no metrics)
-    image_var: str = ""
-    table_var: str = ""
-    table_page_size: int = 50
+    content: list[ContentRow] = field(default_factory=list)
     # Scale reference notes rendered above the content grid as ll-reference blocks.
-    # Rendered BEFORE pre_content in _build_sub_view().
     scale_notes: list[str] = field(default_factory=list)
-    # Free-form Taipy markdown — escape hatch for complex layouts.
-    # May use ll-subtitle and ll-reference CSS classes.
-    pre_content: str = ""  # before 3fr/1fr layout (e.g., scale reference text)
     # Right column
     metrics: list[Metric] = field(default_factory=list)
     # Empty state (primary)
@@ -309,9 +334,6 @@ class SubView:
     # Empty state (fallback — shown when primary doesn't match, e.g., "no tracking data")
     fallback_empty_message: str = ""
     fallback_empty_condition: str = ""
-    # Free-form Taipy markdown — escape hatch for complex layouts.
-    # May use ll-subtitle and ll-reference CSS classes.
-    post_content: str = ""  # e.g., detail table, caption
     scope_vars: list[str] = field(default_factory=list)
 
 
@@ -340,6 +362,81 @@ def _build_metric(m: Metric) -> str:
     return "\n".join(lines)
 
 
+def _build_content_block(block: ContentBlock, page_title: str) -> str:
+    """Generate markdown for a single content block.
+
+    Auto-generates render condition len(var) > 0 when condition is empty.
+    """
+    parts: list[str] = []
+    cond = block.condition or f"len({block.var}) > 0"
+
+    # Outer wrapper with render condition
+    parts.append(f"<|part|render={{{cond}}}|")
+
+    # Optional header (subtitle above content — skip for expandable_table
+    # where header is the toggle label, not a separate subtitle)
+    if block.header and block.kind != "expandable_table":
+        parts.append("<|part|class_name=ll-subtitle|")
+        parts.append(block.header)
+        parts.append("|>")
+
+    # Content by kind
+    if block.kind == "image":
+        parts.append(f"<|{{{block.var}}}|image|label={page_title}|width=100%|>")
+    elif block.kind == "table":
+        parts.append(f"<|{{{block.var}}}|table|page_size={block.table_page_size}|>")
+    elif block.kind == "text":
+        parts.append(f"<|{{{block.var}}}|text|>")
+    elif block.kind == "expandable_table":
+        # header is required for expandable — used as toggle label.
+        parts.append(f"<|{block.header}|expandable|expanded=False|")
+        parts.append(f"<|{{{block.var}}}|table|page_size={block.table_page_size}|>")
+        parts.append("|>")
+
+    parts.append("|>")  # close render condition
+
+    # Optional caption (static or dynamic)
+    if block.caption:
+        parts.append("<|part|class_name=ll-reference|")
+        parts.append(block.caption)
+        parts.append("|>")
+    if block.caption_var:
+        cap_cond = block.caption_condition or f"len({block.caption_var}) > 0"
+        parts.append(f"<|part|render={{{cap_cond}}}|class_name=ll-reference|")
+        parts.append(f"<|{{{block.caption_var}}}|text|>")
+        parts.append("|>")
+
+    return "\n".join(parts)
+
+
+def _build_content_row(row: ContentRow, page_title: str) -> str:
+    """Generate markdown for a content row (one or more blocks).
+
+    Single block = full width. Multiple blocks = CSS grid.
+    """
+    parts: list[str] = []
+
+    # Row-level render condition
+    if row.condition:
+        parts.append(f"<|part|render={{{row.condition}}}|")
+
+    n_cols = row.columns or len(row.blocks)
+    if len(row.blocks) > 1:
+        parts.append(f"<|part|class_name=ll-content-row ll-content-cols-{n_cols}|")
+
+    for block in row.blocks:
+        parts.append(_build_content_block(block, page_title))
+        parts.append("")
+
+    if len(row.blocks) > 1:
+        parts.append("|>")  # close grid
+
+    if row.condition:
+        parts.append("|>")  # close row condition
+
+    return "\n".join(parts)
+
+
 def _build_sub_view(sv: SubView, page_title: str) -> str:
     """Generate markdown for a single conditional sub-view.
 
@@ -362,11 +459,6 @@ def _build_sub_view(sv: SubView, page_title: str) -> str:
         parts.append(note)
         parts.append("|>")
 
-    # Additional pre-content (free-form — may use ll-subtitle, ll-reference)
-    if sv.pre_content:
-        parts.append(sv.pre_content)
-        parts.append("")
-
     # ALWAYS use 3fr/1fr grid — right column reserved even if empty
     parts.append("<|part|class_name=ll-grid-3-1|")
     parts.append("")
@@ -374,22 +466,8 @@ def _build_sub_view(sv: SubView, page_title: str) -> str:
     # Left column: content
     parts.append("<|part|")
 
-    for scope_var in sv.scope_vars:
-        parts.append(f"<|part|render={{len({scope_var}) > 0}}|")
-        parts.append(f"<|{{{scope_var}}}|text|>")
-        parts.append("|>")
-        parts.append("")
-
-    if sv.image_var:
-        parts.append(f"<|part|render={{len({sv.image_var}) > 0}}|")
-        parts.append(f"<|{{{sv.image_var}}}|image|label={page_title}|width=100%|>")
-        parts.append("|>")
-        parts.append("")
-
-    if sv.table_var:
-        parts.append(f"<|part|render={{len({sv.table_var}) > 0}}|")
-        parts.append(f"<|{{{sv.table_var}}}|table|page_size={sv.table_page_size}|>")
-        parts.append("|>")
+    for row in sv.content:
+        parts.append(_build_content_row(row, page_title))
         parts.append("")
 
     if sv.empty_condition:
@@ -402,16 +480,11 @@ def _build_sub_view(sv: SubView, page_title: str) -> str:
         parts.append(sv.fallback_empty_message)
         parts.append("|>")
 
-    # Post content goes INSIDE the left column (stays within the grid)
-    if sv.post_content:
-        parts.append("")
-        parts.append(sv.post_content)
-
     parts.append("|>")  # close left column
     parts.append("")
 
     # Right column: metrics (or empty reserved space)
-    parts.append("<|part|")
+    parts.append("<|part|class_name=ll-metrics-column|")
     for m in sv.metrics:
         parts.append(_build_metric(m))
         parts.append("")
@@ -489,16 +562,9 @@ def build_page(cfg: PageConfig) -> str:
             parts.append("|>")
             parts.append("")
 
-        # Extra pre-image content (e.g., toggles)
-        if cfg.pre_image_content:
-            parts.append(cfg.pre_image_content)
-            parts.append("")
-
-        # Image (skip if no image_var — page uses pre_image_content for visuals)
-        if cfg.image_var:
-            parts.append(f"<|part|render={{len({cfg.image_var}) > 0}}|")
-            parts.append(f"<|{{{cfg.image_var}}}|image|label={cfg.title}|width=100%|>")
-            parts.append("|>")
+        # Content rows
+        for row in cfg.content:
+            parts.append(_build_content_row(row, cfg.title))
             parts.append("")
 
         # Empty state
@@ -518,7 +584,7 @@ def build_page(cfg: PageConfig) -> str:
         parts.append("")
 
         # Right column: metrics
-        parts.append("<|part|")
+        parts.append("<|part|class_name=ll-metrics-column|")
         for m in cfg.metrics:
             parts.append(_build_metric(m))
             parts.append("")

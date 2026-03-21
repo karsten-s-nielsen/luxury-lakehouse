@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from page_template import Citation, Metric, PageConfig, build_page
+from page_template import Citation, ContentBlock, ContentRow, Metric, PageConfig, build_page
 
 page_config = PageConfig(
     title="Pass Network",
@@ -12,7 +12,7 @@ page_config = PageConfig(
     citations=[
         Citation("Pena & Touchette (2012)", "https://doi.org/10.48550/arXiv.1206.6904"),
     ],
-    image_var="pn_pitch_image",
+    content=[ContentRow([ContentBlock("image", "pn_pitch_image")])],
     empty_message="Select a competition, team, and match to begin.",
     empty_condition="selected_competition is None",
     scope_vars=["pn_scope_label"],

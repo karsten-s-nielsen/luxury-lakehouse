@@ -2,35 +2,13 @@
 
 from __future__ import annotations
 
-from page_template import Citation, PageConfig, build_page
-
-_CONTENT = """\
-<|part|render={len(ps_status_message) > 0}|
-<|{ps_status_message}|text|>
-|>
-
-<|part|render={len(ps_results_data) > 0}|
-
-<|part|class_name=ll-subtitle|
-Similar Players
-|>
-
-<|{ps_results_data}|table|>
-
-<|part|class_name=ll-subtitle|
-Radar Comparison
-|>
-
-<|part|render={len(ps_radar_image) > 0}|
-<|{ps_radar_image}|image|label=Radar Comparison|width=100%|>
-|>
-
-|>"""
+from page_template import Citation, ContentBlock, ContentRow, PageConfig, build_page
 
 page_config = PageConfig(
     title="Player Similarity",
     icon="search",
     nav_section="Player Analysis",
+    freshness_var="ps_data_freshness",
     description=(
         "Find similar players using pgvector cosine distance on behavioral (32-d) "
         "or statistical (13-d) embedding vectors."
@@ -43,9 +21,21 @@ page_config = PageConfig(
             "https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout",
         ),
     ],
-    image_var="",
+    content=[
+        ContentRow([ContentBlock("text", "ps_status_message")]),
+        ContentRow([ContentBlock("table", "ps_results_data", header="Similar Players")]),
+        ContentRow(
+            [
+                ContentBlock(
+                    "image",
+                    "ps_radar_image",
+                    header="Radar Comparison",
+                    condition="len(ps_results_data) > 0 and len(ps_radar_image) > 0",
+                )
+            ]
+        ),
+    ],
     empty_message="Select a player to begin.",
     empty_condition="ps_selected_player is None and len(ps_results_data) == 0",
-    pre_image_content=_CONTENT,
 )
 page_md = build_page(page_config)

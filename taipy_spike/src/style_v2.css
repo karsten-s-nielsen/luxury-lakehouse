@@ -512,6 +512,12 @@ h2 .material-symbols-outlined {
     height: 14px !important;
 }
 
+/* Hide default MUI slider tooltip — raw numeric values are not user-friendly.
+   Time sliders show mm:ss via a Taipy text binding in the filter box label. */
+.ll-filter-box .MuiSlider-valueLabel {
+    display: none !important;
+}
+
 /* Slider end labels (min/max) — flush left/right, same margin as slider.
    Static labels use <span> inside .ll-slider-range.
    Dynamic labels use Taipy <|text|> with .ll-range-start / .ll-range-end. */
@@ -600,6 +606,33 @@ h2 .material-symbols-outlined {
 .ll-grid-3-1 .MuiTableContainer-root {
     height: auto !important;
     max-height: 600px !important;
+}
+
+/* ── 7e. Content row — CSS grid for multi-block horizontal layouts ───── */
+
+.ll-content-row {
+    display: grid !important;
+    gap: 1rem !important;
+    width: 100% !important;
+}
+.ll-content-cols-2 { grid-template-columns: 1fr 1fr !important; }
+
+/* Fix Taipy table zero-height bug inside CSS grid cells and expandables */
+.ll-content-row .MuiTableContainer-root,
+.MuiAccordionDetails-root .MuiTableContainer-root {
+    height: auto !important;
+    max-height: 600px !important;
+}
+
+/* ── 7f. Sticky metrics column — pins to viewport top while content scrolls.
+   Scrolls naturally when metrics exceed viewport height (small screens). ── */
+
+.ll-metrics-column {
+    position: sticky;
+    top: 4rem;
+    align-self: start;
+    max-height: calc(100vh - 5rem);
+    overflow-y: auto;
 }
 
 /* ── 8. General ───────────────────────────────────────────────────────── */

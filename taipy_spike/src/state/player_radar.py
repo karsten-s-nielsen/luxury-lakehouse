@@ -65,6 +65,7 @@ _SPOKE_LEGEND: dict[str, str] = {
 pr_radar_image: str = ""
 pr_player_count: int = 0
 pr_spoke_caption: str = ""
+pr_select_hint: str = "Select 1\u20133 players to compare."
 pr_low_minute_warning: str = ""
 pr_comp_selected: bool = False
 pr_no_data_warning: str = ""
@@ -72,7 +73,12 @@ pr_no_physical_note: str = ""
 pr_data_freshness_text: str = ""
 pr_metric_lov: list[str] = []
 pr_selected_metrics: list[str] = []
-pr_stats_table: pd.DataFrame = pd.DataFrame()
+# Column schema must be declared at init — Taipy infers table structure from
+# the initial DataFrame. Empty DataFrame() with no columns = zero-column table.
+_STATS_COLUMNS = ["Player", "Minutes"] + [
+    m[1].replace("/", " per ").replace("%", "Pct").replace(".", "") for m in _DEFAULT_METRICS
+]
+pr_stats_table: pd.DataFrame = pd.DataFrame(columns=_STATS_COLUMNS)
 
 __all__ = [
     "on_pr_metric_change",
@@ -82,6 +88,7 @@ __all__ = [
     "pr_metric_lov",
     "pr_no_data_warning",
     "pr_no_physical_note",
+    "pr_select_hint",
     "pr_player_count",
     "pr_radar_image",
     "pr_selected_metrics",
@@ -240,7 +247,7 @@ def _clear_state(state: Any) -> None:
     state.pr_no_data_warning = ""
     state.pr_no_physical_note = ""
     state.pr_data_freshness_text = ""
-    state.pr_stats_table = pd.DataFrame()
+    state.pr_stats_table = pd.DataFrame(columns=_STATS_COLUMNS)
 
 
 def pr_refresh(state: Any) -> None:
@@ -326,10 +333,13 @@ def pr_refresh(state: Any) -> None:
         if minutes < 450:
             low_minute_warnings.append(f"{name} has only {minutes} min \u2014 per-90 stats may be unreliable")
 
-        # Build stats table row with all available metrics
+        # Build stats table row with all available metrics.
+        # Taipy table rendering breaks on column names with / or % characters.
+        # Sanitize: "/" → " per ", "%" → "Pct", "." → "" for safe column names.
         stats_row: dict[str, Any] = {"Player": name, "Minutes": minutes}
         for mk, ml, _ in available_metrics:
-            stats_row[ml] = round(float(row.get(mk, 0) or 0), 3)
+            safe_col = ml.replace("/", " per ").replace("%", "Pct").replace(".", "")
+            stats_row[safe_col] = round(float(row.get(mk, 0) or 0), 3)
         stats_rows.append(stats_row)
 
     state.pr_stats_table = pd.DataFrame(stats_rows)

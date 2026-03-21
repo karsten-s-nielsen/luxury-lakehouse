@@ -349,10 +349,10 @@ def fetch_embedding_players(
     emb_tbl = t(table)
     dim_tbl = t("dim_players_synced")
 
-    conditions = [f"e.{count_col} >= %s"]
+    conditions = [f"{count_col} >= %s"]
     params: list[Any] = [min_matches]
     if competition_id is not None:
-        conditions.append("e.competition_id = %s")
+        conditions.append("competition_id = %s")
         params.append(int(competition_id))
     where = " AND ".join(conditions)
 

@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 from cache import ttl_cache
 from db import execute_query, t
+from filters import fetch_data_freshness
 from render import GRAY, PITCH_BG_COLOR, TEXT_COLOR, chart_to_file
 
 from state.shared import (
@@ -55,7 +56,10 @@ ma_oxt_avg: str = "--"
 ma_oxt_max: str = "--"
 ma_oxt_image: str = ""
 
+ma_data_freshness: str = ""
+
 __all__ = [
+    "ma_data_freshness",
     "ma_oxt_avg",
     "ma_oxt_image",
     "ma_oxt_max",
@@ -321,6 +325,8 @@ def ma_refresh(state: Any) -> None:
     else:
         logger.warning("Unknown Movement sub-view: %r", view)
         _refresh_physical(state)
+
+    state.ma_data_freshness = fetch_data_freshness()
 
 
 # ── Registration ─────────────────────────────────────────────────────────────

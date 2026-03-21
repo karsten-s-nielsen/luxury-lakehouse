@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 from cache import ttl_cache
 from db import execute_query, t
+from filters import fetch_data_freshness
 from mplsoccer import Pitch
 from render import PITCH_BG_COLOR, PITCH_LINE_COLOR, pitch_to_file
 from scipy.spatial import Voronoi  # type: ignore[import-untyped]
@@ -65,9 +66,12 @@ pc_pitch_image: str = ""
 # Status message (model info for Voronoi)
 pc_status: str = ""
 
+pc_data_freshness: str = ""
+
 __all__ = [
     "pc_avg_dist_to_ball",
     "pc_avg_speed",
+    "pc_data_freshness",
     "pc_away_control",
     "pc_control_at_ball",
     "pc_elapsed_seconds",
@@ -370,7 +374,6 @@ def _clear_state(state: Any) -> None:
     state.pc_time_display = "00:00"
     state.pc_time_label = "Time"
     state.pc_max_time_display = "0:00"
-    state.pc_time_display = "00:00"
 
 
 def _refresh_frame(state: Any) -> None:
@@ -521,6 +524,8 @@ def pc_refresh(state: Any) -> None:
     # Render first frame
     _refresh_frame(state)
 
+    state.pc_data_freshness = fetch_data_freshness()
+
 
 # ── Page-level control callbacks ─────────────────────────────────────────────
 
@@ -531,7 +536,13 @@ def pc_on_half_change(state: Any, var_name: str, var_value: Any) -> None:
 
 
 def pc_on_seconds_change(state: Any, var_name: str, var_value: Any) -> None:
-    """Time slider moved — re-render with new frame."""
+    """Time slider moved — re-render with new frame.
+
+    Explicitly set pc_elapsed_seconds so Taipy marks it as callback-changed
+    and includes it in the state push. Without this, the slider snaps back
+    to the old position during the expensive render, then recovers.
+    """
+    state.pc_elapsed_seconds = int(var_value)
     _refresh_frame(state)
 
 
