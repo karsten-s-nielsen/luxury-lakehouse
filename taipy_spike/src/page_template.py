@@ -7,7 +7,7 @@ All structural patterns, CSS classes, and wrapping live here — never in page f
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 # ---------------------------------------------------------------------------
@@ -40,6 +40,42 @@ class SidebarWidget:
     slider_range_vars: tuple[str, str] = ("", "")  # dynamic: (min_var, max_var) — Taipy bindings
     # Toggle filter-box label override (if empty, uses self.label)
     filter_box_label: str = ""
+    # Dependency fields — template generates render conditions from these.
+    # depends_on: parent state variable name. Widget hidden until parent is not None.
+    depends_on: str = ""
+    # depends_value: show only when parent equals this specific value (requires depends_on).
+    depends_value: str = ""
+    # depends_lov_populated: show only when this widget's own LOV has entries.
+    depends_lov_populated: bool = False
+
+
+def _build_render_condition(w: SidebarWidget) -> str:
+    """Build compound render condition from page visibility + dependency fields.
+
+    Combines condition (page visibility), depends_on (parent check),
+    depends_value (parent value match), and depends_lov_populated (LOV gate)
+    into a single Taipy expression string joined with 'and'.
+    """
+    parts: list[str] = []
+    if w.condition:
+        parts.append(w.condition)
+    if w.depends_on:
+        if w.depends_value:
+            parts.append(f'{w.depends_on} == "{w.depends_value}"')
+        else:
+            parts.append(f"{w.depends_on} is not None")
+    if w.depends_lov_populated and w.lov:
+        parts.append(f"len({w.lov}) > 0")
+    return " and ".join(parts) if parts else ""
+
+
+def _slider_val(v: str, lb: str, rb: str) -> str:
+    """Format a slider min/max value — numeric literals stay bare, variable names get braces."""
+    try:
+        float(v)
+        return v
+    except ValueError:
+        return f"{lb}{v}{rb}"
 
 
 def _build_sidebar_widget(w: SidebarWidget, f: bool) -> str:
@@ -56,9 +92,10 @@ def _build_sidebar_widget(w: SidebarWidget, f: bool) -> str:
 
     parts: list[str] = []
 
-    # Outer wrapper — every widget gets the same structural treatment
-    if w.condition:
-        parts.append(f"<|part|render={lb}{w.condition}{rb}|")
+    # Outer wrapper — render condition combines page visibility + dependencies
+    render_cond = _build_render_condition(w)
+    if render_cond:
+        parts.append(f"<|part|render={lb}{render_cond}{rb}|")
     else:
         parts.append("<|part|")
 
@@ -76,17 +113,9 @@ def _build_sidebar_widget(w: SidebarWidget, f: bool) -> str:
         parts.append("|>")
         step_attr = f"|step={w.slider_step}" if w.slider_step else ""
 
-        # Numeric literals stay bare; variable names get braces for binding
-        def _slider_val(v: str) -> str:
-            try:
-                float(v)
-                return v  # literal number
-            except ValueError:
-                return f"{lb}{v}{rb}"  # variable binding
-
         parts.append(
             f"<|{lb}{w.var}{rb}|slider"
-            f"|min={_slider_val(w.slider_min)}|max={_slider_val(w.slider_max)}"
+            f"|min={_slider_val(w.slider_min, lb, rb)}|max={_slider_val(w.slider_max, lb, rb)}"
             f"{step_attr}|on_change={w.on_change}|>"
         )
         has_range = w.slider_range_labels[0] or w.slider_range_vars[0] or w.slider_range_vars[1]
@@ -162,25 +191,34 @@ def build_sidebar_section(
     for w in widgets:
         effective_w = w
         if not w.condition and condition:
-            # Inherit section condition so widget hides with the section
-            effective_w = SidebarWidget(
-                kind=w.kind,
-                var=w.var,
-                label=w.label,
-                on_change=w.on_change,
-                condition=condition,
-                lov=w.lov,
-                slider_min=w.slider_min,
-                slider_max=w.slider_max,
-                slider_step=w.slider_step,
-                slider_range_labels=w.slider_range_labels,
-                slider_range_vars=w.slider_range_vars,
-                filter_box_label=w.filter_box_label,
-            )
+            # Inherit section condition so widget hides with the section.
+            # replace() preserves depends_on/depends_value/depends_lov_populated.
+            effective_w = replace(w, condition=condition)
         parts.append(_build_sidebar_widget(effective_w, f_string))
         parts.append("")
 
     parts.append("|>")  # close section container
+    return "\n".join(parts)
+
+
+def build_nav(registry: list[PageEntry]) -> str:
+    """Generate sidebar nav markdown from page registry.
+
+    Groups pages by nav_section, preserving registration order.
+    Section header order = first page encountered for each section.
+    """
+    sections: dict[str, list[PageEntry]] = {}
+    for entry in registry:
+        sections.setdefault(entry.config.nav_section, []).append(entry)
+
+    parts: list[str] = []
+    for section_name, entries in sections.items():
+        parts.append(f"<|part|class_name=ll-nav-header|\n**{section_name}**\n|>\n")
+        for entry in entries:
+            parts.append(
+                f'[<span class="material-symbols-outlined">{entry.config.icon}</span>'
+                f" {entry.config.title}](/{entry.route})\n"
+            )
     return "\n".join(parts)
 
 
@@ -217,13 +255,15 @@ class PageConfig:
 
     title: str
     icon: str
+    nav_section: str  # "Match Analysis", "Player Analysis", "Advanced"
     description: str  # plain text describing the page (no markdown styling)
     citations: list[Citation] = field(default_factory=list)  # academic/tool references
     image_var: str = ""
     empty_message: str = ""  # static text shown when no data
     empty_condition: str = ""  # Taipy render condition for empty state
     metrics: list[Metric] = field(default_factory=list)
-    # Optional: additional content lines between scope and image
+    # Free-form Taipy markdown — escape hatch for complex layouts.
+    # May use ll-subtitle and ll-reference CSS classes.
     pre_image_content: str = ""
     # Optional: scope/status variables shown above the image
     scope_vars: list[str] = field(default_factory=list)
@@ -231,6 +271,15 @@ class PageConfig:
     freshness_var: str = ""
     # Optional: multi-view sub-views (when set, replaces single-view layout)
     sub_views: list[SubView] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class PageEntry:
+    """One page in the navigation registry. Order in the registry list = display order."""
+
+    route: str
+    config: PageConfig
+    markdown: str
 
 
 @dataclass(frozen=True)
@@ -246,6 +295,11 @@ class SubView:
     image_var: str = ""
     table_var: str = ""
     table_page_size: int = 50
+    # Scale reference notes rendered above the content grid as ll-reference blocks.
+    # Rendered BEFORE pre_content in _build_sub_view().
+    scale_notes: list[str] = field(default_factory=list)
+    # Free-form Taipy markdown — escape hatch for complex layouts.
+    # May use ll-subtitle and ll-reference CSS classes.
     pre_content: str = ""  # before 3fr/1fr layout (e.g., scale reference text)
     # Right column
     metrics: list[Metric] = field(default_factory=list)
@@ -255,7 +309,8 @@ class SubView:
     # Empty state (fallback — shown when primary doesn't match, e.g., "no tracking data")
     fallback_empty_message: str = ""
     fallback_empty_condition: str = ""
-    # Below the 3fr/1fr layout
+    # Free-form Taipy markdown — escape hatch for complex layouts.
+    # May use ll-subtitle and ll-reference CSS classes.
     post_content: str = ""  # e.g., detail table, caption
     scope_vars: list[str] = field(default_factory=list)
 
@@ -301,6 +356,13 @@ def _build_sub_view(sv: SubView, page_title: str) -> str:
     parts.append(f"<|part|render={{{sv.condition}}}|")
     parts.append("")
 
+    # Scale reference notes (template-controlled styling)
+    for note in sv.scale_notes:
+        parts.append("<|part|class_name=ll-reference|")
+        parts.append(note)
+        parts.append("|>")
+
+    # Additional pre-content (free-form — may use ll-subtitle, ll-reference)
     if sv.pre_content:
         parts.append(sv.pre_content)
         parts.append("")

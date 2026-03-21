@@ -4,19 +4,32 @@ from __future__ import annotations
 
 import logging
 
+from page_template import PageEntry, build_nav
+from pages.action_values import page_config as action_values_config
 from pages.action_values import page_md as action_values_page
+from pages.defensive_valuation import page_config as defensive_impact_config
 from pages.defensive_valuation import page_md as defensive_impact_page
+from pages.heat_map import page_config as heat_map_config
 from pages.heat_map import page_md as heat_map_page
+from pages.match_summary import page_config as match_summary_config
 from pages.match_summary import page_md as match_summary_page
+from pages.movement_analysis import page_config as movement_config
 from pages.movement_analysis import page_md as movement_page
+from pages.pass_map import page_config as pass_map_config
 from pages.pass_map import page_md as pass_map_page
+from pages.pass_network import page_config as pass_network_config
 from pages.pass_network import page_md as pass_network_page
+from pages.pass_timing import page_config as pass_timing_config
 from pages.pass_timing import page_md as pass_timing_page
+from pages.pitch_control import page_config as pitch_control_config
 from pages.pitch_control import page_md as pitch_control_page
+from pages.player_radar import page_config as player_radar_config
 from pages.player_radar import page_md as player_radar_page
+from pages.player_similarity import page_config as player_similarity_config
 from pages.player_similarity import page_md as player_similarity_page
 
 # --- Page layouts ---
+from pages.shot_map import page_config as shot_map_config
 from pages.shot_map import page_md as shot_map_page
 from pages.widget_spacing_test import *  # noqa: F403
 from pages.widget_spacing_test import page_md as spacing_test_page
@@ -36,29 +49,39 @@ from state.player_similarity import *  # noqa: F403
 from state.shared import *  # noqa: F403
 from state.shot_map import *  # noqa: F403
 from taipy.gui import Gui
-from template import root_page
+from template import build_root_page
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
-# --- Page registry ---
-# Keys = page names shown in navbar. Must match Streamlit CHI-audited titles.
-# The on_navigate callback receives these keys as page_name.
-pages = {
-    "/": root_page,
-    "Shot-Map": shot_map_page,
-    "Pass-Map": pass_map_page,
-    "Heat-Map": heat_map_page,
-    "Pass-Network": pass_network_page,
-    "Match-Summary": match_summary_page,
-    "Player-Impact": action_values_page,
-    "Player-Comparison": player_radar_page,
-    "Player-Similarity": player_similarity_page,
-    "Movement-Pressing": movement_page,
-    "Pitch-Control": pitch_control_page,
-    "Pass-Timing": pass_timing_page,
-    "Defensive-Impact": defensive_impact_page,
-    "Widget-Spacing-Test": spacing_test_page,
-}
+# --- Page registry (ordered) ---
+# List order = nav display order. Section headers appear in order of first occurrence.
+# The on_navigate callback receives route keys as page_name.
+PAGE_REGISTRY: list[PageEntry] = [
+    # Match Analysis
+    PageEntry("Shot-Map", shot_map_config, shot_map_page),
+    PageEntry("Pass-Map", pass_map_config, pass_map_page),
+    PageEntry("Heat-Map", heat_map_config, heat_map_page),
+    PageEntry("Pass-Network", pass_network_config, pass_network_page),
+    PageEntry("Match-Summary", match_summary_config, match_summary_page),
+    # Player Analysis
+    PageEntry("Player-Impact", action_values_config, action_values_page),
+    PageEntry("Player-Comparison", player_radar_config, player_radar_page),
+    PageEntry("Player-Similarity", player_similarity_config, player_similarity_page),
+    # Advanced
+    PageEntry("Movement-Pressing", movement_config, movement_page),
+    PageEntry("Pitch-Control", pitch_control_config, pitch_control_page),
+    PageEntry("Pass-Timing", pass_timing_config, pass_timing_page),
+    PageEntry("Defensive-Impact", defensive_impact_config, defensive_impact_page),
+]
+
+# Generate nav and root page
+_nav_md = build_nav(PAGE_REGISTRY)
+root_page = build_root_page(_nav_md)
+
+# Build Taipy pages dict
+pages: dict[str, str] = {"/": root_page}
+pages.update({entry.route: entry.markdown for entry in PAGE_REGISTRY})
+pages["Widget-Spacing-Test"] = spacing_test_page  # dev-only, not in nav
 
 if __name__ == "__main__":
     gui = Gui(pages=pages, css_file="style_v2.css")

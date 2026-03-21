@@ -43,15 +43,15 @@
 /* ── 1. Sidebar: padding, border, nav links ───────────────────────────── */
 
 .sidebar {
-    padding: 1.5rem 1rem !important;
+    padding: 0.75rem 1rem 1.5rem !important;
     border-top: 3px solid var(--color-primary) !important;
     border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
 }
 
 /* Nav group headers (Match Analysis, Player Analysis, Advanced) */
 .ll-nav-header {
-    margin-top: 1.5rem !important;
-    margin-bottom: 0.5rem !important;
+    margin-top: 0.75rem !important;
+    margin-bottom: 0.25rem !important;
 }
 
 .ll-nav-header:first-child {
@@ -71,7 +71,7 @@
     text-decoration: none !important;
     color: rgba(255, 255, 255, 0.7) !important;
     font-size: 0.875rem !important;
-    padding: 0.25rem 0 !important;
+    padding: 0.125rem 0 !important;
     transition: all 0.2s ease !important;
 }
 
@@ -86,7 +86,7 @@
 /* Tighten paragraph spacing for nav items */
 .sidebar p {
     margin: 0 !important;
-    line-height: 1.7;
+    line-height: 1.4;
 }
 
 /* Sidebar h3 (Filters, Tracking Filters) */

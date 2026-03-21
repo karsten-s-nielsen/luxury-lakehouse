@@ -42,18 +42,18 @@ Full Stats
 <|{pr_data_freshness_text}|text|>
 |>"""
 
-page_md = build_page(
-    PageConfig(
-        title="Player Comparison",
-        icon="radar",
-        description="Multi-metric player comparison using radar chart. Metrics from VAEP and tracking data.",
-        citations=[
-            Citation("mplsoccer", "https://mplsoccer.readthedocs.io/"),
-            Citation("Decroos et al. (2019)", "https://doi.org/10.1007/s10994-021-05989-6"),
-        ],
-        image_var="",
-        empty_message="Select a competition to begin.",
-        empty_condition="not pr_comp_selected",
-        pre_image_content=_CONTENT,
-    )
+page_config = PageConfig(
+    title="Player Comparison",
+    icon="radar",
+    nav_section="Player Analysis",
+    description="Multi-metric player comparison using radar chart. Metrics from VAEP and tracking data.",
+    citations=[
+        Citation("mplsoccer", "https://mplsoccer.readthedocs.io/"),
+        Citation("Decroos et al. (2019)", "https://doi.org/10.1007/s10994-021-05989-6"),
+    ],
+    image_var="",
+    empty_message="Select a competition to begin.",
+    empty_condition="not pr_comp_selected",
+    pre_image_content=_CONTENT,
 )
+page_md = build_page(page_config)

@@ -31,36 +31,36 @@ _CHARTS_CONTENT = """\
 *PPDA: Passes Per Defensive Action. <10 = aggressive pressing, >15 = passive.*
 |>"""
 
-page_md = build_page(
-    PageConfig(
-        title="Match Summary",
-        icon="scoreboard",
-        description="Match scorecard with Expected Goals (xG) and pressing intensity via PPDA.",
-        citations=[
-            Citation("Rathke (2017)", "https://doi.org/10.1515/jqas-2019-0044"),
-            Citation("Trainor & Chassy (2021)", "https://doi.org/10.3389/fpsyg.2020.531688"),
-        ],
-        image_var="",  # uses pre_image_content for 2x2 chart grid
-        empty_message="Select a competition and match to begin.",
-        empty_condition="len(ms_home_name) == 0",
-        scope_vars=["ms_scope_label"],
-        freshness_var="ms_data_freshness",
-        pre_image_content=_CHARTS_CONTENT,
-        metrics=[
-            Metric("Home Score", "ms_home_score"),
-            Metric("Away Score", "ms_away_score"),
-            Metric(
-                "Home xG",
-                "ms_home_xg",
-                "Expected goals for the home team based on shot quality.",
-                delta_var="ms_home_xg_delta",
-            ),
-            Metric(
-                "Away xG",
-                "ms_away_xg",
-                "Expected goals for the away team based on shot quality.",
-                delta_var="ms_away_xg_delta",
-            ),
-        ],
-    )
+page_config = PageConfig(
+    title="Match Summary",
+    icon="scoreboard",
+    nav_section="Match Analysis",
+    description="Match scorecard with Expected Goals (xG) and pressing intensity via PPDA.",
+    citations=[
+        Citation("Rathke (2017)", "https://doi.org/10.1515/jqas-2019-0044"),
+        Citation("Trainor & Chassy (2021)", "https://doi.org/10.3389/fpsyg.2020.531688"),
+    ],
+    image_var="",  # uses pre_image_content for 2x2 chart grid
+    empty_message="Select a competition and match to begin.",
+    empty_condition="len(ms_home_name) == 0",
+    scope_vars=["ms_scope_label"],
+    freshness_var="ms_data_freshness",
+    pre_image_content=_CHARTS_CONTENT,
+    metrics=[
+        Metric("Home Score", "ms_home_score"),
+        Metric("Away Score", "ms_away_score"),
+        Metric(
+            "Home xG",
+            "ms_home_xg",
+            "Expected goals for the home team based on shot quality.",
+            delta_var="ms_home_xg_delta",
+        ),
+        Metric(
+            "Away xG",
+            "ms_away_xg",
+            "Expected goals for the away team based on shot quality.",
+            delta_var="ms_away_xg_delta",
+        ),
+    ],
 )
+page_md = build_page(page_config)

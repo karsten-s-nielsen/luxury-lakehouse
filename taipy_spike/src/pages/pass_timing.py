@@ -29,40 +29,40 @@ Player Rankings
 Human-readable names require a DFL roster lookup (not yet available).*
 |>"""
 
-page_md = build_page(
-    PageConfig(
-        title="Pass Timing",
-        icon="timer",
-        description=(
-            "PAUSA: Passing Ability Under Spatiotemporal Awareness. "
-            "Composite of temporal judgment (when) x spatial selection (where)."
+page_config = PageConfig(
+    title="Pass Timing",
+    icon="timer",
+    nav_section="Advanced",
+    description=(
+        "PAUSA: Passing Ability Under Spatiotemporal Awareness. "
+        "Composite of temporal judgment (when) x spatial selection (where)."
+    ),
+    citations=[
+        Citation("Lee, Jo, Hong, Bauer & Ko (2026)", "https://github.com/leemingo/mitssac-pausa"),
+        Citation("Spearman (2018)", "https://www.researchgate.net/publication/315166647_Beyond_Expected_Goals"),
+        Citation("Kim et al. (2025) ELASTIC", "https://arxiv.org/abs/2508.09238"),
+    ],
+    image_var="",  # uses pre_image_content for paired charts
+    empty_message="Select a match to begin. PAUSA data available for 7 IDSSE Bundesliga matches.",
+    empty_condition="len(pt_avg_pausa) == 0 and len(pt_match_lov) > 0",
+    pre_image_content=_CHARTS_CONTENT,
+    metrics=[
+        Metric(
+            "Avg PAUSA",
+            "pt_avg_pausa",
+            "Passing Ability Under Spatiotemporal Awareness. Composite of temporal judgment and spatial selection. Higher = better pass timing and target choice. (Lee et al., MIT Sloan 2026)",
         ),
-        citations=[
-            Citation("Lee, Jo, Hong, Bauer & Ko (2026)", "https://github.com/leemingo/mitssac-pausa"),
-            Citation("Spearman (2018)", "https://www.researchgate.net/publication/315166647_Beyond_Expected_Goals"),
-            Citation("Kim et al. (2025) ELASTIC", "https://arxiv.org/abs/2508.09238"),
-        ],
-        image_var="",  # uses pre_image_content for paired charts
-        empty_message="Select a match to begin. PAUSA data available for 7 IDSSE Bundesliga matches.",
-        empty_condition="len(pt_avg_pausa) == 0 and len(pt_match_lov) > 0",
-        pre_image_content=_CHARTS_CONTENT,
-        metrics=[
-            Metric(
-                "Avg PAUSA",
-                "pt_avg_pausa",
-                "Passing Ability Under Spatiotemporal Awareness. Composite of temporal judgment and spatial selection. Higher = better pass timing and target choice. (Lee et al., MIT Sloan 2026)",
-            ),
-            Metric(
-                "Avg Temporal Judgment",
-                "pt_avg_temporal",
-                "Was the pass released at the optimal moment? Ratio of actual OBSO at release to peak OBSO in the window. 1.0 = perfect timing.",
-            ),
-            Metric(
-                "Avg Spatial Selection",
-                "pt_avg_spatial",
-                "Was the target location the best available? Ratio of actual OBSO at target to maximum OBSO across all receivers. 1.0 = optimal target.",
-            ),
-            Metric("Pass Count", "pt_pass_count", "Number of passes evaluated for PAUSA scoring."),
-        ],
-    )
+        Metric(
+            "Avg Temporal Judgment",
+            "pt_avg_temporal",
+            "Was the pass released at the optimal moment? Ratio of actual OBSO at release to peak OBSO in the window. 1.0 = perfect timing.",
+        ),
+        Metric(
+            "Avg Spatial Selection",
+            "pt_avg_spatial",
+            "Was the target location the best available? Ratio of actual OBSO at target to maximum OBSO across all receivers. 1.0 = optimal target.",
+        ),
+        Metric("Pass Count", "pt_pass_count", "Number of passes evaluated for PAUSA scoring."),
+    ],
 )
+page_md = build_page(page_config)

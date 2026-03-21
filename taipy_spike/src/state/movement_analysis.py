@@ -55,11 +55,7 @@ ma_oxt_avg: str = "--"
 ma_oxt_max: str = "--"
 ma_oxt_image: str = ""
 
-# Active sub-view tracking (for conditional rendering in page layout)
-ma_active_view: str = "Physical Performance"
-
 __all__ = [
-    "ma_active_view",
     "ma_oxt_avg",
     "ma_oxt_image",
     "ma_oxt_max",
@@ -315,7 +311,6 @@ def ma_refresh(state: Any) -> None:
         state.selected_sub_view = MA_SUB_VIEWS[0]
 
     view = state.selected_sub_view
-    state.ma_active_view = view
 
     if view == "Physical Performance":
         _refresh_physical(state)

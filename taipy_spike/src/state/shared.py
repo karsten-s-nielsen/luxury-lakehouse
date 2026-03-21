@@ -63,9 +63,6 @@ show_glossary: bool = False
 # Loading state — bound to a spinner overlay in the template
 is_loading: bool = False
 
-# Dynamic glossary content (filtered per page)
-glossary_content: str = ""
-
 __all__ = [
     # State variables
     "current_page",
@@ -91,7 +88,6 @@ __all__ = [
     "min_minutes",
     "show_getting_started",
     "show_glossary",
-    "glossary_content",
     "is_loading",
     "toggle_getting_started",
     "toggle_glossary",
@@ -108,19 +104,6 @@ __all__ = [
     "on_min_passes_change",
     "on_min_minutes_change",
     "on_sub_view_change",
-    # Navigation callbacks (sidebar nav buttons)
-    "nav_shot_map",
-    "nav_pass_map",
-    "nav_heat_map",
-    "nav_pass_network",
-    "nav_match_summary",
-    "nav_player_impact",
-    "nav_player_comparison",
-    "nav_player_similarity",
-    "nav_movement",
-    "nav_pitch_control",
-    "nav_pass_timing",
-    "nav_defensive_impact",
 ]
 
 # ---------------------------------------------------------------------------
@@ -216,10 +199,7 @@ def on_init(state: Any) -> None:
 
 def on_navigate(state: Any, page_name: str, *_args: Any) -> None:
     """Track current page for conditional sidebar rendering + refresh page data."""
-    from template import get_glossary_md
-
     state.current_page = page_name
-    state.glossary_content = get_glossary_md(page_name)
     logger.info("Navigated to %s", page_name)
     # Refresh the target page's data if a competition is already selected
     _refresh_current_page(state)
@@ -355,60 +335,3 @@ def toggle_glossary(state: Any) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Navigation callbacks — sidebar grouped nav buttons
-# ---------------------------------------------------------------------------
-
-
-def _nav(state: Any, page: str) -> None:
-    """Navigate to a page via Taipy's navigate function."""
-    from taipy.gui import navigate
-
-    navigate(state, page)
-
-
-def nav_shot_map(state: Any) -> None:
-    _nav(state, "Shot-Map")
-
-
-def nav_pass_map(state: Any) -> None:
-    _nav(state, "Pass-Map")
-
-
-def nav_heat_map(state: Any) -> None:
-    _nav(state, "Heat-Map")
-
-
-def nav_pass_network(state: Any) -> None:
-    _nav(state, "Pass-Network")
-
-
-def nav_match_summary(state: Any) -> None:
-    _nav(state, "Match-Summary")
-
-
-def nav_player_impact(state: Any) -> None:
-    _nav(state, "Player-Impact")
-
-
-def nav_player_comparison(state: Any) -> None:
-    _nav(state, "Player-Comparison")
-
-
-def nav_player_similarity(state: Any) -> None:
-    _nav(state, "Player-Similarity")
-
-
-def nav_movement(state: Any) -> None:
-    _nav(state, "Movement-Pressing")
-
-
-def nav_pitch_control(state: Any) -> None:
-    _nav(state, "Pitch-Control")
-
-
-def nav_pass_timing(state: Any) -> None:
-    _nav(state, "Pass-Timing")
-
-
-def nav_defensive_impact(state: Any) -> None:
-    _nav(state, "Defensive-Impact")
