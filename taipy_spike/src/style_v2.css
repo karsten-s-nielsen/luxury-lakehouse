@@ -1,0 +1,702 @@
+/* =========================================================================
+   Google Material Symbols Outlined — direct @font-face.
+   URL from fonts.googleapis.com response for opsz=20,wght=300.
+   ========================================================================= */
+
+@font-face {
+    font-family: 'Material Symbols Outlined';
+    font-style: normal;
+    font-weight: 300;
+    font-display: swap;
+    src: url(https://fonts.gstatic.com/s/materialsymbolsoutlined/v321/kJF1BvYX7BgnkSrUwT8OhrdQw4oELdPIeeII9v6oDMzByHX9rA6RzaxHMPdY43zj-jCxv3fzvRNU22ZXGJpEpjC_1p-p_4MrImHCIJIZrDDxHOem.ttf) format('truetype');
+}
+
+.material-symbols-outlined {
+    font-family: 'Material Symbols Outlined';
+    font-weight: normal;
+    font-style: normal;
+    font-size: 1.125rem;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    display: inline-block;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+    vertical-align: text-bottom;
+    margin-right: 0.35rem;
+    opacity: 0.7;
+}
+
+/* =========================================================================
+   Luxury Lakehouse — Custom CSS (on top of Taipy Stylekit)
+
+   Strategy: Taipy Stylekit handles the base theme via gui.run(stylekit={...}).
+   This file only adds what the Stylekit doesn't provide.
+
+   Taipy built-in classes used in templates:
+   - sidebar          → sticky sidebar with --color-paper bg
+   - text-no-transform → removes MUI button uppercase
+   - align-columns-center → vertical center alignment in layout
+   ========================================================================= */
+
+/* ── 1. Sidebar: padding, border, nav links ───────────────────────────── */
+
+.sidebar {
+    padding: 1.5rem 1rem !important;
+    border-top: 3px solid var(--color-primary) !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Nav group headers (Match Analysis, Player Analysis, Advanced) */
+.ll-nav-header {
+    margin-top: 1.5rem !important;
+    margin-bottom: 0.5rem !important;
+}
+
+.ll-nav-header:first-child {
+    margin-top: 0 !important;
+}
+
+.ll-nav-header strong {
+    font-size: 0.75rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.05rem;
+    color: rgba(255, 255, 255, 0.6) !important;
+}
+
+/* Nav links */
+.sidebar a {
+    display: block !important;
+    text-decoration: none !important;
+    color: rgba(255, 255, 255, 0.7) !important;
+    font-size: 0.875rem !important;
+    padding: 0.25rem 0 !important;
+    transition: all 0.2s ease !important;
+}
+
+.sidebar a:hover {
+    color: #f59e0b !important;
+}
+
+.sidebar a:hover .material-symbols-outlined {
+    opacity: 1;
+}
+
+/* Tighten paragraph spacing for nav items */
+.sidebar p {
+    margin: 0 !important;
+    line-height: 1.7;
+}
+
+/* Sidebar h3 (Filters, Tracking Filters) */
+.sidebar h3 {
+    color: var(--color-primary);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 1rem 0 0.4rem 0;
+    font-weight: 700;
+}
+
+/* ── 2. Title row + brand ─────────────────────────────────────────────── */
+
+.ll-title-row {
+    padding-bottom: 0.5rem;
+    margin-bottom: 0.75rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Brand title — pierce MUI wrappers (gradient matches Streamlit) */
+.ll-brand,
+.ll-brand * {
+    background: linear-gradient(90deg, #f59e0b 0%, transparent 85%) !important;
+    -webkit-background-clip: text !important;
+    background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    color: transparent !important;
+    font-weight: 800 !important;
+    display: inline-block !important; /* Required for clip to work */
+    margin: 0 !important;
+    line-height: 1.2 !important;
+}
+
+/* Brand icon — match the h1 visual size */
+.ll-brand .material-symbols-outlined {
+    font-size: 2.5rem !important;
+    vertical-align: middle !important;
+    margin-right: 0.15rem !important;
+    opacity: 1 !important;
+}
+
+/* Header buttons (Glossary, Getting Started) — outline amber */
+.ll-header-btn.taipy-button {
+    background: transparent !important;
+    border: 1px solid var(--color-primary) !important;
+    color: var(--color-primary) !important;
+    border-radius: 4px !important;
+    padding: 2px 10px !important;
+    font-size: 0.8rem !important;
+    box-shadow: none !important;
+}
+
+.ll-header-btn.taipy-button:hover {
+    background: rgba(245, 158, 11, 0.1) !important;
+}
+
+/* Add Material Symbols icons to header buttons via Unicode code points */
+/* help = \e887, school = \e80c */
+.ll-btn-glossary.taipy-button::before {
+    content: '\e887';
+    font-family: 'Material Symbols Outlined' !important;
+    font-size: 0.95rem;
+    margin-right: 0.25rem;
+    display: inline;
+}
+
+.ll-btn-started.taipy-button::before {
+    content: '\e80c';
+    font-family: 'Material Symbols Outlined' !important;
+    font-size: 0.95rem;
+    margin-right: 0.25rem;
+    display: inline;
+}
+
+/* Ensure buttons lay out icon + text horizontally */
+.ll-header-btn.taipy-button {
+    display: inline-flex !important;
+    align-items: center !important;
+    white-space: nowrap !important;
+}
+
+/* ── 3. Metric stack — aggressively strip MUI margins ─────────────────── */
+
+.ll-metric {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0px !important;
+    margin-bottom: 1.5rem !important;
+}
+
+/* Target all hidden MUI text wrappers */
+.ll-metric > div,
+.ll-metric > span,
+.ll-metric p,
+.ll-metric h1, .ll-metric h2, .ll-metric h3,
+.ll-metric .taipy-text,
+.ll-metric .MuiTypography-root {
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1.1 !important;
+    background: transparent !important;
+}
+
+/* Specific styling for the Label (First child text) */
+.ll-metric .taipy-text:first-child,
+.ll-metric .MuiTypography-root:first-child {
+    font-size: 0.8rem !important;
+    color: rgba(255, 255, 255, 0.5) !important;
+    text-transform: none !important;
+}
+
+/* Specific styling for the Value (The header) */
+.ll-metric h3,
+.ll-metric h3 *,
+.ll-metric .taipy-text:nth-child(2) {
+    font-size: 1.75rem !important;
+    font-weight: 700 !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important; /* overrides brand gradient if it leaks */
+}
+
+/* Metric delta text */
+.ll-metric-delta,
+.ll-metric-delta span {
+    font-size: 0.75rem !important;
+    color: rgba(255, 255, 255, 0.5) !important;
+    font-style: italic;
+}
+
+/* Inverse delta — for metrics where lower is better (e.g. Brier Score).
+   Same neutral color; direction arrows in the text indicate improvement. */
+.ll-metric-delta-inverse,
+.ll-metric-delta-inverse span {
+    font-size: 0.75rem !important;
+    color: rgba(255, 255, 255, 0.5) !important;
+    font-style: italic;
+}
+
+/* Help icon — Material Symbols "info" icon with native tooltip */
+.ll-help {
+    cursor: help;
+    opacity: 0.35;
+    font-size: 0.95rem !important;
+    margin-left: 0.3rem;
+    vertical-align: middle !important;
+    line-height: 1 !important;
+}
+
+.ll-help:hover {
+    opacity: 0.75;
+    color: var(--color-primary) !important;
+    -webkit-text-fill-color: var(--color-primary) !important;
+}
+
+/* ── 4. Footer ────────────────────────────────────────────────────────── */
+
+.ll-footer {
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding-top: 0.75rem;
+    margin-top: 2rem;
+    opacity: 0.5;
+    font-size: 0.85rem;
+}
+
+.ll-footer a {
+    color: var(--color-primary) !important;
+}
+
+/* ── 4b. Empty-state boxes (info vs warning) ─────────────────────────── */
+
+.ll-info-box {
+    background: rgba(30, 90, 140, 0.2);
+    border: 1px solid rgba(60, 130, 190, 0.4);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    color: #7db8d8;
+    margin: 0.5rem 0;
+}
+
+.ll-warning-box {
+    background: rgba(140, 100, 30, 0.2);
+    border: 1px solid rgba(190, 140, 50, 0.4);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    color: #d4a84c;
+    margin: 0.5rem 0;
+}
+
+/* ── 5. Inline dropdown panels (Glossary, Getting Started) ───────────── */
+
+.ll-dropdown {
+    background: var(--color-paper, #1a1a2e) !important;
+    border: 1px solid rgba(245, 158, 11, 0.25) !important;
+    border-radius: 8px !important;
+    padding: 1.25rem 1.5rem !important;
+    margin-bottom: 1rem !important;
+    max-width: 50% !important;
+    margin-left: auto !important;  /* right-align */
+}
+
+.ll-dropdown strong {
+    color: var(--color-primary) !important;
+}
+
+.ll-dropdown p,
+.ll-dropdown .md-para {
+    margin-bottom: 0.6rem !important;
+    line-height: 1.6 !important;
+    font-size: 0.9rem !important;
+    color: rgba(255, 255, 255, 0.8) !important;
+}
+
+.ll-dropdown ol {
+    padding-left: 1.25rem;
+    margin: 0.5rem 0;
+}
+
+.ll-dropdown ol li {
+    margin-bottom: 0.4rem;
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+/* ── 6. Page title icons ─────────────────────────────────────────────── */
+
+/* Page heading icons — match h2 size and color */
+h2 .material-symbols-outlined {
+    font-size: inherit !important;
+    vertical-align: middle !important;
+    margin-right: 0.3rem !important;
+    opacity: 0.9;
+    color: inherit !important;
+    -webkit-text-fill-color: inherit !important;
+}
+
+/* ── Sidebar interactive controls — neutral color, consistent with dropdowns ── */
+/* Single set of rules for ALL accent-colored controls: sliders, toggles, etc. */
+
+.sidebar .MuiSlider-root,
+.sidebar .MuiSlider-thumb,
+.sidebar .MuiSlider-track {
+    color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.sidebar .MuiSlider-thumb {
+    width: 14px !important;
+    height: 14px !important;
+}
+
+.sidebar .MuiSlider-rail {
+    color: rgba(255, 255, 255, 0.3) !important;
+}
+
+/* Toggle switches — neutral color */
+.sidebar .MuiSwitch-switchBase.Mui-checked {
+    color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.sidebar .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track {
+    background-color: rgba(255, 255, 255, 0.4) !important;
+}
+
+.sidebar .MuiSwitch-track {
+    background-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+/* Reusable filter box — matches MUI outlined input style for toggles/sliders.
+   Margin is zero here; spacing is handled by padding on the parent taipy-part
+   wrapper to avoid CSS margin pass-through collapsing (see below). */
+.ll-filter-box {
+    border: 1px solid rgba(255, 255, 255, 0.23) !important;
+    border-radius: 8px !important;
+    padding: 0 12px !important;
+    position: relative !important;
+    height: 48px !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+    display: flex !important;
+    align-items: center !important;
+}
+
+/* Sidebar section — flex column with uniform gap.
+   ALL spacing is controlled here. Children have zero margin.
+   Hidden widgets (render=false → display:none) are skipped by gap. */
+.ll-sidebar-section {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+    margin-top: 0.5rem !important;
+}
+
+/* Zero out ALL child margins inside section — gap is the only spacer */
+.ll-sidebar-section > .taipy-part {
+    margin: 0 !important;
+}
+
+/* Section header needs no extra spacing (gap handles it) */
+.ll-section-header {
+    margin: 0 !important;
+}
+
+/* Filter-box wrappers — flex for internal layout, zero margin */
+.ll-sidebar-section .taipy-part:has(> .ll-filter-box) {
+    display: flex !important;
+    flex-direction: column !important;
+    margin: 0 !important;
+}
+
+/* MUI selector wrappers inside section — zero margin override */
+.ll-sidebar-section .taipy-selector {
+    margin: 0 !important;
+}
+
+.ll-sidebar-section .taipy-selector .MuiFormControl-root {
+    margin: 0 !important;
+}
+
+.ll-filter-box:hover {
+    border-color: rgb(255, 255, 255) !important;
+}
+
+.ll-filter-label {
+    position: absolute !important;
+    top: -8px !important;
+    left: 10px !important;
+    background: var(--color-paper, #1a1a2e) !important;
+    padding: 0 5px !important;
+    font-size: 0.75rem !important;
+    color: rgba(255, 255, 255, 0.7) !important;
+    font-weight: 400 !important;
+    text-transform: none !important;
+    letter-spacing: normal !important;
+    line-height: 1 !important;
+    margin: 0 !important;
+    border: none !important;
+}
+
+/* Toggle box — "OFF [switch] ON" via CSS pseudo-elements on the MUI switch.
+   No Taipy markdown needed — pure CSS, consistent everywhere. */
+.ll-toggle-box .MuiFormControlLabel-root {
+    display: flex !important;
+    align-items: center !important;
+    gap: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    justify-content: center !important;
+}
+
+.ll-toggle-box .MuiFormControlLabel-root::before {
+    content: 'OFF';
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: rgba(255, 255, 255, 0.4);
+    margin-right: 0.25rem;
+}
+
+.ll-toggle-box .MuiFormControlLabel-root::after {
+    content: 'ON';
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: rgba(255, 255, 255, 0.4);
+    margin-left: 0.25rem;
+}
+
+/* Controls inside filter boxes — compact layout */
+.ll-filter-box .taipy-slider,
+.ll-filter-box .taipy-toggle {
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    width: 100% !important;
+}
+
+.ll-filter-box .MuiFormControlLabel-root {
+    margin: 0 !important;
+    height: auto !important;
+}
+
+.ll-filter-box .MuiSwitch-root {
+    margin-right: 4px !important;
+}
+
+/* Slider filter-box — same 48px height as all other widgets.
+   Column layout: slider on line 1, range labels on line 2.
+   Both must fit within 48px. overflow: hidden clips any excess. */
+.ll-filter-box:has(.taipy-slider) {
+    height: 48px !important;
+    padding: 6px 12px 2px 12px !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    justify-content: flex-end !important;
+    overflow: visible !important;
+}
+
+/* md-para wrapping the slider — constrain height so range labels fit */
+.ll-filter-box:has(.taipy-slider) > .md-para {
+    width: 100% !important;
+    margin: 0 !important;
+    line-height: 1 !important;
+    flex: 0 0 auto !important;
+    max-height: 28px !important;
+}
+
+/* Slider track — full width, centered between label text and range labels */
+.ll-filter-box .MuiSlider-root {
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+/* Position the slider rail+track vertically centered in its md-para container */
+.ll-filter-box:has(.taipy-slider) > .md-para {
+    display: flex !important;
+    align-items: center !important;
+}
+
+/* Smaller thumb for sidebar sliders */
+.ll-filter-box .MuiSlider-thumb {
+    width: 14px !important;
+    height: 14px !important;
+}
+
+/* Slider end labels (min/max) — flush left/right, same margin as slider.
+   Static labels use <span> inside .ll-slider-range.
+   Dynamic labels use Taipy <|text|> with .ll-range-start / .ll-range-end. */
+.ll-slider-range {
+    display: flex !important;
+    justify-content: space-between !important;
+    font-size: 0.6rem !important;
+    color: rgba(255, 255, 255, 0.4) !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1 !important;
+}
+
+/* Dynamic range labels (Taipy text elements inside a part).
+   Each text is in its own md-para. Flex row spreads them apart. */
+.ll-slider-range.taipy-part {
+    display: flex !important;
+    flex-direction: row !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+.ll-slider-range.taipy-part > .md-para {
+    margin: 0 !important;
+    flex: 0 0 auto !important;
+}
+
+.ll-range-start,
+.ll-range-start *,
+.ll-range-end,
+.ll-range-end * {
+    font-size: 0.6rem !important;
+    color: rgba(255, 255, 255, 0.4) !important;
+    line-height: 1 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+/* ── 7. Page header (title + reference, constrained to diagram width) ─ */
+
+.ll-page-header {
+    max-width: 75% !important;  /* matches 3fr of 3fr+1fr layout */
+    margin-bottom: 0.5rem !important;
+}
+
+/* Reference text (italic citation/methodology in page header) */
+
+.ll-reference,
+.ll-reference * {
+    font-style: italic !important;
+    font-size: 0.85rem !important;
+    color: rgba(255, 255, 255, 0.6) !important;
+    -webkit-text-fill-color: rgba(255, 255, 255, 0.6) !important;
+    line-height: 1.5 !important;
+    margin: 0 !important;
+}
+
+.ll-reference a {
+    color: var(--color-primary) !important;
+    -webkit-text-fill-color: var(--color-primary) !important;
+}
+
+/* ── 7b. Section subtitle (consistent size across all pages) ──────────── */
+
+.ll-subtitle {
+    font-size: 1rem !important;
+    font-weight: 600 !important;
+    color: rgba(255, 255, 255, 0.85) !important;
+    margin: 1rem 0 0.5rem 0 !important;
+}
+
+/* ── 7c. Sub-view 3fr/1fr grid (workaround: Taipy <|layout|> loses columns
+   inside <|part|render=...|>; use CSS grid on a part instead) ────────── */
+
+.ll-grid-3-1 {
+    display: grid !important;
+    grid-template-columns: 3fr 1fr !important;
+    gap: 1rem !important;
+}
+
+/* ── 7d. Table inside CSS grid fix — Taipy's paginated table sets container
+   height to 0px inside CSS grid cells. Override to show content. ─────── */
+
+.ll-grid-3-1 .MuiTableContainer-root {
+    height: auto !important;
+    max-height: 600px !important;
+}
+
+/* ── 8. General ───────────────────────────────────────────────────────── */
+
+h2 {
+    font-size: 1.4rem;
+    margin-bottom: 0.5rem;
+}
+
+hr {
+    border: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.15);
+    margin: 1rem 0;
+}
+
+img {
+    border-radius: 4px;
+    max-width: 100%;
+}
+
+/* ===== Loading overlay ===== */
+
+.ll-loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 300px;  /* sidebar width */
+    right: 0;
+    bottom: 0;
+    background: rgba(14, 17, 23, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1200;
+    pointer-events: all;
+}
+
+.ll-loading-spinner {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: #1a1a2e;
+    padding: 1rem 2rem;
+    border-radius: 8px;
+    border: 1px solid #f59e0b;
+    color: #f59e0b;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+@keyframes ll-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.ll-spin {
+    animation: ll-spin 1s linear infinite;
+    font-size: 1.5rem;
+}
+
+/* ===== Table styling (rankings) ===== */
+
+.taipy-table .MuiTableContainer-root {
+    background: transparent !important;
+}
+
+.taipy-table .MuiTable-root {
+    background: transparent !important;
+}
+
+.taipy-table .MuiTableHead-root th {
+    background: #2a2010 !important;  /* opaque dark amber — no bleed-through on scroll */
+    color: #f59e0b !important;
+    font-weight: 700;
+    border-bottom: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.taipy-table .MuiTableBody-root td {
+    color: #e0e0e0 !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.taipy-table .MuiTableBody-root tr:hover {
+    background: rgba(245, 158, 11, 0.08) !important;
+}
+
+.taipy-table .MuiTablePagination-root {
+    color: #888 !important;
+}
+
+/* Hide default Taipy navbar (we use sidebar links) */
+header[class*="taipy-navbar"],
+nav[class*="taipy"],
+.taipy-navbar {
+    display: none !important;
+}
+
+/* Hide "Taipy inside" watermark */
+.taipy-watermark {
+    display: none !important;
+}
