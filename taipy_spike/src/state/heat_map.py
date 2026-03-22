@@ -32,6 +32,7 @@ hm_shots: str = "--"
 hm_most_active_zone: str = "--"
 hm_pitch_image: str = ""
 
+hm_warning_text: str = ""
 hm_scope_label: str = ""
 hm_data_freshness: str = ""
 
@@ -44,6 +45,7 @@ __all__ = [
     "hm_scope_label",
     "hm_shots",
     "hm_total",
+    "hm_warning_text",
 ]
 
 
@@ -222,6 +224,7 @@ def hm_refresh(state: Any) -> None:
         state.hm_shots = "--"
         state.hm_most_active_zone = "--"
         state.hm_pitch_image = ""
+        state.hm_warning_text = ""
         state.hm_scope_label = ""
         state.hm_data_freshness = ""
         return
@@ -247,9 +250,11 @@ def hm_refresh(state: Any) -> None:
         state.hm_shots = "0"
         state.hm_most_active_zone = "--"
         state.hm_pitch_image = ""
+        state.hm_warning_text = "No actions for the selected filters."
         state.hm_data_freshness = ""
         return
 
+    state.hm_warning_text = ""
     metrics = _compute_metrics(actions)
     state.hm_total = metrics["total"]
     state.hm_passes = metrics["passes"]

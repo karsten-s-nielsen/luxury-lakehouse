@@ -21,8 +21,10 @@ page_config = PageConfig(
             "https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout",
         ),
     ],
+    warning_var="ps_warning_text",
     content=[
         ContentRow([ContentBlock("text", "ps_status_message")]),
+        ContentRow([ContentBlock("text", "ps_threshold_caption")]),
         ContentRow([ContentBlock("table", "ps_results_data", header="Similar Players")]),
         ContentRow(
             [

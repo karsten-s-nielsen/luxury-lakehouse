@@ -14,11 +14,11 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from cache import ttl_cache
 from db import execute_query, t
-from filters import fetch_data_freshness
+from filters import fetch_data_freshness, fetch_scope_label
 from mplsoccer import Radar
 from render import PITCH_BG_COLOR, PITCH_LINE_COLOR, PLAYER_COLORS, chart_to_file
 
-from state.shared import _page_refreshers, get_comp_id, register_page_refresher
+from state.shared import _page_refreshers, get_comp_id, get_team_id, register_page_refresher
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ pr_low_minute_warning: str = ""
 pr_comp_selected: bool = False
 pr_no_data_warning: str = ""
 pr_no_physical_note: str = ""
-pr_data_freshness_text: str = ""
+pr_data_freshness: str = ""
 pr_metric_lov: list[str] = []
 pr_selected_metrics: list[str] = []
 # Column schema must be declared at init — Taipy infers table structure from
@@ -80,20 +80,25 @@ _STATS_COLUMNS = ["Player", "Minutes"] + [
 ]
 pr_stats_table: pd.DataFrame = pd.DataFrame(columns=_STATS_COLUMNS)
 
+pr_scope_label: str = ""
+pr_warning_text: str = ""
+
 __all__ = [
     "on_pr_metric_change",
     "pr_comp_selected",
-    "pr_data_freshness_text",
+    "pr_data_freshness",
     "pr_low_minute_warning",
     "pr_metric_lov",
     "pr_no_data_warning",
     "pr_no_physical_note",
+    "pr_scope_label",
     "pr_select_hint",
     "pr_player_count",
     "pr_radar_image",
     "pr_selected_metrics",
     "pr_spoke_caption",
     "pr_stats_table",
+    "pr_warning_text",
 ]
 
 
@@ -246,8 +251,10 @@ def _clear_state(state: Any) -> None:
     state.pr_low_minute_warning = ""
     state.pr_no_data_warning = ""
     state.pr_no_physical_note = ""
-    state.pr_data_freshness_text = ""
+    state.pr_data_freshness = ""
     state.pr_stats_table = pd.DataFrame(columns=_STATS_COLUMNS)
+    state.pr_scope_label = ""
+    state.pr_warning_text = ""
 
 
 def pr_refresh(state: Any) -> None:
@@ -259,6 +266,8 @@ def pr_refresh(state: Any) -> None:
         return
 
     state.pr_comp_selected = True
+    team_id = get_team_id(state.selected_team)
+    state.pr_scope_label = fetch_scope_label(comp_id, team_id)
 
     # Resolve player IDs from multiselect labels
     from state.shared import _player_map
@@ -267,14 +276,14 @@ def pr_refresh(state: Any) -> None:
     if not player_labels:
         _clear_state(state)
         state.pr_comp_selected = True
-        state.pr_data_freshness_text = fetch_data_freshness()
+        state.pr_data_freshness = fetch_data_freshness()
         return
 
     player_ids = [_player_map[label] for label in player_labels if label in _player_map]
     if not player_ids:
         _clear_state(state)
         state.pr_comp_selected = True
-        state.pr_data_freshness_text = fetch_data_freshness()
+        state.pr_data_freshness = fetch_data_freshness()
         return
 
     # Limit to 3 players
@@ -284,8 +293,10 @@ def pr_refresh(state: Any) -> None:
     if stats.empty:
         _clear_state(state)
         state.pr_comp_selected = True
+        state.pr_scope_label = fetch_scope_label(comp_id, team_id)
         state.pr_no_data_warning = "No player stats for the selected filters."
-        state.pr_data_freshness_text = fetch_data_freshness()
+        state.pr_warning_text = "No player stats for the selected filters."
+        state.pr_data_freshness = fetch_data_freshness()
         return
 
     state.pr_player_count = len(stats)
@@ -361,7 +372,7 @@ def pr_refresh(state: Any) -> None:
     )
 
     # Data freshness
-    state.pr_data_freshness_text = fetch_data_freshness()
+    state.pr_data_freshness = fetch_data_freshness()
 
     logger.info("Player radar refreshed: %d players, %d metrics", len(players_data), len(metric_keys))
 

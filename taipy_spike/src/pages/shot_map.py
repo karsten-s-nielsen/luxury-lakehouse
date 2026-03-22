@@ -16,6 +16,7 @@ page_config = PageConfig(
     content=[ContentRow([ContentBlock("image", "sm_pitch_image")])],
     empty_message="Select a competition to begin.",
     empty_condition="len(sm_pitch_image) == 0 and len(sm_empty_message) > 0",
+    warning_var="sm_warning_text",
     scope_vars=["sm_scope_label", "sm_data_scope_note", "sm_nan_fallback_note"],
     freshness_var="sm_data_freshness",
     metrics=[

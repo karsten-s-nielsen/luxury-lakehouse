@@ -20,6 +20,7 @@ page_config = PageConfig(
     content=[ContentRow([ContentBlock("image", "pm_pitch_image")])],
     empty_message="Select a competition, team, and match to begin.",
     empty_condition='len(pm_pitch_image) == 0 and pm_total == "--"',
+    warning_var="pm_warning_text",
     scope_vars=["pm_scope_label"],
     freshness_var="pm_data_freshness",
     metrics=[

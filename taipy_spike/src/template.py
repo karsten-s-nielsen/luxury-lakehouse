@@ -150,6 +150,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         "on_xg_model_change",
         condition=f"current_page in {_XG_MODEL_PAGES}",
         lov="xg_model_lov",
+        help="StatsBomb: provider xG. Custom Logistic: distance + angle. Custom XGBoost: 13 features with isotonic calibration (production model).",
     ),
     SidebarWidget(
         "dropdown",
@@ -212,6 +213,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         condition=f"current_page in {('Player-Comparison',)}",
         lov="pr_metric_lov",
         depends_on="selected_competition",
+        help="Per-90 stats: Goals, xG, Passes, Pass%, VAEP (action value), DEFCON (defensive pressure). See Glossary for definitions.",
     ),
     SidebarWidget(
         "slider",
@@ -424,7 +426,14 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
 ]
 
 _SEARCH_WIDGETS: list[SidebarWidget] = [
-    SidebarWidget("dropdown", "ps_search_mode", "Search by", "on_ps_search_mode_change", lov="ps_search_mode_lov"),
+    SidebarWidget(
+        "dropdown",
+        "ps_search_mode",
+        "Search by",
+        "on_ps_search_mode_change",
+        lov="ps_search_mode_lov",
+        help="Playing style: 32-d behavioral embedding from match action sequences. Statistical output: 13-d z-score vector from per-90 stats.",
+    ),
     SidebarWidget("dropdown", "ps_selected_player", "Player", "on_ps_selected_player_change", lov="ps_player_lov"),
     SidebarWidget("dropdown", "ps_result_count", "Results", "on_ps_result_count_change", lov="ps_result_count_lov"),
     SidebarWidget("toggle", "ps_filter_by_competition", "Filter by competition", "on_ps_filter_by_competition_change"),
@@ -501,7 +510,9 @@ def build_root_page(nav_md: str) -> str:
 
 <|part|render={{is_loading}}|class_name=ll-loading-overlay|
 <|part|class_name=ll-loading-spinner|
-<span class="material-symbols-outlined ll-spin">progress_activity</span> Loading...
+<span class="material-symbols-outlined ll-spin">progress_activity</span>
+
+<|{{loading_text}}|text|raw|>
 |>
 |>
 

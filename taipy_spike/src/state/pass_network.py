@@ -36,6 +36,7 @@ pn_top_pair_count: str = "--"
 pn_top_pair_names: str = ""
 pn_pitch_image: str = ""
 
+pn_warning_text: str = ""
 pn_scope_label: str = ""
 pn_data_freshness: str = ""
 
@@ -48,6 +49,7 @@ __all__ = [
     "pn_top_pair_names",
     "pn_total_passes",
     "pn_unique_connections",
+    "pn_warning_text",
 ]
 
 
@@ -236,6 +238,7 @@ def pn_refresh(state: Any) -> None:
         state.pn_top_pair_count = "--"
         state.pn_top_pair_names = ""
         state.pn_pitch_image = ""
+        state.pn_warning_text = ""
         state.pn_scope_label = ""
         state.pn_data_freshness = ""
         return
@@ -261,9 +264,13 @@ def pn_refresh(state: Any) -> None:
         state.pn_top_pair_count = "0"
         state.pn_top_pair_names = "No data (Wyscout matches lack recipient data)"
         state.pn_pitch_image = ""
+        state.pn_warning_text = (
+            "No completed passes for the selected filters. Wyscout matches do not include pass recipient data."
+        )
         state.pn_data_freshness = ""
         return
 
+    state.pn_warning_text = ""
     min_pair_count = int(state.min_passes) if hasattr(state, "min_passes") else 3
     nodes, edges = _build_network(passes, min_pair_count=min_pair_count)
 

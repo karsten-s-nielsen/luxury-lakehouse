@@ -5,9 +5,9 @@ workspace "Taipy Soccer Analytics" "Taipy-based soccer analytics dashboard repla
 
         taipyApp = softwareSystem "Taipy Dashboard" "Interactive soccer analytics application with 12 pages covering shots, passes, networks, player comparison, pitch control, and defensive metrics" {
             guiLayer = container "Taipy GUI" "Root template with sidebar navigation, glossary panels, and page routing" "Python, Taipy 4.1"
-            templateEngine = container "Template Engine" "Generates all page layouts from typed dataclasses: PageConfig, SubView, ContentBlock, ContentRow, SidebarWidget, Metric" "Python, frozen dataclasses"
-            sidebarWidgets = container "Sidebar Widgets" "Filter cascade with progressive disclosure, view-dependent visibility, and change_delay debounce" "Python, Taipy Markdown"
-            stateModules = container "State Modules" "Per-page state variables, callbacks, data fetching, and chart rendering (12 modules)" "Python, pandas, mplsoccer"
+            templateEngine = container "Template Engine" "Generates all page layouts from typed dataclasses: PageConfig, SubView, ContentBlock (image/table/text/expandable_table), ContentRow, SidebarWidget (with help tooltips), Metric (with help_text), Citation. Renders warning_var as amber ll-warning-box, scope_vars for data context, footer_var for citations" "Python, frozen dataclasses"
+            sidebarWidgets = container "Sidebar Widgets" "Filter cascade with progressive disclosure, view-dependent visibility, change_delay debounce, and inline help tooltips (info icon with title attribute)" "Python, Taipy Markdown"
+            stateModules = container "State Modules" "Per-page state variables, callbacks, data fetching, chart rendering (12 modules). Each module sets warning_text (amber box), scope_label, data_freshness. Shared loading_text with per-page contextual messages" "Python, pandas, mplsoccer"
             filterLayer = container "Filter Layer" "Shared filter queries with TTL cache, scope labels, data freshness, and embedding player search" "Python, psycopg2"
             dbLayer = container "DB Layer" "OAuth token management, connection pooling, parameterized query execution" "Python, psycopg2, Databricks SDK"
             renderEngine = container "Render Engine" "Matplotlib figure-to-PNG with cache-busting paths" "Python, matplotlib"

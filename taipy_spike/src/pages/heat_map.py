@@ -16,6 +16,7 @@ page_config = PageConfig(
     content=[ContentRow([ContentBlock("image", "hm_pitch_image")])],
     empty_message="Select a competition to begin.",
     empty_condition="len(hm_pitch_image) == 0 and len(competition_lov) > 0",
+    warning_var="hm_warning_text",
     scope_vars=["hm_scope_label"],
     freshness_var="hm_data_freshness",
     metrics=[

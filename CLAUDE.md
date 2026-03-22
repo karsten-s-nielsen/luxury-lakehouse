@@ -128,7 +128,7 @@ The platform's architecture maps to classic EIP patterns (Hohpe & Woolf 2003). C
 
 ## Streamlit UX Standards
 
-These rules prevent cognitive interface debt from accumulating. Derived from CHI-AUDIT-180 and CHI-AUDIT-190 (cognitive-interface-audit v1.8.0+, 15 frameworks). Every Streamlit or Gradio code change must satisfy all of these.
+These rules prevent cognitive interface debt from accumulating. Derived from CHI-AUDIT-180 and CHI-AUDIT-190 (cognitive-interface-audit v1.8.0+, 15 frameworks). Every Streamlit, Gradio, or Taipy code change must satisfy all of these. Taipy equivalents: `Metric(help_text=)` for tooltips, `warning_var=` (amber `ll-warning-box`) vs `empty_message` (blue `ll-info-box`) for empty state distinction, `scope_vars=` for data context, `SidebarWidget(help=)` for widget tooltips, `GLOSSARY`/`PAGE_TERMS` in `template.py` for per-page glossary filtering.
 
 - **Every `st.metric` must have `help=`**: If the metric name is not universally understood (i.e., anything beyond "Goals", "Passes", "Score"), add a `help=` tooltip explaining what it means and what "good" looks like. Examples: xG, VAEP, PPDA, Brier Score, cosine distance, xT, DEFCON credits.
 - **Every `show_spinner=False` must be justified**: Default to descriptive spinner text (e.g., `show_spinner="Loading rankings..."`). Only suppress spinners on queries that complete in <100ms (e.g., small dimension lookups that are always cached). When in doubt, show the spinner.

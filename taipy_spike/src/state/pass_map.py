@@ -48,6 +48,7 @@ pm_pitch_image: str = ""
 pm_show_progressive: bool = True
 pm_show_line_breaking: bool = True
 
+pm_warning_text: str = ""
 pm_scope_label: str = ""
 pm_data_freshness: str = ""
 
@@ -64,6 +65,7 @@ __all__ = [
     "pm_show_line_breaking",
     "pm_show_progressive",
     "pm_total",
+    "pm_warning_text",
 ]
 
 
@@ -256,6 +258,7 @@ def pm_refresh(state: Any) -> None:
         state.pm_line_breaking = "--"
         state.pm_completion_pct = "--"
         state.pm_pitch_image = ""
+        state.pm_warning_text = ""
         state.pm_scope_label = ""
         state.pm_data_freshness = ""
         _cached_passes = pd.DataFrame()
@@ -280,9 +283,11 @@ def pm_refresh(state: Any) -> None:
         state.pm_line_breaking = "0"
         state.pm_completion_pct = "0.0%"
         state.pm_pitch_image = ""
+        state.pm_warning_text = "No passes for the selected filters."
         state.pm_data_freshness = ""
         return
 
+    state.pm_warning_text = ""
     metrics = _compute_metrics(passes)
     state.pm_total = metrics["total"]
     state.pm_completed = metrics["completed"]

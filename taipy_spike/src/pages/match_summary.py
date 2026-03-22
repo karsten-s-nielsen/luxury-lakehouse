@@ -37,11 +37,12 @@ page_config = PageConfig(
     ],
     empty_message="Select a competition and match to begin.",
     empty_condition="len(ms_home_name) == 0",
+    warning_var="ms_warning_text",
     scope_vars=["ms_scope_label"],
     freshness_var="ms_data_freshness",
     metrics=[
-        Metric("Home Score", "ms_home_score"),
-        Metric("Away Score", "ms_away_score"),
+        Metric("Home Score", "ms_home_score", "Match score."),
+        Metric("Away Score", "ms_away_score", "Match score."),
         Metric(
             "Home xG",
             "ms_home_xg",

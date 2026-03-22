@@ -84,6 +84,7 @@ ps_compare_lov: list[str] = []
 ps_selected_compare: str | None = None
 ps_threshold_caption: str = _DISTANCE_THRESHOLDS_CAPTION
 ps_status_message: str = ""
+ps_warning_text: str = ""
 
 ps_data_freshness: str = ""
 
@@ -113,6 +114,7 @@ __all__ = [
     "ps_selected_player",
     "ps_status_message",
     "ps_threshold_caption",
+    "ps_warning_text",
 ]
 
 
@@ -338,6 +340,7 @@ def _clear_results(state: Any) -> None:
     state.ps_compare_lov = []
     state.ps_selected_compare = None
     state.ps_status_message = ""
+    state.ps_warning_text = ""
 
 
 def _clear_all(state: Any) -> None:
@@ -475,12 +478,14 @@ def _run_similarity_search(state: Any) -> None:
         # Fetch target vector
         target_result = _fetch_player_embedding_vector(raw_table, player_id, comp_id)
         if target_result.empty:
-            state.ps_status_message = "No embedding vector for this player for the selected filters."
+            state.ps_warning_text = "No embedding vector for this player for the selected filters."
+            state.ps_status_message = ""
             return
 
         raw_vector = target_result.iloc[0][vector_col]
         if raw_vector is None:
-            state.ps_status_message = f"No {search_mode.lower()} vector for this player for the selected filters."
+            state.ps_warning_text = f"No {search_mode.lower()} vector for this player for the selected filters."
+            state.ps_status_message = ""
             return
 
         # Parse vector
@@ -492,10 +497,10 @@ def _run_similarity_search(state: Any) -> None:
 
         if len(vector) != vector_dim:
             other = "Statistical output" if search_mode == "Playing style" else "Playing style"
-            state.ps_status_message = (
-                f"This player doesn't have a {search_mode.lower()} embedding. "
-                f"Try switching to **{other}** search instead."
+            state.ps_warning_text = (
+                f"This player doesn't have a {search_mode.lower()} embedding. Try switching to {other} search instead."
             )
+            state.ps_status_message = ""
             return
 
         vector_str = _format_vector_literal(vector)
@@ -514,9 +519,10 @@ def _run_similarity_search(state: Any) -> None:
         )
 
         if results.empty:
-            state.ps_status_message = (
+            state.ps_warning_text = (
                 "No similar players for the selected filters. Try lowering the minimum matches threshold."
             )
+            state.ps_status_message = ""
             return
 
         # Add interpretation column
@@ -551,13 +557,14 @@ def _run_similarity_search(state: Any) -> None:
         state.ps_compare_lov = list(_ps_compare_map.keys())
         state.ps_selected_compare = None
         state.ps_status_message = f"Found {len(results)} similar players."
+        state.ps_warning_text = ""
 
         logger.info("Similarity search: %d results for player %s", len(results), player_id)
 
     except Exception:
         logger.exception("Similarity search failed")
-        state.ps_status_message = "Search failed. Please try again."
         _clear_results(state)
+        state.ps_warning_text = "Search failed. Please try again."
 
 
 # ── Page refresh (called on filter cascade) ──────────────────────────────────

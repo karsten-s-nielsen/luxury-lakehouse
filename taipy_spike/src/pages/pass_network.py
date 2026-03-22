@@ -15,6 +15,7 @@ page_config = PageConfig(
     content=[ContentRow([ContentBlock("image", "pn_pitch_image")])],
     empty_message="Select a competition, team, and match to begin.",
     empty_condition="selected_competition is None",
+    warning_var="pn_warning_text",
     scope_vars=["pn_scope_label"],
     freshness_var="pn_data_freshness",
     metrics=[

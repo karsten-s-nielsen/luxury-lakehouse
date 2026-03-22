@@ -19,6 +19,7 @@ page_config = PageConfig(
     content=[ContentRow([ContentBlock("image", "pc_pitch_image")])],
     empty_message="Select a tracking match and half to begin.",
     empty_condition="len(pc_pitch_image) == 0 and len(tracking_match_lov) > 0",
+    warning_var="pc_warning_text",
     scope_vars=["pc_status"],
     metrics=[
         Metric("Players", "pc_player_count", "Number of players visible in the current data scope."),

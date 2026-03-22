@@ -23,12 +23,16 @@ page_config = PageConfig(
             scale_notes=["VAEP/90: higher = more impactful (typical range 0.01-1.0)"],
             empty_message="Select a competition to begin.",
             empty_condition="len(av_rankings_data) == 0 and selected_competition is not None",
+            scope_vars=["av_scope_label"],
+            warning_var="av_warning_text",
         ),
         SubView(
             condition='selected_sub_view == "Breakdown"',
             content=[ContentRow([ContentBlock("image", "av_breakdown_image")])],
             empty_message="Select a team to see action breakdown.",
             empty_condition="len(av_breakdown_image) == 0 and selected_competition is not None",
+            scope_vars=["av_scope_label"],
+            warning_var="av_warning_text",
             metrics=[
                 Metric(
                     "Total VAEP",
@@ -55,6 +59,8 @@ page_config = PageConfig(
             ],
             empty_message="Select a match to see action timeline.",
             empty_condition="len(av_timeline_image) == 0 and selected_match is not None",
+            scope_vars=["av_scope_label"],
+            warning_var="av_warning_text",
             metrics=[
                 Metric(
                     "Positive Actions",

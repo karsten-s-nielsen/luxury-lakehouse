@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 from cache import ttl_cache
 from db import execute_query, t
-from filters import fetch_data_freshness
+from filters import fetch_data_freshness, fetch_scope_label
 from render import GRAY, PITCH_BG_COLOR, TEXT_COLOR, chart_to_file
 
 from state.shared import (
@@ -58,22 +58,36 @@ ma_oxt_image: str = ""
 
 ma_data_freshness: str = ""
 
+# Warning text and scope label
+ma_warning_text: str = ""
+ma_ppda_scope_label: str = ""
+
+# Expandable table DataFrames
+ma_physical_table: pd.DataFrame = pd.DataFrame()
+ma_ppda_table: pd.DataFrame = pd.DataFrame()
+ma_oxt_table: pd.DataFrame = pd.DataFrame()
+
 __all__ = [
     "ma_data_freshness",
     "ma_oxt_avg",
     "ma_oxt_image",
     "ma_oxt_max",
     "ma_oxt_players",
+    "ma_oxt_table",
     "ma_phys_avg_dist",
     "ma_phys_max_speed_kmh",
     "ma_phys_max_speed_ms",
     "ma_phys_players",
     "ma_physical_image",
+    "ma_physical_table",
     "ma_ppda_avg_away",
     "ma_ppda_avg_home",
     "ma_ppda_image",
     "ma_ppda_matches",
+    "ma_ppda_scope_label",
+    "ma_ppda_table",
     "ma_refresh",
+    "ma_warning_text",
 ]
 
 
@@ -218,6 +232,8 @@ def _refresh_physical(state: Any) -> None:
         state.ma_phys_max_speed_kmh = "--"
         state.ma_phys_max_speed_ms = "--"
         state.ma_physical_image = ""
+        state.ma_physical_table = pd.DataFrame()
+        state.ma_warning_text = ""
         return
 
     stats = _fetch_physical_stats(match_id)
@@ -227,6 +243,8 @@ def _refresh_physical(state: Any) -> None:
         state.ma_phys_max_speed_kmh = "0.0"
         state.ma_phys_max_speed_ms = "0.0"
         state.ma_physical_image = ""
+        state.ma_physical_table = pd.DataFrame()
+        state.ma_warning_text = "No physical stats for the selected match."
         return
 
     # Metrics
@@ -240,6 +258,21 @@ def _refresh_physical(state: Any) -> None:
         stats, "total_distance_km", "Distance (km)", "Total Distance by Player"
     )
 
+    # Expandable table
+    state.ma_physical_table = stats.drop(columns=["player_id", "match_id", "source_provider"], errors="ignore").rename(
+        columns={
+            "player_name": "Player",
+            "minutes_played": "Minutes",
+            "total_distance_km": "Distance (km)",
+            "hsr_distance_m": "HSR (m)",
+            "sprint_distance_m": "Sprint (m)",
+            "sprint_frame_count": "Sprint Frames",
+            "avg_speed_ms": "Avg Speed (m/s)",
+            "max_speed_ms": "Max Speed (m/s)",
+        }
+    )
+    state.ma_warning_text = ""
+
     logger.info("Physical performance refreshed: %d players", len(stats))
 
 
@@ -251,14 +284,21 @@ def _refresh_ppda(state: Any) -> None:
         state.ma_ppda_avg_away = "--"
         state.ma_ppda_matches = "--"
         state.ma_ppda_image = ""
+        state.ma_ppda_table = pd.DataFrame()
+        state.ma_ppda_scope_label = ""
+        state.ma_warning_text = ""
         return
 
     data = _fetch_ppda_data(comp_id)
+    state.ma_ppda_scope_label = fetch_scope_label(comp_id, None)
+
     if data.empty:
         state.ma_ppda_avg_home = "0.0"
         state.ma_ppda_avg_away = "0.0"
         state.ma_ppda_matches = "0"
         state.ma_ppda_image = ""
+        state.ma_ppda_table = pd.DataFrame()
+        state.ma_warning_text = "No PPDA data for the selected competition."
         return
 
     # Metrics
@@ -267,6 +307,19 @@ def _refresh_ppda(state: Any) -> None:
     state.ma_ppda_matches = str(len(data))
 
     state.ma_ppda_image = _render_ppda_bars(data, title="PPDA by Match")
+
+    # Expandable table
+    state.ma_ppda_table = data.drop(columns=["match_id"], errors="ignore").rename(
+        columns={
+            "match_date": "Date",
+            "home_team_name": "Home",
+            "away_team_name": "Away",
+            "home_ppda": "Home PPDA",
+            "away_ppda": "Away PPDA",
+            "home_possession_pct": "Home Poss %",
+        }
+    )
+    state.ma_warning_text = ""
 
     logger.info("PPDA refreshed: %d matches", len(data))
 
@@ -279,6 +332,8 @@ def _refresh_off_ball_xt(state: Any) -> None:
         state.ma_oxt_avg = "--"
         state.ma_oxt_max = "--"
         state.ma_oxt_image = ""
+        state.ma_oxt_table = pd.DataFrame()
+        state.ma_warning_text = ""
         return
 
     stats = _fetch_physical_stats(match_id)
@@ -289,6 +344,8 @@ def _refresh_off_ball_xt(state: Any) -> None:
         state.ma_oxt_avg = "0.000"
         state.ma_oxt_max = "0.000"
         state.ma_oxt_image = ""
+        state.ma_oxt_table = pd.DataFrame()
+        state.ma_warning_text = "No off-ball xT data for the selected match."
         return
 
     # Metrics
@@ -299,6 +356,16 @@ def _refresh_off_ball_xt(state: Any) -> None:
     state.ma_oxt_image = _render_physical_bars(
         xt_stats, "total_off_ball_xt", "Total Off-Ball xT", "Off-Ball xT by Player"
     )
+
+    # Expandable table
+    state.ma_oxt_table = xt_stats.drop(columns=["player_id"], errors="ignore").rename(
+        columns={
+            "player_name": "Player",
+            "total_off_ball_xt": "Total xT",
+            "avg_off_ball_xt": "Avg xT/Frame",
+        }
+    )[["Player", "Total xT", "Avg xT/Frame"]]
+    state.ma_warning_text = ""
 
     logger.info("Off-Ball xT refreshed: %d players with xT data", len(xt_stats))
 

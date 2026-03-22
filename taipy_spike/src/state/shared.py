@@ -62,6 +62,7 @@ show_glossary: bool = False
 
 # Loading state — bound to a spinner overlay in the template
 is_loading: bool = False
+loading_text: str = "Loading..."
 
 __all__ = [
     # State variables
@@ -89,6 +90,7 @@ __all__ = [
     "show_getting_started",
     "show_glossary",
     "is_loading",
+    "loading_text",
     "toggle_getting_started",
     "toggle_glossary",
     # Callbacks (must be in main.py namespace for Taipy template resolution)
@@ -124,10 +126,27 @@ def register_page_refresher(page_name: str, fn: Any) -> None:
     _page_refreshers[page_name] = fn
 
 
+_LOADING_TEXTS: dict[str, str] = {
+    "Shot-Map": "Loading shots...",
+    "Pass-Map": "Loading passes...",
+    "Heat-Map": "Loading actions...",
+    "Pass-Network": "Loading passes...",
+    "Match-Summary": "Loading match data...",
+    "Player-Impact": "Loading VAEP data...",
+    "Player-Comparison": "Loading player stats...",
+    "Player-Similarity": "Finding similar players...",
+    "Movement-Pressing": "Loading movement data...",
+    "Pitch-Control": "Computing pitch control...",
+    "Pass-Timing": "Loading PAUSA data...",
+    "Defensive-Impact": "Loading defensive data...",
+}
+
+
 def _refresh_current_page(state: Any) -> None:
     """Call the current page's refresh function if registered."""
     fn = _page_refreshers.get(state.current_page)
     if fn:
+        state.loading_text = _LOADING_TEXTS.get(state.current_page, "Loading...")
         state.is_loading = True
         try:
             fn(state)

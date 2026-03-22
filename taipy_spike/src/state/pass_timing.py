@@ -68,11 +68,15 @@ pt_dfl_caption: str = "Player names shown as DFL identifiers \u2014 IDSSE tracki
 
 pt_data_freshness: str = ""
 
+pt_warning_text: str = ""
+pt_footer_text: str = ""
+
 __all__ = [
     "pt_avg_pausa",
     "pt_avg_spatial",
     "pt_data_freshness",
     "pt_avg_temporal",
+    "pt_footer_text",
     "pt_heatmap_image",
     "pt_match_lov",
     "pt_on_match_change",
@@ -88,6 +92,7 @@ __all__ = [
     "pt_dfl_caption",
     "pt_show_dfl_caption",
     "pt_team_lov",
+    "pt_warning_text",
 ]
 
 # ---------------------------------------------------------------------------
@@ -438,6 +443,8 @@ def _clear_data(state: Any) -> None:
         ]
     )
     state.pt_show_dfl_caption = False
+    state.pt_warning_text = ""
+    state.pt_footer_text = ""
 
 
 def _refresh_data(state: Any) -> None:
@@ -455,6 +462,9 @@ def _refresh_data(state: Any) -> None:
         summary_df = _fetch_pausa_summary(match_id, team, player_id)
         if summary_df.empty or summary_df.iloc[0]["avg_pausa"] is None:
             _clear_data(state)
+            state.pt_warning_text = (
+                "No PAUSA data for the selected filters. Try a different match or remove team/player filters."
+            )
             return
 
         row = summary_df.iloc[0]
@@ -502,8 +512,21 @@ def _refresh_data(state: Any) -> None:
                     "passes_above_median_pausa": "Above Median",
                 }
             )
+            # Round numeric columns for display (avoid 18-decimal precision)
+            for col in ["Avg PAUSA", "Avg Temporal", "Avg Spatial", "Median PAUSA"]:
+                if col in display_df.columns:
+                    display_df[col] = display_df[col].round(3)
             state.pt_rankings_data = display_df
             state.pt_show_dfl_caption = rankings_df["player_display_name"].str.startswith("DFL-OBJ-").any()
+
+        # Successful load — set footer, clear warning
+        state.pt_warning_text = ""
+        state.pt_footer_text = (
+            "Lee, Jo, Hong, Bauer & Ko (2026). Valuing La Pausa: Quantifying Optimal Pass Timing "
+            "Beyond Speed. MIT Sloan 2026. OBSO: Spearman (2018), Fernandez & Bornn (2018). "
+            "Event-tracking sync: Kim et al. (2025) ELASTIC. IDSSE Bundesliga \u00b7 7 matches \u00b7 "
+            "Tracking-dependent."
+        )
 
         logger.info(
             "PAUSA refreshed: match=%s, team=%s, player=%s, passes=%s",
@@ -533,7 +556,11 @@ def pt_refresh(state: Any) -> None:
         _pt_match_map = {label: mid for label, mid in matches}
         state.pt_match_lov = [label for label, _ in matches]
 
-        if matches and state.pt_selected_match is None:
+        if not matches:
+            state.pt_warning_text = (
+                "Pass timing requires OBSO computation and PAUSA pipeline. Currently available for 7 IDSSE matches."
+            )
+        elif state.pt_selected_match is None:
             # Auto-select first match on initial load
             state.pt_selected_match = matches[0][0]
             pt_on_match_change(state, "pt_selected_match", matches[0][0])

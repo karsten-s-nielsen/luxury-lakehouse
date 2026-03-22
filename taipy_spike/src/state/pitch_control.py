@@ -68,6 +68,8 @@ pc_status: str = ""
 
 pc_data_freshness: str = ""
 
+pc_warning_text: str = ""
+
 __all__ = [
     "pc_avg_dist_to_ball",
     "pc_avg_speed",
@@ -95,6 +97,7 @@ __all__ = [
     "pc_status",
     "pc_time_display",
     "pc_time_label",
+    "pc_warning_text",
 ]
 
 
@@ -403,6 +406,7 @@ def _refresh_frame(state: Any) -> None:
     if frame_data.empty:
         _clear_state(state)
         state.pc_status = "No data for this frame for the selected filters."
+        state.pc_warning_text = "No data for this frame for the selected filters."
         return
 
     # Extract ball position
@@ -473,6 +477,8 @@ def _refresh_frame(state: Any) -> None:
     else:
         state.pc_avg_dist_to_ball = "--"
 
+    state.pc_warning_text = ""
+
     logger.info(
         "Pitch control rendered: model=%s, frame=%d, players=%d",
         model,
@@ -497,6 +503,14 @@ def pc_refresh(state: Any) -> None:
         state.pc_min_seconds = 0
         state.pc_max_seconds = 1
         state.pc_elapsed_seconds = 0
+        # Check if no tracking matches exist at all
+        tracking_lov = getattr(state, "tracking_match_lov", [])
+        if not tracking_lov:
+            state.pc_warning_text = (
+                "Pitch control requires player tracking data (~20 matches from Metrica, IDSSE, SkillCorner)."
+            )
+        else:
+            state.pc_warning_text = ""
         return
 
     period = 1 if state.pc_half == "1st Half" else 2
@@ -506,6 +520,7 @@ def pc_refresh(state: Any) -> None:
     if _min_frame == _max_frame == 0:
         _clear_state(state)
         state.pc_status = "No frames for this match and period for the selected filters."
+        state.pc_warning_text = ""
         state.pc_min_seconds = 0
         state.pc_max_seconds = 1
         state.pc_elapsed_seconds = 0

@@ -36,6 +36,7 @@ ms_passing_chart: str = ""
 ms_possession_chart: str = ""
 ms_ppda_chart: str = ""
 
+ms_warning_text: str = ""
 ms_scope_label: str = ""
 ms_data_freshness: str = ""
 
@@ -54,6 +55,7 @@ __all__ = [
     "ms_ppda_chart",
     "ms_scope_label",
     "ms_shooting_chart",
+    "ms_warning_text",
 ]
 
 
@@ -135,6 +137,7 @@ def ms_refresh(state: Any) -> None:
         state.ms_passing_chart = ""
         state.ms_possession_chart = ""
         state.ms_ppda_chart = ""
+        state.ms_warning_text = ""
         state.ms_scope_label = ""
         state.ms_data_freshness = ""
         return
@@ -159,10 +162,12 @@ def ms_refresh(state: Any) -> None:
         state.ms_passing_chart = ""
         state.ms_possession_chart = ""
         state.ms_ppda_chart = ""
+        state.ms_warning_text = "No match data for the selected filters."
         state.ms_data_freshness = ""
         return
 
     m = match_data.iloc[0]
+    state.ms_warning_text = ""
 
     # --- Scorecard metrics ---
     home_name = str(m.get("home_team_name", "Home"))

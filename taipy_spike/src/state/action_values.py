@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from cache import ttl_cache
 from db import execute_query, t
-from filters import fetch_data_freshness
+from filters import fetch_data_freshness, fetch_scope_label
 from render import PITCH_BG_COLOR, TEXT_COLOR, chart_to_file, fmt_int
 
 from state.shared import (
@@ -64,6 +64,8 @@ av_timeline_data: pd.DataFrame = pd.DataFrame(
 )
 
 av_data_freshness: str = ""
+av_scope_label: str = ""
+av_warning_text: str = ""
 
 __all__ = [
     "av_breakdown_image",
@@ -75,11 +77,13 @@ __all__ = [
     "av_rankings_data",
     "av_rankings_empty_msg",
     "av_refresh",
+    "av_scope_label",
     "av_timeline_data",
     "av_timeline_image",
     "av_top_action",
     "av_total_actions",
     "av_total_vaep",
+    "av_warning_text",
 ]
 
 
@@ -307,7 +311,12 @@ def _refresh_rankings(state: Any) -> None:
             columns=["Player", "Pos", "Min", "Total VAEP", "VAEP per 90", "Off per 90", "Def per 90", "Actions"]
         )
         state.av_rankings_empty_msg = "Select a competition to see VAEP rankings."
+        state.av_scope_label = ""
+        state.av_warning_text = ""
         return
+
+    team_id = get_team_id(state.selected_team)
+    state.av_scope_label = fetch_scope_label(comp_id, team_id)
 
     min_min = int(state.min_minutes) if hasattr(state, "min_minutes") else 90
 
@@ -319,11 +328,13 @@ def _refresh_rankings(state: Any) -> None:
             columns=["Player", "Pos", "Min", "Total VAEP", "VAEP per 90", "Off per 90", "Def per 90", "Actions"]
         )
         state.av_rankings_empty_msg = "Error loading rankings."
+        state.av_warning_text = "Error loading VAEP rankings."
         return
 
     table = _format_rankings_table(rankings)
     state.av_rankings_data = table
     state.av_rankings_empty_msg = "" if not table.empty else "No VAEP data available for the selected filters."
+    state.av_warning_text = "" if not table.empty else "No VAEP data for the selected filters."
 
 
 def _refresh_breakdown(state: Any) -> None:
@@ -334,10 +345,13 @@ def _refresh_breakdown(state: Any) -> None:
         state.av_total_actions = "--"
         state.av_top_action = "--"
         state.av_breakdown_image = ""
+        state.av_scope_label = ""
+        state.av_warning_text = ""
         return
 
     team_id = get_team_id(state.selected_team)
     player_id = get_player_id(state.selected_player)
+    state.av_scope_label = fetch_scope_label(comp_id, team_id)
 
     try:
         breakdown = _fetch_breakdown(comp_id, team_id, player_id)
@@ -347,6 +361,7 @@ def _refresh_breakdown(state: Any) -> None:
         state.av_total_actions = "Error"
         state.av_top_action = "Error"
         state.av_breakdown_image = ""
+        state.av_warning_text = "Error loading action breakdown."
         return
 
     if breakdown.empty:
@@ -354,7 +369,10 @@ def _refresh_breakdown(state: Any) -> None:
         state.av_total_actions = "0"
         state.av_top_action = "N/A"
         state.av_breakdown_image = ""
+        state.av_warning_text = "No VAEP data for the selected filters."
         return
+
+    state.av_warning_text = ""
 
     # Metrics
     total_vaep = float(breakdown["total_vaep"].sum())
@@ -382,9 +400,14 @@ def _refresh_timeline(state: Any) -> None:
         state.av_timeline_data = pd.DataFrame(
             columns=["Action", "Minute", "Second", "Period", "Result", "VAEP Value", "Offensive", "Defensive"]
         )
+        state.av_scope_label = ""
+        state.av_warning_text = ""
         return
 
+    comp_id = get_comp_id(state.selected_competition)
     team_id = get_team_id(state.selected_team)
+    if comp_id is not None:
+        state.av_scope_label = fetch_scope_label(comp_id, team_id)
 
     try:
         actions = _fetch_timeline(match_id, team_id)
@@ -398,6 +421,7 @@ def _refresh_timeline(state: Any) -> None:
         state.av_timeline_data = pd.DataFrame(
             columns=["Action", "Minute", "Second", "Period", "Result", "VAEP Value", "Offensive", "Defensive"]
         )
+        state.av_warning_text = "Error loading match timeline."
         return
 
     if actions.empty:
@@ -409,7 +433,10 @@ def _refresh_timeline(state: Any) -> None:
         state.av_timeline_data = pd.DataFrame(
             columns=["Action", "Minute", "Second", "Period", "Result", "VAEP Value", "Offensive", "Defensive"]
         )
+        state.av_warning_text = "No VAEP data for the selected match."
         return
+
+    state.av_warning_text = ""
 
     # Metrics
     positive = int((actions["vaep_value"] > 0).sum())

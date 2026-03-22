@@ -78,6 +78,8 @@ dv_timeline_data: pd.DataFrame = pd.DataFrame(columns=_DV_TIMELINE_COLS)
 
 dv_data_freshness: str = ""
 
+dv_warning_text: str = ""
+
 __all__ = [
     # Filter state
     "dv_data_freshness",
@@ -111,6 +113,7 @@ __all__ = [
     "dv_on_timeline_player_change",
     "dv_on_timeline_match_change",
     "dv_refresh",
+    "dv_warning_text",
 ]
 
 # ---------------------------------------------------------------------------
@@ -494,10 +497,11 @@ def _format_rankings_table(df: pd.DataFrame) -> pd.DataFrame:
     }
     display = df.drop(columns=["player_id"], errors="ignore").rename(columns=rename_map)
 
-    # Round numeric columns for display
-    for col in ["Total Pressure"]:
+    # Convert to numeric (SUM returns object/Decimal via psycopg2), fill NaN, round
+    numeric_cols = ["Total Pressure", "Actions Faced", "Intercepted", "Shots Conceded", "Disturbed", "Deterred"]
+    for col in numeric_cols:
         if col in display.columns:
-            display[col] = display[col].round(2)
+            display[col] = pd.to_numeric(display[col], errors="coerce").fillna(0).round(2)
 
     return display
 
@@ -582,6 +586,7 @@ def _refresh_rankings(state: Any) -> None:
     if comp_id is None:
         state.dv_rankings_data = pd.DataFrame(columns=_DV_RANKINGS_COLS)
         _dv_rankings_full = pd.DataFrame()
+        state.dv_warning_text = ""
         return
 
     team_id = _get_dv_team_id(state.dv_selected_team)
@@ -592,7 +597,13 @@ def _refresh_rankings(state: Any) -> None:
         logger.exception("Failed to fetch DEFCON rankings")
         state.dv_rankings_data = pd.DataFrame(columns=_DV_RANKINGS_COLS)
         _dv_rankings_full = pd.DataFrame()
+        state.dv_warning_text = "No defensive pressure data for the selected filters."
         return
+
+    if rankings.empty:
+        state.dv_warning_text = "No defensive pressure data for the selected filters."
+    else:
+        state.dv_warning_text = ""
 
     _dv_rankings_full = rankings
     state.dv_rankings_data = _format_rankings_table(rankings)
@@ -606,6 +617,7 @@ def _refresh_breakdown(state: Any) -> None:
     comp_id = _get_dv_comp_id(state.dv_selected_comp)
     if comp_id is None:
         _reset_breakdown(state)
+        state.dv_warning_text = ""
         return
 
     team_id = _get_dv_team_id(state.dv_selected_team)
@@ -616,6 +628,7 @@ def _refresh_breakdown(state: Any) -> None:
 
     if _dv_rankings_full.empty:
         _reset_breakdown(state)
+        state.dv_warning_text = "No defensive pressure data for the selected filters."
         return
 
     # Filter to players who have breakdown data
@@ -624,6 +637,7 @@ def _refresh_breakdown(state: Any) -> None:
     except Exception:
         logger.exception("Failed to fetch breakdown player IDs")
         _reset_breakdown(state)
+        state.dv_warning_text = "No defensive pressure data for the selected filters."
         return
 
     player_options = _build_player_options(_dv_rankings_full)
@@ -631,6 +645,7 @@ def _refresh_breakdown(state: Any) -> None:
 
     if not filtered:
         _reset_breakdown(state)
+        state.dv_warning_text = "No defensive pressure data for the selected filters."
         return
 
     _dv_breakdown_player_map = filtered
@@ -642,6 +657,7 @@ def _refresh_breakdown(state: Any) -> None:
 
     # Load breakdown for selected player
     _load_breakdown_for_player(state)
+    state.dv_warning_text = ""
 
 
 def _load_breakdown_for_player(state: Any) -> None:
@@ -701,6 +717,7 @@ def _refresh_timeline(state: Any) -> None:
     comp_id = _get_dv_comp_id(state.dv_selected_comp)
     if comp_id is None:
         _reset_timeline(state)
+        state.dv_warning_text = ""
         return
 
     team_id = _get_dv_team_id(state.dv_selected_team)
@@ -711,6 +728,7 @@ def _refresh_timeline(state: Any) -> None:
 
     if _dv_rankings_full.empty:
         _reset_timeline(state)
+        state.dv_warning_text = "No defensive pressure data for the selected filters."
         return
 
     # Filter to players who have timeline data
@@ -719,6 +737,7 @@ def _refresh_timeline(state: Any) -> None:
     except Exception:
         logger.exception("Failed to fetch timeline player IDs")
         _reset_timeline(state)
+        state.dv_warning_text = "No defensive pressure data for the selected filters."
         return
 
     player_options = _build_player_options(_dv_rankings_full)
@@ -726,6 +745,7 @@ def _refresh_timeline(state: Any) -> None:
 
     if not filtered:
         _reset_timeline(state)
+        state.dv_warning_text = "No defensive pressure data for the selected filters."
         return
 
     _dv_timeline_player_map = filtered
@@ -737,6 +757,7 @@ def _refresh_timeline(state: Any) -> None:
 
     # Load matches for selected player
     _load_timeline_matches(state)
+    state.dv_warning_text = ""
 
 
 def _load_timeline_matches(state: Any) -> None:

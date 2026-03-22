@@ -45,6 +45,7 @@ sm_pitch_image: str = ""
 sm_scope_label: str = ""
 sm_data_scope_note: str = ""
 sm_nan_fallback_note: str = ""
+sm_warning_text: str = ""
 sm_empty_message: str = ""
 sm_data_freshness: str = ""
 
@@ -61,6 +62,7 @@ __all__ = [
     "sm_scope_label",
     "sm_total_shots",
     "sm_total_xg",
+    "sm_warning_text",
     "sm_xg_delta",
     "sm_xg_per_delta",
     "sm_xg_per_shot",
@@ -151,6 +153,7 @@ def _render_pitch(shots: pd.DataFrame, xg_col: str) -> str:
     """Render shot map to temp PNG. Sized by xG, colored by goal/miss."""
     pitch = VerticalPitch(half=True, pitch_color=PITCH_BG_COLOR, line_color=PITCH_LINE_COLOR)
     fig, ax = pitch.draw(figsize=(8, 10))
+    ax.set_title("Shot Map", color=PITCH_LINE_COLOR, fontsize=14, pad=10)
 
     if not shots.empty:
         xg_series = shots[xg_col] if xg_col in shots.columns else shots["statsbomb_xg"]
@@ -207,6 +210,7 @@ def sm_refresh(state: Any) -> None:
         state.sm_data_scope_note = ""
         state.sm_nan_fallback_note = ""
         state.sm_empty_message = "Select a competition to begin."
+        state.sm_warning_text = ""
         state.sm_data_freshness = ""
         return
 
@@ -231,12 +235,14 @@ def sm_refresh(state: Any) -> None:
         state.sm_pitch_image = ""
         state.sm_data_scope_note = ""
         state.sm_nan_fallback_note = ""
-        state.sm_empty_message = "No shots for the selected filters."
+        state.sm_empty_message = ""
+        state.sm_warning_text = "No shots for the selected filters."
         state.sm_data_freshness = ""
         return
 
-    # Clear empty message since we have data
+    # Clear empty/warning messages since we have data
     state.sm_empty_message = ""
+    state.sm_warning_text = ""
 
     # Join custom xG predictions (graceful degradation)
     shots, has_custom_xg = _join_xg_predictions(shots, comp_id)

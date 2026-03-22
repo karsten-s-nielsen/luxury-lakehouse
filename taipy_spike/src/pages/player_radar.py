@@ -13,6 +13,8 @@ page_config = PageConfig(
         Citation("mplsoccer", "https://mplsoccer.readthedocs.io/"),
         Citation("Decroos et al. (2019)", "https://doi.org/10.1007/s10994-021-05989-6"),
     ],
+    scope_vars=["pr_scope_label"],
+    warning_var="pr_warning_text",
     content=[
         ContentRow(
             [
@@ -31,6 +33,6 @@ page_config = PageConfig(
     ],
     empty_message="Select a competition to begin.",
     empty_condition="not pr_comp_selected",
-    freshness_var="pr_data_freshness_text",
+    freshness_var="pr_data_freshness",
 )
 page_md = build_page(page_config)

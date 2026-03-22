@@ -35,6 +35,8 @@ page_config = PageConfig(
     ],
     empty_message="Select a match to begin. PAUSA data available for 7 IDSSE Bundesliga matches.",
     empty_condition="len(pt_avg_pausa) == 0 and len(pt_match_lov) > 0",
+    warning_var="pt_warning_text",
+    footer_var="pt_footer_text",
     metrics=[
         Metric(
             "Avg PAUSA",

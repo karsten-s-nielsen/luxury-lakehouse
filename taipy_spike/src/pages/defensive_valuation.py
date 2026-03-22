@@ -23,6 +23,7 @@ page_config = PageConfig(
         SubView(
             condition='dv_current_view == "Rankings"',
             content=[ContentRow([ContentBlock("table", "dv_rankings_data")])],
+            warning_var="dv_warning_text",
             scale_notes=[
                 "Requires StatsBomb 360 freeze-frame data (323 of 380+ matches).",
                 "Total Pressure: higher = more defensive attention attracted (typical range 1-50 per competition)",
@@ -33,6 +34,7 @@ page_config = PageConfig(
         SubView(
             condition='dv_current_view == "Breakdown"',
             content=[ContentRow([ContentBlock("image", "dv_breakdown_image")])],
+            warning_var="dv_warning_text",
             scale_notes=[
                 "Requires StatsBomb 360 freeze-frame data (323 of 380+ matches).",
             ],
@@ -48,6 +50,7 @@ page_config = PageConfig(
                     "Concede",
                     "dv_concede",
                     "DEFCON credit charged when a shot or goal occurs despite pressure. Lower is better. Typical match total per player: 0.0-0.5 credits.",
+                    lower_is_better=True,
                 ),
                 Metric(
                     "Disturb",
@@ -64,6 +67,7 @@ page_config = PageConfig(
         SubView(
             condition='dv_current_view == "Timeline"',
             content=[ContentRow([ContentBlock("table", "dv_timeline_data")])],
+            warning_var="dv_warning_text",
             scale_notes=[
                 "Requires StatsBomb 360 freeze-frame data (323 of 380+ matches).",
                 "DEFCON Value: positive = effective defensive contribution. Confidence: 0-1, higher = more certain.",

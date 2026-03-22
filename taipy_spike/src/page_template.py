@@ -50,6 +50,7 @@ class SidebarWidget:
     # Slider-specific: debounce delay in ms. Callback fires only after user stops
     # moving for this duration. Prevents expensive re-renders during drag.
     change_delay: int = 0
+    help: str = ""  # tooltip help text (rendered as info icon next to widget)
 
 
 def _build_render_condition(w: SidebarWidget) -> str:
@@ -154,6 +155,9 @@ def _build_sidebar_widget(w: SidebarWidget, f: bool) -> str:
         parts.append("|>")
         parts.append(f"<|{lb}{w.var}{rb}|toggle|on_change={w.on_change}|>")
         parts.append("|>")  # close filter-box
+
+    if w.help:
+        parts.append(f'<span class="ll-help material-symbols-outlined" title="{w.help}">info</span>')
 
     parts.append("|>")  # close outer wrapper
     return "\n".join(parts)
@@ -301,6 +305,8 @@ class PageConfig:
     scope_vars: list[str] = field(default_factory=list)
     # Optional: data freshness variable shown below the image
     freshness_var: str = ""
+    warning_var: str = ""  # state variable for "no data" warnings (ll-warning-box)
+    footer_var: str = ""  # state variable for footer text (citations, scope notes)
     # Optional: multi-view sub-views (when set, replaces single-view layout)
     sub_views: list[SubView] = field(default_factory=list)
 
@@ -334,6 +340,7 @@ class SubView:
     # Empty state (fallback — shown when primary doesn't match, e.g., "no tracking data")
     fallback_empty_message: str = ""
     fallback_empty_condition: str = ""
+    warning_var: str = ""
     scope_vars: list[str] = field(default_factory=list)
 
 
@@ -459,6 +466,13 @@ def _build_sub_view(sv: SubView, page_title: str) -> str:
         parts.append(note)
         parts.append("|>")
 
+    # Scope variables (above content grid, below scale notes)
+    for scope_v in sv.scope_vars:
+        parts.append(f"<|part|render={{len({scope_v}) > 0}}|")
+        parts.append(f"<|{{{scope_v}}}|text|>")
+        parts.append("|>")
+        parts.append("")
+
     # ALWAYS use 3fr/1fr grid — right column reserved even if empty
     parts.append("<|part|class_name=ll-grid-3-1|")
     parts.append("")
@@ -478,6 +492,11 @@ def _build_sub_view(sv: SubView, page_title: str) -> str:
     if sv.fallback_empty_condition:
         parts.append(f"<|part|render={{{sv.fallback_empty_condition}}}|class_name=ll-info-box|")
         parts.append(sv.fallback_empty_message)
+        parts.append("|>")
+
+    if sv.warning_var:
+        parts.append(f"<|part|render={{len({sv.warning_var}) > 0}}|class_name=ll-warning-box|")
+        parts.append(f"<|{{{sv.warning_var}}}|text|>")
         parts.append("|>")
 
     parts.append("|>")  # close left column
@@ -573,11 +592,23 @@ def build_page(cfg: PageConfig) -> str:
             parts.append(f"{cfg.empty_message}")
             parts.append("|>")
 
+        # Warning state (no-data — amber box, distinct from guidance)
+        if cfg.warning_var:
+            parts.append(f"<|part|render={{len({cfg.warning_var}) > 0}}|class_name=ll-warning-box|")
+            parts.append(f"<|{{{cfg.warning_var}}}|text|>")
+            parts.append("|>")
+
         # Data freshness
         if cfg.freshness_var:
             parts.append("")
             parts.append(f"<|part|render={{len({cfg.freshness_var}) > 0}}|")
             parts.append(f"<|{{{cfg.freshness_var}}}|text|class_name=ll-reference|>")
+            parts.append("|>")
+
+        if cfg.footer_var:
+            parts.append("")
+            parts.append(f"<|part|render={{len({cfg.footer_var}) > 0}}|")
+            parts.append(f"<|{{{cfg.footer_var}}}|text|class_name=ll-reference|>")
             parts.append("|>")
 
         parts.append("|>")

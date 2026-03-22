@@ -19,7 +19,11 @@ page_config = PageConfig(
     sub_views=[
         SubView(
             condition='selected_sub_view == "Physical Performance"',
-            content=[ContentRow([ContentBlock("image", "ma_physical_image")])],
+            content=[
+                ContentRow([ContentBlock("image", "ma_physical_image")]),
+                ContentRow([ContentBlock("expandable_table", "ma_physical_table", header="Full Stats")]),
+            ],
+            warning_var="ma_warning_text",
             empty_message="Select a match to begin.",
             empty_condition="len(ma_physical_image) == 0 and len(tracking_match_lov) > 0",
             fallback_empty_message="No physical stats for the selected filters. This page requires tracking data (available for ~20 matches).",
@@ -45,7 +49,12 @@ page_config = PageConfig(
         ),
         SubView(
             condition='selected_sub_view == "PPDA / Pressing Intensity"',
-            content=[ContentRow([ContentBlock("image", "ma_ppda_image")])],
+            content=[
+                ContentRow([ContentBlock("image", "ma_ppda_image")]),
+                ContentRow([ContentBlock("expandable_table", "ma_ppda_table", header="PPDA Data")]),
+            ],
+            scope_vars=["ma_ppda_scope_label"],
+            warning_var="ma_warning_text",
             empty_message="Select a competition to begin.",
             empty_condition="len(ma_ppda_image) == 0 and len(competition_lov) > 0",
             metrics=[
@@ -64,7 +73,11 @@ page_config = PageConfig(
         ),
         SubView(
             condition='selected_sub_view == "Off-Ball xT"',
-            content=[ContentRow([ContentBlock("image", "ma_oxt_image")])],
+            content=[
+                ContentRow([ContentBlock("image", "ma_oxt_image")]),
+                ContentRow([ContentBlock("expandable_table", "ma_oxt_table", header="Off-Ball xT Data")]),
+            ],
+            warning_var="ma_warning_text",
             empty_message="Select a match to begin.",
             empty_condition="len(ma_oxt_image) == 0 and len(tracking_match_lov) > 0",
             fallback_empty_message="No tracking data for the selected filters. This page requires tracking data (available for ~20 matches).",
