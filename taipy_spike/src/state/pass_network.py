@@ -8,24 +8,16 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import matplotlib
 import pandas as pd
+import plotly.graph_objects as go
 from cache import ttl_cache
 from db import execute_query, t
 from filters import fetch_data_freshness, fetch_scope_label
-from mplsoccer import Pitch
-from render import PITCH_BG_COLOR, PITCH_LINE_COLOR, TEXT_COLOR, fmt_int, pitch_to_file
+from render import fmt_int
 
 from state.shared import get_comp_id, get_match_id, get_team_id, register_page_refresher
 
-matplotlib.use("Agg")
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Theme constants (match Streamlit originals)
-# ---------------------------------------------------------------------------
-_NETWORK_NODE_COLOR = "#f4d03f"
-_NETWORK_EDGE_COLOR = "#e0e0e0"
 
 # ---------------------------------------------------------------------------
 # Exported state variables
@@ -34,7 +26,7 @@ pn_total_passes: str = "--"
 pn_unique_connections: str = "--"
 pn_top_pair_count: str = "--"
 pn_top_pair_names: str = ""
-pn_pitch_image: str = ""
+pn_chart_figure: go.Figure | None = None
 
 pn_warning_text: str = ""
 pn_scope_label: str = ""
@@ -42,7 +34,7 @@ pn_data_freshness: str = ""
 
 __all__ = [
     "pn_data_freshness",
-    "pn_pitch_image",
+    "pn_chart_figure",
     "pn_refresh",
     "pn_scope_label",
     "pn_top_pair_count",
@@ -136,89 +128,94 @@ def _build_network(
 # ---------------------------------------------------------------------------
 
 
-def _render_network(nodes: pd.DataFrame, edges: pd.DataFrame) -> str:
-    """Render pass network on an mplsoccer pitch and save to temp file.
+def _add_pitch_shapes(fig: go.Figure) -> None:
+    """Add StatsBomb pitch lines (120x80) as Plotly shapes."""
+    line = dict(color="rgba(255,255,255,0.25)", width=1.5)
+    # Outer boundary
+    fig.add_shape(type="rect", x0=0, y0=0, x1=120, y1=80, line=line)
+    # Halfway line
+    fig.add_shape(type="line", x0=60, y0=0, x1=60, y1=80, line=line)
+    # Center circle
+    fig.add_shape(type="circle", x0=60 - 9.15, y0=40 - 9.15, x1=60 + 9.15, y1=40 + 9.15, line=line)
+    # Center spot
+    fig.add_shape(type="circle", x0=59.5, y0=39.5, x1=60.5, y1=40.5, line=line, fillcolor="rgba(255,255,255,0.25)")
+    # Left penalty area
+    fig.add_shape(type="rect", x0=0, y0=18, x1=18, y1=62, line=line)
+    # Right penalty area
+    fig.add_shape(type="rect", x0=102, y0=18, x1=120, y1=62, line=line)
+    # Left goal area
+    fig.add_shape(type="rect", x0=0, y0=30, x1=6, y1=50, line=line)
+    # Right goal area
+    fig.add_shape(type="rect", x0=114, y0=30, x1=120, y1=50, line=line)
+    # Left penalty spot
+    fig.add_shape(type="circle", x0=11.5, y0=39.5, x1=12.5, y1=40.5, line=line, fillcolor="rgba(255,255,255,0.25)")
+    # Right penalty spot
+    fig.add_shape(type="circle", x0=107.5, y0=39.5, x1=108.5, y1=40.5, line=line, fillcolor="rgba(255,255,255,0.25)")
 
-    Edges: line width proportional to pair count.
-    Nodes: marker size proportional to total pass involvements.
-    Returns file path to the saved PNG.
-    """
-    pitch = Pitch(pitch_type="statsbomb", pitch_color=PITCH_BG_COLOR, line_color=PITCH_LINE_COLOR)
-    result: Any = pitch.draw(figsize=(12, 8))
-    fig: matplotlib.figure.Figure = result[0]
-    ax: Any = result[1]
-    fig.set_facecolor(PITCH_BG_COLOR)
 
+def _build_network_figure(nodes: pd.DataFrame, edges: pd.DataFrame) -> go.Figure | None:
+    """Build interactive Plotly pass network figure."""
     if nodes.empty:
-        ax.set_title("Pass Network", color=TEXT_COLOR, fontsize=14, pad=10)
-        return pitch_to_file(fig, "pn_network")
+        return None
 
-    # Draw edges
-    if not edges.empty:
-        node_pos = nodes.set_index("player_id")[["avg_x", "avg_y"]]
-        max_pair = int(edges["pair_count"].max())
-        min_pair = int(edges["pair_count"].min())
-        pair_range = max(max_pair - min_pair, 1)
+    fig = go.Figure()
 
-        for _, edge in edges.iterrows():
-            pid = edge["passer_id"]
-            rid = edge["receiver_id"]
-            if pid not in node_pos.index or rid not in node_pos.index:
-                continue
+    # Draw pitch lines first (behind data)
+    _add_pitch_shapes(fig)
 
-            px, py = float(node_pos.loc[pid, "avg_x"]), float(node_pos.loc[pid, "avg_y"])
-            rx, ry = float(node_pos.loc[rid, "avg_x"]), float(node_pos.loc[rid, "avg_y"])
-            count = int(edge["pair_count"])
-            weight = (count - min_pair) / pair_range
-            width = 1 + weight * 6
-            alpha = 0.3 + weight * 0.5
-
-            pitch.arrows(
-                [px],
-                [py],
-                [rx],
-                [ry],
-                color=_NETWORK_EDGE_COLOR,
-                alpha=alpha,
-                width=width,
-                ax=ax,
-                headwidth=4,
-                headlength=4,
-                zorder=2,
+    # Add edges as lines
+    node_lookup = {row["player_id"]: row for _, row in nodes.iterrows()}
+    pair_max = edges["pair_count"].max() if not edges.empty else 1
+    for _, edge in edges.iterrows():
+        src = node_lookup.get(edge["passer_id"])
+        tgt = node_lookup.get(edge["receiver_id"])
+        if src is None or tgt is None:
+            continue
+        width = 1 + (edge["pair_count"] / max(pair_max, 1)) * 6
+        fig.add_trace(
+            go.Scatter(
+                x=[src["avg_x"], tgt["avg_x"]],
+                y=[src["avg_y"], tgt["avg_y"]],
+                mode="lines",
+                line=dict(width=width, color="rgba(255,255,255,0.3)"),
+                hoverinfo="text",
+                text=f"{src['player_display_name']} \u2192 {tgt['player_display_name']}: {edge['pair_count']} passes",
+                showlegend=False,
             )
-
-    # Draw nodes — size proportional to pass involvement count
-    max_passes = int(nodes["pass_count"].max())
-    min_passes_val = int(nodes["pass_count"].min())
-    pass_range = max(max_passes - min_passes_val, 1)
-    sizes = 80 + (nodes["pass_count"] - min_passes_val) / pass_range * 400
-
-    pitch.scatter(
-        nodes["avg_x"],
-        nodes["avg_y"],
-        s=sizes,
-        color=_NETWORK_NODE_COLOR,
-        edgecolors=PITCH_LINE_COLOR,
-        linewidth=0.8,
-        ax=ax,
-        zorder=3,
-    )
-
-    # Player name labels
-    for _, node in nodes.iterrows():
-        ax.text(
-            float(node["avg_x"]),
-            float(node["avg_y"]) - 3.5,
-            str(node["player_display_name"]),
-            color="white",
-            fontsize=7,
-            ha="center",
-            va="top",
-            zorder=4,
         )
 
-    ax.set_title("Pass Network", color=TEXT_COLOR, fontsize=14, pad=10)
-    return pitch_to_file(fig, "pn_network")
+    # Add nodes as scatter
+    pc_min = nodes["pass_count"].min()
+    pc_range = max(nodes["pass_count"].max() - pc_min, 1)
+    sizes = 8 + (nodes["pass_count"] - pc_min) / pc_range * 30
+    fig.add_trace(
+        go.Scatter(
+            x=nodes["avg_x"],
+            y=nodes["avg_y"],
+            mode="markers+text",
+            marker=dict(size=sizes, color="#f59e0b"),
+            text=nodes["player_display_name"],
+            textposition="top center",
+            textfont=dict(color="white", size=10),
+            hovertemplate="%{text}<br>Passes: %{customdata}<extra></extra>",
+            customdata=nodes["pass_count"],
+            showlegend=False,
+        )
+    )
+
+    fig.update_layout(
+        title="Pass Network",
+        title_font_color="white",
+        plot_bgcolor="#1a3a2a",
+        paper_bgcolor="rgba(0,0,0,0)",
+        xaxis=dict(range=[0, 120], showgrid=False, zeroline=False, visible=False),
+        yaxis=dict(range=[80, 0], showgrid=False, zeroline=False, visible=False, scaleanchor="x"),
+        margin=dict(l=10, r=10, t=40, b=10),
+        height=650,
+        font=dict(color="white"),
+    )
+
+    return fig
 
 
 # ---------------------------------------------------------------------------
@@ -237,7 +234,7 @@ def pn_refresh(state: Any) -> None:
         state.pn_unique_connections = "--"
         state.pn_top_pair_count = "--"
         state.pn_top_pair_names = ""
-        state.pn_pitch_image = ""
+        state.pn_chart_figure = None
         state.pn_warning_text = ""
         state.pn_scope_label = ""
         state.pn_data_freshness = ""
@@ -254,7 +251,7 @@ def pn_refresh(state: Any) -> None:
         state.pn_unique_connections = "Error"
         state.pn_top_pair_count = "--"
         state.pn_top_pair_names = ""
-        state.pn_pitch_image = ""
+        state.pn_chart_figure = None
         state.pn_data_freshness = ""
         return
 
@@ -263,7 +260,7 @@ def pn_refresh(state: Any) -> None:
         state.pn_unique_connections = "0"
         state.pn_top_pair_count = "0"
         state.pn_top_pair_names = "No data (Wyscout matches lack recipient data)"
-        state.pn_pitch_image = ""
+        state.pn_chart_figure = None
         state.pn_warning_text = (
             "No completed passes for the selected filters. Wyscout matches do not include pass recipient data."
         )
@@ -292,7 +289,7 @@ def pn_refresh(state: Any) -> None:
         state.pn_top_pair_names = "No connections meet threshold"
 
     # Render pitch
-    state.pn_pitch_image = _render_network(nodes, edges)
+    state.pn_chart_figure = _build_network_figure(nodes, edges)
 
     # Data freshness
     state.pn_data_freshness = fetch_data_freshness()

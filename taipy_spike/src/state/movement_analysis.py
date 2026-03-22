@@ -36,7 +36,18 @@ _BAR_COLOR = "#2a9d8f"
 _HOME_PPDA_COLOR = "#e63946"
 _AWAY_PPDA_COLOR = "#457b9d"
 
+# ── Physical metric selector (M5) ───────────────────────────────────────────
+_PHYSICAL_METRIC_MAP: dict[str, tuple[str, str, str]] = {
+    "Total Distance (km)": ("total_distance_km", "Distance (km)", "Total Distance by Player"),
+    "HSR Distance (m)": ("hsr_distance_m", "HSR (m)", "HSR Distance by Player"),
+    "Sprint Distance (m)": ("sprint_distance_m", "Sprint (m)", "Sprint Distance by Player"),
+}
+
 # ── Exported state variables (all ma_ prefixed) ─────────────────────────────
+# Physical metric selector
+ma_physical_metric: str = "Total Distance (km)"
+ma_physical_metric_lov: list[str] = ["Total Distance (km)", "HSR Distance (m)", "Sprint Distance (m)"]
+
 # Physical Performance metrics
 ma_phys_players: str = "--"
 ma_phys_avg_dist: str = "--"
@@ -79,6 +90,8 @@ __all__ = [
     "ma_phys_max_speed_ms",
     "ma_phys_players",
     "ma_physical_image",
+    "ma_physical_metric",
+    "ma_physical_metric_lov",
     "ma_physical_table",
     "ma_ppda_avg_away",
     "ma_ppda_avg_home",
@@ -88,6 +101,7 @@ __all__ = [
     "ma_ppda_table",
     "ma_refresh",
     "ma_warning_text",
+    "on_ma_physical_metric_change",
 ]
 
 
@@ -220,6 +234,14 @@ def _render_ppda_bars(data: pd.DataFrame, title: str = "PPDA by Match") -> str:
     return chart_to_file(fig, "ma_ppda")
 
 
+# ── Callbacks ─────────────────────────────────────────────────────────────
+
+
+def on_ma_physical_metric_change(state: Any, var_name: str, var_value: Any) -> None:
+    """Re-render physical bars when metric selector changes."""
+    _refresh_physical(state)
+
+
 # ── Sub-view refresh helpers ────────────────────────────────────────────────
 
 
@@ -253,10 +275,12 @@ def _refresh_physical(state: Any) -> None:
     state.ma_phys_max_speed_kmh = f"{stats['max_speed_ms'].max() * 3.6:.1f}"
     state.ma_phys_max_speed_ms = f"{stats['max_speed_ms'].max():.1f}"
 
-    # Default metric: total_distance_km
-    state.ma_physical_image = _render_physical_bars(
-        stats, "total_distance_km", "Distance (km)", "Total Distance by Player"
+    # Dynamic metric from selector (M5)
+    metric_key = getattr(state, "ma_physical_metric", "Total Distance (km)")
+    col, label, title = _PHYSICAL_METRIC_MAP.get(
+        metric_key, ("total_distance_km", "Distance (km)", "Total Distance by Player")
     )
+    state.ma_physical_image = _render_physical_bars(stats, col, label, title)
 
     # Expandable table
     state.ma_physical_table = stats.drop(columns=["player_id", "match_id", "source_provider"], errors="ignore").rename(
@@ -267,6 +291,8 @@ def _refresh_physical(state: Any) -> None:
             "hsr_distance_m": "HSR (m)",
             "sprint_distance_m": "Sprint (m)",
             "sprint_frame_count": "Sprint Frames",
+            "high_accel_count": "High Accel",
+            "high_decel_count": "High Decel",
             "avg_speed_ms": "Avg Speed (m/s)",
             "max_speed_ms": "Max Speed (m/s)",
         }

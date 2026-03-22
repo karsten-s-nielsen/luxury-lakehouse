@@ -13,18 +13,15 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import matplotlib
-import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 from cache import ttl_cache
 from db import execute_query, t
 from filters import fetch_data_freshness
-from render import PITCH_BG_COLOR, TEXT_COLOR, chart_to_file
 
 from state.shared import register_page_refresher
 
-matplotlib.use("Agg")
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -58,7 +55,7 @@ dv_intercept: str = "--"
 dv_concede: str = "--"
 dv_disturb: str = "--"
 dv_deter: str = "--"
-dv_breakdown_image: str = ""
+dv_breakdown_figure: go.Figure | None = None
 
 # Timeline view state
 dv_timeline_player_lov: list[str] = []
@@ -80,6 +77,8 @@ dv_data_freshness: str = ""
 
 dv_warning_text: str = ""
 
+dv_breakdown_caption: str = ""
+
 __all__ = [
     # Filter state
     "dv_data_freshness",
@@ -98,7 +97,8 @@ __all__ = [
     "dv_concede",
     "dv_disturb",
     "dv_deter",
-    "dv_breakdown_image",
+    "dv_breakdown_caption",
+    "dv_breakdown_figure",
     # Timeline
     "dv_timeline_player_lov",
     "dv_selected_timeline_player",
@@ -405,74 +405,41 @@ _CREDIT_LABELS = {
 }
 
 
-def _render_breakdown_chart(breakdown: pd.DataFrame, player_name: str) -> str:
-    """Render grouped horizontal bar chart of pressure breakdown per match.
-
-    Mirrors the Streamlit Plotly grouped bar chart: one group of 4 bars per match,
-    credit types color-coded. Limits to 10 matches to prevent bar slivers.
-    Returns file path for Taipy <|image|>.
-    """
+def _build_breakdown_figure(breakdown: pd.DataFrame, player_name: str) -> go.Figure | None:
+    """Build interactive Plotly grouped bar figure for pressure breakdown."""
     if breakdown.empty:
-        return ""
-
-    label_col = "match_label" if breakdown["match_label"].notna().all() else "match_id"
-    plot_data = breakdown.head(10) if len(breakdown) > 10 else breakdown
-
+        return None
     credit_cols = ["intercept_pressure", "concede_pressure", "disturb_pressure", "deter_pressure"]
-    n_matches = len(plot_data)
-    n_credits = len(credit_cols)
-    bar_height = 0.18
-    group_gap = 0.15
-
-    fig_height = max(4, n_matches * (n_credits * bar_height + group_gap) + 1.5)
-    fig, ax = plt.subplots(figsize=(12, fig_height))
-    fig.set_facecolor(PITCH_BG_COLOR)
-    ax.set_facecolor(PITCH_BG_COLOR)
-
-    y_positions = np.arange(n_matches)
-    offsets = np.linspace(
-        -(n_credits - 1) * bar_height / 2,
-        (n_credits - 1) * bar_height / 2,
-        n_credits,
+    labels = ["Intercept", "Concede", "Disturb", "Deter"]
+    # Guard against null match_label
+    label_col = "match_label" if breakdown["match_label"].notna().all() else "match_id"
+    plot_data = breakdown.head(10).melt(
+        id_vars=[label_col],
+        value_vars=credit_cols,
+        var_name="Credit Type",
+        value_name="Pressure",
     )
-
-    for i, col in enumerate(credit_cols):
-        values = plot_data[col].fillna(0).values
-        ax.barh(
-            y_positions + offsets[i],
-            values,
-            height=bar_height,
-            color=_CREDIT_COLORS[col],
-            alpha=0.85,
-            label=_CREDIT_LABELS[col],
-        )
-
-    ax.set_yticks(y_positions)
-    ax.set_yticklabels(plot_data[label_col].astype(str).tolist(), fontsize=9)
-    ax.invert_yaxis()
-
-    ax.set_xlabel("Pressure Value (0-5 scale, higher = more defensive attention)", color=TEXT_COLOR, fontsize=11)
+    plot_data["Credit Type"] = plot_data["Credit Type"].map(dict(zip(credit_cols, labels, strict=True)))
     title = f"Pressure Breakdown: {player_name}"
     if len(breakdown) > 10:
         title += f" (top 10 of {len(breakdown)} matches)"
-    ax.set_title(title, color=TEXT_COLOR, fontsize=14, pad=10, fontweight="bold")
-
-    ax.tick_params(axis="both", colors=TEXT_COLOR, labelcolor=TEXT_COLOR)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.spines["bottom"].set_color("#333355")
-    ax.spines["left"].set_color("#333355")
-
-    ax.legend(
-        loc="lower right",
-        fontsize=9,
-        facecolor=PITCH_BG_COLOR,
-        edgecolor="#333355",
-        labelcolor=TEXT_COLOR,
+    fig = px.bar(
+        plot_data,
+        x=label_col,
+        y="Pressure",
+        color="Credit Type",
+        barmode="group",
+        title=title,
     )
-    plt.tight_layout()
-
-    return chart_to_file(fig, "dv_breakdown")
+    fig.update_layout(
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="white"),
+        height=450,
+        xaxis_title="",
+        yaxis_title="Pressure Credits",
+    )
+    return fig
 
 
 # ---------------------------------------------------------------------------
@@ -562,7 +529,8 @@ def _reset_breakdown(state: Any) -> None:
     state.dv_concede = "--"
     state.dv_disturb = "--"
     state.dv_deter = "--"
-    state.dv_breakdown_image = ""
+    state.dv_breakdown_figure = None
+    state.dv_breakdown_caption = ""
 
 
 def _reset_timeline(state: Any) -> None:
@@ -681,7 +649,8 @@ def _load_breakdown_for_player(state: Any) -> None:
         state.dv_concede = "Error"
         state.dv_disturb = "Error"
         state.dv_deter = "Error"
-        state.dv_breakdown_image = ""
+        state.dv_breakdown_figure = None
+        state.dv_breakdown_caption = ""
         return
 
     if breakdown.empty:
@@ -689,7 +658,8 @@ def _load_breakdown_for_player(state: Any) -> None:
         state.dv_concede = "0.00"
         state.dv_disturb = "0.00"
         state.dv_deter = "0.00"
-        state.dv_breakdown_image = ""
+        state.dv_breakdown_figure = None
+        state.dv_breakdown_caption = ""
         return
 
     # Compute summary metrics
@@ -698,8 +668,14 @@ def _load_breakdown_for_player(state: Any) -> None:
     state.dv_disturb = f"{breakdown['disturb_pressure'].sum():.2f}"
     state.dv_deter = f"{breakdown['deter_pressure'].sum():.2f}"
 
+    # Top-10 caption (set before chart render which trims to head(10))
+    if len(breakdown) > 10:
+        state.dv_breakdown_caption = f"Showing top 10 of {len(breakdown)} matches."
+    else:
+        state.dv_breakdown_caption = ""
+
     # Render chart
-    state.dv_breakdown_image = _render_breakdown_chart(breakdown, player_name)
+    state.dv_breakdown_figure = _build_breakdown_figure(breakdown, player_name)
     logger.info(
         "Breakdown for %s: intercept=%s, concede=%s, disturb=%s, deter=%s",
         player_name,

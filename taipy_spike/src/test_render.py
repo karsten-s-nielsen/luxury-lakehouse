@@ -42,6 +42,7 @@ pr_radar_image = ""
 pr_no_physical_note = ""
 pr_low_minute_warning = ""
 pr_spoke_caption = ""
+pr_metrics_hint = ""
 pr_stats_table = []
 pr_data_freshness = ""
 
@@ -77,8 +78,11 @@ ps_selected_compare = None
 ps_compare_lov = []
 ps_status_message = ""
 ps_radar_image = ""
+ps_spoke_caption = ""
 
 # Movement state
+ma_physical_metric = "Total Distance (km)"
+ma_physical_metric_lov = ["Total Distance (km)", "HSR Distance (m)", "Sprint Distance (m)"]
 ma_physical_image = ""
 ma_phys_players = "--"
 ma_phys_avg_dist = "--"
@@ -104,8 +108,8 @@ pt_avg_pausa = ""
 pt_avg_temporal = ""
 pt_avg_spatial = ""
 pt_pass_count = ""
-pt_scatter_image = ""
-pt_heatmap_image = ""
+pt_scatter_figure = None
+pt_heatmap_figure = None
 pt_rankings_data = []
 pt_show_dfl_caption = False
 
@@ -123,7 +127,8 @@ dv_intercept = "--"
 dv_concede = "--"
 dv_disturb = "--"
 dv_deter = "--"
-dv_breakdown_image = ""
+dv_breakdown_figure = None
+dv_breakdown_caption = ""
 dv_timeline_player_lov = []
 dv_selected_timeline_player = None
 dv_timeline_match_lov = []
@@ -184,7 +189,7 @@ hm_shots = "--"
 hm_most_active_zone = "--"
 
 # Pass Network state
-pn_pitch_image = ""
+pn_chart_figure = None
 pn_scope_label = ""
 pn_data_freshness = ""
 pn_total_passes = "--"
@@ -258,6 +263,10 @@ def on_tracking_match_change(state, var, val):
 
 
 def on_sub_view_change(state, var, val):
+    pass
+
+
+def on_ma_physical_metric_change(state, var_name, var_value):
     pass
 
 

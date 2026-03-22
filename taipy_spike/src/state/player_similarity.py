@@ -21,6 +21,7 @@ from filters import fetch_data_freshness, fetch_embedding_players
 from mplsoccer import Radar
 from render import PITCH_BG_COLOR, PITCH_LINE_COLOR, PLAYER_COLORS, chart_to_file
 
+from state.player_radar import SPOKE_LEGEND
 from state.shared import register_page_refresher
 
 logger = logging.getLogger(__name__)
@@ -80,6 +81,7 @@ ps_result_count_lov: list[str] = ["5", "10", "20"]
 _PS_RESULTS_COLS = ["Player", "Cosine Distance", "Similarity", "Matches", "Sources"]
 ps_results_data: pd.DataFrame = pd.DataFrame(columns=_PS_RESULTS_COLS)
 ps_radar_image: str = ""
+ps_spoke_caption: str = ""
 ps_compare_lov: list[str] = []
 ps_selected_compare: str | None = None
 ps_threshold_caption: str = _DISTANCE_THRESHOLDS_CAPTION
@@ -105,6 +107,7 @@ __all__ = [
     "ps_player_lov",
     "ps_radar_image",
     "ps_result_count",
+    "ps_spoke_caption",
     "ps_result_count_lov",
     "ps_results_data",
     "ps_search_mode",
@@ -337,6 +340,7 @@ def _clear_results(state: Any) -> None:
     """Reset result-related state variables."""
     state.ps_results_data = pd.DataFrame(columns=_PS_RESULTS_COLS)
     state.ps_radar_image = ""
+    state.ps_spoke_caption = ""
     state.ps_compare_lov = []
     state.ps_selected_compare = None
     state.ps_status_message = ""
@@ -366,6 +370,9 @@ def _load_player_list(state: Any) -> None:
 
     try:
         players = fetch_embedding_players(comp_id, min_matches, raw_table, count_col)
+        if not players:
+            state.ps_warning_text = "No players with embeddings found."
+            return
         _ps_player_map = {label: pid for label, pid in players}
         state.ps_player_lov = [label for label, _ in players]
     except Exception:
@@ -420,12 +427,14 @@ def on_ps_selected_compare_change(state: Any, var_name: str, var_value: Any) -> 
     """Compare player selection changed — render radar."""
     if not var_value:
         state.ps_radar_image = ""
+        state.ps_spoke_caption = ""
         return
 
     player_id = _ps_player_map.get(state.ps_selected_player, "")
     compare_id = _ps_compare_map.get(var_value, "")
     if not player_id or not compare_id:
         state.ps_radar_image = ""
+        state.ps_spoke_caption = ""
         return
 
     comp_id = _resolve_competition_id(state)
@@ -434,6 +443,7 @@ def on_ps_selected_compare_change(state: Any, var_name: str, var_value: Any) -> 
         radar_data = _fetch_radar_stats([player_id, compare_id], comp_id)
         if radar_data.empty:
             state.ps_radar_image = ""
+            state.ps_spoke_caption = ""
             return
 
         metric_keys = [m[0] for m in _DEFAULT_METRICS]
@@ -445,12 +455,19 @@ def on_ps_selected_compare_change(state: Any, var_name: str, var_value: Any) -> 
 
         if len(players_data) < 1:
             state.ps_radar_image = ""
+            state.ps_spoke_caption = ""
             return
 
         state.ps_radar_image = _render_comparison_radar(players_data, player_names)
+
+        # Spoke caption — mirror player_radar.py pattern
+        labels = [m[1] for m in _DEFAULT_METRICS]
+        legend_parts = [f"**{lbl}** = {SPOKE_LEGEND[lbl]}" for lbl in labels if lbl in SPOKE_LEGEND]
+        state.ps_spoke_caption = " · ".join(legend_parts) if legend_parts else ""
     except Exception:
         logger.exception("Failed to render comparison radar")
         state.ps_radar_image = ""
+        state.ps_spoke_caption = ""
 
 
 def _run_similarity_search(state: Any) -> None:

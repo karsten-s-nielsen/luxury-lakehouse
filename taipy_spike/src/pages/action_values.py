@@ -8,7 +8,9 @@ page_config = PageConfig(
     title="Player Impact",
     icon="trending_up",
     nav_section="Player Analysis",
-    description="Valuing Actions by Estimating Probabilities (VAEP).",
+    description=(
+        "Valuing Actions by Estimating Probabilities (VAEP) \u2014 Decroos et al. (2019). Implemented via socceraction."
+    ),
     freshness_var="av_data_freshness",
     citations=[
         Citation("Decroos et al. (2019)", "https://doi.org/10.1007/s10994-021-05989-6"),
@@ -20,7 +22,10 @@ page_config = PageConfig(
         SubView(
             condition='selected_sub_view == "Rankings"',
             content=[ContentRow([ContentBlock("table", "av_rankings_data")])],
-            scale_notes=["VAEP/90: higher = more impactful (typical range 0.01-1.0)"],
+            scale_notes=[
+                "VAEP/90: higher = more impactful (typical range 0.01\u20131.0).",
+                "Off. VAEP/90: offensive contribution per 90 min. Def. VAEP/90: defensive contribution per 90 min.",
+            ],
             empty_message="Select a competition to begin.",
             empty_condition="len(av_rankings_data) == 0 and selected_competition is not None",
             scope_vars=["av_scope_label"],

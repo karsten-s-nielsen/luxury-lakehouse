@@ -8,7 +8,10 @@ page_config = PageConfig(
     title="Player Comparison",
     icon="radar",
     nav_section="Player Analysis",
-    description="Multi-metric player comparison using radar chart. Metrics from VAEP and tracking data.",
+    description=(
+        "Multi-metric player comparison using mplsoccer radar chart. "
+        "Metrics from VAEP (Decroos et al. 2019) and tracking data."
+    ),
     citations=[
         Citation("mplsoccer", "https://mplsoccer.readthedocs.io/"),
         Citation("Decroos et al. (2019)", "https://doi.org/10.1007/s10994-021-05989-6"),
@@ -28,7 +31,9 @@ page_config = PageConfig(
         ContentRow([ContentBlock("text", "pr_no_data_warning")]),
         ContentRow([ContentBlock("text", "pr_no_physical_note")]),
         ContentRow([ContentBlock("text", "pr_low_minute_warning")]),
+        ContentRow([ContentBlock("text", "pr_metrics_hint", condition="len(pr_metrics_hint) > 0")]),
         ContentRow([ContentBlock("image", "pr_radar_image")]),
+        ContentRow([ContentBlock("text", "pr_spoke_caption", condition="len(pr_spoke_caption) > 0")]),
         ContentRow([ContentBlock("expandable_table", "pr_stats_table", header="Full Stats", table_page_size=25)]),
     ],
     empty_message="Select a competition to begin.",

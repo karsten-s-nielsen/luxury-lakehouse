@@ -149,11 +149,12 @@ def _compute_brier_score(is_goal: pd.Series, xg_values: pd.Series) -> float | No
 # ── Rendering ────────────────────────────────────────────────────────────────
 
 
-def _render_pitch(shots: pd.DataFrame, xg_col: str) -> str:
+def _render_pitch(shots: pd.DataFrame, xg_col: str, player_name: str | None = None) -> str:
     """Render shot map to temp PNG. Sized by xG, colored by goal/miss."""
     pitch = VerticalPitch(half=True, pitch_color=PITCH_BG_COLOR, line_color=PITCH_LINE_COLOR)
     fig, ax = pitch.draw(figsize=(8, 10))
-    ax.set_title("Shot Map", color=PITCH_LINE_COLOR, fontsize=14, pad=10)
+    title = f"Shot Map \u2014 {player_name}" if player_name else "Shot Map"
+    ax.set_title(title, color=PITCH_LINE_COLOR, fontsize=14, pad=10)
 
     if not shots.empty:
         xg_series = shots[xg_col] if xg_col in shots.columns else shots["statsbomb_xg"]
@@ -312,7 +313,8 @@ def sm_refresh(state: Any) -> None:
         state.sm_brier_delta = ""
 
     # --- Render pitch ---
-    state.sm_pitch_image = _render_pitch(plot_shots, "statsbomb_xg")
+    player_name = state.selected_player if state.selected_player not in (None, "All") else None
+    state.sm_pitch_image = _render_pitch(plot_shots, "statsbomb_xg", player_name=player_name)
 
     # --- Data freshness ---
     state.sm_data_freshness = fetch_data_freshness()

@@ -8,7 +8,10 @@ page_config = PageConfig(
     title="Match Summary",
     icon="scoreboard",
     nav_section="Match Analysis",
-    description="Match scorecard with Expected Goals (xG) and pressing intensity via PPDA.",
+    description=(
+        "Match scorecard with Expected Goals (xG) per Rathke (2017). "
+        "Pressing intensity via PPDA (Trainor & Chassy 2021)."
+    ),
     citations=[
         Citation("Rathke (2017)", "https://doi.org/10.1515/jqas-2019-0044"),
         Citation("Trainor & Chassy (2021)", "https://doi.org/10.3389/fpsyg.2020.531688"),
@@ -46,13 +49,13 @@ page_config = PageConfig(
         Metric(
             "Home xG",
             "ms_home_xg",
-            "Expected goals for the home team based on shot quality.",
+            "Probability of scoring from each shot's location and context. Higher = better chance. Sum over a match = team's expected output.",
             delta_var="ms_home_xg_delta",
         ),
         Metric(
             "Away xG",
             "ms_away_xg",
-            "Expected goals for the away team based on shot quality.",
+            "Probability of scoring from each shot's location and context. Higher = better chance. Sum over a match = team's expected output.",
             delta_var="ms_away_xg_delta",
         ),
     ],

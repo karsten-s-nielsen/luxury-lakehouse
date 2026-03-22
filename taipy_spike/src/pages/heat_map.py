@@ -8,7 +8,12 @@ page_config = PageConfig(
     title="Heat Map",
     icon="local_fire_department",
     nav_section="Match Analysis",
-    description="Action density visualization using bin statistics.",
+    description=(
+        "Action density visualization using bin statistics. "
+        "Spatial analysis approach per Anzer & Bauer (2021) "
+        '"A goal scoring probability model based on tracking data." '
+        "Rendered via mplsoccer."
+    ),
     citations=[
         Citation("Anzer & Bauer (2021)", "https://doi.org/10.1007/s10994-021-06011-5"),
         Citation("mplsoccer", "https://mplsoccer.readthedocs.io/"),
@@ -25,8 +30,8 @@ page_config = PageConfig(
             "hm_total",
             "Total number of on-ball actions (passes, shots, dribbles, etc.) in the selected scope.",
         ),
-        Metric("Passes", "hm_passes", "Number of pass actions in the heat map scope."),
-        Metric("Shots", "hm_shots", "Number of shot actions in the heat map scope."),
+        Metric("Passes", "hm_passes", "Number of pass actions in the selected scope."),
+        Metric("Shots", "hm_shots", "Number of shot actions in the selected scope."),
         Metric("Most Active Zone", "hm_most_active_zone", "The pitch zone with the highest action density."),
     ],
 )

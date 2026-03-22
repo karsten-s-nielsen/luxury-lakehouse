@@ -13,13 +13,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 from cache import ttl_cache
 from db import execute_query, t
 from filters import fetch_data_freshness, fetch_pausa_matches, fetch_pausa_players, fetch_pausa_teams
-from render import AMBER, GRAY, PITCH_BG_COLOR, TEXT_COLOR, chart_to_file
 
 from state.shared import register_page_refresher
 
@@ -50,10 +49,10 @@ pt_avg_spatial: str = ""
 pt_pass_count: str = ""
 
 # ---------------------------------------------------------------------------
-# Matplotlib chart image paths (static PNGs via chart_to_file)
+# Interactive Plotly chart figures
 # ---------------------------------------------------------------------------
-pt_scatter_image: str = ""
-pt_heatmap_image: str = ""
+pt_scatter_figure: go.Figure | None = None
+pt_heatmap_figure: go.Figure | None = None
 
 # ---------------------------------------------------------------------------
 # Rankings data
@@ -64,7 +63,7 @@ pt_rankings_data: pd.DataFrame = pd.DataFrame(
 
 # DFL identifier warning
 pt_show_dfl_caption: bool = False
-pt_dfl_caption: str = "Player names shown as DFL identifiers \u2014 IDSSE tracking data does not include player names."
+pt_dfl_caption: str = "Player names shown as DFL identifiers \u2014 IDSSE tracking data does not include player names. Human-readable names require a DFL roster lookup (not yet available)."
 
 pt_data_freshness: str = ""
 
@@ -77,7 +76,7 @@ __all__ = [
     "pt_data_freshness",
     "pt_avg_temporal",
     "pt_footer_text",
-    "pt_heatmap_image",
+    "pt_heatmap_figure",
     "pt_match_lov",
     "pt_on_match_change",
     "pt_on_player_change",
@@ -85,7 +84,7 @@ __all__ = [
     "pt_pass_count",
     "pt_player_lov",
     "pt_rankings_data",
-    "pt_scatter_image",
+    "pt_scatter_figure",
     "pt_selected_match",
     "pt_selected_player",
     "pt_selected_team",
@@ -199,160 +198,79 @@ def _fetch_rankings() -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Matplotlib chart builders
+# Plotly chart builders
 # ---------------------------------------------------------------------------
 
-# Distinct team colors for scatter plot
-_TEAM_COLORS = ["#e63946", "#457b9d", "#2a9d8f", "#e9c46a", "#264653"]
 
-
-def _build_scatter_plot(df: pd.DataFrame) -> str:
-    """Create temporal vs spatial scatter with PAUSA as bubble size + quadrant lines at 0.5.
-
-    Returns the file path to the saved PNG.
-    """
-    fig, ax = plt.subplots(figsize=(8, 6))
-    fig.set_facecolor(PITCH_BG_COLOR)
-    ax.set_facecolor(PITCH_BG_COLOR)
-
-    if not df.empty:
-        # Map each unique team to a colour
-        teams = df["team"].unique()
-        team_color_map = {team: _TEAM_COLORS[i % len(_TEAM_COLORS)] for i, team in enumerate(teams)}
-
-        # Scale bubble size: min 20, max 200 based on pausa_score
-        sizes = df["pausa_score"].fillna(0.0).clip(lower=0.01)
-        size_scaled = 20 + (sizes / max(sizes.max(), 0.01)) * 180
-
-        for team in teams:
-            mask = df["team"] == team
-            ax.scatter(
-                df.loc[mask, "temporal_judgment"],
-                df.loc[mask, "spatial_selection"],
-                s=size_scaled[mask],
-                c=team_color_map[team],
-                alpha=0.7,
-                edgecolors="none",
-                label=str(team),
-            )
-
-        ax.legend(
-            loc="upper left",
-            fontsize=8,
-            facecolor=PITCH_BG_COLOR,
-            edgecolor="#333355",
-            labelcolor=TEXT_COLOR,
-        )
-
-    # Quadrant lines at 0.5
-    ax.axhline(y=0.5, color=GRAY, linestyle="--", linewidth=0.8, alpha=0.5)
-    ax.axvline(x=0.5, color=GRAY, linestyle="--", linewidth=0.8, alpha=0.5)
-
-    # Quadrant text annotations
-    _annotations = [
-        (0.25, 0.75, "Good where,\npoor when"),
-        (0.75, 0.75, "Good timing\n& target"),
-        (0.25, 0.25, "Poor timing\n& target"),
-        (0.75, 0.25, "Good when,\npoor where"),
-    ]
-    for x, y, text in _annotations:
-        ax.text(x, y, text, ha="center", va="center", fontsize=8, color=GRAY, alpha=0.6)
-
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    ax.set_xlabel("Temporal Judgment (when, 0\u20131, higher = better)", color=TEXT_COLOR, fontsize=10)
-    ax.set_ylabel("Spatial Selection (where, 0\u20131, higher = better)", color=TEXT_COLOR, fontsize=10)
-    ax.set_title(
-        "Pass Timing: When vs Where (bubble size = PAUSA score)",
-        color=TEXT_COLOR,
-        fontsize=12,
-        pad=10,
-        fontweight="bold",
+def _build_scatter_figure(df: pd.DataFrame) -> go.Figure | None:
+    """Build interactive Plotly scatter figure: When vs Where."""
+    if df.empty:
+        return None
+    fig = px.scatter(
+        df,
+        x="temporal_judgment",
+        y="spatial_selection",
+        size="pausa_score",
+        color="team",
+        hover_data={"temporal_judgment": ":.3f", "spatial_selection": ":.3f", "pausa_score": ":.3f"},
+        title="Pass Timing: When vs Where (bubble size = PAUSA score)",
+        labels={
+            "temporal_judgment": "Temporal Judgment (when, 0\u20131, higher = better)",
+            "spatial_selection": "Spatial Selection (where, 0\u20131, higher = better)",
+        },
     )
-    ax.tick_params(axis="both", colors=TEXT_COLOR, labelcolor=TEXT_COLOR)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.spines["bottom"].set_color("#333355")
-    ax.spines["left"].set_color("#333355")
-    plt.tight_layout()
-
-    return chart_to_file(fig, "pt_scatter")
-
-
-def _build_heatmap(df: pd.DataFrame) -> str:
-    """Create OBSO receiver location density heatmap.
-
-    Returns the file path to the saved PNG.
-    """
-    fig, ax = plt.subplots(figsize=(10, 5))
-    fig.set_facecolor(PITCH_BG_COLOR)
-    ax.set_facecolor(PITCH_BG_COLOR)
-
-    valid = df.dropna(subset=["receiver_x", "receiver_y"]) if not df.empty else df
-    has_data = not valid.empty and "receiver_x" in valid.columns
-
-    if has_data:
-        # Compute 2D histogram weighted by actual_obso for average OBSO per bin
-        x = valid["receiver_x"].to_numpy(dtype=float)
-        y = valid["receiver_y"].to_numpy(dtype=float)
-        weights = valid["actual_obso"].fillna(0.0).to_numpy(dtype=float)
-
-        x_edges = np.linspace(0, 120, 25)  # 24 bins
-        y_edges = np.linspace(0, 80, 17)  # 16 bins
-
-        # Sum of weights and counts per bin
-        w_hist, _, _ = np.histogram2d(x, y, bins=[x_edges, y_edges], weights=weights)
-        c_hist, _, _ = np.histogram2d(x, y, bins=[x_edges, y_edges])
-
-        # Average OBSO per bin (avoid division by zero)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            avg_obso = np.where(c_hist > 0, w_hist / c_hist, np.nan)
-
-        # imshow expects (rows, cols) = (y, x), so transpose
-        im = ax.imshow(
-            avg_obso.T,
-            origin="lower",
-            extent=[0, 120, 0, 80],
-            aspect="auto",
-            cmap="YlOrRd",
-            interpolation="bilinear",
-            vmin=0,
-            vmax=1,
-        )
-
-        cbar = fig.colorbar(im, ax=ax, pad=0.02, shrink=0.8)
-        cbar.set_label("Avg OBSO (0\u20131, higher = more open space)", color=TEXT_COLOR, fontsize=9)
-        cbar.ax.tick_params(labelcolor=TEXT_COLOR, colors=TEXT_COLOR)
-    else:
-        ax.text(
-            60,
-            40,
-            "No receiver location data available",
-            ha="center",
-            va="center",
-            fontsize=12,
-            color=AMBER,
-        )
-
-    ax.set_xlim(0, 120)
-    ax.set_ylim(0, 80)
-    ax.set_xlabel("X (yards)", color=TEXT_COLOR, fontsize=10)
-    ax.set_ylabel("Y (yards)", color=TEXT_COLOR, fontsize=10)
-    ax.set_title(
-        "OBSO at Receiver Location",
-        color=TEXT_COLOR,
-        fontsize=12,
-        pad=10,
-        fontweight="bold",
+    fig.update_layout(
+        xaxis_range=[0, 1],
+        yaxis_range=[0, 1],
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="white"),
+        height=450,
     )
-    ax.tick_params(axis="both", colors=TEXT_COLOR, labelcolor=TEXT_COLOR)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.spines["bottom"].set_color("#333355")
-    ax.spines["left"].set_color("#333355")
-    plt.tight_layout()
+    # Quadrant annotations
+    fig.add_annotation(
+        x=0.25, y=0.75, text="Good timing,<br>wrong target", showarrow=False, font=dict(color="gray", size=10)
+    )
+    fig.add_annotation(
+        x=0.75, y=0.75, text="Right time,<br>right place", showarrow=False, font=dict(color="gray", size=10)
+    )
+    fig.add_annotation(
+        x=0.25, y=0.25, text="Poor timing,<br>wrong target", showarrow=False, font=dict(color="gray", size=10)
+    )
+    fig.add_annotation(
+        x=0.75, y=0.25, text="Poor timing,<br>good target", showarrow=False, font=dict(color="gray", size=10)
+    )
+    return fig
 
-    return chart_to_file(fig, "pt_heatmap")
+
+def _build_heatmap_figure(df: pd.DataFrame) -> go.Figure | None:
+    """Build interactive Plotly OBSO heatmap figure."""
+    if df.empty:
+        return None
+    valid = df.dropna(subset=["receiver_x", "receiver_y"])
+    if valid.empty:
+        return None
+    fig = px.density_heatmap(
+        valid,
+        x="receiver_x",
+        y="receiver_y",
+        z="actual_obso",
+        histfunc="avg",
+        nbinsx=24,
+        nbinsy=16,
+        color_continuous_scale="YlOrRd",
+        title="OBSO at Receiver Location",
+        labels={"actual_obso": "Avg OBSO (0\u20131, higher = more open space)"},
+    )
+    fig.update_layout(
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="white"),
+        height=450,
+        xaxis_title="Pitch X (m)",
+        yaxis_title="Pitch Y (m)",
+    )
+    return fig
 
 
 # ---------------------------------------------------------------------------
@@ -428,8 +346,8 @@ def _clear_data(state: Any) -> None:
     state.pt_avg_temporal = ""
     state.pt_avg_spatial = ""
     state.pt_pass_count = ""
-    state.pt_scatter_image = ""
-    state.pt_heatmap_image = ""
+    state.pt_scatter_figure = None
+    state.pt_heatmap_figure = None
     state.pt_rankings_data = pd.DataFrame(
         columns=[
             "Player",
@@ -476,11 +394,11 @@ def _refresh_data(state: Any) -> None:
         # Individual pass data for charts
         passes_df = _fetch_pausa_passes(match_id, team, player_id)
         if passes_df.empty:
-            state.pt_scatter_image = ""
-            state.pt_heatmap_image = ""
+            state.pt_scatter_figure = None
+            state.pt_heatmap_figure = None
         else:
-            state.pt_scatter_image = _build_scatter_plot(passes_df)
-            state.pt_heatmap_image = _build_heatmap(passes_df)
+            state.pt_scatter_figure = _build_scatter_figure(passes_df)
+            state.pt_heatmap_figure = _build_heatmap_figure(passes_df)
 
         # Rankings
         rankings_df = _fetch_rankings()

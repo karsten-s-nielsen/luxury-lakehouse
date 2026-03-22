@@ -11,7 +11,9 @@ page_config = PageConfig(
     freshness_var="ps_data_freshness",
     description=(
         "Find similar players using pgvector cosine distance on behavioral (32-d) "
-        "or statistical (13-d) embedding vectors."
+        "or statistical (13-d) embedding vectors. "
+        "Behavioral embeddings via Theiner et al. (2022) football2vec with Doc2Vec (Le & Mikolov 2014). "
+        "Model: luxury-lakehouse/football2vec-statsbomb-wyscout."
     ),
     citations=[
         Citation("Theiner et al. (2022)", "https://doi.org/10.1007/978-3-031-02044-5_2"),
@@ -36,6 +38,7 @@ page_config = PageConfig(
                 )
             ]
         ),
+        ContentRow([ContentBlock("text", "ps_spoke_caption", condition="len(ps_spoke_caption) > 0")]),
     ],
     empty_message="Select a player to begin.",
     empty_condition="ps_selected_player is None and len(ps_results_data) == 0",

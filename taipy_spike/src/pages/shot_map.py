@@ -8,7 +8,11 @@ page_config = PageConfig(
     title="Shot Map",
     icon="target",
     nav_section="Match Analysis",
-    description="Shot locations sized by xG with isotonic calibration.",
+    description=(
+        "Shot locations sized by xG. xG methodology per Rathke (2017) "
+        '"An examination of expected goals and shot efficiency." '
+        "Custom model via XGBoost with isotonic calibration."
+    ),
     citations=[
         Citation("Rathke (2017)", "https://doi.org/10.1515/jqas-2019-0044"),
         Citation("XGBoost", "https://xgboost.readthedocs.io/"),

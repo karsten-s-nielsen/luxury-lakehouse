@@ -45,7 +45,7 @@ def fetch_competitions() -> list[tuple[str, int]]:
     tbl = t("dim_competitions_synced")
     df = execute_query(
         f"SELECT DISTINCT competition_id, competition_name, country "  # noqa: S608
-        f"FROM {tbl} ORDER BY competition_name LIMIT 50",
+        f"FROM {tbl} ORDER BY country, competition_name LIMIT 50",
     )
     if df.empty:
         return []

@@ -10,7 +10,8 @@ page_config = PageConfig(
     nav_section="Advanced",
     freshness_var="pc_data_freshness",
     description=(
-        "Physics-based pitch control model. Voronoi baseline also available. "
+        'Physics-based pitch control model by Spearman (2017) "Beyond Expected Goals." '
+        "Voronoi baseline also available. "
         "Tracking data available for ~20 matches from Metrica, IDSSE, and SkillCorner."
     ),
     citations=[

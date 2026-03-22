@@ -44,7 +44,7 @@ _PHYSICAL_METRICS: list[tuple[str, str, tuple[float, float]]] = [
 ]
 
 # Spoke label explanations (for caption below the radar)
-_SPOKE_LEGEND: dict[str, str] = {
+SPOKE_LEGEND: dict[str, str] = {
     "Goals/90": "goals per 90 min",
     "xG/90": "expected goals per 90",
     "Passes/90": "completed passes per 90",
@@ -80,6 +80,7 @@ _STATS_COLUMNS = ["Player", "Minutes"] + [
 ]
 pr_stats_table: pd.DataFrame = pd.DataFrame(columns=_STATS_COLUMNS)
 
+pr_metrics_hint: str = ""
 pr_scope_label: str = ""
 pr_warning_text: str = ""
 
@@ -89,6 +90,7 @@ __all__ = [
     "pr_data_freshness",
     "pr_low_minute_warning",
     "pr_metric_lov",
+    "pr_metrics_hint",
     "pr_no_data_warning",
     "pr_no_physical_note",
     "pr_scope_label",
@@ -248,6 +250,7 @@ def _clear_state(state: Any) -> None:
     state.pr_radar_image = ""
     state.pr_player_count = 0
     state.pr_spoke_caption = ""
+    state.pr_metrics_hint = ""
     state.pr_low_minute_warning = ""
     state.pr_no_data_warning = ""
     state.pr_no_physical_note = ""
@@ -321,6 +324,12 @@ def pr_refresh(state: Any) -> None:
         state.pr_selected_metrics = list(all_labels)
         current_selection = list(all_labels)
 
+    # Metrics hint — warn if too few selected for a meaningful radar
+    if len(current_selection) < 3:
+        state.pr_metrics_hint = "Select at least 3 metrics for a meaningful radar chart."
+    else:
+        state.pr_metrics_hint = ""
+
     # Filter to only selected metrics
     filtered_metrics = [m for m in available_metrics if m[1] in current_selection]
     if not filtered_metrics:
@@ -357,7 +366,7 @@ def pr_refresh(state: Any) -> None:
     state.pr_low_minute_warning = " \u00b7 ".join(low_minute_warnings) if low_minute_warnings else ""
 
     # Build spoke caption (bold labels matching Streamlit st.caption format)
-    legend_parts = [f"**{lbl}** = {_SPOKE_LEGEND[lbl]}" for lbl in labels if lbl in _SPOKE_LEGEND]
+    legend_parts = [f"**{lbl}** = {SPOKE_LEGEND[lbl]}" for lbl in labels if lbl in SPOKE_LEGEND]
     state.pr_spoke_caption = " \u00b7 ".join(legend_parts) if legend_parts else ""
 
     # Render radar chart

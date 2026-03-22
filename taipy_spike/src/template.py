@@ -31,19 +31,43 @@ Use **Glossary** for terms.
 """
 
 GLOSSARY: dict[str, str] = {
-    "xG (Expected Goals)": "Probability of scoring from each shot's location and context. Higher = better chance.",
-    "Brier Score": "Prediction calibration metric. 0.0 = perfect, 0.25 = coin flip. Lower is better.",
-    "VAEP": "Valuing Actions by Estimating Probabilities \u2014 how much each on-ball action changed scoring probability.",
+    "xG (Expected Goals)": (
+        "Probability of scoring from each shot's location and context. "
+        "Higher = better chance. Sum over a match = team's expected output."
+    ),
+    "Brier Score": (
+        "Prediction calibration metric. 0.0 = perfect, 0.25 = coin flip. Lower is better. Good models score < 0.10."
+    ),
+    "VAEP": (
+        "Valuing Actions by Estimating Probabilities \u2014 how much each on-ball action changed scoring probability."
+    ),
     "VAEP/90": "VAEP per 90 minutes played. Higher = more impactful player.",
-    "Off. VAEP/90": "Offensive VAEP per 90 minutes \u2014 how much a player's actions increase their team's scoring probability. Higher = stronger offensive contribution.",
-    "Def. VAEP/90": "Defensive VAEP per 90 minutes \u2014 how much a player's actions reduce the opponent's scoring probability. Higher = stronger defensive contribution.",
-    "PPDA": "Passes Per Defensive Action. Lower = more aggressive pressing. Range: 5\u201315.",
+    "Off. VAEP/90": (
+        "Offensive VAEP per 90 minutes \u2014 how much a player's actions increase "
+        "their team's scoring probability. Higher = stronger offensive contribution."
+    ),
+    "Def. VAEP/90": (
+        "Defensive VAEP per 90 minutes \u2014 how much a player's actions reduce "
+        "the opponent's scoring probability. Higher = stronger defensive contribution."
+    ),
+    "PPDA": (
+        "Passes Per Defensive Action \u2014 measures pressing intensity. "
+        "Lower = more aggressive pressing. Range: 5\u201315."
+    ),
     "Pitch Control": "Physics-based model estimating which team controls each pitch location (Spearman 2017).",
-    "PAUSA": "Passing Ability Under Spatiotemporal Awareness. Temporal judgment \u00d7 spatial selection. Higher = better.",
-    "Temporal Judgment": "Was the pass released at the optimal moment? 1.0 = perfect timing.",
+    "PAUSA": (
+        "Passing Ability Under Spatiotemporal Awareness. Temporal judgment \u00d7 spatial selection. Higher = better."
+    ),
+    "Temporal Judgment": (
+        "Was the pass released at the optimal moment? Ratio of actual OBSO at release "
+        "to peak OBSO in the \u00b13s/+1s window. 1.0 = perfect timing."
+    ),
     "Spatial Selection": "Was the target location the best available? 1.0 = optimal target.",
     "OBSO": "Off-Ball Scoring Opportunity. Pitch Control \u00d7 Transition \u00d7 EPV (Spearman 2018).",
-    "DEFCON": "Defensive Contribution framework (Kim et al. 2025). 4 credit categories.",
+    "DEFCON": (
+        "Defensive Contribution framework (Kim et al. 2025). Quantifies how defenders "
+        "affect an attacker's scoring probability via four credit categories."
+    ),
     "Intercept": "DEFCON credit for winning the ball. Higher = more successful interceptions.",
     "Concede": "DEFCON credit when a shot/goal occurs despite pressure. Lower is better.",
     "Disturb": "DEFCON credit for disrupting possession without winning the ball.",
@@ -51,20 +75,31 @@ GLOSSARY: dict[str, str] = {
     "Cosine Distance": "Player similarity measure. 0.0 = identical style, 1.0 = completely different.",
     "xT (Expected Threat)": "Probability that ball possession in a pitch zone leads to a goal within next few actions.",
     "Off-Ball xT": "Expected threat from a player's off-ball movement. Typical range: 0.001\u20130.01 per match.",
-    "Line-Breaking Pass": "A pass that penetrates at least one defensive line (Ward clustering on 360 freeze frames).",
-    "Progressive Pass": "A pass moving the ball significantly closer to the opponent's goal.",
+    "Line-Breaking Pass": (
+        "A pass that penetrates at least one defensive line, detected via Ward clustering "
+        "on StatsBomb 360 freeze-frame defender positions."
+    ),
+    "Progressive Pass": (
+        "A pass moving the ball significantly closer to the opponent's goal \u2014 "
+        "defined by a minimum distance threshold toward the goal line."
+    ),
     "SPADL": "Soccer Player Action Description Language \u2014 23 canonical action types (105\u00d768m coordinates).",
     "Goals/90": "Goals scored per 90 minutes played. Direct scoring output.",
     "Passes/90": "Completed passes per 90 minutes played.",
     "Pass %": "Pass completion rate \u2014 percentage of attempted passes successfully completed.",
-    "xG Over-performance": "Goals minus xG. Positive = scored more than expected (clinical finishing). Negative = underperformed chances.",
-    "DEFCON/90": "Defensive pressure received per 90 minutes (DEFCON framework). Higher = more defensive attention attracted.",
+    "xG Over-performance": (
+        "Goals minus xG. Positive = scored more than expected (clinical finishing). Negative = underperformed chances."
+    ),
+    "DEFCON/90": (
+        "Defensive pressure received per 90 minutes (DEFCON framework). Higher = more defensive attention attracted."
+    ),
+    "Most Active Zone": "The 3x3 pitch zone (e.g., 'Att Center') with the highest action count.",
 }
 
 PAGE_TERMS: dict[str, list[str]] = {
     "Shot-Map": ["xG (Expected Goals)", "Brier Score"],
     "Pass-Map": ["Line-Breaking Pass", "Progressive Pass"],
-    "Heat-Map": [],
+    "Heat-Map": ["Most Active Zone"],
     "Pass-Network": [],
     "Match-Summary": ["xG (Expected Goals)", "PPDA", "Progressive Pass"],
     "Player-Impact": ["VAEP", "VAEP/90", "Off. VAEP/90", "Def. VAEP/90", "SPADL"],
@@ -297,6 +332,14 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         lov="tracking_match_lov",
         depends_on="selected_provider",
     ),
+    SidebarWidget(
+        "dropdown",
+        "ma_physical_metric",
+        "Metric",
+        "on_ma_physical_metric_change",
+        lov="ma_physical_metric_lov",
+        condition='current_page == "Movement-Pressing" and selected_sub_view == "Physical Performance"',
+    ),
     # Pass Timing
     SidebarWidget(
         "dropdown",
@@ -445,6 +488,15 @@ _SEARCH_WIDGETS: list[SidebarWidget] = [
         condition="ps_filter_by_competition",
         lov="ps_competition_lov",
     ),
+    SidebarWidget(
+        "slider",
+        "ps_min_matches",
+        "Min. matches",
+        "on_ps_min_matches_change",
+        slider_min="1",
+        slider_max="50",
+        slider_range_labels=("1", "50"),
+    ),
     # Compare with — appears after results load (depends_lov_populated gates visibility)
     SidebarWidget(
         "dropdown",
@@ -519,6 +571,7 @@ def build_root_page(nav_md: str) -> str:
 <|content|>
 
 <|part|class_name=ll-footer|
+[Interactive Demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) · [Published Datasets](https://huggingface.co/luxury-lakehouse)
 |>
 
 |>

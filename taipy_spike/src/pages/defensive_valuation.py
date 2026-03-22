@@ -10,6 +10,7 @@ page_config = PageConfig(
     nav_section="Advanced",
     freshness_var="dv_data_freshness",
     description=(
+        "How much defensive attention does each attacker attract? "
         "Tier 3 (tabular heuristic, no GNN) approximation of the DEFCON framework. "
         "Credits: Intercept, Concede, Disturb, Deter. "
         "Tiers: 1 = full GNN, 2 = simplified GNN, 3 = tabular heuristic (this implementation)."
@@ -33,13 +34,16 @@ page_config = PageConfig(
         ),
         SubView(
             condition='dv_current_view == "Breakdown"',
-            content=[ContentRow([ContentBlock("image", "dv_breakdown_image")])],
+            content=[
+                ContentRow([ContentBlock("text", "dv_breakdown_caption", condition="len(dv_breakdown_caption) > 0")]),
+                ContentRow([ContentBlock("chart", "dv_breakdown_figure", condition="dv_breakdown_figure is not None")]),
+            ],
             warning_var="dv_warning_text",
             scale_notes=[
                 "Requires StatsBomb 360 freeze-frame data (323 of 380+ matches).",
             ],
             empty_message="No breakdown chart data for the selected player.",
-            empty_condition="len(dv_breakdown_image) == 0 and dv_selected_breakdown_player is not None",
+            empty_condition="dv_breakdown_figure is None and dv_selected_breakdown_player is not None",
             metrics=[
                 Metric(
                     "Intercept",

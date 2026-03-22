@@ -4,13 +4,13 @@ workspace "Taipy Soccer Analytics" "Taipy-based soccer analytics dashboard repla
         analyst = person "Soccer Analyst" "Coaches, scouts, and analysts exploring match and player data"
 
         taipyApp = softwareSystem "Taipy Dashboard" "Interactive soccer analytics application with 12 pages covering shots, passes, networks, player comparison, pitch control, and defensive metrics" {
-            guiLayer = container "Taipy GUI" "Root template with sidebar navigation, glossary panels, and page routing" "Python, Taipy 4.1"
-            templateEngine = container "Template Engine" "Generates all page layouts from typed dataclasses: PageConfig, SubView, ContentBlock (image/table/text/expandable_table), ContentRow, SidebarWidget (with help tooltips), Metric (with help_text), Citation. Renders warning_var as amber ll-warning-box, scope_vars for data context, footer_var for citations" "Python, frozen dataclasses"
-            sidebarWidgets = container "Sidebar Widgets" "Filter cascade with progressive disclosure, view-dependent visibility, change_delay debounce, and inline help tooltips (info icon with title attribute)" "Python, Taipy Markdown"
-            stateModules = container "State Modules" "Per-page state variables, callbacks, data fetching, chart rendering (12 modules). Each module sets warning_text (amber box), scope_label, data_freshness. Shared loading_text with per-page contextual messages" "Python, pandas, mplsoccer"
+            guiLayer = container "Taipy GUI" "Root template with sidebar navigation, glossary panels, footer links, and page routing" "Python, Taipy 4.1"
+            templateEngine = container "Template Engine" "Generates all page layouts from typed dataclasses: PageConfig, SubView, ContentBlock (image/table/text/expandable_table/chart), ContentRow, SidebarWidget (with help tooltips), Metric (with help_text), Citation. Chart blocks render Plotly figures via native figure= binding. Warning/scope/freshness rendering" "Python, frozen dataclasses"
+            sidebarWidgets = container "Sidebar Widgets" "Centralized filter cascade with progressive disclosure, view-dependent visibility, change_delay debounce, and inline help tooltips. Includes metric selectors and search widgets" "Python, Taipy Markdown"
+            stateModules = container "State Modules" "Per-page state variables, callbacks, data fetching, chart rendering (12 modules). Static charts via mplsoccer PNG. Interactive charts via Plotly go.Figure (Pass Network, Pass Timing, Defensive Impact Breakdown). Each module manages warning_text, scope_label, data_freshness" "Python, pandas, mplsoccer, Plotly"
             filterLayer = container "Filter Layer" "Shared filter queries with TTL cache, scope labels, data freshness, and embedding player search" "Python, psycopg2"
             dbLayer = container "DB Layer" "OAuth token management, connection pooling, parameterized query execution" "Python, psycopg2, Databricks SDK"
-            renderEngine = container "Render Engine" "Matplotlib figure-to-PNG with cache-busting paths" "Python, matplotlib"
+            renderEngine = container "Render Engine" "Matplotlib/mplsoccer figure-to-PNG with cache-busting paths for static pitch diagrams" "Python, matplotlib, mplsoccer"
             pitchControl = container "Pitch Control Engine" "Physics-based (Spearman 2017) and Voronoi pitch control surface computation" "Python, NumPy, SciPy"
             configLayer = container "Config" "Pydantic settings from environment variables" "Python, pydantic-settings"
         }
@@ -20,17 +20,17 @@ workspace "Taipy Soccer Analytics" "Taipy-based soccer analytics dashboard repla
         hfHub = softwareSystem "HuggingFace Hub" "Hosts football2vec embedding models and datasets for player similarity" "External"
 
         # Relationships - user
-        analyst -> guiLayer "Browses pages, selects filters, views charts and tables" "WebSocket/HTTP"
+        analyst -> guiLayer "Browses pages, selects filters, views interactive and static charts" "WebSocket/HTTP"
 
         # Relationships - internal
         guiLayer -> templateEngine "Calls build_page() and build_nav() to generate Taipy Markdown" ""
         templateEngine -> sidebarWidgets "Generates filter sections from SidebarWidget data lists" ""
-        guiLayer -> stateModules "Binds state variables and triggers callbacks" ""
+        guiLayer -> stateModules "Binds state variables (including go.Figure) and triggers callbacks" ""
         templateEngine -> stateModules "References state variables in generated content blocks" ""
         stateModules -> filterLayer "Fetches filter options, scope labels, and data freshness" ""
         filterLayer -> dbLayer "Queries dimension and fact tables" "SQL"
         stateModules -> dbLayer "Executes parameterized SQL queries for page data" ""
-        stateModules -> renderEngine "Generates pitch diagrams and chart PNGs" ""
+        stateModules -> renderEngine "Generates static pitch diagrams (Shot Map, Pass Map, Heat Map, Pitch Control)" ""
         stateModules -> pitchControl "Computes pitch control surfaces for tracking data" ""
         renderEngine -> guiLayer "Returns image file paths for template binding" ""
         dbLayer -> configLayer "Reads Lakebase host and endpoint settings" ""

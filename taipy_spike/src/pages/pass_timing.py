@@ -11,7 +11,8 @@ page_config = PageConfig(
     freshness_var="pt_data_freshness",
     description=(
         "PAUSA: Passing Ability Under Spatiotemporal Awareness. "
-        "Composite of temporal judgment (when) x spatial selection (where)."
+        "Composite of temporal judgment (when) \u00d7 spatial selection (where). "
+        "Lee, Jo, Hong, Bauer & Ko (2026), MIT Sloan 2026."
     ),
     citations=[
         Citation("Lee, Jo, Hong, Bauer & Ko (2026)", "https://github.com/leemingo/mitssac-pausa"),
@@ -19,8 +20,8 @@ page_config = PageConfig(
         Citation("Kim et al. (2025) ELASTIC", "https://arxiv.org/abs/2508.09238"),
     ],
     content=[
-        ContentRow([ContentBlock("image", "pt_scatter_image")]),
-        ContentRow([ContentBlock("image", "pt_heatmap_image")]),
+        ContentRow([ContentBlock("chart", "pt_scatter_figure", condition="pt_scatter_figure is not None")]),
+        ContentRow([ContentBlock("chart", "pt_heatmap_figure", condition="pt_heatmap_figure is not None")]),
         ContentRow(
             [
                 ContentBlock(
@@ -46,7 +47,7 @@ page_config = PageConfig(
         Metric(
             "Avg Temporal Judgment",
             "pt_avg_temporal",
-            "Was the pass released at the optimal moment? Ratio of actual OBSO at release to peak OBSO in the window. 1.0 = perfect timing.",
+            "Was the pass released at the optimal moment? Ratio of actual OBSO at release to peak OBSO in the \u00b13s/+1s window. 1.0 = perfect timing.",
         ),
         Metric(
             "Avg Spatial Selection",

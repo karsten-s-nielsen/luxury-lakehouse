@@ -238,7 +238,7 @@ class ContentBlock:
     The template controls all structural wrapping and styling.
     """
 
-    kind: Literal["image", "table", "text", "expandable_table"]
+    kind: Literal["image", "table", "text", "expandable_table", "chart"]
     var: str  # state variable name
     header: str = ""  # optional subtitle above the block (ll-subtitle)
     condition: str = ""  # Taipy render condition (empty = auto len(var) > 0)
@@ -246,6 +246,7 @@ class ContentBlock:
     caption: str = ""  # static text below the block
     caption_var: str = ""  # dynamic caption (state variable)
     caption_condition: str = ""  # render condition for caption
+    chart_height: str = "450px"  # chart kind only: CSS height for the chart container
 
 
 @dataclass(frozen=True)
@@ -399,6 +400,8 @@ def _build_content_block(block: ContentBlock, page_title: str) -> str:
         parts.append(f"<|{block.header}|expandable|expanded=False|")
         parts.append(f"<|{{{block.var}}}|table|page_size={block.table_page_size}|>")
         parts.append("|>")
+    elif block.kind == "chart":
+        parts.append(f"<|{{{block.var}}}|chart|figure={{{block.var}}}|height={block.chart_height}|>")
 
     parts.append("|>")  # close render condition
 

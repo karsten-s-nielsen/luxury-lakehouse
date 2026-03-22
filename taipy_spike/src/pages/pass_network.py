@@ -8,13 +8,21 @@ page_config = PageConfig(
     title="Pass Network",
     icon="hub",
     nav_section="Match Analysis",
-    description="Network analysis of passing connections. Wyscout matches do not include pass recipient data.",
+    description=(
+        "Network analysis of passing connections per Pena & Touchette (2012) "
+        '"A network theory analysis of football strategies." '
+        "Wyscout matches do not include pass recipient data."
+    ),
     citations=[
         Citation("Pena & Touchette (2012)", "https://doi.org/10.48550/arXiv.1206.6904"),
     ],
-    content=[ContentRow([ContentBlock("image", "pn_pitch_image")])],
+    content=[
+        ContentRow(
+            [ContentBlock("chart", "pn_chart_figure", condition="pn_total_passes != '--'", chart_height="650px")]
+        )
+    ],
     empty_message="Select a competition, team, and match to begin.",
-    empty_condition="selected_competition is None",
+    empty_condition="selected_competition is None or selected_team is None or selected_match is None",
     warning_var="pn_warning_text",
     scope_vars=["pn_scope_label"],
     freshness_var="pn_data_freshness",
