@@ -54,6 +54,7 @@ from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
 
+from analytics.cost import HF_RATE_CPU_BASIC, HFJobsCostRecorder
 from workflows import workflow
 
 logger = logging.getLogger(__name__)
@@ -234,6 +235,15 @@ def main() -> None:
         raise RuntimeError("HF_TOKEN environment variable required")
 
     api = HfApi(token=hf_token)
+
+    recorder = HFJobsCostRecorder(
+        workflow_id="wf-vaep",
+        phase="training",
+        rate_usd_per_hour=HF_RATE_CPU_BASIC,
+        repo_id=MODEL_REPO,
+        repo_type="model",
+    )
+    recorder.start()
 
     # ------------------------------------------------------------------
     # 1. Load SPADL data from HF Hub
@@ -507,7 +517,7 @@ def main() -> None:
 
     model_bytes = serialize_vaep_models(model_scores, model_concedes)
 
-    metrics_payload = {
+    metrics_payload: dict[str, object] = {
         "scores": scores_metrics,
         "concedes": concedes_metrics,
         "config": {
@@ -524,6 +534,7 @@ def main() -> None:
             "hf_dataset_commit": dataset_commit_hash,
         },
     }
+    metrics_payload = recorder.complete(metrics_payload, row_count=len(x_train) + len(x_test))
 
     api.create_repo(MODEL_REPO, exist_ok=True, repo_type="model", token=hf_token)
 

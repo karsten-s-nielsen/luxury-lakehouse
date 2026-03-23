@@ -42,6 +42,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from analytics.cost import HF_RATE_CPU_BASIC, HFJobsCostRecorder
 from analytics.obso import interpolate_grid
 from workflows import workflow
 
@@ -675,6 +676,14 @@ def main() -> None:
     api = HfApi(token=hf_token)
     params = OBSOGridParams()
 
+    recorder = HFJobsCostRecorder(
+        workflow_id="wf-epv-reachability",
+        phase="grid_computation",
+        rate_usd_per_hour=HF_RATE_CPU_BASIC,
+        repo_id=OUTPUT_DATASET,
+    )
+    recorder.start()
+
     logger.info("=== OBSO Grid Training Script ===")
     logger.info(
         "Output grids: reachability (%d, %d), EPV (%d, %d)",
@@ -914,7 +923,7 @@ def main() -> None:
         combined_completion.to_parquet(str(data_dir / "completion_matrices_all.parquet"), index=False)
 
         # Metadata
-        metadata = {
+        metadata: dict[str, object] = {
             "params": asdict(params),
             "competitions": [str(c) for c in competitions],
             "n_competitions_computed": n_competitions_computed,
@@ -937,6 +946,7 @@ def main() -> None:
             },
             "spadl_dataset_commit": _dataset_commit,
         }
+        metadata = recorder.complete(metadata, row_count=len(combined_reach) + len(combined_epv))
         with open(str(Path(tmpdir) / "metadata.json"), "w") as f:
             json.dump(metadata, f, indent=2)
 

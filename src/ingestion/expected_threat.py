@@ -201,4 +201,10 @@ def main() -> None:
     args = parse_ingestion_args("Compute Expected Threat grids from SPADL actions")
     logger = configure_logging("expected_threat")
     spark = get_spark_session()
+
+    from ingestion.cost_hook import CostEstimateHook
+    from workflows import register_hook
+
+    register_hook(CostEstimateHook(spark, args.catalog, args.schema))
+
     run_pipeline(spark, args.catalog, args.schema, logger)

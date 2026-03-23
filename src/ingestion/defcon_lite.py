@@ -873,6 +873,11 @@ def main() -> None:
     logger = configure_logging("defcon_lite")
     spark = get_spark_session()
 
+    from ingestion.cost_hook import CostEstimateHook
+    from workflows import register_hook
+
+    register_hook(CostEstimateHook(spark, args.catalog, args.schema))
+
     logger.info("Starting DEFCON-lite pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger)
 

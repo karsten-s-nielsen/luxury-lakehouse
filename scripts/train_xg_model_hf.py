@@ -45,6 +45,7 @@ from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
 
+from analytics.cost import HF_RATE_CPU_BASIC, HFJobsCostRecorder
 from workflows import workflow
 
 # ---------------------------------------------------------------------------
@@ -192,6 +193,15 @@ def main() -> None:
 
     api = HfApi(token=hf_token)
 
+    recorder = HFJobsCostRecorder(
+        workflow_id="wf-xg-v1",
+        phase="training",
+        rate_usd_per_hour=HF_RATE_CPU_BASIC,
+        repo_id=MODEL_REPO,
+        repo_type="model",
+    )
+    recorder.start()
+
     # ------------------------------------------------------------------
     # 1. Load shot data from HF Hub
     # ------------------------------------------------------------------
@@ -236,15 +246,14 @@ def main() -> None:
     # ------------------------------------------------------------------
     print("\n=== Training models ===")
 
-    # Logistic baseline
+    # Logistic baseline (cross-validated calibration — sklearn 1.6+ removed cv="prefit")
     lr = LogisticRegression(random_state=RANDOM_STATE, max_iter=1000)
     baseline_cols = [c for c in _BASELINE_FEATURES if c in x_train.columns]
-    lr.fit(x_train[baseline_cols], y_train)
-    logistic_model = CalibratedClassifierCV(lr, cv="prefit", method=CALIBRATION_METHOD)
+    logistic_model = CalibratedClassifierCV(lr, cv=5, method=CALIBRATION_METHOD, ensemble=False)
     logistic_model.fit(x_train[baseline_cols], y_train)
     print("  Logistic baseline trained")
 
-    # XGBoost
+    # XGBoost (cross-validated calibration, single estimator for serialization)
     xgb = XGBClassifier(
         n_estimators=N_ESTIMATORS,
         max_depth=MAX_DEPTH,
@@ -253,8 +262,7 @@ def main() -> None:
         eval_metric="logloss",
         random_state=RANDOM_STATE,
     )
-    xgb.fit(x_train, y_train)
-    xgboost_model = CalibratedClassifierCV(xgb, cv="prefit", method=CALIBRATION_METHOD)
+    xgboost_model = CalibratedClassifierCV(xgb, cv=5, method=CALIBRATION_METHOD, ensemble=False)
     xgboost_model.fit(x_train, y_train)
     print("  XGBoost (calibrated) trained")
 
@@ -329,7 +337,7 @@ def main() -> None:
     logistic_bytes = serialize_logistic_model(logistic_model)
     xgboost_bytes = serialize_xgboost_model(xgboost_model)
 
-    metrics_payload = {
+    metrics_payload: dict[str, object] = {
         "logistic": lr_metrics,
         "xgboost": xgb_metrics,
         "config": {
@@ -343,6 +351,7 @@ def main() -> None:
             "n_test": len(x_test),
         },
     }
+    metrics_payload = recorder.complete(metrics_payload, row_count=len(x_train) + len(x_test))
 
     api.create_repo(MODEL_REPO, exist_ok=True, repo_type="model", token=hf_token)
 

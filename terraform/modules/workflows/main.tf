@@ -280,6 +280,35 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
+  # ── Task: Detect line-breaking passes ────────────────────────────────
+  # Path A: StatsBomb 360 freeze-frame defender positions.
+  # Path B: Metrica tracking data for defender line estimation.
+  # Writes bronze.line_breaking_results.
+  task {
+    task_key        = "compute_line_breaking"
+    timeout_seconds = 3600
+    max_retries     = 1
+
+    depends_on {
+      task_key = "ingest_statsbomb"
+    }
+    depends_on {
+      task_key = "ingest_metrica"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_line_breaking"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "default"
+  }
+
   # ── Task: Compute DEFCON-lite defensive valuation ──────────────────────
   # Reads gold fct_action_values + bronze statsbomb_360, assigns defensive
   # credits per-defender per-action, trains XGBoost value estimators.

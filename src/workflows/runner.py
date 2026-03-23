@@ -7,6 +7,7 @@ import logging
 from typing import Any
 
 from workflows.context import WorkflowContext
+from workflows.exceptions import WorkflowSkippedError
 from workflows.hooks import LifecycleHook, LoggingHook
 from workflows.registry import WorkflowEntry
 
@@ -69,6 +70,9 @@ def run_workflow(entry: WorkflowEntry, *args: Any, **kwargs: Any) -> int | None:
         result = entry.func(*args, **kwargs)
         _dispatch(active_hooks, "on_complete", ctx, result)
         return result  # type: ignore[return-value]
+    except WorkflowSkippedError as exc:
+        _dispatch(active_hooks, "on_skip", ctx, str(exc))
+        return None
     except Exception as exc:
         _dispatch(active_hooks, "on_error", ctx, exc)
         raise

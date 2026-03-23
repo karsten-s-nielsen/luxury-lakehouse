@@ -34,6 +34,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from analytics.cost import HF_RATE_CPU_BASIC, HFJobsCostRecorder
 from analytics.expected_threat import compute_expected_threat_grid, grid_to_dataframe, validate_xt_grid
 from workflows import workflow
 
@@ -178,6 +179,14 @@ def main() -> None:
 
     api = HfApi(token=hf_token)
     params = ExpectedThreatParams()
+
+    recorder = HFJobsCostRecorder(
+        workflow_id="wf-xt-grids",
+        phase="grid_computation",
+        rate_usd_per_hour=HF_RATE_CPU_BASIC,
+        repo_id=OUTPUT_DATASET,
+    )
+    recorder.start()
 
     # ------------------------------------------------------------------
     # 1. Load SPADL data from HF Hub
@@ -337,7 +346,7 @@ def main() -> None:
         global_seed.to_csv(str(data_dir / "xt_grid_global.csv"), index=False)
 
         # Save metadata
-        metadata = {
+        metadata: dict[str, object] = {
             "params": {
                 "n_zones_x": params.n_zones_x,
                 "n_zones_y": params.n_zones_y,
@@ -352,6 +361,7 @@ def main() -> None:
             "global_max_xt": float(global_grid.max()),
             "global_min_xt": float(global_grid.min()),
         }
+        metadata = recorder.complete(metadata, row_count=len(combined_df))
         with open(str(Path(tmpdir) / "metadata.json"), "w") as f:
             json.dump(metadata, f, indent=2)
 

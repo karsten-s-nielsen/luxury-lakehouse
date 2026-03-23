@@ -767,6 +767,12 @@ def main() -> None:
     args = parse_ingestion_args("Compute player embeddings from event data")
     logger = configure_logging("player_embeddings")
     spark = get_spark_session()
+
+    from ingestion.cost_hook import CostEstimateHook
+    from workflows import register_hook
+
+    register_hook(CostEstimateHook(spark, args.catalog, args.schema))
+
     run_pipeline(spark, args.catalog, args.schema, logger)
 
 

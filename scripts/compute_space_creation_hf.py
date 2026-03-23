@@ -48,6 +48,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from analytics.cost import HF_RATE_A10G_LARGE, HFJobsCostRecorder
 from analytics.obso import interpolate_grid
 from analytics.pitch_control import (
     PitchControlParams,
@@ -316,6 +317,14 @@ def main() -> None:
 
     api = HfApi(token=hf_token)
     params = PitchControlParams()
+
+    recorder = HFJobsCostRecorder(
+        workflow_id="wf-space-creation",
+        phase="grid_computation",
+        rate_usd_per_hour=HF_RATE_A10G_LARGE,
+        repo_id=OUTPUT_DATASET,
+    )
+    recorder.start()
 
     print("=== Space Creation Batch Computation on HF Jobs GPU ===", flush=True)
     print(f"  JAX available: {_USE_JAX}", flush=True)
@@ -776,7 +785,7 @@ def main() -> None:
         results_df.to_parquet(str(data_dir / "space_creation.parquet"), index=False)
 
         # Save metadata
-        metadata = {
+        metadata: dict[str, object] = {
             "grid_nx": GRID_NX,
             "grid_ny": GRID_NY,
             "cell_area_m2": round(CELL_AREA_M2, 4),
@@ -797,6 +806,7 @@ def main() -> None:
             },
             "tracking_dataset_commit": _tracking_commit,
         }
+        metadata = recorder.complete(metadata, row_count=n_rows)
         with open(str(Path(tmpdir) / "metadata.json"), "w") as f:
             json.dump(metadata, f, indent=2)
 
