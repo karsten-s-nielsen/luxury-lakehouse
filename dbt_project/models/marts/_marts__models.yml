@@ -1771,3 +1771,40 @@ models:
       - name: _loaded_at
         data_type: timestamp
         description: Timestamp when the row was materialized
+
+  - name: fct_workflow_costs
+    config:
+      contract:
+        enforced: true
+    description: >
+      Gold-layer workflow cost attribution from Databricks system tables.
+      Joins billing usage with list prices and attributes cost per-task
+      proportionally by execution duration within each job run.
+      90-day rolling window refreshed daily.
+    columns:
+      - name: task_key
+        data_type: string
+        description: >
+          Databricks job task key, maps to workflow card entry_point.
+        data_tests:
+          - not_null
+      - name: usage_date
+        data_type: date
+        description: Date the billing usage was recorded.
+        data_tests:
+          - not_null
+      - name: job_run_id
+        data_type: bigint
+        description: Databricks job run identifier.
+        data_tests:
+          - not_null
+      - name: attributed_dbu
+        data_type: decimal(10,4)
+        description: >
+          Proportional DBU consumption for this task within the job run.
+          Attributed by execution_duration_seconds ratio.
+      - name: attributed_cost_usd
+        data_type: decimal(10,4)
+        description: >
+          Proportional dollar cost for this task within the job run.
+          Attributed by execution_duration_seconds ratio.

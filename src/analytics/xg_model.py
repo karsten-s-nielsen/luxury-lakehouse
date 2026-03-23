@@ -15,7 +15,6 @@ from __future__ import annotations
 import base64
 import json
 import logging
-import warnings
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -185,22 +184,15 @@ def train_logistic_baseline(
 ) -> CalibratedClassifierCV:
     """Train logistic regression on distance_to_goal + shot_angle only.
 
-    Uses ``cv="prefit"`` for a single fitted estimator with isotonic calibration.
-
-    .. deprecated:: sklearn 1.6
-        ``cv="prefit"`` is deprecated; will migrate to ``FrozenEstimator``
-        when sklearn removes it (planned 1.8).
+    Uses 5-fold cross-validated isotonic calibration with ``ensemble=False``
+    to produce a single calibrated estimator matching the serialization format.
     """
     baseline_cols = [c for c in _BASELINE_FEATURES if c in x.columns]
     x_baseline = x[baseline_cols]
 
     base_model = LogisticRegression(random_state=random_state, max_iter=1000)
-    base_model.fit(x_baseline, y)
-
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message=".*cv='prefit'.*", category=FutureWarning)
-        calibrated = CalibratedClassifierCV(base_model, cv="prefit", method="isotonic")
-        calibrated.fit(x_baseline, y)
+    calibrated = CalibratedClassifierCV(base_model, cv=5, method="isotonic", ensemble=False)
+    calibrated.fit(x_baseline, y)
     return calibrated
 
 
@@ -209,13 +201,11 @@ def train_xgboost_model(
     y: pd.Series,
     config: XGModelConfig | None = None,
 ) -> CalibratedClassifierCV:
-    """Train XGBoost classifier with isotonic calibration.
+    """Train XGBoost classifier with cross-validated isotonic calibration.
 
-    Uses ``cv="prefit"`` for a single fitted estimator.
-
-    .. deprecated:: sklearn 1.6
-        ``cv="prefit"`` is deprecated; will migrate to ``FrozenEstimator``
-        when sklearn removes it (planned 1.8).
+    Uses ``ensemble=False`` to produce a single calibrated estimator (trained
+    on the full dataset after cross-validated calibrator fitting), matching
+    the serialization format that stores one estimator + one calibrator.
     """
     if config is None:
         config = XGModelConfig()
@@ -227,12 +217,8 @@ def train_xgboost_model(
         random_state=config.random_state,
         eval_metric="logloss",
     )
-    base_model.fit(x, y)
-
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message=".*cv='prefit'.*", category=FutureWarning)
-        calibrated = CalibratedClassifierCV(base_model, cv="prefit", method=config.calibration_method)
-        calibrated.fit(x, y)
+    calibrated = CalibratedClassifierCV(base_model, cv=5, method=config.calibration_method, ensemble=False)
+    calibrated.fit(x, y)
     return calibrated
 
 
@@ -300,14 +286,14 @@ def _wrap_calibrated(estimator: Any, calibrator: IsotonicRegression) -> Calibrat
     """Wrap an estimator + isotonic calibrator into a CalibratedClassifierCV.
 
     Reconstructs the sklearn internal ``_CalibratedClassifier`` wrapper directly,
-    avoiding a redundant ``.fit()`` call.
+    avoiding a redundant ``.fit()`` call.  The outer ``CalibratedClassifierCV``
+    is constructed with ``cv=5`` (never fitted) — only its internal attributes
+    are populated manually.
     """
     classes = np.array([0, 1])
     cc = _CalibratedClassifier(estimator=estimator, calibrators=[calibrator], classes=classes, method="isotonic")
 
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message=".*cv='prefit'.*", category=FutureWarning)
-        calibrated = CalibratedClassifierCV(estimator, cv="prefit")
+    calibrated = CalibratedClassifierCV(estimator, cv=5)
     calibrated.calibrated_classifiers_ = [cc]
     calibrated.classes_ = classes
     return calibrated

@@ -58,6 +58,7 @@ import torch.nn as nn
 from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 from sklearn.model_selection import train_test_split
 
+from analytics.cost import HF_RATE_A10G_SMALL, HFJobsCostRecorder
 from analytics.set_encoder import serialize_set_encoder_weights
 from workflows import workflow
 
@@ -732,6 +733,15 @@ def main() -> None:
 
     api = HfApi(token=hf_token)
 
+    recorder = HFJobsCostRecorder(
+        workflow_id="wf-xg-v2",
+        phase="training",
+        rate_usd_per_hour=HF_RATE_A10G_SMALL,
+        repo_id=V2_MODEL_REPO,
+        repo_type="model",
+    )
+    recorder.start()
+
     # Select device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info("Using device: %s", device)
@@ -1130,6 +1140,7 @@ def main() -> None:
     }
     if v1_metrics:
         metrics_payload["v1_xgboost_baseline"] = v1_metrics
+    metrics_payload = recorder.complete(metrics_payload, row_count=len(train_idx) + len(test_idx))
 
     api.create_repo(V2_MODEL_REPO, exist_ok=True, repo_type="model", token=hf_token)
 

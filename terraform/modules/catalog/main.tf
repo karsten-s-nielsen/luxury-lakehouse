@@ -50,6 +50,18 @@ resource "databricks_schema" "gold" {
   }
 }
 
+resource "databricks_schema" "observability" {
+  catalog_name = var.catalog_name
+  name         = "observability"
+  comment      = "Platform operational metadata: cost tracking, run history, SLIs, alerts."
+
+  properties = {
+    layer       = "observability"
+    environment = var.environment
+    managed_by  = "terraform"
+  }
+}
+
 # ── Volume: Wheel storage for ingestion jobs ─────────────────────────────────
 # Stores Python wheel packages uploaded by CI/CD or deployment scripts.
 # Referenced by serverless job environments via /Volumes/<catalog>/bronze/libs/
@@ -82,7 +94,7 @@ resource "databricks_grant" "ingestion_sp_use_catalog" {
   catalog = var.catalog_name
 
   principal  = var.ingestion_sp_application_id
-  privileges = ["USE_CATALOG"]
+  privileges = ["USE_CATALOG", "BROWSE"]
 }
 
 resource "databricks_grant" "ingestion_sp_bronze_schema" {
@@ -119,6 +131,15 @@ resource "databricks_grant" "ingestion_sp_gold_model_weights_volume" {
 
   principal  = var.ingestion_sp_application_id
   privileges = ["READ_VOLUME", "WRITE_VOLUME"]
+}
+
+resource "databricks_grant" "ingestion_sp_observability_schema" {
+  count = var.enable_ingestion_sp_grants ? 1 : 0
+
+  schema = "${var.catalog_name}.${databricks_schema.observability.name}"
+
+  principal  = var.ingestion_sp_application_id
+  privileges = ["USE_SCHEMA", "CREATE_TABLE", "MODIFY", "SELECT"]
 }
 
 resource "databricks_grant" "ingestion_sp_libs_volume" {

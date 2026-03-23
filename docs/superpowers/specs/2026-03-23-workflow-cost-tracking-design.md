@@ -48,6 +48,8 @@ Three-tier cost model from the parent spec, implemented across two storage backe
 
 **File:** `dbt_project/models/marts/fct_workflow_costs.sql`
 
+**Materialization:** `materialized='table'` (full rebuild, not incremental). The 90-day rolling `WHERE` clause rebuilds the full window on each run, ensuring the post-hook cleanup's `MAX(usage_date)` subquery always reflects the complete coverage window. Incremental materialization would risk computing a stale cleanup threshold during early builds.
+
 Reads `system.billing.usage` joined with `system.billing.list_prices` on `sku_name` with price validity window. Attributes per-task cost proportionally using `execution_duration_seconds` from `system.lakeflow.job_task_run_timeline`. 90-day rolling window.
 
 Output columns:
@@ -59,6 +61,8 @@ Output columns:
 
 **Contract:** Enforced in `_marts__models.yml` with explicit `data_type` on every column.
 
+**Liquid clustering:** `liquid_clustered_by = ['task_key', 'usage_date']` — per CLAUDE.md, all mart tables use liquid clustering. At 90 days × ~16 tasks × daily runs, this table grows to thousands of rows where clustering on the primary query axes (task key + date range) is beneficial.
+
 **Post-hook cleanup** (runs after each dbt build of this model):
 
 ```sql
@@ -66,17 +70,17 @@ Output columns:
 -- COALESCE sentinel: if fct_workflow_costs is empty (first build), threshold
 -- becomes 1970-01-02 — no legitimate workflow has ended_at in 1970, so the
 -- DELETE matches zero rows and warm tier is preserved until cold catches up.
-DELETE FROM {catalog}.{schema}.workflow_cost_live
+DELETE FROM {{ this.database }}.{{ this.schema }}.workflow_cost_live
 WHERE state != 'RUNNING'
   AND ended_at IS NOT NULL
   AND ended_at < (
       SELECT COALESCE(MAX(usage_date), DATE '1970-01-01') + INTERVAL 1 DAY
-      FROM {catalog}.{schema}.fct_workflow_costs
+      FROM {{ this.database }}.{{ this.schema }}.fct_workflow_costs
   );
 
 -- Secondary: orphaned RUNNING rows older than 24 hours.
 -- If a job has been "running" for > 24h, the hook clearly failed to update it.
-DELETE FROM {catalog}.{schema}.workflow_cost_live
+DELETE FROM {{ this.database }}.{{ this.schema }}.workflow_cost_live
 WHERE state = 'RUNNING'
   AND started_at < CURRENT_TIMESTAMP - INTERVAL 24 HOURS;
 ```
@@ -116,6 +120,8 @@ Rate is configurable via environment variable, defaults to current Databricks se
 
 Both are `None` in local/notebook contexts (handled gracefully — hook writes the row without these fields).
 
+**Input validation:** The constructor validates `catalog` and `schema` against `^[a-zA-Z_][a-zA-Z0-9_]*$` at construction time (per CLAUDE.md security hardening) since these values are interpolated into the MERGE SQL target table name.
+
 **Constructor:**
 ```python
 def __init__(
@@ -127,6 +133,8 @@ def __init__(
     runtime: str = "databricks",
 ) -> None:
 ```
+
+The `runtime` parameter is written to the `workflow_cost_live.runtime` column on every MERGE (values: `"databricks"` or `"hf-jobs"`). This allows Taipy to distinguish cost sources when displaying aggregated data.
 
 ### 3C. `HFJobsCostRecorder` (HF Jobs Warm/Hot)
 
@@ -223,6 +231,7 @@ Run once via Databricks SQL or notebook. Not managed by dbt (written by Spark, n
 - `rate_usd_per_hour` uses `DECIMAL(10,6)` for sub-cent rate granularity (HF cpu-basic is $0.01/hr; future fractional rates won't truncate).
 - `estimated_cost_usd` uses `DECIMAL(10,4)` — sub-cent cost precision is sufficient for display.
 - `duration_seconds` uses `INT` — sufficient for 24,855 days. Orphaned RUNNING rows are swept at 24h, so overflow is impossible.
+- `cost_source` — values: `"live_estimate"` (RUNNING rows, cost recomputed at display time) or `"completion_estimate"` (COMPLETED/FAILED/SKIPPED rows, final cost recorded by hook). The cold tier (`fct_workflow_costs`) is a separate dbt table and does NOT write to `workflow_cost_live` — so there is no `"actual"` value. Taipy uses this field to decide whether to recompute cost from elapsed time.
 
 ### 3E. Runner `on_skip` Dispatch
 
@@ -230,17 +239,21 @@ Run once via Databricks SQL or notebook. Not managed by dbt (written by Spark, n
 
 The current runner catches all exceptions via `on_error`. `WorkflowSkippedError` (raised when a pipeline's skip guard determines all items are already processed) should dispatch `on_skip` instead, so the `CostEstimateHook` writes a SKIPPED row rather than a FAILED row.
 
-**Change:** In `run_workflow()`, catch `WorkflowSkippedError` before the generic `Exception` handler:
+**Import addition:** `runner.py` must add `from workflows.exceptions import WorkflowSkippedError` to its import block.
+
+**Change:** In `run_workflow()`, catch `WorkflowSkippedError` before the generic `Exception` handler. All `_dispatch` calls use positional args (the existing `_dispatch` signature is `*args` only, no `**kwargs`):
 
 ```python
 try:
-    result = func(*args, **kwargs)
-    _dispatch(hooks, "on_complete", ctx, row_count=result)
+    result = entry.func(*args, **kwargs)
+    _dispatch(active_hooks, "on_complete", ctx, result)
+    return result
 except WorkflowSkippedError as exc:
-    _dispatch(hooks, "on_skip", ctx, reason=str(exc))
+    _dispatch(active_hooks, "on_skip", ctx, str(exc))
     # Skip is not a failure — do not re-raise. Pipeline exits 0.
+    return None
 except Exception as exc:
-    _dispatch(hooks, "on_error", ctx, error=exc)
+    _dispatch(active_hooks, "on_error", ctx, exc)
     raise
 ```
 
@@ -324,6 +337,8 @@ uv run python scripts/deploy_wheel.py                    # defaults: soccer_anal
 uv run python scripts/deploy_wheel.py --catalog prod     # override catalog
 uv run python scripts/deploy_wheel.py --dry-run          # show what would happen
 ```
+
+**Post-upload verification:** After upload, the script reads back the file metadata from the Volume (size, path) and confirms it matches the local wheel. Consistent with `scripts/deploy_taipy.py` which performs post-upload verification.
 
 **Dependencies:** `huggingface_hub` + `databricks-sdk` (both already in dev extras).
 

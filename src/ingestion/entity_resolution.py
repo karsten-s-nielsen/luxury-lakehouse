@@ -165,6 +165,12 @@ def main() -> None:
     args = parse_ingestion_args("Run cross-source player entity resolution")
     logger = configure_logging("entity_resolution")
     spark = get_spark_session()
+
+    from ingestion.cost_hook import CostEstimateHook
+    from workflows import register_hook
+
+    register_hook(CostEstimateHook(spark, args.catalog, args.schema))
+
     run_pipeline(spark, args.catalog, args.schema, logger)
 
 

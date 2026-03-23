@@ -314,6 +314,11 @@ def main() -> None:
     logger = configure_logging("off_ball_xt")
     spark = get_spark_session()
 
+    from ingestion.cost_hook import CostEstimateHook
+    from workflows import register_hook
+
+    register_hook(CostEstimateHook(spark, args.catalog, args.schema))
+
     logger.info("Starting Off-Ball xT pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger)
 

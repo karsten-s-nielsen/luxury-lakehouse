@@ -324,3 +324,62 @@ def test_run_workflow_without_card_uses_fallback() -> None:
     finally:
         _hooks.clear()
         _hooks.extend(saved_hooks)
+
+
+# ---------------------------------------------------------------------------
+# 11. WorkflowSkippedError dispatches on_skip (not on_error)
+# ---------------------------------------------------------------------------
+
+
+def test_skipped_error_dispatches_on_skip() -> None:
+    """WorkflowSkippedError should trigger on_skip, not on_error."""
+    from workflows.exceptions import WorkflowSkippedError
+
+    saved_hooks = _hooks.copy()
+    _hooks.clear()
+    try:
+        recording_hook = _RecordingHook()
+        _hooks.append(recording_hook)
+
+        def skip_pipeline() -> None:
+            raise WorkflowSkippedError("all matches processed")
+
+        entry = WorkflowEntry(
+            workflow_id="wf-skip-test",
+            phase="test",
+            func=skip_pipeline,
+        )
+        result = run_workflow(entry)
+
+        assert result is None
+        # _RecordingHook.calls is list[str]
+        assert "on_skip" in recording_hook.calls
+        assert "on_error" not in recording_hook.calls
+    finally:
+        _hooks.clear()
+        _hooks.extend(saved_hooks)
+
+
+def test_skipped_error_does_not_reraise() -> None:
+    """WorkflowSkippedError should NOT propagate — pipeline exits 0."""
+    from workflows.exceptions import WorkflowSkippedError
+
+    saved_hooks = _hooks.copy()
+    _hooks.clear()
+    try:
+        _hooks.append(_RecordingHook())
+
+        def skip_pipeline() -> None:
+            raise WorkflowSkippedError("nothing to do")
+
+        entry = WorkflowEntry(
+            workflow_id="wf-skip-noraise",
+            phase="test",
+            func=skip_pipeline,
+        )
+        # Should NOT raise
+        result = run_workflow(entry)
+        assert result is None
+    finally:
+        _hooks.clear()
+        _hooks.extend(saved_hooks)
