@@ -127,6 +127,34 @@ The platform's architecture maps to classic EIP patterns (Hohpe & Woolf 2003). C
 - **Bound all data queries**: Every Streamlit SQL query returning user-facing data must have a `LIMIT` clause. Use `LIMIT 500` for ranking/leaderboard queries, `LIMIT 2000` for timeline queries.
 - **Use recursive CTE for distinct values on fact tables**: `SELECT DISTINCT` forces full sequential scans. Use the recursive CTE loose index scan pattern instead (see Lakebase section above).
 
+## UI Architecture
+
+The Taipy dashboard uses a template-driven architecture where pages are declarative data, not imperative layout code. All page rendering flows through `page_template.py` → `build_page(cfg: PageConfig)`. This section defines the rules for maintaining and extending it.
+
+### Adding a New Page
+
+A new page requires exactly 3 files and 2 edits:
+
+1. **`hf_taipy_app/src/state/<page_name>.py`** — State variables, callbacks, SQL queries, chart rendering. Must follow prefix naming (`<prefix>_variable`) to avoid Taipy namespace collisions.
+2. **`hf_taipy_app/src/pages/<page_name>.py`** — A `page_config: PageConfig` and `page_md: str` (from `build_page(page_config)`). No hand-crafted Taipy Markdown — the page file is pure configuration.
+3. **`hf_taipy_app/src/main.py`** — Import the page's `page_config` and `page_md`, add a `PageEntry` to `PAGE_REGISTRY`.
+4. **`hf_taipy_app/src/template.py`** — Add page-specific glossary terms to `PAGE_TERMS`.
+
+### Template Rules
+
+- **All pages must use `build_page()`**: Zero hand-crafted layouts. A page is a `PageConfig` (title, icon, description, metrics, sidebar widgets, content blocks, citations), not a string of Taipy Markdown.
+- **`Metric` requires `help_text`**: If the metric name is not universally understood, `help_text` is mandatory — the `PageConfig` dataclass enforces this. "What does this mean?" and "Is this good or bad?" must be answerable from the tooltip alone.
+- **`SidebarWidget` requires `help`**: Every filter widget must have a `help` tooltip explaining what it controls.
+- **`Citation` for every methodology**: Any page implementing a published algorithm must include a `Citation(text, url)` in its `PageConfig`. No uncited methodologies.
+- **`ContentBlock` for all content**: Images use `ContentBlock("image", var)`, tables use `ContentBlock("table", var)`, Plotly charts use `ContentBlock("chart", var)`. Never construct raw `<|{var}|chart|>` markup in page files.
+- **Layout changes go through the template**: If a visual change requires editing more than one page file, it belongs in `page_template.py`. Individual page files contain only page-specific data.
+- **State module isolation**: Each page's state module manages its own variables and callbacks. Shared state (competition/team/match filters) lives in `state/shared.py`. No cross-page state imports except from `shared`.
+- **Glossary coverage**: Every domain-specific term used in metric names, chart labels, or descriptions must have an entry in `GLOSSARY` (in `template.py`) and be listed in the page's `PAGE_TERMS` entry.
+
+### Why Template-First
+
+Building pages as imperative layout code leads to inconsistency debt that compounds per-page. With 12+ pages, hand-crafting each one guarantees: missing tooltips on some pages, different metric formats, inconsistent empty-state handling, and layout drift. The template makes these structurally impossible — required fields are constructor parameters, not afterthoughts. A CHI audit against a template architecture produces template-level fixes (one change, all pages); without it, the same audit produces N per-page fixes.
+
 ## Streamlit UX Standards
 
 These rules prevent cognitive interface debt from accumulating. Derived from CHI-AUDIT-180 and CHI-AUDIT-190 (cognitive-interface-audit v1.8.0+, 15 frameworks). Every Streamlit, Gradio, or Taipy code change must satisfy all of these. Taipy equivalents: `Metric(help_text=)` for tooltips, `warning_var=` (amber `ll-warning-box`) vs `empty_message` (blue `ll-info-box`) for empty state distinction, `scope_vars=` for data context, `SidebarWidget(help=)` for widget tooltips, `GLOSSARY`/`PAGE_TERMS` in `template.py` for per-page glossary filtering.
