@@ -112,7 +112,7 @@ select = [
 
 [tool.ruff.lint.per-file-ignores]
 "src/tests/**" = ["S101"]  # assert is standard in pytest
-"taipy_spike/**" = ["E501", "S104", "F405", "RUF022", "RUF005"]  # spike: long help text, 0.0.0.0, star imports, unsorted __all__, list concat
+"hf_taipy_app/**" = ["E501", "S104", "F405", "RUF022", "RUF005"]  # Taipy app: long help text, 0.0.0.0, star imports, unsorted __all__, list concat
 
 [tool.ruff.lint.isort]
 known-first-party = ["analytics", "ingestion", "streamlit_app"]
@@ -128,7 +128,7 @@ testpaths = ["src/tests"]
 addopts = "--tb=short -q"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ingestion", "src/streamlit_app", "src/analytics"]
+packages = ["src/ingestion", "src/analytics"]
 
 [build-system]
 requires = ["hatchling"]
