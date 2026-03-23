@@ -6,9 +6,10 @@ These standards apply to ALL code in this repository. They are non-negotiable.
 
 - **SOLID**: Single responsibility per module/function. Depend on abstractions.
 - **Clean Code**: Meaningful names, small functions, no dead code.
-- **Separation of Concerns**: Ingestion, transformation (dbt), and presentation (Streamlit) are fully isolated layers.
+- **Separation of Concerns**: Ingestion, transformation (dbt), and presentation (Taipy) are fully isolated layers.
 - **Idempotent Operations**: Every ingestion task can be re-run safely. Use partition-level overwrites, not full table drops.
 - **Structured Logging**: JSON-line logs to stdout. No print statements. Include source name, row counts, and timing.
+- **Streamlit retained for reference**: `src/streamlit_app/` and `hf_streamlit_app/` are preserved during the Taipy transition period (~1 week). No changes needed to this code.
 
 ## Security Hardening
 
@@ -115,12 +116,12 @@ The platform's architecture maps to classic EIP patterns (Hohpe & Woolf 2003). C
 ### Performance Budgets
 
 - **Pipeline task timeout**: ingest tasks ≤15 min, compute tasks ≤2 hr
-- **Streamlit page load**: ≤3 seconds (first load), ≤500ms (cached interaction)
+- **App page load**: ≤3 seconds (first load), ≤500ms (cached interaction)
 - **UDF group memory**: ≤800 MB peak (1 GB limit minus overhead)
 - **Batched pitch control**: ≤5ms per frame for 22 targets (benchmark baseline)
 - **Line-breaking detection**: ≤2ms per pass (benchmark baseline)
 
-## Streamlit Performance
+## App Performance
 
 - **`@st.cache_data` functions must be at module level**: Never define a `@st.cache_data`-decorated function inside another function — the decorator is re-applied on every call, creating a new cache key each time. This silently defeats caching.
 - **Bound all data queries**: Every Streamlit SQL query returning user-facing data must have a `LIMIT` clause. Use `LIMIT 500` for ranking/leaderboard queries, `LIMIT 2000` for timeline queries.

@@ -31,6 +31,7 @@ FOLDER_PATH = Path("taipy_spike")
 
 TARGETS: dict[str, str] = {
     "staging": "luxury-lakehouse/staging",
+    "production": "luxury-lakehouse/soccer-analytics-app",
 }
 
 # Patterns to exclude from upload (matched against relative paths within FOLDER_PATH).
