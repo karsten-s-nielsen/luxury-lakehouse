@@ -34,6 +34,7 @@ from ingestion.utils import (
     merge_delta_table,
     parse_ingestion_args,
 )
+from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -542,11 +543,14 @@ def _process_metrica_tracking(
 # ---------------------------------------------------------------------------
 
 
+@workflow("wf-line-breaking", phase="heuristic")
 def run_pipeline(
     spark: SparkSession,
     catalog: str,
     schema: str,
     logger: logging.Logger,
+    *,
+    ctx=None,
 ) -> None:
     """Execute the line-breaking detection pipeline."""
     params = LineBreakingParams()

@@ -1,0 +1,76 @@
+---
+name: Space Creation Surfaces
+id: wf-space-creation
+version: "1.0"
+status: production
+type: grid-computation
+domain: space-creation
+owners:
+  - karsten
+tags:
+  - space-creation
+  - pitch-control
+  - off-ball-movement
+
+references:
+  - citation: "Fernandez & Bornn (2018). Wide Open Spaces: A Statistical Technique for Measuring Space Creation in Professional Soccer. MIT Sloan Sports Analytics Conference."
+    role: methodology
+  - citation: "Spearman (2018). Beyond Expected Goals. MIT Sloan Sports Analytics Conference."
+    role: algorithm
+
+inputs:
+  datasets:
+    - id: "luxury-lakehouse/pitch-control-tracking"
+      source: huggingface
+      description: "Tracking data formatted for pitch control computation"
+    - id: "luxury-lakehouse/obso-trained-grids"
+      source: huggingface
+      description: "EPV transition and reachability grids"
+
+outputs:
+  datasets:
+    - id: "luxury-lakehouse/space-creation-values"
+      destination: huggingface
+      description: "Per-player space creation values across all frames"
+
+execution:
+  training:
+    trigger: manual
+    runtime: hf-jobs
+    flavor: a10g-small
+    script: "scripts/compute_space_creation_hf.py"
+    timeout: "2700s"
+
+depends_on:
+  - wf-epv-reachability
+
+performance:
+  training_time: "45 min"
+  memory_ceiling: "16 GB"
+
+cost:
+  training:
+    runtime: hf-jobs
+    flavor: a10g-small
+    rate_usd_per_hour: 1.00
+    typical_duration_minutes: 45
+    typical_cost_usd: 0.75
+
+links:
+  source_code:
+    - "scripts/compute_space_creation_hf.py"
+  hf_dataset: "https://huggingface.co/datasets/luxury-lakehouse/space-creation-values"
+---
+
+## Overview
+
+Space Creation quantifies each player's contribution to opening valuable space for
+teammates through off-ball movement. It uses pitch control surfaces and EPV grids to
+measure the counterfactual value of a player's spatial influence.
+
+## Algorithm
+
+For each tracking frame, pitch control is computed with and without each off-ball player.
+The difference in EPV-weighted controlled space measures how much valuable territory each
+player creates through their positioning and movement. GPU acceleration on HF Jobs
+enables batch processing of entire matches in under a minute.

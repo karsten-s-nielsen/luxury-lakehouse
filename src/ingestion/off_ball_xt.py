@@ -31,6 +31,7 @@ from ingestion.utils import (
     parse_ingestion_args,
     write_delta_table,
 )
+from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -287,11 +288,14 @@ def _process_matches(
     return written
 
 
+@workflow("wf-off-ball-xt", phase="inference")
 def run_pipeline(
     spark: SparkSession,
     catalog: str,
     schema: str,
     logger: logging.Logger,
+    *,
+    ctx=None,
 ) -> None:
     """Execute the Off-Ball xT computation pipeline."""
     params = OffBallXtParams()

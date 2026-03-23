@@ -1,6 +1,7 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.1.0-py3-none-any.whl",
 #     "jax[cuda12]>=0.4.35",
 #     "numpy>=1.26.0",
 #     "pandas>=2.0.0",
@@ -39,15 +40,20 @@ References:
 from __future__ import annotations
 
 import json
-import math
 import os
 import tempfile
 import time
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from analytics.obso import interpolate_grid
+from analytics.pitch_control import (
+    PitchControlParams,
+    compute_pitch_control_player_removal,
+)
+from workflows import workflow
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -79,25 +85,6 @@ CELL_HEIGHT_M = PITCH_WIDTH_M / GRID_NY
 CELL_AREA_M2 = CELL_WIDTH_M * CELL_HEIGHT_M
 
 
-@dataclass(frozen=True)
-class PitchControlParams:
-    """Parameters for the physics-based pitch control model (inlined)."""
-
-    reaction_time: float = 0.7
-    max_acceleration: float = 7.0
-    sigma: float = 0.45
-    pitch_length_m: float = PITCH_LENGTH_M
-    pitch_width_m: float = PITCH_WIDTH_M
-    sb_length: float = SB_LENGTH
-    sb_width: float = SB_WIDTH
-
-
-# ---------------------------------------------------------------------------
-# Inlined pitch control functions (from src/analytics/pitch_control.py)
-# ---------------------------------------------------------------------------
-# HF Jobs scripts are standalone PEP 723 — cannot import from src/.
-# These are faithful copies of the core kernels.
-
 try:
     import jax
     import jax.numpy as jnp
@@ -113,346 +100,6 @@ def _sb_to_meters_x(x: np.ndarray, params: PitchControlParams) -> np.ndarray:
 
 def _sb_to_meters_y(y: np.ndarray, params: PitchControlParams) -> np.ndarray:
     return y * (params.pitch_width_m / params.sb_width)
-
-
-def _col_f64(df: pd.DataFrame, col: str) -> np.ndarray:
-    """Extract a DataFrame column as a float64 numpy array."""
-    return np.asarray(df[col], dtype=np.float64)
-
-
-def _tti_numpy(
-    player_pos_m: np.ndarray,
-    player_vel_m: np.ndarray,
-    target_m: np.ndarray,
-    reaction_time: float,
-    max_acceleration: float,
-) -> np.ndarray:
-    displacement = target_m[np.newaxis, :, :] - player_pos_m[:, np.newaxis, :]
-    distance = np.sqrt(np.sum(displacement**2, axis=2))
-    safe_distance = np.maximum(distance, 1e-10)
-    direction = displacement / safe_distance[:, :, np.newaxis]
-    v_proj = np.sum(player_vel_m[:, np.newaxis, :] * direction, axis=2)
-    discriminant = v_proj**2 + 2.0 * max_acceleration * distance
-    tti = reaction_time + (-v_proj + np.sqrt(discriminant)) / max_acceleration
-    return np.maximum(tti, reaction_time)
-
-
-if _USE_JAX:
-
-    @jax.jit
-    def _tti_jax(player_pos_m, player_vel_m, target_m, reaction_time, max_acceleration):
-        displacement = target_m[jnp.newaxis, :, :] - player_pos_m[:, jnp.newaxis, :]
-        distance = jnp.sqrt(jnp.sum(displacement**2, axis=2))
-        safe_distance = jnp.maximum(distance, 1e-10)
-        direction = displacement / safe_distance[:, :, jnp.newaxis]
-        v_proj = jnp.sum(player_vel_m[:, jnp.newaxis, :] * direction, axis=2)
-        discriminant = v_proj**2 + 2.0 * max_acceleration * distance
-        tti = reaction_time + (-v_proj + jnp.sqrt(discriminant)) / max_acceleration
-        return jnp.maximum(tti, reaction_time)
-
-
-def _compute_time_to_intercept(
-    player_pos_m: np.ndarray,
-    player_vel_m: np.ndarray,
-    target_m: np.ndarray,
-    params: PitchControlParams,
-) -> np.ndarray:
-    if _USE_JAX:
-        result = _tti_jax(
-            jnp.asarray(player_pos_m),
-            jnp.asarray(player_vel_m),
-            jnp.asarray(target_m),
-            params.reaction_time,
-            params.max_acceleration,
-        )
-        return np.asarray(result)
-    return _tti_numpy(player_pos_m, player_vel_m, target_m, params.reaction_time, params.max_acceleration)
-
-
-def _influence_numpy(
-    team_tti: np.ndarray,
-    opponent_min_tti: np.ndarray,
-    sigma: float,
-) -> np.ndarray:
-    k = math.pi / math.sqrt(3.0) / sigma
-    exponent = -k * (opponent_min_tti[np.newaxis, :] - team_tti)
-    individual = 1.0 / (1.0 + np.exp(np.clip(exponent, -50.0, 50.0)))
-    return np.sum(individual, axis=0)
-
-
-if _USE_JAX:
-
-    @jax.jit
-    def _influence_jax(team_tti, opponent_min_tti, sigma):
-        k = jnp.pi / jnp.sqrt(3.0) / sigma
-        exponent = -k * (opponent_min_tti[jnp.newaxis, :] - team_tti)
-        individual = 1.0 / (1.0 + jnp.exp(jnp.clip(exponent, -50.0, 50.0)))
-        return jnp.sum(individual, axis=0)
-
-
-def _compute_team_influence(
-    team_tti: np.ndarray,
-    opponent_min_tti: np.ndarray,
-    params: PitchControlParams,
-) -> np.ndarray:
-    if _USE_JAX:
-        result = _influence_jax(
-            jnp.asarray(team_tti),
-            jnp.asarray(opponent_min_tti),
-            params.sigma,
-        )
-        return np.asarray(result)
-    return _influence_numpy(team_tti, opponent_min_tti, params.sigma)
-
-
-def compute_pitch_control_at_points(
-    players_df: pd.DataFrame,
-    target_points: np.ndarray,
-    params: PitchControlParams,
-) -> np.ndarray:
-    """Compute pitch control at multiple target points."""
-    if len(target_points) == 0:
-        return np.empty(0)
-
-    home = pd.DataFrame(players_df[players_df["team"] == "home"])
-    away = pd.DataFrame(players_df[players_df["team"] == "away"])
-
-    if home.empty or away.empty:
-        fallback = 0.5 if (home.empty and away.empty) else (1.0 if away.empty else 0.0)
-        return np.full(len(target_points), fallback)
-
-    home_pos = np.column_stack(
-        [_sb_to_meters_x(_col_f64(home, "x"), params), _sb_to_meters_y(_col_f64(home, "y"), params)]
-    )
-    home_vel = np.column_stack(
-        [_sb_to_meters_x(_col_f64(home, "velocity_x"), params), _sb_to_meters_y(_col_f64(home, "velocity_y"), params)]
-    )
-    away_pos = np.column_stack(
-        [_sb_to_meters_x(_col_f64(away, "x"), params), _sb_to_meters_y(_col_f64(away, "y"), params)]
-    )
-    away_vel = np.column_stack(
-        [_sb_to_meters_x(_col_f64(away, "velocity_x"), params), _sb_to_meters_y(_col_f64(away, "velocity_y"), params)]
-    )
-
-    targets_m = np.column_stack(
-        [_sb_to_meters_x(target_points[:, 0], params), _sb_to_meters_y(target_points[:, 1], params)]
-    )
-
-    home_tti = _compute_time_to_intercept(home_pos, home_vel, targets_m, params)
-    away_tti = _compute_time_to_intercept(away_pos, away_vel, targets_m, params)
-
-    home_min_tti = np.min(home_tti, axis=0)
-    away_min_tti = np.min(away_tti, axis=0)
-
-    home_influence = _compute_team_influence(home_tti, away_min_tti, params)
-    away_influence = _compute_team_influence(away_tti, home_min_tti, params)
-
-    total = home_influence + away_influence
-    safe_total = np.where(total > 1e-10, total, 1.0)
-    control = np.where(total > 1e-10, home_influence / safe_total, 0.5)
-    return np.clip(control, 0.0, 1.0)
-
-
-# ---------------------------------------------------------------------------
-# Inlined player-removal vmap pitch control
-# (from src/analytics/pitch_control.py: compute_pitch_control_player_removal)
-# ---------------------------------------------------------------------------
-
-
-def compute_pitch_control_player_removal(
-    players_df: pd.DataFrame,
-    targets: np.ndarray,
-    params: PitchControlParams,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Compute pitch control with each player removed via jax.vmap.
-
-    Returns
-    -------
-    baseline : (n_targets,) — pitch control with all players.
-    removed : (n_players, n_targets) — pitch control with each player removed.
-    """
-    if not _USE_JAX:
-        raise ImportError("Space Creation requires JAX for vmap batching")
-    import jax
-    import jax.numpy as jnp
-
-    n_players = len(players_df)
-
-    # Pad to fixed size so JAX compiles the vmap kernel ONCE (not per-frame).
-    # Variable player counts cause XLA retracing — each new shape triggers
-    # a full recompilation (~30s each), making batch compute intractable.
-    max_players = 30  # covers all on-field scenarios with margin
-
-    home_mask_raw = (players_df["team"] == "home").values
-    xy_raw = np.column_stack(
-        [
-            _sb_to_meters_x(_col_f64(players_df, "x"), params),
-            _sb_to_meters_y(_col_f64(players_df, "y"), params),
-        ]
-    )
-    vel_raw = np.column_stack(
-        [
-            _sb_to_meters_x(_col_f64(players_df, "velocity_x"), params),
-            _sb_to_meters_y(_col_f64(players_df, "velocity_y"), params),
-        ]
-    )
-    targets_m = np.column_stack(
-        [
-            _sb_to_meters_x(targets[:, 0], params),
-            _sb_to_meters_y(targets[:, 1], params),
-        ]
-    )
-
-    # Pad arrays to max_players (padded players have zero velocity at origin,
-    # and are masked out via the presence_mask so they contribute zero influence)
-    n_pad = max_players - n_players
-    if n_pad < 0:
-        # More than max_players — truncate (shouldn't happen in practice)
-        n_players = max_players
-        n_pad = 0
-        home_mask_raw = home_mask_raw[:max_players]
-        xy_raw = xy_raw[:max_players]
-        vel_raw = vel_raw[:max_players]
-
-    xy = np.vstack([xy_raw, np.zeros((n_pad, 2), dtype=np.float64)]) if n_pad > 0 else xy_raw
-    vel = np.vstack([vel_raw, np.zeros((n_pad, 2), dtype=np.float64)]) if n_pad > 0 else vel_raw
-    home_mask = np.concatenate([home_mask_raw, np.zeros(n_pad, dtype=bool)]) if n_pad > 0 else home_mask_raw
-
-    # Presence mask: 1.0 for real players, 0.0 for padded slots
-    presence = np.zeros(max_players, dtype=np.float64)
-    presence[:n_players] = 1.0
-
-    # Build (max_players+1) masks: baseline + one per real player removed
-    # Padded slots are always masked out via presence
-    masks = np.ones((max_players + 1, max_players), dtype=np.float64)
-    for i in range(n_players):
-        masks[i + 1, i] = 0.0
-    # Apply presence mask to all variants (padded slots always inactive)
-    masks = masks * presence[None, :]
-
-    @jax.jit
-    def _pc_single_variant(
-        mask,
-        xy,
-        vel,
-        home_mask,
-        targets,
-        reaction_time,
-        max_accel,
-        sigma,
-    ):
-        large_tti = 1e6
-
-        disp = targets[None, :, :] - xy[:, None, :]
-        dist = jnp.sqrt(jnp.sum(disp**2, axis=-1))
-
-        direction = disp / jnp.maximum(dist[:, :, None], 1e-10)
-        v_proj = jnp.sum(vel[:, None, :] * direction, axis=-1)
-
-        discriminant = v_proj**2 + 2.0 * max_accel * dist
-        tti = reaction_time + (-v_proj + jnp.sqrt(jnp.maximum(discriminant, 0.0))) / max_accel
-        tti = jnp.maximum(tti, reaction_time)
-
-        # Apply mask: removed players get infinite TTI
-        tti = jnp.where(mask[:, None] > 0.5, tti, large_tti)
-
-        home_tti = jnp.where(home_mask[:, None], tti, large_tti)
-        away_tti = jnp.where(~home_mask[:, None], tti, large_tti)
-
-        home_min_tti = jnp.min(home_tti, axis=0)
-        away_min_tti = jnp.min(away_tti, axis=0)
-
-        k = jnp.pi / jnp.sqrt(3.0) / sigma
-
-        home_exp = -k * (away_min_tti[None, :] - home_tti)
-        home_individual = 1.0 / (1.0 + jnp.exp(jnp.clip(home_exp, -50.0, 50.0)))
-        home_influence = jnp.sum(home_individual * home_mask[:, None], axis=0)
-
-        away_exp = -k * (home_min_tti[None, :] - away_tti)
-        away_individual = 1.0 / (1.0 + jnp.exp(jnp.clip(away_exp, -50.0, 50.0)))
-        away_influence = jnp.sum(away_individual * (~home_mask[:, None]).astype(jnp.float64), axis=0)
-
-        total = home_influence + away_influence
-        safe_total = jnp.where(total > 1e-10, total, 1.0)
-        control = jnp.where(total > 1e-10, home_influence / safe_total, 0.5)
-        return jnp.clip(control, 0.0, 1.0)
-
-    _pc_batched = jax.vmap(
-        _pc_single_variant,
-        in_axes=(0, None, None, None, None, None, None, None),
-    )
-
-    results = np.asarray(
-        _pc_batched(
-            jnp.array(masks),
-            jnp.array(xy),
-            jnp.array(vel),
-            jnp.array(home_mask),
-            jnp.array(targets_m),
-            params.reaction_time,
-            params.max_acceleration,
-            params.sigma,
-        )
-    )
-
-    baseline = results[0]
-    # Only return removal results for real players (not padded slots)
-    removed = results[1 : n_players + 1]
-    return baseline, removed
-
-
-# ---------------------------------------------------------------------------
-# Inlined OBSO computation (from src/analytics/obso.py)
-# ---------------------------------------------------------------------------
-
-
-def interpolate_grid(grid: np.ndarray, target_shape: tuple[int, int]) -> np.ndarray:
-    """Bilinear interpolation of a 2D grid."""
-    src_rows, src_cols = grid.shape
-    tgt_rows, tgt_cols = target_shape
-    if (src_rows, src_cols) == target_shape:
-        return grid.copy()
-    row_coords = np.linspace(0, src_rows - 1, tgt_rows)
-    col_coords = np.linspace(0, src_cols - 1, tgt_cols)
-    col_grid, row_grid = np.meshgrid(col_coords, row_coords)
-    r0 = np.clip(np.floor(row_grid).astype(int), 0, src_rows - 2)
-    r1 = r0 + 1
-    c0 = np.clip(np.floor(col_grid).astype(int), 0, src_cols - 2)
-    c1 = c0 + 1
-    dr = row_grid - r0
-    dc = col_grid - c0
-    return (
-        grid[r0, c0] * (1 - dr) * (1 - dc)
-        + grid[r1, c0] * dr * (1 - dc)
-        + grid[r0, c1] * (1 - dr) * dc
-        + grid[r1, c1] * dr * dc
-    )
-
-
-def compute_obso_surface(
-    ppcf_grid: np.ndarray,
-    transition_grid: np.ndarray,
-    epv_grid: np.ndarray,
-    ball_position: tuple[float, float],
-    grid_x: np.ndarray,
-    grid_y: np.ndarray,
-) -> np.ndarray:
-    """OBSO = PPCF x Transition(ball->cell) x EPV(cell)."""
-    ny, nx = ppcf_grid.shape
-    transition_interp = interpolate_grid(transition_grid, (ny, nx))
-    epv_interp = interpolate_grid(epv_grid, (ny, nx))
-
-    ball_x, ball_y = ball_position
-    xx, yy = np.meshgrid(grid_x, grid_y)
-    sigma_x, sigma_y = 30.0, 20.0
-    distance_weight = np.exp(-((xx - ball_x) ** 2) / (2.0 * sigma_x**2) - (yy - ball_y) ** 2 / (2.0 * sigma_y**2))
-
-    effective_transition = transition_interp * distance_weight
-    max_trans = np.max(effective_transition)
-    if max_trans > 1e-10:
-        effective_transition = effective_transition / max_trans
-
-    return np.clip(ppcf_grid * effective_transition * epv_interp, 0.0, 1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -485,75 +132,6 @@ def _make_synthetic_grids() -> tuple[np.ndarray, np.ndarray]:
 # ---------------------------------------------------------------------------
 # Data loading from HF Hub
 # ---------------------------------------------------------------------------
-
-
-def _load_tracking_data(hf_token: str) -> pd.DataFrame:
-    """Download IDSSE tracking data from HF Hub (pitch-control-tracking dataset).
-
-    Returns a pandas DataFrame with tracking columns in StatsBomb 120x80 coordinates.
-    """
-    print("  Downloading IDSSE tracking data from HF Hub ...")
-    print(f"  Repo: {TRACKING_DATASET}")
-
-    from huggingface_hub import HfApi, hf_hub_download
-
-    api = HfApi(token=hf_token)
-    all_files = api.list_repo_files(TRACKING_DATASET, repo_type="dataset")
-    idsse_parquet = [f for f in all_files if "idsse" in f and f.endswith(".parquet")]
-    print(f"  Found {len(idsse_parquet)} IDSSE parquet files on HF Hub")
-
-    if not idsse_parquet:
-        raise FileNotFoundError(
-            f"No IDSSE parquet files in {TRACKING_DATASET}. "
-            "Ensure the dataset has data/source_provider=idsse/ partition."
-        )
-
-    parquet_files: list[Path] = []
-    for fname in idsse_parquet:
-        local_path = hf_hub_download(
-            repo_id=TRACKING_DATASET,
-            filename=fname,
-            repo_type="dataset",
-            token=hf_token,
-        )
-        parquet_files.append(Path(local_path))
-    print(f"  Downloaded {len(parquet_files)} files")
-
-    needed_cols = [
-        "match_id",
-        "frame",
-        "period",
-        "player_id",
-        "team",
-        "x",
-        "y",
-        "ball_x",
-        "ball_y",
-        "velocity_x",
-        "velocity_y",
-        "frame_rate",
-        "timestamp_seconds",
-    ]
-    dfs: list[pd.DataFrame] = []
-    for i, f in enumerate(parquet_files):
-        try:
-            df = pd.read_parquet(str(f), columns=needed_cols)
-        except Exception:
-            df = pd.read_parquet(str(f))
-            available = [c for c in needed_cols if c in df.columns]
-            df = df[available]
-        dfs.append(df)
-        if i % 10 == 0:
-            print(f"    Loaded {i + 1}/{len(parquet_files)} files ({len(df)} rows)")
-
-    tracking_df = pd.concat(dfs, ignore_index=True)
-    print(f"  Total tracking: {len(tracking_df)} rows, {tracking_df.memory_usage(deep=True).sum() / 1e6:.0f} MB")
-
-    if "source_provider" not in tracking_df.columns:
-        tracking_df["source_provider"] = "idsse"
-
-    print(f"  Tracking data loaded: {len(tracking_df):,} rows, {tracking_df['match_id'].nunique()} matches")
-    return tracking_df
 
 
 def _load_trained_grids(hf_token: str) -> tuple[np.ndarray, np.ndarray]:
@@ -727,6 +305,7 @@ def _compute_frame_space_creation(
 # ---------------------------------------------------------------------------
 
 
+@workflow("wf-space-creation", phase="grid_computation")
 def main() -> None:
     """Download data, compute per-player space creation, publish results."""
     from huggingface_hub import HfApi, get_token

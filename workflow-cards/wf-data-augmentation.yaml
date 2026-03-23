@@ -1,0 +1,51 @@
+---
+name: Physics-Based Tracking Data Augmentation
+id: wf-data-augmentation
+version: "1.0"
+status: production
+type: augmentation
+domain: data-augmentation
+owners:
+  - karsten
+tags:
+  - augmentation
+  - symmetry
+  - physics
+  - library
+
+references:
+  - citation: "Wang et al. (2024). TacticAI: An AI Assistant for Football Tactics. Nature Communications."
+    role: methodology
+
+inputs:
+  datasets: []
+
+outputs: {}
+
+depends_on: []
+
+idempotency:
+  strategy: none
+  key: "n/a"
+  description: "Library module, not a pipeline. No idempotency strategy required."
+
+links:
+  source_code:
+    - "src/analytics/augmentation.py"
+    - "src/analytics/symmetry.py"
+---
+
+## Overview
+
+Physics-Based Tracking Data Augmentation is a library module (not a pipeline) that provides
+symmetry-aware data augmentation functions for tracking data. It is consumed by the pitch
+control and off-ball xT workflows to increase effective training data volume while
+preserving physical constraints.
+
+## Algorithm
+
+The library implements horizontal and vertical pitch reflections that correctly transform
+player positions, velocities, and orientations. Augmented frames maintain physical
+consistency (e.g., reflected velocities match reflected positions). The symmetry group
+exploits the bilateral symmetry of football pitches to double or quadruple effective
+sample sizes without introducing artifacts.

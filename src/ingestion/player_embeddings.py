@@ -32,6 +32,7 @@ from ingestion.utils import (
     validate_dataframe,
     write_delta_table,
 )
+from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame as SparkDataFrame
@@ -563,13 +564,16 @@ def _make_behavioral_udf(model_path: str) -> object:
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
-    """CLI entry point for player embedding computation."""
-    args = parse_ingestion_args("Compute player embeddings from event data")
-    catalog, schema = args.catalog, args.schema
-    logger = configure_logging("player_embeddings")
-    spark = get_spark_session()
-
+@workflow("wf-football2vec", phase="training")
+def run_pipeline(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    logger: logging.Logger,
+    *,
+    ctx=None,
+) -> None:
+    """Execute the player embedding computation pipeline."""
     logger.info("Starting player embedding pipeline for %s.%s", catalog, schema)
 
     # 0. Incremental check — skip if all source matches already have embeddings
@@ -756,6 +760,14 @@ def main() -> None:
         )
 
     logger.info("Player embedding pipeline complete")
+
+
+def main() -> None:
+    """CLI entry point for player embedding computation."""
+    args = parse_ingestion_args("Compute player embeddings from event data")
+    logger = configure_logging("player_embeddings")
+    spark = get_spark_session()
+    run_pipeline(spark, args.catalog, args.schema, logger)
 
 
 def _save_norm_params(

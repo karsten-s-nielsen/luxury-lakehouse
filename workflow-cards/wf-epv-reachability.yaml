@@ -1,0 +1,71 @@
+---
+name: EPV + Ball Reachability Grids
+id: wf-epv-reachability
+version: "1.0"
+status: production
+type: grid-computation
+domain: expected-possession-value
+owners:
+  - karsten
+tags:
+  - epv
+  - reachability
+  - transition-grids
+
+references:
+  - citation: "Spearman (2018). Beyond Expected Goals. MIT Sloan Sports Analytics Conference."
+    role: methodology
+
+inputs:
+  datasets:
+    - id: "luxury-lakehouse/spadl-vaep-action-values"
+      source: huggingface
+      description: "SPADL action values for EPV transition estimation"
+
+outputs:
+  datasets:
+    - id: "luxury-lakehouse/obso-trained-grids"
+      destination: huggingface
+      description: "EPV transition matrices and ball reachability surfaces"
+
+execution:
+  training:
+    trigger: manual
+    runtime: hf-jobs
+    flavor: cpu-basic
+    script: "scripts/compute_epv_transition_hf.py"
+    timeout: "1200s"
+
+depends_on:
+  - wf-vaep
+
+performance:
+  training_time: "20 min"
+  memory_ceiling: "16 GB"
+
+cost:
+  training:
+    runtime: hf-jobs
+    flavor: cpu-basic
+    rate_usd_per_hour: 0.01
+    typical_duration_minutes: 20
+    typical_cost_usd: 0.003
+
+links:
+  source_code:
+    - "scripts/compute_epv_transition_hf.py"
+  hf_dataset: "https://huggingface.co/datasets/luxury-lakehouse/obso-trained-grids"
+---
+
+## Overview
+
+This workflow computes Expected Possession Value (EPV) transition matrices and ball
+reachability surfaces used as inputs to the OBSO and PAUSA models. The grids encode how
+possession value changes as the ball moves across the pitch.
+
+## Algorithm
+
+Ball transition probabilities are estimated from SPADL actions across multiple competitions.
+A Markov chain model computes the EPV at each grid cell by propagating scoring probabilities
+through the transition matrix. Ball reachability grids encode the time-to-intercept surface
+used by downstream pitch control models.

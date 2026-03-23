@@ -6,7 +6,7 @@ These standards apply to ALL code in this repository. They are non-negotiable.
 
 - **SOLID**: Single responsibility per module/function. Depend on abstractions.
 - **Clean Code**: Meaningful names, small functions, no dead code.
-- **Separation of Concerns**: Ingestion, transformation (dbt), and presentation (Taipy) are fully isolated layers.
+- **Separation of Concerns**: Ingestion, transformation (dbt), workflow orchestration (`src/workflows/`), and presentation (Taipy) are fully isolated layers. `src/workflows/` has zero Spark/Streamlit/Taipy imports — only stdlib + PyYAML + Pydantic.
 - **Idempotent Operations**: Every ingestion task can be re-run safely. Use partition-level overwrites, not full table drops.
 - **Structured Logging**: JSON-line logs to stdout. No print statements. Include source name, row counts, and timing.
 - **Streamlit retained for reference**: `src/streamlit_app/` and `hf_streamlit_app_deprecated/` are preserved during the Taipy transition period (~1 week). No changes needed to this code.
@@ -177,6 +177,8 @@ These rules prevent cognitive interface debt from accumulating. Derived from CHI
 - **Line length**: 120 characters maximum.
 - **Imports**: stdlib → third-party → first-party, enforced by isort.
 - **Entry points**: Each ingestion module exposes a `main()` function registered in `pyproject.toml`.
+- **`@workflow` decorator**: All compute pipelines in `src/ingestion/` are decorated with `@workflow("wf-xxx", phase="yyy")` from `src/workflows/`. The decorator is transparent — it wraps calls through the lifecycle runner for structured logging and future observability hooks. Adding `*, ctx=None` to `run_pipeline()` is optional (injected by the runner when present).
+- **Workflow cards**: Each AI/ML workflow has a YAML+Markdown manifest in `workflow-cards/wf-*.yaml`. Cards describe inputs, outputs, dependencies, execution config, academic provenance, cost estimates, and monitoring thresholds. Validated in CI via `validate_workflow_cards` entry point.
 - **Delta tables**: All bronze writes include `_ingested_at` audit column with UTC timestamp.
 - **Partition overwrite**: Use `replaceWhere` for incremental loads, not full table overwrites.
 - **Incremental skip guards**: Every compute pipeline must check for already-processed results before expensive work. Pattern: `existing = {str(row["match_id"]) for row in spark.table(results).select("match_id").distinct().collect()}`. The `str()` normalization is critical — Spark returns `int`, Delta stores `string`.
@@ -184,4 +186,5 @@ These rules prevent cognitive interface debt from accumulating. Derived from CHI
 - **dbt slim CI**: PR builds use `state:modified+` to only build/test changed models. The `--empty` flag validates schema contracts with zero-cost DDL (no data movement).
 - **Pre-compile regex at module level**: Never use `re.compile()`, `re.sub()`, or `re.match()` with raw pattern strings inside function bodies or loops. Compile patterns as module-level constants.
 - **HTTP caching via `requests-cache`**: The shared `fetch_url()` session uses `requests_cache.CachedSession` with SQLite backend. Static open-data sources (StatsBomb GitHub) are cached indefinitely; other sources use a 24-hour TTL. Set `LUXURY_LAKEHOUSE_HTTP_CACHE=0` to disable. Bronze Delta tables remain the durable cache; HTTP cache avoids redundant network round-trips during development and retry.
+- **HF Jobs wheel convergence**: HF Jobs PEP 723 scripts import domain logic from the `luxury-lakehouse` wheel hosted at `luxury-lakehouse/build-artifacts` on HF Hub. CI uploads the wheel on main merges. Scripts keep HF Hub I/O, MLflow logging, and script-specific helpers inlined — only shared analytics functions are imported from the wheel. Each script has the wheel URL as its first PEP 723 dependency.
 - **HuggingFace Hub**: Org is `luxury-lakehouse`. Model artifacts cached in UC Volume `/Volumes/soccer_analytics/dev_gold/model_weights/`. Set `HF_HOME` env var for local cache location. Use `huggingface_hub` for model publish/download (no torch dependency). See `docs/huggingface-setup.md`. Model card and org card source of truth: `docs/huggingface/model-card.md` and `docs/huggingface/org-card.md` (pushed to HF Hub 2026-03-09).

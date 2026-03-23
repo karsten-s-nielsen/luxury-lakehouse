@@ -1,0 +1,113 @@
+---
+name: Model & Pipeline Validation
+id: wf-model-validation
+version: "1.0"
+status: production
+type: validation
+domain: model-validation
+owners:
+  - karsten
+tags:
+  - validation
+  - monitoring
+  - data-quality
+  - model-drift
+
+references: []
+
+inputs:
+  datasets:
+    - id: "{catalog}.dev_gold.fct_xg_predictions"
+      source: delta-table
+      description: "xG predictions for calibration validation"
+    - id: "{catalog}.dev_gold.fct_action_values"
+      source: delta-table
+      description: "VAEP action values for distribution validation"
+    - id: "{catalog}.dev_gold.fct_passes"
+      source: delta-table
+      description: "Pass metrics for completeness validation"
+    - id: "{catalog}.dev_gold.fct_physical_stats"
+      source: delta-table
+      description: "Physical stats for range validation"
+    - id: "{catalog}.dev_gold.fct_pausa_values"
+      source: delta-table
+      description: "PAUSA values for distribution validation"
+    - id: "{catalog}.dev_gold.model_baseline_scalars"
+      source: delta-table
+      description: "Baseline metric thresholds for drift detection"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.model_validation_runs"
+      destination: delta-table
+
+execution:
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: run_model_validation
+    module: ingestion.model_validation
+    distribution: driver-bound
+    schedule: "daily 07:00 UTC"
+    timeout: "1800s"
+    environment: analytics
+
+depends_on:
+  - wf-xg-v1
+  - wf-xg-v2
+  - wf-vaep
+  - wf-defcon
+  - wf-obso-pausa
+
+idempotency:
+  strategy: upsert
+  key: run_id
+  description: "Upserts validation results by run_id, allowing re-runs to update existing records."
+
+performance:
+  inference_timeout: "1800s"
+  memory_ceiling: "16 GB driver"
+
+cost:
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 50
+    typical_cost_usd: 3.5
+
+monitoring:
+  metrics:
+    - name: brier_score
+      baseline: 0.059
+      warn_above: 0.08
+      alert_above: 0.10
+    - name: roc_auc
+      baseline: 0.979
+      warn_below: 0.95
+      alert_below: 0.92
+    - name: mean_xg
+      baseline: 0.098
+      warn_above: 0.138
+      warn_below: 0.058
+      alert_above: 0.178
+      alert_below: 0.018
+  freshness_sla_hours: 24
+
+links:
+  source_code:
+    - "src/ingestion/model_validation.py"
+---
+
+## Overview
+
+Model & Pipeline Validation runs daily after all upstream workflows complete, checking
+model predictions against baseline metrics for drift detection. It validates xG
+calibration, VAEP distributions, and PAUSA value ranges, writing structured validation
+results to Delta for monitoring.
+
+## Algorithm
+
+For each model, the validator computes key metrics (Brier score, ROC-AUC, mean predictions)
+and compares them against stored baselines. Warn and alert thresholds trigger notifications
+when metrics drift beyond acceptable ranges. The validation run itself is idempotent via
+upsert on run_id, allowing safe re-execution.

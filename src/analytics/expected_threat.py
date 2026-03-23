@@ -252,7 +252,11 @@ def grid_to_dataframe(
 
 
 def validate_xt_grid(grid: np.ndarray, params: ExpectedThreatParams | None = None) -> None:
-    """Validate computed xT grid meets data quality requirements."""
+    """Validate computed xT grid meets data quality requirements.
+
+    Checks shape, value range, coordinate orientation (range not too narrow),
+    and monotonicity (xT increases toward attacking goal).
+    """
     if params is None:
         params = ExpectedThreatParams()
     expected_shape = (params.n_zones_x, params.n_zones_y)
@@ -261,6 +265,10 @@ def validate_xt_grid(grid: np.ndarray, params: ExpectedThreatParams | None = Non
         raise ValueError(msg)
     if grid.min() < 0.001 or grid.max() > 0.50:
         msg = f"Grid values out of expected range [0.001, 0.50]: min={grid.min():.4f}, max={grid.max():.4f}"
+        raise ValueError(msg)
+    xt_range = grid.max() - grid.min()
+    if xt_range < 0.05:
+        msg = f"Grid range too narrow ({xt_range:.4f}) — likely coordinate orientation issue"
         raise ValueError(msg)
     row_means = grid.mean(axis=1)
     if not np.all(np.diff(row_means) >= -0.01):

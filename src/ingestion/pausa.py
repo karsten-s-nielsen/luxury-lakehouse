@@ -26,6 +26,7 @@ from ingestion.utils import (
     validate_dataframe,
     write_delta_table,
 )
+from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -257,11 +258,14 @@ def _process_matches(
     return written
 
 
+@workflow("wf-obso-pausa", phase="inference")
 def run_pipeline(
     spark: SparkSession,
     catalog: str,
     schema: str,
     logger: logging.Logger,
+    *,
+    ctx=None,
 ) -> int:
     """Execute the PAUSA computation pipeline."""
     total = _process_matches(spark, catalog, schema, logger)

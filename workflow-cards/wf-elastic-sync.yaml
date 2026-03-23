@@ -1,0 +1,80 @@
+---
+name: ELASTIC Event-Tracking Synchronization
+id: wf-elastic-sync
+version: "1.0"
+status: production
+type: heuristic
+domain: event-tracking-sync
+owners:
+  - karsten
+tags:
+  - elastic
+  - event-sync
+  - tracking-data
+  - temporal-alignment
+
+references:
+  - citation: "Kim et al. (2025). ELASTIC: Event-Tracking Data Synchronization in Soccer Without Annotated Event Locations. ECML-PKDD MLSA."
+    role: methodology
+
+inputs:
+  datasets:
+    - id: "{catalog}.bronze.idsse_events"
+      source: delta-table
+      description: "IDSSE (Bundesliga) event data"
+    - id: "{catalog}.bronze.idsse_tracking"
+      source: delta-table
+      description: "IDSSE (Bundesliga) tracking data"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.elastic_sync_results"
+      destination: delta-table
+
+execution:
+  inference:
+    trigger: manual
+    runtime: databricks-workflow
+    entry_point: compute_elastic_sync
+    module: ingestion.elastic_sync
+    distribution: driver-bound
+    timeout: "3600s"
+    environment: analytics
+
+depends_on: []
+
+idempotency:
+  strategy: skip-guard
+  key: match_id
+  description: "Checks existing sync results by match_id before processing."
+
+performance:
+  inference_timeout: "3600s"
+  memory_ceiling: "16 GB driver"
+
+cost:
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 80
+    typical_cost_usd: 5.6
+
+links:
+  source_code:
+    - "src/ingestion/elastic_sync.py"
+---
+
+## Overview
+
+ELASTIC synchronizes event and tracking data streams that lack annotated event locations.
+It aligns temporally disjoint event logs with positional tracking data from IDSSE
+(Bundesliga) matches, enabling downstream models that require both event semantics and
+spatial context.
+
+## Algorithm
+
+The algorithm uses a dynamic time warping variant to align event timestamps with tracking
+frame sequences. It matches events to tracking frames by minimizing the temporal and
+spatial distance between event descriptions and observed player/ball states. No annotated
+event coordinates are required, making it applicable to data sources that provide events
+and tracking separately.

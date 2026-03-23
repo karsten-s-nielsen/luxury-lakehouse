@@ -1,0 +1,109 @@
+---
+name: VAEP Action Valuation
+id: wf-vaep
+version: "1.0"
+status: production
+type: training-and-inference
+domain: action-valuation
+owners:
+  - karsten
+tags:
+  - vaep
+  - spadl
+  - action-valuation
+  - gradient-boosting
+
+references:
+  - citation: "Decroos, Bransen, Van Haaren & Davis (2019). Actions Speak Louder than Goals: Valuing Player Actions in Soccer. KDD."
+    role: methodology
+
+inputs:
+  datasets:
+    - id: "luxury-lakehouse/spadl-vaep-action-values"
+      source: huggingface
+      description: "Pre-computed SPADL actions with labels for training"
+    - id: "{catalog}.bronze.statsbomb_events"
+      source: delta-table
+      description: "StatsBomb event data for SPADL conversion"
+    - id: "{catalog}.bronze.wyscout_events"
+      source: delta-table
+      description: "Wyscout event data for SPADL conversion"
+
+outputs:
+  models:
+    - id: "luxury-lakehouse/vaep-model-statsbomb-wyscout"
+      destination: huggingface
+      format: json-base64
+  tables:
+    - id: "{catalog}.bronze.spadl_actions"
+      destination: delta-table
+    - id: "{catalog}.bronze.vaep_action_values"
+      destination: delta-table
+
+execution:
+  training:
+    trigger: manual
+    runtime: hf-jobs
+    flavor: cpu-basic
+    script: "scripts/train_vaep_model_hf.py"
+    timeout: "900s"
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: compute_spadl_vaep
+    module: ingestion.spadl_vaep
+    distribution: driver-bound
+    schedule: "daily 06:00 UTC"
+    timeout: "7200s"
+    environment: analytics
+
+depends_on: []
+
+idempotency:
+  strategy: skip-guard
+  key: game_id
+  description: "Checks existing SPADL/VAEP results by game_id before processing."
+
+performance:
+  training_time: "15 min"
+  inference_timeout: "7200s"
+  memory_ceiling: "16 GB driver"
+
+cost:
+  training:
+    runtime: hf-jobs
+    flavor: cpu-basic
+    rate_usd_per_hour: 0.01
+    typical_duration_minutes: 15
+    typical_cost_usd: 0.003
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 500
+    typical_cost_usd: 35.0
+
+monitoring:
+  validator: wf-model-validation
+  freshness_sla_hours: 24
+
+links:
+  source_code:
+    - "src/ingestion/spadl_vaep.py"
+    - "scripts/train_vaep_model_hf.py"
+  hf_model: "https://huggingface.co/luxury-lakehouse/vaep-model-statsbomb-wyscout"
+  hf_dataset: "https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values"
+---
+
+## Overview
+
+VAEP (Valuing Actions by Estimating Probabilities) converts raw event data into the SPADL
+action representation, then trains gradient-boosted classifiers to predict scoring and
+conceding probabilities. Each action's value is the change in expected outcome it produces.
+
+## Algorithm
+
+Events are first converted to SPADL (Soccer Player Action Description Language), a
+unified action format. Two XGBoost models predict P(score in next 10 actions) and
+P(concede in next 10 actions). An action's offensive value is the delta in scoring
+probability; defensive value is the delta in conceding probability. Training runs on
+HF Jobs; inference processes games sequentially on the Databricks driver.

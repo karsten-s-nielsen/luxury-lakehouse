@@ -10,6 +10,7 @@ Bronze table produced:
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from analytics.entity_resolution import ResolutionConfig, resolve_players
@@ -20,6 +21,7 @@ from ingestion.utils import (
     validate_dataframe,
     write_delta_table,
 )
+from workflows import workflow
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -79,26 +81,30 @@ def _load_wyscout_players(spark: SparkSession, catalog: str, schema: str) -> pd.
     return df
 
 
-def main() -> None:
-    """CLI entry point for entity resolution."""
-    args = parse_ingestion_args("Run cross-source player entity resolution")
-    logger = configure_logging("entity_resolution")
-    spark = get_spark_session()
-
-    logger.info("Starting entity resolution for %s.%s", args.catalog, args.schema)
+@workflow("wf-entity-resolution", phase="heuristic")
+def run_pipeline(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    logger: logging.Logger,
+    *,
+    ctx=None,
+) -> None:
+    """Execute cross-source player entity resolution pipeline."""
+    logger.info("Starting entity resolution for %s.%s", catalog, schema)
 
     # Incremental skip guard: compare source row counts against existing xref.
     # Entity resolution is a global operation (TF-IDF across all sources), so
     # we can't do partition-level skipping. Instead, skip if the source tables
     # haven't grown since the last run (row counts match stored metadata).
-    xref_table = f"{args.catalog}.{args.schema}.player_xref_raw"
+    xref_table = f"{catalog}.{schema}.player_xref_raw"
     try:
         existing_count = spark.table(xref_table).limit(1).count()
         if existing_count > 0:
             # Check if source tables have grown — count lineups and wyscout_players
-            sb_lineups = f"{args.catalog}.{args.schema}.statsbomb_lineups"
+            sb_lineups = f"{catalog}.{schema}.statsbomb_lineups"
             sb_count = spark.table(sb_lineups).select("player_id").distinct().count()
-            ws_count = spark.table(f"{args.catalog}.{args.schema}.wyscout_players").limit(1).count()
+            ws_count = spark.table(f"{catalog}.{schema}.wyscout_players").limit(1).count()
             xref_rows = spark.table(xref_table).count()
             logger.info(
                 "Existing xref has %d rows (SB: %d distinct players, WS: %s)",
@@ -116,8 +122,8 @@ def main() -> None:
         logger.info("No existing %s table — running full resolution", xref_table)
 
     # Load player metadata from each source
-    sb_players = _load_statsbomb_players(spark, args.catalog, args.schema)
-    ws_players = _load_wyscout_players(spark, args.catalog, args.schema)
+    sb_players = _load_statsbomb_players(spark, catalog, schema)
+    ws_players = _load_wyscout_players(spark, catalog, schema)
 
     logger.info("Loaded %d StatsBomb players, %d Wyscout players", len(sb_players), len(ws_players))
 
@@ -143,8 +149,8 @@ def main() -> None:
     )
     write_delta_table(
         sdf,
-        args.catalog,
-        args.schema,
+        catalog,
+        schema,
         "player_xref_raw",
         mode="overwrite",
         logger=logger,
@@ -152,6 +158,14 @@ def main() -> None:
     )
 
     logger.info("Entity resolution complete: %d cross-source matches written", row_count)
+
+
+def main() -> None:
+    """CLI entry point for entity resolution."""
+    args = parse_ingestion_args("Run cross-source player entity resolution")
+    logger = configure_logging("entity_resolution")
+    spark = get_spark_session()
+    run_pipeline(spark, args.catalog, args.schema, logger)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,102 @@
+---
+name: Expected Threat Grids
+id: wf-xt-grids
+version: "1.0"
+status: production
+type: grid-computation
+domain: expected-threat
+owners:
+  - karsten
+tags:
+  - xt
+  - expected-threat
+  - transition-matrix
+
+references:
+  - citation: "Singh (2018). Introducing Expected Threat (xT)."
+    role: methodology
+
+inputs:
+  datasets:
+    - id: "luxury-lakehouse/spadl-vaep-action-values"
+      source: huggingface
+      description: "SPADL action values for move/shot transition estimation"
+    - id: "{catalog}.dev_gold.fct_action_values"
+      source: delta-table
+      description: "Gold-layer action values for grid computation"
+
+outputs:
+  datasets:
+    - id: "luxury-lakehouse/expected-threat-grids"
+      destination: huggingface
+      description: "Computed xT grid matrices"
+  tables:
+    - id: "{catalog}.bronze.expected_threat_grids"
+      destination: delta-table
+
+execution:
+  training:
+    trigger: manual
+    runtime: hf-jobs
+    flavor: cpu-basic
+    script: "scripts/compute_xt_grid_hf.py"
+    timeout: "300s"
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: compute_expected_threat
+    module: ingestion.expected_threat
+    distribution: driver-bound
+    schedule: "daily 06:00 UTC"
+    timeout: "1800s"
+    environment: analytics
+
+depends_on:
+  - wf-vaep
+
+idempotency:
+  strategy: skip-guard
+  key: competition_id
+  description: "Checks existing xT grids by competition_id before recomputing."
+
+performance:
+  training_time: "5 min"
+  inference_timeout: "1800s"
+  memory_ceiling: "16 GB driver"
+
+cost:
+  training:
+    runtime: hf-jobs
+    flavor: cpu-basic
+    rate_usd_per_hour: 0.01
+    typical_duration_minutes: 5
+    typical_cost_usd: 0.001
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 50
+    typical_cost_usd: 3.5
+
+monitoring:
+  freshness_sla_hours: 24
+
+links:
+  source_code:
+    - "src/ingestion/expected_threat.py"
+    - "scripts/compute_xt_grid_hf.py"
+  hf_dataset: "https://huggingface.co/datasets/luxury-lakehouse/expected-threat-grids"
+---
+
+## Overview
+
+Expected Threat (xT) quantifies the goal-scoring threat of possessing the ball at any
+pitch location. This workflow computes transition probability matrices from SPADL actions
+and iteratively solves for the xT value at each grid cell.
+
+## Algorithm
+
+The pitch is discretized into a 16x12 grid. Move transition probabilities and shot
+probabilities are estimated from SPADL actions. The xT surface is solved via iterative
+value propagation: each cell's value is the weighted sum of shooting value and the
+expected value of moving to adjacent cells. Convergence typically occurs within 10
+iterations.

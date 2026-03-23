@@ -1,0 +1,88 @@
+---
+name: Off-Ball xT Attribution
+id: wf-off-ball-xt
+version: "1.0"
+status: production
+type: inference
+domain: expected-threat
+owners:
+  - karsten
+tags:
+  - xt
+  - off-ball
+  - tracking-data
+  - spatial-value
+
+references:
+  - citation: "Singh (2018). Introducing Expected Threat (xT)."
+    role: methodology
+  - citation: "Spearman (2017). Physics-Based Modeling of Pass Probabilities in Soccer. MIT Sloan Sports Analytics Conference."
+    role: algorithm
+
+inputs:
+  datasets:
+    - id: "{catalog}.dev_gold.fct_tracking_frames"
+      source: delta-table
+      description: "Tracking frame data with player positions"
+    - id: "{catalog}.bronze.expected_threat_grids"
+      source: delta-table
+      description: "Pre-computed xT grid surfaces"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.off_ball_xt_results"
+      destination: delta-table
+
+execution:
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: compute_off_ball_xt
+    module: ingestion.off_ball_xt
+    distribution: applyInPandas
+    partition_key: match_id
+    schedule: "daily 06:00 UTC"
+    timeout: "3600s"
+    environment: analytics
+
+depends_on:
+  - wf-xt-grids
+
+idempotency:
+  strategy: skip-guard
+  key: match_id
+  description: "Checks existing off-ball xT results by match_id before processing."
+
+performance:
+  inference_timeout: "3600s"
+  memory_ceiling: "16 GB driver, 1 GB UDF executor"
+
+cost:
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 250
+    typical_cost_usd: 17.5
+
+monitoring:
+  freshness_sla_hours: 24
+
+links:
+  source_code:
+    - "src/ingestion/off_ball_xt.py"
+    - "src/analytics/off_ball_xt.py"
+---
+
+## Overview
+
+Off-Ball xT Attribution assigns expected threat value to off-ball players based on their
+positioning relative to the xT surface. It quantifies each player's spatial contribution
+to the team's attacking threat even when they are not directly involved in the play.
+
+## Algorithm
+
+For each tracking frame, the xT grid value at each off-ball player's position is combined
+with a pitch control weighting to produce an attributed xT score. Players who position
+themselves in high-value areas while maintaining receivability (pitch control advantage)
+earn higher off-ball xT credits. Computation is distributed via `applyInPandas` with
+synthetic frame batch partitions.
