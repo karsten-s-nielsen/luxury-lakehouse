@@ -62,7 +62,10 @@ Output columns:
 **Post-hook cleanup** (runs after each dbt build of this model):
 
 ```sql
--- Primary: delete non-running warm rows covered by cold tier
+-- Primary: delete non-running warm rows covered by cold tier.
+-- COALESCE sentinel: if fct_workflow_costs is empty (first build), threshold
+-- becomes 1970-01-02 — no legitimate workflow has ended_at in 1970, so the
+-- DELETE matches zero rows and warm tier is preserved until cold catches up.
 DELETE FROM {catalog}.{schema}.workflow_cost_live
 WHERE state != 'RUNNING'
   AND ended_at IS NOT NULL
@@ -71,13 +74,14 @@ WHERE state != 'RUNNING'
       FROM {catalog}.{schema}.fct_workflow_costs
   );
 
--- Secondary: orphaned RUNNING rows older than 24 hours
+-- Secondary: orphaned RUNNING rows older than 24 hours.
+-- If a job has been "running" for > 24h, the hook clearly failed to update it.
 DELETE FROM {catalog}.{schema}.workflow_cost_live
 WHERE state = 'RUNNING'
   AND started_at < CURRENT_TIMESTAMP - INTERVAL 24 HOURS;
 ```
 
-**Access requirement:** `SELECT` on `system.billing.usage`, `system.billing.list_prices`, `system.lakeflow.job_task_run_timeline` for the ingestion service principal.
+**Access requirement:** `SELECT` on `system.billing.usage`, `system.billing.list_prices`, `system.lakeflow.job_task_run_timeline` for the ingestion service principal. See Section 9 (Prerequisites) for GRANT statements.
 
 ### 3B. `CostEstimateHook` (Databricks Warm/Hot)
 
@@ -100,13 +104,17 @@ Rate is configurable via environment variable, defaults to current Databricks se
 | `on_skip` | SKIPPED | 0.00 |
 | `on_error` | FAILED | `partial_duration × (rate / 3600)` |
 
+**Duration computation:** `on_complete` and `on_error` compute elapsed time as `int((datetime.now(timezone.utc) - ctx.started_at).total_seconds())`. This uses `WorkflowContext.started_at` (set at context creation before the pipeline function runs) and the current UTC time at hook dispatch. Wall-clock time is the appropriate measure since Databricks billing is also wall-clock based.
+
+**MERGE implementation:** `CostEstimateHook` writes its own MERGE statement (not reusing `merge_delta_table()` from `src/ingestion/utils.py`). The cost MERGE needs partial-column updates (updating `state`, `ended_at`, `duration_seconds`, `estimated_cost_usd`, `updated_at` while preserving `started_at`, `workflow_id`, etc. from the initial insert), which differs from the full-row upsert that `merge_delta_table()` implements.
+
 **MERGE key:** `run_id` (UUID from `WorkflowContext`). Insert on start, update on completion. Single row per run — no separate start/end rows.
 
 **Databricks metadata from Spark conf:**
 - `spark.databricks.job.runId` → `job_run_id`
 - `spark.databricks.task.key` → `task_key`
 
-Both are `None` in local/notebook contexts (handled gracefully).
+Both are `None` in local/notebook contexts (handled gracefully — hook writes the row without these fields).
 
 **Constructor:**
 ```python
@@ -124,7 +132,17 @@ def __init__(
 
 **File:** `src/analytics/cost.py` (in wheel, no Spark dependency)
 
-Mirrors the `CostEstimateHook` lifecycle but writes `_workflow_cost.json` to the script's HF Hub repo instead of Delta.
+**Design note:** `HFJobsCostRecorder` is intentionally a standalone class, **not** a `LifecycleHook` implementor. HF Jobs scripts are standalone PEP 723 runners that execute outside the workflow runner and lack a `WorkflowContext`. The recorder mirrors the `CostEstimateHook` lifecycle semantically (start/complete/fail/skip) but uses a direct API (`start()`, `complete()`) instead of the hook protocol's `on_start(ctx)`, `on_complete(ctx, row_count)`. If HF scripts are ever integrated into the workflow runner, an adapter from `LifecycleHook` to `HFJobsCostRecorder` would be trivial.
+
+**Rate constants** are centralized in this module:
+
+```python
+HF_RATE_CPU_BASIC: float = 0.01    # $/hr
+HF_RATE_A10G_SMALL: float = 1.00   # $/hr
+HF_RATE_A10G_LARGE: float = 1.50   # $/hr
+```
+
+Scripts import the appropriate rate constant rather than hardcoding.
 
 **Constructor:**
 ```python
@@ -143,9 +161,15 @@ def __init__(
 | Method | Action | `_workflow_cost.json` state |
 |--------|--------|---------------------------|
 | `start()` | Upload JSON with RUNNING state, `started_at`, `rate` | `{"state": "RUNNING", "started_at": "...", "rate_usd_per_hour": 0.01, ...}` |
-| `complete(metadata, row_count)` | Update JSON to COMPLETED, inject cost fields into metadata dict, return enriched metadata | `{"state": "COMPLETED", "estimated_cost_usd": 0.04, ...}` |
+| `complete(metadata, row_count)` | Update JSON to COMPLETED, return **new** enriched metadata dict | `{"state": "COMPLETED", "estimated_cost_usd": 0.04, ...}` |
 | `fail(error)` | Update JSON to FAILED with partial cost | `{"state": "FAILED", ...}` |
 | `skip(reason)` | Update JSON to SKIPPED, zero cost | `{"state": "SKIPPED", ...}` |
+
+**Immutability:** `complete()` returns a new dict (`{**metadata, **cost_fields}`) rather than mutating the caller's metadata dict. This follows the project convention of immutable data (cf. `WorkflowContext` is frozen, `ExpectedThreatParams` is frozen).
+
+**Error handling:** All HF Hub upload methods (`start()`, `complete()`, `fail()`, `skip()`) catch upload failures gracefully — log a warning and continue. Cost tracking is observability, not business logic; a failed cost upload must never prevent compute from running. Retry with exponential backoff (max 3 retries) on transient errors (429, 5xx) per CLAUDE.md, but ultimate failure is swallowed.
+
+**`hf_job_id` capture:** The recorder reads `os.environ.get("HF_JOB_ID")` if available (set by HF Jobs runtime) and includes it in `_workflow_cost.json`. This allows future Taipy aggregation across the `hf_job_id` column in `workflow_cost_live` when HF cost data is consolidated.
 
 **Hot tier:** Taipy reads `_workflow_cost.json` from HF Hub repos. For RUNNING entries, it computes `(now - started_at) × rate` for live cost display.
 
@@ -178,7 +202,7 @@ CREATE TABLE IF NOT EXISTS {catalog}.{schema}.workflow_cost_live (
     ended_at           TIMESTAMP,
     duration_seconds   INT,
     row_count          INT,
-    rate_usd_per_hour  DECIMAL(10,4),
+    rate_usd_per_hour  DECIMAL(10,6),
     estimated_cost_usd DECIMAL(10,4),
     cost_source        STRING        NOT NULL,
     updated_at         TIMESTAMP     NOT NULL
@@ -188,9 +212,41 @@ TBLPROPERTIES (
     'delta.autoOptimize.autoCompact' = 'true',
     'delta.autoOptimize.optimizeWrite' = 'true'
 );
+-- No liquid clustering: table is bounded at <100 rows at any time (active runs +
+-- recent completions before daily cleanup sweep). Sequential scan is faster than
+-- index maintenance at this scale.
 ```
 
 Run once via Databricks SQL or notebook. Not managed by dbt (written by Spark, not dbt).
+
+**Column notes:**
+- `rate_usd_per_hour` uses `DECIMAL(10,6)` for sub-cent rate granularity (HF cpu-basic is $0.01/hr; future fractional rates won't truncate).
+- `estimated_cost_usd` uses `DECIMAL(10,4)` — sub-cent cost precision is sufficient for display.
+- `duration_seconds` uses `INT` — sufficient for 24,855 days. Orphaned RUNNING rows are swept at 24h, so overflow is impossible.
+
+### 3E. Runner `on_skip` Dispatch
+
+**File:** `src/workflows/runner.py`
+
+The current runner catches all exceptions via `on_error`. `WorkflowSkippedError` (raised when a pipeline's skip guard determines all items are already processed) should dispatch `on_skip` instead, so the `CostEstimateHook` writes a SKIPPED row rather than a FAILED row.
+
+**Change:** In `run_workflow()`, catch `WorkflowSkippedError` before the generic `Exception` handler:
+
+```python
+try:
+    result = func(*args, **kwargs)
+    _dispatch(hooks, "on_complete", ctx, row_count=result)
+except WorkflowSkippedError as exc:
+    _dispatch(hooks, "on_skip", ctx, reason=str(exc))
+    # Skip is not a failure — do not re-raise. Pipeline exits 0.
+except Exception as exc:
+    _dispatch(hooks, "on_error", ctx, error=exc)
+    raise
+```
+
+**Behavior change:** After `on_skip`, the runner does **not** re-raise. A skip means "nothing to do" — the Databricks task should exit 0 (success). This matches existing pipeline behavior where skip guards return early before any work is done.
+
+**Note:** Pipelines must explicitly `raise WorkflowSkippedError("reason")` for this to fire. Pipelines that return early without raising (current pattern in some pipelines) will trigger `on_complete` with `row_count=None` — which is correct behavior (the pipeline completed successfully, it just had nothing to write).
 
 ---
 
@@ -221,12 +277,12 @@ The default rate (`DATABRICKS_SERVERLESS_RATE`) applies to all — no per-pipeli
 Each compute script gets `HFJobsCostRecorder` lifecycle:
 
 ```python
-from analytics.cost import HFJobsCostRecorder
+from analytics.cost import HFJobsCostRecorder, HF_RATE_CPU_BASIC
 
 recorder = HFJobsCostRecorder(
     workflow_id="wf-xt-grids",
     phase="grid_computation",
-    rate_usd_per_hour=0.01,
+    rate_usd_per_hour=HF_RATE_CPU_BASIC,
     repo_id="luxury-lakehouse/xt-grid-values",
 )
 recorder.start()
@@ -238,13 +294,13 @@ api.upload_file(json.dumps(metadata), path_in_repo="metadata.json", ...)
 ```
 
 **7 scripts to modify:**
-- `compute_xt_grid_hf.py` (cpu-basic, $0.01/hr)
-- `compute_epv_transition_hf.py` (cpu-basic, $0.01/hr)
-- `compute_obso_hf.py` (a10g-small, $1.00/hr)
-- `compute_space_creation_hf.py` (a10g-small, $1.00/hr)
-- `train_vaep_model_hf.py` (cpu-basic, $0.01/hr)
-- `train_xg_model_hf.py` (cpu-basic, $0.01/hr)
-- `train_xg_v2_hf.py` (a10g-small, $1.00/hr)
+- `compute_xt_grid_hf.py` (`HF_RATE_CPU_BASIC`)
+- `compute_epv_transition_hf.py` (`HF_RATE_CPU_BASIC`)
+- `compute_obso_hf.py` (`HF_RATE_A10G_SMALL`)
+- `compute_space_creation_hf.py` (`HF_RATE_A10G_SMALL`)
+- `train_vaep_model_hf.py` (`HF_RATE_CPU_BASIC`)
+- `train_xg_model_hf.py` (`HF_RATE_CPU_BASIC`)
+- `train_xg_v2_hf.py` (`HF_RATE_A10G_SMALL`)
 
 **Elapsed time standardization:** 5 of 7 scripts currently lack elapsed time tracking. The `HFJobsCostRecorder` handles this internally (records `started_at` on `start()`, computes duration on `complete()`), so no manual `time.time()` tracking is needed.
 
@@ -256,7 +312,9 @@ api.upload_file(json.dumps(metadata), path_in_repo="metadata.json", ...)
 
 **File:** `scripts/deploy_wheel.py`
 
-Downloads the latest `.whl` from `luxury-lakehouse/build-artifacts` on HF Hub and uploads to the UC Volume at `/Volumes/{catalog}/bronze/libs/`.
+Downloads the latest `.whl` from `luxury-lakehouse/build-artifacts` on HF Hub and uploads to the UC Volume at `/Volumes/{catalog}/bronze/libs/`. This path matches the Terraform-managed `wheel_path` variable (`${module.catalog.libs_volume_path}/luxury_lakehouse-0.1.0-py3-none-any.whl`), where the `libs` volume is defined in `terraform/modules/catalog/main.tf` under the `bronze` schema.
+
+**Note:** This is a standalone script under `scripts/`, not a registered entry point — consistent with `scripts/deploy_taipy.py`.
 
 **Auth:** HF token from env/cache, Databricks from `DATABRICKS_HOST` + `DATABRICKS_TOKEN`.
 
@@ -286,8 +344,14 @@ uv run python scripts/deploy_wheel.py --dry-run          # show what would happe
 - Test all 4 state transitions
 - Mock `HfApi` uploads
 - Verify `_workflow_cost.json` schema at each state
-- Verify `complete()` injects cost fields into metadata dict
+- Verify `complete()` returns new dict (does not mutate input)
 - Verify `start()` uploads RUNNING state before compute begins
+- Verify graceful handling when HF Hub upload fails (log warning, continue)
+- Verify `hf_job_id` capture from environment variable
+
+**`src/tests/test_runner.py`** — additional tests:
+- Test `WorkflowSkippedError` dispatches `on_skip` (not `on_error`)
+- Test `WorkflowSkippedError` does not re-raise (exit 0)
 
 ### E2E Verification (Manual)
 
@@ -304,14 +368,37 @@ uv run python scripts/deploy_wheel.py --dry-run          # show what would happe
 | Action | File | Purpose |
 |--------|------|---------|
 | **New** | `src/ingestion/cost_hook.py` | `CostEstimateHook` class |
-| **New** | `src/analytics/cost.py` | `HFJobsCostRecorder` class |
+| **New** | `src/analytics/cost.py` | `HFJobsCostRecorder` class + rate constants |
 | **New** | `scripts/create_cost_table.sql` | DDL for `workflow_cost_live` |
 | **New** | `scripts/deploy_wheel.py` | HF Hub → UC Volume deploy |
 | **New** | `dbt_project/models/marts/fct_workflow_costs.sql` | Cold tier dbt model |
 | **New** | `src/tests/test_cost_hook.py` | CostEstimateHook unit tests |
 | **New** | `src/tests/test_cost_recorder.py` | HFJobsCostRecorder unit tests |
+| **Edit** | `src/workflows/runner.py` | Add `WorkflowSkippedError` → `on_skip` dispatch |
+| **Edit** | `src/tests/test_runner.py` | Tests for skip dispatch |
 | **Edit** | `dbt_project/models/marts/_marts__models.yml` | Contract for fct_workflow_costs |
 | **Edit** | 12 × `src/ingestion/*.py` | Register CostEstimateHook |
 | **Edit** | 7 × `scripts/*_hf.py` | Add HFJobsCostRecorder lifecycle |
 | **Edit** | `pyproject.toml` | Add `databricks-sdk` to dev deps (if not present) |
 | **Edit** | Workflow card YAMLs | Update baselines after E2E runs |
+
+---
+
+## 9. Prerequisites
+
+Before E2E verification, the following access must be configured:
+
+```sql
+-- Grant system table access to the ingestion service principal
+GRANT SELECT ON system.billing.usage TO `ingestion-sp`;
+GRANT SELECT ON system.billing.list_prices TO `ingestion-sp`;
+GRANT SELECT ON system.lakeflow.job_task_run_timeline TO `ingestion-sp`;
+```
+
+**Note:** If system table access is not available (permissions denied), the dbt model gracefully degrades — it builds with zero rows. The warm/hot tiers operate independently and are not affected.
+
+**Verification:** After granting, run:
+```sql
+SELECT COUNT(*) FROM system.billing.usage WHERE usage_date >= CURRENT_DATE - INTERVAL 7 DAYS;
+```
+If this returns >0, system table access is confirmed.
