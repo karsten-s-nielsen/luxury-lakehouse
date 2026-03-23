@@ -6,6 +6,8 @@ import logging
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
+
 from workflows.context import WorkflowContext
 from workflows.registry import WorkflowEntry
 from workflows.runner import _dispatch, _hooks, register_hook, run_workflow
@@ -141,7 +143,7 @@ def test_run_workflow_does_not_inject_ctx_when_not_accepted() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_failing_hook_does_not_crash_pipeline(caplog: logging.LogCaptureFixture) -> None:
+def test_failing_hook_does_not_crash_pipeline(caplog: pytest.LogCaptureFixture) -> None:
     saved_hooks = _hooks.copy()
     _hooks.clear()
     try:
@@ -234,7 +236,7 @@ def test_on_complete_receives_return_value() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_dispatch_swallows_individual_failures(caplog: logging.LogCaptureFixture) -> None:
+def test_dispatch_swallows_individual_failures(caplog: pytest.LogCaptureFixture) -> None:
     failing = _FailingHook()
     recording = _RecordingHook()
     ctx = WorkflowContext(workflow_id="wf-dispatch", phase="test")
