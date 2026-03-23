@@ -6,9 +6,10 @@ These standards apply to ALL code in this repository. They are non-negotiable.
 
 - **SOLID**: Single responsibility per module/function. Depend on abstractions.
 - **Clean Code**: Meaningful names, small functions, no dead code.
-- **Separation of Concerns**: Ingestion, transformation (dbt), and presentation (Streamlit) are fully isolated layers.
+- **Separation of Concerns**: Ingestion, transformation (dbt), and presentation (Taipy) are fully isolated layers.
 - **Idempotent Operations**: Every ingestion task can be re-run safely. Use partition-level overwrites, not full table drops.
 - **Structured Logging**: JSON-line logs to stdout. No print statements. Include source name, row counts, and timing.
+- **Streamlit retained for reference**: `src/streamlit_app/` and `hf_streamlit_app/` are preserved during the Taipy transition period (~1 week). No changes needed to this code.
 
 ## Security Hardening
 
@@ -115,12 +116,12 @@ The platform's architecture maps to classic EIP patterns (Hohpe & Woolf 2003). C
 ### Performance Budgets
 
 - **Pipeline task timeout**: ingest tasks ≤15 min, compute tasks ≤2 hr
-- **Streamlit page load**: ≤3 seconds (first load), ≤500ms (cached interaction)
+- **App page load**: ≤3 seconds (first load), ≤500ms (cached interaction)
 - **UDF group memory**: ≤800 MB peak (1 GB limit minus overhead)
 - **Batched pitch control**: ≤5ms per frame for 22 targets (benchmark baseline)
 - **Line-breaking detection**: ≤2ms per pass (benchmark baseline)
 
-## Streamlit Performance
+## App Performance
 
 - **`@st.cache_data` functions must be at module level**: Never define a `@st.cache_data`-decorated function inside another function — the decorator is re-applied on every call, creating a new cache key each time. This silently defeats caching.
 - **Bound all data queries**: Every Streamlit SQL query returning user-facing data must have a `LIMIT` clause. Use `LIMIT 500` for ranking/leaderboard queries, `LIMIT 2000` for timeline queries.
@@ -128,7 +129,7 @@ The platform's architecture maps to classic EIP patterns (Hohpe & Woolf 2003). C
 
 ## Streamlit UX Standards
 
-These rules prevent cognitive interface debt from accumulating. Derived from CHI-AUDIT-180 and CHI-AUDIT-190 (cognitive-interface-audit v1.8.0+, 15 frameworks). Every Streamlit or Gradio code change must satisfy all of these.
+These rules prevent cognitive interface debt from accumulating. Derived from CHI-AUDIT-180 and CHI-AUDIT-190 (cognitive-interface-audit v1.8.0+, 15 frameworks). Every Streamlit, Gradio, or Taipy code change must satisfy all of these. Taipy equivalents: `Metric(help_text=)` for tooltips, `warning_var=` (amber `ll-warning-box`) vs `empty_message` (blue `ll-info-box`) for empty state distinction, `scope_vars=` for data context, `SidebarWidget(help=)` for widget tooltips, `GLOSSARY`/`PAGE_TERMS` in `template.py` for per-page glossary filtering.
 
 - **Every `st.metric` must have `help=`**: If the metric name is not universally understood (i.e., anything beyond "Goals", "Passes", "Score"), add a `help=` tooltip explaining what it means and what "good" looks like. Examples: xG, VAEP, PPDA, Brier Score, cosine distance, xT, DEFCON credits.
 - **Every `show_spinner=False` must be justified**: Default to descriptive spinner text (e.g., `show_spinner="Loading rankings..."`). Only suppress spinners on queries that complete in <100ms (e.g., small dimension lookups that are always cached). When in doubt, show the spinner.

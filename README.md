@@ -19,7 +19,7 @@ The platform ingests open-source match data from professional football, transfor
 ### The Old Way (The Veteran Engineer)
 
 ```
-Data Providers → EC2 Airflow → S3 Raw → AWS Glue → S3 Processed → Redshift → dbt → Reverse ETL → S3 → RDS PostgreSQL → Streamlit
+Data Providers → EC2 Airflow → S3 Raw → AWS Glue → S3 Processed → Redshift → dbt → Reverse ETL → S3 → RDS PostgreSQL → Taipy
 ```
 
 Six AWS services. Five data movement hops. Always-on compute. Manual credential management. The full Victorian workhouse experience.
@@ -27,14 +27,14 @@ Six AWS services. Five data movement hops. Always-on compute. Manual credential 
 ### The New Way (The Modern Engineer)
 
 ```
-Data Providers → Databricks Workflows → Delta Lake (Bronze/Silver/Gold) → Synced Tables → Lakebase PostgreSQL 17 → Streamlit
+Data Providers → Databricks Workflows → Delta Lake (Bronze/Silver/Gold) → Synced Tables → Lakebase PostgreSQL 17 → Taipy
 ```
 
 Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 
 ## Architecture
 
-> **[View interactive C4 diagrams](docs/c4/architecture.html)** &mdash; System Context, Container, Ingestion Component, dbt Component, Streamlit Component, and Data Flow levels, generated from [Structurizr DSL](docs/c4/architecture.dsl)
+> **[View interactive C4 diagrams](docs/c4/architecture.html)** &mdash; System Context, Container, Deployment, and Filter Cascade levels, generated from [Structurizr DSL](docs/c4/architecture.dsl)
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
@@ -43,7 +43,7 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 | **Transformation** | dbt-databricks on Serverless SQL | Flatten nested JSON, compute xG/xT metrics |
 | **Synchronization** | Lakeflow Synced Tables | Zero-ETL continuous sync from Gold → Lakebase |
 | **Serving** | Lakebase PostgreSQL 17 (Autoscaling) | Sub-10ms OLTP queries, native pgvector, scale-to-zero |
-| **Application** | [Streamlit on HuggingFace Spaces](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) | 12-page interactive dashboard (Docker SDK, Lakebase PostgreSQL) |
+| **Application** | [Taipy on HuggingFace Spaces](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) | 12-page interactive dashboard (Docker SDK, Lakebase PostgreSQL) |
 | **ML Artifacts** | [HuggingFace Hub](https://huggingface.co/luxury-lakehouse) | Publish [4 models](https://huggingface.co/luxury-lakehouse) + [11 datasets](https://huggingface.co/luxury-lakehouse), GPU training on HF Jobs, and [interactive demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) |
 | **Security** | OAuth M2M + OIDC Federation + KMS | Zero-secret CI, least-privilege SPs, encrypted state |
 | **Infrastructure** | Terraform + Databricks Provider | Everything as code |
@@ -74,7 +74,7 @@ Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by 
 - **Defensive Impact (DEFCON-lite)** — Attacker-perspective defensive credit assignment (intercept/concede/disturb/deter) based on Kim et al. (2025)
 - **Cross-Source Entity Resolution** — Three-layer progressive player matching (TF-IDF + rapidfuzz + bidirectional validation) inspired by US Soccer's glass_onion
 - **Player Embeddings** — Dual-vector player representation: 32-dim Doc2Vec behavioral + 13-dim statistical z-score, published to HuggingFace Hub
-- **Player Similarity** — pgvector HNSW cosine-distance search ("Find players like X") with interactive Streamlit page
+- **Player Similarity** — pgvector HNSW cosine-distance search ("Find players like X") with interactive dashboard page
 - **PAUSA Pass Timing** — Optimal pass timing decomposition: temporal judgment vs spatial selection, OBSO value surfaces (Lee et al. 2026)
 - **Player Comparison** — Per-90 stat comparison across multiple metrics (incl. DEFCON pressure/90)
 
@@ -86,7 +86,8 @@ luxury-lakehouse/
 ├── src/
 │   ├── analytics/      # Pure-Python analytics models (pitch control, line-breaking, entity resolution, DEFCON, football2vec, xG, xT, symmetry, smoothing)
 │   ├── ingestion/      # Data ingestion + compute pipelines (StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner, pitch control batch)
-│   └── streamlit_app/  # Interactive analytics dashboard
+│   └── streamlit_app/  # Streamlit dashboard (retained for reference)
+├── taipy_spike/        # Taipy production dashboard (deployed to HF Spaces)
 ├── notebooks/          # Databricks notebooks (football2vec/xG training, model weight sync, dataset publishing to HF Hub)
 ├── demo_space/         # HuggingFace Gradio demo Space (pass quality, pitch control, player similarity, shot map, DEFCON pressure, pass timing)
 ├── dbt_project/        # Bronze → Silver → Gold transformations
@@ -117,7 +118,7 @@ The `src/analytics/` modules (pitch control, line-breaking, DEFCON, off-ball xT,
 
 ## Status
 
-**Phase 19 complete + GPU models v2** — 12 Streamlit pages, 19 synced tables, 38 PG indexes, 807 unit tests (819+ with gensim). HuggingFace Hub: 4 models + 11 datasets published, GPU training on HF Jobs A10G, [Gradio demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme (6 tabs). xG v2 set encoder (ROC-AUC 0.915, MC dropout uncertainty). Data-driven xT/EPV/transition grids. See [ARCHITECTURE.md](ARCHITECTURE.md) for the platform architecture and [ROADMAP.md](ROADMAP.md) for research directions.
+**Phase 19 complete + GPU models v2** — 12 Taipy pages, 19 synced tables, 38 PG indexes, 807 unit tests (819+ with gensim). HuggingFace Hub: 4 models + 11 datasets published, GPU training on HF Jobs A10G, [Gradio demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme (6 tabs). xG v2 set encoder (ROC-AUC 0.915, MC dropout uncertainty). Data-driven xT/EPV/transition grids. See [ARCHITECTURE.md](ARCHITECTURE.md) for the platform architecture and [ROADMAP.md](ROADMAP.md) for research directions.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -126,7 +127,7 @@ The `src/analytics/` modules (pitch control, line-breaking, DEFCON, off-ball xT,
 | 2 | Data Ingestion (StatsBomb, Metrica, Wyscout) | Complete |
 | 3 | Transformation (dbt on Databricks) | Complete |
 | 4 | Zero-ETL Synchronization (Synced Tables → Lakebase) | Complete |
-| 5 | Application Deployment (Streamlit) | Complete |
+| 5 | Application Deployment (Streamlit → Taipy) | Complete |
 | 5.5 | Lakebase Autoscaling + PG 17 Migration | Complete |
 | 5.6 | IAM OIDC + OAuth M2M + KMS Hardening | Complete |
 | 6 | StatsBomb 360 Freeze Frames | Complete |
@@ -143,6 +144,7 @@ The `src/analytics/` modules (pitch control, line-breaking, DEFCON, off-ball xT,
 | 17 | DEFCON-lite Defensive Pressure | Complete |
 | 18 | HuggingFace Hub Expansion | Complete |
 | 19 | Model Ops & Event Sync (ELASTIC, PAUSA, drift detection) | Complete |
+| 20 | Taipy Migration (12 pages, full content parity) | Complete |
 
 ## Tech Stack
 
@@ -154,7 +156,7 @@ The `src/analytics/` modules (pitch control, line-breaking, DEFCON, off-ball xT,
 | OLTP Database | Databricks Lakebase (PostgreSQL 17, autoscaling) |
 | Transformations | dbt-core + dbt-databricks |
 | Orchestration | Databricks Serverless Workflows |
-| Application | Streamlit + mplsoccer + Plotly |
+| Application | Taipy 4.1 + mplsoccer + Plotly |
 | Vector Search | pgvector HNSW (native in Lakebase) |
 | Embeddings | gensim (Doc2Vec) + huggingface_hub (model publishing) |
 | Python | 3.10+ (Databricks serverless), managed with uv |

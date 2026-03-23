@@ -17,7 +17,7 @@ pinned: false
 
 Open-source soccer analytics platform built on **Databricks Lakebase** &mdash; replacing a 6-service traditional AWS pipeline with a unified lakehouse architecture that scales to zero. The Hugging Face Hub serves as the public distribution layer for models, datasets, and interactive demos.
 
-> **Try it now:** [Full Dashboard](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) &mdash; 12-page Streamlit app with live data from 380+ matches across 5 providers. Or explore the [Gradio Demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) for a quick look.
+> **Try it now:** [Full Dashboard](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) &mdash; 12-page Taipy app with live data from 380+ matches across 5 providers. Or explore the [Gradio Demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) for a quick look.
 
 ---
 
@@ -27,7 +27,7 @@ The infrastructure uses a **Medallion architecture** (Bronze &rarr; Silver &rarr
 
 - **38M+ tracking frames** ingested from three optical tracking providers (25fps and 10fps)
 - **5 distinct data sources** unified: StatsBomb, Wyscout, Metrica Sports, IDSSE (Bundesliga), and SkillCorner (A-League)
-- **[12 Streamlit dashboard pages](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)** deployed on HuggingFace Spaces (Docker SDK), querying Lakebase PostgreSQL via OAuth
+- **[12 Taipy dashboard pages](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)** deployed on HuggingFace Spaces (Docker SDK), querying Lakebase PostgreSQL via OAuth
 - **19 synced tables** with Zero-ETL continuous sync from Gold Delta Lake to Lakebase PostgreSQL 17
 - **38 PostgreSQL indexes** (34 btree + 4 HNSW vector indexes) for sub-10ms OLTP queries
 - Pipeline reliability enforced through **807 unit tests** (819+ with gensim) and **381 dbt data tests**
