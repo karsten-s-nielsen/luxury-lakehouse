@@ -31,8 +31,6 @@ from pages.player_similarity import page_md as player_similarity_page
 # --- Page layouts ---
 from pages.shot_map import page_config as shot_map_config
 from pages.shot_map import page_md as shot_map_page
-from pages.widget_spacing_test import *  # noqa: F403
-from pages.widget_spacing_test import page_md as spacing_test_page
 from state.action_values import *  # noqa: F403
 from state.defensive_valuation import *  # noqa: F403
 from state.heat_map import *  # noqa: F403
@@ -81,7 +79,6 @@ root_page = build_root_page(_nav_md)
 # Build Taipy pages dict
 pages: dict[str, str] = {"/": root_page}
 pages.update({entry.route: entry.markdown for entry in PAGE_REGISTRY})
-pages["Widget-Spacing-Test"] = spacing_test_page  # dev-only, not in nav
 
 if __name__ == "__main__":
     gui = Gui(pages=pages, css_file="style_v2.css")

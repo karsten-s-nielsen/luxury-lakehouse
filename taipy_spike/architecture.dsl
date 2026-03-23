@@ -1,26 +1,33 @@
-workspace "Taipy Soccer Analytics" "Taipy-based soccer analytics dashboard replacing the Streamlit UI. Connects to Databricks Lakebase (PostgreSQL) for all data." {
+workspace "Taipy Soccer Analytics" "Taipy-based soccer analytics dashboard deployed to HuggingFace Spaces. Connects to Databricks Lakebase (PostgreSQL) for all data." {
 
     model {
         analyst = person "Soccer Analyst" "Coaches, scouts, and analysts exploring match and player data"
+        developer = person "Developer" "Deploys application updates to HuggingFace Spaces"
 
         taipyApp = softwareSystem "Taipy Dashboard" "Interactive soccer analytics application with 12 pages covering shots, passes, networks, player comparison, pitch control, and defensive metrics" {
             guiLayer = container "Taipy GUI" "Root template with sidebar navigation, glossary panels, footer links, and page routing" "Python, Taipy 4.1"
-            templateEngine = container "Template Engine" "Generates all page layouts from typed dataclasses: PageConfig, SubView, ContentBlock (image/table/text/expandable_table/chart), ContentRow, SidebarWidget (with help tooltips), Metric (with help_text), Citation. Chart blocks render Plotly figures via native figure= binding. Warning/scope/freshness rendering" "Python, frozen dataclasses"
-            sidebarWidgets = container "Sidebar Widgets" "Centralized filter cascade with progressive disclosure, view-dependent visibility, change_delay debounce, and inline help tooltips. Includes metric selectors and search widgets" "Python, Taipy Markdown"
-            stateModules = container "State Modules" "Per-page state variables, callbacks, data fetching, chart rendering (12 modules). Static charts via mplsoccer PNG. Interactive charts via Plotly go.Figure (Pass Network, Pass Timing, Defensive Impact Breakdown). Each module manages warning_text, scope_label, data_freshness" "Python, pandas, mplsoccer, Plotly"
+            templateEngine = container "Template Engine" "Generates all page layouts from typed dataclasses: PageConfig, SubView, ContentBlock (image/table/text/expandable_table/chart), ContentRow, SidebarWidget, Metric, Citation. Chart blocks render Plotly figures via native figure= binding" "Python, frozen dataclasses"
+            sidebarWidgets = container "Sidebar Widgets" "Centralized filter cascade with progressive disclosure, view-dependent visibility, change_delay debounce, and inline help tooltips" "Python, Taipy Markdown"
+            stateModules = container "State Modules" "Per-page state variables, callbacks, data fetching, chart rendering (12 modules). Static charts via mplsoccer PNG. Interactive charts via Plotly go.Figure (Pass Network, Pass Timing, Defensive Impact)" "Python, pandas, mplsoccer, Plotly"
             filterLayer = container "Filter Layer" "Shared filter queries with TTL cache, scope labels, data freshness, and embedding player search" "Python, psycopg2"
             dbLayer = container "DB Layer" "OAuth token management, connection pooling, parameterized query execution" "Python, psycopg2, Databricks SDK"
             renderEngine = container "Render Engine" "Matplotlib/mplsoccer figure-to-PNG with cache-busting paths for static pitch diagrams" "Python, matplotlib, mplsoccer"
             pitchControl = container "Pitch Control Engine" "Physics-based (Spearman 2017) and Voronoi pitch control surface computation" "Python, NumPy, SciPy"
-            configLayer = container "Config" "Pydantic settings from environment variables" "Python, pydantic-settings"
+            configLayer = container "Config" "Pydantic settings from environment variables with identifier validation" "Python, pydantic-settings"
         }
 
-        lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL-compatible endpoint syncing 19 Delta Lake tables from Unity Catalog" "External"
+        deployPipeline = softwareSystem "Deploy Pipeline" "scripts/deploy_taipy.py with pre-flight checks, ignore patterns, full sync with delete_patterns, and post-upload verification" {
+            deployScript = container "deploy_taipy.py" "CLI tool: pre-flight checks (README, token, space), upload_folder with ignore/delete patterns, post-upload timestamp verification, dry-run mode" "Python, huggingface_hub"
+        }
+
+        lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL-compatible endpoint syncing 19 Delta Lake tables from Unity Catalog (38 indexes, 4 HNSW vector)" "External"
         databricksApi = softwareSystem "Databricks REST API" "OAuth credential endpoint for Lakebase authentication" "External"
+        hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting at luxury-lakehouse/staging. Builds from Dockerfile, serves on port 7860" "External"
         hfHub = softwareSystem "HuggingFace Hub" "Hosts football2vec embedding models and datasets for player similarity" "External"
 
-        # Relationships - user
-        analyst -> guiLayer "Browses pages, selects filters, views interactive and static charts" "WebSocket/HTTP"
+        # Relationships - users
+        analyst -> guiLayer "Browses pages, selects filters, views interactive and static charts" "HTTPS"
+        developer -> deployScript "Runs deploy_taipy.py staging [--dry-run]" "CLI"
 
         # Relationships - internal
         guiLayer -> templateEngine "Calls build_page() and build_nav() to generate Taipy Markdown" ""
@@ -39,11 +46,31 @@ workspace "Taipy Soccer Analytics" "Taipy-based soccer analytics dashboard repla
         dbLayer -> lakebase "Queries 19 synced tables via parameterized SQL" "PostgreSQL/SSL"
         dbLayer -> databricksApi "Fetches OAuth tokens for Lakebase auth" "HTTPS/REST"
         stateModules -> hfHub "Loads embedding vectors for similarity search via pgvector" "HTTPS"
+
+        # Deployment relationships
+        deployScript -> hfSpaces "upload_folder() with ignore_patterns + delete_patterns for full sync" "HTTPS/HF API"
+        hfSpaces -> taipyApp "Builds Docker image, runs Taipy GUI on port 7860" "Docker"
+        analyst -> hfSpaces "Accesses luxury-lakehouse-staging.hf.space" "HTTPS"
+
+        # Deployment environment
+        production = deploymentEnvironment "HuggingFace Spaces" {
+            deploymentNode "HuggingFace Infrastructure" "Managed container hosting" "Docker SDK" {
+                deploymentNode "cpu-basic" "Free tier, sleep after 48h" "2 vCPU, 16 GB RAM" {
+                    appInstance = containerInstance guiLayer
+                }
+            }
+            deploymentNode "Databricks Cloud" "US East 1" "AWS" {
+                deploymentNode "Lakebase Autoscaling" "0.5-4 CU, scale-to-zero" "PostgreSQL 17" {
+                    lakebaseNode = infrastructureNode "Lakebase Endpoint" "ep-spring-rain-d2i6lozx" "PostgreSQL-compatible"
+                }
+            }
+        }
     }
 
     views {
         systemContext taipyApp "SystemContext" {
             include *
+            include deployPipeline
             autoLayout
         }
 
@@ -61,6 +88,11 @@ workspace "Taipy Soccer Analytics" "Taipy-based soccer analytics dashboard repla
             stateModules -> guiLayer "Updates team_lov, match_lov, player_lov state"
             stateModules -> renderEngine "Re-renders chart with new data scope"
             renderEngine -> guiLayer "Returns new image path (cache-busted)"
+            autoLayout
+        }
+
+        deployment taipyApp "HuggingFace Spaces" "Deployment" {
+            include *
             autoLayout
         }
 
