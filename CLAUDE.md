@@ -9,7 +9,7 @@ These standards apply to ALL code in this repository. They are non-negotiable.
 - **Separation of Concerns**: Ingestion, transformation (dbt), and presentation (Taipy) are fully isolated layers.
 - **Idempotent Operations**: Every ingestion task can be re-run safely. Use partition-level overwrites, not full table drops.
 - **Structured Logging**: JSON-line logs to stdout. No print statements. Include source name, row counts, and timing.
-- **Streamlit retained for reference**: `src/streamlit_app/` and `hf_streamlit_app/` are preserved during the Taipy transition period (~1 week). No changes needed to this code.
+- **Streamlit retained for reference**: `src/streamlit_app/` and `hf_streamlit_app_deprecated/` are preserved during the Taipy transition period (~1 week). No changes needed to this code.
 
 ## Security Hardening
 

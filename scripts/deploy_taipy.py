@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Deploy Taipy application to HuggingFace Spaces.
 
-Uploads the ``taipy_spike/`` folder to the target HF Space with full sync:
+Uploads the ``hf_taipy_app/`` folder to the target HF Space with full sync:
 files not present locally are deleted from the remote, ensuring the Space
 always mirrors the local directory exactly.
 
@@ -27,7 +27,7 @@ from huggingface_hub import HfApi, get_token
 
 logger = logging.getLogger(__name__)
 
-FOLDER_PATH = Path("taipy_spike")
+FOLDER_PATH = Path("hf_taipy_app")
 
 TARGETS: dict[str, str] = {
     "staging": "luxury-lakehouse/staging",
