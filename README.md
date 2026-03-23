@@ -34,7 +34,7 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 
 ## Architecture
 
-> **[View interactive C4 diagrams](docs/c4/architecture.html)** &mdash; System Context, Container, Deployment, and Filter Cascade levels, generated from [Structurizr DSL](docs/c4/architecture.dsl)
+> **[View interactive C4 diagrams](docs/c4/architecture.html)** &mdash; System Context, Pipeline Containers, Taipy Containers, Filter Cascade, and Deployment levels, generated from [Structurizr DSL](docs/c4/architecture.dsl)
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|

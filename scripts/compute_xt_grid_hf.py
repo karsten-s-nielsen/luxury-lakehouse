@@ -1,6 +1,7 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.1.0-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -32,6 +33,9 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from analytics.expected_threat import compute_expected_threat_grid, grid_to_dataframe, validate_xt_grid
+from workflows import workflow
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -159,135 +163,11 @@ def _normalize_attack_direction(df: pd.DataFrame, params: ExpectedThreatParams) 
 
 
 # ---------------------------------------------------------------------------
-# xT computation (inlined from src/analytics/expected_threat.py)
-# ---------------------------------------------------------------------------
-
-
-def _assign_zones(x: np.ndarray, y: np.ndarray, params: ExpectedThreatParams) -> np.ndarray:
-    """Map (x, y) coordinates to flat zone indices."""
-    zone_x = np.clip((x / params.pitch_length * params.n_zones_x).astype(int), 0, params.n_zones_x - 1)
-    zone_y = np.clip((y / params.pitch_width * params.n_zones_y).astype(int), 0, params.n_zones_y - 1)
-    return zone_x * params.n_zones_y + zone_y
-
-
-def _build_transition_matrix(start_zones: np.ndarray, end_zones: np.ndarray, n_zones: int) -> np.ndarray:
-    """Build row-normalized transition matrix from zone-to-zone moves."""
-    transition = np.zeros((n_zones, n_zones), dtype=np.float64)
-    np.add.at(transition, (start_zones, end_zones), 1.0)
-    row_sums = np.maximum(transition.sum(axis=1, keepdims=True), 1.0)
-    return transition / row_sums
-
-
-def _value_iteration(
-    shot_prob: np.ndarray,
-    goal_prob: np.ndarray,
-    move_prob: np.ndarray,
-    transition: np.ndarray,
-    max_iters: int,
-    tol: float,
-) -> tuple[np.ndarray, int]:
-    """NumPy value iteration for xT."""
-    xt = np.zeros_like(shot_prob)
-    for i in range(max_iters):
-        xt_new = shot_prob * goal_prob + move_prob * (transition @ xt)
-        delta = float(np.max(np.abs(xt_new - xt)))
-        xt = xt_new
-        if delta < tol:
-            return xt, i + 1
-    return xt, max_iters
-
-
-def compute_xt_grid(actions_df: pd.DataFrame, params: ExpectedThreatParams) -> np.ndarray:
-    """Compute xT grid from SPADL action data via Markov chain value iteration."""
-    n_zones = params.n_zones_x * params.n_zones_y
-
-    type_names = actions_df["type_name"].values
-    result_names = actions_df["result_name"].values
-    is_move = np.array([t in _MOVE_TYPES for t in type_names], dtype=bool)
-    is_shot = np.array([t in _SHOT_TYPES for t in type_names], dtype=bool)
-    is_success = result_names == "success"
-
-    start_zones = _assign_zones(
-        np.asarray(actions_df["start_x"], dtype=np.float64),
-        np.asarray(actions_df["start_y"], dtype=np.float64),
-        params,
-    )
-    end_zones = _assign_zones(
-        np.asarray(actions_df["end_x"], dtype=np.float64),
-        np.asarray(actions_df["end_y"], dtype=np.float64),
-        params,
-    )
-
-    total_per_zone = np.bincount(start_zones, minlength=n_zones).astype(np.float64)
-    shots_per_zone = np.bincount(start_zones[is_shot], minlength=n_zones).astype(np.float64)
-    goals_per_zone = np.bincount(start_zones[is_shot & is_success], minlength=n_zones).astype(np.float64)
-    succ_moves_per_zone = np.bincount(start_zones[is_move & is_success], minlength=n_zones).astype(np.float64)
-
-    safe_total = np.maximum(total_per_zone, 1.0)
-    shot_prob = shots_per_zone / safe_total
-    goal_prob = np.where(shots_per_zone > 0, goals_per_zone / shots_per_zone, 0.0)
-    # Use successful move probability (not 1-shot_prob) — failed moves lose
-    # possession and contribute xT=0, which is handled implicitly by the lower
-    # multiplier on the transition term.
-    succ_move_prob = succ_moves_per_zone / safe_total
-
-    transition = _build_transition_matrix(
-        start_zones[is_move & is_success],
-        end_zones[is_move & is_success],
-        n_zones,
-    )
-
-    xt_flat, iters = _value_iteration(
-        shot_prob,
-        goal_prob,
-        succ_move_prob,
-        transition,
-        params.max_iterations,
-        params.tolerance,
-    )
-    print(f"  Converged in {iters} iterations")
-    return xt_flat.reshape(params.n_zones_x, params.n_zones_y)
-
-
-def grid_to_dataframe(grid: np.ndarray, competition_id: str) -> pd.DataFrame:
-    """Convert xT grid array to DataFrame matching Delta table schema."""
-    n_x, n_y = grid.shape
-    rows: list[dict[str, object]] = []
-    for zx in range(n_x):
-        for zy in range(n_y):
-            rows.append(
-                {
-                    "zone_x": zx,
-                    "zone_y": zy,
-                    "xt_value": round(float(grid[zx, zy]), 5),
-                    "competition_id": competition_id,
-                }
-            )
-    return pd.DataFrame(rows)
-
-
-def validate_xt_grid(grid: np.ndarray) -> None:
-    """Validate computed xT grid meets data quality requirements."""
-    xt_range = grid.max() - grid.min()
-    if xt_range < 0.05:
-        msg = f"Grid range too narrow ({xt_range:.4f}) — likely coordinate orientation issue"
-        raise ValueError(msg)
-    if grid.max() > 0.50:
-        msg = f"Grid max too high: {grid.max():.4f}"
-        raise ValueError(msg)
-    row_means = grid.mean(axis=1)
-    # xT should generally increase toward the attacking goal (zone_x=11)
-    # Allow small decreases (-0.005) but overall trend must be increasing
-    if row_means[-1] < row_means[0]:
-        msg = f"Grid not increasing toward goal: zone_x=0 mean={row_means[0]:.5f} > zone_x=11 mean={row_means[-1]:.5f}"
-        raise ValueError(msg)
-
-
-# ---------------------------------------------------------------------------
 # Main pipeline
 # ---------------------------------------------------------------------------
 
 
+@workflow("wf-xt-grids", phase="grid_computation")
 def main() -> None:
     """Download SPADL actions, normalize coordinates, compute xT grids, publish to HF Hub."""
     from huggingface_hub import HfApi, get_token, hf_hub_download
@@ -367,7 +247,7 @@ def main() -> None:
         if n_events < 100:
             print(f"  Competition {comp_id}: {n_events} events -- skipping (too few)")
             continue
-        grid = compute_xt_grid(comp_actions, params)
+        grid = compute_expected_threat_grid(comp_actions, params)
         grid_df = grid_to_dataframe(grid, str(comp_id))
         all_grids.append(grid_df)
         print(f"  Competition {comp_id}: {n_events:,} events, max xT={grid.max():.5f}")
@@ -376,7 +256,7 @@ def main() -> None:
     # 3. Global grid (all competitions combined)
     # ------------------------------------------------------------------
     print("\n=== Computing global xT grid ===")
-    global_grid = compute_xt_grid(all_actions, params)
+    global_grid = compute_expected_threat_grid(all_actions, params)
     validate_xt_grid(global_grid)
     global_df = grid_to_dataframe(global_grid, "global")
     all_grids.append(global_df)

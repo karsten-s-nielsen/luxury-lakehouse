@@ -1,6 +1,7 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.1.0-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -56,6 +57,9 @@ import torch
 import torch.nn as nn
 from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 from sklearn.model_selection import train_test_split
+
+from analytics.set_encoder import serialize_set_encoder_weights
+from workflows import workflow
 
 # ---------------------------------------------------------------------------
 # Structured logging
@@ -634,30 +638,6 @@ def _export_weights_to_numpy(model: SetEncoderXG) -> dict[str, npt.NDArray[np.fl
     }
 
 
-def _serialize_weights(weights: dict[str, npt.NDArray[np.floating[Any]]]) -> bytes:
-    """Serialize weights to JSON bytes with base64-encoded arrays.
-
-    Format matches ``src/analytics/set_encoder.py:serialize_set_encoder_weights()``
-    exactly: each weight is stored with ``data`` (base64), ``shape`` (list), and
-    ``dtype`` (str) under a ``"weights"`` key in a ``"set_encoder_xg_v2"`` envelope.
-    """
-    serialized_weights: dict[str, dict[str, Any]] = {}
-    for key, arr in weights.items():
-        arr_bytes = arr.astype(np.float64).tobytes()
-        serialized_weights[key] = {
-            "data": base64.b64encode(arr_bytes).decode("ascii"),
-            "shape": list(arr.shape),
-            "dtype": "float64",
-        }
-
-    envelope: dict[str, Any] = {
-        "model_type": "set_encoder_xg_v2",
-        "weights": serialized_weights,
-    }
-
-    return json.dumps(envelope).encode("utf-8")
-
-
 # ---------------------------------------------------------------------------
 # V1 XGBoost baseline evaluation (for comparison)
 # ---------------------------------------------------------------------------
@@ -739,6 +719,7 @@ def _evaluate_v1_baseline(
 # ---------------------------------------------------------------------------
 
 
+@workflow("wf-xg-v2", phase="training")
 def main() -> None:
     """Download shots + freeze-frames, train xG v2, log to MLflow, push to HF Hub."""
     from huggingface_hub import HfApi, get_token, hf_hub_download
@@ -983,7 +964,7 @@ def main() -> None:
     numpy_weights["_mc_z_multiplier"] = np.array([mc_metrics["mc_z_multiplier"]], dtype=np.float64)
     numpy_weights["_mc_dropout_p_inference"] = np.array([mc_metrics["mc_dropout_p_inference"]], dtype=np.float64)
 
-    weight_bytes = _serialize_weights(numpy_weights)
+    weight_bytes = serialize_set_encoder_weights(numpy_weights)
     logger.info("Serialized weight size: %d bytes", len(weight_bytes))
 
     # Validate roundtrip: deserialize and verify shapes

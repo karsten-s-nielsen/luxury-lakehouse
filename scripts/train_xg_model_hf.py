@@ -1,6 +1,7 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.1.0-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -15,8 +16,8 @@
 Downloads shot data from HF Hub dataset, trains logistic + XGBoost models,
 logs to MLflow via remote tracking URI, and pushes weights to HF Hub.
 
-This is a standalone PEP 723 script that runs on HF Jobs without access to
-the project wheel. All training logic is inlined.
+This is a standalone PEP 723 script that runs on HF Jobs. The project wheel
+is installed for workflow card support; training logic is inlined.
 
 Reference: Custom xG model — logistic baseline + calibrated XGBoost with
 isotonic calibration.
@@ -43,6 +44,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
+
+from workflows import workflow
 
 # ---------------------------------------------------------------------------
 # Configuration (mirrors src/analytics/xg_model.py)
@@ -178,6 +181,7 @@ def serialize_logistic_model(model: CalibratedClassifierCV) -> bytes:
 # ---------------------------------------------------------------------------
 
 
+@workflow("wf-xg-v1", phase="training")
 def main() -> None:
     """Download shots, train xG models, log to MLflow, push to HF Hub."""
     from huggingface_hub import HfApi, get_token, hf_hub_download

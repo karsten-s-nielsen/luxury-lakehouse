@@ -1,6 +1,7 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.1.0-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -40,6 +41,9 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from analytics.obso import interpolate_grid
+from workflows import workflow
 
 # ---------------------------------------------------------------------------
 # Structured logging
@@ -264,51 +268,6 @@ def _value_iteration(
         if delta < tol:
             return epv, i + 1
     return epv, max_iters
-
-
-# ---------------------------------------------------------------------------
-# Bilinear interpolation (inlined from src/analytics/obso.py)
-# ---------------------------------------------------------------------------
-
-
-def interpolate_grid(grid: np.ndarray, target_shape: tuple[int, int]) -> np.ndarray:
-    """Resize a 2D grid via bilinear interpolation (numpy-only, no scipy).
-
-    Args:
-        grid: Source 2D array of shape (src_rows, src_cols).
-        target_shape: Desired output shape (target_rows, target_cols).
-
-    Returns:
-        Interpolated 2D array of shape ``target_shape``.
-    """
-    src_rows, src_cols = grid.shape
-    tgt_rows, tgt_cols = target_shape
-
-    if (src_rows, src_cols) == target_shape:
-        return grid.copy()
-
-    # Build target coordinate grids mapping to source indices
-    row_coords = np.linspace(0, src_rows - 1, tgt_rows)
-    col_coords = np.linspace(0, src_cols - 1, tgt_cols)
-    col_grid, row_grid = np.meshgrid(col_coords, row_coords)
-
-    # Floor/ceil indices
-    r0 = np.clip(np.floor(row_grid).astype(int), 0, src_rows - 2)
-    r1 = r0 + 1
-    c0 = np.clip(np.floor(col_grid).astype(int), 0, src_cols - 2)
-    c1 = c0 + 1
-
-    # Fractional parts
-    dr = row_grid - r0
-    dc = col_grid - c0
-
-    # Bilinear interpolation
-    return (
-        grid[r0, c0] * (1 - dr) * (1 - dc)
-        + grid[r1, c0] * dr * (1 - dc)
-        + grid[r0, c1] * (1 - dr) * dc
-        + grid[r1, c1] * dr * dc
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -704,6 +663,7 @@ def completion_matrix_to_dataframe(
 # ---------------------------------------------------------------------------
 
 
+@workflow("wf-epv-reachability", phase="grid_computation")
 def main() -> None:
     """Download SPADL actions, compute EPV + reachability grids, publish to HF Hub."""
     from huggingface_hub import HfApi, get_token, hf_hub_download

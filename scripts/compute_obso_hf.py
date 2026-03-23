@@ -1,6 +1,7 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.1.0-py3-none-any.whl",
 #     "jax[cuda12]>=0.4.35",
 #     "numpy>=1.26.0",
 #     "pandas>=2.0.0",
@@ -39,15 +40,21 @@ References:
 from __future__ import annotations
 
 import json
-import math
 import os
 import tempfile
 import time
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from analytics.obso import interpolate_grid
+from analytics.pitch_control import (
+    PitchControlParams,
+    compute_pitch_control_grid_fast,
+    generate_ghost_trajectories,
+)
+from workflows import workflow
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -68,248 +75,12 @@ WINDOW_BEFORE_S = 3.0
 WINDOW_AFTER_S = 1.0
 
 
-@dataclass(frozen=True)
-class PitchControlParams:
-    """Parameters for the physics-based pitch control model (inlined)."""
-
-    reaction_time: float = 0.7
-    max_acceleration: float = 7.0
-    sigma: float = 0.45
-    pitch_length_m: float = 105.0
-    pitch_width_m: float = 68.0
-    sb_length: float = 120.0
-    sb_width: float = 80.0
-
-
-# ---------------------------------------------------------------------------
-# Inlined pitch control functions (from src/analytics/pitch_control.py)
-# ---------------------------------------------------------------------------
-# HF Jobs scripts are standalone PEP 723 — cannot import from src/.
-# These are faithful copies of the core kernels.
-
-
 try:
     import jax
-    import jax.numpy as jnp
 
     _USE_JAX = True
 except ImportError:
     _USE_JAX = False
-
-
-def _sb_to_meters_x(x, params):
-    return x * (params.pitch_length_m / params.sb_length)
-
-
-def _sb_to_meters_y(y, params):
-    return y * (params.pitch_width_m / params.sb_width)
-
-
-def _tti_numpy(player_pos_m, player_vel_m, target_m, reaction_time, max_acceleration):
-    displacement = target_m[np.newaxis, :, :] - player_pos_m[:, np.newaxis, :]
-    distance = np.sqrt(np.sum(displacement**2, axis=2))
-    safe_distance = np.maximum(distance, 1e-10)
-    direction = displacement / safe_distance[:, :, np.newaxis]
-    v_proj = np.sum(player_vel_m[:, np.newaxis, :] * direction, axis=2)
-    discriminant = v_proj**2 + 2.0 * max_acceleration * distance
-    tti = reaction_time + (-v_proj + np.sqrt(discriminant)) / max_acceleration
-    return np.maximum(tti, reaction_time)
-
-
-if _USE_JAX:
-
-    @jax.jit
-    def _tti_jax(player_pos_m, player_vel_m, target_m, reaction_time, max_acceleration):
-        displacement = target_m[jnp.newaxis, :, :] - player_pos_m[:, jnp.newaxis, :]
-        distance = jnp.sqrt(jnp.sum(displacement**2, axis=2))
-        safe_distance = jnp.maximum(distance, 1e-10)
-        direction = displacement / safe_distance[:, :, jnp.newaxis]
-        v_proj = jnp.sum(player_vel_m[:, jnp.newaxis, :] * direction, axis=2)
-        discriminant = v_proj**2 + 2.0 * max_acceleration * distance
-        tti = reaction_time + (-v_proj + jnp.sqrt(discriminant)) / max_acceleration
-        return jnp.maximum(tti, reaction_time)
-
-
-def _compute_time_to_intercept(player_pos_m, player_vel_m, target_m, params):
-    if _USE_JAX:
-        result = _tti_jax(
-            jnp.asarray(player_pos_m),
-            jnp.asarray(player_vel_m),
-            jnp.asarray(target_m),
-            params.reaction_time,
-            params.max_acceleration,
-        )
-        return np.asarray(result)
-    return _tti_numpy(player_pos_m, player_vel_m, target_m, params.reaction_time, params.max_acceleration)
-
-
-def _influence_numpy(team_tti, opponent_min_tti, sigma):
-    k = math.pi / math.sqrt(3.0) / sigma
-    exponent = -k * (opponent_min_tti[np.newaxis, :] - team_tti)
-    individual = 1.0 / (1.0 + np.exp(np.clip(exponent, -50.0, 50.0)))
-    return np.sum(individual, axis=0)
-
-
-if _USE_JAX:
-
-    @jax.jit
-    def _influence_jax(team_tti, opponent_min_tti, sigma):
-        k = jnp.pi / jnp.sqrt(3.0) / sigma
-        exponent = -k * (opponent_min_tti[jnp.newaxis, :] - team_tti)
-        individual = 1.0 / (1.0 + jnp.exp(jnp.clip(exponent, -50.0, 50.0)))
-        return jnp.sum(individual, axis=0)
-
-
-def _compute_team_influence(team_tti, opponent_min_tti, params):
-    if _USE_JAX:
-        result = _influence_jax(
-            jnp.asarray(team_tti),
-            jnp.asarray(opponent_min_tti),
-            params.sigma,
-        )
-        return np.asarray(result)
-    return _influence_numpy(team_tti, opponent_min_tti, params.sigma)
-
-
-def compute_pitch_control_at_points(players_df, target_points, params):
-    """Compute pitch control at multiple target points."""
-    if len(target_points) == 0:
-        return np.empty(0)
-
-    home = pd.DataFrame(players_df[players_df["team"] == "home"])
-    away = pd.DataFrame(players_df[players_df["team"] == "away"])
-
-    if home.empty or away.empty:
-        fallback = 0.5 if (home.empty and away.empty) else (1.0 if away.empty else 0.0)
-        return np.full(len(target_points), fallback)
-
-    def _col_f64(df, col):
-        return np.asarray(df[col], dtype=np.float64)
-
-    home_pos = np.column_stack(
-        [_sb_to_meters_x(_col_f64(home, "x"), params), _sb_to_meters_y(_col_f64(home, "y"), params)]
-    )
-    home_vel = np.column_stack(
-        [_sb_to_meters_x(_col_f64(home, "velocity_x"), params), _sb_to_meters_y(_col_f64(home, "velocity_y"), params)]
-    )
-    away_pos = np.column_stack(
-        [_sb_to_meters_x(_col_f64(away, "x"), params), _sb_to_meters_y(_col_f64(away, "y"), params)]
-    )
-    away_vel = np.column_stack(
-        [_sb_to_meters_x(_col_f64(away, "velocity_x"), params), _sb_to_meters_y(_col_f64(away, "velocity_y"), params)]
-    )
-
-    targets_m = np.column_stack(
-        [_sb_to_meters_x(target_points[:, 0], params), _sb_to_meters_y(target_points[:, 1], params)]
-    )
-
-    home_tti = _compute_time_to_intercept(home_pos, home_vel, targets_m, params)
-    away_tti = _compute_time_to_intercept(away_pos, away_vel, targets_m, params)
-
-    home_min_tti = np.min(home_tti, axis=0)
-    away_min_tti = np.min(away_tti, axis=0)
-
-    home_influence = _compute_team_influence(home_tti, away_min_tti, params)
-    away_influence = _compute_team_influence(away_tti, home_min_tti, params)
-
-    total = home_influence + away_influence
-    safe_total = np.where(total > 1e-10, total, 1.0)
-    control = np.where(total > 1e-10, home_influence / safe_total, 0.5)
-    return np.clip(control, 0.0, 1.0)
-
-
-def compute_pitch_control_grid(players_df, grid_nx, grid_ny, params):
-    """Compute pitch control on a dense grid."""
-    grid_x = np.linspace(0, params.sb_length, grid_nx)
-    grid_y = np.linspace(0, params.sb_width, grid_ny)
-    xx, yy = np.meshgrid(grid_x, grid_y)
-    target_points = np.column_stack([xx.ravel(), yy.ravel()])
-    control = compute_pitch_control_at_points(players_df, target_points, params)
-    surface = control.reshape(grid_ny, grid_nx)
-    return grid_x, grid_y, surface
-
-
-# ---------------------------------------------------------------------------
-# Inlined ghost trajectory generation
-# ---------------------------------------------------------------------------
-
-
-def generate_ghost_trajectories(players_df, event_frame, frame_rate=25, window_before_s=3.0, window_after_s=1.0):
-    """Constant-velocity extrapolation for counterfactual frames."""
-    x = np.asarray(players_df["x"], dtype=np.float64)
-    y = np.asarray(players_df["y"], dtype=np.float64)
-    vx = np.asarray(players_df["velocity_x"], dtype=np.float64)
-    vy = np.asarray(players_df["velocity_y"], dtype=np.float64)
-    n_players = len(players_df)
-
-    start_offset = -int(window_before_s * frame_rate)
-    end_offset = int(window_after_s * frame_rate)
-
-    meta_cols = [c for c in players_df.columns if c not in {"x", "y", "velocity_x", "velocity_y"}]
-    meta_dict = {c: players_df[c].to_numpy() for c in meta_cols}
-
-    frames = []
-    for offset in range(start_offset, end_offset + 1):
-        dt = offset / frame_rate
-        new_x = np.clip(x + vx * dt, 0.0, 120.0)
-        new_y = np.clip(y + vy * dt, 0.0, 80.0)
-        data = {}
-        for c in meta_cols:
-            data[c] = meta_dict[c].copy()
-        data["x"] = new_x.copy()
-        data["y"] = new_y.copy()
-        data["velocity_x"] = vx.copy()
-        data["velocity_y"] = vy.copy()
-        data["ghost_frame_offset"] = np.full(n_players, offset, dtype=np.int64)
-        frames.append(pd.DataFrame(data))
-    return frames
-
-
-# ---------------------------------------------------------------------------
-# Inlined OBSO computation
-# ---------------------------------------------------------------------------
-
-
-def interpolate_grid(grid, target_shape):
-    """Bilinear interpolation of a 2D grid."""
-    src_rows, src_cols = grid.shape
-    tgt_rows, tgt_cols = target_shape
-    if (src_rows, src_cols) == target_shape:
-        return grid.copy()
-    row_coords = np.linspace(0, src_rows - 1, tgt_rows)
-    col_coords = np.linspace(0, src_cols - 1, tgt_cols)
-    col_grid, row_grid = np.meshgrid(col_coords, row_coords)
-    r0 = np.clip(np.floor(row_grid).astype(int), 0, src_rows - 2)
-    r1 = r0 + 1
-    c0 = np.clip(np.floor(col_grid).astype(int), 0, src_cols - 2)
-    c1 = c0 + 1
-    dr = row_grid - r0
-    dc = col_grid - c0
-    return (
-        grid[r0, c0] * (1 - dr) * (1 - dc)
-        + grid[r1, c0] * dr * (1 - dc)
-        + grid[r0, c1] * (1 - dr) * dc
-        + grid[r1, c1] * dr * dc
-    )
-
-
-def compute_obso_surface(ppcf_grid, transition_grid, epv_grid, ball_position, grid_x, grid_y):
-    """OBSO = PPCF x Transition(ball->cell) x EPV(cell)."""
-    ny, nx = ppcf_grid.shape
-    transition_interp = interpolate_grid(transition_grid, (ny, nx))
-    epv_interp = interpolate_grid(epv_grid, (ny, nx))
-
-    ball_x, ball_y = ball_position
-    xx, yy = np.meshgrid(grid_x, grid_y)
-    sigma_x, sigma_y = 30.0, 20.0
-    distance_weight = np.exp(-((xx - ball_x) ** 2) / (2.0 * sigma_x**2) - (yy - ball_y) ** 2 / (2.0 * sigma_y**2))
-
-    effective_transition = transition_interp * distance_weight
-    max_trans = np.max(effective_transition)
-    if max_trans > 1e-10:
-        effective_transition = effective_transition / max_trans
-
-    return np.clip(ppcf_grid * effective_transition * epv_interp, 0.0, 1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -551,7 +322,8 @@ def _prepare_pass_events(events_df, sync_df):
 # ---------------------------------------------------------------------------
 
 
-def main():
+@workflow("wf-obso-pausa", phase="grid_computation")
+def main() -> None:
     """Download data, compute OBSO surfaces, publish results."""
     from huggingface_hub import HfApi, get_token
 
@@ -707,7 +479,9 @@ def main():
             event_idx = int(WINDOW_BEFORE_S * FRAME_RATE)
 
             # Compute PPCF at the event frame
-            grid_x, grid_y, ppcf = compute_pitch_control_grid(ghost_frames[event_idx], GRID_NX, GRID_NY, params)
+            grid_x, grid_y, ppcf = compute_pitch_control_grid_fast(
+                ghost_frames[event_idx], grid_cells_x=GRID_NX, grid_cells_y=GRID_NY, params=params
+            )
 
             # Pre-compute loop-invariant OBSO multiplier ONCE per pass event
             # (F-05 OPT-AUDIT-200). compute_obso_surface internally re-interpolates
@@ -739,7 +513,9 @@ def main():
             # Uses pre-computed obso_multiplier (F-05 OPT-AUDIT-200)
             peak_obso = actual_obso
             for frame_df in ghost_frames[::5]:
-                _, _, frame_ppcf = compute_pitch_control_grid(frame_df, GRID_NX, GRID_NY, params)
+                _, _, frame_ppcf = compute_pitch_control_grid_fast(
+                    frame_df, grid_cells_x=GRID_NX, grid_cells_y=GRID_NY, params=params
+                )
                 frame_obso = np.clip(frame_ppcf * obso_multiplier, 0.0, 1.0)
                 frame_val = float(frame_obso[ty_idx, tx_idx])
                 peak_obso = max(peak_obso, frame_val)

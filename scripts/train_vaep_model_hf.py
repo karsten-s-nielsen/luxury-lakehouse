@@ -1,6 +1,7 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.1.0-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -18,8 +19,8 @@ Downloads SPADL action data from HF Hub, extracts features via
 socceraction, trains two XGBClassifier models (P(scoring) and
 P(conceding)), logs to MLflow, and pushes weights to HF Hub.
 
-This is a standalone PEP 723 script that runs on HF Jobs without access to
-the project wheel. All training logic is inlined.
+This is a standalone PEP 723 script that runs on HF Jobs. The project wheel
+is installed for workflow card support; training logic is inlined.
 
 Reference: Decroos, T., Bransen, L., Van Haaren, J., & Davis, J. (2019).
 "Actions Speak Louder than Goals: Valuing Player Actions in Soccer."
@@ -52,6 +53,8 @@ import socceraction.vaep.labels as labels
 from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
+
+from workflows import workflow
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -221,6 +224,7 @@ def serialize_vaep_models(
 # ---------------------------------------------------------------------------
 
 
+@workflow("wf-vaep", phase="training")
 def main() -> None:
     """Download SPADL actions, train VAEP models, log to MLflow, push to HF Hub."""
     from huggingface_hub import HfApi, get_token, hf_hub_download
