@@ -1,4 +1,4 @@
-workspace "Taipy Soccer Analytics" "Taipy-based soccer analytics dashboard deployed to HuggingFace Spaces. Connects to Databricks Lakebase (PostgreSQL) for all data." {
+workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 16 AI/ML workflows, Taipy dashboard on HF Spaces, Databricks Lakebase." {
 
     model {
         analyst = person "Soccer Analyst" "Coaches, scouts, and analysts exploring match and player data"
@@ -20,10 +20,19 @@ workspace "Taipy Soccer Analytics" "Taipy-based soccer analytics dashboard deplo
             deployScript = container "deploy_taipy.py" "CLI tool: pre-flight checks (README, token, space), upload_folder with ignore/delete patterns, post-upload timestamp verification, dry-run mode" "Python, huggingface_hub"
         }
 
+        pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "16 workflow-card-registered compute pipelines with @workflow decorators, lifecycle hooks, and YAML manifests" {
+            workflowFramework = container "Workflow Framework" "Registry, @workflow decorator, WorkflowContext, lifecycle hooks (LoggingHook)" "Python, src/workflows/"
+            workflowCards = container "Workflow Cards" "16 YAML manifests defining inputs, outputs, deps, cost, academic provenance" "YAML, workflow-cards/" "Database"
+            ingestionPipelines = container "Compute Pipelines" "12 @workflow-decorated pipelines: xG, VAEP, DEFCON, pitch control, xT, OBSO/PAUSA, entity resolution, etc." "Python, PySpark, src/ingestion/"
+            analyticsLibrary = container "Analytics Library" "Pure-Python models: pitch control, xG, xT, VAEP, OBSO, line-breaking, augmentation" "Python, NumPy, SciPy, src/analytics/"
+        }
+
         lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL-compatible endpoint syncing 19 Delta Lake tables from Unity Catalog (38 indexes, 4 HNSW vector)" "External"
         databricksApi = softwareSystem "Databricks REST API" "OAuth credential endpoint for Lakebase authentication" "External"
+        databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration for compute pipelines (daily 06:00 UTC)" "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting at luxury-lakehouse/staging. Builds from Dockerfile, serves on port 7860" "External"
-        hfHub = softwareSystem "HuggingFace Hub" "Hosts football2vec embedding models and datasets for player similarity" "External"
+        hfHub = softwareSystem "HuggingFace Hub" "Hosts models, datasets, and build-artifacts wheel for HF Jobs scripts" "External"
+        hfJobs = softwareSystem "HuggingFace Jobs" "GPU/CPU training and grid computation for xG, VAEP, xT, EPV, OBSO, Space Creation" "External"
 
         # Relationships - users
         analyst -> guiLayer "Browses pages, selects filters, views interactive and static charts" "HTTPS"
@@ -46,6 +55,15 @@ workspace "Taipy Soccer Analytics" "Taipy-based soccer analytics dashboard deplo
         dbLayer -> lakebase "Queries 19 synced tables via parameterized SQL" "PostgreSQL/SSL"
         dbLayer -> databricksApi "Fetches OAuth tokens for Lakebase auth" "HTTPS/REST"
         stateModules -> hfHub "Loads embedding vectors for similarity search via pgvector" "HTTPS"
+
+        # Relationships - pipeline platform
+        ingestionPipelines -> workflowFramework "Decorated with @workflow, lifecycle hooks fire on start/complete/error" ""
+        workflowFramework -> workflowCards "Loads YAML cards, attaches metadata to registry entries" ""
+        ingestionPipelines -> analyticsLibrary "Imports domain logic (xG, xT, pitch control, OBSO)" ""
+        ingestionPipelines -> lakebase "Writes Delta tables synced to Lakebase" "PySpark/Delta"
+        databricksWorkflows -> ingestionPipelines "Schedules and executes compute tasks" "Databricks Jobs API"
+        hfJobs -> analyticsLibrary "Imports from wheel (luxury-lakehouse/build-artifacts)" "pip/HTTPS"
+        hfJobs -> hfHub "Publishes trained models and computed grids" "HTTPS/HF API"
 
         # Deployment relationships
         deployScript -> hfSpaces "upload_folder() with ignore_patterns + delete_patterns for full sync" "HTTPS/HF API"
@@ -71,6 +89,14 @@ workspace "Taipy Soccer Analytics" "Taipy-based soccer analytics dashboard deplo
         systemContext taipyApp "SystemContext" {
             include *
             include deployPipeline
+            include pipelinePlatform
+            include databricksWorkflows
+            include hfJobs
+            autoLayout
+        }
+
+        container pipelinePlatform "PipelineContainers" {
+            include *
             autoLayout
         }
 

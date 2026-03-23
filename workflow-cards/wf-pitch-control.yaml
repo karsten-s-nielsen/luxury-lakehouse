@@ -1,0 +1,81 @@
+---
+name: Pitch Control Surfaces
+id: wf-pitch-control
+version: "1.0"
+status: production
+type: heuristic
+domain: pitch-control
+owners:
+  - karsten
+tags:
+  - pitch-control
+  - physics-model
+  - tracking-data
+
+references:
+  - citation: "Spearman (2017). Physics-Based Modeling of Pass Probabilities in Soccer. MIT Sloan Sports Analytics Conference."
+    role: methodology
+
+inputs:
+  datasets:
+    - id: "{catalog}.dev_gold.fct_tracking_frames"
+      source: delta-table
+      description: "Tracking frame data with player positions and velocities"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.pitch_control_values"
+      destination: delta-table
+
+execution:
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: compute_pitch_control
+    module: ingestion.pitch_control_batch
+    distribution: applyInPandas
+    partition_key: match_id
+    schedule: "daily 06:00 UTC"
+    timeout: "7200s"
+    environment: analytics
+
+depends_on: []
+
+idempotency:
+  strategy: skip-guard
+  key: match_id
+  description: "Checks existing pitch control results by match_id before processing."
+
+performance:
+  inference_timeout: "7200s"
+  memory_ceiling: "16 GB driver, 1 GB UDF executor"
+
+cost:
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 400
+    typical_cost_usd: 28.0
+
+monitoring:
+  freshness_sla_hours: 24
+
+links:
+  source_code:
+    - "src/ingestion/pitch_control_batch.py"
+    - "src/analytics/pitch_control.py"
+---
+
+## Overview
+
+Pitch Control computes probability surfaces indicating which team controls each location
+on the pitch at every tracking frame. It is a foundational model consumed by OBSO, PAUSA,
+space creation, and off-ball xT workflows.
+
+## Algorithm
+
+The physics-based model uses player positions, velocities, and a time-to-intercept function
+to estimate each player's influence over every grid cell. The probability that a team
+controls a cell is the sum of its players' influence values divided by the total influence.
+Computation is distributed via `applyInPandas` with synthetic `frame_batch_id` partitions
+to stay within the 1 GB UDF memory limit.

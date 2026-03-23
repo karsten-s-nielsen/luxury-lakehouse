@@ -17,6 +17,8 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from workflows import workflow
+
 if TYPE_CHECKING:
     import pandas as pd
     from pyspark.sql import SparkSession
@@ -242,11 +244,14 @@ def _load_shots_with_context(
     return spark.sql(query)
 
 
+@workflow("wf-xg-v1", phase="inference")
 def run_pipeline(
     spark: SparkSession,
     catalog: str,
     schema: str,
-    log: logging.Logger,
+    logger: logging.Logger,
+    *,
+    ctx=None,
 ) -> None:
     """Score all shots with custom xG models.
 
@@ -270,7 +275,7 @@ def run_pipeline(
             for row in spark.table(results_table).select("competition_id").distinct().collect()
         }
     except Exception:
-        log.info("No existing %s table -- will process all competitions", _TABLE_NAME)
+        logger.info("No existing %s table -- will process all competitions", _TABLE_NAME)
 
     # 2. Load fct_shots with freeze-frame context
     shots_df = _load_shots_with_context(spark, catalog, schema)
@@ -279,10 +284,10 @@ def run_pipeline(
     new_comps = available_comps - existing
 
     if not new_comps:
-        log.info("All competitions already scored -- skipping")
+        logger.info("All competitions already scored -- skipping")
         return
 
-    log.info("Scoring %d new competitions: %s", len(new_comps), sorted(new_comps))
+    logger.info("Scoring %d new competitions: %s", len(new_comps), sorted(new_comps))
 
     # Filter to new competitions only
     new_comp_list = ", ".join(f"'{c}'" for c in new_comps)
@@ -290,7 +295,7 @@ def run_pipeline(
     shots_filtered = shots_df.filter(filter_expr)
 
     # 3. Load v1 models from MLflow @Champion (preferred) or UC Volume (fallback)
-    champion_result = _try_load_champion_xg(log)
+    champion_result = _try_load_champion_xg(logger)
     if champion_result is not None:
         logistic_bytes, xgboost_bytes = champion_result
     else:
@@ -299,15 +304,15 @@ def run_pipeline(
         xgboost_bytes = spark.read.format("binaryFile").load(f"{model_dir}/xgboost_model.json").first()["content"]
 
     # 4. Optionally load v2 set encoder weights
-    v2_weights_bytes = _try_load_champion_xg_v2(log, catalog, schema)
+    v2_weights_bytes = _try_load_champion_xg_v2(logger, catalog, schema)
     if v2_weights_bytes is None:
         # Fallback: try UC Volume
         v2_model_path = f"/Volumes/{catalog}/dev_gold/model_weights/xg_model_v2/model_weights.json"
         try:
             v2_weights_bytes = spark.read.format("binaryFile").load(v2_model_path).first()["content"]
-            log.info("Loaded xG v2 weights from UC Volume (%d bytes)", len(v2_weights_bytes))
+            logger.info("Loaded xG v2 weights from UC Volume (%d bytes)", len(v2_weights_bytes))
         except Exception:
-            log.info("No xG v2 weights found -- v2 columns will be NULL")
+            logger.info("No xG v2 weights found -- v2 columns will be NULL")
             v2_weights_bytes = None
 
     # 5. Build UDF and distribute scoring across executors
@@ -338,15 +343,15 @@ def run_pipeline(
             schema,
             _TABLE_NAME,
             replace_where=f"competition_id = {comp_id}",
-            logger=log,
+            logger=logger,
         )
-        log.info("Wrote %d predictions for competition_id=%s", row_count, comp_id)
+        logger.info("Wrote %d predictions for competition_id=%s", row_count, comp_id)
 
     # Clean up temp table
     try:
         spark.sql(f"DROP TABLE IF EXISTS {_temp_table}")
     except Exception:
-        log.debug("Could not drop temp table %s", _temp_table, exc_info=True)
+        logger.debug("Could not drop temp table %s", _temp_table, exc_info=True)
 
 
 def main() -> None:
@@ -354,8 +359,8 @@ def main() -> None:
     from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
 
     args = parse_ingestion_args("Score shots with custom xG models")
-    log = configure_logging("xg_model")
+    logger = configure_logging("xg_model")
     spark = get_spark_session()
 
-    log.info("Starting xG scoring pipeline into %s.%s", args.catalog, args.schema)
-    run_pipeline(spark, args.catalog, args.schema, log)
+    logger.info("Starting xG scoring pipeline into %s.%s", args.catalog, args.schema)
+    run_pipeline(spark, args.catalog, args.schema, logger)

@@ -1,0 +1,106 @@
+---
+name: Expected Goals v2 (Deep Sets)
+id: wf-xg-v2
+version: "1.0"
+status: production
+type: training-and-inference
+domain: expected-goals
+owners:
+  - karsten
+tags:
+  - xg
+  - deep-learning
+  - deep-sets
+  - freeze-context
+
+references:
+  - citation: "Zaheer et al. (2017). Deep Sets. NeurIPS."
+    role: algorithm
+  - citation: "Gal & Ghahramani (2016). Dropout as a Bayesian Approximation: Representing Model Uncertainty in Deep Learning. ICML."
+    role: algorithm
+
+inputs:
+  datasets:
+    - id: "luxury-lakehouse/xg-shot-data"
+      source: huggingface
+      description: "Pre-processed shot feature vectors including freeze-frame context"
+
+outputs:
+  models:
+    - id: "luxury-lakehouse/xg-model-v2"
+      destination: huggingface
+      format: json-base64
+    - id: "xg_model_v2@Champion"
+      destination: mlflow-registry
+  tables:
+    - id: "{catalog}.bronze.xg_predictions"
+      destination: delta-table
+
+execution:
+  training:
+    trigger: manual
+    runtime: hf-jobs
+    flavor: a10g-small
+    script: "scripts/train_xg_v2_hf.py"
+    timeout: "1800s"
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: compute_xg_model
+    module: ingestion.xg_model
+    distribution: applyInPandas
+    partition_key: competition_id
+    schedule: "daily 06:00 UTC"
+    timeout: "3600s"
+    environment: analytics
+
+depends_on:
+  - wf-vaep
+
+idempotency:
+  strategy: skip-guard
+  key: competition_id
+  description: "Checks existing xG predictions by competition_id before processing."
+
+performance:
+  training_time: "30 min"
+  inference_timeout: "3600s"
+  memory_ceiling: "16 GB driver, 1 GB UDF executor"
+
+cost:
+  training:
+    runtime: hf-jobs
+    flavor: a10g-small
+    rate_usd_per_hour: 1.00
+    typical_duration_minutes: 30
+    typical_cost_usd: 0.50
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 200
+    typical_cost_usd: 14.0
+
+monitoring:
+  validator: wf-model-validation
+  freshness_sla_hours: 24
+
+links:
+  source_code:
+    - "src/ingestion/xg_model.py"
+    - "scripts/train_xg_v2_hf.py"
+  hf_model: "https://huggingface.co/luxury-lakehouse/xg-model-v2"
+  hf_dataset: "https://huggingface.co/datasets/luxury-lakehouse/xg-shot-data"
+---
+
+## Overview
+
+Expected Goals v2 uses a Deep Sets architecture to model shot probability with
+permutation-invariant freeze-frame context (defender and goalkeeper positions). MC Dropout
+provides calibrated uncertainty estimates at inference time.
+
+## Algorithm
+
+The Deep Sets encoder processes each freeze-frame player as an independent element through
+a shared MLP, then pools via summation before concatenating with the shooter's own features.
+A final MLP produces the xG estimate. Dropout is retained at inference for Bayesian
+uncertainty quantification via multiple forward passes.

@@ -1235,6 +1235,8 @@ name = "luxury-lakehouse"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "pydantic" },
+    { name = "pyyaml" },
     { name = "requests" },
     { name = "requests-cache" },
 ]
@@ -1316,11 +1318,13 @@ requires-dist = [
     { name = "plotly", marker = "extra == 'app'", specifier = ">=5.18.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.6.0" },
     { name = "psycopg2-binary", marker = "extra == 'app'", specifier = ">=2.9.9" },
+    { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic", marker = "extra == 'app'", specifier = ">=2.0.0" },
     { name = "pydantic-settings", marker = "extra == 'app'", specifier = ">=2.0.0" },
     { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1.350" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "rapidfuzz", marker = "extra == 'analytics'", specifier = ">=3.6.0" },
     { name = "requests", specifier = ">=2.31.0" },
     { name = "requests-cache", specifier = ">=1.2.0" },

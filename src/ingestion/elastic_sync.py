@@ -42,6 +42,7 @@ from ingestion.utils import (
     validate_dataframe,
     write_delta_table,
 )
+from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -142,11 +143,14 @@ def _process_single_match(
 # ---------------------------------------------------------------------------
 
 
+@workflow("wf-elastic-sync", phase="heuristic")
 def run_pipeline(
     spark: SparkSession,
     catalog: str,
     schema: str,
     logger: logging.Logger,
+    *,
+    ctx=None,
 ) -> int:
     """Execute the ELASTIC event-tracking synchronization pipeline.
 

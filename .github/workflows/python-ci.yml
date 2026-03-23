@@ -5,12 +5,14 @@ on:
     branches: [main]
     paths:
       - "src/**"
+      - "workflow-cards/**"
       - "pyproject.toml"
       - "uv.lock"
       - ".github/workflows/python-ci.yml"
   pull_request:
     paths:
       - "src/**"
+      - "workflow-cards/**"
       - "pyproject.toml"
       - "uv.lock"
       - ".github/workflows/python-ci.yml"
@@ -44,6 +46,28 @@ jobs:
 
       - name: Run tests
         run: uv run pytest
+
+      - name: Validate workflow cards
+        run: uv run python -m workflows.loader --validate workflow-cards/
+
+      - name: Build wheel
+        run: uv build
+
+      - name: Upload wheel to HF Hub
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          uv run pip install huggingface_hub
+          uv run python -c "
+          from huggingface_hub import HfApi
+          import glob
+          api = HfApi()
+          wheels = glob.glob('dist/luxury_lakehouse-*.whl')
+          for whl in wheels:
+              api.upload_file(path_or_fileobj=whl, path_in_repo=whl.split('/')[-1], repo_id='luxury-lakehouse/build-artifacts', repo_type='model')
+              print(f'Uploaded {whl}')
+          "
 
       - name: Scan for secrets
         run: uv run pip install detect-secrets && uv run detect-secrets scan --baseline .secrets.baseline

@@ -23,6 +23,7 @@ from ingestion.utils import (
     parse_ingestion_args,
     write_delta_table,
 )
+from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -69,11 +70,14 @@ def _load_actions(spark: SparkSession, catalog: str) -> pd.DataFrame:
     return spark.sql(query).toPandas()  # type: ignore[union-attr]
 
 
+@workflow("wf-xt-grids", phase="grid_computation")
 def run_pipeline(
     spark: SparkSession,
     catalog: str,
     schema: str,
-    log: logging.Logger,
+    logger: logging.Logger,
+    *,
+    ctx=None,
 ) -> None:
     """Compute per-competition and global xT grids, write to Delta."""
     params = ExpectedThreatParams()
@@ -87,7 +91,7 @@ def run_pipeline(
             for row in spark.table(results_table).select("competition_id").distinct().collect()
         }
     except Exception:
-        log.info("No existing %s table — will process all competitions", _TABLE_NAME)
+        logger.info("No existing %s table — will process all competitions", _TABLE_NAME)
 
     # Determine available competition IDs from the gold mart (cheap Spark query)
     types_sql = ", ".join(f"'{t}'" for t in _RELEVANT_TYPES)
@@ -104,13 +108,13 @@ def run_pipeline(
     need_global = "global" not in existing
 
     if not new_comps and not need_global:
-        log.info(
+        logger.info(
             "All %d xT grids already computed (including global) — skipping",
             len(existing),
         )
         return
 
-    log.info(
+    logger.info(
         "Need to compute %d new competition grids%s (existing: %d)",
         len(new_comps),
         " + global" if need_global else "",
@@ -121,7 +125,7 @@ def run_pipeline(
     # Global grid needs all actions; per-comp grids only need their slice.
     # When global is needed, load everything; otherwise load only new comps.
     if need_global:
-        log.info("Loading all SPADL actions from %s.dev_gold.%s (global grid needed)", catalog, _GOLD_TABLE)
+        logger.info("Loading all SPADL actions from %s.dev_gold.%s (global grid needed)", catalog, _GOLD_TABLE)
         actions_df = _load_actions(spark, catalog)
     else:
         comp_filter = ", ".join(f"'{c}'" for c in new_comps)
@@ -136,10 +140,10 @@ def run_pipeline(
               AND CAST(competition_id AS STRING) IN ({comp_filter})
         """  # noqa: S608
         actions_df = spark.sql(query).toPandas()  # type: ignore[union-attr]
-    log.info("Loaded %d relevant actions", len(actions_df))
+    logger.info("Loaded %d relevant actions", len(actions_df))
 
     if actions_df.empty:
-        log.warning("No actions found — skipping xT computation")
+        logger.warning("No actions found — skipping xT computation")
         return
 
     # ── Per-competition grids (only missing ones) ─────────────────────
@@ -152,7 +156,7 @@ def run_pipeline(
             continue
         n_events = len(comp_actions)
         if n_events < 100:
-            log.warning("Competition %s has only %d events — skipping", comp_id, n_events)
+            logger.warning("Competition %s has only %d events — skipping", comp_id, n_events)
             continue
 
         grid = compute_expected_threat_grid(comp_actions, params)
@@ -164,10 +168,10 @@ def run_pipeline(
             schema=schema,
             table_name=_TABLE_NAME,
             replace_where=f"competition_id = '{comp_id}'",
-            logger=log,
+            logger=logger,
         )
         competitions_written += 1
-        log.info("Competition %s: %d events, max xT=%.5f", comp_id, n_events, float(grid.max()))
+        logger.info("Competition %s: %d events, max xT=%.5f", comp_id, n_events, float(grid.max()))
 
     # ── Global grid (all competitions combined) ───────────────────────
     if need_global:
@@ -181,11 +185,11 @@ def run_pipeline(
             schema=schema,
             table_name=_TABLE_NAME,
             replace_where="competition_id = 'global'",
-            logger=log,
+            logger=logger,
         )
-        log.info("Global grid: %d events, max xT=%.5f", len(actions_df), float(global_grid.max()))
+        logger.info("Global grid: %d events, max xT=%.5f", len(actions_df), float(global_grid.max()))
 
-    log.info(
+    logger.info(
         "Done — wrote %d competition grids%s",
         competitions_written,
         " + global" if need_global else "",
@@ -195,6 +199,6 @@ def run_pipeline(
 def main() -> None:
     """CLI entry point."""
     args = parse_ingestion_args("Compute Expected Threat grids from SPADL actions")
-    log = configure_logging("expected_threat")
+    logger = configure_logging("expected_threat")
     spark = get_spark_session()
-    run_pipeline(spark, args.catalog, args.schema, log)
+    run_pipeline(spark, args.catalog, args.schema, logger)

@@ -1,0 +1,91 @@
+---
+name: DEFCON Defensive Credit Assignment
+id: wf-defcon
+version: "1.0"
+status: production
+type: training-and-inference
+domain: defensive-valuation
+owners:
+  - karsten
+tags:
+  - defcon
+  - defensive-value
+  - credit-assignment
+  - xgboost
+
+references: []
+
+inputs:
+  datasets:
+    - id: "{catalog}.dev_gold.fct_action_values"
+      source: delta-table
+      description: "VAEP action values for value estimation"
+    - id: "{catalog}.bronze.statsbomb_360"
+      source: delta-table
+      description: "360 freeze-frame data for defender positions"
+    - id: "{catalog}.dev_gold.fct_tracking_frames"
+      source: delta-table
+      description: "Tracking frames for spatial context"
+  models:
+    - id: "defcon_model"
+      source: uc-volume
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.defcon_results"
+      destination: delta-table
+
+execution:
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: compute_defcon_lite
+    module: ingestion.defcon_lite
+    distribution: applyInPandas
+    partition_key: match_id
+    schedule: "daily 06:00 UTC"
+    timeout: "7200s"
+    environment: analytics
+
+depends_on:
+  - wf-vaep
+
+idempotency:
+  strategy: skip-guard
+  key:
+    - match_id
+    - data_source
+  description: "Checks existing DEFCON results by match_id partitioned by data_source."
+
+performance:
+  inference_timeout: "7200s"
+  memory_ceiling: "16 GB driver, 1 GB UDF executor"
+
+cost:
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 300
+    typical_cost_usd: 21.0
+
+monitoring:
+  validator: wf-model-validation
+  freshness_sla_hours: 24
+
+links:
+  source_code:
+    - "src/ingestion/defcon_lite.py"
+---
+
+## Overview
+
+DEFCON assigns defensive credit to individual players by estimating the counterfactual
+value change caused by each defender's presence. An XGBoost value estimator is trained
+inline during the inference run, then applied per-match to attribute defensive contributions.
+
+## Algorithm
+
+For each defensive action, DEFCON computes the value difference between the observed state
+and a counterfactual where the defender is absent. The value estimator (XGBoost) is trained
+on VAEP action values and spatial features from 360 freeze-frames and tracking data.
+Credit assignment distributes across executors via `applyInPandas` grouped by match_id.

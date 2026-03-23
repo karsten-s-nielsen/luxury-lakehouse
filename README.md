@@ -86,11 +86,13 @@ luxury-lakehouse/
 ├── src/
 │   ├── analytics/      # Pure-Python analytics models (pitch control, line-breaking, entity resolution, DEFCON, football2vec, xG, xT, symmetry, smoothing)
 │   ├── ingestion/      # Data ingestion + compute pipelines (StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner, pitch control batch)
+│   ├── workflows/      # Workflow framework (@workflow decorator, registry, lifecycle hooks, YAML card parser)
 │   └── streamlit_app/  # Streamlit dashboard (retained for reference)
 ├── hf_taipy_app/       # Taipy production dashboard (deployed to HF Spaces)
 ├── notebooks/          # Databricks notebooks (football2vec/xG training, model weight sync, dataset publishing to HF Hub)
 ├── demo_space/         # HuggingFace Gradio demo Space (pass quality, pitch control, player similarity, shot map, DEFCON pressure, pass timing)
 ├── dbt_project/        # Bronze → Silver → Gold transformations
+├── workflow-cards/     # YAML workflow card manifests (16 AI/ML workflow definitions)
 ├── scripts/            # Operational scripts (PG indexes, grants, synced table management)
 ├── docs/
 │   ├── c4/             # C4 architecture diagrams (Structurizr DSL)

@@ -27,6 +27,7 @@ from ingestion.utils import (
     parse_ingestion_args,
     write_delta_table,
 )
+from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -258,11 +259,14 @@ def _process_matches(
     return written
 
 
+@workflow("wf-pitch-control", phase="heuristic")
 def run_pipeline(
     spark: SparkSession,
     catalog: str,
     schema: str,
     logger: logging.Logger,
+    *,
+    ctx=None,
 ) -> None:
     """Execute the pitch control value computation pipeline."""
     total = _process_matches(spark, catalog, schema, logger)

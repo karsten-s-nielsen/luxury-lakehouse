@@ -1,0 +1,101 @@
+---
+name: Football2Vec Player Embeddings
+id: wf-football2vec
+version: "1.0"
+status: production
+type: training-and-inference
+domain: player-embeddings
+owners:
+  - karsten
+tags:
+  - embeddings
+  - doc2vec
+  - player-similarity
+
+references:
+  - citation: "Le & Mikolov (2014). Distributed Representations of Sentences and Documents."
+    role: algorithm
+
+inputs:
+  datasets:
+    - id: "{catalog}.dev_silver.stg_statsbomb__events"
+      source: delta-table
+      description: "Staged StatsBomb events for action sequence extraction"
+    - id: "{catalog}.dev_silver.stg_wyscout__events"
+      source: delta-table
+      description: "Staged Wyscout events for action sequence extraction"
+    - id: "{catalog}.dev_gold.dim_players"
+      source: delta-table
+      description: "Player dimension table for identity resolution"
+    - id: "{catalog}.dev_gold.fct_match_summary"
+      source: delta-table
+      description: "Match summaries for context"
+    - id: "{catalog}.dev_gold.fct_player_stats"
+      source: delta-table
+      description: "Aggregated player statistics"
+  models:
+    - id: "football2vec-weights"
+      source: uc-volume
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.player_embeddings_raw"
+      destination: delta-table
+
+execution:
+  training:
+    trigger: manual
+    runtime: databricks-notebook
+    script: "notebooks/train_football2vec.py"
+    timeout: "3600s"
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: compute_embeddings
+    module: ingestion.player_embeddings
+    distribution: applyInPandas
+    partition_key: batch_id
+    schedule: "daily 06:00 UTC"
+    timeout: "3600s"
+    environment: analytics
+
+depends_on:
+  - wf-entity-resolution
+
+idempotency:
+  strategy: skip-guard
+  key: match_id
+  description: "Checks existing embeddings by match_id before processing."
+
+performance:
+  training_time: "60 min"
+  inference_timeout: "3600s"
+  memory_ceiling: "16 GB driver, 1 GB UDF executor"
+
+cost:
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 150
+    typical_cost_usd: 10.5
+
+monitoring:
+  freshness_sla_hours: 24
+
+links:
+  source_code:
+    - "src/ingestion/player_embeddings.py"
+---
+
+## Overview
+
+Football2Vec generates dense vector embeddings for players by treating each player's
+match-level action sequences as documents. The Doc2Vec model learns representations that
+capture playing style, enabling similarity search and clustering across data sources.
+
+## Algorithm
+
+Player action sequences are extracted from StatsBomb and Wyscout events, tokenized into
+action-type strings, and fed to a Doc2Vec model (PV-DBOW variant). Training runs inline
+on a Databricks notebook. Inference distributes embedding computation across executors
+using `applyInPandas` grouped by synthetic batch ID for memory-safe parallelism.

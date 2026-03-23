@@ -11,6 +11,9 @@ dependencies = [
     # Do NOT pin them here — version conflicts break the Python kernel.
     "requests>=2.31.0",
     "requests-cache>=1.2.0",
+    # Workflow framework (card parsing + validation)
+    "pydantic>=2.0",
+    "PyYAML>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -91,6 +94,7 @@ ingest_idsse_events = "ingestion.idsse:main_events"
 compute_elastic_sync = "ingestion.elastic_sync:main"
 compute_pausa = "ingestion.pausa:main"
 run_model_validation = "ingestion.model_validation:main"
+validate_workflow_cards = "workflows.loader:validate_cli"
 
 [tool.ruff]
 target-version = "py310"
@@ -115,7 +119,7 @@ select = [
 "hf_taipy_app/**" = ["E501", "S104", "F405", "RUF022", "RUF005"]  # Taipy app: long help text, 0.0.0.0, star imports, unsorted __all__, list concat
 
 [tool.ruff.lint.isort]
-known-first-party = ["analytics", "ingestion", "streamlit_app"]
+known-first-party = ["analytics", "ingestion", "streamlit_app", "workflows"]
 
 [tool.pyright]
 pythonVersion = "3.10"
@@ -128,7 +132,7 @@ testpaths = ["src/tests"]
 addopts = "--tb=short -q"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ingestion", "src/analytics"]
+packages = ["src/ingestion", "src/analytics", "src/workflows"]
 
 [build-system]
 requires = ["hatchling"]

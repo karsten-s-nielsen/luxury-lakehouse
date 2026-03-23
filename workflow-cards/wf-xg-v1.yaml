@@ -1,0 +1,127 @@
+---
+name: Expected Goals v1
+id: wf-xg-v1
+version: "1.0"
+status: production
+type: training-and-inference
+domain: expected-goals
+owners:
+  - karsten
+tags:
+  - xg
+  - shot-model
+  - calibration
+
+references:
+  - citation: "Robberechts & Davis (2020). How Data Availability Affects the Ability to Learn Good xG Models."
+    role: methodology
+  - citation: "Platt (1999). Probabilistic Outputs for SVMs."
+    role: algorithm
+
+inputs:
+  datasets:
+    - id: "luxury-lakehouse/xg-shot-data"
+      source: huggingface
+      description: "Pre-processed shot feature vectors for training"
+    - id: "{catalog}.dev_gold.fct_shots"
+      source: delta-table
+      description: "Gold-layer shot events for inference"
+  models:
+    - id: "luxury-lakehouse/xg-model-statsbomb-wyscout"
+      source: huggingface
+
+outputs:
+  models:
+    - id: "luxury-lakehouse/xg-model-statsbomb-wyscout"
+      destination: huggingface
+      format: json-base64
+    - id: "xg_model@Champion"
+      destination: mlflow-registry
+  tables:
+    - id: "{catalog}.bronze.xg_predictions"
+      destination: delta-table
+
+execution:
+  training:
+    trigger: manual
+    runtime: hf-jobs
+    flavor: cpu-basic
+    script: "scripts/train_xg_model_hf.py"
+    timeout: "600s"
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: compute_xg_model
+    module: ingestion.xg_model
+    distribution: applyInPandas
+    partition_key: competition_id
+    schedule: "daily 06:00 UTC"
+    timeout: "3600s"
+    environment: analytics
+
+depends_on:
+  - wf-vaep
+
+idempotency:
+  strategy: skip-guard
+  key: competition_id
+  description: "Checks existing xG predictions by competition_id before processing."
+
+performance:
+  training_time: "10 min"
+  inference_timeout: "3600s"
+  memory_ceiling: "16 GB driver, 1 GB UDF executor"
+
+cost:
+  training:
+    runtime: hf-jobs
+    flavor: cpu-basic
+    rate_usd_per_hour: 0.01
+    typical_duration_minutes: 10
+    typical_cost_usd: 0.002
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 200
+    typical_cost_usd: 14.0
+
+monitoring:
+  validator: wf-model-validation
+  metrics:
+    - name: brier_score
+      baseline: 0.059
+      warn_above: 0.08
+      alert_above: 0.10
+    - name: roc_auc
+      baseline: 0.979
+      warn_below: 0.95
+      alert_below: 0.92
+    - name: mean_xg
+      baseline: 0.098
+      warn_above: 0.138
+      warn_below: 0.058
+      alert_above: 0.178
+      alert_below: 0.018
+  freshness_sla_hours: 24
+
+links:
+  source_code:
+    - "src/ingestion/xg_model.py"
+    - "scripts/train_xg_model_hf.py"
+  hf_model: "https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout"
+  hf_dataset: "https://huggingface.co/datasets/luxury-lakehouse/xg-shot-data"
+---
+
+## Overview
+
+Expected Goals v1 trains a logistic regression classifier with isotonic calibration on
+StatsBomb and Wyscout shot data, then applies the model to all competitions via
+Databricks serverless. The model predicts the probability that a shot results in a goal
+based on spatial and contextual features.
+
+## Algorithm
+
+Features include shot distance, angle, body part, and play pattern. The classifier uses
+isotonic calibration (Platt scaling variant) to produce well-calibrated probability
+estimates. Training uses the HuggingFace Hub dataset for reproducibility; inference
+distributes across executors via `applyInPandas` grouped by competition.

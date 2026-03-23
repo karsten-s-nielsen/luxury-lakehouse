@@ -35,6 +35,7 @@ from ingestion.utils import (
     parse_ingestion_args,
     write_delta_table,
 )
+from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -831,11 +832,14 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
 # ---------------------------------------------------------------------------
 
 
+@workflow("wf-vaep", phase="inference")
 def run_pipeline(
     spark: SparkSession,
     catalog: str,
     schema: str,
     logger: logging.Logger,
+    *,
+    ctx=None,
 ) -> None:
     """Execute the full SPADL/VAEP pipeline.
 

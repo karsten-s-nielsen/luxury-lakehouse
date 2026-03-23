@@ -1,0 +1,75 @@
+---
+name: Cross-Source Player Entity Resolution
+id: wf-entity-resolution
+version: "1.0"
+status: production
+type: heuristic
+domain: entity-resolution
+owners:
+  - karsten
+tags:
+  - entity-resolution
+  - player-matching
+  - cross-source
+
+references: []
+
+inputs:
+  datasets:
+    - id: "{catalog}.bronze.statsbomb_lineups"
+      source: delta-table
+      description: "StatsBomb lineup data with player names and metadata"
+    - id: "{catalog}.bronze.wyscout_players"
+      source: delta-table
+      description: "Wyscout player records with names and metadata"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.player_xref_raw"
+      destination: delta-table
+
+execution:
+  inference:
+    trigger: manual
+    runtime: databricks-workflow
+    entry_point: resolve_players
+    module: ingestion.entity_resolution
+    distribution: driver-bound
+    timeout: "1800s"
+    environment: analytics
+
+depends_on: []
+
+idempotency:
+  strategy: full-overwrite
+  key: "global"
+  description: "Full overwrite on each run — global cross-source resolution cannot be incremental."
+
+performance:
+  inference_timeout: "1800s"
+  memory_ceiling: "16 GB driver"
+
+cost:
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 30
+    typical_cost_usd: 2.1
+
+links:
+  source_code:
+    - "src/ingestion/entity_resolution.py"
+---
+
+## Overview
+
+Entity Resolution matches player identities across StatsBomb and Wyscout data sources,
+producing a cross-reference table that enables unified player analytics. This is a
+prerequisite for any cross-source model (e.g., Football2Vec embeddings).
+
+## Algorithm
+
+Players are matched using fuzzy string matching on names, combined with exact matching on
+shared match participation. The algorithm first identifies overlapping competitions, then
+resolves players within those competitions using a weighted scoring system that considers
+name similarity, birth date proximity, and positional consistency.

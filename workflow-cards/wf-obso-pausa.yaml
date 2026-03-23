@@ -1,0 +1,118 @@
+---
+name: OBSO + PAUSA GPU Computation
+id: wf-obso-pausa
+version: "1.0"
+status: production
+type: grid-computation
+domain: pass-timing
+owners:
+  - karsten
+tags:
+  - obso
+  - pausa
+  - pitch-control
+  - gpu
+  - pass-timing
+
+references:
+  - citation: "Spearman (2018). Beyond Expected Goals. MIT Sloan Sports Analytics Conference."
+    role: methodology
+  - citation: "Fernandez & Bornn (2018). Wide Open Spaces: A Statistical Technique for Measuring Space Creation in Professional Soccer. MIT Sloan Sports Analytics Conference."
+    role: algorithm
+  - citation: "Lee et al. (2026). Valuing La Pausa. MIT Sloan Sports Analytics Conference."
+    role: methodology
+
+inputs:
+  datasets:
+    - id: "luxury-lakehouse/pitch-control-tracking"
+      source: huggingface
+      description: "Tracking data formatted for pitch control computation"
+    - id: "luxury-lakehouse/obso-pausa-inputs"
+      source: huggingface
+      description: "Pre-processed pass event inputs"
+    - id: "luxury-lakehouse/obso-trained-grids"
+      source: huggingface
+      description: "EPV transition and reachability grids"
+    - id: "{catalog}.bronze.pausa_raw_scores"
+      source: delta-table
+      description: "Previously computed PAUSA scores for incremental processing"
+
+outputs:
+  datasets:
+    - id: "luxury-lakehouse/obso-pausa-values"
+      destination: huggingface
+      description: "Computed OBSO surfaces and PAUSA timing values"
+  tables:
+    - id: "{catalog}.dev_gold.fct_pausa_values"
+      destination: delta-table
+
+execution:
+  training:
+    trigger: manual
+    runtime: hf-jobs
+    flavor: a10g-small
+    script: "scripts/compute_obso_hf.py"
+    timeout: "3600s"
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: compute_pausa
+    module: ingestion.pausa
+    distribution: applyInPandas
+    partition_key: match_id
+    schedule: "daily 06:00 UTC"
+    timeout: "3600s"
+    environment: analytics
+
+depends_on:
+  - wf-epv-reachability
+  - wf-elastic-sync
+
+idempotency:
+  strategy: skip-guard
+  key: match_id
+  description: "Checks existing PAUSA values by match_id before inference."
+
+performance:
+  training_time: "60 min"
+  inference_timeout: "3600s"
+  memory_ceiling: "16 GB driver, 1 GB UDF executor"
+
+cost:
+  training:
+    runtime: hf-jobs
+    flavor: a10g-small
+    rate_usd_per_hour: 1.00
+    typical_duration_minutes: 60
+    typical_cost_usd: 1.00
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 200
+    typical_cost_usd: 14.0
+
+monitoring:
+  validator: wf-model-validation
+  freshness_sla_hours: 24
+
+links:
+  source_code:
+    - "src/ingestion/pausa.py"
+    - "scripts/compute_obso_hf.py"
+  hf_dataset: "https://huggingface.co/datasets/luxury-lakehouse/obso-pausa-values"
+---
+
+## Overview
+
+This workflow computes Off-Ball Scoring Opportunity (OBSO) surfaces on GPU via HF Jobs,
+then runs PAUSA (Pass Timing) inference on Databricks. OBSO quantifies the value of
+space not currently occupied by the ball; PAUSA measures the optimal timing of passes
+by comparing actual pass moments to counterfactual alternatives.
+
+## Algorithm
+
+OBSO combines pitch control surfaces with EPV grids to estimate the scoring opportunity
+at every pitch location. The GPU computation vectorizes across all frames in a match.
+PAUSA extends OBSO by evaluating pass timing: for each actual pass, it computes OBSO
+values at surrounding frames to determine whether the passer waited optimally or
+released too early/late.
