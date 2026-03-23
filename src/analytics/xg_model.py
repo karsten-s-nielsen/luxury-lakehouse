@@ -191,7 +191,7 @@ def train_logistic_baseline(
     x_baseline = x[baseline_cols]
 
     base_model = LogisticRegression(random_state=random_state, max_iter=1000)
-    calibrated = CalibratedClassifierCV(base_model, cv=5, method="isotonic", ensemble=False)
+    calibrated = CalibratedClassifierCV(base_model, cv=5, method="isotonic", ensemble=False)  # type: ignore[arg-type]
     calibrated.fit(x_baseline, y)
     return calibrated
 
@@ -217,7 +217,7 @@ def train_xgboost_model(
         random_state=config.random_state,
         eval_metric="logloss",
     )
-    calibrated = CalibratedClassifierCV(base_model, cv=5, method=config.calibration_method, ensemble=False)
+    calibrated = CalibratedClassifierCV(base_model, cv=5, method=config.calibration_method, ensemble=False)  # type: ignore[arg-type]
     calibrated.fit(x, y)
     return calibrated
 
