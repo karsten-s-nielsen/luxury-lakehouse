@@ -476,7 +476,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         "wf_on_runtime_filter",
         condition=f"current_page in {_WF_PAGES}",
         lov="wf_runtime_lov",
-        help="Filter by execution runtime: Databricks (DBX), HuggingFace Jobs (HF), or both.",
+        help="Filter by execution runtime: Databricks (DB), HuggingFace Jobs (HF), or both.",
     ),
     SidebarWidget(
         "dropdown",

@@ -95,6 +95,39 @@ class RawHtml:
 # ---------------------------------------------------------------------------
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?(.*)", re.DOTALL)
 
+# Stat card detail: base CSS for content-provider iframes (dark theme, no margin).
+# Content provider iframes are sandboxed documents — they do NOT inherit the app theme.
+# Keep font-family and color in sync with the app's dark theme if it changes.
+_STAT_DETAIL_STYLE = (
+    "margin:0;padding:0;background:transparent;"
+    "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;"
+    "font-size:0.8rem;color:rgba(255,255,255,0.6);line-height:1.4;"
+)
+
+
+def _stat_detail_html(inner: str) -> RawHtml:
+    """Wrap colored HTML in a dark-themed body for stat card content provider."""
+    if not inner:
+        return RawHtml("")
+    return RawHtml(f'<body style="{_STAT_DETAIL_STYLE}">{inner}</body>')
+
+
+# Single source of truth for color-name → hex mapping.
+# Used by DAG nodes, DAG legend, table cell styles, and stat card detail HTML.
+# Keep in sync with ll-cell-type-* rules in style_v2.css.
+_COLOR_HEX: dict[str, str] = {
+    "blue": "#58a6ff",
+    "purple": "#bc8cff",
+    "teal": "#3fb9a0",
+    "amber": "#e3b341",
+    "gray": "#6e7681",
+}
+
+# Runtime and freshness hex colors for stat card detail HTML.
+# Keep in sync with ll-cell-rt-* and ll-cell-fresh-* rules in style_v2.css.
+_RUNTIME_HEX: dict[str, str] = {"db": "#ff6347", "hf": "#ffd500"}
+_FRESHNESS_HEX: dict[str, str] = {"warning": "#d29922", "stale": "#f85149"}
+
 _TYPE_COLORS: dict[str, str] = {
     "training-and-inference": "blue",
     "training": "blue",
@@ -138,7 +171,7 @@ def _classify_freshness(age_hours: float, sla_hours: float) -> str:
 def _classify_runtime(exec_cfg: dict[str, Any]) -> str:
     """Classify workflow runtime from execution config phases.
 
-    Returns human-readable label: 'DBX', 'HF', 'DBX + HF', or em-dash.
+    Returns human-readable label: 'DB', 'HF', 'DB + HF', or em-dash.
     """
     rts: list[str] = []
     for phase in ("training", "inference"):
@@ -147,8 +180,8 @@ def _classify_runtime(exec_cfg: dict[str, Any]) -> str:
             if "HF" not in rts:
                 rts.append("HF")
         elif "databricks" in rt:
-            if "DBX" not in rts:
-                rts.append("DBX")
+            if "DB" not in rts:
+                rts.append("DB")
     return " + ".join(rts) if rts else "\u2014"
 
 
@@ -158,6 +191,56 @@ _STATUS_COLORS: dict[str, str] = {
     "draft": "gray",
     "deprecated": "red",
 }
+
+# ---------------------------------------------------------------------------
+# Table cell style callbacks (resolved by name via Taipy style[column])
+# ---------------------------------------------------------------------------
+
+# Type label → hex color (derived from _TYPE_COLORS + _COLOR_HEX + _TYPE_LABELS)
+_TYPE_LABEL_COLORS: dict[str, str] = {
+    _TYPE_LABELS[k]: _COLOR_HEX[v] for k, v in _TYPE_COLORS.items() if k in _TYPE_LABELS
+}
+
+# Type label → CSS class (matches DAG node colors)
+_TYPE_CELL_STYLES: dict[str, str] = {
+    "Train+Infer": "ll-cell-type-train",
+    "Training": "ll-cell-type-train",
+    "Inference": "ll-cell-type-train",
+    "Grid Compute": "ll-cell-type-grid",
+    "Heuristic": "ll-cell-type-heuristic",
+    "Validation": "ll-cell-type-validation",
+    "Augmentation": "ll-cell-type-augmentation",
+}
+
+
+def wf_style_type(state: Any, value: Any, index: int, row: int, column_name: str) -> str:
+    """Return CSS class for Type column cells."""
+    return _TYPE_CELL_STYLES.get(str(value), "")
+
+
+def wf_style_runtime(state: Any, value: Any, index: int, row: int, column_name: str) -> str:
+    """Return CSS class for Runtime column cells."""
+    s = str(value)
+    if "+" in s:
+        return "ll-cell-rt-both"
+    if s == "DB":
+        return "ll-cell-rt-db"
+    if s == "HF":
+        return "ll-cell-rt-hf"
+    return ""
+
+
+def wf_style_freshness(state: Any, value: Any, index: int, row: int, column_name: str) -> str:
+    """Return CSS class for Freshness column cells."""
+    s = str(value)
+    if s == "OK":
+        return "ll-cell-fresh-ok"
+    if s == "Warning":
+        return "ll-cell-fresh-warning"
+    if s == "Stale":
+        return "ll-cell-fresh-stale"
+    return ""
+
 
 # ---------------------------------------------------------------------------
 # Dashboard state
@@ -170,11 +253,11 @@ wf_cards_loaded: bool = False  # True after YAML cards loaded successfully
 wf_no_cards_warning: str = ""  # Non-empty when YAML cards fail to load (warning_var target)
 
 wf_total_workflows: str = "0"
-wf_workflows_detail: str = ""
+wf_workflows_detail: RawHtml = RawHtml("")
 wf_freshness_summary: str = "\u2014"
-wf_freshness_detail: str = ""
+wf_freshness_detail: RawHtml = RawHtml("")
 wf_total_cost_30d: str = "$0.00"
-wf_cost_detail: str = ""
+wf_cost_detail: RawHtml = RawHtml("")
 wf_run_volume: str = "0"
 wf_run_volume_detail: str = ""
 _WF_TABLE_COLS = [
@@ -269,6 +352,10 @@ __all__ = [
     "wf_on_freshness_filter",
     "wf_on_table_action",
     "wf_refresh",
+    # Table cell style callbacks
+    "wf_style_type",
+    "wf_style_runtime",
+    "wf_style_freshness",
 ]
 
 
@@ -409,32 +496,25 @@ def _build_dag_html(
     elements_json = json.dumps(nodes + edges)
 
     # Color map for Cytoscape styles
-    color_map = {
-        "blue": "#58a6ff",
-        "purple": "#bc8cff",
-        "teal": "#3fb9a0",
-        "amber": "#e3b341",
-        "gray": "#6e7681",
-    }
     color_styles = "\n".join(
         f"        {{ selector: 'node[color = \"{k}\"]', style: {{ "
         f"'background-color': '{v}', 'border-color': '{v}' }} }},"
-        for k, v in color_map.items()
+        for k, v in _COLOR_HEX.items()
     )
 
     # Legend items
     legend_items = "".join(
         f'<span style="display:inline-flex;align-items:center;margin-right:12px;">'
-        f'<span style="width:10px;height:10px;border-radius:2px;background:{hex_color};'
+        f'<span style="width:10px;height:10px;border-radius:2px;background:{_COLOR_HEX[color_name]};'
         f'margin-right:4px;"></span>'
         f'<span style="font-size:0.75rem;color:#8b949e;">{_TYPE_LABELS.get(type_key, type_key)}</span>'
         f"</span>"
-        for type_key, hex_color in [
-            ("training-and-inference", "#58a6ff"),
-            ("grid-computation", "#bc8cff"),
-            ("heuristic", "#3fb9a0"),
-            ("validation", "#e3b341"),
-            ("augmentation", "#6e7681"),
+        for type_key, color_name in [
+            ("training-and-inference", "blue"),
+            ("grid-computation", "purple"),
+            ("heuristic", "teal"),
+            ("validation", "amber"),
+            ("augmentation", "gray"),
         ]
     )
 
@@ -1327,9 +1407,13 @@ def _compute_stats(
         wf_type: str = card.get("type") or ""
         label: str = _TYPE_LABELS.get(wf_type, wf_type)
         type_counts[label] = type_counts.get(label, 0) + 1
-    # Sort by count descending, format as "4 Grid Compute, 4 Heuristic, ..."
+    # Sort by count descending, format as colored HTML spans
     sorted_types = sorted(type_counts.items(), key=lambda x: (-x[1], x[0]))
-    state.wf_workflows_detail = ", ".join(f"{n} {t}" for t, n in sorted_types) if sorted_types else ""
+    colored_parts = [
+        f'<span style="color:{_TYPE_LABEL_COLORS.get(t, "#8b949e")}">{n} {html_escape(t)}</span>'
+        for t, n in sorted_types
+    ]
+    state.wf_workflows_detail = _stat_detail_html(", ".join(colored_parts))
 
     # Total 30d cost — always scope to workflow card entry points.
     # The cold table includes all Databricks tasks (ingestion, etc.)
@@ -1380,13 +1464,13 @@ def _compute_stats(
     total = dbx_cost + hf_cost
     state.wf_total_cost_30d = f"${total:.2f}"
 
-    # Cost detail: breakdown by runtime + cost tier (matching mockup format)
+    # Cost detail: breakdown by runtime with colored labels
     cost_parts: list[str] = []
     if dbx_cost > 0:
-        cost_parts.append(f"${dbx_cost:.2f} Databricks (actual)")
+        cost_parts.append(f'${dbx_cost:.2f} <span style="color:{_RUNTIME_HEX["db"]}">DB</span> (actual)')
     if hf_cost > 0:
-        cost_parts.append(f"${hf_cost:.2f} HF Jobs ({hf_tier})")
-    state.wf_cost_detail = " + ".join(cost_parts) if cost_parts else ""
+        cost_parts.append(f'${hf_cost:.2f} <span style="color:{_RUNTIME_HEX["hf"]}">HF</span> ({hf_tier})')
+    state.wf_cost_detail = _stat_detail_html(" + ".join(cost_parts))
 
     # Freshness summary with status breakdown (matching mockup format)
     monitored = 0
@@ -1414,16 +1498,16 @@ def _compute_stats(
             stale_count += 1  # Never run = stale
     if monitored > 0:
         state.wf_freshness_summary = f"{fresh_count}/{monitored} within SLA"
-        # Detail: breakdown of non-OK statuses
+        # Detail: breakdown of non-OK statuses with colored labels
         detail_parts: list[str] = []
         if warning_count:
-            detail_parts.append(f"{warning_count} warning")
+            detail_parts.append(f'<span style="color:{_FRESHNESS_HEX["warning"]}">{warning_count} warning</span>')
         if stale_count:
-            detail_parts.append(f"{stale_count} stale")
-        state.wf_freshness_detail = " \u2014 ".join(detail_parts) if detail_parts else ""
+            detail_parts.append(f'<span style="color:{_FRESHNESS_HEX["stale"]}">{stale_count} stale</span>')
+        state.wf_freshness_detail = _stat_detail_html(" \u2014 ".join(detail_parts))
     else:
         state.wf_freshness_summary = "No SLAs configured"
-        state.wf_freshness_detail = ""
+        state.wf_freshness_detail = RawHtml("")
 
     # Run volume: total runs from cold costs (Databricks billing)
     num_runs = int(cost_df["run_count"].sum()) if not cost_df.empty and "run_count" in cost_df.columns else 0

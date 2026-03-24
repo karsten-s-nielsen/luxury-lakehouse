@@ -402,6 +402,22 @@ h2 .material-symbols-outlined {
     margin: 0 !important;
 }
 
+/* Help icon positioned to the right of the widget without affecting width.
+   The md-para wrapper becomes position:relative so the icon can sit outside
+   the widget's flow. All widgets keep identical width regardless of help.
+   :has() requires Chrome 105+, Firefox 121+, Safari 15.4+ (2022+). */
+.ll-sidebar-section .md-para:has(> .ll-help) {
+    position: relative !important;
+}
+
+.ll-sidebar-section .md-para > .ll-help {
+    position: absolute !important;
+    right: -20px !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    margin-left: 0 !important;
+}
+
 .ll-sidebar-section .taipy-selector .MuiFormControl-root {
     margin: 0 !important;
 }
@@ -774,6 +790,42 @@ nav[class*="taipy"],
     margin-top: 0.25rem !important;
 }
 
+/* Override MUI default 16px on text elements inside stat details */
+.ll-stat-detail .taipy-text {
+    font-size: 0.8rem !important;
+}
+
+/* Stat detail with HTML content (content provider iframe) */
+.ll-stat-detail-html {
+    margin-top: 0 !important;
+}
+
+/* Stat detail iframe: fixed height matching tallest content (Workflows 3 lines).
+   54px = 3 lines × 0.8rem × 1.4 line-height. Increase if more workflow types are added.
+   Taipy sets inline height:100% — must use !important to override.
+   Keep in sync with _STAT_DETAIL_STYLE font-size/line-height in state/workflows.py. */
+.ll-stat-detail-html iframe[src*="taipy-user-content"] {
+    width: 100% !important;
+    height: 54px !important;
+    min-height: 0 !important;
+    border: none !important;
+    background: transparent !important;
+}
+
+/* The content provider wrapper div also gets a default min-height — kill it */
+.ll-stat-detail-html > div {
+    min-height: 0 !important;
+}
+
+/* Collapse wrapper divs to match iframe height exactly — no extra spacing */
+.ll-stat-detail-html .md-para,
+.ll-stat-detail-html .taipy-part {
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 0 !important;
+    font-size: 0 !important;
+}
+
 /* Dashboard scroll wrapper — viewport-contained area with both scrollbars.
    Horizontal scrollbar stays pinned at the bottom of the viewport.
    The wrapper fills remaining viewport height below the page header.
@@ -853,8 +905,95 @@ nav[class*="taipy"],
     margin-right: 0.25rem !important;
 }
 
-.ll-runtime-dbx { background: rgba(255, 63, 52, 0.15) !important; color: #ff6b6b !important; }
-.ll-runtime-hf { background: rgba(255, 208, 55, 0.15) !important; color: #ffd037 !important; }
+/* Keep runtime hex in sync with ll-cell-rt-* and _stat_detail_html in state/workflows.py */
+.ll-runtime-db { background: rgba(255, 99, 71, 0.15) !important; color: #ff6347 !important; }
+.ll-runtime-hf { background: rgba(255, 213, 0, 0.15) !important; color: #ffd500 !important; }
+
+/* --- Table cell styles (applied via Taipy cell_class_name[column] callbacks) ---
+   Taipy applies the returned class to the <td> element.
+   Selectors use `.taipy-table td.ll-cell-*` to beat the built-in
+   `.taipy-table .MuiTableBody-root td { color: !important }` rule.
+   Colors match DAG node borders exactly for visual consistency. */
+
+/* Type column — colored text matching DAG node colors.
+   Keep hex values in sync with _COLOR_HEX in state/workflows.py. */
+.taipy-table td.ll-cell-type-train,
+.taipy-table td.ll-cell-type-grid,
+.taipy-table td.ll-cell-type-heuristic,
+.taipy-table td.ll-cell-type-validation,
+.taipy-table td.ll-cell-type-augmentation {
+    font-size: 0.75rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.02em !important;
+    white-space: nowrap !important;
+}
+
+.taipy-table td.ll-cell-type-train { color: #58a6ff !important; }
+.taipy-table td.ll-cell-type-grid { color: #bc8cff !important; }
+.taipy-table td.ll-cell-type-heuristic { color: #3fb9a0 !important; }
+.taipy-table td.ll-cell-type-validation { color: #e3b341 !important; }
+.taipy-table td.ll-cell-type-augmentation { color: #6e7681 !important; }
+
+/* Runtime column — colored bold text matching mockup DB/HF icons */
+.taipy-table td.ll-cell-rt-db,
+.taipy-table td.ll-cell-rt-hf,
+.taipy-table td.ll-cell-rt-both {
+    font-size: 0.75rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.02em !important;
+    white-space: nowrap !important;
+}
+
+.taipy-table td.ll-cell-rt-db { color: #ff6347 !important; }
+.taipy-table td.ll-cell-rt-hf { color: #ffd500 !important; }
+
+/* DB + HF: hide cell text, replace with individually colored labels */
+.taipy-table td.ll-cell-rt-both div { color: transparent !important; font-size: 0 !important; }
+.taipy-table td.ll-cell-rt-both::before {
+    content: 'DB' !important;
+    color: #ff6347 !important;
+    font-size: 0.75rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.02em !important;
+    margin-right: 0.5em !important;
+}
+.taipy-table td.ll-cell-rt-both::after {
+    content: 'HF' !important;
+    color: #ffd500 !important;
+    font-size: 0.75rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.02em !important;
+}
+
+/* Freshness column — colored dot (::before) + colored text */
+.taipy-table td.ll-cell-fresh-ok,
+.taipy-table td.ll-cell-fresh-warning,
+.taipy-table td.ll-cell-fresh-stale {
+    white-space: nowrap !important;
+    font-weight: 500 !important;
+    font-size: 0.8rem !important;
+}
+
+.taipy-table td.ll-cell-fresh-ok::before,
+.taipy-table td.ll-cell-fresh-warning::before,
+.taipy-table td.ll-cell-fresh-stale::before {
+    content: '' !important;
+    display: inline-block !important;
+    width: 8px !important;
+    height: 8px !important;
+    border-radius: 50% !important;
+    margin-right: 6px !important;
+    vertical-align: middle !important;
+}
+
+.taipy-table td.ll-cell-fresh-ok { color: #3fb950 !important; }
+.taipy-table td.ll-cell-fresh-ok::before { background: #3fb950 !important; }
+
+.taipy-table td.ll-cell-fresh-warning { color: #d29922 !important; }
+.taipy-table td.ll-cell-fresh-warning::before { background: #d29922 !important; }
+
+.taipy-table td.ll-cell-fresh-stale { color: #f85149 !important; }
+.taipy-table td.ll-cell-fresh-stale::before { background: #f85149 !important; }
 
 /* Detail panel */
 .ll-detail-header {

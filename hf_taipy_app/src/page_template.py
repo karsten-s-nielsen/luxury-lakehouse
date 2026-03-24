@@ -272,6 +272,7 @@ class ContentBlock:
     click_bridge_callback: str = ""  # html kind: callback triggered by click bridge
     height_var: str = ""  # html kind: dynamic height state variable
     container_class: str = ""  # html kind: override wrapper CSS class (default: "ll-html-content")
+    table_cell_class_name: dict[str, str] | None = None  # table kind: {column: callback_name} for cell styling
 
 
 @dataclass(frozen=True)
@@ -314,6 +315,7 @@ class StatCard:
     var: str
     detail_var: str = ""
     help_text: str = ""
+    detail_html: bool = False  # render detail as raw HTML via content provider (iframe)
 
 
 @dataclass(frozen=True)
@@ -433,8 +435,12 @@ def _build_stat_card(card: StatCard) -> str:
 
     if card.detail_var:
         lines.append("")
-        lines.append(f"<|part|render={{len({card.detail_var}) > 0}}|class_name=ll-stat-detail|")
-        lines.append(f"<|{{{card.detail_var}}}|text|>")
+        detail_class = "ll-stat-detail-html" if card.detail_html else "ll-stat-detail"
+        lines.append(f"<|part|render={{len({card.detail_var}) > 0}}|class_name={detail_class}|")
+        if card.detail_html:
+            lines.append(f"<|part|content={{{card.detail_var}}}|>")
+        else:
+            lines.append(f"<|{{{card.detail_var}}}|text|>")
         lines.append("|>")
 
     lines.append("|>")
@@ -469,19 +475,25 @@ def _build_content_block(block: ContentBlock, page_title: str) -> str:
         parts.append(block.header)
         parts.append("|>")
 
+    # Shared table attributes (used by both table and expandable_table)
+    action_attr = f"|on_action={block.on_action}" if block.on_action else ""
+    ccn_attr = (
+        "".join(f"|cell_class_name[{col}]={cb}" for col, cb in block.table_cell_class_name.items())
+        if block.table_cell_class_name
+        else ""
+    )
+
     # Content by kind
     if block.kind == "image":
         parts.append(f"<|{{{block.var}}}|image|label={page_title}|width=100%|>")
     elif block.kind == "table":
-        action_attr = f"|on_action={block.on_action}" if block.on_action else ""
-        parts.append(f"<|{{{block.var}}}|table|page_size={block.table_page_size}{action_attr}|>")
+        parts.append(f"<|{{{block.var}}}|table|page_size={block.table_page_size}{action_attr}{ccn_attr}|>")
     elif block.kind == "text":
         parts.append(f"<|{{{block.var}}}|text|>")
     elif block.kind == "expandable_table":
         # header is required for expandable — used as toggle label.
-        action_attr = f"|on_action={block.on_action}" if block.on_action else ""
         parts.append(f"<|{block.header}|expandable|expanded=False|")
-        parts.append(f"<|{{{block.var}}}|table|page_size={block.table_page_size}{action_attr}|>")
+        parts.append(f"<|{{{block.var}}}|table|page_size={block.table_page_size}{action_attr}{ccn_attr}|>")
         parts.append("|>")
     elif block.kind == "chart":
         parts.append(f"<|{{{block.var}}}|chart|figure={{{block.var}}}|height={block.chart_height}|>")

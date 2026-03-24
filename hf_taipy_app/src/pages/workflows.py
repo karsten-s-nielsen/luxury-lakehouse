@@ -26,9 +26,9 @@ page_config = PageConfig(
     ),
     citations=[],
     stats=[
-        StatCard("Workflows", "wf_total_workflows", "wf_workflows_detail"),
-        StatCard("Freshness", "wf_freshness_summary", "wf_freshness_detail"),
-        StatCard("Total Cost (30 Days)", "wf_total_cost_30d", "wf_cost_detail"),
+        StatCard("Workflows", "wf_total_workflows", "wf_workflows_detail", detail_html=True),
+        StatCard("Freshness", "wf_freshness_summary", "wf_freshness_detail", detail_html=True),
+        StatCard("Total Cost (30 Days)", "wf_total_cost_30d", "wf_cost_detail", detail_html=True),
         StatCard("Run Volume (30 Days)", "wf_run_volume", "wf_run_volume_detail"),
     ],
     content=[
@@ -48,6 +48,11 @@ page_config = PageConfig(
                     "table",
                     "wf_table_data",
                     table_page_size=20,
+                    table_cell_class_name={
+                        "Type": "wf_style_type",
+                        "Runtime": "wf_style_runtime",
+                        "Freshness": "wf_style_freshness",
+                    },
                 )
             ]
         ),
