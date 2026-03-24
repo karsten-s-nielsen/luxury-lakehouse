@@ -65,6 +65,9 @@ _dashboard_md = build_page(page_config)
 # ---------------------------------------------------------------------------
 # Detail drilldown — hand-crafted (future: separate detail template)
 # Detail navigation disabled for now — table and DAG clicks do not navigate.
+# TODO: Replace with template-driven detail layout when detail navigation is
+# enabled. The detail view should use a DetailPageConfig (or similar) that
+# feeds into build_page(), matching the dashboard/standard/sub-view pattern.
 # ---------------------------------------------------------------------------
 _detail_md = """
 <|Back to Workflows|button|on_action=wf_on_back_click|class_name=ll-header-btn text-no-transform|>

@@ -51,6 +51,13 @@ class RawHtml:
     # Cytoscape DAGs use their own sizing (fit + zoom cap) but call the
     # same _resizeFrame pattern inline. Non-graph HTML content (future
     # observability pages) should append this constant.
+    #
+    # 4-level parent walk: iframe -> content provider div -> render wrapper
+    # -> layout cell.  This is sufficient for simple HTML content that only
+    # needs height propagation (no min-width for horizontal scrolling).
+    # The DAG's _fitAndResize walks 8 levels because it also propagates
+    # min-width up to the ll-dashboard-scroll wrapper, which sits higher
+    # in the DOM tree.
     AUTOSIZE_JS = (
         "<script>\n"
         "(function() {\n"
@@ -98,7 +105,11 @@ _TYPE_COLORS: dict[str, str] = {
     "augmentation": "gray",
 }
 
-_DAG_MAX_HEIGHT_PX = 700  # Upper bound for DAG container height (JS + Python)
+# Upper bound for DAG container height (JS + Python).
+# Lives in the state module (not page_template.py) because it is used
+# in DAG HTML generation (_build_dag_html) and dynamic height computation
+# (_refresh_table), both of which are state-module responsibilities.
+_DAG_MAX_HEIGHT_PX = 700
 
 _TYPE_LABELS: dict[str, str] = {
     "training-and-inference": "Train+Infer",
@@ -169,20 +180,17 @@ wf_run_volume_detail: str = ""
 _WF_TABLE_COLS = [
     "Name",
     "Type",
-    "Domain",
     "Runtime",
     "Last Run",
-    "Duration",
+    "Last Duration",
     "Cost (30d)",
     "Avg/Run",
     "Freshness",
 ]
-wf_table_data: pd.DataFrame = pd.DataFrame(columns=_WF_TABLE_COLS)
+wf_table_data: pd.DataFrame = pd.DataFrame(columns=pd.Index(_WF_TABLE_COLS))
 
 wf_type_filter: str | None = "All"
 wf_type_lov: list[str] = ["All"]
-wf_status_filter: str | None = "All"
-wf_status_lov: list[str] = ["All"]
 wf_runtime_filter: str | None = "All"
 wf_runtime_lov: list[str] = ["All"]
 wf_freshness_filter: str | None = "All"
@@ -234,8 +242,6 @@ __all__ = [
     "wf_table_data",
     "wf_type_filter",
     "wf_type_lov",
-    "wf_status_filter",
-    "wf_status_lov",
     "wf_runtime_filter",
     "wf_runtime_lov",
     "wf_freshness_filter",
@@ -259,7 +265,6 @@ __all__ = [
     "wf_on_dag_click",
     "wf_on_back_click",
     "wf_on_type_filter",
-    "wf_on_status_filter",
     "wf_on_runtime_filter",
     "wf_on_freshness_filter",
     "wf_on_table_action",
@@ -499,40 +504,64 @@ def _build_dag_html(
         f"        boxSelectionEnabled: false,\n"
         f"    }});\n"
         f"\n"
-        f"    // After layout: fit graph to container width, auto-size height.\n"
-        f"    // Scale DOWN to fit when graph is wider than container.\n"
-        f"    // Never scale UP beyond 1:1 — no magnification.\n"
+        f"    // After layout: render at 1:1 (no zoom scaling).  Set container\n"
+        f"    // to the graph's natural width.  Propagate min-width through the\n"
+        f"    // iframe parent chain up to the ll-dashboard-scroll wrapper so\n"
+        f"    // the scroll wrapper triggers a horizontal scrollbar on narrow\n"
+        f"    // viewports instead of crushing the graph.\n"
         f"    function _fitAndResize() {{\n"
         f"        var pad = 30;\n"
-        f"        var containerW = container.offsetWidth;\n"
         f"\n"
         f"        if (cy.elements().length === 0) {{\n"
         f"            // Empty graph — collapse container\n"
         f"            container.style.height = '0px';\n"
         f"        }} else {{\n"
         f"            var bb = cy.elements().boundingBox();\n"
-        f"            // Scale down to fit width; never magnify beyond 1:1\n"
-        f"            var zoom = Math.min(1, containerW / (bb.w + pad * 2));\n"
-        f"            var graphH = Math.ceil(bb.h * zoom) + pad * 2;\n"
-        f"            container.style.height = Math.max(120, graphH) + 'px';\n"
+        f"            var naturalW = Math.ceil(bb.w) + pad * 2;\n"
+        f"            var naturalH = Math.ceil(bb.h) + pad * 2;\n"
+        f"            container.style.height = Math.max(120, naturalH) + 'px';\n"
         f"            cy.resize();\n"
-        f"            cy.zoom(zoom);\n"
-        f"            cy.center();\n"
+        f"            cy.zoom(1);\n"
+        f"            // Pin graph left-top to (pad, pad) so scroll position 0\n"
+        f"            // shows the leftmost nodes — no left-side clipping.\n"
+        f"            cy.pan({{x: pad - bb.x1, y: pad - bb.y1}});\n"
         f"        }}\n"
         f"\n"
-        f"        // Resize iframe + parent wrappers to match content.\n"
-        f"        // Cannot use body.scrollHeight — body fills iframe, creating\n"
-        f"        // circular dependency. Compute from actual child elements.\n"
+        f"        // Propagate height and min-width through iframe parent chain.\n"
+        f"        // Walk up to the ll-dashboard-scroll wrapper (max 8 as safety cap).\n"
+        f"        // Expected DOM depth: iframe(0) -> content div(1) -> ll-dag-container(2)\n"
+        f"        // -> render wrapper(3) -> content row(4) -> dashboard body(5)\n"
+        f"        // -> ll-dashboard-scroll(6, break target). 8 is a safety margin.\n"
+        f"        // Height: exact content size.  Min-width: natural graph width so\n"
+        f"        // the scroll wrapper knows when content exceeds the viewport.\n"
+        f"        // The pastDag flag distinguishes the DAG container (needs height)\n"
+        f"        // from outer wrappers (only need min-width for scroll triggering).\n"
         f"        var legendEl = container.nextElementSibling;\n"
         f"        var legendH = legendEl ? legendEl.offsetHeight : 0;\n"
         f"        var bs = getComputedStyle(document.body);\n"
         f"        var bodyM = parseInt(bs.marginTop) + parseInt(bs.marginBottom);\n"
         f"        var totalH = container.offsetHeight + legendH + bodyM;\n"
+        f"        var bb2 = cy.elements().length > 0 ? cy.elements().boundingBox() : null;\n"
+        f"        var minW = bb2 ? Math.ceil(bb2.w) + pad * 2 : 0;\n"
         f"        if (window.frameElement) {{\n"
         f"            var el = window.frameElement;\n"
-        f"            for (var i = 0; i < 4 && el; i++) {{\n"
-        f"                el.style.setProperty('height', totalH + 'px', 'important');\n"
-        f"                el.style.setProperty('min-height', 'auto', 'important');\n"
+        f"            var pastDag = false;\n"
+        f"            for (var i = 0; i < 8 && el; i++) {{\n"
+        f"                // Stop BEFORE the scroll wrapper — it must stay at\n"
+        f"                // viewport width so overflow-x: auto triggers the\n"
+        f"                // scrollbar.  Its children having min-width is what\n"
+        f"                // makes the content wider than the wrapper.\n"
+        f"                if (el.classList && el.classList.contains('ll-dashboard-scroll')) break;\n"
+        f"                // Height only on iframe + wrappers up to the DAG container.\n"
+        f"                if (!pastDag) {{\n"
+        f"                    el.style.setProperty('height', totalH + 'px', 'important');\n"
+        f"                    el.style.setProperty('min-height', 'auto', 'important');\n"
+        f"                }}\n"
+        f"                // min-width on children inside the scroll wrapper.\n"
+        f"                if (minW > 0) {{\n"
+        f"                    el.style.setProperty('min-width', minW + 'px', 'important');\n"
+        f"                }}\n"
+        f"                if (el.classList && el.classList.contains('ll-dag-container')) pastDag = true;\n"
         f"                el = el.parentElement;\n"
         f"            }}\n"
         f"        }}\n"
@@ -599,8 +628,9 @@ def _fetch_cold_costs() -> pd.DataFrame:
 
     Returns DataFrame with columns: task_key, total_cost_usd, total_dbu, run_count.
     """
-    tbl = t("fct_workflow_costs_synced")
+    _empty = pd.DataFrame(columns=pd.Index(["task_key", "total_cost_usd", "total_dbu", "run_count"]))
     try:
+        tbl = t("fct_workflow_costs_synced")
         return execute_query(
             f"SELECT task_key, "  # noqa: S608
             f"  SUM(attributed_cost_usd) AS total_cost_usd, "
@@ -613,8 +643,8 @@ def _fetch_cold_costs() -> pd.DataFrame:
             f"LIMIT 100",
         )
     except Exception:
-        logger.warning("Cold cost query failed \u2014 table may not be synced yet")
-        return pd.DataFrame(columns=["task_key", "total_cost_usd", "total_dbu", "run_count"])
+        logger.warning("Cold cost query failed — costs unavailable", exc_info=True)
+        return _empty
 
 
 @ttl_cache()
@@ -624,9 +654,9 @@ def _fetch_warm_costs() -> pd.DataFrame:
     Returns DataFrame with columns: workflow_id, state, duration_seconds,
     estimated_cost_usd, started_at, ended_at, task_key.
     """
-    settings = get_settings()
-    tbl = t("workflow_cost_live_synced", schema=settings.observability_schema)
     try:
+        settings = get_settings()
+        tbl = t("workflow_cost_live_synced", schema=settings.observability_schema)
         return execute_query(
             f"SELECT workflow_id, phase, state, task_key, "  # noqa: S608
             f"  duration_seconds, estimated_cost_usd, "
@@ -637,7 +667,7 @@ def _fetch_warm_costs() -> pd.DataFrame:
             f"LIMIT 500",
         )
     except Exception:
-        logger.warning("Warm cost query failed \u2014 table may not be synced yet")
+        logger.warning("Warm cost query failed — costs unavailable", exc_info=True)
         return pd.DataFrame()
 
 
@@ -661,7 +691,7 @@ def _fetch_job_runs() -> dict[str, dict[str, Any]]:
         runs: dict[str, dict[str, Any]] = {}
         for run in ws.jobs.list_runs(
             expand_tasks=True,
-            start_time_from=int((pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=30)).timestamp() * 1000),
+            start_time_from=int(pd.Timestamp.now(tz="UTC").timestamp() * 1000 - 30 * 86_400_000),
             limit=25,
         ):
             if not run.tasks:
@@ -698,7 +728,6 @@ def _build_table_data(
     cold_costs: pd.DataFrame,
     job_runs: dict[str, dict[str, Any]],
     type_filter: str | None,
-    status_filter: str | None,
     runtime_filter: str | None = "All",
     freshness_filter: str | None = "All",
 ) -> pd.DataFrame:
@@ -716,12 +745,9 @@ def _build_table_data(
     rows = []
     for card_id, card in cards.items():
         wf_type = card.get("type", "")
-        status = card.get("status", "")
 
         # Apply filters
         if type_filter and type_filter != "All" and _TYPE_LABELS.get(wf_type, wf_type) != type_filter:
-            continue
-        if status_filter and status_filter != "All" and status.capitalize() != status_filter:
             continue
 
         # Determine runtime(s)
@@ -774,10 +800,9 @@ def _build_table_data(
             {
                 "Name": card.get("name", card_id),
                 "Type": _TYPE_LABELS.get(wf_type, wf_type),
-                "Domain": card.get("domain", ""),
                 "Runtime": runtime_str,
                 "Last Run": last_run_str,
-                "Duration": duration_str,
+                "Last Duration": duration_str,
                 "Cost (30d)": cost_val,
                 "Avg/Run": avg_run_val,
                 "Freshness": freshness_str,
@@ -789,7 +814,7 @@ def _build_table_data(
     _wf_card_ids = card_ids
 
     if not rows:
-        return pd.DataFrame(columns=_WF_TABLE_COLS)
+        return pd.DataFrame(columns=pd.Index(_WF_TABLE_COLS))
     return pd.DataFrame(rows)
 
 
@@ -800,8 +825,8 @@ def _build_table_data(
 
 def _build_badges_html(card: dict[str, Any]) -> RawHtml:
     """Status + type badges HTML."""
-    status = card.get("status", "draft")
-    wf_type = card.get("type", "")
+    status: str = card.get("status") or "draft"
+    wf_type: str = card.get("type") or ""
     type_label = _TYPE_LABELS.get(wf_type, wf_type)
     type_color = _TYPE_COLORS.get(wf_type, "gray")
     status_color = _STATUS_COLORS.get(status, "gray")
@@ -1135,11 +1160,6 @@ def wf_on_type_filter(state: Any, var_name: str, var_value: Any) -> None:
     _refresh_table(state)
 
 
-def wf_on_status_filter(state: Any, var_name: str, var_value: Any) -> None:
-    """Status filter changed — rebuild table."""
-    _refresh_table(state)
-
-
 def wf_on_runtime_filter(state: Any, var_name: str, var_value: Any) -> None:
     """Runtime filter changed — rebuild table."""
     _refresh_table(state)
@@ -1189,7 +1209,6 @@ def _filter_card_ids(
     cards: dict[str, dict[str, Any]],
     job_runs: dict[str, dict[str, Any]],
     type_filter: str | None,
-    status_filter: str | None,
     runtime_filter: str | None,
     freshness_filter: str | None,
 ) -> set[str]:
@@ -1197,11 +1216,8 @@ def _filter_card_ids(
     matched: set[str] = set()
     for card_id, card in cards.items():
         wf_type = card.get("type", "")
-        status = card.get("status", "")
 
         if type_filter and type_filter != "All" and _TYPE_LABELS.get(wf_type, wf_type) != type_filter:
-            continue
-        if status_filter and status_filter != "All" and status.capitalize() != status_filter:
             continue
 
         # Runtime
@@ -1237,15 +1253,13 @@ def _refresh_table(state: Any) -> None:
         _cards,
         jobs,
         state.wf_type_filter,
-        state.wf_status_filter,
         state.wf_runtime_filter,
         state.wf_freshness_filter,
     )
 
     # Check if any filter is active
     all_filters_default = all(
-        f in (None, "All")
-        for f in (state.wf_type_filter, state.wf_status_filter, state.wf_runtime_filter, state.wf_freshness_filter)
+        f in (None, "All") for f in (state.wf_type_filter, state.wf_runtime_filter, state.wf_freshness_filter)
     )
 
     if all_filters_default:
@@ -1277,7 +1291,6 @@ def _refresh_table(state: Any) -> None:
         cold,
         jobs,
         state.wf_type_filter,
-        state.wf_status_filter,
         state.wf_runtime_filter,
         state.wf_freshness_filter,
     )
@@ -1311,8 +1324,8 @@ def _compute_stats(
     # Workflow type breakdown for detail line
     type_counts: dict[str, int] = {}
     for card in cards_subset.values():
-        wf_type = card.get("type", "")
-        label = _TYPE_LABELS.get(wf_type, wf_type)
+        wf_type: str = card.get("type") or ""
+        label: str = _TYPE_LABELS.get(wf_type, wf_type)
         type_counts[label] = type_counts.get(label, 0) + 1
     # Sort by count descending, format as "4 Grid Compute, 4 Heuristic, ..."
     sorted_types = sorted(type_counts.items(), key=lambda x: (-x[1], x[0]))
@@ -1326,7 +1339,7 @@ def _compute_stats(
     }
     all_entry_points.discard("")
     if not cold.empty and all_entry_points:
-        cost_df = cold[cold["task_key"].isin(all_entry_points)]
+        cost_df = cold[cold["task_key"].isin(list(all_entry_points))]
     else:
         cost_df = pd.DataFrame()
 
@@ -1348,7 +1361,7 @@ def _compute_stats(
     # Try warm tier first
     hf_warm_cost = 0.0
     if not warm.empty and hf_entry_points:
-        hf_df = warm[warm["task_key"].isin(hf_entry_points)]
+        hf_df = warm[warm["task_key"].isin(list(hf_entry_points))]
         if not hf_df.empty:
             hf_warm_cost = float(hf_df["estimated_cost_usd"].sum())
     # Fallback: YAML projected costs when warm tier has no data
@@ -1448,11 +1461,8 @@ def wf_refresh(state: Any) -> None:
 
     # Build filter LOVs from card metadata
     types = sorted({c.get("type", "") for c in _cards.values()})
-    statuses = sorted({c.get("status", "") for c in _cards.values()})
     state.wf_type_lov = ["All"] + [_TYPE_LABELS.get(tp, tp) for tp in types]
-    state.wf_status_lov = ["All"] + [s.capitalize() for s in statuses]
     state.wf_type_filter = "All"
-    state.wf_status_filter = "All"
 
     # Build runtime LOV from card execution config
     runtime_values: set[str] = set()
@@ -1488,7 +1498,7 @@ def wf_refresh(state: Any) -> None:
     state.wf_freshness_filter = "All"
 
     # Build table
-    state.wf_table_data = _build_table_data(_cards, cold, jobs, "All", "All", "All", "All")
+    state.wf_table_data = _build_table_data(_cards, cold, jobs, "All", "All", "All")
 
     # Stats (uses jobs for freshness, cold for cost, warm for live runs)
     _compute_stats(state, cold, warm, jobs)
@@ -1499,4 +1509,4 @@ def wf_refresh(state: Any) -> None:
     logger.info("Workflows page loaded: %d cards, %d cost rows", len(_cards), len(cold))
 
 
-register_page_refresher("AI-ML-Workflows", wf_refresh)
+register_page_refresher("AI-ML-Workflows", wf_refresh, is_dashboard=True)

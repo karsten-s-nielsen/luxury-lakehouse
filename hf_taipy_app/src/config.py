@@ -14,7 +14,7 @@ _IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 class AppSettings(BaseSettings):
     """Taipy app settings bound to environment variables."""
 
-    model_config = {"env_prefix": "", "case_sensitive": False}
+    model_config = {"env_prefix": "", "case_sensitive": False, "env_file": ".env", "env_file_encoding": "utf-8"}
 
     # Required — Lakebase connection
     lakebase_host: str

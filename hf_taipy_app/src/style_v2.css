@@ -252,6 +252,7 @@
     font-size: 0.85rem;
 }
 
+
 .ll-footer a {
     color: var(--color-primary) !important;
 }
@@ -773,12 +774,37 @@ nav[class*="taipy"],
     margin-top: 0.25rem !important;
 }
 
-/* DAG container */
+/* Dashboard scroll wrapper — viewport-contained area with both scrollbars.
+   Horizontal scrollbar stays pinned at the bottom of the viewport.
+   The wrapper fills remaining viewport height below the page header.
+   Content blocks propagate their natural width as min-width.
+
+   245px breakdown: app header (~48px) + brand row (~48px) + page header
+   with icon/title/description (~96px) + <hr> + padding (~53px) = ~245px.
+   This keeps the scroll wrapper bottom edge at the viewport bottom. */
+.ll-dashboard-scroll {
+    overflow: auto !important;
+    max-height: calc(100vh - 245px) !important;
+}
+
+/* Kill table-level scrollbars inside dashboard pages — the scroll wrapper
+   is the ONLY scroll surface for horizontal overflow. */
+.ll-dashboard-scroll .MuiTableContainer-root {
+    overflow: visible !important;
+    max-height: none !important;
+}
+
+/* DAG container — overflow visible so the iframe can extend to its natural
+   width, which the scroll wrapper then makes scrollable.
+   margin: auto centers the DAG when its natural width is narrower than
+   the table (the widest sibling determines scroll container width). */
 .ll-dag-container {
     border: 1px solid rgba(255, 255, 255, 0.1) !important;
     border-radius: 8px !important;
     margin-bottom: 1.5rem !important;
-    overflow: hidden !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    overflow: visible !important;
     background: rgba(255, 255, 255, 0.02) !important;
 }
 

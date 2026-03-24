@@ -1,19 +1,19 @@
-workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 16 AI/ML workflows, three-tier cost tracking, Taipy dashboard on HF Spaces, Databricks Lakebase." {
+workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 16 AI/ML workflows, three-tier cost tracking, 13-page Taipy dashboard on HF Spaces, Databricks Lakebase." {
 
     model {
         analyst = person "Soccer Analyst" "Coaches, scouts, and analysts exploring match and player data"
         developer = person "Developer" "Deploys application updates and triggers pipeline runs"
 
-        taipyApp = softwareSystem "Taipy Dashboard" "Interactive soccer analytics application with 12 pages covering shots, passes, networks, player comparison, pitch control, and defensive metrics" {
-            guiLayer = container "Taipy GUI" "Root template with sidebar navigation, glossary panels, footer links, and page routing" "Python, Taipy 4.1"
-            templateEngine = container "Template Engine" "Generates all page layouts from typed dataclasses: PageConfig, SubView, ContentBlock, ContentRow, SidebarWidget, Metric, Citation" "Python, frozen dataclasses"
+        taipyApp = softwareSystem "Taipy Dashboard" "Interactive soccer analytics application with 13 pages: 12 analytics + AI/ML Workflows operations dashboard" {
+            guiLayer = container "Taipy GUI" "Root template with sidebar navigation, glossary panels, conditional footer (show_site_footer), and page routing" "Python, Taipy 4.1"
+            templateEngine = container "Template Engine" "Three layout builders (standard, sub-view, dashboard) dispatched by build_page(). Dashboard layout: StatCard stats bar + ll-dashboard-scroll viewport container. Typed dataclasses: PageConfig, SubView, ContentBlock, ContentRow, SidebarWidget, Metric, Citation, StatCard" "Python, frozen dataclasses"
             sidebarWidgets = container "Sidebar Widgets" "Centralized filter cascade with progressive disclosure, view-dependent visibility, change_delay debounce, and inline help tooltips" "Python, Taipy Markdown"
-            stateModules = container "State Modules" "Per-page state variables, callbacks, data fetching, chart rendering (12 modules). Static charts via mplsoccer PNG. Interactive charts via Plotly" "Python, pandas, mplsoccer, Plotly"
+            stateModules = container "State Modules" "Per-page state variables, callbacks, data fetching, chart rendering (13 modules). Static charts via mplsoccer PNG. Interactive charts via Plotly. DAG via Cytoscape.js iframe with 1:1 zoom and min-width propagation" "Python, pandas, mplsoccer, Plotly, Cytoscape.js"
             filterLayer = container "Filter Layer" "Shared filter queries with TTL cache, scope labels, data freshness, and embedding player search" "Python, psycopg2"
             dbLayer = container "DB Layer" "OAuth token management, connection pooling, parameterized query execution" "Python, psycopg2, Databricks SDK"
             renderEngine = container "Render Engine" "Matplotlib/mplsoccer figure-to-PNG with cache-busting paths for static pitch diagrams" "Python, matplotlib, mplsoccer"
             pitchControl = container "Pitch Control Engine" "Physics-based (Spearman 2017) and Voronoi pitch control surface computation" "Python, NumPy, SciPy"
-            configLayer = container "Config" "Pydantic settings from environment variables with identifier validation" "Python, pydantic-settings"
+            configLayer = container "Config" "Pydantic settings from environment variables and .env file with identifier validation" "Python, pydantic-settings"
         }
 
         deployPipeline = softwareSystem "Deploy Pipeline" "Deployment scripts for Taipy app and analytics wheel" {
@@ -42,7 +42,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 16 AI/ML wor
             observabilitySchema = container "Observability Schema" "Platform operational metadata: workflow_cost_live (warm/hot cost tracking)" "Delta Lake" "Database"
         }
 
-        lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL-compatible endpoint syncing 19 Delta Lake tables from Unity Catalog (38 indexes, 4 HNSW vector)" "External"
+        lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL-compatible endpoint syncing 21 Delta Lake tables from Unity Catalog (42 indexes, 4 HNSW vector)" "External"
         databricksApi = softwareSystem "Databricks REST API" "OAuth credential endpoint for Lakebase authentication" "External"
         databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 18 tasks (5 ingest + 12 compute + 1 validation), daily 06:00 UTC" "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds from Dockerfile, serves on port 7860" "External"

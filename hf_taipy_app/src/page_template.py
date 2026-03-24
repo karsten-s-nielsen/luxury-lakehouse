@@ -385,6 +385,12 @@ class SubView:
     scope_vars: list[str] = field(default_factory=list)
 
 
+_FOOTER_CONTENT = (
+    "[Interactive Demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)"
+    " · [Published Datasets](https://huggingface.co/luxury-lakehouse)"
+)
+
+
 def _build_metric(m: Metric) -> str:
     """Generate markdown for a single metric block.
 
@@ -649,90 +655,120 @@ def build_header_from_config(cfg: PageConfig) -> str:
     )
 
 
+def _build_sub_view_page(parts: list[str], cfg: PageConfig) -> None:
+    """Append multi-view page layout: conditional sub-view blocks."""
+    for sv in cfg.sub_views:
+        parts.append(_build_sub_view(sv, cfg.title))
+        parts.append("")
+
+
+def _build_dashboard_page(parts: list[str], cfg: PageConfig) -> None:
+    """Append dashboard page layout: stats bar + full-width content in a scroll wrapper."""
+    # Wrap in a horizontal-scroll container so narrow viewports
+    # get a scrollbar instead of clipping the DAG / table.
+    parts.append("<|part|class_name=ll-dashboard-scroll|")
+    parts.append("")
+    parts.append(_build_stats_bar(cfg.stats))
+    parts.append("")
+
+    for row in cfg.content:
+        parts.append(_build_content_row(row, cfg.title))
+        parts.append("")
+
+    if cfg.empty_condition:
+        parts.append(f"<|part|render={{{cfg.empty_condition}}}|class_name=ll-info-box|")
+        parts.append(f"{cfg.empty_message}")
+        parts.append("|>")
+
+    if cfg.warning_var:
+        parts.append(f"<|part|render={{len({cfg.warning_var}) > 0}}|class_name=ll-warning-box|")
+        parts.append(f"<|{{{cfg.warning_var}}}|text|>")
+        parts.append("|>")
+
+    # Footer inside the scroll wrapper so it scrolls with content.
+    # The site-wide footer is hidden via the show_site_footer state
+    # variable, which _refresh_current_page sets to False for dashboard pages.
+    parts.append("<|part|class_name=ll-footer|")
+    parts.append(_FOOTER_CONTENT)
+    parts.append("|>")
+
+    parts.append("|>")  # close ll-dashboard-scroll
+
+
+def _build_standard_page(parts: list[str], cfg: PageConfig) -> None:
+    """Append standard page layout: 3fr/1fr grid with content left, metrics right."""
+    parts.append("<|layout|columns=3fr 1fr|gap=1rem|")
+    parts.append("")
+
+    # Left column: scope, diagram, freshness
+    parts.append("<|part|")
+
+    # Scope variables
+    for sv in cfg.scope_vars:
+        parts.append(f"<|part|render={{len({sv}) > 0}}|")
+        parts.append(f"<|{{{sv}}}|text|>")
+        parts.append("|>")
+        parts.append("")
+
+    # Content rows
+    for row in cfg.content:
+        parts.append(_build_content_row(row, cfg.title))
+        parts.append("")
+
+    # Empty state
+    if cfg.empty_condition:
+        parts.append(f"<|part|render={{{cfg.empty_condition}}}|class_name=ll-info-box|")
+        parts.append(f"{cfg.empty_message}")
+        parts.append("|>")
+
+    # Warning state (no-data — amber box, distinct from guidance)
+    if cfg.warning_var:
+        parts.append(f"<|part|render={{len({cfg.warning_var}) > 0}}|class_name=ll-warning-box|")
+        parts.append(f"<|{{{cfg.warning_var}}}|text|>")
+        parts.append("|>")
+
+    # Data freshness
+    if cfg.freshness_var:
+        parts.append("")
+        parts.append(f"<|part|render={{len({cfg.freshness_var}) > 0}}|")
+        parts.append(f"<|{{{cfg.freshness_var}}}|text|class_name=ll-reference|>")
+        parts.append("|>")
+
+    if cfg.footer_var:
+        parts.append("")
+        parts.append(f"<|part|render={{len({cfg.footer_var}) > 0}}|")
+        parts.append(f"<|{{{cfg.footer_var}}}|text|class_name=ll-reference|>")
+        parts.append("|>")
+
+    parts.append("|>")
+    parts.append("")
+
+    # Right column: metrics
+    parts.append("<|part|class_name=ll-metrics-column|")
+    for m in cfg.metrics:
+        parts.append(_build_metric(m))
+        parts.append("")
+    parts.append("|>")
+    parts.append("")
+
+    parts.append("|>")
+
+
 def build_page(cfg: PageConfig) -> str:
-    """Generate the standard page template markdown from config."""
-    # --- Page header (constrained width) ---
+    """Generate the standard page template markdown from config.
+
+    Dispatches to one of three layout builders based on PageConfig fields:
+    - sub_views non-empty -> multi-view page (_build_sub_view_page)
+    - stats non-empty     -> dashboard page  (_build_dashboard_page)
+    - otherwise           -> standard page   (_build_standard_page)
+    """
     parts = [build_header_from_config(cfg), ""]
 
     if cfg.sub_views:
-        # Multi-view page: conditional sub-view blocks
-        for sv in cfg.sub_views:
-            parts.append(_build_sub_view(sv, cfg.title))
-            parts.append("")
+        _build_sub_view_page(parts, cfg)
     elif cfg.stats:
-        # Dashboard page: stats bar + full-width content blocks
-        parts.append(_build_stats_bar(cfg.stats))
-        parts.append("")
-
-        for row in cfg.content:
-            parts.append(_build_content_row(row, cfg.title))
-            parts.append("")
-
-        if cfg.empty_condition:
-            parts.append(f"<|part|render={{{cfg.empty_condition}}}|class_name=ll-info-box|")
-            parts.append(f"{cfg.empty_message}")
-            parts.append("|>")
-
-        if cfg.warning_var:
-            parts.append(f"<|part|render={{len({cfg.warning_var}) > 0}}|class_name=ll-warning-box|")
-            parts.append(f"<|{{{cfg.warning_var}}}|text|>")
-            parts.append("|>")
+        _build_dashboard_page(parts, cfg)
     else:
-        # Single-view page: standard 3fr/1fr layout
-        parts.append("<|layout|columns=3fr 1fr|gap=1rem|")
-        parts.append("")
-
-        # Left column: scope, diagram, freshness
-        parts.append("<|part|")
-
-        # Scope variables
-        for sv in cfg.scope_vars:
-            parts.append(f"<|part|render={{len({sv}) > 0}}|")
-            parts.append(f"<|{{{sv}}}|text|>")
-            parts.append("|>")
-            parts.append("")
-
-        # Content rows
-        for row in cfg.content:
-            parts.append(_build_content_row(row, cfg.title))
-            parts.append("")
-
-        # Empty state
-        if cfg.empty_condition:
-            parts.append(f"<|part|render={{{cfg.empty_condition}}}|class_name=ll-info-box|")
-            parts.append(f"{cfg.empty_message}")
-            parts.append("|>")
-
-        # Warning state (no-data — amber box, distinct from guidance)
-        if cfg.warning_var:
-            parts.append(f"<|part|render={{len({cfg.warning_var}) > 0}}|class_name=ll-warning-box|")
-            parts.append(f"<|{{{cfg.warning_var}}}|text|>")
-            parts.append("|>")
-
-        # Data freshness
-        if cfg.freshness_var:
-            parts.append("")
-            parts.append(f"<|part|render={{len({cfg.freshness_var}) > 0}}|")
-            parts.append(f"<|{{{cfg.freshness_var}}}|text|class_name=ll-reference|>")
-            parts.append("|>")
-
-        if cfg.footer_var:
-            parts.append("")
-            parts.append(f"<|part|render={{len({cfg.footer_var}) > 0}}|")
-            parts.append(f"<|{{{cfg.footer_var}}}|text|class_name=ll-reference|>")
-            parts.append("|>")
-
-        parts.append("|>")
-        parts.append("")
-
-        # Right column: metrics
-        parts.append("<|part|class_name=ll-metrics-column|")
-        for m in cfg.metrics:
-            parts.append(_build_metric(m))
-            parts.append("")
-        parts.append("|>")
-        parts.append("")
-
-        parts.append("|>")
+        _build_standard_page(parts, cfg)
 
     return "\n".join(parts)

@@ -91,7 +91,7 @@ monitoring:
       warn_below: 0.058
       alert_above: 0.178
       alert_below: 0.018
-  freshness_sla_hours: 24
+  freshness_sla_hours: 168
 
 links:
   source_code:

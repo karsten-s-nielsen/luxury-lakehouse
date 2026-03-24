@@ -7,7 +7,11 @@ Widget definitions are DATA (type, var, label, callback, condition).
 All structural wrapping and styling is template-controlled — zero styling in definitions.
 """
 
-from page_template import SidebarWidget, build_sidebar_section
+from page_template import (
+    _FOOTER_CONTENT,
+    SidebarWidget,
+    build_sidebar_section,
+)
 
 GETTING_STARTED = """\
 **Suggested workflow:**
@@ -144,10 +148,8 @@ PAGE_TERMS: dict[str, list[str]] = {
     "Pass-Timing": ["PAUSA", "Temporal Judgment", "Spatial Selection", "OBSO"],
     "Defensive-Impact": ["DEFCON", "Intercept", "Concede", "Disturb", "Deter"],
     "AI-ML-Workflows": [
-        "applyInPandas",
         "Cost Tier",
         "Freshness SLA",
-        "Skip Guard",
         "Workflow Card",
     ],
 }
@@ -454,7 +456,10 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         depends_value="Timeline",
         depends_lov_populated=True,
     ),
-    # Workflow Operations
+    # --- Operations page filters (AI/ML Workflows) ---
+    # These filter by workflow metadata (type, runtime, freshness) rather than
+    # analytical data dimensions (competition, team, match). They only appear
+    # on the AI-ML-Workflows page.
     SidebarWidget(
         "dropdown",
         "wf_type_filter",
@@ -626,8 +631,8 @@ def build_root_page(nav_md: str) -> str:
 
 <|content|>
 
-<|part|class_name=ll-footer|
-[Interactive Demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) · [Published Datasets](https://huggingface.co/luxury-lakehouse)
+<|part|render={{show_site_footer}}|class_name=ll-footer|
+{_FOOTER_CONTENT}
 |>
 
 |>
