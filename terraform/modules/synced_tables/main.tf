@@ -295,6 +295,42 @@ resource "databricks_database_synced_database_table" "dim_teams" {
   }
 }
 
+# ── Cost / Observability tables ──────────────────────────────────────────
+
+resource "databricks_database_synced_database_table" "fct_workflow_costs" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_workflow_costs_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_workflow_costs"
+    primary_key_columns    = ["task_key", "usage_date", "job_run_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+resource "databricks_database_synced_database_table" "workflow_cost_live" {
+  name                   = "${var.catalog_name}.${var.observability_schema}.workflow_cost_live_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.observability_schema}.workflow_cost_live"
+    primary_key_columns    = ["run_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+# ── Dimension Tables ───────────────────────────────────────────────────────
+
 resource "databricks_database_synced_database_table" "dim_competitions" {
   name                   = "${var.catalog_name}.${var.gold_schema}.dim_competitions_synced"
   database_instance_name = var.database_instance_name

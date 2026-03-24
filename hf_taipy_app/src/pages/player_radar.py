@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from page_template import Citation, ContentBlock, ContentRow, PageConfig, build_page
+from page_template import NAV_PLAYER_ANALYSIS, Citation, ContentBlock, ContentRow, PageConfig, build_page
 
 page_config = PageConfig(
     title="Player Comparison",
     icon="radar",
-    nav_section="Player Analysis",
+    nav_section=NAV_PLAYER_ANALYSIS,
     description=(
         "Multi-metric player comparison using mplsoccer radar chart. "
         "Metrics from VAEP (Decroos et al. 2019) and tracking data."

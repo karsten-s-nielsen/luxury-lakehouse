@@ -20,6 +20,7 @@ import argparse
 import fnmatch
 import logging
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -148,6 +149,27 @@ def _dry_run(folder: Path, repo_id: str, api: HfApi) -> None:
     print()
 
 
+def _bundle_workflow_cards() -> Path | None:
+    """Copy workflow-cards/ into hf_taipy_app/ for deployment. Returns dst path or None."""
+    cards_src = Path(__file__).parent.parent / "workflow-cards"
+    cards_dst = Path(__file__).parent.parent / "hf_taipy_app" / "workflow-cards"
+    if cards_src.is_dir():
+        if cards_dst.exists():
+            shutil.rmtree(cards_dst)
+        shutil.copytree(cards_src, cards_dst)
+        logger.info("Bundled %d workflow cards", len(list(cards_dst.glob("*.yaml"))))
+        return cards_dst
+    logger.warning("No workflow-cards/ directory found at %s — skipping bundle", cards_src)
+    return None
+
+
+def _cleanup_workflow_cards(cards_dst: Path | None) -> None:
+    """Remove bundled workflow-cards/ copy after deployment."""
+    if cards_dst is not None and cards_dst.exists():
+        shutil.rmtree(cards_dst)
+        logger.info("Cleaned up bundled workflow-cards")
+
+
 def _deploy(folder: Path, repo_id: str, api: HfApi, *, clean: bool) -> None:
     """Upload *folder* to *repo_id* with optional stale-file cleanup."""
     info_before = api.space_info(repo_id)
@@ -157,14 +179,18 @@ def _deploy(folder: Path, repo_id: str, api: HfApi, *, clean: bool) -> None:
 
     delete_patterns = ["**"] if clean else None
 
-    commit_info = api.upload_folder(
-        folder_path=str(folder),
-        repo_id=repo_id,
-        repo_type="space",
-        ignore_patterns=IGNORE_PATTERNS,
-        delete_patterns=delete_patterns,
-        commit_message="Deploy Taipy app via scripts/deploy_taipy.py",
-    )
+    cards_dst = _bundle_workflow_cards()
+    try:
+        commit_info = api.upload_folder(
+            folder_path=str(folder),
+            repo_id=repo_id,
+            repo_type="space",
+            ignore_patterns=IGNORE_PATTERNS,
+            delete_patterns=delete_patterns,
+            commit_message="Deploy Taipy app via scripts/deploy_taipy.py",
+        )
+    finally:
+        _cleanup_workflow_cards(cards_dst)
 
     # --- Post-upload verification ---
     info_after = api.space_info(repo_id)

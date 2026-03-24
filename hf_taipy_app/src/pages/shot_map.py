@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from page_template import Citation, ContentBlock, ContentRow, Metric, PageConfig, build_page
+from page_template import NAV_MATCH_ANALYSIS, Citation, ContentBlock, ContentRow, Metric, PageConfig, build_page
 
 page_config = PageConfig(
     title="Shot Map",
     icon="target",
-    nav_section="Match Analysis",
+    nav_section=NAV_MATCH_ANALYSIS,
     description=(
         "Shot locations sized by xG. xG methodology per Rathke (2017) "
         '"An examination of expected goals and shot efficiency." '

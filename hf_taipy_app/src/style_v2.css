@@ -733,3 +733,321 @@ nav[class*="taipy"],
 .taipy-watermark {
     display: none !important;
 }
+
+/* ===== 9. Operations pages (AI/ML Workflows) ===== */
+
+/* Stats bar — horizontal row of summary cards */
+.ll-stats-bar {
+    display: flex !important;
+    gap: 1rem !important;
+    margin-bottom: 1.5rem !important;
+    flex-wrap: wrap !important;
+}
+
+.ll-stat-card {
+    flex: 1 1 200px !important;
+    background: rgba(255, 255, 255, 0.04) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 8px !important;
+    padding: 1rem !important;
+}
+
+.ll-stat-card h3 {
+    font-size: 1.5rem !important;
+    font-weight: 700 !important;
+    color: #ffffff !important;
+    margin: 0 0 0.25rem 0 !important;
+}
+
+.ll-stat-label {
+    font-size: 0.75rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.05em !important;
+    color: rgba(255, 255, 255, 0.5) !important;
+    margin: 0 !important;
+}
+
+.ll-stat-detail {
+    font-size: 0.8rem !important;
+    color: rgba(255, 255, 255, 0.6) !important;
+    margin-top: 0.25rem !important;
+}
+
+/* DAG container */
+.ll-dag-container {
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 8px !important;
+    margin-bottom: 1.5rem !important;
+    overflow: hidden !important;
+    background: rgba(255, 255, 255, 0.02) !important;
+}
+
+/* Type badges — pill-shaped colored labels */
+.ll-badge {
+    display: inline-block !important;
+    padding: 2px 8px !important;
+    border-radius: 12px !important;
+    font-size: 0.7rem !important;
+    font-weight: 600 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.03em !important;
+    white-space: nowrap !important;
+}
+
+.ll-badge-blue { background: rgba(88, 166, 255, 0.15) !important; color: #58a6ff !important; }
+.ll-badge-purple { background: rgba(188, 140, 255, 0.15) !important; color: #bc8cff !important; }
+.ll-badge-teal { background: rgba(63, 185, 160, 0.15) !important; color: #3fb9a0 !important; }
+.ll-badge-amber { background: rgba(227, 179, 65, 0.15) !important; color: #e3b341 !important; }
+.ll-badge-gray { background: rgba(110, 118, 129, 0.15) !important; color: #6e7681 !important; }
+.ll-badge-green { background: rgba(63, 185, 80, 0.15) !important; color: #3fb950 !important; }
+.ll-badge-red { background: rgba(248, 81, 73, 0.15) !important; color: #f85149 !important; }
+
+/* Status dots (freshness indicators) */
+.ll-status-dot {
+    display: inline-block !important;
+    width: 8px !important;
+    height: 8px !important;
+    border-radius: 50% !important;
+    margin-right: 0.4rem !important;
+    vertical-align: middle !important;
+}
+
+.ll-dot-green { background: #3fb950 !important; }
+.ll-dot-yellow { background: #d29922 !important; }
+.ll-dot-red { background: #f85149 !important; }
+.ll-dot-gray { background: #6e7681 !important; }
+
+/* Runtime icons */
+.ll-runtime {
+    display: inline-block !important;
+    font-size: 0.7rem !important;
+    padding: 1px 6px !important;
+    border-radius: 3px !important;
+    font-weight: 600 !important;
+    margin-right: 0.25rem !important;
+}
+
+.ll-runtime-dbx { background: rgba(255, 63, 52, 0.15) !important; color: #ff6b6b !important; }
+.ll-runtime-hf { background: rgba(255, 208, 55, 0.15) !important; color: #ffd037 !important; }
+
+/* Detail panel */
+.ll-detail-header {
+    margin-bottom: 1.5rem !important;
+}
+
+.ll-back-link {
+    font-size: 0.85rem !important;
+    color: var(--color-primary) !important;
+    cursor: pointer !important;
+    margin-bottom: 0.5rem !important;
+}
+
+.ll-detail-meta {
+    font-size: 0.85rem !important;
+    color: rgba(255, 255, 255, 0.6) !important;
+    margin-top: 0.25rem !important;
+}
+
+/* Detail sections */
+.ll-detail-section {
+    margin-bottom: 2rem !important;
+    padding-bottom: 1.5rem !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+
+.ll-detail-section:last-child {
+    border-bottom: none !important;
+}
+
+.ll-section-title {
+    font-size: 1.1rem !important;
+    font-weight: 600 !important;
+    color: rgba(255, 255, 255, 0.9) !important;
+    margin-bottom: 0.75rem !important;
+}
+
+/* Data flow — three-column layout */
+.ll-data-flow {
+    display: grid !important;
+    grid-template-columns: 1fr auto 1fr !important;
+    gap: 1rem !important;
+    align-items: start !important;
+}
+
+.ll-data-flow-center {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 1rem !important;
+    color: var(--color-primary) !important;
+    font-size: 0.85rem !important;
+    font-weight: 600 !important;
+}
+
+.ll-data-chip {
+    display: inline-block !important;
+    padding: 4px 10px !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    border-radius: 6px !important;
+    font-size: 0.8rem !important;
+    margin: 2px !important;
+    color: rgba(255, 255, 255, 0.8) !important;
+}
+
+.ll-data-chip a {
+    color: var(--color-primary) !important;
+    text-decoration: none !important;
+}
+
+/* Execution cards — side-by-side */
+.ll-exec-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 1rem !important;
+}
+
+.ll-exec-card {
+    background: rgba(255, 255, 255, 0.03) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 8px !important;
+    padding: 1rem !important;
+}
+
+.ll-exec-card h4 {
+    font-size: 0.95rem !important;
+    font-weight: 600 !important;
+    margin-bottom: 0.5rem !important;
+}
+
+.ll-exec-row {
+    display: flex !important;
+    justify-content: space-between !important;
+    font-size: 0.85rem !important;
+    padding: 0.25rem 0 !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04) !important;
+}
+
+.ll-exec-label {
+    color: rgba(255, 255, 255, 0.5) !important;
+}
+
+/* Cost cards */
+.ll-cost-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 1rem !important;
+}
+
+.ll-cost-card {
+    background: rgba(255, 255, 255, 0.03) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 8px !important;
+    padding: 1rem !important;
+}
+
+.ll-cost-big {
+    font-size: 1.5rem !important;
+    font-weight: 700 !important;
+    font-family: monospace !important;
+}
+
+.ll-cost-source {
+    display: inline-block !important;
+    font-size: 0.65rem !important;
+    padding: 1px 6px !important;
+    border-radius: 3px !important;
+    font-weight: 600 !important;
+    text-transform: uppercase !important;
+}
+
+.ll-cost-actual { background: rgba(63, 185, 80, 0.15) !important; color: #3fb950 !important; }
+.ll-cost-estimated { background: rgba(227, 179, 65, 0.15) !important; color: #e3b341 !important; }
+.ll-cost-projected { background: rgba(110, 118, 129, 0.15) !important; color: #8b949e !important; }
+
+/* Reference list */
+.ll-ref-item {
+    padding: 0.5rem 0 !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04) !important;
+}
+
+.ll-ref-role {
+    display: inline-block !important;
+    font-size: 0.65rem !important;
+    padding: 1px 6px !important;
+    border-radius: 3px !important;
+    background: rgba(188, 140, 255, 0.15) !important;
+    color: #bc8cff !important;
+    font-weight: 600 !important;
+    text-transform: uppercase !important;
+    margin-right: 0.5rem !important;
+}
+
+/* Monitoring bars (inline progress indicators) */
+.ll-mon-bar {
+    height: 6px !important;
+    background: rgba(255, 255, 255, 0.1) !important;
+    border-radius: 3px !important;
+    overflow: hidden !important;
+    width: 100px !important;
+    display: inline-block !important;
+    vertical-align: middle !important;
+    margin-left: 0.5rem !important;
+}
+
+.ll-mon-bar-fill {
+    height: 100% !important;
+    border-radius: 3px !important;
+    transition: width 0.3s ease !important;
+}
+
+/* Source code links */
+.ll-source-link {
+    font-family: monospace !important;
+    font-size: 0.85rem !important;
+    color: rgba(255, 255, 255, 0.7) !important;
+    display: block !important;
+    padding: 0.2rem 0 !important;
+}
+
+/* Clickable table rows */
+.ll-clickable-row {
+    cursor: pointer !important;
+}
+
+/* Dashboard filter bar */
+.ll-filter-bar {
+    display: flex !important;
+    gap: 1rem !important;
+    margin-bottom: 1rem !important;
+    align-items: center !important;
+}
+
+/* Hidden element (for JS callback workarounds) */
+.ll-hidden {
+    display: none !important;
+}
+
+/* Content provider iframes — expand to show full HTML content.
+   Taipy renders <|part|content={var}|> via iframes that default to 154px.
+   Override to fill container and show all content. */
+.ll-detail-section iframe[src*="taipy-user-content"] {
+    width: 100% !important;
+    min-height: 300px !important;
+    border: none !important;
+}
+
+/* DAG iframe: layoutstop handler computes zoom + height dynamically */
+.ll-dag-container iframe[src*="taipy-user-content"] {
+    width: 100% !important;
+    border: none !important;
+}
+
+/* Generic HTML content iframes (ContentBlock kind="html").
+   Auto-sized by RawHtml.AUTOSIZE_JS or content-specific JS.
+   Initial min-height prevents layout flash before JS runs. */
+.ll-html-content iframe[src*="taipy-user-content"] {
+    width: 100% !important;
+    min-height: 150px !important;
+    border: none !important;
+}

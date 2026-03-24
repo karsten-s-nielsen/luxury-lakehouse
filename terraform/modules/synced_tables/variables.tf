@@ -23,3 +23,9 @@ variable "gold_schema" {
   type        = string
   default     = "gold"
 }
+
+variable "observability_schema" {
+  description = "Observability schema name in the catalog (for workflow_cost_live)"
+  type        = string
+  default     = "observability"
+}

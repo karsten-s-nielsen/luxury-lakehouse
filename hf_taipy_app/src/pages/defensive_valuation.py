@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from page_template import Citation, ContentBlock, ContentRow, Metric, PageConfig, SubView, build_page
+from page_template import NAV_ADVANCED, Citation, ContentBlock, ContentRow, Metric, PageConfig, SubView, build_page
 
 page_config = PageConfig(
     title="Defensive Impact",
     icon="shield",
-    nav_section="Advanced",
+    nav_section=NAV_ADVANCED,
     freshness_var="dv_data_freshness",
     description=(
         "How much defensive attention does each attacker attract? "

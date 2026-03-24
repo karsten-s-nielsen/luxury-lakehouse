@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
-from page_template import Citation, ContentBlock, ContentRow, Metric, PageConfig, SubView, build_page
+from page_template import (
+    NAV_PLAYER_ANALYSIS,
+    Citation,
+    ContentBlock,
+    ContentRow,
+    Metric,
+    PageConfig,
+    SubView,
+    build_page,
+)
 
 page_config = PageConfig(
     title="Player Impact",
     icon="trending_up",
-    nav_section="Player Analysis",
+    nav_section=NAV_PLAYER_ANALYSIS,
     description=(
         "Valuing Actions by Estimating Probabilities (VAEP) \u2014 Decroos et al. (2019). Implemented via socceraction."
     ),

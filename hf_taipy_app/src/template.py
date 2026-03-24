@@ -94,6 +94,26 @@ GLOSSARY: dict[str, str] = {
         "Defensive pressure received per 90 minutes (DEFCON framework). Higher = more defensive attention attracted."
     ),
     "Most Active Zone": "The 3x3 pitch zone (e.g., 'Att Center') with the highest action count.",
+    "applyInPandas": (
+        "Spark distributed execution pattern that runs a Python function on each group "
+        "of a grouped DataFrame in parallel across executors."
+    ),
+    "Cost Tier": (
+        "How cost data was sourced: Actual (from billing), Estimated (from pipeline timing), "
+        "or Projected (from YAML card estimates)."
+    ),
+    "Freshness SLA": (
+        "Maximum acceptable age (in hours) for a workflow's output data. "
+        "Green = within SLA, yellow = 75-100%, red = exceeded."
+    ),
+    "Skip Guard": (
+        "Idempotency pattern that checks for already-processed results before expensive computation. "
+        "Prevents duplicate work on retry."
+    ),
+    "Workflow Card": (
+        "A YAML manifest describing an AI/ML workflow — its inputs, outputs, execution config, "
+        "cost estimates, and academic provenance. Each of the 16 workflows has a card in workflow-cards/."
+    ),
 }
 
 PAGE_TERMS: dict[str, list[str]] = {
@@ -123,6 +143,13 @@ PAGE_TERMS: dict[str, list[str]] = {
     "Pitch-Control": ["Pitch Control"],
     "Pass-Timing": ["PAUSA", "Temporal Judgment", "Spatial Selection", "OBSO"],
     "Defensive-Impact": ["DEFCON", "Intercept", "Concede", "Disturb", "Deter"],
+    "AI-ML-Workflows": [
+        "applyInPandas",
+        "Cost Tier",
+        "Freshness SLA",
+        "Skip Guard",
+        "Workflow Card",
+    ],
 }
 
 
@@ -166,9 +193,10 @@ _SIMILARITY_PAGES = ("Player-Similarity",)
 _PASS_TIMING_PAGES = ("Pass-Timing",)
 _DEFCON_PAGES = ("Defensive-Impact",)
 _PC_CONTROL_PAGES = ("Pitch-Control",)
+_WF_PAGES = ("AI-ML-Workflows",)
 _FILTER_HEADER_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary",
                         "Player-Impact", "Player-Comparison", "Movement-Pressing",
-                        "Pitch-Control", "Pass-Timing", "Defensive-Impact")
+                        "Pitch-Control", "Pass-Timing", "Defensive-Impact", "AI-ML-Workflows")
 # fmt: on
 
 # ---------------------------------------------------------------------------
@@ -425,6 +453,34 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         depends_on="dv_current_view",
         depends_value="Timeline",
         depends_lov_populated=True,
+    ),
+    # Workflow Operations
+    SidebarWidget(
+        "dropdown",
+        "wf_type_filter",
+        "Workflow Type",
+        "wf_on_type_filter",
+        condition=f"current_page in {_WF_PAGES}",
+        lov="wf_type_lov",
+        help="Filter by workflow type: Train+Infer, Grid Compute, Heuristic, Validation, Augmentation.",
+    ),
+    SidebarWidget(
+        "dropdown",
+        "wf_runtime_filter",
+        "Runtime",
+        "wf_on_runtime_filter",
+        condition=f"current_page in {_WF_PAGES}",
+        lov="wf_runtime_lov",
+        help="Filter by execution runtime: Databricks (DBX), HuggingFace Jobs (HF), or both.",
+    ),
+    SidebarWidget(
+        "dropdown",
+        "wf_freshness_filter",
+        "Freshness",
+        "wf_on_freshness_filter",
+        condition=f"current_page in {_WF_PAGES}",
+        lov="wf_freshness_lov",
+        help="Filter by data freshness status: OK (within SLA), Warning (approaching), Stale (exceeded).",
     ),
     # Pitch Control
     SidebarWidget(

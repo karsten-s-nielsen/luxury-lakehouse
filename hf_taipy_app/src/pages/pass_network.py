@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from page_template import Citation, ContentBlock, ContentRow, Metric, PageConfig, build_page
+from page_template import NAV_MATCH_ANALYSIS, Citation, ContentBlock, ContentRow, Metric, PageConfig, build_page
 
 page_config = PageConfig(
     title="Pass Network",
     icon="hub",
-    nav_section="Match Analysis",
+    nav_section=NAV_MATCH_ANALYSIS,
     description=(
         "Network analysis of passing connections per Pena & Touchette (2012) "
         '"A network theory analysis of football strategies." '

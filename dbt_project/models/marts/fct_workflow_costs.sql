@@ -21,7 +21,6 @@
 
 WITH billing AS (
     SELECT
-        usage_metadata.job_id AS job_id,
         usage_metadata.job_run_id AS job_run_id,
         usage_date,
         SUM(usage_quantity) AS dbu,
@@ -40,39 +39,40 @@ WITH billing AS (
     WHERE
         usage.billing_origin_product = 'JOBS'
         AND usage.usage_date >= CURRENT_DATE - INTERVAL 90 DAYS
-    GROUP BY 1, 2, 3
+    GROUP BY 1, 2
 ),
 
 tasks AS (
     SELECT
         job_run_id,
         task_key,
-        execution_duration_seconds
+        SUM(execution_duration_seconds) AS execution_duration_seconds
     FROM system.lakeflow.job_task_run_timeline
     WHERE
         result_state IS NOT NULL
         AND period_start_time >= CURRENT_DATE - INTERVAL 90 DAYS
+    GROUP BY job_run_id, task_key
 )
 
 SELECT
     tasks.task_key,
     billing.usage_date,
     CAST(billing.job_run_id AS BIGINT) AS job_run_id,
-    ROUND(
+    CAST(ROUND(
         billing.dbu * (
             tasks.execution_duration_seconds
             / NULLIF(SUM(tasks.execution_duration_seconds)
                 OVER (PARTITION BY billing.job_run_id), 0)
         ),
         4
-    ) AS attributed_dbu,
-    ROUND(
+    ) AS DECIMAL(10, 4)) AS attributed_dbu,
+    CAST(ROUND(
         billing.cost_usd * (
             tasks.execution_duration_seconds
             / NULLIF(SUM(tasks.execution_duration_seconds)
                 OVER (PARTITION BY billing.job_run_id), 0)
         ),
         4
-    ) AS attributed_cost_usd
+    ) AS DECIMAL(10, 4)) AS attributed_cost_usd
 FROM billing
 INNER JOIN tasks ON billing.job_run_id = tasks.job_run_id

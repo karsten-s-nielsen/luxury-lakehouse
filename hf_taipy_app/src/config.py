@@ -24,10 +24,11 @@ class AppSettings(BaseSettings):
     lakebase_database: str = "databricks_postgres"
     unity_catalog: str = "soccer_analytics"
     gold_schema: str = "dev_gold"
+    observability_schema: str = "observability"
     cache_ttl_seconds: int = 600
     pool_connection_max_age_seconds: int = 3300  # 55 min (token expires at 60)
 
-    @field_validator("unity_catalog", "gold_schema")
+    @field_validator("unity_catalog", "gold_schema", "observability_schema")
     @classmethod
     def _validate_identifier(cls, v: str) -> str:
         if not _IDENTIFIER_RE.match(v):
