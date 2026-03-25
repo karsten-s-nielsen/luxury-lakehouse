@@ -302,7 +302,8 @@ wf_is_admin: bool = False
 # Internal (NOT exported — not bound to UI)
 # ---------------------------------------------------------------------------
 _cards: dict[str, dict[str, Any]] = {}
-_cost_by_task: dict[str, float] = {}  # task_key -> 30d cost USD
+_unfiltered_dag_html: RawHtml = RawHtml("")  # Cached full DAG (no filters applied)
+_ws_client: Any = None  # Lazy WorkspaceClient singleton (avoids re-init on each cache miss)
 _wf_card_ids: list[str] = []  # Parallel to wf_table_data rows — maps row index to card ID
 
 __all__ = [
@@ -502,12 +503,24 @@ def _build_dag_html(
         for k, v in _COLOR_HEX.items()
     )
 
-    # Legend items
+    # Legend items — shapes match table column ::before markers (WCAG 1.4.1).
+    # circle (train), diamond (grid), triangle (heuristic), square (validation), ring (augmentation).
+    _legend_shapes: dict[str, str] = {
+        "training-and-inference": "width:8px;height:8px;border-radius:50%;background:{c};",
+        "grid-computation": "width:7px;height:7px;transform:rotate(45deg);background:{c};",
+        "heuristic": (
+            "width:0;height:0;background:transparent;"
+            "border-left:4px solid transparent;border-right:4px solid transparent;"
+            "border-bottom:8px solid {c};"
+        ),
+        "validation": "width:8px;height:8px;border-radius:1px;background:{c};",
+        "augmentation": "width:7px;height:7px;border-radius:50%;border:1.5px solid {c};background:transparent;",
+    }
     legend_items = "".join(
         f'<span style="display:inline-flex;align-items:center;margin-right:12px;">'
-        f'<span style="width:10px;height:10px;border-radius:2px;background:{_COLOR_HEX[color_name]};'
-        f'margin-right:4px;"></span>'
-        f'<span style="font-size:0.75rem;color:#8b949e;">{_TYPE_LABELS.get(type_key, type_key)}</span>'
+        f'<span style="{_legend_shapes[type_key].format(c=_COLOR_HEX[color_name])}'
+        f'margin-right:4px;display:inline-block;"></span>'
+        f'<span style="font-size:0.75rem;color:{_COLOR_HEX[color_name]};">{_TYPE_LABELS.get(type_key, type_key)}</span>'
         f"</span>"
         for type_key, color_name in [
             ("training-and-inference", "blue"),
@@ -668,30 +681,6 @@ def _build_dag_html(
         f"            }},\n"
         f"        }}).run();\n"
         f"    }}\n"
-        f"\n"
-        f"    // Click handler \u2014 find and click the matching table row in parent\n"
-        f"    cy.on('tap', 'node', function(evt) {{\n"
-        f"        var fullName = evt.target.data('fullName');\n"
-        f"        if (!fullName) return;\n"
-        f"        try {{\n"
-        f"            var rows = window.parent.document.querySelectorAll('.MuiTableBody-root tr');\n"
-        f"            for (var i = 0; i < rows.length; i++) {{\n"
-        f"                var cell = rows[i].querySelector('td');\n"
-        f"                if (cell && cell.textContent.trim() === fullName) {{\n"
-        f"                    rows[i].click();\n"
-        f"                    break;\n"
-        f"                }}\n"
-        f"            }}\n"
-        f"        }} catch(e) {{ console.warn('DAG click handler:', e); }}\n"
-        f"    }});\n"
-        f"\n"
-        f"    // Visual click feedback: cursor pointer on nodes\n"
-        f"    cy.on('mouseover', 'node', function() {{\n"
-        f"        container.style.cursor = 'pointer';\n"
-        f"    }});\n"
-        f"    cy.on('mouseout', 'node', function() {{\n"
-        f"        container.style.cursor = 'default';\n"
-        f"    }});\n"
         f"}})();\n"
         f"</script>"
     )
@@ -702,7 +691,7 @@ def _build_dag_html(
 # ---------------------------------------------------------------------------
 
 
-@ttl_cache()
+@ttl_cache(ttl=3600)
 def _fetch_cold_costs() -> pd.DataFrame:
     """30-day aggregated costs from fct_workflow_costs_synced (cold tier).
 
@@ -727,7 +716,7 @@ def _fetch_cold_costs() -> pd.DataFrame:
         return _empty
 
 
-@ttl_cache()
+@ttl_cache(ttl=1800)
 def _fetch_warm_costs() -> pd.DataFrame:
     """Recent cost estimates from workflow_cost_live_synced (warm tier).
 
@@ -756,17 +745,20 @@ def _fetch_warm_costs() -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-@ttl_cache()
+@ttl_cache(ttl=1800)
 def _fetch_job_runs() -> dict[str, dict[str, Any]]:
     """Fetch recent job runs from Databricks Jobs API.
 
     Returns dict keyed by task_key with latest run info:
     {task_key: {"last_run": datetime, "duration_seconds": int, "state": str}}
     """
+    global _ws_client
     try:
-        from databricks.sdk import WorkspaceClient
+        if _ws_client is None:
+            from databricks.sdk import WorkspaceClient
 
-        ws = WorkspaceClient()
+            _ws_client = WorkspaceClient()
+        ws = _ws_client
         # Find runs from the last 30 days
         runs: dict[str, dict[str, Any]] = {}
         for run in ws.jobs.list_runs(
@@ -1343,8 +1335,8 @@ def _refresh_table(state: Any) -> None:
     )
 
     if all_filters_default:
-        # No filters — show full DAG
-        state.wf_dag_html = _build_dag_html(_cards)
+        # No filters — reuse cached full DAG (built once in wf_refresh)
+        state.wf_dag_html = _unfiltered_dag_html
         state.wf_dag_height = f"{max(200, min(_DAG_MAX_HEIGHT_PX, len(_cards) * 50 + 80))}px"
     else:
         # Build filtered DAG: matched cards + their immediate neighbors for context
@@ -1533,9 +1525,10 @@ def _compute_stats(
 
 def wf_refresh(state: Any) -> None:
     """Page entry point — loads cards, queries costs, builds dashboard."""
-    global _cards
+    global _cards, _unfiltered_dag_html
 
-    _cards = _load_cards_from_yaml()
+    if not _cards:
+        _cards = _load_cards_from_yaml()
     if not _cards:
         logger.warning("No workflow cards loaded")
         state.wf_no_cards_warning = "No workflow cards loaded. Check that the workflow-cards/ directory is available."
@@ -1558,8 +1551,9 @@ def wf_refresh(state: Any) -> None:
     state.wf_runtime_lov = ["All"] + sorted(runtime_values)
     state.wf_runtime_filter = "All"
 
-    # Build DAG
-    state.wf_dag_html = _build_dag_html(_cards)
+    # Build DAG (cached for filter resets — see _refresh_table)
+    _unfiltered_dag_html = _build_dag_html(_cards)
+    state.wf_dag_html = _unfiltered_dag_html
 
     # Query costs + job runs
     cold = _fetch_cold_costs()

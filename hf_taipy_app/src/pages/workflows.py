@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from page_template import (
     NAV_OPERATIONS,
+    Citation,
     ContentBlock,
     ContentRow,
     PageConfig,
@@ -24,12 +25,38 @@ page_config = PageConfig(
         "16 workflow cards covering training (HF Jobs) and inference (Databricks) pipelines. "
         "Cost transparency across three tiers: actual (billing), estimated (live), and projected (YAML)."
     ),
-    citations=[],
+    citations=[
+        Citation("Cytoscape.js", "https://js.cytoscape.org/"),
+        Citation("dagre (Cpettitt)", "https://github.com/dagrejs/dagre"),
+    ],
     stats=[
-        StatCard("Workflows", "wf_total_workflows", "wf_workflows_detail", detail_html=True),
-        StatCard("Freshness", "wf_freshness_summary", "wf_freshness_detail", detail_html=True),
-        StatCard("Total Cost (30 Days)", "wf_total_cost_30d", "wf_cost_detail", detail_html=True),
-        StatCard("Run Volume (30 Days)", "wf_run_volume", "wf_run_volume_detail"),
+        StatCard(
+            "Workflows",
+            "wf_total_workflows",
+            "wf_workflows_detail",
+            help_text="Total workflow cards loaded. Detail shows breakdown by type.",
+            detail_html=True,
+        ),
+        StatCard(
+            "Freshness",
+            "wf_freshness_summary",
+            "wf_freshness_detail",
+            help_text="Monitored workflows within their freshness SLA. OK = within 75% of threshold, Warning = 75-100%, Stale = exceeded.",
+            detail_html=True,
+        ),
+        StatCard(
+            "Total Cost (30 Days)",
+            "wf_total_cost_30d",
+            "wf_cost_detail",
+            help_text="Combined 30-day cost. DB = actual (billing). HF = estimated (timing) or projected (YAML).",
+            detail_html=True,
+        ),
+        StatCard(
+            "Run Volume (30 Days)",
+            "wf_run_volume",
+            "wf_run_volume_detail",
+            help_text="Total pipeline runs in the last 30 days. Detail shows daily rate and average cost per run.",
+        ),
     ],
     content=[
         ContentRow(
@@ -143,15 +170,7 @@ _detail_md = """
 """
 
 # ---------------------------------------------------------------------------
-# Combined page — two-mode switch (dashboard vs detail)
-# Uses string concatenation, NOT f-string, because build_page() output
-# contains bare single-brace Taipy bindings that would fail as f-string lookups.
+# Dashboard-only page — detail drilldown deferred to a future release.
+# _detail_md above is retained for when detail navigation is enabled.
 # ---------------------------------------------------------------------------
-page_md = (
-    "<|part|render={wf_selected_workflow is None}|\n"
-    + _dashboard_md
-    + "\n|>\n\n"
-    + "<|part|render={wf_selected_workflow is not None}|\n"
-    + _detail_md
-    + "\n|>\n"
-)
+page_md = _dashboard_md

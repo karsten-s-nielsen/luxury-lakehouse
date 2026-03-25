@@ -98,10 +98,6 @@ GLOSSARY: dict[str, str] = {
         "Defensive pressure received per 90 minutes (DEFCON framework). Higher = more defensive attention attracted."
     ),
     "Most Active Zone": "The 3x3 pitch zone (e.g., 'Att Center') with the highest action count.",
-    "applyInPandas": (
-        "Spark distributed execution pattern that runs a Python function on each group "
-        "of a grouped DataFrame in parallel across executors."
-    ),
     "Cost Tier": (
         "How cost data was sourced: Actual (from billing), Estimated (from pipeline timing), "
         "or Projected (from YAML card estimates)."
@@ -109,10 +105,6 @@ GLOSSARY: dict[str, str] = {
     "Freshness SLA": (
         "Maximum acceptable age (in hours) for a workflow's output data. "
         "Green = within SLA, yellow = 75-100%, red = exceeded."
-    ),
-    "Skip Guard": (
-        "Idempotency pattern that checks for already-processed results before expensive computation. "
-        "Prevents duplicate work on retry."
     ),
     "Workflow Card": (
         "A YAML manifest describing an AI/ML workflow — its inputs, outputs, execution config, "

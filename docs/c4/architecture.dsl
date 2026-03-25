@@ -8,7 +8,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 16 AI/ML wor
             guiLayer = container "Taipy GUI" "Root template with sidebar navigation, glossary panels, conditional footer (show_site_footer), and page routing" "Python, Taipy 4.1"
             templateEngine = container "Template Engine" "Three layout builders (standard, sub-view, dashboard) dispatched by build_page(). Dashboard layout: StatCard stats bar + ll-dashboard-scroll viewport container. Typed dataclasses: PageConfig, SubView, ContentBlock (table_cell_class_name for per-cell CSS), ContentRow, SidebarWidget, Metric, Citation, StatCard (detail_html for content-provider iframes)" "Python, frozen dataclasses"
             sidebarWidgets = container "Sidebar Widgets" "Centralized filter cascade with progressive disclosure, view-dependent visibility, change_delay debounce, and absolute-positioned help tooltips" "Python, Taipy Markdown"
-            stateModules = container "State Modules" "Per-page state variables, callbacks, data fetching, chart rendering (13 modules). Static charts via mplsoccer PNG. Interactive charts via Plotly. DAG via Cytoscape.js iframe. Workflows: cell_class_name callbacks, RawHtml stat details via content provider" "Python, pandas, mplsoccer, Plotly, Cytoscape.js"
+            stateModules = container "State Modules" "Per-page state variables, callbacks, data fetching, chart rendering (13 modules). Static charts via mplsoccer PNG. Interactive charts via Plotly. DAG via Cytoscape.js iframe. Workflows: YAML cards cached on first load (_cards module-level), DAG HTML cached for filter resets (_unfiltered_dag_html), TTL-cached Lakebase queries (3600s cold / 1800s warm+jobs), lazy WorkspaceClient singleton for Jobs API, cell_class_name callbacks with WCAG shape markers, RawHtml stat details via content provider. Detail drilldown deferred (page_md = dashboard only)" "Python, pandas, mplsoccer, Plotly, Cytoscape.js"
             filterLayer = container "Filter Layer" "Shared filter queries with TTL cache, scope labels, data freshness, and embedding player search" "Python, psycopg2"
             dbLayer = container "DB Layer" "OAuth token management, connection pooling, parameterized query execution" "Python, psycopg2, Databricks SDK"
             renderEngine = container "Render Engine" "Matplotlib/mplsoccer figure-to-PNG with cache-busting paths for static pitch diagrams" "Python, matplotlib, mplsoccer"
@@ -70,6 +70,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 16 AI/ML wor
         # Relationships - external (Taipy)
         dbLayer -> lakebase "Queries 19 synced tables via parameterized SQL" "PostgreSQL/SSL"
         dbLayer -> databricksApi "Fetches OAuth tokens for Lakebase auth" "HTTPS/REST"
+        stateModules -> workflowCards "Reads YAML manifests on first page load (cached in _cards module variable)" ""
         stateModules -> hfHub "Loads embedding vectors for similarity search via pgvector" "HTTPS"
 
         # Relationships - pipeline platform
