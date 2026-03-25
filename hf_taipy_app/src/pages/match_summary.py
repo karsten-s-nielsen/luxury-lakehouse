@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from page_template import Citation, ContentBlock, ContentRow, Metric, PageConfig, build_page
+from page_template import NAV_MATCH_ANALYSIS, Citation, ContentBlock, ContentRow, Metric, PageConfig, build_page
 
 page_config = PageConfig(
     title="Match Summary",
     icon="scoreboard",
-    nav_section="Match Analysis",
+    nav_section=NAV_MATCH_ANALYSIS,
     description=(
         "Match scorecard with Expected Goals (xG) per Rathke (2017). "
         "Pressing intensity via PPDA (Trainor & Chassy 2021)."

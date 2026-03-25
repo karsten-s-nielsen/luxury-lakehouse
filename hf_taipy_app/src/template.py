@@ -7,7 +7,11 @@ Widget definitions are DATA (type, var, label, callback, condition).
 All structural wrapping and styling is template-controlled — zero styling in definitions.
 """
 
-from page_template import SidebarWidget, build_sidebar_section
+from page_template import (
+    _FOOTER_CONTENT,
+    SidebarWidget,
+    build_sidebar_section,
+)
 
 GETTING_STARTED = """\
 **Suggested workflow:**
@@ -94,6 +98,18 @@ GLOSSARY: dict[str, str] = {
         "Defensive pressure received per 90 minutes (DEFCON framework). Higher = more defensive attention attracted."
     ),
     "Most Active Zone": "The 3x3 pitch zone (e.g., 'Att Center') with the highest action count.",
+    "Cost Tier": (
+        "How cost data was sourced: Actual (from billing), Estimated (from pipeline timing), "
+        "or Projected (from YAML card estimates)."
+    ),
+    "Freshness SLA": (
+        "Maximum acceptable age (in hours) for a workflow's output data. "
+        "Green = within SLA, yellow = 75-100%, red = exceeded."
+    ),
+    "Workflow Card": (
+        "A YAML manifest describing an AI/ML workflow — its inputs, outputs, execution config, "
+        "cost estimates, and academic provenance. Each of the 16 workflows has a card in workflow-cards/."
+    ),
 }
 
 PAGE_TERMS: dict[str, list[str]] = {
@@ -123,6 +139,11 @@ PAGE_TERMS: dict[str, list[str]] = {
     "Pitch-Control": ["Pitch Control"],
     "Pass-Timing": ["PAUSA", "Temporal Judgment", "Spatial Selection", "OBSO"],
     "Defensive-Impact": ["DEFCON", "Intercept", "Concede", "Disturb", "Deter"],
+    "AI-ML-Workflows": [
+        "Cost Tier",
+        "Freshness SLA",
+        "Workflow Card",
+    ],
 }
 
 
@@ -166,9 +187,10 @@ _SIMILARITY_PAGES = ("Player-Similarity",)
 _PASS_TIMING_PAGES = ("Pass-Timing",)
 _DEFCON_PAGES = ("Defensive-Impact",)
 _PC_CONTROL_PAGES = ("Pitch-Control",)
+_WF_PAGES = ("AI-ML-Workflows",)
 _FILTER_HEADER_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary",
                         "Player-Impact", "Player-Comparison", "Movement-Pressing",
-                        "Pitch-Control", "Pass-Timing", "Defensive-Impact")
+                        "Pitch-Control", "Pass-Timing", "Defensive-Impact", "AI-ML-Workflows")
 # fmt: on
 
 # ---------------------------------------------------------------------------
@@ -426,6 +448,37 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         depends_value="Timeline",
         depends_lov_populated=True,
     ),
+    # --- Operations page filters (AI/ML Workflows) ---
+    # These filter by workflow metadata (type, runtime, freshness) rather than
+    # analytical data dimensions (competition, team, match). They only appear
+    # on the AI-ML-Workflows page.
+    SidebarWidget(
+        "dropdown",
+        "wf_type_filter",
+        "Workflow Type",
+        "wf_on_type_filter",
+        condition=f"current_page in {_WF_PAGES}",
+        lov="wf_type_lov",
+        help="Filter by workflow type: Train+Infer, Grid Compute, Heuristic, Validation, Augmentation.",
+    ),
+    SidebarWidget(
+        "dropdown",
+        "wf_runtime_filter",
+        "Runtime",
+        "wf_on_runtime_filter",
+        condition=f"current_page in {_WF_PAGES}",
+        lov="wf_runtime_lov",
+        help="Filter by execution runtime: Databricks (DB), HuggingFace Jobs (HF), or both.",
+    ),
+    SidebarWidget(
+        "dropdown",
+        "wf_freshness_filter",
+        "Freshness",
+        "wf_on_freshness_filter",
+        condition=f"current_page in {_WF_PAGES}",
+        lov="wf_freshness_lov",
+        help="Filter by data freshness status: OK (within SLA), Warning (approaching), Stale (exceeded).",
+    ),
     # Pitch Control
     SidebarWidget(
         "dropdown",
@@ -570,8 +623,8 @@ def build_root_page(nav_md: str) -> str:
 
 <|content|>
 
-<|part|class_name=ll-footer|
-[Interactive Demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) · [Published Datasets](https://huggingface.co/luxury-lakehouse)
+<|part|render={{show_site_footer}}|class_name=ll-footer|
+{_FOOTER_CONTENT}
 |>
 
 |>

@@ -149,6 +149,7 @@ module "synced_tables" {
   database_instance_name = module.lakebase.instance_name
   environment            = var.environment
   gold_schema            = "${var.environment}_gold"
+  observability_schema   = "observability"
 }
 
 # ── Databricks App (DEPRECATED) ──────────────────────────────────────────────

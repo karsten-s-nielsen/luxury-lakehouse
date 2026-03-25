@@ -60,6 +60,10 @@ min_minutes: int = 90
 show_getting_started: bool = False
 show_glossary: bool = False
 
+# Footer control — dashboard pages set to False and render the footer
+# inside their scroll wrapper.  Other pages use the site-wide footer.
+show_site_footer: bool = True
+
 # Loading state — bound to a spinner overlay in the template
 is_loading: bool = False
 loading_text: str = "Loading..."
@@ -89,6 +93,7 @@ __all__ = [
     "min_minutes",
     "show_getting_started",
     "show_glossary",
+    "show_site_footer",
     "is_loading",
     "loading_text",
     "toggle_getting_started",
@@ -120,10 +125,27 @@ _tracking_match_map: dict[str, str] = {}
 # Page refresh registry — pages register their refresh functions here
 _page_refreshers: dict[str, Any] = {}
 
+# Dashboard pages render the footer inside their scroll wrapper, so the
+# site-wide footer must be hidden.  Pages self-declare via is_dashboard=True
+# at registration time.  _refresh_current_page derives show_site_footer
+# from this set, removing the need for imperative state.show_site_footer
+# assignments in individual page refresh functions.
+_dashboard_pages: set[str] = set()
 
-def register_page_refresher(page_name: str, fn: Any) -> None:
-    """Register a page-specific refresh function called on filter changes."""
+
+def register_page_refresher(page_name: str, fn: Any, *, is_dashboard: bool = False) -> None:
+    """Register a page-specific refresh function called on filter changes.
+
+    Args:
+        page_name: Route key (e.g., "AI-ML-Workflows").
+        fn: Refresh callback accepting (state).
+        is_dashboard: True for dashboard-layout pages that render their own
+            footer inside the scroll wrapper.  The site-wide footer is
+            hidden automatically for these pages.
+    """
     _page_refreshers[page_name] = fn
+    if is_dashboard:
+        _dashboard_pages.add(page_name)
 
 
 _LOADING_TEXTS: dict[str, str] = {
@@ -144,6 +166,11 @@ _LOADING_TEXTS: dict[str, str] = {
 
 def _refresh_current_page(state: Any) -> None:
     """Call the current page's refresh function if registered."""
+    # Dashboard pages render the footer inside their scroll wrapper,
+    # so the site-wide footer must be hidden.  Derived from the
+    # _dashboard_pages set (populated at registration time).
+    state.show_site_footer = state.current_page not in _dashboard_pages
+
     fn = _page_refreshers.get(state.current_page)
     if fn:
         state.loading_text = _LOADING_TEXTS.get(state.current_page, "Loading...")

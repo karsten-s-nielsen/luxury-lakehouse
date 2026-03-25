@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from page_template import Citation, ContentBlock, ContentRow, PageConfig, build_page
+from page_template import NAV_PLAYER_ANALYSIS, Citation, ContentBlock, ContentRow, PageConfig, build_page
 
 page_config = PageConfig(
     title="Player Similarity",
     icon="search",
-    nav_section="Player Analysis",
+    nav_section=NAV_PLAYER_ANALYSIS,
     freshness_var="ps_data_freshness",
     description=(
         "Find similar players using pgvector cosine distance on behavioral (32-d) "

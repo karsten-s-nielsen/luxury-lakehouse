@@ -53,6 +53,26 @@ class SidebarWidget:
     help: str = ""  # tooltip help text (rendered as info icon next to widget)
 
 
+@dataclass(frozen=True)
+class NavSection:
+    """Navigation section grouping with role-based visibility.
+
+    Phase 1: all sections use role="viewer" (visible to everyone).
+    Phase 2: admin-only sections use role="admin" and build_nav()
+    filters by authenticated user role.
+    """
+
+    name: str
+    icon: str = ""
+    role: str = "viewer"
+
+
+NAV_MATCH_ANALYSIS = NavSection("Match Analysis")
+NAV_PLAYER_ANALYSIS = NavSection("Player Analysis")
+NAV_ADVANCED = NavSection("Advanced")
+NAV_OPERATIONS = NavSection("Operations")
+
+
 def _build_render_condition(w: SidebarWidget) -> str:
     """Build compound render condition from page visibility + dependency fields.
 
@@ -217,7 +237,7 @@ def build_nav(registry: list[PageEntry]) -> str:
     """
     sections: dict[str, list[PageEntry]] = {}
     for entry in registry:
-        sections.setdefault(entry.config.nav_section, []).append(entry)
+        sections.setdefault(entry.config.nav_section.name, []).append(entry)
 
     parts: list[str] = []
     for section_name, entries in sections.items():
@@ -238,7 +258,7 @@ class ContentBlock:
     The template controls all structural wrapping and styling.
     """
 
-    kind: Literal["image", "table", "text", "expandable_table", "chart"]
+    kind: Literal["image", "table", "text", "expandable_table", "chart", "html"]
     var: str  # state variable name
     header: str = ""  # optional subtitle above the block (ll-subtitle)
     condition: str = ""  # Taipy render condition (empty = auto len(var) > 0)
@@ -247,6 +267,12 @@ class ContentBlock:
     caption_var: str = ""  # dynamic caption (state variable)
     caption_condition: str = ""  # render condition for caption
     chart_height: str = "450px"  # chart kind only: CSS height for the chart container
+    on_action: str = ""  # table/expandable_table: callback function name
+    click_bridge_var: str = ""  # html kind: hidden input var for iframe→Taipy callback
+    click_bridge_callback: str = ""  # html kind: callback triggered by click bridge
+    height_var: str = ""  # html kind: dynamic height state variable
+    container_class: str = ""  # html kind: override wrapper CSS class (default: "ll-html-content")
+    table_cell_class_name: dict[str, str] | None = None  # table kind: {column: callback_name} for cell styling
 
 
 @dataclass(frozen=True)
@@ -278,6 +304,21 @@ class Metric:
 
 
 @dataclass(frozen=True)
+class StatCard:
+    """One card in a dashboard stats bar.
+
+    Pages provide only data — label, variable, optional detail + help.
+    The template controls all wrapping (ll-stats-bar, ll-stat-card, etc.).
+    """
+
+    label: str
+    var: str
+    detail_var: str = ""
+    help_text: str = ""
+    detail_html: bool = False  # render detail as raw HTML via content provider (iframe)
+
+
+@dataclass(frozen=True)
 class Citation:
     """An academic or tool reference. Template controls rendering."""
 
@@ -295,7 +336,7 @@ class PageConfig:
 
     title: str
     icon: str
-    nav_section: str  # "Match Analysis", "Player Analysis", "Advanced"
+    nav_section: NavSection
     description: str  # plain text describing the page (no markdown styling)
     citations: list[Citation] = field(default_factory=list)  # academic/tool references
     empty_message: str = ""  # static text shown when no data
@@ -310,6 +351,7 @@ class PageConfig:
     footer_var: str = ""  # state variable for footer text (citations, scope notes)
     # Optional: multi-view sub-views (when set, replaces single-view layout)
     sub_views: list[SubView] = field(default_factory=list)
+    stats: list[StatCard] = field(default_factory=list)  # dashboard stat cards (triggers dashboard layout)
 
 
 @dataclass(frozen=True)
@@ -345,6 +387,12 @@ class SubView:
     scope_vars: list[str] = field(default_factory=list)
 
 
+_FOOTER_CONTENT = (
+    "[Interactive Demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)"
+    " · [Published Datasets](https://huggingface.co/luxury-lakehouse)"
+)
+
+
 def _build_metric(m: Metric) -> str:
     """Generate markdown for a single metric block.
 
@@ -370,6 +418,45 @@ def _build_metric(m: Metric) -> str:
     return "\n".join(lines)
 
 
+def _build_stat_card(card: StatCard) -> str:
+    """Generate markdown for a single stat card."""
+    help_span = ""
+    if card.help_text:
+        help_span = f' <span class="ll-help material-symbols-outlined" title="{card.help_text}">info</span>'
+
+    lines = [
+        "<|part|class_name=ll-stat-card|",
+        "<|part|class_name=ll-stat-label|",
+        f"{card.label}{help_span}",
+        "|>",
+        "",
+        f"### <|{{{card.var}}}|text|>",
+    ]
+
+    if card.detail_var:
+        lines.append("")
+        detail_class = "ll-stat-detail-html" if card.detail_html else "ll-stat-detail"
+        lines.append(f"<|part|render={{len({card.detail_var}) > 0}}|class_name={detail_class}|")
+        if card.detail_html:
+            lines.append(f"<|part|content={{{card.detail_var}}}|>")
+        else:
+            lines.append(f"<|{{{card.detail_var}}}|text|>")
+        lines.append("|>")
+
+    lines.append("|>")
+    return "\n".join(lines)
+
+
+def _build_stats_bar(stats: list[StatCard]) -> str:
+    """Generate the horizontal stats bar from a list of StatCards."""
+    parts = ["<|part|class_name=ll-stats-bar|", ""]
+    for card in stats:
+        parts.append(_build_stat_card(card))
+        parts.append("")
+    parts.append("|>")
+    return "\n".join(parts)
+
+
 def _build_content_block(block: ContentBlock, page_title: str) -> str:
     """Generate markdown for a single content block.
 
@@ -388,20 +475,34 @@ def _build_content_block(block: ContentBlock, page_title: str) -> str:
         parts.append(block.header)
         parts.append("|>")
 
+    # Shared table attributes (used by both table and expandable_table)
+    action_attr = f"|on_action={block.on_action}" if block.on_action else ""
+    ccn_attr = (
+        "".join(f"|cell_class_name[{col}]={cb}" for col, cb in block.table_cell_class_name.items())
+        if block.table_cell_class_name
+        else ""
+    )
+
     # Content by kind
     if block.kind == "image":
         parts.append(f"<|{{{block.var}}}|image|label={page_title}|width=100%|>")
     elif block.kind == "table":
-        parts.append(f"<|{{{block.var}}}|table|page_size={block.table_page_size}|>")
+        parts.append(f"<|{{{block.var}}}|table|page_size={block.table_page_size}{action_attr}{ccn_attr}|>")
     elif block.kind == "text":
         parts.append(f"<|{{{block.var}}}|text|>")
     elif block.kind == "expandable_table":
         # header is required for expandable — used as toggle label.
         parts.append(f"<|{block.header}|expandable|expanded=False|")
-        parts.append(f"<|{{{block.var}}}|table|page_size={block.table_page_size}|>")
+        parts.append(f"<|{{{block.var}}}|table|page_size={block.table_page_size}{action_attr}{ccn_attr}|>")
         parts.append("|>")
     elif block.kind == "chart":
         parts.append(f"<|{{{block.var}}}|chart|figure={{{block.var}}}|height={block.chart_height}|>")
+    elif block.kind == "html":
+        css_class = block.container_class or "ll-html-content"
+        height_attr = f"|height={{{block.height_var}}}" if block.height_var else ""
+        parts.append(f"<|part|class_name={css_class}|")
+        parts.append(f"<|part|content={{{block.var}}}{height_attr}|>")
+        parts.append("|>")
 
     parts.append("|>")  # close render condition
 
@@ -414,6 +515,13 @@ def _build_content_block(block: ContentBlock, page_title: str) -> str:
         cap_cond = block.caption_condition or f"len({block.caption_var}) > 0"
         parts.append(f"<|part|render={{{cap_cond}}}|class_name=ll-reference|")
         parts.append(f"<|{{{block.caption_var}}}|text|>")
+        parts.append("|>")
+
+    # Click bridge: hidden input for iframe JS → Taipy callback.
+    # Outside render condition — must exist in DOM even when content is hidden.
+    if block.click_bridge_var and block.click_bridge_callback:
+        parts.append("<|part|class_name=ll-hidden|")
+        parts.append(f"<|{{{block.click_bridge_var}}}|input|on_change={block.click_bridge_callback}|>")
         parts.append("|>")
 
     return "\n".join(parts)
@@ -559,72 +667,120 @@ def build_header_from_config(cfg: PageConfig) -> str:
     )
 
 
+def _build_sub_view_page(parts: list[str], cfg: PageConfig) -> None:
+    """Append multi-view page layout: conditional sub-view blocks."""
+    for sv in cfg.sub_views:
+        parts.append(_build_sub_view(sv, cfg.title))
+        parts.append("")
+
+
+def _build_dashboard_page(parts: list[str], cfg: PageConfig) -> None:
+    """Append dashboard page layout: stats bar + full-width content in a scroll wrapper."""
+    # Wrap in a horizontal-scroll container so narrow viewports
+    # get a scrollbar instead of clipping the DAG / table.
+    parts.append("<|part|class_name=ll-dashboard-scroll|")
+    parts.append("")
+    parts.append(_build_stats_bar(cfg.stats))
+    parts.append("")
+
+    for row in cfg.content:
+        parts.append(_build_content_row(row, cfg.title))
+        parts.append("")
+
+    if cfg.empty_condition:
+        parts.append(f"<|part|render={{{cfg.empty_condition}}}|class_name=ll-info-box|")
+        parts.append(f"{cfg.empty_message}")
+        parts.append("|>")
+
+    if cfg.warning_var:
+        parts.append(f"<|part|render={{len({cfg.warning_var}) > 0}}|class_name=ll-warning-box|")
+        parts.append(f"<|{{{cfg.warning_var}}}|text|>")
+        parts.append("|>")
+
+    # Footer inside the scroll wrapper so it scrolls with content.
+    # The site-wide footer is hidden via the show_site_footer state
+    # variable, which _refresh_current_page sets to False for dashboard pages.
+    parts.append("<|part|class_name=ll-footer|")
+    parts.append(_FOOTER_CONTENT)
+    parts.append("|>")
+
+    parts.append("|>")  # close ll-dashboard-scroll
+
+
+def _build_standard_page(parts: list[str], cfg: PageConfig) -> None:
+    """Append standard page layout: 3fr/1fr grid with content left, metrics right."""
+    parts.append("<|layout|columns=3fr 1fr|gap=1rem|")
+    parts.append("")
+
+    # Left column: scope, diagram, freshness
+    parts.append("<|part|")
+
+    # Scope variables
+    for sv in cfg.scope_vars:
+        parts.append(f"<|part|render={{len({sv}) > 0}}|")
+        parts.append(f"<|{{{sv}}}|text|>")
+        parts.append("|>")
+        parts.append("")
+
+    # Content rows
+    for row in cfg.content:
+        parts.append(_build_content_row(row, cfg.title))
+        parts.append("")
+
+    # Empty state
+    if cfg.empty_condition:
+        parts.append(f"<|part|render={{{cfg.empty_condition}}}|class_name=ll-info-box|")
+        parts.append(f"{cfg.empty_message}")
+        parts.append("|>")
+
+    # Warning state (no-data — amber box, distinct from guidance)
+    if cfg.warning_var:
+        parts.append(f"<|part|render={{len({cfg.warning_var}) > 0}}|class_name=ll-warning-box|")
+        parts.append(f"<|{{{cfg.warning_var}}}|text|>")
+        parts.append("|>")
+
+    # Data freshness
+    if cfg.freshness_var:
+        parts.append("")
+        parts.append(f"<|part|render={{len({cfg.freshness_var}) > 0}}|")
+        parts.append(f"<|{{{cfg.freshness_var}}}|text|class_name=ll-reference|>")
+        parts.append("|>")
+
+    if cfg.footer_var:
+        parts.append("")
+        parts.append(f"<|part|render={{len({cfg.footer_var}) > 0}}|")
+        parts.append(f"<|{{{cfg.footer_var}}}|text|class_name=ll-reference|>")
+        parts.append("|>")
+
+    parts.append("|>")
+    parts.append("")
+
+    # Right column: metrics
+    parts.append("<|part|class_name=ll-metrics-column|")
+    for m in cfg.metrics:
+        parts.append(_build_metric(m))
+        parts.append("")
+    parts.append("|>")
+    parts.append("")
+
+    parts.append("|>")
+
+
 def build_page(cfg: PageConfig) -> str:
-    """Generate the standard page template markdown from config."""
-    # --- Page header (constrained width) ---
+    """Generate the standard page template markdown from config.
+
+    Dispatches to one of three layout builders based on PageConfig fields:
+    - sub_views non-empty -> multi-view page (_build_sub_view_page)
+    - stats non-empty     -> dashboard page  (_build_dashboard_page)
+    - otherwise           -> standard page   (_build_standard_page)
+    """
     parts = [build_header_from_config(cfg), ""]
 
     if cfg.sub_views:
-        # Multi-view page: conditional sub-view blocks
-        for sv in cfg.sub_views:
-            parts.append(_build_sub_view(sv, cfg.title))
-            parts.append("")
+        _build_sub_view_page(parts, cfg)
+    elif cfg.stats:
+        _build_dashboard_page(parts, cfg)
     else:
-        # Single-view page: standard 3fr/1fr layout
-        parts.append("<|layout|columns=3fr 1fr|gap=1rem|")
-        parts.append("")
-
-        # Left column: scope, diagram, freshness
-        parts.append("<|part|")
-
-        # Scope variables
-        for sv in cfg.scope_vars:
-            parts.append(f"<|part|render={{len({sv}) > 0}}|")
-            parts.append(f"<|{{{sv}}}|text|>")
-            parts.append("|>")
-            parts.append("")
-
-        # Content rows
-        for row in cfg.content:
-            parts.append(_build_content_row(row, cfg.title))
-            parts.append("")
-
-        # Empty state
-        if cfg.empty_condition:
-            parts.append(f"<|part|render={{{cfg.empty_condition}}}|class_name=ll-info-box|")
-            parts.append(f"{cfg.empty_message}")
-            parts.append("|>")
-
-        # Warning state (no-data — amber box, distinct from guidance)
-        if cfg.warning_var:
-            parts.append(f"<|part|render={{len({cfg.warning_var}) > 0}}|class_name=ll-warning-box|")
-            parts.append(f"<|{{{cfg.warning_var}}}|text|>")
-            parts.append("|>")
-
-        # Data freshness
-        if cfg.freshness_var:
-            parts.append("")
-            parts.append(f"<|part|render={{len({cfg.freshness_var}) > 0}}|")
-            parts.append(f"<|{{{cfg.freshness_var}}}|text|class_name=ll-reference|>")
-            parts.append("|>")
-
-        if cfg.footer_var:
-            parts.append("")
-            parts.append(f"<|part|render={{len({cfg.footer_var}) > 0}}|")
-            parts.append(f"<|{{{cfg.footer_var}}}|text|class_name=ll-reference|>")
-            parts.append("|>")
-
-        parts.append("|>")
-        parts.append("")
-
-        # Right column: metrics
-        parts.append("<|part|class_name=ll-metrics-column|")
-        for m in cfg.metrics:
-            parts.append(_build_metric(m))
-            parts.append("")
-        parts.append("|>")
-        parts.append("")
-
-        parts.append("|>")
+        _build_standard_page(parts, cfg)
 
     return "\n".join(parts)

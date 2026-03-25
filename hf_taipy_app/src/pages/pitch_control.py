@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from page_template import Citation, ContentBlock, ContentRow, Metric, PageConfig, build_page
+from page_template import NAV_ADVANCED, Citation, ContentBlock, ContentRow, Metric, PageConfig, build_page
 
 page_config = PageConfig(
     title="Pitch Control",
     icon="grid_on",
-    nav_section="Advanced",
+    nav_section=NAV_ADVANCED,
     freshness_var="pc_data_freshness",
     description=(
         'Physics-based pitch control model by Spearman (2017) "Beyond Expected Goals." '

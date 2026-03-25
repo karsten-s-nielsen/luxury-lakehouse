@@ -84,7 +84,7 @@ cost:
 
 monitoring:
   validator: wf-model-validation
-  freshness_sla_hours: 24
+  freshness_sla_hours: 168
 
 links:
   source_code:

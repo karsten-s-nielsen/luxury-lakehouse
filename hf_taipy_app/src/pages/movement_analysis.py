@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from page_template import Citation, ContentBlock, ContentRow, Metric, PageConfig, SubView, build_page
+from page_template import NAV_ADVANCED, Citation, ContentBlock, ContentRow, Metric, PageConfig, SubView, build_page
 
 page_config = PageConfig(
     title="Movement & Pressing",
     icon="directions_run",
-    nav_section="Advanced",
+    nav_section=NAV_ADVANCED,
     description=(
         "Off-Ball xT combines pitch control (Spearman 2017) with Expected Threat zones "
         "(Karun Singh 2018). Physical metrics from tracking data."

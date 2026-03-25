@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from page_template import Citation, ContentBlock, ContentRow, Metric, PageConfig, build_page
+from page_template import NAV_MATCH_ANALYSIS, Citation, ContentBlock, ContentRow, Metric, PageConfig, build_page
 
 page_config = PageConfig(
     title="Heat Map",
     icon="local_fire_department",
-    nav_section="Match Analysis",
+    nav_section=NAV_MATCH_ANALYSIS,
     description=(
         "Action density visualization using bin statistics. "
         "Spatial analysis approach per Anzer & Bauer (2021) "

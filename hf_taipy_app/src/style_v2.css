@@ -252,6 +252,7 @@
     font-size: 0.85rem;
 }
 
+
 .ll-footer a {
     color: var(--color-primary) !important;
 }
@@ -399,6 +400,22 @@ h2 .material-symbols-outlined {
 /* MUI selector wrappers inside section — zero margin override */
 .ll-sidebar-section .taipy-selector {
     margin: 0 !important;
+}
+
+/* Help icon positioned to the right of the widget without affecting width.
+   The md-para wrapper becomes position:relative so the icon can sit outside
+   the widget's flow. All widgets keep identical width regardless of help.
+   :has() requires Chrome 105+, Firefox 121+, Safari 15.4+ (2022+). */
+.ll-sidebar-section .md-para:has(> .ll-help) {
+    position: relative !important;
+}
+
+.ll-sidebar-section .md-para > .ll-help {
+    position: absolute !important;
+    right: -20px !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    margin-left: 0 !important;
 }
 
 .ll-sidebar-section .taipy-selector .MuiFormControl-root {
@@ -732,4 +749,520 @@ nav[class*="taipy"],
 /* Hide "Taipy inside" watermark */
 .taipy-watermark {
     display: none !important;
+}
+
+/* ===== 9. Operations pages (AI/ML Workflows) ===== */
+
+/* Stats bar — horizontal row of summary cards */
+.ll-stats-bar {
+    display: flex !important;
+    gap: 1rem !important;
+    margin-bottom: 1.5rem !important;
+    flex-wrap: wrap !important;
+}
+
+.ll-stat-card {
+    flex: 1 1 200px !important;
+    background: rgba(255, 255, 255, 0.04) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 8px !important;
+    padding: 1rem !important;
+}
+
+.ll-stat-card h3 {
+    font-size: 1.5rem !important;
+    font-weight: 700 !important;
+    color: #ffffff !important;
+    margin: 0 0 0.25rem 0 !important;
+}
+
+.ll-stat-label {
+    font-size: 0.75rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.05em !important;
+    color: rgba(255, 255, 255, 0.5) !important;
+    margin: 0 !important;
+}
+
+.ll-stat-detail {
+    font-size: 0.8rem !important;
+    color: rgba(255, 255, 255, 0.6) !important;
+    margin-top: 0.25rem !important;
+}
+
+/* Override MUI default 16px on text elements inside stat details */
+.ll-stat-detail .taipy-text {
+    font-size: 0.8rem !important;
+}
+
+/* Stat detail with HTML content (content provider iframe) */
+.ll-stat-detail-html {
+    margin-top: 0 !important;
+}
+
+/* Stat detail iframe: fixed height matching tallest content (Workflows 3 lines).
+   54px = 3 lines × 0.8rem × 1.4 line-height. Increase if more workflow types are added.
+   Taipy sets inline height:100% — must use !important to override.
+   Keep in sync with _STAT_DETAIL_STYLE font-size/line-height in state/workflows.py. */
+.ll-stat-detail-html iframe[src*="taipy-user-content"] {
+    width: 100% !important;
+    height: 54px !important;
+    min-height: 0 !important;
+    border: none !important;
+    background: transparent !important;
+}
+
+/* The content provider wrapper div also gets a default min-height — kill it */
+.ll-stat-detail-html > div {
+    min-height: 0 !important;
+}
+
+/* Collapse wrapper divs to match iframe height exactly — no extra spacing */
+.ll-stat-detail-html .md-para,
+.ll-stat-detail-html .taipy-part {
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 0 !important;
+    font-size: 0 !important;
+}
+
+/* Dashboard scroll wrapper — viewport-contained area with both scrollbars.
+   Horizontal scrollbar stays pinned at the bottom of the viewport.
+   The wrapper fills remaining viewport height below the page header.
+   Content blocks propagate their natural width as min-width.
+
+   245px breakdown: app header (~48px) + brand row (~48px) + page header
+   with icon/title/description (~96px) + <hr> + padding (~53px) = ~245px.
+   This keeps the scroll wrapper bottom edge at the viewport bottom. */
+.ll-dashboard-scroll {
+    overflow: auto !important;
+    max-height: calc(100vh - 245px) !important;
+}
+
+/* Kill table-level scrollbars inside dashboard pages — the scroll wrapper
+   is the ONLY scroll surface for horizontal overflow. */
+.ll-dashboard-scroll .MuiTableContainer-root {
+    overflow: visible !important;
+    max-height: none !important;
+}
+
+/* DAG container — overflow visible so the iframe can extend to its natural
+   width, which the scroll wrapper then makes scrollable.
+   margin: auto centers the DAG when its natural width is narrower than
+   the table (the widest sibling determines scroll container width). */
+.ll-dag-container {
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 8px !important;
+    margin-bottom: 1.5rem !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    overflow: visible !important;
+    background: rgba(255, 255, 255, 0.02) !important;
+}
+
+/* Type badges — pill-shaped colored labels */
+.ll-badge {
+    display: inline-block !important;
+    padding: 2px 8px !important;
+    border-radius: 12px !important;
+    font-size: 0.7rem !important;
+    font-weight: 600 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.03em !important;
+    white-space: nowrap !important;
+}
+
+.ll-badge-blue { background: rgba(88, 166, 255, 0.15) !important; color: #58a6ff !important; }
+.ll-badge-purple { background: rgba(188, 140, 255, 0.15) !important; color: #bc8cff !important; }
+.ll-badge-teal { background: rgba(63, 185, 160, 0.15) !important; color: #3fb9a0 !important; }
+.ll-badge-amber { background: rgba(227, 179, 65, 0.15) !important; color: #e3b341 !important; }
+.ll-badge-gray { background: rgba(110, 118, 129, 0.15) !important; color: #6e7681 !important; }
+.ll-badge-green { background: rgba(63, 185, 80, 0.15) !important; color: #3fb950 !important; }
+.ll-badge-red { background: rgba(248, 81, 73, 0.15) !important; color: #f85149 !important; }
+
+/* Status dots (freshness indicators) */
+.ll-status-dot {
+    display: inline-block !important;
+    width: 8px !important;
+    height: 8px !important;
+    border-radius: 50% !important;
+    margin-right: 0.4rem !important;
+    vertical-align: middle !important;
+}
+
+.ll-dot-green { background: #3fb950 !important; }
+.ll-dot-yellow { background: #d29922 !important; }
+.ll-dot-red { background: #f85149 !important; }
+.ll-dot-gray { background: #6e7681 !important; }
+
+/* Runtime icons */
+.ll-runtime {
+    display: inline-block !important;
+    font-size: 0.7rem !important;
+    padding: 1px 6px !important;
+    border-radius: 3px !important;
+    font-weight: 600 !important;
+    margin-right: 0.25rem !important;
+}
+
+/* Keep runtime hex in sync with ll-cell-rt-* and _stat_detail_html in state/workflows.py */
+.ll-runtime-db { background: rgba(255, 99, 71, 0.15) !important; color: #ff6347 !important; }
+.ll-runtime-hf { background: rgba(255, 213, 0, 0.15) !important; color: #ffd500 !important; }
+
+/* --- Table cell styles (applied via Taipy cell_class_name[column] callbacks) ---
+   Taipy applies the returned class to the <td> element.
+   Selectors use `.taipy-table td.ll-cell-*` to beat the built-in
+   `.taipy-table .MuiTableBody-root td { color: !important }` rule.
+   Colors match DAG node borders exactly for visual consistency. */
+
+/* Type column — colored text matching DAG node colors.
+   Keep hex values in sync with _COLOR_HEX in state/workflows.py. */
+.taipy-table td.ll-cell-type-train,
+.taipy-table td.ll-cell-type-grid,
+.taipy-table td.ll-cell-type-heuristic,
+.taipy-table td.ll-cell-type-validation,
+.taipy-table td.ll-cell-type-augmentation {
+    font-size: 0.75rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.02em !important;
+    white-space: nowrap !important;
+}
+
+.taipy-table td.ll-cell-type-train { color: #58a6ff !important; }
+.taipy-table td.ll-cell-type-grid { color: #bc8cff !important; }
+.taipy-table td.ll-cell-type-heuristic { color: #3fb9a0 !important; }
+.taipy-table td.ll-cell-type-validation { color: #e3b341 !important; }
+.taipy-table td.ll-cell-type-augmentation { color: #6e7681 !important; }
+
+/* Type column shape markers — WCAG 1.4.1 secondary visual cue.
+   Each type gets a distinct shape via ::before so color is supplementary.
+   Shapes: circle (train), diamond (grid), triangle (heuristic),
+   square (validation), ring (augmentation).
+   Keep in sync with _TYPE_CELL_STYLES in state/workflows.py. */
+.taipy-table td.ll-cell-type-train::before,
+.taipy-table td.ll-cell-type-grid::before,
+.taipy-table td.ll-cell-type-heuristic::before,
+.taipy-table td.ll-cell-type-validation::before,
+.taipy-table td.ll-cell-type-augmentation::before {
+    content: '' !important;
+    display: inline-block !important;
+    margin-right: 5px !important;
+    vertical-align: middle !important;
+}
+
+.taipy-table td.ll-cell-type-train::before {
+    width: 7px !important;
+    height: 7px !important;
+    border-radius: 50% !important;
+    background: currentColor !important;
+}
+
+.taipy-table td.ll-cell-type-grid::before {
+    width: 6px !important;
+    height: 6px !important;
+    transform: rotate(45deg) !important;
+    background: currentColor !important;
+}
+
+.taipy-table td.ll-cell-type-heuristic::before {
+    border-left: 4px solid transparent !important;
+    border-right: 4px solid transparent !important;
+    border-bottom: 7px solid currentColor !important;
+}
+
+.taipy-table td.ll-cell-type-validation::before {
+    width: 7px !important;
+    height: 7px !important;
+    border-radius: 1px !important;
+    background: currentColor !important;
+}
+
+.taipy-table td.ll-cell-type-augmentation::before {
+    width: 6px !important;
+    height: 6px !important;
+    border-radius: 50% !important;
+    border: 1.5px solid currentColor !important;
+}
+
+/* Runtime column — colored bold text matching mockup DB/HF icons */
+.taipy-table td.ll-cell-rt-db,
+.taipy-table td.ll-cell-rt-hf,
+.taipy-table td.ll-cell-rt-both {
+    font-size: 0.75rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.02em !important;
+    white-space: nowrap !important;
+}
+
+.taipy-table td.ll-cell-rt-db { color: #ff6347 !important; }
+.taipy-table td.ll-cell-rt-hf { color: #ffd500 !important; }
+
+/* DB + HF: hide cell text, replace with individually colored labels */
+.taipy-table td.ll-cell-rt-both div { color: transparent !important; font-size: 0 !important; }
+.taipy-table td.ll-cell-rt-both::before {
+    content: 'DB' !important;
+    color: #ff6347 !important;
+    font-size: 0.75rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.02em !important;
+    margin-right: 0.5em !important;
+}
+.taipy-table td.ll-cell-rt-both::after {
+    content: 'HF' !important;
+    color: #ffd500 !important;
+    font-size: 0.75rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.02em !important;
+}
+
+/* Freshness column — colored dot (::before) + colored text */
+.taipy-table td.ll-cell-fresh-ok,
+.taipy-table td.ll-cell-fresh-warning,
+.taipy-table td.ll-cell-fresh-stale {
+    white-space: nowrap !important;
+    font-weight: 500 !important;
+    font-size: 0.8rem !important;
+}
+
+.taipy-table td.ll-cell-fresh-ok::before,
+.taipy-table td.ll-cell-fresh-warning::before,
+.taipy-table td.ll-cell-fresh-stale::before {
+    content: '' !important;
+    display: inline-block !important;
+    width: 8px !important;
+    height: 8px !important;
+    border-radius: 50% !important;
+    margin-right: 6px !important;
+    vertical-align: middle !important;
+}
+
+.taipy-table td.ll-cell-fresh-ok { color: #3fb950 !important; }
+.taipy-table td.ll-cell-fresh-ok::before { background: #3fb950 !important; }
+
+.taipy-table td.ll-cell-fresh-warning { color: #d29922 !important; }
+.taipy-table td.ll-cell-fresh-warning::before { background: #d29922 !important; }
+
+.taipy-table td.ll-cell-fresh-stale { color: #f85149 !important; }
+.taipy-table td.ll-cell-fresh-stale::before { background: #f85149 !important; }
+
+/* Detail panel */
+.ll-detail-header {
+    margin-bottom: 1.5rem !important;
+}
+
+.ll-back-link {
+    font-size: 0.85rem !important;
+    color: var(--color-primary) !important;
+    cursor: pointer !important;
+    margin-bottom: 0.5rem !important;
+}
+
+.ll-detail-meta {
+    font-size: 0.85rem !important;
+    color: rgba(255, 255, 255, 0.6) !important;
+    margin-top: 0.25rem !important;
+}
+
+/* Detail sections */
+.ll-detail-section {
+    margin-bottom: 2rem !important;
+    padding-bottom: 1.5rem !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+
+.ll-detail-section:last-child {
+    border-bottom: none !important;
+}
+
+.ll-section-title {
+    font-size: 1.1rem !important;
+    font-weight: 600 !important;
+    color: rgba(255, 255, 255, 0.9) !important;
+    margin-bottom: 0.75rem !important;
+}
+
+/* Data flow — three-column layout */
+.ll-data-flow {
+    display: grid !important;
+    grid-template-columns: 1fr auto 1fr !important;
+    gap: 1rem !important;
+    align-items: start !important;
+}
+
+.ll-data-flow-center {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 1rem !important;
+    color: var(--color-primary) !important;
+    font-size: 0.85rem !important;
+    font-weight: 600 !important;
+}
+
+.ll-data-chip {
+    display: inline-block !important;
+    padding: 4px 10px !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    border-radius: 6px !important;
+    font-size: 0.8rem !important;
+    margin: 2px !important;
+    color: rgba(255, 255, 255, 0.8) !important;
+}
+
+.ll-data-chip a {
+    color: var(--color-primary) !important;
+    text-decoration: none !important;
+}
+
+/* Execution cards — side-by-side */
+.ll-exec-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 1rem !important;
+}
+
+.ll-exec-card {
+    background: rgba(255, 255, 255, 0.03) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 8px !important;
+    padding: 1rem !important;
+}
+
+.ll-exec-card h4 {
+    font-size: 0.95rem !important;
+    font-weight: 600 !important;
+    margin-bottom: 0.5rem !important;
+}
+
+.ll-exec-row {
+    display: flex !important;
+    justify-content: space-between !important;
+    font-size: 0.85rem !important;
+    padding: 0.25rem 0 !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04) !important;
+}
+
+.ll-exec-label {
+    color: rgba(255, 255, 255, 0.5) !important;
+}
+
+/* Cost cards */
+.ll-cost-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 1rem !important;
+}
+
+.ll-cost-card {
+    background: rgba(255, 255, 255, 0.03) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 8px !important;
+    padding: 1rem !important;
+}
+
+.ll-cost-big {
+    font-size: 1.5rem !important;
+    font-weight: 700 !important;
+    font-family: monospace !important;
+}
+
+.ll-cost-source {
+    display: inline-block !important;
+    font-size: 0.65rem !important;
+    padding: 1px 6px !important;
+    border-radius: 3px !important;
+    font-weight: 600 !important;
+    text-transform: uppercase !important;
+}
+
+.ll-cost-actual { background: rgba(63, 185, 80, 0.15) !important; color: #3fb950 !important; }
+.ll-cost-estimated { background: rgba(227, 179, 65, 0.15) !important; color: #e3b341 !important; }
+.ll-cost-projected { background: rgba(110, 118, 129, 0.15) !important; color: #8b949e !important; }
+
+/* Reference list */
+.ll-ref-item {
+    padding: 0.5rem 0 !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04) !important;
+}
+
+.ll-ref-role {
+    display: inline-block !important;
+    font-size: 0.65rem !important;
+    padding: 1px 6px !important;
+    border-radius: 3px !important;
+    background: rgba(188, 140, 255, 0.15) !important;
+    color: #bc8cff !important;
+    font-weight: 600 !important;
+    text-transform: uppercase !important;
+    margin-right: 0.5rem !important;
+}
+
+/* Monitoring bars (inline progress indicators) */
+.ll-mon-bar {
+    height: 6px !important;
+    background: rgba(255, 255, 255, 0.1) !important;
+    border-radius: 3px !important;
+    overflow: hidden !important;
+    width: 100px !important;
+    display: inline-block !important;
+    vertical-align: middle !important;
+    margin-left: 0.5rem !important;
+}
+
+.ll-mon-bar-fill {
+    height: 100% !important;
+    border-radius: 3px !important;
+    transition: width 0.3s ease !important;
+}
+
+/* Source code links */
+.ll-source-link {
+    font-family: monospace !important;
+    font-size: 0.85rem !important;
+    color: rgba(255, 255, 255, 0.7) !important;
+    display: block !important;
+    padding: 0.2rem 0 !important;
+}
+
+/* Clickable table rows */
+.ll-clickable-row {
+    cursor: pointer !important;
+}
+
+/* Dashboard filter bar */
+.ll-filter-bar {
+    display: flex !important;
+    gap: 1rem !important;
+    margin-bottom: 1rem !important;
+    align-items: center !important;
+}
+
+/* Hidden element (for JS callback workarounds) */
+.ll-hidden {
+    display: none !important;
+}
+
+/* Content provider iframes — expand to show full HTML content.
+   Taipy renders <|part|content={var}|> via iframes that default to 154px.
+   Override to fill container and show all content. */
+.ll-detail-section iframe[src*="taipy-user-content"] {
+    width: 100% !important;
+    min-height: 300px !important;
+    border: none !important;
+}
+
+/* DAG iframe: layoutstop handler computes zoom + height dynamically */
+.ll-dag-container iframe[src*="taipy-user-content"] {
+    width: 100% !important;
+    border: none !important;
+}
+
+/* Generic HTML content iframes (ContentBlock kind="html").
+   Auto-sized by RawHtml.AUTOSIZE_JS or content-specific JS.
+   Initial min-height prevents layout flash before JS runs. */
+.ll-html-content iframe[src*="taipy-user-content"] {
+    width: 100% !important;
+    min-height: 150px !important;
+    border: none !important;
 }

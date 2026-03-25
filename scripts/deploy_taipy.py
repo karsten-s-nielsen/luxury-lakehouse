@@ -20,6 +20,7 @@ import argparse
 import fnmatch
 import logging
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -106,6 +107,7 @@ def _preflight(folder: Path, repo_id: str, api: HfApi) -> None:
 
 def _dry_run(folder: Path, repo_id: str, api: HfApi) -> None:
     """Preview what would be uploaded and deleted without making changes."""
+    cards_dst = _bundle_workflow_cards()
     all_local = _list_local_files(folder)
     upload_files = [(f, sz) for f, sz in all_local if not _matches_any(f, IGNORE_PATTERNS)]
     ignored_files = [f for f, _ in all_local if _matches_any(f, IGNORE_PATTERNS)]
@@ -147,6 +149,29 @@ def _dry_run(folder: Path, repo_id: str, api: HfApi) -> None:
     print(f"\n  Total upload: {total_bytes:,} bytes ({total_bytes / 1024:.1f} KB)")
     print()
 
+    _cleanup_workflow_cards(cards_dst)
+
+
+def _bundle_workflow_cards() -> Path | None:
+    """Copy workflow-cards/ into hf_taipy_app/ for deployment. Returns dst path or None."""
+    cards_src = Path(__file__).parent.parent / "workflow-cards"
+    cards_dst = Path(__file__).parent.parent / "hf_taipy_app" / "workflow-cards"
+    if cards_src.is_dir():
+        if cards_dst.exists():
+            shutil.rmtree(cards_dst)
+        shutil.copytree(cards_src, cards_dst)
+        logger.info("Bundled %d workflow cards", len(list(cards_dst.glob("*.yaml"))))
+        return cards_dst
+    logger.warning("No workflow-cards/ directory found at %s — skipping bundle", cards_src)
+    return None
+
+
+def _cleanup_workflow_cards(cards_dst: Path | None) -> None:
+    """Remove bundled workflow-cards/ copy after deployment."""
+    if cards_dst is not None and cards_dst.exists():
+        shutil.rmtree(cards_dst)
+        logger.info("Cleaned up bundled workflow-cards")
+
 
 def _deploy(folder: Path, repo_id: str, api: HfApi, *, clean: bool) -> None:
     """Upload *folder* to *repo_id* with optional stale-file cleanup."""
@@ -157,14 +182,34 @@ def _deploy(folder: Path, repo_id: str, api: HfApi, *, clean: bool) -> None:
 
     delete_patterns = ["**"] if clean else None
 
-    commit_info = api.upload_folder(
-        folder_path=str(folder),
-        repo_id=repo_id,
-        repo_type="space",
-        ignore_patterns=IGNORE_PATTERNS,
-        delete_patterns=delete_patterns,
-        commit_message="Deploy Taipy app via scripts/deploy_taipy.py",
-    )
+    cards_dst = _bundle_workflow_cards()
+    try:
+        # workflow-cards/ is in .gitignore (prevents git commits of bundled
+        # copies), but upload_folder respects .gitignore by default.
+        # Temporarily remove the entry so cards are included in the upload.
+        gitignore = folder / ".gitignore"
+        gitignore_backup = gitignore.read_text() if gitignore.is_file() else None
+        if gitignore_backup and "workflow-cards" in gitignore_backup:
+            cleaned = "\n".join(
+                line for line in gitignore_backup.splitlines() if "workflow-cards" not in line
+            ).strip()
+            gitignore.write_text(cleaned + "\n" if cleaned else "")
+
+        try:
+            commit_info = api.upload_folder(
+                folder_path=str(folder),
+                repo_id=repo_id,
+                repo_type="space",
+                ignore_patterns=IGNORE_PATTERNS,
+                delete_patterns=delete_patterns,
+                commit_message="Deploy Taipy app via scripts/deploy_taipy.py",
+            )
+        finally:
+            # Restore .gitignore
+            if gitignore_backup is not None:
+                gitignore.write_text(gitignore_backup)
+    finally:
+        _cleanup_workflow_cards(cards_dst)
 
     # --- Post-upload verification ---
     info_after = api.space_info(repo_id)

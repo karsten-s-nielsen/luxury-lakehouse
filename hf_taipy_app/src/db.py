@@ -202,13 +202,19 @@ def validate_param_id(value: str) -> str:
     return value
 
 
-def t(table_name: str) -> str:
-    """Return a fully-qualified Lakebase table reference.
+def t(name: str, schema: str | None = None) -> str:
+    """Build qualified table reference: {schema}.{name}.
 
-    Produces: dev_gold.table_name (PG schema prefix + validated table name).
+    Args:
+        name: Table name (validated as safe identifier).
+        schema: PG schema override. Defaults to gold_schema from settings.
     """
-    validate_table_name(table_name)
-    return f"{get_settings().pg_schema_prefix}.{table_name}"
+    settings = get_settings()
+    prefix = schema if schema is not None else settings.pg_schema_prefix
+    validate_table_name(name)
+    if schema is not None:
+        validate_table_name(schema)
+    return f"{prefix}.{name}"
 
 
 def execute_query(query: str, params: tuple[Any, ...] | None = None) -> pd.DataFrame:

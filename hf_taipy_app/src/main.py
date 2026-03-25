@@ -31,6 +31,8 @@ from pages.player_similarity import page_md as player_similarity_page
 # --- Page layouts ---
 from pages.shot_map import page_config as shot_map_config
 from pages.shot_map import page_md as shot_map_page
+from pages.workflows import page_config as workflows_config
+from pages.workflows import page_md as workflows_page
 from state.action_values import *  # noqa: F403
 from state.defensive_valuation import *  # noqa: F403
 from state.heat_map import *  # noqa: F403
@@ -46,10 +48,23 @@ from state.player_similarity import *  # noqa: F403
 # --- State imports (star import required for Taipy module-level binding) ---
 from state.shared import *  # noqa: F403
 from state.shot_map import *  # noqa: F403
+from state.workflows import *  # noqa: F403
+from state.workflows import RawHtml
 from taipy.gui import Gui
 from template import build_root_page
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+
+
+# --- RawHtml content provider ---
+# Taipy's <|{var}|text|raw|> escapes HTML. Register a content provider so
+# <|part|content={var}|> renders RawHtml objects as actual HTML.
+def _raw_html_provider(content: RawHtml) -> str:
+    """Taipy content provider: renders RawHtml as actual HTML."""
+    return content.html
+
+
+Gui.register_content_provider(RawHtml, _raw_html_provider)
 
 # --- Page registry (ordered) ---
 # List order = nav display order. Section headers appear in order of first occurrence.
@@ -70,6 +85,8 @@ PAGE_REGISTRY: list[PageEntry] = [
     PageEntry("Pitch-Control", pitch_control_config, pitch_control_page),
     PageEntry("Pass-Timing", pass_timing_config, pass_timing_page),
     PageEntry("Defensive-Impact", defensive_impact_config, defensive_impact_page),
+    # Operations
+    PageEntry("AI-ML-Workflows", workflows_config, workflows_page),
 ]
 
 # Generate nav and root page

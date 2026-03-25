@@ -133,21 +133,34 @@ The Taipy dashboard uses a template-driven architecture where pages are declarat
 
 ### Adding a New Page
 
-A new page requires exactly 3 files and 2 edits:
+A new page requires exactly 3 files and 2 edits (4 files for dashboard pages):
 
 1. **`hf_taipy_app/src/state/<page_name>.py`** — State variables, callbacks, SQL queries, chart rendering. Must follow prefix naming (`<prefix>_variable`) to avoid Taipy namespace collisions.
 2. **`hf_taipy_app/src/pages/<page_name>.py`** — A `page_config: PageConfig` and `page_md: str` (from `build_page(page_config)`). No hand-crafted Taipy Markdown — the page file is pure configuration.
 3. **`hf_taipy_app/src/main.py`** — Import the page's `page_config` and `page_md`, add a `PageEntry` to `PAGE_REGISTRY`.
 4. **`hf_taipy_app/src/template.py`** — Add page-specific glossary terms to `PAGE_TERMS`.
 
+#### Dashboard Page Variant
+
+For operations/dashboard pages (stats cards + full-width content instead of 3fr/1fr layout):
+
+- Use `stats: list[StatCard]` in `PageConfig` instead of `metrics` — this triggers the dashboard layout (`_build_dashboard_page`), which wraps content in a viewport-contained scroll wrapper (`ll-dashboard-scroll`).
+- Call `register_page_refresher("Page-Name", refresh_fn, is_dashboard=True)` — the `is_dashboard` flag ensures the site-wide footer is hidden (dashboard pages render the footer inside the scroll wrapper).
+- `ContentRow` wraps content blocks. `StatCard` defines the stat cards in the top bar.
+
 ### Template Rules
 
 - **All pages must use `build_page()`**: Zero hand-crafted layouts. A page is a `PageConfig` (title, icon, description, metrics, sidebar widgets, content blocks, citations), not a string of Taipy Markdown.
 - **`Metric` requires `help_text`**: If the metric name is not universally understood, `help_text` is mandatory — the `PageConfig` dataclass enforces this. "What does this mean?" and "Is this good or bad?" must be answerable from the tooltip alone.
-- **`SidebarWidget` requires `help`**: Every filter widget must have a `help` tooltip explaining what it controls.
+- **`SidebarWidget` requires `help`**: Every filter widget must have a `help` tooltip explaining what it controls. Help icons are positioned absolute-right of the widget via CSS (`.md-para:has(> .ll-help)`), keeping all widget widths identical regardless of help presence.
 - **`Citation` for every methodology**: Any page implementing a published algorithm must include a `Citation(text, url)` in its `PageConfig`. No uncited methodologies.
-- **`ContentBlock` for all content**: Images use `ContentBlock("image", var)`, tables use `ContentBlock("table", var)`, Plotly charts use `ContentBlock("chart", var)`. Never construct raw `<|{var}|chart|>` markup in page files.
+- **`StatCard` for dashboard stat cards**: Dashboard pages use `stats: list[StatCard]` in `PageConfig`. Each card has `label`, `var`, optional `detail_var`, `help_text`, and `detail_html`. The presence of `stats` activates the dashboard layout branch. Set `detail_html=True` to render `detail_var` as raw HTML via a content provider iframe (supports inline `<span style="">` coloring); default `False` renders as plain text. Convention: every `StatCard` should have `help_text` (same rationale as `Metric`).
+- **`ContentBlock` for all content**: Images use `ContentBlock("image", var)`, tables use `ContentBlock("table", var)`, Plotly charts use `ContentBlock("chart", var)`. Tables accept `table_cell_class_name={column: callback_name}` for per-cell CSS styling via Taipy's `cell_class_name` attribute (the callback returns a CSS class string). Never construct raw `<|{var}|chart|>` markup in page files.
+- **WCAG color-independence on table columns**: Table columns that use color for categorization (e.g., Type, Freshness) must include a `::before` shape marker as a WCAG 1.4.1 secondary visual cue. Each category gets a distinct CSS-drawn shape (circle, diamond, triangle, square, ring) via `currentColor` so shapes inherit the text color. If the page includes a legend (e.g., DAG legend), shapes and colored text in the legend must match the table column markers.
 - **Layout changes go through the template**: If a visual change requires editing more than one page file, it belongs in `page_template.py`. Individual page files contain only page-specific data.
+- **`_FOOTER_CONTENT` for footer text**: The footer text ("Interactive Demo · Published Datasets") is a shared constant in `page_template.py`. Dashboard pages render it inside the scroll wrapper; other pages render it as the site-wide footer. Do not hardcode footer text in page files.
+- **`is_dashboard=True` on `register_page_refresher`**: Required for dashboard pages. Controls `show_site_footer` state variable — omitting it causes footer duplication.
+- **`ll-dashboard-scroll` for dashboard viewport**: Dashboard content is wrapped in a viewport-contained scroll area (`overflow: auto`, `max-height: calc(100vh - 245px)`). Both horizontal and vertical scrollbars live inside this container. The horizontal scrollbar stays at the viewport bottom.
 - **State module isolation**: Each page's state module manages its own variables and callbacks. Shared state (competition/team/match filters) lives in `state/shared.py`. No cross-page state imports except from `shared`.
 - **Glossary coverage**: Every domain-specific term used in metric names, chart labels, or descriptions must have an entry in `GLOSSARY` (in `template.py`) and be listed in the page's `PAGE_TERMS` entry.
 
