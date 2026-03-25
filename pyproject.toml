@@ -9,7 +9,7 @@ dependencies = [
     # Core ingestion dependencies (must work on Databricks serverless Python 3.10)
     # NOTE: pandas and numpy are pre-installed on Databricks serverless runtime.
     # Do NOT pin them here — version conflicts break the Python kernel.
-    "requests>=2.31.0",
+    "requests>=2.33.0",
     "requests-cache>=1.2.0",
     # Workflow framework (card parsing + validation)
     "pydantic>=2.0",
