@@ -122,6 +122,12 @@ INDEXES: list[tuple[str, str, str]] = [
     # ── fct_pass_timing_synced — Player pass timing rankings ─────────
     # PT-1: match + player lookup for rankings/breakdown
     ("idx_pass_timing_match_player", "fct_pass_timing_synced", "match_id, player_id"),
+    # ── fct_pausa_rankings_synced — Player-level PAUSA aggregate ─────
+    # PR-1: activity filter on passes_with_value
+    ("idx_pausa_rankings_passes_value", "fct_pausa_rankings_synced", "passes_with_value"),
+    # ── fct_player_percentiles_synced — Calibration anchors ──────────
+    # PP-1: competition + season + player lookup
+    ("idx_player_pctile_comp_season_player", "fct_player_percentiles_synced", "competition_id, season_id, player_id"),
 ]
 
 # pgvector HNSW index definitions: (index_name, table, using_clause)
@@ -218,18 +224,34 @@ VERIFY_QUERIES: list[tuple[str, str]] = [
 
 
 def _get_pg_credential() -> tuple[str, str]:
-    """Get a PG credential token via Databricks CLI OAuth."""
-    result = subprocess.run(
-        ["databricks", "auth", "token", "--profile", "OAUTH"],  # noqa: S607
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    auth_token = json.loads(result.stdout)["access_token"]
+    """Get a PG credential token via WorkspaceClient (PAT or OAuth).
+
+    Uses ``databricks-sdk`` WorkspaceClient which authenticates via
+    DATABRICKS_HOST + DATABRICKS_TOKEN env vars (PAT) or any other
+    configured auth method. Falls back to ``databricks auth token``
+    CLI with OAUTH profile if WorkspaceClient is unavailable.
+    """
+    try:
+        from databricks.sdk import WorkspaceClient
+
+        ws = WorkspaceClient()
+        host = (ws.config.host or "").rstrip("/")
+        auth_headers: dict[str, str] = ws.config.authenticate()  # type: ignore[assignment]
+    except Exception:
+        # Fallback to CLI OAuth profile
+        result = subprocess.run(
+            ["databricks", "auth", "token", "--profile", "OAUTH"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        auth_token = json.loads(result.stdout)["access_token"]
+        host = DATABRICKS_HOST.rstrip("/")
+        auth_headers = {"Authorization": f"Bearer {auth_token}"}
 
     resp = requests.post(
-        f"{DATABRICKS_HOST}/api/2.0/postgres/credentials",
-        headers={"Authorization": f"Bearer {auth_token}", "Content-Type": "application/json"},
+        f"{host}/api/2.0/postgres/credentials",
+        headers={**auth_headers, "Content-Type": "application/json"},
         json={"endpoint": ENDPOINT_NAME, "request_id": str(uuid.uuid4())},
         verify=True,
         timeout=(10, 30),

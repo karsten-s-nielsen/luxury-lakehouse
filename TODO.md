@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [ARCHITECTURE.md](ARCHITECTURE.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
 
-**Last updated**: 2026-03-17 (D14, D17, D23, O2, E5 complete; OPT-AUDIT-200 applied)
+**Last updated**: 2026-03-25 (D25, U1, O1, D19, D24 complete; D22 deferred; cognitive + optimization audits applied)
 
 ---
 
@@ -18,20 +18,14 @@ Tasks warming up in the on-deck circle.
 
 | # | Task | Size | Source | Notes |
 |---|------|------|--------|-------|
-| D25 | PAUSA minimum pass/minutes filter + minutes-played computation | Wicked | Minho Lee (PAUSA author, 2026-03-17) | Paper excludes low-activity players from rankings. Two parts: (1) Derive minutes-played per player per match from tracking frame timestamps (`first_frame - last_frame` per `player_id`), add to `fct_pass_timing` mart. (2) Add `min_passes` and `min_minutes` filters to rankings query + Streamlit slider. Current data: 153 player-match rows, pass counts 1–46, 17 rows with ≤3 passes. Awaiting Minho's exact thresholds before implementing. No minutes column exists yet — must compute from `fct_tracking_frames`. |
 | D18 | Football2vec v2 — Transformer Embeddings | Wicked | [ROADMAP.md](ROADMAP.md) | Replace Doc2Vec (gensim, CPU) with a small transformer on tokenized match sequences. Train on HF Jobs GPU (A10G). 87K player-match documents in Delta. Better player representations for similarity search. Publish to HF Hub |
-| U1 | Calibration anchors — league averages and percentile ranks on metrics | Wicked | CHI-AUDIT-180-rev-1 #3 | Compute percentiles per competition in dbt (`PERCENT_RANK()`), surface as `delta=` or reference text on st.metric |
-| D19 | Team Shape Spatial Metrics Module | Dunkin' | [ROADMAP.md](ROADMAP.md) | `src/analytics/team_shape.py` — pure NumPy/scipy: team centroid, convex hull, team length/width, defensive line height, GK-backline distance, stretch index, inter-line gaps. Line detection via k-means. Unit tests with synthetic formations. No new dependencies |
 | D20 | EFPI Formation Detection Integration | Wicked | [ROADMAP.md](ROADMAP.md) | Add `unravelsports` (MPL 2.0). Wire kloppy → EFPI template matching → formation labels per time window. Compatibility testing across Metrica/IDSSE/SkillCorner. Potential friction: kloppy Polars format, 10fps vs 25fps |
-| D21 | Team Shape Streamlit Page | Wicked | [ROADMAP.md](ROADMAP.md) | Snapshot view (connected-formation diagram + convex hull + sidebar metrics) + timeline view (shape metrics time-series + formation labels). New pitch.py visualization components. Builds on D19 + D20 |
-| D22 | NannyML CBPE for Model Monitoring | Dunkin' | [ROADMAP.md](ROADMAP.md) | Confidence-Based Performance Estimation when ground truth is unavailable. Evaluate alongside current scipy-based drift detection (D12) |
-| D24 | Numba Evaluation for Pitch Control | Dunkin' | [ROADMAP.md](ROADMAP.md) | Benchmark Numba JIT vs JAX for small pitch control workloads where JAX compile time dominates |
+| D21 | Team Shape Taipy Page | Wicked | [ROADMAP.md](ROADMAP.md) | Snapshot view (connected-formation diagram + convex hull + sidebar metrics) + timeline view (shape metrics time-series + formation labels). New visualization components. Builds on D19 + D20 |
 | D7 | Observability Layer (OTel) | Monstah | [ROADMAP.md](ROADMAP.md) | Research complete, ready for implementation. Instrument once, observe anywhere. ~$1-2/month personal tier |
 | U3 | Global player search — search by name across all pages | Monstah | CHI-AUDIT-180-rev-1 #1 | New search component with 11,918-player index + cross-page routing + session state. Needs design decisions |
 | U4 | Uncertainty/confidence bounds on model outputs | Monstah | CHI-AUDIT-180-rev-1 #4 | xG v2 now outputs MC dropout 95% CI (`xg_ci_lower`, `xg_ci_upper`). VAEP/pitch control still lack native uncertainty. Partial — xG done, others remain |
-| O1 | `fct_match_summary` incremental materialization | Wicked | OPT-AUDIT-190 #5 | Currently defaults to view — recomputed every dbt run against full events table. Needs `{{ config(materialized='incremental') }}` with `match_id` key + `is_incremental()` guard. Requires full dbt build cycle testing |
 | O3 | Pipeline performance baselines | Wicked | OPT-AUDIT-190 #9 | `docs/performance-baselines.md` timing columns are all TBD. Run each pipeline, record wall clock, establish regression anchors for CI |
-| U5 | Server-side player search for Player Similarity | Wicked | HF-MIGRATION | At enterprise scale (100K+ players), client-side `st.selectbox` filtering won't scale. Replace with `st.text_input` + `ILIKE '%query%'` server-side query with `LIMIT 500` per search. Requires UI refactor (two-step: type → search → select) and PG index on `player_display_name` |
+| U5 | Server-side player search for Player Similarity | Wicked | HF-MIGRATION | At enterprise scale (100K+ players), client-side selector filtering won't scale. Replace with text input + `ILIKE '%query%'` server-side query with `LIMIT 500` per search. Requires UI refactor (two-step: type → search → select) and PG index on `player_display_name` |
 | M1 | Rotate Databricks PAT for HF Spaces | Dunkin' | HF-MIGRATION | PAT created 2026-03-16 with 90-day lifetime. **Expires ~2026-06-14.** Generate new PAT in Databricks workspace Settings → Developer → Access tokens, then update `DATABRICKS_TOKEN` secret at huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app/settings |
 | M2 | Migrate HF Space auth from PAT to OAuth M2M | Wicked | SEC-AUDIT-200 #2 | Two SPs created with OAuth secrets: `luxury-lakehouse-hf-app-dev` (`330f96b9-...`, orphaned PG role) and `luxury-lakehouse-hf-app-v2-dev` (`1a1dbf08-...`). UC grants in place. **Blocked:** Lakebase Autoscaling does not auto-provision PG roles for SPs authenticated via M2M OAuth — workspace API works but PG credential JWT is rejected at the PG auth layer. The existing working SP (`be66af99-...`) was internally provisioned by Lakebase during synced table creation. Need Databricks support ticket to clarify how to provision SP PG access for Lakebase Autoscaling endpoints |
 
@@ -39,7 +33,7 @@ Tasks warming up in the on-deck circle.
 
 ## Completed Phases
 
-Phases 0–19 are complete. See git history for implementation details.
+Phases 0–20 are complete (including Phase 20: Taipy Migration). See git history for implementation details.
 
 ### Completed On-Deck Items
 
@@ -54,17 +48,22 @@ Phases 0–19 are complete. See git history for implementation details.
 | D8 | Dynamic xT Grid | Data-driven 12×8 grid computed from 2.2M SPADL actions via HF Jobs. Static CSV seed deleted, Delta table `expected_threat_grids` is source of truth |
 | ~~D15~~ | ~~OpenSTARLab Seq2Event + FMS~~ | Dropped — depends on D5 |
 | D9 | ELASTIC Event-Tracking Sync | IDSSE event XML ingestion + ELASTIC frame alignment (Kim et al. 2025). 7 matches, 95.5% exact alignment. `elastic_sync_results` bronze table |
-| D10 | OBSO + PAUSA Pipeline | Full PAUSA pipeline: ghost trajectories, temporal/spatial decomposition, `fct_pausa_values` + `fct_pass_timing` Delta tables, dbt marts, Pass Timing Streamlit page, HF Space tab |
+| D10 | OBSO + PAUSA Pipeline | Full PAUSA pipeline: ghost trajectories, temporal/spatial decomposition, `fct_pausa_values` + `fct_pass_timing` Delta tables, dbt marts, Pass Timing page |
 | D11 | MLflow Model Registry & Experiment Tracking | UC Model Registry with Champion/Challenger aliases for xG, Football2Vec, VAEP, DEFCON models. HF Jobs training template proven with xG |
 | D12 | Model Validation & Drift Detection | PSI, Wasserstein, KS, CUSUM, hard bounds across 10 models. Pure scipy/numpy. `model_validation_runs` Delta table. Reference baselines as dbt seeds |
 | D13 | Physics-Based Tracking Augmentation | `augmentation.py`: position/velocity jitter within physical constraints. 88x in-memory multiplier (8 symmetry x 11 jitter). Pure NumPy |
 | D16 | OBSO Batch on HF Jobs GPU | Full OBSO value surfaces (PPCF x Transition x EPV) for 7 IDSSE matches via JAX `vmap` on A10G. Ghost trajectory support in JAX kernel |
-| U2 | Cross-page filter state persistence | `st.session_state` write/read in `render_competition_filter`, `render_team_filter`, `render_match_filter`. Dependent filters reset on parent change. CHI-AUDIT-180-rev-2 F9/F46 |
+| U2 | Cross-page filter state persistence | Shared state with dependent filter cascade. Parent change resets child filters. CHI-AUDIT-180-rev-2 F9/F46 |
 | D14 | Space Creation (Full Counterfactual) | `jax.vmap`-batched pitch control + differential OBSO per player. HF Jobs A10G script. Fernandez & Bornn 2018. |
 | D17 | xG v2 — Neural Context Model | Deep Sets set encoder (Zaheer et al. 2017) + MC dropout uncertainty (Gal & Ghahramani 2016). Pure NumPy inference. HF Jobs A10G training. Published to HF Hub. |
 | D23 | Custom EPV/Transition Grid Training | Data-driven ball reachability (64×100) + EPV (32×50) grids from 2.2M SPADL actions. Replaces synthetic Gaussian proxy. Published to HF Hub. |
 | O2 | SPADL/VAEP training migration to HF Jobs | Standalone PEP 723 script. Driver-side training removed from spadl_vaep.py. Model published to HF Hub. |
 | E5 | Training data versioning | Delta version + HF dataset commit hash logged via MLflow params in all training notebooks and scripts. |
+| D25 | PAUSA minimum activity filter | `fct_pausa_rankings` dbt model (player-level aggregate, `actual_obso > 0` quality proxy). Taipy sliders (min passes with value, min minutes, per-match min passes). Minho Lee thresholds: 50+ recommended for 7-match dataset. |
+| U1 | Calibration anchors — percentile ranks | `fct_player_percentiles` dbt model with `PERCENT_RANK()` for 13 metrics per competition. Radar percentile scaling, rankings Pctile column, league avg reference on Match Summary. |
+| O1 | `fct_match_summary` incremental | Converted from full table to `incremental` (merge on `match_id`). `existing_matches` CTE pattern matching `fct_physical_stats`. |
+| D19 | Team Shape Spatial Metrics Module | `src/analytics/team_shape.py` — centroid, convex hull, stretch index, defensive line height, inter-line gaps via Ward clustering. 16 unit tests. Pure NumPy/scipy, no new dependencies. |
+| D24 | Numba Evaluation for Pitch Control | Benchmarked: Numba TTI kernel ~240× faster than NumPy (1.5 µs vs 361 µs). Recommended as third dispatch tier (NumPy → Numba → JAX). Decision doc: `docs/decisions/d24-numba-evaluation.md`. |
 
 ---
 
@@ -96,6 +95,7 @@ Items from the Pipeline Optimization & Scaling (EIP) roadmap section that were e
 
 | # | Item | Description | When to revisit |
 |---|------|-------------|-----------------|
+| D22 | NannyML CBPE for Model Monitoring | Evaluated 2026-03-25. All current models have immediate ground truth — CBPE's value (performance estimation without ground truth) does not apply. Existing scipy-based drift detection (PSI, Wasserstein, KS, CUSUM) covers all validation scenarios. | When a real-time inference use case appears where ground truth is delayed. |
 | E1 | `for_each_task` fan-out | Databricks workflow `for_each_task` for match-level parallelism. Currently all pipelines use `applyInPandas` within a single job which is sufficient. | When single-job wall clock exceeds 2hr timeout or Respo.Vision data arrives (~7M rows/match). |
 | E2 | Change Data Feed (CDF) | Delta `table_changes()` for incremental downstream consumption. No downstream consumer currently needs change tracking. | When a streaming consumer (e.g., real-time dashboard, ML feature store) is added. |
 | E3 | Dead Letter Channel | Failed record quarantine to `bronze.dead_letters` table. Current retry logic handles transient errors; no persistent failure pattern observed. | When ingestion sources become unreliable or data volume exceeds manual inspection. |
@@ -146,11 +146,10 @@ Items resolved during phases or the optimization audit (2026-03-11). Details pre
 See [ROADMAP.md](ROADMAP.md) for research directions, long-horizon features, and unscheduled ideas including:
 
 - **Observability Layer (OpenTelemetry)** — instrument once, observe anywhere; ~$1-2/month personal tier
-- **Cognitive Interface Audit** (`cognitive-interface-audit`) — mental model alignment, error tolerance (Wood 7-layer), cognitive load, visual grounding (Gergle); beta complete in mad-scientist-skills v1.7.0
 - **Pipeline Optimization & Scaling** — EIP core patterns implemented (Splitter, Aggregator, Router, Pipes & Filters); remaining deferred items below
 - **Deep Learning Infrastructure** — hybrid GPU training, pre-trained soccer models, DeepMind-inspired optimization
 - **Provider Abstraction** — configurable multi-tier ingestion; free/open tiers default, commercial activates via credentials
-- **Team Shape Analysis** — formation detection (EFPI) + spatial metrics; Stage 1 on existing data (D19–D21), Stage 2 blocked on SkillCorner DoD
+- **Team Shape Analysis** — D19 (spatial metrics module) complete; D20 (EFPI formation detection) + D21 (Taipy page) remain. Stage 2 blocked on SkillCorner DoD
 - **Visual Exploratory Behavior** — blocked by own-footage Respo.Vision data (BSD 3-Clause)
 - **Staging Environment** — Lakebase branching for pre-production validation
 - **Graph-Based Tactical Patterns** — GNN research direction (Raabe et al. 2022)
@@ -173,7 +172,7 @@ Infrastructure IDs are environment-specific. Use `terraform output` for current 
 | Lakebase endpoint | `terraform output lakebase_endpoint_name` |
 | Lakebase DNS (RW) | `terraform output lakebase_read_write_dns` |
 | Ingestion job ID | `DATABRICKS_JOB_ID` env var / `terraform output ingestion_job_id` |
-| Streamlit App URL | [huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) |
+| App URL (Taipy) | [huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) |
 | GitHub Actions IAM Role | `terraform output github_actions_role_arn` |
 | State KMS Key | `terraform output state_kms_key_arn` |
 | Terraform CI SP | `terraform output terraform_ci_sp_application_id` |

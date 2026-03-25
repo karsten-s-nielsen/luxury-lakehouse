@@ -1,3 +1,11 @@
+{{ config(
+    materialized='incremental',
+    incremental_strategy='merge',
+    unique_key='match_id',
+    on_schema_change='fail',
+    liquid_clustered_by=['match_id']
+) }}
+
 -- fct_match_summary.sql
 -- Match-level aggregate metrics for dashboards and analysis.
 --
@@ -11,9 +19,20 @@
 -- team's defensive 40% of pitch, divided by team defensive actions in that zone.
 -- StatsBomb coordinates are from the acting team's perspective (x=0 own goal).
 
-with matches as (
+with
+
+{% if is_incremental() %}
+existing_matches as (
+    select distinct match_id from {{ this }}
+),
+{% endif %}
+
+matches as (
 
     select * from {{ ref('stg_statsbomb__matches') }}
+    {% if is_incremental() %}
+    where match_id not in (select match_id from existing_matches)
+    {% endif %}
 
 ),
 
@@ -26,18 +45,27 @@ match_team_ids as (
         team_name
     from {{ ref('stg_statsbomb__events') }}
     where team_id is not null
+    {% if is_incremental() %}
+      and match_id not in (select match_id from existing_matches)
+    {% endif %}
 
 ),
 
 shots as (
 
     select * from {{ ref('fct_shots') }}
+    {% if is_incremental() %}
+    where match_id not in (select match_id from existing_matches)
+    {% endif %}
 
 ),
 
 passes as (
 
     select * from {{ ref('fct_passes') }}
+    {% if is_incremental() %}
+    where match_id not in (select match_id from existing_matches)
+    {% endif %}
 
 ),
 
@@ -84,6 +112,9 @@ defensive_actions as (
     from {{ ref('stg_statsbomb__events') }}
     where event_type in ('Duel', 'Interception', 'Foul Committed', 'Block')
       and location_x > {{ var('pitch_length') }} * 0.4
+    {% if is_incremental() %}
+      and match_id not in (select match_id from existing_matches)
+    {% endif %}
     group by match_id, team_id
 
 ),
@@ -100,6 +131,9 @@ opponent_passes_in_def_zone as (
     from {{ ref('stg_statsbomb__events') }}
     where event_type = 'Pass'
       and location_x < {{ var('pitch_length') }} * 0.6
+    {% if is_incremental() %}
+      and match_id not in (select match_id from existing_matches)
+    {% endif %}
     group by match_id, team_id
 
 ),

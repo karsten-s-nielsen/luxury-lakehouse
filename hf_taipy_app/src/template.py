@@ -110,6 +110,14 @@ GLOSSARY: dict[str, str] = {
         "A YAML manifest describing an AI/ML workflow — its inputs, outputs, execution config, "
         "cost estimates, and academic provenance. Each of the 16 workflows has a card in workflow-cards/."
     ),
+    "Passes with Value": (
+        "Passes where the off-ball scoring opportunity (actual OBSO) was greater than zero. "
+        "Used as a quality proxy for 'successful' passes when pass outcome data is unavailable."
+    ),
+    "Percentile Rank": (
+        "Where a player's metric sits relative to all other players in the same competition "
+        "(0-1 scale, 1.0 = top of competition)."
+    ),
 }
 
 PAGE_TERMS: dict[str, list[str]] = {
@@ -117,8 +125,8 @@ PAGE_TERMS: dict[str, list[str]] = {
     "Pass-Map": ["Line-Breaking Pass", "Progressive Pass"],
     "Heat-Map": ["Most Active Zone"],
     "Pass-Network": [],
-    "Match-Summary": ["xG (Expected Goals)", "PPDA", "Progressive Pass"],
-    "Player-Impact": ["VAEP", "VAEP/90", "Off. VAEP/90", "Def. VAEP/90", "SPADL"],
+    "Match-Summary": ["xG (Expected Goals)", "PPDA", "Progressive Pass", "Percentile Rank"],
+    "Player-Impact": ["VAEP", "VAEP/90", "Off. VAEP/90", "Def. VAEP/90", "SPADL", "Percentile Rank"],
     "Player-Comparison": [
         "Goals/90",
         "xG (Expected Goals)",
@@ -133,12 +141,13 @@ PAGE_TERMS: dict[str, list[str]] = {
         "Def. VAEP/90",
         "DEFCON",
         "DEFCON/90",
+        "Percentile Rank",
     ],
     "Player-Similarity": ["Cosine Distance"],
     "Movement-Pressing": ["PPDA", "xT (Expected Threat)", "Off-Ball xT", "Pitch Control"],
     "Pitch-Control": ["Pitch Control"],
-    "Pass-Timing": ["PAUSA", "Temporal Judgment", "Spatial Selection", "OBSO"],
-    "Defensive-Impact": ["DEFCON", "Intercept", "Concede", "Disturb", "Deter"],
+    "Pass-Timing": ["PAUSA", "Temporal Judgment", "Spatial Selection", "OBSO", "Passes with Value"],
+    "Defensive-Impact": ["DEFCON", "Intercept", "Concede", "Disturb", "Deter", "Percentile Rank"],
     "AI-ML-Workflows": [
         "Cost Tier",
         "Freshness SLA",
@@ -263,7 +272,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         depends_on="selected_competition",
     ),
     SidebarWidget(
-        "dropdown",
+        "dropdown_multi",
         "pr_selected_metrics",
         "Metrics",
         "on_pr_metric_change",
@@ -388,6 +397,40 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         condition=f"current_page in {_PASS_TIMING_PAGES}",
         lov="pt_player_lov",
         depends_on="pt_selected_match",
+    ),
+    SidebarWidget(
+        "slider",
+        "pt_per_match_min_passes",
+        "Min. passes (per match)",
+        "pt_on_per_match_min_passes_change",
+        condition=f"current_page in {_PASS_TIMING_PAGES}",
+        slider_min="1",
+        slider_max="50",
+        slider_range_labels=("1", "50"),
+        help="Minimum passes in a single match to include a player-match row in per-match rankings. Filters low-sample entries.",
+    ),
+    SidebarWidget(
+        "slider",
+        "pt_min_passes_with_value",
+        "Min. passes with value",
+        "pt_on_min_passes_change",
+        condition=f"current_page in {_PASS_TIMING_PAGES}",
+        slider_min="1",
+        slider_max="200",
+        slider_range_labels=("1", "200"),
+        help="Minimum passes where actual OBSO is above zero (quality proxy). Filters aggregate rankings to players with enough meaningful passes for stable averages.",
+    ),
+    SidebarWidget(
+        "slider",
+        "pt_min_minutes",
+        "Min. minutes played",
+        "pt_on_min_minutes_change",
+        condition=f"current_page in {_PASS_TIMING_PAGES}",
+        slider_min="0",
+        slider_max="1000",
+        slider_step="45",
+        slider_range_labels=("0", "1000"),
+        help="Minimum total minutes played across all matches. Filters aggregate rankings to exclude players with minimal playing time.",
     ),
     # Defensive Impact — View first (analytical lens), then data-scoping
     SidebarWidget(

@@ -61,6 +61,14 @@ pt_rankings_data: pd.DataFrame = pd.DataFrame(
     columns=["Player", "Match", "Passes", "Avg PAUSA", "Avg Temporal", "Avg Spatial", "Median PAUSA", "Above Median"]
 )
 
+# ---------------------------------------------------------------------------
+# Aggregate rankings + activity filter state
+# ---------------------------------------------------------------------------
+pt_min_passes_with_value: int = 50
+pt_min_minutes: int = 0
+pt_per_match_min_passes: int = 5
+pt_aggregate_rankings_data: pd.DataFrame = pd.DataFrame()
+
 # DFL identifier warning
 pt_show_dfl_caption: bool = False
 pt_dfl_caption: str = "Player names shown as DFL identifiers \u2014 IDSSE tracking data does not include player names. Human-readable names require a DFL roster lookup (not yet available)."
@@ -71,6 +79,7 @@ pt_warning_text: str = ""
 pt_footer_text: str = ""
 
 __all__ = [
+    "pt_aggregate_rankings_data",
     "pt_avg_pausa",
     "pt_avg_spatial",
     "pt_data_freshness",
@@ -78,10 +87,16 @@ __all__ = [
     "pt_footer_text",
     "pt_heatmap_figure",
     "pt_match_lov",
+    "pt_min_minutes",
+    "pt_min_passes_with_value",
     "pt_on_match_change",
+    "pt_on_min_minutes_change",
+    "pt_on_min_passes_change",
+    "pt_on_per_match_min_passes_change",
     "pt_on_player_change",
     "pt_on_team_change",
     "pt_pass_count",
+    "pt_per_match_min_passes",
     "pt_player_lov",
     "pt_rankings_data",
     "pt_scatter_figure",
@@ -193,6 +208,20 @@ def _fetch_rankings() -> pd.DataFrame:
         f"FROM {timing_tbl} pt "
         f"LEFT JOIN {match_tbl} ms ON pt.match_id::text = ms.match_id::text "
         f"ORDER BY pt.avg_pausa DESC "
+        f"LIMIT 500",
+    )
+
+
+@ttl_cache(ttl=600)
+def _fetch_aggregate_rankings() -> pd.DataFrame:
+    """Load fct_pausa_rankings (player-level aggregate, bounded)."""
+    rankings_tbl = t("fct_pausa_rankings_synced")
+    return execute_query(
+        f"SELECT player_display_name, total_matches, total_passes, "  # noqa: S608
+        f"  passes_with_value, avg_pausa, avg_temporal_judgment, "
+        f"  avg_spatial_selection, median_pausa, total_minutes "
+        f"FROM {rankings_tbl} "
+        f"ORDER BY avg_pausa DESC "
         f"LIMIT 500",
     )
 
@@ -335,6 +364,21 @@ def pt_on_player_change(state: Any, var_name: str, var_value: Any) -> None:
     _refresh_data(state)
 
 
+def pt_on_min_passes_change(state: Any, var_name: str, var_value: Any) -> None:
+    """Refilter aggregate rankings when slider changes."""
+    _refresh_data(state)
+
+
+def pt_on_min_minutes_change(state: Any, var_name: str, var_value: Any) -> None:
+    """Refilter aggregate rankings when minutes slider changes."""
+    _refresh_data(state)
+
+
+def pt_on_per_match_min_passes_change(state: Any, var_name: str, var_value: Any) -> None:
+    """Refilter per-match rankings when slider changes."""
+    _refresh_data(state)
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -400,8 +444,10 @@ def _refresh_data(state: Any) -> None:
             state.pt_scatter_figure = _build_scatter_figure(passes_df)
             state.pt_heatmap_figure = _build_heatmap_figure(passes_df)
 
-        # Rankings
+        # Rankings (per-match) with activity filter
         rankings_df = _fetch_rankings()
+        if not rankings_df.empty:
+            rankings_df = rankings_df[rankings_df["pass_count"] >= state.pt_per_match_min_passes].reset_index(drop=True)
         if rankings_df.empty:
             state.pt_rankings_data = pd.DataFrame(
                 columns=[
@@ -436,6 +482,16 @@ def _refresh_data(state: Any) -> None:
                     display_df[col] = display_df[col].round(3)
             state.pt_rankings_data = display_df
             state.pt_show_dfl_caption = rankings_df["player_display_name"].str.startswith("DFL-OBJ-").any()
+
+        # Aggregate rankings with activity filter
+        agg_df = _fetch_aggregate_rankings()
+        if not agg_df.empty:
+            mask = agg_df["passes_with_value"] >= state.pt_min_passes_with_value
+            if state.pt_min_minutes > 0:
+                mask = mask & (agg_df["total_minutes"].fillna(0) >= state.pt_min_minutes)
+            state.pt_aggregate_rankings_data = agg_df[mask].reset_index(drop=True)
+        else:
+            state.pt_aggregate_rankings_data = agg_df
 
         # Successful load — set footer, clear warning
         state.pt_warning_text = ""

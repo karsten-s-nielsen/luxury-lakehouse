@@ -29,6 +29,13 @@ from analytics.pitch_control import (
     compute_pitch_control_grid_fast,
 )
 
+try:
+    from analytics.pitch_control_numba import influence_numba, tti_numba
+
+    _USE_NUMBA = True
+except ImportError:
+    _USE_NUMBA = False
+
 # ---------------------------------------------------------------------------
 # Fixtures — shared across all benchmarks
 # ---------------------------------------------------------------------------
@@ -134,6 +141,34 @@ def opponents_df() -> pd.DataFrame:
             "y": rng.uniform(5, 75, n),
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _to_metres(players_df: pd.DataFrame, params: PitchControlParams) -> tuple[np.ndarray, np.ndarray]:
+    """Convert StatsBomb DataFrame to metre-space arrays for benchmarking.
+
+    Returns (positions_m, velocities_m) for the home team only.
+    """
+    from analytics.pitch_control import _col_f64, _sb_to_meters_x, _sb_to_meters_y
+
+    home = pd.DataFrame(players_df[players_df["team"] == "home"])
+    pos = np.column_stack(
+        [
+            _sb_to_meters_x(_col_f64(home, "x"), params),
+            _sb_to_meters_y(_col_f64(home, "y"), params),
+        ]
+    )
+    vel = np.column_stack(
+        [
+            _sb_to_meters_x(_col_f64(home, "velocity_x"), params),
+            _sb_to_meters_y(_col_f64(home, "velocity_y"), params),
+        ]
+    )
+    return pos, vel
 
 
 # ---------------------------------------------------------------------------
@@ -343,3 +378,77 @@ class TestJaxBenchmarks:
         assert grid_x.shape == (104,)
         assert grid_y.shape == (68,)
         assert surface.shape == (68, 104)
+
+
+@pytest.mark.skipif(not _USE_NUMBA, reason="Numba not installed")
+class TestNumbaParity:
+    """Verify Numba kernels produce identical results to NumPy."""
+
+    def test_tti_parity(
+        self, players_df: pd.DataFrame, target_points_22: np.ndarray, pitch_control_params: PitchControlParams
+    ) -> None:
+        from analytics.pitch_control import _sb_to_meters_x, _sb_to_meters_y, _tti_numpy
+
+        pos_m, vel_m = _to_metres(players_df, pitch_control_params)
+        targets_m = np.column_stack(
+            [
+                _sb_to_meters_x(target_points_22[:, 0], pitch_control_params),
+                _sb_to_meters_y(target_points_22[:, 1], pitch_control_params),
+            ]
+        )
+
+        numpy_result = _tti_numpy(
+            pos_m, vel_m, targets_m, pitch_control_params.reaction_time, pitch_control_params.max_acceleration
+        )
+        numba_result = tti_numba(
+            pos_m, vel_m, targets_m, pitch_control_params.reaction_time, pitch_control_params.max_acceleration
+        )
+
+        np.testing.assert_allclose(numba_result, numpy_result, atol=1e-10)
+
+    def test_influence_parity(self) -> None:
+        rng = np.random.default_rng(42)
+        team_tti = rng.uniform(0.5, 3.0, size=(11, 22))
+        opp_min_tti = rng.uniform(0.5, 2.0, size=(22,))
+        sigma = 0.45
+
+        from analytics.pitch_control import _influence_numpy
+
+        numpy_result = _influence_numpy(team_tti, opp_min_tti, sigma)
+        numba_result = influence_numba(team_tti, opp_min_tti, sigma)
+
+        np.testing.assert_allclose(numba_result, numpy_result, atol=1e-10)
+
+
+@pytest.mark.skipif(not _USE_NUMBA, reason="Numba not installed")
+class TestNumbaBenchmarks:
+    """Benchmark Numba JIT vs NumPy for pitch control kernels."""
+
+    def test_bench_numba_pitch_control_warm(
+        self,
+        benchmark: Any,
+        players_df: pd.DataFrame,
+        target_points_22: np.ndarray,
+        pitch_control_params: PitchControlParams,
+    ) -> None:
+        """Numba warm benchmark — post-JIT-compile, against 5ms NumPy budget."""
+        from analytics.pitch_control import _sb_to_meters_x, _sb_to_meters_y
+
+        pos_m, vel_m = _to_metres(players_df, pitch_control_params)
+        targets_m = np.column_stack(
+            [
+                _sb_to_meters_x(target_points_22[:, 0], pitch_control_params),
+                _sb_to_meters_y(target_points_22[:, 1], pitch_control_params),
+            ]
+        )
+
+        # Warmup: trigger JIT compilation
+        tti_numba(pos_m, vel_m, targets_m, pitch_control_params.reaction_time, pitch_control_params.max_acceleration)
+
+        def run() -> np.ndarray:
+            return tti_numba(
+                pos_m, vel_m, targets_m, pitch_control_params.reaction_time, pitch_control_params.max_acceleration
+            )
+
+        result = benchmark(run)
+        assert result.shape == (pos_m.shape[0], targets_m.shape[0])

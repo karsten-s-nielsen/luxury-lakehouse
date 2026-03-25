@@ -41,7 +41,7 @@ page_config = PageConfig(
     empty_message="Select a competition and match to begin.",
     empty_condition="len(ms_home_name) == 0",
     warning_var="ms_warning_text",
-    scope_vars=["ms_scope_label"],
+    scope_vars=["ms_scope_label", "ms_league_averages"],
     freshness_var="ms_data_freshness",
     metrics=[
         Metric("Home Score", "ms_home_score", "Match score."),
@@ -49,13 +49,13 @@ page_config = PageConfig(
         Metric(
             "Home xG",
             "ms_home_xg",
-            "Probability of scoring from each shot's location and context. Higher = better chance. Sum over a match = team's expected output.",
+            "Expected goals from shot locations and context. Delta shows goals minus xG: positive = overperformed, negative = underperformed.",
             delta_var="ms_home_xg_delta",
         ),
         Metric(
             "Away xG",
             "ms_away_xg",
-            "Probability of scoring from each shot's location and context. Higher = better chance. Sum over a match = team's expected output.",
+            "Expected goals from shot locations and context. Delta shows goals minus xG: positive = overperformed, negative = underperformed.",
             delta_var="ms_away_xg_delta",
         ),
     ],

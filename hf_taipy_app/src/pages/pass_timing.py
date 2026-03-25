@@ -27,7 +27,18 @@ page_config = PageConfig(
                 ContentBlock(
                     "table",
                     "pt_rankings_data",
-                    header="Player Rankings",
+                    header="Per-Match Rankings",
+                    caption_var="pt_dfl_caption",
+                    caption_condition="pt_show_dfl_caption",
+                )
+            ]
+        ),
+        ContentRow(
+            [
+                ContentBlock(
+                    "table",
+                    "pt_aggregate_rankings_data",
+                    header="Aggregate Rankings (all matches)",
                     caption_var="pt_dfl_caption",
                     caption_condition="pt_show_dfl_caption",
                 )
