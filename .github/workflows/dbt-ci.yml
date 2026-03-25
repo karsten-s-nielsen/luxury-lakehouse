@@ -70,7 +70,7 @@ jobs:
           uv run dbt parse --profiles-dir .
           mkdir -p target-main
           cp target/manifest.json target-main/manifest.json
-          git checkout - -- .
+          git checkout ${{ github.sha }} -- .
           git stash pop || true
 
       # Schema-only validation of modified models (zero-cost DDL check)

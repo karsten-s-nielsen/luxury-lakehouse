@@ -73,10 +73,10 @@ jobs:
         run: uv run pip install detect-secrets && uv run detect-secrets scan --baseline .secrets.baseline
 
       - name: Audit dependencies
-        run: uv run pip-audit
+        run: uv run pip-audit --ignore-vuln CVE-2026-4539  # pygments 2.19.2 — no fix available yet
 
       - name: Generate SBOM (CycloneDX)
-        run: uv run pip-audit --format cyclonedx-json -o sbom.json
+        run: uv run pip-audit --format cyclonedx-json --ignore-vuln CVE-2026-4539 -o sbom.json
 
       - name: Upload SBOM artifact
         if: always()
