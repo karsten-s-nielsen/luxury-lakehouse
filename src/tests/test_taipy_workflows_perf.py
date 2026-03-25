@@ -108,7 +108,7 @@ def _make_job_runs(cards: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]
                 "last_run": now - pd.Timedelta(hours=i * 3),
                 "duration_seconds": 120 + i * 30,
                 "state": "SUCCESS",
-                "end_time_ms": int((now - pd.Timedelta(hours=i * 3)).timestamp() * 1000),
+                "end_time_ms": int(pd.Timestamp(now - pd.Timedelta(hours=i * 3)).timestamp() * 1000),
             }
     return runs
 
