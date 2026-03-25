@@ -39,6 +39,7 @@ dv_view_lov: list[str] = ["Rankings", "Breakdown", "Timeline"]
 _DV_RANKINGS_COLS = [
     "Player",
     "Total Pressure",
+    "Pctile",
     "Actions Faced",
     "Intercepted",
     "Shots Conceded",
@@ -353,6 +354,35 @@ def _fetch_breakdown_player_ids(comp_id: int, team_id: int | None) -> set[int]:
     return {int(x) for x in result["player_id"]}
 
 
+@ttl_cache(ttl=600)
+def _fetch_defcon_percentiles(comp_id: int, player_ids: tuple[int, ...]) -> dict[int, float]:
+    """Fetch defcon_per_90_pctile for a batch of players.
+
+    Returns {player_id: pctile_value} dict. Gracefully returns empty dict
+    if the percentile table doesn't exist yet.
+    """
+    if not player_ids:
+        return {}
+    try:
+        pctile_tbl = t("fct_player_percentiles_synced")
+        placeholders = ", ".join(["%s"] * len(player_ids))
+        # player_id in percentiles table is string type
+        str_ids = tuple(str(pid) for pid in player_ids)
+        df = execute_query(
+            f"SELECT player_id, defcon_per_90_pctile "  # noqa: S608
+            f"FROM {pctile_tbl} "
+            f"WHERE competition_id = %s AND player_id IN ({placeholders}) "
+            f"AND defcon_per_90_pctile IS NOT NULL",
+            (comp_id, *str_ids),
+        )
+        if df.empty:
+            return {}
+        return {int(row["player_id"]): float(row["defcon_per_90_pctile"]) for _, row in df.iterrows()}
+    except Exception:
+        logger.debug("DEFCON percentile lookup failed (table may not exist)")
+        return {}
+
+
 @ttl_cache()
 def _fetch_timeline_player_ids(comp_id: int, team_id: int | None) -> set[int]:
     """action_player_ids that have DEFCON action rows for the given filters."""
@@ -448,7 +478,10 @@ def _build_breakdown_figure(breakdown: pd.DataFrame, player_name: str) -> go.Fig
 
 
 def _format_rankings_table(df: pd.DataFrame) -> pd.DataFrame:
-    """Format rankings for Taipy <|table|>. Drops player_id, renames columns."""
+    """Format rankings for Taipy <|table|>. Drops player_id, renames columns.
+
+    Includes Pctile column when defcon_per_90_pctile data is available.
+    """
     if df.empty:
         return pd.DataFrame(columns=_DV_RANKINGS_COLS)
 
@@ -464,11 +497,30 @@ def _format_rankings_table(df: pd.DataFrame) -> pd.DataFrame:
     }
     display = df.drop(columns=["player_id"], errors="ignore").rename(columns=rename_map)
 
+    # Format percentile column: 0.85 -> "85th", 0.51 -> "51st", etc.
+    def _fmt_pctile(v: float | None) -> str:
+        if pd.isna(v):
+            return "--"
+        n = int(v * 100)
+        suffix = "th" if 11 <= n % 100 <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+        return f"{n}{suffix}"
+
+    if "defcon_per_90_pctile" in display.columns:
+        display["Pctile"] = display["defcon_per_90_pctile"].apply(_fmt_pctile)
+        display = display.drop(columns=["defcon_per_90_pctile"])
+    else:
+        display["Pctile"] = "--"
+
     # Convert to numeric (SUM returns object/Decimal via psycopg2), fill NaN, round
     numeric_cols = ["Total Pressure", "Actions Faced", "Intercepted", "Shots Conceded", "Disturbed", "Deterred"]
     for col in numeric_cols:
         if col in display.columns:
             display[col] = pd.to_numeric(display[col], errors="coerce").fillna(0).round(2)
+
+    # Reorder columns to match _DV_RANKINGS_COLS
+    desired_order = [c for c in _DV_RANKINGS_COLS if c in display.columns]
+    remaining = [c for c in display.columns if c not in desired_order]
+    display = display[desired_order + remaining]
 
     return display
 
@@ -574,6 +626,14 @@ def _refresh_rankings(state: Any) -> None:
         state.dv_warning_text = ""
 
     _dv_rankings_full = rankings
+
+    # Enrich with percentile data (post-fetch lookup, graceful degradation)
+    if not rankings.empty and comp_id is not None:
+        player_ids = tuple(int(pid) for pid in rankings["player_id"])
+        pctile_map = _fetch_defcon_percentiles(comp_id, player_ids)
+        if pctile_map:
+            rankings["defcon_per_90_pctile"] = rankings["player_id"].apply(lambda pid: pctile_map.get(int(pid)))
+
     state.dv_rankings_data = _format_rankings_table(rankings)
     logger.info("Rankings: %d players loaded", len(rankings))
 

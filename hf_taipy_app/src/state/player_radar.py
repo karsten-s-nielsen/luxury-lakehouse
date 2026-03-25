@@ -22,6 +22,23 @@ from state.shared import _page_refreshers, get_comp_id, get_team_id, register_pa
 
 logger = logging.getLogger(__name__)
 
+# ── Percentile column mapping (metric_key -> pctile column in fct_player_percentiles_synced) ──
+_PCTILE_COL_MAP: dict[str, str | None] = {
+    "goals_per_90": "goals_per_90_pctile",
+    "xg_per_90": "xg_per_90_pctile",
+    "passes_per_90": "passes_per_90_pctile",
+    "progressive_passes_per_90": "progressive_passes_per_90_pctile",
+    "pass_completion_pct": "pass_completion_pct_pctile",
+    "xg_overperformance": None,  # No percentile column for derived metric
+    "line_breaking_per_90": "line_breaking_per_90_pctile",
+    "vaep_per_90": "vaep_per_90_pctile",
+    "offensive_vaep_per_90": "offensive_vaep_per_90_pctile",
+    "defensive_vaep_per_90": "defensive_vaep_per_90_pctile",
+    "defcon_per_90": "defcon_per_90_pctile",
+    "avg_distance_per_min": "distance_per_minute_pctile",
+    "avg_max_speed_ms": "max_speed_pctile",
+}
+
 # ── Metric definitions ──────────────────────────────────────────────────────
 
 _DEFAULT_METRICS: list[tuple[str, str, tuple[float, float]]] = [
@@ -43,7 +60,9 @@ _PHYSICAL_METRICS: list[tuple[str, str, tuple[float, float]]] = [
     ("avg_max_speed_ms", "Top Speed (m/s)", (0, 12)),
 ]
 
-# Spoke label explanations (for caption below the radar)
+# Spoke label explanations — shared constant imported by player_similarity.
+# Not rendered as page text (glossary covers definitions); used only for
+# internal cross-reference.
 SPOKE_LEGEND: dict[str, str] = {
     "Goals/90": "goals per 90 min",
     "xG/90": "expected goals per 90",
@@ -64,7 +83,6 @@ SPOKE_LEGEND: dict[str, str] = {
 
 pr_radar_image: str = ""
 pr_player_count: int = 0
-pr_spoke_caption: str = ""
 pr_select_hint: str = "Select 1\u20133 players to compare."
 pr_low_minute_warning: str = ""
 pr_comp_selected: bool = False
@@ -98,7 +116,6 @@ __all__ = [
     "pr_player_count",
     "pr_radar_image",
     "pr_selected_metrics",
-    "pr_spoke_caption",
     "pr_stats_table",
     "pr_warning_text",
 ]
@@ -155,6 +172,39 @@ def _fetch_player_radar_stats(
         f"WHERE sub.rn = 1",
         (comp_id, *player_ids),
     )
+
+
+def _fetch_player_percentiles_batch(
+    player_ids: list[int],
+    comp_id: int,
+) -> dict[int, pd.DataFrame]:
+    """Fetch percentile ranks for multiple players in one query.
+
+    Returns a dict mapping player_id to a single-row DataFrame.
+    Empty dict if the synced table doesn't exist or no data found.
+    """
+    if not player_ids:
+        return {}
+    try:
+        pctile_tbl = t("fct_player_percentiles_synced")
+        placeholders = ", ".join(["%s"] * len(player_ids))
+        df = execute_query(
+            f"SELECT * FROM {pctile_tbl} "  # noqa: S608
+            f"WHERE player_id IN ({placeholders}) AND competition_id = %s",
+            (*[str(pid) for pid in player_ids], comp_id),
+        )
+        if df.empty:
+            return {}
+        result: dict[int, pd.DataFrame] = {}
+        for pid in player_ids:
+            mask = df["player_id"].astype(str) == str(pid)
+            player_df = df[mask]
+            if not player_df.empty:
+                result[pid] = player_df.head(1)
+        return result
+    except Exception:
+        logger.debug("Percentile data unavailable (table may not be synced yet)")
+        return {}
 
 
 # ── Rendering ────────────────────────────────────────────────────────────────
@@ -232,7 +282,7 @@ def on_pr_metric_change(state: Any, var_name: str, var_value: Any) -> None:
     selected: list[str] = var_value or []
     if not selected:
         state.pr_radar_image = ""
-        state.pr_spoke_caption = ""
+        state.pr_metrics_hint = ""
         return
 
     # Re-trigger a full refresh which will respect pr_selected_metrics
@@ -249,7 +299,6 @@ def _clear_state(state: Any) -> None:
     """Reset all pr_ state variables."""
     state.pr_radar_image = ""
     state.pr_player_count = 0
-    state.pr_spoke_caption = ""
     state.pr_metrics_hint = ""
     state.pr_low_minute_warning = ""
     state.pr_no_data_warning = ""
@@ -337,7 +386,20 @@ def pr_refresh(state: Any) -> None:
 
     metric_keys = [m[0] for m in filtered_metrics]
     labels = [m[1] for m in filtered_metrics]
-    ranges = [m[2] for m in filtered_metrics]
+    default_ranges = [m[2] for m in filtered_metrics]
+
+    # Attempt to fetch percentile data for each player (graceful degradation)
+    pctile_data: dict[int, pd.DataFrame] = {}
+    pctile_data = _fetch_player_percentiles_batch(player_ids, comp_id)
+
+    # Use percentile-based scaling when ALL players have percentile data
+    # and ALL selected metrics have a percentile column mapping.
+    use_percentiles = bool(pctile_data) and len(pctile_data) == len(player_ids)
+    if use_percentiles:
+        pctile_metrics = [k for k in metric_keys if _PCTILE_COL_MAP.get(k) is not None]
+        use_percentiles = len(pctile_metrics) == len(metric_keys)
+
+    ranges = [(0.0, 1.0)] * len(metric_keys) if use_percentiles else default_ranges
 
     # Build player data and names
     players_data: list[dict[str, float]] = []
@@ -346,14 +408,27 @@ def pr_refresh(state: Any) -> None:
     stats_rows: list[dict[str, Any]] = []
 
     for _, row in stats.iterrows():
-        players_data.append({k: float(row.get(k, 0) or 0) for k in metric_keys})
+        pid = int(row["player_id"])
+        if use_percentiles and pid in pctile_data:
+            pctile_row = pctile_data[pid].iloc[0]
+            player_vals: dict[str, float] = {}
+            for k in metric_keys:
+                pctile_col = _PCTILE_COL_MAP.get(k)
+                if pctile_col and pctile_col in pctile_row.index:
+                    val = pctile_row.get(pctile_col)
+                    player_vals[k] = float(val) if pd.notna(val) else 0.0
+                else:
+                    player_vals[k] = float(row.get(k, 0) or 0)
+            players_data.append(player_vals)
+        else:
+            players_data.append({k: float(row.get(k, 0) or 0) for k in metric_keys})
         name = str(row["player_display_name"])
         minutes = int(row.get("minutes_played", 0) or 0)
         player_names.append(f"{name} ({minutes:,} min)")
         if minutes < 450:
             low_minute_warnings.append(f"{name} has only {minutes} min \u2014 per-90 stats may be unreliable")
 
-        # Build stats table row with all available metrics.
+        # Build stats table row with all available metrics (always raw values).
         # Taipy table rendering breaks on column names with / or % characters.
         # Sanitize: "/" → " per ", "%" → "Pct", "." → "" for safe column names.
         stats_row: dict[str, Any] = {"Player": name, "Minutes": minutes}
@@ -365,9 +440,13 @@ def pr_refresh(state: Any) -> None:
     state.pr_stats_table = pd.DataFrame(stats_rows)
     state.pr_low_minute_warning = " \u00b7 ".join(low_minute_warnings) if low_minute_warnings else ""
 
-    # Build spoke caption (bold labels matching Streamlit st.caption format)
-    legend_parts = [f"**{lbl}** = {SPOKE_LEGEND[lbl]}" for lbl in labels if lbl in SPOKE_LEGEND]
-    state.pr_spoke_caption = " \u00b7 ".join(legend_parts) if legend_parts else ""
+    # Scale context in metrics hint (replaces removed spoke legend)
+    if use_percentiles:
+        state.pr_metrics_hint = (
+            "Percentile scaling (0\u2013100th within competition). See Glossary for metric definitions."
+        )
+    elif len(current_selection) >= 3:
+        state.pr_metrics_hint = "Raw value scaling. See Glossary for metric definitions."
 
     # Render radar chart
     title = " vs ".join(player_names)

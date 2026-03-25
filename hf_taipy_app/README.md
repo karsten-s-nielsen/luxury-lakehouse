@@ -5,10 +5,11 @@ colorFrom: yellow
 colorTo: gray
 sdk: docker
 app_port: 7860
+startup_duration_timeout: 2m
 pinned: true
 license: apache-2.0
 tags: [soccer, football, analytics, taipy, databricks, lakebase]
-short_description: 12-page soccer analytics dashboard on Lakebase
+short_description: 13-page soccer analytics dashboard on Lakebase
 ---
 
 # (Right! Luxury!) Lakehouse

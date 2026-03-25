@@ -33,7 +33,6 @@ page_config = PageConfig(
         ContentRow([ContentBlock("text", "pr_low_minute_warning")]),
         ContentRow([ContentBlock("text", "pr_metrics_hint", condition="len(pr_metrics_hint) > 0")]),
         ContentRow([ContentBlock("image", "pr_radar_image")]),
-        ContentRow([ContentBlock("text", "pr_spoke_caption", condition="len(pr_spoke_caption) > 0")]),
         ContentRow([ContentBlock("expandable_table", "pr_stats_table", header="Full Stats", table_page_size=25)]),
     ],
     empty_message="Select a competition to begin.",

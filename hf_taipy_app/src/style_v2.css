@@ -403,14 +403,16 @@ h2 .material-symbols-outlined {
 }
 
 /* Help icon positioned to the right of the widget without affecting width.
-   The md-para wrapper becomes position:relative so the icon can sit outside
-   the widget's flow. All widgets keep identical width regardless of help.
+   The outer taipy-part wrapper (the <|part|render={...}|> that wraps each
+   widget) becomes position:relative so the icon can sit outside the widget's
+   flow at vertical center. Works for dropdowns (single-line) and sliders
+   (multi-line with label + slider + range) equally.
    :has() requires Chrome 105+, Firefox 121+, Safari 15.4+ (2022+). */
-.ll-sidebar-section .md-para:has(> .ll-help) {
+.ll-sidebar-section > .taipy-part:has(.ll-help) {
     position: relative !important;
 }
 
-.ll-sidebar-section .md-para > .ll-help {
+.ll-sidebar-section > .taipy-part > .md-para > .ll-help {
     position: absolute !important;
     right: -20px !important;
     top: 50% !important;

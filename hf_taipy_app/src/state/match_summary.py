@@ -39,6 +39,7 @@ ms_ppda_chart: str = ""
 ms_warning_text: str = ""
 ms_scope_label: str = ""
 ms_data_freshness: str = ""
+ms_league_averages: str = ""
 
 __all__ = [
     "ms_away_name",
@@ -50,6 +51,7 @@ __all__ = [
     "ms_home_score",
     "ms_home_xg",
     "ms_home_xg_delta",
+    "ms_league_averages",
     "ms_passing_chart",
     "ms_possession_chart",
     "ms_ppda_chart",
@@ -76,6 +78,23 @@ def _fetch_match_summary(match_id: int) -> pd.DataFrame:
         f"  home_possession_pct, home_ppda, away_ppda "
         f"FROM {t('fct_match_summary_synced')} WHERE match_id = %s",
         (int(match_id),),
+    )
+
+
+@ttl_cache(ttl=600)
+def _fetch_league_averages(comp_id: int) -> pd.DataFrame:
+    """Fetch competition-wide averages for reference context.
+
+    Returns averages for xG per team, possession, and pass completion.
+    Used to display league-average reference text below match metrics.
+    """
+    tbl = t("fct_match_summary_synced")
+    return execute_query(
+        f"SELECT AVG(home_xg + away_xg) / 2 as avg_xg_per_team, "  # noqa: S608
+        f"  AVG(home_possession_pct) as avg_possession, "
+        f"  AVG((home_pass_completion_pct + away_pass_completion_pct) / 2) as avg_pass_completion "
+        f"FROM {tbl} WHERE competition_id = %s",
+        (comp_id,),
     )
 
 
@@ -140,6 +159,7 @@ def ms_refresh(state: Any) -> None:
         state.ms_warning_text = ""
         state.ms_scope_label = ""
         state.ms_data_freshness = ""
+        state.ms_league_averages = ""
         return
 
     # Scope label
@@ -164,6 +184,7 @@ def ms_refresh(state: Any) -> None:
         state.ms_ppda_chart = ""
         state.ms_warning_text = "No match data for the selected filters."
         state.ms_data_freshness = ""
+        state.ms_league_averages = ""
         return
 
     m = match_data.iloc[0]
@@ -246,6 +267,28 @@ def ms_refresh(state: Any) -> None:
         title="Pressing (lower = more aggressive)",
         file_name="ms_bars_ppda",
     )
+
+    # League averages reference text
+    if comp_id is not None:
+        try:
+            avg_df = _fetch_league_averages(comp_id)
+            if not avg_df.empty:
+                avg = avg_df.iloc[0]
+                avg_xg = float(avg.get("avg_xg_per_team", 0) or 0)
+                avg_poss = float(avg.get("avg_possession", 50) or 50)
+                avg_pass = float(avg.get("avg_pass_completion", 0) or 0)
+                state.ms_league_averages = (
+                    f"League avg: {avg_xg:.2f} xG/team \u00b7 "
+                    f"{avg_poss:.0f}% possession \u00b7 "
+                    f"{avg_pass:.0f}% pass completion"
+                )
+            else:
+                state.ms_league_averages = ""
+        except Exception:
+            logger.debug("League averages unavailable")
+            state.ms_league_averages = ""
+    else:
+        state.ms_league_averages = ""
 
     # Data freshness
     state.ms_data_freshness = fetch_data_freshness()

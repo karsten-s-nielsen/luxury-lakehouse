@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the current [architecture](ARCHITECTURE.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-03-15
+**Last updated**: 2026-03-25
 
 ---
 
@@ -11,7 +11,7 @@ Research directions, long-horizon features, and exploratory ideas beyond the cur
 **Status:** Research complete, ready for implementation
 **Budget:** ~$1-2/month (personal) or enterprise-swappable via config
 
-The platform currently has minimal observability (ARCHITECTURE.md &sect;6.4): Databricks audit logs, dbt test results, and Streamlit built-in metrics. No structured telemetry, no model validation, no pipeline performance tracking. This section defines a proper observability layer using OpenTelemetry as the instrumentation standard.
+The platform currently has minimal observability (ARCHITECTURE.md &sect;6.4): Databricks audit logs, dbt test results, and Taipy/HF Spaces built-in metrics. No structured telemetry, no model validation, no pipeline performance tracking. This section defines a proper observability layer using OpenTelemetry as the instrumentation standard.
 
 ### Core principle: instrument once, observe anywhere
 
@@ -52,9 +52,9 @@ Each layer of the platform gets structured telemetry with configurable granulari
 | **Ingestion** (StatsBomb, Metrica, etc.) | HTTP calls, Delta writes, row counts, duration | Traces + Metrics | Auto (`requests`) + manual spans |
 | **dbt transformations** | Per-model execution time, test pass/fail, row counts | Metrics | Parse `run_results.json` post-build |
 | **Analytics models** (xG, xT, VAEP, pitch control) | Input/output stats, drift metrics, validation status | Traces + Metrics | Manual spans with `analytics.*` attributes |
-| **Streamlit app** | Lakebase query latency, page render time | Traces | Auto (`psycopg2`) + manual spans |
+| **Taipy app** | Lakebase query latency, page render time | Traces | Auto (`psycopg2`) + manual spans |
 
-**Python OTel SDK** (v1.39.1, stable): Auto-instrumentation available for `requests` and `psycopg2` via `opentelemetry-instrumentation-*` packages. No Streamlit or PySpark auto-instrumentation &mdash; use manual spans around key operations.
+**Python OTel SDK** (v1.39.1, stable): Auto-instrumentation available for `requests` and `psycopg2` via `opentelemetry-instrumentation-*` packages. No Taipy or PySpark auto-instrumentation &mdash; use manual spans around key operations.
 
 **Custom attribute namespace** for analytics models (no official OTel semantic conventions exist for traditional ML):
 
@@ -136,7 +136,7 @@ Post-run parsing captures per-model execution time, test pass/fail counts, failu
 
 ### Open questions
 
-1. **Collector location**: Sidecar in Streamlit App container? Separate ECS task? Lambda?
+1. **Collector location**: Sidecar in Taipy App container? Separate ECS task? Lambda?
 2. **S3 bucket**: Dedicated telemetry bucket or partition within existing infrastructure?
 3. **Query interface**: DuckDB (free, local) vs Athena (serverless, pay-per-query)?
 4. **Ingestion granularity**: Per-match spans or per-batch spans?
@@ -149,107 +149,6 @@ Post-run parsing captures per-model execution time, test pass/fail counts, failu
 - Foundation for DEFCON (Phase 17) model monitoring
 
 ---
-
-## UI/HCI Audit Skill (Mental Model &amp; Error Tolerance)
-
-**Status:** Beta complete &mdash; `cognitive-interface-audit` skill authored in [mad-scientist-skills](https://github.com/karsten-s-nielsen/mad-scientist-skills) v1.7.0 (SKILL.md + 5 templates)
-**Budget:** Zero &mdash; Claude Code skill (no infrastructure)
-**References:** Wood &amp; Byrne 2002 (error-tolerant interfaces); Gergle et al. 2004/2013 (visual grounding &amp; common ground); Brinck, Gergle &amp; Wood 2001 (*Usability for the Web*, Morgan Kaufmann); Rasmussen 1983 (Skills-Rules-Knowledge); Card, Moran &amp; Newell 1983 (GOMS)
-
-A new [mad-scientist-skills](https://github.com/karsten-s-nielsen/mad-scientist-skills) skill that audits user interfaces and human workflows for **mental model alignment** &mdash; ensuring that the way an interface structures tasks matches how users actually think about those tasks. Visual polish (colors, spacing, typography) matters, but the real value &mdash; like rock-solid infrastructure &mdash; is in the underlying task models that users never consciously see but always feel when they&rsquo;re wrong.
-
-### Core principle: the interface should think the way the user thinks
-
-The best interfaces are invisible. Users complete tasks without friction because the system&rsquo;s workflow mirrors their existing mental model &mdash; same vocabulary, same sequence, same chunking of operations. When the interface&rsquo;s task model diverges from the user&rsquo;s mental model, errors aren&rsquo;t &ldquo;user mistakes&rdquo; &mdash; they&rsquo;re design failures.
-
-### Academic foundations
-
-Three research threads converge into a single audit methodology:
-
-#### 1. Task Model &amp; Error Tolerance (Wood, Byrne, Rasmussen)
-
-Scott D. Wood&rsquo;s dissertation (*Extending GOMS to Human Error and Applying it to Error-Tolerant Design*, University of Michigan, 2000) extended **GOMS (Goals, Operators, Methods, Selection rules)** to predict where human errors will occur in an interface. His 2002 paper with Mike Byrne (&ldquo;A Cognitive Approach to Designing Human Error Tolerant Interfaces&rdquo;) provides a **7-layer defense framework** mapped to stages of erroneous performance:
-
-| Layer | Stage | Audit Question |
-|-------|-------|----------------|
-| Prevention | Before error | Can this error class be eliminated by design constraints? |
-| Reduction | Before error | Does the task model minimize opportunities for this error? |
-| Detection | After commission | Will the user notice something went wrong? |
-| Identification | After detection | Can the user understand *what* went wrong? |
-| Correction | After identification | Is fixing it straightforward and discoverable? |
-| Resumption | After correction | Can the user return to their task without losing context? |
-| Mitigation | Unrecoverable | Is damage minimized when all else fails? |
-
-Built on **Rasmussen&rsquo;s Skills-Rules-Knowledge (SRK) framework**: skill-based errors (slips) need different defenses than rule-based errors (misapplication) and knowledge-based errors (wrong mental model). The audit must classify error risks by SRK level. Wood&rsquo;s extension also introduced two key error mechanisms from Reason&rsquo;s taxonomy: **similarity matching** (wrong-but-similar rule fires) and **frequency gambling** (most-used routine executes even when context demands otherwise).
-
-**Key references (open access):** [eScholarship](https://escholarship.org/uc/item/4nr8x5b1) &mdash; Wood &amp; Byrne, CogSci 2002; [IITSEC 2002](https://web.eecs.umich.edu/~kieras/docs/GOMS/Wood_IITSEC2002.pdf) &mdash; Wood, &ldquo;Modeling Human Error for Experimentation, Training, and Error-Tolerant Design&rdquo;. Dissertation: [ProQuest](https://www.proquest.com/openview/7a8b78bcf5d8ab261d06fed9d096bdba/) (abstract free, full text paywalled; author copy available on request).
-
-#### 2. Visual Grounding &amp; Common Ground (Gergle, Kraut, Fussell)
-
-Darren Gergle&rsquo;s research at Northwestern (CollabLab, CHI Academy 2026) demonstrates that **shared visual information** directly affects task performance through two distinct mechanisms:
-
-- **Situation awareness** &mdash; does the user understand the current state of the system?
-- **Conversational grounding** &mdash; does the interface provide enough shared context for efficient communication (between user and system, or between collaborating users)?
-
-His work shows that not just the *availability* but the *form* of visual information differentially affects coordination. Key findings for audit criteria:
-
-- Delayed visual feedback degrades collaborative performance (latency thresholds)
-- Display characteristics affect spatial task performance
-- Age and demographic bias can be embedded in computational systems (sentiment analysis, data contribution)
-- Accessibility barriers in collaborative tools are systematic, not incidental
-
-Gergle also co-developed the **Joint Action Storyboard** framework (&ldquo;Joint Action Storyboards: A Framework for Visualizing Communication Grounding Costs&rdquo;, CSCW 2021) &mdash; a structured method that maps each UI interaction to its grounding cost, identifying exactly where the design forces users to do extra cognitive work. This is essentially a ready-made audit tool for Phase 4.
-
-**Key references:** Gergle, Kraut &amp; Fussell, &ldquo;Using Visual Information for Grounding and Awareness&rdquo; (*Human-Computer Interaction*, 2013); &ldquo;Language Efficiency and Visual Technology&rdquo; (*JLSP*, 2004); &ldquo;Joint Action Storyboards&rdquo; (CSCW 2021); &ldquo;Addressing Age-Related Bias in Sentiment Analysis&rdquo; (CHI 2018, Best Paper); &ldquo;Model Positionality and Computational Reflexivity&rdquo; (CHI 2022, Best Paper HM). Also: Brinck, Gergle &amp; Wood, *Usability for the Web: Designing Web Sites that Work* (Morgan Kaufmann, 2001) &mdash; a &ldquo;pervasive usability&rdquo; framework with stage-by-stage checklists. Note: Wood and Gergle co-authored this book &mdash; the two primary academic foundations for this skill converge in a single prior collaboration.
-
-#### 3. Cognitive Load (Sweller, Madsen, NASA-TLX)
-
-Cognitive load theory provides the quantitative backbone: every interface decision either consumes or conserves working memory. The **NASA-TLX** framework (6 dimensions: mental demand, physical demand, temporal demand, effort, performance, frustration) offers structured evaluation of interface complexity. Jes Buster Madsen&rsquo;s work on cognitive load in team sports (&ldquo;Evaluation of Cognitive Load in Team Sports&rdquo;, *PeerJ*, 2021) confirms that as cognitive load increases, decision-making accuracy decreases &mdash; directly applicable to information-dense dashboards and multi-step workflows.
-
-### Proposed audit phases
-
-| Phase | Focus | Primary Framework |
-|-------|-------|-------------------|
-| 0. Task Model Mapping | Map user goals &rarr; tasks &rarr; operations. Identify where the interface&rsquo;s task decomposition diverges from users&rsquo; mental models. Evaluate across the **user expertise spectrum** (kiosk/first-time &rarr; regular &rarr; power user) &mdash; each has a different task decomposition and the interface must degrade gracefully across all three | GOMS (Card, Moran &amp; Newell) |
-| 1. Consistency &amp; Convention | Same patterns for same operations across the entire interface. Leverage existing knowledge (platform conventions, domain standards) | Nielsen&rsquo;s heuristics + GOMS |
-| 2. Error Tolerance | For each critical task path, evaluate all 7 defense layers. Classify error risks by Rasmussen SRK level | Wood &amp; Byrne 7-layer |
-| 3. Cognitive Load | Information density per screen, decision points per task, working memory demands, progressive disclosure | NASA-TLX + Sweller CLT |
-| 4. Visual Grounding | Feedback sufficiency, state visibility, shared context for collaborative workflows, latency tolerance | Gergle grounding theory |
-| 5. Accessibility &amp; Inclusion | Demographic bias in data presentation, age/ability inclusivity, assistive technology compatibility | Gergle bias research + WCAG |
-| 6. Information Architecture | Navigation coherence, error recovery paths, undo/resume affordances, breadcrumb trails | Combined frameworks |
-
-### Coded rules (complementary to skill)
-
-In addition to the skill&rsquo;s manual audit phases, codify machine-checkable rules for common task model violations:
-
-- **Inconsistent action vocabulary** &mdash; same operation uses different labels/icons across pages (grep-detectable in Streamlit/React codebases)
-- **Missing confirmation on destructive actions** &mdash; delete/overwrite without undo or confirmation dialog
-- **Dead-end states** &mdash; error pages or empty states with no clear recovery path
-- **Orphaned navigation** &mdash; pages reachable only by direct URL, not discoverable from the UI
-- **Overloaded screens** &mdash; more than N interactive elements per viewport (configurable threshold)
-- **Inconsistent response patterns** &mdash; success feedback uses different mechanisms across features (toast vs inline vs redirect)
-
-### Relationship to existing skills
-
-| Skill | Overlap | Distinction |
-|-------|---------|-------------|
-| `security-audit` | Both scan code for anti-patterns | Security focuses on attack surface; UI/HCI focuses on task model alignment |
-| `optimization-audit` | Both evaluate response latency | Optimization focuses on server-side; UI/HCI focuses on perceived responsiveness and cognitive cost |
-| `observability-audit` | Both care about feedback loops | Observability instruments for engineers; UI/HCI audits feedback *for end users* |
-| `final-review` | Both run before commit | Final review checks code quality and docs; UI/HCI audits the human experience |
-
-### Implementation approach
-
-1. **Skill authoring** &mdash; new `cognitive-interface-audit` skill in [mad-scientist-skills](https://github.com/karsten-s-nielsen/mad-scientist-skills) following the existing security/optimization/observability pattern (planning + audit modes, severity classification, phase-based execution). Beta version complete &mdash; SKILL.md + 5 templates authored
-2. **Coded rules** &mdash; Ruff-style grep patterns for common UI anti-patterns, integrated into Phase 0 (fast scan before deeper analysis)
-3. **Framework templates** &mdash; `templates/task-model-analysis.md`, `templates/error-tolerance-checklist.md`, `templates/cognitive-load-assessment.md` following the template pattern established in the optimization and security audit skills
-
-### Dependencies
-
-- No blocking dependencies &mdash; skill can be authored at any time
-- First test target: this project&rsquo;s Streamlit app (11 pages, data-dense dashboards &mdash; ideal candidate for mental model audit)
-- Synergistic with HF Space expansion (D1/D2) &mdash; Gradio UI would benefit from audit before shipping
-
 ---
 
 ## Deep Learning Infrastructure &amp; Pre-trained Models
@@ -271,7 +170,7 @@ External GPU (RunPod spot ~$0.35/hr, Lambda Labs ~$0.75/hr)
     &darr; PyTorch/JAX training, MLflow remote logging
 Unity Catalog Model Registry (@Champion / @Challenger aliases)
     &darr; Batch inference (Databricks serverless CPU job)
-Delta Lake &rarr; Synced tables &rarr; Lakebase &rarr; Streamlit
+Delta Lake &rarr; Synced tables &rarr; Lakebase &rarr; Taipy
 ```
 
 **MLflow 3** (current): `LoggedModel` as first-class citizen, Unity Catalog default registry (`catalog.schema.model_name`), Champion/Challenger aliases decouple inference code from version numbers. Pre-trained weights stored in UC Volumes (`/Volumes/soccer_analytics/dev_gold/model_weights/`). `HF_HOME` pointed at UC Volume to cache HuggingFace downloads across sessions.
@@ -501,7 +400,7 @@ The `Vision` class is a clean NumPy/scipy implementation. Once pose data arrives
 | `src/analytics/vision.py` | Analytics | Adapted `Vision` class for 120x80 coordinate system |
 | `int_vision_maps.sql` | dbt intermediate | Per-player per-frame vision metrics |
 | `fct_player_stats.sql` (update) | dbt marts | Vision-derived per-90 stats |
-| Heat Map page (update) | Streamlit | Vision map overlay on tracking viz |
+| Heat Map page (update) | Taipy | Vision map overlay on tracking viz |
 
 ### Dependencies
 
@@ -570,14 +469,14 @@ The `unravelsports` package implements EFPI &mdash; Elastic Formation and Positi
 - Naive y-sort grouping &mdash; works for static averages but fails during transitions
 - Delaunay triangulation fingerprinting (Narizuka &amp; Yamazaki 2019) &mdash; topology-invariant but outputs abstract distance matrices, not human-readable formation labels
 
-#### Streamlit page design
+#### Taipy page design
 
 A "Team Shape" page following the Pitch Control page pattern, with two views:
 
 **Snapshot view** (single frame or phase average):
 - Pitch diagram with player positions (jersey numbers) and connected formation lines (GK &rarr; back line &rarr; midfield &rarr; attack)
 - Convex hull overlay (shaded polygon per team)
-- Sidebar `st.metric` widgets: team length, width, defensive line height, GK-backline distance, convex hull area &mdash; with `delta=` showing difference from match average
+- Sidebar Taipy `Metric` widgets with `help_text`: team length, width, defensive line height, GK-backline distance, convex hull area &mdash; with delta showing difference from match average
 
 **Timeline view** (full match):
 - Time-series chart of team length, width, and defensive line height
@@ -590,9 +489,9 @@ A "Team Shape" page following the Pitch Control page pattern, with two views:
 All Tier 1 and Tier 2 metrics are lightweight NumPy/scipy operations on per-frame player positions &mdash; no heavy compute pipeline needed:
 - `scipy.spatial.ConvexHull` for team area
 - Basic y-sorting + k-means (k=3 or k=4) for line detection
-- EFPI for formation labels (runs in Streamlit or pre-computed via `applyInPandas`)
+- EFPI for formation labels (runs in Taipy or pre-computed via `applyInPandas`)
 
-Option to pre-compute and persist as a dbt mart (e.g., `fct_team_shape`) for larger datasets, but Streamlit-side computation is sufficient for the current 20-match corpus.
+Option to pre-compute and persist as a dbt mart (e.g., `fct_team_shape`) for larger datasets, but Taipy-side computation is sufficient for the current 20-match corpus.
 
 #### Potential artifacts
 
@@ -600,8 +499,8 @@ Option to pre-compute and persist as a dbt mart (e.g., `fct_team_shape`) for lar
 |----------|-------|-------------|
 | `src/analytics/team_shape.py` | Analytics | Team centroid, convex hull, line detection, shape metrics |
 | `fct_team_shape` (optional) | dbt marts | Pre-computed per-frame or per-window team shape metrics |
-| `src/streamlit_app/pages/team_shape.py` | Streamlit | Team Shape page (snapshot + timeline views) |
-| `src/streamlit_app/components/pitch.py` (update) | Streamlit | Connected-formation diagram renderer, convex hull overlay |
+| `hf_taipy_app/src/pages/team_shape.py` | Taipy | Team Shape page (snapshot + timeline views) |
+| `hf_taipy_app/src/` components (update) | Taipy | Connected-formation diagram renderer, convex hull overlay |
 
 ### Stage 2 &mdash; Own-Footage Pipeline (Veo3 &rarr; SkillCorner DoD &rarr; Platform)
 
@@ -656,7 +555,7 @@ Team shape analysis on actual youth/amateur games &mdash; metrics that resonate 
 ### Dependencies
 
 - Phase 10 (tracking data ingestion) &mdash; **complete** (20 matches available)
-- Phase 11 (pitch control) &mdash; **complete** (Streamlit page pattern to follow)
+- Phase 11 (pitch control) &mdash; **complete** (Taipy page pattern to follow)
 - `unravelsports` package (MPL 2.0) &mdash; new dependency for EFPI formation detection
 - Stage 2 only: SkillCorner DoD commercial access + [Provider Framework](#provider-abstraction--multi-tier-ingestion) adapter
 - Synergistic with Visual Exploratory Behavior (same own-footage pipeline for Stage 2)
@@ -686,7 +585,7 @@ Currently the platform has a single `dev` environment. Adding a `staging` enviro
 | Lakebase project | `soccer-analytics-dev` | `soccer-analytics-staging` |
 | Lakebase branch | `production` | `staging` (branched from dev production) |
 | dbt target | `dev` | `staging` |
-| Synced tables | 17 tables | Subset (fact tables only for validation) |
+| Synced tables | 23 tables | Subset (fact tables only for validation) |
 | Terraform | `terraform/environments/dev/` | `terraform/environments/staging/` |
 | Budget | Under $100/month | Minimal incremental (scale-to-zero) |
 
@@ -785,7 +684,7 @@ Phase 12 implemented a simpler Off-Ball xT metric: `pitch_control(player_locatio
 **Budget:** $0 (free tier) or $9/month (PRO for priority GPU access)
 **References:** [Databricks &hearts; HuggingFace](https://www.databricks.com/blog/contributing-spark-loader-for-hugging-face-datasets); [PyG Hub Integration](https://github.com/pyg-team/pytorch_geometric/issues/7170); [SoccerNet on HF](https://huggingface.co/SoccerNet)
 
-HuggingFace is the open-source AI community's central hub &mdash; model weights, datasets, and interactive demos, all freely accessible without gatekeeping. Their commitment to open science aligns with this project's values: luxury-lakehouse is built on open data (StatsBomb, Wyscout Figshare, Metrica, SoccerNet) and open tools (dbt, Streamlit, socceraction, kloppy). Integrating with HuggingFace is a deliberate choice to participate in and contribute back to that ecosystem, not just consume from it.
+HuggingFace is the open-source AI community's central hub &mdash; model weights, datasets, and interactive demos, all freely accessible without gatekeeping. Their commitment to open science aligns with this project's values: luxury-lakehouse is built on open data (StatsBomb, Wyscout Figshare, Metrica, SoccerNet) and open tools (dbt, Taipy, socceraction, kloppy). Integrating with HuggingFace is a deliberate choice to participate in and contribute back to that ecosystem, not just consume from it.
 
 Phase 14 (entity resolution) is complete using TF-IDF + rapidfuzz. As Phases 15&ndash;16 and DEFCON Tier 4 introduce deep learning (learned embeddings, full GNN), the project needs an artifact ecosystem for model weights, training datasets, and community sharing. HuggingFace Hub provides this at zero cost for public artifacts, with native Databricks integration via MLflow's `transformers` flavor and Unity Catalog model registry.
 
@@ -799,7 +698,7 @@ Delta Lake (source of truth)
 HuggingFace Hub (public artifacts)
     ├── Models: safetensors weights + model cards
     ├── Datasets: Parquet + dataset cards + streaming
-    └── Spaces: public demo (Streamlit/Gradio)
+    └── Spaces: public demo (Taipy/Gradio)
     ↓ consume
 Community (zero cost to download/use)
     ↓ train / fine-tune
@@ -813,7 +712,7 @@ Their own compute (HF Jobs, RunPod, Databricks)
 | **1 &mdash; Consume** | Pull pre-trained models (football2vec, sentence-transformers) for embeddings | Phase 15 | $0 |
 | **2 &mdash; Publish** | Push trained model weights (safetensors) and processed datasets (Parquet) to HF Hub | Phase 15, 17 | $0 |
 | **3 &mdash; Train** | Use HF Jobs or ZeroGPU Spaces for GNN training; compare pricing vs RunPod | DEFCON Tier 4 | $9/mo PRO + per-job |
-| **4 &mdash; Demo** | Host a public Streamlit/Gradio Space with cached data subsets as a portfolio showcase | Post-Phase 16 | $0 (CPU) |
+| **4 &mdash; Demo** | Host a public Taipy/Gradio Space with cached data subsets as a portfolio showcase | Post-Phase 16 | $0 (CPU) |
 
 ### Tier 1 &mdash; Consume pre-trained models
 
@@ -860,7 +759,7 @@ All artifacts fit within HF's free 10 GB/repo Git LFS limit. Dataset repos get a
 
 **Status:** Complete
 
-A Gradio Space hosting a read-only demo with pre-cached Parquet subsets. Complements the primary Streamlit deployment on HuggingFace Spaces (which has live Lakebase connectivity) as a lightweight public portfolio piece.
+A Gradio Space hosting a read-only demo with pre-cached Parquet subsets. Complements the primary Taipy deployment on HuggingFace Spaces (which has live Lakebase connectivity) as a lightweight public portfolio piece.
 
 **Live at:** [`luxury-lakehouse/soccer-analytics-demo`](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
 
@@ -885,7 +784,7 @@ A Gradio Space hosting a read-only demo with pre-cached Parquet subsets. Complem
 2. ~~**football2vec evaluation**~~ Resolved &mdash; retrained on full ~3,000-match StatsBomb corpus (not pre-trained weights). 32-dim Doc2Vec model saved to UC Volume + HF Hub.
 3. ~~**sentence-transformers for entity resolution**~~ Resolved &mdash; Phase 14 complete using TF-IDF + rapidfuzz (2,388 matches). Sentence-transformers remains an option for future embedding-based matching if needed.
 4. ~~**Publishing priority**~~ Resolved &mdash; Phase 15 model weights published to `luxury-lakehouse/football2vec-statsbomb-wyscout`.
-5. ~~**Space framework**~~ Resolved &mdash; Gradio chosen for model/dataset demos. Deployed at `luxury-lakehouse/soccer-analytics-demo`. Streamlit primary deployment migrated to HuggingFace Spaces (Docker SDK) at `luxury-lakehouse/soccer-analytics-app` with live Lakebase connectivity.
+5. ~~**Space framework**~~ Resolved &mdash; Gradio chosen for model/dataset demos. Deployed at `luxury-lakehouse/soccer-analytics-demo`. Primary deployment migrated to Taipy on HuggingFace Spaces (Docker SDK) at `luxury-lakehouse/soccer-analytics-app` with live Lakebase connectivity.
 6. **HF Jobs vs RunPod**: Defer comparison until DEFCON Tier 4, or benchmark early with a small training run?
 
 ### Dependencies
@@ -975,7 +874,7 @@ Even before the Polars branch merges, two things are actionable today:
 
 ## PAUSA: Optimal Pass Timing &amp; OBSO Value Surface
 
-**Status:** Implemented (D9+D10+D16) &mdash; ELASTIC sync, OBSO surfaces, PAUSA pipeline, Streamlit page, HF Space tab all deployed
+**Status:** Implemented (D9+D10+D16) &mdash; ELASTIC sync, OBSO surfaces, PAUSA pipeline, Taipy page, HF Space tab all deployed
 **Paper:** Lee, Jo, Hong, Bauer &amp; Ko (2026), "Valuing La Pausa: Quantifying Optimal Pass Timing Beyond Speed" (MIT Sloan 2026 finalist, top 7 of 200+)
 **Repo:** [`leemingo/mitssac-pausa`](https://github.com/leemingo/mitssac-pausa) (public, Apache-2.0)
 **License status:** Apache-2.0 merged by Minho Lee (2026-03-13). No license blocker remaining.
@@ -1019,7 +918,7 @@ Virtual mode is the heavy-lifter: each pass generates ~100 ghost frames &times; 
 | 3 | `src/analytics/pausa.py` | PAUSA metric: ghost trajectory generation + temporal/spatial decomposition. |
 | 4 | `src/ingestion/pausa.py` | Batch pipeline writing `fct_pausa_values` to Delta. |
 | 5 | dbt model | `fct_pass_timing` mart aggregating PAUSA per player per match. |
-| 6 | Streamlit page | Pass Timing page: actual vs optimal timing snapshots with OBSO heatmap overlay. |
+| 6 | Taipy page | Pass Timing page: actual vs optimal timing snapshots with OBSO heatmap overlay. |
 
 ### Relationship to existing work
 
@@ -1050,7 +949,7 @@ Virtual mode is the heavy-lifter: each pass generates ~100 ghost frames &times; 
 ## Other Ideas (Unscheduled)
 
 - [ ] Voronoi area persistence &mdash; pre-compute in dbt (lower priority if Phase 11 replaces Voronoi)
-- [ ] Pitch Control animation &mdash; frame-by-frame playback in Streamlit
+- [ ] Pitch Control animation &mdash; frame-by-frame playback in Taipy
 - [ ] Event overlay on Pitch Control &mdash; render events on pitch control view
 - [ ] Wyscout match metadata &mdash; formations, coaches, venue (not in public Figshare dataset)
 - [ ] **Local GPU Compute Sidecar** &mdash; optional local GPU acceleration for ML workloads (training, inference, CV) using Docker + NVIDIA Container Toolkit. Cloud by default, local if GPU available. Pattern: `delta-rs` reads input from Unity Catalog, GPU container runs computation, writes results back to Delta. Triton Inference Server or MLflow model serving for persistent endpoints. Relevant when neural xG training, DEFCON Tier 4 GNN, or computer vision workloads begin. Not needed for current CPU-based pipelines

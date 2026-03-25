@@ -1772,6 +1772,125 @@ models:
         data_type: timestamp
         description: Timestamp when the row was materialized
 
+  - name: fct_pausa_rankings
+    description: >
+      Player-level PAUSA aggregate with activity quality filters.
+      One row per player, aggregated across all matches.
+      Uses actual_obso > 0 as quality proxy for pass filtering.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: player_id
+        data_type: string
+        description: Player identifier.
+        data_tests:
+          - unique
+          - not_null
+      - name: player_display_name
+        data_type: string
+        description: Human-readable player name from dim_players.
+      - name: total_matches
+        data_type: int
+        description: Number of distinct matches this player appears in.
+      - name: total_passes
+        data_type: int
+        description: Total passes evaluated by PAUSA pipeline.
+      - name: passes_with_value
+        data_type: int
+        description: >
+          Passes with actual_obso > 0 (quality proxy for successful passes).
+          Used as the primary activity filter threshold.
+      - name: avg_pausa
+        data_type: double
+        description: Average PAUSA composite score across all passes (0-1, higher = better timing).
+      - name: avg_temporal_judgment
+        data_type: double
+        description: Average temporal judgment component (0-1).
+      - name: avg_spatial_selection
+        data_type: double
+        description: Average spatial selection component (0-1).
+      - name: median_pausa
+        data_type: double
+        description: Median PAUSA score via percentile_approx.
+      - name: total_minutes
+        data_type: double
+        description: >
+          Sum of minutes_played from fct_physical_stats (tracking-derived).
+          NULL if player has no tracking data. IDSSE-only for current dataset.
+      - name: _loaded_at
+        data_type: timestamp
+        description: Audit timestamp.
+
+  - name: fct_player_percentiles
+    description: >
+      Per-competition percentile ranks for player metrics.
+      Provides calibration context for raw values (CHI-AUDIT-180 U1).
+      Grain: one row per (player_id, competition_id, season_id).
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: player_id
+        data_type: string
+        description: Player identifier.
+        data_tests:
+          - not_null
+      - name: competition_id
+        data_type: int
+        description: Competition identifier (partition key). NULL when upstream fct_player_stats has NULL.
+      - name: season_id
+        data_type: int
+        description: Season identifier. NULL when upstream fct_player_stats has NULL.
+      - name: player_display_name
+        data_type: string
+        description: Human-readable player name.
+      - name: minutes_played
+        data_type: double
+        description: Total minutes played in this competition/season.
+      - name: xg_per_90_pctile
+        data_type: double
+        description: Percentile rank of xG per 90 within competition/season (0-1).
+      - name: goals_per_90_pctile
+        data_type: double
+        description: Percentile rank of goals per 90.
+      - name: passes_per_90_pctile
+        data_type: double
+        description: Percentile rank of passes per 90.
+      - name: progressive_passes_per_90_pctile
+        data_type: double
+        description: Percentile rank of progressive passes per 90.
+      - name: pass_completion_pct_pctile
+        data_type: double
+        description: Percentile rank of pass completion percentage.
+      - name: vaep_per_90_pctile
+        data_type: double
+        description: Percentile rank of VAEP per 90.
+      - name: offensive_vaep_per_90_pctile
+        data_type: double
+        description: Percentile rank of offensive VAEP per 90.
+      - name: defensive_vaep_per_90_pctile
+        data_type: double
+        description: Percentile rank of defensive VAEP per 90.
+      - name: line_breaking_per_90_pctile
+        data_type: double
+        description: Percentile rank of line-breaking passes per 90.
+      - name: defcon_per_90_pctile
+        data_type: double
+        description: Percentile rank of DEFCON per 90 (NULL when defcon_enabled=false).
+      - name: avg_pausa_pctile
+        data_type: double
+        description: Percentile rank of avg PAUSA (NULL when pausa_enabled=false).
+      - name: distance_per_minute_pctile
+        data_type: double
+        description: Percentile rank of distance per minute (NULL for non-tracking).
+      - name: max_speed_pctile
+        data_type: double
+        description: Percentile rank of max speed (NULL for non-tracking).
+      - name: _loaded_at
+        data_type: timestamp
+        description: Audit timestamp.
+
   - name: fct_workflow_costs
     config:
       contract:

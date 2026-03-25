@@ -42,9 +42,18 @@ AV_SUB_VIEW_LOV: list[str] = ["Rankings", "Breakdown", "Timeline"]
 # ---------------------------------------------------------------------------
 
 # Rankings sub-view
-av_rankings_data: pd.DataFrame = pd.DataFrame(
-    columns=["Player", "Pos", "Min", "Total VAEP", "VAEP per 90", "Off per 90", "Def per 90", "Actions"]
-)
+_AV_RANKINGS_COLS = [
+    "Player",
+    "Pos",
+    "Min",
+    "Total VAEP",
+    "VAEP per 90",
+    "Pctile",
+    "Off per 90",
+    "Def per 90",
+    "Actions",
+]
+av_rankings_data: pd.DataFrame = pd.DataFrame(columns=_AV_RANKINGS_COLS)
 av_rankings_empty_msg: str = ""
 
 # Breakdown sub-view
@@ -94,23 +103,51 @@ __all__ = [
 
 @ttl_cache()
 def _fetch_rankings(comp_id: int, min_min: int) -> pd.DataFrame:
-    """Fetch VAEP player rankings for a competition with minimum minutes filter."""
+    """Fetch VAEP player rankings with percentile data when available.
+
+    LEFT JOINs fct_player_percentiles_synced for vaep_per_90_pctile.
+    Gracefully degrades if the percentile table doesn't exist yet.
+    """
     ps_tbl = t("fct_player_stats_synced")
     dim_tbl = t("dim_players_synced")
-    return execute_query(
-        f"SELECT ps.player_id, p.player_display_name, p.position_group, "  # noqa: S608
-        f"  ps.minutes_played, ps.total_vaep, ps.vaep_per_90, "
-        f"  ps.offensive_vaep_per_90, ps.defensive_vaep_per_90, "
-        f"  ps.total_actions "
-        f"FROM {ps_tbl} ps "
-        f"JOIN {dim_tbl} p ON ps.player_id = p.player_id "
-        f"WHERE ps.competition_id = %s "
-        f"  AND ps.minutes_played >= %s "
-        f"  AND ps.vaep_per_90 IS NOT NULL "
-        f"ORDER BY ps.vaep_per_90 DESC "
-        f"LIMIT 500",
-        (comp_id, min_min),
-    )
+
+    try:
+        pctile_tbl = t("fct_player_percentiles_synced")
+        return execute_query(
+            f"SELECT ps.player_id, p.player_display_name, p.position_group, "  # noqa: S608
+            f"  ps.minutes_played, ps.total_vaep, ps.vaep_per_90, "
+            f"  ps.offensive_vaep_per_90, ps.defensive_vaep_per_90, "
+            f"  ps.total_actions, "
+            f"  pct.vaep_per_90_pctile "
+            f"FROM {ps_tbl} ps "
+            f"JOIN {dim_tbl} p ON ps.player_id = p.player_id "
+            f"LEFT JOIN {pctile_tbl} pct "
+            f"  ON ps.player_id::text = pct.player_id "
+            f"  AND ps.competition_id = pct.competition_id "
+            f"  AND ps.season_id = pct.season_id "
+            f"WHERE ps.competition_id = %s "
+            f"  AND ps.minutes_played >= %s "
+            f"  AND ps.vaep_per_90 IS NOT NULL "
+            f"ORDER BY ps.vaep_per_90 DESC "
+            f"LIMIT 500",
+            (comp_id, min_min),
+        )
+    except Exception:
+        logger.debug("Percentile join failed (table may not exist); falling back to base query")
+        return execute_query(
+            f"SELECT ps.player_id, p.player_display_name, p.position_group, "  # noqa: S608
+            f"  ps.minutes_played, ps.total_vaep, ps.vaep_per_90, "
+            f"  ps.offensive_vaep_per_90, ps.defensive_vaep_per_90, "
+            f"  ps.total_actions "
+            f"FROM {ps_tbl} ps "
+            f"JOIN {dim_tbl} p ON ps.player_id = p.player_id "
+            f"WHERE ps.competition_id = %s "
+            f"  AND ps.minutes_played >= %s "
+            f"  AND ps.vaep_per_90 IS NOT NULL "
+            f"ORDER BY ps.vaep_per_90 DESC "
+            f"LIMIT 500",
+            (comp_id, min_min),
+        )
 
 
 @ttl_cache()
@@ -141,7 +178,8 @@ def _fetch_breakdown(
         f"  count(*) AS action_count "
         f"FROM {av_tbl} WHERE {where} "
         f"GROUP BY action_type "
-        f"ORDER BY sum(vaep_value) DESC",
+        f"ORDER BY sum(vaep_value) DESC "
+        f"LIMIT 50",
         tuple(params),
     )
 
@@ -270,11 +308,21 @@ def _format_rankings_table(df: pd.DataFrame) -> pd.DataFrame:
     """Format rankings DataFrame for Taipy <|table|> display.
 
     Returns a renamed DataFrame with human-readable column names.
+    Includes Pctile column when percentile data is available.
     """
+    empty_cols = [
+        "Player",
+        "Pos",
+        "Min",
+        "Total VAEP",
+        "VAEP per 90",
+        "Pctile",
+        "Off per 90",
+        "Def per 90",
+        "Actions",
+    ]
     if df.empty:
-        return pd.DataFrame(
-            columns=["Player", "Pos", "Min", "Total VAEP", "VAEP per 90", "Off per 90", "Def per 90", "Actions"]
-        )
+        return pd.DataFrame(columns=empty_cols)
 
     # Taipy table rendering breaks on column names with "/" characters.
     display = df.rename(
@@ -290,10 +338,29 @@ def _format_rankings_table(df: pd.DataFrame) -> pd.DataFrame:
         }
     ).drop(columns=["player_id"], errors="ignore")
 
+    # Format percentile column: 0.85 -> "85th", 0.51 -> "51st", etc.
+    def _fmt_pctile(v: float | None) -> str:
+        if pd.isna(v):
+            return "--"
+        n = int(v * 100)
+        suffix = "th" if 11 <= n % 100 <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+        return f"{n}{suffix}"
+
+    if "vaep_per_90_pctile" in display.columns:
+        display["Pctile"] = display["vaep_per_90_pctile"].apply(_fmt_pctile)
+        display = display.drop(columns=["vaep_per_90_pctile"])
+    else:
+        display["Pctile"] = "--"
+
     # Round numeric columns for display
     for col in ["Total VAEP", "VAEP per 90", "Off per 90", "Def per 90"]:
         if col in display.columns:
             display[col] = display[col].round(3)
+
+    # Reorder columns to place Pctile after VAEP per 90
+    desired_order = [c for c in empty_cols if c in display.columns]
+    remaining = [c for c in display.columns if c not in desired_order]
+    display = display[desired_order + remaining]
 
     return display
 
@@ -307,9 +374,7 @@ def _refresh_rankings(state: Any) -> None:
     """Refresh the Rankings sub-view."""
     comp_id = get_comp_id(state.selected_competition)
     if comp_id is None:
-        state.av_rankings_data = pd.DataFrame(
-            columns=["Player", "Pos", "Min", "Total VAEP", "VAEP per 90", "Off per 90", "Def per 90", "Actions"]
-        )
+        state.av_rankings_data = pd.DataFrame(columns=_AV_RANKINGS_COLS)
         state.av_rankings_empty_msg = "Select a competition to see VAEP rankings."
         state.av_scope_label = ""
         state.av_warning_text = ""
@@ -324,9 +389,7 @@ def _refresh_rankings(state: Any) -> None:
         rankings = _fetch_rankings(comp_id, min_min)
     except Exception:
         logger.exception("Failed to fetch VAEP rankings")
-        state.av_rankings_data = pd.DataFrame(
-            columns=["Player", "Pos", "Min", "Total VAEP", "VAEP per 90", "Off per 90", "Def per 90", "Actions"]
-        )
+        state.av_rankings_data = pd.DataFrame(columns=_AV_RANKINGS_COLS)
         state.av_rankings_empty_msg = "Error loading rankings."
         state.av_warning_text = "Error loading VAEP rankings."
         return

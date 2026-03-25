@@ -21,7 +21,6 @@ from filters import fetch_data_freshness, fetch_embedding_players
 from mplsoccer import Radar
 from render import PITCH_BG_COLOR, PITCH_LINE_COLOR, PLAYER_COLORS, chart_to_file
 
-from state.player_radar import SPOKE_LEGEND
 from state.shared import register_page_refresher
 
 logger = logging.getLogger(__name__)
@@ -460,10 +459,8 @@ def on_ps_selected_compare_change(state: Any, var_name: str, var_value: Any) -> 
 
         state.ps_radar_image = _render_comparison_radar(players_data, player_names)
 
-        # Spoke caption — mirror player_radar.py pattern
-        labels = [m[1] for m in _DEFAULT_METRICS]
-        legend_parts = [f"**{lbl}** = {SPOKE_LEGEND[lbl]}" for lbl in labels if lbl in SPOKE_LEGEND]
-        state.ps_spoke_caption = " · ".join(legend_parts) if legend_parts else ""
+        # Spoke caption — glossary covers metric definitions, show scale context
+        state.ps_spoke_caption = "Raw value scaling. See Glossary for metric definitions."
     except Exception:
         logger.exception("Failed to render comparison radar")
         state.ps_radar_image = ""
