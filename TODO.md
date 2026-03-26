@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [ARCHITECTURE.md](ARCHITECTURE.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
 
-**Last updated**: 2026-03-25 (D25, U1, O1, D19, D24 complete; D22 deferred; cognitive + optimization audits applied)
+**Last updated**: 2026-03-26
 
 ---
 
@@ -19,51 +19,54 @@ Tasks warming up in the on-deck circle.
 | # | Task | Size | Source | Notes |
 |---|------|------|--------|-------|
 | D18 | Football2vec v2 — Transformer Embeddings | Wicked | [ROADMAP.md](ROADMAP.md) | Replace Doc2Vec (gensim, CPU) with a small transformer on tokenized match sequences. Train on HF Jobs GPU (A10G). 87K player-match documents in Delta. Better player representations for similarity search. Publish to HF Hub |
-| D20 | EFPI Formation Detection Integration | Wicked | [ROADMAP.md](ROADMAP.md) | Add `unravelsports` (MPL 2.0). Wire kloppy → EFPI template matching → formation labels per time window. Compatibility testing across Metrica/IDSSE/SkillCorner. Potential friction: kloppy Polars format, 10fps vs 25fps |
-| D21 | Team Shape Taipy Page | Wicked | [ROADMAP.md](ROADMAP.md) | Snapshot view (connected-formation diagram + convex hull + sidebar metrics) + timeline view (shape metrics time-series + formation labels). New visualization components. Builds on D19 + D20 |
 | D7 | Observability Layer (OTel) | Monstah | [ROADMAP.md](ROADMAP.md) | Research complete, ready for implementation. Instrument once, observe anywhere. ~$1-2/month personal tier |
 | U3 | Global player search — search by name across all pages | Monstah | CHI-AUDIT-180-rev-1 #1 | New search component with 11,918-player index + cross-page routing + session state. Needs design decisions |
 | U4 | Uncertainty/confidence bounds on model outputs | Monstah | CHI-AUDIT-180-rev-1 #4 | xG v2 now outputs MC dropout 95% CI (`xg_ci_lower`, `xg_ci_upper`). VAEP/pitch control still lack native uncertainty. Partial — xG done, others remain |
-| O3 | Pipeline performance baselines | Wicked | OPT-AUDIT-190 #9 | `docs/performance-baselines.md` timing columns are all TBD. Run each pipeline, record wall clock, establish regression anchors for CI |
-| U5 | Server-side player search for Player Similarity | Wicked | HF-MIGRATION | At enterprise scale (100K+ players), client-side selector filtering won't scale. Replace with text input + `ILIKE '%query%'` server-side query with `LIMIT 500` per search. Requires UI refactor (two-step: type → search → select) and PG index on `player_display_name` |
 | M1 | Rotate Databricks PAT for HF Spaces | Dunkin' | HF-MIGRATION | PAT created 2026-03-16 with 90-day lifetime. **Expires ~2026-06-14.** Generate new PAT in Databricks workspace Settings → Developer → Access tokens, then update `DATABRICKS_TOKEN` secret at huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app/settings |
 | M2 | Migrate HF Space auth from PAT to OAuth M2M | Wicked | SEC-AUDIT-200 #2 | Two SPs created with OAuth secrets: `luxury-lakehouse-hf-app-dev` (`330f96b9-...`, orphaned PG role) and `luxury-lakehouse-hf-app-v2-dev` (`1a1dbf08-...`). UC grants in place. **Blocked:** Lakebase Autoscaling does not auto-provision PG roles for SPs authenticated via M2M OAuth — workspace API works but PG credential JWT is rejected at the PG auth layer. The existing working SP (`be66af99-...`) was internally provisioned by Lakebase during synced table creation. Need Databricks support ticket to clarify how to provision SP PG access for Lakebase Autoscaling endpoints |
+| D26 | Formation Detection — GK Metadata Pipeline | Wicked | Session 6 | GK exclusion requires provider metadata (not positional heuristics). See detailed write-up below |
 
----
+### Formation Detection — GK Metadata Pipeline (D26)
 
-## Completed Phases
+**Status:** Deferred from session 6 (2026-03-26)
+**Scope:** Wicked (2-3 sessions, ~4-6 hours) — looks like "just add a column" but touches 3 ingestion pipelines, 4 dbt models, 38M row recompute, synced table recreation, and formation pipeline rerun
+**Branch:** Separate feature branch from main
 
-Phases 0–20 are complete (including Phase 20: Taipy Migration). See git history for implementation details.
+**Problem:** Formation detection (EFPI algorithm) requires excluding the goalkeeper before template matching. Templates exist for 8, 9, 10 outfield players only. Currently, `fct_tracking_frames` has no position/role metadata — all 11 players are passed to detection, `templates.get(11)` returns None, and no formations are detected for any match with full tracking. Only 2 of 20 matches produced results (IDSSE matches where the away team happened to have 10 tracked players).
 
-### Completed On-Deck Items
+**Root cause:** The tracking pipeline does not store player position metadata despite all three source providers having it:
+- **kloppy** (SkillCorner): `Player.position` → `PositionType` including GK
+- **IDSSE XML**: Player roster with roles in match metadata
+- **Metrica EPTS**: Player roster with positions in XML metadata
 
-| # | Task | Resolution |
-|---|------|------------|
-| D1 | HF Space — Pitch Control + Velocity Arrows | Pitch control tab live with frame slider, physics heatmap (RdBu), velocity arrows. `pitch_control.py` (pure NumPy) + sample tracking Parquet exported from Databricks |
-| D2 | HF Space — DEFCON Pressure Breakdown | DEFCON pressure tab live with filterable player dropdown + Plotly grouped bar chart (intercept/concede/disturb/deter). Data aggregated from `fct_defcon_actions` (9,815 rows, 2,394 players, 323 matches), bundled as Parquet in Space |
-| D3 | Dynamic xT Grid | `src/analytics/expected_threat.py` + `src/ingestion/expected_threat.py` — Markov chain value iteration replaces static Karun Singh seed. Entry point `compute_expected_threat`, tests in `test_expected_threat.py` |
-| ~~D4~~ | ~~Pitch Control Animation~~ | ~~Dropped — per-frame physics computation too expensive for free HF Space tier. Static frame slider (D1) provides equivalent functionality~~ |
-| ~~D5~~ | ~~OpenSTARLab Pre-Trained Models~~ | Dropped — `openstarlab-event` requires hardcoded La Liga UEID format incompatible with multi-league data. See `docs/decisions/openstarlab-dropped.md` |
-| D6 | Custom xG Model | Calibrated XGBoost (ROC-AUC 0.979) + logistic baseline trained on ~131K shots. Published to [HF Hub](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout). 87,999 predictions scored, `fct_xg_predictions` gold table + synced table deployed |
-| D8 | Dynamic xT Grid | Data-driven 12×8 grid computed from 2.2M SPADL actions via HF Jobs. Static CSV seed deleted, Delta table `expected_threat_grids` is source of truth |
-| ~~D15~~ | ~~OpenSTARLab Seq2Event + FMS~~ | Dropped — depends on D5 |
-| D9 | ELASTIC Event-Tracking Sync | IDSSE event XML ingestion + ELASTIC frame alignment (Kim et al. 2025). 7 matches, 95.5% exact alignment. `elastic_sync_results` bronze table |
-| D10 | OBSO + PAUSA Pipeline | Full PAUSA pipeline: ghost trajectories, temporal/spatial decomposition, `fct_pausa_values` + `fct_pass_timing` Delta tables, dbt marts, Pass Timing page |
-| D11 | MLflow Model Registry & Experiment Tracking | UC Model Registry with Champion/Challenger aliases for xG, Football2Vec, VAEP, DEFCON models. HF Jobs training template proven with xG |
-| D12 | Model Validation & Drift Detection | PSI, Wasserstein, KS, CUSUM, hard bounds across 10 models. Pure scipy/numpy. `model_validation_runs` Delta table. Reference baselines as dbt seeds |
-| D13 | Physics-Based Tracking Augmentation | `augmentation.py`: position/velocity jitter within physical constraints. 88x in-memory multiplier (8 symmetry x 11 jitter). Pure NumPy |
-| D16 | OBSO Batch on HF Jobs GPU | Full OBSO value surfaces (PPCF x Transition x EPV) for 7 IDSSE matches via JAX `vmap` on A10G. Ghost trajectory support in JAX kernel |
-| U2 | Cross-page filter state persistence | Shared state with dependent filter cascade. Parent change resets child filters. CHI-AUDIT-180-rev-2 F9/F46 |
-| D14 | Space Creation (Full Counterfactual) | `jax.vmap`-batched pitch control + differential OBSO per player. HF Jobs A10G script. Fernandez & Bornn 2018. |
-| D17 | xG v2 — Neural Context Model | Deep Sets set encoder (Zaheer et al. 2017) + MC dropout uncertainty (Gal & Ghahramani 2016). Pure NumPy inference. HF Jobs A10G training. Published to HF Hub. |
-| D23 | Custom EPV/Transition Grid Training | Data-driven ball reachability (64×100) + EPV (32×50) grids from 2.2M SPADL actions. Replaces synthetic Gaussian proxy. Published to HF Hub. |
-| O2 | SPADL/VAEP training migration to HF Jobs | Standalone PEP 723 script. Driver-side training removed from spadl_vaep.py. Model published to HF Hub. |
-| E5 | Training data versioning | Delta version + HF dataset commit hash logged via MLflow params in all training notebooks and scripts. |
-| D25 | PAUSA minimum activity filter | `fct_pausa_rankings` dbt model (player-level aggregate, `actual_obso > 0` quality proxy). Taipy sliders (min passes with value, min minutes, per-match min passes). Minho Lee thresholds: 50+ recommended for 7-match dataset. |
-| U1 | Calibration anchors — percentile ranks | `fct_player_percentiles` dbt model with `PERCENT_RANK()` for 13 metrics per competition. Radar percentile scaling, rankings Pctile column, league avg reference on Match Summary. |
-| O1 | `fct_match_summary` incremental | Converted from full table to `incremental` (merge on `match_id`). `existing_matches` CTE pattern matching `fct_physical_stats`. |
-| D19 | Team Shape Spatial Metrics Module | `src/analytics/team_shape.py` — centroid, convex hull, stretch index, defensive line height, inter-line gaps via Ward clustering. 16 unit tests. Pure NumPy/scipy, no new dependencies. |
-| D24 | Numba Evaluation for Pitch Control | Benchmarked: Numba TTI kernel ~240× faster than NumPy (1.5 µs vs 361 µs). Recommended as third dispatch tier (NumPy → Numba → JAX). Decision doc: `docs/decisions/d24-numba-evaluation.md`. |
+**Industry standard:** Every published method (Bekkers & Dabadghao 2025, Shaw & Glickman 2019, Bialkowski et al. 2014) uses provider metadata for GK exclusion. No published method uses positional heuristics (idxmin/idxmax on x-coordinate). A positional heuristic fails because attacking direction is not normalized between periods in our coordinate system.
+
+**Implementation plan:**
+1. Add `is_goalkeeper` boolean column to all three staging models (`stg_metrica__tracking`, `stg_idsse__tracking`, `stg_skillcorner__tracking`) — extract from source metadata
+2. Add `is_goalkeeper` to `fct_tracking_frames` mart model (pass-through from staging)
+3. Update `_marts__models.yml` contract with new column
+4. Update formation pipeline (`src/ingestion/formations.py`) to filter `is_goalkeeper = false` before detection
+5. Re-run formation pipeline for all matches (delete existing results, full recompute)
+6. Rebuild `fct_formation_labels` via dbt
+7. Recreate synced table + indexes
+8. Re-enable Formation metric on Team Shape page (Snapshot + Timeline)
+9. Verify formations appear for all 20 tracking matches
+
+**Files affected:**
+- `src/ingestion/metrica.py` — extract GK from EPTS metadata
+- `src/ingestion/idsse.py` — extract GK from XML roster
+- `src/ingestion/skillcorner.py` — extract GK from kloppy Player.position
+- `dbt_project/models/staging/metrica/stg_metrica__tracking.sql`
+- `dbt_project/models/staging/idsse/stg_idsse__tracking.sql`
+- `dbt_project/models/staging/skillcorner/stg_skillcorner__tracking.sql`
+- `dbt_project/models/marts/fct_tracking_frames.sql`
+- `dbt_project/models/marts/_marts__models.yml`
+- `src/ingestion/formations.py`
+- `hf_taipy_app/src/pages/team_shape.py` (re-enable Formation metric)
+- `hf_taipy_app/src/state/team_shape.py` (re-enable formation state)
+
+**Dependencies:** None — can be done independently of other work.
+**Unlocks:** Formation metric on Team Shape page, future position-group analytics (defensive line by role, pressing by position, etc.)
 
 ---
 
@@ -81,7 +84,6 @@ Phases 0–20 are complete (including Phase 20: Taipy Migration). See git histor
 | 10 | No set-piece exclusion | `analytics/line_breaking.py` | Corners, free kicks, throw-ins have non-standard formations. | Research task — needs `pass_type` filtering or set-piece-aware algorithm. |
 | 11 | Heat Map pre-aggregation lossy | `heat_map.py` | Server-side `GROUP BY round(x/10)` bins into 10-yard cells before `bin_statistic`. Per-action precision lost. | Acceptable trade-off for density visualization. |
 | 13 | PPDA StatsBomb-only | `fct_match_summary.sql` | PPDA uses StatsBomb defensive actions. NULL for Wyscout-only competitions (different event taxonomy). | Data limitation. Would require event type mapping or different pressing proxy. |
-| ~~14~~ | ~~Space creation deferred~~ | ~~ROADMAP.md~~ | ~~Resolved by D14: `jax.vmap`-batched pitch control + differential OBSO per player, deployed on HF Jobs A10G.~~ | Complete. |
 | 16 | Physical stats tracking-only | `fct_physical_stats.sql` | Only 20 matches (Metrica 3, IDSSE 7, SkillCorner 10) have physical data. ~3,000 event-only matches have none. | Data limitation — no tracking for StatsBomb/Wyscout. |
 | 18 | DEFCON-lite anonymous defenders | `ingestion/defcon_lite.py` | StatsBomb 360 freeze frames are anonymous — `defender_player_id` is synthetic. `fct_defensive_values` cannot attribute credit to real defenders. Mitigated: `fct_defcon_pressure` pivots to attacker perspective (real `action_player_id`). | Full fix requires Tier 4 GNN with tracking data (500+ matches needed). |
 | 25 | Lakebase CU right-sizing | Terraform | `autoscaling_max_cu = 4` may be overprovisioned for dev. Reduce to 2. | Blocked — Terraform provider cannot update `initial_endpoint_spec` after creation. Needs UI change. |
@@ -102,60 +104,21 @@ Items from the Pipeline Optimization & Scaling (EIP) roadmap section that were e
 | E4 | `dbt clone` for staging | Zero-copy table references for pre-production validation. Requires Lakebase branching. | When staging environment (ROADMAP.md) is implemented. |
 | E6 | Delta retention policy | Explicit `delta.deletedFileRetentionDuration` (30d gold, 7d bronze) ahead of DBR 18.0. | Before DBR 18.0 upgrade where `RETAIN X HOURS` in manual VACUUM is ignored. |
 
-### Resolved
-
-Items resolved during phases or the optimization audit (2026-03-11). Details preserved in git history.
-
-| # | Item | Resolution |
-|---|------|------------|
-| 3 | StatsBomb `backfill_extra_json` N+1 | Each per-match `SELECT *` is bounded by `WHERE match_id`. Delta MERGE replaces read-modify-write. OOM risk is per-match (bounded). |
-| 4 | SPADL/VAEP `.toPandas()` OOM | Per-partition Spark pulls replace full-table `.toPandas()`. SB events pulled per `(comp_id, season_id)`, Wyscout events per competition match set. |
-| 8 | Line-breaking append duplicates | Delta MERGE on `event_id` key replaces `replaceWhere` — structural deduplication at write time. |
-| 12 | Off-Ball xT 1fps sampling | Migrated to `applyInPandas` grouped by `match_id`. 1fps retained as correct accuracy/compute trade-off. |
-| 15 | Acceleration noise | Savitzky-Golay smoothing (`window_length=7, polyorder=2`) via `analytics/smoothing.py`. Positions clamped to pitch bounds. |
-| 18 | Off-Ball xT NaN values | Batch re-run completed as part of Phase 17. `math.isnan()` guard in place. |
-| 19 | No AWS budget alarm | `aws_budgets_budget` with $100/month limit, 80%/100% email alerts. |
-| 20 | Action values unbounded query | LIMIT 2000 on timeline, LIMIT 500 on rankings, recursive CTE for DISTINCT. |
-| 21 | StatsBomb backfill SELECT * | Delta MERGE replaces read-modify-write — updates only `_raw_extra_json`. |
-| 22 | Redundant LAG in fct_physical_stats | Removed duplicate LAG. Displacement derived from upstream columns. |
-| 23 | S3 lifecycle rule | `aws_s3_bucket_lifecycle_configuration` expires non-current versions after 90 days. |
-| 24 | Metrica tracking reshape iterrows | `pd.melt()` vectorized wide-to-narrow reshape replaces per-row iteration. |
-| O1 | Wyscout OOM on ingestion | Per-competition load-release with `replaceWhere`, `del` + `gc.collect()`. |
-| O2 | Metrica batch concat OOM | Per-match writes with `replaceWhere` replace `pd.concat()` + `mode="overwrite"`. |
-| O3 | DataFrame filter inside iterrows | Pre-built `groupby()` for DEFCON and line-breaking. |
-| O4 | Nested iterrows for pseudo-freeze-frames | Pre-extracted arrays + zip comprehension. |
-| O5 | Off-ball xT accumulation loop | Vectorized `pd.concat()` + `.groupby().agg()` replaces per-player iterrows. |
-| O6 | Player embeddings iterrows/apply | NumPy `.values` + zip replaces `.apply(axis=1)` and iterrows. |
-| O7 | Entity resolution iterrows | Zip replaces iterrows for rapidfuzz scoring loops. |
-| O8 | Double `df.count()` on merge writes | `write_delta_table()` accepts optional `row_count` to skip redundant DAG. |
-| O9 | Shot map unbounded query | `LIMIT 10000` on competition-wide shot query. |
-| O10 | Missing PG indexes | Composite `(match_id, action_player_id)` on DEFCON, btree on `canonical_player_id`. |
-| O11 | `statsbombpy` in core deps | Moved to optional `[statsbomb]` extra. |
-| O12 | No `max_concurrent_runs` | Set `max_concurrent_runs = 1` on ingestion workflow. |
-| O13 | Entity resolution Delta schema merge | Explicit `int64`/`float64` dtypes on empty DataFrame code paths. |
-| 5 | `pitch_control_value` column NULL | `pitch_control_batch.py` populates `bronze.pitch_control_values` via `applyInPandas`. Staging model `stg_pitch_control__values` exposes values. HF export JOINs at query time. |
-| O14 | Off-ball xT missing seed CSV | Resolved by D8: data-driven xT grid stored in `expected_threat_grids` Delta table. Static CSV seed deleted. |
-| O15 | IDSSE tracking intermittent OOM | Per-period processing halves peak DataFrame memory. |
-| O21 | Incremental skip guards missing | All 5 ingestion modules check existing match IDs before re-processing. |
-| O22 | DEFCON type mismatches | `IntegerType`→`LongType` for IDs in `applyInPandas` schemas. |
-| O23 | VAEP model distribution broken on serverless | XGBoost models serialized to bytes via closure. |
-| O24 | DEFCON timeline Seq Scan timeout | Composite `(competition_id, action_player_id)` index + `ANALYZE` + `LIMIT 2000`. |
+---
 
 ## Research & Future Work
 
 See [ROADMAP.md](ROADMAP.md) for research directions, long-horizon features, and unscheduled ideas including:
 
 - **Observability Layer (OpenTelemetry)** — instrument once, observe anywhere; ~$1-2/month personal tier
-- **Pipeline Optimization & Scaling** — EIP core patterns implemented (Splitter, Aggregator, Router, Pipes & Filters); remaining deferred items below
 - **Deep Learning Infrastructure** — hybrid GPU training, pre-trained soccer models, DeepMind-inspired optimization
 - **Provider Abstraction** — configurable multi-tier ingestion; free/open tiers default, commercial activates via credentials
-- **Team Shape Analysis** — D19 (spatial metrics module) complete; D20 (EFPI formation detection) + D21 (Taipy page) remain. Stage 2 blocked on SkillCorner DoD
+- **Team Shape Analysis** — Stage 2 blocked on SkillCorner DoD
 - **Visual Exploratory Behavior** — blocked by own-footage Respo.Vision data (BSD 3-Clause)
 - **Staging Environment** — Lakebase branching for pre-production validation
 - **Graph-Based Tactical Patterns** — GNN research direction (Raabe et al. 2022)
 - **Decision Optimization** — RL-based pass optimization beyond VAEP (Rahimian et al.)
-- **Space Creation** — Fernandez & Bornn 2018 OBSO — **complete (D14)**: `vmap`-batched PC, differential OBSO per player, HF Jobs A10G script
-- **HuggingFace Hub Integration** — Tiers 1-4 complete (4 models + 11 datasets published, Gradio demo Space live with luxury flagship theme, Tier 3 GPU training proven with xG v2 + VAEP on HF Jobs A10G)
+- **HuggingFace Hub** — Tier 5 (streaming dataset publishing via XET + Polars) blocked on upstream
 
 ## Infrastructure Notes
 

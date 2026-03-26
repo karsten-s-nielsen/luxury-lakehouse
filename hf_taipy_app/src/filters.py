@@ -367,7 +367,7 @@ def fetch_embedding_players(
         f"FROM ep "
         f"JOIN {dim_tbl} p ON ep.canonical_player_id = p.canonical_player_id "
         f"WHERE ep.canonical_player_id IS NOT NULL "
-        f"ORDER BY p.player_display_name LIMIT 500",
+        f"ORDER BY p.player_display_name LIMIT 2000",
         tuple(params * 2),
     )
     if df.empty:

@@ -31,6 +31,8 @@ from pages.player_similarity import page_md as player_similarity_page
 # --- Page layouts ---
 from pages.shot_map import page_config as shot_map_config
 from pages.shot_map import page_md as shot_map_page
+from pages.team_shape import page_config as team_shape_config
+from pages.team_shape import page_md as team_shape_page
 from pages.workflows import page_config as workflows_config
 from pages.workflows import page_md as workflows_page
 from state.action_values import *  # noqa: F403
@@ -48,6 +50,7 @@ from state.player_similarity import *  # noqa: F403
 # --- State imports (star import required for Taipy module-level binding) ---
 from state.shared import *  # noqa: F403
 from state.shot_map import *  # noqa: F403
+from state.team_shape import *  # noqa: F403
 from state.workflows import *  # noqa: F403
 from state.workflows import RawHtml
 from taipy.gui import Gui
@@ -70,20 +73,21 @@ Gui.register_content_provider(RawHtml, _raw_html_provider)
 # List order = nav display order. Section headers appear in order of first occurrence.
 # The on_navigate callback receives route keys as page_name.
 PAGE_REGISTRY: list[PageEntry] = [
-    # Match Analysis
-    PageEntry("Shot-Map", shot_map_config, shot_map_page),
-    PageEntry("Pass-Map", pass_map_config, pass_map_page),
+    # Match Analysis (alphabetical)
     PageEntry("Heat-Map", heat_map_config, heat_map_page),
-    PageEntry("Pass-Network", pass_network_config, pass_network_page),
     PageEntry("Match-Summary", match_summary_config, match_summary_page),
-    # Player Analysis
-    PageEntry("Player-Impact", action_values_config, action_values_page),
+    PageEntry("Pass-Map", pass_map_config, pass_map_page),
+    PageEntry("Pass-Network", pass_network_config, pass_network_page),
+    PageEntry("Shot-Map", shot_map_config, shot_map_page),
+    # Player Analysis (alphabetical)
     PageEntry("Player-Comparison", player_radar_config, player_radar_page),
+    PageEntry("Player-Impact", action_values_config, action_values_page),
     PageEntry("Player-Similarity", player_similarity_config, player_similarity_page),
-    # Advanced
+    # Advanced (alphabetical, Defensive Impact last per user preference)
     PageEntry("Movement-Pressing", movement_config, movement_page),
-    PageEntry("Pitch-Control", pitch_control_config, pitch_control_page),
     PageEntry("Pass-Timing", pass_timing_config, pass_timing_page),
+    PageEntry("Pitch-Control", pitch_control_config, pitch_control_page),
+    PageEntry("Team-Shape", team_shape_config, team_shape_page),
     PageEntry("Defensive-Impact", defensive_impact_config, defensive_impact_page),
     # Operations
     PageEntry("AI-ML-Workflows", workflows_config, workflows_page),

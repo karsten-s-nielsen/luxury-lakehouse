@@ -51,6 +51,7 @@ class SidebarWidget:
     # moving for this duration. Prevents expensive re-renders during drag.
     change_delay: int = 0
     help: str = ""  # tooltip help text (rendered as info icon next to widget)
+    filterable: bool = False  # dropdown only: enable type-to-filter (Taipy |filter| flag)
 
 
 @dataclass(frozen=True)
@@ -125,8 +126,9 @@ def _build_sidebar_widget(w: SidebarWidget, f: bool) -> str:
 
     if w.kind in ("dropdown", "dropdown_multi"):
         multi = "|multiple" if w.kind == "dropdown_multi" else ""
+        filter_attr = "|filter" if getattr(w, "filterable", False) else ""
         parts.append(
-            f"<|{lb}{w.var}{rb}|selector|lov={lb}{w.lov}{rb}{multi}|dropdown|label={w.label}|on_change={w.on_change}|>"
+            f"<|{lb}{w.var}{rb}|selector|lov={lb}{w.lov}{rb}{multi}{filter_attr}|dropdown|label={w.label}|on_change={w.on_change}|>"
         )
 
     elif w.kind == "slider":

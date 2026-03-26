@@ -1,0 +1,41 @@
+version: 2
+
+sources:
+  - name: formations
+    description: >
+      Formation detection results produced by the EFPI (Elastic Formation
+      Position Identifier) algorithm. The pipeline reads standardised tracking
+      frames from fct_tracking_frames, computes mean player positions per
+      time window, and assigns formation labels via Hungarian method template
+      matching. Reference: Shaw & Glickman (2019).
+    database: soccer_analytics
+    schema: bronze
+    loader: python_wheel
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 24, period: hour}
+        error_after: {count: 72, period: hour}
+
+    tables:
+      - name: formation_labels
+        description: >
+          Per-team per-time-window formation labels. Each row represents one
+          detected formation window for one team in one match period.
+        columns:
+          - name: match_id
+            description: Match identifier (string, prefixed by tracking provider)
+          - name: period
+            description: Match period (1 or 2)
+          - name: team
+            description: Team side (home or away)
+          - name: window_start_s
+            description: Window start time in seconds from period start
+          - name: window_end_s
+            description: Window end time in seconds from period start
+          - name: formation_label
+            description: "Detected formation (e.g., 4-4-2, 4-3-3)"
+          - name: cost
+            description: Hungarian matching cost — lower = better template fit
+          - name: _ingested_at
+            description: UTC timestamp when the row was written to bronze

@@ -1,7 +1,7 @@
 # Databricks Lakebase Architecture — Soccer Analytics Platform
 
-> **Status**: Phase 19 complete + GPU models v2 — 12 Streamlit pages, 19 synced tables, 38 PG indexes, 807 unit tests. HuggingFace Hub: 4 models + 11 datasets published, GPU training on HF Jobs A10G, Gradio demo Space with luxury flagship theme (6 interactive tabs).
-> **Last Updated**: 2026-03-17
+> **Status**: Phase 20 complete (Taipy migration) + Team Shape + pre-aggregated tracking tables — 14 Taipy pages, 26 synced tables, 45 PG indexes (41 btree + 4 HNSW). HuggingFace Hub: 4 models + 11 datasets published, GPU training on HF Jobs A10G.
+> **Last Updated**: 2026-03-26
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready
 

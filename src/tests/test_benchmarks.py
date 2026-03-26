@@ -342,6 +342,45 @@ class TestBenchmarks:
             median_seconds: float = benchmark.stats["median"]
             assert median_seconds <= 0.005, f"OBSO surface median {median_seconds * 1000:.2f} ms exceeds 5 ms budget"
 
+    # -- Team shape (budget: <=1 ms for 10 outfield players, <=2 ms for 22) -
+
+    def test_bench_team_shape(self, benchmark: Any, players_df: pd.DataFrame) -> None:
+        """Team shape computation: budget <=1ms for 10 outfield players."""
+        from analytics.team_shape import TeamShapeParams, compute_team_shape
+
+        home_df = players_df[players_df["team"] == "home"].copy()
+        params = TeamShapeParams()
+        home_x = home_df["x"].to_numpy()
+        home_y = home_df["y"].to_numpy()
+
+        result = benchmark(compute_team_shape, home_x, home_y, params)
+        assert result is not None
+        assert result.convex_hull_area > 0
+
+        # Performance budget: median must be <= 1 ms
+        # benchmark.stats is None when --benchmark-disable is used
+        if benchmark.stats is not None:
+            median_seconds: float = benchmark.stats["median"]
+            assert median_seconds <= 0.001, f"Team shape median {median_seconds * 1000:.2f} ms exceeds 1 ms budget"
+
+    def test_bench_team_shape_frame(self, benchmark: Any, players_df: pd.DataFrame) -> None:
+        """Both teams shape: budget <=2ms for 22 players."""
+        from analytics.team_shape import TeamShapeParams, compute_team_shape_frame
+
+        params = TeamShapeParams()
+
+        result = benchmark(compute_team_shape_frame, players_df, params)
+        assert "home" in result
+        assert "away" in result
+
+        # Performance budget: median must be <= 2 ms
+        # benchmark.stats is None when --benchmark-disable is used
+        if benchmark.stats is not None:
+            median_seconds: float = benchmark.stats["median"]
+            assert median_seconds <= 0.002, (
+                f"Team shape frame median {median_seconds * 1000:.2f} ms exceeds 2 ms budget"
+            )
+
 
 class TestJaxBenchmarks:
     """Performance benchmarks for JAX-accelerated pitch control kernels.

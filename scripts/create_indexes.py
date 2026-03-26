@@ -128,6 +128,25 @@ INDEXES: list[tuple[str, str, str]] = [
     # ── fct_player_percentiles_synced — Calibration anchors ──────────
     # PP-1: competition + season + player lookup
     ("idx_player_pctile_comp_season_player", "fct_player_percentiles_synced", "competition_id, season_id, player_id"),
+    # ── fct_formation_labels_synced — Formation detection queries ─────
+    # FL-1: primary access pattern (match + team filter for Team Shape page)
+    ("idx_formation_labels_match_team", "fct_formation_labels_synced",
+     "match_id, team"),
+    # ── fct_tracking_avg_positions_synced — Pre-aggregated averages ───
+    # AP-1: match + period lookup (snapshot phase averages, frame range)
+    ("idx_avg_positions_match_period", "fct_tracking_avg_positions_synced",
+     "match_id, period"),
+    # AP-2: match lookup (full-match weighted averages for deltas)
+    ("idx_avg_positions_match", "fct_tracking_avg_positions_synced",
+     "match_id"),
+    # ── fct_tracking_shape_timeline_synced — Pre-bucketed timeline ────
+    # ST-1: match + period lookup (timeline rendering)
+    ("idx_shape_timeline_match_period", "fct_tracking_shape_timeline_synced",
+     "match_id, period"),
+    # ── dim_players_synced — Player name search (U5) ──────────────────
+    # PL-2: display name prefix scan for server-side player search
+    ("idx_dim_players_display_name", "dim_players_synced",
+     "player_display_name"),
 ]
 
 # pgvector HNSW index definitions: (index_name, table, using_clause)
