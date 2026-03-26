@@ -350,8 +350,8 @@ class TestBenchmarks:
 
         home_df = players_df[players_df["team"] == "home"].copy()
         params = TeamShapeParams()
-        home_x = home_df["x"].to_numpy()
-        home_y = home_df["y"].to_numpy()
+        home_x = np.asarray(home_df["x"])
+        home_y = np.asarray(home_df["y"])
 
         result = benchmark(compute_team_shape, home_x, home_y, params)
         assert result is not None
