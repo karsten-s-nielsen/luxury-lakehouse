@@ -11,6 +11,14 @@ These standards apply to ALL code in this repository. They are non-negotiable.
 - **Structured Logging**: JSON-line logs to stdout. No print statements. Include source name, row counts, and timing.
 - **Streamlit retained for reference**: `src/streamlit_app/` and `hf_streamlit_app_deprecated/` are preserved during the Taipy transition period (~1 week). No changes needed to this code.
 
+## Failure Investigation Protocol
+
+- **Three-strikes rule**: Once might be a coincidence, twice is suspicious, three times is a pattern. After the FIRST unexpected failure or hang, investigate the root cause — do not retry the same operation.
+- **Investigate before retrying**: When an infrastructure operation fails (warehouse timeout, deploy hang, API error), check service state and logs FIRST. A 2-minute REST API call beats a 14-minute blind retry.
+- **Never disappear into long-running commands**: Any command that may take >30 seconds MUST use `run_in_background: true` so the user sees responses while it runs. Poll the output file every 15-30 seconds and report progress. A spinning timer with no text is not feedback — the user must see what is happening.
+- **Report findings before fixes**: Present the diagnosis (with evidence) to the user before proposing or implementing a fix. The user decides the approach.
+- **Proactively flag patterns**: When the same symptom appears twice, explicitly tell the user "this is a pattern that needs investigation, not another attempt."
+
 ## Security Hardening
 
 - **No secrets in code**: All authentication via Databricks runtime or environment variables. Never commit credentials, tokens, or connection strings.
@@ -40,7 +48,7 @@ uv run pyright src/            # Type check (basic mode)
 uv run pytest src/tests/ -v    # Unit tests
 ```
 
-- **Performance benchmarks**: Critical-path functions must have `pytest-benchmark` tests. Includes: batched pitch control, off-ball xT frame computation, DEFCON credit assignment, line-breaking detection, OBSO surface computation, position jitter augmentation. Regressions caught in CI.
+- **Performance benchmarks**: Critical-path functions must have `pytest-benchmark` tests. Includes: batched pitch control, off-ball xT frame computation, DEFCON credit assignment, line-breaking detection, OBSO surface computation, position jitter augmentation, team shape computation, team shape frame (both teams), Numba-accelerated pitch control. Regressions caught in CI.
 - **No DataFrame boolean mask filtering inside loops**: Never use `df[df["col"] == val]` inside a `for` loop over tracking or event data. This is O(n×m) — a hidden nested loop that causes pipeline timeouts on production-scale data (3M+ rows). Pre-build indexed lookups: `dict(iter(df.groupby("key")))`, `df.set_index("key")`, or use a merge/join. On tracking-scale data, this is always Critical severity, never Minor.
 - **Benchmark with production-scale data**: A benchmark that passes on 100 rows but OOMs on 3M rows is a false green. For pipeline code touching tracking data, include at least one benchmark at expected production volume.
 
@@ -120,6 +128,8 @@ The platform's architecture maps to classic EIP patterns (Hohpe & Woolf 2003). C
 - **UDF group memory**: ≤800 MB peak (1 GB limit minus overhead)
 - **Batched pitch control**: ≤5ms per frame for 22 targets (benchmark baseline)
 - **Line-breaking detection**: ≤2ms per pass (benchmark baseline)
+- **Team shape computation**: ≤1ms per frame for 10 outfield players (benchmark baseline)
+- **Team shape frame (both teams)**: ≤2ms per frame for 22 players (benchmark baseline)
 
 ## App Performance
 
@@ -186,6 +196,8 @@ These rules prevent cognitive interface debt from accumulating. Derived from CHI
 
 ## Project Conventions
 
+- **`DATABRICKS_HTTP_PATH` must use double-slash prefix**: Set as `//sql/1.0/warehouses/<id>` (not `/sql/...`). Git Bash (MSYS) converts single-slash paths to Windows paths (`C:/Program Files/Git/sql/...`), silently breaking the `databricks-sql-connector` Thrift client. Double-slash is treated as a UNC prefix by MSYS (left alone) and as equivalent to single-slash on all other platforms.
+- **Use `scripts/ensure_warehouse.py`** before any `dbt build`: The SQL warehouse auto-stops after 10 minutes of inactivity. The `databricks-sql-connector` auto-resume retry is unreliable (known sleep-floor bug). Always run `python scripts/ensure_warehouse.py -- <command>` to verify the warehouse is RUNNING first.
 - **Python 3.10 (locked)**: Pinned to `>=3.10,<3.11` in `pyproject.toml` and `.python-version`. Databricks serverless only supports Python 3.10 — locking locally ensures tests catch version-specific behavior (e.g., pandas API differences) before they reach production. Run `uv sync` to get a 3.10 venv automatically.
 - **Line length**: 120 characters maximum.
 - **Imports**: stdlib → third-party → first-party, enforced by isort.

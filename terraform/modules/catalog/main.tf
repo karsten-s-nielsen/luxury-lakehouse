@@ -151,6 +151,18 @@ resource "databricks_grant" "ingestion_sp_libs_volume" {
   privileges = ["READ_VOLUME"]
 }
 
+# ── Unity Catalog Grants: Account Users (dbt / developer access) ─────────────
+# dbt builds staging views that SELECT from bronze source tables. Without
+# this grant, any user running `dbt build` locally gets INSUFFICIENT_PERMISSIONS
+# on bronze tables created by the ingestion SP. Read-only — no writes.
+
+resource "databricks_grant" "account_users_bronze_schema" {
+  schema = "${var.catalog_name}.${databricks_schema.bronze.name}"
+
+  principal  = "account users"
+  privileges = ["USE_SCHEMA", "SELECT"]
+}
+
 # ── Unity Catalog Grants: App Service Principal ──────────────────────────────
 # Read-only access for the Streamlit dashboard: catalog traversal and
 # SELECT on the gold schema (which may be dbt-prefixed, e.g. dev_gold).

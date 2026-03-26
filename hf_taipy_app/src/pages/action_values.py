@@ -36,15 +36,15 @@ page_config = PageConfig(
                 "Off. VAEP/90: offensive contribution per 90 min. Def. VAEP/90: defensive contribution per 90 min.",
             ],
             empty_message="Select a competition to begin.",
-            empty_condition="len(av_rankings_data) == 0 and selected_competition is not None",
+            empty_condition="len(av_rankings_data) == 0 and selected_competition is None",
             scope_vars=["av_scope_label"],
             warning_var="av_warning_text",
         ),
         SubView(
             condition='selected_sub_view == "Breakdown"',
             content=[ContentRow([ContentBlock("image", "av_breakdown_image")])],
-            empty_message="Select a team to see action breakdown.",
-            empty_condition="len(av_breakdown_image) == 0 and selected_competition is not None",
+            empty_message="Select a competition to see action breakdown.",
+            empty_condition="len(av_breakdown_image) == 0 and selected_competition is None",
             scope_vars=["av_scope_label"],
             warning_var="av_warning_text",
             metrics=[
@@ -72,7 +72,7 @@ page_config = PageConfig(
                 ContentRow([ContentBlock("expandable_table", "av_timeline_data", header="Action Details")]),
             ],
             empty_message="Select a match to see action timeline.",
-            empty_condition="len(av_timeline_image) == 0 and selected_match is not None",
+            empty_condition="len(av_timeline_image) == 0 and selected_match is None",
             scope_vars=["av_scope_label"],
             warning_var="av_warning_text",
             metrics=[

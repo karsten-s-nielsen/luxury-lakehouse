@@ -159,6 +159,7 @@ _LOADING_TEXTS: dict[str, str] = {
     "Player-Similarity": "Finding similar players...",
     "Movement-Pressing": "Loading movement data...",
     "Pitch-Control": "Computing pitch control...",
+    "Team-Shape": "Loading team shape...",
     "Pass-Timing": "Loading PAUSA data...",
     "Defensive-Impact": "Loading defensive data...",
 }

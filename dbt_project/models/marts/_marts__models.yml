@@ -1927,3 +1927,201 @@ models:
         description: >
           Proportional dollar cost for this task within the job run.
           Attributed by execution_duration_seconds ratio.
+
+  # ── Formation Detection ────────────────────────────────────────────────
+
+  - name: fct_formation_labels
+    config:
+      contract:
+        enforced: true
+    description: >
+      Gold-layer formation detection results per match, period, and team.
+      Contains one row per detected formation window: the time range during
+      which a given team held a specific shape, as identified by the EFPI
+      (Elastic Formation Position Identifier) algorithm using Hungarian method
+      template matching. Sourced from the bronze formation_labels table written
+      by the formations ingestion pipeline.
+      Reference: Shaw, L. & Glickman, M. (2019). "Dynamic analysis of team
+      strategy in professional football."
+    columns:
+      - name: formation_label_id
+        data_type: string
+        description: Surrogate key (match_id + period + team + window_start_s)
+        data_tests:
+          - unique
+          - not_null
+      - name: match_id
+        data_type: string
+        description: Match identifier (string, prefixed by tracking provider)
+        data_tests:
+          - not_null
+      - name: period
+        data_type: int
+        description: Match period (1 or 2)
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 1
+                max_value: 2
+              config:
+                severity: warn
+      - name: team
+        data_type: string
+        description: Team side (home or away)
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['home', 'away']
+      - name: window_start_s
+        data_type: double
+        description: Window start time in seconds from period start
+      - name: window_end_s
+        data_type: double
+        description: Window end time in seconds from period start
+      - name: formation_label
+        data_type: string
+        description: "Detected formation label (e.g., 4-4-2, 4-3-3)"
+        data_tests:
+          - not_null
+      - name: cost
+        data_type: double
+        description: >
+          Hungarian matching cost for template fit. Lower values indicate a
+          closer match between observed player positions and the formation
+          template. Used to assess detection confidence.
+      - name: _ingested_at
+        data_type: timestamp
+        description: UTC timestamp when the row was written to the bronze table
+
+  - name: fct_tracking_avg_positions
+    config:
+      contract:
+        enforced: true
+    description: >
+      Gold-layer pre-computed average positions per player per match-period.
+      Replaces expensive runtime AVG() queries that scan 1-3M rows of
+      fct_tracking_frames. One row per (match_id, period, player_id, team).
+      Coordinate system: StatsBomb 120x80 pitch coordinates.
+    columns:
+      - name: avg_position_id
+        data_type: string
+        description: Surrogate key (match_id + period + player_id)
+        data_tests:
+          - unique
+          - not_null
+      - name: match_id
+        data_type: string
+        description: Match identifier (string, prefixed by tracking provider)
+        data_tests:
+          - not_null
+      - name: period
+        data_type: int
+        description: Match period (1 or 2)
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 1
+                max_value: 2
+              config:
+                severity: warn
+      - name: player_id
+        data_type: string
+        description: Player identifier from the tracking data source
+        data_tests:
+          - not_null
+      - name: team
+        data_type: string
+        description: Team side (home or away)
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['home', 'away']
+      - name: avg_x
+        data_type: double
+        description: Average X coordinate across all frames in the period (0-120 scale)
+      - name: avg_y
+        data_type: double
+        description: Average Y coordinate across all frames in the period (0-80 scale)
+      - name: avg_speed
+        data_type: double
+        description: Average speed in meters per second across all frames in the period
+      - name: frame_count
+        data_type: bigint
+        description: Number of tracking frames for this player in the period (for weighting)
+        data_tests:
+          - not_null
+      - name: min_frame
+        data_type: int
+        description: First frame number for this player in the period
+      - name: max_frame
+        data_type: int
+        description: Last frame number for this player in the period
+      - name: frame_rate
+        data_type: bigint
+        description: Tracking frame rate in Hz (constant per match, MAX aggregated)
+
+  - name: fct_tracking_shape_timeline
+    config:
+      contract:
+        enforced: true
+    description: >
+      Gold-layer pre-computed time-bucketed positions at 5-second intervals.
+      Replaces expensive runtime sampled-position queries on fct_tracking_frames.
+      One row per (match_id, period, time_bucket, player_id, team).
+      Coordinate system: StatsBomb 120x80 pitch coordinates.
+    columns:
+      - name: shape_timeline_id
+        data_type: string
+        description: Surrogate key (match_id + period + time_bucket + player_id)
+        data_tests:
+          - unique
+          - not_null
+      - name: match_id
+        data_type: string
+        description: Match identifier (string, prefixed by tracking provider)
+        data_tests:
+          - not_null
+      - name: period
+        data_type: int
+        description: Match period (1 or 2)
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 1
+                max_value: 2
+              config:
+                severity: warn
+      - name: time_bucket
+        data_type: bigint
+        description: >
+          Time bucket start in seconds from period start.
+          Computed as FLOOR(timestamp_seconds / 5) * 5 for 5-second intervals.
+        data_tests:
+          - not_null
+      - name: player_id
+        data_type: string
+        description: Player identifier from the tracking data source
+        data_tests:
+          - not_null
+      - name: team
+        data_type: string
+        description: Team side (home or away)
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['home', 'away']
+      - name: avg_x
+        data_type: double
+        description: Average X coordinate within the 5-second bucket (0-120 scale)
+      - name: avg_y
+        data_type: double
+        description: Average Y coordinate within the 5-second bucket (0-80 scale)
+      - name: avg_speed
+        data_type: double
+        description: Average speed in meters per second within the 5-second bucket

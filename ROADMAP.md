@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the current [architecture](ARCHITECTURE.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-03-25
+**Last updated**: 2026-03-26
 
 ---
 
@@ -149,15 +149,14 @@ Post-run parsing captures per-model execution time, test pass/fail counts, failu
 - Foundation for DEFCON (Phase 17) model monitoring
 
 ---
----
 
 ## Deep Learning Infrastructure &amp; Pre-trained Models
 
-**Status:** Partially implemented &mdash; MLflow UC Model Registry active (D11), model validation &amp; drift detection deployed (D12). Tier 3 GPU training proven &mdash; xG v2 trained on HF Jobs A10G (D17), VAEP training migrated to HF Jobs (O2)
+**Status:** GNN training infrastructure (DEFCON Tier 4), continual learning, FunSearch/AlphaEvolve exploration
 **Budget:** ~$6-14/month incremental (external GPU training + existing Databricks governance)
 **References:** DeepMind AlphaEvolve/FunSearch (Apache 2.0); TacticAI (Nature Communications, 2024); SoccerNet benchmarks
 
-The platform's analytics models are currently traditional ML (logistic regression xG, grid-based xT, SPADL/VAEP). Multiple planned phases &mdash; DEFCON Tier 4 GNN, pgvector embeddings (Phase 15), and Space Creation (ROADMAP) &mdash; assume deep learning capability but no infrastructure exists to train, version, serve, or iteratively improve neural models. This section defines the end-to-end DL stack and catalogs pre-trained models that provide a head start.
+Foundation in place (MLflow UC Model Registry with Champion/Challenger aliases, scipy-based drift detection, HF Jobs A10G training). This section defines the remaining DL stack needed for GNN training, continual learning, and pre-trained model integration.
 
 ### Core principle: train cheap, govern centrally
 
@@ -191,7 +190,7 @@ Three approaches from DeepMind's recent work apply directly to soccer analytics 
 
 **FunSearch / AlphaEvolve pattern.** LLM-driven algorithm evolution: define an `evaluate(candidate) &rarr; score` function, let an LLM generate and mutate candidates, keep the best. [OpenEvolve](https://huggingface.co/blog/codelion/openevolve) (MIT) is a community implementation that works with any LLM API. Targets: evolve xT grid values against StatsBomb event data; optimize pitch control kernel vectorization strategies. Cost: ~$5-20 for a weekend search run, CPU only.
 
-**JAX `vmap` vectorization.** Single highest-leverage tool for existing code. `jax.vmap` vectorizes `compute_pitch_control_at_point()` from ~2,700 serial Python calls per second to one array operation &mdash; unlocking full Space Creation (Fernandez &amp; Bornn 2018 OBSO) on the existing budget without GPU. JAX compiles to vectorized CPU operations via XLA; no infrastructure change required. **Implemented in Phase 18:** `compute_pitch_control_grid_fast()` with `@jax.jit` backend in `src/analytics/pitch_control.py`. Dual NumPy/JAX backend auto-dispatches based on JAX availability.
+**JAX `vmap` vectorization.** Already deployed: `compute_pitch_control_grid_fast()` with `@jax.jit` backend in `src/analytics/pitch_control.py` (dual NumPy/JAX auto-dispatch). Unlocked full Space Creation (Fernandez &amp; Bornn 2018 OBSO) on CPU without GPU infrastructure. Same pattern applies to future array-intensive analytics.
 
 **Continual learning (EWC / Knowledge Distillation).** DeepMind's Elastic Weight Consolidation (Kirkpatrick et al. 2017) prevents catastrophic forgetting when adapting models to new seasons or competitions. The practical variant &mdash; Knowledge Distillation (Learning without Forgetting) &mdash; maps directly to the MLflow Champion/Challenger pattern: the `@Champion` model provides soft labels for `@Challenger` training on new data, preserving historical calibration.
 
@@ -201,7 +200,7 @@ With only 20 tracking matches, synthetic data multiplication is critical:
 
 | Technique | Multiplier | Compute | Basis |
 |-----------|-----------|---------|-------|
-| **Symmetry augmentation** (H-flip, V-flip, team swap) | 8&times; | Zero (NumPy) | TacticAI (DeepMind, 2024) — **Implemented (Phase 18):** `src/analytics/symmetry.py` |
+| **Symmetry augmentation** (H-flip, V-flip, team swap) | 8&times; | Zero (NumPy) | TacticAI (DeepMind, 2024) &mdash; deployed in `src/analytics/symmetry.py` |
 | **Physics-based perturbation** (position/velocity jitter within constraints) | 10&times; per frame | Minimal (NumPy) | Counterfactual simulation |
 | **dm_control MuJoCo Soccer** (synthetic match generation) | Unlimited | CPU | Pretrain-then-fine-tune pattern |
 
@@ -212,7 +211,6 @@ Models with available weights compatible with current data sources:
 | Model | Domain | Data Compatibility | License | Compute |
 |-------|--------|-------------------|---------|---------|
 | [**football2vec**](https://github.com/ofirmg/football2vec) | Player/action embeddings | StatsBomb (exact match) | MIT | Hours / CPU |
-| ~~[**OpenSTARLab**](https://github.com/open-starlab) (LEM, FMS, Seq2Event)~~ | ~~Event prediction, match simulation~~ | ~~StatsBomb + Wyscout~~ | ~~Apache 2.0~~ | ~~Dropped — UEID format incompatible with multi-league data ([decision](docs/decisions/openstarlab-dropped.md))~~ |
 | [**Foundation Model for Soccer**](https://arxiv.org/abs/2407.14558) | Action prediction transformer | FAWSL (fine-tune on SB) | Research | Days / 1 GPU |
 | [**RTMPose**](https://github.com/open-mmlab/mmpose) (MMPose) | Pose estimation from video | Broadcast footage | Apache 2.0 | 1-2 days / 4 GPU |
 
@@ -231,13 +229,11 @@ Models with available weights compatible with current data sources:
 | [**SoccerMaster**](https://arxiv.org/abs/2512.11016) | Vision foundation (multi-task) | Dec 2024, weights pending | First soccer-specific foundation model; if released, becomes dominant backbone |
 | [**SportMamba**](https://arxiv.org/abs/2506.03335) | Video tracking (Mamba SSM) | CVPR 2025 | State-of-the-art multi-object tracking for team sports |
 
-### Relationship to existing phases
+### Remaining DL use cases
 
-| Phase | DL Infrastructure Enables |
-|-------|--------------------------|
-| **Phase 15** (pgvector embeddings) | **Complete** — retrained football2vec (32-dim Doc2Vec) + 13-dim z-score stat vectors. Model published to HF Hub. |
-| **DEFCON Tier 4** (GNN) | GNN pre-trained on StatsBomb 360 freeze frames (15.58M rows), fine-tuned for defensive valuation. Tier 3 tabular model **complete** (Phase 17). |
-| **Space Creation** (ROADMAP) | JAX `vmap` pitch control vectorization makes full OBSO feasible on CPU — **JAX kernel implemented (Phase 18)** |
+| Use Case | DL Infrastructure Needed |
+|----------|--------------------------|
+| **DEFCON Tier 4** (GNN) | GNN pre-trained on StatsBomb 360 freeze frames (15.58M rows), fine-tuned for defensive valuation |
 | **Graph Tactical Patterns** (ROADMAP) | PyTorch Geometric GNN on tracking data with symmetry augmentation |
 | **Visual Exploratory Behavior** (ROADMAP) | RTMPose for pose estimation if Respo.Vision data requires broadcast video processing |
 
@@ -255,21 +251,17 @@ Models with available weights compatible with current data sources:
 
 ### Open questions
 
-1. **JAX vs PyTorch**: JAX `vmap` for pitch control implemented (Phase 18). GNN ecosystem is PyTorch-centric. Currently maintaining both: JAX for array computation (pitch control, OBSO), PyTorch Geometric for GNN training.
+1. **JAX vs PyTorch**: JAX for array computation (pitch control, OBSO), PyTorch Geometric for GNN training. Maintaining both.
 2. **External GPU provider**: RunPod (cheapest) vs Lambda Labs (more reliable, SSD-backed)?
-3. ~~**football2vec**~~ Resolved &mdash; retrained on full ~3,000-match StatsBomb corpus (Phase 15 complete).
-4. **Feature store scope**: Which player features justify formal Databricks Feature Engineering tables?
-5. **Serving strategy**: CPU batch inference (simple, scheduled) vs scale-to-zero endpoint (real-time)?
-6. **SoccerMaster timeline**: Monitor GitHub for weight release &mdash; could consolidate multiple point solutions
+3. **Feature store scope**: Which player features justify formal Databricks Feature Engineering tables?
+4. **Serving strategy**: CPU batch inference (simple, scheduled) vs scale-to-zero endpoint (real-time)?
+5. **SoccerMaster timeline**: Monitor GitHub for weight release &mdash; could consolidate multiple point solutions
 
 ### Dependencies
 
-- JAX `vmap` and symmetry augmentation **complete** (Phase 18) — no longer blocked
 - GNN pre-training depends on PyTorch Geometric + external GPU access
-- football2vec usable immediately with existing StatsBomb/Wyscout data (OpenSTARLab dropped — [decision](docs/decisions/openstarlab-dropped.md))
 - Full model serving pipeline depends on MLflow 3 + Unity Catalog (already provisioned)
 - Synergistic with Observability (OTel traces measure model performance and drift)
-- Synergistic with Pipeline Optimization (`for_each_task` for distributed inference jobs)
 
 ---
 
@@ -406,101 +398,15 @@ The `Vision` class is a clean NumPy/scipy implementation. Once pose data arrives
 
 - Own-footage recording + Respo.Vision processing (blocker)
 - Phase 11 (pitch control) — for vision x pitch control x pitch value framework
-- Phase 10 (tracking) — **complete** (velocity computation ready)
+- Phase 10 (tracking) — velocity computation ready
 
 ---
 
-## Team Shape Analysis (Formation Detection &amp; Spatial Metrics)
+## Team Shape Analysis — Stage 2 (Own-Footage Pipeline)
 
-**Status:** Stage 1 ready for implementation (existing tracking data); Stage 2 blocked by SkillCorner DoD commercial relationship
-**License:** `unravelsports` &mdash; MPL 2.0 ([UnravelSports/unravelsports](https://github.com/UnravelSports/unravelsports))
-
-Formation detection, team spatial metrics, and connected-formation visualizations derived from tracking data. Designed to be immediately useful to non-data-science audiences (parents, youth coaches) &mdash; metrics like team length, defensive line height, and GK-to-backline distance are intuitive without statistical background.
-
-### Why it matters
-
-Team shape metrics are the most relatable tracking-derived analytics for non-expert audiences. "We got stretched in the last 15 minutes" or "defensive line sat at 42% &mdash; we pressed high" communicate tactical reality without requiring explanation of xG, VAEP, or pitch control surfaces. FIFA match reports have normalized these metrics since the 2018 World Cup (EPTS tracking at 25Hz across all 64 matches).
-
-### Stage 1 &mdash; Team Shape from Existing Tracking Data
-
-Works immediately on the 20 matches already in `fct_tracking_frames` (Metrica, IDSSE, SkillCorner open data). No external dependencies.
-
-#### Metrics catalog
-
-**Tier 1 &mdash; Intuitive (no explanation needed)**
-
-| Metric | Definition | Reference Values |
-|--------|-----------|-----------------|
-| **Average position map** | Mean (x, y) per player per phase &mdash; the "where does each player stand" formation diagram | Visual &mdash; dots on pitch with jersey numbers |
-| **Team length** | `max(y) - min(y)` of outfield players along the goal-to-goal axis | &lt;30m defending = compact; &gt;40m = stretched (Fradua et al. 2013) |
-| **Team width** | `max(x) - min(x)` of outfield players | &gt;38m in possession = good width creation |
-| **Defensive line height** | Mean y of back line cluster, normalized to pitch % (0% = own goal, 100% = opponent goal) | &gt;50% = high press; &lt;35% = deep block |
-| **GK-to-backline distance** | GK y minus mean(back line y) | FIFA reports this explicitly in TSG match reports |
-
-**Tier 2 &mdash; One sentence of explanation**
-
-| Metric | Definition |
-|--------|-----------|
-| **Team area (convex hull)** | Area of smallest polygon containing 10 outfield players (`scipy.spatial.ConvexHull`). ~1,000 m&sup2; defending, ~1,500 m&sup2; attacking (Frencken et al. 2011) |
-| **Inter-line gaps** | Distance between defensive &harr; midfield and midfield &harr; attacking line centroids. &lt;12m = compact, &gt;18m = exposed |
-| **Compactness time series** | Team length over match time, annotated with goals/subs |
-| **Stretch index** | Mean distance of all players from team centroid (Bourbousson et al. 2010). More robust than length/width &mdash; not distorted by a single outlier |
-
-**Tier 3 &mdash; Coaching conversation starters**
-
-| Metric | Definition |
-|--------|-----------|
-| **Formation detection** | Automatic classification via EFPI template matching (e.g., "4-3-3 in possession, 4-4-2 out of possession") |
-| **Phase-split shapes** | In-possession vs out-of-possession averages (Shaw &amp; Glickman 2019) |
-| **Shape comparison** | Side-by-side convex hulls: your team vs opponent |
-
-#### Formation detection: EFPI (unravelsports)
-
-The `unravelsports` package implements EFPI &mdash; Elastic Formation and Position Identification (Bekkers &amp; Dabadghao 2025). It uses the Hungarian algorithm (linear sum assignment) with scale-normalized template matching against 65 formation templates from mplsoccer. Key properties:
-
-- Integrates with **kloppy** (already used for SkillCorner/Metrica ingestion)
-- Configurable time windows: per-frame, per-possession, per-5-minutes, per-period
-- Stability filtering (`change_threshold`) prevents spurious formation flips
-- Handles missing players (red cards, substitutions) gracefully
-- Maintained by Joris Bekkers (PySport co-founder) &mdash; connected on LinkedIn, met at MIT Sloan
-
-**Alternative approaches evaluated but not selected:**
-- SoccerCPD (Kim et al., KDD 2022) &mdash; state-of-the-art change-point detection but requires R runtime via `rpy2`, incompatible with Databricks serverless
-- Naive y-sort grouping &mdash; works for static averages but fails during transitions
-- Delaunay triangulation fingerprinting (Narizuka &amp; Yamazaki 2019) &mdash; topology-invariant but outputs abstract distance matrices, not human-readable formation labels
-
-#### Taipy page design
-
-A "Team Shape" page following the Pitch Control page pattern, with two views:
-
-**Snapshot view** (single frame or phase average):
-- Pitch diagram with player positions (jersey numbers) and connected formation lines (GK &rarr; back line &rarr; midfield &rarr; attack)
-- Convex hull overlay (shaded polygon per team)
-- Sidebar Taipy `Metric` widgets with `help_text`: team length, width, defensive line height, GK-backline distance, convex hull area &mdash; with delta showing difference from match average
-
-**Timeline view** (full match):
-- Time-series chart of team length, width, and defensive line height
-- Annotated with goals, substitutions, formation changes
-- Formation label per 5-minute window (via EFPI)
-- Phase comparison: in-possession vs out-of-possession metric averages
-
-#### Compute approach
-
-All Tier 1 and Tier 2 metrics are lightweight NumPy/scipy operations on per-frame player positions &mdash; no heavy compute pipeline needed:
-- `scipy.spatial.ConvexHull` for team area
-- Basic y-sorting + k-means (k=3 or k=4) for line detection
-- EFPI for formation labels (runs in Taipy or pre-computed via `applyInPandas`)
-
-Option to pre-compute and persist as a dbt mart (e.g., `fct_team_shape`) for larger datasets, but Taipy-side computation is sufficient for the current 20-match corpus.
-
-#### Potential artifacts
-
-| Artifact | Layer | Description |
-|----------|-------|-------------|
-| `src/analytics/team_shape.py` | Analytics | Team centroid, convex hull, line detection, shape metrics |
-| `fct_team_shape` (optional) | dbt marts | Pre-computed per-frame or per-window team shape metrics |
-| `hf_taipy_app/src/pages/team_shape.py` | Taipy | Team Shape page (snapshot + timeline views) |
-| `hf_taipy_app/src/` components (update) | Taipy | Connected-formation diagram renderer, convex hull overlay |
+**Status:** Blocked by SkillCorner DoD commercial access
+**Prerequisite:** Stage 1 complete (D19 spatial metrics, D20 EFPI formation detection, D21 Taipy page — all shipped)
+**Note:** Formation detection is partially blocked by D26 (GK Metadata Pipeline) for full-coverage results. See TODO.md.
 
 ### Stage 2 &mdash; Own-Footage Pipeline (Veo3 &rarr; SkillCorner DoD &rarr; Platform)
 
@@ -554,11 +460,8 @@ Team shape analysis on actual youth/amateur games &mdash; metrics that resonate 
 
 ### Dependencies
 
-- Phase 10 (tracking data ingestion) &mdash; **complete** (20 matches available)
-- Phase 11 (pitch control) &mdash; **complete** (Taipy page pattern to follow)
-- `unravelsports` package (MPL 2.0) &mdash; new dependency for EFPI formation detection
-- Stage 2 only: SkillCorner DoD commercial access + [Provider Framework](#provider-abstraction--multi-tier-ingestion) adapter
-- Synergistic with Visual Exploratory Behavior (same own-footage pipeline for Stage 2)
+- SkillCorner DoD commercial access + [Provider Framework](#provider-abstraction--multi-tier-ingestion) adapter
+- Synergistic with Visual Exploratory Behavior (same own-footage pipeline)
 - Synergistic with Space Creation Quantification (convex hull and spatial control are shared concepts)
 
 ---
@@ -585,7 +488,7 @@ Currently the platform has a single `dev` environment. Adding a `staging` enviro
 | Lakebase project | `soccer-analytics-dev` | `soccer-analytics-staging` |
 | Lakebase branch | `production` | `staging` (branched from dev production) |
 | dbt target | `dev` | `staging` |
-| Synced tables | 23 tables | Subset (fact tables only for validation) |
+| Synced tables | 26 tables | Subset (fact tables only for validation) |
 | Terraform | `terraform/environments/dev/` | `terraform/environments/staging/` |
 | Budget | Under $100/month | Minimal incremental (scale-to-zero) |
 
@@ -622,7 +525,7 @@ Proposes **Tactical Graphs** — representing players as graph nodes and spatial
 
 - **Phase 11** (pitch control): TGNets could classify game states by pitch control regime
 - **Phase 12** (movement analysis): Graph features complement physical metrics
-- **DEFCON Tier 4**: The DEFCON paper also uses Graph Attention Networks — shared infrastructure. Tier 3 tabular model complete (Phase 17).
+- **DEFCON Tier 4**: The DEFCON paper also uses Graph Attention Networks — shared infrastructure
 - Would require a new `src/analytics/` module for graph construction and model training
 
 ### Not immediately actionable
@@ -651,153 +554,7 @@ Requires commercial-grade tracking data (Belgian Pro League / Stats Perform) —
 
 ---
 
-## Space Creation Quantification (Fernandez & Bornn 2018)
-
-**Status:** Implemented — D14 batch on HF Jobs A10G, `vmap`-batched PC, differential OBSO per player
-**Paper:** Fernandez & Bornn (2018), "Wide Open Spaces: A statistical technique for measuring space creation in professional soccer"
-
-Full OBSO (Off-Ball Scoring Opportunity) requires computing N+1 pitch control surfaces per frame (one counterfactual surface with each player removed) to measure each player's space creation contribution. At 25fps with 22 players, this is ~2,700 pitch control evaluations per second of play — prohibitively expensive for the current compute budget.
-
-### What was implemented instead
-
-Phase 12 implemented a simpler Off-Ball xT metric: `pitch_control(player_location) x xT(player_zone)`, computed at 1fps sampling. This captures positional value without the counterfactual computation.
-
-### What would be needed
-
-- ~~GPU-accelerated pitch control (vectorized TTI computation across grid)~~ **Partially addressed (Phase 18):** `compute_pitch_control_grid_fast()` with `@jax.jit` backend enables dense 50&times;32 grid computation on CPU via XLA vectorization
-- ~25x compute budget increase (from 1fps to 25fps full OBSO) — JAX kernel reduces this requirement significantly
-- Differential pitch control: `PC_with_player - PC_without_player` per player per frame
-- Counterfactual ghost trajectories (available in PAUSA repo, see PAUSA section)
-
-### Dependencies
-
-- Phase 11 (pitch control) — **complete**
-- Phase 12 (off-ball xT) — **complete** (provides foundation)
-- Phase 18 (JAX kernel) — **complete** (enables dense grid computation for OBSO)
-- ~~GPU compute infrastructure~~ JAX CPU vectorization may be sufficient for batch processing
-
----
-
-## <img src="assets/hf-logo.png" height="28" align="top"> HuggingFace Hub Integration (Open Model & Dataset Ecosystem)
-
-**Status:** Tiers 1&ndash;3 complete (4 models, 11 datasets published, GPU training proven on HF Jobs A10G), Tier 4 complete (Gradio demo Space with luxury flagship theme).
-**Budget:** $0 (free tier) or $9/month (PRO for priority GPU access)
-**References:** [Databricks &hearts; HuggingFace](https://www.databricks.com/blog/contributing-spark-loader-for-hugging-face-datasets); [PyG Hub Integration](https://github.com/pyg-team/pytorch_geometric/issues/7170); [SoccerNet on HF](https://huggingface.co/SoccerNet)
-
-HuggingFace is the open-source AI community's central hub &mdash; model weights, datasets, and interactive demos, all freely accessible without gatekeeping. Their commitment to open science aligns with this project's values: luxury-lakehouse is built on open data (StatsBomb, Wyscout Figshare, Metrica, SoccerNet) and open tools (dbt, Taipy, socceraction, kloppy). Integrating with HuggingFace is a deliberate choice to participate in and contribute back to that ecosystem, not just consume from it.
-
-Phase 14 (entity resolution) is complete using TF-IDF + rapidfuzz. As Phases 15&ndash;16 and DEFCON Tier 4 introduce deep learning (learned embeddings, full GNN), the project needs an artifact ecosystem for model weights, training datasets, and community sharing. HuggingFace Hub provides this at zero cost for public artifacts, with native Databricks integration via MLflow's `transformers` flavor and Unity Catalog model registry.
-
-### Core principle: publish openly, consume freely
-
-HuggingFace's model is consumption-free: anyone can download public models and datasets without an account. Publishing is free for public repos (10 GB/repo Git LFS). A HuggingFace Organization (e.g., `luxury-lakehouse`) provides a namespace for all artifacts, with collaborators using their own free accounts. Compute costs (GPU Spaces, HF Jobs) are per-user &mdash; the org pays nothing when others train on published data.
-
-```
-Delta Lake (source of truth)
-    ↓ export / stream
-HuggingFace Hub (public artifacts)
-    ├── Models: safetensors weights + model cards
-    ├── Datasets: Parquet + dataset cards + streaming
-    └── Spaces: public demo (Taipy/Gradio)
-    ↓ consume
-Community (zero cost to download/use)
-    ↓ train / fine-tune
-Their own compute (HF Jobs, RunPod, Databricks)
-```
-
-### Integration tiers
-
-| Tier | Action | Phase Alignment | Cost |
-|------|--------|----------------|------|
-| **1 &mdash; Consume** | Pull pre-trained models (football2vec, sentence-transformers) for embeddings | Phase 15 | $0 |
-| **2 &mdash; Publish** | Push trained model weights (safetensors) and processed datasets (Parquet) to HF Hub | Phase 15, 17 | $0 |
-| **3 &mdash; Train** | Use HF Jobs or ZeroGPU Spaces for GNN training; compare pricing vs RunPod | DEFCON Tier 4 | $9/mo PRO + per-job |
-| **4 &mdash; Demo** | Host a public Taipy/Gradio Space with cached data subsets as a portfolio showcase | Post-Phase 16 | $0 (CPU) |
-
-### Tier 1 &mdash; Consume pre-trained models
-
-Models with immediate applicability to planned phases:
-
-| Model | Source | License | Relevance |
-|-------|--------|---------|-----------|
-| [**sentence-transformers**](https://sbert.net/) (`all-mpnet-base-v2`) | HF Hub | Apache 2.0 | Phase 14 entity resolution &mdash; embed player names + metadata for cosine similarity matching via pgvector. Handles transliteration, accented characters, name variants better than `rapidfuzz`. |
-| [**football2vec**](https://github.com/ofirmg/football2vec) | GitHub (MIT) | MIT | Phase 15 embeddings &mdash; pre-trained player/action embeddings on StatsBomb data. Could replace or complement simple per-90 stat vectors. |
-| ~~[**OpenSTARLab**](https://arxiv.org/html/2502.02785v2) (LEM, FMS, Seq2Event)~~ | ~~GitHub (Apache 2.0)~~ | ~~Apache 2.0~~ | ~~Dropped — `openstarlab-event` requires hardcoded La Liga UEID format incompatible with multi-league data. See [decision](docs/decisions/openstarlab-dropped.md).~~ |
-| [**microsoft/SportsBERT**](https://huggingface.co/microsoft/SportsBERT) | HF Hub | MIT | Sports-domain BERT for NLP-based player search or commentary enrichment. Lower priority. |
-
-**Databricks integration path:** `HF_HOME` &rarr; UC Volume caches downloads across sessions. Models logged via `mlflow.transformers.log_model()`, registered in Unity Catalog with `@Champion`/`@Challenger` aliases.
-
-### Tier 2 &mdash; Publish models and datasets
-
-Artifacts the project could publish to the community:
-
-| Artifact | Format | Est. Size | Publication Trigger |
-|----------|--------|-----------|-------------------|
-| Player embedding model + vectors | safetensors + Parquet | ~50&ndash;200 MB | Phase 15 completion |
-| DEFCON GNN weights | safetensors via `PyGModelHubMixin` | ~50&ndash;200 MB | DEFCON Tier 4 completion |
-| SPADL/VAEP action value dataset | Parquet (auto-streaming) | ~500 MB&ndash;2 GB | Available now (optional) |
-| Evolved xT grid (if OpenEvolve used) | CSV + model card | <1 MB | Post-DL Infrastructure |
-| Line-breaking pass detection results | Parquet | ~50 MB | Available now (optional) |
-
-All artifacts fit within HF's free 10 GB/repo Git LFS limit. Dataset repos get automatic Parquet conversion, DuckDB-queryable dataset viewer, and streaming support.
-
-**Model cards** document methodology, training data provenance (StatsBomb open data, Wyscout Figshare), coordinate systems, and reproduction steps &mdash; the same rigor as the project's existing documentation standards. Source files are maintained in [`docs/huggingface/`](docs/huggingface/) and pushed to HF Hub as the canonical README.
-
-### Tier 3 &mdash; GPU training on HuggingFace
-
-| | RunPod Spot | HF Jobs | HF ZeroGPU (PRO) |
-|---|---|---|---|
-| **RTX 4090** | ~$0.35/hr | &mdash; | &mdash; |
-| **A100 80 GB** | ~$1.59/hr | Available | Queue-based |
-| **H200** | &mdash; | Available (PRO) | Priority (PRO) |
-| **Ecosystem** | Raw GPU | `hf jobs run`, auto-push to Hub | Spaces integration |
-| **Min cost** | Per-hour only | Per-hour only | $9/month base |
-
-**Decision point:** Compare HF Jobs vs RunPod pricing when DEFCON Tier 4 GNN training begins. HF's advantage is ecosystem integration (train &rarr; push &rarr; serve in one flow). RunPod is cheaper for raw GPU-hours. Both are compatible with MLflow remote logging back to Databricks.
-
-### Tier 4 &mdash; Public demo Space
-
-**Status:** Complete
-
-A Gradio Space hosting a read-only demo with pre-cached Parquet subsets. Complements the primary Taipy deployment on HuggingFace Spaces (which has live Lakebase connectivity) as a lightweight public portfolio piece.
-
-**Live at:** [`luxury-lakehouse/soccer-analytics-demo`](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
-
-**Tabs** (in order): Pass Quality, Pass Timing, Pitch Control, Player Similarity, Shot Map, DEFCON Pressure
-
-**Theme:** Luxury flagship &mdash; `gr.themes.Monochrome` with dark surfaces (`#0f0f14`), amber/gold accents (`#f59e0b`), sharp corners, Inter font, and CSS-injected tab navigation with gold bottom-border active state.
-
-**Constraint:** No Lakebase connectivity from HF Spaces. All data must be pre-exported as static Parquet/CSV files bundled with the Space. This limits the demo to curated subsets rather than full interactive queries. Export notebook: `notebooks/export_demo_data.py`.
-
-### Account and organization model
-
-| Role | Account Type | Cost | Access |
-|------|-------------|------|--------|
-| **Project owner** | HF Org admin | $0 (free) or $9/mo (PRO) | Full control |
-| **Collaborators** | Their own free HF account | $0 | Push to org repos |
-| **Consumers** | No account needed | $0 | Download models/datasets |
-| **GPU users** | Their own account + billing | Their cost | HF Jobs / Spaces |
-
-### Open questions
-
-1. ~~**Org name**~~ Resolved &mdash; `luxury-lakehouse` (created, model published).
-2. ~~**football2vec evaluation**~~ Resolved &mdash; retrained on full ~3,000-match StatsBomb corpus (not pre-trained weights). 32-dim Doc2Vec model saved to UC Volume + HF Hub.
-3. ~~**sentence-transformers for entity resolution**~~ Resolved &mdash; Phase 14 complete using TF-IDF + rapidfuzz (2,388 matches). Sentence-transformers remains an option for future embedding-based matching if needed.
-4. ~~**Publishing priority**~~ Resolved &mdash; Phase 15 model weights published to `luxury-lakehouse/football2vec-statsbomb-wyscout`.
-5. ~~**Space framework**~~ Resolved &mdash; Gradio chosen for model/dataset demos. Deployed at `luxury-lakehouse/soccer-analytics-demo`. Primary deployment migrated to Taipy on HuggingFace Spaces (Docker SDK) at `luxury-lakehouse/soccer-analytics-app` with live Lakebase connectivity.
-6. **HF Jobs vs RunPod**: Defer comparison until DEFCON Tier 4, or benchmark early with a small training run?
-
-### Dependencies
-
-- Tier 1 (consume) &mdash; **complete** (football2vec retrained on StatsBomb corpus)
-- Tier 2 (publish) &mdash; **complete** (4 models + 11 datasets published: [football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout), [xG v1](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout), [xG v2 set encoder](https://huggingface.co/luxury-lakehouse/xg-v2-model-set-encoder), [VAEP](https://huggingface.co/luxury-lakehouse/vaep-model-statsbomb-wyscout), plus datasets for SPADL/VAEP, line-breaking, embeddings, pitch control, xT grids, OBSO inputs/values/grids, freeze frames, shots, space creation)
-- Tier 3 (train) &mdash; **complete** (xG v2 trained on HF Jobs A10G (D17); VAEP training migrated to HF Jobs (O2); HF Jobs proven as primary external GPU provider)
-- Tier 4 (demo) &mdash; **complete** (Gradio Space at [`luxury-lakehouse/soccer-analytics-demo`](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme and 6 tabs: pass quality, pass timing, pitch control, player similarity, shot map, DEFCON pressure)
-- Tier 5 (streaming) &mdash; blocked on Polars `hf://buckets/` merge (see below)
-- Synergistic with DL Infrastructure (HF models flow into MLflow + UC model registry)
-- Synergistic with Provider Abstraction (football2vec consumes same StatsBomb/Wyscout data)
-
-### Tier 5 &mdash; Streaming dataset publishing via XET + Polars
+## HuggingFace Hub — Streaming Dataset Publishing (Tier 5)
 
 **Status:** Research complete, blocked on upstream (Polars branch not yet merged)
 **Discovered:** 2026-03-12 via [Daniel van Strien](https://www.linkedin.com/in/danielvanstrien/) (HuggingFace)
@@ -869,80 +626,6 @@ Even before the Polars branch merges, two things are actionable today:
 
 1. **XET is already active** &mdash; our existing `HfApi().upload_folder()` calls already benefit from chunk-level dedup when updating published datasets. No code change needed.
 2. **Storage Buckets for demo data** &mdash; could migrate `demo_space/data/` from git-tracked Parquet to a bucket, reducing Space repo size and avoiding git history bloat when demo data is refreshed. Requires updating `app.py` to read from `hf://buckets/luxury-lakehouse/demo-data/` instead of local paths.
-
----
-
-## PAUSA: Optimal Pass Timing &amp; OBSO Value Surface
-
-**Status:** Implemented (D9+D10+D16) &mdash; ELASTIC sync, OBSO surfaces, PAUSA pipeline, Taipy page, HF Space tab all deployed
-**Paper:** Lee, Jo, Hong, Bauer &amp; Ko (2026), "Valuing La Pausa: Quantifying Optimal Pass Timing Beyond Speed" (MIT Sloan 2026 finalist, top 7 of 200+)
-**Repo:** [`leemingo/mitssac-pausa`](https://github.com/leemingo/mitssac-pausa) (public, Apache-2.0)
-**License status:** Apache-2.0 merged by Minho Lee (2026-03-13). No license blocker remaining.
-
-The PAUSA metric (Passing Ability Under Spatiotemporal Awareness) decomposes pass quality into two axes: **Temporal Judgment** (was the pass released at the optimal moment?) and **Spatial Selection** (was the target location the best available?). Both are quantified using OBSO (Off-Ball Scoring Opportunity), Spearman's 2018 continuous value surface that evaluates all 22 players' positions to estimate scoring probability at every pitch location.
-
-### Why it matters
-
-Traditional speed-of-play metrics penalize players who hold the ball. PAUSA distinguishes between slow decision-making and elite playmaking &mdash; the deliberate, strategic delay ("la pausa") that draws defenders out of position and manipulates defensive structure. The paper shows PAUSA correlates more strongly with team performance (Bundesliga points) than traditional speed-based metrics.
-
-### Technical components
-
-The repo implements four layers, each with clear Luxury Lakehouse integration potential:
-
-| Component | What it does | Lakehouse overlap |
-|-----------|-------------|-------------------|
-| **ELASTIC** (`elastic/`) | Synchronizes discrete event data with 25fps tracking using ball acceleration and player-ball distance features. 95.5% exact alignment, 0.023s mean error. Kim, H.S. et al. (2025). "ELASTIC: Event-Tracking Data Synchronization in Soccer Without Annotated Event Locations." ECML-PKDD MLSA 2025. [arXiv:2508.09238](https://arxiv.org/abs/2508.09238). | **None** &mdash; fills a real gap. We have events and tracking as separate streams with no alignment engine. |
-| **Pitch Control** (`pitch_control.py`) | Spearman 2018 PPCF, 50x32 grid, **Numba JIT** accelerated. Includes `for_virtual` variant for counterfactual ghost trajectories. | **High** &mdash; same math as `src/analytics/pitch_control.py`, but faster (Numba) and with counterfactual support we lack. |
-| **OBSO** (`obso.py`) | `PPCF &times; Transition &times; EPV` scoring surface. Requires pre-computed transition probability matrix (64&times;100 Gaussian) and EPV grid (32&times;50). | **None** &mdash; novel. Our Off-Ball xT (Phase 12) is a simpler `pitch_control &times; xT` without the transition model. OBSO is the full version of what Space Creation (Fernandez &amp; Bornn 2018) requires. |
-| **PAUSA** (`calculate_obso.py --unit virtual`) | For each pass: generates ghost trajectories (constant-velocity extrapolation, 3s before to 1s after), computes PPCF+OBSO at each counterfactual frame, decomposes into spatial selection and temporal judgment. | **None** &mdash; novel metric. |
-
-### Data situation
-
-The repo runs on the **same 7 IDSSE Bundesliga matches** we already ingest in Phase 10. Same DFL XML files, same `kloppy` parsing, same 25fps TRACAB tracking. Zero data procurement needed for prototyping.
-
-Static data assets included in the repo (not currently in our stack):
-- `EPV_grid.csv` (32&times;50 Expected Possession Value surface)
-- `Transition_gauss.csv` (64&times;100 Gaussian ball transition probability matrix)
-- `xT_grid.json` (Karun Singh 12&times;8, equivalent to our `expected_threat_grids` Delta table)
-
-### Compute profile
-
-Virtual mode is the heavy-lifter: each pass generates ~100 ghost frames &times; 1,600 grid cells of pitch control. The repo parallelizes via `joblib` with `n_jobs=-1`. For 7 matches this is feasible locally; at scale it needs distributed compute (Databricks serverless or GPU).
-
-### Integration path
-
-| Step | Module | Description |
-|------|--------|-------------|
-| 1 | `src/analytics/elastic_sync.py` | Adapt ELASTIC sync engine for our tracking+event schema. Align IDSSE events with tracking frames. |
-| 2 | `src/analytics/obso.py` | OBSO value surface: combine existing pitch control with transition and EPV grids. |
-| 3 | `src/analytics/pausa.py` | PAUSA metric: ghost trajectory generation + temporal/spatial decomposition. |
-| 4 | `src/ingestion/pausa.py` | Batch pipeline writing `fct_pausa_values` to Delta. |
-| 5 | dbt model | `fct_pass_timing` mart aggregating PAUSA per player per match. |
-| 6 | Taipy page | Pass Timing page: actual vs optimal timing snapshots with OBSO heatmap overlay. |
-
-### Relationship to existing work
-
-- **Phase 11** (pitch control): OBSO extends PPCF with transition and EPV layers. Numba JIT from this repo could accelerate our existing pitch control.
-- **Phase 12** (off-ball xT): Our `pitch_control &times; xT` is a simplified OBSO. Full OBSO subsumes it.
-- **Space Creation** (roadmap): Full OBSO is a prerequisite for Fernandez &amp; Bornn counterfactual space creation. PAUSA's ghost trajectory infrastructure directly enables it.
-- **Decision Optimization** (roadmap): PAUSA answers "when should the player have passed?" &mdash; complementary to the RL-based "where should the player have passed?"
-
-### Open questions
-
-1. ~~**License**~~: Resolved &mdash; Apache-2.0 merged by Minho Lee (2026-03-13).
-2. ~~**Numba adoption**: Should we add Numba to our pitch control module? Adds a compiled dependency but significant speedup.~~ **Resolved** &mdash; No Numba. JAX kernel extended with ghost trajectory support (Phase D16).
-3. ~~**Coordinate system**: Their code uses centered coordinates (&minus;52.5 to +52.5). Our stack uses StatsBomb 120&times;80. Adapter or full migration?~~ **Resolved** &mdash; StatsBomb 120&times;80 at API boundary, internal meter conversion where physics requires.
-4. ~~**Static grids**: The EPV and Transition grids are pre-computed (provenance unclear). Train our own from StatsBomb data, or use theirs as-is?~~ **Resolved** &mdash; Using PAUSA repo grids as-is. Custom training deferred (tracked in TODO.md).
-5. ~~**Scope**: Full PAUSA pipeline (heavy) or start with ELASTIC sync + OBSO surface only (lighter, more broadly useful)?~~ **Resolved** &mdash; Full PAUSA pipeline implemented (D9+D10+D16).
-
-### Dependencies
-
-- ~~License from `leemingo/mitssac-pausa`~~ Resolved (Apache-2.0 merged 2026-03-13)
-- Phase 10 (IDSSE tracking) &mdash; **complete** (same 7 matches)
-- Phase 11 (pitch control) &mdash; **complete** (foundation for OBSO)
-- Phase 12 (off-ball xT) &mdash; **complete** (OBSO is the full version)
-- Synergistic with DL Infrastructure (Numba JIT, joblib parallelization)
-- Synergistic with Space Creation (OBSO + ghost trajectories enable counterfactual analysis)
 
 ---
 

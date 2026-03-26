@@ -24,8 +24,8 @@ GETTING_STARTED = """\
 6. **Defensive Impact** \u2014 pressure on attackers (DEFCON)
 
 **Advanced pages** (tracking data, ~20 matches): \
-Movement & Pressing, Pitch Control, Pass Timing (PAUSA), \
-Defensive Impact.
+Movement & Pressing, Pitch Control, Team Shape, \
+Pass Timing (PAUSA), Defensive Impact.
 
 **How to start:** Use the sidebar filters to select a competition, \
 then a team and match.
@@ -118,6 +118,14 @@ GLOSSARY: dict[str, str] = {
         "Where a player's metric sits relative to all other players in the same competition "
         "(0-1 scale, 1.0 = top of competition)."
     ),
+    "Team Shape": "Spatial metrics describing how a team is spread across the pitch — length, width, hull area, stretch index.",
+    "Convex Hull": "Smallest polygon enclosing all outfield players. Area indicates territorial extent (~1,000 m² defending, ~1,500 m² attacking).",
+    "Stretch Index": "Mean distance of all outfield players from the team centroid (Bourbousson et al. 2010). Lower = more compact.",
+    "EFPI": "Elastic Formation and Position Identification — template matching algorithm for automatic formation detection (Bekkers & Dabadghao 2025).",
+    "Defensive Line Height": "Average position of the defensive line as % of pitch length. 0% = own goal, 100% = opponent goal.",
+    "Inter-Line Gaps": "Distance between defensive-midfield and midfield-attack line centroids. Under 12m = compact, over 18m = exposed.",
+    "Team Length": "Distance between deepest and most advanced outfield players along the goal-to-goal axis.",
+    "Team Width": "Distance between widest outfield players along the touchline-to-touchline axis.",
 }
 
 PAGE_TERMS: dict[str, list[str]] = {
@@ -148,6 +156,16 @@ PAGE_TERMS: dict[str, list[str]] = {
     "Pitch-Control": ["Pitch Control"],
     "Pass-Timing": ["PAUSA", "Temporal Judgment", "Spatial Selection", "OBSO", "Passes with Value"],
     "Defensive-Impact": ["DEFCON", "Intercept", "Concede", "Disturb", "Deter", "Percentile Rank"],
+    "Team-Shape": [
+        "Team Shape",
+        "Convex Hull",
+        "Stretch Index",
+        "EFPI",
+        "Defensive Line Height",
+        "Inter-Line Gaps",
+        "Team Length",
+        "Team Width",
+    ],
     "AI-ML-Workflows": [
         "Cost Tier",
         "Freshness SLA",
@@ -190,16 +208,17 @@ _XG_MODEL_PAGES = ("Shot-Map",)
 _MIN_PASSES_PAGES = ("Pass-Network",)
 _MIN_MINUTES_PAGES = ("Player-Impact", "Player-Comparison")
 _TRACKING_PROVIDER_PAGES = ("Pitch-Control",)
-_SUB_VIEW_PAGES = ("Player-Impact", "Movement-Pressing")
+_SUB_VIEW_PAGES = ("Player-Impact", "Movement-Pressing", "Team-Shape")
 _PASS_OVERLAY_PAGES = ("Pass-Map",)
 _SIMILARITY_PAGES = ("Player-Similarity",)
 _PASS_TIMING_PAGES = ("Pass-Timing",)
 _DEFCON_PAGES = ("Defensive-Impact",)
 _PC_CONTROL_PAGES = ("Pitch-Control",)
+_TEAM_SHAPE_PAGES = ("Team-Shape",)
 _WF_PAGES = ("AI-ML-Workflows",)
 _FILTER_HEADER_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary",
                         "Player-Impact", "Player-Comparison", "Movement-Pressing",
-                        "Pitch-Control", "Pass-Timing", "Defensive-Impact", "AI-ML-Workflows")
+                        "Pitch-Control", "Team-Shape", "Pass-Timing", "Defensive-Impact", "AI-ML-Workflows")
 # fmt: on
 
 # ---------------------------------------------------------------------------
@@ -562,6 +581,82 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         slider_range_vars=("", "pc_max_time_display"),
         change_delay=300,
     ),
+    # Team Shape — Provider + Tracking Match (duplicated with Team-Shape condition)
+    SidebarWidget(
+        "dropdown",
+        "selected_provider",
+        "Provider",
+        "on_provider_change",
+        condition=f"current_page in {_TEAM_SHAPE_PAGES}",
+        lov="provider_lov",
+    ),
+    SidebarWidget(
+        "dropdown",
+        "selected_tracking_match",
+        "Tracking Match",
+        "on_tracking_match_change",
+        condition=f"current_page in {_TEAM_SHAPE_PAGES}",
+        lov="tracking_match_lov",
+        depends_on="selected_provider",
+    ),
+    SidebarWidget(
+        "dropdown",
+        "ts_selected_team",
+        "Team",
+        "ts_on_team_change",
+        condition=f"current_page in {_TEAM_SHAPE_PAGES}",
+        lov="ts_team_lov",
+        depends_on="selected_tracking_match",
+        help="Select home or away team for shape analysis.",
+    ),
+    SidebarWidget(
+        "dropdown",
+        "ts_selected_half",
+        "Half",
+        "ts_on_half_change",
+        condition='current_page == "Team-Shape" and selected_sub_view == "Snapshot"',
+        lov="ts_half_lov",
+        depends_on="selected_tracking_match",
+        help="Filter snapshot by match period. 'Full Match' averages both halves (Phase Average mode). In single-frame mode, 1st Half is used.",
+    ),
+    SidebarWidget(
+        "toggle",
+        "ts_phase_average",
+        "Phase Average",
+        "ts_on_phase_toggle",
+        condition='current_page == "Team-Shape" and selected_sub_view == "Snapshot"',
+        help="Toggle between single-frame view and phase-averaged positions.",
+    ),
+    SidebarWidget(
+        "slider",
+        "ts_elapsed_seconds",
+        "Time",
+        "ts_on_seconds_change",
+        condition='current_page == "Team-Shape" and selected_sub_view == "Snapshot" and not ts_phase_average and ts_max_seconds > 1',
+        slider_min="0",
+        slider_max="2700",
+        filter_box_label="<|{ts_time_label}|text|raw|>",
+        slider_range_labels=("0:00", ""),
+        slider_range_vars=("", "ts_max_time_display"),
+        change_delay=300,
+        help="Scrub through match time to view team shape at a specific moment.",
+    ),
+    SidebarWidget(
+        "toggle",
+        "ts_show_hull",
+        "Show Hull",
+        "ts_on_hull_toggle",
+        condition='current_page == "Team-Shape" and selected_sub_view == "Snapshot"',
+        help="Toggle convex hull overlay showing team territorial extent.",
+    ),
+    SidebarWidget(
+        "toggle",
+        "ts_show_formation_lines",
+        "Show Lines",
+        "ts_on_formation_lines_toggle",
+        condition='current_page == "Team-Shape" and selected_sub_view == "Snapshot"',
+        help="Toggle dashed formation lines connecting players by detected line clusters.",
+    ),
 ]
 
 _SEARCH_WIDGETS: list[SidebarWidget] = [
@@ -573,7 +668,9 @@ _SEARCH_WIDGETS: list[SidebarWidget] = [
         lov="ps_search_mode_lov",
         help="Playing style: 32-d behavioral embedding from match action sequences. Statistical output: 13-d z-score vector from per-90 stats.",
     ),
-    SidebarWidget("dropdown", "ps_selected_player", "Player", "on_ps_selected_player_change", lov="ps_player_lov"),
+    SidebarWidget(
+        "dropdown", "ps_selected_player", "Player", "on_ps_selected_player_change", lov="ps_player_lov", filterable=True
+    ),
     SidebarWidget("dropdown", "ps_result_count", "Results", "on_ps_result_count_change", lov="ps_result_count_lov"),
     SidebarWidget("toggle", "ps_filter_by_competition", "Filter by competition", "on_ps_filter_by_competition_change"),
     SidebarWidget(

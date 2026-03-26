@@ -1,0 +1,90 @@
+---
+name: EFPI Formation Detection
+id: wf-formations
+version: "1.0"
+status: production
+type: heuristic
+domain: formation-detection
+owners:
+  - karsten
+tags:
+  - formation
+  - team-shape
+  - tracking
+  - efpi
+
+references:
+  - citation: "Bekkers & Dabadghao (2025). Flow Motifs in Soccer: How Teams Play. arXiv:2506.23843."
+    role: methodology
+  - citation: "Bialkowski et al. (2014). Large-Scale Analysis of Soccer Matches Using Spatiotemporal Tracking Data. IEEE ICDM."
+    role: algorithm
+
+inputs:
+  datasets:
+    - id: "{catalog}.gold.fct_tracking_frames"
+      source: delta-table
+      description: "Tracking frame data with player positions for all 20 tracked matches"
+
+outputs:
+  tables:
+    - id: "{catalog}.gold.fct_formation_labels"
+      destination: delta-table
+      synced: fct_formation_labels_synced
+
+execution:
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: compute_formations
+    module: ingestion.formations
+    distribution: applyInPandas
+    partition_key: match_id
+    schedule: "daily 06:00 UTC"
+    timeout: "600s"
+    environment: analytics
+
+depends_on:
+  - wf-pitch-control
+
+idempotency:
+  strategy: skip-guard
+  key: match_id
+  description: "Checks existing formation labels by match_id before processing."
+
+performance:
+  inference_timeout: "600s"
+  memory_ceiling: "16 GB driver, 1 GB UDF executor"
+
+cost:
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 5
+    typical_cost_usd: 0.35
+
+monitoring:
+  freshness_sla_hours: 168
+
+links:
+  source_code:
+    - "src/ingestion/formations.py"
+    - "src/analytics/formation_detection.py"
+---
+
+## Overview
+
+EFPI Formation Detection classifies team formations from tracking data using template
+matching against canonical formation shapes. It labels each match phase (open play,
+set piece, transition) with the detected formation (e.g., 4-3-3, 4-4-2) for both the
+attacking and defending team. The pipeline runs on the 20 tracking matches in the
+gold layer and is the lightest compute workflow in the platform (~5 DBU per run).
+
+## Algorithm
+
+Player positions are aggregated into a team centroid frame. The Hungarian algorithm
+(Bialkowski et al., 2014) assigns each outfield player to a positional role by solving
+the minimum-cost bipartite matching between observed positions and the template grid.
+Once roles are assigned, the formation is identified by counting players per line
+(defenders, midfielders, forwards) in the EFPI zone decomposition (Bekkers & Dabadghao,
+2025). A majority-vote window smooths frame-level assignments into phase-level labels,
+suppressing noise from pressing triggers and goalkeeper distribution moments.
