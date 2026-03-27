@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the current [architecture](ARCHITECTURE.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-03-26
+**Last updated**: 2026-03-26 (HF Buckets D27, SoccerMaster/RTMO research, adversarial training D28-D33)
 
 ---
 
@@ -93,7 +93,7 @@ Detect when analytics models produce bad outputs using statistical process contr
 | **NannyML** | CBPE: estimate performance *without ground truth* | DataFrame output &rarr; OTel metric emission |
 | **WhyLogs** | Lightweight statistical profiles, Spark-compatible | Profile diffs &rarr; OTel attributes |
 
-NannyML's CBPE (Confidence-Based Performance Estimation) is especially relevant for models like xT and pitch control where "correct answers" are ambiguous &mdash; it estimates performance degradation from output distribution alone.
+NannyML's CBPE (Confidence-Based Performance Estimation) estimates performance degradation from output distribution alone &mdash; valuable when ground truth is delayed. **Note:** Evaluated and deferred as D22 in TODO.md (all current models have immediate ground truth; CBPE does not apply today). Revisit if a real-time inference use case with delayed ground truth is added.
 
 ### MLflow integration (included in Databricks workspace)
 
@@ -212,7 +212,7 @@ Models with available weights compatible with current data sources:
 |-------|--------|-------------------|---------|---------|
 | [**football2vec**](https://github.com/ofirmg/football2vec) | Player/action embeddings | StatsBomb (exact match) | MIT | Hours / CPU |
 | [**Foundation Model for Soccer**](https://arxiv.org/abs/2407.14558) | Action prediction transformer | FAWSL (fine-tune on SB) | Research | Days / 1 GPU |
-| [**RTMPose**](https://github.com/open-mmlab/mmpose) (MMPose) | Pose estimation from video | Broadcast footage | Apache 2.0 | 1-2 days / 4 GPU |
+| [**RTMO / RTMPose**](https://github.com/open-mmlab/mmpose) (MMPose) | Pose estimation from video | Broadcast footage (6 Veo3 recordings available) | Apache 2.0 | Real-time inference (see notes below) |
 
 ### Pre-trained models: available with fine-tuning
 
@@ -222,12 +222,43 @@ Models with available weights compatible with current data sources:
 | [**PRTReID**](https://github.com/SoccerNet/sn-gamestate) (SoccerNet GSR) | Player re-identification | Research | 1 GPU-day |
 | [**TranSPORTmer**](https://arxiv.org/abs/2410.17785) | Multi-task trajectory prediction | Academic | 1-2 GPU-days |
 
+### Research tier (weights available, not yet integrated)
+
+| Model | Domain | Status | Why It Matters |
+|-------|--------|--------|----------------|
+| [**SoccerMaster**](https://arxiv.org/abs/2512.11016) | Vision foundation (multi-task) | CVPR 2026, weights released 2026-03-05 | First soccer-specific foundation model — unified backbone for detection, calibration, event classification. See details below |
+
 ### Watch list (pending weight release)
 
 | Model | Domain | Status | Why It Matters |
 |-------|--------|--------|----------------|
-| [**SoccerMaster**](https://arxiv.org/abs/2512.11016) | Vision foundation (multi-task) | Dec 2024, weights pending | First soccer-specific foundation model; if released, becomes dominant backbone |
 | [**SportMamba**](https://arxiv.org/abs/2506.03335) | Video tracking (Mamba SSM) | CVPR 2025 | State-of-the-art multi-object tracking for team sports |
+
+### SoccerMaster — Investigation Notes (2026-03-26)
+
+**Paper**: arXiv 2512.11016 (Yang, Rao, Wu, Xie). CVPR 2026.
+**Weights**: [huggingface.co/xleprime/SoccerMaster](https://huggingface.co/xleprime/SoccerMaster) — Apache 2.0. ~1.61 GB total (backbone 1.44 GB + task heads). PyTorch state dicts. Also requires base [SigLIP2-L/16-512](https://huggingface.co/google/siglip2-large-patch16-512) (~1.9 GB).
+**Code**: [github.com/haolinyang-hlyang/SoccerMaster](https://github.com/haolinyang-hlyang/SoccerMaster) — 2 commits, self-described "early version". No license file on repo (weights are Apache 2.0 on HF).
+
+**Architecture**: SigLIP2 ViT-L backbone (24 layers, 1024 hidden dim, 512px input) with temporal attention (layers 16-23). Processes 30-frame video clips as `[B, T, 3, 512, 512]`. Task heads:
+- **Detection** (Deformable DETR): player/GK/referee/ball classification + bounding boxes + jersey number. Custom CUDA ops required (multi-scale deformable attention).
+- **Pitch keypoints** (58 keypoints, 256x256 heatmap output)
+- **Pitch lines** (24 line segments with semantic labels)
+- **Camera calibration** (pan/tilt/roll + position regression)
+- **Action classification** (23 event categories via 2-layer transformer)
+- **Video-to-commentary** (SigLIP contrastive loss)
+
+**Results** (from paper): Detection +4.3 AP@50 over baseline, camera calibration +8.2 on SN22, tracking HOTA 59.1 / MOTA 81.6, commentary BLEU@1 31.3 / CIDEr 38.6.
+
+**GPU requirements**: ~16-24 GB VRAM for inference (batch=1, 30 frames). A100 40GB+ for training. Gradient checkpointing supported.
+
+**Not yet available**: SoccerFactory pretraining dataset (7.45M frames), requirements.txt, end-to-end inference pipeline, quick-start guide.
+
+**Relevance to this project**:
+- Detection head (GK/player/referee/ball) could solve D26 (GK exclusion) from video rather than provider metadata — but D26's metadata approach is cleaner and more maintainable for our current data.
+- Camera calibration + detection become high-value when own-footage pipeline (Respo.Vision + broadcast video) is active.
+- Action classification could supplement/validate StatsBomb event data.
+- **Revisit when**: (1) SoccerFactory dataset is released, (2) inference pipeline matures beyond dummy tensors, (3) own-footage pipeline is active and needs detection + calibration.
 
 ### Remaining DL use cases
 
@@ -235,7 +266,49 @@ Models with available weights compatible with current data sources:
 |----------|--------------------------|
 | **DEFCON Tier 4** (GNN) | GNN pre-trained on StatsBomb 360 freeze frames (15.58M rows), fine-tuned for defensive valuation |
 | **Graph Tactical Patterns** (ROADMAP) | PyTorch Geometric GNN on tracking data with symmetry augmentation |
-| **Visual Exploratory Behavior** (ROADMAP) | RTMPose for pose estimation if Respo.Vision data requires broadcast video processing |
+| **Visual Exploratory Behavior** (ROADMAP) | RTMO-l for pose estimation on own Veo3 broadcast footage (6 recordings available). Local inference on RTX 4070 Ti. See MMPose notes below |
+
+### Open research (undefined concepts, not yet actionable)
+
+| Use Case | Blockers | Why Not Actionable |
+|----------|----------|--------------------|
+| **Counterfactual Pitch Control Substitution** | Trajectory normalization (how to map Player A's movement patterns into Player B's positional role — no published method), evaluation metric (total control area? xT-weighted? no consensus), match volume (20 tracking matches too few, need 50+), player ID bridge (tracking IDs not linked to `dim_players.canonical_player_id`) | Two open research questions (trajectory normalization, evaluation metric) plus data volume blocker. The pitch control model (`pitch_control.py`, Spearman 2017) already supports arbitrary player inputs — the math is ready, the methodology isn't. Becomes feasible when own-footage pipeline delivers 50+ player-identified tracking matches. Source: [adversarial-training.md](../adversarial-training.md) |
+
+### MMPose / RTMO — Investigation Notes (2026-03-26)
+
+**Repo**: [github.com/open-mmlab/mmpose](https://github.com/open-mmlab/mmpose) — 7.5K stars, 114 contributors, Apache 2.0. Last release v1.3.2 (2024-07). Active commits through 2025-08.
+
+**RTMO is the preferred model for soccer, not RTMPose.** RTMO is a one-stage multi-person pose estimator (no separate detector). Explicitly faster than RTMPose when >4 people are in frame — always true in soccer. CrowdPose AP **83.8** (RTMO-l body7) on dense multi-person benchmark.
+
+**Inference performance** (no fine-tuning needed — COCO 17-keypoint schema covers shoulders + head):
+| Model | Latency (V100 ONNX) | CrowdPose AP |
+|-------|---------------------|--------------|
+| RTMO-s | 8.9 ms/frame | — |
+| RTMO-m | 12.4 ms/frame | — |
+| RTMO-l (body7) | 19.1 ms/frame | 83.8 |
+
+**RTX 4070 Ti (12 GB VRAM, local)**: RTMO was benchmarked on GTX 1660 Ti (6 GB). The 4070 Ti is significantly faster — expect 50+ FPS with RTMO-l via TensorRT FP16. Real-time inference on local hardware is confirmed feasible.
+
+**rtmlib** (`pip install rtmlib`): Lightweight ONNX-only inference wrapper. No mmcv/mmengine/mmdet dependency chain. Three lines of code, auto-downloads weights. Supports CPU and GPU.
+```python
+from rtmlib import Body, draw_skeleton
+body = Body(mode='performance', backend='onnxruntime', device='cuda')
+keypoints, scores = body(cv_image)  # per-person 17-keypoint arrays
+```
+
+**What RTMO provides**: Per-detected-person 17-keypoint coordinates (nose, eyes, ears, shoulders, elbows, wrists, hips, knees, ankles). From shoulders + nose/ears, `head_angle` and `shoulders_angle` can be derived geometrically — exactly what Bekkers (2026) Visual Exploratory Behavior model requires.
+
+**What RTMO does NOT provide**: Player identity across frames (need ByteTrack/StrongSORT), pitch coordinate mapping (need camera calibration / homography). These are separate pipeline stages.
+
+**Own-footage pipeline (feasible locally)**:
+1. Veo3 broadcast recording → frame extraction
+2. RTMO-l (body7) → 17 keypoints per detected person per frame (local GPU, real-time)
+3. ByteTrack or similar → track identities across frames
+4. Camera calibration → homography (SoccerMaster or manual 4-point)
+5. Map keypoints to pitch coordinates → `head_angle`, `shoulders_angle`
+6. Feed into Bekkers Vision model (already implemented in `src/analytics/`)
+
+Steps 1-2 are immediately feasible on local hardware. Steps 3-5 are the integration work. Step 6 is ready.
 
 ### Key tools
 
@@ -255,7 +328,8 @@ Models with available weights compatible with current data sources:
 2. **External GPU provider**: RunPod (cheapest) vs Lambda Labs (more reliable, SSD-backed)?
 3. **Feature store scope**: Which player features justify formal Databricks Feature Engineering tables?
 4. **Serving strategy**: CPU batch inference (simple, scheduled) vs scale-to-zero endpoint (real-time)?
-5. **SoccerMaster timeline**: Monitor GitHub for weight release &mdash; could consolidate multiple point solutions
+5. **SoccerMaster integration**: Weights released 2026-03-05 but codebase is "early version" (no requirements, no end-to-end inference). Camera calibration head could complement RTMO pipeline for own-footage homography. Revisit when inference pipeline matures
+6. **RTMO vs Respo.Vision**: RTMO-l local pipeline is free and immediate for 2D pose (head/shoulder angles). Respo.Vision provides 3D (50+ keypoints). Start with RTMO to validate the Visual Exploratory Behavior pipeline end-to-end, upgrade to Respo.Vision for ground truth if results are promising
 
 ### Dependencies
 
@@ -354,7 +428,7 @@ Post-match batch via REST API polling is the dominant pattern across the industr
 
 ## Visual Exploratory Behavior (Pose-Enhanced Tracking)
 
-**Status:** Blocked by pose data &mdash; Respo.Vision on own footage planned
+**Status:** Partially unblocked &mdash; 6 Veo3 broadcast recordings available, RTMO pose estimation feasible on local GPU
 **License:** BSD 3-Clause ([USSoccerFederation/ssac26_visual_exploratory_behavior](https://github.com/USSoccerFederation/ssac26_visual_exploratory_behavior))
 **Paper:** Bekkers (2026), "Wide Open Gazes: Quantifying Visual Exploratory Behavior in Soccer with Pose Enhanced Positional Data" (SSAC26)
 
@@ -364,17 +438,29 @@ Probabilistic 2D vision model: for each player at each frame, computes a pitch-s
 
 The paper proves that aggregated vision features improve prediction of pitch value gained (AUC 0.744 to 0.788 with vision, +0.0 without), while traditional VEA counting (head movements > 125 deg/s) adds zero predictive power. This is the frontier of off-ball analysis.
 
-### Hard blocker: pose data
+### Pose data path (updated 2026-03-26)
 
-The model requires **`head_angle`** and **`shoulders_angle`** per player per frame — data from pose estimation applied to broadcast video. None of luxury-lakehouse's current tracking sources provide these angles.
+The model requires **`head_angle`** and **`shoulders_angle`** per player per frame — data from pose estimation applied to broadcast video. None of luxury-lakehouse's existing tracking sources provide these angles, but **own footage + local pose estimation is now feasible**.
 
 | Data Source | Has pose angles? | Viable? |
 |-------------|-----------------|---------|
 | Metrica / IDSSE / SkillCorner tracking | No | No |
 | StatsBomb 360 freeze frames | No | No |
-| **Respo.Vision** (on own footage) | Yes | Yes — planned |
+| **Respo.Vision** (on own footage) | Yes | Yes — planned, high cost per match |
+| **RTMO-l + own Veo3 footage** | Derived | **Yes — local GPU, real-time, zero cost** |
 
-**Acquisition path:** Record own footage in Respo.Vision-compatible "broadcast" mode. As data originator, this footage has no league or broadcast copyrights attached — a completely clean slate. Vendor EULAs for existing league data would block any third-party data sharing, so own-footage is the only viable path.
+**Two viable paths** (not mutually exclusive):
+
+1. **Respo.Vision** (commercial): Upload Veo3 footage → get full 3D pose tracking (50+ keypoints × 22 players × 60fps). High fidelity, high cost. Best for ground truth validation.
+
+2. **RTMO-l local pipeline** (open-source, new): Veo3 broadcast footage → RTMO-l body7 (rtmlib, ONNX, local RTX 4070 Ti, 50+ FPS) → 17 COCO keypoints per detected person → derive `head_angle` from nose/ears, `shoulders_angle` from shoulder keypoints → ByteTrack for identity tracking → camera homography for pitch mapping. Lower fidelity than Respo.Vision 3D, but free, fast, and immediately available for 6 recorded matches.
+
+**Hardware** (two local options):
+- **Primary**: Windows 11, 96 GB RAM, RTX 4070 Ti (12 GB VRAM). RTMO-l benchmarked at real-time on GTX 1660 Ti (6 GB) — the 4070 Ti is comfortably overprovisioned. Best for real-time inference throughput.
+- **DGX Spark**: NVIDIA DGX Spark, 128 GB unified RAM (Grace Blackwell). Slower inference than discrete 4070 Ti, but unified memory eliminates GPU VRAM limits — relevant for larger models (SoccerMaster backbone 1.44 GB + SigLIP2 1.9 GB fit entirely without CPU-GPU transfer overhead) or batch processing entire matches without memory pressure.
+- No cloud GPU needed for either path.
+
+**Own-footage licensing**: As data originator, this footage has no league or broadcast copyrights attached — a completely clean slate. Vendor EULAs for existing league data would block any third-party data sharing, so own-footage is the only viable path.
 
 ### What's ready now
 
@@ -388,7 +474,8 @@ The `Vision` class is a clean NumPy/scipy implementation. Once pose data arrives
 
 | Artifact | Layer | Description |
 |----------|-------|-------------|
-| `src/ingestion/pose_tracking.py` | Ingestion | Ingest pose-enhanced tracking (Respo.Vision format) |
+| `src/ingestion/pose_tracking.py` | Ingestion | Ingest pose-enhanced tracking (Respo.Vision format OR RTMO keypoint output) |
+| `scripts/run_pose_estimation.py` | Local pipeline | RTMO-l inference on Veo3 footage → keypoints + ByteTrack → Delta table |
 | `src/analytics/vision.py` | Analytics | Adapted `Vision` class for 120x80 coordinate system |
 | `int_vision_maps.sql` | dbt intermediate | Per-player per-frame vision metrics |
 | `fct_player_stats.sql` (update) | dbt marts | Vision-derived per-90 stats |
