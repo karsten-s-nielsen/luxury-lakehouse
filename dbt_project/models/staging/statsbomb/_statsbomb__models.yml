@@ -2,6 +2,10 @@ version: 2
 
 models:
   - name: stg_statsbomb__events
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Flattened and cleaned StatsBomb event data. Extracts key fields from
       nested JSON structures, converts location arrays to separate x/y
@@ -124,6 +128,10 @@ models:
         description: Player ID of the substitution replacement (pass-through for int_minutes_played)
 
   - name: stg_statsbomb__shots
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Shot-specific extraction from StatsBomb events. Includes shot outcome,
       technique, body part, freeze frame data, and StatsBomb's own xG value.
@@ -247,6 +255,10 @@ models:
         description: Number of teammates visible in the freeze frame
 
   - name: stg_statsbomb__matches
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Cleaned match metadata from StatsBomb. The ingestion layer already
       flattened most fields — competition/season IDs are top-level,
@@ -304,6 +316,10 @@ models:
         description: StatsBomb data version identifier
 
   - name: stg_statsbomb__lineups
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Flattened lineup data from StatsBomb. Explodes the nested lineup JSON
       array so each row represents one player in one match.
@@ -348,6 +364,10 @@ models:
         description: Number of red cards received in the match (including second yellow)
 
   - name: stg_statsbomb__360
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Cleaned 360 freeze-frame data from StatsBomb. Bronze data is already
       one row per player per event (statsbombpy returns pre-exploded data).

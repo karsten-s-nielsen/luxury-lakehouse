@@ -7,6 +7,9 @@ models:
     config:
       contract:
         enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Gold-layer shot fact table with xG features. Contains every shot from
       all data sources with computed geometry features (distance to goal,
@@ -155,6 +158,9 @@ models:
     config:
       contract:
         enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Gold-layer pass fact table with progressive pass identification.
       Contains every pass from all sources with pass metrics, progressive
@@ -319,6 +325,9 @@ models:
     config:
       contract:
         enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Per-90-minute player aggregation table. Contains rolling and seasonal
       statistics normalized to per-90 rates for fair comparison across
@@ -495,6 +504,9 @@ models:
     config:
       contract:
         enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Gold-layer SPADL action values with VAEP scores. Contains every on-ball
       action from all data sources converted to the SPADL unified format,
@@ -673,6 +685,9 @@ models:
     config:
       contract:
         enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Match-level aggregate metrics. Contains one row per match with
       team-level statistics including xG, possession percentage, pass
@@ -846,6 +861,9 @@ models:
     config:
       contract:
         enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Enriched tracking data from all providers (Metrica, IDSSE, SkillCorner).
       Contains spatial analysis outputs including player speeds, distance to
@@ -960,6 +978,9 @@ models:
     config:
       contract:
         enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Per-match player embedding vectors for similarity search. Dual-vector
       design: behavioral_vector (32-dim Doc2Vec from football2vec event
@@ -1012,6 +1033,9 @@ models:
     config:
       contract:
         enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Per player-competition-season aggregation of embedding vectors.
       Behavioral vectors are averaged element-wise across all matches in the
@@ -1073,6 +1097,9 @@ models:
     config:
       contract:
         enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Career-level aggregation of player embedding vectors. Averages all
       match-level embeddings across competitions and seasons into a single
@@ -1120,6 +1147,9 @@ models:
     config:
       contract:
         enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Per-player per-match physical performance metrics from tracking data.
       Aggregates distance, speed, acceleration, and sprint metrics from
@@ -1238,6 +1268,9 @@ models:
     config:
       contract:
         enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Per-defender per-match defensive valuation summary. Aggregates DEFCON-lite
       credits into per-match totals and breakdowns by credit type (Intercept,
@@ -1328,6 +1361,9 @@ models:
     config:
       contract:
         enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Per-defender per-action defensive credits. Full granularity DEFCON-lite
       results for timeline visualization. One row per credited defender per
@@ -1423,6 +1459,9 @@ models:
     config:
       contract:
         enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Per-attacker per-match defensive pressure summary. Aggregates DEFCON-lite
       credits by action_player_id (the real player who performed the action)
@@ -1516,6 +1555,9 @@ models:
     config:
       contract:
         enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Custom xG model predictions per shot. Contains logistic regression
       baseline and calibrated XGBoost xG values. INNER JOIN to fct_shots
@@ -1562,6 +1604,9 @@ models:
     config:
       contract:
         enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Player dimension table combining StatsBomb and Wyscout data via cross-source
       entity resolution (Phase 14). Players matched across sources share a
@@ -1636,6 +1681,9 @@ models:
     config:
       contract:
         enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Team dimension table. Deduplicated team master data from all
       data sources. One row per unique team.
@@ -1662,6 +1710,9 @@ models:
     config:
       contract:
         enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Competition dimension table. Combines competition metadata from
       StatsBomb and Wyscout sources with seed data enrichment.
@@ -1695,6 +1746,9 @@ models:
     config:
       contract:
         enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Per-player per-match PAUSA pass timing aggregation. Temporal judgment,
       spatial selection, and composite PAUSA score aggregated at the
@@ -1780,6 +1834,9 @@ models:
     config:
       contract:
         enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     columns:
       - name: player_id
         data_type: string
@@ -1830,6 +1887,9 @@ models:
     config:
       contract:
         enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     columns:
       - name: player_id
         data_type: string
@@ -1895,6 +1955,9 @@ models:
     config:
       contract:
         enforced: true
+      meta:
+        data_sensitivity: internal
+        contains_pii: false
     description: >
       Gold-layer workflow cost attribution from Databricks system tables.
       Joins billing usage with list prices and attributes cost per-task
@@ -1940,6 +2003,9 @@ models:
     config:
       contract:
         enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Gold-layer formation detection results per match, period, and team.
       Contains one row per detected formation window: the time range during
@@ -2005,6 +2071,9 @@ models:
     config:
       contract:
         enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Gold-layer pre-computed average positions per player per match-period.
       Replaces expensive runtime AVG() queries that scan 1-3M rows of
@@ -2074,6 +2143,9 @@ models:
     config:
       contract:
         enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Gold-layer pre-computed time-bucketed positions at 5-second intervals.
       Replaces expensive runtime sampled-position queries on fct_tracking_frames.

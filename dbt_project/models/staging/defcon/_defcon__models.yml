@@ -2,6 +2,10 @@ version: 2
 
 models:
   - name: stg_defcon__results
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Staging view for DEFCON-lite results. Deduplicates bronze data by
       (event_id, defender_player_id, data_source), keeping the most recent

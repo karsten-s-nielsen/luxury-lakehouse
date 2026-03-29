@@ -2,6 +2,10 @@ version: 2
 
 models:
   - name: stg_metrica__tracking
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Parsed and normalized Metrica Sports tracking data. Explodes the
       per-frame JSON into individual player rows, scales coordinates
@@ -89,6 +93,10 @@ models:
                 row_condition: "ball_y is not null"
 
   - name: stg_metrica__events
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Cleaned Metrica Sports event data with coordinates scaled to the
       120x80 coordinate system. Linked to tracking frames for spatial

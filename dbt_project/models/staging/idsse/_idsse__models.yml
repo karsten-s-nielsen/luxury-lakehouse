@@ -2,6 +2,10 @@ version: 2
 
 models:
   - name: stg_idsse__tracking
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Normalized IDSSE Bundesliga tracking data. Transforms center-origin meter
       coordinates to the shared 120×80 pitch system. One row per player per frame.
@@ -87,12 +91,15 @@ models:
                 row_condition: "ball_y is not null"
 
   - name: stg_idsse__events
+    config:
+      enabled: "{{ var('pausa_enabled', false) }}"
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Normalized IDSSE Bundesliga event data. Transforms center-origin meter
       coordinates to the shared 120×80 pitch system. One row per event with
       position data. Enabled by pausa_enabled toggle.
-    config:
-      enabled: "{{ var('pausa_enabled', false) }}"
     columns:
       - name: event_sk
         description: Surrogate key (match_id + event_id)
@@ -146,13 +153,16 @@ models:
                 max_value: 90
 
   - name: stg_idsse__elastic_sync
+    config:
+      enabled: "{{ var('pausa_enabled', false) }}"
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       ELASTIC event-tracking synchronization results joined with event metadata.
       Maps each IDSSE event to its best-matching tracking frame using ball
       acceleration and player-ball proximity features. Reference: Kim et al.
       (2025), ECML-PKDD MLSA 2025, arXiv:2508.09238. Enabled by pausa_enabled.
-    config:
-      enabled: "{{ var('pausa_enabled', false) }}"
     columns:
       - name: sync_id
         description: Surrogate key (match_id + event_id)

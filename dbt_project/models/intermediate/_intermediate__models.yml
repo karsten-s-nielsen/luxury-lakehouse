@@ -2,6 +2,10 @@ version: 2
 
 models:
   - name: int_unified_passes
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Unified pass data from StatsBomb and Wyscout sources. Contains all
       passes with standardized schema, progressive pass identification,
@@ -69,6 +73,10 @@ models:
         description: Player ID of the intended pass recipient (StatsBomb only; NULL for Wyscout)
 
   - name: int_unified_shots
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Unified shot data from StatsBomb and Wyscout sources. Contains all
       shots with standardized schema, geometry features, and outcome
@@ -132,6 +140,10 @@ models:
         description: Whether the shot was first-time (NULL for Wyscout)
 
   - name: int_player_xref
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Cross-source player identity mapping combining automated entity resolution
       results with manual overrides. Automated matches come from the TF-IDF +
@@ -177,6 +189,10 @@ models:
                 values: ['automated', 'manual_override']
 
   - name: int_minutes_played
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Approximate minutes played per player per competition per season,
       derived from StatsBomb lineup and substitution event data.

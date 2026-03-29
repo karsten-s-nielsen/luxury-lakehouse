@@ -1,0 +1,39 @@
+name: Semgrep SAST
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "hf_taipy_app/**"
+      - ".github/workflows/semgrep.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "hf_taipy_app/**"
+      - ".github/workflows/semgrep.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Semgrep
+        run: pip install semgrep==1.156.0
+
+      - name: Run Semgrep (Python security + general audit)
+        run: |
+          semgrep scan \
+            --config p/python \
+            --config p/security-audit \
+            --error \
+            --metrics=off \
+            src/ scripts/ hf_taipy_app/

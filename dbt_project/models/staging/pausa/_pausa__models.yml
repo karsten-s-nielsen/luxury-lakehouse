@@ -2,6 +2,10 @@ version: 2
 
 models:
   - name: stg_pausa__values
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Staging view for PAUSA values. Deduplicates gold data by
       (pass_id), keeping the most recent ingestion. Enabled by

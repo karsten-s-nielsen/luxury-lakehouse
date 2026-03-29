@@ -172,6 +172,7 @@ def _parse_positions_xml(
 
     # Ball frames per (period, frame_n) for lookup — populated as ball FrameSets are encountered
     ball_coords: dict[tuple[int, int], tuple[float, float]] = {}
+    ball_miss_count = 0  # Track player frames where ball lookup returned None
 
     # Single pass: ball FrameSets populate ball_coords, player FrameSets emit rows
     for _event, elem in ET.iterparse(pos_path, events=("end",)):  # noqa: S314
@@ -225,6 +226,8 @@ def _parse_positions_xml(
 
                 timestamp = n / _FRAME_RATE
                 ball = ball_coords.get((period, n))
+                if ball is None:
+                    ball_miss_count += 1
                 ball_x = ball[0] if ball else None
                 ball_y = ball[1] if ball else None
 
@@ -247,6 +250,15 @@ def _parse_positions_xml(
         elem.clear()
 
     logger.info("Parsed %d ball frames for match %s", len(ball_coords), match_id)
+    if ball_miss_count > 0 and len(ball_coords) > 0:
+        total_player_frames = sum(len(rows) for rows in rows_by_period.values())
+        logger.warning(
+            "Ball coordinate lookup missed %d of %d player frames for match %s — "
+            "possible ball-after-player FrameSet ordering in XML",
+            ball_miss_count,
+            total_player_frames,
+            match_id,
+        )
 
     return rows_by_period
 

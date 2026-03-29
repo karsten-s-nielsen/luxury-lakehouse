@@ -2,6 +2,10 @@ version: 2
 
 models:
   - name: stg_line_breaking__results
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Staging view for line-breaking pass detection results. Deduplicates
       bronze data by event_id, keeping the most recent ingestion.
