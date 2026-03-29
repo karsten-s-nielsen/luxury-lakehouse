@@ -1917,6 +1917,12 @@ models:
         description: Databricks job run identifier.
         data_tests:
           - not_null
+      - name: workflow_id
+        data_type: string
+        description: >
+          Workflow card identifier (e.g., wf-vaep). Resolved from
+          workflow_cost_live via task_key + job_run_id join. NULL for
+          runs predating the CostEstimateHook deployment.
       - name: attributed_dbu
         data_type: decimal(10,4)
         description: >

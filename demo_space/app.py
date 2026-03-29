@@ -1,11 +1,10 @@
 """Soccer Analytics Demo Space — interactive explorer for published datasets.
 
 Deployed to HuggingFace Spaces at luxury-lakehouse/soccer-analytics-demo.
-Loads pre-cached Parquet subsets from data/ (no live database connectivity).
+Loads demo Parquet subsets from HF Bucket luxury-lakehouse/demo-data via fsspec.
 """
 
 import json
-from pathlib import Path
 
 import matplotlib
 
@@ -20,7 +19,7 @@ import plotly.graph_objects as go
 from mplsoccer import Pitch
 from pitch_control import PitchControlParams, compute_pitch_control_frame
 
-DATA_DIR = Path(__file__).parent / "data"
+_BUCKET = "hf://buckets/luxury-lakehouse/demo-data"
 
 # ---------------------------------------------------------------------------
 # Data loading (cached at startup)
@@ -28,11 +27,11 @@ DATA_DIR = Path(__file__).parent / "data"
 
 
 def _load_parquet(name: str) -> pd.DataFrame:
-    """Load a Parquet file from the data directory, returning empty DataFrame if missing."""
-    path = DATA_DIR / name
-    if path.exists():
-        return pd.read_parquet(path)
-    return pd.DataFrame()
+    """Load a Parquet file from the HF demo-data bucket, returning empty DataFrame if missing."""
+    try:
+        return pd.read_parquet(f"{_BUCKET}/{name}")
+    except Exception:
+        return pd.DataFrame()
 
 
 embeddings_df = _load_parquet("career_embeddings.parquet")

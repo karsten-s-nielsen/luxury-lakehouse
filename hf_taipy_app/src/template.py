@@ -108,8 +108,14 @@ GLOSSARY: dict[str, str] = {
     ),
     "Workflow Card": (
         "A YAML manifest describing an AI/ML workflow — its inputs, outputs, execution config, "
-        "cost estimates, and academic provenance. Each of the 16 workflows has a card in workflow-cards/."
+        "cost estimates, and academic provenance."
     ),
+    "Workflow Status": (
+        "The state of a workflow's most recent run. "
+        "COMPLETED = last run succeeded. RUNNING = executing now. "
+        "FAILED = last run errored. SKIPPED = last run was skipped."
+    ),
+    "Trigger": ("How a workflow is initiated. Scheduled = runs on a cron interval. Manual = triggered by a human."),
     "Passes with Value": (
         "Passes where the off-ball scoring opportunity (actual OBSO) was greater than zero. "
         "Used as a quality proxy for 'successful' passes when pass outcome data is unavailable."
@@ -170,6 +176,8 @@ PAGE_TERMS: dict[str, list[str]] = {
         "Cost Tier",
         "Freshness SLA",
         "Workflow Card",
+        "Workflow Status",
+        "Trigger",
     ],
 }
 
@@ -521,7 +529,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         "wf_on_type_filter",
         condition=f"current_page in {_WF_PAGES}",
         lov="wf_type_lov",
-        help="Filter by workflow type: Train+Infer, Grid Compute, Heuristic, Validation, Augmentation.",
+        help="Filter by workflow type: Train+Infer, Grid Compute, Heuristic, Validation.",
     ),
     SidebarWidget(
         "dropdown",

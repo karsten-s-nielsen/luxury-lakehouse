@@ -1,4 +1,4 @@
-workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 17 AI/ML workflows, three-tier cost tracking, 14-page Taipy dashboard on HF Spaces, Databricks Lakebase." {
+workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 16 AI/ML workflows, three-tier cost tracking, 14-page Taipy dashboard on HF Spaces, Databricks Lakebase." {
 
     model {
         analyst = person "Soccer Analyst" "Coaches, scouts, and analysts exploring match and player data"
@@ -8,7 +8,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 17 AI/ML wor
             guiLayer = container "Taipy GUI" "Root template with sidebar navigation, glossary panels, conditional footer (show_site_footer), and page routing" "Python, Taipy 4.1"
             templateEngine = container "Template Engine" "Three layout builders (standard, sub-view, dashboard) dispatched by build_page(). Dashboard layout: StatCard stats bar + ll-dashboard-scroll viewport container. Typed dataclasses: PageConfig, SubView, ContentBlock (table_cell_class_name for per-cell CSS), ContentRow, SidebarWidget, Metric, Citation, StatCard (detail_html for content-provider iframes)" "Python, frozen dataclasses"
             sidebarWidgets = container "Sidebar Widgets" "Centralized filter cascade with progressive disclosure, view-dependent visibility, change_delay debounce, and absolute-positioned help tooltips" "Python, Taipy Markdown"
-            stateModules = container "State Modules" "Per-page state variables, callbacks, data fetching, chart rendering (13 modules). Static charts via mplsoccer PNG. Interactive charts via Plotly. DAG via Cytoscape.js iframe. Workflows: YAML cards cached on first load (_cards module-level), DAG HTML cached for filter resets (_unfiltered_dag_html), TTL-cached Lakebase queries (3600s cold / 1800s warm+jobs), lazy WorkspaceClient singleton for Jobs API, cell_class_name callbacks with WCAG shape markers, RawHtml stat details via content provider. Detail drilldown deferred (page_md = dashboard only)" "Python, pandas, mplsoccer, Plotly, Cytoscape.js"
+            stateModules = container "State Modules" "Per-page state variables, callbacks, data fetching, chart rendering (13 modules). Static charts via mplsoccer PNG. Interactive charts via Plotly. DAG via Cytoscape.js iframe. Workflows: YAML cards cached on first load, TTL-cached Lakebase queries (3600s cold / 120s warm+jobs), lazy WorkspaceClient singleton for Jobs API, HF cost history from _cost_history/ (60s TTL), unified workflow_id key across DB+HF, combined cost aggregation, 2-min auto-refresh timer (threading.Timer), Status column (COMPLETED/RUNNING/FAILED/SKIPPED), WCAG shape markers, DISABLED task filtering. Detail drilldown deferred" "Python, pandas, mplsoccer, Plotly, Cytoscape.js"
             filterLayer = container "Filter Layer" "Shared filter queries with TTL cache, scope labels, data freshness, and embedding player search" "Python, psycopg2"
             dbLayer = container "DB Layer" "OAuth token management, connection pooling, parameterized query execution" "Python, psycopg2, Databricks SDK"
             renderEngine = container "Render Engine" "Matplotlib/mplsoccer figure-to-PNG with cache-busting paths for static pitch diagrams" "Python, matplotlib, mplsoccer"
@@ -17,15 +17,15 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 17 AI/ML wor
         }
 
         deployPipeline = softwareSystem "Deploy Pipeline" "Deployment scripts for Taipy app and analytics wheel" {
-            deployScript = container "deploy_taipy.py" "CLI tool: pre-flight checks, upload_folder with ignore/delete patterns, post-upload verification, dry-run mode" "Python, huggingface_hub"
+            deployScript = container "manage_space.py" "CLI tool: full Space lifecycle -- create, deploy, status, rebuild, teardown. Pre-flight checks, upload_folder with ignore/delete patterns, secret management, polling." "Python, huggingface_hub"
             deployWheel = container "deploy_wheel.py" "Downloads wheel from HF Hub build-artifacts, uploads to UC Volume /Volumes/{catalog}/bronze/libs/, post-upload size verification" "Python, huggingface_hub, databricks-sdk"
         }
 
-        pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "17 workflow-card-registered compute pipelines with @workflow decorators, lifecycle hooks, three-tier cost tracking, and YAML manifests" {
+        pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "16 workflow-card-registered compute pipelines with @workflow decorators, lifecycle hooks, three-tier cost tracking, and YAML manifests" {
             workflowFramework = container "Workflow Framework" "Registry, @workflow decorator, WorkflowContext, lifecycle runner with on_start/on_complete/on_skip/on_error dispatch" "Python, src/workflows/"
             workflowCards = container "Workflow Cards" "16 YAML manifests defining inputs, outputs, deps, execution config, cost estimates, academic provenance" "YAML, workflow-cards/" "Database"
             costEstimateHook = container "CostEstimateHook" "Lifecycle hook writing run state + cost estimates to workflow_cost_live Delta table via MERGE. Configurable rate via DATABRICKS_SERVERLESS_RATE_USD env var" "Python, PySpark, Delta, src/ingestion/cost_hook.py"
-            hfCostRecorder = container "HFJobsCostRecorder" "Standalone cost recorder for HF Jobs scripts. Writes _workflow_cost.json to HF Hub repos with RUNNING→COMPLETED state transitions" "Python, huggingface_hub, src/analytics/cost.py"
+            hfCostRecorder = container "HFJobsCostRecorder" "Standalone cost recorder for HF Jobs scripts. Writes _workflow_cost.json (live status) and _cost_history/{job_id}.json (per-run history) to HF Hub repos. 90-day auto-pruning" "Python, huggingface_hub, src/analytics/cost.py"
             ingestionPipelines = container "Compute Pipelines" "12 @workflow-decorated Databricks pipelines: xG, VAEP, DEFCON, pitch control, xT, OBSO/PAUSA, entity resolution, line-breaking, model validation" "Python, PySpark, src/ingestion/"
             analyticsLibrary = container "Analytics Library" "Pure-Python domain models: pitch control (Spearman 2017), xG (calibrated XGBoost), xT (Markov chain), VAEP (socceraction), OBSO (Fernandez & Bornn), line-breaking (Ward clustering), DEFCON (Kim et al. 2025), entity resolution (TF-IDF + rapidfuzz), augmentation (TacticAI)" "Python, NumPy, SciPy, src/analytics/"
         }
@@ -44,14 +44,14 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 17 AI/ML wor
 
         lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL-compatible endpoint syncing 26 Delta Lake tables from Unity Catalog (41 btree + 4 HNSW vector indexes)" "External"
         databricksApi = softwareSystem "Databricks REST API" "OAuth credential endpoint for Lakebase authentication" "External"
-        databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 19 tasks (5 ingest + 13 compute + 1 validation), daily 06:00 UTC" "External"
+        databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 20 tasks (5 ingest + 13 compute + 1 validation + 1 HF cost sync), daily 06:00 UTC" "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds from Dockerfile, serves on port 7860" "External"
-        hfHub = softwareSystem "HuggingFace Hub" "Hosts 4 models, 7 datasets, build-artifacts wheel, and _workflow_cost.json cost artifacts" "External"
+        hfHub = softwareSystem "HuggingFace Hub" "Hosts 4 models, 7 datasets, build-artifacts wheel, demo-data bucket, and _workflow_cost.json cost artifacts" "External"
         hfJobs = softwareSystem "HuggingFace Jobs" "GPU/CPU compute: 7 PEP 723 UV scripts for training (xG, VAEP) and batch analytics (xT, EPV, OBSO, Space Creation)" "External"
 
         # Relationships - users
         analyst -> guiLayer "Browses pages, selects filters, views interactive and static charts" "HTTPS"
-        developer -> deployScript "Runs deploy_taipy.py staging [--dry-run]" "CLI"
+        developer -> deployScript "Runs manage_space.py {create|deploy|status|rebuild|teardown} staging" "CLI"
         developer -> deployWheel "Runs deploy_wheel.py to push wheel to UC Volume" "CLI"
 
         # Relationships - Taipy internal
@@ -71,7 +71,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 17 AI/ML wor
         dbLayer -> lakebase "Queries 26 synced tables via parameterized SQL" "PostgreSQL/SSL"
         dbLayer -> databricksApi "Fetches OAuth tokens for Lakebase auth" "HTTPS/REST"
         stateModules -> workflowCards "Reads YAML manifests on first page load (cached in _cards module variable)" ""
-        stateModules -> hfHub "Loads embedding vectors for similarity search via pgvector" "HTTPS"
+        stateModules -> hfHub "Loads embeddings for similarity search; reads _workflow_cost.json (RUNNING detection) + _cost_history/ (30-day cost aggregation) via 60s TTL" "HTTPS"
 
         # Relationships - pipeline platform
         ingestionPipelines -> workflowFramework "Decorated with @workflow, lifecycle hooks fire on start/complete/skip/error" ""
@@ -85,7 +85,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 17 AI/ML wor
         # Relationships - HF Jobs
         hfJobs -> analyticsLibrary "Imports from wheel (luxury-lakehouse/build-artifacts)" "pip/HTTPS"
         hfJobs -> hfCostRecorder "Records cost via start()/complete()/fail()/skip()" ""
-        hfCostRecorder -> hfHub "Writes _workflow_cost.json with RUNNING→COMPLETED transitions" "HTTPS/HF API"
+        hfCostRecorder -> hfHub "Writes _workflow_cost.json (live status) + _cost_history/{job_id}.json (per-run history)" "HTTPS/HF API"
         hfJobs -> hfHub "Publishes trained models and computed grids" "HTTPS/HF API"
 
         # Relationships - dbt

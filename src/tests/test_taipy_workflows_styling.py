@@ -38,7 +38,6 @@ class TestStyleType:
             ("Grid Compute", "ll-cell-type-grid"),
             ("Heuristic", "ll-cell-type-heuristic"),
             ("Validation", "ll-cell-type-validation"),
-            ("Augmentation", "ll-cell-type-augmentation"),
         ],
     )
     def test_known_types(self, value: str, expected: str) -> None:

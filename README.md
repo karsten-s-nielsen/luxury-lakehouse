@@ -43,7 +43,7 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 | **Transformation** | dbt-databricks on Serverless SQL | Flatten nested JSON, compute xG/xT metrics |
 | **Synchronization** | Lakeflow Synced Tables | Zero-ETL continuous sync from Gold → Lakebase |
 | **Serving** | Lakebase PostgreSQL 17 (Autoscaling) | Sub-10ms OLTP queries, native pgvector, scale-to-zero |
-| **Application** | [Taipy on HuggingFace Spaces](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) | 12-page interactive dashboard (Docker SDK, Lakebase PostgreSQL) |
+| **Application** | [Taipy on HuggingFace Spaces](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) | 14-page interactive dashboard (Docker SDK, Lakebase PostgreSQL) |
 | **ML Artifacts** | [HuggingFace Hub](https://huggingface.co/luxury-lakehouse) | Publish [4 models](https://huggingface.co/luxury-lakehouse) + [11 datasets](https://huggingface.co/luxury-lakehouse), GPU training on HF Jobs, and [interactive demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) |
 | **Security** | OAuth M2M + OIDC Federation + KMS | Zero-secret CI, least-privilege SPs, encrypted state |
 | **Infrastructure** | Terraform + Databricks Provider | Everything as code |
@@ -120,7 +120,7 @@ The `src/analytics/` modules (pitch control, line-breaking, DEFCON, off-ball xT,
 
 ## Status
 
-**Phase 19 complete + GPU models v2** — 12 Taipy pages, 19 synced tables, 38 PG indexes, 807 unit tests (819+ with gensim). HuggingFace Hub: 4 models + 11 datasets published, GPU training on HF Jobs A10G, [Gradio demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme (6 tabs). xG v2 set encoder (ROC-AUC 0.915, MC dropout uncertainty). Data-driven xT/EPV/transition grids. See [ARCHITECTURE.md](ARCHITECTURE.md) for the platform architecture and [ROADMAP.md](ROADMAP.md) for research directions.
+**Phase 19 complete + GPU models v2** — 14 Taipy pages, 26 synced tables, 45 PG indexes, 807 unit tests (819+ with gensim). HuggingFace Hub: 4 models + 11 datasets published, GPU training on HF Jobs A10G, [Gradio demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme (6 tabs). xG v2 set encoder (ROC-AUC 0.915, MC dropout uncertainty). Data-driven xT/EPV/transition grids. See [ARCHITECTURE.md](ARCHITECTURE.md) for the platform architecture and [ROADMAP.md](ROADMAP.md) for research directions.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -146,7 +146,7 @@ The `src/analytics/` modules (pitch control, line-breaking, DEFCON, off-ball xT,
 | 17 | DEFCON-lite Defensive Pressure | Complete |
 | 18 | HuggingFace Hub Expansion | Complete |
 | 19 | Model Ops & Event Sync (ELASTIC, PAUSA, drift detection) | Complete |
-| 20 | Taipy Migration (12 pages, full content parity) | Complete |
+| 20 | Taipy Migration (14 pages, full content parity) | Complete |
 
 ## Tech Stack
 

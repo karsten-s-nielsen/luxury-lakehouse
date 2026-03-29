@@ -194,8 +194,8 @@ class TestComplete:
         recorder.start()
         recorder.complete({}, row_count=100)
 
-        # Two uploads: start + complete
-        assert mock_api.upload_file.call_count == 2
+        # Three uploads: start (_workflow_cost.json) + complete (_workflow_cost.json) + complete (_cost_history/)
+        assert mock_api.upload_file.call_count == 3
         complete_call = mock_api.upload_file.call_args_list[1]
         payload = json.loads(complete_call.kwargs["path_or_fileobj"])
 
@@ -259,8 +259,8 @@ class TestFail:
         recorder.start()
         recorder.fail(RuntimeError("OOM killed"))
 
-        # Two uploads: start + fail
-        assert mock_api.upload_file.call_count == 2
+        # Three uploads: start (_workflow_cost.json) + fail (_workflow_cost.json) + fail (_cost_history/)
+        assert mock_api.upload_file.call_count == 3
         fail_call = mock_api.upload_file.call_args_list[1]
         payload = json.loads(fail_call.kwargs["path_or_fileobj"])
 
@@ -307,8 +307,8 @@ class TestSkip:
         recorder.start()
         recorder.skip("all matches already processed")
 
-        # Two uploads: start + skip
-        assert mock_api.upload_file.call_count == 2
+        # Three uploads: start (_workflow_cost.json) + skip (_workflow_cost.json) + skip (_cost_history/)
+        assert mock_api.upload_file.call_count == 3
         skip_call = mock_api.upload_file.call_args_list[1]
         payload = json.loads(skip_call.kwargs["path_or_fileobj"])
 
@@ -330,8 +330,10 @@ class TestSkip:
         )
         recorder.skip("nothing to do")
 
-        mock_api.upload_file.assert_called_once()
-        payload = json.loads(mock_api.upload_file.call_args.kwargs["path_or_fileobj"])
+        # Two uploads: skip (_workflow_cost.json) + skip (_cost_history/)
+        assert mock_api.upload_file.call_count == 2
+        # First call is the _workflow_cost.json upload
+        payload = json.loads(mock_api.upload_file.call_args_list[0].kwargs["path_or_fileobj"])
         assert payload["state"] == "SKIPPED"
         assert payload["duration_seconds"] == 0
         assert payload["estimated_cost_usd"] == 0.0

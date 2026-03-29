@@ -6,7 +6,7 @@
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
 #     "requests>=2.31",
-#     "huggingface-hub>=0.25.0",
+#     "huggingface-hub>=1.5.0",
 # ]
 # ///
 """Publish shot data from Databricks gold layer to HF Hub.

@@ -7,7 +7,7 @@
 #     "pyarrow>=14.0",
 #     "scikit-learn>=1.3.0",
 #     "xgboost>=2.0",
-#     "huggingface-hub>=0.25.0",
+#     "huggingface-hub>=1.5.0",
 #     "mlflow>=2.17.0",
 # ]
 # ///

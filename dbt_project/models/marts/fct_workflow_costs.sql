@@ -52,12 +52,24 @@ tasks AS (
         result_state IS NOT NULL
         AND period_start_time >= CURRENT_DATE - INTERVAL 90 DAYS
     GROUP BY job_run_id, task_key
+),
+
+workflow_ids AS (
+    SELECT DISTINCT
+        task_key,
+        CAST(job_run_id AS BIGINT) AS job_run_id,
+        workflow_id
+    FROM {{ this.database }}.observability.workflow_cost_live
+    WHERE workflow_id IS NOT NULL
+      AND task_key IS NOT NULL
+      AND job_run_id IS NOT NULL
 )
 
 SELECT
     tasks.task_key,
     billing.usage_date,
     CAST(billing.job_run_id AS BIGINT) AS job_run_id,
+    wcl.workflow_id,
     CAST(ROUND(
         billing.dbu * (
             tasks.execution_duration_seconds
@@ -76,3 +88,6 @@ SELECT
     ) AS DECIMAL(10, 4)) AS attributed_cost_usd
 FROM billing
 INNER JOIN tasks ON billing.job_run_id = tasks.job_run_id
+LEFT JOIN workflow_ids AS wcl
+    ON wcl.job_run_id = CAST(billing.job_run_id AS BIGINT)
+    AND wcl.task_key = tasks.task_key

@@ -12,9 +12,10 @@ import logging
 import os
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from huggingface_hub import HfApi
+from huggingface_hub.hf_api import RepoFile
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,8 @@ _WORKFLOW_ID_RE: re.Pattern[str] = re.compile(r"^wf-[a-zA-Z0-9_-]+$")
 _TRANSIENT_HTTP_RE: re.Pattern[str] = re.compile(r"\b(429|5\d{2})\b")
 
 _COST_FILE = "_workflow_cost.json"
+_COST_HISTORY_DIR = "_cost_history"
+_HISTORY_RETENTION_DAYS = 90
 
 # Max retries for transient HTTP errors (429, 5xx)
 _MAX_RETRIES = 3
@@ -101,6 +104,7 @@ class HFJobsCostRecorder:
             }
         )
         self._upload(payload)
+        self._upload_history(payload)
 
         # Return a NEW dict with cost fields injected
         enriched: dict[str, object] = {**metadata}
@@ -129,6 +133,7 @@ class HFJobsCostRecorder:
             }
         )
         self._upload(payload)
+        self._upload_history(payload)
 
     def skip(self, reason: str) -> None:
         """Upload SKIPPED state with zero cost."""
@@ -149,6 +154,7 @@ class HFJobsCostRecorder:
             }
         )
         self._upload(payload)
+        self._upload_history(payload)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -205,3 +211,50 @@ class HFJobsCostRecorder:
                     break
 
         logger.warning("Cost upload to %s failed after %d attempts: %s", self.repo_id, _MAX_RETRIES, last_exc)
+
+    def _upload_history(self, payload: dict[str, object]) -> None:
+        """Upload *payload* to ``_cost_history/{job_id}.json``. Never raises."""
+        job_id = self.hf_job_id
+        if not job_id:
+            job_id = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        path = f"{_COST_HISTORY_DIR}/{job_id}.json"
+        body = json.dumps(payload, indent=2, default=str).encode("utf-8")
+        try:
+            self._api.upload_file(
+                path_or_fileobj=body,
+                path_in_repo=path,
+                repo_id=self.repo_id,
+                repo_type=self.repo_type,
+            )
+            logger.info("Cost history uploaded: %s/%s", self.repo_id, path)
+        except Exception as exc:
+            logger.warning("Cost history upload to %s failed: %s", path, exc)
+
+        self._prune_history()
+
+    def _prune_history(self) -> None:
+        """Delete ``_cost_history/`` files older than 90 days. Never raises."""
+        try:
+            cutoff = datetime.now(tz=timezone.utc) - timedelta(days=_HISTORY_RETENTION_DAYS)
+            items = list(
+                self._api.list_repo_tree(
+                    self.repo_id,
+                    repo_type=self.repo_type,
+                    path_in_repo=_COST_HISTORY_DIR,
+                )
+            )
+            for item in items:
+                if not isinstance(item, RepoFile) or not item.rfilename.endswith(".json"):
+                    continue
+                try:
+                    if item.last_commit and item.last_commit.date < cutoff:
+                        self._api.delete_file(
+                            path_in_repo=item.rfilename,
+                            repo_id=self.repo_id,
+                            repo_type=self.repo_type,
+                        )
+                        logger.info("Pruned old cost history: %s", item.rfilename)
+                except Exception:
+                    logger.debug("Failed to prune %s", item.rfilename, exc_info=True)
+        except Exception:
+            logger.debug("Cost history pruning failed for %s", self.repo_id, exc_info=True)

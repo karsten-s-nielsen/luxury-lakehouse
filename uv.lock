@@ -1319,7 +1319,7 @@ requires-dist = [
     { name = "dbt-core", marker = "extra == 'dbt'", specifier = ">=1.7.0" },
     { name = "dbt-databricks", marker = "extra == 'dbt'", specifier = ">=1.7.0" },
     { name = "gensim", marker = "extra == 'embeddings'", specifier = ">=4.3.0" },
-    { name = "huggingface-hub", marker = "extra == 'embeddings'", specifier = ">=0.25.0" },
+    { name = "huggingface-hub", marker = "extra == 'embeddings'", specifier = ">=1.5.0" },
     { name = "jax", extras = ["cpu"], marker = "extra == 'jax'", specifier = ">=0.4.35" },
     { name = "matplotlib", marker = "extra == 'analytics'", specifier = ">=3.8.0" },
     { name = "mlflow", marker = "extra == 'mlflow'", specifier = ">=2.17.0" },

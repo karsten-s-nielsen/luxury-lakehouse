@@ -33,7 +33,6 @@ _TYPES = [
     ("grid-computation", 3),
     ("heuristic", 3),
     ("validation", 2),
-    ("augmentation", 4),
 ]
 
 
