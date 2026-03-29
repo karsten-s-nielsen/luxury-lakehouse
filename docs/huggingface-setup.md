@@ -1,8 +1,31 @@
-# HuggingFace Hub Integration
+# Hugging Face Hub Integration
 
-This guide covers how to use the pre-trained football2vec model, retrain on your own data, and set up your own HuggingFace org for publishing.
+> **After this guide you will have:** (1) loaded a pre-trained football2vec embedding and verified its shape, (2) retrained on your own data and confirmed the output, (3) published artifacts to Hugging Face Hub.
+
+This guide covers how to use the pre-trained football2vec model, retrain on your own data, and set up your own Hugging Face org for publishing.
 
 > **See also:** [Model card](huggingface/model-card.md) (source of truth for the [HF model page](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout)) and [Org card](huggingface/org-card.md) (source of truth for the [HF org page](https://huggingface.co/luxury-lakehouse)).
+
+---
+
+## Prerequisites
+
+| Term | Definition |
+|------|-----------|
+| **UC Volume** | Databricks Unity Catalog storage volume — a managed cloud storage path for files |
+| **Databricks Connect** | SDK for connecting local Python to a remote Databricks cluster |
+| **SPADL** | Simplified Player Action Description Language — a unified event format ([Decroos et al. 2019](https://doi.org/10.1007/s10994-019-05849-6)) |
+| **Per-90 stats** | Player statistics normalized to 90-minute match equivalents |
+| **Doc2Vec / PV-DM** | Paragraph Vector Distributed Memory — a document embedding algorithm ([Le & Mikolov 2014](https://arxiv.org/abs/1405.4053)) |
+| **gensim** | Python library for topic modeling and document similarity ([radimrehurek.com/gensim](https://radimrehurek.com/gensim/)) |
+| **Secret scope** | Databricks-managed key vault for storing credentials (e.g., HF tokens) |
+| **canonical_player_id** | Platform's deduplicated player identifier across data sources |
+| **HF write token** | Hugging Face Hub API token with write permission for publishing artifacts |
+| **z-score normalization** | Statistical standardization: (value - mean) / std_dev |
+
+**Required tools:**
+- Python >=3.10, <3.11 (strict — Databricks serverless constraint; 3.11+ will cause failures)
+- `gensim>=4.3.0`, `huggingface_hub>=1.5.0` (included in project dependencies)
 
 ---
 
@@ -34,13 +57,22 @@ doc2vec = Doc2Vec.load(f"{model_dir}/player2vec.model")
 with open(f"{model_dir}/zscore_params.json") as f:
     zscore_params = json.load(f)
 # zscore_params maps feature name -> {"mean": float, "std": float}
+
+# Quick shape check and similarity lookup
+vector = doc2vec.dv[doc2vec.dv.index_to_key[0]]
+similar = doc2vec.dv.most_similar(doc2vec.dv.index_to_key[0], topn=3)
+print(vector.shape, similar)
 ```
+
+**Verify:** Run the code above. Expected output:
+- `vector.shape` returns `(32,)` — a 32-dimensional embedding vector
+- `similar[:3]` returns 3 player name/similarity pairs
 
 ## 2. Retraining on Your Data
 
 ### Prerequisites
 
-- Python 3.10+, `gensim`, `huggingface_hub` installed (included in project dependencies)
+- Python >=3.10, <3.11 (strict — Databricks serverless constraint), `gensim`, `huggingface_hub` installed (included in project dependencies)
 - `fct_player_stats` populated in your Databricks workspace
 
 ### Steps
@@ -65,8 +97,15 @@ with open(f"{model_dir}/zscore_params.json") as f:
    uv run compute_embeddings --catalog soccer_analytics --schema dev_gold
    ```
 
-4. **Publish to HuggingFace Hub** (optional):
-   The training notebook (`notebooks/train_football2vec.py`) automatically publishes to HF Hub if the Databricks secret scope `hf` / key `token` is configured. To set up:
+**Verify:** Check the embedding table was populated:
+```python
+# In a Databricks notebook
+display(spark.table("soccer_analytics.dev_gold.fct_player_embeddings").count())
+# Expected: >0 rows
+```
+
+4. **Publish to Hugging Face Hub** (optional):
+   If you have configured the Databricks secret scope `hf` / key `token`, the training notebook (`notebooks/train_football2vec.py`) automatically publishes to HF Hub. To set up:
    ```bash
    # Create the secret scope and add your HF write token
    databricks secrets create-scope hf
@@ -74,7 +113,14 @@ with open(f"{model_dir}/zscore_params.json") as f:
    ```
    This uploads the trained model to `luxury-lakehouse/football2vec-statsbomb-wyscout` (or your configured org/repo). Publishing is optional — the pipeline works without it.
 
-## 3. HuggingFace Org Setup (New Forks)
+**Verify:** Confirm the upload succeeded:
+```python
+from huggingface_hub import list_repo_files
+files = list_repo_files("your-org/football2vec-statsbomb-wyscout")
+print(files)  # Expected: includes 'model', 'z_score_params.json'
+```
+
+## 3. Hugging Face Org Setup (New Forks)
 
 If you're forking this repo and want your own HF org:
 
@@ -109,7 +155,16 @@ The `compute_embeddings` Databricks workflow task requires these packages in its
 
 ```
 gensim>=4.3
-huggingface_hub>=0.20
+huggingface_hub>=1.5.0
 ```
 
 These are declared in `pyproject.toml` and included in the wheel install.
+
+## Common Issues
+
+| Problem | Cause | Fix |
+|---------|-------|-----|
+| `AuthenticationError` on HF Hub push | Missing or invalid HF token | Run `huggingface-cli login` with a write token, or set the Databricks secret: `databricks secrets put-secret hf token` |  <!-- pragma: allowlist secret -->
+| `WAREHOUSE_NOT_RUNNING` or timeout on SQL queries | SQL warehouse auto-stopped after 10 min idle | Run `python scripts/ensure_warehouse.py` before any Databricks operation |
+| `FileNotFoundError` on UC Volume path | Model weights not yet written to the Volume | Run the training notebook first (`notebooks/train_football2vec.py`), or download from HF Hub with `snapshot_download` |
+| `ModuleNotFoundError: gensim` | gensim not installed in current environment | Run `uv sync` from the repo root to install all dependencies |

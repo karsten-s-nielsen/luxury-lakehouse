@@ -1,7 +1,7 @@
 ---
 language:
   - en
-license: mit
+license: cc-by-nc-4.0
 library_name: xgboost
 tags:
   - sports-analytics
@@ -223,7 +223,7 @@ metrics.json          -- evaluation metrics and training configuration
 - **UC Volume**: `/Volumes/soccer_analytics/dev_gold/model_weights/xg_model/`
 - **Source module**: `src/analytics/xg_model.py`
 
-## Companion Datasets
+## Companion Resources
 
 Pre-computed datasets derived from the platform's analytics pipelines:
 
@@ -242,4 +242,4 @@ Try the interactive [Soccer Analytics Explorer](https://huggingface.co/spaces/lu
 
 ## More Information
 
-- **License**: [MIT](https://opensource.org/licenses/MIT)
+- **License**: [CC-BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) (inherited from Wyscout training data)

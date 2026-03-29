@@ -11,7 +11,7 @@ Research directions, long-horizon features, and exploratory ideas beyond the cur
 **Status:** Research complete, ready for implementation
 **Budget:** ~$1-2/month (personal) or enterprise-swappable via config
 
-The platform currently has minimal observability (ARCHITECTURE.md &sect;6.4): Databricks audit logs, dbt test results, and Taipy/HF Spaces built-in metrics. No structured telemetry, no model validation, no pipeline performance tracking. This section defines a proper observability layer using OpenTelemetry as the instrumentation standard.
+The platform has minimal observability (ARCHITECTURE.md &sect;6.4): Databricks audit logs, dbt test results, and Taipy/HF Spaces built-in metrics. No structured telemetry, no model validation, no pipeline performance tracking. This section defines a proper observability layer using OpenTelemetry as the instrumentation standard.
 
 ### Core principle: instrument once, observe anywhere
 
@@ -172,7 +172,7 @@ Unity Catalog Model Registry (@Champion / @Challenger aliases)
 Delta Lake &rarr; Synced tables &rarr; Lakebase &rarr; Taipy
 ```
 
-**MLflow 3** (current): `LoggedModel` as first-class citizen, Unity Catalog default registry (`catalog.schema.model_name`), Champion/Challenger aliases decouple inference code from version numbers. Pre-trained weights stored in UC Volumes (`/Volumes/soccer_analytics/dev_gold/model_weights/`). `HF_HOME` pointed at UC Volume to cache HuggingFace downloads across sessions.
+**MLflow 3** (current): `LoggedModel` as first-class citizen, Unity Catalog default registry (`catalog.schema.model_name`), Champion/Challenger aliases decouple inference code from version numbers. Pre-trained weights stored in UC Volumes (`/Volumes/soccer_analytics/dev_gold/model_weights/`). `HF_HOME` pointed at UC Volume to cache Hugging Face downloads across sessions.
 
 ### Budget architecture
 
@@ -258,7 +258,7 @@ Models with available weights compatible with current data sources:
 - Detection head (GK/player/referee/ball) could solve D26 (GK exclusion) from video rather than provider metadata — but D26's metadata approach is cleaner and more maintainable for our current data.
 - Camera calibration + detection become high-value when own-footage pipeline (Respo.Vision + broadcast video) is active.
 - Action classification could supplement/validate StatsBomb event data.
-- **Revisit when**: (1) SoccerFactory dataset is released, (2) inference pipeline matures beyond dummy tensors, (3) own-footage pipeline is active and needs detection + calibration.
+- **Revisit when**: (1) SoccerFactory dataset is released, (2) inference pipeline matures beyond placeholder tensors, (3) own-footage pipeline is active and needs detection + calibration.
 
 ### Remaining DL use cases
 
@@ -619,7 +619,7 @@ Position map similarity enables "find players who occupy similar tactical positi
 **Status:** Design phase
 **Budget impact:** Moderate — second Lakebase project with scale-to-zero minimizes idle cost
 
-Currently the platform has a single `dev` environment. Adding a `staging` environment leverages Lakebase's unique serverless PostgreSQL capabilities — particularly **copy-on-write database branching** — for pre-production validation without duplicating the full data pipeline.
+The platform has a single `dev` environment. Adding a `staging` environment leverages Lakebase's unique serverless PostgreSQL capabilities — particularly **copy-on-write database branching** — for pre-production validation without duplicating the full data pipeline.
 
 ### Why it matters
 
@@ -702,10 +702,10 @@ Requires commercial-grade tracking data (Belgian Pro League / Stats Perform) —
 
 ---
 
-## HuggingFace Hub — Streaming Dataset Publishing (Tier 5)
+## Hugging Face Hub — Streaming Dataset Publishing (Tier 5)
 
 **Status:** Research complete, blocked on upstream (Polars branch not yet merged)
-**Discovered:** 2026-03-12 via [Daniel van Strien](https://www.linkedin.com/in/danielvanstrien/) (HuggingFace)
+**Discovered:** 2026-03-12 via [Daniel van Strien](https://www.linkedin.com/in/danielvanstrien/) (Hugging Face)
 **Branch:** [`davanstrien/polars:feature/hf-bucket-sink`](https://github.com/davanstrien/polars/tree/feature/hf-bucket-sink)
 **Proof of concept:** 74 GB of Dutch PDFs filtered to 650 MB in 18 minutes on 2 vCPUs, constant memory
 

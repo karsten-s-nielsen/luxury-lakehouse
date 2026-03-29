@@ -8,7 +8,7 @@
 
 ---
 
-[![Try the Demo](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Live%20Demo-yellow?style=flat-square)](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) [![Datasets](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Datasets-blue?style=flat-square)](https://huggingface.co/luxury-lakehouse) [![football2vec](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-football2vec-green?style=flat-square)](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) [![xG Model](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-xG%20Model-green?style=flat-square)](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout)
+[![CI](https://github.com/karsten-s-nielsen/luxury-lakehouse/actions/workflows/python-ci.yml/badge.svg)](https://github.com/karsten-s-nielsen/luxury-lakehouse/actions/workflows/python-ci.yml) [![Try the Demo](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Live%20Demo-yellow?style=flat-square)](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) [![Datasets](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Datasets-blue?style=flat-square)](https://huggingface.co/luxury-lakehouse) [![football2vec](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-football2vec-green?style=flat-square)](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) [![xG Model](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-xG%20Model-green?style=flat-square)](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout)
 
 ## What Is This?
 
@@ -43,8 +43,8 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 | **Transformation** | dbt-databricks on Serverless SQL | Flatten nested JSON, compute xG/xT metrics |
 | **Synchronization** | Lakeflow Synced Tables | Zero-ETL continuous sync from Gold → Lakebase |
 | **Serving** | Lakebase PostgreSQL 17 (Autoscaling) | Sub-10ms OLTP queries, native pgvector, scale-to-zero |
-| **Application** | [Taipy on HuggingFace Spaces](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) | 14-page interactive dashboard (Docker SDK, Lakebase PostgreSQL) |
-| **ML Artifacts** | [HuggingFace Hub](https://huggingface.co/luxury-lakehouse) | Publish [4 models](https://huggingface.co/luxury-lakehouse) + [11 datasets](https://huggingface.co/luxury-lakehouse), GPU training on HF Jobs, and [interactive demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) |
+| **Application** | [Taipy on Hugging Face Spaces](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) | 14-page interactive dashboard (Docker SDK, Lakebase PostgreSQL) |
+| **ML Artifacts** | [Hugging Face Hub](https://huggingface.co/luxury-lakehouse) | Publish [4 models](https://huggingface.co/luxury-lakehouse) + [11 datasets](https://huggingface.co/luxury-lakehouse), GPU training on HF Jobs, and [interactive demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) |
 | **Security** | OAuth M2M + OIDC Federation + KMS | Zero-secret CI, least-privilege SPs, encrypted state |
 | **Infrastructure** | Terraform + Databricks Provider | Everything as code |
 
@@ -53,7 +53,7 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 | Provider | Data Type | Format | License | Coverage |
 |----------|-----------|--------|---------|----------|
 | [StatsBomb Open Data](https://github.com/statsbomb/open-data) | Match events + 360 context | Nested JSON | CC-BY 4.0 | ~3,000 matches |
-| [Metrica Sports](https://github.com/metrica-sports/sample-data) | Optical tracking (25 fps) | CSV/EPTS | Unlicensed | 3 sample matches |
+| [Metrica Sports](https://github.com/metrica-sports/sample-data) | Optical tracking (25 fps) | CSV/EPTS (Electronic Performance and Tracking Systems) | Unlicensed | 3 sample matches |
 | [Wyscout](https://figshare.com/collections/Soccer_match_event_dataset/4415000) | Event streams | JSON | CC-BY-NC 4.0 | Top 5 leagues |
 | [IDSSE (Bundesliga)](https://figshare.com/collections/DFL_-_Bundesliga_Data_Shootout/5830772) | DFL tracking (25 fps) + events | XML | CC-BY 4.0 | 7 matches |
 | [SkillCorner](https://github.com/SkillCorner/opendata) | Broadcast tracking (10 fps) | JSONL | MIT | 10 A-League matches |
@@ -63,19 +63,19 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 
 Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by David Sumpter:
 
-- **Expected Goals (xG)** — Custom calibrated XGBoost (13 features, ROC-AUC 0.979) + logistic baseline, trained on ~131K shots, [published to HuggingFace](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout)
-- **Expected Threat (xT)** — Data-driven pitch zone valuation via Markov chains (computed from 2.2M SPADL actions)
+- **Expected Goals (xG)** — Custom calibrated XGBoost (13 features, ROC-AUC 0.979) + logistic baseline, trained on ~131K shots, [published to Hugging Face](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout)
+- **Expected Threat (xT)** — Data-driven pitch zone valuation via Markov chains (computed from 2.2M SPADL (Simplified Player Action Description Language) actions)
 - **Pass Networks** — Interactive team passing structure with hover tooltips (Plotly)
 - **Heat Maps** — Action density visualization for players and teams
-- **VAEP Action Valuation** — Player contribution scoring beyond goals/assists (SPADL + VAEP)
+- **VAEP (Valuing Actions by Estimating Probabilities) Action Valuation** — Player contribution scoring beyond goals/assists (SPADL + VAEP)
 - **Pitch Control** — Physics-based (Spearman 2017) and Voronoi models from tracking data
 - **Line-Breaking Passes** — Ward clustering + cross-product straddle test for defensive line penetration (StatsBomb 360)
-- **Movement & Pressing** — PPDA pressing intensity, physical performance metrics (distance, HSR, sprints), and off-ball xT from tracking data
+- **Movement & Pressing** — PPDA (Passes Per Defensive Action) pressing intensity, physical performance metrics (distance, HSR (High-Speed Running), sprints), and off-ball xT from tracking data
 - **Defensive Impact (DEFCON-lite)** — Attacker-perspective defensive credit assignment (intercept/concede/disturb/deter) based on Kim et al. (2025)
 - **Cross-Source Entity Resolution** — Three-layer progressive player matching (TF-IDF + rapidfuzz + bidirectional validation) inspired by US Soccer's glass_onion
-- **Player Embeddings** — Dual-vector player representation: 32-dim Doc2Vec behavioral + 13-dim statistical z-score, published to HuggingFace Hub
+- **Player Embeddings** — Dual-vector player representation: 32-dim Doc2Vec behavioral + 13-dim statistical z-score, published to Hugging Face Hub
 - **Player Similarity** — pgvector HNSW cosine-distance search ("Find players like X") with interactive dashboard page
-- **PAUSA Pass Timing** — Optimal pass timing decomposition: temporal judgment vs spatial selection, OBSO value surfaces (Lee et al. 2026)
+- **PAUSA (Passing Ability Under Spatiotemporal Awareness) Pass Timing** — Optimal pass timing decomposition: temporal judgment vs spatial selection, OBSO (Off-Ball Scoring Opportunities) value surfaces (Lee et al. 2026)
 - **Player Comparison** — Per-90 stat comparison across multiple metrics (incl. DEFCON pressure/90)
 
 ## Project Structure
@@ -90,14 +90,14 @@ luxury-lakehouse/
 │   └── streamlit_app/  # Streamlit dashboard (retained for reference)
 ├── hf_taipy_app/       # Taipy production dashboard (deployed to HF Spaces)
 ├── notebooks/          # Databricks notebooks (football2vec/xG training, model weight sync, dataset publishing to HF Hub)
-├── demo_space/         # HuggingFace Gradio demo Space (pass quality, pitch control, player similarity, shot map, DEFCON pressure, pass timing)
+├── demo_space/         # Hugging Face Gradio demo Space (pass quality, pitch control, player similarity, shot map, DEFCON pressure, pass timing)
 ├── dbt_project/        # Bronze → Silver → Gold transformations
 ├── workflow-cards/     # YAML workflow card manifests (16 AI/ML workflow definitions)
 ├── scripts/            # Operational scripts (PG indexes, grants, synced table management)
 ├── docs/
 │   ├── c4/             # C4 architecture diagrams (Structurizr DSL)
 │   ├── huggingface/          # HF Hub model cards (football2vec, xG), org card, dataset cards (source of truth)
-│   └── huggingface-setup.md  # HuggingFace Hub integration guide
+│   └── huggingface-setup.md  # Hugging Face Hub integration guide
 ├── assets/             # Images and branding
 ├── ARCHITECTURE.md     # Platform architecture and design decisions
 └── ROADMAP.md          # Research directions and future ideas
@@ -120,7 +120,7 @@ The `src/analytics/` modules (pitch control, line-breaking, DEFCON, off-ball xT,
 
 ## Status
 
-**Phase 19 complete + GPU models v2** — 14 Taipy pages, 26 synced tables, 45 PG indexes, 807 unit tests (819+ with gensim). HuggingFace Hub: 4 models + 11 datasets published, GPU training on HF Jobs A10G, [Gradio demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme (6 tabs). xG v2 set encoder (ROC-AUC 0.915, MC dropout uncertainty). Data-driven xT/EPV/transition grids. See [ARCHITECTURE.md](ARCHITECTURE.md) for the platform architecture and [ROADMAP.md](ROADMAP.md) for research directions.
+**Phase 20 complete (Taipy Migration)** — 14 Taipy pages, 26 synced tables (Lakebase reverse-ETL), 45 PG indexes (sub-second dashboard queries), 807 unit tests (819+ with gensim). Hugging Face Hub: 4 models + 11 datasets published, GPU training on HF Jobs A10G, [Gradio demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme (6 tabs). xG v2 set encoder (ROC-AUC 0.915, MC dropout uncertainty). Data-driven xT/EPV/transition grids. See [ARCHITECTURE.md](ARCHITECTURE.md) for the platform architecture and [ROADMAP.md](ROADMAP.md) for research directions.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -144,9 +144,13 @@ The `src/analytics/` modules (pitch control, line-breaking, DEFCON, off-ball xT,
 | 15 | Player Embeddings (Doc2Vec + z-score) | Complete |
 | 16 | Player Similarity Page (pgvector HNSW) | Complete |
 | 17 | DEFCON-lite Defensive Pressure | Complete |
-| 18 | HuggingFace Hub Expansion | Complete |
+| 18 | Hugging Face Hub Expansion | Complete |
 | 19 | Model Ops & Event Sync (ELASTIC, PAUSA, drift detection) | Complete |
 | 20 | Taipy Migration (14 pages, full content parity) | Complete |
+
+## Getting Started
+
+See the [Getting Started guide](docs/getting-started.md) for local setup (clone, install, verify), or try the [live demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) immediately. For pre-trained model usage, see the [Hugging Face setup guide](docs/huggingface-setup.md). For domain terminology, see the [Glossary](docs/glossary.md).
 
 ## Tech Stack
 
@@ -168,7 +172,7 @@ The `src/analytics/` modules (pitch control, line-breaking, DEFCON, off-ball xT,
 
 ## Engineering Process
 
-This project's architectural quality is maintained through [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skills that enforce structured engineering practices at every development cycle.
+[Claude Code](https://docs.anthropic.com/en/docs/claude-code) skills enforce architectural quality through structured engineering practices at every development cycle.
 
 ### [mad-scientist-skills](https://github.com/karsten-s-nielsen/mad-scientist-skills)
 

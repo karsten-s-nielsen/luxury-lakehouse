@@ -105,6 +105,13 @@ If you use this dataset, please cite the original pitch control paper:
 }
 ```
 
+## Companion Resources
+
+| Resource | Type | Description |
+|----------|------|-------------|
+| [OBSO/PAUSA Values](https://huggingface.co/datasets/luxury-lakehouse/obso-pausa-values) | Dataset | Off-ball scoring opportunities computed from pitch control surfaces |
+| [Space Creation Values](https://huggingface.co/datasets/luxury-lakehouse/space-creation-values) | Dataset | Per-player space creation using differential pitch control |
+
 ## More Information
 
 > **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
