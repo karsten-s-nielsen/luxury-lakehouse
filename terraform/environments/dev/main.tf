@@ -169,14 +169,18 @@ resource "databricks_job" "sync_hf_costs_daily" {
       ]
     }
 
-    environment {
-      spec {
-        client = "1"
+    environment_key = "default"
+  }
 
-        dependencies = [
-          "${module.catalog.libs_volume_path}/luxury_lakehouse-0.1.0-py3-none-any.whl"
-        ]
-      }
+  environment {
+    environment_key = "default"
+
+    spec {
+      client = "1"
+
+      dependencies = [
+        "${module.catalog.libs_volume_path}/luxury_lakehouse-0.1.0-py3-none-any.whl"
+      ]
     }
   }
 }
