@@ -2,6 +2,10 @@ version: 2
 
 models:
   - name: stg_skillcorner__tracking
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Normalized SkillCorner broadcast tracking data. Transforms center-origin
       meter coordinates to the shared 120×80 pitch system. 10fps frame rate

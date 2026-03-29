@@ -10,7 +10,7 @@ If you discover a security vulnerability, please report it through [GitHub's pri
 
 ---
 
-**Audit date:** 2026-02-27 (updated 2026-03-11)
+**Audit date:** 2026-02-27 (updated 2026-03-29)
 **Skill version:** `mad-scientist-skills:security-audit` v1.6.0
 **Mode:** Audit (existing codebase)
 **Auditor:** Claude Opus 4.6
@@ -107,11 +107,54 @@ All actionable findings from the February 2026 audit have been resolved. The 3 a
 
 ---
 
+## Model Serialization Audit (D41)
+
+**Audit date:** 2026-03-29
+
+MLflow pyfunc models use cloudpickle for serialization internally. This section documents the deserialization surface, risk assessment, and mitigations for each registered model.
+
+### Registered Models — Serializer Inventory
+
+| Model | MLflow Flavor | Serializer (Save) | Deserialization (Load) | Executor Format | Risk |
+|-------|--------------|-------------------|----------------------|-----------------|------|
+| `soccer_analytics.dev_gold.defcon_model` | pyfunc | cloudpickle | `load_model()` → driver | `get_booster().save_raw("json")` → JSON bytes | Bounded |
+| `soccer_analytics.dev_gold.vaep_model` | pyfunc | cloudpickle | `load_model()` → driver | `get_booster().save_raw("json")` → JSON bytes | Bounded |
+| `soccer_analytics.dev_gold.xg_model` | sklearn | cloudpickle | `load_model()` → driver | `serialize_xgboost_model()` → JSON+base64 | Bounded |
+| `soccer_analytics.dev_gold.xg_model_baseline` | sklearn | cloudpickle | `load_model()` → driver | `serialize_logistic_model()` → JSON envelope | Bounded |
+| `soccer_analytics.dev_gold.xg_model_v2` | pyfunc | cloudpickle (wrapper) | `load_model()` → driver | `model_weights.json` artifact (numpy arrays, no pickle) | Minimal |
+| `soccer_analytics.dev_gold.football2vec` | pyfunc | cloudpickle (wrapper) | `load_model()` → driver | gensim `Doc2Vec.save()` binary, driver-only | Bounded |
+
+### Threat Model
+
+**Attack vector:** A compromised or maliciously tampered model artifact in Unity Catalog could execute arbitrary code on the driver via cloudpickle deserialization at `mlflow.pyfunc.load_model()` time.
+
+**Mitigations in place:**
+1. **UC ACLs:** Only the ingestion SP and workspace admins can write model versions to `soccer_analytics.dev_gold.*`
+2. **Immediate re-serialization:** All XGBoost models are extracted to safe JSON bytes on the driver before any executor work — cloudpickle objects are never passed to executors
+3. **No direct pickle in user code:** Zero `import pickle` or `pickle.load()` calls in first-party code (verified by ruff S rule and `detect-secrets` scan)
+4. **Anti-pickle test:** `test_xg_model.py:343` asserts serialized bytes do not contain pickle protocol 5 magic bytes (`\x80\x05`)
+
+### Safetensors / weights_only Feasibility
+
+- **`weights_only=True`:** PyTorch API — not applicable (no PyTorch models in the project)
+- **safetensors:** Not applicable for XGBoost/sklearn models; relevant only for future neural network weights
+- **xG v2 pattern (recommended for new models):** `xg_model_v2` already avoids cloudpickle for the actual weights by storing them as a JSON artifact. The pyfunc wrapper is a thin placeholder. This is the recommended pattern for all future models — store weights as JSON/safetensors artifacts, not inside the pyfunc wrapper
+
+### Residual Risk: Accepted
+
+The cloudpickle deserialization surface on the driver is accepted as a low risk because:
+- The model registry is access-controlled via Unity Catalog (write = ingestion SP only)
+- All data is public open-source soccer statistics — no high-value target
+- Models are immediately converted to safe formats before executor distribution
+- The mitigation path (JSON artifacts as in xG v2) is established for future models
+
+---
+
 ## Tier Coverage
 
 | Phase | Standard | Enterprise |
 |-------|----------|------------|
-| Phase 0: Code Patterns | 24/24 checked | SAST: not configured |
+| Phase 0: Code Patterns | 24/24 checked | SAST: Semgrep (`p/python` + `p/security-audit`) in CI |
 | Phase 3: Infrastructure | 9 checks passed | WAF: not applicable (HF Spaces Docker) |
 | Phase 5: Web Headers | 12 checks passed | CDN headers: Databricks-managed |
 | Phase 6: API Security | 10 checks passed | API gateway WAF: not applicable |
@@ -124,7 +167,7 @@ All actionable findings from the February 2026 audit have been resolved. The 3 a
 ### Security Posture Rating
 
 - **Standard tier**: 28/28 actionable findings resolved (**100% coverage**)
-- **Enterprise tier**: 1/9 controls configured (Dependabot only — **11% coverage**)
+- **Enterprise tier**: 2/9 controls configured (Dependabot + Semgrep SAST — **22% coverage**)
 - **Overall**: **Strong** for dev environment with public data
 - **Ready for deployment**: Yes
 

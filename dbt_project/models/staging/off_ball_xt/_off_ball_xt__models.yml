@@ -2,6 +2,10 @@ version: 2
 
 models:
   - name: stg_off_ball_xt__results
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Staging view for Off-Ball xT results. Deduplicates bronze data by
       (player_id, match_id), keeping the most recent ingestion.

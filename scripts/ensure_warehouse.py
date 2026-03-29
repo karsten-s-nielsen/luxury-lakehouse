@@ -147,7 +147,7 @@ def main() -> None:
         cmd = sys.argv[cmd_start:]
         if cmd:
             logger.info("Executing: %s", " ".join(cmd))
-            result = subprocess.run(cmd)
+            result = subprocess.run(cmd)  # noqa: S603 — cmd is sys.argv from the invoking user, not untrusted input
             sys.exit(result.returncode)
 
     logger.info("Done — warehouse is RUNNING")

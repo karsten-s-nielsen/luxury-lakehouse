@@ -2,6 +2,10 @@ version: 2
 
 models:
   - name: stg_spadl__action_values
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Staging view for SPADL actions with VAEP scores. Deduplicates bronze data
       by natural key (game_id, period_id, time_seconds, player_id, type_id,

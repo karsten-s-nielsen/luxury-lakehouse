@@ -2,6 +2,10 @@ version: 2
 
 models:
   - name: stg_wyscout__players
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Cleaned Wyscout player metadata. Extracts role, nationality, and
       physical attributes from serialized JSON columns. One row per player.
@@ -48,6 +52,10 @@ models:
                 values: ['wyscout']
 
   - name: stg_wyscout__events
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
     description: >
       Cleaned and normalized Wyscout event data. Extracts start/end
       positions from the nested positions array, scales coordinates

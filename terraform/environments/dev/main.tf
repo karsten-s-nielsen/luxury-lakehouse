@@ -214,6 +214,26 @@ resource "databricks_grant" "ci_sp_catalog" {
   privileges = ["ALL_PRIVILEGES"]
 }
 
+# ── SQL Warehouse: Explicit ACL Grants ───────────────────────────────────
+# D40 (SEC-AUDIT): Warehouse had no grants — access relied on workspace
+# defaults.  Explicit grants scoped to least-privilege per principal.
+# SQL warehouses are workspace-level objects → databricks_permissions,
+# not databricks_grant (which is for Unity Catalog objects).
+
+resource "databricks_permissions" "sql_warehouse" {
+  sql_endpoint_id = module.sql_warehouse.warehouse_id
+
+  access_control {
+    service_principal_name = module.service_principals.ingestion_sp_application_id
+    permission_level       = "CAN_USE"
+  }
+
+  access_control {
+    service_principal_name = module.service_principals.terraform_ci_sp_application_id
+    permission_level       = "CAN_USE"
+  }
+}
+
 # ── Module: State KMS ──────────────────────────────────────────────────────
 # Customer Managed Key for Terraform state encryption in S3 (L-10).
 

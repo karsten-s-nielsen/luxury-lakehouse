@@ -515,6 +515,7 @@ luxury-lakehouse/
 │
 ├── .github/workflows/
 │   ├── python-ci.yml                 # ruff + pyright + pytest
+│   ├── semgrep.yml                   # Semgrep SAST (p/python + p/security-audit)
 │   ├── terraform-plan.yml            # Plan on PR (OIDC auth)
 │   └── dbt-ci.yml                    # dbt slim CI (state:modified+, --empty, --defer)
 │
@@ -556,8 +557,10 @@ luxury-lakehouse/
 | SSL verification | Explicit `verify=True` on all HTTP requests |
 | Timeouts | `(10, 30)` connect/read on every HTTP call |
 | Retry safety | Exponential backoff on transient errors (429/5xx); max 3 retries |
-| Bandit compliance | Ruff S rules enforced; no eval/exec/pickle/shell=True |
+| Bandit compliance | Ruff S rules enforced on `src/` and `scripts/`; no eval/exec/pickle/shell=True |
+| SAST | Semgrep in CI (`p/python` + `p/security-audit` rulesets) |
 | Content validation | Schema checks and non-empty assertions before every Delta write |
+| Model serialization | MLflow cloudpickle bounded by UC ACLs; executors receive JSON only (see [SECURITY.md](SECURITY.md)) |
 | Full audit | See [SECURITY.md](SECURITY.md) — 31 findings, 28 resolved, 3 accepted |
 
 ### 6.2 — Quality Standards
@@ -566,10 +569,10 @@ All code must pass these gates before merge:
 
 | Check | Command | Threshold |
 |-------|---------|-----------|
-| Lint | `uv run ruff check src/` | Zero violations |
+| Lint | `uv run ruff check src/ scripts/` | Zero violations |
 | Type check | `uv run pyright src/` | Zero errors (basic mode) |
 | Unit tests | `uv run pytest src/tests/ -v` | All pass |
-| Security scan | Ruff S (bandit) rules | Zero violations |
+| Security scan | Ruff S (bandit) + Semgrep SAST | Zero violations |
 | Wheel build | `uv build` | Produces installable wheel |
 
 **Enforced Ruff rule sets:** E, W, F, I, N, UP, B, S (bandit), RUF

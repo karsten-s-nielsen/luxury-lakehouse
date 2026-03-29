@@ -101,7 +101,7 @@ validate_workflow_cards = "workflows.loader:validate_cli"
 [tool.ruff]
 target-version = "py310"
 line-length = 120
-exclude = ["demo_space", "notebooks", "scripts"]
+exclude = ["demo_space", "notebooks"]
 
 [tool.ruff.lint]
 select = [

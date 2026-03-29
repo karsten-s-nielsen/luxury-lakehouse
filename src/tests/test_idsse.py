@@ -8,6 +8,7 @@ import tempfile
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from ingestion.idsse import IDSSE_MATCH_IDS, _parse_events_xml, _parse_positions_xml, _parse_teams, _smooth_tracking
 
@@ -67,6 +68,24 @@ _POSITIONS_XML = """\
 </FrameSet>
 <FrameSet GameSection="secondHalf" MatchId="DFL-MAT-J03WMX" TeamId="DFL-CLU-00000G" PersonId="A002">
 <Frame N="0" X="45.0" Y="25.0"/>
+</FrameSet>
+</Positions>
+</PutDataRequest>
+"""
+
+
+# Ball FrameSet appears AFTER player FrameSets — tests the ordering assumption (TD#26)
+_POSITIONS_XML_BALL_LAST = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<PutDataRequest>
+<Positions>
+<FrameSet GameSection="firstHalf" MatchId="DFL-MAT-J03WMX" TeamId="DFL-CLU-000008" PersonId="H001">
+<Frame N="0" X="-10.5" Y="5.2"/>
+<Frame N="1" X="-10.0" Y="5.5"/>
+</FrameSet>
+<FrameSet GameSection="firstHalf" MatchId="DFL-MAT-J03WMX" TeamId="BALL" PersonId="DFL-OBJ-0000XT">
+<Frame N="0" X="0.5" Y="1.0"/>
+<Frame N="1" X="1.5" Y="2.0"/>
 </FrameSet>
 </Positions>
 </PutDataRequest>
@@ -206,6 +225,54 @@ class TestParsePositionsXML:
             "frame_rate",
         }
         assert set(rows[0].keys()) == expected
+
+
+class TestBallOrderingAssumption:
+    """Tests for TD#26 — ball-before-player XML ordering assumption."""
+
+    def test_ball_after_players_produces_null_ball_coords(self) -> None:
+        """When ball FrameSet appears after player FrameSet, ball_x/ball_y are None."""
+        info_path = _write_temp_xml(_MATCH_INFO_XML)
+        pos_path = _write_temp_xml(_POSITIONS_XML_BALL_LAST)
+        try:
+            _h, _a, ptm = _parse_teams(info_path)
+            rows_by_period = _parse_positions_xml(pos_path, ptm, "J03WMX", _logger)
+            rows = rows_by_period[1]
+            # H001 was parsed before the ball FrameSet — ball coords should be None
+            assert len(rows) == 2
+            assert rows[0]["ball_x"] is None
+            assert rows[0]["ball_y"] is None
+        finally:
+            os.unlink(info_path)
+            os.unlink(pos_path)
+
+    def test_ball_after_players_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Runtime warning fires when ball lookup misses player frames."""
+        info_path = _write_temp_xml(_MATCH_INFO_XML)
+        pos_path = _write_temp_xml(_POSITIONS_XML_BALL_LAST)
+        try:
+            _h, _a, ptm = _parse_teams(info_path)
+            with caplog.at_level(logging.WARNING):
+                _parse_positions_xml(pos_path, ptm, "J03WMX", _logger)
+            assert "Ball coordinate lookup missed" in caplog.text
+        finally:
+            os.unlink(info_path)
+            os.unlink(pos_path)
+
+    def test_normal_order_has_ball_coords(self) -> None:
+        """Confirm the normal (ball-first) fixture still produces valid ball coords."""
+        info_path = _write_temp_xml(_MATCH_INFO_XML)
+        pos_path = _write_temp_xml(_POSITIONS_XML)
+        try:
+            _h, _a, ptm = _parse_teams(info_path)
+            rows_by_period = _parse_positions_xml(pos_path, ptm, "J03WMX", _logger)
+            rows = [row for period_rows in rows_by_period.values() for row in period_rows]
+            period1_f0 = [r for r in rows if r["period"] == 1 and r["frame"] == 0]
+            assert all(r["ball_x"] is not None for r in period1_f0)
+            assert all(r["ball_y"] is not None for r in period1_f0)
+        finally:
+            os.unlink(info_path)
+            os.unlink(pos_path)
 
 
 class TestSmoothTracking:
