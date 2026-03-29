@@ -488,6 +488,24 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
+  # ── Task: Sync HF Jobs costs to Delta (independent, no dependencies) ────
+  task {
+    task_key        = "sync_hf_costs"
+    timeout_seconds = 600
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "sync_hf_costs"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--cards-dir", "/Workspace/Repos/luxury-lakehouse/workflow-cards"
+      ]
+    }
+
+    environment_key = "default"
+  }
+
   # ── Environment definition for serverless tasks ──────────────────────────
   environment {
     environment_key = "default"

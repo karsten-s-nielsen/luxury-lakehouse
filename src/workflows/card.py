@@ -31,7 +31,6 @@ TypeLiteral = Literal[
     "grid-computation",
     "heuristic",
     "validation",
-    "augmentation",
 ]
 
 TriggerLiteral = Literal["manual", "scheduled", "event-driven"]

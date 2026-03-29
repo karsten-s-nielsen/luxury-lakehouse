@@ -22,7 +22,7 @@ page_config = PageConfig(
     nav_section=NAV_OPERATIONS,
     description=(
         "Interactive dependency graph and operational dashboard for all AI/ML workflows. "
-        "16 workflow cards covering training (HF Jobs) and inference (Databricks) pipelines. "
+        "Workflow cards covering training (HF Jobs) and inference (Databricks) pipelines. "
         "Cost transparency across three tiers: actual (billing), estimated (live), and projected (YAML)."
     ),
     citations=[
@@ -78,6 +78,7 @@ page_config = PageConfig(
                     table_cell_class_name={
                         "Type": "wf_style_type",
                         "Runtime": "wf_style_runtime",
+                        "Status": "wf_style_status",
                         "Freshness": "wf_style_freshness",
                     },
                 )

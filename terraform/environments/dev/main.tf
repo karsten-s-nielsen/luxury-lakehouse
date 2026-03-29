@@ -139,6 +139,48 @@ module "workflows" {
   run_as_sp_application_id = module.service_principals.ingestion_sp_application_id
 }
 
+# ── Daily HF Costs Sync (catch-all backup) ──────────────────────────────────
+# Reads _cost_history/*.json from HF Hub repos and MERGEs into
+# workflow_cost_live. Ensures HF Jobs costs reach the cold-tier dbt model
+# even if no dbt build runs that day. Primary display path is direct HF Hub
+# read from the Taipy app — this is the belt-and-suspenders backup.
+
+resource "databricks_job" "sync_hf_costs_daily" {
+  name                = "sync-hf-costs-daily-${var.environment}"
+  max_concurrent_runs = 1
+
+  schedule {
+    quartz_cron_expression = "0 0 6 * * ?"
+    timezone_id            = "UTC"
+    pause_status           = var.environment == "dev" ? "PAUSED" : "UNPAUSED"
+  }
+
+  task {
+    task_key        = "sync_hf_costs"
+    timeout_seconds = 600
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "sync_hf_costs"
+
+      parameters = [
+        "--catalog", module.workspace.catalog_name,
+        "--cards-dir", "/Workspace/Repos/luxury-lakehouse/workflow-cards"
+      ]
+    }
+
+    environment {
+      spec {
+        client = "1"
+
+        dependencies = [
+          "${module.catalog.libs_volume_path}/luxury_lakehouse-0.1.0-py3-none-any.whl"
+        ]
+      }
+    }
+  }
+}
+
 # ── Module: Synced Tables ────────────────────────────────────────────────────
 # Mirrors gold-layer Delta tables into Lakebase for low-latency app queries.
 

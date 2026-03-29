@@ -381,7 +381,7 @@ luxury-lakehouse/
 │   │   ├── lakebase/                 # Lakebase Autoscaling (PG 17)
 │   │   ├── sql_warehouse/            # Serverless SQL Warehouse
 │   │   ├── workflows/                # Ingestion job definitions
-│   │   ├── synced_tables/            # Gold → Lakebase sync (19 synced tables)
+│   │   ├── synced_tables/            # Gold → Lakebase sync (26 synced tables)
 │   │   ├── app/                      # (removed — Streamlit migrated to HF Spaces)
 │   │   ├── service_principals/       # Ingestion SP, App SP, CI SP + federation
 │   │   ├── github_oidc/              # AWS IAM OIDC provider + scoped role
@@ -482,10 +482,21 @@ luxury-lakehouse/
 │   └── publish_datasets.py           # Databricks notebook: Export Gold tables as Parquet to HF Hub (5 datasets + model cards)
 │
 ├── scripts/
+│   ├── manage_space.py               # HF Space lifecycle: create/deploy/status/rebuild/teardown (replaces deploy_taipy.py)
+│   ├── deploy_wheel.py               # Downloads wheel from HF Hub build-artifacts → UC Volume for inference
+│   ├── setup_hf_buckets.py           # Initialize HF Buckets (demo-data) with versioned Parquet uploads
+│   ├── sync_hf_costs.py              # Sync HF Jobs cost artifacts (_workflow_cost.json) → Lakebase
 │   ├── create_indexes.py             # PG indexes on Lakebase synced tables (38 indexes, 14 tables, --verify + ANALYZE)
+│   ├── ensure_warehouse.py           # Verify SQL warehouse is RUNNING before dbt builds
 │   ├── compute_xt_grid_hf.py        # HF Jobs UV script: compute data-driven xT grid from SPADL actions
 │   ├── compute_obso_hf.py          # HF Jobs GPU script: OBSO value surfaces via JAX on A10G
+│   ├── compute_epv_transition_hf.py # HF Jobs script: EPV + transition grids for OBSO
+│   ├── compute_space_creation_hf.py  # HF Jobs GPU script: space creation via JAX double-vmap on A10G
 │   ├── train_xg_model_hf.py        # HF Jobs CPU script: xG model training with MLflow logging
+│   ├── train_xg_v2_hf.py            # HF Jobs GPU script: xG v2 Deep Sets + MC dropout training
+│   ├── train_vaep_model_hf.py        # HF Jobs CPU script: VAEP model training
+│   ├── publish_freeze_frame_hf.py    # Publish StatsBomb 360 freeze-frame dataset to HF Hub
+│   ├── publish_xg_shots_hf.py        # Publish xG shot dataset to HF Hub
 │   ├── refresh_synced_tables.py      # Trigger SNAPSHOT refresh on synced tables (--wait, --tables)
 │   ├── delete_synced_table.py        # Delete synced table + drop PG ghost table
 │   ├── import_obso_results.py        # Download OBSO Parquet from HF Hub → bronze Delta tables

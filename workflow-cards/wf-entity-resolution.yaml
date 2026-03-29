@@ -38,6 +38,9 @@ execution:
     timeout: "1800s"
     environment: analytics
 
+monitoring:
+  freshness_sla_hours: 168
+
 depends_on: []
 
 idempotency:

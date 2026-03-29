@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [ARCHITECTURE.md](ARCHITECTURE.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
 
-**Last updated**: 2026-03-26
+**Last updated**: 2026-03-28
 
 ---
 
@@ -18,8 +18,13 @@ Tasks warming up in the on-deck circle.
 
 | # | Task | Size | Source | Notes |
 |---|------|------|--------|-------|
-| D34 | AI/ML Workflows — Auto-Refresh & HF Jobs Cost Bridge | Dunkin' | PR #55, PR #56 | Two deferred items from the Workflows page: (1) **Task 15D** — 2-minute auto-refresh polling for live cost/status data + visual state indicators (running/completed/failed badges). (2) **H1** — Wire `HFJobsCostRecorder` warm tier output (`_workflow_cost.json` on HF Hub) into the Taipy Workflows page display. Currently only Databricks runs flow through `CostEstimateHook` to the live table; HF Jobs runs are recorded but not surfaced. Ships together — auto-refresh is pointless without HF Jobs data flowing |
-| D35 | AI/ML Workflows — Detail Drilldown & Card Validation | Wicked | [2026-03-23-taipy-workflows-page.md](docs/superpowers/plans/2026-03-23-taipy-workflows-page.md) | Enable the 8-section detail drilldown panel (designed but disabled — UX design not settled). Sections: overview, data flow, execution config, monitoring, cost breakdown, academic provenance, dependencies, changelog. Requires design decisions on navigation (slide-in panel vs sub-page vs modal) and information density. Also: validate all 17 workflow card YAML files against reality — the drilldown makes card data visible for the first time, so expect corrections to estimates, dependencies, and monitoring thresholds |
+| D38 | Extend ruff S (bandit) rules to `scripts/` | Dunkin' | SEC-AUDIT | `scripts/` excluded from ruff at `pyproject.toml:103` — 22 Python files bypass all bandit security linting including PAT/token-handling code. Remove exclusion, triage ~7-8 violations (S603 subprocess, S108 temp files, S607 partial path). Note: `ensure_warehouse.py:150` passes `sys.argv` to `subprocess.run()` unsuppressed — highest priority |
+| D39 | Add SAST tooling to CI | Dunkin' | SEC-AUDIT | Defense-in-depth beyond ruff S — no data-flow or taint analysis in CI. Repo is private → Semgrep Community (`p/python` + `p/security-audit` rulesets) is free; CodeQL requires GitHub Advanced Security. Add workflow, ~2 min added to CI. Relevant for EU AI Act Article 9 technical documentation |
+| D40 | SQL warehouse ACL grants in Terraform | Dunkin' | SEC-AUDIT | `sql_warehouse/main.tf` creates the warehouse without any `databricks_grants` — access relies on workspace defaults. Add explicit grants scoped to ingestion SP + Terraform CI SP (catalog module has the established pattern). Straightforward Terraform change |
+| D41 | Audit + document MLflow pyfunc pickle exposure | Dunkin' | SEC-AUDIT | `mlflow.pyfunc.load_model()` at `defcon_lite.py:73` and `spadl_vaep.py:625` deserializes cloudpickle on the driver (MLflow pyfunc flavor always uses cloudpickle internally). Executors are clean — JSON bytes via `get_booster().save_raw("json")`. Risk bounded by UC ACLs. Document which serializer each registered model uses and whether `weights_only=True` or safetensors alternatives are feasible |
+| D42 | Data classification tags on dbt models | Dunkin' | SEC-AUDIT | Add `meta: { data_sensitivity: "public", contains_pii: false }` to all model YAML configs. Zero `meta:` blocks exist today across 13 YAML files (~45 models). Establishes governance metadata pattern for data catalog |
+| D43 | Coordinate system normalization layer | Wicked | SEC-AUDIT | 5 providers use 4+ distinct coordinate systems and 3 sampling rates (25fps, 10fps, event-only). Transforms currently duplicated as inline expressions across 7 dbt staging SQL files with no shared macro; `line_breaking.py:241-249` also duplicates the Metrica formula. Design a canonical coordinate transform — shared dbt macro or `src/analytics/` module with documented transforms per provider. Cross-references D28, D29, D30 |
+| D35 | AI/ML Workflows — Detail Drilldown & Card Validation | Wicked | [2026-03-23-taipy-workflows-page.md](docs/superpowers/plans/2026-03-23-taipy-workflows-page.md) | Enable the 8-section detail drilldown panel (designed but disabled — UX design not settled). Sections: overview, data flow, execution config, monitoring, cost breakdown, academic provenance, dependencies, changelog. Requires design decisions on navigation (slide-in panel vs sub-page vs modal) and information density. Also: validate all 16 workflow card YAML files against reality — the drilldown makes card data visible for the first time, so expect corrections to estimates, dependencies, and monitoring thresholds |
 | D28 | Position-Group Z-Scoring for Stat Vectors | Dunkin' | [adversarial-training.md](docs/research/adversarial-training.md) | Normalize stat vectors within `position_group` (GK, Def, Mid, Fwd) instead of globally. Fixes goalkeeper contamination in similarity search (GKs scored as top passers). Change in `_compute_stat_vectors()` — add groupby on `position_group` before z-score. Trivial but immediately improves embedding quality. Pre-requisite for D18 |
 | D29 | SPADL Vocabulary Upgrade for Embeddings | Dunkin' | [adversarial-training.md](docs/research/adversarial-training.md) | Replace 12-13 type action tokenizer in `football2vec.py` with 23-type SPADL taxonomy from `fct_action_values`. Richer behavioral tokens at zero additional data cost — distinguishes tackle/interception, corner_short/corner_crossed, freekick variants. SPADL data already exists (~9.5M actions). Pre-requisite for D18 |
 | D18 | Football2vec v2 — Transformer Embeddings | Wicked | [ROADMAP.md](ROADMAP.md) | Replace Doc2Vec (gensim, CPU) with a small transformer on tokenized match sequences. Train on HF Jobs GPU (A10G). 87K player-match documents in Delta. Better player representations for similarity search. Publish to HF Hub. Benefits from D28 (position-group z-scoring) and D29 (SPADL vocabulary) landing first |
@@ -27,7 +32,8 @@ Tasks warming up in the on-deck circle.
 | D31 | 360-Enriched Situational Context for Embeddings | Wicked | [adversarial-training.md](docs/research/adversarial-training.md) | Extend `set_encoder.py` Deep Sets architecture to produce a 16-32d situational context vector from 360 freeze frames (15.58M rows, 323 matches). Concatenate with action token embedding before transformer encoding. Encodes spatial relationships (pressing intensity, passing lanes, defensive shape) around each event. Constraint: 360 frames are anonymous (no player_id), so encodes spatial structure, not player-specific graphs. Follows D30 |
 | D32 | ScoutGPT-Style Sequence Model — Training & Evaluation | Wicked | [adversarial-training.md](docs/research/adversarial-training.md), [arXiv:2512.17266](https://arxiv.org/abs/2512.17266) | Player-conditioned GPT transformer over ~9.5M SPADL action sequences (Hong et al. 2025). Architecture: transformer decoder with player ID embedding table (11,918 players), 23-type action embeddings, spatial encodings (x/y), autoregressive next-action prediction. Player ID as conditioning token enables counterfactual substitution (swap ID → "what would Messi do here?"). VAEP as reward signal. Train on HF Jobs GPU (A10G, comparable to ScoutGPT's 5 PL seasons). Evaluate: next-action accuracy, counterfactual ranking correlation, cross-source validation. Publish weights + config to HF Hub. Pre-req: D29 (SPADL vocab). Benefits from D18 (transformer experience) and D30 (adversarial objective can be integrated) |
 | D33 | ScoutGPT Integration — Embeddings, pgvector & Taipy | Wicked | [adversarial-training.md](docs/research/adversarial-training.md) | Extract player embeddings from trained D32 model. Write to Delta via new `fct_player_embeddings_sequence` mart (or extend existing). Synced table + pgvector HNSW index. Add model selector to Player Similarity Taipy page ("Football2vec" vs "ScoutGPT"). Counterfactual substitution UI: "what would Player X do in Team Y's possessions?" Side-by-side comparison dashboard between old and new embeddings. Follows D32 |
-| D27 | HF Storage Buckets — Migrate Build Artifacts & HF Jobs | Wicked | [HF Blog](https://huggingface.co/blog/storage-buckets) | Migrate `luxury-lakehouse/build-artifacts` wheel hosting from git repo to HF Bucket (no git history for binaries). Update HF Jobs PEP 723 scripts to reference `hf://buckets/...` paths. Adopt fsspec `hf://` paths for direct pandas/Polars read/write where applicable. Evaluate `hf-mount` for local dev. Buckets are mutable S3-like storage on HF Hub built on Xet (chunk-level dedup), $8-12/TB/month (3x cheaper than S3). SDK: `huggingface_hub >= 1.5.0` (`create_bucket`, `sync_bucket`, `batch_bucket_files`). CLI: `hf buckets sync`. Future: staging area for own-footage pipeline (Respo.Vision ~17 GB/match) |
+| D36 | Shape Graph Algorithm — Core Implementation | Wicked | [Sotudeh (2026), ETH Zurich DISS. 31732](https://doi.org/10.1038/s44260-025-00047-x) | Implement Sotudeh's shape graph algorithm as a second formation detection method alongside EFPI. Delaunay triangulation → angular stability → iterative edge removal → shape graph. Position inference via 5×5 level decomposition (25 tactical labels). Pure geometry — no ML training, no templates needed. Uses `scipy.spatial.Delaunay` + numpy. See detailed write-up below. **Dependency:** D26 (GK metadata) for full 20-match coverage; can develop/test on IDSSE away teams (10 tracked players) |
+| D37 | Position Maps — 5×5 Time-in-Position Matrix | Dunkin' | [Sotudeh (2026), ETH Zurich DISS. 31732](https://doi.org/10.1038/s44260-025-00047-x) | Compute per-player position maps from D36's frame-level position assignments. New mart table `fct_position_maps` (player_id, match_id, position_label, pct_time, phase). Three phase variants: all, in-possession, out-of-possession. Compact tactical player profile — complements spatial heatmaps with positional distributions. **Dependency:** D36 |
 | D7 | Observability Layer (OTel) | Monstah | [ROADMAP.md](ROADMAP.md) | Research complete, ready for implementation. Instrument once, observe anywhere. ~$1-2/month personal tier |
 | U3 | Global player search — search by name across all pages | Monstah | CHI-AUDIT-180-rev-1 #1 | New search component with 11,918-player index + cross-page routing + session state. Needs design decisions |
 | U4 | Uncertainty/confidence bounds on model outputs | Monstah | CHI-AUDIT-180-rev-1 #4 | xG v2 now outputs MC dropout 95% CI (`xg_ci_lower`, `xg_ci_upper`). VAEP/pitch control still lack native uncertainty. Partial — xG done, others remain |
@@ -77,6 +83,55 @@ Tasks warming up in the on-deck circle.
 **Dependencies:** None — can be done independently of other work.
 **Unlocks:** Formation metric on Team Shape page, future position-group analytics (defensive line by role, pressing by position, etc.)
 
+### Shape Graph Algorithm — Core Implementation (D36)
+
+**Status:** Ready for implementation — algorithm fully specified with pseudocode
+**Scope:** Wicked (2-3 sessions) — new analytics module + position inference + tests + benchmarks + workflow card
+**Branch:** Separate feature branch from main
+**Source:** Sotudeh, H. (2026). *Identification of Team Tactical Formations and Player Positions in Association Football.* PhD thesis, ETH Zurich (DISS. ETH NO. 31732). Published papers: [survey (Frontiers, DOI: 10.3389/fspor.2024.1512386)](https://doi.org/10.3389/fspor.2024.1512386), [shape graphs (npj Complexity, DOI: 10.1038/s44260-025-00047-x)](https://doi.org/10.1038/s44260-025-00047-x).
+
+**What it is:** A bottom-up geometric formation detection method that complements the top-down template-matching approach in EFPI (D20). Instead of matching player positions against predefined templates, shape graphs build a stable subgraph of the Delaunay triangulation and infer positions from the graph's geometric structure. No formation library needed — positions emerge from geometry.
+
+**Algorithm (thesis Algorithm 1, p.26):**
+1. Compute Delaunay triangulation of outfield player (x, y) positions
+2. Calculate angular stability for each edge (angle between circumcenters of incident triangles)
+3. Find the least stable edge; if stability < 45°, remove it and merge the two incident faces
+4. Recompute stabilities on the merged face edges
+5. Repeat until all remaining edges have stability ≥ 45°
+6. Result: the **shape graph** — a sparse, stable subgraph that filters Delaunay flicker noise
+
+**Position inference (thesis Chapter 4):**
+1. Decompose shape graph into vertical levels (B/DM/M/AM/F) using internal face centers
+2. Decompose into horizontal levels (L/LC/C/RC/R) using face centers
+3. Map each player's (vertical, horizontal) pair to one of 25 tactical positions via 5×5 matrix
+
+**Key properties vs EFPI:**
+
+| Dimension | EFPI (current) | Shape Graphs (D36) |
+|-----------|---------------|-------------------|
+| Approach | Top-down template matching | Bottom-up geometric |
+| Templates | 68 from mplsoccer | None needed |
+| Normalization | Elastic scaling to bbox | None — scale-invariant |
+| Novel formations | Cannot discover | Can discover |
+| Position labels | Template slot mapping | 5×5 level decomposition |
+
+**Implementation plan:**
+1. New module `src/analytics/shape_graph.py` — shape graph construction (Algorithm 1) + position inference (level decomposition)
+2. Unit tests with known formation arrangements — thesis Figure 4.7 provides boundary cases (straight lines, trees, stars, circles, diamonds)
+3. `pytest-benchmark` test — O(n²) worst case for n=10, expect sub-millisecond per frame
+4. Workflow card `workflow-cards/wf-shape-graphs.yaml` with Sotudeh citations
+5. Integration point: `src/ingestion/formations.py` runs both EFPI and shape graphs, stores results in parallel columns or a separate table
+
+**Files affected:**
+- `src/analytics/shape_graph.py` (new)
+- `src/tests/test_shape_graph.py` (new)
+- `workflow-cards/wf-shape-graphs.yaml` (new)
+- `src/ingestion/formations.py` — add shape graph detection alongside EFPI
+
+**Dependencies:** D26 (GK metadata) for full tracking coverage. Can develop and test without it — IDSSE away teams have 10 tracked players, plus synthetic test data from thesis boundary cases.
+**Unlocks:** D37 (position maps), future Taipy visualizations (position plots, dual-detector comparison — see [ROADMAP.md](ROADMAP.md))
+**Data sources validated by thesis:** Metrica Sports open data + IDSSE (Bundesliga) — both already ingested in this project
+
 ---
 
 ## Technical Debt
@@ -123,6 +178,7 @@ See [ROADMAP.md](ROADMAP.md) for research directions, long-horizon features, and
 - **Deep Learning Infrastructure** — hybrid GPU training, pre-trained soccer models, DeepMind-inspired optimization
 - **Provider Abstraction** — configurable multi-tier ingestion; free/open tiers default, commercial activates via credentials
 - **Team Shape Analysis** — Stage 2 blocked on SkillCorner DoD
+- **Shape Graph Visualizations & Tactical Applications** — position plots, dual-detector UX, scouting via position maps (needs D36/D37 first)
 - **Visual Exploratory Behavior** — partially unblocked: 6 Veo3 recordings + local RTMO pose estimation feasible (BSD 3-Clause)
 - **Staging Environment** — Lakebase branching for pre-production validation
 - **Graph-Based Tactical Patterns** — GNN research direction (Raabe et al. 2022)

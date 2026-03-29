@@ -13,6 +13,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
+from dataclasses import dataclass, field
 from html import escape as html_escape
 from pathlib import Path
 from typing import Any
@@ -23,9 +25,27 @@ from cache import ttl_cache
 from config import get_settings
 from db import execute_query, t, validate_param_id
 
-from state.shared import register_page_refresher
+from state.shared import register_page_refresher, register_page_teardown
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# HF cost history data model
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class HFCostData:
+    """Per-workflow HF cost history from _cost_history/ files.
+
+    Aggregates completed/failed run records and tracks live RUNNING state
+    from _workflow_cost.json.
+    """
+
+    runs: list[dict[str, Any]] = field(default_factory=list)
+    is_running: bool = False
+    latest_run: dict[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +155,6 @@ _TYPE_COLORS: dict[str, str] = {
     "grid-computation": "purple",
     "heuristic": "teal",
     "validation": "amber",
-    "augmentation": "gray",
 }
 
 # Upper bound for DAG container height (JS + Python).
@@ -151,7 +170,6 @@ _TYPE_LABELS: dict[str, str] = {
     "grid-computation": "Grid Compute",
     "heuristic": "Heuristic",
     "validation": "Validation",
-    "augmentation": "Augmentation",
 }
 
 
@@ -209,7 +227,6 @@ _TYPE_CELL_STYLES: dict[str, str] = {
     "Grid Compute": "ll-cell-type-grid",
     "Heuristic": "ll-cell-type-heuristic",
     "Validation": "ll-cell-type-validation",
-    "Augmentation": "ll-cell-type-augmentation",
 }
 
 
@@ -242,6 +259,19 @@ def wf_style_freshness(state: Any, value: Any, index: int, row: int, column_name
     return ""
 
 
+_STATUS_CLASSES: dict[str, str] = {
+    "RUNNING": "ll-cell-status-running",
+    "COMPLETED": "ll-cell-status-completed",
+    "FAILED": "ll-cell-status-failed",
+    "SKIPPED": "ll-cell-status-skipped",
+}
+
+
+def wf_style_status(state: Any, value: Any, index: int, row: int, column_name: str) -> str:
+    """Return CSS class for Status column cells."""
+    return _STATUS_CLASSES.get(str(value), "")
+
+
 # ---------------------------------------------------------------------------
 # Dashboard state
 # ---------------------------------------------------------------------------
@@ -264,6 +294,8 @@ _WF_TABLE_COLS = [
     "Name",
     "Type",
     "Runtime",
+    "Trigger",
+    "Status",
     "Last Run",
     "Last Duration",
     "Cost (30d)",
@@ -302,9 +334,14 @@ wf_is_admin: bool = False
 # Internal (NOT exported — not bound to UI)
 # ---------------------------------------------------------------------------
 _cards: dict[str, dict[str, Any]] = {}
+_task_key_to_wf_id: dict[str, str] = {}  # entry_point -> workflow_id reverse lookup
 _unfiltered_dag_html: RawHtml = RawHtml("")  # Cached full DAG (no filters applied)
 _ws_client: Any = None  # Lazy WorkspaceClient singleton (avoids re-init on each cache miss)
+_ws_client_lock = threading.Lock()  # Guards lazy init from concurrent timer ticks
 _wf_card_ids: list[str] = []  # Parallel to wf_table_data rows — maps row index to card ID
+
+_refresh_timer: threading.Timer | None = None
+_REFRESH_INTERVAL_SECONDS = 120  # 2 minutes
 
 __all__ = [
     # RawHtml wrapper (used by main.py content provider)
@@ -357,6 +394,9 @@ __all__ = [
     "wf_style_type",
     "wf_style_runtime",
     "wf_style_freshness",
+    "wf_style_status",
+    # Auto-refresh callback (invoked by timer)
+    "_wf_auto_refresh_tick",
 ]
 
 
@@ -406,6 +446,21 @@ def _load_cards_from_yaml() -> dict[str, dict[str, Any]]:
 
     logger.info("Loaded %d workflow cards", len(cards))
     return cards
+
+
+def _build_task_key_to_wf_id(cards: dict[str, dict[str, Any]]) -> dict[str, str]:
+    """Build entry_point -> workflow_id reverse lookup from loaded cards.
+
+    Looks at both training and inference phases for entry_point values.
+    """
+    mapping: dict[str, str] = {}
+    for card_id, card in cards.items():
+        exec_cfg = card.get("execution") or {}
+        for phase in ("training", "inference"):
+            ep = (exec_cfg.get(phase) or {}).get("entry_point", "")
+            if ep:
+                mapping[ep] = card_id
+    return mapping
 
 
 # ---------------------------------------------------------------------------
@@ -504,7 +559,7 @@ def _build_dag_html(
     )
 
     # Legend items — shapes match table column ::before markers (WCAG 1.4.1).
-    # circle (train), diamond (grid), triangle (heuristic), square (validation), ring (augmentation).
+    # circle (train), diamond (grid), triangle (heuristic), square (validation).
     _legend_shapes: dict[str, str] = {
         "training-and-inference": "width:8px;height:8px;border-radius:50%;background:{c};",
         "grid-computation": "width:7px;height:7px;transform:rotate(45deg);background:{c};",
@@ -514,7 +569,6 @@ def _build_dag_html(
             "border-bottom:8px solid {c};"
         ),
         "validation": "width:8px;height:8px;border-radius:1px;background:{c};",
-        "augmentation": "width:7px;height:7px;border-radius:50%;border:1.5px solid {c};background:transparent;",
     }
     legend_items = "".join(
         f'<span style="display:inline-flex;align-items:center;margin-right:12px;">'
@@ -527,7 +581,6 @@ def _build_dag_html(
             ("grid-computation", "purple"),
             ("heuristic", "teal"),
             ("validation", "amber"),
-            ("augmentation", "gray"),
         ]
     )
 
@@ -695,19 +748,22 @@ def _build_dag_html(
 def _fetch_cold_costs() -> pd.DataFrame:
     """30-day aggregated costs from fct_workflow_costs_synced (cold tier).
 
-    Returns DataFrame with columns: task_key, total_cost_usd, total_dbu, run_count.
+    Returns DataFrame with columns: workflow_id, task_key, total_cost_usd,
+    total_dbu, run_count. Grouped by workflow_id (falls back to task_key
+    when workflow_id is NULL — pre-migration rows).
     """
-    _empty = pd.DataFrame(columns=pd.Index(["task_key", "total_cost_usd", "total_dbu", "run_count"]))
+    _empty = pd.DataFrame(columns=pd.Index(["workflow_id", "task_key", "total_cost_usd", "total_dbu", "run_count"]))
     try:
         tbl = t("fct_workflow_costs_synced")
         return execute_query(
-            f"SELECT task_key, "  # noqa: S608
+            f"SELECT COALESCE(workflow_id, task_key) AS workflow_id, "  # noqa: S608
+            f"  task_key, "
             f"  SUM(attributed_cost_usd) AS total_cost_usd, "
             f"  SUM(attributed_dbu) AS total_dbu, "
             f"  COUNT(DISTINCT job_run_id) AS run_count "
             f"FROM {tbl} "
             f"WHERE usage_date >= CURRENT_DATE - INTERVAL '30 days' "
-            f"GROUP BY task_key "
+            f"GROUP BY COALESCE(workflow_id, task_key), task_key "
             f"ORDER BY total_cost_usd DESC "
             f"LIMIT 100",
         )
@@ -716,7 +772,7 @@ def _fetch_cold_costs() -> pd.DataFrame:
         return _empty
 
 
-@ttl_cache(ttl=1800)
+@ttl_cache(ttl=120)
 def _fetch_warm_costs() -> pd.DataFrame:
     """Recent cost estimates from workflow_cost_live_synced (warm tier).
 
@@ -745,7 +801,7 @@ def _fetch_warm_costs() -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-@ttl_cache(ttl=1800)
+@ttl_cache(ttl=120)
 def _fetch_job_runs() -> dict[str, dict[str, Any]]:
     """Fetch recent job runs from Databricks Jobs API.
 
@@ -754,17 +810,22 @@ def _fetch_job_runs() -> dict[str, dict[str, Any]]:
     """
     global _ws_client
     try:
-        if _ws_client is None:
-            from databricks.sdk import WorkspaceClient
+        with _ws_client_lock:
+            if _ws_client is None:
+                from databricks.sdk import WorkspaceClient
 
-            _ws_client = WorkspaceClient()
+                _ws_client = WorkspaceClient()
         ws = _ws_client
-        # Find runs from the last 30 days
+        # Find runs from the last 30 days.
+        # Skip DISABLED/EXCLUDED tasks — they inherit the job's end_time but
+        # never executed, so their timestamps clobber real execution data from
+        # earlier runs.  See 2026-03-27 investigation: a job run with 18/19
+        # tasks DISABLED overwrote all real SUCCESS entries.
+        skip_states = {"DISABLED", "EXCLUDED"}
         runs: dict[str, dict[str, Any]] = {}
         for run in ws.jobs.list_runs(
             expand_tasks=True,
             start_time_from=int(pd.Timestamp.now(tz="UTC").timestamp() * 1000 - 30 * 86_400_000),
-            limit=25,
         ):
             if not run.tasks:
                 continue
@@ -772,21 +833,156 @@ def _fetch_job_runs() -> dict[str, dict[str, Any]]:
                 key = task.task_key or ""
                 if not key:
                     continue
+                result_state = task.state.result_state.value if task.state and task.state.result_state else "UNKNOWN"
+                if result_state in skip_states:
+                    continue
                 end_time = task.end_time or 0
                 if key not in runs or end_time > runs[key].get("end_time_ms", 0):
                     duration = (task.execution_duration or 0) // 1000  # ms -> seconds
                     runs[key] = {
                         "last_run": (pd.Timestamp(end_time, unit="ms", tz="UTC") if end_time else None),
                         "duration_seconds": duration,
-                        "state": (
-                            task.state.result_state.value if task.state and task.state.result_state else "UNKNOWN"
-                        ),
+                        "state": result_state,
                         "end_time_ms": end_time,
                     }
         logger.info("Fetched run data for %d task keys from Jobs API", len(runs))
-        return runs
+        # Re-key from task_key to workflow_id using the reverse lookup
+        return {_task_key_to_wf_id.get(k, k): v for k, v in runs.items()}
     except Exception:
         logger.warning("Jobs API query failed \u2014 run data unavailable", exc_info=True)
+        return {}
+
+
+# ---------------------------------------------------------------------------
+# HF cost history (reads _workflow_cost.json + _cost_history/ from HF repos)
+# ---------------------------------------------------------------------------
+
+
+def _discover_hf_repos_from_cards() -> list[tuple[str, str, str]]:
+    """Parse workflow cards to find HF Jobs repos for live status checking."""
+    repos: list[tuple[str, str, str]] = []
+    for card in _cards.values():
+        execution = card.get("execution") or {}
+        has_hf_jobs = False
+        for phase in ("training", "inference"):
+            phase_cfg = execution.get(phase) or {}
+            rt = (phase_cfg.get("runtime") or "").lower().replace("_", "-")
+            if rt == "hf-jobs":
+                has_hf_jobs = True
+                break
+        if not has_hf_jobs:
+            continue
+        outputs = card.get("outputs") or {}
+        for ds in outputs.get("datasets") or []:
+            if ds.get("destination") == "huggingface" and ds.get("id"):
+                repos.append((ds["id"], "dataset", card.get("id", "")))
+        for model in outputs.get("models") or []:
+            if model.get("destination") == "huggingface" and model.get("id"):
+                repos.append((model["id"], "model", card.get("id", "")))
+    return repos
+
+
+def _fetch_hf_cost_history_impl(
+    api: Any,
+    repos: list[tuple[str, str, str]],
+) -> dict[str, HFCostData]:
+    """Read _workflow_cost.json + _cost_history/ from HF Hub repos.
+
+    For each repo:
+    - _workflow_cost.json: detect RUNNING state
+    - _cost_history/*.json: completed/failed run records (last 30 days)
+
+    Returns dict keyed by workflow_id. Separated from the cached wrapper
+    for testability.
+    """
+    from datetime import datetime, timezone
+
+    cutoff = datetime.now(tz=timezone.utc).timestamp() - 30 * 86_400
+    result: dict[str, HFCostData] = {}
+
+    for repo_id, repo_type, workflow_id in repos:
+        if not workflow_id:
+            continue
+        cost_data = result.setdefault(workflow_id, HFCostData())
+
+        # 1. Check live status from _workflow_cost.json
+        try:
+            local_path = api.hf_hub_download(
+                repo_id=repo_id,
+                filename="_workflow_cost.json",
+                repo_type=repo_type,
+            )
+            with open(local_path) as f:
+                live = json.load(f)
+            if isinstance(live, dict) and live.get("state") == "RUNNING":
+                cost_data.is_running = True
+        except Exception:
+            logger.debug("Live status check failed for %s/%s", repo_type, repo_id, exc_info=True)
+
+        # 2. List _cost_history/ files for completed runs
+        try:
+            files = api.list_repo_files(repo_id=repo_id, repo_type=repo_type)
+            history_files = [f for f in files if f.startswith("_cost_history/") and f.endswith(".json")]
+            for hf in history_files:
+                try:
+                    local = api.hf_hub_download(repo_id=repo_id, filename=hf, repo_type=repo_type)
+                    with open(local) as f:
+                        run_data = json.load(f)
+                    if not isinstance(run_data, dict):
+                        continue
+                    # Filter to last 30 days
+                    ended = run_data.get("ended_at", "")
+                    if ended:
+                        try:
+                            end_ts = datetime.fromisoformat(ended).timestamp()
+                            if end_ts < cutoff:
+                                continue
+                        except (ValueError, TypeError):
+                            pass
+                    cost_data.runs.append(run_data)
+                except Exception:
+                    logger.debug("Failed to read history file %s from %s", hf, repo_id, exc_info=True)
+        except Exception:
+            logger.debug("Failed to list _cost_history/ in %s/%s", repo_type, repo_id, exc_info=True)
+
+        # 2b. Legacy fallback: use _workflow_cost.json if no history files
+        if not cost_data.runs and not cost_data.is_running:
+            try:
+                local_path = api.hf_hub_download(
+                    repo_id=repo_id,
+                    filename="_workflow_cost.json",
+                    repo_type=repo_type,
+                )
+                with open(local_path) as f:
+                    legacy = json.load(f)
+                if isinstance(legacy, dict) and legacy.get("state") in ("COMPLETED", "FAILED", "SKIPPED"):
+                    cost_data.runs.append(legacy)
+            except Exception:
+                logger.debug("Legacy _workflow_cost.json fallback failed for %s", repo_id, exc_info=True)
+
+        # 3. Determine latest completed/failed run
+        if cost_data.runs:
+            # Sort by ended_at descending, pick first
+            def _run_sort_key(r: dict[str, Any]) -> str:
+                return r.get("ended_at", "") or ""
+
+            sorted_runs = sorted(cost_data.runs, key=_run_sort_key, reverse=True)
+            cost_data.latest_run = sorted_runs[0]
+
+    return result
+
+
+@ttl_cache(ttl=60)
+def _fetch_hf_cost_history() -> dict[str, HFCostData]:
+    """Fetch HF cost history from HF Hub repos. 60s TTL."""
+    try:
+        from huggingface_hub import HfApi
+
+        api = HfApi()
+        repos = _discover_hf_repos_from_cards()
+        return _fetch_hf_cost_history_impl(api, repos)
+    except Exception:
+        logger.debug("HF cost history fetch failed", exc_info=True)
         return {}
 
 
@@ -802,50 +998,104 @@ def _build_table_data(
     type_filter: str | None,
     runtime_filter: str | None = "All",
     freshness_filter: str | None = "All",
+    hf_costs: dict[str, HFCostData] | None = None,
 ) -> pd.DataFrame:
-    """Build dashboard table DataFrame from cards + cost data."""
+    """Build dashboard table DataFrame from cards + cost data.
+
+    All data sources are keyed by workflow_id for unified lookup:
+    - cold_costs: DB cold-tier costs (workflow_id column)
+    - job_runs: Databricks Jobs API (re-keyed to workflow_id)
+    - hf_costs: HF Hub cost history (keyed by workflow_id)
+    """
     global _wf_card_ids
     card_ids: list[str] = []
+    hf = hf_costs or {}
 
-    # Build cost lookups: entry_point -> 30d USD and run count
-    cost_lookup: dict[str, float] = {}
-    run_count_lookup: dict[str, int] = {}
-    if not cold_costs.empty:
-        cost_lookup = cold_costs.set_index("task_key")["total_cost_usd"].apply(lambda x: float(x or 0)).to_dict()
-        run_count_lookup = cold_costs.set_index("task_key")["run_count"].apply(lambda x: int(x or 0)).to_dict()
+    # Build cost lookups keyed by workflow_id
+    cold_cost_lookup: dict[str, float] = {}
+    cold_run_count_lookup: dict[str, int] = {}
+    if not cold_costs.empty and "workflow_id" in cold_costs.columns:
+        cold_cost_lookup = (
+            cold_costs.set_index("workflow_id")["total_cost_usd"].apply(lambda x: float(x or 0)).to_dict()
+        )
+        cold_run_count_lookup = cold_costs.set_index("workflow_id")["run_count"].apply(lambda x: int(x or 0)).to_dict()
 
     rows = []
     for card_id, card in cards.items():
         wf_type = card.get("type", "")
 
-        # Apply filters
+        # Apply type filter
         if type_filter and type_filter != "All" and _TYPE_LABELS.get(wf_type, wf_type) != type_filter:
             continue
 
-        # Determine runtime(s)
+        # Determine runtime(s) and trigger.
+        # Tiebreaker: training trigger takes precedence over inference
+        # because HF Jobs training is the primary execution for dual-runtime
+        # workflows (inference is the downstream Databricks consumer).
         exec_cfg = card.get("execution") or {}
         runtime_str = _classify_runtime(exec_cfg)
+        trigger_str = "\u2014"
+        for phase in ("training", "inference"):
+            trigger_val = (exec_cfg.get(phase) or {}).get("trigger")
+            if trigger_val:
+                trigger_str = trigger_val.capitalize()
+                break
 
         # Apply runtime filter
         if runtime_filter and runtime_filter != "All" and runtime_str != runtime_filter:
             continue
 
-        # Cost: actual from cold tier, formatted for display + sort
-        # Zero-padded $XXX.XX format sorts correctly as strings
-        entry_point = (exec_cfg.get("inference") or {}).get("entry_point", "")
-        actual_cost = cost_lookup.get(entry_point)
-        runs = run_count_lookup.get(entry_point, 0)
-        if actual_cost is not None and actual_cost > 0:
-            cost_val = f"${actual_cost:7.2f}"
-            avg_run_val = f"${actual_cost / runs:7.2f}" if runs > 0 else "\u2014"
+        # --- Cost (30d): DB cold-tier + HF history, both keyed by workflow_id ---
+        db_cost = cold_cost_lookup.get(card_id, 0.0)
+        db_runs = cold_run_count_lookup.get(card_id, 0)
+        hf_data = hf.get(card_id)
+        hf_cost = sum(float(r.get("estimated_cost_usd") or 0) for r in (hf_data.runs if hf_data else []))
+        hf_runs = len(hf_data.runs) if hf_data else 0
+        total_cost = db_cost + hf_cost
+        total_runs = db_runs + hf_runs
+
+        if total_cost > 0:
+            cost_val = f"${total_cost:7.2f}"
+            avg_run_val = f"${total_cost / total_runs:7.2f}" if total_runs > 0 else "\u2014"
         else:
             cost_val = "\u2014"
             avg_run_val = "\u2014"
 
-        # Last Run + Duration + Freshness from Jobs API
-        job_run = job_runs.get(entry_point, {})
-        last_run_ts = job_run.get("last_run")
-        duration_secs = job_run.get("duration_seconds", 0)
+        # --- Last Run + Duration: pick most recent across Jobs API and HF history ---
+        job_run = job_runs.get(card_id, {})
+        jobs_last_run_ts = job_run.get("last_run")
+        jobs_duration_secs = job_run.get("duration_seconds", 0)
+
+        hf_last_run_ts: pd.Timestamp | None = None
+        hf_duration_secs = 0
+        if hf_data and hf_data.latest_run:
+            ended = hf_data.latest_run.get("ended_at", "")
+            if ended:
+                try:
+                    ts = pd.Timestamp(ended)
+                    if isinstance(ts, pd.Timestamp):
+                        hf_last_run_ts = ts
+                except (ValueError, TypeError):
+                    pass
+            hf_duration_secs = int(hf_data.latest_run.get("duration_seconds") or 0)
+
+        # Pick whichever is more recent
+        if jobs_last_run_ts is not None and hf_last_run_ts is not None:
+            if jobs_last_run_ts >= hf_last_run_ts:
+                last_run_ts = jobs_last_run_ts
+                duration_secs = jobs_duration_secs
+            else:
+                last_run_ts = hf_last_run_ts
+                duration_secs = hf_duration_secs
+        elif jobs_last_run_ts is not None:
+            last_run_ts = jobs_last_run_ts
+            duration_secs = jobs_duration_secs
+        elif hf_last_run_ts is not None:
+            last_run_ts = hf_last_run_ts
+            duration_secs = hf_duration_secs
+        else:
+            last_run_ts = None
+            duration_secs = 0
 
         last_run_str = "\u2014"
         duration_str = "\u2014"
@@ -855,7 +1105,7 @@ def _build_table_data(
                 mins, secs = divmod(duration_secs, 60)
                 duration_str = f"{mins}m {secs}s" if mins else f"{secs}s"
 
-        # Freshness: from Jobs API last run time vs SLA
+        # --- Freshness: based on the most recent last_run across both sources ---
         freshness_str = "\u2014"
         sla_hours = (card.get("monitoring") or {}).get("freshness_sla_hours")
         if sla_hours and last_run_ts is not None:
@@ -868,11 +1118,39 @@ def _build_table_data(
         if freshness_filter and freshness_filter != "All" and freshness_str != freshness_filter:
             continue
 
+        # --- Status: RUNNING if either source shows running; otherwise most recent terminal state ---
+        hf_is_running = hf_data.is_running if hf_data else False
+        jobs_is_running = job_run.get("state") in ("RUNNING", "PENDING")
+
+        if hf_is_running or jobs_is_running:
+            status_str = "RUNNING"
+        elif job_run or (hf_data and hf_data.latest_run):
+            # Pick terminal state from the most recent source
+            if jobs_last_run_ts is not None and (hf_last_run_ts is None or jobs_last_run_ts >= hf_last_run_ts):
+                run_state = job_run.get("state", "")
+            elif hf_data and hf_data.latest_run:
+                run_state = hf_data.latest_run.get("state", "")
+            else:
+                run_state = ""
+
+            if run_state in ("SUCCESS", "COMPLETED"):
+                status_str = "COMPLETED"
+            elif run_state in ("FAILED", "ERROR", "TIMEDOUT", "CANCELED"):
+                status_str = "FAILED"
+            elif run_state in ("SKIPPED", "DISABLED", "EXCLUDED"):
+                status_str = "SKIPPED"
+            else:
+                status_str = "\u2014"
+        else:
+            status_str = "\u2014"
+
         rows.append(
             {
                 "Name": card.get("name", card_id),
                 "Type": _TYPE_LABELS.get(wf_type, wf_type),
                 "Runtime": runtime_str,
+                "Trigger": trigger_str,
+                "Status": status_str,
                 "Last Run": last_run_str,
                 "Last Duration": duration_str,
                 "Cost (30d)": cost_val,
@@ -1283,8 +1561,13 @@ def _filter_card_ids(
     type_filter: str | None,
     runtime_filter: str | None,
     freshness_filter: str | None,
+    hf_costs: dict[str, HFCostData] | None = None,
 ) -> set[str]:
-    """Return card IDs that match all active filters."""
+    """Return card IDs that match all active filters.
+
+    job_runs is keyed by workflow_id (card_id).
+    hf_costs provides HF Jobs last-run data for freshness on HF-only workflows.
+    """
     matched: set[str] = set()
     for card_id, card in cards.items():
         wf_type = card.get("type", "")
@@ -1298,12 +1581,20 @@ def _filter_card_ids(
         if runtime_filter and runtime_filter != "All" and runtime_str != runtime_filter:
             continue
 
-        # Freshness (needs job_runs)
+        # Freshness: pick most recent last_run across Jobs API and HF history
         if freshness_filter and freshness_filter != "All":
             sla_hours = (card.get("monitoring") or {}).get("freshness_sla_hours")
-            entry_point = (exec_cfg.get("inference") or {}).get("entry_point", "")
-            job_run = job_runs.get(entry_point, {})
-            last_run_ts = job_run.get("last_run")
+            job_run = job_runs.get(card_id, {})
+            db_last_run = job_run.get("last_run")
+
+            hf_data = (hf_costs or {}).get(card_id)
+            hf_latest = hf_data.latest_run if hf_data else None
+            hf_last_run = pd.Timestamp(hf_latest["ended_at"]) if hf_latest and hf_latest.get("ended_at") else None
+
+            last_run_ts = db_last_run
+            if hf_last_run and (last_run_ts is None or hf_last_run > last_run_ts):
+                last_run_ts = hf_last_run
+
             freshness = "\u2014"
             if sla_hours and last_run_ts is not None:
                 age_hours = (pd.Timestamp.now(tz="UTC") - last_run_ts).total_seconds() / 3600
@@ -1319,6 +1610,7 @@ def _refresh_table(state: Any) -> None:
     """Rebuild dashboard table AND DAG with current filters."""
     cold = _fetch_cold_costs()
     jobs = _fetch_job_runs()
+    hf_costs = _fetch_hf_cost_history()
 
     # Filter cards
     matched_ids = _filter_card_ids(
@@ -1327,6 +1619,7 @@ def _refresh_table(state: Any) -> None:
         state.wf_type_filter,
         state.wf_runtime_filter,
         state.wf_freshness_filter,
+        hf_costs=hf_costs,
     )
 
     # Check if any filter is active
@@ -1365,11 +1658,19 @@ def _refresh_table(state: Any) -> None:
         state.wf_type_filter,
         state.wf_runtime_filter,
         state.wf_freshness_filter,
+        hf_costs=hf_costs,
     )
 
     # Recompute stats for the filtered subset
     warm = _fetch_warm_costs()
-    _compute_stats(state, cold, warm, jobs, visible_card_ids=matched_ids if not all_filters_default else None)
+    _compute_stats(
+        state,
+        cold,
+        warm,
+        jobs,
+        visible_card_ids=matched_ids if not all_filters_default else None,
+        hf_costs=hf_costs,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1383,11 +1684,14 @@ def _compute_stats(
     warm: pd.DataFrame,
     jobs: dict[str, dict[str, Any]],
     visible_card_ids: set[str] | None = None,
+    hf_costs: dict[str, HFCostData] | None = None,
 ) -> None:
     """Compute stats bar metrics.
 
     When visible_card_ids is set, stats reflect only the filtered subset.
+    All data sources keyed by workflow_id.
     """
+    hf = hf_costs or {}
     cards_subset = (
         {k: v for k, v in _cards.items() if k in visible_card_ids} if visible_card_ids is not None else _cards
     )
@@ -1407,51 +1711,52 @@ def _compute_stats(
     ]
     state.wf_workflows_detail = _stat_detail_html(", ".join(colored_parts))
 
-    # Total 30d cost — always scope to workflow card entry points.
-    # The cold table includes all Databricks tasks (ingestion, etc.)
-    # but the dashboard should only show workflow card costs.
-    all_entry_points = {
-        ((c.get("execution") or {}).get("inference") or {}).get("entry_point", "") for c in cards_subset.values()
-    }
-    all_entry_points.discard("")
-    if not cold.empty and all_entry_points:
-        cost_df = cold[cold["task_key"].isin(list(all_entry_points))]
+    # Total 30d cost — scoped to visible workflow card IDs.
+    # Cold costs are now keyed by workflow_id (COALESCE(workflow_id, task_key)).
+    card_ids_subset = set(cards_subset.keys())
+    if not cold.empty and "workflow_id" in cold.columns:
+        cost_df = cold[cold["workflow_id"].isin(list(card_ids_subset))]
     else:
         cost_df = pd.DataFrame()
 
-    # Cost breakdown by runtime: Databricks (actual/cold) vs HF Jobs (estimated/projected)
+    # Cost breakdown by runtime: Databricks (actual/cold) vs HF Jobs (actual/history)
     dbx_cost = float(cost_df["total_cost_usd"].sum()) if not cost_df.empty else 0.0
 
-    # HF Jobs costs: warm tier (estimated from CostEstimateHook) or YAML projected
+    # HF Jobs costs from cost history (actual), warm tier (estimated), or YAML (projected)
     hf_cost = 0.0
-    # Collect HF Jobs entry points
-    hf_entry_points: set[str] = set()
-    for card in cards_subset.values():
-        cost_cfg = card.get("cost") or {}
-        for phase in ("training", "inference"):
-            phase_cost = cost_cfg.get(phase)
-            if phase_cost and phase_cost.get("runtime", "").lower() in ("hf-jobs", "hf_jobs", "hf jobs"):
-                ep = ((card.get("execution") or {}).get(phase) or {}).get("entry_point", "")
-                if ep:
-                    hf_entry_points.add(ep)
-    # Try warm tier first
-    hf_warm_cost = 0.0
-    if not warm.empty and hf_entry_points:
-        hf_df = warm[warm["task_key"].isin(list(hf_entry_points))]
-        if not hf_df.empty:
-            hf_warm_cost = float(hf_df["estimated_cost_usd"].sum())
-    # Fallback: YAML projected costs when warm tier has no data
-    if hf_warm_cost > 0:
-        hf_cost = hf_warm_cost
-        hf_tier = "estimated"
+    hf_history_cost = sum(
+        sum(float(r.get("estimated_cost_usd") or 0) for r in hf[cid].runs) for cid in card_ids_subset if cid in hf
+    )
+    if hf_history_cost > 0:
+        hf_cost = hf_history_cost
+        hf_tier = "actual"
     else:
-        hf_tier = "projected"
+        # Fallback: warm tier (estimated from CostEstimateHook)
+        hf_entry_points: set[str] = set()
         for card in cards_subset.values():
             cost_cfg = card.get("cost") or {}
             for phase in ("training", "inference"):
                 phase_cost = cost_cfg.get(phase)
                 if phase_cost and phase_cost.get("runtime", "").lower() in ("hf-jobs", "hf_jobs", "hf jobs"):
-                    hf_cost += float(phase_cost.get("typical_cost_usd") or 0)
+                    ep = ((card.get("execution") or {}).get(phase) or {}).get("entry_point", "")
+                    if ep:
+                        hf_entry_points.add(ep)
+        hf_warm_cost = 0.0
+        if not warm.empty and hf_entry_points:
+            hf_df = warm[warm["task_key"].isin(list(hf_entry_points))]
+            if not hf_df.empty:
+                hf_warm_cost = float(hf_df["estimated_cost_usd"].sum())
+        if hf_warm_cost > 0:
+            hf_cost = hf_warm_cost
+            hf_tier = "estimated"
+        else:
+            hf_tier = "projected"
+            for card in cards_subset.values():
+                cost_cfg = card.get("cost") or {}
+                for phase in ("training", "inference"):
+                    phase_cost = cost_cfg.get(phase)
+                    if phase_cost and phase_cost.get("runtime", "").lower() in ("hf-jobs", "hf_jobs", "hf jobs"):
+                        hf_cost += float(phase_cost.get("typical_cost_usd") or 0)
 
     total = dbx_cost + hf_cost
     state.wf_total_cost_30d = f"${total:.2f}"
@@ -1474,8 +1779,12 @@ def _compute_stats(
         if sla is None:
             continue  # No SLA = not monitored, skip
         monitored += 1
-        entry_point = ((card.get("execution") or {}).get("inference") or {}).get("entry_point", "")
-        run = jobs.get(entry_point, {})
+        # A workflow with a RUNNING HF job counts as fresh
+        hf_data = hf.get(_card_id)
+        if hf_data and hf_data.is_running:
+            fresh_count += 1
+            continue
+        run = jobs.get(_card_id, {})
         last_run = run.get("last_run")
         if last_run is not None:
             age_hours = (pd.Timestamp.now(tz="UTC") - last_run).total_seconds() / 3600
@@ -1501,13 +1810,23 @@ def _compute_stats(
         state.wf_freshness_summary = "No SLAs configured"
         state.wf_freshness_detail = RawHtml("")
 
-    # Run volume: total runs from cold costs (Databricks billing)
-    num_runs = int(cost_df["run_count"].sum()) if not cost_df.empty and "run_count" in cost_df.columns else 0
+    # Run volume: DB cold runs + HF history runs
+    db_runs = int(cost_df["run_count"].sum()) if not cost_df.empty and "run_count" in cost_df.columns else 0
+    hf_runs = sum(len(hf[cid].runs) for cid in card_ids_subset if cid in hf)
+    num_runs = db_runs + hf_runs
     state.wf_run_volume = str(num_runs)
+
+    # Count currently running jobs (both runtimes)
+    running_db = sum(1 for r in jobs.values() if r.get("state") in ("RUNNING", "PENDING"))
+    running_hf = sum(1 for cid in card_ids_subset if cid in hf and hf[cid].is_running)
+    total_running = running_db + running_hf
+
     if num_runs > 0:
         daily_rate = num_runs / 30
         avg_cost = total / num_runs
         detail_parts = []
+        if total_running > 0:
+            detail_parts.append(f"{total_running} running now")
         if daily_rate >= 1:
             detail_parts.append(f"~{daily_rate:.0f}/day")
         else:
@@ -1515,7 +1834,66 @@ def _compute_stats(
         detail_parts.append(f"${avg_cost:.2f} avg/run")
         state.wf_run_volume_detail = " \u00b7 ".join(detail_parts)
     else:
-        state.wf_run_volume_detail = ""
+        if total_running > 0:
+            state.wf_run_volume_detail = f"{total_running} running now"
+        else:
+            state.wf_run_volume_detail = ""
+
+
+# ---------------------------------------------------------------------------
+# Auto-refresh timer
+# ---------------------------------------------------------------------------
+
+
+def _start_auto_refresh(state: Any) -> None:
+    """Start the 2-minute auto-refresh timer for the Workflows page."""
+    global _refresh_timer
+    _stop_auto_refresh()
+
+    def _tick() -> None:
+        global _refresh_timer
+        try:
+            state.invoke_callback("_wf_auto_refresh_tick", [])
+        except Exception:
+            logger.debug("Auto-refresh tick failed", exc_info=True)
+        # Schedule next tick
+        _refresh_timer = threading.Timer(_REFRESH_INTERVAL_SECONDS, _tick)
+        _refresh_timer.daemon = True
+        _refresh_timer.start()
+
+    _refresh_timer = threading.Timer(_REFRESH_INTERVAL_SECONDS, _tick)
+    _refresh_timer.daemon = True
+    _refresh_timer.start()
+    logger.info("Auto-refresh started (%ds interval)", _REFRESH_INTERVAL_SECONDS)
+
+
+def _stop_auto_refresh() -> None:
+    """Cancel the auto-refresh timer."""
+    global _refresh_timer
+    if _refresh_timer is not None:
+        _refresh_timer.cancel()
+        _refresh_timer = None
+        logger.info("Auto-refresh stopped")
+
+
+def _wf_auto_refresh_tick(state: Any) -> None:
+    """Callback invoked by the timer — re-fetches data and updates state."""
+    logger.debug("Auto-refresh tick")
+    cold = _fetch_cold_costs()
+    warm = _fetch_warm_costs()
+    jobs = _fetch_job_runs()
+    hf_costs = _fetch_hf_cost_history()
+
+    state.wf_table_data = _build_table_data(
+        _cards,
+        cold,
+        jobs,
+        state.wf_type_filter,
+        state.wf_runtime_filter,
+        state.wf_freshness_filter,
+        hf_costs=hf_costs,
+    )
+    _compute_stats(state, cold, warm, jobs, hf_costs=hf_costs)
 
 
 # ---------------------------------------------------------------------------
@@ -1525,10 +1903,11 @@ def _compute_stats(
 
 def wf_refresh(state: Any) -> None:
     """Page entry point — loads cards, queries costs, builds dashboard."""
-    global _cards, _unfiltered_dag_html
+    global _cards, _unfiltered_dag_html, _task_key_to_wf_id
 
     if not _cards:
         _cards = _load_cards_from_yaml()
+        _task_key_to_wf_id = _build_task_key_to_wf_id(_cards)
     if not _cards:
         logger.warning("No workflow cards loaded")
         state.wf_no_cards_warning = "No workflow cards loaded. Check that the workflow-cards/ directory is available."
@@ -1555,19 +1934,18 @@ def wf_refresh(state: Any) -> None:
     _unfiltered_dag_html = _build_dag_html(_cards)
     state.wf_dag_html = _unfiltered_dag_html
 
-    # Query costs + job runs
+    # Query costs + job runs (job_runs already re-keyed to workflow_id)
     cold = _fetch_cold_costs()
     warm = _fetch_warm_costs()
     jobs = _fetch_job_runs()
 
-    # Build freshness LOV from computed freshness values (needs jobs data)
+    # Build freshness LOV from computed freshness values (jobs keyed by workflow_id)
     freshness_values: set[str] = set()
-    for c in _cards.values():
+    for card_id, c in _cards.items():
         sla_hours = (c.get("monitoring") or {}).get("freshness_sla_hours")
         if sla_hours is None:
             continue
-        ep = ((c.get("execution") or {}).get("inference") or {}).get("entry_point", "")
-        run = jobs.get(ep, {})
+        run = jobs.get(card_id, {})
         last_run = run.get("last_run")
         if last_run is not None:
             age_hours = (pd.Timestamp.now(tz="UTC") - last_run).total_seconds() / 3600
@@ -1575,16 +1953,23 @@ def wf_refresh(state: Any) -> None:
     state.wf_freshness_lov = ["All"] + sorted(freshness_values)
     state.wf_freshness_filter = "All"
 
-    # Build table
-    state.wf_table_data = _build_table_data(_cards, cold, jobs, "All", "All", "All")
+    # Fetch HF cost history
+    hf_costs = _fetch_hf_cost_history()
 
-    # Stats (uses jobs for freshness, cold for cost, warm for live runs)
-    _compute_stats(state, cold, warm, jobs)
+    # Build table
+    state.wf_table_data = _build_table_data(_cards, cold, jobs, "All", "All", "All", hf_costs=hf_costs)
+
+    # Stats (uses jobs for freshness, cold for cost, hf_costs for HF data)
+    _compute_stats(state, cold, warm, jobs, hf_costs=hf_costs)
 
     # Clear detail state (dashboard mode)
     state.wf_selected_workflow = None
+
+    # Start auto-refresh timer (2-minute interval)
+    _start_auto_refresh(state)
 
     logger.info("Workflows page loaded: %d cards, %d cost rows", len(_cards), len(cold))
 
 
 register_page_refresher("AI-ML-Workflows", wf_refresh, is_dashboard=True)
+register_page_teardown("AI-ML-Workflows", _stop_auto_refresh)

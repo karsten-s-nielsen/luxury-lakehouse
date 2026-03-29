@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the current [architecture](ARCHITECTURE.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-03-26 (HF Buckets D27, SoccerMaster/RTMO research, adversarial training D28-D33)
+**Last updated**: 2026-03-28 (Shape Graph D36/D37 from Sotudeh thesis, visualizations roadmap)
 
 ---
 
@@ -543,6 +543,7 @@ Team shape analysis on actual youth/amateur games &mdash; metrics that resonate 
 | Bourbousson et al. (2010), J. Sports Sciences | Stretch index definition &mdash; mean distance from team centroid |
 | Fradua et al. (2013), Int. J. Performance Analysis in Sport | Reference intervals for team length/width by tactical style |
 | Narizuka &amp; Yamazaki (2019), Scientific Reports 9:13172 | Delaunay triangulation formation fingerprinting |
+| Sotudeh (2026), ETH Zurich DISS. 31732; npj Complexity [10.1038/s44260-025-00047-x](https://doi.org/10.1038/s44260-025-00047-x) | Shape graphs &mdash; stable Delaunay subgraph for template-free formation detection + 25-position inference. Solves Narizuka's edge instability problem. See TODO D36/D37 |
 | Kim et al. (2022), ACM KDD | SoccerCPD &mdash; formation change-point detection |
 
 ### Dependencies
@@ -550,6 +551,66 @@ Team shape analysis on actual youth/amateur games &mdash; metrics that resonate 
 - SkillCorner DoD commercial access + [Provider Framework](#provider-abstraction--multi-tier-ingestion) adapter
 - Synergistic with Visual Exploratory Behavior (same own-footage pipeline)
 - Synergistic with Space Creation Quantification (convex hull and spatial control are shared concepts)
+
+---
+
+## Shape Graph Visualizations &amp; Tactical Applications
+
+**Status:** Needs investigation &mdash; core algorithm ready (TODO D36/D37), UI integration needs design decisions
+**Source:** Sotudeh, H. (2026). *Identification of Team Tactical Formations and Player Positions in Association Football.* PhD thesis, ETH Zurich (DISS. ETH NO. 31732). Survey: [Frontiers (DOI: 10.3389/fspor.2024.1512386)](https://doi.org/10.3389/fspor.2024.1512386). Shape graphs: [npj Complexity (DOI: 10.1038/s44260-025-00047-x)](https://doi.org/10.1038/s44260-025-00047-x).
+**Prerequisite:** D36 (shape graph algorithm) and D37 (position maps) from TODO.md
+
+Once the shape graph algorithm (D36) and position maps (D37) are implemented, several applications from the thesis require design decisions before they can be built into the Taipy app.
+
+### Position plots (thesis Chapter 6.1)
+
+The thesis's signature visualization: per-player position time series (vertical + horizontal colors from shape graph decomposition), stacked per team, showing tactical fluidity across the full match. Annotated with goals, substitutions, stoppages, and opponent events.
+
+**Design decisions needed:**
+- Rendering approach: Plotly heatmap, custom SVG canvas, or Taipy-native chart?
+- Information density: full match at once vs scrollable/zoomable timeline?
+- Interaction: click a time slice to see the shape graph at that frame?
+- Relationship to existing Team Shape timeline (which shows spatial metrics over time)
+
+### Dual-detector comparison (EFPI vs Shape Graphs)
+
+Running both EFPI (template-matching) and shape graphs (geometric) on the same tracking data enables a richer view. Disagreements between the two methods highlight interesting tactical moments &mdash; e.g., when the team's shape doesn't cleanly match any template, shape graphs can still assign positions.
+
+**Design decisions needed:**
+- Presentation: toggle between detectors? side-by-side? only show where they disagree?
+- Team Shape page integration: separate tab, new metric, or overlay?
+- Which detector is "primary" when they disagree?
+
+### Position map integration in Taipy
+
+Position maps (5&times;5 time-in-position matrix per player per match) provide a fundamentally different view from spatial heatmaps. Where a heatmap shows *where on the pitch* a player was, a position map shows *which tactical role* they occupied. Three phase variants (all, in-possession, out-of-possession) reveal role changes by game state.
+
+**Design decisions needed:**
+- Which Taipy page? Player Comparison (alongside radar charts)? Player Impact? New dedicated page?
+- Visualization: 5&times;5 grid with color intensity (thesis Figure 4.10)? Table? Both?
+- Multi-match aggregation: per-match position maps or season-level profiles?
+
+### Positional player scouting (thesis Chapter 6.2)
+
+Position map similarity enables "find players who occupy similar tactical positions regardless of nominal formation." A player who plays RB in a 4-3-3 and a player who plays RWB in a 3-5-2 may have very similar position maps despite different formation labels.
+
+**Investigation needed:**
+- How does position map similarity compare to existing football2vec embeddings on Player Similarity page?
+- Could position map vectors become a feature in D18's transformer embeddings?
+- Integration: add a "Tactical Profile" similarity mode alongside "Statistical" and "Embedding" options?
+
+### Cross-cutting connections
+
+- **[Graph-Based Tactical Patterns](#graph-based-tactical-pattern-recognition)**: Shape graphs are a direct precursor. Raabe et al. (2022) use player distance graphs for tactical classification; Sotudeh's shape graphs are a principled, stable version of the same idea. Shape graph edge structure (degree, face membership, stability values) could serve as GNN node features.
+- **DEFCON Tier 4 (GNN)**: Defensive shape graphs could provide graph-level features for defensive valuation &mdash; the stability of the defensive shape graph correlates with defensive organization.
+- **[Team Shape Analysis &mdash; Stage 2](#team-shape-analysis--stage-2-own-footage-pipeline)**: Shape graphs apply equally to own-footage tracking data. The algorithm needs only (x, y) positions per frame &mdash; provider-agnostic.
+
+### Dependencies
+
+- D36 (shape graph algorithm) + D37 (position maps) must land first
+- Taipy page design decisions for each visualization
+- Synergistic with D26 (GK metadata) for full 20-match coverage
+- Synergistic with D18/D30 (player embeddings) for scouting application
 
 ---
 
@@ -712,7 +773,7 @@ pl.scan_parquet("hf://datasets/luxury-lakehouse/spadl-vaep-action-values/**/*.pa
 Even before the Polars branch merges, two things are actionable today:
 
 1. **XET is already active** &mdash; our existing `HfApi().upload_folder()` calls already benefit from chunk-level dedup when updating published datasets. No code change needed.
-2. **Storage Buckets for demo data** &mdash; could migrate `demo_space/data/` from git-tracked Parquet to a bucket, reducing Space repo size and avoiding git history bloat when demo data is refreshed. Requires updating `app.py` to read from `hf://buckets/luxury-lakehouse/demo-data/` instead of local paths.
+2. **Storage Buckets for demo data** &mdash; **DONE.** Demo data migrated to HF Bucket; `demo_space/app.py` reads from `hf://buckets/luxury-lakehouse/demo-data/`.
 
 ---
 

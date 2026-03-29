@@ -9,7 +9,7 @@
 #     "xgboost>=2.0",
 #     "socceraction==1.5.3",
 #     "multimethod==1.12",
-#     "huggingface-hub>=0.25.0",
+#     "huggingface-hub>=1.5.0",
 #     "mlflow>=2.17.0",
 # ]
 # ///

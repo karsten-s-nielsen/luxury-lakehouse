@@ -131,6 +131,7 @@ _page_refreshers: dict[str, Any] = {}
 # from this set, removing the need for imperative state.show_site_footer
 # assignments in individual page refresh functions.
 _dashboard_pages: set[str] = set()
+_page_teardowns: dict[str, Any] = {}  # page_name -> teardown callback (no args)
 
 
 def register_page_refresher(page_name: str, fn: Any, *, is_dashboard: bool = False) -> None:
@@ -146,6 +147,15 @@ def register_page_refresher(page_name: str, fn: Any, *, is_dashboard: bool = Fal
     _page_refreshers[page_name] = fn
     if is_dashboard:
         _dashboard_pages.add(page_name)
+
+
+def register_page_teardown(page_name: str, fn: Any) -> None:
+    """Register a teardown callback invoked when the user navigates away from *page_name*.
+
+    Teardowns run before the new page's refresher. Use for stopping timers,
+    cancelling background tasks, or releasing resources tied to a page.
+    """
+    _page_teardowns[page_name] = fn
 
 
 _LOADING_TEXTS: dict[str, str] = {
@@ -171,6 +181,14 @@ def _refresh_current_page(state: Any) -> None:
     # so the site-wide footer must be hidden.  Derived from the
     # _dashboard_pages set (populated at registration time).
     state.show_site_footer = state.current_page not in _dashboard_pages
+
+    # Run teardown for any page the user is navigating away from.
+    for page_name, teardown in _page_teardowns.items():
+        if page_name != state.current_page:
+            try:
+                teardown()
+            except Exception:
+                logger.debug("Teardown failed for %s", page_name, exc_info=True)
 
     fn = _page_refreshers.get(state.current_page)
     if fn:
