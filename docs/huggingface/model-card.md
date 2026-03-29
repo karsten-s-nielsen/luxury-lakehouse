@@ -162,7 +162,7 @@ player2vec.model.wv.vectors.npy -- word vectors (numpy)
 zscore_params.json             -- z-score normalization parameters
 ```
 
-## Companion Datasets
+## Companion Resources
 
 Pre-computed datasets derived from this model and the platform's analytics pipelines:
 

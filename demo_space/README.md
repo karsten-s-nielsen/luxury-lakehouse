@@ -55,11 +55,23 @@ All data is pre-cached as Parquet files (no live database connectivity):
 - [Wyscout Public Dataset](https://figshare.com/collections/Soccer_match_event_dataset/4415000) (CC-BY-NC 4.0)
 - [Metrica Sports Sample Data](https://github.com/metrica-sports/sample-data) (CC-BY 4.0)
 
-**Published artifacts:**
+**Published models:**
+[football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) |
+[xG Model](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout) |
+[xG v2 Set Encoder](https://huggingface.co/luxury-lakehouse/xg-v2-model-set-encoder) |
+[VAEP Model](https://huggingface.co/luxury-lakehouse/vaep-model-statsbomb-wyscout)
+
+**Published datasets:**
 [SPADL/VAEP](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values) |
 [Line-Breaking Passes](https://huggingface.co/datasets/luxury-lakehouse/line-breaking-passes) |
 [Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings) |
 [Pitch Control](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking) |
-[football2vec model](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout)
+[xG Shot Data](https://huggingface.co/datasets/luxury-lakehouse/xg-shot-data) |
+[xG Freeze Frames](https://huggingface.co/datasets/luxury-lakehouse/xg-freeze-frame-data) |
+[Expected Threat Grids](https://huggingface.co/datasets/luxury-lakehouse/expected-threat-grids) |
+[OBSO/PAUSA Inputs](https://huggingface.co/datasets/luxury-lakehouse/obso-pausa-inputs) |
+[OBSO/PAUSA Values](https://huggingface.co/datasets/luxury-lakehouse/obso-pausa-values) |
+[OBSO Trained Grids](https://huggingface.co/datasets/luxury-lakehouse/obso-trained-grids) |
+[Space Creation Values](https://huggingface.co/datasets/luxury-lakehouse/space-creation-values)
 
 **Source:** [github.com/karsten-s-nielsen/luxury-lakehouse](https://github.com/karsten-s-nielsen/luxury-lakehouse)

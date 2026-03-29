@@ -183,7 +183,7 @@ See [ROADMAP.md](ROADMAP.md) for research directions, long-horizon features, and
 - **Staging Environment** — Lakebase branching for pre-production validation
 - **Graph-Based Tactical Patterns** — GNN research direction (Raabe et al. 2022)
 - **Decision Optimization** — RL-based pass optimization beyond VAEP (Rahimian et al.)
-- **HuggingFace Hub** — Tier 5 (streaming dataset publishing via XET + Polars) blocked on upstream
+- **Hugging Face Hub** — Tier 5 (streaming dataset publishing via XET + Polars) blocked on upstream
 
 ## Infrastructure Notes
 

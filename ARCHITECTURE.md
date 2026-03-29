@@ -1,6 +1,6 @@
 # Databricks Lakebase Architecture — Soccer Analytics Platform
 
-> **Status**: Phase 20 complete (Taipy migration) + Team Shape + pre-aggregated tracking tables — 14 Taipy pages, 26 synced tables, 45 PG indexes (41 btree + 4 HNSW). HuggingFace Hub: 4 models + 11 datasets published, GPU training on HF Jobs A10G.
+> **Status**: Phase 20 complete (Taipy migration) + Team Shape + pre-aggregated tracking tables — 14 Taipy pages, 26 synced tables, 45 PG indexes (41 btree + 4 HNSW). Hugging Face Hub: 4 models + 11 datasets published, GPU training on HF Jobs A10G.
 > **Last Updated**: 2026-03-26
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready
@@ -141,7 +141,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 ┌───────────────────────────────────────────────────────────────────────────┐
 │          TAIPY APPLICATION                                                │
 │  ┌───────────────────────────────────────────────────────────────────┐    │
-│  │  Deployed on HuggingFace Spaces (Docker SDK)                      │    │
+│  │  Deployed on Hugging Face Spaces (Docker SDK)                      │    │
 │  │  • PAT auth (OAuth M2M blocked — see TODO M2)                     │    │
 │  │  • Connects to Lakebase via psycopg2 (ThreadedConnectionPool)     │    │
 │  │  • 14 pages: Shot Map, Pass Map, Heat Map, Pass Network,          │    │
@@ -278,7 +278,7 @@ System Boundary: Soccer Analytics Platform (Databricks on AWS)
   │   Technology: PostgreSQL 17, Autoscaling (0.5–4 CU), pgvector
   │   Responsibility: Low-latency OLTP queries for the Taipy app
   │
-  └── Taipy Dashboard              [HuggingFace Spaces (Docker SDK)]
+  └── Taipy Dashboard              [Hugging Face Spaces (Docker SDK)]
       Technology: Python + Taipy + mplsoccer + Plotly + psycopg2
       Responsibility: Interactive analytics UI for coaches/analysts
 ```
@@ -371,7 +371,7 @@ luxury-lakehouse/
 │
 ├── assets/                           # Images and branding
 │   ├── luxury-lakehouse.jpg
-│   └── hf-logo.png                  # HuggingFace logo (ROADMAP § HF Hub Integration)
+│   └── hf-logo.png                  # Hugging Face logo (ROADMAP § HF Hub Integration)
 │
 ├── terraform/
 │   ├── environments/dev/             # Dev environment composition
@@ -426,7 +426,7 @@ luxury-lakehouse/
 │   │   ├── spadl_vaep.py             # SPADL conversion + VAEP scoring pipeline
 │   │   └── utils.py                  # Shared CLI, logging, HTTP, Delta helpers
 │   │
-│   ├── streamlit_app/
+│   ├── streamlit_app/                # [DEPRECATED] Retained for reference during Taipy transition
 │   │   ├── app.py                    # Entrypoint: st.navigation, page routing
 │   │   ├── config.py                 # Pydantic BaseSettings
 │   │   ├── db.py                     # OAuth M2M, ThreadedConnectionPool, parameterized queries
@@ -466,6 +466,15 @@ luxury-lakehouse/
 │       ├── test_streamlit_config.py
 │       └── test_streamlit_db.py
 │
+├── hf_taipy_app/                     # Production Taipy dashboard (deployed to HF Spaces)
+│   ├── src/
+│   │   ├── main.py                   # Entrypoint: PAGE_REGISTRY, Taipy GUI init
+│   │   ├── page_template.py          # Template engine: build_page(PageConfig)
+│   │   ├── template.py              # GLOSSARY, PAGE_TERMS, shared constants
+│   │   ├── pages/                    # 14 pages (PageConfig + build_page per page)
+│   │   └── state/                    # Per-page state modules (callbacks, queries, charts)
+│   └── README.md                     # HF Spaces metadata (Docker SDK)
+│
 ├── dbt_project/
 │   ├── models/
 │   │   ├── staging/                  # SILVER: statsbomb/, metrica/, wyscout/, spadl/, idsse/, skillcorner/, line_breaking/, off_ball_xt/, defcon/, entity_resolution/, pitch_control/, pausa/
@@ -476,7 +485,7 @@ luxury-lakehouse/
 │   └── seeds/                        # competition_metadata.csv, position_mapping.csv, player_xref_overrides.csv
 │
 ├── notebooks/
-│   ├── train_football2vec.py         # Databricks notebook: Doc2Vec training + HuggingFace Hub publishing
+│   ├── train_football2vec.py         # Databricks notebook: Doc2Vec training + Hugging Face Hub publishing
 │   ├── train_xg_model.py            # Databricks notebook: xG model training (logistic + XGBoost) + HF Hub publishing
 │   ├── sync_hf_weights.py           # Databricks notebook: Download model weights from HF Hub to UC Volume
 │   └── publish_datasets.py           # Databricks notebook: Export Gold tables as Parquet to HF Hub (5 datasets + model cards)
@@ -509,7 +518,7 @@ luxury-lakehouse/
 │   ├── terraform-plan.yml            # Plan on PR (OIDC auth)
 │   └── dbt-ci.yml                    # dbt slim CI (state:modified+, --empty, --defer)
 │
-├── demo_space/                      # HuggingFace Gradio demo Space (6 tabs: pass quality, pitch control, player similarity, shot map, DEFCON pressure, pass timing)
+├── demo_space/                      # Hugging Face Gradio demo Space (6 tabs: pass quality, pitch control, player similarity, shot map, DEFCON pressure, pass timing)
 │   ├── app.py                       # Gradio app with luxury flagship theme (dark surfaces, gold accents)
 │   └── pitch_control.py             # Pure NumPy pitch control (Spearman 2017) — no Spark dependency
 │
@@ -520,10 +529,13 @@ luxury-lakehouse/
     ├── huggingface/
     │   ├── model-card.md             # HF Hub model card: football2vec (source of truth)
     │   ├── xg-model-card.md          # HF Hub model card: xG model (source of truth)
+    │   ├── xg-v2-model-card.md       # HF Hub model card: xG v2 set encoder (source of truth)
+    │   ├── model-cards/
+    │   │   └── vaep-model.md         # HF Hub model card: VAEP model (source of truth)
     │   ├── org-card.md               # HF Hub org card (source of truth)
     │   ├── org-interests.md          # HF Hub org "AI & ML interests" (paste via web UI)
-    │   └── dataset-cards/            # HF Hub dataset cards (5 datasets)
-    ├── huggingface-setup.md          # HuggingFace Hub integration guide (forks)
+    │   └── dataset-cards/            # HF Hub dataset cards (11 datasets)
+    ├── huggingface-setup.md          # Hugging Face Hub integration guide (forks)
     └── plans/                        # Implementation design documents
 ```
 
@@ -583,7 +595,7 @@ All code must pass these gates before merge:
 
 | Level | What | How |
 |-------|------|-----|
-| Unit | Ingestion logic, utility functions, analytics models | pytest (704 passed, incl. pytest-benchmark baselines) |
+| Unit | Ingestion logic, utility functions, analytics models | pytest (807 passed, incl. pytest-benchmark baselines) |
 | Integration | dbt models compile and run | dbt slim CI (`state:modified+`, `--empty`, `--defer`) |
 | Data quality | Row counts, value ranges, referential integrity | dbt tests (381) + dbt-expectations |
 | E2E | Taipy pages render with real data | Manual smoke test |
@@ -596,7 +608,7 @@ Lakebase and Databricks performance standards are codified in [CLAUDE.md § Data
 - **Lakebase (PG):** Index every filtered column on fact tables >100K rows. No `ON ONLY` indexes (partitioned tables). Avoid `SELECT DISTINCT` on large tables — use recursive CTE. Re-run `scripts/create_indexes.py` after every synced table recreation.
 - **Databricks (Spark/dbt):** `validate_dataframe()` returns row count to `write_delta_table()` (no double `df.count()`), all writes use `replaceWhere` for idempotency, don't `.toPandas()` unbounded tables, extract repeated window functions into CTEs. All 14 mart fact tables use `liquid_clustered_by` for automatic data layout (replaced static Z-ordering). Predictive Optimization enabled at catalog level. Auto-compaction and `optimizeWrite` enabled via `+tblproperties` on all mart tables. All 17 mart models enforce dbt model contracts (`contract: {enforced: true}`, `on_schema_change: fail`).
 
-Currently 41 btree indexes across 17 tables + 4 HNSW vector indexes on embedding tables (45 total) covering all Taipy query patterns. Managed by `scripts/create_indexes.py` with `ANALYZE` for planner statistics and `--verify` for EXPLAIN ANALYZE validation.
+The platform has 41 btree indexes across 17 tables + 4 HNSW vector indexes on embedding tables (45 total) covering all Taipy query patterns. Managed by `scripts/create_indexes.py` with `ANALYZE` for planner statistics and `--verify` for EXPLAIN ANALYZE validation.
 
 ### 6.7 — Architecture Documentation
 

@@ -118,6 +118,13 @@ And the socceraction library:
 }
 ```
 
+## Companion Resources
+
+| Resource | Type | Description |
+|----------|------|-------------|
+| [VAEP Model](https://huggingface.co/luxury-lakehouse/vaep-model-statsbomb-wyscout) | Model | P(scores) + P(concedes) XGBClassifiers trained on this dataset |
+| [Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings) | Dataset | Behavioral + statistical vectors derived from SPADL actions |
+
 ## More Information
 
 > **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)

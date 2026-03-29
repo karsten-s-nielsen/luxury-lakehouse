@@ -21,7 +21,7 @@ pipeline_tag: tabular-classification
 
 # VAEP Model &mdash; StatsBomb + Wyscout
 
-Two XGBClassifier models that estimate **P(scoring)** and **P(conceding)** within the next 10 actions, enabling per-action valuation of every on-ball event in a soccer match. Trained on **~2,388 matches** from [StatsBomb Open Data](https://github.com/statsbomb/open-data) and [Wyscout](https://figshare.com/collections/Soccer_match_event_dataset/4415000) via [HuggingFace Jobs](https://huggingface.co/docs/hub/jobs) (CPU).
+Two XGBClassifier models that estimate **P(scoring)** and **P(conceding)** within the next 10 actions, enabling per-action valuation of every on-ball event in a soccer match. Trained on **~2,388 matches** from [StatsBomb Open Data](https://github.com/statsbomb/open-data) and [Wyscout](https://figshare.com/collections/Soccer_match_event_dataset/4415000) via [Hugging Face Jobs](https://huggingface.co/docs/hub/jobs) (CPU).
 
 Part of the (Right! Luxury!) Lakehouse soccer analytics platform.
 
@@ -108,7 +108,7 @@ Coverage includes the Premier League, La Liga, Serie A, Bundesliga, Ligue 1, Cha
 
 All event data is converted to the **SPADL** (Soccer Player Action Description Language) unified format with standardized coordinates (105&times;68 meters) and 23 canonical action types, enabling cross-source training without vendor-specific adapters.
 
-Training is performed on [HuggingFace Jobs](https://huggingface.co/docs/hub/jobs) using the `cpu-basic` flavor.
+Training is performed on [Hugging Face Jobs](https://huggingface.co/docs/hub/jobs) using the `cpu-basic` flavor.
 
 ### Training / Test Split
 
@@ -194,7 +194,7 @@ vaep_value = vaep_offensive + vaep_defensive
 - **No tracking data**: VAEP is event-based. Off-ball positioning, pressing intensity, and space creation are not captured. See [OBSO](https://github.com/karsten-s-nielsen/luxury-lakehouse) for tracking-based approaches.
 - **Competition-agnostic**: The models are trained across all competitions jointly. League-specific models may produce more calibrated probabilities for individual leagues.
 - **Cross-source alignment**: StatsBomb and Wyscout use different event taxonomies. The SPADL adapter normalizes them, but subtle differences in event definitions (e.g., duel classification) remain.
-- **No calibration**: Unlike the xG models, the VAEP classifiers do not include post-hoc isotonic calibration. Predicted probabilities may not be perfectly calibrated in absolute terms.
+- **No calibration**: Unlike the xG models, the VAEP classifiers do not include post-hoc isotonic calibration. Predicted probabilities may not be perfectly calibrated in absolute terms. For ranking players or actions, this is less consequential; for applications requiring absolute probability values, validate with a reliability diagram.
 - **10-action horizon**: VAEP considers only the next 10 actions. Longer-range effects (e.g., a switch of play that leads to a goal 20 actions later) are not captured.
 
 ## Model Files
@@ -239,7 +239,7 @@ And the socceraction library:
 }
 ```
 
-## Companion Datasets
+## Companion Resources
 
 | Dataset | Description |
 |---------|-------------|

@@ -23,7 +23,7 @@ configs:
 
 # xG Shot Data &mdash; StatsBomb + Wyscout
 
-**~131K professional soccer shots** from [StatsBomb Open Data](https://github.com/statsbomb/open-data) (~88K) and [Wyscout](https://figshare.com/collections/Soccer_match_event_dataset/4415000) (~43K), with geometric features, categorical context, and goal labels. Partitioned by `data_source` for selective loading.
+**~131K professional soccer shots** from [StatsBomb Open Data](https://github.com/statsbomb/open-data) (~95K) and [Wyscout](https://figshare.com/collections/Soccer_match_event_dataset/4415000) (~43K), with geometric features, categorical context, and goal labels. Partitioned by `data_source` for selective loading.
 
 Part of the (Right! Luxury!) Lakehouse soccer analytics platform.
 
@@ -84,7 +84,7 @@ This dataset contains every shot from the StatsBomb and Wyscout open data collec
 All spatial features use the **StatsBomb coordinate system**:
 
 - Pitch dimensions: 120 yards (length) &times; 80 yards (width)
-- Origin: top-left corner of the pitch
+- Origin: bottom-left corner of the pitch
 - Attacking direction: left to right (x increases toward opponent goal)
 - Goal center: approximately (120, 40)
 
@@ -94,7 +94,7 @@ Wyscout coordinates (0&ndash;100% scale) are converted to StatsBomb coordinates 
 
 | Source | Shots | Matches | License |
 |--------|-------|---------|---------|
-| [StatsBomb Open Data](https://github.com/statsbomb/open-data) | ~88K | ~3,000 | CC-BY 4.0 |
+| [StatsBomb Open Data](https://github.com/statsbomb/open-data) | ~95K | ~3,000 | CC-BY 4.0 |
 | [Wyscout Public Dataset](https://figshare.com/collections/Soccer_match_event_dataset/4415000) | ~43K | ~1,900 | CC-BY-NC 4.0 |
 | **Total** | **~131K** | | CC-BY-NC 4.0 (most restrictive applies) |
 
@@ -139,7 +139,7 @@ df_sb = pd.read_parquet(path)
 - **No freeze frames**: This dataset contains tabular shot features only. For player positions at the moment of each shot (used by xG v2), see the companion [xG Freeze Frame Data](https://huggingface.co/datasets/luxury-lakehouse/xg-freeze-frame-data) dataset.
 - **Wyscout NULL columns**: `competition_id`, `season_id`, and `statsbomb_xg` are NULL for all Wyscout shots due to the absence of a cross-source match join for those fields.
 - **Coordinate conversion**: Wyscout coordinates are converted from percentage-based (0&ndash;100) to StatsBomb yards (0&ndash;120, 0&ndash;80) at the dbt staging layer. Subtle conversion artifacts may exist at pitch boundaries.
-- **Class imbalance**: Goals are relatively rare (~9&ndash;10% of shots). Models should account for this imbalance during training.
+- **Class imbalance**: Goals are relatively rare (~9&ndash;10% of shots). Account for this imbalance during training using class weights (`scale_pos_weight` in XGBoost) or stratified sampling.
 
 ## Citation
 

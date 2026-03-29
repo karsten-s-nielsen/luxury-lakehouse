@@ -100,7 +100,7 @@ Freeze-frame coverage comes from StatsBomb 360 data: approximately 15.58M freeze
 
 Coverage includes the Premier League, La Liga, Serie A, Bundesliga, Ligue 1, Champions League, World Cup, and more.
 
-Training is performed on [HuggingFace Jobs](https://huggingface.co/docs/hub/jobs) using PyTorch. Inference uses the pure NumPy forward pass exported from the trained weights.
+Training is performed on [Hugging Face Jobs](https://huggingface.co/docs/hub/jobs) using PyTorch. Inference uses the pure NumPy forward pass exported from the trained weights.
 
 ## Features
 
@@ -110,7 +110,7 @@ These features are the same as the v1 XGBoost baseline:
 
 | Feature | Type | Description |
 |---------|------|-------------|
-| `distance_to_goal` | Numeric | Euclidean distance from shot location to goal center (meters) |
+| `distance_to_goal` | Numeric | Euclidean distance from shot location to goal center (yards) |
 | `shot_angle` | Numeric | Angle subtended by the goal from the shot location (radians) |
 | `location_x` | Numeric | Shot x-coordinate (StatsBomb: 0&ndash;120) |
 | `location_y` | Numeric | Shot y-coordinate (StatsBomb: 0&ndash;80) |
@@ -143,7 +143,7 @@ Player identity is never used. The set encoder sees only spatial position and ro
 | v2 Set Encoder (raw, pre-calibration) | 0.901 | 0.061 | &mdash; |
 | **v2 Set Encoder + Isotonic Calibration + MC Dropout** | **0.915** | **0.060** | **0.200** |
 
-ROC-AUC improved by **+0.090** over the v1 XGBoost baseline. Isotonic calibration closed the Brier score gap to 0.003 while substantially improving log loss (1.212 &rarr; 0.200). MC dropout 95% CI coverage: **95.1%** (properly calibrated).
+ROC-AUC improved by **+0.090** over the v1 XGBoost baseline (0.825 &rarr; 0.915) &mdash; a large gain in discrimination for xG models, where +0.02 is typically meaningful. Isotonic calibration closed the Brier score gap to 0.003 while reducing log loss sixfold (1.212 &rarr; 0.200). MC dropout 95% CI coverage: **95.1%** (properly calibrated).
 
 **Training**: 153 seconds on HF Jobs A10G-small. MC dropout z-multiplier: 4.2, inference dropout rate: 0.30 (3&times; training dropout of 0.10).
 
@@ -154,7 +154,7 @@ ROC-AUC improved by **+0.090** over the v1 XGBoost baseline. Isotonic calibratio
 All spatial features use the **StatsBomb coordinate system**:
 
 - Pitch dimensions: 120 yards (length) &times; 80 yards (width)
-- Origin: top-left corner of the pitch
+- Origin: bottom-left corner of the pitch
 - Attacking direction: left to right (x increases toward opponent goal)
 - Goal center: approximately (120, 40)
 
@@ -177,7 +177,7 @@ import json
 
 # Download weights
 weights_path = hf_hub_download(
-    repo_id="luxury-lakehouse/xg-v2-set-encoder",
+    repo_id="luxury-lakehouse/xg-v2-model-set-encoder",
     filename="xg_v2_weights.json",
 )
 with open(weights_path, "rb") as f:
@@ -289,7 +289,7 @@ If you use this model, please cite the Deep Sets architecture and the MC Dropout
 }
 ```
 
-## Companion Datasets
+## Companion Resources
 
 | Dataset | Description |
 |---------|-------------|
@@ -307,5 +307,5 @@ Try the interactive [Soccer Analytics Explorer](https://huggingface.co/spaces/lu
 ## More Information
 
 - **License**: [CC-BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) (inherited from Wyscout training data)
-- **v1 baseline model**: [Football2Vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout)
+- **v1 baseline model**: [xG v1 (XGBoost)](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout)
 - **Platform**: [Luxury Lakehouse Soccer Analytics](https://github.com/karsten-s-nielsen/luxury-lakehouse)

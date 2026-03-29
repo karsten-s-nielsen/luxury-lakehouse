@@ -1,10 +1,10 @@
-# HuggingFace Organization — AI & ML Interests
+# Hugging Face Organization — AI & ML Interests
 
-> **Source of truth** for the `luxury-lakehouse` HuggingFace org "AI & ML interests" section.
+> **Source of truth** for the `luxury-lakehouse` Hugging Face org "AI & ML interests" section.
 >
 > **How to apply**: Paste into HF web UI at
 > [Settings > Organization card](https://huggingface.co/organizations/luxury-lakehouse/settings/profile)
-> under "AI & ML interests". No API endpoint currently exists for this field.
+> under "AI & ML interests". No API endpoint exists for this field.
 
 ## Interests
 

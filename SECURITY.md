@@ -1,5 +1,15 @@
 # Security Audit Report — (Right! Luxury!) Lakehouse
 
+## Reporting a Vulnerability
+
+If you discover a security vulnerability, please report it through [GitHub's private vulnerability reporting](https://github.com/karsten-s-nielsen/luxury-lakehouse/security/advisories/new). Do not open a public issue.
+
+**Response time:** This is a solo-maintained project. Expect an initial response within 7 days.
+
+**Supported versions:** Only the current `main` branch is supported.
+
+---
+
 **Audit date:** 2026-02-27 (updated 2026-03-11)
 **Skill version:** `mad-scientist-skills:security-audit` v1.6.0
 **Mode:** Audit (existing codebase)
@@ -36,7 +46,7 @@ All actionable findings from the February 2026 audit have been resolved. The 3 a
 | I-1 | Data | No PII in data stores — all sources are public sports statistics of professional athletes. |
 | ~~I-2~~ | ~~CI/CD~~ | ~~No SBOM generation pipeline.~~ **Resolved** (2026-03-11): CycloneDX SBOM generation added to `python-ci.yml` during optimization audit. |
 | I-3 | Monitoring | No centralized SIEM/log aggregation. Logs flow to Databricks built-in capture. Acceptable for dev. |
-| I-4 | Monitoring | Referenced runbooks (`docs/runbooks/`) do not exist in repo. |
+| I-4 | Monitoring | Referenced runbooks (`docs/runbooks/`) do not exist in repo. Status: deferred — see TODO.md for current operational procedures. |
 
 ---
 
@@ -52,7 +62,7 @@ All actionable findings from the February 2026 audit have been resolved. The 3 a
 
 ### Security Surface — Well-Defined
 
-- Clear entry points: Streamlit UI, CLI ingestion, Terraform IaC
+- Clear entry points: Taipy dashboard, CLI ingestion, Terraform IaC
 - All auth via Databricks runtime (no embedded credentials)
 - HTTPS-only enforcement with SSL verification
 - Explicit timeouts and retry-with-backoff on all HTTP calls
@@ -68,7 +78,7 @@ All actionable findings from the February 2026 audit have been resolved. The 3 a
 
 - OAuth M2M with short-lived JWT (60 min, refreshed at 55 min)
 - `sslmode=require` on all PG connections (Autoscaling requirement)
-- XSRF protection enabled in Streamlit config
+- Taipy server-side state management (no client-side session tokens requiring XSRF protection)
 - CORS disabled
 
 ### Supply Chain — Strong
