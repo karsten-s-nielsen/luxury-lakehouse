@@ -87,7 +87,7 @@ def _generate_credential_via_rest(ws: WorkspaceClient, endpoint_name: str) -> st
     )
     # L-14: Log HTTP auth failures before raising
     if not resp.ok:
-        logger.error(
+        logger.error(  # nosemgrep: python-logger-credential-disclosure -- logs HTTP status, not secrets
             "SECURITY: REST credential API returned HTTP %d %s",
             resp.status_code,
             resp.reason,
@@ -131,6 +131,7 @@ def _refresh_token() -> str:
     _token_cache["expires_at"] = now + settings.pool_connection_max_age_seconds
 
     ttl = settings.pool_connection_max_age_seconds
+    # nosemgrep: python-logger-credential-disclosure -- logs username and TTL, not token
     logger.info("Refreshed Lakebase OAuth token for user=%s (expires in %ds)", pg_user, ttl)
     return token
 

@@ -26,7 +26,7 @@ import gc
 import logging
 import math
 import re
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # nosemgrep: use-defused-xml -- trusted local DFL XML files, not untrusted input
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -112,7 +112,7 @@ def _parse_teams(info_path: str) -> tuple[str, str, dict[str, str]]:
     Returns:
         Tuple of (home_team_id, away_team_id, {person_id: "home"|"away"}).
     """
-    tree = ET.parse(info_path)  # noqa: S314
+    tree = ET.parse(info_path)  # noqa: S314  # nosemgrep: use-defused-xml-parse
     root = tree.getroot()
 
     home_team_id = ""

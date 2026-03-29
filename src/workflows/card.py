@@ -331,6 +331,7 @@ def _warn_unresolved_tokens(obj: object, card_id: str) -> None:
     """Log a warning for any ``{token}`` placeholders remaining after resolution."""
     if isinstance(obj, str):
         for match in _UNRESOLVED_TOKEN_RE.finditer(obj):
+            # nosemgrep: python-logger-credential-disclosure
             _logger.warning("Unresolved template token %s in card %s: %s", match.group(), card_id, obj)
     elif isinstance(obj, list):
         for item in obj:

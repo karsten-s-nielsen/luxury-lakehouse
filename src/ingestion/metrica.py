@@ -26,7 +26,7 @@ import io
 import json
 import logging
 import re
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # nosemgrep: use-defused-xml -- trusted local Metrica EPTS XML, not untrusted input
 from typing import TYPE_CHECKING, NamedTuple
 
 import pandas as pd

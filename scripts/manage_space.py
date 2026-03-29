@@ -208,9 +208,11 @@ def _create_space(repo_id: str, target: str, api: HfApi, *, force: bool, skip_se
             value = os.environ.get(env_var)
             if value:
                 api.add_space_secret(repo_id, key=secret_name, value=value)
+                # nosemgrep: python-logger-credential-disclosure -- logs name, not value
                 logger.info("Secret %s: set from $%s", secret_name, env_var)
             else:
                 missing_secrets.append(secret_name)
+                # nosemgrep: python-logger-credential-disclosure -- logs name, not value
                 logger.warning("Secret %s: NOT SET -- $%s is not in environment", secret_name, env_var)
 
         if missing_secrets:
