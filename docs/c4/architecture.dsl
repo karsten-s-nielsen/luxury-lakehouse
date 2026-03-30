@@ -44,7 +44,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 16 AI/ML wor
 
         lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL-compatible endpoint syncing 26 Delta Lake tables from Unity Catalog (41 btree + 4 HNSW vector indexes)" "External"
         databricksApi = softwareSystem "Databricks REST API" "OAuth credential endpoint for Lakebase authentication" "External"
-        databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 20 tasks (5 ingest + 13 compute + 1 validation + 1 HF cost sync), daily 06:00 UTC" "External"
+        databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 21 tasks (5 ingest + 14 compute + 1 validation + 1 HF cost sync), daily 06:00 UTC" "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds from Dockerfile, serves on port 7860" "External"
         hfHub = softwareSystem "HuggingFace Hub" "Hosts 4 models, 12 datasets, build-artifacts wheel, demo-data bucket, and _workflow_cost.json cost artifacts" "External"
         hfJobs = softwareSystem "HuggingFace Jobs" "GPU/CPU compute: 7 PEP 723 UV scripts for training (xG, VAEP) and batch analytics (xT, EPV, OBSO, Space Creation)" "External"

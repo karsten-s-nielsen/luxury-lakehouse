@@ -417,7 +417,7 @@ global_grid = grids[grids["competition_id"] == "global"]
 
 MIT — derived from StatsBomb and Wyscout open data via SPADL.
 """
-        with open(str(Path(tmpdir) / "README.md"), "w") as f:
+        with open(str(Path(tmpdir) / "README.md"), "w", encoding="utf-8") as f:
             f.write(card)
 
         api.create_repo(OUTPUT_DATASET, repo_type="dataset", exist_ok=True, token=hf_token)

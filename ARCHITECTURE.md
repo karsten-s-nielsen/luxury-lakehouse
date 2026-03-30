@@ -63,7 +63,8 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • defcon_lite → DEFCON-lite defensive credit assignment         │    │
 │  │  • resolve_players → cross-source entity resolution              │    │
 │  │  • compute_embeddings → Doc2Vec + z-score player embeddings      │    │
-│  │  • compute_xg_model → Custom xG scoring (logistic + XGBoost)     │    │
+│  │  • compute_xg_model → xG v1 scoring (logistic + XGBoost)         │    │
+│  │  • compute_xg_model_v2 → xG v2 scoring (Deep Sets + MC dropout) │    │
 │  │  • compute_expected_threat → Data-driven xT grid from SPADL      │    │
 │  │  • elastic_sync → ELASTIC event-tracking alignment (Kim 2025)    │    │
 │  │  • compute_pausa → PAUSA pass timing (Lee et al. 2026)          │    │
@@ -87,7 +88,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • elastic_sync: elastic_sync_results                           │    │
 │  │  • obso: obso_surfaces, pausa_raw_scores                       │    │
 │  │  • model_validation: model_validation_runs                      │    │
-│  │  • xg_predictions, expected_threat_grids                         │    │
+│  │  • xg_predictions (v1), xg_predictions_v2, expected_threat_grids  │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
@@ -420,7 +421,8 @@ luxury-lakehouse/
 │   │   ├── defcon_lite.py            # DEFCON-lite batch computation (gold+bronze → bronze)
 │   │   ├── entity_resolution.py     # Cross-source player entity resolution (StatsBomb × Wyscout → bronze)
 │   │   ├── player_embeddings.py     # Player embedding inference + stat vector computation
-│   │   ├── xg_model.py             # xG model scoring pipeline (load weights from UC Volume, score shots)
+│   │   ├── xg_model.py             # xG v1 scoring pipeline (logistic + XGBoost, writes xg_predictions)
+│   │   ├── xg_model_v2.py          # xG v2 scoring pipeline (Deep Sets + MC dropout, writes xg_predictions_v2)
 │   │   ├── pitch_control_batch.py  # Pitch control batch pipeline (applyInPandas + frame_batch_id)
 │   │   ├── spadl_adapter.py          # Bronze-to-socceraction format adapters
 │   │   ├── spadl_vaep.py             # SPADL conversion + VAEP scoring pipeline
@@ -450,6 +452,7 @@ luxury-lakehouse/
 │       ├── test_football2vec.py
 │       ├── test_player_embeddings.py
 │       ├── test_xg_model.py
+│       ├── test_xg_model_v2.py
 │       ├── test_expected_threat.py
 │       ├── test_player_similarity.py
 │       ├── test_smoothing.py
