@@ -2,6 +2,10 @@
 
 These standards apply to ALL code in this repository. They are non-negotiable.
 
+## Git Workflow
+
+- **Never commit without explicit user approval**: `git commit`, `git push`, `gh pr create`, `gh pr merge`, and branch deletion are all user-controlled actions. Claude proposes changes; the user decides when to commit, push, create PRs, merge, or delete branches. "approved, proceed" on an implementation plan does NOT grant commit authority. Each commit, PR, and destructive git operation requires separate, explicit approval.
+
 ## Architecture Principles
 
 - **SOLID**: Single responsibility per module/function. Depend on abstractions.
