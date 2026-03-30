@@ -121,18 +121,18 @@ def _clean_spadl_for_spark(actions: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-def _read_existing_game_ids(
+def _read_existing_match_ids(
     spark: SparkSession,
     catalog: str,
     schema: str,
     table: str,
     logger: logging.Logger,
 ) -> set[int]:
-    """Return game_ids already present in a Delta table, or empty set if table doesn't exist."""
+    """Return match_ids already present in a Delta table, or empty set if table doesn't exist."""
     full_table = f"{catalog}.{schema}.{table}"
     try:
-        rows = spark.table(full_table).select("game_id").distinct().collect()
-        return {int(row["game_id"]) for row in rows}
+        rows = spark.table(full_table).select("match_id").distinct().collect()
+        return {int(row["match_id"]) for row in rows}
     except Exception:
         logger.debug("Table %s not found — starting fresh", full_table, exc_info=True)
         return set()
@@ -163,6 +163,7 @@ def _make_sb_spadl_udf() -> object:
         _spadl_cols = _pd.Index(
             [
                 "game_id",
+                "match_id",
                 "original_event_id",
                 "period_id",
                 "time_seconds",
@@ -187,6 +188,7 @@ def _make_sb_spadl_udf() -> object:
         import socceraction.spadl.statsbomb as _spadl_sb
 
         home_team_id = int(pdf["home_team_id"].iloc[0])
+        match_id = int(pdf["match_id"].iloc[0])
         competition_id = int(pdf["competition_id"].iloc[0])
         season_id = int(pdf["season_id"].iloc[0])
 
@@ -196,6 +198,7 @@ def _make_sb_spadl_udf() -> object:
         except Exception:
             return _pd.DataFrame(columns=_spadl_cols)
 
+        actions["match_id"] = match_id
         actions["competition_id"] = competition_id
         actions["season_id"] = season_id
         actions["data_source"] = "statsbomb"
@@ -214,7 +217,7 @@ def _convert_statsbomb_from_bronze(
     catalog: str,
     schema: str,
     logger: logging.Logger,
-    existing_games: set[int],
+    existing_matches: set[int],
 ) -> bool:
     """Read StatsBomb events from bronze, adapt, convert to SPADL, write Delta.
 
@@ -240,7 +243,7 @@ def _convert_statsbomb_from_bronze(
 
     all_game_rows = events_sdf.select("match_id").distinct().collect()
     all_game_ids = [int(row["match_id"]) for row in all_game_rows]
-    new_game_ids = [gid for gid in all_game_ids if gid not in existing_games]
+    new_game_ids = [gid for gid in all_game_ids if gid not in existing_matches]
 
     if not new_game_ids:
         logger.info("StatsBomb: all %d games already converted — skipping", len(all_game_ids))
@@ -289,6 +292,7 @@ def _convert_statsbomb_from_bronze(
     spadl_schema = StructType(
         [
             StructField("game_id", LongType()),
+            StructField("match_id", LongType()),
             StructField("original_event_id", StringType()),
             StructField("period_id", LongType()),
             StructField("time_seconds", DoubleType()),
@@ -346,6 +350,7 @@ def _make_ws_spadl_udf() -> object:
         _spadl_cols = _pd.Index(
             [
                 "game_id",
+                "match_id",
                 "original_event_id",
                 "period_id",
                 "time_seconds",
@@ -370,6 +375,8 @@ def _make_ws_spadl_udf() -> object:
         import socceraction.spadl.wyscout as _spadl_ws
 
         home_team_id = int(pdf["home_team_id"].iloc[0])
+        # Wyscout uses matchId or match_id depending on ingestion format
+        match_id = int(pdf["matchId"].iloc[0]) if "matchId" in pdf.columns else int(pdf["match_id"].iloc[0])
         competition_id = int(pdf["competition_id"].iloc[0])
         season_id = int(pdf["season_id"].iloc[0])
 
@@ -379,6 +386,7 @@ def _make_ws_spadl_udf() -> object:
         except Exception:
             return _pd.DataFrame(columns=_spadl_cols)
 
+        actions["match_id"] = match_id
         actions["competition_id"] = competition_id
         actions["season_id"] = season_id
         actions["data_source"] = "wyscout"
@@ -397,7 +405,7 @@ def _convert_wyscout_from_bronze(
     catalog: str,
     schema: str,
     logger: logging.Logger,
-    existing_games: set[int],
+    existing_matches: set[int],
 ) -> bool:
     """Read Wyscout events from bronze, adapt, convert to SPADL, write Delta.
 
@@ -424,7 +432,7 @@ def _convert_wyscout_from_bronze(
 
     all_game_rows = spark.table(events_table).select(match_id_col).distinct().collect()
     all_game_ids = [int(row[match_id_col]) for row in all_game_rows]
-    new_game_ids = [gid for gid in all_game_ids if gid not in existing_games]
+    new_game_ids = [gid for gid in all_game_ids if gid not in existing_matches]
 
     if not new_game_ids:
         logger.info("Wyscout: all %d games already converted — skipping", len(all_game_ids))
@@ -482,6 +490,7 @@ def _convert_wyscout_from_bronze(
     spadl_schema = StructType(
         [
             StructField("game_id", LongType()),
+            StructField("match_id", LongType()),
             StructField("original_event_id", StringType()),
             StructField("period_id", LongType()),
             StructField("time_seconds", DoubleType()),
@@ -689,6 +698,7 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
         _output_cols = _pd.Index(
             [
                 "game_id",
+                "match_id",
                 "original_event_id",
                 "period_id",
                 "time_seconds",
@@ -853,14 +863,14 @@ def run_pipeline(
     spadl_table = f"{catalog}.{schema}.{_SPADL_TABLE}"
 
     # Phase A+B: Convert events from bronze to SPADL (incremental)
-    existing_spadl_games = _read_existing_game_ids(spark, catalog, schema, _SPADL_TABLE, logger)
-    if existing_spadl_games:
-        logger.info("Found %d games already in %s — will skip", len(existing_spadl_games), _SPADL_TABLE)
+    existing_spadl_matches = _read_existing_match_ids(spark, catalog, schema, _SPADL_TABLE, logger)
+    if existing_spadl_matches:
+        logger.info("Found %d games already in %s — will skip", len(existing_spadl_matches), _SPADL_TABLE)
 
-    sb_wrote = _convert_statsbomb_from_bronze(spark, catalog, schema, logger, existing_spadl_games)
-    ws_wrote = _convert_wyscout_from_bronze(spark, catalog, schema, logger, existing_spadl_games)
+    sb_wrote = _convert_statsbomb_from_bronze(spark, catalog, schema, logger, existing_spadl_matches)
+    ws_wrote = _convert_wyscout_from_bronze(spark, catalog, schema, logger, existing_spadl_matches)
 
-    if not sb_wrote and not ws_wrote and not existing_spadl_games:
+    if not sb_wrote and not ws_wrote and not existing_spadl_matches:
         msg = "No SPADL actions produced from either StatsBomb or Wyscout"
         logger.error(msg)
         raise RuntimeError(msg)
@@ -891,9 +901,9 @@ def run_pipeline(
     model_scores, model_concedes = models
 
     # Phase D: Score unscored games via applyInPandas (distributed on executors)
-    existing_vaep_games = _read_existing_game_ids(spark, catalog, schema, _VAEP_TABLE, logger)
-    if existing_vaep_games:
-        logger.info("Found %d games already scored in %s — will skip", len(existing_vaep_games), _VAEP_TABLE)
+    existing_vaep_matches = _read_existing_match_ids(spark, catalog, schema, _VAEP_TABLE, logger)
+    if existing_vaep_matches:
+        logger.info("Found %d games already scored in %s — will skip", len(existing_vaep_matches), _VAEP_TABLE)
 
     # Serialize models to bytes for executor distribution via UDF closure.
     # XGBoost's C-level save_model/load_model cannot use UC Volume FUSE on
@@ -904,18 +914,22 @@ def run_pipeline(
 
     from pyspark.sql import functions as spark_fn
 
-    # Filter SPADL to unscored games only
-    all_game_rows = spadl_sdf.select("game_id").distinct().collect()
-    all_game_ids = [int(r["game_id"]) for r in all_game_rows]
-    unscored_game_ids = [gid for gid in all_game_ids if gid not in existing_vaep_games]
+    # Filter SPADL to unscored matches only (using match_id, not game_id)
+    all_match_rows = spadl_sdf.select("match_id").distinct().collect()
+    all_match_ids = [int(r["match_id"]) for r in all_match_rows]
+    unscored_match_ids = [mid for mid in all_match_ids if mid not in existing_vaep_matches]
 
-    if not unscored_game_ids:
-        logger.info("All %d games already scored — nothing to do", len(all_game_ids))
+    if not unscored_match_ids:
+        logger.info("All %d matches already scored — nothing to do", len(all_match_ids))
         return
 
-    logger.info("Scoring %d unscored games (of %d total) via applyInPandas", len(unscored_game_ids), len(all_game_ids))
+    logger.info(
+        "Scoring %d unscored matches (of %d total) via applyInPandas",
+        len(unscored_match_ids),
+        len(all_match_ids),
+    )
 
-    unscored_sdf = spadl_sdf.filter(spark_fn.col("game_id").isin(unscored_game_ids))
+    unscored_sdf = spadl_sdf.filter(spark_fn.col("match_id").isin(unscored_match_ids))
 
     # Define output schema for scored actions
     from pyspark.sql.types import DoubleType, LongType, StringType, StructField, StructType
@@ -923,6 +937,7 @@ def run_pipeline(
     vaep_schema = StructType(
         [
             StructField("game_id", LongType()),
+            StructField("match_id", LongType()),
             StructField("original_event_id", StringType()),
             StructField("period_id", LongType()),
             StructField("time_seconds", DoubleType()),
@@ -953,15 +968,15 @@ def run_pipeline(
         schema=vaep_schema,
     )
 
-    # Build replaceWhere predicate targeting only unscored game_ids so
+    # Build replaceWhere predicate targeting only unscored match_ids so
     # existing VAEP scores are preserved (not destroyed by bare overwrite).
-    ids_sql = ", ".join(str(gid) for gid in unscored_game_ids)
+    ids_sql = ", ".join(str(mid) for mid in unscored_match_ids)
     write_delta_table(
         scored_sdf,
         catalog,
         schema,
         _VAEP_TABLE,
-        replace_where=f"game_id IN ({ids_sql})",
+        replace_where=f"match_id IN ({ids_sql})",
         logger=logger,
     )
 

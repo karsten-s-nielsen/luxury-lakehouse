@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 from xgboost import XGBClassifier
 
-from ingestion.spadl_vaep import _clean_spadl_for_spark, _read_existing_game_ids
+from ingestion.spadl_vaep import _clean_spadl_for_spark, _read_existing_match_ids
 from streamlit_app.components.charts import plot_action_type_breakdown, plot_action_value_timeline
 
 # ---------------------------------------------------------------------------
@@ -184,8 +184,8 @@ class TestPlotActionTypeBreakdown:
 # ---------------------------------------------------------------------------
 
 
-class TestReadExistingGameIds:
-    """Test _read_existing_game_ids with mocked Spark."""
+class TestReadExistingMatchIds:
+    """Test _read_existing_match_ids with mocked Spark."""
 
     def test_returns_empty_set_on_missing_table(self) -> None:
         """When table doesn't exist, should return empty set without error."""
@@ -194,26 +194,26 @@ class TestReadExistingGameIds:
 
         mock_spark = MagicMock()
         mock_spark.table.side_effect = Exception("Table not found")
-        result = _read_existing_game_ids(mock_spark, "cat", "sch", "tbl", logging.getLogger("test"))
+        result = _read_existing_match_ids(mock_spark, "cat", "sch", "tbl", logging.getLogger("test"))
         assert result == set()
 
-    def test_returns_game_ids_from_table(self) -> None:
-        """When table exists, should return set of game_ids."""
+    def test_returns_match_ids_from_table(self) -> None:
+        """When table exists, should return set of match_ids."""
         import logging
         from unittest.mock import MagicMock
 
         mock_row_1 = MagicMock()
-        mock_row_1.__getitem__ = lambda self, k: 101
+        mock_row_1.__getitem__ = lambda self, k: 3788741
         mock_row_2 = MagicMock()
-        mock_row_2.__getitem__ = lambda self, k: 202
+        mock_row_2.__getitem__ = lambda self, k: 3788743
 
         mock_spark = MagicMock()
         mock_spark.table.return_value.select.return_value.distinct.return_value.collect.return_value = [
             mock_row_1,
             mock_row_2,
         ]
-        result = _read_existing_game_ids(mock_spark, "cat", "sch", "tbl", logging.getLogger("test"))
-        assert result == {101, 202}
+        result = _read_existing_match_ids(mock_spark, "cat", "sch", "tbl", logging.getLogger("test"))
+        assert result == {3788741, 3788743}
 
 
 # ---------------------------------------------------------------------------
