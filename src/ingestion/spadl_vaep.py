@@ -204,9 +204,14 @@ def _make_sb_spadl_udf() -> object:
         actions["data_source"] = "statsbomb"
 
         # Keep only the expected output columns (drop any extras from socceraction)
+        _str_cols = {"original_event_id", "data_source"}
         for col in _spadl_cols:
             if col not in actions.columns:
-                actions[col] = 0
+                actions[col] = "" if col in _str_cols else 0
+        # Ensure string columns are consistently typed (socceraction may return mixed types)
+        for col in _str_cols:
+            if col in actions.columns:
+                actions[col] = actions[col].astype(str)
         return _pd.DataFrame(actions[_spadl_cols])
 
     return _udf
@@ -392,9 +397,14 @@ def _make_ws_spadl_udf() -> object:
         actions["data_source"] = "wyscout"
 
         # Keep only the expected output columns (drop any extras from socceraction)
+        _str_cols = {"original_event_id", "data_source"}
         for col in _spadl_cols:
             if col not in actions.columns:
-                actions[col] = 0
+                actions[col] = "" if col in _str_cols else 0
+        # Ensure string columns are consistently typed (socceraction may return mixed types)
+        for col in _str_cols:
+            if col in actions.columns:
+                actions[col] = actions[col].astype(str)
         return _pd.DataFrame(actions[_spadl_cols])
 
     return _udf
