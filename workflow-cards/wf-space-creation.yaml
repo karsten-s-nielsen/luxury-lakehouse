@@ -56,6 +56,9 @@ cost:
     typical_duration_minutes: 45
     typical_cost_usd: 1.13
 
+monitoring:
+  freshness_sla_hours: 168
+
 links:
   source_code:
     - "scripts/compute_space_creation_hf.py"

@@ -1054,13 +1054,6 @@ def _build_table_data(
         total_cost = db_cost + hf_cost
         total_runs = db_runs + hf_runs
 
-        if total_cost > 0:
-            cost_val = f"${total_cost:7.2f}"
-            avg_run_val = f"${total_cost / total_runs:7.2f}" if total_runs > 0 else "\u2014"
-        else:
-            cost_val = "\u2014"
-            avg_run_val = "\u2014"
-
         # --- Last Run + Duration: pick most recent across Jobs API and HF history ---
         job_run = job_runs.get(card_id, {})
         jobs_last_run_ts = job_run.get("last_run")
@@ -1104,6 +1097,17 @@ def _build_table_data(
             if duration_secs > 0:
                 mins, secs = divmod(duration_secs, 60)
                 duration_str = f"{mins}m {secs}s" if mins else f"{secs}s"
+
+        # --- Cost display: $X.XX when cost > 0, $0.00 when ran but free, — when never ran ---
+        if total_cost > 0:
+            cost_val = f"${total_cost:7.2f}"
+            avg_run_val = f"${total_cost / total_runs:7.2f}" if total_runs > 0 else "\u2014"
+        elif last_run_ts is not None:
+            cost_val = "  $0.00"
+            avg_run_val = "  $0.00"
+        else:
+            cost_val = "\u2014"
+            avg_run_val = "\u2014"
 
         # --- Freshness: based on the most recent last_run across both sources ---
         freshness_str = "\u2014"
@@ -1769,11 +1773,13 @@ def _compute_stats(
         cost_parts.append(f'${hf_cost:.2f} <span style="color:{_RUNTIME_HEX["hf"]}">HF</span> ({hf_tier})')
     state.wf_cost_detail = _stat_detail_html(" + ".join(cost_parts))
 
-    # Freshness summary with status breakdown (matching mockup format)
+    # Freshness summary with status breakdown (matching mockup format).
+    # Uses both Jobs API and HF history for last_run (same sources as the table).
     monitored = 0
     fresh_count = 0
     warning_count = 0
     stale_count = 0
+    now_utc = pd.Timestamp.now(tz="UTC")
     for _card_id, card in cards_subset.items():
         sla = (card.get("monitoring") or {}).get("freshness_sla_hours")
         if sla is None:
@@ -1784,10 +1790,19 @@ def _compute_stats(
         if hf_data and hf_data.is_running:
             fresh_count += 1
             continue
-        run = jobs.get(_card_id, {})
-        last_run = run.get("last_run")
+        # Resolve last_run from Jobs API and HF history (pick most recent)
+        jobs_last_run = jobs.get(_card_id, {}).get("last_run")
+        hf_last_run: pd.Timestamp | None = None
+        if hf_data and hf_data.latest_run:
+            ended = hf_data.latest_run.get("ended_at", "")
+            if ended:
+                try:
+                    hf_last_run = pd.Timestamp(ended)
+                except (ValueError, TypeError):
+                    pass
+        last_run = max(filter(None, [jobs_last_run, hf_last_run]), default=None)
         if last_run is not None:
-            age_hours = (pd.Timestamp.now(tz="UTC") - last_run).total_seconds() / 3600
+            age_hours = (now_utc - last_run).total_seconds() / 3600
             status = _classify_freshness(age_hours, sla)
             if status == "OK":
                 fresh_count += 1

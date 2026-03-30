@@ -51,6 +51,9 @@ cost:
     typical_duration_minutes: 20
     typical_cost_usd: 0.003
 
+monitoring:
+  freshness_sla_hours: 168
+
 links:
   source_code:
     - "scripts/compute_epv_transition_hf.py"
