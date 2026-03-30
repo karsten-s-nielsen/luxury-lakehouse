@@ -83,6 +83,53 @@ Tasks warming up in the on-deck circle.
 
 ---
 
+### GK Event Metrics (D38)
+
+**Size:** Dunkin
+**What:** Goalkeeper distribution value and collection metrics from existing event data. No new data sources needed.
+
+**Sub-items:**
+
+1. **GK Distribution xT** — For every GK-initiated pass (`goalkick` + passes where `player_id` is a goalkeeper), compute `xT_delta = xT(end_x, end_y) - xT(start_x, start_y)` using the production 12×8 xT grids. Aggregate per GK per match: total xT added, xT per pass, short/medium/long split, launch rate (long pass %).
+2. **Cross collection metrics** — Aggregate `keeper_claim` and `keeper_punch` SPADL actions per 90. Compute claim success rate (successful claims / total aerial contests in box). Compare to league average.
+3. **GK action summary** — Combine distribution xT + collection rates + existing `keeper_save`/`keeper_pick_up` counts into a `fct_goalkeeper_stats` dbt model (or GK-specific columns in `fct_player_stats`).
+
+**New files:**
+- `src/analytics/goalkeeper.py` — xT delta computation, GK action aggregation
+- `src/tests/test_goalkeeper.py`
+- `dbt_project/models/marts/fct_goalkeeper_stats.sql`
+
+**Dependencies:** None — xT grids (`luxury-lakehouse/expected-threat-grids`), SPADL actions (`bronze.spadl_actions`), and `dim_players.position_group = 'Goalkeeper'` all exist.
+**Unlocks:** D39 (post-shot model), GK-specific embeddings, future Taipy GK page.
+
+---
+
+### GK Post-Shot Model & Sweeper Metrics (D39)
+
+**Size:** Wicked
+**What:** Post-shot expected goals (PSxG) model for shot-stopping evaluation + tracking-based sweeper-keeper positioning. Requires schema investigation first.
+
+**Sub-items:**
+
+1. **PSxG model** — Logistic regression on StatsBomb on-target shots using goalmouth `end_location` coordinates. Reference methodology: [Butcher et al. (2025), "An Expected Goals On Target (xGOT) Model"](https://www.mdpi.com/2504-2289/9/3/64) (open access). Output: per-shot PSxG value. Derived GK metric: `goals_prevented = PSxG_faced - goals_conceded` (PSxG+/-).
+   - **Pre-requisite investigation:** Verify that StatsBomb `shot.end_location` provides goalmouth placement (x, y within goal frame), not just pitch coordinates. Check `stg_statsbomb__shots` schema.
+2. **Sweeper-keeper positioning** — For the 20 tracking matches: compute GK average defensive action distance from goal line, actions outside penalty box per 90, using `is_goalkeeper` flag + event coordinates.
+   - Limited to ELASTIC-synced matches (~7 IDSSE) for event-tracking alignment.
+3. **Fix `fct_player_percentiles`** — Add `position_group` filter so GK percentiles are computed within the Goalkeeper population, not ranked against outfield players (current behavior is meaningless for GK metrics).
+4. **Workflow card** `workflow-cards/wf-goalkeeper.yaml` with references to MDPI xGOT paper and the four-pillar GK evaluation taxonomy (shot stopping, distribution, cross collection, defensive activity).
+
+**New/modified files:**
+- `src/analytics/goalkeeper.py` — PSxG model training + inference, sweeper metrics
+- `src/tests/test_goalkeeper.py` — extend from D38
+- `dbt_project/models/marts/fct_goalkeeper_stats.sql` — extend from D38
+- `dbt_project/models/marts/fct_player_percentiles.sql` — add position_group guard
+- `workflow-cards/wf-goalkeeper.yaml`
+
+**Dependencies:** D38 (GK event metrics provides the foundation). StatsBomb shot schema investigation (blocking for PSxG).
+**Unlocks:** GK-specific embedding features (replacing outfield-centric stat vector for Goalkeeper position_group), future Taipy GK performance page.
+
+---
+
 ## Technical Debt
 
 ### Blocked or Deferred
@@ -127,6 +174,7 @@ See [ROADMAP.md](ROADMAP.md) for research directions, long-horizon features, and
 - **Provider Abstraction** — configurable multi-tier ingestion; free/open tiers default, commercial activates via credentials
 - **Team Shape Analysis** — Stage 2 blocked on SkillCorner DoD
 - **Shape Graph Visualizations & Tactical Applications** — position plots, dual-detector UX, scouting via position maps (needs D36/D37 first)
+- **Goalkeeper Analytics** — four-pillar GK evaluation taxonomy, key references, embedding gap (D38/D39 are the implementation items)
 - **Visual Exploratory Behavior** — partially unblocked: 6 Veo3 recordings + local RTMO pose estimation feasible (BSD 3-Clause)
 - **Staging Environment** — Lakebase branching for pre-production validation
 - **Graph-Based Tactical Patterns** — GNN research direction (Raabe et al. 2022)

@@ -330,6 +330,7 @@ Steps 1-2 are immediately feasible on local hardware. Steps 3-5 are the integrat
 4. **Serving strategy**: CPU batch inference (simple, scheduled) vs scale-to-zero endpoint (real-time)?
 5. **SoccerMaster integration**: Weights released 2026-03-05 but codebase is "early version" (no requirements, no end-to-end inference). Camera calibration head could complement RTMO pipeline for own-footage homography. Revisit when inference pipeline matures
 6. **RTMO vs Respo.Vision**: RTMO-l local pipeline is free and immediate for 2D pose (head/shoulder angles). Respo.Vision provides 3D (50+ keypoints). Start with RTMO to validate the Visual Exploratory Behavior pipeline end-to-end, upgrade to Respo.Vision for ground truth if results are promising
+7. **MOT evaluation benchmark**: [SoccerTrack v2](https://huggingface.co/datasets/atomscott/soccertrack-v2) (Scott, Uchida, Kuroda, Kim & Fujii, 2025) — 10 full-length panoramic 4K university matches from BePro cameras with GSR ground truth (2D pitch coordinates, jersey-based player IDs, roles, teams) and 12-class ball action spotting. First public dataset combining full-pitch video + per-frame GSR across multiple matches — closest available proxy to the Veo3 recording setup. Use for HOTA/MOTA/IDF1 evaluation when building the ByteTrack pipeline. Dataset announced but not yet publicly released as of 2025-08
 
 ### Dependencies
 
@@ -446,8 +447,11 @@ The model requires **`head_angle`** and **`shoulders_angle`** per player per fra
 |-------------|-----------------|---------|
 | Metrica / IDSSE / SkillCorner tracking | No | No |
 | StatsBomb 360 freeze frames | No | No |
+| **DFL 3D skeletal tracking** (Sportec/TRACAB) | Derived (21 keypoints incl. head, shoulders) | Not yet — no public access (see note below) |
 | **Respo.Vision** (on own footage) | Yes | Yes — planned, high cost per match |
 | **RTMO-l + own Veo3 footage** | Derived | **Yes — local GPU, real-time, zero cost** |
+
+**DFL 3D skeletal tracking** (2025/26 season onward): Sportec Solutions / TRACAB capture 21 body keypoints per player at true 50fps 3D (x,y,z) across all 36 Bundesliga stadiums — ~140M data points per match. Head and shoulder angles are directly derivable. Data was shared with students in the [AWS World Sports Innovation Cup 2026](https://www.dfl.de/en/innovation/the-aws-world-sports-innovation-cup-2026-by-dfl-aws-and-adidas/) hackathon (5 matches, 705M points) but has no public/academic release yet. Watch for an IDSSE-style open data publication — the DFL followed this trajectory with 2D tracking (IDSSE via Scientific Data, 2023). Sportec Solutions also signed MLS (2026), suggesting broader availability over time.
 
 **Two viable paths** (not mutually exclusive):
 
@@ -610,6 +614,42 @@ Position map similarity enables "find players who occupy similar tactical positi
 - Taipy page design decisions for each visualization
 - D26 (GK metadata) shipped — full 20-match coverage available
 - Synergistic with D18/D30 (player embeddings) for scouting application
+
+---
+
+## Goalkeeper Analytics
+
+**Status:** Planned (D38 event metrics, D39 post-shot model) — see TODO.md
+
+The platform currently has zero GK-specific performance metrics. GKs are handled as a filtering concern (excluded from formations, normalized separately in embeddings) but never as subjects of dedicated measurement. This is a significant gap for a platform with a GK coaching stakeholder.
+
+### Four-pillar taxonomy
+
+The industry converges on four GK evaluation dimensions. D38/D39 address all four:
+
+| Pillar | What it measures | Implementation |
+|--------|-----------------|----------------|
+| **Shot stopping** | Save quality relative to shot difficulty | D39: PSxG model (goalmouth end_location), goals prevented (PSxG+/-) |
+| **Distribution** | Passing value from GK-initiated actions | D38: xT delta on GK passes, short/medium/long split, launch rate |
+| **Cross collection** | Aerial dominance in the box | D38: `keeper_claim`/`keeper_punch` success rates per 90 |
+| **Defensive activity** | Proactive positioning outside the box | D39: sweeper-keeper distance from goal, actions outside penalty area |
+
+### Key references
+
+| Source | Type | Value |
+|--------|------|-------|
+| [Butcher et al. (2025), "An Expected Goals On Target (xGOT) Model"](https://www.mdpi.com/2504-2289/9/3/64) | Open-access paper (MDPI) | Replicable PSxG methodology — logistic regression on goalmouth coordinates |
+| Lamberts (2025), [Goalkeeper Value Model](https://marclamberts.substack.com/p/introducing-the-goalkeeper-value) | Blog + design pattern | Composite score formula: `S = B + ω_ss·V̄_ss + ω_dist·V̄_dist + ω_ll·V̄_ll + ω_bh·V̄_bh`. Four-phase xT-based approach. Python package planned but not yet public |
+| Yam, [Data-Driven GK Evaluation Framework](https://www.sloansportsconference.com/research-papers/a-data-driven-goalkeeper-evaluation-framework) | MIT Sloan paper | KNN positional deviation for sweeper detection, StatsBomb data |
+| Stats Perform, [Enhancing xGOT](https://www.statsperform.com/resource/enhancing-expected-goals-on-target/) | Industry whitepaper | Separate men's/women's xGOT models trained on 300K+ shots across 63 competitions |
+
+### Known issue: GK embeddings
+
+Current player embeddings (`src/ingestion/player_embeddings.py`) use a 13-feature stat vector that is 100% outfield-centric (`goals_per_90`, `xg_per_90`, `passes_per_90`, etc.). GKs are included but represented by irrelevant features. Once D38 lands GK-specific stats (distribution xT, claim rate, save counts), the embedding stat vector should be extended with GK features — or GKs should use a separate stat vector entirely. This is a prerequisite for meaningful GK similarity search.
+
+### Known issue: `fct_player_percentiles`
+
+Currently ranks GKs against all players with no `position_group` filter. A GK's `xg_per_90` percentile ranked against strikers is meaningless. D39 fixes this by adding a position_group guard.
 
 ---
 
