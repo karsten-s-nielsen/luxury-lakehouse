@@ -37,12 +37,12 @@ cleaned as (
         end_frame,
 
         -- Scaled start location (120x80)
-        start_x * 120.0                                 as start_x,
-        (1.0 - start_y) * 80.0                          as start_y,
+        {{ normalize_x('start_x', 'metrica') }} as start_x,
+        {{ normalize_y('start_y', 'metrica') }} as start_y,
 
         -- Scaled end location (120x80)
-        end_x * 120.0                                   as end_x,
-        (1.0 - end_y) * 80.0                            as end_y,
+        {{ normalize_x('end_x', 'metrica') }} as end_x,
+        {{ normalize_y('end_y', 'metrica') }} as end_y,
 
         -- Team and player
         team,

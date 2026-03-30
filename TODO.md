@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [ARCHITECTURE.md](ARCHITECTURE.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
 
-**Last updated**: 2026-03-29
+**Last updated**: 2026-03-30
 
 ---
 
@@ -19,64 +19,18 @@ Tasks warming up in the on-deck circle.
 | # | Task | Size | Source | Notes |
 |---|------|------|--------|-------|
 | D35 | AI/ML Workflows — Detail Drilldown & Card Validation | Wicked | [2026-03-23-taipy-workflows-page.md](docs/superpowers/plans/2026-03-23-taipy-workflows-page.md) | Enable the 8-section detail drilldown panel (designed but disabled — UX design not settled). Sections: overview, data flow, execution config, monitoring, cost breakdown, academic provenance, dependencies, changelog. Requires design decisions on navigation (slide-in panel vs sub-page vs modal) and information density. Also: validate all 16 workflow card YAML files against reality — the drilldown makes card data visible for the first time, so expect corrections to estimates, dependencies, and monitoring thresholds |
-| D43 | Coordinate system normalization layer | Wicked | [adversarial-training.md](docs/research/adversarial-training.md) | 5 providers use 4+ distinct coordinate systems and 3 sampling rates (25fps, 10fps, event-only). Transforms currently duplicated as inline expressions across 7 dbt staging SQL files with no shared macro; `line_breaking.py:241-249` also duplicates the Metrica formula. Design a canonical coordinate transform — shared dbt macro or `src/analytics/` module with documented transforms per provider. Cross-references D28, D29, D30 |
-| D28 | Position-Group Z-Scoring for Stat Vectors | Dunkin' | [adversarial-training.md](docs/research/adversarial-training.md) | Normalize stat vectors within `position_group` (GK, Def, Mid, Fwd) instead of globally. Fixes goalkeeper contamination in similarity search (GKs scored as top passers). Change in `_compute_stat_vectors()` — add groupby on `position_group` before z-score. Trivial but immediately improves embedding quality. Pre-requisite for D18 |
-| D29 | SPADL Vocabulary Upgrade for Embeddings | Dunkin' | [adversarial-training.md](docs/research/adversarial-training.md) | Replace 12-13 type action tokenizer in `football2vec.py` with 23-type SPADL taxonomy from `fct_action_values`. Richer behavioral tokens at zero additional data cost — distinguishes tackle/interception, corner_short/corner_crossed, freekick variants. SPADL data already exists (~9.5M actions). Pre-requisite for D18 |
-| D18 | Football2vec v2 — Transformer Embeddings | Wicked | [ROADMAP.md](ROADMAP.md) | Replace Doc2Vec (gensim, CPU) with a small transformer on tokenized match sequences. Train on HF Jobs GPU (A10G). 87K player-match documents in Delta. Better player representations for similarity search. Publish to HF Hub. Benefits from D28 (position-group z-scoring) and D29 (SPADL vocabulary) landing first |
+| D18 | Football2vec v2 — Transformer Embeddings | Wicked | [ROADMAP.md](ROADMAP.md) | Replace Doc2Vec (gensim, CPU) with a small transformer on tokenized match sequences. Train on HF Jobs GPU (A10G). 87K player-match documents in Delta. Better player representations for similarity search. Publish to HF Hub. D28 (position-group z-scoring) and D29 (SPADL vocabulary) landed in Cycle 1 |
 | D30 | Adversarial Team Debiasing (Gradient Reversal) | Wicked | [adversarial-training.md](docs/research/adversarial-training.md) | Add team adversary head with gradient reversal layer (Ganin et al. 2016 DANN, lambda=0.2) to D18's transformer model. Produces team-agnostic player embeddings — answers "who plays like X regardless of system" instead of "who plays in a similar system." Hard negative mining: same position_group, same team_id. Cross-source entity resolution (11,918 players in both StatsBomb + Wyscout) provides natural validation. Train on HF Jobs GPU. Publish debiased embeddings to HF Hub alongside current ones (dual-track). Follows D18 |
 | D31 | 360-Enriched Situational Context for Embeddings | Wicked | [adversarial-training.md](docs/research/adversarial-training.md) | Extend `set_encoder.py` Deep Sets architecture to produce a 16-32d situational context vector from 360 freeze frames (15.58M rows, 323 matches). Concatenate with action token embedding before transformer encoding. Encodes spatial relationships (pressing intensity, passing lanes, defensive shape) around each event. Constraint: 360 frames are anonymous (no player_id), so encodes spatial structure, not player-specific graphs. Follows D30 |
 | D32 | ScoutGPT-Style Sequence Model — Training & Evaluation | Wicked | [adversarial-training.md](docs/research/adversarial-training.md), [arXiv:2512.17266](https://arxiv.org/abs/2512.17266) | Player-conditioned GPT transformer over ~9.5M SPADL action sequences (Hong et al. 2025). Architecture: transformer decoder with player ID embedding table (11,918 players), 23-type action embeddings, spatial encodings (x/y), autoregressive next-action prediction. Player ID as conditioning token enables counterfactual substitution (swap ID → "what would Messi do here?"). VAEP as reward signal. Train on HF Jobs GPU (A10G, comparable to ScoutGPT's 5 PL seasons). Evaluate: next-action accuracy, counterfactual ranking correlation, cross-source validation. Publish weights + config to HF Hub. Pre-req: D29 (SPADL vocab). Benefits from D18 (transformer experience) and D30 (adversarial objective can be integrated) |
 | D33 | ScoutGPT Integration — Embeddings, pgvector & Taipy | Wicked | [adversarial-training.md](docs/research/adversarial-training.md) | Extract player embeddings from trained D32 model. Write to Delta via new `fct_player_embeddings_sequence` mart (or extend existing). Synced table + pgvector HNSW index. Add model selector to Player Similarity Taipy page ("Football2vec" vs "ScoutGPT"). Counterfactual substitution UI: "what would Player X do in Team Y's possessions?" Side-by-side comparison dashboard between old and new embeddings. Follows D32 |
-| D36 | Shape Graph Algorithm — Core Implementation | Wicked | [Sotudeh (2026), ETH Zurich DISS. 31732](https://doi.org/10.1038/s44260-025-00047-x) | Implement Sotudeh's shape graph algorithm as a second formation detection method alongside EFPI. Delaunay triangulation → angular stability → iterative edge removal → shape graph. Position inference via 5×5 level decomposition (25 tactical labels). Pure geometry — no ML training, no templates needed. Uses `scipy.spatial.Delaunay` + numpy. See detailed write-up below. **Dependency:** D26 (GK metadata) for full 20-match coverage; can develop/test on IDSSE away teams (10 tracked players) |
+| D36 | Shape Graph Algorithm — Core Implementation | Wicked | [Sotudeh (2026), ETH Zurich DISS. 31732](https://doi.org/10.1038/s44260-025-00047-x) | Implement Sotudeh's shape graph algorithm as a second formation detection method alongside EFPI. Delaunay triangulation → angular stability → iterative edge removal → shape graph. Position inference via 5×5 level decomposition (25 tactical labels). Pure geometry — no ML training, no templates needed. Uses `scipy.spatial.Delaunay` + numpy. See detailed write-up below. D26 (GK metadata) shipped — full 20-match coverage available |
 | D37 | Position Maps — 5×5 Time-in-Position Matrix | Dunkin' | [Sotudeh (2026), ETH Zurich DISS. 31732](https://doi.org/10.1038/s44260-025-00047-x) | Compute per-player position maps from D36's frame-level position assignments. New mart table `fct_position_maps` (player_id, match_id, position_label, pct_time, phase). Three phase variants: all, in-possession, out-of-possession. Compact tactical player profile — complements spatial heatmaps with positional distributions. **Dependency:** D36 |
 | D7 | Observability Layer (OTel) | Monstah | [ROADMAP.md](ROADMAP.md) | Research complete, ready for implementation. Instrument once, observe anywhere. ~$1-2/month personal tier |
 | U3 | Global player search — search by name across all pages | Monstah | CHI-AUDIT-180-rev-1 #1 | New search component with 11,918-player index + cross-page routing + session state. Needs design decisions |
 | U4 | Uncertainty/confidence bounds on model outputs | Monstah | CHI-AUDIT-180-rev-1 #4 | xG v2 now outputs MC dropout 95% CI (`xg_ci_lower`, `xg_ci_upper`). VAEP/pitch control still lack native uncertainty. Partial — xG done, others remain |
 | M1 | Rotate Databricks PAT for HF Spaces | Dunkin' | HF-MIGRATION | PAT created 2026-03-16 with 90-day lifetime. **Expires ~2026-06-14.** Generate new PAT in Databricks workspace Settings → Developer → Access tokens, then update `DATABRICKS_TOKEN` secret at huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app/settings |
 | M2 | Migrate HF Space auth from PAT to OAuth M2M | Wicked | SEC-AUDIT-200 #2 | Two SPs created with OAuth secrets: `luxury-lakehouse-hf-app-dev` (`330f96b9-...`, orphaned PG role) and `luxury-lakehouse-hf-app-v2-dev` (`1a1dbf08-...`). UC grants in place. **Blocked:** Lakebase Autoscaling does not auto-provision PG roles for SPs authenticated via M2M OAuth — workspace API works but PG credential JWT is rejected at the PG auth layer. The existing working SP (`be66af99-...`) was internally provisioned by Lakebase during synced table creation. Need Databricks support ticket to clarify how to provision SP PG access for Lakebase Autoscaling endpoints |
-| D26 | Formation Detection — GK Metadata Pipeline | Wicked | Session 6 | GK exclusion requires provider metadata (not positional heuristics). See detailed write-up below |
-
-### Formation Detection — GK Metadata Pipeline (D26)
-
-**Status:** Deferred from session 6 (2026-03-26)
-**Scope:** Wicked (2-3 sessions, ~4-6 hours) — looks like "just add a column" but touches 3 ingestion pipelines, 4 dbt models, 38M row recompute, synced table recreation, and formation pipeline rerun
-**Branch:** Separate feature branch from main
-
-**Problem:** Formation detection (EFPI algorithm) requires excluding the goalkeeper before template matching. Templates exist for 8, 9, 10 outfield players only. Currently, `fct_tracking_frames` has no position/role metadata — all 11 players are passed to detection, `templates.get(11)` returns None, and no formations are detected for any match with full tracking. Only 2 of 20 matches produced results (IDSSE matches where the away team happened to have 10 tracked players).
-
-**Root cause:** The tracking pipeline does not store player position metadata despite all three source providers having it:
-- **kloppy** (SkillCorner): `Player.position` → `PositionType` including GK
-- **IDSSE XML**: Player roster with roles in match metadata
-- **Metrica EPTS**: Player roster with positions in XML metadata
-
-**Industry standard:** Every published method (Bekkers & Dabadghao 2025, Shaw & Glickman 2019, Bialkowski et al. 2014) uses provider metadata for GK exclusion. No published method uses positional heuristics (idxmin/idxmax on x-coordinate). A positional heuristic fails because attacking direction is not normalized between periods in our coordinate system.
-
-**Implementation plan:**
-1. Add `is_goalkeeper` boolean column to all three staging models (`stg_metrica__tracking`, `stg_idsse__tracking`, `stg_skillcorner__tracking`) — extract from source metadata
-2. Add `is_goalkeeper` to `fct_tracking_frames` mart model (pass-through from staging)
-3. Update `_marts__models.yml` contract with new column
-4. Update formation pipeline (`src/ingestion/formations.py`) to filter `is_goalkeeper = false` before detection
-5. Re-run formation pipeline for all matches (delete existing results, full recompute)
-6. Rebuild `fct_formation_labels` via dbt
-7. Recreate synced table + indexes
-8. Re-enable Formation metric on Team Shape page (Snapshot + Timeline)
-9. Verify formations appear for all 20 tracking matches
-
-**Files affected:**
-- `src/ingestion/metrica.py` — extract GK from EPTS metadata
-- `src/ingestion/idsse.py` — extract GK from XML roster
-- `src/ingestion/skillcorner.py` — extract GK from kloppy Player.position
-- `dbt_project/models/staging/metrica/stg_metrica__tracking.sql`
-- `dbt_project/models/staging/idsse/stg_idsse__tracking.sql`
-- `dbt_project/models/staging/skillcorner/stg_skillcorner__tracking.sql`
-- `dbt_project/models/marts/fct_tracking_frames.sql`
-- `dbt_project/models/marts/_marts__models.yml`
-- `src/ingestion/formations.py`
-- `hf_taipy_app/src/pages/team_shape.py` (re-enable Formation metric)
-- `hf_taipy_app/src/state/team_shape.py` (re-enable formation state)
-
-**Dependencies:** None — can be done independently of other work.
-**Unlocks:** Formation metric on Team Shape page, future position-group analytics (defensive line by role, pressing by position, etc.)
 
 ### Shape Graph Algorithm — Core Implementation (D36)
 
@@ -123,7 +77,7 @@ Tasks warming up in the on-deck circle.
 - `workflow-cards/wf-shape-graphs.yaml` (new)
 - `src/ingestion/formations.py` — add shape graph detection alongside EFPI
 
-**Dependencies:** D26 (GK metadata) for full tracking coverage. Can develop and test without it — IDSSE away teams have 10 tracked players, plus synthetic test data from thesis boundary cases.
+**Dependencies:** None — D26 (GK metadata) shipped in Cycle 1, full 20-match tracking coverage available.
 **Unlocks:** D37 (position maps), future Taipy visualizations (position plots, dual-detector comparison — see [ROADMAP.md](ROADMAP.md))
 **Data sources validated by thesis:** Metrica Sports open data + IDSSE (Bundesliga) — both already ingested in this project
 
@@ -137,7 +91,7 @@ Tasks warming up in the on-deck circle.
 |---|------|----------|-------------|---------|
 | 1 | Synced tables Terraform workaround | `terraform/` | Must create synced tables via UI + import due to missing provider fields. `lifecycle { ignore_changes = all }`. No schedule/cron field on resource — SNAPSHOT refresh requires manual trigger or external job. Workaround: `scripts/refresh_synced_tables.py`. Root cause: the `/api/2.0/postgres/` surface (Autoscaling) has zero synced table endpoints — UI is the only method. The Provisioned API (`/api/2.0/database/synced_tables`) uses `database_instance_name` with no project/branch equivalent. GitHub issue filed: [terraform-provider-databricks#5456](https://github.com/databricks/terraform-provider-databricks/issues/5456). Related: [#5389](https://github.com/databricks/terraform-provider-databricks/issues/5389) (same gap for `databricks_database_database_catalog`). **Update 2026-03-06:** Connected with a Databricks Solution Architect at SSAC26 conference (LinkedIn). Bug report reference being forwarded for internal triage. | Blocked on Databricks API team adding synced table endpoints to `/api/2.0/postgres/`. Provider cannot be fixed until upstream API exists. |
 | 2 | PG index recreation after synced table changes | `scripts/create_indexes.py` | Custom indexes dropped on synced table recreation. Must re-run script manually. | Operational procedure; automated via `create_indexes.py --verify`. |
-| 6 | Line-breaking Path B limited to Metrica only | `line_breaking.py` | IDSSE events now ingested (D9), but line-breaking not yet wired to ELASTIC-aligned events. SkillCorner (10 matches) has tracking but no event data. | IDSSE: wire ELASTIC sync to line-breaking. SkillCorner: blocked on event data procurement or ball trajectory detection. |
+| 6 | Line-breaking SkillCorner not yet wired | `line_breaking.py` | Path A (StatsBomb 360), Path B (Metrica tracking), and Path C (IDSSE tracking) all operational. SkillCorner (10 matches) has tracking but no event data — cannot compute line-breaking without pass events. | SkillCorner: blocked on event data procurement or ball trajectory detection. |
 | 7 | Single-frame 360 analysis | `line_breaking.py` | Path A uses opponent positions at pass moment only. Dual-frame would be more robust. | 360 freeze frames lack temporal resolution. Data limitation. |
 | 9 | Fixed 3-cluster assumption | `analytics/line_breaking.py` | Ward clustering with `n_clusters=3` assumes 3 defensive lines. Breaks for 5-depth formations. | Research task — needs silhouette score analysis. |
 | 10 | No set-piece exclusion | `analytics/line_breaking.py` | Corners, free kicks, throw-ins have non-standard formations. | Research task — needs `pass_type` filtering or set-piece-aware algorithm. |

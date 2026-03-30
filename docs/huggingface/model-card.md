@@ -58,12 +58,11 @@ Coverage includes the Premier League, La Liga, Serie A, Bundesliga, Ligue 1, Cha
 
 ### Tokenization
 
-Events are mapped to spatial action tokens using source-specific type mappings:
+Events are tokenized using the **23-type SPADL vocabulary** (from `fct_action_values`), providing a unified action taxonomy across data sources:
 
-- **StatsBomb**: Pass, Shot, Carry, Duel, Interception, Foul, Clearance, Dribble, Goalkeeper (+ cross, corner, throw-in subtypes)
-- **Wyscout**: Pass, Shot, Duel, Foul, Goalkeeper, Free Kick, Others (+ subtypes)
-- **Grid**: 12 columns &times; 8 rows on a 120&times;80 pitch &rarr; 10m &times; 10m cells
-- **Token format**: `{action}_{grid_x}_{grid_y}` (e.g., `pass_6_4`)
+- **SPADL types**: `pass`, `cross`, `throw_in`, `freekick_crossed`, `freekick_short`, `corner_crossed`, `corner_short`, `take_on`, `foul`, `tackle`, `interception`, `shot`, `shot_penalty`, `shot_freekick`, `keeper_save`, `keeper_claim`, `keeper_punch`, `keeper_pick_up`, `clearance`, `bad_touch`, `non_action`, `dribble`, `goalkick`
+- **Grid**: 12 columns &times; 8 rows on a 105&times;68m pitch (SPADL coordinates) &rarr; ~8.75m &times; ~8.5m cells
+- **Token format**: `{spadl_action_type}_{grid_x}_{grid_y}` (e.g., `pass_6_4`)
 
 ### Hyperparameters
 
@@ -102,7 +101,7 @@ print(f"Vector shape: {vector.shape}")  # (32,)
 
 ### Z-Score Statistical Vectors
 
-The model also includes normalization parameters for 13-dim statistical vectors:
+The model includes normalization parameters for 13-dim statistical vectors, **z-scored within position group** (GK, Def, Mid, Fwd) rather than globally. This prevents goalkeeper contamination in similarity search (e.g., GKs appearing as top passers due to global normalization).
 
 ```python
 import json

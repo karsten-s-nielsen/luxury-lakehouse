@@ -44,8 +44,8 @@ normalized as (
         'idsse'                                         as source_provider,
 
         -- Scaled event coordinates (120×80) — events use pitch-origin (0-105, 0-68)
-        x / 105.0 * 120.0                               as x,
-        y / 68.0 * 80.0                                 as y
+        {{ normalize_x('x', 'pitch_m') }} as x,
+        {{ normalize_y('y', 'pitch_m') }} as y
 
     from source
     where x is not null

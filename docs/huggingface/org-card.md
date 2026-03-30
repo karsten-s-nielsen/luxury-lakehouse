@@ -30,7 +30,7 @@ The infrastructure uses a **Medallion architecture** (Bronze &rarr; Silver &rarr
 - **[14 Taipy dashboard pages](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)** deployed on Hugging Face Spaces (Docker SDK), querying Lakebase PostgreSQL via OAuth
 - **26 synced tables** with Zero-ETL continuous sync from Gold Delta Lake to Lakebase PostgreSQL 17
 - **45 PostgreSQL indexes** (41 btree + 4 HNSW vector indexes) for sub-10ms OLTP queries
-- Pipeline reliability enforced through **807 unit tests** (819+ with gensim) and **381 dbt data tests**
+- Pipeline reliability enforced through **1,135 unit tests** and **381+ dbt data tests**
 
 ## The Hugging Face Footprint
 

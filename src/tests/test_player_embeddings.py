@@ -1,4 +1,5 @@
 """Tests for player embedding ingestion pipeline."""
+# pyright: reportArgumentType=false
 
 from __future__ import annotations
 
@@ -101,6 +102,75 @@ class TestZScoreNormalization:
         _, params = _zscore_normalize(df, ["goals_per_90"])
         assert abs(params["goals_per_90"]["mean"] - 4.0) < 1e-10
         assert abs(params["goals_per_90"]["std"] - np.std([2.0, 4.0, 6.0])) < 1e-10
+
+
+# ---------------------------------------------------------------------------
+# Per-position-group z-score normalization
+# ---------------------------------------------------------------------------
+
+
+class TestPositionGroupZScoring:
+    """Verify per-group z-scoring prevents goalkeeper contamination.
+
+    With global z-scoring, a goalkeeper's goals_per_90 is pulled far negative
+    by the outfield mean.  With per-group z-scoring, the same goalkeeper's
+    z-score stays close to 0 within its group.
+    """
+
+    def test_global_vs_per_group_goalkeeper_contamination(self) -> None:
+        """Demonstrate that per-group z-scoring eliminates GK contamination."""
+        # Outfield players: goals_per_90 ~ 0.3-0.5 (typical strikers)
+        # Goalkeepers: goals_per_90 ~ 0.0 (almost never score)
+        features = ["goals_per_90"]
+        outfield_goals = [0.3, 0.35, 0.4, 0.45, 0.5, 0.32, 0.38, 0.42]
+        gk_goals = [0.0, 0.01, 0.0, 0.02]
+
+        all_goals = outfield_goals + gk_goals
+        position_groups = ["Forward"] * len(outfield_goals) + ["Goalkeeper"] * len(gk_goals)
+
+        df = pd.DataFrame({"goals_per_90": all_goals, "position_group": position_groups})
+
+        # --- Global z-scoring (old behavior) ---
+        global_norm, _ = _zscore_normalize(df, features)
+        # GK goals_per_90 z-scores are very negative under global normalization
+        gk_global_zscores = global_norm.iloc[len(outfield_goals) :]["goals_per_90"]
+        assert all(z < -1.0 for z in gk_global_zscores), (
+            f"Expected GK global z-scores far below -1, got {gk_global_zscores.tolist()}"
+        )
+
+        # --- Per-group z-scoring (new behavior) ---
+        gk_df = df[df["position_group"] == "Goalkeeper"]
+        gk_norm, _ = _zscore_normalize(gk_df, features)
+        gk_group_zscores = gk_norm["goals_per_90"]
+        # Within-group, GK z-scores should be close to 0 (mean of their own group)
+        assert abs(gk_group_zscores.mean()) < 1e-10, (
+            f"Expected GK per-group z-score mean ~ 0, got {gk_group_zscores.mean()}"
+        )
+
+    def test_per_group_normalization_produces_group_keyed_params(self) -> None:
+        """Per-group normalization returns params keyed by position group."""
+        features = ["goals_per_90"]
+        df = pd.DataFrame(
+            {
+                "goals_per_90": [0.4, 0.5, 0.0, 0.01],
+                "position_group": ["Forward", "Forward", "Goalkeeper", "Goalkeeper"],
+            }
+        )
+
+        all_params: dict[str, dict[str, dict[str, float]]] = {}
+        for group_name, group_df in df.groupby("position_group"):
+            _, group_params = _zscore_normalize(group_df, features)
+            all_params[str(group_name)] = group_params
+
+        assert "Forward" in all_params
+        assert "Goalkeeper" in all_params
+        assert "goals_per_90" in all_params["Forward"]
+        assert "goals_per_90" in all_params["Goalkeeper"]
+        # Means should differ significantly between groups
+        fwd_mean = all_params["Forward"]["goals_per_90"]["mean"]
+        gk_mean = all_params["Goalkeeper"]["goals_per_90"]["mean"]
+        assert fwd_mean > 0.3, f"Expected Forward mean > 0.3, got {fwd_mean}"
+        assert gk_mean < 0.02, f"Expected GK mean < 0.02, got {gk_mean}"
 
 
 # ---------------------------------------------------------------------------
@@ -344,14 +414,11 @@ class TestLoadEvents:
         expected_cols = [
             "canonical_player_id",
             "match_id",
-            "event_type",
-            "x",
-            "y",
+            "action_type",
+            "start_x",
+            "start_y",
             "event_index",
             "data_source",
-            "play_pattern",
-            "pass_cross",
-            "sub_event_type",
             "competition_id",
             "season_id",
         ]
@@ -367,14 +434,11 @@ class TestLoadEvents:
             {
                 "canonical_player_id": [],
                 "match_id": [],
-                "event_type": [],
-                "x": [],
-                "y": [],
+                "action_type": [],
+                "start_x": [],
+                "start_y": [],
                 "event_index": [],
                 "data_source": [],
-                "play_pattern": [],
-                "pass_cross": [],
-                "sub_event_type": [],
                 "competition_id": [],
                 "season_id": [],
             }
@@ -398,14 +462,11 @@ class TestLoadEvents:
             {
                 "canonical_player_id": [],
                 "match_id": [],
-                "event_type": [],
-                "x": [],
-                "y": [],
+                "action_type": [],
+                "start_x": [],
+                "start_y": [],
                 "event_index": [],
                 "data_source": [],
-                "play_pattern": [],
-                "pass_cross": [],
-                "sub_event_type": [],
                 "competition_id": [],
                 "season_id": [],
             }
@@ -429,14 +490,11 @@ class TestLoadEvents:
             {
                 "canonical_player_id": [],
                 "match_id": [],
-                "event_type": [],
-                "x": [],
-                "y": [],
+                "action_type": [],
+                "start_x": [],
+                "start_y": [],
                 "event_index": [],
                 "data_source": [],
-                "play_pattern": [],
-                "pass_cross": [],
-                "sub_event_type": [],
                 "competition_id": [],
                 "season_id": [],
             }
@@ -466,6 +524,7 @@ class TestComputeStatVectors:
                 "canonical_player_id": ["p1", "p2"],
                 "competition_id": ["c1", "c1"],
                 "season_id": ["s1", "s1"],
+                "position_group": ["Forward", "Midfielder"],
                 **{f: [1.0, 2.0] for f in STAT_FEATURES},
             }
         )
@@ -484,6 +543,7 @@ class TestComputeStatVectors:
                 "canonical_player_id": ["p1", "p2"],
                 "competition_id": ["c1", "c1"],
                 "season_id": ["s1", "s1"],
+                "position_group": ["Forward", "Forward"],
                 **{f: [1.0, 2.0] for f in STAT_FEATURES},
             }
         )
@@ -499,6 +559,7 @@ class TestComputeStatVectors:
             "canonical_player_id": ["p1"],
             "competition_id": ["c1"],
             "season_id": ["s1"],
+            "position_group": ["Forward"],
         }
         for f in STAT_FEATURES:
             if f in ("defcon_per_90", "intercept_per_90", "deter_per_90"):
@@ -523,6 +584,7 @@ class TestComputeStatVectors:
                 "canonical_player_id": ["p1"],
                 "competition_id": ["c1"],
                 "season_id": ["s1"],
+                "position_group": ["Forward"],
                 **{f: [1.0] for f in STAT_FEATURES},
             }
         )
@@ -545,6 +607,7 @@ class TestComputeStatVectors:
                 "canonical_player_id": ["p1"],
                 "competition_id": ["c1"],
                 "season_id": ["s1"],
+                "position_group": ["Forward"],
                 **{f: [1.0] for f in STAT_FEATURES},
             }
         )
@@ -563,6 +626,7 @@ class TestComputeStatVectors:
                 "canonical_player_id": pd.Series(dtype="str"),
                 "competition_id": pd.Series(dtype="str"),
                 "season_id": pd.Series(dtype="str"),
+                "position_group": pd.Series(dtype="str"),
                 **{f: pd.Series(dtype="float") for f in STAT_FEATURES},
             }
         )
@@ -602,19 +666,16 @@ class TestBehavioralUdf:
 
             udf_fn = _make_behavioral_udf(model_path)
 
-            # Build input DataFrame matching events schema
+            # Build input DataFrame matching SPADL events schema
             pdf = pd.DataFrame(
                 {
                     "canonical_player_id": ["p1", "p1", "p1"],
                     "match_id": ["m1", "m1", "m1"],
-                    "event_type": ["Pass", "Pass", "Shot"],
-                    "x": [60.0, 30.0, 110.0],
-                    "y": [40.0, 20.0, 40.0],
+                    "action_type": ["pass", "pass", "shot"],
+                    "start_x": [60.0, 30.0, 100.0],
+                    "start_y": [40.0, 20.0, 40.0],
                     "event_index": [1, 2, 3],
                     "data_source": ["statsbomb", "statsbomb", "statsbomb"],
-                    "play_pattern": [None, None, None],
-                    "pass_cross": [None, None, None],
-                    "sub_event_type": [None, None, None],
                     "competition_id": ["c1", "c1", "c1"],
                     "season_id": ["s1", "s1", "s1"],
                     "batch_id": [0, 0, 0],
@@ -646,7 +707,7 @@ class TestBehavioralUdf:
         assert result.empty
 
     def test_udf_handles_wyscout_events(self) -> None:
-        """UDF should tokenize Wyscout events correctly."""
+        """UDF should tokenize Wyscout SPADL actions correctly."""
         from analytics.football2vec import TrainingConfig, train_model
 
         seqs = {
@@ -668,14 +729,11 @@ class TestBehavioralUdf:
                 {
                     "canonical_player_id": ["p1", "p1"],
                     "match_id": ["m1", "m1"],
-                    "event_type": ["Pass", "Shot"],
-                    "x": [60.0, 50.0],
-                    "y": [40.0, 40.0],
+                    "action_type": ["pass", "shot"],
+                    "start_x": [60.0, 50.0],
+                    "start_y": [40.0, 40.0],
                     "event_index": [1, 2],
                     "data_source": ["wyscout", "wyscout"],
-                    "play_pattern": [None, None],
-                    "pass_cross": [None, None],
-                    "sub_event_type": [None, None],
                     "competition_id": ["c1", "c1"],
                     "season_id": ["s1", "s1"],
                     "batch_id": [0, 0],
@@ -709,14 +767,11 @@ class TestBehavioralUdf:
                 {
                     "canonical_player_id": ["p1", "p1", "p2", "p2"],
                     "match_id": ["m1", "m1", "m1", "m1"],
-                    "event_type": ["Pass", "Shot", "Pass", "Shot"],
-                    "x": [60.0, 110.0, 30.0, 100.0],
-                    "y": [40.0, 40.0, 20.0, 30.0],
+                    "action_type": ["pass", "shot", "pass", "shot"],
+                    "start_x": [60.0, 100.0, 30.0, 95.0],
+                    "start_y": [40.0, 40.0, 20.0, 30.0],
                     "event_index": [1, 2, 3, 4],
                     "data_source": ["statsbomb"] * 4,
-                    "play_pattern": [None] * 4,
-                    "pass_cross": [None] * 4,
-                    "sub_event_type": [None] * 4,
                     "competition_id": ["c1"] * 4,
                     "season_id": ["s1"] * 4,
                     "batch_id": [0] * 4,
@@ -810,7 +865,7 @@ class TestMainFunction:
                 "stat_vector": [[0.5] * 13],
             }
         )
-        mock_stat.return_value = (stat_df, {"goals_per_90": {"mean": 0.5, "std": 0.1}})
+        mock_stat.return_value = (stat_df, {"Forward": {"goals_per_90": {"mean": 0.5, "std": 0.1}}})
 
         # Mock validate
         mock_validate.return_value = 1

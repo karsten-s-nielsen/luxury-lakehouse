@@ -5,12 +5,13 @@ Implements the player embedding pipeline from Theiner et al. (2022):
   2. Train Doc2Vec (Le & Mikolov 2014) on per-player-match token sequences
   3. Infer fixed-length player embedding vectors
 
-Supports both StatsBomb and Wyscout event schemas via unified tokenizer
-with source-specific event type mappings.
+Uses the unified SPADL 23-type action vocabulary from ``fct_action_values``.
+Coordinates are in the SPADL 105x68 meter system.
 
 References:
   - Theiner et al. (2022) "Football2Vec" — spatial tokenization + Doc2Vec
   - Le & Mikolov (2014) "Distributed Representations of Sentences and Documents"
+  - Decroos et al. (2019) "Actions Speak Louder than Goals" — SPADL action types
 """
 
 from __future__ import annotations
@@ -28,38 +29,36 @@ from gensim.models.doc2vec import Doc2Vec, TaggedDocument
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# StatsBomb event type mapping
+# SPADL 23-type action vocabulary (from fct_action_values)
 # ---------------------------------------------------------------------------
 
-_STATSBOMB_EVENT_MAP: dict[str, str] = {
-    "Pass": "pass",
-    "Shot": "shot",
-    "Carry": "carry",
-    "Duel": "duel",
-    "Interception": "interception",
-    "Foul Committed": "foul",
-    "Clearance": "clearance",
-    "Dribble": "take_on",
-    "Goalkeeper": "goalkeeper",
-}
-
-# ---------------------------------------------------------------------------
-# Wyscout event type mapping
-# ---------------------------------------------------------------------------
-
-_WYSCOUT_EVENT_MAP: dict[str, str] = {
-    "Pass": "pass",
-    "Shot": "shot",
-    "Duel": "duel",
-    "Foul": "foul",
-    "Goalkeeper leaving line": "goalkeeper",
-}
-
-_WYSCOUT_OTHERS_SUB_MAP: dict[str, str] = {
-    "Interception": "interception",
-    "Acceleration": "take_on",
-    "Touch": "throw_in",
-}
+SPADL_ACTION_TYPES: frozenset[str] = frozenset(
+    {
+        "pass",
+        "cross",
+        "throw_in",
+        "freekick_crossed",
+        "freekick_short",
+        "corner_crossed",
+        "corner_short",
+        "take_on",
+        "foul",
+        "tackle",
+        "interception",
+        "shot",
+        "shot_penalty",
+        "shot_freekick",
+        "keeper_save",
+        "keeper_claim",
+        "keeper_punch",
+        "keeper_pick_up",
+        "clearance",
+        "bad_touch",
+        "non_action",
+        "dribble",
+        "goalkick",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -73,8 +72,8 @@ class TokenizerConfig:
 
     grid_cols: int = 12
     grid_rows: int = 8
-    pitch_length: float = 120.0
-    pitch_width: float = 80.0
+    pitch_length: float = 105.0
+    pitch_width: float = 68.0
 
 
 @dataclass(frozen=True)
@@ -93,101 +92,61 @@ class TrainingConfig:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_statsbomb_action(event: dict[str, Any]) -> str:
-    """Resolve a StatsBomb event to an action type string."""
-    event_type = event.get("event_type", "")
+def tokenize_event(
+    event: dict[str, Any],
+    config: TokenizerConfig | None = None,
+) -> str | None:
+    """Convert a single SPADL action to a spatial grid token.
 
-    if event_type == "Pass":
-        if event.get("pass_cross"):
-            return "cross"
-        play_pattern = event.get("play_pattern")
-        if play_pattern == "From Corner":
-            return "corner"
-        if play_pattern == "From Throw In":
-            return "throw_in"
-        return "pass"
-
-    return _STATSBOMB_EVENT_MAP.get(event_type, "other")
-
-
-def _resolve_wyscout_action(event: dict[str, Any]) -> str:
-    """Resolve a Wyscout event to an action type string."""
-    event_type = event.get("event_type", "")
-    sub_event_type = event.get("sub_event_type") or ""
-
-    if event_type == "Pass":
-        if sub_event_type == "Cross":
-            return "cross"
-        return "pass"
-
-    if event_type == "Free Kick":
-        if "clearance" in sub_event_type.lower():
-            return "clearance"
-        return "free_kick"
-
-    if event_type == "Others":
-        return _WYSCOUT_OTHERS_SUB_MAP.get(sub_event_type, "other")
-
-    return _WYSCOUT_EVENT_MAP.get(event_type, "other")
-
-
-def tokenize_event(event: dict[str, Any], config: TokenizerConfig) -> str | None:
-    """Tokenize a single event into a spatial action token.
+    Token format: ``{action_type}_{grid_x}_{grid_y}``
 
     Args:
-        event: Dict with keys event_type, x, y, data_source, and optional
-            play_pattern, pass_cross (StatsBomb) or sub_event_type (Wyscout).
-        config: Grid and pitch dimension configuration.
+        event: Dict with keys ``action_type``, ``start_x``, ``start_y``.
+            Coordinates in SPADL 105x68 meter system.
+        config: Optional tokenizer config (default: 12x8 grid on 105x68).
 
     Returns:
-        Token string like "pass_6_4", or None if coordinates are missing/NaN.
+        Token string, or None if coordinates are missing/invalid.
     """
-    x = event.get("x")
-    y = event.get("y")
+    cfg = config or TokenizerConfig()
 
-    # Skip events with missing or NaN coordinates
-    if x is None or y is None:
+    x_val = event.get("start_x")
+    y_val = event.get("start_y")
+    if x_val is None or y_val is None:
         return None
-    if isinstance(x, float) and math.isnan(x):
+    if isinstance(x_val, float) and math.isnan(x_val):
         return None
-    if isinstance(y, float) and math.isnan(y):
+    if isinstance(y_val, float) and math.isnan(y_val):
         return None
 
-    # Map to grid cell
-    cell_width = config.pitch_length / config.grid_cols
-    cell_height = config.pitch_width / config.grid_rows
-    grid_x = min(int(x / cell_width), config.grid_cols - 1)
-    grid_y = min(int(y / cell_height), config.grid_rows - 1)
+    cell_w = cfg.pitch_length / cfg.grid_cols
+    cell_h = cfg.pitch_width / cfg.grid_rows
+    gx = min(int(float(x_val) / cell_w), cfg.grid_cols - 1)
+    gy = min(int(float(y_val) / cell_h), cfg.grid_rows - 1)
 
-    # Resolve action type based on data source
-    data_source = event.get("data_source", "")
-    if data_source == "statsbomb":
-        action = _resolve_statsbomb_action(event)
-    elif data_source == "wyscout":
-        action = _resolve_wyscout_action(event)
-    else:
-        action = "other"
-
-    return f"{action}_{grid_x}_{grid_y}"
+    action = event.get("action_type", "non_action")
+    return f"{action}_{gx}_{gy}"
 
 
 def tokenize_match_events(
     df: pd.DataFrame,
-    config: TokenizerConfig,
+    config: TokenizerConfig | None = None,
 ) -> dict[tuple[str, str], list[str]]:
-    """Tokenize a DataFrame of events into per-player-match token sequences.
+    """Tokenize a DataFrame of SPADL actions into per-player-match token sequences.
 
     Args:
-        df: DataFrame with columns canonical_player_id, match_id, event_type,
-            x, y, event_index, data_source, play_pattern, pass_cross, sub_event_type.
-        config: Grid and pitch dimension configuration.
+        df: DataFrame with columns ``canonical_player_id``, ``match_id``,
+            ``action_type``, ``start_x``, ``start_y``, ``event_index``.
+        config: Optional tokenizer config (default: 12x8 grid on 105x68).
 
     Returns:
-        Dict mapping (canonical_player_id, match_id) → list of token strings,
+        Dict mapping (canonical_player_id, match_id) to list of token strings,
         ordered by event_index. Player-match pairs with zero valid tokens are excluded.
     """
     if df.empty:
         return {}
+
+    cfg = config or TokenizerConfig()
 
     # Sort by event_index for correct temporal ordering
     sorted_df = df.sort_values("event_index")
@@ -196,16 +155,12 @@ def tokenize_match_events(
 
     for record in sorted_df.to_dict("records"):
         event: dict[str, Any] = {
-            "event_type": record["event_type"],
-            "x": record["x"],
-            "y": record["y"],
-            "data_source": record["data_source"],
-            "play_pattern": record.get("play_pattern"),
-            "pass_cross": record.get("pass_cross"),
-            "sub_event_type": record.get("sub_event_type"),
+            "action_type": record["action_type"],
+            "start_x": record["start_x"],
+            "start_y": record["start_y"],
         }
 
-        event_token = tokenize_event(event, config)
+        event_token = tokenize_event(event, cfg)
         if event_token is None:
             continue
 

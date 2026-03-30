@@ -31,7 +31,8 @@ home_players_exploded as (
         player_value.x                                  as raw_x,
         player_value.y                                  as raw_y,
         ball_x                                          as raw_ball_x,
-        ball_y                                          as raw_ball_y
+        ball_y                                          as raw_ball_y,
+        gk_jersey_numbers
     from source
     lateral view explode(
         from_json(home_players, 'MAP<STRING, STRUCT<x:DOUBLE, y:DOUBLE>>')
@@ -52,7 +53,8 @@ away_players_exploded as (
         player_value.x                                  as raw_x,
         player_value.y                                  as raw_y,
         ball_x                                          as raw_ball_x,
-        ball_y                                          as raw_ball_y
+        ball_y                                          as raw_ball_y,
+        gk_jersey_numbers
     from source
     lateral view explode(
         from_json(away_players, 'MAP<STRING, STRUCT<x:DOUBLE, y:DOUBLE>>')
@@ -90,13 +92,19 @@ normalized as (
         -- Source provider
         'metrica'                                       as source_provider,
 
+        -- Goalkeeper flag (from gk_jersey_numbers JSON array, jersey #1 heuristic)
+        array_contains(
+            from_json(gk_jersey_numbers, 'ARRAY<STRING>'),
+            player_id
+        )                                               as is_goalkeeper,
+
         -- Scaled player coordinates (120x80)
-        raw_x * 120.0                                   as x,
-        (1.0 - raw_y) * 80.0                            as y,
+        {{ normalize_x('raw_x', 'metrica') }} as x,
+        {{ normalize_y('raw_y', 'metrica') }} as y,
 
         -- Ball coordinates broadcast from frame-level bronze columns
-        raw_ball_x * 120.0                              as ball_x,
-        (1.0 - raw_ball_y) * 80.0                       as ball_y
+        {{ normalize_x('raw_ball_x', 'metrica') }} as ball_x,
+        {{ normalize_y('raw_ball_y', 'metrica') }} as ball_y
 
     from all_players
     where raw_x is not null

@@ -20,6 +20,14 @@ models:
         description: Foreign key to stg_statsbomb__matches
         data_tests:
           - not_null
+      - name: competition_id
+        description: StatsBomb competition identifier
+        data_tests:
+          - not_null
+      - name: season_id
+        description: StatsBomb season identifier
+        data_tests:
+          - not_null
       - name: event_type
         description: Event type name (Shot, Pass, Carry, Duel, etc.)
         data_tests:

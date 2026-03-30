@@ -46,8 +46,8 @@ print(f"{vectors.shape[0]} players, {vectors.shape[1]}-dim embeddings")
 
 Each embedding is composed of two complementary vectors trained or derived from open event data:
 
-- **Behavioral vector** (32-dimensional): A Doc2Vec paragraph embedding encoding a player's action sequence style. Trained on tokenized SPADL action streams, it captures *how* a player plays &mdash; their movement patterns, decision sequences, and positional tendencies.
-- **Statistical vector** (13-dimensional, may be NULL): Z-score normalized per-90 statistics covering volume, efficiency, and impact metrics. Provides an interpretable complement to the behavioral embedding for downstream modeling.
+- **Behavioral vector** (32-dimensional): A Doc2Vec paragraph embedding encoding a player's action sequence style. Trained on tokenized SPADL action streams (23-type vocabulary), it captures *how* a player plays &mdash; their movement patterns, decision sequences, and positional tendencies.
+- **Statistical vector** (13-dimensional, may be NULL): Per-90 statistics z-score normalized **within position group** (GK, Def, Mid, Fwd). This position-aware normalization prevents goalkeeper contamination in similarity search and provides fairer cross-position comparisons.
 
 For model architecture details, training methodology, and the full vocabulary, see the companion model repository: [`luxury-lakehouse/football2vec-statsbomb-wyscout`](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout).
 

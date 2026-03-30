@@ -57,12 +57,12 @@ cleaned as (
         eventSec                                            as event_sec,
 
         -- Start location (scaled to 120x80, use get() for safe access)
-        get(parsed_positions, 0).x / 100.0 * {{ var('pitch_length') }}.0 as start_x,
-        get(parsed_positions, 0).y / 100.0 * {{ var('pitch_width') }}.0  as start_y,
+        {{ normalize_x('get(parsed_positions, 0).x', 'pct') }} as start_x,
+        {{ normalize_y('get(parsed_positions, 0).y', 'pct') }} as start_y,
 
         -- End location (scaled to 120x80, may be NULL if positions has only 1 element)
-        get(parsed_positions, 1).x / 100.0 * {{ var('pitch_length') }}.0 as end_x,
-        get(parsed_positions, 1).y / 100.0 * {{ var('pitch_width') }}.0  as end_y,
+        {{ normalize_x('get(parsed_positions, 1).x', 'pct') }} as end_x,
+        {{ normalize_y('get(parsed_positions, 1).y', 'pct') }} as end_y,
 
         -- Tag-derived boolean flags
         exists(parsed_tags, t -> t.id = 101)                as is_goal,

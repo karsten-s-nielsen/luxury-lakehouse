@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import pytest
+
+pytest.importorskip("jax")
+
 from collections import namedtuple
 from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from analytics.off_ball_xt import (
     OffBallXtParams,

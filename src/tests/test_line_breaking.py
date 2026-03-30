@@ -1,4 +1,5 @@
 """Tests for line-breaking pass detection (Ward clustering + straddle test)."""
+# pyright: reportCallIssue=false, reportArgumentType=false
 
 from __future__ import annotations
 
@@ -20,8 +21,10 @@ from analytics.line_breaking import (
     detect_line_breaking_batch,
 )
 from ingestion.line_breaking import (
+    _make_idsse_udf,
     _make_metrica_udf,
     _make_statsbomb_udf,
+    _process_idsse_tracking,
     _process_metrica_tracking,
     _process_statsbomb_360,
 )
@@ -824,4 +827,300 @@ class TestIncrementalSkipGuardPathB:
         spark.table.side_effect = Exception("Table not found")
 
         result = _process_metrica_tracking(spark, "cat", "bronze", logger, params)
+        assert result == 0
+
+
+# ---------------------------------------------------------------------------
+# TestApplyInPandasUDFs — IDSSE Tracking
+# ---------------------------------------------------------------------------
+
+
+class TestIdssUdf:
+    """Test the applyInPandas UDF for IDSSE tracking data."""
+
+    @staticmethod
+    def _sb_to_center_m(x: float, y: float) -> tuple[float, float]:
+        """Convert StatsBomb 120x80 to center-origin meters for test data."""
+        return x / 120.0 * 105.0 - 52.5, y / 80.0 * 68.0 - 34.0
+
+    @staticmethod
+    def _sb_to_pitch_m(x: float, y: float) -> tuple[float, float]:
+        """Convert StatsBomb 120x80 to pitch-origin meters for test data."""
+        return x / 120.0 * 105.0, y / 80.0 * 68.0
+
+    def test_line_breaking_detected(self) -> None:
+        """UDF should detect line-breaking from IDSSE tracking data."""
+        # Build opponent positions in center-origin meters (reverse of center_m_to_statsbomb)
+        opp_sb = _make_442_opponents()
+        n_opps = len(opp_sb)
+
+        # Convert opponents to center-origin meters
+        opp_center: list[tuple[float, float]] = []
+        for _, row in opp_sb.iterrows():
+            opp_center.append(self._sb_to_center_m(row["x"], row["y"]))
+
+        # Pass start in pitch-origin meters (event coordinate system)
+        evt_x, evt_y = self._sb_to_pitch_m(50.0, 40.0)
+        # Ball position (pass end proxy) in center-origin meters (tracking coordinate system)
+        ball_x, ball_y = self._sb_to_center_m(95.0, 40.0)
+
+        pdf = pd.DataFrame(
+            {
+                "evt_event_id": ["e1"] * n_opps,
+                "evt_match_id": ["idsse_J03WMX"] * n_opps,
+                "evt_team": ["home"] * n_opps,
+                "evt_x": [evt_x] * n_opps,
+                "evt_y": [evt_y] * n_opps,
+                "trk_team": ["away"] * n_opps,
+                "trk_x": [c[0] for c in opp_center],
+                "trk_y": [c[1] for c in opp_center],
+                "trk_ball_x": [ball_x] * n_opps,
+                "trk_ball_y": [ball_y] * n_opps,
+            }
+        )
+
+        udf_fn = _make_idsse_udf()
+        result = udf_fn(pdf)
+
+        assert len(result) == 1
+        assert result.iloc[0]["event_id"] == "e1"
+        assert result.iloc[0]["match_id"] == "idsse_J03WMX"
+        assert result.iloc[0]["is_line_breaking"]
+        assert result.iloc[0]["lines_broken"] >= 1
+        assert result.iloc[0]["data_source"] == "idsse_tracking"
+
+    def test_opponent_filtering_by_team(self) -> None:
+        """UDF should only use opponent (not same-team) players for detection."""
+        opp_sb = _make_442_opponents()
+        n_opps = len(opp_sb)
+
+        opp_center: list[tuple[float, float]] = []
+        for _, row in opp_sb.iterrows():
+            opp_center.append(self._sb_to_center_m(row["x"], row["y"]))
+
+        evt_x, evt_y = self._sb_to_pitch_m(50.0, 40.0)
+        ball_x, ball_y = self._sb_to_center_m(95.0, 40.0)
+
+        # All tracking rows are same team as event — should have 0 opponents
+        pdf = pd.DataFrame(
+            {
+                "evt_event_id": ["e1"] * n_opps,
+                "evt_match_id": ["idsse_J03WMX"] * n_opps,
+                "evt_team": ["home"] * n_opps,
+                "evt_x": [evt_x] * n_opps,
+                "evt_y": [evt_y] * n_opps,
+                "trk_team": ["home"] * n_opps,  # Same team — not opponents!
+                "trk_x": [c[0] for c in opp_center],
+                "trk_y": [c[1] for c in opp_center],
+                "trk_ball_x": [ball_x] * n_opps,
+                "trk_ball_y": [ball_y] * n_opps,
+            }
+        )
+
+        udf_fn = _make_idsse_udf()
+        result = udf_fn(pdf)
+
+        # No opponents -> no passes processed -> empty result
+        assert len(result) == 0
+
+    def test_missing_ball_position_skips_event(self) -> None:
+        """Events without ball position data should be skipped."""
+        opp_sb = _make_442_opponents()
+        n_opps = len(opp_sb)
+
+        opp_center: list[tuple[float, float]] = []
+        for _, row in opp_sb.iterrows():
+            opp_center.append(self._sb_to_center_m(row["x"], row["y"]))
+
+        evt_x, evt_y = self._sb_to_pitch_m(50.0, 40.0)
+
+        pdf = pd.DataFrame(
+            {
+                "evt_event_id": ["e1"] * n_opps,
+                "evt_match_id": ["idsse_J03WMX"] * n_opps,
+                "evt_team": ["home"] * n_opps,
+                "evt_x": [evt_x] * n_opps,
+                "evt_y": [evt_y] * n_opps,
+                "trk_team": ["away"] * n_opps,
+                "trk_x": [c[0] for c in opp_center],
+                "trk_y": [c[1] for c in opp_center],
+                "trk_ball_x": [None] * n_opps,
+                "trk_ball_y": [None] * n_opps,
+            }
+        )
+
+        udf_fn = _make_idsse_udf()
+        result = udf_fn(pdf)
+
+        # No ball position -> no pass end location -> empty result
+        assert len(result) == 0
+
+    def test_empty_input_returns_empty(self) -> None:
+        """Empty input should return empty DataFrame with correct columns."""
+        from ingestion.line_breaking import _RESULT_COLUMNS
+
+        pdf = pd.DataFrame(
+            columns=pd.Index(
+                [
+                    "evt_event_id",
+                    "evt_match_id",
+                    "evt_team",
+                    "evt_x",
+                    "evt_y",
+                    "trk_team",
+                    "trk_x",
+                    "trk_y",
+                    "trk_ball_x",
+                    "trk_ball_y",
+                ]
+            )
+        )
+
+        udf_fn = _make_idsse_udf()
+        result = udf_fn(pdf)
+
+        assert len(result) == 0
+        for col in _RESULT_COLUMNS:
+            assert col in result.columns
+
+    def test_multiple_events_in_same_match(self) -> None:
+        """UDF should handle multiple events in the same match group."""
+        opp_sb = _make_442_opponents()
+        n_opps = len(opp_sb)
+
+        opp_center: list[tuple[float, float]] = []
+        for _, row in opp_sb.iterrows():
+            opp_center.append(self._sb_to_center_m(row["x"], row["y"]))
+
+        # Forward pass (line-breaking)
+        fwd_evt_x, fwd_evt_y = self._sb_to_pitch_m(50.0, 40.0)
+        fwd_ball_x, fwd_ball_y = self._sb_to_center_m(95.0, 40.0)
+
+        # Backward pass (not line-breaking)
+        bwd_evt_x, bwd_evt_y = self._sb_to_pitch_m(90.0, 40.0)
+        bwd_ball_x, bwd_ball_y = self._sb_to_center_m(50.0, 40.0)
+
+        rows = []
+        for i in range(n_opps):
+            rows.append(
+                {
+                    "evt_event_id": "fwd",
+                    "evt_match_id": "idsse_J03WMX",
+                    "evt_team": "home",
+                    "evt_x": fwd_evt_x,
+                    "evt_y": fwd_evt_y,
+                    "trk_team": "away",
+                    "trk_x": opp_center[i][0],
+                    "trk_y": opp_center[i][1],
+                    "trk_ball_x": fwd_ball_x,
+                    "trk_ball_y": fwd_ball_y,
+                }
+            )
+        for i in range(n_opps):
+            rows.append(
+                {
+                    "evt_event_id": "bwd",
+                    "evt_match_id": "idsse_J03WMX",
+                    "evt_team": "home",
+                    "evt_x": bwd_evt_x,
+                    "evt_y": bwd_evt_y,
+                    "trk_team": "away",
+                    "trk_x": opp_center[i][0],
+                    "trk_y": opp_center[i][1],
+                    "trk_ball_x": bwd_ball_x,
+                    "trk_ball_y": bwd_ball_y,
+                }
+            )
+
+        pdf = pd.DataFrame(rows)
+        udf_fn = _make_idsse_udf()
+        result = udf_fn(pdf)
+
+        assert len(result) == 2
+        fwd_row = result[result["event_id"] == "fwd"].iloc[0]
+        bwd_row = result[result["event_id"] == "bwd"].iloc[0]
+        assert fwd_row["is_line_breaking"]
+        assert not bwd_row["is_line_breaking"]
+
+
+# ---------------------------------------------------------------------------
+# TestIncrementalSkipGuard — Path C (IDSSE Tracking)
+# ---------------------------------------------------------------------------
+
+
+class TestIncrementalSkipGuardPathC:
+    """Test incremental skip guard for _process_idsse_tracking."""
+
+    def _make_logger(self) -> logging.Logger:
+        return logging.getLogger("test_lb_skip_c")
+
+    def test_all_matches_already_processed_skips(self) -> None:
+        """When all IDSSE match_ids exist in results, processing should be skipped."""
+        spark = MagicMock()
+        logger = self._make_logger()
+        params = LineBreakingParams()
+
+        # Events table returns Play events for matches m1, m2
+        events_match_row_1 = MagicMock()
+        events_match_row_1.__getitem__ = lambda self, k: "idsse_J03WMX"
+        events_match_row_2 = MagicMock()
+        events_match_row_2.__getitem__ = lambda self, k: "idsse_J03WN1"
+
+        # Results table has same matches already
+        existing_row_1 = MagicMock()
+        existing_row_1.__getitem__ = lambda self, k: "idsse_J03WMX"
+        existing_row_2 = MagicMock()
+        existing_row_2.__getitem__ = lambda self, k: "idsse_J03WN1"
+
+        events_table_mock = MagicMock()
+        events_table_mock.filter.return_value.select.return_value.distinct.return_value.collect.return_value = [
+            events_match_row_1,
+            events_match_row_2,
+        ]
+
+        results_table_mock = MagicMock()
+        results_table_mock.filter.return_value.select.return_value.distinct.return_value.collect.return_value = [
+            existing_row_1,
+            existing_row_2,
+        ]
+
+        def table_side_effect(name: str) -> MagicMock:
+            if name.endswith("idsse_events"):
+                return events_table_mock
+            if name.endswith("line_breaking_results"):
+                return results_table_mock
+            return MagicMock()
+
+        spark.table.side_effect = table_side_effect
+
+        result = _process_idsse_tracking(spark, "cat", "bronze", logger, params)
+
+        assert result == 0
+        # Should NOT have tried to read tracking data (all matches skipped)
+        tracking_calls = [c for c in spark.table.call_args_list if "idsse_tracking" in str(c)]
+        assert len(tracking_calls) == 0
+
+    def test_no_play_events_returns_zero(self) -> None:
+        """When there are no Play events, should return 0."""
+        spark = MagicMock()
+        logger = self._make_logger()
+        params = LineBreakingParams()
+
+        events_table_mock = MagicMock()
+        events_table_mock.filter.return_value.select.return_value.distinct.return_value.collect.return_value = []
+
+        spark.table.return_value = events_table_mock
+
+        result = _process_idsse_tracking(spark, "cat", "bronze", logger, params)
+        assert result == 0
+
+    def test_events_table_exception_returns_zero(self) -> None:
+        """When events table cannot be read, should return 0."""
+        spark = MagicMock()
+        logger = self._make_logger()
+        params = LineBreakingParams()
+
+        spark.table.side_effect = Exception("Table not found")
+
+        result = _process_idsse_tracking(spark, "cat", "bronze", logger, params)
         assert result == 0

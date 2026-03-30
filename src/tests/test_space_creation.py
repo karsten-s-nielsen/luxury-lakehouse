@@ -6,16 +6,12 @@ Fernandez & Bornn (2018) "Wide Open Spaces."
 
 from __future__ import annotations
 
-import numpy as np
-import pandas as pd
 import pytest
 
-try:
-    import jax  # noqa: F401
+pytest.importorskip("jax")
 
-    _HAS_JAX = True
-except ImportError:
-    _HAS_JAX = False
+import numpy as np
+import pandas as pd
 
 from analytics.space_creation import (
     SpaceCreationParams,
@@ -100,7 +96,6 @@ class TestComputeSpaceCreated:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not _HAS_JAX, reason="JAX not installed")
 class TestFrameSpaceCreation:
     """Test full-frame per-player space creation computation."""
 

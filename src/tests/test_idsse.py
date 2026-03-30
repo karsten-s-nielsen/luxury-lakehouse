@@ -14,7 +14,7 @@ from ingestion.idsse import IDSSE_MATCH_IDS, _parse_events_xml, _parse_positions
 
 _logger = logging.getLogger("test_idsse")
 
-# Minimal DFL match info XML for testing
+# Minimal DFL match info XML for testing (includes PlayingPosition for GK detection)
 _MATCH_INFO_XML = """\
 <?xml version="1.0" encoding="UTF-8"?>
 <PutDataRequest>
@@ -24,14 +24,14 @@ _MATCH_INFO_XML = """\
     <Teams>
       <Team TeamId="DFL-CLU-000008" Role="home">
         <Players>
-          <Player PersonId="H001" ShirtNumber="1" FirstName="A" LastName="B" />
-          <Player PersonId="H002" ShirtNumber="2" FirstName="C" LastName="D" />
+          <Player PersonId="H001" ShirtNumber="1" PlayingPosition="TW" FirstName="A" LastName="B" />
+          <Player PersonId="H002" ShirtNumber="2" PlayingPosition="IV" FirstName="C" LastName="D" />
         </Players>
       </Team>
       <Team TeamId="DFL-CLU-00000G" Role="guest">
         <Players>
-          <Player PersonId="A001" ShirtNumber="9" FirstName="E" LastName="F" />
-          <Player PersonId="A002" ShirtNumber="10" FirstName="G" LastName="H" />
+          <Player PersonId="A001" ShirtNumber="1" PlayingPosition="TW" FirstName="E" LastName="F" />
+          <Player PersonId="A002" ShirtNumber="10" PlayingPosition="RA" FirstName="G" LastName="H" />
         </Players>
       </Team>
     </Teams>
@@ -106,7 +106,7 @@ class TestParseTeams:
     def test_identifies_home_team(self) -> None:
         path = _write_temp_xml(_MATCH_INFO_XML)
         try:
-            home_id, _away_id, _ptm = _parse_teams(path)
+            home_id, _away_id, _ptm, _gk = _parse_teams(path)
             assert home_id == "DFL-CLU-000008"
         finally:
             os.unlink(path)
@@ -114,7 +114,7 @@ class TestParseTeams:
     def test_identifies_away_team(self) -> None:
         path = _write_temp_xml(_MATCH_INFO_XML)
         try:
-            _home_id, away_id, _ptm = _parse_teams(path)
+            _home_id, away_id, _ptm, _gk = _parse_teams(path)
             assert away_id == "DFL-CLU-00000G"
         finally:
             os.unlink(path)
@@ -122,7 +122,7 @@ class TestParseTeams:
     def test_maps_players_to_teams(self) -> None:
         path = _write_temp_xml(_MATCH_INFO_XML)
         try:
-            _h, _a, ptm = _parse_teams(path)
+            _h, _a, ptm, _gk = _parse_teams(path)
             assert ptm["H001"] == "home"
             assert ptm["H002"] == "home"
             assert ptm["A001"] == "away"
@@ -133,8 +133,27 @@ class TestParseTeams:
     def test_player_count(self) -> None:
         path = _write_temp_xml(_MATCH_INFO_XML)
         try:
-            _h, _a, ptm = _parse_teams(path)
+            _h, _a, ptm, _gk = _parse_teams(path)
             assert len(ptm) == 4
+        finally:
+            os.unlink(path)
+
+    def test_extracts_goalkeeper_ids(self) -> None:
+        """PlayingPosition='TW' identifies goalkeepers from both teams."""
+        path = _write_temp_xml(_MATCH_INFO_XML)
+        try:
+            _h, _a, _ptm, gk_ids = _parse_teams(path)
+            assert gk_ids == {"H001", "A001"}
+        finally:
+            os.unlink(path)
+
+    def test_non_goalkeepers_excluded(self) -> None:
+        """Players without PlayingPosition='TW' are not in gk_player_ids."""
+        path = _write_temp_xml(_MATCH_INFO_XML)
+        try:
+            _h, _a, _ptm, gk_ids = _parse_teams(path)
+            assert "H002" not in gk_ids
+            assert "A002" not in gk_ids
         finally:
             os.unlink(path)
 
@@ -146,8 +165,8 @@ class TestParsePositionsXML:
         info_path = _write_temp_xml(_MATCH_INFO_XML)
         pos_path = _write_temp_xml(_POSITIONS_XML)
         try:
-            _h, _a, ptm = _parse_teams(info_path)
-            rows_by_period = _parse_positions_xml(pos_path, ptm, "J03WMX", _logger)
+            _h, _a, ptm, gk_ids = _parse_teams(info_path)
+            rows_by_period = _parse_positions_xml(pos_path, ptm, "J03WMX", _logger, gk_player_ids=gk_ids)
             # Flatten period-bucketed rows into a single list for test assertions
             return [row for period_rows in rows_by_period.values() for row in period_rows]
         finally:
@@ -223,8 +242,19 @@ class TestParsePositionsXML:
             "ball_y",
             "match_id",
             "frame_rate",
+            "is_goalkeeper",
         }
         assert set(rows[0].keys()) == expected
+
+    def test_is_goalkeeper_flag(self) -> None:
+        """H001 and A001 are GKs (PlayingPosition=TW); H002 and A002 are not."""
+        rows = self._get_rows()
+        gk_rows = [r for r in rows if r["is_goalkeeper"] is True]
+        non_gk_rows = [r for r in rows if r["is_goalkeeper"] is False]
+        gk_pids = {r["player_id"] for r in gk_rows}
+        non_gk_pids = {r["player_id"] for r in non_gk_rows}
+        assert gk_pids == {"H001", "A001"}
+        assert non_gk_pids == {"H002", "A002"}
 
 
 class TestBallOrderingAssumption:
@@ -235,7 +265,7 @@ class TestBallOrderingAssumption:
         info_path = _write_temp_xml(_MATCH_INFO_XML)
         pos_path = _write_temp_xml(_POSITIONS_XML_BALL_LAST)
         try:
-            _h, _a, ptm = _parse_teams(info_path)
+            _h, _a, ptm, _gk = _parse_teams(info_path)
             rows_by_period = _parse_positions_xml(pos_path, ptm, "J03WMX", _logger)
             rows = rows_by_period[1]
             # H001 was parsed before the ball FrameSet — ball coords should be None
@@ -251,7 +281,7 @@ class TestBallOrderingAssumption:
         info_path = _write_temp_xml(_MATCH_INFO_XML)
         pos_path = _write_temp_xml(_POSITIONS_XML_BALL_LAST)
         try:
-            _h, _a, ptm = _parse_teams(info_path)
+            _h, _a, ptm, _gk = _parse_teams(info_path)
             with caplog.at_level(logging.WARNING):
                 _parse_positions_xml(pos_path, ptm, "J03WMX", _logger)
             assert "Ball coordinate lookup missed" in caplog.text
@@ -264,7 +294,7 @@ class TestBallOrderingAssumption:
         info_path = _write_temp_xml(_MATCH_INFO_XML)
         pos_path = _write_temp_xml(_POSITIONS_XML)
         try:
-            _h, _a, ptm = _parse_teams(info_path)
+            _h, _a, ptm, _gk = _parse_teams(info_path)
             rows_by_period = _parse_positions_xml(pos_path, ptm, "J03WMX", _logger)
             rows = [row for period_rows in rows_by_period.values() for row in period_rows]
             period1_f0 = [r for r in rows if r["period"] == 1 and r["frame"] == 0]
@@ -403,7 +433,7 @@ class TestParseEventsXML:
         info_path = _write_temp_xml(_MATCH_INFO_XML)
         event_path = _write_temp_xml(_EVENTS_XML)
         try:
-            _h, _a, ptm = _parse_teams(info_path)
+            _h, _a, ptm, _gk = _parse_teams(info_path)
             return _parse_events_xml(event_path, ptm, "J03WMX", _logger)
         finally:
             os.unlink(info_path)

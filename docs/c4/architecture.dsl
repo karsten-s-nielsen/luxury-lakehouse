@@ -1,4 +1,4 @@
-workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 16 AI/ML workflows, three-tier cost tracking, 14-page Taipy dashboard on HF Spaces, Databricks Lakebase. Semgrep SAST and ruff S (bandit) in CI." {
+workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 16 AI/ML workflows, three-tier cost tracking, 14-page Taipy dashboard on HF Spaces, Databricks Lakebase. Coordinate normalization (5 providers), SPADL 23-type vocabulary, position-group z-scored embeddings. Semgrep SAST and ruff S (bandit) in CI." {
 
     model {
         analyst = person "Soccer Analyst" "Coaches, scouts, and analysts exploring match and player data"
@@ -27,10 +27,10 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 16 AI/ML wor
             costEstimateHook = container "CostEstimateHook" "Lifecycle hook writing run state + cost estimates to workflow_cost_live Delta table via MERGE. Configurable rate via DATABRICKS_SERVERLESS_RATE_USD env var" "Python, PySpark, Delta, src/ingestion/cost_hook.py"
             hfCostRecorder = container "HFJobsCostRecorder" "Standalone cost recorder for HF Jobs scripts. Writes _workflow_cost.json (live status) and _cost_history/{job_id}.json (per-run history) to HF Hub repos. 90-day auto-pruning" "Python, huggingface_hub, src/analytics/cost.py"
             ingestionPipelines = container "Compute Pipelines" "12 @workflow-decorated Databricks pipelines: xG, VAEP, DEFCON, pitch control, xT, OBSO/PAUSA, entity resolution, line-breaking, model validation" "Python, PySpark, src/ingestion/"
-            analyticsLibrary = container "Analytics Library" "Pure-Python domain models: pitch control (Spearman 2017), xG (calibrated XGBoost), xT (Markov chain), VAEP (socceraction), OBSO (Fernandez & Bornn), line-breaking (Ward clustering), DEFCON (Kim et al. 2025), entity resolution (TF-IDF + rapidfuzz), augmentation (TacticAI)" "Python, NumPy, SciPy, src/analytics/"
+            analyticsLibrary = container "Analytics Library" "Pure-Python domain models: pitch control (Spearman 2017), xG (calibrated XGBoost), xT (Markov chain), VAEP (socceraction), OBSO (Fernandez & Bornn), line-breaking (Ward clustering, 3 paths: 360/Metrica/IDSSE), DEFCON (Kim et al. 2025), entity resolution (TF-IDF + rapidfuzz), augmentation (TacticAI), coordinates (5-provider normalization to StatsBomb), football2vec (SPADL 23-type tokenization)" "Python, NumPy, SciPy, src/analytics/"
         }
 
-        dbtProject = softwareSystem "dbt Project" "Medallion transformation: 51 models (staging/intermediate/marts), data classification meta tags, model contracts, liquid clustering" {
+        dbtProject = softwareSystem "dbt Project" "Medallion transformation: 51 models (staging/intermediate/marts), normalize_coordinates macro, data classification meta tags, model contracts, liquid clustering" {
             fctWorkflowCosts = container "fct_workflow_costs" "Gold-layer cost attribution from system.billing.usage × list_prices, proportional per-task by execution_duration. 90-day rolling window. Post-hook cleanup of warm-tier rows" "SQL, dbt" "Database"
             goldModels = container "Gold Models" "21 fact tables + 3 dimension tables with enforced contracts, liquid clustering, auto-compaction" "SQL, dbt" "Database"
         }
@@ -46,7 +46,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 16 AI/ML wor
         databricksApi = softwareSystem "Databricks REST API" "OAuth credential endpoint for Lakebase authentication" "External"
         databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 20 tasks (5 ingest + 13 compute + 1 validation + 1 HF cost sync), daily 06:00 UTC" "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds from Dockerfile, serves on port 7860" "External"
-        hfHub = softwareSystem "HuggingFace Hub" "Hosts 4 models, 11 datasets, build-artifacts wheel, demo-data bucket, and _workflow_cost.json cost artifacts" "External"
+        hfHub = softwareSystem "HuggingFace Hub" "Hosts 4 models, 12 datasets, build-artifacts wheel, demo-data bucket, and _workflow_cost.json cost artifacts" "External"
         hfJobs = softwareSystem "HuggingFace Jobs" "GPU/CPU compute: 7 PEP 723 UV scripts for training (xG, VAEP) and batch analytics (xT, EPV, OBSO, Space Creation)" "External"
 
         # Relationships - users

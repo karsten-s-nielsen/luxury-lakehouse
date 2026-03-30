@@ -114,7 +114,13 @@ def _make_formation_udf(
         # Filter to outfield players:
         # - player_id must be non-null (excludes ball rows)
         # - team must be non-null (excludes unassigned rows)
-        pdf = _pd.DataFrame(pdf[pdf["player_id"].notna() & pdf["team"].notna()])
+        # - is_goalkeeper must be False (templates only cover 8-10 outfield players)
+        # fillna(False) handles NULL values; the column-presence guard handles
+        # DataFrames that pre-date the is_goalkeeper column (e.g. unit tests).
+        if "is_goalkeeper" not in pdf.columns:
+            pdf["is_goalkeeper"] = False
+        gk_flag: pd.Series = pdf["is_goalkeeper"].fillna(False)  # type: ignore[assignment]
+        pdf = _pd.DataFrame(pdf[pdf["player_id"].notna() & pdf["team"].notna() & ~gk_flag])
         if pdf.empty:
             return _empty
 
@@ -206,6 +212,7 @@ def _process_matches(
             "timestamp_seconds",
             "x",
             "y",
+            "is_goalkeeper",
         )
     )
 

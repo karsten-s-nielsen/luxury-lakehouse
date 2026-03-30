@@ -82,13 +82,13 @@ with_derived as (
         )                                               as speed,
 
         -- Velocity in m/s (anisotropic scaling per component)
-        (x - prev_x) * frame_rate * (105.0 / {{ var('pitch_length') }})  as velocity_x_ms,
-        (y - prev_y) * frame_rate * (68.0 / {{ var('pitch_width') }})    as velocity_y_ms,
+        (x - prev_x) * frame_rate * ({{ var('pitch_length_m') }} / {{ var('pitch_length') }})  as velocity_x_ms,
+        (y - prev_y) * frame_rate * ({{ var('pitch_width_m') }} / {{ var('pitch_width') }})    as velocity_y_ms,
 
         -- Speed in m/s (magnitude of velocity in meters)
         sqrt(
-            power((x - prev_x) * frame_rate * (105.0 / {{ var('pitch_length') }}), 2)
-            + power((y - prev_y) * frame_rate * (68.0 / {{ var('pitch_width') }}), 2)
+            power((x - prev_x) * frame_rate * ({{ var('pitch_length_m') }} / {{ var('pitch_length') }}), 2)
+            + power((y - prev_y) * frame_rate * ({{ var('pitch_width_m') }} / {{ var('pitch_width') }}), 2)
         )                                               as speed_ms
 
     from with_lag
@@ -117,6 +117,7 @@ final as (
         player_id,
         team,
         source_provider,
+        is_goalkeeper,
         frame_rate,
         x,
         y,
