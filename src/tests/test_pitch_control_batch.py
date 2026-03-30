@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import pytest
+
+pytest.importorskip("jax")
+
 import pandas as pd
 
 from analytics.pitch_control import PitchControlParams

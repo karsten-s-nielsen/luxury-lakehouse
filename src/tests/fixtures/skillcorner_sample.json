@@ -9,12 +9,12 @@
   },
   "players": {
     "home": [
-      {"player_id": "P101", "name": "Player Home 1"},
-      {"player_id": "P102", "name": "Player Home 2"}
+      {"player_id": "P101", "name": "Player Home 1", "position": "Goalkeeper", "jersey_no": 1},
+      {"player_id": "P102", "name": "Player Home 2", "position": "Defender", "jersey_no": 5}
     ],
     "away": [
-      {"player_id": "P201", "name": "Player Away 1"},
-      {"player_id": "P202", "name": "Player Away 2"}
+      {"player_id": "P201", "name": "Player Away 1", "position": "Goalkeeper", "jersey_no": 1},
+      {"player_id": "P202", "name": "Player Away 2", "position": "Midfielder", "jersey_no": 10}
     ]
   },
   "frames": [

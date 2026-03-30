@@ -55,14 +55,8 @@ tasks AS (
 ),
 
 workflow_ids AS (
-    SELECT DISTINCT
-        task_key,
-        CAST(job_run_id AS BIGINT) AS job_run_id,
-        workflow_id
-    FROM {{ this.database }}.observability.workflow_cost_live
-    WHERE workflow_id IS NOT NULL
-      AND task_key IS NOT NULL
-      AND job_run_id IS NOT NULL
+    SELECT task_key, workflow_id
+    FROM {{ ref('task_workflow_mapping') }}
 )
 
 SELECT
@@ -89,5 +83,4 @@ SELECT
 FROM billing
 INNER JOIN tasks ON billing.job_run_id = tasks.job_run_id
 LEFT JOIN workflow_ids AS wcl
-    ON wcl.job_run_id = CAST(billing.job_run_id AS BIGINT)
-    AND wcl.task_key = tasks.task_key
+    ON wcl.task_key = tasks.task_key

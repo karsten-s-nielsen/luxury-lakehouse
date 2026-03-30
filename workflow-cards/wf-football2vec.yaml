@@ -18,21 +18,15 @@ references:
 
 inputs:
   datasets:
-    - id: "{catalog}.dev_silver.stg_statsbomb__events"
+    - id: "{catalog}.dev_gold.fct_action_values"
       source: delta-table
-      description: "Staged StatsBomb events for action sequence extraction"
-    - id: "{catalog}.dev_silver.stg_wyscout__events"
-      source: delta-table
-      description: "Staged Wyscout events for action sequence extraction"
+      description: "SPADL/VAEP action values (23-type vocabulary) for behavioral tokenization"
     - id: "{catalog}.dev_gold.dim_players"
       source: delta-table
       description: "Player dimension table for identity resolution"
-    - id: "{catalog}.dev_gold.fct_match_summary"
-      source: delta-table
-      description: "Match summaries for context"
     - id: "{catalog}.dev_gold.fct_player_stats"
       source: delta-table
-      description: "Aggregated player statistics"
+      description: "Aggregated player statistics for stat vector computation"
   models:
     - id: "football2vec-weights"
       source: uc-volume

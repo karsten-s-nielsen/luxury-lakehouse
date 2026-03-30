@@ -216,6 +216,28 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "analytics"
   }
 
+  # ── Task: Score shots with xG v2 set encoder (Deep Sets + MC dropout) ──
+  task {
+    task_key        = "compute_xg_model_v2"
+    timeout_seconds = 3600
+    max_retries     = 1
+
+    depends_on {
+      task_key = "compute_spadl_vaep"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_xg_model_v2"
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+      ]
+    }
+
+    environment_key = "analytics"
+  }
+
   # ── Task: Compute Off-Ball xT from tracking data ───────────────────
   # Depends on all three tracking providers + xT grid computation.
   task {

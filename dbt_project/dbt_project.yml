@@ -57,6 +57,9 @@ vars:
   # Standard pitch dimensions used across macros (StatsBomb coordinate system)
   pitch_length: 120
   pitch_width: 80
+  # Real-world pitch dimensions in meters (FIFA standard, used by IDSSE/SkillCorner/Metrica)
+  pitch_length_m: 105
+  pitch_width_m: 68
   # Goal center coordinates (center of the goal line)
   goal_x: 120
   goal_y: 40

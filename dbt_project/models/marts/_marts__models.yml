@@ -894,6 +894,14 @@ models:
           - accepted_values:
               arguments:
                 values: ['metrica', 'idsse', 'skillcorner']
+      - name: is_goalkeeper
+        data_type: boolean
+        description: >
+          Whether this player is the goalkeeper. Derived from provider metadata:
+          IDSSE (PlayingPosition='TW'), SkillCorner (kloppy PositionType.Goalkeeper),
+          Metrica (EPTS PlayingPosition or jersey #1 heuristic).
+        data_tests:
+          - not_null
       - name: frame_rate
         data_type: bigint
         description: Frame rate in fps (25 for Metrica/IDSSE, 10 for SkillCorner)

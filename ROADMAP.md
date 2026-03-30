@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the current [architecture](ARCHITECTURE.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-03-28 (Shape Graph D36/D37 from Sotudeh thesis, visualizations roadmap)
+**Last updated**: 2026-03-30 (Cycle 1: D43 coordinate normalization, D28 position-group z-scoring, D29 SPADL vocabulary, D26 GK metadata, TD#6 IDSSE line-breaking)
 
 ---
 
@@ -492,8 +492,7 @@ The `Vision` class is a clean NumPy/scipy implementation. Once pose data arrives
 ## Team Shape Analysis — Stage 2 (Own-Footage Pipeline)
 
 **Status:** Blocked by SkillCorner DoD commercial access
-**Prerequisite:** Stage 1 complete (D19 spatial metrics, D20 EFPI formation detection, D21 Taipy page — all shipped)
-**Note:** Formation detection is partially blocked by D26 (GK Metadata Pipeline) for full-coverage results. See TODO.md.
+**Prerequisite:** Stage 1 complete (D19 spatial metrics, D20 EFPI formation detection, D21 Taipy page — all shipped). D26 (GK metadata) shipped in Cycle 1 — formation detection now produces results for all 20 tracking matches (14 matches, 45 formations).
 
 ### Stage 2 &mdash; Own-Footage Pipeline (Veo3 &rarr; SkillCorner DoD &rarr; Platform)
 
@@ -609,7 +608,7 @@ Position map similarity enables "find players who occupy similar tactical positi
 
 - D36 (shape graph algorithm) + D37 (position maps) must land first
 - Taipy page design decisions for each visualization
-- Synergistic with D26 (GK metadata) for full 20-match coverage
+- D26 (GK metadata) shipped — full 20-match coverage available
 - Synergistic with D18/D30 (player embeddings) for scouting application
 
 ---

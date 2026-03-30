@@ -19,6 +19,13 @@ These standards apply to ALL code in this repository. They are non-negotiable.
 - **Report findings before fixes**: Present the diagnosis (with evidence) to the user before proposing or implementing a fix. The user decides the approach.
 - **Proactively flag patterns**: When the same symptom appears twice, explicitly tell the user "this is a pattern that needs investigation, not another attempt."
 
+## Investigation Discipline
+
+- **Answer the specific questions first**: When given specific investigation questions, answer THOSE questions directly before exploring anything else. Do not go on tangents.
+- **"I don't know yet" is acceptable — speculation is not**: If the evidence is insufficient, say so and describe what you need to check next. Never fill gaps with theories presented as findings.
+- **Reproduce at the exact conditions**: If you cannot reproduce a reported bug, fixing your reproduction setup is the priority — not theorizing about why it might happen. Wrong viewport, missing data, or wrong interaction sequence means the investigation is incomplete, not that the bug is a mystery.
+- **Never declare a root cause without evidence**: Saying "this is a framework bug" or "this is a CSS issue" requires concrete evidence showing the exact mechanism. Without it, say "I haven't found the root cause yet."
+
 ## Security Hardening
 
 - **No secrets in code**: All authentication via Databricks runtime or environment variables. Never commit credentials, tokens, or connection strings.

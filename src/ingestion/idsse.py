@@ -103,14 +103,16 @@ def _smooth_tracking(df: pd.DataFrame) -> pd.DataFrame:
 _DEFAULT_DATA_DIR = "/Volumes/soccer_analytics/bronze/libs/idsse_data"
 
 
-def _parse_teams(info_path: str) -> tuple[str, str, dict[str, str]]:
-    """Parse match info XML to get home/away team IDs and player-to-team mapping.
+def _parse_teams(info_path: str) -> tuple[str, str, dict[str, str], set[str]]:
+    """Parse match info XML to get home/away team IDs, player-to-team mapping, and GK IDs.
 
     Args:
         info_path: Path to match info XML file.
 
     Returns:
-        Tuple of (home_team_id, away_team_id, {person_id: "home"|"away"}).
+        Tuple of (home_team_id, away_team_id, {person_id: "home"|"away"}, gk_player_ids).
+        ``gk_player_ids`` contains PersonIds of players with ``PlayingPosition="TW"``
+        (DFL standard for Torwart/goalkeeper).
     """
     tree = ET.parse(info_path)  # noqa: S314  # nosemgrep: use-defused-xml-parse
     root = tree.getroot()
@@ -118,6 +120,7 @@ def _parse_teams(info_path: str) -> tuple[str, str, dict[str, str]]:
     home_team_id = ""
     away_team_id = ""
     player_team_map: dict[str, str] = {}
+    gk_player_ids: set[str] = set()
 
     for team_el in root.iter("Team"):
         team_id = team_el.get("TeamId", "")
@@ -136,8 +139,10 @@ def _parse_teams(info_path: str) -> tuple[str, str, dict[str, str]]:
             person_id = player_el.get("PersonId", "")
             if person_id:
                 player_team_map[person_id] = team_label
+                if player_el.get("PlayingPosition") == "TW":
+                    gk_player_ids.add(person_id)
 
-    return home_team_id, away_team_id, player_team_map
+    return home_team_id, away_team_id, player_team_map, gk_player_ids
 
 
 def _parse_positions_xml(
@@ -145,6 +150,7 @@ def _parse_positions_xml(
     player_team_map: dict[str, str],
     match_id: str,
     logger: logging.Logger,
+    gk_player_ids: set[str] | None = None,
 ) -> dict[int, list[dict[str, object]]]:
     """Parse DFL position XML into narrow-format row dicts, split by period.
 
@@ -163,6 +169,8 @@ def _parse_positions_xml(
         player_team_map: Mapping of PersonId to "home"/"away".
         match_id: Match identifier to embed in each row.
         logger: Logger instance.
+        gk_player_ids: Set of PersonIds identified as goalkeepers. When provided,
+            each tracking row includes an ``is_goalkeeper`` boolean field.
 
     Returns:
         Mapping of period number → list of row dicts.
@@ -231,21 +239,22 @@ def _parse_positions_xml(
                 ball_x = ball[0] if ball else None
                 ball_y = ball[1] if ball else None
 
-                period_rows.append(
-                    {
-                        "period": period,
-                        "frame": n,
-                        "timestamp": round(timestamp, 4),
-                        "player_id": person_id,
-                        "team": team_label,
-                        "x": round(px, 4),
-                        "y": round(py, 4),
-                        "ball_x": ball_x,
-                        "ball_y": ball_y,
-                        "match_id": prefixed_match_id,
-                        "frame_rate": _FRAME_RATE,
-                    }
-                )
+                row: dict[str, object] = {
+                    "period": period,
+                    "frame": n,
+                    "timestamp": round(timestamp, 4),
+                    "player_id": person_id,
+                    "team": team_label,
+                    "x": round(px, 4),
+                    "y": round(py, 4),
+                    "ball_x": ball_x,
+                    "ball_y": ball_y,
+                    "match_id": prefixed_match_id,
+                    "frame_rate": _FRAME_RATE,
+                }
+                if gk_player_ids is not None:
+                    row["is_goalkeeper"] = person_id in gk_player_ids
+                period_rows.append(row)
 
         elem.clear()
 
@@ -314,10 +323,10 @@ def ingest_idsse(
         info_path = f"{data_dir}/DFL_02_01_matchinformation_{comp}_DFL-MAT-{mid}.xml"
         pos_path = f"{data_dir}/DFL_04_03_positions_raw_observed_{comp}_DFL-MAT-{mid}.xml"
 
-        _home_id, _away_id, player_team_map = _parse_teams(info_path)
-        logger.info("Found %d players in match info", len(player_team_map))
+        _home_id, _away_id, player_team_map, gk_player_ids = _parse_teams(info_path)
+        logger.info("Found %d players in match info (%d GKs)", len(player_team_map), len(gk_player_ids))
 
-        rows_by_period = _parse_positions_xml(pos_path, player_team_map, mid, logger)
+        rows_by_period = _parse_positions_xml(pos_path, player_team_map, mid, logger, gk_player_ids=gk_player_ids)
         total_rows = sum(len(r) for r in rows_by_period.values())
         logger.info("Parsed %d tracking rows for IDSSE match %s", total_rows, mid)
 
@@ -619,7 +628,7 @@ def ingest_idsse_events(
         comp = _MATCH_COMPETITION[mid]
         info_path = f"{data_dir}/DFL_02_01_matchinformation_{comp}_DFL-MAT-{mid}.xml"
 
-        _home_id, _away_id, player_team_map = _parse_teams(info_path)
+        _home_id, _away_id, player_team_map, _gk_ids = _parse_teams(info_path)
         rows = _parse_events_xml(event_path, player_team_map, mid, logger)
 
         if not rows:

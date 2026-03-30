@@ -24,6 +24,10 @@ flattened as (
         id                                              as event_id,
         match_id,
 
+        -- Competition / season context (from bronze; enables partitioned exports)
+        cast(competition_id as int)                     as competition_id,
+        cast(season_id as int)                          as season_id,
+
         -- Event classification (already flat strings from statsbombpy)
         type                                            as event_type,
 

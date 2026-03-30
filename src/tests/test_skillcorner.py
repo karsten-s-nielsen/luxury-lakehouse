@@ -39,6 +39,14 @@ def _build_mock_dataset(fixture: dict) -> MagicMock:
             mock_player.player_id = p["player_id"]
             mock_player.name = p["name"]
             mock_player.team = team_obj
+            # kloppy uses starting_position (not position) for the Player's role
+            mock_player.jersey_no = p.get("jersey_no")
+            if p.get("position"):
+                mock_position = MagicMock()
+                mock_position.name = p["position"]
+                mock_player.starting_position = mock_position
+            else:
+                mock_player.starting_position = None
             player_lookup[p["player_id"]] = mock_player
 
     # Build frame objects
@@ -172,8 +180,37 @@ class TestDatasetToRows:
             "ball_y",
             "match_id",
             "frame_rate",
+            "is_goalkeeper",
         }
         assert set(rows[0].keys()) == expected_keys
+
+    def test_is_goalkeeper_flag(self) -> None:
+        """P101 and P201 are GKs (position=Goalkeeper); P102 and P202 are not."""
+        fixture = _load_fixture()
+        dataset = _build_mock_dataset(fixture)
+        rows = _dataset_to_rows(dataset, "1925299")
+        gk_rows = [r for r in rows if r["is_goalkeeper"] is True]
+        non_gk_rows = [r for r in rows if r["is_goalkeeper"] is False]
+        gk_pids = {r["player_id"] for r in gk_rows}
+        non_gk_pids = {r["player_id"] for r in non_gk_rows}
+        assert gk_pids == {"P101", "P201"}
+        assert non_gk_pids == {"P102", "P202"}
+
+    def test_is_goalkeeper_jersey_fallback_when_no_position(self) -> None:
+        """Players without position metadata fall back to jersey_no == 1."""
+        fixture = _load_fixture()
+        # Remove position data but set jersey numbers (GKs get #1)
+        for team_key in ("home", "away"):
+            for p in fixture["players"][team_key]:
+                p.pop("position", None)
+                # GK players (P101, P201) get jersey 1; others get non-1
+                p["jersey_no"] = 1 if p["player_id"] in ("P101", "P201") else 7
+        dataset = _build_mock_dataset(fixture)
+        rows = _dataset_to_rows(dataset, "1925299")
+        gk_pids = {r["player_id"] for r in rows if r["is_goalkeeper"]}
+        non_gk_pids = {r["player_id"] for r in rows if not r["is_goalkeeper"]}
+        assert gk_pids == {"P101", "P201"}
+        assert non_gk_pids == {"P102", "P202"}
 
 
 class TestSmoothTracking:

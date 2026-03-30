@@ -23,7 +23,7 @@ inputs:
   datasets:
     - id: "{catalog}.gold.fct_tracking_frames"
       source: delta-table
-      description: "Tracking frame data with player positions for all 20 tracked matches"
+      description: "Tracking frame data with player positions and is_goalkeeper metadata for all 20 tracked matches"
 
 outputs:
   tables:

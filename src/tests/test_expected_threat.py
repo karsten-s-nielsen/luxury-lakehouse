@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import pytest
+
+pytest.importorskip("jax")
+
 import numpy as np
 import pandas as pd
-import pytest
 
 from analytics.expected_threat import (
     _MOVE_TYPES,

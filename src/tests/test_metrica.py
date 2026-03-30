@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import pathlib
 import textwrap
 
 import pandas as pd
+import pytest
 
 from ingestion.metrica import (
     _build_player_columns,
@@ -83,6 +85,7 @@ class TestReshapeTrackingToNarrow:
             "away_players",
             "match_id",
             "frame_rate",
+            "gk_jersey_numbers",
         }
         assert expected_cols == set(result.columns)
 
@@ -374,6 +377,7 @@ class TestParseEPTSTracking:
             "away_players",
             "match_id",
             "frame_rate",
+            "gk_jersey_numbers",
         }
         assert set(rows[0].keys()) == expected_keys
 
@@ -461,3 +465,114 @@ class TestParseEPTSEvents:
         df = _parse_epts_events(events, "Game_3")
         required = {"event_id", "type", "period", "start_frame", "end_frame", "team", "player", "match_id"}
         assert required.issubset(set(df.columns))
+
+
+# ---------------------------------------------------------------------------
+# GK identification tests
+# ---------------------------------------------------------------------------
+
+
+class TestGKIdentificationEPTS:
+    """Tests for GK identification in EPTS metadata and tracking (Game 3)."""
+
+    def test_epts_metadata_gk_heuristic_shirt_1(self) -> None:
+        """Player P1 (shirt #1) is identified as GK via jersey heuristic."""
+        meta = _parse_epts_metadata(_MINIMAL_EPTS_XML)
+        assert "P1" in meta.gk_player_ids
+        # P2 (shirt 2) should NOT be GK
+        assert "P2" not in meta.gk_player_ids
+
+    def test_epts_metadata_gk_playing_position_attribute(self) -> None:
+        """PlayingPosition='GK' takes precedence over jersey heuristic."""
+        xml_with_position = _MINIMAL_EPTS_XML.replace(
+            '<Player id="P3" teamId="TMB">',
+            '<Player id="P3" teamId="TMB" PlayingPosition="GK">',
+        )
+        meta = _parse_epts_metadata(xml_with_position)
+        # P3 is GK via PlayingPosition
+        assert "P3" in meta.gk_player_ids
+        # P1 is still GK via shirt #1 heuristic
+        assert "P1" in meta.gk_player_ids
+        assert len(meta.gk_player_ids) == 2
+
+    def test_epts_metadata_gk_tw_position(self) -> None:
+        """PlayingPosition='TW' (German: Torwart) is recognized as GK."""
+        xml_with_tw = _MINIMAL_EPTS_XML.replace(
+            '<Player id="P4" teamId="TMB">',
+            '<Player id="P4" teamId="TMB" PlayingPosition="TW">',
+        )
+        meta = _parse_epts_metadata(xml_with_tw)
+        assert "P4" in meta.gk_player_ids
+
+    def test_epts_metadata_gk_heuristic_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Jersey #1 heuristic logs a warning for shirt #1 fallback."""
+        with caplog.at_level(logging.WARNING, logger="metrica"):
+            _parse_epts_metadata(_MINIMAL_EPTS_XML)
+        gk_warnings = [r for r in caplog.records if "GK heuristic" in r.message]
+        assert len(gk_warnings) == 1
+        assert "P1" in gk_warnings[0].message
+
+    def test_epts_tracking_includes_gk_jersey_numbers(self) -> None:
+        """Game 3 tracking rows include gk_jersey_numbers JSON column."""
+        meta = _parse_epts_metadata(_MINIMAL_EPTS_XML)
+        tracking = "1:0.5,0.4;0.3,0.6;0.7,0.2;0.8,0.3:0.5,0.5\n"
+        rows = _parse_epts_tracking(tracking, meta, "Game_3")
+        gk_jerseys = json.loads(rows[0]["gk_jersey_numbers"])  # type: ignore[arg-type]
+        # P1 has shirt "1" and is the GK
+        assert "1" in gk_jerseys
+
+    def test_epts_gk_jersey_numbers_consistent_across_frames(self) -> None:
+        """All frames in Game 3 should have the same gk_jersey_numbers."""
+        meta = _parse_epts_metadata(_MINIMAL_EPTS_XML)
+        tracking = "1:0.5,0.4;0.3,0.6;0.7,0.2;0.8,0.3:0.5,0.5\n2:0.51,0.41;0.31,0.59;0.71,0.21;0.81,0.31:0.52,0.48\n"
+        rows = _parse_epts_tracking(tracking, meta, "Game_3")
+        gk0 = rows[0]["gk_jersey_numbers"]
+        gk1 = rows[1]["gk_jersey_numbers"]
+        assert gk0 == gk1
+
+
+class TestGKIdentificationCSV:
+    """Tests for GK identification in CSV tracking (Games 1-2)."""
+
+    def test_csv_gk_jersey_numbers_column_present(self) -> None:
+        """CSV-based narrow output includes gk_jersey_numbers column."""
+        csv_text = (_FIXTURES / "metrica_tracking_home.csv").read_text()
+        team_row, jersey_row, column_row = _parse_tracking_header(csv_text)
+        columns = _build_player_columns(team_row, jersey_row, column_row)
+        df = pd.read_csv(_FIXTURES / "metrica_tracking_home.csv", skiprows=3, header=None, names=columns)
+        result = _reshape_tracking_to_narrow(df, "test_match")
+        assert "gk_jersey_numbers" in result.columns
+
+    def test_csv_gk_identifies_jersey_1(self) -> None:
+        """When jersey '1' exists in CSV columns, it appears in gk_jersey_numbers.
+
+        Note: the test fixture uses 'Player1' and 'Player11' as jersey labels,
+        not plain numbers. Jersey '1' heuristic matches exact '1' only,
+        so with these fixture labels gk_jersey_numbers is empty.
+        Real Metrica data uses plain numbers ('1', '11', etc.).
+        """
+        # Build a synthetic DataFrame with jersey "1" to test the real path
+        df = pd.DataFrame(
+            {
+                "Period": [1, 1],
+                "Frame": [1, 2],
+                "Time [s]": [0.04, 0.08],
+                "Home_1_x": [0.1, 0.11],
+                "Home_1_y": [0.5, 0.51],
+                "Home_11_x": [0.3, 0.31],
+                "Home_11_y": [0.4, 0.41],
+                "Away_1_x": [0.9, 0.89],
+                "Away_1_y": [0.5, 0.49],
+                "Away_7_x": [0.7, 0.71],
+                "Away_7_y": [0.6, 0.59],
+                "Ball_x": [0.5, 0.52],
+                "Ball_y": [0.5, 0.48],
+            }
+        )
+        result = _reshape_tracking_to_narrow(df, "test_gk")
+        gk_jerseys = json.loads(result["gk_jersey_numbers"].iloc[0])
+        # Both home and away jersey "1" are identified as GK
+        assert "1" in gk_jerseys
+        # Jersey "11" and "7" are NOT GK
+        assert "11" not in gk_jerseys
+        assert "7" not in gk_jerseys

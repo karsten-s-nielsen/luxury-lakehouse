@@ -96,6 +96,8 @@ class _EPTSMetadata(NamedTuple):
     channel_to_player_id: dict[str, str]
     player_id_to_shirt: dict[str, str]
     player_id_to_side: dict[str, str]
+    # Goalkeeper player IDs (immutable; checked via PlayingPosition, fallback jersey #1)
+    gk_player_ids: frozenset[str]
 
 
 def _parse_epts_metadata(xml_text: str) -> _EPTSMetadata:
@@ -142,15 +144,26 @@ def _parse_epts_metadata(xml_text: str) -> _EPTSMetadata:
         tid = team_el.get("id", "")
         team_id_to_side[tid] = "home" if tid == local_team_id else "away"
 
-    # --- Players: build player_id → shirt number and team side ---
+    # --- Players: build player_id → shirt number and team side, identify GKs ---
+    logger = logging.getLogger("metrica")
     player_id_to_shirt: dict[str, str] = {}
     player_id_to_side: dict[str, str] = {}
+    gk_ids: set[str] = set()
     for player_el in metadata.findall(".//Player"):
         pid = player_el.get("id", "")
         team_id = player_el.get("teamId", "")
         shirt = player_el.findtext("ShirtNumber", "")
+        position = player_el.get("PlayingPosition", "")
         player_id_to_shirt[pid] = shirt
         player_id_to_side[pid] = team_id_to_side.get(team_id, "unknown")
+        if position in ("TW", "GK"):
+            gk_ids.add(pid)
+        elif shirt == "1" and not position:
+            gk_ids.add(pid)
+            logger.warning(
+                "GK heuristic: assuming player %s (shirt #1) is GK (no PlayingPosition in EPTS XML)",
+                pid,
+            )
 
     # --- PlayerChannels: map channel prefix → player_id ---
     # Channels come in pairs (player1_x, player1_y) — extract the prefix
@@ -199,6 +212,7 @@ def _parse_epts_metadata(xml_text: str) -> _EPTSMetadata:
         channel_to_player_id=channel_to_player_id,
         player_id_to_shirt=player_id_to_shirt,
         player_id_to_side=player_id_to_side,
+        gk_player_ids=frozenset(gk_ids),
     )
 
 
@@ -215,6 +229,12 @@ def _parse_epts_tracking(
     Output schema is identical to ``_reshape_tracking_to_narrow()`` output.
     """
     rows: list[dict[str, object]] = []
+
+    # Pre-compute GK shirt numbers from metadata player IDs
+    gk_shirts: list[str] = sorted(
+        metadata.player_id_to_shirt[pid] for pid in metadata.gk_player_ids if pid in metadata.player_id_to_shirt
+    )
+    gk_json = json.dumps(gk_shirts)
 
     for line in tracking_text.splitlines():
         line = line.strip()
@@ -289,6 +309,7 @@ def _parse_epts_tracking(
                 "away_players": json.dumps(away_players),
                 "match_id": match_id,
                 "frame_rate": 25,
+                "gk_jersey_numbers": gk_json,
             }
         )
 
@@ -524,6 +545,11 @@ def _reshape_tracking_to_narrow(
     home_json = _build_player_json_column(player_groups["Home"])
     away_json = _build_player_json_column(player_groups["Away"])
 
+    # Identify GK jersey numbers: jersey "1" heuristic for CSV games
+    all_pids = [pid for team_pids in player_groups.values() for pid, _, _ in team_pids]
+    gk_jerseys = sorted(pid for pid in all_pids if pid == "1")
+    gk_json = json.dumps(gk_jerseys)
+
     return pd.DataFrame(
         {
             "period": period_list,
@@ -535,6 +561,7 @@ def _reshape_tracking_to_narrow(
             "away_players": away_json,
             "match_id": match_id,
             "frame_rate": 25,
+            "gk_jersey_numbers": gk_json,
         }
     )
 
@@ -653,6 +680,7 @@ def ingest_tracking(
         "away_players",
         "match_id",
         "frame_rate",
+        "gk_jersey_numbers",
     ]
 
     # Incremental skip: check which matches already exist in the Delta table

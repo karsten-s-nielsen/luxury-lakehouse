@@ -9,6 +9,11 @@
 
 # COMMAND ----------
 
+# MAGIC %pip install huggingface_hub -q
+# MAGIC dbutils.library.restartPython()
+
+# COMMAND ----------
+
 import os
 import shutil
 from pathlib import Path

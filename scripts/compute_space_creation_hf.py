@@ -885,7 +885,7 @@ For each sampled frame:
 
 MIT -- computed from IDSSE open data (CC-BY 4.0).
 """
-        with open(str(Path(tmpdir) / "README.md"), "w") as f:
+        with open(str(Path(tmpdir) / "README.md"), "w", encoding="utf-8") as f:
             f.write(card)
 
         api.create_repo(OUTPUT_DATASET, repo_type="dataset", exist_ok=True, token=hf_token)

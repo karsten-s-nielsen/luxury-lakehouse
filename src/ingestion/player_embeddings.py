@@ -1,9 +1,10 @@
 """Player embedding ingestion pipeline.
 
-Loads StatsBomb + Wyscout bronze events, joins to ``dim_players`` for
-canonical_player_id, runs Football2Vec inference to produce 32-dim behavioral
-embeddings per (player, match), computes 13-dim z-score normalized stat
-vectors from ``fct_player_stats``, and writes merged results to
+Loads SPADL actions from ``fct_action_values`` (23-type vocabulary, 105x68m
+coordinates), joins to ``dim_players`` for canonical_player_id, runs
+Football2Vec inference to produce 32-dim behavioral embeddings per
+(player, match), computes 13-dim z-score normalized stat vectors from
+``fct_player_stats``, and writes merged results to
 ``player_embeddings_raw`` bronze table.
 
 Behavioral inference uses ``applyInPandas`` with flat partitioning by
@@ -106,7 +107,7 @@ def _zscore_normalize(
 
 
 # ---------------------------------------------------------------------------
-# Event loading (Spark-native — no .toPandas())
+# Event loading — SPADL actions (Spark-native — no .toPandas())
 # ---------------------------------------------------------------------------
 
 
@@ -117,94 +118,51 @@ def _load_events_sdf(
     *,
     match_ids: set[str] | None = None,
 ) -> SparkDataFrame:
-    """Load StatsBomb + Wyscout events joined to dim_players as a Spark DF.
+    """Load SPADL actions joined to dim_players as a Spark DF.
 
-    Reads events from dbt staging views (which parse JSON columns and
-    normalize coordinates) and joins to ``dim_players`` for
-    ``canonical_player_id``.  Competition and season metadata comes from
-    ``fct_match_summary``.
-
-    Unlike the previous ``_load_events`` which called ``.toPandas()`` on the
-    driver, this returns a distributed Spark DataFrame for downstream
-    ``applyInPandas`` processing on executors.
+    Reads from ``fct_action_values`` (23-type SPADL vocabulary, 105x68m
+    coordinate system) instead of raw provider events.  Source-agnostic:
+    StatsBomb and Wyscout events are already unified by socceraction.
 
     Args:
         spark: Active Spark session.
-        catalog: Unity Catalog name (e.g. ``soccer_analytics``).
-        schema: Bronze schema name (unused — queries staging views directly).
-        match_ids: If provided, only load events for these match IDs.
+        catalog: Unity Catalog name.
+        schema: Bronze schema name (unused — queries gold directly).
+        match_ids: If provided, only load actions for these match IDs.
 
     Returns:
         Spark DataFrame with columns: canonical_player_id, match_id,
-        event_type, x, y, event_index, data_source, play_pattern,
-        pass_cross, sub_event_type, competition_id, season_id.
+        action_type, start_x, start_y, event_index, data_source,
+        competition_id, season_id.
+
+    Note:
+        Competition and season metadata comes from ``fct_action_values``
+        directly (not ``fct_match_summary``), because SPADL match IDs
+        use a different namespace (Wyscout IDs) than ``fct_match_summary``
+        (StatsBomb IDs).
     """
-    _ = schema  # bronze schema unused; staging views are in dev_silver
-    silver = "dev_silver"
+    _ = schema
     gold = _GOLD_SCHEMA
 
-    # Join dim_players within each source CTE using source-specific ID columns
-    # (statsbomb_player_id / wyscout_player_id) to avoid cross-source ID collisions.
     query = f"""
-        WITH sb_events AS (
-            SELECT
-                dp.canonical_player_id,
-                CAST(e.match_id AS STRING) AS match_id,
-                e.event_type,
-                CAST(e.location_x AS DOUBLE) AS x,
-                CAST(e.location_y AS DOUBLE) AS y,
-                CAST(e.`index` AS INT) AS event_index,
-                'statsbomb' AS data_source,
-                e.play_pattern,
-                CASE WHEN e.pass_cross IS NOT NULL THEN TRUE ELSE FALSE END AS pass_cross,
-                CAST(NULL AS STRING) AS sub_event_type
-            FROM {catalog}.{silver}.stg_statsbomb__events e
-            INNER JOIN {catalog}.{gold}.dim_players dp
-                ON e.player_id = dp.statsbomb_player_id
-            WHERE e.player_id IS NOT NULL
-        ),
-        ws_events AS (
-            SELECT
-                dp.canonical_player_id,
-                CAST(e.match_id AS STRING) AS match_id,
-                e.event_type,
-                CAST(e.start_x AS DOUBLE) AS x,
-                CAST(e.start_y AS DOUBLE) AS y,
-                CAST(e.event_sec AS INT) AS event_index,
-                'wyscout' AS data_source,
-                CAST(NULL AS STRING) AS play_pattern,
-                FALSE AS pass_cross,
-                e.sub_event_type
-            FROM {catalog}.{silver}.stg_wyscout__events e
-            INNER JOIN {catalog}.{gold}.dim_players dp
-                ON e.player_id = dp.wyscout_player_id
-            WHERE e.player_id IS NOT NULL
-        ),
-        all_events AS (
-            SELECT * FROM sb_events
-            UNION ALL
-            SELECT * FROM ws_events
-        )
         SELECT
-            ae.canonical_player_id,
-            ae.match_id,
-            ae.event_type,
-            ae.x,
-            ae.y,
-            ae.event_index,
-            ae.data_source,
-            ae.play_pattern,
-            ae.pass_cross,
-            ae.sub_event_type,
-            CAST(m.competition_id AS STRING) AS competition_id,
-            CAST(m.season_id AS STRING) AS season_id
-        FROM all_events ae
-        INNER JOIN {catalog}.{gold}.fct_match_summary m
-            ON CAST(ae.match_id AS STRING) = CAST(m.match_id AS STRING)
+            CAST(dp.canonical_player_id AS STRING) AS canonical_player_id,
+            CAST(av.match_id AS STRING) AS match_id,
+            av.action_type,
+            CAST(av.start_x AS DOUBLE) AS start_x,
+            CAST(av.start_y AS DOUBLE) AS start_y,
+            CAST(av.time_seconds * 1000 AS INT) AS event_index,
+            av.data_source,
+            CAST(av.competition_id AS STRING) AS competition_id,
+            CAST(av.season_id AS STRING) AS season_id
+        FROM {catalog}.{gold}.fct_action_values av
+        INNER JOIN {catalog}.{gold}.dim_players dp
+            ON av.player_id = dp.player_id
+        WHERE av.player_id IS NOT NULL
+          AND dp.canonical_player_id IS NOT NULL
     """  # noqa: S608
     events_sdf = spark.sql(query)
 
-    # Filter to only new match IDs to prevent unbounded processing
     if match_ids:
         from pyspark.sql import functions as spark_fn
 
@@ -225,7 +183,7 @@ def _load_events(
     *,
     match_ids: set[str] | None = None,
 ) -> pd.DataFrame:
-    """Load events and collect to pandas (backward-compatible wrapper).
+    """Load SPADL actions and collect to pandas (backward-compatible wrapper).
 
     .. deprecated::
         Prefer ``_load_events_sdf`` for distributed processing.  This wrapper
@@ -244,8 +202,12 @@ def _compute_stat_vectors(
     catalog: str,
     gold_schema: str,
     player_ids: set[int] | None = None,
-) -> tuple[pd.DataFrame, dict[str, dict[str, float]]]:
-    """Load fct_player_stats, z-score normalize, and return stat vectors.
+) -> tuple[pd.DataFrame, dict[str, dict[str, dict[str, float]]]]:
+    """Load fct_player_stats, z-score normalize per position group, and return stat vectors.
+
+    Z-score normalization is applied per position group (Goalkeeper, Defender,
+    Midfielder, Forward) to prevent goalkeeper stat distributions from distorting
+    outfield player z-scores.
 
     Args:
         spark: Active Spark session.
@@ -256,7 +218,8 @@ def _compute_stat_vectors(
 
     Returns:
         Tuple of (DataFrame with canonical_player_id, competition_id,
-        season_id, stat_vector columns; normalization params dict).
+        season_id, stat_vector columns; normalization params dict keyed
+        by position group, then feature name, then mean/std).
     """
     feature_cols = ", ".join(f"ps.{f}" for f in STAT_FEATURES)
     query = f"""
@@ -264,11 +227,13 @@ def _compute_stat_vectors(
             CAST(dp.canonical_player_id AS STRING) AS canonical_player_id,
             CAST(ps.competition_id AS STRING) AS competition_id,
             CAST(ps.season_id AS STRING) AS season_id,
+            dp.position_group,
             {feature_cols}
         FROM {catalog}.{gold_schema}.fct_player_stats ps
         INNER JOIN {catalog}.{gold_schema}.dim_players dp
             ON ps.player_id = dp.player_id
         WHERE dp.canonical_player_id IS NOT NULL
+            AND dp.position_group IS NOT NULL
     """  # noqa: S608
     sdf = spark.sql(query)
     if player_ids:
@@ -292,14 +257,23 @@ def _compute_stat_vectors(
             {},
         )
 
-    normalized, params = _zscore_normalize(df, STAT_FEATURES)
+    # Per-position-group z-score normalization to prevent goalkeeper
+    # stat distributions from contaminating outfield player z-scores.
+    normalized_groups: list[pd.DataFrame] = []
+    all_params: dict[str, dict[str, dict[str, float]]] = {}
+    for group_name, group_df in df.groupby("position_group"):
+        norm_group, group_params = _zscore_normalize(group_df, STAT_FEATURES)
+        normalized_groups.append(norm_group)
+        all_params[str(group_name)] = group_params
+
+    normalized = pd.concat(normalized_groups).sort_index()
 
     # Build stat_vector column as list[float | None] (vectorized via NumPy array access)
     stat_arr = normalized[STAT_FEATURES].values
     normalized["stat_vector"] = [[None if pd.isna(v) else float(v) for v in row] for row in stat_arr]
 
     result_df = cast(pd.DataFrame, normalized[["canonical_player_id", "competition_id", "season_id", "stat_vector"]])
-    return result_df, params
+    return result_df, all_params
 
 
 # ---------------------------------------------------------------------------
@@ -442,44 +416,21 @@ def _make_behavioral_udf(model_path: str) -> object:
         model: _Any = cache["model"]
 
         # ---- Tokenize events per (player, match) ----
-        # Inline tokenization to avoid importing analytics.football2vec on executors
-        # (keeps the same logic as tokenize_match_events + tokenize_event)
-        sb_map: dict[str, str] = {
-            "Pass": "pass",
-            "Shot": "shot",
-            "Carry": "carry",
-            "Duel": "duel",
-            "Interception": "interception",
-            "Foul Committed": "foul",
-            "Clearance": "clearance",
-            "Dribble": "take_on",
-            "Goalkeeper": "goalkeeper",
-        }
-        ws_map: dict[str, str] = {
-            "Pass": "pass",
-            "Shot": "shot",
-            "Duel": "duel",
-            "Foul": "foul",
-            "Goalkeeper leaving line": "goalkeeper",
-        }
-        ws_others: dict[str, str] = {
-            "Interception": "interception",
-            "Acceleration": "take_on",
-            "Touch": "throw_in",
-        }
+        # SPADL 23-type vocabulary (D29): action_type is the canonical token.
+        # Grid: 12x8 on 105x68m SPADL coordinate system.
         grid_cols, grid_rows = 12, 8
-        pitch_length, pitch_width = 120.0, 80.0
+        pitch_length, pitch_width = 105.0, 68.0
         cell_w = pitch_length / grid_cols
         cell_h = pitch_width / grid_rows
 
         sorted_pdf = pdf.sort_values("event_index")
         sequences: dict[tuple[str, str], list[str]] = {}
-        match_meta: dict[str, tuple[str, str, str]] = {}  # match_id -> (data_source, comp, season)
+        match_meta: dict[str, tuple[str, str, str]] = {}
 
         for rec in sorted_pdf.to_dict("records"):
             rec_dict: dict[str, _Any] = rec
-            x_val = rec_dict.get("x")
-            y_val = rec_dict.get("y")
+            x_val = rec_dict.get("start_x")
+            y_val = rec_dict.get("start_y")
             if x_val is None or y_val is None:
                 continue
             if isinstance(x_val, float) and _math.isnan(x_val):
@@ -490,37 +441,9 @@ def _make_behavioral_udf(model_path: str) -> object:
             gx = min(int(x_val / cell_w), grid_cols - 1)
             gy = min(int(y_val / cell_h), grid_rows - 1)
 
-            event_type = rec_dict.get("event_type", "")
-            data_source = rec_dict.get("data_source", "")
-
-            if data_source == "statsbomb":
-                if event_type == "Pass":
-                    if rec_dict.get("pass_cross"):
-                        action = "cross"
-                    else:
-                        pp = rec_dict.get("play_pattern")
-                        if pp == "From Corner":
-                            action = "corner"
-                        elif pp == "From Throw In":
-                            action = "throw_in"
-                        else:
-                            action = "pass"
-                else:
-                    action = sb_map.get(event_type, "other")
-            elif data_source == "wyscout":
-                sub_event = rec_dict.get("sub_event_type") or ""
-                if event_type == "Pass":
-                    action = "cross" if sub_event == "Cross" else "pass"
-                elif event_type == "Free Kick":
-                    action = "clearance" if "clearance" in sub_event.lower() else "free_kick"
-                elif event_type == "Others":
-                    action = ws_others.get(sub_event, "other")
-                else:
-                    action = ws_map.get(event_type, "other")
-            else:
-                action = "other"
-
+            action = rec_dict.get("action_type", "non_action")
             token = f"{action}_{gx}_{gy}"
+
             key = (str(rec_dict["canonical_player_id"]), str(rec_dict["match_id"]))
             if key not in sequences:
                 sequences[key] = []
@@ -529,7 +452,7 @@ def _make_behavioral_udf(model_path: str) -> object:
             mid = str(rec_dict["match_id"])
             if mid not in match_meta:
                 match_meta[mid] = (
-                    str(data_source),
+                    str(rec_dict.get("data_source", "unknown")),
                     str(rec_dict.get("competition_id", "")),
                     str(rec_dict.get("season_id", "")),
                 )
@@ -585,13 +508,13 @@ def run_pipeline(
     except Exception:
         existing_matches = set()  # table doesn't exist yet
 
-    # Count source matches from fct_match_summary (all sources — embeddings
-    # cover every match that has events joined to dim_players)
+    # Count source matches from fct_action_values (SPADL actions — embeddings
+    # cover every match with SPADL-converted events joined to dim_players)
     gold = _GOLD_SCHEMA
     try:
         source_match_query = (
             f"SELECT DISTINCT CAST(match_id AS STRING) AS match_id "  # noqa: S608
-            f"FROM {catalog}.{gold}.fct_match_summary"
+            f"FROM {catalog}.{gold}.fct_action_values"
         )
         source_matches = {str(row["match_id"]) for row in spark.sql(source_match_query).collect()}
     except Exception:
@@ -778,14 +701,15 @@ def main() -> None:
 
 def _save_norm_params(
     catalog: str,
-    params: dict[str, dict[str, float]],
+    params: dict[str, dict[str, dict[str, float]]],
     logger: logging.Logger,
 ) -> None:
-    """Save normalization parameters to UC Volumes as JSON.
+    """Save per-position-group normalization parameters to UC Volumes as JSON.
 
     Args:
         catalog: Unity Catalog name.
-        params: Feature normalization parameters.
+        params: Normalization parameters keyed by position group, then
+            feature name, then mean/std.
         logger: Logger instance.
     """
     import os

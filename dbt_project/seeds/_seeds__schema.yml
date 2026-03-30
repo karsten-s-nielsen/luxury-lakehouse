@@ -55,6 +55,22 @@ seeds:
               arguments:
                 values: ['force_match', 'force_reject']
 
+  - name: task_workflow_mapping
+    description: >
+      Static mapping from Databricks task_key to workflow card ID.
+      Used by fct_workflow_costs to populate workflow_id deterministically,
+      independent of transient workflow_cost_live data.
+    columns:
+      - name: task_key
+        description: Databricks job task key (matches pyproject.toml entry point name)
+        data_tests:
+          - unique
+          - not_null
+      - name: workflow_id
+        description: Workflow card ID (matches workflow-cards/*.yaml id field)
+        data_tests:
+          - not_null
+
   - name: model_baseline_scalars
     description: >
       Reference baselines for model validation and drift detection.

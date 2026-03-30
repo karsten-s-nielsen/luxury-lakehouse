@@ -28,6 +28,12 @@ inputs:
     - id: "{catalog}.bronze.metrica_tracking"
       source: delta-table
       description: "Metrica tracking data for defender line estimation"
+    - id: "{catalog}.bronze.idsse_tracking"
+      source: delta-table
+      description: "IDSSE Bundesliga tracking data for defender line estimation (Path C)"
+    - id: "{catalog}.bronze.idsse_events"
+      source: delta-table
+      description: "IDSSE event data with pass coordinates"
 
 outputs:
   tables:

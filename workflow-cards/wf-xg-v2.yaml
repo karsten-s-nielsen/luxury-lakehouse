@@ -33,7 +33,7 @@ outputs:
     - id: "xg_model_v2@Champion"
       destination: mlflow-registry
   tables:
-    - id: "{catalog}.bronze.xg_predictions"
+    - id: "{catalog}.bronze.xg_predictions_v2"
       destination: delta-table
 
 execution:
@@ -46,8 +46,8 @@ execution:
   inference:
     trigger: scheduled
     runtime: databricks-workflow
-    entry_point: compute_xg_model
-    module: ingestion.xg_model
+    entry_point: compute_xg_model_v2
+    module: ingestion.xg_model_v2
     distribution: applyInPandas
     partition_key: competition_id
     schedule: "daily 06:00 UTC"
@@ -86,7 +86,7 @@ monitoring:
 
 links:
   source_code:
-    - "src/ingestion/xg_model.py"
+    - "src/ingestion/xg_model_v2.py"
     - "scripts/train_xg_v2_hf.py"
   hf_model: "https://huggingface.co/luxury-lakehouse/xg-model-v2"
   hf_dataset: "https://huggingface.co/datasets/luxury-lakehouse/xg-shot-data"

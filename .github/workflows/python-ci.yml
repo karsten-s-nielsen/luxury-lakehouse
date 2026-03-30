@@ -35,7 +35,7 @@ jobs:
         run: uv python install 3.10
 
       - name: Install dependencies
-        run: uv sync --frozen --extra dev --extra analytics --extra app --extra embeddings --extra mlflow
+        run: uv sync --frozen --extra dev --extra analytics --extra app --extra embeddings --extra mlflow --extra jax
 
       - name: Lint with ruff
         run: uv run ruff check src/ scripts/

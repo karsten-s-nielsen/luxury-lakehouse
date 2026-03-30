@@ -36,7 +36,7 @@ print(f"{len(lb_passes)} line-breaking passes out of {len(df)} total")
 
 A **line-breaking pass** is a pass that travels through a compact defensive shape, bypassing one or more lines of defenders. They are high-value attacking actions because they disrupt defensive organization and create goal-scoring opportunities in the space behind the defensive block.
 
-Line-breaking detection is computed using **Ward hierarchical clustering** on opponent positions at the moment of the pass (sourced from StatsBomb 360 freeze frames and Metrica tracking data), followed by a **cross-product straddle test** to determine whether the pass vector intersects the cluster boundary. Three defensive lines (low-block, mid-block, high-press) are identified per frame; a pass may break through one, two, or all three.
+Line-breaking detection is computed using **Ward hierarchical clustering** on opponent positions at the moment of the pass (sourced from StatsBomb 360 freeze frames, Metrica tracking data, and IDSSE Bundesliga tracking data), followed by a **cross-product straddle test** to determine whether the pass vector intersects the cluster boundary. Three defensive lines (low-block, mid-block, high-press) are identified per frame; a pass may break through one, two, or all three.
 
 The dataset includes **all passes** &mdash; both line-breaking and non-line-breaking &mdash; to provide balanced positive and negative examples for machine learning. The `is_line_breaking` column is the binary target label.
 
@@ -100,8 +100,8 @@ Coverage includes the Premier League, La Liga, Serie A, Bundesliga, Ligue 1, Cha
 
 ## Limitations
 
-- **Sparse line-breaking labels**: Line-breaking detection requires opponent positional data (StatsBomb 360 freeze frames or Metrica tracking data). For matches without this data &mdash; the majority of Wyscout matches and StatsBomb matches without 360 &mdash; `is_line_breaking`, `lines_broken`, and `line_breaking_type` are NULL. These passes are still included in the dataset as unlabeled examples.
-- **StatsBomb 360 coverage**: Approximately 323 StatsBomb matches include 360 freeze-frame data. Line-breaking labels are densest for these matches.
+- **Sparse line-breaking labels**: Line-breaking detection requires opponent positional data (StatsBomb 360 freeze frames, Metrica tracking, or IDSSE tracking data). For matches without this data &mdash; the majority of Wyscout matches and StatsBomb matches without 360 &mdash; `is_line_breaking`, `lines_broken`, and `line_breaking_type` are NULL. These passes are still included in the dataset as unlabeled examples.
+- **StatsBomb 360 coverage**: Approximately 323 StatsBomb matches include 360 freeze-frame data. Line-breaking labels are densest for these matches. IDSSE Bundesliga tracking provides an additional 7 matches with full positional data.
 - **Geometric approximation**: The Ward clustering + straddle test is a rule-based approximation. It does not model defensive intent, pressing triggers, or tactical context beyond raw position.
 - **Coordinate system**: All coordinates are in StatsBomb 120&times;80-yard scale. Wyscout passes are normalized to this scale; minor rounding differences may exist near pitch boundaries.
 - **Open data only**: Commercial datasets with richer tracking coverage may yield different label distributions and model generalizations.

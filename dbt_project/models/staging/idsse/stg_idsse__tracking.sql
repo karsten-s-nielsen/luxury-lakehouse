@@ -35,13 +35,16 @@ normalized as (
         -- Source provider
         'idsse'                                         as source_provider,
 
+        -- Goalkeeper flag (from DFL match info PlayingPosition='TW')
+        cast(is_goalkeeper as boolean)                  as is_goalkeeper,
+
         -- Scaled player coordinates (120×80)
-        (x + 52.5) / 105.0 * 120.0                     as x,
-        (y + 34.0) / 68.0 * 80.0                       as y,
+        {{ normalize_x('x', 'center_m') }} as x,
+        {{ normalize_y('y', 'center_m') }} as y,
 
         -- Ball coordinates scaled to 120×80
-        (ball_x + 52.5) / 105.0 * 120.0                as ball_x,
-        (ball_y + 34.0) / 68.0 * 80.0                  as ball_y
+        {{ normalize_x('ball_x', 'center_m') }} as ball_x,
+        {{ normalize_y('ball_y', 'center_m') }} as ball_y
 
     from source
     where x is not null

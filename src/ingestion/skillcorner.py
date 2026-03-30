@@ -123,6 +123,15 @@ def _dataset_to_rows(
 
             team_str = "home" if player.team == home_team else "away" if player.team == away_team else "unknown"
 
+            # Determine goalkeeper status from kloppy starting_position.
+            # kloppy uses starting_position (not position) for the Player's role.
+            # SkillCorner's kloppy mapping (role ID 1 → Unknown) does not expose
+            # Goalkeeper, so we also fall back to jersey_no == 1 as heuristic.
+            sp = getattr(player, "starting_position", None)
+            sp_name = getattr(sp, "name", None) if sp is not None else None
+            jersey = getattr(player, "jersey_no", None)
+            is_gk = sp_name == "Goalkeeper" or (sp_name in (None, "Unknown") and jersey == 1)
+
             rows.append(
                 {
                     "period": period,
@@ -136,6 +145,7 @@ def _dataset_to_rows(
                     "ball_y": ball_y,
                     "match_id": prefixed_match_id,
                     "frame_rate": _FRAME_RATE,
+                    "is_goalkeeper": is_gk,
                 }
             )
 
