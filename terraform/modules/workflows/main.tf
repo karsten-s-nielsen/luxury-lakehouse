@@ -627,7 +627,10 @@ resource "databricks_job" "data_ingestion" {
         "rapidfuzz>=3.6.0",
         "unidecode>=1.3.0",
         "sparse-dot-topn>=1.1.0",
-        "mlflow>=2.17.0"
+        "mlflow>=2.17.0",
+        "mplsoccer>=1.1.3",
+        "matplotlib>=3.8.0",
+        "scipy>=1.11.0"
       ]
     }
   }

@@ -133,6 +133,31 @@ resource "databricks_grant" "ingestion_sp_gold_model_weights_volume" {
   privileges = ["READ_VOLUME", "WRITE_VOLUME"]
 }
 
+# ── Volume: Training data exports for HF Jobs ──────────────────────────────
+# Stores SPADL action sequences (Parquet) for Football2Vec v2 training.
+# Written by export_embeddings_training_data pipeline, read by HF Jobs scripts.
+
+resource "databricks_volume" "training_data" {
+  count = var.gold_schema_override != "" ? 1 : 0
+
+  catalog_name = var.catalog_name
+  schema_name  = var.gold_schema_override
+  name         = "training_data"
+  volume_type  = "MANAGED"
+  comment      = "Training data exports (SPADL sequences for Football2Vec v2)"
+}
+
+resource "databricks_grant" "ingestion_sp_gold_training_data_volume" {
+  count = var.enable_ingestion_sp_grants && var.gold_schema_override != "" ? 1 : 0
+
+  volume = "${var.catalog_name}.${var.gold_schema_override}.training_data"
+
+  principal  = var.ingestion_sp_application_id
+  privileges = ["READ_VOLUME", "WRITE_VOLUME"]
+
+  depends_on = [databricks_volume.training_data]
+}
+
 resource "databricks_grant" "ingestion_sp_observability_schema" {
   count = var.enable_ingestion_sp_grants ? 1 : 0
 
