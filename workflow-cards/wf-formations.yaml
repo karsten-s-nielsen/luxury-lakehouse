@@ -1,5 +1,5 @@
 ---
-name: EFPI & Shape Graph Formation Detection
+name: EFPI Formation Detection
 id: wf-formations
 version: "1.0"
 status: production
@@ -12,17 +12,11 @@ tags:
   - team-shape
   - tracking
   - efpi
-  - shape-graph
-  - position-inference
 
 references:
   - citation: "Bekkers & Dabadghao (2025). Flow Motifs in Soccer: How Teams Play. arXiv:2506.23843."
     role: methodology
   - citation: "Bialkowski et al. (2014). Large-Scale Analysis of Soccer Matches Using Spatiotemporal Tracking Data. IEEE ICDM."
-    role: algorithm
-  - citation: "Sotudeh, H. (2026). Identification of Team Tactical Formations and Player Positions in Association Football. PhD thesis, ETH Zurich (DISS. ETH NO. 31732)."
-    role: methodology
-  - citation: "Sotudeh et al. (2025). Shape Graphs for Formation Detection. npj Complexity. DOI: 10.1038/s44260-025-00047-x."
     role: algorithm
 
 inputs:
@@ -36,20 +30,13 @@ outputs:
     - id: "{catalog}.gold.fct_formation_labels"
       destination: delta-table
       synced: fct_formation_labels_synced
-    - id: "{catalog}.gold.fct_player_positions"
-      destination: delta-table
-      synced: fct_player_positions_synced
-      description: "Frame-level 5x5 tactical position labels"
-    - id: "{catalog}.gold.fct_position_maps"
-      destination: delta-table
-      synced: fct_position_maps_synced
-      description: "Aggregated time-in-position percentages"
+      description: "Window-level formation labels with detector='efpi'"
 
 execution:
   inference:
     trigger: scheduled
     runtime: databricks-workflow
-    entry_point: compute_formations
+    entry_point: compute_formations_efpi
     module: ingestion.formations
     distribution: applyInPandas
     partition_key: match_id
@@ -83,7 +70,6 @@ links:
   source_code:
     - "src/ingestion/formations.py"
     - "src/analytics/formation_detection.py"
-    - "src/analytics/shape_graph.py"
 ---
 
 ## Overview

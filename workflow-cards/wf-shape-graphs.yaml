@@ -45,7 +45,7 @@ execution:
   inference:
     trigger: scheduled
     runtime: databricks-workflow
-    entry_point: compute_formations
+    entry_point: compute_formations_shape_graph
     module: ingestion.formations
     distribution: applyInPandas
     partition_key: match_id
@@ -54,7 +54,7 @@ execution:
     environment: analytics
 
 depends_on:
-  - wf-pitch-control
+  - wf-formations
 
 idempotency:
   strategy: skip-guard

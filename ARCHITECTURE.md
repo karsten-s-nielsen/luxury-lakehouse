@@ -62,9 +62,11 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • spadl_vaep → SPADL conversion + VAEP scoring from bronze      │    │
 │  │  • defcon_lite → DEFCON-lite defensive credit assignment         │    │
 │  │  • resolve_players → cross-source entity resolution              │    │
-│  │  • compute_embeddings → Doc2Vec + z-score player embeddings      │    │
+│  │  • compute_embeddings_v2 → Import 128-d transformer embeddings    │    │
+│  │  • compute_embeddings_v1 → Doc2Vec + z-score (deprecated)        │    │
 │  │  • export_embeddings_training_data → Transformer training data   │    │
-│  │  • compute_formations → Formation detection (EFPI + shape graph) │    │
+│  │  • compute_formations_efpi → EFPI template-matching detection    │    │
+│  │  • compute_formations_shape_graph → Shape graph detection        │    │
 │  │  • compute_xg_model → xG v1 scoring (logistic + XGBoost)         │    │
 │  │  • compute_xg_model_v2 → xG v2 scoring (Deep Sets + MC dropout) │    │
 │  │  • compute_expected_threat → Data-driven xT grid from SPADL      │    │

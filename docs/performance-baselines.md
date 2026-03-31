@@ -36,7 +36,7 @@ Measured from job run 311181772997773 (2026-03-25). All pipelines run with skip 
 | compute_spadl_vaep | 168s | ✅ | Was OOM pre-optimization; now per-partition |
 | compute_off_ball_xt | 89s | ✅ | applyInPandas, 1fps sampling |
 | compute_defcon_lite | 134s | ✅ | applyInPandas, 360 freeze frames |
-| compute_embeddings | 221s | ✅ | Was OOM pre-optimization; now per-competition |
+| compute_embeddings (legacy) | 221s | ✅ | Was OOM pre-optimization; now split into v1 + v2 |
 | compute_pitch_control | 87s | ✅ | applyInPandas, 20 tracking matches |
 | compute_elastic_sync | 67s | ✅ | 7 IDSSE matches |
 | compute_pausa | 47s | ✅ | 7 IDSSE matches (OBSO + ghost trajectories) |
@@ -44,8 +44,10 @@ Measured from job run 311181772997773 (2026-03-25). All pipelines run with skip 
 | compute_xg_model | 128s | ✅ | XGBoost training + scoring |
 | resolve_players | 135s | ✅ | TF-IDF + rapidfuzz, ~12K players |
 | run_model_validation | 77s | ✅ | PSI, Wasserstein, KS across 10 models |
-| compute_formations | 341s | ✅ | Dual-detector (EFPI + shape graph) with temp Delta table materialization. Up from 186s (EFPI-only). |
+| compute_formations_efpi | TBD | ⚠️ | EFPI template matching. Split from compute_formations (341s combined). Re-measure needed. |
+| compute_formations_shape_graph | TBD | ⚠️ | Shape graph detection. Reads temp table from EFPI. Re-measure needed. |
 | compute_line_breaking | N/A | ✅ | Line-breaking pass detection |
 | export_embeddings_training_data | 143s | ✅ | SPADL sequence export → UC Volume → HF Hub (Cycle 2) |
-| compute_embeddings | 142s | ✅ | v2 pre-computed import (was 221s with v1 Doc2Vec inference) |
-| **Full workflow** | **~560s** | ✅ | 22 tasks including dual-detector formations + embeddings export (job run 1036972020842388) |
+| compute_embeddings_v2 | TBD | ⚠️ | v2 HF Hub import. Split from compute_embeddings (142s combined). Re-measure needed. |
+| compute_embeddings_v1 | TBD | ⚠️ | v1 Doc2Vec inference (deprecated). Re-measure needed. |
+| **Full workflow** | **~560s** | ⚠️ | 24 tasks (split formations + embeddings). Timing from pre-split run 1036972020842388. Re-measure needed. |

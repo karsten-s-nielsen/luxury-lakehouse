@@ -657,31 +657,46 @@ def _import_v2_embeddings(
 # ---------------------------------------------------------------------------
 
 
-@workflow("wf-football2vec", phase="training")
-def run_pipeline(
+@workflow("wf-football2vec-v2", phase="training")
+def run_pipeline_v2(
     spark: SparkSession,
     catalog: str,
     schema: str,
     logger: logging.Logger,
     *,
-    ctx=None,
+    ctx: object = None,
 ) -> None:
-    """Execute the player embedding computation pipeline.
+    """Import pre-computed v2 transformer embeddings from HF Hub.
 
-    Tries v2 (transformer) embeddings from HF Hub first.  If the v2 dataset
-    is not available, falls back to v1 Doc2Vec inference via applyInPandas.
+    Decorated with ``wf-football2vec-v2`` for independent cost/runtime tracking.
+    Wraps ``_import_v2_embeddings`` and logs the outcome.
     """
-    logger.info("Starting player embedding pipeline for %s.%s", catalog, schema)
+    logger.info("Starting v2 transformer embedding import for %s.%s", catalog, schema)
 
-    # 0a. Try v2 import path (pre-computed transformer embeddings from HF Hub)
-    try:
-        if _import_v2_embeddings(spark, catalog, schema, logger):
-            logger.info("Player embedding pipeline complete (v2 path)")
-            return
-    except Exception:
-        logger.warning("v2 import failed — falling back to Doc2Vec v1", exc_info=True)
+    success = _import_v2_embeddings(spark, catalog, schema, logger)
+    if success:
+        logger.info("v2 transformer embedding import complete")
+    else:
+        logger.info("v2 transformer embeddings not available — no action taken")
 
-    logger.info("Proceeding with v1 Doc2Vec inference path")
+
+@workflow("wf-football2vec", phase="training")
+def run_pipeline_v1(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    logger: logging.Logger,
+    *,
+    ctx: object = None,
+) -> None:
+    """Compute v1 Doc2Vec player embeddings via applyInPandas.
+
+    Decorated with ``wf-football2vec`` for independent cost/runtime tracking.
+    Contains the full v1 inference path: incremental check, event loading,
+    batch assignment, applyInPandas behavioral inference, stat vector merge,
+    and Delta write.
+    """
+    logger.info("Starting v1 Doc2Vec embedding pipeline for %s.%s", catalog, schema)
 
     # 0. Incremental check — skip if all source matches already have embeddings
     results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
@@ -869,7 +884,39 @@ def run_pipeline(
             row_count=row_count,
         )
 
-    logger.info("Player embedding pipeline complete")
+    logger.info("v1 Doc2Vec embedding pipeline complete")
+
+
+def run_pipeline(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    logger: logging.Logger,
+    *,
+    ctx: object = None,
+) -> None:
+    """Execute the player embedding computation pipeline (convenience wrapper).
+
+    Tries v2 (transformer) embeddings from HF Hub first.  If the v2 dataset
+    is not available, falls back to v1 Doc2Vec inference via applyInPandas.
+
+    This function is NOT decorated with ``@workflow`` — it calls
+    ``_import_v2_embeddings`` and ``run_pipeline_v1`` directly.  Use
+    ``run_pipeline_v2`` or ``run_pipeline_v1`` for independent Databricks
+    task execution with separate cost/runtime tracking.
+    """
+    logger.info("Starting player embedding pipeline for %s.%s", catalog, schema)
+
+    # 0a. Try v2 import path (pre-computed transformer embeddings from HF Hub)
+    try:
+        if _import_v2_embeddings(spark, catalog, schema, logger):
+            logger.info("Player embedding pipeline complete (v2 path)")
+            return
+    except Exception:
+        logger.warning("v2 import failed — falling back to Doc2Vec v1", exc_info=True)
+
+    logger.info("Proceeding with v1 Doc2Vec inference path")
+    run_pipeline_v1(spark, catalog, schema, logger)
 
 
 def main() -> None:
@@ -884,6 +931,34 @@ def main() -> None:
     register_hook(CostEstimateHook(spark, args.catalog, args.schema))
 
     run_pipeline(spark, args.catalog, args.schema, logger)
+
+
+def main_v2() -> None:
+    """CLI entry point for v2 transformer embedding import from HF Hub."""
+    args = parse_ingestion_args("Import v2 transformer embeddings from HF Hub")
+    logger = configure_logging("player_embeddings_v2")
+    spark = get_spark_session()
+
+    from ingestion.cost_hook import CostEstimateHook
+    from workflows import register_hook
+
+    register_hook(CostEstimateHook(spark, args.catalog, args.schema))
+
+    run_pipeline_v2(spark, args.catalog, args.schema, logger)
+
+
+def main_v1() -> None:
+    """CLI entry point for v1 Doc2Vec player embedding computation."""
+    args = parse_ingestion_args("Compute v1 Doc2Vec player embeddings")
+    logger = configure_logging("player_embeddings_v1")
+    spark = get_spark_session()
+
+    from ingestion.cost_hook import CostEstimateHook
+    from workflows import register_hook
+
+    register_hook(CostEstimateHook(spark, args.catalog, args.schema))
+
+    run_pipeline_v1(spark, args.catalog, args.schema, logger)
 
 
 def _save_norm_params(
