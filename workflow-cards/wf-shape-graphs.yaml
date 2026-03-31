@@ -1,0 +1,104 @@
+---
+name: Shape Graph Formation Detection
+id: wf-shape-graphs
+version: "1.0"
+status: production
+type: heuristic
+domain: formation-detection
+owners:
+  - karsten
+tags:
+  - formation
+  - team-shape
+  - tracking
+  - shape-graph
+  - position-inference
+
+references:
+  - citation: "Sotudeh, H. (2026). Identification of Team Tactical Formations and Player Positions in Association Football. PhD thesis, ETH Zurich (DISS. ETH NO. 31732)."
+    role: methodology
+  - citation: "Sotudeh et al. (2025). Shape Graphs for Formation Detection. npj Complexity. DOI: 10.1038/s44260-025-00047-x."
+    role: algorithm
+
+inputs:
+  datasets:
+    - id: "{catalog}.gold.fct_tracking_frames"
+      source: delta-table
+      description: "Tracking frame data with player positions and is_goalkeeper metadata"
+
+outputs:
+  tables:
+    - id: "{catalog}.gold.fct_formation_labels"
+      destination: delta-table
+      synced: fct_formation_labels_synced
+      description: "Window-level formation labels with detector='shape_graph'"
+    - id: "{catalog}.gold.fct_player_positions"
+      destination: delta-table
+      synced: fct_player_positions_synced
+      description: "Frame-level 5x5 tactical position labels"
+    - id: "{catalog}.gold.fct_position_maps"
+      destination: delta-table
+      synced: fct_position_maps_synced
+      description: "Aggregated time-in-position percentages"
+
+execution:
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: compute_formations
+    module: ingestion.formations
+    distribution: applyInPandas
+    partition_key: match_id
+    schedule: "daily 06:00 UTC"
+    timeout: "600s"
+    environment: analytics
+
+depends_on:
+  - wf-pitch-control
+
+idempotency:
+  strategy: skip-guard
+  key: match_id
+  description: "Checks existing formation labels by match_id before processing."
+
+performance:
+  inference_timeout: "600s"
+  memory_ceiling: "16 GB driver, 1 GB UDF executor"
+
+cost:
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 5
+    typical_cost_usd: 0.35
+
+monitoring:
+  freshness_sla_hours: 168
+
+links:
+  source_code:
+    - "src/ingestion/formations.py"
+    - "src/analytics/shape_graph.py"
+---
+
+## Overview
+
+Shape Graph Formation Detection classifies team formations and infers per-player
+tactical positions from tracking data using Delaunay-based shape graphs (Sotudeh 2026).
+Unlike EFPI's top-down template matching, shape graphs are bottom-up: positions emerge
+from the geometric structure of the Delaunay triangulation after unstable edges are
+iteratively removed. No formation template library is needed.
+
+## Algorithm
+
+1. Compute Delaunay triangulation of outfield player (x, y) positions
+2. Calculate angular stability for each edge (angle between circumcenters)
+3. Iteratively remove least stable edge (threshold < 45 degrees), merging incident faces
+4. Repeat until all remaining edges are stable
+5. Infer positions via 5x5 level decomposition (vertical: B/DM/M/AM/F, horizontal: L/LC/C/RC/R)
+
+## Position Maps
+
+Per-player time-in-position maps aggregate frame-level assignments into
+a 5x5 matrix showing percentage of in-play time at each tactical position.
+Three phase variants: all, in_possession, out_of_possession.

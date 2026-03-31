@@ -2017,16 +2017,17 @@ models:
     description: >
       Gold-layer formation detection results per match, period, and team.
       Contains one row per detected formation window: the time range during
-      which a given team held a specific shape, as identified by the EFPI
-      (Elastic Formation Position Identifier) algorithm using Hungarian method
-      template matching. Sourced from the bronze formation_labels table written
-      by the formations ingestion pipeline.
-      Reference: Shaw, L. & Glickman, M. (2019). "Dynamic analysis of team
-      strategy in professional football."
+      which a given team held a specific shape, as identified by either the
+      EFPI (Elastic Formation Position Identifier) algorithm (Hungarian method
+      template matching) or the shape graph detector (Sotudeh 2026). The
+      detector column distinguishes which algorithm produced each row. Sourced
+      from the bronze formation_labels table written by the formations
+      ingestion pipeline.
+      References: Shaw & Glickman (2019), Sotudeh (2026).
     columns:
       - name: formation_label_id
         data_type: string
-        description: Surrogate key (match_id + period + team + window_start_s)
+        description: Surrogate key (match_id + period + team + window_start_s + detector)
         data_tests:
           - unique
           - not_null
@@ -2071,9 +2072,170 @@ models:
           Hungarian matching cost for template fit. Lower values indicate a
           closer match between observed player positions and the formation
           template. Used to assess detection confidence.
+      - name: detector
+        data_type: string
+        description: "Detection algorithm: efpi (Bekkers & Dabadghao 2025) or shape_graph (Sotudeh 2026)"
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['efpi', 'shape_graph']
       - name: _ingested_at
         data_type: timestamp
         description: UTC timestamp when the row was written to the bronze table
+
+  # ── Position Maps (Shape Graph) ──────────────────────────────────────
+
+  - name: fct_player_positions
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Gold-layer per-frame position labels from the shape graph algorithm.
+      Each row assigns a player to a tactical position (5-level vertical x
+      5-level horizontal grid) for one tracking frame. Incremental by match_id.
+      Reference: Sotudeh, S. (2026). Shape graph formation detection.
+    columns:
+      - name: position_id
+        data_type: string
+        description: Surrogate key (match_id + frame_id + player_id)
+        data_tests:
+          - unique
+          - not_null
+      - name: match_id
+        data_type: string
+        description: Match identifier (string, prefixed by tracking provider)
+        data_tests:
+          - not_null
+      - name: frame_id
+        data_type: bigint
+        description: Tracking frame identifier within the match
+        data_tests:
+          - not_null
+      - name: player_id
+        data_type: string
+        description: Player identifier from the tracking data source
+        data_tests:
+          - not_null
+      - name: team
+        data_type: string
+        description: Team side (home or away)
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['home', 'away']
+      - name: position_label
+        data_type: string
+        description: "Tactical position label (e.g., LC-DM, C-B, R-AM)"
+        data_tests:
+          - not_null
+      - name: vertical_level
+        data_type: string
+        description: "Vertical pitch zone: B (back), DM, M (mid), AM, F (front)"
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['B', 'DM', 'M', 'AM', 'F']
+      - name: horizontal_level
+        data_type: string
+        description: "Horizontal pitch zone: L, LC, C, RC, R"
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['L', 'LC', 'C', 'RC', 'R']
+      - name: detector
+        data_type: string
+        description: Detection algorithm identifier (shape_graph)
+        data_tests:
+          - not_null
+      - name: _ingested_at
+        data_type: timestamp
+        description: UTC timestamp when the row was written to the bronze table
+
+  - name: fct_position_maps
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Gold-layer aggregated position maps per player per match. Each row
+      represents the proportion of time a player spent in a given tactical
+      position (5x5 grid). Computed from fct_player_positions by counting
+      frames per position and normalising to percentage of total frames.
+      The phase column supports future possession-phase variants.
+      Reference: Sotudeh, S. (2026). Shape graph formation detection.
+    columns:
+      - name: position_map_id
+        data_type: string
+        description: Surrogate key (player_id + match_id + position_label + phase)
+        data_tests:
+          - unique
+          - not_null
+      - name: player_id
+        data_type: string
+        description: Player identifier from the tracking data source
+        data_tests:
+          - not_null
+      - name: match_id
+        data_type: string
+        description: Match identifier (string, prefixed by tracking provider)
+        data_tests:
+          - not_null
+      - name: team
+        data_type: string
+        description: Team side (home or away)
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['home', 'away']
+      - name: position_label
+        data_type: string
+        description: "Tactical position label (e.g., LC-DM, C-B, R-AM)"
+        data_tests:
+          - not_null
+      - name: vertical_level
+        data_type: string
+        description: "Vertical pitch zone: B (back), DM, M (mid), AM, F (front)"
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['B', 'DM', 'M', 'AM', 'F']
+      - name: horizontal_level
+        data_type: string
+        description: "Horizontal pitch zone: L, LC, C, RC, R"
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['L', 'LC', 'C', 'RC', 'R']
+      - name: pct_time
+        data_type: double
+        description: >
+          Percentage of total frames the player occupied this position
+          within the match (0-100, rounded to 2 decimals).
+        data_tests:
+          - not_null
+      - name: phase
+        data_type: string
+        description: >
+          Possession phase filter: all (full match), in_possession, or
+          out_of_possession. Currently only 'all' is populated; phase
+          variants are deferred.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['all', 'in_possession', 'out_of_possession']
 
   - name: fct_tracking_avg_positions
     config:

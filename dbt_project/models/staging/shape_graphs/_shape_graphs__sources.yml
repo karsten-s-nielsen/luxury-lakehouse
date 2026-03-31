@@ -1,0 +1,45 @@
+version: 2
+
+sources:
+  - name: shape_graphs
+    description: >
+      Player position labels produced by the shape graph algorithm. The
+      pipeline constructs a Delaunay-based shape graph from tracking frames,
+      decomposes the pitch into a 5x5 vertical/horizontal grid, and assigns
+      each player a tactical position label per frame.
+      Reference: Sotudeh, S. (2026). Shape graph formation detection.
+    database: "{{ var('catalog', 'soccer_analytics') }}"
+    schema: bronze
+    loader: python_wheel
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 48, period: hour}
+        error_after: {count: 168, period: hour}
+
+    tables:
+      - name: player_positions
+        description: >
+          Per-frame per-player tactical position labels from the shape graph
+          algorithm. Each row assigns a player to one cell in a 5-level
+          vertical (B/DM/M/AM/F) x 5-level horizontal (L/LC/C/RC/R) grid
+          for a single tracking frame.
+        columns:
+          - name: match_id
+            description: Match identifier (string, prefixed by tracking provider)
+          - name: frame_id
+            description: Tracking frame identifier within the match
+          - name: player_id
+            description: Player identifier from the tracking data source
+          - name: team
+            description: Team side (home or away)
+          - name: position_label
+            description: "Tactical position label (e.g., LC-DM, C-B, R-AM)"
+          - name: vertical_level
+            description: "Vertical pitch zone: B (back), DM, M (mid), AM, F (front)"
+          - name: horizontal_level
+            description: "Horizontal pitch zone: L, LC, C, RC, R"
+          - name: detector
+            description: Detection algorithm identifier (shape_graph)
+          - name: _ingested_at
+            description: UTC timestamp when the row was written to bronze

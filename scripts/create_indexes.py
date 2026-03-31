@@ -151,7 +151,7 @@ HNSW_INDEXES: list[tuple[str, str, str]] = [
     (
         "idx_embeddings_career_behavioral_hnsw",
         "fct_player_embeddings_career_synced",
-        "USING hnsw ((behavioral_vector::text::vector(32)) vector_cosine_ops)",
+        "USING hnsw ((behavioral_vector::text::vector(128)) vector_cosine_ops)",
     ),
     # ── fct_player_embeddings_career_synced — Statistical similarity ─────
     (
@@ -163,7 +163,7 @@ HNSW_INDEXES: list[tuple[str, str, str]] = [
     (
         "idx_embeddings_season_behavioral_hnsw",
         "fct_player_embeddings_season_synced",
-        "USING hnsw ((behavioral_vector::text::vector(32)) vector_cosine_ops)",
+        "USING hnsw ((behavioral_vector::text::vector(128)) vector_cosine_ops)",
     ),
     # ── fct_player_embeddings_season_synced — Statistical similarity ─────
     (
@@ -231,7 +231,7 @@ VERIFY_QUERIES: list[tuple[str, str]] = [
     (
         "fct_player_embeddings_career: behavioral cosine kNN (idx_embeddings_career_behavioral_hnsw)",
         f"SELECT canonical_player_id FROM {SCHEMA}.fct_player_embeddings_career_synced"  # noqa: S608
-        " ORDER BY behavioral_vector::text::vector(32) <=> (SELECT behavioral_vector::text::vector(32)"
+        " ORDER BY behavioral_vector::text::vector(128) <=> (SELECT behavioral_vector::text::vector(128)"
         f" FROM {SCHEMA}.fct_player_embeddings_career_synced LIMIT 1) LIMIT 5",
     ),
 ]

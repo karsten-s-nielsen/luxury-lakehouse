@@ -1,0 +1,107 @@
+---
+name: Football2Vec v2 — Transformer Embeddings
+id: wf-football2vec-v2
+version: "1.0"
+status: production
+type: training-and-inference
+domain: player-embeddings
+owners:
+  - karsten
+tags:
+  - embeddings
+  - transformer
+  - adversarial-training
+  - player-similarity
+
+references:
+  - citation: "Ganin et al. (2016). Domain-Adversarial Training of Neural Networks. JMLR."
+    role: methodology
+  - citation: "Danesi (2025). The Imposter on the Pitch. HPI/Hudl."
+    role: inspiration
+  - citation: "Le & Mikolov (2014). Distributed Representations of Sentences and Documents."
+    role: algorithm
+
+inputs:
+  datasets:
+    - id: "luxury-lakehouse/football2vec-training-data"
+      source: huggingface
+      description: "SPADL action sequences per player-match"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.player_embeddings_raw"
+      destination: delta-table
+      description: "128-dim transformer embeddings per player-match"
+  models:
+    - id: "luxury-lakehouse/football2vec-v2"
+      destination: huggingface
+  datasets:
+    - id: "luxury-lakehouse/football2vec-statsbomb-wyscout"
+      destination: huggingface
+
+execution:
+  training:
+    trigger: manual
+    runtime: hf-jobs
+    flavor: a10g-large
+    script: "scripts/train_football2vec_v2.py"
+    timeout: "120m"
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: compute_embeddings
+    module: ingestion.player_embeddings
+    distribution: applyInPandas
+    partition_key: batch_id
+    schedule: "daily 06:00 UTC"
+    timeout: "3600s"
+    environment: analytics
+
+depends_on:
+  - wf-entity-resolution
+
+idempotency:
+  strategy: skip-guard
+  key: match_id
+  description: "Checks existing embeddings by match_id before processing. v2 path imports pre-computed vectors from HF Hub with replaceWhere per data_source."
+
+cost:
+  training:
+    runtime: hf-jobs
+    flavor: a10g-large
+    rate_usd_per_hour: 1.50
+    typical_duration_minutes: 120
+    typical_cost_usd: 3.00
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 150
+    typical_cost_usd: 10.50
+
+monitoring:
+  freshness_sla_hours: 168
+
+links:
+  source_code:
+    - "scripts/train_football2vec_v2.py"
+    - "src/analytics/football2vec_transformer.py"
+    - "src/ingestion/player_embeddings.py"
+    - "src/ingestion/export_embeddings_training_data.py"
+---
+
+## Overview
+
+Football2Vec v2 replaces the Doc2Vec (gensim) player embedding model with a 4-layer
+transformer encoder trained on 23-type SPADL action sequences with continuous spatial
+encoding. Training runs on HF Jobs GPU (A10G large) in two stages: masked action
+prediction (MLM), then adversarial team debiasing via gradient reversal (Ganin et al.
+2016). The result is 128-dim team-agnostic player embeddings that capture behavioral
+style independent of team system effects.
+
+## Architecture
+
+- Token embedding: 23 SPADL action types → 128d
+- Spatial encoding: MLP(x) + MLP(y) → 128d each, summed with token embedding
+- 4-layer transformer encoder, 4 attention heads, GELU activation
+- Mean pooling over valid tokens → 128d player-match embedding
+- Stage 2: gradient reversal layer with team classifier head (lambda=0.2)
