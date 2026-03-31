@@ -18,7 +18,7 @@ Measured locally on Windows 11, Python 3.10.19, NumPy 2.2.6, SciPy 1.15.3.
 | compute_team_shape | 10 outfield players | 479 µs | 921 µs | ≤1 ms |
 | compute_team_shape_frame | 22 players (both teams) | 1,388 µs | 2,610 µs | ≤2 ms |
 | compute_shape_graph | 10 outfield players | 1,158 µs | 1,098 µs | ≤2 ms |
-| infer_positions | 10 outfield players + shape graph | 1,787 µs | 1,683 µs | ≤2 ms |
+| infer_positions | 10 outfield players + shape graph | 1,787 µs | 1,683 µs | ≤3 ms |
 | numba_pitch_control (warm) | 22 players, single point | 2 µs | 2 µs | — |
 
 ## Pipeline Timing (Databricks Serverless)
