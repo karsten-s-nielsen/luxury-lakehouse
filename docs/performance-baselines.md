@@ -44,7 +44,8 @@ Measured from job run 311181772997773 (2026-03-25). All pipelines run with skip 
 | compute_xg_model | 128s | ✅ | XGBoost training + scoring |
 | resolve_players | 135s | ✅ | TF-IDF + rapidfuzz, ~12K players |
 | run_model_validation | 77s | ✅ | PSI, Wasserstein, KS across 10 models |
-| compute_formations | 186s (EFPI only) | ⚠️ | Pre-Cycle 2 timing. Now runs dual-detector (EFPI + shape graph) with temp Delta table materialization to avoid double-read of tracking data. Re-measure needed. |
+| compute_formations | 341s | ✅ | Dual-detector (EFPI + shape graph) with temp Delta table materialization. Up from 186s (EFPI-only). |
 | compute_line_breaking | N/A | ✅ | Line-breaking pass detection |
-| export_embeddings_training_data | N/A | ✅ | SPADL sequence export → UC Volume → HF Hub (Cycle 2) |
-| **Full workflow** | **486s** | ⚠️ | Pre-Cycle 2 timing (19 tasks). Now 21 tasks with xg_model_v2 + formations dual-detector. |
+| export_embeddings_training_data | 143s | ✅ | SPADL sequence export → UC Volume → HF Hub (Cycle 2) |
+| compute_embeddings | 142s | ✅ | v2 pre-computed import (was 221s with v1 Doc2Vec inference) |
+| **Full workflow** | **~560s** | ✅ | 22 tasks including dual-detector formations + embeddings export (job run 1036972020842388) |
