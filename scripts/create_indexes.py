@@ -139,6 +139,14 @@ INDEXES: list[tuple[str, str, str]] = [
     # ── fct_tracking_shape_timeline_synced — Pre-bucketed timeline ────
     # ST-1: match + period lookup (timeline rendering)
     ("idx_shape_timeline_match_period", "fct_tracking_shape_timeline_synced", "match_id, period"),
+    # ── fct_player_positions_synced — Shape graph position queries ───
+    # PP-1: match + player lookup (position map breakdown, Team Shape page)
+    ("idx_player_positions_match_player", "fct_player_positions_synced", "match_id, player_id"),
+    # PP-2: match + team lookup (team-level position aggregation)
+    ("idx_player_positions_match_team", "fct_player_positions_synced", "match_id, team"),
+    # ── fct_position_maps_synced — Position map queries ──────────────
+    # PM-1: match + player lookup (per-player position map)
+    ("idx_position_maps_match_player", "fct_position_maps_synced", "match_id, player_id"),
     # ── dim_players_synced — Player name search (U5) ──────────────────
     # PL-2: display name prefix scan for server-side player search
     ("idx_dim_players_display_name", "dim_players_synced", "player_display_name"),
@@ -151,7 +159,7 @@ HNSW_INDEXES: list[tuple[str, str, str]] = [
     (
         "idx_embeddings_career_behavioral_hnsw",
         "fct_player_embeddings_career_synced",
-        "USING hnsw ((behavioral_vector::text::vector(32)) vector_cosine_ops)",
+        "USING hnsw ((behavioral_vector::text::vector(128)) vector_cosine_ops)",
     ),
     # ── fct_player_embeddings_career_synced — Statistical similarity ─────
     (
@@ -163,7 +171,7 @@ HNSW_INDEXES: list[tuple[str, str, str]] = [
     (
         "idx_embeddings_season_behavioral_hnsw",
         "fct_player_embeddings_season_synced",
-        "USING hnsw ((behavioral_vector::text::vector(32)) vector_cosine_ops)",
+        "USING hnsw ((behavioral_vector::text::vector(128)) vector_cosine_ops)",
     ),
     # ── fct_player_embeddings_season_synced — Statistical similarity ─────
     (
@@ -231,7 +239,7 @@ VERIFY_QUERIES: list[tuple[str, str]] = [
     (
         "fct_player_embeddings_career: behavioral cosine kNN (idx_embeddings_career_behavioral_hnsw)",
         f"SELECT canonical_player_id FROM {SCHEMA}.fct_player_embeddings_career_synced"  # noqa: S608
-        " ORDER BY behavioral_vector::text::vector(32) <=> (SELECT behavioral_vector::text::vector(32)"
+        " ORDER BY behavioral_vector::text::vector(128) <=> (SELECT behavioral_vector::text::vector(128)"
         f" FROM {SCHEMA}.fct_player_embeddings_career_synced LIMIT 1) LIMIT 5",
     ),
 ]

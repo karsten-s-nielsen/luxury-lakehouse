@@ -1,5 +1,5 @@
 ---
-name: EFPI Formation Detection
+name: EFPI & Shape Graph Formation Detection
 id: wf-formations
 version: "1.0"
 status: production
@@ -12,11 +12,17 @@ tags:
   - team-shape
   - tracking
   - efpi
+  - shape-graph
+  - position-inference
 
 references:
   - citation: "Bekkers & Dabadghao (2025). Flow Motifs in Soccer: How Teams Play. arXiv:2506.23843."
     role: methodology
   - citation: "Bialkowski et al. (2014). Large-Scale Analysis of Soccer Matches Using Spatiotemporal Tracking Data. IEEE ICDM."
+    role: algorithm
+  - citation: "Sotudeh, H. (2026). Identification of Team Tactical Formations and Player Positions in Association Football. PhD thesis, ETH Zurich (DISS. ETH NO. 31732)."
+    role: methodology
+  - citation: "Sotudeh et al. (2025). Shape Graphs for Formation Detection. npj Complexity. DOI: 10.1038/s44260-025-00047-x."
     role: algorithm
 
 inputs:
@@ -30,6 +36,14 @@ outputs:
     - id: "{catalog}.gold.fct_formation_labels"
       destination: delta-table
       synced: fct_formation_labels_synced
+    - id: "{catalog}.gold.fct_player_positions"
+      destination: delta-table
+      synced: fct_player_positions_synced
+      description: "Frame-level 5x5 tactical position labels"
+    - id: "{catalog}.gold.fct_position_maps"
+      destination: delta-table
+      synced: fct_position_maps_synced
+      description: "Aggregated time-in-position percentages"
 
 execution:
   inference:
@@ -69,15 +83,26 @@ links:
   source_code:
     - "src/ingestion/formations.py"
     - "src/analytics/formation_detection.py"
+    - "src/analytics/shape_graph.py"
 ---
 
 ## Overview
 
-EFPI Formation Detection classifies team formations from tracking data using template
-matching against canonical formation shapes. It labels each match phase (open play,
-set piece, transition) with the detected formation (e.g., 4-3-3, 4-4-2) for both the
-attacking and defending team. The pipeline runs on the 20 tracking matches in the
-gold layer and is the lightest compute workflow in the platform (~5 DBU per run).
+This workflow houses two complementary formation detectors that share the same
+input (tracking frames) and output (formation labels) pipeline:
+
+**EFPI** classifies team formations from tracking data using template matching against
+canonical formation shapes. It labels each match phase (open play, set piece,
+transition) with the detected formation (e.g., 4-3-3, 4-4-2) for both the attacking
+and defending team.
+
+**Shape Graph** is a bottom-up detector using Delaunay-based shape graphs (Sotudeh 2026).
+Positions emerge from the geometric structure of the triangulation after unstable edges
+are iteratively removed. No formation template library is needed. It also produces
+per-player frame-level tactical positions and aggregated time-in-position maps.
+
+The pipeline runs on the 20 tracking matches in the gold layer and is the lightest
+compute workflow in the platform (~5 DBU per run).
 
 ## Algorithm
 

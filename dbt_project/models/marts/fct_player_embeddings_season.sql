@@ -52,7 +52,7 @@ select
     season_id,
     -- Element-wise mean of behavioral vectors
     transform(
-        sequence(0, 31),
+        sequence(0, 127),
         i -> aggregate(
             behavioral_vectors,
             cast(0.0 as double),

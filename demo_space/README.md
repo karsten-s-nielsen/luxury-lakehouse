@@ -56,7 +56,8 @@ All data is pre-cached as Parquet files (no live database connectivity):
 - [Metrica Sports Sample Data](https://github.com/metrica-sports/sample-data) (CC-BY 4.0)
 
 **Published models:**
-[football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) |
+[football2vec v2](https://huggingface.co/luxury-lakehouse/football2vec-v2) |
+[football2vec v1](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) |
 [xG Model](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout) |
 [xG v2 Set Encoder](https://huggingface.co/luxury-lakehouse/xg-v2-model-set-encoder) |
 [VAEP Model](https://huggingface.co/luxury-lakehouse/vaep-model-statsbomb-wyscout)
@@ -65,6 +66,7 @@ All data is pre-cached as Parquet files (no live database connectivity):
 [SPADL/VAEP](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values) |
 [Line-Breaking Passes](https://huggingface.co/datasets/luxury-lakehouse/line-breaking-passes) |
 [Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings) |
+[Football2Vec Training Data](https://huggingface.co/datasets/luxury-lakehouse/football2vec-training-data) |
 [Pitch Control](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking) |
 [xG Shot Data](https://huggingface.co/datasets/luxury-lakehouse/xg-shot-data) |
 [xG Freeze Frames](https://huggingface.co/datasets/luxury-lakehouse/xg-freeze-frame-data) |

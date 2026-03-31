@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the current [architecture](ARCHITECTURE.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-03-30 (Cycle 1: D43 coordinate normalization, D28 position-group z-scoring, D29 SPADL vocabulary, D26 GK metadata, TD#6 IDSSE line-breaking)
+**Last updated**: 2026-03-31 (Cycle 2: D18 Football2vec v2 transformer, D30 adversarial team debiasing, D36 shape graph algorithm, D37 position maps)
 
 ---
 
@@ -496,7 +496,7 @@ The `Vision` class is a clean NumPy/scipy implementation. Once pose data arrives
 ## Team Shape Analysis — Stage 2 (Own-Footage Pipeline)
 
 **Status:** Blocked by SkillCorner DoD commercial access
-**Prerequisite:** Stage 1 complete (D19 spatial metrics, D20 EFPI formation detection, D21 Taipy page — all shipped). D26 (GK metadata) shipped in Cycle 1 — formation detection now produces results for all 20 tracking matches (14 matches, 45 formations).
+**Prerequisite:** Stage 1 complete (D19 spatial metrics, D20 EFPI formation detection, D21 Taipy page — all shipped). D26 (GK metadata) shipped in Cycle 1. Cycle 2: dual-detector formation detection (EFPI + shape graph) operational for all 20 tracking matches (661 shape graph labels, 8,521 position assignments).
 
 ### Stage 2 &mdash; Own-Footage Pipeline (Veo3 &rarr; SkillCorner DoD &rarr; Platform)
 
@@ -559,11 +559,11 @@ Team shape analysis on actual youth/amateur games &mdash; metrics that resonate 
 
 ## Shape Graph Visualizations &amp; Tactical Applications
 
-**Status:** Needs investigation &mdash; core algorithm ready (TODO D36/D37), UI integration needs design decisions
+**Status:** Core algorithm shipped (Cycle 2) &mdash; D36 shape graph algorithm + D37 position maps operational for all 20 tracking matches. UI integration needs design decisions.
 **Source:** Sotudeh, H. (2026). *Identification of Team Tactical Formations and Player Positions in Association Football.* PhD thesis, ETH Zurich (DISS. ETH NO. 31732). Survey: [Frontiers (DOI: 10.3389/fspor.2024.1512386)](https://doi.org/10.3389/fspor.2024.1512386). Shape graphs: [npj Complexity (DOI: 10.1038/s44260-025-00047-x)](https://doi.org/10.1038/s44260-025-00047-x).
-**Prerequisite:** D36 (shape graph algorithm) and D37 (position maps) from TODO.md
+**Prerequisite:** D36 and D37 shipped in Cycle 2. Dual-detector `fct_formation_labels` (EFPI + shape_graph) and `fct_position_maps` available in Lakebase.
 
-Once the shape graph algorithm (D36) and position maps (D37) are implemented, several applications from the thesis require design decisions before they can be built into the Taipy app.
+With the shape graph algorithm (D36) and position maps (D37) shipped in Cycle 2, several applications from the thesis require design decisions before they can be built into the Taipy app.
 
 ### Position plots (thesis Chapter 6.1)
 
@@ -610,7 +610,7 @@ Position map similarity enables "find players who occupy similar tactical positi
 
 ### Dependencies
 
-- D36 (shape graph algorithm) + D37 (position maps) must land first
+- D36 (shape graph algorithm) + D37 (position maps) shipped in Cycle 2
 - Taipy page design decisions for each visualization
 - D26 (GK metadata) shipped — full 20-match coverage available
 - Synergistic with D18/D30 (player embeddings) for scouting application
@@ -621,7 +621,7 @@ Position map similarity enables "find players who occupy similar tactical positi
 
 **Status:** Planned (D38 event metrics, D39 post-shot model) — see TODO.md
 
-The platform currently has zero GK-specific performance metrics. GKs are handled as a filtering concern (excluded from formations, normalized separately in embeddings) but never as subjects of dedicated measurement. This is a significant gap for a platform with a GK coaching stakeholder.
+The platform has zero GK-specific performance metrics. GKs are handled as a filtering concern (excluded from formations, normalized separately in embeddings) but never as subjects of dedicated measurement. This is a significant gap for a platform with a GK coaching stakeholder.
 
 ### Four-pillar taxonomy
 
@@ -649,7 +649,7 @@ Current player embeddings (`src/ingestion/player_embeddings.py`) use a 13-featur
 
 ### Known issue: `fct_player_percentiles`
 
-Currently ranks GKs against all players with no `position_group` filter. A GK's `xg_per_90` percentile ranked against strikers is meaningless. D39 fixes this by adding a position_group guard.
+Ranks GKs against all players with no `position_group` filter. A GK's `xg_per_90` percentile ranked against strikers is meaningless. D39 fixes this by adding a position_group guard.
 
 ---
 

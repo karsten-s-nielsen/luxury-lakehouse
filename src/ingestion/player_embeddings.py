@@ -1,16 +1,24 @@
 """Player embedding ingestion pipeline.
 
 Loads SPADL actions from ``fct_action_values`` (23-type vocabulary, 105x68m
-coordinates), joins to ``dim_players`` for canonical_player_id, runs
-Football2Vec inference to produce 32-dim behavioral embeddings per
-(player, match), computes 13-dim z-score normalized stat vectors from
-``fct_player_stats``, and writes merged results to
+coordinates), joins to ``dim_players`` for canonical_player_id, and produces
+behavioral embeddings per (player, match) plus 13-dim z-score normalized
+stat vectors from ``fct_player_stats``.  Results are written to
 ``player_embeddings_raw`` bronze table.
 
-Behavioral inference uses ``applyInPandas`` with flat partitioning by
-``batch_id`` to distribute tokenisation and Doc2Vec inference across Spark
-executors.  The Doc2Vec model is loaded from UC Volumes on each executor
-and cached in a module-level dict so it is only loaded once per JVM lifetime.
+Two embedding paths are supported:
+
+- **v2 (preferred)**: 128-dim transformer encoder embeddings from HF Hub
+  dataset ``luxury-lakehouse/football2vec-statsbomb-wyscout``.  The v2
+  embeddings are pre-computed by the training script
+  (``scripts/train_football2vec_v2.py``).  This path downloads the Parquet,
+  converts to Spark DataFrame, and writes to Delta with ``replaceWhere``
+  per data_source.
+
+- **v1 (fallback)**: 32-dim Doc2Vec embeddings computed via
+  ``applyInPandas`` with flat partitioning by ``batch_id``.  The Doc2Vec
+  model is loaded from UC Volumes on each executor and cached in a
+  module-level dict so it is only loaded once per JVM lifetime.
 
 Bronze table produced:
   - player_embeddings_raw
@@ -334,7 +342,7 @@ def _build_bronze_dataframe(
     """Assemble the final bronze DataFrame from behavioral and stat vectors.
 
     Args:
-        behavioral_vectors: (player_id, match_id) -> 32-dim behavioral vector.
+        behavioral_vectors: (player_id, match_id) -> behavioral vector (128-dim v2 or 32-dim v1).
         stat_vectors: (player_id, match_id) -> 13-dim stat vector or None.
         source_map: match_id -> data_source.
 
@@ -483,6 +491,168 @@ def _make_behavioral_udf(model_path: str) -> object:
 
 
 # ---------------------------------------------------------------------------
+# v2 import — pre-computed transformer embeddings from HF Hub
+# ---------------------------------------------------------------------------
+
+_HF_V2_DATASET = "luxury-lakehouse/football2vec-statsbomb-wyscout"
+
+
+def _import_v2_embeddings(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    logger: logging.Logger,
+) -> bool:
+    """Import pre-computed 128-dim transformer embeddings from HF Hub.
+
+    Downloads the Parquet file from the ``luxury-lakehouse/football2vec-statsbomb-wyscout``
+    dataset on HF Hub, converts to a Spark DataFrame, merges with stat vectors,
+    and writes to ``player_embeddings_raw`` in Delta with ``replaceWhere`` per
+    data_source for idempotency.
+
+    Args:
+        spark: Active Spark session.
+        catalog: Unity Catalog name.
+        schema: Bronze schema name.
+        logger: Logger instance.
+
+    Returns:
+        True if v2 embeddings were successfully imported, False if the
+        dataset is not available (falls back to Doc2Vec v1 path).
+    """
+    try:
+        from huggingface_hub import hf_hub_download, repo_exists
+    except ImportError:
+        logger.info("huggingface_hub not available — falling back to Doc2Vec v1")
+        return False
+
+    if not repo_exists(_HF_V2_DATASET, repo_type="dataset"):
+        logger.info("HF dataset %s not found — falling back to Doc2Vec v1", _HF_V2_DATASET)
+        return False
+
+    logger.info("Importing v2 transformer embeddings from %s", _HF_V2_DATASET)
+
+    # Download the Parquet file to local cache
+    parquet_path = hf_hub_download(
+        repo_id=_HF_V2_DATASET,
+        filename="data/embeddings_v2.parquet",
+        repo_type="dataset",
+    )
+
+    # Read into pandas
+    v2_pdf = pd.read_parquet(parquet_path)
+    logger.info("Downloaded %d v2 embeddings from HF Hub", len(v2_pdf))
+
+    if v2_pdf.empty:
+        logger.warning("v2 embeddings Parquet is empty — falling back to Doc2Vec v1")
+        return False
+
+    # Validate expected columns
+    required_cols = {"canonical_player_id", "match_id", "behavioral_vector"}
+    if not required_cols.issubset(v2_pdf.columns):
+        missing = required_cols - set(v2_pdf.columns)
+        logger.warning("v2 Parquet missing columns %s — falling back to Doc2Vec v1", missing)
+        return False
+
+    # Ensure string types for key columns
+    for col in ("canonical_player_id", "match_id"):
+        v2_pdf[col] = v2_pdf[col].astype(str)
+
+    # Derive data_source + competition/season metadata from a single query
+    # (OPT-AUDIT: combined two SELECT DISTINCT queries into one to halve shuffle)
+    gold = _GOLD_SCHEMA
+    needs_data_source = "data_source" not in v2_pdf.columns
+    try:
+        meta_query = (
+            f"SELECT DISTINCT "  # noqa: S608
+            f"  CAST(match_id AS STRING) AS match_id, "
+            f"  CAST(data_source AS STRING) AS data_source, "
+            f"  CAST(competition_id AS STRING) AS competition_id, "
+            f"  CAST(season_id AS STRING) AS season_id "
+            f"FROM {catalog}.{gold}.fct_action_values"
+        )
+        meta_pdf = spark.sql(meta_query).toPandas()
+        match_competition_map: dict[str, tuple[str, str]] = dict(
+            zip(
+                meta_pdf["match_id"].astype(str),
+                zip(meta_pdf["competition_id"].astype(str), meta_pdf["season_id"].astype(str), strict=True),
+                strict=True,
+            )
+        )
+        if needs_data_source:
+            ds_map = dict(zip(meta_pdf["match_id"].astype(str), meta_pdf["data_source"].astype(str), strict=True))
+            v2_pdf["data_source"] = v2_pdf["match_id"].map(ds_map).fillna("unknown")
+            logger.info("Derived data_source for %d matches from fct_action_values", len(ds_map))
+    except Exception:
+        logger.warning("Could not load match metadata — stat vectors will be None")
+        match_competition_map = {}
+        if needs_data_source:
+            v2_pdf["data_source"] = "unknown"
+    v2_pdf["data_source"] = v2_pdf["data_source"].astype(str)
+
+    # Behavioral vectors may be stored as numpy arrays or lists — normalize to list[float]
+    v2_pdf["behavioral_vector"] = v2_pdf["behavioral_vector"].apply(
+        lambda v: [float(x) for x in v] if not isinstance(v, list) else v
+    )
+
+    # Build metadata maps from v2 embeddings for stat vector join
+    data_sources = v2_pdf["data_source"].unique().tolist()
+    logger.info("v2 embeddings cover data sources: %s", data_sources)
+
+    # Compute stat vectors for matched players
+    event_player_ids: set[int] = set()
+    for pid_str in v2_pdf["canonical_player_id"].unique():
+        try:
+            event_player_ids.add(int(pid_str))
+        except (ValueError, TypeError):
+            pass
+
+    stat_df, norm_params = _compute_stat_vectors(spark, catalog, _GOLD_SCHEMA, player_ids=event_player_ids or None)
+    logger.info("Computed stat vectors for %d player-comp-season entries", len(stat_df))
+
+    if norm_params:
+        _save_norm_params(catalog, norm_params, logger)
+
+    # Merge stat vectors
+    behavioral_keys = list(zip(v2_pdf["canonical_player_id"].astype(str), v2_pdf["match_id"].astype(str), strict=True))
+    merged_stats = _merge_vectors(behavioral_keys, stat_df, match_competition_map)
+
+    # Attach stat vectors via vectorized key lookup
+    # (OPT-AUDIT: replaced .iterrows() on ~87K rows with tuple-keyed map)
+    v2_pdf["stat_vector"] = [
+        merged_stats.get(k)
+        for k in zip(v2_pdf["canonical_player_id"].astype(str), v2_pdf["match_id"].astype(str), strict=True)
+    ]
+
+    # Write per data source with replaceWhere for idempotency
+    for source in data_sources:
+        source_str = str(source)
+        source_slice = v2_pdf[v2_pdf["data_source"] == source_str][
+            ["canonical_player_id", "match_id", "data_source", "behavioral_vector", "stat_vector"]
+        ]
+
+        sdf = spark.createDataFrame(source_slice)
+        row_count = validate_dataframe(
+            sdf,
+            ["canonical_player_id", "match_id", "data_source", "behavioral_vector"],
+            _TABLE_NAME,
+            logger,
+        )
+        write_delta_table(
+            sdf,
+            catalog,
+            schema,
+            _TABLE_NAME,
+            replace_where=f"data_source = '{source_str}'",
+            logger=logger,
+            row_count=row_count,
+        )
+
+    logger.info("Successfully imported %d v2 embeddings from HF Hub", len(v2_pdf))
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -496,8 +666,22 @@ def run_pipeline(
     *,
     ctx=None,
 ) -> None:
-    """Execute the player embedding computation pipeline."""
+    """Execute the player embedding computation pipeline.
+
+    Tries v2 (transformer) embeddings from HF Hub first.  If the v2 dataset
+    is not available, falls back to v1 Doc2Vec inference via applyInPandas.
+    """
     logger.info("Starting player embedding pipeline for %s.%s", catalog, schema)
+
+    # 0a. Try v2 import path (pre-computed transformer embeddings from HF Hub)
+    try:
+        if _import_v2_embeddings(spark, catalog, schema, logger):
+            logger.info("Player embedding pipeline complete (v2 path)")
+            return
+    except Exception:
+        logger.warning("v2 import failed — falling back to Doc2Vec v1", exc_info=True)
+
+    logger.info("Proceeding with v1 Doc2Vec inference path")
 
     # 0. Incremental check — skip if all source matches already have embeddings
     results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
@@ -626,14 +810,17 @@ def run_pipeline(
         for pid, mid, vec in zip(pids, mids, behavioral_pdf["behavioral_vector"], strict=True)
     }
     # First occurrence per match_id wins (drop_duplicates keeps first)
+    # (OPT-AUDIT: replaced .iterrows() with dict(zip()) — vectorized)
     meta_dedup = behavioral_pdf.drop_duplicates(subset=["match_id"])
-    match_competition_map = {
-        str(r["match_id"]): (str(r["competition_id"]), str(r["season_id"]))
-        for _, r in meta_dedup[["match_id", "competition_id", "season_id"]].iterrows()
-    }
-    source_map = {
-        str(r["match_id"]): str(r["data_source"]) for _, r in meta_dedup[["match_id", "data_source"]].iterrows()
-    }
+    _md_mids = meta_dedup["match_id"].astype(str)
+    match_competition_map = dict(
+        zip(
+            _md_mids,
+            zip(meta_dedup["competition_id"].astype(str), meta_dedup["season_id"].astype(str), strict=True),
+            strict=True,
+        )
+    )
+    source_map = dict(zip(_md_mids, meta_dedup["data_source"].astype(str), strict=True))
 
     logger.info("Inferred %d behavioral vectors via applyInPandas", len(behavioral_vectors))
 

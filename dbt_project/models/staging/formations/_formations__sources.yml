@@ -37,5 +37,7 @@ sources:
             description: "Detected formation (e.g., 4-4-2, 4-3-3)"
           - name: cost
             description: Hungarian matching cost — lower = better template fit
+          - name: detector
+            description: "Detection algorithm identifier (efpi or shape_graph)"
           - name: _ingested_at
             description: UTC timestamp when the row was written to bronze

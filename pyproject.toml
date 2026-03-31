@@ -98,6 +98,7 @@ compute_elastic_sync = "ingestion.elastic_sync:main"
 compute_pausa = "ingestion.pausa:main"
 run_model_validation = "ingestion.model_validation:main"
 sync_hf_costs = "ingestion.sync_hf_costs:main"
+export_embeddings_training_data = "ingestion.export_embeddings_training_data:main"
 validate_workflow_cards = "workflows.loader:validate_cli"
 
 [tool.ruff]

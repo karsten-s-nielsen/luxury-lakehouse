@@ -35,6 +35,7 @@ cleaned as (
         cast(window_end_s as double)       as window_end_s,
         cast(formation_label as string)    as formation_label,
         cast(cost as double)               as cost,
+        coalesce(cast(detector as string), 'efpi') as detector,
         cast(_ingested_at as timestamp)    as _ingested_at
 
     from deduplicated

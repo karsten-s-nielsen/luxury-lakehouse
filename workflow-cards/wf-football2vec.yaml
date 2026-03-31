@@ -2,7 +2,7 @@
 name: Football2Vec Player Embeddings
 id: wf-football2vec
 version: "1.0"
-status: production
+status: deprecated
 type: training-and-inference
 domain: player-embeddings
 owners:
@@ -82,6 +82,8 @@ links:
 ---
 
 ## Overview
+
+**Superseded by wf-football2vec-v2.** This card documents the original Doc2Vec model.
 
 Football2Vec generates dense vector embeddings for players by treating each player's
 match-level action sequences as documents. The Doc2Vec model learns representations that

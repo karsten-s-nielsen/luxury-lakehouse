@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [ARCHITECTURE.md](ARCHITECTURE.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
 
-**Last updated**: 2026-03-30
+**Last updated**: 2026-03-31
 
 ---
 
@@ -19,67 +19,14 @@ Tasks warming up in the on-deck circle.
 | # | Task | Size | Source | Notes |
 |---|------|------|--------|-------|
 | D35 | AI/ML Workflows — Detail Drilldown & Card Validation | Wicked | [2026-03-23-taipy-workflows-page.md](docs/superpowers/plans/2026-03-23-taipy-workflows-page.md) | Enable the 8-section detail drilldown panel (designed but disabled — UX design not settled). Sections: overview, data flow, execution config, monitoring, cost breakdown, academic provenance, dependencies, changelog. Requires design decisions on navigation (slide-in panel vs sub-page vs modal) and information density. Also: validate all 16 workflow card YAML files against reality — the drilldown makes card data visible for the first time, so expect corrections to estimates, dependencies, and monitoring thresholds |
-| D18 | Football2vec v2 — Transformer Embeddings | Wicked | [ROADMAP.md](ROADMAP.md) | Replace Doc2Vec (gensim, CPU) with a small transformer on tokenized match sequences. Train on HF Jobs GPU (A10G). 87K player-match documents in Delta. Better player representations for similarity search. Publish to HF Hub. D28 (position-group z-scoring) and D29 (SPADL vocabulary) landed in Cycle 1 |
-| D30 | Adversarial Team Debiasing (Gradient Reversal) | Wicked | [adversarial-training.md](docs/research/adversarial-training.md) | Add team adversary head with gradient reversal layer (Ganin et al. 2016 DANN, lambda=0.2) to D18's transformer model. Produces team-agnostic player embeddings — answers "who plays like X regardless of system" instead of "who plays in a similar system." Hard negative mining: same position_group, same team_id. Cross-source entity resolution (11,918 players in both StatsBomb + Wyscout) provides natural validation. Train on HF Jobs GPU. Publish debiased embeddings to HF Hub alongside current ones (dual-track). Follows D18 |
 | D31 | 360-Enriched Situational Context for Embeddings | Wicked | [adversarial-training.md](docs/research/adversarial-training.md) | Extend `set_encoder.py` Deep Sets architecture to produce a 16-32d situational context vector from 360 freeze frames (15.58M rows, 323 matches). Concatenate with action token embedding before transformer encoding. Encodes spatial relationships (pressing intensity, passing lanes, defensive shape) around each event. Constraint: 360 frames are anonymous (no player_id), so encodes spatial structure, not player-specific graphs. Follows D30 |
 | D32 | ScoutGPT-Style Sequence Model — Training & Evaluation | Wicked | [adversarial-training.md](docs/research/adversarial-training.md), [arXiv:2512.17266](https://arxiv.org/abs/2512.17266) | Player-conditioned GPT transformer over ~9.5M SPADL action sequences (Hong et al. 2025). Architecture: transformer decoder with player ID embedding table (11,918 players), 23-type action embeddings, spatial encodings (x/y), autoregressive next-action prediction. Player ID as conditioning token enables counterfactual substitution (swap ID → "what would Messi do here?"). VAEP as reward signal. Train on HF Jobs GPU (A10G, comparable to ScoutGPT's 5 PL seasons). Evaluate: next-action accuracy, counterfactual ranking correlation, cross-source validation. Publish weights + config to HF Hub. Pre-req: D29 (SPADL vocab). Benefits from D18 (transformer experience) and D30 (adversarial objective can be integrated) |
 | D33 | ScoutGPT Integration — Embeddings, pgvector & Taipy | Wicked | [adversarial-training.md](docs/research/adversarial-training.md) | Extract player embeddings from trained D32 model. Write to Delta via new `fct_player_embeddings_sequence` mart (or extend existing). Synced table + pgvector HNSW index. Add model selector to Player Similarity Taipy page ("Football2vec" vs "ScoutGPT"). Counterfactual substitution UI: "what would Player X do in Team Y's possessions?" Side-by-side comparison dashboard between old and new embeddings. Follows D32 |
-| D36 | Shape Graph Algorithm — Core Implementation | Wicked | [Sotudeh (2026), ETH Zurich DISS. 31732](https://doi.org/10.1038/s44260-025-00047-x) | Implement Sotudeh's shape graph algorithm as a second formation detection method alongside EFPI. Delaunay triangulation → angular stability → iterative edge removal → shape graph. Position inference via 5×5 level decomposition (25 tactical labels). Pure geometry — no ML training, no templates needed. Uses `scipy.spatial.Delaunay` + numpy. See detailed write-up below. D26 (GK metadata) shipped — full 20-match coverage available |
-| D37 | Position Maps — 5×5 Time-in-Position Matrix | Dunkin' | [Sotudeh (2026), ETH Zurich DISS. 31732](https://doi.org/10.1038/s44260-025-00047-x) | Compute per-player position maps from D36's frame-level position assignments. New mart table `fct_position_maps` (player_id, match_id, position_label, pct_time, phase). Three phase variants: all, in-possession, out-of-possession. Compact tactical player profile — complements spatial heatmaps with positional distributions. **Dependency:** D36 |
 | D7 | Observability Layer (OTel) | Monstah | [ROADMAP.md](ROADMAP.md) | Research complete, ready for implementation. Instrument once, observe anywhere. ~$1-2/month personal tier |
 | U3 | Global player search — search by name across all pages | Monstah | CHI-AUDIT-180-rev-1 #1 | New search component with 11,918-player index + cross-page routing + session state. Needs design decisions |
 | U4 | Uncertainty/confidence bounds on model outputs | Monstah | CHI-AUDIT-180-rev-1 #4 | xG v2 now outputs MC dropout 95% CI (`xg_ci_lower`, `xg_ci_upper`). VAEP/pitch control still lack native uncertainty. Partial — xG done, others remain |
 | M1 | Rotate Databricks PAT for HF Spaces | Dunkin' | HF-MIGRATION | PAT created 2026-03-16 with 90-day lifetime. **Expires ~2026-06-14.** Generate new PAT in Databricks workspace Settings → Developer → Access tokens, then update `DATABRICKS_TOKEN` secret at huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app/settings |
 | M2 | Migrate HF Space auth from PAT to OAuth M2M | Wicked | SEC-AUDIT-200 #2 | Two SPs created with OAuth secrets: `luxury-lakehouse-hf-app-dev` (`330f96b9-...`, orphaned PG role) and `luxury-lakehouse-hf-app-v2-dev` (`1a1dbf08-...`). UC grants in place. **Blocked:** Lakebase Autoscaling does not auto-provision PG roles for SPs authenticated via M2M OAuth — workspace API works but PG credential JWT is rejected at the PG auth layer. The existing working SP (`be66af99-...`) was internally provisioned by Lakebase during synced table creation. Need Databricks support ticket to clarify how to provision SP PG access for Lakebase Autoscaling endpoints |
-
-### Shape Graph Algorithm — Core Implementation (D36)
-
-**Status:** Ready for implementation — algorithm fully specified with pseudocode
-**Scope:** Wicked (2-3 sessions) — new analytics module + position inference + tests + benchmarks + workflow card
-**Branch:** Separate feature branch from main
-**Source:** Sotudeh, H. (2026). *Identification of Team Tactical Formations and Player Positions in Association Football.* PhD thesis, ETH Zurich (DISS. ETH NO. 31732). Published papers: [survey (Frontiers, DOI: 10.3389/fspor.2024.1512386)](https://doi.org/10.3389/fspor.2024.1512386), [shape graphs (npj Complexity, DOI: 10.1038/s44260-025-00047-x)](https://doi.org/10.1038/s44260-025-00047-x).
-
-**What it is:** A bottom-up geometric formation detection method that complements the top-down template-matching approach in EFPI (D20). Instead of matching player positions against predefined templates, shape graphs build a stable subgraph of the Delaunay triangulation and infer positions from the graph's geometric structure. No formation library needed — positions emerge from geometry.
-
-**Algorithm (thesis Algorithm 1, p.26):**
-1. Compute Delaunay triangulation of outfield player (x, y) positions
-2. Calculate angular stability for each edge (angle between circumcenters of incident triangles)
-3. Find the least stable edge; if stability < 45°, remove it and merge the two incident faces
-4. Recompute stabilities on the merged face edges
-5. Repeat until all remaining edges have stability ≥ 45°
-6. Result: the **shape graph** — a sparse, stable subgraph that filters Delaunay flicker noise
-
-**Position inference (thesis Chapter 4):**
-1. Decompose shape graph into vertical levels (B/DM/M/AM/F) using internal face centers
-2. Decompose into horizontal levels (L/LC/C/RC/R) using face centers
-3. Map each player's (vertical, horizontal) pair to one of 25 tactical positions via 5×5 matrix
-
-**Key properties vs EFPI:**
-
-| Dimension | EFPI (current) | Shape Graphs (D36) |
-|-----------|---------------|-------------------|
-| Approach | Top-down template matching | Bottom-up geometric |
-| Templates | 68 from mplsoccer | None needed |
-| Normalization | Elastic scaling to bbox | None — scale-invariant |
-| Novel formations | Cannot discover | Can discover |
-| Position labels | Template slot mapping | 5×5 level decomposition |
-
-**Implementation plan:**
-1. New module `src/analytics/shape_graph.py` — shape graph construction (Algorithm 1) + position inference (level decomposition)
-2. Unit tests with known formation arrangements — thesis Figure 4.7 provides boundary cases (straight lines, trees, stars, circles, diamonds)
-3. `pytest-benchmark` test — O(n²) worst case for n=10, expect sub-millisecond per frame
-4. Workflow card `workflow-cards/wf-shape-graphs.yaml` with Sotudeh citations
-5. Integration point: `src/ingestion/formations.py` runs both EFPI and shape graphs, stores results in parallel columns or a separate table
-
-**Files affected:**
-- `src/analytics/shape_graph.py` (new)
-- `src/tests/test_shape_graph.py` (new)
-- `workflow-cards/wf-shape-graphs.yaml` (new)
-- `src/ingestion/formations.py` — add shape graph detection alongside EFPI
-
-**Dependencies:** None — D26 (GK metadata) shipped in Cycle 1, full 20-match tracking coverage available.
-**Unlocks:** D37 (position maps), future Taipy visualizations (position plots, dual-detector comparison — see [ROADMAP.md](ROADMAP.md))
-**Data sources validated by thesis:** Metrica Sports open data + IDSSE (Bundesliga) — both already ingested in this project
 
 ---
 
@@ -162,6 +109,8 @@ Items from the Pipeline Optimization & Scaling (EIP) roadmap section that were e
 | E3 | Dead Letter Channel | Failed record quarantine to `bronze.dead_letters` table. Current retry logic handles transient errors; no persistent failure pattern observed. | When ingestion sources become unreliable or data volume exceeds manual inspection. |
 | E4 | `dbt clone` for staging | Zero-copy table references for pre-production validation. Requires Lakebase branching. | When staging environment (ROADMAP.md) is implemented. |
 | E6 | Delta retention policy | Explicit `delta.deletedFileRetentionDuration` (30d gold, 7d bronze) ahead of DBR 18.0. | Before DBR 18.0 upgrade where `RETAIN X HOURS` in manual VACUUM is ignored. |
+| E7 | `fct_player_embeddings_career/season` incremental | Both models use `materialized='table'` (full rebuild). Acceptable: ~8,950 rows each, simple `AVG()` over ~87K source rows (~3 seconds), guarded by `enabled=var('embeddings_enabled', false)` so they only run on explicit request. Incremental alternative (track which players have new matches, recompute per-player means, merge) adds state-tracking complexity that exceeds the full-rebuild cost at this scale. Break-even: source table >500K rows or rebuild >30 seconds. Evaluated 2026-03-31 (OPT-AUDIT). | When `fct_player_embeddings` exceeds 500K rows or rebuild time exceeds 30 seconds. |
+| U5 | Cross-page contextual links in Taipy | No contextual "see also" links between related pages (e.g., Player Impact → Player Comparison, Defensive Impact → Player Impact). The template architecture supports `ContentBlock("text", ...)` for inline links, but which pages to connect and where to place links requires UX design decisions. CHI-AUDIT C-10 identified this as a navigation design opportunity. Evaluated 2026-03-31. | When the next Taipy UI cycle adds new pages or the shape graph visualization pages are built (ROADMAP.md). |
 
 ---
 
@@ -172,8 +121,7 @@ See [ROADMAP.md](ROADMAP.md) for research directions, long-horizon features, and
 - **Observability Layer (OpenTelemetry)** — instrument once, observe anywhere; ~$1-2/month personal tier
 - **Deep Learning Infrastructure** — hybrid GPU training, pre-trained soccer models, DeepMind-inspired optimization
 - **Provider Abstraction** — configurable multi-tier ingestion; free/open tiers default, commercial activates via credentials
-- **Team Shape Analysis** — Stage 2 blocked on SkillCorner DoD
-- **Shape Graph Visualizations & Tactical Applications** — position plots, dual-detector UX, scouting via position maps (needs D36/D37 first)
+- **Shape Graph Visualizations & Tactical Applications** — position plots, dual-detector UX, scouting via position maps (D36/D37 shipped in Cycle 2)
 - **Goalkeeper Analytics** — four-pillar GK evaluation taxonomy, key references, embedding gap (D38/D39 are the implementation items)
 - **Visual Exploratory Behavior** — partially unblocked: 6 Veo3 recordings + local RTMO pose estimation feasible (BSD 3-Clause)
 - **Staging Environment** — Lakebase branching for pre-production validation

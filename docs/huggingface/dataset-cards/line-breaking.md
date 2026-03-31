@@ -113,7 +113,7 @@ There is no formal paper for this dataset. If you use it, please cite the reposi
 ```bibtex
 @misc{luxury_lakehouse_line_breaking,
   title={Line-Breaking Passes: A Soccer Pass Dataset with Defensive Line Labels},
-  author={Nielsen, Karsten Skyt},
+  author={Nielsen, Karsten Skytt},
   year={2026},
   url={https://github.com/karsten-s-nielsen/luxury-lakehouse},
   note={Data sourced from StatsBomb Open Data (CC-BY 4.0) and Wyscout Public Dataset (CC-BY-NC 4.0)}
