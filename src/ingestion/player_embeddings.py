@@ -581,7 +581,7 @@ def _import_v2_embeddings(
         )
         if needs_data_source:
             ds_map = dict(zip(meta_pdf["match_id"].astype(str), meta_pdf["data_source"].astype(str), strict=True))
-            v2_pdf["data_source"] = v2_pdf["match_id"].map(ds_map).fillna("unknown")
+            v2_pdf["data_source"] = v2_pdf["match_id"].map(lambda mid: ds_map.get(mid, "unknown"))
             logger.info("Derived data_source for %d matches from fct_action_values", len(ds_map))
     except Exception:
         logger.warning("Could not load match metadata — stat vectors will be None")
