@@ -44,10 +44,10 @@ Measured from job run 311181772997773 (2026-03-25). All pipelines run with skip 
 | compute_xg_model | 128s | ✅ | XGBoost training + scoring |
 | resolve_players | 135s | ✅ | TF-IDF + rapidfuzz, ~12K players |
 | run_model_validation | 77s | ✅ | PSI, Wasserstein, KS across 10 models |
-| compute_formations_efpi | TBD | ⚠️ | EFPI template matching. Split from compute_formations (341s combined). Re-measure needed. |
-| compute_formations_shape_graph | TBD | ⚠️ | Shape graph detection. Reads temp table from EFPI. Re-measure needed. |
+| compute_formations_efpi | 294s | ✅ | EFPI template matching. Writes temp Delta table for shape graph. |
+| compute_formations_shape_graph | 193s | ✅ | Shape graph detection. Reads temp table from EFPI, drops it after. |
 | compute_line_breaking | N/A | ✅ | Line-breaking pass detection |
 | export_embeddings_training_data | 143s | ✅ | SPADL sequence export → UC Volume → HF Hub (Cycle 2) |
-| compute_embeddings_v2 | TBD | ⚠️ | v2 HF Hub import. Split from compute_embeddings (142s combined). Re-measure needed. |
-| compute_embeddings_v1 | TBD | ⚠️ | v1 Doc2Vec inference (deprecated). Re-measure needed. |
-| **Full workflow** | **~560s** | ⚠️ | 24 tasks (split formations + embeddings). Timing from pre-split run 1036972020842388. Re-measure needed. |
+| compute_embeddings_v2 | 216s | ✅ | v2 HF Hub import (128-d transformer embeddings). |
+| compute_embeddings_v1 | 106s | ✅ | v1 Doc2Vec inference (deprecated baseline). |
+| **Full workflow** | **~580s** | ✅ | 24 tasks with discrete tracking (job run 118001139731484). |
