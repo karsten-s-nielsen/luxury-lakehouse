@@ -25,6 +25,11 @@ to distribute formation detection across Spark executors.  Each group is one
 team in one half (~7K rows), keeping executor memory well under the 1 GB
 serverless limit.
 
+Entry points:
+  ``main()`` — runs both detectors sequentially (backward compat / local dev).
+  ``main_efpi()`` — runs EFPI detector only (discrete Databricks task).
+  ``main_shape_graph()`` — runs shape graph detector only (discrete Databricks task).
+
 References:
   Shaw, L. & Glickman, M. (2019). "Dynamic analysis of team strategy
   in professional football."
@@ -49,11 +54,13 @@ from ingestion.utils import (
 from workflows import workflow
 
 if TYPE_CHECKING:
+    from pyspark.sql import DataFrame as SparkDataFrame
     from pyspark.sql import SparkSession
 
 _TABLE_NAME = "formation_labels"
 _POSITIONS_TABLE_NAME = "player_positions"
 _GOLD_SCHEMA = "dev_gold"
+_TEMP_TABLE_SUFFIX = "__temp_formations_tracking"
 
 _RESULT_COLUMNS = [
     "match_id",
@@ -77,7 +84,7 @@ _POSITION_COLUMNS = [
     "detector",
 ]
 
-# Vertical level ordering for formation label derivation (back → front).
+# Vertical level ordering for formation label derivation (back -> front).
 # Levels with zero players are skipped.
 _VERTICAL_LEVEL_ORDER: tuple[str, ...] = ("B", "DM", "M", "AM", "F")
 
@@ -190,8 +197,8 @@ def _derive_formation_label(vertical_levels: list[str]) -> str:
     """Derive a formation label string from vertical level assignments.
 
     Counts players per vertical level, orders by the standard back-to-front
-    sequence (B → DM → M → AM → F), skips levels with zero players, and
-    joins with hyphens.  E.g. {B:4, M:4, F:2} → ``"4-4-2"``.
+    sequence (B -> DM -> M -> AM -> F), skips levels with zero players, and
+    joins with hyphens.  E.g. {B:4, M:4, F:2} -> ``"4-4-2"``.
     """
     from collections import Counter
 
@@ -364,31 +371,25 @@ def _make_shape_graph_udf(
 
 
 # ---------------------------------------------------------------------------
-# Pipeline processing
+# Shared data preparation
 # ---------------------------------------------------------------------------
 
 
-def _process_matches(
+def _prepare_tracking_data(
     spark: SparkSession,
     catalog: str,
     schema: str,
     logger: logging.Logger,
-) -> int:
-    """Process all new matches from fct_tracking_frames via applyInPandas.
+) -> tuple[SparkDataFrame, list[str], str] | None:
+    """Query gold tracking data, apply skip guard, materialize to temp Delta table.
 
-    Runs both the EFPI and shape graph detectors on every new match.  EFPI
-    results and shape graph formation results are written to ``formation_labels``
-    (distinguished by the ``detector`` column).  Shape graph position results
-    are written to ``player_positions``.
+    Returns ``(tracking_df, new_ids_str, temp_table)`` if there are matches to
+    process, or ``None`` if everything is already processed.
 
-    Returns total number of rows written across both tables.
+    The temp table is written to ``{catalog}.{schema}.__temp_formations_tracking``
+    so both detector passes can read from it without re-scanning the full
+    38M-row gold source.
     """
-    from analytics.formation_detection import (
-        FormationParams,
-        build_formation_templates,
-        templates_to_serializable,
-    )
-
     gold_table = f"{catalog}.{_GOLD_SCHEMA}.fct_tracking_frames"
     results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
 
@@ -397,11 +398,11 @@ def _process_matches(
         match_id_rows = spark.table(gold_table).select("match_id").distinct().collect()
     except Exception:
         logger.warning("Cannot read table %s", gold_table)
-        return 0
+        return None
 
     if not match_id_rows:
         logger.info("No matches in %s", gold_table)
-        return 0
+        return None
 
     all_match_ids = [row["match_id"] for row in match_id_rows]
 
@@ -433,34 +434,18 @@ def _process_matches(
     )
 
     if not new_match_ids:
-        return 0
+        return None
 
     # --- pyspark imports deferred past early-exit guards ---
     from pyspark.sql import functions as F  # noqa: N812
-    from pyspark.sql.types import (
-        DoubleType,
-        IntegerType,
-        LongType,
-        StringType,
-        StructField,
-        StructType,
-    )
 
-    params = FormationParams()
-
-    # --- Build templates on the DRIVER (imports mplsoccer here, not on executors) ---
-    driver_templates = build_formation_templates()
-    serialized_templates = templates_to_serializable(driver_templates)
-    logger.info("Formation templates serialized for UDF closure (%d player counts)", len(serialized_templates))
-
-    # Build filter predicate for all new matches at once
     new_ids_str = [str(mid) for mid in new_match_ids]
 
     # Materialize filtered tracking data to a temp table so both detector
     # passes read from it without re-scanning the full 38M-row source.
     # (OPT-AUDIT: .cache() is forbidden on serverless; temp Delta table
     # is the CLAUDE.md-sanctioned alternative for re-read avoidance.)
-    temp_table = f"{catalog}.{schema}.__temp_formations_tracking"
+    temp_table = f"{catalog}.{schema}.{_TEMP_TABLE_SUFFIX}"
     (
         spark.table(gold_table)
         .filter(F.col("match_id").isin(new_ids_str))
@@ -482,9 +467,55 @@ def _process_matches(
     tracking_df = spark.table(temp_table)
     logger.info("Materialized filtered tracking data to %s", temp_table)
 
-    total_written = 0
+    return tracking_df, new_ids_str, temp_table
 
-    # ── Pass 1: EFPI detector ──────────────────────────────────────────────
+
+# ---------------------------------------------------------------------------
+# EFPI detector
+# ---------------------------------------------------------------------------
+
+
+def _run_efpi(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    logger: logging.Logger,
+) -> int:
+    """Run the EFPI formation detector on all new matches.
+
+    Calls ``_prepare_tracking_data()`` to materialise filtered tracking data.
+    Writes EFPI formation labels to ``formation_labels``.  Does NOT drop the
+    temp table (shape graph may still need it).
+
+    Returns the number of rows written.
+    """
+    from pyspark.sql.types import (
+        DoubleType,
+        IntegerType,
+        StringType,
+        StructField,
+        StructType,
+    )
+
+    from analytics.formation_detection import (
+        FormationParams,
+        build_formation_templates,
+        templates_to_serializable,
+    )
+
+    prepared = _prepare_tracking_data(spark, catalog, schema, logger)
+    if prepared is None:
+        return 0
+
+    tracking_df, new_ids_str, _temp_table = prepared
+
+    params = FormationParams()
+
+    # --- Build templates on the DRIVER (imports mplsoccer here, not on executors) ---
+    driver_templates = build_formation_templates()
+    serialized_templates = templates_to_serializable(driver_templates)
+    logger.info("Formation templates serialized for UDF closure (%d player counts)", len(serialized_templates))
+
     efpi_udf_fn = _make_formation_udf(
         window_seconds=params.window_seconds,
         min_outfield_players=params.min_outfield_players,
@@ -509,7 +540,77 @@ def _process_matches(
         schema=efpi_schema,
     )
 
-    # ── Pass 2: Shape graph detector ───────────────────────────────────────
+    ids_sql = ", ".join(f"'{mid}'" for mid in new_ids_str)
+    written = write_delta_table(
+        efpi_df,
+        catalog,
+        schema,
+        _TABLE_NAME,
+        replace_where=f"match_id IN ({ids_sql})",
+        logger=logger,
+    )
+    logger.info("EFPI formation labels written: %d rows", written)
+    return written
+
+
+# ---------------------------------------------------------------------------
+# Shape graph detector
+# ---------------------------------------------------------------------------
+
+
+def _run_shape_graph(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    logger: logging.Logger,
+) -> int:
+    """Run the shape graph formation detector on all new matches.
+
+    First attempts to read from the temp Delta table written by
+    ``_prepare_tracking_data()``.  If the temp table does not exist (standalone
+    run without prior EFPI), calls ``_prepare_tracking_data()`` as a fallback.
+
+    Writes shape graph formation labels to ``formation_labels`` and player
+    positions to ``player_positions``.  Drops the temp table on completion.
+
+    Returns the total number of rows written across both tables.
+    """
+    from pyspark.sql import functions as F  # noqa: N812
+    from pyspark.sql.types import (
+        DoubleType,
+        IntegerType,
+        LongType,
+        StringType,
+        StructField,
+        StructType,
+    )
+
+    temp_table = f"{catalog}.{schema}.{_TEMP_TABLE_SUFFIX}"
+
+    # Try to read from the temp table (written by a preceding EFPI run).
+    tracking_df: SparkDataFrame | None = None
+    new_ids_str: list[str] | None = None
+    try:
+        tracking_df = spark.table(temp_table)
+        # Extract match IDs from the temp table
+        new_ids_str = [str(row["match_id"]) for row in tracking_df.select("match_id").distinct().collect()]
+        if not new_ids_str:
+            tracking_df = None
+        else:
+            logger.info("Read %d match IDs from existing temp table %s", len(new_ids_str), temp_table)
+    except Exception:
+        logger.info("Temp table %s not found -- preparing tracking data from scratch", temp_table)
+
+    # Fallback: prepare from gold table if temp table is unavailable.
+    if tracking_df is None or new_ids_str is None:
+        prepared = _prepare_tracking_data(spark, catalog, schema, logger)
+        if prepared is None:
+            return 0
+        tracking_df, new_ids_str, temp_table = prepared
+
+    from analytics.formation_detection import FormationParams
+
+    params = FormationParams()
     sg_udf_fn = _make_shape_graph_udf(window_seconds=params.window_seconds)
 
     # Combined output schema (union of formation + position columns + _row_type).
@@ -553,12 +654,12 @@ def _process_matches(
         "detector",
     )
 
-    # ── Write formation_labels (both detectors) ───────────────────────────
-    combined_formations = efpi_df.unionByName(sg_formation_df)
-
+    total_written = 0
     ids_sql = ", ".join(f"'{mid}'" for mid in new_ids_str)
+
+    # Write formation_labels (shape graph only)
     written_formations = write_delta_table(
-        combined_formations,
+        sg_formation_df,
         catalog,
         schema,
         _TABLE_NAME,
@@ -566,9 +667,9 @@ def _process_matches(
         logger=logger,
     )
     total_written += written_formations
-    logger.info("Formation labels written: %d rows (EFPI + shape graph)", written_formations)
+    logger.info("Shape graph formation labels written: %d rows", written_formations)
 
-    # ── Write player_positions (shape graph only) ─────────────────────────
+    # Write player_positions (shape graph only)
     written_positions = write_delta_table(
         sg_position_df,
         catalog,
@@ -578,14 +679,14 @@ def _process_matches(
         logger=logger,
     )
     total_written += written_positions
-    logger.info("Player positions written: %d rows (shape graph)", written_positions)
+    logger.info("Shape graph player positions written: %d rows", written_positions)
 
     # Clean up temp table
     try:
         spark.sql(f"DROP TABLE IF EXISTS {temp_table}")
         logger.info("Dropped temp table %s", temp_table)
     except Exception:
-        logger.warning("Could not drop temp table %s — manual cleanup needed", temp_table)
+        logger.warning("Could not drop temp table %s -- manual cleanup needed", temp_table)
 
     return total_written
 
@@ -596,6 +697,33 @@ def _process_matches(
 
 
 @workflow("wf-formations", phase="heuristic")
+def run_pipeline_efpi(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    logger: logging.Logger,
+    *,
+    ctx: object = None,
+) -> None:
+    """Execute the EFPI formation detection pipeline."""
+    total = _run_efpi(spark, catalog, schema, logger)
+    logger.info("EFPI formation detection complete -- %d rows written", total)
+
+
+@workflow("wf-shape-graphs", phase="heuristic")
+def run_pipeline_shape_graph(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    logger: logging.Logger,
+    *,
+    ctx: object = None,
+) -> None:
+    """Execute the shape graph formation detection pipeline."""
+    total = _run_shape_graph(spark, catalog, schema, logger)
+    logger.info("Shape graph formation detection complete -- %d rows written", total)
+
+
 def run_pipeline(
     spark: SparkSession,
     catalog: str,
@@ -604,18 +732,29 @@ def run_pipeline(
     *,
     ctx: object = None,
 ) -> None:
-    """Execute the formation detection pipeline."""
-    total = _process_matches(spark, catalog, schema, logger)
-    logger.info("Formation detection pipeline complete -- %d total rows written", total)
+    """Execute both formation detection pipelines sequentially.
+
+    Convenience function for local development and backward compatibility.
+    Runs EFPI first (which creates the temp table), then shape graph (which
+    reads the temp table and drops it).
+    """
+    efpi_total = _run_efpi(spark, catalog, schema, logger)
+    sg_total = _run_shape_graph(spark, catalog, schema, logger)
+    logger.info(
+        "Formation detection pipeline complete -- %d total rows written (EFPI: %d, shape graph: %d)",
+        efpi_total + sg_total,
+        efpi_total,
+        sg_total,
+    )
 
 
 # ---------------------------------------------------------------------------
-# Entry point
+# Entry points
 # ---------------------------------------------------------------------------
 
 
 def main() -> None:
-    """CLI entry point for formation detection."""
+    """CLI entry point for formation detection (both detectors)."""
     args = parse_ingestion_args("Detect team formations from tracking data")
     logger = configure_logging("formations")
     spark = get_spark_session()
@@ -627,6 +766,36 @@ def main() -> None:
 
     logger.info("Starting formation detection pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger)
+
+
+def main_efpi() -> None:
+    """CLI entry point for EFPI formation detection only."""
+    args = parse_ingestion_args("Detect team formations via EFPI template matching")
+    logger = configure_logging("formations_efpi")
+    spark = get_spark_session()
+
+    from ingestion.cost_hook import CostEstimateHook
+    from workflows import register_hook
+
+    register_hook(CostEstimateHook(spark, args.catalog, args.schema))
+
+    logger.info("Starting EFPI formation detection pipeline into %s.%s", args.catalog, args.schema)
+    run_pipeline_efpi(spark, args.catalog, args.schema, logger)
+
+
+def main_shape_graph() -> None:
+    """CLI entry point for shape graph formation detection only."""
+    args = parse_ingestion_args("Detect team formations via shape graph method")
+    logger = configure_logging("formations_shape_graph")
+    spark = get_spark_session()
+
+    from ingestion.cost_hook import CostEstimateHook
+    from workflows import register_hook
+
+    register_hook(CostEstimateHook(spark, args.catalog, args.schema))
+
+    logger.info("Starting shape graph formation detection pipeline into %s.%s", args.catalog, args.schema)
+    run_pipeline_shape_graph(spark, args.catalog, args.schema, logger)
 
 
 if __name__ == "__main__":

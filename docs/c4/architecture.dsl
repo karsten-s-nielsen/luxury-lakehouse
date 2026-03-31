@@ -26,7 +26,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 18 AI/ML wor
             workflowCards = container "Workflow Cards" "18 YAML manifests defining inputs, outputs, deps, execution config, cost estimates, academic provenance" "YAML, workflow-cards/" "Database"
             costEstimateHook = container "CostEstimateHook" "Lifecycle hook writing run state + cost estimates to workflow_cost_live Delta table via MERGE. Configurable rate via DATABRICKS_SERVERLESS_RATE_USD env var" "Python, PySpark, Delta, src/ingestion/cost_hook.py"
             hfCostRecorder = container "HFJobsCostRecorder" "Standalone cost recorder for HF Jobs scripts. Writes _workflow_cost.json (live status) and _cost_history/{job_id}.json (per-run history) to HF Hub repos. 90-day auto-pruning" "Python, huggingface_hub, src/analytics/cost.py"
-            ingestionPipelines = container "Compute Pipelines" "13 @workflow-decorated Databricks pipelines: xG, VAEP, DEFCON, pitch control, xT, OBSO/PAUSA, entity resolution, line-breaking, formations (EFPI + shape graph), model validation, embeddings training data export" "Python, PySpark, src/ingestion/"
+            ingestionPipelines = container "Compute Pipelines" "15 @workflow-decorated Databricks pipelines: xG v1/v2, VAEP, DEFCON, pitch control, xT, OBSO/PAUSA, entity resolution, line-breaking, formations EFPI, shape graph, embeddings v1/v2, model validation, embeddings training data export" "Python, PySpark, src/ingestion/"
             analyticsLibrary = container "Analytics Library" "Pure-Python domain models: pitch control (Spearman 2017), xG (calibrated XGBoost), xT (Markov chain), VAEP (socceraction), OBSO (Fernandez & Bornn), line-breaking (Ward clustering, 3 paths), DEFCON (Kim et al. 2025), entity resolution (TF-IDF + rapidfuzz), shape graph (Sotudeh 2026, Delaunay + angular stability + 5x5 position inference), football2vec v2 (transformer encoder 128d + gradient reversal layer), coordinates (5-provider normalization)" "Python, NumPy, SciPy, PyTorch, src/analytics/"
         }
 
@@ -44,7 +44,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 18 AI/ML wor
 
         lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL-compatible endpoint syncing 28 Delta Lake tables from Unity Catalog (44 btree + 4 HNSW 128d vector indexes)" "External"
         databricksApi = softwareSystem "Databricks REST API" "OAuth credential endpoint for Lakebase authentication" "External"
-        databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 22 tasks (6 ingest + 14 compute + 1 validation + 1 HF cost sync), daily 06:00 UTC" "External"
+        databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 24 tasks (6 ingest + 16 compute + 1 validation + 1 HF cost sync), daily 06:00 UTC" "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds from Dockerfile, serves on port 7860" "External"
         hfHub = softwareSystem "HuggingFace Hub" "Hosts 5 models (incl. football2vec-v2), 13 datasets (incl. training data), build-artifacts wheel, and _workflow_cost.json cost artifacts" "External"
         hfJobs = softwareSystem "HuggingFace Jobs" "GPU/CPU compute: 8 PEP 723 UV scripts for training (xG, VAEP, Football2vec v2) and batch analytics (xT, EPV, OBSO, Space Creation)" "External"
@@ -80,7 +80,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 18 AI/ML wor
         ingestionPipelines -> analyticsLibrary "Imports domain logic (xG, xT, pitch control, OBSO)" ""
         ingestionPipelines -> bronzeSchema "Writes compute results to Delta tables" "PySpark/Delta"
         costEstimateHook -> observabilitySchema "MERGE run state + cost estimates to workflow_cost_live" "PySpark/Delta"
-        databricksWorkflows -> ingestionPipelines "Schedules and executes 22 pipeline tasks" "Databricks Jobs API"
+        databricksWorkflows -> ingestionPipelines "Schedules and executes 24 pipeline tasks" "Databricks Jobs API"
 
         # Relationships - HF Jobs
         hfJobs -> analyticsLibrary "Imports from wheel (luxury-lakehouse/build-artifacts)" "pip/HTTPS"

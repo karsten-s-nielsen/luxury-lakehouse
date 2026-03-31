@@ -18,9 +18,11 @@
 #   compute_elastic_sync — ELASTIC event-tracking alignment (depends on idsse_events)
 #   compute_pausa     — PAUSA pass timing pipeline (depends on elastic_sync + OBSO import)
 #   resolve_players   — Cross-source entity resolution (depends on statsbomb + wyscout)
-#   compute_embeddings — Player behavioral + statistical embeddings (depends on entity resolution)
+#   compute_embeddings_v2 — Transformer (128d) player embeddings with adversarial debiasing (depends on entity resolution)
+#   compute_embeddings_v1 — Doc2Vec (gensim) player embeddings, deprecated (depends on compute_embeddings_v2)
 #   export_embeddings_training_data — SPADL sequences for Football2vec v2 (depends on SPADL + entity resolution)
-#   compute_formations — Formation detection: EFPI + shape graph (depends on pitch control)
+#   compute_formations_efpi — EFPI template-matching formation detection (depends on pitch control)
+#   compute_formations_shape_graph — Shape graph geometric formation detection (depends on EFPI)
 #   run_model_validation — Model drift detection (depends on compute_pausa)
 #
 # Schedule: Daily at 06:00 UTC (before business hours in US/EU timezones)
@@ -304,12 +306,12 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
-  # ── Task: Detect team formations (EFPI + shape graph dual-detector) ──
+  # ── Task: Detect team formations via EFPI template matching ──────────
   # Reads fct_tracking_frames, runs EFPI template matching (Bekkers &
-  # Dabadghao 2025) and shape graph geometric detection (Sotudeh 2026).
-  # Writes formation_labels (both detectors) + player_positions (shape graph).
+  # Dabadghao 2025). Writes formation_labels (detector='efpi') and
+  # EFPI temp table consumed by shape graph detector.
   task {
-    task_key        = "compute_formations"
+    task_key        = "compute_formations_efpi"
     timeout_seconds = 3600
     max_retries     = 1
 
@@ -319,7 +321,33 @@ resource "databricks_job" "data_ingestion" {
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
-      entry_point  = "compute_formations"
+      entry_point  = "compute_formations_efpi"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+      ]
+    }
+
+    environment_key = "analytics"
+  }
+
+  # ── Task: Detect formations via shape graph geometric detector ──────
+  # Reads fct_tracking_frames, runs Sotudeh (2026) Delaunay-based shape
+  # graph detector. Writes formation_labels (detector='shape_graph'),
+  # player_positions, and position_maps.
+  task {
+    task_key        = "compute_formations_shape_graph"
+    timeout_seconds = 3600
+    max_retries     = 1
+
+    depends_on {
+      task_key = "compute_formations_efpi"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_formations_shape_graph"
 
       parameters = [
         "--catalog", var.catalog_name,
@@ -412,11 +440,11 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "analytics"
   }
 
-  # ── Task: Compute player embeddings ─────────────────────────────────────
-  # Generates behavioral (Doc2Vec action sequences) and statistical (z-score)
-  # player embedding vectors for similarity search via pgvector.
+  # ── Task: Compute player embeddings v2 (transformer + adversarial) ───
+  # Football2vec v2: imports pre-trained 128d transformer embeddings from
+  # HF Hub, writes to bronze.player_embeddings_raw with model_version='v2'.
   task {
-    task_key        = "compute_embeddings"
+    task_key        = "compute_embeddings_v2"
     timeout_seconds = 3600
     max_retries     = 1
 
@@ -426,7 +454,32 @@ resource "databricks_job" "data_ingestion" {
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
-      entry_point  = "compute_embeddings"
+      entry_point  = "compute_embeddings_v2"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+      ]
+    }
+
+    environment_key = "embeddings"
+  }
+
+  # ── Task: Compute player embeddings v1 (Doc2Vec, deprecated) ────────
+  # Football2vec v1: Doc2Vec action sequences + statistical z-score vectors.
+  # Retained for comparison; superseded by v2 transformer embeddings.
+  task {
+    task_key        = "compute_embeddings_v1"
+    timeout_seconds = 3600
+    max_retries     = 1
+
+    depends_on {
+      task_key = "compute_embeddings_v2"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_embeddings_v1"
 
       parameters = [
         "--catalog", var.catalog_name,
