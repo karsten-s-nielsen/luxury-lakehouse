@@ -591,12 +591,13 @@ def _run_shape_graph(
     tracking_df: SparkDataFrame | None = None
     new_ids_str: list[str] | None = None
     try:
-        tracking_df = spark.table(temp_table)
+        temp_df = spark.table(temp_table)
         # Extract match IDs from the temp table
-        new_ids_str = [str(row["match_id"]) for row in tracking_df.select("match_id").distinct().collect()]
+        new_ids_str = [str(row["match_id"]) for row in temp_df.select("match_id").distinct().collect()]
         if not new_ids_str:
-            tracking_df = None
+            pass  # fall through to _prepare_tracking_data below
         else:
+            tracking_df = temp_df
             logger.info("Read %d match IDs from existing temp table %s", len(new_ids_str), temp_table)
     except Exception:
         logger.info("Temp table %s not found -- preparing tracking data from scratch", temp_table)
@@ -607,6 +608,12 @@ def _run_shape_graph(
         if prepared is None:
             return 0
         tracking_df, new_ids_str, temp_table = prepared
+
+    # At this point tracking_df and new_ids_str are guaranteed non-None
+    # (either from temp table or from _prepare_tracking_data fallback).
+    if tracking_df is None or new_ids_str is None:  # pragma: no cover — defensive guard
+        logger.error("tracking_df or new_ids_str unexpectedly None after preparation")
+        return 0
 
     from analytics.formation_detection import FormationParams
 
