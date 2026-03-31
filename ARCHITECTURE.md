@@ -1,7 +1,7 @@
 # Databricks Lakebase Architecture — Soccer Analytics Platform
 
-> **Status**: Phase 20 complete (Taipy migration) + Team Shape + pre-aggregated tracking tables — 14 Taipy pages, 26 synced tables, 45 PG indexes (41 btree + 4 HNSW). Hugging Face Hub: 4 models + 11 datasets published, GPU training on HF Jobs A10G.
-> **Last Updated**: 2026-03-26
+> **Status**: Cycle 2 complete (Shape Graphs + Transformer Embeddings) — 14 Taipy pages, 28 synced tables, 48 PG indexes (44 btree + 4 HNSW at 128d). Hugging Face Hub: 5 models + 13 datasets published, GPU training on HF Jobs A10G. Football2vec v2 (128-dim transformer, adversarial team debiasing). Shape graph formation detection (Sotudeh 2026) + 5x5 position maps.
+> **Last Updated**: 2026-03-31
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready
 
@@ -63,6 +63,8 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • defcon_lite → DEFCON-lite defensive credit assignment         │    │
 │  │  • resolve_players → cross-source entity resolution              │    │
 │  │  • compute_embeddings → Doc2Vec + z-score player embeddings      │    │
+│  │  • export_embeddings_training_data → Transformer training data   │    │
+│  │  • compute_formations → Formation detection (EFPI + shape graph) │    │
 │  │  • compute_xg_model → xG v1 scoring (logistic + XGBoost)         │    │
 │  │  • compute_xg_model_v2 → xG v2 scoring (Deep Sets + MC dropout) │    │
 │  │  • compute_expected_threat → Data-driven xT grid from SPADL      │    │
@@ -183,6 +185,9 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 | `dev_gold.fct_formation_labels` | `fct_formation_labels_synced` | `formation_label_id` | ~2,000 |
 | `dev_gold.fct_tracking_avg_positions` | `fct_tracking_avg_positions_synced` | `avg_position_id` | ~4,000 |
 | `dev_gold.fct_tracking_shape_timeline` | `fct_tracking_shape_timeline_synced` | `shape_timeline_id` | ~50,000 |
+| `dev_gold.fct_player_positions` | `fct_player_positions_synced` | `position_id` | ~8,500 |
+| `dev_gold.fct_position_maps` | `fct_position_maps_synced` | `position_map_id` | ~600 |
+| `dev_gold.fct_line_breaking_results` | `fct_line_breaking_results_synced` | `line_breaking_id` | ~5,000,000 |
 
 **Implementation notes:**
 
@@ -190,7 +195,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 - `logical_database_name = "databricks_postgres"` — standard Lakebase database
 - **Autoscaling workaround (provider v1.110.0):** `databricks_database_synced_database_table` only supports `database_instance_name` (Provisioned). Synced tables targeting Autoscaling projects must be created via Databricks UI, then imported into Terraform. `lifecycle { ignore_changes = all }` prevents drift. This applies to any new synced table.
 - **Schema changes:** Must delete synced table, drop ghost PG table, recreate via API, re-import into Terraform.
-- **PG indexes:** 41 btree indexes across 17 tables + 4 HNSW vector indexes on embedding tables = 45 total. Dropped on synced table recreation — re-run `scripts/create_indexes.py` alongside `scripts/lakebase_grants.sql`. Script now runs `ANALYZE` on all indexed tables to ensure the query planner uses indexes.
+- **PG indexes:** 44 btree indexes across 20 tables + 4 HNSW vector indexes on embedding tables (128-dim) = 45 total. Dropped on synced table recreation — re-run `scripts/create_indexes.py` alongside `scripts/lakebase_grants.sql`. Script now runs `ANALYZE` on all indexed tables to ensure the query planner uses indexes.
 - **SNAPSHOT refresh:** Synced tables with `scheduling_policy = "SNAPSHOT"` do not auto-refresh. Run `scripts/refresh_synced_tables.py` after upstream dbt rebuilds. Supports `--wait` (poll until IDLE) and `--tables` (comma-separated subset). The Terraform provider has no schedule/cron field — this is the operational workaround.
 - **Credential API:** REST endpoint is `/api/2.0/postgres/credentials` (NOT `/api/2.0/database/credentials`).
 
@@ -382,7 +387,7 @@ luxury-lakehouse/
 │   │   ├── lakebase/                 # Lakebase Autoscaling (PG 17)
 │   │   ├── sql_warehouse/            # Serverless SQL Warehouse
 │   │   ├── workflows/                # Ingestion job definitions
-│   │   ├── synced_tables/            # Gold → Lakebase sync (26 synced tables)
+│   │   ├── synced_tables/            # Gold → Lakebase sync (28 synced tables)
 │   │   ├── app/                      # (removed — Streamlit migrated to HF Spaces)
 │   │   ├── service_principals/       # Ingestion SP, App SP, CI SP + federation
 │   │   ├── github_oidc/              # AWS IAM OIDC provider + scoped role
@@ -403,6 +408,9 @@ luxury-lakehouse/
 │   │   ├── model_validation.py      # Model drift detection: PSI, Wasserstein, CUSUM, KS (pure scipy)
 │   │   ├── entity_resolution.py     # Three-layer progressive player matching (TF-IDF + rapidfuzz)
 │   │   ├── football2vec.py          # Doc2Vec behavioral embeddings (tokenizer, training, inference)
+│   │   ├── football2vec_transformer.py # Transformer encoder for 128-dim embeddings (adversarial team debiasing, Ganin GRL)
+│   │   ├── coordinates.py           # Coordinate normalization utilities (provider-specific → unified 105×68m)
+│   │   ├── shape_graph.py           # Shape graph formation detection (Sotudeh 2026, Delaunay triangulation)
 │   │   ├── xg_model.py             # Custom xG: logistic baseline + calibrated XGBoost (JSON serialization, no pickle)
 │   │   ├── symmetry.py             # TacticAI symmetry augmentation (H-flip, V-flip, team swap → 8× data)
 │   │   └── smoothing.py             # Savitzky-Golay position smoothing for tracking data
@@ -421,6 +429,8 @@ luxury-lakehouse/
 │   │   ├── defcon_lite.py            # DEFCON-lite batch computation (gold+bronze → bronze)
 │   │   ├── entity_resolution.py     # Cross-source player entity resolution (StatsBomb × Wyscout → bronze)
 │   │   ├── player_embeddings.py     # Player embedding inference + stat vector computation
+│   │   ├── export_embeddings_training_data.py # Export training data for football2vec v2 transformer
+│   │   ├── formations.py            # Formation detection pipeline (EFPI + shape graph dual-detector)
 │   │   ├── xg_model.py             # xG v1 scoring pipeline (logistic + XGBoost, writes xg_predictions)
 │   │   ├── xg_model_v2.py          # xG v2 scoring pipeline (Deep Sets + MC dropout, writes xg_predictions_v2)
 │   │   ├── pitch_control_batch.py  # Pitch control batch pipeline (applyInPandas + frame_batch_id)
@@ -435,7 +445,7 @@ luxury-lakehouse/
 │   │   ├── pages/                    # 12 pages (incl. player_similarity.py, pass_timing.py)
 │   │   └── components/               # filters.py, pitch.py, charts.py, feedback.py, glossary.py
 │   │
-│   └── tests/                        # 31 test modules
+│   └── tests/                        # 34 test modules
 │       ├── test_statsbomb.py
 │       ├── test_metrica.py
 │       ├── test_wyscout.py
@@ -450,6 +460,9 @@ luxury-lakehouse/
 │       ├── test_defcon_lite.py
 │       ├── test_entity_resolution.py
 │       ├── test_football2vec.py
+│       ├── test_football2vec_transformer.py
+│       ├── test_coordinates.py
+│       ├── test_shape_graph.py
 │       ├── test_player_embeddings.py
 │       ├── test_xg_model.py
 │       ├── test_xg_model_v2.py
@@ -482,7 +495,7 @@ luxury-lakehouse/
 │   ├── models/
 │   │   ├── staging/                  # SILVER: statsbomb/, metrica/, wyscout/, spadl/, idsse/, skillcorner/, line_breaking/, off_ball_xt/, defcon/, entity_resolution/, pitch_control/, pausa/
 │   │   ├── intermediate/             # Cross-source joins (ephemeral)
-│   │   └── marts/                    # GOLD: 16 fact + 3 dimension tables
+│   │   └── marts/                    # GOLD: 23 fact + 3 dimension tables
 │   ├── tests/                        # Custom data tests
 │   ├── macros/                       # distance_to_goal, shot_angle
 │   └── seeds/                        # competition_metadata.csv, position_mapping.csv, player_xref_overrides.csv
@@ -507,6 +520,7 @@ luxury-lakehouse/
 │   ├── train_xg_model_hf.py        # HF Jobs CPU script: xG model training with MLflow logging
 │   ├── train_xg_v2_hf.py            # HF Jobs GPU script: xG v2 Deep Sets + MC dropout training
 │   ├── train_vaep_model_hf.py        # HF Jobs CPU script: VAEP model training
+│   ├── train_football2vec_v2.py     # HF Jobs GPU script: football2vec v2 transformer + adversarial debiasing
 │   ├── publish_freeze_frame_hf.py    # Publish StatsBomb 360 freeze-frame dataset to HF Hub
 │   ├── publish_xg_shots_hf.py        # Publish xG shot dataset to HF Hub
 │   ├── refresh_synced_tables.py      # Trigger SNAPSHOT refresh on synced tables (--wait, --tables)
@@ -538,7 +552,7 @@ luxury-lakehouse/
     │   │   └── vaep-model.md         # HF Hub model card: VAEP model (source of truth)
     │   ├── org-card.md               # HF Hub org card (source of truth)
     │   ├── org-interests.md          # HF Hub org "AI & ML interests" (paste via web UI)
-    │   └── dataset-cards/            # HF Hub dataset cards (11 datasets)
+    │   └── dataset-cards/            # HF Hub dataset cards (13 datasets)
     ├── huggingface-setup.md          # Hugging Face Hub integration guide (forks)
     └── plans/                        # Implementation design documents
 ```
@@ -614,7 +628,7 @@ Lakebase and Databricks performance standards are codified in [CLAUDE.md § Data
 - **Lakebase (PG):** Index every filtered column on fact tables >100K rows. No `ON ONLY` indexes (partitioned tables). Avoid `SELECT DISTINCT` on large tables — use recursive CTE. Re-run `scripts/create_indexes.py` after every synced table recreation.
 - **Databricks (Spark/dbt):** `validate_dataframe()` returns row count to `write_delta_table()` (no double `df.count()`), all writes use `replaceWhere` for idempotency, don't `.toPandas()` unbounded tables, extract repeated window functions into CTEs. All 14 mart fact tables use `liquid_clustered_by` for automatic data layout (replaced static Z-ordering). Predictive Optimization enabled at catalog level. Auto-compaction and `optimizeWrite` enabled via `+tblproperties` on all mart tables. All 17 mart models enforce dbt model contracts (`contract: {enforced: true}`, `on_schema_change: fail`).
 
-The platform has 41 btree indexes across 17 tables + 4 HNSW vector indexes on embedding tables (45 total) covering all Taipy query patterns. Managed by `scripts/create_indexes.py` with `ANALYZE` for planner statistics and `--verify` for EXPLAIN ANALYZE validation.
+The platform has 44 btree indexes across 20 tables + 4 HNSW vector indexes on embedding tables at 128-dim (45 total) covering all Taipy query patterns. Managed by `scripts/create_indexes.py` with `ANALYZE` for planner statistics and `--verify` for EXPLAIN ANALYZE validation.
 
 ### 6.7 — Architecture Documentation
 

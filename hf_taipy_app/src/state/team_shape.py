@@ -805,6 +805,7 @@ def _build_timeline_figure(
             name="Def. Line Height (%)",
             line=dict(color="#f59e0b", width=2, dash="dot"),
             hovertemplate="Min %{x:.0f}: %{y:.1f}%<extra>Def Line</extra>",
+            yaxis="y2",
         )
     )
 
@@ -822,14 +823,23 @@ def _build_timeline_figure(
             gridcolor="rgba(255,255,255,0.1)",
         ),
         yaxis=dict(
-            title="Value (m / %)",
+            title="Distance (m)",
             title_font=dict(color="white"),
             tickfont=dict(color="white"),
             gridcolor="rgba(255,255,255,0.1)",
         ),
+        yaxis2=dict(
+            title="Def. Line Height (%)",
+            title_font=dict(color="#f59e0b"),
+            tickfont=dict(color="#f59e0b"),
+            overlaying="y",
+            side="right",
+            range=[0, 100],
+            gridcolor="rgba(245,158,11,0.1)",
+        ),
         font=dict(color="white"),
         height=400,
-        margin=dict(l=60, r=20, t=50, b=40),
+        margin=dict(l=60, r=60, t=50, b=40),
         legend=dict(
             orientation="h",
             yanchor="bottom",

@@ -782,7 +782,7 @@ def _get_pausa_teams(match_id: str) -> list[str]:
         return []
     subset = pausa_df[pausa_df["match_id"] == match_id]
     teams = subset["team"].dropna().unique().tolist()
-    return ["All"] + sorted(teams)
+    return ["All", *sorted(teams)]
 
 
 def _get_pausa_players(match_id: str, team: str) -> list[str]:
@@ -794,7 +794,7 @@ def _get_pausa_players(match_id: str, team: str) -> list[str]:
         subset = subset[subset["team"] == team]
     name_col = "player_display_name" if "player_display_name" in subset.columns else "player_id"
     players = subset[name_col].dropna().unique().tolist()
-    return ["All"] + sorted([str(p) for p in players])
+    return ["All", *sorted(str(p) for p in players)]
 
 
 def create_pausa_scatter(match_id: str, team: str, player: str) -> go.Figure:
@@ -1002,8 +1002,12 @@ _TAB_GLOSSARY: dict[str, dict[str, str]] = {
     },
     "Player Similarity": {
         "Cosine Distance": (
-            "Similarity measure between player embedding vectors. "
-            "0.0 = identical playing style, 1.0 = completely different."
+            "Similarity measure. 0.0 = identical style, 1.0 = completely different. "
+            "Under 0.20 = Very Similar, under 0.35 = Similar, under 0.50 = Moderate."
+        ),
+        "Behavioral Embedding": (
+            "32-dimensional Doc2Vec vector encoding a player's action sequence style. "
+            "Players with similar on-pitch behavior produce similar vectors."
         ),
     },
     "Shot Map": {
@@ -1193,7 +1197,8 @@ with demo:
     pitch control surfaces, and defensive pressure profiles from open-source soccer data.
 
     > *This Space runs on free CPU. First load may take 30-60 seconds while the container starts.
-    > The [full platform](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) has 12 analysis pages with 380+ matches across 5 data providers.*
+    > The [full platform](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
+    > has 14 analysis pages with 380+ matches across 5 data providers.*
 
     > **Getting started:** Click any tab to explore. Start with **Shot Map** for an overview,
     > then try **Player Similarity** to find comparable players. Each tab has a
@@ -1203,8 +1208,9 @@ with demo:
     [Wyscout](https://figshare.com/collections/Soccer_match_event_dataset/4415000) ·
     [Metrica](https://github.com/metrica-sports/sample-data) (all CC-BY 4.0)
     &nbsp;|&nbsp;
-    **Models:** [football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) ·
-    [xG](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout)
+    **Models:** [football2vec v2](https://huggingface.co/luxury-lakehouse/football2vec-v2) ·
+    [xG](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout) ·
+    [xG v2](https://huggingface.co/luxury-lakehouse/xg-v2-model-set-encoder)
     &nbsp;|&nbsp;
     **Datasets:** [SPADL/VAEP](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values) ·
     [Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings) ·
@@ -1390,9 +1396,10 @@ with demo:
 
     with gr.Tab("Player Similarity"):
         gr.Markdown(
-            "Find players with similar playing styles using Doc2Vec behavioral embeddings.\n\n"
-            "*Embeddings via [Theiner et al. (2022)](https://doi.org/10.1007/978-3-031-02044-5_2) football2vec "
-            "with [Doc2Vec (Le & Mikolov 2014)](https://arxiv.org/abs/1405.4053). "
+            "Find players with similar playing styles using Doc2Vec behavioral embeddings (v1 baseline, 32-d).\n\n"
+            "*This demo uses pre-cached v1 embeddings. The "
+            "[full dashboard](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) "
+            "uses v2 transformer embeddings (128-d, adversarially debiased). "
             "Match counts reflect games in the open dataset; higher counts indicate more robust similarity.*"
         )
         with gr.Row():
@@ -1465,22 +1472,27 @@ with demo:
     gr.Markdown(
         """
     ---
-    *This is a sample demo with pre-cached data subsets.
+    *This is a sample demo with pre-cached data subsets (v1 Doc2Vec embeddings).
     **[Try the full platform →](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)**
-    — 380+ matches across 5 data providers, 12 analysis pages with live data,
+    — 380+ matches across 5 data providers, 14 analysis pages with live data,
+    128-d transformer embeddings (v2), dual-detector formation detection,
     custom xG model comparison, player comparison radars, PPDA pressing analysis, and
     cross-player entity resolution across 11,918 unified players.*
 
-    **Published datasets:**
+    **Published datasets (13):**
     [SPADL/VAEP](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values) |
     [Line-Breaking Passes](https://huggingface.co/datasets/luxury-lakehouse/line-breaking-passes) |
     [Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings) |
+    [Training Data](https://huggingface.co/datasets/luxury-lakehouse/football2vec-training-data) |
     [Pitch Control](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking) |
     [OBSO/PAUSA Inputs](https://huggingface.co/datasets/luxury-lakehouse/obso-pausa-inputs) |
     [OBSO/PAUSA Values](https://huggingface.co/datasets/luxury-lakehouse/obso-pausa-values)
 
-    **Models:** [football2vec](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) |
+    **Models (5):** [football2vec v2](https://huggingface.co/luxury-lakehouse/football2vec-v2) |
+    [football2vec v1](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) |
     [xG model](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout) |
+    [xG v2](https://huggingface.co/luxury-lakehouse/xg-v2-model-set-encoder) |
+    [VAEP](https://huggingface.co/luxury-lakehouse/vaep-model-statsbomb-wyscout) |
     **Tracking data:** [Metrica Sports](https://github.com/metrica-sports/sample-data) (CC-BY 4.0)
     """
     )

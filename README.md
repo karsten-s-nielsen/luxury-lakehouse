@@ -8,7 +8,7 @@
 
 ---
 
-[![CI](https://github.com/karsten-s-nielsen/luxury-lakehouse/actions/workflows/python-ci.yml/badge.svg)](https://github.com/karsten-s-nielsen/luxury-lakehouse/actions/workflows/python-ci.yml) [![Try the Demo](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Live%20Demo-yellow?style=flat-square)](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) [![Datasets](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Datasets-blue?style=flat-square)](https://huggingface.co/luxury-lakehouse) [![football2vec](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-football2vec-green?style=flat-square)](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) [![xG Model](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-xG%20Model-green?style=flat-square)](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout)
+[![CI](https://github.com/karsten-s-nielsen/luxury-lakehouse/actions/workflows/python-ci.yml/badge.svg)](https://github.com/karsten-s-nielsen/luxury-lakehouse/actions/workflows/python-ci.yml) [![Try the Demo](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Live%20Demo-yellow?style=flat-square)](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) [![Datasets](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Datasets-blue?style=flat-square)](https://huggingface.co/luxury-lakehouse) [![football2vec v2](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-football2vec%20v2-green?style=flat-square)](https://huggingface.co/luxury-lakehouse/football2vec-v2) [![xG Model](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-xG%20Model-green?style=flat-square)](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout)
 
 ## What Is This?
 
@@ -44,7 +44,7 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 | **Synchronization** | Lakeflow Synced Tables | Zero-ETL continuous sync from Gold → Lakebase |
 | **Serving** | Lakebase PostgreSQL 17 (Autoscaling) | Sub-10ms OLTP queries, native pgvector, scale-to-zero |
 | **Application** | [Taipy on Hugging Face Spaces](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) | 14-page interactive dashboard (Docker SDK, Lakebase PostgreSQL) |
-| **ML Artifacts** | [Hugging Face Hub](https://huggingface.co/luxury-lakehouse) | Publish [4 models](https://huggingface.co/luxury-lakehouse) + [11 datasets](https://huggingface.co/luxury-lakehouse), GPU training on HF Jobs, and [interactive demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) |
+| **ML Artifacts** | [Hugging Face Hub](https://huggingface.co/luxury-lakehouse) | Publish [5 models](https://huggingface.co/luxury-lakehouse) + [13 datasets](https://huggingface.co/luxury-lakehouse), GPU training on HF Jobs, and [interactive demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) |
 | **Security** | OAuth M2M + OIDC Federation + KMS | Zero-secret CI, least-privilege SPs, encrypted state |
 | **Infrastructure** | Terraform + Databricks Provider | Everything as code |
 
@@ -73,10 +73,13 @@ Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by 
 - **Movement & Pressing** — PPDA (Passes Per Defensive Action) pressing intensity, physical performance metrics (distance, HSR (High-Speed Running), sprints), and off-ball xT from tracking data
 - **Defensive Impact (DEFCON-lite)** — Attacker-perspective defensive credit assignment (intercept/concede/disturb/deter) based on Kim et al. (2025)
 - **Cross-Source Entity Resolution** — Three-layer progressive player matching (TF-IDF + rapidfuzz + bidirectional validation) inspired by US Soccer's glass_onion
-- **Player Embeddings** — Dual-vector player representation: 32-dim Doc2Vec behavioral + 13-dim statistical z-score, published to Hugging Face Hub
+- **Player Embeddings** — Dual-vector player representation: 128-dim transformer behavioral (adversarial team-debiased, Ganin GRL) + 13-dim statistical z-score, published to Hugging Face Hub. V1 (32-dim Doc2Vec) retained as baseline.
 - **Player Similarity** — pgvector HNSW cosine-distance search ("Find players like X") with interactive dashboard page
 - **PAUSA (Passing Ability Under Spatiotemporal Awareness) Pass Timing** — Optimal pass timing decomposition: temporal judgment vs spatial selection, OBSO (Off-Ball Scoring Opportunities) value surfaces (Lee et al. 2026)
 - **Player Comparison** — Per-90 stat comparison across multiple metrics (incl. DEFCON pressure/90)
+- **Team Shape** — Convex hull, centroid, formation lines, 6 spatial metrics (stretch index, team length/width, defensive line height, inter-line gaps) from tracking data
+- **Formation Detection** — Dual-detector: EFPI template matching (Bekkers & Dabadghao 2025) + shape graph geometric detection (Sotudeh 2026, Delaunay triangulation)
+- **Position Maps** — 5x5 time-in-position matrices per player per match (all/in-possession/out-of-possession phases) from shape graph position assignments
 
 ## Project Structure
 
@@ -84,7 +87,7 @@ Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by 
 luxury-lakehouse/
 ├── terraform/          # Infrastructure as Code (Databricks on AWS)
 ├── src/
-│   ├── analytics/      # Pure-Python analytics models (pitch control, line-breaking, entity resolution, DEFCON, football2vec, xG, xT, symmetry, smoothing)
+│   ├── analytics/      # Pure-Python analytics models (pitch control, line-breaking, entity resolution, DEFCON, football2vec, football2vec transformer, shape graphs, xG, xT, symmetry, smoothing)
 │   ├── ingestion/      # Data ingestion + compute pipelines (StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner, pitch control batch)
 │   ├── workflows/      # Workflow framework (@workflow decorator, registry, lifecycle hooks, YAML card parser)
 │   └── streamlit_app/  # Streamlit dashboard (retained for reference)
@@ -92,7 +95,7 @@ luxury-lakehouse/
 ├── notebooks/          # Databricks notebooks (football2vec/xG training, model weight sync, dataset publishing to HF Hub)
 ├── demo_space/         # Hugging Face Gradio demo Space (pass quality, pitch control, player similarity, shot map, DEFCON pressure, pass timing)
 ├── dbt_project/        # Bronze → Silver → Gold transformations
-├── workflow-cards/     # YAML workflow card manifests (16 AI/ML workflow definitions)
+├── workflow-cards/     # YAML workflow card manifests (18 AI/ML workflow definitions)
 ├── scripts/            # Operational scripts (PG indexes, grants, synced table management)
 ├── docs/
 │   ├── c4/             # C4 architecture diagrams (Structurizr DSL)
@@ -120,7 +123,7 @@ The `src/analytics/` modules (pitch control, line-breaking, DEFCON, off-ball xT,
 
 ## Status
 
-**Phase 20 complete (Taipy Migration)** — 14 Taipy pages, 26 synced tables (Lakebase reverse-ETL), 45 PG indexes (sub-second dashboard queries), 807 unit tests (819+ with gensim). Hugging Face Hub: 4 models + 11 datasets published, GPU training on HF Jobs A10G, [Gradio demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme (6 tabs). xG v2 set encoder (ROC-AUC 0.915, MC dropout uncertainty). Data-driven xT/EPV/transition grids. See [ARCHITECTURE.md](ARCHITECTURE.md) for the platform architecture and [ROADMAP.md](ROADMAP.md) for research directions.
+**Cycle 2 complete (Shape Graphs + Transformer Embeddings)** — 14 Taipy pages, 28 synced tables (Lakebase reverse-ETL), 48 PG indexes (sub-second dashboard queries), 1,051 unit tests (1,063+ with gensim). Hugging Face Hub: 5 models + 13 datasets published, GPU training on HF Jobs A10G, [Gradio demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme (6 tabs). Football2vec v2: 128-dim transformer embeddings with adversarial team debiasing (Ganin GRL). Shape graph formation detection (Sotudeh 2026) + 5x5 position maps. xG v2 set encoder (ROC-AUC 0.915, MC dropout uncertainty). See [ARCHITECTURE.md](ARCHITECTURE.md) for the platform architecture and [ROADMAP.md](ROADMAP.md) for research directions.
 
 | Phase | Description | Status |
 |-------|-------------|--------|

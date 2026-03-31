@@ -28,21 +28,22 @@ Part of the (Right! Luxury!) Lakehouse soccer analytics platform.
 ## Quick Start
 
 ```python
-from datasets import load_dataset
+from huggingface_hub import hf_hub_download
 import pandas as pd
 
-ds = load_dataset("luxury-lakehouse/obso-trained-grids")
-df = ds["train"].to_pandas()
+repo = "luxury-lakehouse/obso-trained-grids"
 
 # Load the global reachability grid (100x64)
-reachability = df[df["grid_type"] == "reachability"]
-reach_matrix = reachability.pivot(index="zone_y", columns="zone_x", values="value")
-print(f"Reachability grid shape: {reach_matrix.shape}")
+reach_path = hf_hub_download(repo, "data/reachability_grid_global.parquet", repo_type="dataset")
+reach_df = pd.read_parquet(reach_path)
+reach_matrix = reach_df.pivot(index="zone_y", columns="zone_x", values="reachability")
+print(f"Reachability grid shape: {reach_matrix.shape}")  # (100, 64)
 
 # Load the global EPV grid (50x32)
-epv = df[df["grid_type"] == "epv"]
-epv_matrix = epv.pivot(index="zone_y", columns="zone_x", values="value")
-print(f"EPV grid shape: {epv_matrix.shape}")
+epv_path = hf_hub_download(repo, "data/epv_grid_global.parquet", repo_type="dataset")
+epv_df = pd.read_parquet(epv_path)
+epv_matrix = epv_df.pivot(index="zone_y", columns="zone_x", values="epv_value")
+print(f"EPV grid shape: {epv_matrix.shape}")  # (50, 32)
 ```
 
 > **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)

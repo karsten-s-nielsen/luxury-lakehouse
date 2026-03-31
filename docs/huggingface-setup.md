@@ -1,10 +1,10 @@
 # Hugging Face Hub Integration
 
-> **After this guide you will have:** (1) loaded a pre-trained football2vec embedding and verified its shape, (2) retrained on your own data and confirmed the output, (3) published artifacts to Hugging Face Hub.
+> **After this guide you will have:** (1) loaded pre-trained football2vec embeddings and verified their shape, (2) retrained on your own data and confirmed the output, (3) published artifacts to Hugging Face Hub.
 
-This guide covers how to use the pre-trained football2vec model, retrain on your own data, and set up your own Hugging Face org for publishing.
+This guide covers how to use the pre-trained football2vec models (v1 Doc2Vec and v2 transformer), retrain on your own data, and set up your own Hugging Face org for publishing.
 
-> **See also:** [Model card](huggingface/model-card.md) (source of truth for the [HF model page](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout)) and [Org card](huggingface/org-card.md) (source of truth for the [HF org page](https://huggingface.co/luxury-lakehouse)).
+> **See also:** [v2 Model card](huggingface/model-cards/football2vec-v2-model-card.md) (source of truth for the [HF v2 model page](https://huggingface.co/luxury-lakehouse/football2vec-v2)), [v1 Model card](huggingface/model-card.md) (source of truth for the [HF v1 model page](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout)), and [Org card](huggingface/org-card.md) (source of truth for the [HF org page](https://huggingface.co/luxury-lakehouse)).
 
 ---
 
@@ -25,7 +25,8 @@ This guide covers how to use the pre-trained football2vec model, retrain on your
 
 **Required tools:**
 - Python >=3.10, <3.11 (strict — Databricks serverless constraint; 3.11+ will cause failures)
-- `gensim>=4.3.0`, `huggingface_hub>=1.5.0` (included in project dependencies)
+- **v1 (Doc2Vec):** `gensim>=4.3.0`, `huggingface_hub>=1.5.0` (included in project dependencies)
+- **v2 (Transformer):** `torch>=2.0`, `numpy>=1.24`, `huggingface_hub>=1.5.0` (training only; pre-computed embeddings need only `datasets` + `numpy`)
 
 ---
 
@@ -67,6 +68,50 @@ print(vector.shape, similar)
 **Verify:** Run the code above. Expected output:
 - `vector.shape` returns `(32,)` — a 32-dimensional embedding vector
 - `similar[:3]` returns 3 player name/similarity pairs
+
+## 1b. Using Football2Vec v2 (Transformer, Recommended)
+
+Football2Vec v2 is a 128-dim transformer encoder with adversarial team debiasing. It replaces v1 as the `@Champion` model. For most use cases, load pre-computed embeddings directly:
+
+```bash
+pip install datasets numpy
+```
+
+```python
+from datasets import load_dataset
+import numpy as np
+
+ds = load_dataset("luxury-lakehouse/football2vec-player-embeddings")
+df = ds["train"].to_pandas()
+
+vectors = np.array(df["behavioral_vector"].tolist())
+print(f"{vectors.shape[0]} players, {vectors.shape[1]}-dim embeddings")
+# Expected: (8950, 128)
+```
+
+To load the model weights directly (for fine-tuning or custom inference):
+
+```python
+from huggingface_hub import hf_hub_download
+from safetensors.torch import load_file
+import json
+
+weights_path = hf_hub_download("luxury-lakehouse/football2vec-v2", "stage2/model.safetensors")
+config_path = hf_hub_download("luxury-lakehouse/football2vec-v2", "stage2/config.json")
+
+with open(config_path) as f:
+    config = json.load(f)
+
+state_dict = load_file(weights_path)
+print(f"Architecture: {config['hidden_dim']}-dim, {config['num_layers']} layers, {config['num_heads']} heads")
+# Expected: 128-dim, 4 layers, 4 heads
+```
+
+**Verify:** `vectors.shape` returns `(8950, 128)` for career embeddings.
+
+> **See also:** [v2 Model card](huggingface/model-cards/football2vec-v2-model-card.md) for architecture details, training hyperparameters, and adversarial debiasing methodology.
+
+---
 
 ## 2. Retraining on Your Data
 
@@ -119,6 +164,53 @@ from huggingface_hub import list_repo_files
 files = list_repo_files("your-org/football2vec-statsbomb-wyscout")
 print(files)  # Expected: includes 'model', 'z_score_params.json'
 ```
+
+## 2b. Retraining Football2Vec v2 (Transformer)
+
+V2 training runs on HF Jobs GPU (A10G-large) in two stages:
+
+1. **Export training data** from Databricks:
+   ```bash
+   uv run export_embeddings_training_data --catalog soccer_analytics --schema dev_gold
+   ```
+   This writes SPADL action sequences to UC Volume and publishes to `luxury-lakehouse/football2vec-training-data` on HF Hub.
+
+2. **Train Stage 1 (MLM)** on HF Jobs:
+   ```bash
+   hf jobs uv run scripts/train_football2vec_v2.py --stage 1 \
+       --flavor a10g-large --timeout 120m \
+       --secrets HF_TOKEN=$HF_TOKEN \
+       --env MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI \
+       --env DATABRICKS_HOST=$DATABRICKS_HOST \
+       --env DATABRICKS_TOKEN=$DATABRICKS_TOKEN
+   ```
+
+3. **Train Stage 2 (Adversarial debiasing)** on HF Jobs:
+   ```bash
+   hf jobs uv run scripts/train_football2vec_v2.py --stage 2 \
+       --flavor a10g-large --timeout 120m \
+       --secrets HF_TOKEN=$HF_TOKEN \
+       --env MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI \
+       --env DATABRICKS_HOST=$DATABRICKS_HOST \
+       --env DATABRICKS_TOKEN=$DATABRICKS_TOKEN
+   ```
+
+4. **Run embedding inference** to populate Delta tables:
+   ```bash
+   uv run compute_embeddings --catalog soccer_analytics --schema dev_gold
+   ```
+
+The v2 training script logs to MLflow, registers the model as `football2vec_v2`, and publishes weights + embeddings to HF Hub. Typical training time: ~2 hours on A10G-large (~$3.00).
+
+### UC Volume Storage (v2)
+
+```
+/Volumes/soccer_analytics/dev_gold/model_weights/football2vec_v2/
+├── model.safetensors    — Encoder weights (safetensors format, zero pickle)
+└── config.json          — Football2VecConfig
+```
+
+---
 
 ## 3. Hugging Face Org Setup (New Forks)
 

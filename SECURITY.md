@@ -20,8 +20,8 @@ If you discover a security vulnerability, please report it through [GitHub's pri
 ## Executive Summary
 
 - **Total findings:** 31
-- **Critical:** 0 | **High:** 0 | **Medium:** 0 | **Low:** 0 | **Info:** 4
-- **Resolved:** 28 of 31 findings (90%) — all High, Medium, and Low findings addressed
+- **Critical:** 0 | **High:** 0 | **Medium:** 0 | **Low:** 0 | **Info:** 3
+- **Resolved:** 28 of 31 findings (90%) — all High, Medium, and Low findings addressed. I-2 (SBOM) resolved 2026-03-11 via CycloneDX in `python-ci.yml`.
 - **Accepted risks:** 3 (M-7, L-5, L-16 — documented below)
 - **Security posture:** Strong for a dev environment with public data
 
@@ -44,7 +44,6 @@ All actionable findings from the February 2026 audit have been resolved. The 3 a
 | ID | Area | Description |
 |----|------|-------------|
 | I-1 | Data | No PII in data stores — all sources are public sports statistics of professional athletes. |
-| ~~I-2~~ | ~~CI/CD~~ | ~~No SBOM generation pipeline.~~ **Resolved** (2026-03-11): CycloneDX SBOM generation added to `python-ci.yml` during optimization audit. |
 | I-3 | Monitoring | No centralized SIEM/log aggregation. Logs flow to Databricks built-in capture. Acceptable for dev. |
 | I-4 | Monitoring | Referenced runbooks (`docs/runbooks/`) do not exist in repo. Status: deferred — see TODO.md for current operational procedures. |
 
@@ -123,6 +122,7 @@ MLflow pyfunc models use cloudpickle for serialization internally. This section 
 | `soccer_analytics.dev_gold.xg_model_baseline` | sklearn | cloudpickle | `load_model()` → driver | `serialize_logistic_model()` → JSON envelope | Bounded |
 | `soccer_analytics.dev_gold.xg_model_v2` | pyfunc | cloudpickle (wrapper) | `load_model()` → driver | `model_weights.json` artifact (numpy arrays, no pickle) | Minimal |
 | `soccer_analytics.dev_gold.football2vec` | pyfunc | cloudpickle (wrapper) | `load_model()` → driver | gensim `Doc2Vec.save()` binary, driver-only | Bounded |
+| `soccer_analytics.dev_gold.football2vec_v2` | pyfunc | cloudpickle (wrapper) | `load_model()` → driver | `safetensors` format (zero pickle); pre-computed embeddings delivered as Parquet | Minimal |
 
 ### Threat Model
 
@@ -136,9 +136,8 @@ MLflow pyfunc models use cloudpickle for serialization internally. This section 
 
 ### Safetensors / weights_only Feasibility
 
-- **`weights_only=True`:** PyTorch API — not applicable (no PyTorch models in the project)
-- **safetensors:** Not applicable for XGBoost/sklearn models; relevant only for future neural network weights
-- **xG v2 pattern (recommended for new models):** `xg_model_v2` already avoids cloudpickle for the actual weights by storing them as a JSON artifact. The pyfunc wrapper is a thin placeholder. This is the recommended pattern for all future models — store weights as JSON/safetensors artifacts, not inside the pyfunc wrapper
+- **safetensors:** `football2vec_v2` uses `safetensors` format for all model checkpoints (`stage1/model.safetensors`, `stage2/model.safetensors`). Zero pickle surface — safetensors is a tensor-only format with no code execution capability. This is the gold standard for ML model serialization security.
+- **xG v2 pattern (recommended for non-PyTorch models):** `xg_model_v2` avoids cloudpickle for the actual weights by storing them as a JSON artifact. The pyfunc wrapper is a thin placeholder. This is the recommended pattern for XGBoost/sklearn models — store weights as JSON artifacts, not inside the pyfunc wrapper.
 
 ### Residual Risk: Accepted
 

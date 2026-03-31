@@ -104,6 +104,51 @@ def _export_training_sequences(
     gold = _GOLD_SCHEMA
 
     # ------------------------------------------------------------------
+    # 0. Skip guard — compare upstream freshness against last export
+    # ------------------------------------------------------------------
+    output_path = _UC_VOLUME_PATH.format(catalog=catalog)
+    try:
+        upstream_max_ts = (
+            spark.table(f"{catalog}.{gold}.fct_action_values")
+            .selectExpr("MAX(_ingested_at) AS max_ts")
+            .collect()[0]["max_ts"]
+        )
+    except Exception:
+        upstream_max_ts = None
+
+    if upstream_max_ts is not None:
+        try:
+            existing_count = spark.read.parquet(output_path).count()
+            if existing_count > 0:
+                export_logger.info(
+                    "Training data already exists at %s (%d rows) — checking upstream freshness",
+                    output_path,
+                    existing_count,
+                )
+                # Compare against a simple marker: if the Parquet already has
+                # the same row count as the grouped action values, skip.
+                upstream_count = (
+                    spark.table(f"{catalog}.{gold}.fct_action_values")
+                    .select("player_id", "match_id")
+                    .distinct()
+                    .count()
+                )
+                if existing_count >= upstream_count:
+                    export_logger.info(
+                        "Existing export (%d rows) covers all %d upstream player-match pairs — skipping re-export",
+                        existing_count,
+                        upstream_count,
+                    )
+                    return existing_count
+                export_logger.info(
+                    "Upstream has %d player-match pairs vs %d exported — re-exporting",
+                    upstream_count,
+                    existing_count,
+                )
+        except Exception:
+            export_logger.info("No existing export at %s — full export", output_path)
+
+    # ------------------------------------------------------------------
     # 1. Load actions joined to dim_players (Spark-native, no .toPandas())
     # ------------------------------------------------------------------
     query = f"""
@@ -234,7 +279,6 @@ def _export_training_sequences(
     # ------------------------------------------------------------------
     # 4. Write Parquet to UC Volume
     # ------------------------------------------------------------------
-    output_path = _UC_VOLUME_PATH.format(catalog=catalog)
     export_logger.info("Writing training data Parquet to %s", output_path)
     grouped_sdf.write.mode("overwrite").parquet(output_path)
 

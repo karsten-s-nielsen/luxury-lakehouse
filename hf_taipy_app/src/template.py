@@ -20,7 +20,7 @@ GETTING_STARTED = """\
 2. **Match Summary** \u2014 match overview with xG, passing, pressing
 3. **Player Comparison** \u2014 per-90 radar chart (1-3 players)
 4. **Player Similarity** \u2014 find comparable players by style
-5. **Action Values** \u2014 who contributed most? (VAEP)
+5. **Player Impact** \u2014 who contributed most? (VAEP)
 6. **Defensive Impact** \u2014 pressure on attackers (DEFCON)
 
 **Advanced pages** (tracking data, ~20 matches): \
@@ -77,6 +77,16 @@ GLOSSARY: dict[str, str] = {
     "Disturb": "DEFCON credit for disrupting possession without winning the ball.",
     "Deter": "DEFCON credit for preventing attacker progression through positioning.",
     "Cosine Distance": "Player similarity measure. 0.0 = identical style, 1.0 = completely different.",
+    "Behavioral Vector": (
+        "128-dimensional embedding from a transformer encoder trained on SPADL action sequences. "
+        "Captures playing style — movement patterns, decision sequences, and positional tendencies. "
+        "Adversarially debiased to remove team-specific confounds (Ganin GRL)."
+    ),
+    "Statistical Vector": (
+        "13-dimensional vector of per-90 statistics (goals, assists, xG, passes, VAEP, etc.) "
+        "z-score normalized within position group (GK, Def, Mid, Fwd). "
+        "Captures volume and efficiency independent of playing style."
+    ),
     "xT (Expected Threat)": "Probability that ball possession in a pitch zone leads to a goal within next few actions.",
     "Off-Ball xT": "Expected threat from a player's off-ball movement. Typical range: 0.001\u20130.01 per match.",
     "Line-Breaking Pass": (
@@ -158,7 +168,7 @@ PAGE_TERMS: dict[str, list[str]] = {
         "DEFCON/90",
         "Percentile Rank",
     ],
-    "Player-Similarity": ["Cosine Distance"],
+    "Player-Similarity": ["Cosine Distance", "Behavioral Vector", "Statistical Vector"],
     "Movement-Pressing": ["PPDA", "xT (Expected Threat)", "Off-Ball xT", "Pitch Control"],
     "Pitch-Control": ["Pitch Control"],
     "Pass-Timing": ["PAUSA", "Temporal Judgment", "Spatial Selection", "OBSO", "Passes with Value"],
@@ -254,6 +264,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         "on_sub_view_change",
         condition=f"current_page in {_SUB_VIEW_PAGES}",
         lov="sub_view_lov",
+        help="Switch between analytical views for this page. Each view shows different metrics and visualizations.",
     ),
     # Data-scoping cascade
     SidebarWidget(
@@ -263,6 +274,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         "on_competition_change",
         condition=f"current_page in {_COMP_PAGES}",
         lov="competition_lov",
+        help="Filter to a specific league/tournament. All downstream filters (team, match, player) update automatically.",
     ),
     SidebarWidget(
         "dropdown",
@@ -272,6 +284,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         condition=f"current_page in {_TEAM_PAGES}",
         lov="team_lov",
         depends_on="selected_competition",
+        help="Filter to a specific team within the selected competition.",
     ),
     SidebarWidget(
         "dropdown",
@@ -281,6 +294,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         condition=f"current_page in {_MATCH_PAGES}",
         lov="match_lov",
         depends_on="selected_team",
+        help="Select a specific match. Shows date and opponent.",
     ),
     SidebarWidget(
         "dropdown",
@@ -290,6 +304,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         condition=f"current_page in {_PLAYER_PAGES}",
         lov="player_lov",
         depends_on="selected_competition",
+        help="Optional player filter. Leave blank to see all players in the competition.",
     ),
     SidebarWidget(
         "dropdown_multi",
@@ -299,6 +314,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         condition=f"current_page in {_PLAYER_MULTI_PAGES}",
         lov="player_lov_multi",
         depends_on="selected_competition",
+        help="Select 1-3 players to compare side-by-side on the radar chart.",
     ),
     SidebarWidget(
         "dropdown_multi",
@@ -319,6 +335,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         slider_min="1",
         slider_max="10",
         slider_range_labels=("1", "10"),
+        help="Minimum completed passes between two players to show a connection line. Higher = fewer, stronger links.",
     ),
     SidebarWidget(
         "slider",
@@ -331,6 +348,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         slider_step="45",
         slider_range_labels=("0", "2000"),
         depends_on="selected_competition",
+        help="Minimum total minutes played to include a player in rankings. Filters low-sample entries.",
     ),
     SidebarWidget(
         "toggle",
@@ -338,6 +356,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         "Progressive passes",
         "on_pm_toggle_change",
         condition=f"current_page in {_PASS_OVERLAY_PAGES}",
+        help="Highlight passes that move the ball significantly closer to the opponent goal.",
     ),
     SidebarWidget(
         "toggle",
@@ -345,6 +364,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         "Line-breaking passes",
         "on_pm_toggle_change",
         condition=f"current_page in {_PASS_OVERLAY_PAGES}",
+        help="Highlight passes that penetrate at least one defensive line (detected via Ward clustering on 360 freeze frames).",
     ),
     # Tracking / provider
     SidebarWidget(
@@ -354,6 +374,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         "on_provider_change",
         condition=f"current_page in {_TRACKING_PROVIDER_PAGES}",
         lov="provider_lov",
+        help="Tracking data source: Metrica (3 matches, 25fps), IDSSE/Bundesliga (7 matches, 25fps), SkillCorner (10 matches, 10fps).",
     ),
     SidebarWidget(
         "dropdown",
@@ -363,6 +384,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         condition=f"current_page in {_TRACKING_PROVIDER_PAGES}",
         lov="tracking_match_lov",
         depends_on="selected_provider",
+        help="Select a match with tracking data. Only 20 matches across all providers have positional data.",
     ),
     # Movement-specific: view-dependent widget visibility.
     # PPDA sub-view uses Competition; Physical/Off-Ball xT use Provider + Tracking Match.
@@ -374,6 +396,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         "on_competition_change",
         condition='current_page == "Movement-Pressing" and selected_sub_view == "PPDA / Pressing Intensity"',
         lov="competition_lov",
+        help="Filter PPDA data to a specific league/tournament.",
     ),
     SidebarWidget(
         "dropdown",
@@ -382,6 +405,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         "on_provider_change",
         condition='current_page == "Movement-Pressing" and selected_sub_view is not None and selected_sub_view != "PPDA / Pressing Intensity"',
         lov="provider_lov",
+        help="Tracking data source for physical/xT metrics.",
     ),
     SidebarWidget(
         "dropdown",
@@ -391,6 +415,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         condition='current_page == "Movement-Pressing" and selected_sub_view is not None and selected_sub_view != "PPDA / Pressing Intensity"',
         lov="tracking_match_lov",
         depends_on="selected_provider",
+        help="Select a tracking match for physical/xT analysis.",
     ),
     SidebarWidget(
         "dropdown",
@@ -399,6 +424,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         "on_ma_physical_metric_change",
         lov="ma_physical_metric_lov",
         condition='current_page == "Movement-Pressing" and selected_sub_view == "Physical Performance"',
+        help="Physical metric to display: total distance, high-speed running (over 5.5 m/s), sprint count, or sprint distance.",
     ),
     # Pass Timing
     SidebarWidget(
@@ -408,6 +434,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         "pt_on_match_change",
         condition=f"current_page in {_PASS_TIMING_PAGES}",
         lov="pt_match_lov",
+        help="PAUSA pass timing is available for 7 IDSSE Bundesliga matches with ELASTIC-synced tracking data.",
     ),
     SidebarWidget(
         "dropdown",
@@ -417,6 +444,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         condition=f"current_page in {_PASS_TIMING_PAGES}",
         lov="pt_team_lov",
         depends_on="pt_selected_match",
+        help="Filter to a specific team's passes. Leave blank for all.",
     ),
     SidebarWidget(
         "dropdown",
@@ -426,6 +454,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         condition=f"current_page in {_PASS_TIMING_PAGES}",
         lov="pt_player_lov",
         depends_on="pt_selected_match",
+        help="Filter to a specific player's passes. Leave blank for all.",
     ),
     SidebarWidget(
         "slider",
@@ -469,6 +498,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         "dv_on_view_change",
         condition=f"current_page in {_DEFCON_PAGES}",
         lov="dv_view_lov",
+        help="Rankings: league-wide leaderboard. Breakdown: per-category stacked bar for one player. Timeline: match-level pressure events.",
     ),
     SidebarWidget(
         "dropdown",
@@ -477,6 +507,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         "dv_on_comp_change",
         condition=f"current_page in {_DEFCON_PAGES}",
         lov="dv_comp_lov",
+        help="DEFCON data uses StatsBomb 360 freeze frames. Only competitions with 360 coverage have defensive credit data.",
     ),
     SidebarWidget(
         "dropdown",
@@ -486,6 +517,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         condition=f"current_page in {_DEFCON_PAGES}",
         lov="dv_team_lov",
         depends_on="dv_selected_comp",
+        help="Filter rankings or breakdown to a specific team.",
     ),
     SidebarWidget(
         "dropdown",
@@ -497,6 +529,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         depends_on="dv_current_view",
         depends_value="Breakdown",
         depends_lov_populated=True,
+        help="Select a player to see their DEFCON credit breakdown (Intercept, Concede, Disturb, Deter).",
     ),
     SidebarWidget(
         "dropdown",
@@ -508,6 +541,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         depends_on="dv_current_view",
         depends_value="Timeline",
         depends_lov_populated=True,
+        help="Select a player to view their match-by-match pressure timeline.",
     ),
     SidebarWidget(
         "dropdown",
@@ -519,6 +553,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         depends_on="dv_current_view",
         depends_value="Timeline",
         depends_lov_populated=True,
+        help="Select a match to see minute-by-minute defensive pressure events.",
     ),
     # --- Operations page filters (AI/ML Workflows) ---
     # These filter by workflow metadata (type, runtime, freshness) rather than
@@ -560,6 +595,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         condition=f"current_page in {_PC_CONTROL_PAGES}",
         lov="pc_half_lov",
         depends_on="selected_tracking_match",
+        help="Select 1st or 2nd half of the match.",
     ),
     SidebarWidget(
         "dropdown",
@@ -569,6 +605,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         condition=f"current_page in {_PC_CONTROL_PAGES}",
         lov="pc_model_lov",
         depends_on="selected_tracking_match",
+        help="Spearman (2017): physics-based model using player positions, velocities, and time-to-intercept. Voronoi: geometric nearest-player assignment.",
     ),
     SidebarWidget(
         "toggle",
@@ -577,6 +614,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         "pc_on_velocity_change",
         condition=f"current_page in {_PC_CONTROL_PAGES}",
         depends_on="selected_tracking_match",
+        help="Display player velocity vectors as arrows on the pitch. Arrow length indicates speed.",
     ),
     SidebarWidget(
         "slider",
@@ -599,6 +637,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         "on_provider_change",
         condition=f"current_page in {_TEAM_SHAPE_PAGES}",
         lov="provider_lov",
+        help="Tracking data source for team shape analysis.",
     ),
     SidebarWidget(
         "dropdown",
@@ -608,6 +647,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         condition=f"current_page in {_TEAM_SHAPE_PAGES}",
         lov="tracking_match_lov",
         depends_on="selected_provider",
+        help="Select a tracking match for shape analysis.",
     ),
     SidebarWidget(
         "dropdown",
@@ -676,13 +716,32 @@ _SEARCH_WIDGETS: list[SidebarWidget] = [
         "Search by",
         "on_ps_search_mode_change",
         lov="ps_search_mode_lov",
-        help="Playing style: 32-d behavioral embedding from match action sequences. Statistical output: 13-d z-score vector from per-90 stats.",
+        help="Playing style: 128-d transformer embedding from match action sequences (adversarially debiased). Statistical output: 13-d z-score vector from per-90 stats.",
     ),
     SidebarWidget(
-        "dropdown", "ps_selected_player", "Player", "on_ps_selected_player_change", lov="ps_player_lov", filterable=True
+        "dropdown",
+        "ps_selected_player",
+        "Player",
+        "on_ps_selected_player_change",
+        lov="ps_player_lov",
+        filterable=True,
+        help="Type to search ~8,950 players. Select one to find similar players by embedding distance.",
     ),
-    SidebarWidget("dropdown", "ps_result_count", "Results", "on_ps_result_count_change", lov="ps_result_count_lov"),
-    SidebarWidget("toggle", "ps_filter_by_competition", "Filter by competition", "on_ps_filter_by_competition_change"),
+    SidebarWidget(
+        "dropdown",
+        "ps_result_count",
+        "Results",
+        "on_ps_result_count_change",
+        lov="ps_result_count_lov",
+        help="Number of similar players to return (5-50).",
+    ),
+    SidebarWidget(
+        "toggle",
+        "ps_filter_by_competition",
+        "Filter by competition",
+        "on_ps_filter_by_competition_change",
+        help="When enabled, restrict similarity search to players within a specific competition.",
+    ),
     SidebarWidget(
         "dropdown",
         "ps_selected_competition",
@@ -690,6 +749,7 @@ _SEARCH_WIDGETS: list[SidebarWidget] = [
         "on_ps_selected_competition_change",
         condition="ps_filter_by_competition",
         lov="ps_competition_lov",
+        help="Restrict similarity search to players within this competition.",
     ),
     SidebarWidget(
         "slider",
@@ -699,6 +759,7 @@ _SEARCH_WIDGETS: list[SidebarWidget] = [
         slider_min="1",
         slider_max="50",
         slider_range_labels=("1", "50"),
+        help="Minimum matches played to include a player in results. Higher = more robust embeddings.",
     ),
     # Compare with — appears after results load (depends_lov_populated gates visibility)
     SidebarWidget(

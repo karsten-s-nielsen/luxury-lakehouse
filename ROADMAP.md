@@ -621,7 +621,7 @@ Position map similarity enables "find players who occupy similar tactical positi
 
 **Status:** Planned (D38 event metrics, D39 post-shot model) — see TODO.md
 
-The platform currently has zero GK-specific performance metrics. GKs are handled as a filtering concern (excluded from formations, normalized separately in embeddings) but never as subjects of dedicated measurement. This is a significant gap for a platform with a GK coaching stakeholder.
+The platform has zero GK-specific performance metrics. GKs are handled as a filtering concern (excluded from formations, normalized separately in embeddings) but never as subjects of dedicated measurement. This is a significant gap for a platform with a GK coaching stakeholder.
 
 ### Four-pillar taxonomy
 
@@ -649,7 +649,7 @@ Current player embeddings (`src/ingestion/player_embeddings.py`) use a 13-featur
 
 ### Known issue: `fct_player_percentiles`
 
-Currently ranks GKs against all players with no `position_group` filter. A GK's `xg_per_90` percentile ranked against strikers is meaningless. D39 fixes this by adding a position_group guard.
+Ranks GKs against all players with no `position_group` filter. A GK's `xg_per_90` percentile ranked against strikers is meaningless. D39 fixes this by adding a position_group guard.
 
 ---
 

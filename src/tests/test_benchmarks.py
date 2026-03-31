@@ -1,36 +1,42 @@
 """Performance benchmarks for critical-path analytics functions.
 
-Uses pytest-benchmark to measure execution time of the four hot-path functions
+Uses pytest-benchmark to measure execution time of the hot-path functions
 that run inside ``applyInPandas`` on Databricks serverless executors, where the
 1 GB UDF memory cap makes per-call efficiency critical.
 
 Performance budgets (from CLAUDE.md):
     - Batched pitch control: <=5 ms per frame for 22 targets
     - Line-breaking detection: <=2 ms per pass
+    - Shape graph construction: <=2 ms for 10 outfield players
+    - Shape graph position inference: <=2 ms for 10 outfield players
 """
 
 from __future__ import annotations
-
-import pytest
-
-pytest.importorskip("jax")
 
 from typing import Any
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from analytics.augmentation import PerturbationConfig, perturb_positions
 from analytics.defcon_lite import DefconLiteParams, assign_defensive_credits
 from analytics.line_breaking import LineBreakingParams, detect_line_breaking
 from analytics.obso import compute_obso_surface
 from analytics.off_ball_xt import compute_off_ball_xt_frame
-from analytics.pitch_control import (
-    _USE_JAX,
-    PitchControlParams,
-    compute_pitch_control_at_points,
-    compute_pitch_control_grid_fast,
-)
+
+try:
+    from analytics.pitch_control import (
+        _USE_JAX,
+        PitchControlParams,
+        compute_pitch_control_at_points,
+        compute_pitch_control_grid_fast,
+    )
+
+    _HAS_PITCH_CONTROL = True
+except ImportError:
+    _USE_JAX = False
+    _HAS_PITCH_CONTROL = False
 
 try:
     from analytics.pitch_control_numba import influence_numba, tti_numba
@@ -85,8 +91,10 @@ def target_points_22() -> np.ndarray:
 
 
 @pytest.fixture
-def pitch_control_params() -> PitchControlParams:
+def pitch_control_params():  # type: ignore[no-untyped-def]
     """Default pitch control parameters."""
+    if not _HAS_PITCH_CONTROL:
+        pytest.skip("pitch_control not available (JAX not installed)")
     return PitchControlParams()
 
 
@@ -192,12 +200,13 @@ class TestBenchmarks:
 
     # -- Pitch control (budget: <=5 ms for 22 targets) ----------------------
 
+    @pytest.mark.skipif(not _HAS_PITCH_CONTROL, reason="pitch_control requires JAX")
     def test_bench_batched_pitch_control(
         self,
         benchmark: Any,
         players_df: pd.DataFrame,
         target_points_22: np.ndarray,
-        pitch_control_params: PitchControlParams,
+        pitch_control_params: Any,
     ) -> None:
         """Batched pitch control for 22 target points (one per player).
 
@@ -219,12 +228,13 @@ class TestBenchmarks:
 
     # -- Off-ball xT (no explicit budget, but depends on pitch control) -----
 
+    @pytest.mark.skipif(not _HAS_PITCH_CONTROL, reason="pitch_control requires JAX")
     def test_bench_off_ball_xt_frame(
         self,
         benchmark: Any,
         players_df: pd.DataFrame,
         xt_grid: np.ndarray,
-        pitch_control_params: PitchControlParams,
+        pitch_control_params: Any,
     ) -> None:
         """Off-ball xT for a single 22-player frame.
 
@@ -383,6 +393,59 @@ class TestBenchmarks:
             assert median_seconds <= 0.002, (
                 f"Team shape frame median {median_seconds * 1000:.2f} ms exceeds 2 ms budget"
             )
+
+    # -- Shape graph formation detection (budget: <=2 ms for 10 players) ---
+
+    def test_bench_shape_graph(self, benchmark: Any) -> None:
+        """Shape graph construction: budget <=2ms for 10 outfield players.
+
+        compute_shape_graph runs inside applyInPandas UDF per window per team.
+        Typical input: 10 outfield player mean positions from a 5-minute window.
+        """
+        from analytics.shape_graph import compute_shape_graph
+
+        rng = np.random.default_rng(42)
+        # 10 outfield players on a 105x68m pitch
+        positions = np.column_stack(
+            [
+                rng.uniform(0, 105, 10),
+                rng.uniform(0, 68, 10),
+            ]
+        )
+
+        result = benchmark(compute_shape_graph, positions)
+        assert result is not None
+        assert len(result.edges) > 0
+
+        if benchmark.stats is not None:
+            median_seconds: float = benchmark.stats["median"]
+            assert median_seconds <= 0.002, f"Shape graph median {median_seconds * 1000:.2f} ms exceeds 2 ms budget"
+
+    def test_bench_infer_positions(self, benchmark: Any) -> None:
+        """Position inference: budget <=2ms for 10 outfield players.
+
+        infer_positions runs immediately after compute_shape_graph in the UDF.
+        Decomposes positions into 5x5 tactical grid (vertical + horizontal)
+        via recursive face-center decomposition along both axes.
+        """
+        from analytics.shape_graph import compute_shape_graph, infer_positions
+
+        rng = np.random.default_rng(42)
+        positions = np.column_stack(
+            [
+                rng.uniform(0, 105, 10),
+                rng.uniform(0, 68, 10),
+            ]
+        )
+        sg = compute_shape_graph(positions)
+
+        result = benchmark(infer_positions, sg, positions, 1.0)
+        assert len(result) == 10
+        assert all(hasattr(pl, "vertical") and hasattr(pl, "horizontal") for pl in result)
+
+        if benchmark.stats is not None:
+            median_seconds: float = benchmark.stats["median"]
+            assert median_seconds <= 0.002, f"Infer positions median {median_seconds * 1000:.2f} ms exceeds 2 ms budget"
 
 
 class TestJaxBenchmarks:

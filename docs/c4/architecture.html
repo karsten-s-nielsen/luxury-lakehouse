@@ -255,13 +255,13 @@
         # Data stores
         unityCatalog = softwareSystem &quot;Unity Catalog&quot; &quot;Governed Delta Lake storage: bronze (raw), gold (analytics), observability (platform metadata)&quot; &quot;External&quot; {
             bronzeSchema = container &quot;Bronze Schema&quot; &quot;Raw ingested data: events, tracking, SPADL actions, VAEP scores, compute results&quot; &quot;Delta Lake&quot; &quot;Database&quot;
-            goldSchema = container &quot;Gold Schema&quot; &quot;Analytics-ready facts and dimensions: 21 fact tables, 3 dim tables, fct_workflow_costs&quot; &quot;Delta Lake&quot; &quot;Database&quot;
+            goldSchema = container &quot;Gold Schema&quot; &quot;Analytics-ready facts and dimensions: 23 fact tables, 3 dim tables, fct_workflow_costs&quot; &quot;Delta Lake&quot; &quot;Database&quot;
             observabilitySchema = container &quot;Observability Schema&quot; &quot;Platform operational metadata: workflow_cost_live (warm/hot cost tracking)&quot; &quot;Delta Lake&quot; &quot;Database&quot;
         }
 
-        lakebase = softwareSystem &quot;Databricks Lakebase&quot; &quot;PostgreSQL-compatible endpoint syncing 28 Delta Lake tables from Unity Catalog (41 btree + 4 HNSW 128d vector indexes)&quot; &quot;External&quot;
+        lakebase = softwareSystem &quot;Databricks Lakebase&quot; &quot;PostgreSQL-compatible endpoint syncing 28 Delta Lake tables from Unity Catalog (44 btree + 4 HNSW 128d vector indexes)&quot; &quot;External&quot;
         databricksApi = softwareSystem &quot;Databricks REST API&quot; &quot;OAuth credential endpoint for Lakebase authentication&quot; &quot;External&quot;
-        databricksWorkflows = softwareSystem &quot;Databricks Workflows&quot; &quot;Scheduled DAG orchestration: 21 tasks (5 ingest + 14 compute + 1 validation + 1 HF cost sync), daily 06:00 UTC&quot; &quot;External&quot;
+        databricksWorkflows = softwareSystem &quot;Databricks Workflows&quot; &quot;Scheduled DAG orchestration: 22 tasks (6 ingest + 14 compute + 1 validation + 1 HF cost sync), daily 06:00 UTC&quot; &quot;External&quot;
         hfSpaces = softwareSystem &quot;HuggingFace Spaces&quot; &quot;Docker SDK hosting. Builds from Dockerfile, serves on port 7860&quot; &quot;External&quot;
         hfHub = softwareSystem &quot;HuggingFace Hub&quot; &quot;Hosts 5 models (incl. football2vec-v2), 13 datasets (incl. training data), build-artifacts wheel, and _workflow_cost.json cost artifacts&quot; &quot;External&quot;
         hfJobs = softwareSystem &quot;HuggingFace Jobs&quot; &quot;GPU/CPU compute: 8 PEP 723 UV scripts for training (xG, VAEP, Football2vec v2) and batch analytics (xT, EPV, OBSO, Space Creation)&quot; &quot;External&quot;
@@ -285,7 +285,7 @@
         dbLayer -&gt; configLayer &quot;Reads Lakebase host and endpoint settings&quot; &quot;&quot;
 
         # Relationships - external (Taipy)
-        dbLayer -&gt; lakebase &quot;Queries 26 synced tables via parameterized SQL&quot; &quot;PostgreSQL/SSL&quot;
+        dbLayer -&gt; lakebase &quot;Queries 28 synced tables via parameterized SQL&quot; &quot;PostgreSQL/SSL&quot;
         dbLayer -&gt; databricksApi &quot;Fetches OAuth tokens for Lakebase auth&quot; &quot;HTTPS/REST&quot;
         stateModules -&gt; workflowCards &quot;Reads YAML manifests on first page load (cached in _cards module variable)&quot; &quot;&quot;
         stateModules -&gt; hfHub &quot;Loads embeddings for similarity search; reads _workflow_cost.json (RUNNING detection) + _cost_history/ (30-day cost aggregation) via 60s TTL&quot; &quot;HTTPS&quot;
@@ -297,7 +297,7 @@
         ingestionPipelines -&gt; analyticsLibrary &quot;Imports domain logic (xG, xT, pitch control, OBSO)&quot; &quot;&quot;
         ingestionPipelines -&gt; bronzeSchema &quot;Writes compute results to Delta tables&quot; &quot;PySpark/Delta&quot;
         costEstimateHook -&gt; observabilitySchema &quot;MERGE run state + cost estimates to workflow_cost_live&quot; &quot;PySpark/Delta&quot;
-        databricksWorkflows -&gt; ingestionPipelines &quot;Schedules and executes 19 compute tasks&quot; &quot;Databricks Jobs API&quot;
+        databricksWorkflows -&gt; ingestionPipelines &quot;Schedules and executes 22 pipeline tasks&quot; &quot;Databricks Jobs API&quot;
 
         # Relationships - HF Jobs
         hfJobs -&gt; analyticsLibrary &quot;Imports from wheel (luxury-lakehouse/build-artifacts)&quot; &quot;pip/HTTPS&quot;

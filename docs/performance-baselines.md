@@ -1,7 +1,7 @@
 # Performance Baselines
 
 Initial: 2026-03-10 (branch: perf/initial-optimization-audit)
-Updated: 2026-03-25 (branch: feature/shape-search-baselines)
+Updated: 2026-03-31 (branch: feature/cycle2-training)
 
 ## Function Benchmarks (pytest-benchmark)
 
@@ -17,6 +17,8 @@ Measured locally on Windows 11, Python 3.10.19, NumPy 2.2.6, SciPy 1.15.3.
 | compute_obso_surface | 104×68 grid | 529 µs | 814 µs | ≤5 ms |
 | compute_team_shape | 10 outfield players | 479 µs | 921 µs | ≤1 ms |
 | compute_team_shape_frame | 22 players (both teams) | 1,388 µs | 2,610 µs | ≤2 ms |
+| compute_shape_graph | 10 outfield players | 1,158 µs | 1,098 µs | ≤2 ms |
+| infer_positions | 10 outfield players + shape graph | 1,787 µs | 1,683 µs | ≤2 ms |
 | numba_pitch_control (warm) | 22 players, single point | 2 µs | 2 µs | — |
 
 ## Pipeline Timing (Databricks Serverless)
@@ -42,6 +44,7 @@ Measured from job run 311181772997773 (2026-03-25). All pipelines run with skip 
 | compute_xg_model | 128s | ✅ | XGBoost training + scoring |
 | resolve_players | 135s | ✅ | TF-IDF + rapidfuzz, ~12K players |
 | run_model_validation | 77s | ✅ | PSI, Wasserstein, KS across 10 models |
-| compute_formations | 186s | ✅ | EFPI formation detection, 20 tracking matches |
+| compute_formations | 186s (EFPI only) | ⚠️ | Pre-Cycle 2 timing. Now runs dual-detector (EFPI + shape graph) with temp Delta table materialization to avoid double-read of tracking data. Re-measure needed. |
 | compute_line_breaking | N/A | ✅ | Line-breaking pass detection |
-| **Full workflow** | **486s** | ✅ | All 19 tasks with dependencies |
+| export_embeddings_training_data | N/A | ✅ | SPADL sequence export → UC Volume → HF Hub (Cycle 2) |
+| **Full workflow** | **486s** | ⚠️ | Pre-Cycle 2 timing (19 tasks). Now 21 tasks with xg_model_v2 + formations dual-detector. |

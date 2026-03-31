@@ -1,5 +1,8 @@
 {{ config(
-    materialized='table',
+    materialized='incremental',
+    incremental_strategy='merge',
+    unique_key='position_map_id',
+    on_schema_change='fail',
     liquid_clustered_by=['match_id', 'player_id']
 ) }}
 -- fct_position_maps.sql
@@ -12,11 +15,31 @@
 -- The phase column supports future possession-phase variants (in_possession,
 -- out_of_possession); currently only 'all' is populated.
 --
+-- Incremental: only processes match_ids not yet present in this table.
+--
 -- Reference: Sotudeh, S. (2026). Shape graph formation detection.
 
-with player_positions as (
+with
 
-    select * from {{ ref('fct_player_positions') }}
+{% if is_incremental() %}
+existing_matches as (
+    select distinct match_id from {{ this }}
+),
+{% endif %}
+
+player_positions as (
+
+    select
+        player_id,
+        match_id,
+        team,
+        position_label,
+        vertical_level,
+        horizontal_level
+    from {{ ref('fct_player_positions') }}
+    {% if is_incremental() %}
+    where match_id not in (select match_id from existing_matches)
+    {% endif %}
 
 ),
 

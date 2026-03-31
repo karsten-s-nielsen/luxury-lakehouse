@@ -28,8 +28,8 @@ The infrastructure uses a **Medallion architecture** (Bronze &rarr; Silver &rarr
 - **38M+ tracking frames** ingested from three optical tracking providers (25fps and 10fps)
 - **5 distinct data sources** unified: StatsBomb, Wyscout, Metrica Sports, IDSSE (Bundesliga), and SkillCorner (A-League)
 - **[14 Taipy dashboard pages](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)** deployed on Hugging Face Spaces (Docker SDK), querying Lakebase PostgreSQL via OAuth
-- **26 synced tables** with Zero-ETL continuous sync from Gold Delta Lake to Lakebase PostgreSQL 17
-- **45 PostgreSQL indexes** (41 btree + 4 HNSW vector indexes) for sub-10ms OLTP queries
+- **28 synced tables** with Zero-ETL continuous sync from Gold Delta Lake to Lakebase PostgreSQL 17
+- **48 PostgreSQL indexes** (44 btree + 4 HNSW vector indexes at 128-dim) for sub-10ms OLTP queries
 - Pipeline reliability enforced through **1,135 unit tests** and **381+ dbt data tests**
 
 ## The Hugging Face Footprint
@@ -40,7 +40,8 @@ All public artifacts are hosted entirely within the HF ecosystem.
 
 | Model | Architecture | Scale |
 |-------|-------------|-------|
-| [football2vec-statsbomb-wyscout](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) | Doc2Vec (PV-DM) 32-dim behavioral embeddings | 87K per-match vectors across 8,950 players from ~3,000 matches |
+| [football2vec-v2](https://huggingface.co/luxury-lakehouse/football2vec-v2) | Transformer encoder (128-dim) + adversarial team debiasing (Ganin GRL) | 87K per-match vectors across 8,950 players, debiased for team identity |
+| [football2vec-statsbomb-wyscout](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) | Doc2Vec (PV-DM) 32-dim behavioral embeddings (v1 baseline) | 87K per-match vectors across 8,950 players from ~3,000 matches |
 | [xg-model-statsbomb-wyscout](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout) | Calibrated XGBoost + logistic baseline (13 features) | Trained on ~131K shots, ROC-AUC 0.979 on held-out test set |
 | [vaep-model-statsbomb-wyscout](https://huggingface.co/luxury-lakehouse/vaep-model-statsbomb-wyscout) | 2&times; XGBClassifier (P(scores) + P(concedes)) | Trained on ~2,388 matches from StatsBomb + Wyscout |
 | [xg-v2-model-set-encoder](https://huggingface.co/luxury-lakehouse/xg-v2-model-set-encoder) | Deep Sets (Zaheer et al. 2017) + MC dropout (Gal &amp; Ghahramani 2016) | ROC-AUC 0.915, trained on ~131K shots with 360 freeze frames |
@@ -53,7 +54,8 @@ All model serialization uses **JSON envelopes** &mdash; zero pickle files (banne
 |---------|-------|-------------|
 | [spadl-vaep-action-values](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values) | ~9.5M actions | Per-action offensive/defensive VAEP valuations |
 | [line-breaking-passes](https://huggingface.co/datasets/luxury-lakehouse/line-breaking-passes) | ~5M passes | All passes with defensive line-breaking labels via Ward clustering on 360 freeze frames |
-| [football2vec-player-embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings) | 87K vectors | Pre-computed behavioral (32-d) + statistical (13-d) player vectors |
+| [football2vec-player-embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings) | 87K vectors | Pre-computed behavioral (128-d transformer) + statistical (13-d) player vectors |
+| [football2vec-training-data](https://huggingface.co/datasets/luxury-lakehouse/football2vec-training-data) | ~87K sequences | Tokenized SPADL action sequences for transformer training |
 | [pitch-control-tracking](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking) | 38M frames | Per-player per-frame Spearman (2017) physics-based pitch control |
 | [expected-threat-grids](https://huggingface.co/datasets/luxury-lakehouse/expected-threat-grids) | 12x8 grid | Data-driven Expected Threat values computed from 2.2M SPADL actions |
 | [obso-pausa-inputs](https://huggingface.co/datasets/luxury-lakehouse/obso-pausa-inputs) | 7 matches | ELASTIC-synced event-tracking inputs for OBSO/PAUSA computation |

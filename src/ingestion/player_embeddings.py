@@ -558,14 +558,36 @@ def _import_v2_embeddings(
     for col in ("canonical_player_id", "match_id"):
         v2_pdf[col] = v2_pdf[col].astype(str)
 
-    # Derive data_source from fct_action_values if not in the Parquet
-    if "data_source" not in v2_pdf.columns:
-        ds_rows = spark.sql(
-            f"SELECT DISTINCT match_id, data_source FROM {catalog}.{_GOLD_SCHEMA}.fct_action_values"  # noqa: S608
-        ).collect()
-        ds_map = {str(r["match_id"]): str(r["data_source"]) for r in ds_rows}
-        v2_pdf["data_source"] = v2_pdf["match_id"].map(lambda mid: ds_map.get(mid, "unknown"))
-        logger.info("Derived data_source for %d matches from fct_action_values", len(ds_map))
+    # Derive data_source + competition/season metadata from a single query
+    # (OPT-AUDIT: combined two SELECT DISTINCT queries into one to halve shuffle)
+    gold = _GOLD_SCHEMA
+    needs_data_source = "data_source" not in v2_pdf.columns
+    try:
+        meta_query = (
+            f"SELECT DISTINCT "  # noqa: S608
+            f"  CAST(match_id AS STRING) AS match_id, "
+            f"  CAST(data_source AS STRING) AS data_source, "
+            f"  CAST(competition_id AS STRING) AS competition_id, "
+            f"  CAST(season_id AS STRING) AS season_id "
+            f"FROM {catalog}.{gold}.fct_action_values"
+        )
+        meta_pdf = spark.sql(meta_query).toPandas()
+        match_competition_map: dict[str, tuple[str, str]] = dict(
+            zip(
+                meta_pdf["match_id"].astype(str),
+                zip(meta_pdf["competition_id"].astype(str), meta_pdf["season_id"].astype(str), strict=True),
+                strict=True,
+            )
+        )
+        if needs_data_source:
+            ds_map = dict(zip(meta_pdf["match_id"].astype(str), meta_pdf["data_source"].astype(str), strict=True))
+            v2_pdf["data_source"] = v2_pdf["match_id"].map(ds_map).fillna("unknown")
+            logger.info("Derived data_source for %d matches from fct_action_values", len(ds_map))
+    except Exception:
+        logger.warning("Could not load match metadata — stat vectors will be None")
+        match_competition_map = {}
+        if needs_data_source:
+            v2_pdf["data_source"] = "unknown"
     v2_pdf["data_source"] = v2_pdf["data_source"].astype(str)
 
     # Behavioral vectors may be stored as numpy arrays or lists — normalize to list[float]
@@ -591,32 +613,15 @@ def _import_v2_embeddings(
     if norm_params:
         _save_norm_params(catalog, norm_params, logger)
 
-    # To merge stat vectors we need competition/season context per match.
-    # Load from fct_action_values (same source as v1 path).
-    gold = _GOLD_SCHEMA
-    try:
-        comp_query = (
-            f"SELECT DISTINCT "  # noqa: S608
-            f"  CAST(match_id AS STRING) AS match_id, "
-            f"  CAST(competition_id AS STRING) AS competition_id, "
-            f"  CAST(season_id AS STRING) AS season_id "
-            f"FROM {catalog}.{gold}.fct_action_values"
-        )
-        comp_pdf = spark.sql(comp_query).toPandas()
-        match_competition_map: dict[str, tuple[str, str]] = {
-            str(row["match_id"]): (str(row["competition_id"]), str(row["season_id"])) for _, row in comp_pdf.iterrows()
-        }
-    except Exception:
-        logger.warning("Could not load competition/season map — stat vectors will be None")
-        match_competition_map = {}
-
     # Merge stat vectors
     behavioral_keys = list(zip(v2_pdf["canonical_player_id"].astype(str), v2_pdf["match_id"].astype(str), strict=True))
     merged_stats = _merge_vectors(behavioral_keys, stat_df, match_competition_map)
 
-    # Attach stat vectors to the v2 DataFrame
+    # Attach stat vectors via vectorized key lookup
+    # (OPT-AUDIT: replaced .iterrows() on ~87K rows with tuple-keyed map)
     v2_pdf["stat_vector"] = [
-        merged_stats.get((str(row["canonical_player_id"]), str(row["match_id"]))) for _, row in v2_pdf.iterrows()
+        merged_stats.get(k)
+        for k in zip(v2_pdf["canonical_player_id"].astype(str), v2_pdf["match_id"].astype(str), strict=True)
     ]
 
     # Write per data source with replaceWhere for idempotency
@@ -805,14 +810,17 @@ def run_pipeline(
         for pid, mid, vec in zip(pids, mids, behavioral_pdf["behavioral_vector"], strict=True)
     }
     # First occurrence per match_id wins (drop_duplicates keeps first)
+    # (OPT-AUDIT: replaced .iterrows() with dict(zip()) — vectorized)
     meta_dedup = behavioral_pdf.drop_duplicates(subset=["match_id"])
-    match_competition_map = {
-        str(r["match_id"]): (str(r["competition_id"]), str(r["season_id"]))
-        for _, r in meta_dedup[["match_id", "competition_id", "season_id"]].iterrows()
-    }
-    source_map = {
-        str(r["match_id"]): str(r["data_source"]) for _, r in meta_dedup[["match_id", "data_source"]].iterrows()
-    }
+    _md_mids = meta_dedup["match_id"].astype(str)
+    match_competition_map = dict(
+        zip(
+            _md_mids,
+            zip(meta_dedup["competition_id"].astype(str), meta_dedup["season_id"].astype(str), strict=True),
+            strict=True,
+        )
+    )
+    source_map = dict(zip(_md_mids, meta_dedup["data_source"].astype(str), strict=True))
 
     logger.info("Inferred %d behavioral vectors via applyInPandas", len(behavioral_vectors))
 

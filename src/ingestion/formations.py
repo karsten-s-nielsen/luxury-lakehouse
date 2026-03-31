@@ -456,7 +456,12 @@ def _process_matches(
     # Build filter predicate for all new matches at once
     new_ids_str = [str(mid) for mid in new_match_ids]
 
-    tracking_df = (
+    # Materialize filtered tracking data to a temp table so both detector
+    # passes read from it without re-scanning the full 38M-row source.
+    # (OPT-AUDIT: .cache() is forbidden on serverless; temp Delta table
+    # is the CLAUDE.md-sanctioned alternative for re-read avoidance.)
+    temp_table = f"{catalog}.{schema}.__temp_formations_tracking"
+    (
         spark.table(gold_table)
         .filter(F.col("match_id").isin(new_ids_str))
         .select(
@@ -470,7 +475,12 @@ def _process_matches(
             "is_goalkeeper",
             "frame",
         )
+        .write.mode("overwrite")
+        .option("overwriteSchema", "true")
+        .saveAsTable(temp_table)
     )
+    tracking_df = spark.table(temp_table)
+    logger.info("Materialized filtered tracking data to %s", temp_table)
 
     total_written = 0
 
@@ -569,6 +579,13 @@ def _process_matches(
     )
     total_written += written_positions
     logger.info("Player positions written: %d rows (shape graph)", written_positions)
+
+    # Clean up temp table
+    try:
+        spark.sql(f"DROP TABLE IF EXISTS {temp_table}")
+        logger.info("Dropped temp table %s", temp_table)
+    except Exception:
+        logger.warning("Could not drop temp table %s — manual cleanup needed", temp_table)
 
     return total_written
 

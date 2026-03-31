@@ -109,6 +109,8 @@ Items from the Pipeline Optimization & Scaling (EIP) roadmap section that were e
 | E3 | Dead Letter Channel | Failed record quarantine to `bronze.dead_letters` table. Current retry logic handles transient errors; no persistent failure pattern observed. | When ingestion sources become unreliable or data volume exceeds manual inspection. |
 | E4 | `dbt clone` for staging | Zero-copy table references for pre-production validation. Requires Lakebase branching. | When staging environment (ROADMAP.md) is implemented. |
 | E6 | Delta retention policy | Explicit `delta.deletedFileRetentionDuration` (30d gold, 7d bronze) ahead of DBR 18.0. | Before DBR 18.0 upgrade where `RETAIN X HOURS` in manual VACUUM is ignored. |
+| E7 | `fct_player_embeddings_career/season` incremental | Both models use `materialized='table'` (full rebuild). Acceptable: ~8,950 rows each, simple `AVG()` over ~87K source rows (~3 seconds), guarded by `enabled=var('embeddings_enabled', false)` so they only run on explicit request. Incremental alternative (track which players have new matches, recompute per-player means, merge) adds state-tracking complexity that exceeds the full-rebuild cost at this scale. Break-even: source table >500K rows or rebuild >30 seconds. Evaluated 2026-03-31 (OPT-AUDIT). | When `fct_player_embeddings` exceeds 500K rows or rebuild time exceeds 30 seconds. |
+| U5 | Cross-page contextual links in Taipy | No contextual "see also" links between related pages (e.g., Player Impact → Player Comparison, Defensive Impact → Player Impact). The template architecture supports `ContentBlock("text", ...)` for inline links, but which pages to connect and where to place links requires UX design decisions. CHI-AUDIT C-10 identified this as a navigation design opportunity. Evaluated 2026-03-31. | When the next Taipy UI cycle adds new pages or the shape graph visualization pages are built (ROADMAP.md). |
 
 ---
 
@@ -119,8 +121,7 @@ See [ROADMAP.md](ROADMAP.md) for research directions, long-horizon features, and
 - **Observability Layer (OpenTelemetry)** — instrument once, observe anywhere; ~$1-2/month personal tier
 - **Deep Learning Infrastructure** — hybrid GPU training, pre-trained soccer models, DeepMind-inspired optimization
 - **Provider Abstraction** — configurable multi-tier ingestion; free/open tiers default, commercial activates via credentials
-- **Team Shape Analysis** — Stage 2 blocked on SkillCorner DoD
-- **Shape Graph Visualizations & Tactical Applications** — position plots, dual-detector UX, scouting via position maps (needs D36/D37 first)
+- **Shape Graph Visualizations & Tactical Applications** — position plots, dual-detector UX, scouting via position maps (D36/D37 shipped in Cycle 2)
 - **Goalkeeper Analytics** — four-pillar GK evaluation taxonomy, key references, embedding gap (D38/D39 are the implementation items)
 - **Visual Exploratory Behavior** — partially unblocked: 6 Veo3 recordings + local RTMO pose estimation feasible (BSD 3-Clause)
 - **Staging Environment** — Lakebase branching for pre-production validation

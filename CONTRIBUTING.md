@@ -19,10 +19,10 @@ See the [Getting Started guide](docs/getting-started.md) for local environment s
 All of these must pass before submitting a PR:
 
 ```bash
-uv run ruff check src/           # Lint
-uv run ruff format --check src/  # Format
-uv run pyright src/              # Type check
-uv run pytest src/tests/ -v      # Unit tests
+uv run ruff check src/ scripts/           # Lint
+uv run ruff format --check src/ scripts/  # Format
+uv run pyright src/                       # Type check
+uv run pytest src/tests/ -v               # Unit tests
 ```
 
 ## Pull Request Process

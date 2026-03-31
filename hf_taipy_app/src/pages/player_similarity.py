@@ -10,17 +10,18 @@ page_config = PageConfig(
     nav_section=NAV_PLAYER_ANALYSIS,
     freshness_var="ps_data_freshness",
     description=(
-        "Find similar players using pgvector cosine distance on behavioral (32-d) "
+        "Find similar players using pgvector cosine distance on behavioral (128-d) "
         "or statistical (13-d) embedding vectors. "
-        "Behavioral embeddings via Theiner et al. (2022) football2vec with Doc2Vec (Le & Mikolov 2014). "
-        "Model: luxury-lakehouse/football2vec-statsbomb-wyscout."
+        "Behavioral embeddings via football2vec v2 transformer encoder with adversarial "
+        "team debiasing (Ganin et al. 2016). "
+        "Model: luxury-lakehouse/football2vec-v2."
     ),
     citations=[
-        Citation("Theiner et al. (2022)", "https://doi.org/10.1007/978-3-031-02044-5_2"),
-        Citation("Doc2Vec (Le & Mikolov 2014)", "https://arxiv.org/abs/1405.4053"),
+        Citation("Ganin et al. (2016) — Gradient Reversal", "https://jmlr.org/papers/v17/15-239.html"),
+        Citation("Danesi (2025) — Football2Vec", "https://doi.org/10.1007/978-3-031-02044-5_2"),
         Citation(
-            "luxury-lakehouse/football2vec-statsbomb-wyscout",
-            "https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout",
+            "luxury-lakehouse/football2vec-v2",
+            "https://huggingface.co/luxury-lakehouse/football2vec-v2",
         ),
     ],
     warning_var="ps_warning_text",

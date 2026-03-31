@@ -19,6 +19,8 @@
 #   compute_pausa     — PAUSA pass timing pipeline (depends on elastic_sync + OBSO import)
 #   resolve_players   — Cross-source entity resolution (depends on statsbomb + wyscout)
 #   compute_embeddings — Player behavioral + statistical embeddings (depends on entity resolution)
+#   export_embeddings_training_data — SPADL sequences for Football2vec v2 (depends on SPADL + entity resolution)
+#   compute_formations — Formation detection: EFPI + shape graph (depends on pitch control)
 #   run_model_validation — Model drift detection (depends on compute_pausa)
 #
 # Schedule: Daily at 06:00 UTC (before business hours in US/EU timezones)
@@ -302,6 +304,32 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
+  # ── Task: Detect team formations (EFPI + shape graph dual-detector) ──
+  # Reads fct_tracking_frames, runs EFPI template matching (Bekkers &
+  # Dabadghao 2025) and shape graph geometric detection (Sotudeh 2026).
+  # Writes formation_labels (both detectors) + player_positions (shape graph).
+  task {
+    task_key        = "compute_formations"
+    timeout_seconds = 3600
+    max_retries     = 1
+
+    depends_on {
+      task_key = "compute_pitch_control"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_formations"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+      ]
+    }
+
+    environment_key = "analytics"
+  }
+
   # ── Task: Detect line-breaking passes ────────────────────────────────
   # Path A: StatsBomb 360 freeze-frame defender positions.
   # Path B: Metrica tracking data for defender line estimation.
@@ -407,6 +435,34 @@ resource "databricks_job" "data_ingestion" {
     }
 
     environment_key = "embeddings"
+  }
+
+  # ── Task: Export SPADL action sequences for Football2Vec v2 training ──
+  # Reads fct_action_values joined to dim_players, groups by player-match,
+  # writes Parquet to UC Volume and uploads to HF Hub.
+  task {
+    task_key        = "export_embeddings_training_data"
+    timeout_seconds = 3600
+    max_retries     = 1
+
+    depends_on {
+      task_key = "resolve_players"
+    }
+    depends_on {
+      task_key = "compute_spadl_vaep"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "export_embeddings_training_data"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+      ]
+    }
+
+    environment_key = "default"
   }
 
   # ── Task: Ingest IDSSE event data (DFL event XML) ──────────────────────

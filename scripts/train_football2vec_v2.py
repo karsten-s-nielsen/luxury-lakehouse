@@ -6,6 +6,7 @@
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
 #     "torch>=2.0",
+#     "safetensors>=0.4.0",
 #     "huggingface-hub>=1.5.0",
 #     "mlflow>=2.17.0",
 # ]
@@ -190,16 +191,10 @@ def _parse_actions(
         y_coords: list[float] = []
 
         for act in actions:
-            # Handle both dict-like and struct-like access
-            if isinstance(act, dict):
-                action_ids.append(int(act["action_type"]))
-                x_coords.append(float(act["x"]))
-                y_coords.append(float(act["y"]))
-            else:
-                # pyarrow struct → attribute access
-                action_ids.append(int(act["action_type"]))
-                x_coords.append(float(act["x"]))
-                y_coords.append(float(act["y"]))
+            # Both dict and pyarrow struct support [] access
+            action_ids.append(int(act["action_type"]))
+            x_coords.append(float(act["x"]))
+            y_coords.append(float(act["y"]))
 
         all_action_ids.append(action_ids)
         all_x_coords.append(x_coords)
@@ -925,9 +920,11 @@ def save_checkpoint(
     api.create_repo(MODEL_REPO, exist_ok=True, repo_type="model", token=hf_token)
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        # Save state dict (not full model, avoids pickle)
-        state_path = os.path.join(tmpdir, "model_state_dict.pt")
-        torch.save(model.state_dict(), state_path)
+        # Save state dict as safetensors (zero pickle surface)
+        from safetensors.torch import save_file as _save_safetensors
+
+        state_path = os.path.join(tmpdir, "model.safetensors")
+        _save_safetensors(model.state_dict(), state_path)
 
         # Save config as JSON
         config_path = os.path.join(tmpdir, "config.json")
@@ -939,10 +936,10 @@ def save_checkpoint(
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(config_dict, f, indent=2)
 
-        # Upload state dict
+        # Upload state dict (safetensors — no pickle)
         api.upload_file(
             path_or_fileobj=state_path,
-            path_in_repo=f"{stage}/model_state_dict.pt",
+            path_in_repo=f"{stage}/model.safetensors",
             repo_id=MODEL_REPO,
             repo_type="model",
             token=hf_token,
@@ -993,14 +990,16 @@ def load_stage1_checkpoint(
         expanded_embed.weight[:VOCAB_SIZE] = model.token_embedding.weight
     model.token_embedding = expanded_embed
 
-    # Download state dict
+    # Download state dict (safetensors — zero pickle surface)
+    from safetensors.torch import load_file as _load_safetensors
+
     local_path = hf_hub_download(
         MODEL_REPO,
-        "stage1/model_state_dict.pt",
+        "stage1/model.safetensors",
         repo_type="model",
         token=hf_token,
     )
-    state_dict = torch.load(local_path, map_location=device, weights_only=True)
+    state_dict = _load_safetensors(local_path, device=str(device))
     model.load_state_dict(state_dict)
     model = model.to(device)
 

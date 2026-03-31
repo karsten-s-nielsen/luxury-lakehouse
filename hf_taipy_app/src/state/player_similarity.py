@@ -488,6 +488,9 @@ def _run_similarity_search(state: Any) -> None:
     vector_dim = _get_vector_dimension(search_mode)
     limit = int(state.ps_result_count)
 
+    # Show loading feedback during pgvector search (CHI-AUDIT: Gergle feedback)
+    state.ps_status_message = f"Searching for similar players ({search_mode})..."
+
     try:
         # Fetch target vector
         target_result = _fetch_player_embedding_vector(raw_table, player_id, comp_id)

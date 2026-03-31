@@ -31,10 +31,10 @@ Run the quality checks that CI enforces:
 
 ```bash
 # Lint (should report 0 violations)
-uv run ruff check src/
+uv run ruff check src/ scripts/
 
 # Format check (should report 0 reformatted)
-uv run ruff format --check src/
+uv run ruff format --check src/ scripts/
 
 # Type check (should report 0 errors)
 uv run pyright src/
