@@ -26,3 +26,11 @@ GRANT SELECT ON ALL TABLES IN SCHEMA dev_gold TO :app_sp_uuid;
 -- Grant read access on tables created in the future (by synced tables)
 ALTER DEFAULT PRIVILEGES IN SCHEMA dev_gold
     GRANT SELECT ON TABLES TO :app_sp_uuid;
+
+-- ── Observability schema — workflow cost tracking ───────────────────────────
+-- workflow_cost_live_synced lives in the observability schema (not dev_gold).
+-- The Taipy Workflows dashboard queries it for warm-tier cost data.
+GRANT USAGE ON SCHEMA observability TO :app_sp_uuid;
+GRANT SELECT ON ALL TABLES IN SCHEMA observability TO :app_sp_uuid;
+ALTER DEFAULT PRIVILEGES IN SCHEMA observability
+    GRANT SELECT ON TABLES TO :app_sp_uuid;
