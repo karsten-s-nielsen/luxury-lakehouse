@@ -32,13 +32,13 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 18 AI/ML wor
 
         dbtProject = softwareSystem "dbt Project" "Medallion transformation: 53 models (staging/intermediate/marts), normalize_coordinates macro, data classification meta tags, model contracts, liquid clustering" {
             fctWorkflowCosts = container "fct_workflow_costs" "Gold-layer cost attribution from system.billing.usage × list_prices, proportional per-task by execution_duration. 90-day rolling window. Post-hook cleanup of warm-tier rows" "SQL, dbt" "Database"
-            goldModels = container "Gold Models" "23 fact tables + 3 dimension tables with enforced contracts, liquid clustering, auto-compaction" "SQL, dbt" "Database"
+            goldModels = container "Gold Models" "25 fact tables + 3 dimension tables with enforced contracts, liquid clustering, auto-compaction" "SQL, dbt" "Database"
         }
 
         # Data stores
         unityCatalog = softwareSystem "Unity Catalog" "Governed Delta Lake storage: bronze (raw), gold (analytics), observability (platform metadata)" "External" {
             bronzeSchema = container "Bronze Schema" "Raw ingested data: events, tracking, SPADL actions, VAEP scores, compute results" "Delta Lake" "Database"
-            goldSchema = container "Gold Schema" "Analytics-ready facts and dimensions: 23 fact tables, 3 dim tables, fct_workflow_costs" "Delta Lake" "Database"
+            goldSchema = container "Gold Schema" "Analytics-ready facts and dimensions: 25 fact tables, 3 dim tables, fct_workflow_costs" "Delta Lake" "Database"
             observabilitySchema = container "Observability Schema" "Platform operational metadata: workflow_cost_live (warm/hot cost tracking)" "Delta Lake" "Database"
         }
 

@@ -249,13 +249,13 @@
 
         dbtProject = softwareSystem &quot;dbt Project&quot; &quot;Medallion transformation: 53 models (staging/intermediate/marts), normalize_coordinates macro, data classification meta tags, model contracts, liquid clustering&quot; {
             fctWorkflowCosts = container &quot;fct_workflow_costs&quot; &quot;Gold-layer cost attribution from system.billing.usage × list_prices, proportional per-task by execution_duration. 90-day rolling window. Post-hook cleanup of warm-tier rows&quot; &quot;SQL, dbt&quot; &quot;Database&quot;
-            goldModels = container &quot;Gold Models&quot; &quot;23 fact tables + 3 dimension tables with enforced contracts, liquid clustering, auto-compaction&quot; &quot;SQL, dbt&quot; &quot;Database&quot;
+            goldModels = container &quot;Gold Models&quot; &quot;25 fact tables + 3 dimension tables with enforced contracts, liquid clustering, auto-compaction&quot; &quot;SQL, dbt&quot; &quot;Database&quot;
         }
 
         # Data stores
         unityCatalog = softwareSystem &quot;Unity Catalog&quot; &quot;Governed Delta Lake storage: bronze (raw), gold (analytics), observability (platform metadata)&quot; &quot;External&quot; {
             bronzeSchema = container &quot;Bronze Schema&quot; &quot;Raw ingested data: events, tracking, SPADL actions, VAEP scores, compute results&quot; &quot;Delta Lake&quot; &quot;Database&quot;
-            goldSchema = container &quot;Gold Schema&quot; &quot;Analytics-ready facts and dimensions: 23 fact tables, 3 dim tables, fct_workflow_costs&quot; &quot;Delta Lake&quot; &quot;Database&quot;
+            goldSchema = container &quot;Gold Schema&quot; &quot;Analytics-ready facts and dimensions: 25 fact tables, 3 dim tables, fct_workflow_costs&quot; &quot;Delta Lake&quot; &quot;Database&quot;
             observabilitySchema = container &quot;Observability Schema&quot; &quot;Platform operational metadata: workflow_cost_live (warm/hot cost tracking)&quot; &quot;Delta Lake&quot; &quot;Database&quot;
         }
 

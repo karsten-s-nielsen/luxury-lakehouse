@@ -32,35 +32,36 @@ import requests
 
 DATABRICKS_HOST = os.environ.get("DATABRICKS_HOST", "https://dbc-48322be9-16be.cloud.databricks.com")
 CATALOG = "soccer_analytics"
-SCHEMA = "dev_gold"
+DEFAULT_SCHEMA = "dev_gold"
 
-SYNCED_TABLES: list[str] = [
-    "fct_shots_synced",
-    "fct_passes_synced",
-    "fct_player_stats_synced",
-    "fct_match_summary_synced",
-    "fct_player_embeddings_synced",
-    "fct_action_values_synced",
-    "fct_tracking_frames_synced",
-    "fct_physical_stats_synced",
-    "fct_defensive_values_synced",
-    "fct_defcon_actions_synced",
-    "fct_defcon_pressure_synced",
-    "fct_workflow_costs_synced",
-    "fct_formation_labels_synced",
-    "fct_player_positions_synced",
-    "fct_position_maps_synced",
-    "fct_player_embeddings_career_synced",
-    "fct_player_embeddings_season_synced",
-    "fct_line_breaking_results_synced",
-    "fct_pausa_rankings_synced",
-    "fct_player_percentiles_synced",
-    "fct_off_ball_xt_synced",
-    "fct_space_creation_synced",
-    "workflow_cost_live_synced",
-    "dim_players_synced",
-    "dim_teams_synced",
-    "dim_competitions_synced",
+# Synced tables: (table_name, schema_override or None for DEFAULT_SCHEMA).
+# Tables in non-default schemas (e.g., observability) use the override.
+SYNCED_TABLES: list[tuple[str, str | None]] = [
+    ("fct_shots_synced", None),
+    ("fct_passes_synced", None),
+    ("fct_player_stats_synced", None),
+    ("fct_match_summary_synced", None),
+    ("fct_player_embeddings_synced", None),
+    ("fct_action_values_synced", None),
+    ("fct_tracking_frames_synced", None),
+    ("fct_physical_stats_synced", None),
+    ("fct_defensive_values_synced", None),
+    ("fct_defcon_actions_synced", None),
+    ("fct_defcon_pressure_synced", None),
+    ("fct_workflow_costs_synced", None),
+    ("fct_formation_labels_synced", None),
+    ("fct_player_positions_synced", None),
+    ("fct_position_maps_synced", None),
+    ("fct_player_embeddings_career_synced", None),
+    ("fct_player_embeddings_season_synced", None),
+    ("fct_line_breaking_results_synced", None),
+    ("fct_pausa_rankings_synced", None),
+    ("fct_player_percentiles_synced", None),
+    ("fct_off_ball_xt_synced", None),
+    ("workflow_cost_live_synced", "observability"),
+    ("dim_players_synced", None),
+    ("dim_teams_synced", None),
+    ("dim_competitions_synced", None),
 ]
 
 POLL_INTERVAL_S = 30
@@ -78,9 +79,9 @@ def _get_auth_token() -> str:
     return json.loads(result.stdout)["access_token"]
 
 
-def _get_pipeline_id(table: str, headers: dict[str, str]) -> str:
+def _get_pipeline_id(table: str, headers: dict[str, str], schema: str = DEFAULT_SCHEMA) -> str:
     """Fetch the pipeline_id backing a synced table."""
-    full_name = f"{CATALOG}.{SCHEMA}.{table}"
+    full_name = f"{CATALOG}.{schema}.{table}"
     resp = requests.get(
         f"{DATABRICKS_HOST}/api/2.0/database/synced_tables/{full_name}",
         headers=headers,
@@ -136,22 +137,30 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    tables = [t.strip() for t in args.tables.split(",") if t.strip()] if args.tables else SYNCED_TABLES
-    for t in tables:
-        if t not in SYNCED_TABLES:
-            print(f"ERROR: Unknown table '{t}'. Valid: {', '.join(SYNCED_TABLES)}")
-            sys.exit(1)
+    # Build lookup: table_name -> schema
+    table_schema_map: dict[str, str] = {name: (override or DEFAULT_SCHEMA) for name, override in SYNCED_TABLES}
+    all_table_names = list(table_schema_map.keys())
+
+    if args.tables:
+        selected = [t.strip() for t in args.tables.split(",") if t.strip()]
+        for t in selected:
+            if t not in table_schema_map:
+                print(f"ERROR: Unknown table '{t}'. Valid: {', '.join(all_table_names)}")
+                sys.exit(1)
+    else:
+        selected = all_table_names
 
     token = _get_auth_token()
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
-    total = len(tables)
+    total = len(selected)
     errors = 0
     triggered: list[tuple[str, str]] = []  # (table, pipeline_id)
 
-    for i, table in enumerate(tables, 1):
+    for i, table in enumerate(selected, 1):
         try:
-            pipeline_id = _get_pipeline_id(table, headers)
+            schema = table_schema_map[table]
+            pipeline_id = _get_pipeline_id(table, headers, schema=schema)
             _, already_running = _trigger_refresh(pipeline_id, headers)
             if already_running:
                 print(f"[{i}/{total}] Already running: {table}")
