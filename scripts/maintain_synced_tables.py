@@ -96,7 +96,7 @@ def main() -> int:
     # ── Step 2: Create indexes ────────────────────────────────────────────────
     ok, elapsed = _run_step(
         name="create_indexes",
-        cmd=[sys.executable, "scripts/create_indexes.py", *base_args],
+        cmd=[sys.executable, "scripts/create_indexes.py"],
         dry_run=args.dry_run,
     )
     total_elapsed += elapsed
@@ -108,7 +108,7 @@ def main() -> int:
     if not args.skip_verify:
         ok, elapsed = _run_step(
             name="verify_indexes",
-            cmd=[sys.executable, "scripts/create_indexes.py", "--verify", *base_args],
+            cmd=[sys.executable, "scripts/create_indexes.py", "--verify"],
             dry_run=args.dry_run,
         )
         total_elapsed += elapsed
