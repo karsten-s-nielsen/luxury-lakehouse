@@ -110,8 +110,11 @@ def main() -> None:
 
     volume_file = f"{volume_path}/space_creation_values.parquet"
     logger.info("Copying to UC Volume: %s", volume_file)
-    dbutils = spark._jvm.com.databricks.dbutils_v1.DBUtilsHolder.dbutils()  # type: ignore[attr-defined]
-    dbutils.fs().cp(f"file://{local_path}", volume_file, True)
+    import shutil
+    from pathlib import Path
+
+    Path(volume_path).mkdir(parents=True, exist_ok=True)
+    shutil.copy2(local_path, volume_file)
     logger.info("Copy complete")
 
     # ------------------------------------------------------------------

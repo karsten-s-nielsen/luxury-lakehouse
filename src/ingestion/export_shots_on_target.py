@@ -133,11 +133,9 @@ def _upload_to_hf_hub(parquet_path: str) -> str:
     hf_token = os.environ.get("HF_TOKEN", "")
     if not hf_token:
         try:
-            from pyspark.sql import SparkSession as _Ss  # type: ignore[import-not-found]
+            from databricks.sdk.runtime import dbutils as _dbutils  # type: ignore[import-not-found]
 
-            _spark = _Ss.getActiveSession()
-            if _spark:
-                hf_token = _spark._jvm.com.databricks.dbutils_v1.DBUtilsHolder.dbutils().secrets().get("hf", "token")  # type: ignore[union-attr]
+            hf_token = _dbutils.secrets.get(scope="hf", key="token")
         except Exception:  # noqa: S110
             pass
     api = HfApi(token=hf_token or None)
