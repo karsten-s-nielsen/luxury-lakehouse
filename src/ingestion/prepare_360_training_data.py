@@ -575,7 +575,7 @@ def main() -> None:
     logger.info("Writing %d player-match rows to %s", row_count, volume_path)
 
     start = time.time()
-    grouped_sdf.write.mode("overwrite").parquet(volume_path)
+    grouped_sdf.write.mode("overwrite").parquet(volume_path)  # type: ignore[union-attr]
     elapsed = time.time() - start
     logger.info("Parquet write complete in %.2fs", elapsed)
 
