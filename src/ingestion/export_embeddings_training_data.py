@@ -314,6 +314,11 @@ def _upload_to_hf_hub(
 
     hf_token = os.environ.get("HF_TOKEN", "")
     if not hf_token:
+        try:
+            hf_token = spark._jvm.com.databricks.dbutils_v1.DBUtilsHolder.dbutils().secrets().get("hf", "token")  # type: ignore[union-attr]
+        except Exception:  # noqa: S110
+            pass
+    if not hf_token:
         from huggingface_hub import get_token
 
         hf_token = get_token() or ""

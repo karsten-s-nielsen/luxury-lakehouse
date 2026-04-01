@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import re
 import sys
 import time
@@ -128,7 +129,18 @@ def _upload_to_hf_hub(parquet_path: str) -> str:
     """
     from huggingface_hub import HfApi  # type: ignore[import-not-found]
 
-    api = HfApi()
+    # Resolve HF token: env var → Databricks secrets → cached CLI login
+    hf_token = os.environ.get("HF_TOKEN", "")
+    if not hf_token:
+        try:
+            from pyspark.sql import SparkSession as _Ss  # type: ignore[import-not-found]
+
+            _spark = _Ss.getActiveSession()
+            if _spark:
+                hf_token = _spark._jvm.com.databricks.dbutils_v1.DBUtilsHolder.dbutils().secrets().get("hf", "token")  # type: ignore[union-attr]
+        except Exception:  # noqa: S110
+            pass
+    api = HfApi(token=hf_token or None)
 
     api.create_repo(
         DATASET_REPO,

@@ -815,7 +815,8 @@ resource "databricks_job" "data_ingestion" {
   }
 
   # ── Environment for HF Hub write tasks (uploads to HF Hub repos) ──────
-  # Requires HF_TOKEN from Databricks secret scope "hf", key "token".
+  # Tasks using this environment call dbutils.secrets.get(scope="hf", key="token")
+  # at runtime to authenticate with HF Hub for write operations.
   # Setup: databricks secrets put-secret --scope hf --key token
   environment {
     environment_key = "hf"
@@ -827,10 +828,6 @@ resource "databricks_job" "data_ingestion" {
         var.wheel_path,
         "huggingface_hub>=0.25.0"
       ]
-
-      environment_variables = {
-        HF_TOKEN = "{{secrets/hf/token}}"
-      }
     }
   }
 
