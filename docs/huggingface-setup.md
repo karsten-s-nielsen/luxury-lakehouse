@@ -150,13 +150,13 @@ display(spark.table("soccer_analytics.dev_gold.fct_player_embeddings").count())
 ```
 
 4. **Publish to Hugging Face Hub** (optional):
-   If you have configured the Databricks secret scope `hf` / key `token`, the training notebook (`notebooks/train_football2vec.py`) automatically publishes to HF Hub. To set up:
+   If you have configured the Databricks secret scope `hf` / key `token`, pipeline tasks that write to HF Hub (export training data, export shots, prepare 360 data) automatically authenticate. To set up:
    ```bash
-   # Create the secret scope and add your HF write token
+   # Create the secret scope and add your HF write token (one-time setup)
    databricks secrets create-scope hf
    databricks secrets put-secret hf token --string-value hf_xxxxx
    ```
-   This uploads the trained model to `luxury-lakehouse/football2vec-statsbomb-wyscout` (or your configured org/repo). Publishing is optional — the pipeline works without it.
+   The Terraform workflow injects `HF_TOKEN` via `{{secrets/hf/token}}` into tasks using the `hf` environment. Read-only tasks (importing from public repos) use the `hf-readonly` environment and need no token. See `terraform/modules/workflows/main.tf` for the environment definitions.
 
 **Verify:** Confirm the upload succeeded:
 ```python

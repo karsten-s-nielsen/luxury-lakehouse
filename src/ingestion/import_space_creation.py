@@ -103,7 +103,7 @@ def main() -> None:
     # ------------------------------------------------------------------
     # 1. Download from HF Hub to local cache, then copy to UC Volume
     # ------------------------------------------------------------------
-    parquet_filename = "data/space_creation_values.parquet"
+    parquet_filename = "data/space_creation.parquet"
     logger.info("Downloading %s from %s", parquet_filename, HF_REPO)
     local_path = hf_hub_download(repo_id=HF_REPO, filename=parquet_filename, repo_type="dataset")
     logger.info("Downloaded to local cache: %s", local_path)

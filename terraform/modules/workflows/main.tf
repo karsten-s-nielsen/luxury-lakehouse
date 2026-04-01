@@ -24,6 +24,14 @@
 #   compute_formations_efpi — EFPI template-matching formation detection (depends on pitch control)
 #   compute_formations_shape_graph — Shape graph geometric formation detection (depends on EFPI)
 #   run_model_validation — Model drift detection (depends on compute_pausa)
+#   import_space_creation — Space creation values from HF Hub to bronze (TD#29)
+#   export_shots_on_target — On-target shots export to HF Hub (D39 prerequisite)
+#   import_psxg_predictions — PSxG predictions from HF Hub to bronze (D39)
+#   prepare_360_training_data — SPADL + 360 freeze frame export to HF Hub (D31)
+#
+# HF Hub tasks use the "hf" (write) or "hf-readonly" (read) environments.
+# Write tasks require HF_TOKEN from Databricks secret scope "hf", key "token".
+# Setup: databricks secrets put-secret --scope hf --key token
 #
 # Schedule: Daily at 06:00 UTC (before business hours in US/EU timezones)
 #
@@ -515,7 +523,7 @@ resource "databricks_job" "data_ingestion" {
       ]
     }
 
-    environment_key = "default"
+    environment_key = "hf"
   }
 
   # ── Task: Ingest IDSSE event data (DFL event XML) ──────────────────────
@@ -634,7 +642,94 @@ resource "databricks_job" "data_ingestion" {
       ]
     }
 
-    environment_key = "default"
+    environment_key = "hf-sync"
+  }
+
+  # ── Task: Import space creation values from HF Hub (TD#29) ─────────────
+  task {
+    task_key        = "import_space_creation"
+    timeout_seconds = 900
+    max_retries     = 1
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "import_space_creation"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+        "--volume-path", "/Volumes/${var.catalog_name}/dev_gold/model_weights/space_creation"
+      ]
+    }
+
+    environment_key = "hf-readonly"
+  }
+
+  # ── Task: Export on-target shots to HF Hub (D39 prerequisite) ──────────
+  task {
+    task_key        = "export_shots_on_target"
+    timeout_seconds = 900
+    max_retries     = 1
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "export_shots_on_target"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "dev_gold",
+        "--volume-path", "/Volumes/${var.catalog_name}/dev_gold/model_weights/psxg"
+      ]
+    }
+
+    environment_key = "hf"
+  }
+
+  # ── Task: Import PSxG predictions from HF Hub (D39) ────────────────────
+  task {
+    task_key        = "import_psxg_predictions"
+    timeout_seconds = 900
+    max_retries     = 1
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "import_psxg_predictions"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+        "--volume-path", "/Volumes/${var.catalog_name}/dev_gold/model_weights/psxg"
+      ]
+    }
+
+    environment_key = "hf-readonly"
+  }
+
+  # ── Task: Prepare 360 training data for Football2Vec 360 (D31) ────────
+  task {
+    task_key        = "prepare_360_training_data"
+    timeout_seconds = 3600
+    max_retries     = 1
+
+    depends_on {
+      task_key = "resolve_players"
+    }
+    depends_on {
+      task_key = "compute_spadl_vaep"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "prepare_360_training_data"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "dev_gold",
+        "--volume-path", "/Volumes/${var.catalog_name}/dev_gold/model_weights/football2vec_360"
+      ]
+    }
+
+    environment_key = "hf"
   }
 
   # ── Environment definition for serverless tasks ──────────────────────────
@@ -716,6 +811,55 @@ resource "databricks_job" "data_ingestion" {
           "huggingface_hub>=0.25.0",
         ]
       )
+    }
+  }
+
+  # ── Environment for HF Hub write tasks (uploads to HF Hub repos) ──────
+  # Requires HF_TOKEN from Databricks secret scope "hf", key "token".
+  # Setup: databricks secrets put-secret --scope hf --key token
+  environment {
+    environment_key = "hf"
+
+    spec {
+      client = "1"
+
+      dependencies = [
+        var.wheel_path,
+        "huggingface_hub>=0.25.0"
+      ]
+
+      environment_variables = {
+        HF_TOKEN = "{{secrets/hf/token}}"
+      }
+    }
+  }
+
+  # ── Environment for HF Hub read-only tasks (public repos, no token) ───
+  environment {
+    environment_key = "hf-readonly"
+
+    spec {
+      client = "1"
+
+      dependencies = [
+        var.wheel_path,
+        "huggingface_hub>=0.25.0"
+      ]
+    }
+  }
+
+  # ── Environment for HF cost sync (huggingface_hub + pyyaml) ───────────
+  environment {
+    environment_key = "hf-sync"
+
+    spec {
+      client = "1"
+
+      dependencies = [
+        var.wheel_path,
+        "huggingface_hub>=0.25.0",
+        "pyyaml>=6.0"
+      ]
     }
   }
 

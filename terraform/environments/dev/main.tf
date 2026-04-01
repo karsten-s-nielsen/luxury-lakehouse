@@ -169,17 +169,19 @@ resource "databricks_job" "sync_hf_costs_daily" {
       ]
     }
 
-    environment_key = "default"
+    environment_key = "hf-sync"
   }
 
   environment {
-    environment_key = "default"
+    environment_key = "hf-sync"
 
     spec {
       client = "1"
 
       dependencies = [
-        "${module.catalog.libs_volume_path}/luxury_lakehouse-0.1.0-py3-none-any.whl"
+        "${module.catalog.libs_volume_path}/luxury_lakehouse-0.1.0-py3-none-any.whl",
+        "huggingface_hub>=0.25.0",
+        "pyyaml>=6.0"
       ]
     }
   }
