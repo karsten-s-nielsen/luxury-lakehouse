@@ -118,7 +118,7 @@ STAT_FEATURES: tuple[str, ...] = STAT_FEATURES_BY_GROUP["Defender"]
 
 def _zscore_normalize(
     df: pd.DataFrame,
-    features: list[str],
+    features: Sequence[str],
 ) -> tuple[pd.DataFrame, dict[str, dict[str, float]]]:
     """Z-score normalize feature columns in-place.
 
@@ -253,7 +253,7 @@ def _load_outfield_stats(
     catalog: str,
     gold_schema: str,
     group_name: str,
-    features: list[str],
+    features: Sequence[str],
     player_ids: set[int] | None,
 ) -> pd.DataFrame:
     """Load per-player-competition-season outfield stats from ``fct_player_stats``.
@@ -295,7 +295,7 @@ def _load_goalkeeper_stats(
     spark: SparkSession,
     catalog: str,
     gold_schema: str,
-    features: list[str],
+    features: Sequence[str],
     player_ids: set[int] | None,
 ) -> pd.DataFrame:
     """Load per-player-competition-season goalkeeper stats from ``fct_goalkeeper_stats``.

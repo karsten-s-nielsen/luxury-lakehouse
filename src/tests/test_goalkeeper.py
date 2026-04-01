@@ -74,7 +74,9 @@ class TestComputeGKDistributionXT:
         assert pytest.approx(row["launch_rate"], abs=0.01) == 1.0 / 3.0
 
     def test_empty_passes(self) -> None:
-        empty = pd.DataFrame(columns=["player_id", "match_id", "start_x", "start_y", "end_x", "end_y", "action_result"])
+        empty = pd.DataFrame(
+            columns=pd.Index(["player_id", "match_id", "start_x", "start_y", "end_x", "end_y", "action_result"])
+        )
         result = compute_gk_distribution_xt(empty, _TEST_GRID)
         assert len(result) == 0
 
@@ -154,7 +156,7 @@ class TestComputeGKCollectionStats:
         assert pytest.approx(row["claim_success_rate"], abs=0.01) == 0.5  # 1 success / 2 claims
 
     def test_empty_actions(self) -> None:
-        empty = pd.DataFrame(columns=["player_id", "match_id", "action_type", "action_result"])
+        empty = pd.DataFrame(columns=pd.Index(["player_id", "match_id", "action_type", "action_result"]))
         result = compute_gk_collection_stats(empty)
         assert len(result) == 0
 
@@ -288,6 +290,8 @@ class TestComputeSweeperMetrics:
         assert pytest.approx(row["actions_outside_box_per_90"], abs=0.1) == 1.0
 
     def test_empty(self) -> None:
-        empty = pd.DataFrame(columns=["player_id", "match_id", "start_x", "start_y", "action_type", "minutes_played"])
+        empty = pd.DataFrame(
+            columns=pd.Index(["player_id", "match_id", "start_x", "start_y", "action_type", "minutes_played"])
+        )
         result = compute_sweeper_metrics(empty)
         assert len(result) == 0
