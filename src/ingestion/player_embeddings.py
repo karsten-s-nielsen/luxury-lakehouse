@@ -2,9 +2,11 @@
 
 Loads SPADL actions from ``fct_action_values`` (23-type vocabulary, 105x68m
 coordinates), joins to ``dim_players`` for canonical_player_id, and produces
-behavioral embeddings per (player, match) plus 13-dim z-score normalized
-stat vectors from ``fct_player_stats``.  Results are written to
-``player_embeddings_raw`` bronze table.
+behavioral embeddings per (player, match) plus position-group-aware z-score
+normalized stat vectors.  Outfield stat vectors (13-dim) come from
+``fct_player_stats``; goalkeeper stat vectors (4-dim) come from
+``fct_goalkeeper_stats``.  Results are written to ``player_embeddings_raw``
+bronze table.
 
 Two embedding paths are supported:
 
@@ -51,21 +53,62 @@ _TABLE_NAME = "player_embeddings_raw"
 _GOLD_SCHEMA = "dev_gold"
 _PLAYERS_PER_BATCH = 100
 
-STAT_FEATURES: list[str] = [
-    "goals_per_90",
-    "xg_per_90",
-    "passes_per_90",
-    "pass_completion_pct",
-    "progressive_passes_per_90",
-    "line_breaking_per_90",
-    "vaep_per_90",
-    "offensive_vaep_per_90",
-    "defensive_vaep_per_90",
-    "defcon_per_90",
-    "intercept_per_90",
-    "deter_per_90",
-    "xg_overperformance",
-]
+STAT_FEATURES_BY_GROUP: dict[str, tuple[str, ...]] = {
+    "Goalkeeper": (
+        "save_pct",
+        "gk_xt_per_pass",
+        "launch_rate",
+        "claim_success_rate",
+    ),
+    "Defender": (
+        "goals_per_90",
+        "xg_per_90",
+        "passes_per_90",
+        "pass_completion_pct",
+        "progressive_passes_per_90",
+        "line_breaking_per_90",
+        "vaep_per_90",
+        "offensive_vaep_per_90",
+        "defensive_vaep_per_90",
+        "defcon_per_90",
+        "intercept_per_90",
+        "deter_per_90",
+        "xg_overperformance",
+    ),
+    "Midfielder": (
+        "goals_per_90",
+        "xg_per_90",
+        "passes_per_90",
+        "pass_completion_pct",
+        "progressive_passes_per_90",
+        "line_breaking_per_90",
+        "vaep_per_90",
+        "offensive_vaep_per_90",
+        "defensive_vaep_per_90",
+        "defcon_per_90",
+        "intercept_per_90",
+        "deter_per_90",
+        "xg_overperformance",
+    ),
+    "Forward": (
+        "goals_per_90",
+        "xg_per_90",
+        "passes_per_90",
+        "pass_completion_pct",
+        "progressive_passes_per_90",
+        "line_breaking_per_90",
+        "vaep_per_90",
+        "offensive_vaep_per_90",
+        "defensive_vaep_per_90",
+        "defcon_per_90",
+        "intercept_per_90",
+        "deter_per_90",
+        "xg_overperformance",
+    ),
+}
+
+# Backwards compatibility — outfield features as an immutable tuple.
+STAT_FEATURES: tuple[str, ...] = STAT_FEATURES_BY_GROUP["Defender"]
 
 
 # ---------------------------------------------------------------------------
@@ -75,7 +118,7 @@ STAT_FEATURES: list[str] = [
 
 def _zscore_normalize(
     df: pd.DataFrame,
-    features: list[str],
+    features: Sequence[str],
 ) -> tuple[pd.DataFrame, dict[str, dict[str, float]]]:
     """Z-score normalize feature columns in-place.
 
@@ -205,31 +248,29 @@ def _load_events(
 # ---------------------------------------------------------------------------
 
 
-def _compute_stat_vectors(
+def _load_outfield_stats(
     spark: SparkSession,
     catalog: str,
     gold_schema: str,
-    player_ids: set[int] | None = None,
-) -> tuple[pd.DataFrame, dict[str, dict[str, dict[str, float]]]]:
-    """Load fct_player_stats, z-score normalize per position group, and return stat vectors.
-
-    Z-score normalization is applied per position group (Goalkeeper, Defender,
-    Midfielder, Forward) to prevent goalkeeper stat distributions from distorting
-    outfield player z-scores.
+    group_name: str,
+    features: Sequence[str],
+    player_ids: set[int] | None,
+) -> pd.DataFrame:
+    """Load per-player-competition-season outfield stats from ``fct_player_stats``.
 
     Args:
         spark: Active Spark session.
         catalog: Unity Catalog name.
-        gold_schema: Gold schema name (e.g. ``dev_gold``).
-        player_ids: If provided, only load stats for these canonical player IDs.
-            Prevents unbounded ``.toPandas()`` on full fct_player_stats table.
+        gold_schema: Gold schema name.
+        group_name: Position group to filter (Defender, Midfielder, Forward).
+        features: Stat feature column names to select.
+        player_ids: Optional set of canonical player IDs to restrict the query.
 
     Returns:
-        Tuple of (DataFrame with canonical_player_id, competition_id,
-        season_id, stat_vector columns; normalization params dict keyed
-        by position group, then feature name, then mean/std).
+        Pandas DataFrame with canonical_player_id, competition_id, season_id,
+        position_group, and the requested feature columns.
     """
-    feature_cols = ", ".join(f"ps.{f}" for f in STAT_FEATURES)
+    feature_cols = ", ".join(f"ps.{f}" for f in features)
     query = f"""
         SELECT
             CAST(dp.canonical_player_id AS STRING) AS canonical_player_id,
@@ -241,46 +282,122 @@ def _compute_stat_vectors(
         INNER JOIN {catalog}.{gold_schema}.dim_players dp
             ON ps.player_id = dp.player_id
         WHERE dp.canonical_player_id IS NOT NULL
-            AND dp.position_group IS NOT NULL
+            AND dp.position_group = '{group_name}'
     """  # noqa: S608
     sdf = spark.sql(query)
     if player_ids:
-        # Use DataFrame .filter() with a SQL expression instead of f-string
-        # interpolation in the main query. The player IDs are internal ints
-        # from Delta table lookups, cast to str for type safety.
         id_list = [str(pid) for pid in player_ids]
         sdf = sdf.filter(sdf["canonical_player_id"].isin(id_list))
-    df = sdf.limit(50_000).toPandas()
+    return sdf.limit(50_000).toPandas()
 
-    if df.empty:
-        return (
-            pd.DataFrame(
-                {
-                    "canonical_player_id": pd.Series(dtype="str"),
-                    "competition_id": pd.Series(dtype="str"),
-                    "season_id": pd.Series(dtype="str"),
-                    "stat_vector": pd.Series(dtype="object"),
-                }
-            ),
-            {},
-        )
 
-    # Per-position-group z-score normalization to prevent goalkeeper
-    # stat distributions from contaminating outfield player z-scores.
+def _load_goalkeeper_stats(
+    spark: SparkSession,
+    catalog: str,
+    gold_schema: str,
+    features: Sequence[str],
+    player_ids: set[int] | None,
+) -> pd.DataFrame:
+    """Load per-player-competition-season goalkeeper stats from ``fct_goalkeeper_stats``.
+
+    ``fct_goalkeeper_stats`` is per-match grain, so we aggregate to
+    per-(player, competition, season) with ``AVG`` for rate metrics.
+
+    Args:
+        spark: Active Spark session.
+        catalog: Unity Catalog name.
+        gold_schema: Gold schema name.
+        features: Stat feature column names to aggregate (e.g. save_pct).
+        player_ids: Optional set of canonical player IDs to restrict the query.
+
+    Returns:
+        Pandas DataFrame with canonical_player_id, competition_id, season_id,
+        position_group='Goalkeeper', and the requested feature columns.
+    """
+    agg_cols = ", ".join(f"AVG(gk.{f}) AS {f}" for f in features)
+    query = f"""
+        SELECT
+            CAST(dp.canonical_player_id AS STRING) AS canonical_player_id,
+            CAST(gk.competition_id AS STRING) AS competition_id,
+            CAST(gk.season_id AS STRING) AS season_id,
+            'Goalkeeper' AS position_group,
+            {agg_cols}
+        FROM {catalog}.{gold_schema}.fct_goalkeeper_stats gk
+        INNER JOIN {catalog}.{gold_schema}.dim_players dp
+            ON gk.player_id = dp.player_id
+        WHERE dp.canonical_player_id IS NOT NULL
+            AND dp.position_group = 'Goalkeeper'
+        GROUP BY dp.canonical_player_id, gk.competition_id, gk.season_id
+    """  # noqa: S608
+    sdf = spark.sql(query)
+    if player_ids:
+        id_list = [str(pid) for pid in player_ids]
+        sdf = sdf.filter(sdf["canonical_player_id"].isin(id_list))
+    return sdf.limit(50_000).toPandas()
+
+
+def _compute_stat_vectors(
+    spark: SparkSession,
+    catalog: str,
+    gold_schema: str,
+    player_ids: set[int] | None = None,
+) -> tuple[pd.DataFrame, dict[str, dict[str, dict[str, float]]]]:
+    """Load stats per position group, z-score normalize, and return stat vectors.
+
+    Each position group has its own feature set (see ``STAT_FEATURES_BY_GROUP``):
+    goalkeeper stats come from ``fct_goalkeeper_stats`` (aggregated to
+    player-competition-season), outfield stats from ``fct_player_stats``.
+    Z-score normalization is applied within each group independently.
+
+    Args:
+        spark: Active Spark session.
+        catalog: Unity Catalog name.
+        gold_schema: Gold schema name (e.g. ``dev_gold``).
+        player_ids: If provided, only load stats for these canonical player IDs.
+            Prevents unbounded ``.toPandas()`` on full tables.
+
+    Returns:
+        Tuple of (DataFrame with canonical_player_id, competition_id,
+        season_id, stat_vector columns; normalization params dict keyed
+        by position group, then feature name, then mean/std).
+    """
+    empty_result = pd.DataFrame(
+        {
+            "canonical_player_id": pd.Series(dtype="str"),
+            "competition_id": pd.Series(dtype="str"),
+            "season_id": pd.Series(dtype="str"),
+            "stat_vector": pd.Series(dtype="object"),
+        }
+    )
+
     normalized_groups: list[pd.DataFrame] = []
     all_params: dict[str, dict[str, dict[str, float]]] = {}
-    for group_name, group_df in df.groupby("position_group"):
-        norm_group, group_params = _zscore_normalize(group_df, STAT_FEATURES)
-        normalized_groups.append(norm_group)
-        all_params[str(group_name)] = group_params
 
-    normalized = pd.concat(normalized_groups).sort_index()
+    for group_name, features in STAT_FEATURES_BY_GROUP.items():
+        # Load group-specific stats from the appropriate source table
+        if group_name == "Goalkeeper":
+            group_df = _load_goalkeeper_stats(spark, catalog, gold_schema, features, player_ids)
+        else:
+            group_df = _load_outfield_stats(spark, catalog, gold_schema, group_name, features, player_ids)
 
-    # Build stat_vector column as list[float | None] (vectorized via NumPy array access)
-    stat_arr = normalized[STAT_FEATURES].values
-    normalized["stat_vector"] = [[None if pd.isna(v) else float(v) for v in row] for row in stat_arr]
+        if group_df.empty:
+            continue
 
-    result_df = cast(pd.DataFrame, normalized[["canonical_player_id", "competition_id", "season_id", "stat_vector"]])
+        # Z-score normalize within this position group
+        norm_group, group_params = _zscore_normalize(group_df, features)
+        all_params[group_name] = group_params
+
+        # Build stat_vector column from the group-specific features
+        stat_arr = norm_group[list(features)].values
+        norm_group["stat_vector"] = [[None if pd.isna(v) else float(v) for v in row] for row in stat_arr]
+        normalized_groups.append(
+            cast(pd.DataFrame, norm_group[["canonical_player_id", "competition_id", "season_id", "stat_vector"]])
+        )
+
+    if not normalized_groups:
+        return empty_result, {}
+
+    result_df = cast(pd.DataFrame, pd.concat(normalized_groups, ignore_index=True))
     return result_df, all_params
 
 

@@ -128,6 +128,8 @@ models:
         description: X coordinate where the shot ended
       - name: end_location_y
         description: Y coordinate where the shot ended
+      - name: end_location_z
+        description: "Z coordinate of shot end location — goalmouth height in yards (0-8). StatsBomb only; NULL for Wyscout."
       - name: shot_body_part
         description: Body part used for the shot
       - name: shot_technique

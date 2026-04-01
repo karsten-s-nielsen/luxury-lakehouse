@@ -7,7 +7,7 @@
 --
 -- Provides calibration context for raw metric values (CHI-AUDIT-180).
 -- Grain: one row per (player_id, competition_id, season_id).
--- Percentiles computed via PERCENT_RANK() within each competition/season.
+-- Percentiles computed via PERCENT_RANK() within each competition/season/position_group.
 
 with player_names as (
 
@@ -15,6 +15,7 @@ with player_names as (
     select
         cast(player_id as string) as player_id,
         player_display_name,
+        position_group,
         row_number() over (partition by cast(player_id as string) order by player_display_name) as _rn
     from {{ ref('dim_players') }}
 
@@ -27,6 +28,7 @@ player_stats as (
         ps.competition_id,
         ps.season_id,
         pn.player_display_name,
+        pn.position_group,
         ps.minutes_played,
         ps.xg_per_90,
         ps.goals_per_90,
@@ -48,6 +50,7 @@ player_stats as (
         and pn._rn = 1
     where ps.competition_id is not null
       and ps.season_id is not null
+      and pn.position_group is not null
 
 ),
 
@@ -81,6 +84,7 @@ enriched as (
         s.competition_id,
         s.season_id,
         s.player_display_name,
+        s.position_group,
         s.minutes_played,
 
         -- Core per-90 metrics
@@ -125,23 +129,24 @@ percentiled as (
         competition_id,
         season_id,
         player_display_name,
+        position_group,
         minutes_played,
 
-        percent_rank() over (partition by competition_id, season_id order by xg_per_90)                as xg_per_90_pctile,
-        percent_rank() over (partition by competition_id, season_id order by goals_per_90)             as goals_per_90_pctile,
-        percent_rank() over (partition by competition_id, season_id order by passes_per_90)            as passes_per_90_pctile,
-        percent_rank() over (partition by competition_id, season_id order by progressive_passes_per_90) as progressive_passes_per_90_pctile,
-        percent_rank() over (partition by competition_id, season_id order by pass_completion_pct)      as pass_completion_pct_pctile,
-        percent_rank() over (partition by competition_id, season_id order by vaep_per_90)              as vaep_per_90_pctile,
-        percent_rank() over (partition by competition_id, season_id order by offensive_vaep_per_90)    as offensive_vaep_per_90_pctile,
-        percent_rank() over (partition by competition_id, season_id order by defensive_vaep_per_90)    as defensive_vaep_per_90_pctile,
-        percent_rank() over (partition by competition_id, season_id order by line_breaking_per_90)     as line_breaking_per_90_pctile,
+        percent_rank() over (partition by competition_id, season_id, position_group order by xg_per_90)                as xg_per_90_pctile,
+        percent_rank() over (partition by competition_id, season_id, position_group order by goals_per_90)             as goals_per_90_pctile,
+        percent_rank() over (partition by competition_id, season_id, position_group order by passes_per_90)            as passes_per_90_pctile,
+        percent_rank() over (partition by competition_id, season_id, position_group order by progressive_passes_per_90) as progressive_passes_per_90_pctile,
+        percent_rank() over (partition by competition_id, season_id, position_group order by pass_completion_pct)      as pass_completion_pct_pctile,
+        percent_rank() over (partition by competition_id, season_id, position_group order by vaep_per_90)              as vaep_per_90_pctile,
+        percent_rank() over (partition by competition_id, season_id, position_group order by offensive_vaep_per_90)    as offensive_vaep_per_90_pctile,
+        percent_rank() over (partition by competition_id, season_id, position_group order by defensive_vaep_per_90)    as defensive_vaep_per_90_pctile,
+        percent_rank() over (partition by competition_id, season_id, position_group order by line_breaking_per_90)     as line_breaking_per_90_pctile,
         -- Always emit conditional pctile columns (NULL when source is NULL)
-        percent_rank() over (partition by competition_id, season_id order by defcon_per_90)            as defcon_per_90_pctile,
-        percent_rank() over (partition by competition_id, season_id order by avg_pausa)                as avg_pausa_pctile,
+        percent_rank() over (partition by competition_id, season_id, position_group order by defcon_per_90)            as defcon_per_90_pctile,
+        percent_rank() over (partition by competition_id, season_id, position_group order by avg_pausa)                as avg_pausa_pctile,
 
-        percent_rank() over (partition by competition_id, season_id order by avg_distance_per_minute)  as distance_per_minute_pctile,
-        percent_rank() over (partition by competition_id, season_id order by avg_max_speed)            as max_speed_pctile
+        percent_rank() over (partition by competition_id, season_id, position_group order by avg_distance_per_minute)  as distance_per_minute_pctile,
+        percent_rank() over (partition by competition_id, season_id, position_group order by avg_max_speed)            as max_speed_pctile
 
     from enriched
 
@@ -152,6 +157,7 @@ select
     cast(competition_id as int)        as competition_id,
     cast(season_id as int)             as season_id,
     cast(player_display_name as string) as player_display_name,
+    cast(position_group as string)     as position_group,
     cast(minutes_played as double)     as minutes_played,
 
     cast(xg_per_90_pctile as double)                as xg_per_90_pctile,

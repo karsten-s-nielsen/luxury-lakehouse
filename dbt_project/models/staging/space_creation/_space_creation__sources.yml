@@ -1,0 +1,32 @@
+version: 2
+
+sources:
+  - name: space_creation
+    database: soccer_analytics
+    schema: bronze
+    loader: python_wheel
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 24, period: hour}
+        error_after: {count: 72, period: hour}
+    tables:
+      - name: space_creation_values
+        description: "Per-player space creation/destruction values from OBSO differential (Fernandez & Bornn 2018)"
+        columns:
+          - name: match_id
+            description: Match identifier
+          - name: frame_id
+            description: Tracking frame identifier
+          - name: player_id
+            description: Player identifier
+          - name: team
+            description: Team of the player
+          - name: period
+            description: Match period
+          - name: space_created_m2
+            description: "Square metres of space created by this player's movement (positive = space opened for teammates)"
+          - name: space_destroyed_m2
+            description: "Square metres of space destroyed by this player's movement (positive = space closed for opponents)"
+          - name: net_space_m2
+            description: "Net space impact in square metres (space_created_m2 - space_destroyed_m2)"

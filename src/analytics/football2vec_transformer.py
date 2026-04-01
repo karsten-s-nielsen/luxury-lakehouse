@@ -69,7 +69,7 @@ class Football2VecConfig:
 # ---------------------------------------------------------------------------
 
 
-class _SpatialMLP(nn.Module):
+class SpatialMLP(nn.Module):
     """Project a scalar spatial coordinate to hidden_dim via a two-layer MLP.
 
     Takes normalized (x, y) scalars and maps them to the same dimensionality
@@ -126,8 +126,8 @@ class Football2VecEncoder(nn.Module):
         self.token_embedding = nn.Embedding(cfg.vocab_size, cfg.hidden_dim)
 
         # Spatial encoding: project normalized (x, y) scalars → hidden_dim
-        self.spatial_x = _SpatialMLP(cfg.hidden_dim, cfg.spatial_mlp_dim)
-        self.spatial_y = _SpatialMLP(cfg.hidden_dim, cfg.spatial_mlp_dim)
+        self.spatial_x = SpatialMLP(cfg.hidden_dim, cfg.spatial_mlp_dim)
+        self.spatial_y = SpatialMLP(cfg.hidden_dim, cfg.spatial_mlp_dim)
 
         # Positional encoding: learnable
         self.position_embedding = nn.Embedding(cfg.max_seq_len, cfg.hidden_dim)
