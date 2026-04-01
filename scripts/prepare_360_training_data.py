@@ -429,8 +429,8 @@ def _upload_to_hf_hub(volume_path: str, spark: object) -> str:
         hf_token = get_token() or ""
 
     if not hf_token:
-        logger.warning(
-            "No HF_TOKEN found — skipping HF Hub upload. Data is available at UC Volume: %s",
+        logger.warning(  # nosemgrep: python-logger-credential-disclosure
+            "No HF_TOKEN found - skipping HF Hub upload. Data is available at UC Volume: %s",
             volume_path,
         )
         return f"file://{volume_path}"
