@@ -22,6 +22,7 @@ with statsbomb_shots as (
         location_y,
         end_location_x,
         end_location_y,
+        end_location_z,
         shot_outcome,
         shot_body_part,
         shot_technique,
@@ -51,6 +52,7 @@ wyscout_shots as (
         start_y                                         as location_y,
         end_x                                           as end_location_x,
         end_y                                           as end_location_y,
+        cast(null as double)                            as end_location_z,
         -- Map Wyscout outcome tags to standardized outcome values
         case
             when is_goal then 'Goal'

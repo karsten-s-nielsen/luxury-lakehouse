@@ -1,0 +1,127 @@
+---
+name: Football2Vec 360-Enriched
+id: wf-football2vec-360
+version: "1.0"
+status: production
+type: training-and-inference
+domain: player-embeddings
+owners:
+  - karsten-s-nielsen
+tags:
+  - embeddings
+  - transformer
+  - deep-sets
+  - 360-data
+  - adversarial-training
+  - player-similarity
+
+references:
+  - citation: "Theiner et al. (2022). Explainable Expected Goal Models for Performance Analysis in Football. IEEE SSCI."
+    role: methodology
+  - citation: "Zaheer et al. (2017). Deep Sets. NeurIPS."
+    role: algorithm
+  - citation: "Danesi (2025). The Imposter on the Pitch. HPI/Hudl."
+    role: inspiration
+
+inputs:
+  datasets:
+    - id: "luxury-lakehouse/football2vec-360-training-data"
+      source: huggingface
+      description: "SPADL action sequences with StatsBomb 360 freeze-frame context per player-match"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.player_embeddings_raw"
+      destination: delta-table
+      description: "144-dim 360-enriched embeddings per player-match"
+  models:
+    - id: "luxury-lakehouse/football2vec-360"
+      destination: huggingface
+  datasets:
+    - id: "luxury-lakehouse/football2vec-360-embeddings"  # pragma: allowlist secret
+      destination: huggingface
+
+execution:
+  training:
+    trigger: manual
+    runtime: hf-jobs
+    flavor: a10g-small
+    script: "scripts/train_football2vec_360.py"
+    timeout: "120m"
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: compute_embeddings_360
+    module: ingestion.player_embeddings
+    distribution: applyInPandas
+    partition_key: batch_id
+    schedule: "daily 06:00 UTC"
+    timeout: "3600s"
+    environment: analytics
+
+depends_on:
+  - wf-entity-resolution
+  - wf-football2vec-v2
+
+idempotency:
+  strategy: skip-guard
+  key: match_id
+  description: "Checks existing 360-enriched embeddings by match_id before processing. Uses replaceWhere per data_source for idempotent Delta writes."
+
+cost:
+  training:
+    runtime: hf-jobs
+    flavor: a10g-small
+    rate_usd_per_hour: 1.00
+    typical_duration_minutes: 90
+    typical_cost_usd: 1.50
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 120
+    typical_cost_usd: 8.40
+
+monitoring:
+  metrics:
+    - name: mlm_accuracy
+      baseline: 0.62
+      warn_below: 0.55
+      alert_below: 0.50
+    - name: team_adversarial_accuracy
+      baseline: 0.52
+      warn_above: 0.60
+      alert_above: 0.65
+  freshness_sla_hours: 168
+
+links:
+  source_code:
+    - "scripts/train_football2vec_360.py"
+    - "src/analytics/football2vec_360.py"
+    - "src/ingestion/player_embeddings.py"
+    - "src/ingestion/export_embeddings_training_data.py"
+---
+
+## Overview
+
+Football2Vec 360-Enriched extends the v2 transformer architecture with a Deep Sets
+encoder (Zaheer et al. 2017) that processes StatsBomb 360 freeze-frame context — the
+spatial positions of all visible opponents and teammates at the moment of each action.
+The resulting 144-dimensional embedding (128d transformer + 16d Deep Sets) captures
+both a player's individual action sequences and their spatial relationship to surrounding
+players, providing richer representations than event-only models.
+
+Training covers 323 StatsBomb 360 matches (the full open-data 360 corpus). Adversarial
+team debiasing via gradient reversal (Ganin et al. 2016) removes team-identity confounds,
+producing style representations that generalize across teams. This model occupies a
+separate embedding space from Football2Vec v2 and is not directly comparable to v2
+vectors.
+
+## Architecture
+
+- Token embedding: 23 SPADL action types → 128d
+- Spatial encoding: MLP(x) + MLP(y) → 128d each, summed with token embedding
+- 4-layer transformer encoder, 4 attention heads, GELU activation
+- Mean pooling over valid tokens → 128d player-match embedding (transformer stream)
+- Deep Sets encoder on freeze-frame coordinates → 16d context embedding
+- Concatenation: [128d transformer || 16d Deep Sets] → 144d output
+- Stage 2: gradient reversal layer with team classifier head (lambda=0.2)

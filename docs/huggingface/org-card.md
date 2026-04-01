@@ -29,7 +29,7 @@ The infrastructure uses a **Medallion architecture** (Bronze &rarr; Silver &rarr
 - **5 distinct data sources** unified: StatsBomb, Wyscout, Metrica Sports, IDSSE (Bundesliga), and SkillCorner (A-League)
 - **[14 Taipy dashboard pages](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)** deployed on Hugging Face Spaces (Docker SDK), querying Lakebase PostgreSQL via OAuth
 - **28 synced tables** with Zero-ETL continuous sync from Gold Delta Lake to Lakebase PostgreSQL 17
-- **48 PostgreSQL indexes** (44 btree + 4 HNSW vector indexes at 128-dim) for sub-10ms OLTP queries
+- **56 PostgreSQL indexes** (52 btree + 4 HNSW vector indexes at 128-dim) for sub-10ms OLTP queries
 - Pipeline reliability enforced through **1,135 unit tests** and **381+ dbt data tests**
 
 ## The Hugging Face Footprint
@@ -45,6 +45,8 @@ All public artifacts are hosted entirely within the HF ecosystem.
 | [xg-model-statsbomb-wyscout](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout) | Calibrated XGBoost + logistic baseline (13 features) | Trained on ~131K shots, ROC-AUC 0.979 on held-out test set |
 | [vaep-model-statsbomb-wyscout](https://huggingface.co/luxury-lakehouse/vaep-model-statsbomb-wyscout) | 2&times; XGBClassifier (P(scores) + P(concedes)) | Trained on ~2,388 matches from StatsBomb + Wyscout |
 | [xg-v2-model-set-encoder](https://huggingface.co/luxury-lakehouse/xg-v2-model-set-encoder) | Deep Sets (Zaheer et al. 2017) + MC dropout (Gal &amp; Ghahramani 2016) | ROC-AUC 0.915, trained on ~131K shots with 360 freeze frames |
+| [psxg-model](https://huggingface.co/luxury-lakehouse/psxg-model) | Logistic regression on goalmouth coordinates (Butcher et al. 2025) | Trained on ~15K on-target shots, JSON-serialised weights |
+| [football2vec-360](https://huggingface.co/luxury-lakehouse/football2vec-360) | Transformer encoder (128-dim) + Deep Sets 360 context (16-dim) = 144-dim | 323 StatsBomb 360 matches, adversarial team debiasing |
 
 All model serialization uses **JSON envelopes** &mdash; zero pickle files (banned by project security policy).
 
@@ -64,6 +66,10 @@ All model serialization uses **JSON envelopes** &mdash; zero pickle files (banne
 | [xg-freeze-frame-data](https://huggingface.co/datasets/luxury-lakehouse/xg-freeze-frame-data) | 137K player rows | StatsBomb 360 freeze-frame player positions for xG v2 set encoder |
 | [xg-shot-data](https://huggingface.co/datasets/luxury-lakehouse/xg-shot-data) | 131K shots | Tabular shot features from StatsBomb + Wyscout for xG model training |
 | [space-creation-values](https://huggingface.co/datasets/luxury-lakehouse/space-creation-values) | 875K player-frames | Per-player space creation/destruction via differential OBSO (Fernandez &amp; Bornn 2018) |
+| [statsbomb-shots-on-target](https://huggingface.co/datasets/luxury-lakehouse/statsbomb-shots-on-target) | ~15K shots | On-target shots with goalmouth coordinates for PSxG training |
+| [psxg-predictions](https://huggingface.co/datasets/luxury-lakehouse/psxg-predictions) | ~15K shots | Per-shot PSxG probabilities from logistic model |
+| [football2vec-360-training-data](https://huggingface.co/datasets/luxury-lakehouse/football2vec-360-training-data) | ~2M actions | SPADL action sequences with 360 freeze frame context |
+| [football2vec-360-embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-360-embeddings) | ~4K players | 144-dim player embeddings from 360-enriched model |
 
 ### Interactive Spaces
 

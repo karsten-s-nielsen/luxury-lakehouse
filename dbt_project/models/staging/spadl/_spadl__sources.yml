@@ -17,6 +17,21 @@ sources:
         error_after: {count: 72, period: hour}
 
     tables:
+      - name: expected_threat_grids
+        description: >
+          Expected Threat (xT) grid values produced by the Markov chain
+          compute_expected_threat pipeline. Each row is one zone (x, y) with
+          its xT value, partitioned by competition_id (plus a 'global' aggregate).
+        columns:
+          - name: zone_x
+            description: Zone X index (0-11, 12-column grid over 105m pitch)
+          - name: zone_y
+            description: Zone Y index (0-7, 8-row grid over 68m pitch)
+          - name: xt_value
+            description: Expected Threat value for this zone (0-1 scale)
+          - name: competition_id
+            description: Competition identifier or 'global' for the aggregate grid
+
       - name: vaep_action_values
         description: >
           SPADL actions with VAEP scores. Each row is a single on-ball action

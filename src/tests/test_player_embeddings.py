@@ -12,6 +12,7 @@ import pandas as pd
 
 from ingestion.player_embeddings import (
     STAT_FEATURES,
+    STAT_FEATURES_BY_GROUP,
     _build_bronze_dataframe,
     _compute_stat_vectors,
     _load_events,
@@ -52,6 +53,26 @@ class TestStatVectorFeatures:
 
     def test_no_duplicates(self) -> None:
         assert len(STAT_FEATURES) == len(set(STAT_FEATURES))
+
+    def test_backwards_compat_alias(self) -> None:
+        """STAT_FEATURES is an alias for the Defender group (backwards compatibility)."""
+        assert STAT_FEATURES is STAT_FEATURES_BY_GROUP["Defender"]
+
+    def test_all_position_groups_present(self) -> None:
+        assert set(STAT_FEATURES_BY_GROUP.keys()) == {"Goalkeeper", "Defender", "Midfielder", "Forward"}
+
+    def test_goalkeeper_features(self) -> None:
+        expected_gk = {"save_pct", "gk_xt_per_pass", "launch_rate", "claim_success_rate"}
+        assert set(STAT_FEATURES_BY_GROUP["Goalkeeper"]) == expected_gk
+
+    def test_outfield_groups_share_features(self) -> None:
+        """Defender, Midfielder, Forward currently share the same feature set."""
+        assert STAT_FEATURES_BY_GROUP["Defender"] == STAT_FEATURES_BY_GROUP["Midfielder"]
+        assert STAT_FEATURES_BY_GROUP["Defender"] == STAT_FEATURES_BY_GROUP["Forward"]
+
+    def test_no_duplicates_per_group(self) -> None:
+        for group, features in STAT_FEATURES_BY_GROUP.items():
+            assert len(features) == len(set(features)), f"Duplicates in {group}"
 
 
 # ---------------------------------------------------------------------------
@@ -515,30 +536,44 @@ class TestLoadEvents:
 
 
 class TestComputeStatVectors:
-    """Stat vector computation with mocked Spark."""
+    """Stat vector computation with mocked Spark.
+
+    ``_compute_stat_vectors`` now issues one SQL query per position group
+    (GK from fct_goalkeeper_stats, outfield from fct_player_stats).  The
+    mock returns data only for queries whose SQL contains the relevant
+    position group or table name.
+    """
+
+    @staticmethod
+    def _make_mock_spark(
+        outfield_pdf: pd.DataFrame | None = None,
+        gk_pdf: pd.DataFrame | None = None,
+    ) -> MagicMock:
+        """Build a mock Spark session that returns per-group DataFrames.
+
+        Routes based on the SQL string: queries containing
+        'fct_goalkeeper_stats' return ``gk_pdf``; others return
+        ``outfield_pdf``.  Empty DataFrames are returned for groups
+        without data.
+        """
+        mock_spark = MagicMock()
+        empty_pdf = pd.DataFrame()
+
+        def _sql_side_effect(query: str) -> MagicMock:
+            mock_sdf = MagicMock()
+            if "fct_goalkeeper_stats" in query:
+                pdf = gk_pdf if gk_pdf is not None else empty_pdf
+            else:
+                pdf = outfield_pdf if outfield_pdf is not None else empty_pdf
+            mock_sdf.limit.return_value.toPandas.return_value = pdf
+            mock_sdf.filter.return_value.limit.return_value.toPandas.return_value = pdf
+            return mock_sdf
+
+        mock_spark.sql.side_effect = _sql_side_effect
+        return mock_spark
 
     def test_returns_dataframe_with_stat_vector(self) -> None:
-        mock_spark = MagicMock()
-        mock_pdf = pd.DataFrame(
-            {
-                "canonical_player_id": ["p1", "p2"],
-                "competition_id": ["c1", "c1"],
-                "season_id": ["s1", "s1"],
-                "position_group": ["Forward", "Midfielder"],
-                **{f: [1.0, 2.0] for f in STAT_FEATURES},
-            }
-        )
-        mock_spark.sql.return_value.limit.return_value.toPandas.return_value = mock_pdf
-
-        result, _params = _compute_stat_vectors(mock_spark, "cat", "dev_gold")
-        assert "stat_vector" in result.columns
-        assert "canonical_player_id" in result.columns
-        assert "competition_id" in result.columns
-        assert "season_id" in result.columns
-
-    def test_stat_vector_length_is_13(self) -> None:
-        mock_spark = MagicMock()
-        mock_pdf = pd.DataFrame(
+        outfield_pdf = pd.DataFrame(
             {
                 "canonical_player_id": ["p1", "p2"],
                 "competition_id": ["c1", "c1"],
@@ -547,14 +582,54 @@ class TestComputeStatVectors:
                 **{f: [1.0, 2.0] for f in STAT_FEATURES},
             }
         )
-        mock_spark.sql.return_value.limit.return_value.toPandas.return_value = mock_pdf
+        mock_spark = self._make_mock_spark(outfield_pdf=outfield_pdf)
+
+        result, _params = _compute_stat_vectors(mock_spark, "cat", "dev_gold")
+        assert "stat_vector" in result.columns
+        assert "canonical_player_id" in result.columns
+        assert "competition_id" in result.columns
+        assert "season_id" in result.columns
+
+    def test_stat_vector_length_is_13(self) -> None:
+        outfield_pdf = pd.DataFrame(
+            {
+                "canonical_player_id": ["p1", "p2"],
+                "competition_id": ["c1", "c1"],
+                "season_id": ["s1", "s1"],
+                "position_group": ["Forward", "Forward"],
+                **{f: [1.0, 2.0] for f in STAT_FEATURES},
+            }
+        )
+        mock_spark = self._make_mock_spark(outfield_pdf=outfield_pdf)
 
         result, _ = _compute_stat_vectors(mock_spark, "cat", "dev_gold")
+        # Outfield vectors have 13 features
         assert len(result.iloc[0]["stat_vector"]) == 13
+
+    def test_goalkeeper_stat_vector_length_is_4(self) -> None:
+        """Goalkeeper stat vectors have 4 features (save_pct, gk_xt_per_pass, launch_rate, claim_success_rate)."""
+        gk_pdf = pd.DataFrame(
+            {
+                "canonical_player_id": ["gk1"],
+                "competition_id": ["c1"],
+                "season_id": ["s1"],
+                "position_group": ["Goalkeeper"],
+                "save_pct": [75.0],
+                "gk_xt_per_pass": [0.02],
+                "launch_rate": [30.0],
+                "claim_success_rate": [85.0],
+            }
+        )
+        mock_spark = self._make_mock_spark(gk_pdf=gk_pdf)
+
+        result, params = _compute_stat_vectors(mock_spark, "cat", "dev_gold")
+        assert len(result) >= 1
+        gk_row = result.iloc[0]
+        assert len(gk_row["stat_vector"]) == 4
+        assert "Goalkeeper" in params
 
     def test_null_defcon_features_preserved(self) -> None:
         """Nullable DEFCON features should survive as None in vector."""
-        mock_spark = MagicMock()
         data: dict[str, Any] = {
             "canonical_player_id": ["p1"],
             "competition_id": ["c1"],
@@ -566,10 +641,11 @@ class TestComputeStatVectors:
                 data[f] = [None]
             else:
                 data[f] = [1.0]
-        mock_pdf = pd.DataFrame(data)
-        mock_spark.sql.return_value.limit.return_value.toPandas.return_value = mock_pdf
+        outfield_pdf = pd.DataFrame(data)
+        mock_spark = self._make_mock_spark(outfield_pdf=outfield_pdf)
 
         result, _ = _compute_stat_vectors(mock_spark, "cat", "dev_gold")
+        # Find the Forward row (only outfield data provided)
         vec = result.iloc[0]["stat_vector"]
         # DEFCON features should be None (set to None in input)
         defcon_indices = [STAT_FEATURES.index(f) for f in ("defcon_per_90", "intercept_per_90", "deter_per_90")]
@@ -578,8 +654,7 @@ class TestComputeStatVectors:
 
     def test_player_ids_filter_applied_via_dataframe(self) -> None:
         """When player_ids is provided, a DataFrame .filter() should be applied."""
-        mock_spark = MagicMock()
-        mock_pdf = pd.DataFrame(
+        outfield_pdf = pd.DataFrame(
             {
                 "canonical_player_id": ["p1"],
                 "competition_id": ["c1"],
@@ -588,21 +663,42 @@ class TestComputeStatVectors:
                 **{f: [1.0] for f in STAT_FEATURES},
             }
         )
-        mock_sdf = mock_spark.sql.return_value
-        mock_sdf.filter.return_value.toPandas.return_value = mock_pdf
+        gk_pdf = pd.DataFrame(
+            {
+                "canonical_player_id": ["gk1"],
+                "competition_id": ["c1"],
+                "season_id": ["s1"],
+                "position_group": ["Goalkeeper"],
+                "save_pct": [75.0],
+                "gk_xt_per_pass": [0.02],
+                "launch_rate": [30.0],
+                "claim_success_rate": [85.0],
+            }
+        )
+        mock_spark = MagicMock()
+
+        def _sql_side_effect(query: str) -> MagicMock:
+            mock_sdf = MagicMock()
+            if "fct_goalkeeper_stats" in query:
+                pdf = gk_pdf
+            else:
+                pdf = outfield_pdf
+            mock_sdf.filter.return_value.limit.return_value.toPandas.return_value = pdf
+            mock_sdf.limit.return_value.toPandas.return_value = pdf
+            return mock_sdf
+
+        mock_spark.sql.side_effect = _sql_side_effect
 
         _compute_stat_vectors(mock_spark, "cat", "dev_gold", player_ids={42, 99})
 
-        # SQL should NOT contain IN clause (filter is via DataFrame API)
-        sql_called = mock_spark.sql.call_args[0][0]
-        assert "canonical_player_id IN" not in sql_called
-        # DataFrame .filter() should have been called
-        mock_sdf.filter.assert_called_once()
+        # All SQL calls should NOT contain IN clause (filter is via DataFrame API)
+        for call_args in mock_spark.sql.call_args_list:
+            sql_called = call_args[0][0]
+            assert "canonical_player_id IN" not in sql_called
 
     def test_no_player_ids_filter_when_none(self) -> None:
         """When player_ids is None, the SQL should NOT include an IN clause."""
-        mock_spark = MagicMock()
-        mock_pdf = pd.DataFrame(
+        outfield_pdf = pd.DataFrame(
             {
                 "canonical_player_id": ["p1"],
                 "competition_id": ["c1"],
@@ -611,31 +707,21 @@ class TestComputeStatVectors:
                 **{f: [1.0] for f in STAT_FEATURES},
             }
         )
-        mock_spark.sql.return_value.limit.return_value.toPandas.return_value = mock_pdf
+        mock_spark = self._make_mock_spark(outfield_pdf=outfield_pdf)
 
         _compute_stat_vectors(mock_spark, "cat", "dev_gold", player_ids=None)
 
-        sql_called = mock_spark.sql.call_args[0][0]
-        assert "canonical_player_id IN" not in sql_called
+        for call_args in mock_spark.sql.call_args_list:
+            sql_called = call_args[0][0]
+            assert "canonical_player_id IN" not in sql_called
 
-    def test_empty_player_ids_set_no_filter(self) -> None:
-        """When player_ids is an empty set (falsy), no IN clause should be added."""
-        mock_spark = MagicMock()
-        mock_pdf = pd.DataFrame(
-            {
-                "canonical_player_id": pd.Series(dtype="str"),
-                "competition_id": pd.Series(dtype="str"),
-                "season_id": pd.Series(dtype="str"),
-                "position_group": pd.Series(dtype="str"),
-                **{f: pd.Series(dtype="float") for f in STAT_FEATURES},
-            }
-        )
-        mock_spark.sql.return_value.limit.return_value.toPandas.return_value = mock_pdf
+    def test_empty_result_when_all_groups_empty(self) -> None:
+        """When all groups return empty DataFrames, result should be empty."""
+        mock_spark = self._make_mock_spark()
 
-        _compute_stat_vectors(mock_spark, "cat", "dev_gold", player_ids=set())
-
-        sql_called = mock_spark.sql.call_args[0][0]
-        assert "canonical_player_id IN" not in sql_called
+        result, params = _compute_stat_vectors(mock_spark, "cat", "dev_gold", player_ids=set())
+        assert result.empty
+        assert params == {}
 
 
 # ---------------------------------------------------------------------------

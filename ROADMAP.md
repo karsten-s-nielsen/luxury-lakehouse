@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the current [architecture](ARCHITECTURE.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-03-31 (Cycle 2: D18 Football2vec v2 transformer, D30 adversarial team debiasing, D36 shape graph algorithm, D37 position maps)
+**Last updated**: 2026-03-31 (Cycle 3: D38/D39 GK analytics, D31 360-enriched embeddings, TD#29 space creation pipeline, TD#2 maintenance automation)
 
 ---
 
@@ -619,7 +619,7 @@ Position map similarity enables "find players who occupy similar tactical positi
 
 ## Goalkeeper Analytics
 
-**Status:** Planned (D38 event metrics, D39 post-shot model) — see TODO.md
+**Status:** D38 + D39 shipped (Cycle 3). Four-pillar GK evaluation: distribution xT, collection stats, PSxG model (Butcher et al. 2025), sweeper metrics. Position-group percentiles. GK-specific stat vectors for embeddings.
 
 The platform has zero GK-specific performance metrics. GKs are handled as a filtering concern (excluded from formations, normalized separately in embeddings) but never as subjects of dedicated measurement. This is a significant gap for a platform with a GK coaching stakeholder.
 

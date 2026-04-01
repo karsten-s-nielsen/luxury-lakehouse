@@ -150,6 +150,14 @@ INDEXES: list[tuple[str, str, str]] = [
     # ── dim_players_synced — Player name search (U5) ──────────────────
     # PL-2: display name prefix scan for server-side player search
     ("idx_dim_players_display_name", "dim_players_synced", "player_display_name"),
+    # GK stats (D38)
+    ("idx_fct_goalkeeper_stats_player", "fct_goalkeeper_stats_synced", "player_id"),
+    ("idx_fct_goalkeeper_stats_match", "fct_goalkeeper_stats_synced", "match_id"),
+    ("idx_fct_goalkeeper_stats_comp_season", "fct_goalkeeper_stats_synced", "competition_id, season_id"),
+    # Space creation (TD#29)
+    ("idx_fct_space_creation_match", "fct_space_creation_synced", "match_id"),
+    ("idx_fct_space_creation_player", "fct_space_creation_synced", "player_id"),
+    ("idx_fct_space_creation_match_frame", "fct_space_creation_synced", "match_id, frame_id"),
 ]
 
 # pgvector HNSW index definitions: (index_name, table, using_clause)
@@ -178,6 +186,17 @@ HNSW_INDEXES: list[tuple[str, str, str]] = [
         "idx_embeddings_season_stat_hnsw",
         "fct_player_embeddings_season_synced",
         "USING hnsw ((stat_vector::text::vector(13)) vector_cosine_ops)",
+    ),
+    # 360 embeddings — 144d (D31)
+    (
+        "idx_fct_emb_career_360_behavioral_hnsw",
+        "fct_player_embeddings_career_360_synced",
+        "USING hnsw ((behavioral_vector::text::vector(144)) vector_cosine_ops)",
+    ),
+    (
+        "idx_fct_emb_season_360_behavioral_hnsw",
+        "fct_player_embeddings_season_360_synced",
+        "USING hnsw ((behavioral_vector::text::vector(144)) vector_cosine_ops)",
     ),
 ]
 

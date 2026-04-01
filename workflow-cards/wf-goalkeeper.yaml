@@ -1,0 +1,130 @@
+---
+name: Goalkeeper Analytics
+id: wf-goalkeeper
+version: "1.0"
+status: production
+type: training-and-inference
+domain: goalkeeper-evaluation
+owners:
+  - karsten-s-nielsen
+tags:
+  - goalkeeper
+  - psxg
+  - shot-stopping
+  - distribution
+
+references:
+  - citation: "Butcher et al. (2025). An Expected Goals On Target (xGOT) Model. MDPI."
+    role: methodology
+  - citation: "Lamberts (2025). Goalkeeper Value Model."
+    role: inspiration
+  - citation: "Yam. A Data-Driven GK Evaluation Framework. MIT Sloan."
+    role: methodology
+
+inputs:
+  datasets:
+    - id: "luxury-lakehouse/statsbomb-shots-on-target"
+      source: huggingface
+      description: "On-target shot events with goalmouth coordinates (end_location_y, end_location_z)"
+    - id: "{catalog}.{schema}.fct_action_values"
+      source: delta-table
+      description: "SPADL action values for GK distribution xT delta computation"
+
+outputs:
+  tables:
+    - id: "{catalog}.{schema}.fct_goalkeeper_stats"
+      destination: delta-table
+  models:
+    - id: "luxury-lakehouse/psxg-model"
+      destination: huggingface
+      format: json
+  datasets:
+    - id: "luxury-lakehouse/psxg-predictions"
+      destination: huggingface
+
+execution:
+  training:
+    trigger: manual
+    runtime: hf-jobs
+    flavor: a10g-small
+    script: "scripts/train_psxg_hf.py"
+    timeout: "300s"
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: compute_goalkeeper_stats
+    module: ingestion.goalkeeper_stats
+    distribution: applyInPandas
+    partition_key: match_id
+    schedule: "daily 06:00 UTC"
+    timeout: "3600s"
+    environment: analytics
+
+depends_on:
+  - wf-vaep
+  - wf-xt-grids
+
+idempotency:
+  strategy: skip-guard
+  key: match_id
+  description: "Checks existing GK stats by match_id before processing."
+
+cost:
+  training:
+    runtime: hf-jobs
+    flavor: a10g-small
+    rate_usd_per_hour: 1.00
+    typical_duration_minutes: 5
+    typical_cost_usd: 0.08
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 50
+    typical_cost_usd: 3.50
+
+monitoring:
+  metrics:
+    - name: brier_score
+      baseline: 0.20
+      warn_above: 0.25
+      alert_above: 0.30
+    - name: log_loss
+      baseline: 0.60
+      warn_above: 0.70
+      alert_above: 0.80
+  freshness_sla_hours: 168
+
+links:
+  source_code:
+    - "scripts/train_psxg_hf.py"
+    - "src/ingestion/goalkeeper_stats.py"
+    - "src/analytics/psxg_model.py"
+---
+
+## Overview
+
+Four-pillar goalkeeper evaluation built on StatsBomb open data:
+
+1. **Shot stopping**: PSxG model (Butcher et al. 2025). Logistic regression on goalmouth
+   coordinates predicts the probability that a goalkeeper saves a given on-target shot.
+   Goals prevented = PSxG &minus; actual goals conceded.
+2. **Distribution**: xT delta on GK-initiated passes (goal kicks, throws, long passes) from
+   `fct_action_values`. Launch rate (long ball %) per 90.
+3. **Cross collection**: Claim rate and punch rate on crossed balls, per 90 minutes played.
+4. **Sweeper-keeper**: Defensive actions outside the penalty area (tracking matches only).
+
+All four pillars are aggregated into `fct_goalkeeper_stats` with per-90 normalization.
+
+## PSxG Model
+
+The PSxG (Post-Shot Expected Goals) model estimates save probability from goalmouth
+position. Logistic regression is trained on ~15K on-target shots from StatsBomb open data.
+Features:
+
+| Feature | Description |
+|---------|-------------|
+| `end_location_y` | Horizontal goalmouth position, normalized [0, 1] (0 = left post, 1 = right post) |
+| `end_location_z` | Vertical goalmouth position, normalized [0, 1] (0 = ground, 1 = crossbar) |
+
+Model outputs PSxG per shot (probability of a goal given the shot reached the target).
+Goals prevented = sum(PSxG) &minus; actual goals conceded. Serialized as JSON (zero pickle).

@@ -66,6 +66,7 @@ final as (
         unified_shots.location_y,
         unified_shots.end_location_x,
         unified_shots.end_location_y,
+        unified_shots.end_location_z,
 
         -- Shot classification
         unified_shots.shot_outcome,

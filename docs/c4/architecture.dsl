@@ -1,4 +1,4 @@
-workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 18 AI/ML workflows, three-tier cost tracking, 14-page Taipy dashboard on HF Spaces, Databricks Lakebase. Shape graph formation detection (Sotudeh 2026), Football2vec v2 transformer with adversarial debiasing (128d). Semgrep SAST and ruff S (bandit) in CI." {
+workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 20 AI/ML workflows, three-tier cost tracking, 14-page Taipy dashboard on HF Spaces, Databricks Lakebase. Four-pillar GK evaluation (PSxG, distribution xT, collection, sweeper). Football2vec 360-enriched embeddings (144d transformer + Deep Sets). Shape graph formation detection (Sotudeh 2026), Football2vec v2 transformer with adversarial debiasing (128d). Semgrep SAST and ruff S (bandit) in CI." {
 
     model {
         analyst = person "Soccer Analyst" "Coaches, scouts, and analysts exploring match and player data"
@@ -21,18 +21,18 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 18 AI/ML wor
             deployWheel = container "deploy_wheel.py" "Downloads wheel from HF Hub build-artifacts, uploads to UC Volume /Volumes/{catalog}/bronze/libs/, post-upload size verification" "Python, huggingface_hub, databricks-sdk"
         }
 
-        pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "18 workflow-card-registered compute pipelines with @workflow decorators, lifecycle hooks, three-tier cost tracking, and YAML manifests" {
+        pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "20 workflow-card-registered compute pipelines with @workflow decorators, lifecycle hooks, three-tier cost tracking, and YAML manifests" {
             workflowFramework = container "Workflow Framework" "Registry, @workflow decorator, WorkflowContext, lifecycle runner with on_start/on_complete/on_skip/on_error dispatch" "Python, src/workflows/"
-            workflowCards = container "Workflow Cards" "18 YAML manifests defining inputs, outputs, deps, execution config, cost estimates, academic provenance" "YAML, workflow-cards/" "Database"
+            workflowCards = container "Workflow Cards" "20 YAML manifests defining inputs, outputs, deps, execution config, cost estimates, academic provenance" "YAML, workflow-cards/" "Database"
             costEstimateHook = container "CostEstimateHook" "Lifecycle hook writing run state + cost estimates to workflow_cost_live Delta table via MERGE. Configurable rate via DATABRICKS_SERVERLESS_RATE_USD env var" "Python, PySpark, Delta, src/ingestion/cost_hook.py"
             hfCostRecorder = container "HFJobsCostRecorder" "Standalone cost recorder for HF Jobs scripts. Writes _workflow_cost.json (live status) and _cost_history/{job_id}.json (per-run history) to HF Hub repos. 90-day auto-pruning" "Python, huggingface_hub, src/analytics/cost.py"
             ingestionPipelines = container "Compute Pipelines" "15 @workflow-decorated Databricks pipelines: xG v1/v2, VAEP, DEFCON, pitch control, xT, OBSO/PAUSA, entity resolution, line-breaking, formations EFPI, shape graph, embeddings v1/v2, model validation, embeddings training data export" "Python, PySpark, src/ingestion/"
-            analyticsLibrary = container "Analytics Library" "Pure-Python domain models: pitch control (Spearman 2017), xG (calibrated XGBoost), xT (Markov chain), VAEP (socceraction), OBSO (Fernandez & Bornn), line-breaking (Ward clustering, 3 paths), DEFCON (Kim et al. 2025), entity resolution (TF-IDF + rapidfuzz), shape graph (Sotudeh 2026, Delaunay + angular stability + 5x5 position inference), football2vec v2 (transformer encoder 128d + gradient reversal layer), coordinates (5-provider normalization)" "Python, NumPy, SciPy, PyTorch, src/analytics/"
+            analyticsLibrary = container "Analytics Library" "Pure-Python domain models: pitch control (Spearman 2017), xG (calibrated XGBoost), xT (Markov chain), VAEP (socceraction), OBSO (Fernandez & Bornn), line-breaking (Ward clustering, 3 paths), DEFCON (Kim et al. 2025), entity resolution (TF-IDF + rapidfuzz), shape graph (Sotudeh 2026, Delaunay + angular stability + 5x5 position inference), football2vec v2 (transformer encoder 128d + gradient reversal layer), football2vec 360 (transformer + Deep Sets 144d), goalkeeper (PSxG, distribution xT, sweeper metrics), coordinates (5-provider normalization)" "Python, NumPy, SciPy, PyTorch, scikit-learn, src/analytics/"
         }
 
         dbtProject = softwareSystem "dbt Project" "Medallion transformation: 53 models (staging/intermediate/marts), normalize_coordinates macro, data classification meta tags, model contracts, liquid clustering" {
             fctWorkflowCosts = container "fct_workflow_costs" "Gold-layer cost attribution from system.billing.usage × list_prices, proportional per-task by execution_duration. 90-day rolling window. Post-hook cleanup of warm-tier rows" "SQL, dbt" "Database"
-            goldModels = container "Gold Models" "25 fact tables + 3 dimension tables with enforced contracts, liquid clustering, auto-compaction" "SQL, dbt" "Database"
+            goldModels = container "Gold Models" "31 fact tables + 3 dimension tables with enforced contracts, liquid clustering, auto-compaction" "SQL, dbt" "Database"
         }
 
         # Data stores
@@ -42,11 +42,11 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 18 AI/ML wor
             observabilitySchema = container "Observability Schema" "Platform operational metadata: workflow_cost_live (warm/hot cost tracking)" "Delta Lake" "Database"
         }
 
-        lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL-compatible endpoint syncing 28 Delta Lake tables from Unity Catalog (44 btree + 4 HNSW 128d vector indexes)" "External"
+        lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL-compatible endpoint syncing 29 Delta Lake tables from Unity Catalog (50 btree + 6 HNSW vector indexes: 4x128d + 2x144d)" "External"
         databricksApi = softwareSystem "Databricks REST API" "OAuth credential endpoint for Lakebase authentication" "External"
         databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 24 tasks (6 ingest + 16 compute + 1 validation + 1 HF cost sync), daily 06:00 UTC" "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds from Dockerfile, serves on port 7860" "External"
-        hfHub = softwareSystem "HuggingFace Hub" "Hosts 5 models (incl. football2vec-v2), 13 datasets (incl. training data), build-artifacts wheel, and _workflow_cost.json cost artifacts" "External"
+        hfHub = softwareSystem "HuggingFace Hub" "Hosts 7 models (incl. football2vec-v2, football2vec-360, PSxG), 17 datasets (incl. training data, 360 embeddings), build-artifacts wheel, and _workflow_cost.json cost artifacts" "External"
         hfJobs = softwareSystem "HuggingFace Jobs" "GPU/CPU compute: 8 PEP 723 UV scripts for training (xG, VAEP, Football2vec v2) and batch analytics (xT, EPV, OBSO, Space Creation)" "External"
 
         # Relationships - users
@@ -122,6 +122,9 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 18 AI/ML wor
             deploymentNode "HuggingFace Jobs" "Ephemeral GPU/CPU containers" "Docker" {
                 deploymentNode "cpu-basic ($0.01/hr)" "16 GB RAM" "Python 3.10, UV" {
                     cpuJobInstance = infrastructureNode "xT, EPV, xG v1, VAEP training"
+                }
+                deploymentNode "a10g-small ($1.00/hr)" "15 GB RAM, A10G GPU" "Python 3.10, UV" {
+                    gpuJobSmall = infrastructureNode "PSxG training, Football2vec 360 (MLM + adversarial)"
                 }
                 deploymentNode "a10g-large ($1.50/hr)" "46 GB RAM, A10G GPU" "Python 3.10, UV" {
                     gpuJobInstance = infrastructureNode "OBSO, Space Creation, xG v2, Football2vec v2 (MLM + adversarial)"

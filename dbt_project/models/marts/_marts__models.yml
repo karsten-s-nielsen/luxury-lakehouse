@@ -138,6 +138,9 @@ models:
       - name: end_location_y
         data_type: double
         description: Y coordinate where the shot ended
+      - name: end_location_z
+        data_type: double
+        description: "Z coordinate of shot end location — goalmouth height in yards (0-8). NULL for off-target shots."
       - name: shot_body_part
         data_type: string
         description: Body part used for the shot
@@ -1913,12 +1916,19 @@ models:
       - name: player_display_name
         data_type: string
         description: Human-readable player name.
+      - name: position_group
+        data_type: string
+        description: Position group used for percentile partitioning (Goalkeeper, Defender, Midfielder, Forward).
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['Goalkeeper', 'Defender', 'Midfielder', 'Forward']
       - name: minutes_played
         data_type: double
         description: Total minutes played in this competition/season.
       - name: xg_per_90_pctile
         data_type: double
-        description: Percentile rank of xG per 90 within competition/season (0-1).
+        description: Percentile rank of xG per 90 within competition/season/position_group (0-1).
       - name: goals_per_90_pctile
         data_type: double
         description: Percentile rank of goals per 90.
@@ -2480,3 +2490,251 @@ models:
                 max_value: 200000
               config:
                 severity: warn
+
+  # ── Goalkeeper Stats ─────────────────────────────────────────────────
+
+  - name: fct_goalkeeper_stats
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Per-match goalkeeper statistics combining saves, claims, distribution xT,
+      and future PSxG metrics. One row per goalkeeper per match. Feature-gated:
+      requires goalkeeper_enabled=true. D39 columns (psxg_faced, goals_conceded,
+      goals_prevented, avg_defensive_action_distance, actions_outside_box_per_90)
+      are initially NULL stubs populated after PSxG prediction import.
+    columns:
+      - name: gk_stat_id
+        data_type: string
+        description: Surrogate key (player_id + match_id)
+        data_tests:
+          - unique
+          - not_null
+      - name: player_id
+        data_type: int
+        description: Foreign key to dim_players (goalkeeper only)
+        data_tests:
+          - not_null
+      - name: match_id
+        data_type: bigint
+        description: Match identifier
+        data_tests:
+          - not_null
+      - name: competition_id
+        data_type: int
+        description: Foreign key to dim_competitions
+      - name: season_id
+        data_type: int
+        description: Season identifier
+      - name: minutes_played
+        data_type: double
+        description: Minutes played in this match (derived from lineups and substitutions)
+      - name: saves
+        data_type: bigint
+        description: Number of saves (SPADL keeper_save actions)
+      - name: save_pct
+        data_type: double
+        description: "Save success rate (0-1 fraction). NULL when no save attempts."
+      - name: claims
+        data_type: bigint
+        description: Number of aerial claims (SPADL keeper_claim actions)
+      - name: claim_success_rate
+        data_type: double
+        description: "Claim success rate (0-1 fraction). NULL when no claim attempts."
+      - name: punches
+        data_type: bigint
+        description: Number of punches (SPADL keeper_punch actions)
+      - name: distribution_passes
+        data_type: bigint
+        description: Number of distribution passes (pass, cross, freekick, goalkick)
+      - name: gk_xt_delta_total
+        data_type: double
+        description: "Total xT delta from goalkeeper distribution (positive = progressed ball into higher-threat zones)"
+      - name: gk_xt_per_pass
+        data_type: double
+        description: "Average xT delta per distribution pass (0-1 scale, higher = more progressive distribution)"
+      - name: launch_rate
+        data_type: double
+        description: "Fraction of distribution passes that are long (distance > 60m, 0-1). NULL when no distribution passes."
+      - name: keeper_pick_ups
+        data_type: bigint
+        description: Number of keeper pick-ups (SPADL keeper_pick_up actions)
+      - name: psxg_faced
+        data_type: double
+        description: "Post-shot expected goals faced (D39 stub — NULL until PSxG predictions imported)"
+      - name: goals_conceded
+        data_type: int
+        description: "Goals conceded in this match (D39 stub — NULL until PSxG predictions imported)"
+      - name: goals_prevented
+        data_type: double
+        description: "Goals prevented vs PSxG expectation (D39 stub — NULL until PSxG predictions imported)"
+      - name: avg_defensive_action_distance
+        data_type: double
+        description: "Average distance from goal of defensive actions (D39 stub — NULL until populated)"
+      - name: actions_outside_box_per_90
+        data_type: double
+        description: "Defensive actions outside the penalty box per 90 min (D39 stub — NULL until populated)"
+
+  # ── Space Creation ───────────────────────────────────────────────────
+
+  - name: fct_space_creation
+    config:
+      contract:
+        enforced: false
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Gold-layer per-player space creation/destruction values derived from OBSO
+      differential (Fernandez & Bornn 2018). Each row represents one player's
+      net spatial impact at one tracking frame: how many square metres of space
+      they created for their team and destroyed for the opposition. Feature-gated:
+      requires space_creation_enabled=true.
+    columns:
+      - name: space_creation_id
+        data_type: string
+        description: Surrogate key (match_id + frame_id + player_id)
+        data_tests:
+          - unique
+          - not_null
+      - name: match_id
+        data_type: string
+        description: Match identifier
+        data_tests:
+          - not_null
+      - name: frame_id
+        data_type: int
+        description: Tracking frame identifier
+        data_tests:
+          - not_null
+      - name: player_id
+        data_type: string
+        description: Player identifier (canonical, resolved via dim_players where available)
+        data_tests:
+          - not_null
+      - name: team
+        data_type: string
+        description: Team of the player at this frame
+      - name: period
+        data_type: int
+        description: Match period
+      - name: space_created_m2
+        data_type: double
+        description: "Square metres of space created by this player's movement (positive = space opened for teammates)"
+      - name: space_destroyed_m2
+        data_type: double
+        description: "Square metres of space destroyed by this player's movement (positive = space closed for opponents)"
+      - name: net_space_m2
+        data_type: double
+        description: "Net space impact in square metres (space_created_m2 - space_destroyed_m2)"
+
+  - name: fct_player_embeddings_career_360
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Career-level aggregation of 360-degree player embedding vectors. Averages all
+      match-level embeddings from the football2vec_360 encoder (144-dim) across all
+      competitions and seasons into a single career embedding per player.
+      One row per canonical_player_id.
+    columns:
+      - name: embedding_career_360_id
+        data_type: string
+        description: Surrogate key (canonical_player_id)
+        data_tests:
+          - unique
+          - not_null
+      - name: canonical_player_id
+        data_type: string
+        description: Primary key — unified player identifier
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_players')
+              field: canonical_player_id
+              config:
+                severity: warn
+      - name: behavioral_vector
+        data_type: array<double>
+        description: >
+          Element-wise mean of 144-dim behavioral vectors (football2vec_360 encoder)
+          across all career matches.
+        data_tests:
+          - not_null
+      - name: total_matches
+        data_type: bigint
+        description: Total number of matches contributing to this career embedding
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 1
+                max_value: 1000
+      - name: data_sources
+        data_type: array<string>
+        description: Array of distinct data providers contributing to this aggregation
+
+  - name: fct_player_embeddings_season_360
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Per player-competition-season aggregation of 360-degree embedding vectors.
+      Behavioral vectors from the football2vec_360 encoder (144-dim) are averaged
+      element-wise across all matches in the season. Enables season-level similarity
+      search and style evolution analysis. One row per player per competition per season.
+    columns:
+      - name: embedding_season_360_id
+        data_type: string
+        description: Surrogate key (canonical_player_id + competition_id + season_id)
+        data_tests:
+          - unique
+          - not_null
+      - name: canonical_player_id
+        data_type: string
+        description: Foreign key to dim_players (unified player identifier)
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_players')
+              field: canonical_player_id
+              config:
+                severity: warn
+      - name: competition_id
+        data_type: bigint
+        description: Foreign key to dim_competitions
+        data_tests:
+          - not_null
+      - name: season_id
+        data_type: bigint
+        description: Season identifier
+        data_tests:
+          - not_null
+      - name: behavioral_vector
+        data_type: array<double>
+        description: >
+          Element-wise mean of 144-dim behavioral vectors (football2vec_360 encoder)
+          across all matches in this competition-season.
+        data_tests:
+          - not_null
+      - name: total_matches
+        data_type: bigint
+        description: Number of matches contributing to this aggregation
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 1
+                max_value: 100
+      - name: data_sources
+        data_type: array<string>
+        description: Array of distinct data providers contributing to this aggregation
