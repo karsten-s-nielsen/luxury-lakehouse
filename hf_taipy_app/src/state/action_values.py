@@ -16,9 +16,8 @@ import matplotlib
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import pandas as pd
-from cache import ttl_cache
-from db import execute_query, t
 from filters import fetch_data_freshness, fetch_scope_label
+from queries.defensive import fetch_vaep_breakdown, fetch_vaep_rankings, fetch_vaep_timeline
 from render import PITCH_BG_COLOR, TEXT_COLOR, chart_to_file, fmt_int
 
 from state.shared import (
@@ -94,117 +93,6 @@ __all__ = [
     "av_total_vaep",
     "av_warning_text",
 ]
-
-
-# ---------------------------------------------------------------------------
-# Data fetching
-# ---------------------------------------------------------------------------
-
-
-@ttl_cache()
-def _fetch_rankings(comp_id: int, min_min: int) -> pd.DataFrame:
-    """Fetch VAEP player rankings with percentile data when available.
-
-    LEFT JOINs fct_player_percentiles_synced for vaep_per_90_pctile.
-    Gracefully degrades if the percentile table doesn't exist yet.
-    """
-    ps_tbl = t("fct_player_stats_synced")
-    dim_tbl = t("dim_players_synced")
-
-    try:
-        pctile_tbl = t("fct_player_percentiles_synced")
-        return execute_query(
-            f"SELECT ps.player_id, p.player_display_name, p.position_group, "  # noqa: S608
-            f"  ps.minutes_played, ps.total_vaep, ps.vaep_per_90, "
-            f"  ps.offensive_vaep_per_90, ps.defensive_vaep_per_90, "
-            f"  ps.total_actions, "
-            f"  pct.vaep_per_90_pctile "
-            f"FROM {ps_tbl} ps "
-            f"JOIN {dim_tbl} p ON ps.player_id = p.player_id "
-            f"LEFT JOIN {pctile_tbl} pct "
-            f"  ON ps.player_id::text = pct.player_id "
-            f"  AND ps.competition_id = pct.competition_id "
-            f"  AND ps.season_id = pct.season_id "
-            f"WHERE ps.competition_id = %s "
-            f"  AND ps.minutes_played >= %s "
-            f"  AND ps.vaep_per_90 IS NOT NULL "
-            f"ORDER BY ps.vaep_per_90 DESC "
-            f"LIMIT 500",
-            (comp_id, min_min),
-        )
-    except Exception:
-        logger.debug("Percentile join failed (table may not exist); falling back to base query")
-        return execute_query(
-            f"SELECT ps.player_id, p.player_display_name, p.position_group, "  # noqa: S608
-            f"  ps.minutes_played, ps.total_vaep, ps.vaep_per_90, "
-            f"  ps.offensive_vaep_per_90, ps.defensive_vaep_per_90, "
-            f"  ps.total_actions "
-            f"FROM {ps_tbl} ps "
-            f"JOIN {dim_tbl} p ON ps.player_id = p.player_id "
-            f"WHERE ps.competition_id = %s "
-            f"  AND ps.minutes_played >= %s "
-            f"  AND ps.vaep_per_90 IS NOT NULL "
-            f"ORDER BY ps.vaep_per_90 DESC "
-            f"LIMIT 500",
-            (comp_id, min_min),
-        )
-
-
-@ttl_cache()
-def _fetch_breakdown(
-    comp_id: int,
-    team_id: int | None,
-    player_id: int | None,
-) -> pd.DataFrame:
-    """Fetch VAEP breakdown by action type with dynamic filters."""
-    conditions = ["competition_id = %s"]
-    params: list[Any] = [comp_id]
-
-    if team_id is not None:
-        conditions.append("team_id = %s")
-        params.append(int(team_id))
-
-    if player_id is not None:
-        conditions.append("player_id = %s")
-        params.append(int(player_id))
-
-    where = " AND ".join(conditions)
-    av_tbl = t("fct_action_values_synced")
-    return execute_query(
-        f"SELECT action_type, "  # noqa: S608
-        f"  sum(vaep_value) AS total_vaep, "
-        f"  sum(offensive_value) AS total_offensive, "
-        f"  sum(defensive_value) AS total_defensive, "
-        f"  count(*) AS action_count "
-        f"FROM {av_tbl} WHERE {where} "
-        f"GROUP BY action_type "
-        f"ORDER BY sum(vaep_value) DESC "
-        f"LIMIT 50",
-        tuple(params),
-    )
-
-
-@ttl_cache()
-def _fetch_timeline(match_id: int, team_id: int | None) -> pd.DataFrame:
-    """Fetch action values for a specific match."""
-    conditions = ["match_id = %s"]
-    params: list[Any] = [match_id]
-
-    if team_id is not None:
-        conditions.append("team_id = %s")
-        params.append(int(team_id))
-
-    where = " AND ".join(conditions)
-    av_tbl = t("fct_action_values_synced")
-    return execute_query(
-        f"SELECT time_seconds, period, minute, second, "  # noqa: S608
-        f"  action_type, action_result, vaep_value, "
-        f"  offensive_value, defensive_value, player_id "
-        f"FROM {av_tbl} WHERE {where} "
-        f"ORDER BY period, time_seconds "
-        f"LIMIT 2000",
-        tuple(params),
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -386,7 +274,7 @@ def _refresh_rankings(state: Any) -> None:
     min_min = int(state.min_minutes) if hasattr(state, "min_minutes") else 90
 
     try:
-        rankings = _fetch_rankings(comp_id, min_min)
+        rankings = fetch_vaep_rankings(comp_id, min_min)
     except Exception:
         logger.exception("Failed to fetch VAEP rankings")
         state.av_rankings_data = pd.DataFrame(columns=_AV_RANKINGS_COLS)
@@ -417,7 +305,7 @@ def _refresh_breakdown(state: Any) -> None:
     state.av_scope_label = fetch_scope_label(comp_id, team_id)
 
     try:
-        breakdown = _fetch_breakdown(comp_id, team_id, player_id)
+        breakdown = fetch_vaep_breakdown(comp_id, team_id, player_id)
     except Exception:
         logger.exception("Failed to fetch action breakdown")
         state.av_total_vaep = "Error"
@@ -473,7 +361,7 @@ def _refresh_timeline(state: Any) -> None:
         state.av_scope_label = fetch_scope_label(comp_id, team_id)
 
     try:
-        actions = _fetch_timeline(match_id, team_id)
+        actions = fetch_vaep_timeline(match_id, team_id)
     except Exception:
         logger.exception("Failed to fetch match timeline")
         state.av_positive = "Error"

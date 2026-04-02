@@ -12,10 +12,9 @@ from typing import Any
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import pandas as pd
-from cache import ttl_cache
-from db import execute_query, t
 from filters import fetch_data_freshness, fetch_scope_label
 from mplsoccer import Radar
+from queries.players import fetch_player_percentiles_batch, fetch_player_radar_stats
 from render import PITCH_BG_COLOR, PITCH_LINE_COLOR, PLAYER_COLORS, chart_to_file
 
 from state.shared import _page_refreshers, get_comp_id, get_team_id, register_page_refresher
@@ -119,92 +118,6 @@ __all__ = [
     "pr_stats_table",
     "pr_warning_text",
 ]
-
-
-# ── Data fetching ────────────────────────────────────────────────────────────
-
-
-@ttl_cache()
-def _fetch_player_radar_stats(
-    comp_id: int,
-    player_ids: list[int],
-) -> pd.DataFrame:
-    """Fetch per-90 stats for selected players, picking best season per player.
-
-    Uses ROW_NUMBER() to select the season with most minutes, avoiding
-    duplicates when a competition spans multiple seasons. LEFT JOINs
-    physical stats averaged across tracking matches.
-    """
-    placeholders = ", ".join(["%s"] * len(player_ids))
-    stats_tbl = t("fct_player_stats_synced")
-    players_tbl = t("dim_players_synced")
-    phys_tbl = t("fct_physical_stats_synced")
-
-    return execute_query(
-        f"SELECT sub.player_id, sub.player_display_name, "  # noqa: S608
-        f"  sub.minutes_played, sub.goals_per_90, sub.xg_per_90, "
-        f"  sub.passes_per_90, sub.progressive_passes_per_90, "
-        f"  sub.pass_completion_pct, sub.xg_overperformance, "
-        f"  sub.line_breaking_per_90, "
-        f"  sub.vaep_per_90, sub.offensive_vaep_per_90, sub.defensive_vaep_per_90, "
-        f"  sub.defcon_per_90, "
-        f"  phys.avg_distance_per_min, phys.avg_max_speed_ms "
-        f"FROM ("
-        f"  SELECT ps.player_id, p.player_display_name, "
-        f"    ps.minutes_played, ps.goals_per_90, ps.xg_per_90, "
-        f"    ps.passes_per_90, ps.progressive_passes_per_90, "
-        f"    ps.pass_completion_pct, ps.xg_overperformance, "
-        f"    ps.line_breaking_per_90, "
-        f"    ps.vaep_per_90, ps.offensive_vaep_per_90, ps.defensive_vaep_per_90, "
-        f"    ps.defcon_per_90, "
-        f"    ROW_NUMBER() OVER (PARTITION BY ps.player_id ORDER BY ps.minutes_played DESC) AS rn "
-        f"  FROM {stats_tbl} ps "
-        f"  JOIN {players_tbl} p ON ps.player_id = p.player_id "
-        f"  WHERE ps.competition_id = %s AND ps.player_id IN ({placeholders})"
-        f") sub "
-        f"LEFT JOIN ("
-        f"  SELECT player_id, "
-        f"    AVG(distance_per_minute_m) AS avg_distance_per_min, "
-        f"    AVG(max_speed_ms) AS avg_max_speed_ms "
-        f"  FROM {phys_tbl} "
-        f"  GROUP BY player_id"
-        f") phys ON sub.player_id::text = phys.player_id "
-        f"WHERE sub.rn = 1",
-        (comp_id, *player_ids),
-    )
-
-
-def _fetch_player_percentiles_batch(
-    player_ids: list[int],
-    comp_id: int,
-) -> dict[int, pd.DataFrame]:
-    """Fetch percentile ranks for multiple players in one query.
-
-    Returns a dict mapping player_id to a single-row DataFrame.
-    Empty dict if the synced table doesn't exist or no data found.
-    """
-    if not player_ids:
-        return {}
-    try:
-        pctile_tbl = t("fct_player_percentiles_synced")
-        placeholders = ", ".join(["%s"] * len(player_ids))
-        df = execute_query(
-            f"SELECT * FROM {pctile_tbl} "  # noqa: S608
-            f"WHERE player_id IN ({placeholders}) AND competition_id = %s",
-            (*[str(pid) for pid in player_ids], comp_id),
-        )
-        if df.empty:
-            return {}
-        result: dict[int, pd.DataFrame] = {}
-        for pid in player_ids:
-            mask = df["player_id"].astype(str) == str(pid)
-            player_df = df[mask]
-            if not player_df.empty:
-                result[pid] = player_df.head(1)
-        return result
-    except Exception:
-        logger.debug("Percentile data unavailable (table may not be synced yet)")
-        return {}
 
 
 # ── Rendering ────────────────────────────────────────────────────────────────
@@ -341,7 +254,7 @@ def pr_refresh(state: Any) -> None:
     # Limit to 3 players
     player_ids = player_ids[:3]
 
-    stats = _fetch_player_radar_stats(comp_id, player_ids)
+    stats = fetch_player_radar_stats(comp_id, player_ids)
     if stats.empty:
         _clear_state(state)
         state.pr_comp_selected = True
@@ -390,7 +303,7 @@ def pr_refresh(state: Any) -> None:
 
     # Attempt to fetch percentile data for each player (graceful degradation)
     pctile_data: dict[int, pd.DataFrame] = {}
-    pctile_data = _fetch_player_percentiles_batch(player_ids, comp_id)
+    pctile_data = fetch_player_percentiles_batch(player_ids, comp_id)
 
     # Use percentile-based scaling when ALL players have percentile data
     # and ALL selected metrics have a percentile column mapping.

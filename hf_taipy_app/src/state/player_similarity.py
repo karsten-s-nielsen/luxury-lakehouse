@@ -15,10 +15,9 @@ from typing import Any
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import pandas as pd
-from cache import ttl_cache
-from db import execute_query, t, validate_param_id
 from filters import fetch_data_freshness, fetch_embedding_players
 from mplsoccer import Radar
+from queries.players import fetch_player_embedding_vector, fetch_similarity_radar_stats, search_similar_players
 from render import PITCH_BG_COLOR, PITCH_LINE_COLOR, PLAYER_COLORS, chart_to_file
 
 from state.shared import register_page_refresher
@@ -159,116 +158,6 @@ def _get_table_and_columns(competition_id: int | None) -> tuple[str, str]:
 def _format_vector_literal(vector: list[float]) -> str:
     """Convert a Python list of floats to a pgvector literal string."""
     return "[" + ",".join(str(v) for v in vector) + "]"
-
-
-# ── Data fetching ────────────────────────────────────────────────────────────
-
-
-@ttl_cache()
-def _fetch_player_embedding_vector(
-    table: str,
-    player_id: str,
-    competition_id: int | None,
-) -> pd.DataFrame:
-    """Fetch the target player's embedding vectors."""
-    validate_param_id(player_id)
-    tbl = t(table)
-    if competition_id is not None:
-        return execute_query(
-            f"SELECT behavioral_vector, stat_vector "  # noqa: S608
-            f"FROM {tbl} WHERE canonical_player_id = %s "
-            f"AND competition_id = %s",
-            (player_id, competition_id),
-        )
-    return execute_query(
-        f"SELECT behavioral_vector, stat_vector "  # noqa: S608
-        f"FROM {tbl} WHERE canonical_player_id = %s",
-        (player_id,),
-    )
-
-
-def _search_similar_players(
-    table: str,
-    vector_str: str,
-    vector_col: str,
-    vector_dim: int,
-    total_col: str,
-    player_id: str,
-    min_matches: int,
-    limit: int,
-    competition_id: int | None,
-) -> pd.DataFrame:
-    """Run pgvector cosine distance query to find similar players."""
-    if vector_col not in _ALLOWED_VECTOR_COLUMNS:
-        msg = f"Invalid vector column: {vector_col}"
-        raise ValueError(msg)
-    if total_col not in _ALLOWED_COUNT_COLUMNS:
-        msg = f"Invalid count column: {total_col}"
-        raise ValueError(msg)
-
-    tbl = t(table)
-    dim_players_tbl = t("dim_players_synced")
-
-    comp_filter = ""
-    params: list[Any] = [vector_str, min_matches, player_id, limit]
-    if competition_id is not None:
-        comp_filter = "AND e.competition_id = %s "
-        params = [vector_str, min_matches, competition_id, player_id, limit]
-
-    return execute_query(
-        f"SELECT e.canonical_player_id, p.player_display_name, "  # noqa: S608
-        f"  p.data_sources, "
-        f"  e.{total_col}, "
-        f"  e.{vector_col}::text::vector({vector_dim}) <=> %s::vector({vector_dim}) AS distance "
-        f"FROM {tbl} e "
-        f"JOIN {dim_players_tbl} p "
-        f"  ON e.canonical_player_id = p.canonical_player_id "
-        f"WHERE e.{total_col} >= %s " + comp_filter + "  AND e.canonical_player_id != %s "
-        "ORDER BY distance LIMIT %s",
-        tuple(params),
-    )
-
-
-@ttl_cache()
-def _fetch_radar_stats(
-    canonical_player_ids: list[str],
-    competition_id: int | None,
-) -> pd.DataFrame:
-    """Load per-90 stats for radar comparison of two players."""
-    pids = tuple(str(pid) for pid in canonical_player_ids)
-    placeholders = ", ".join(["%s"] * len(pids))
-    stats_tbl = t("fct_player_stats_synced")
-    players_tbl = t("dim_players_synced")
-
-    comp_clause = ""
-    params: list[Any] = list(pids)
-    if competition_id is not None:
-        comp_clause = "AND ps.competition_id = %s "
-        params.append(competition_id)
-
-    return execute_query(
-        f"SELECT sub.canonical_player_id, sub.player_display_name, "  # noqa: S608
-        f"  sub.minutes_played, sub.goals_per_90, sub.xg_per_90, "
-        f"  sub.passes_per_90, sub.progressive_passes_per_90, "
-        f"  sub.pass_completion_pct, sub.xg_overperformance, "
-        f"  sub.line_breaking_per_90, "
-        f"  sub.vaep_per_90, sub.offensive_vaep_per_90, sub.defensive_vaep_per_90, "
-        f"  sub.defcon_per_90 "
-        f"FROM ("
-        f"  SELECT p.canonical_player_id, p.player_display_name, "
-        f"    ps.minutes_played, ps.goals_per_90, ps.xg_per_90, "
-        f"    ps.passes_per_90, ps.progressive_passes_per_90, "
-        f"    ps.pass_completion_pct, ps.xg_overperformance, "
-        f"    ps.line_breaking_per_90, "
-        f"    ps.vaep_per_90, ps.offensive_vaep_per_90, ps.defensive_vaep_per_90, "
-        f"    ps.defcon_per_90, "
-        f"    ROW_NUMBER() OVER (PARTITION BY p.canonical_player_id ORDER BY ps.minutes_played DESC) AS rn "
-        f"  FROM {stats_tbl} ps "
-        f"  JOIN {players_tbl} p ON ps.player_id = p.player_id "
-        f"  WHERE p.canonical_player_id IN ({placeholders}) " + comp_clause + ") sub "
-        "WHERE sub.rn = 1",
-        tuple(params),
-    )
 
 
 # ── Rendering ────────────────────────────────────────────────────────────────
@@ -439,7 +328,7 @@ def on_ps_selected_compare_change(state: Any, var_name: str, var_value: Any) -> 
     comp_id = _resolve_competition_id(state)
 
     try:
-        radar_data = _fetch_radar_stats([player_id, compare_id], comp_id)
+        radar_data = fetch_similarity_radar_stats([player_id, compare_id], comp_id)
         if radar_data.empty:
             state.ps_radar_image = ""
             state.ps_spoke_caption = ""
@@ -493,7 +382,7 @@ def _run_similarity_search(state: Any) -> None:
 
     try:
         # Fetch target vector
-        target_result = _fetch_player_embedding_vector(raw_table, player_id, comp_id)
+        target_result = fetch_player_embedding_vector(raw_table, player_id, comp_id)
         if target_result.empty:
             state.ps_warning_text = "No embedding vector for this player for the selected filters."
             state.ps_status_message = ""
@@ -523,7 +412,7 @@ def _run_similarity_search(state: Any) -> None:
         vector_str = _format_vector_literal(vector)
 
         # Run similarity search
-        results = _search_similar_players(
+        results = search_similar_players(
             table=raw_table,
             vector_str=vector_str,
             vector_col=vector_col,

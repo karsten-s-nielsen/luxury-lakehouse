@@ -15,9 +15,16 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from cache import ttl_cache
-from db import execute_query, t
 from filters import fetch_data_freshness
+from queries.team_shape import (
+    fetch_formation_labels,
+    fetch_full_match_averages,
+    fetch_match_events,
+    fetch_phase_averages,
+    fetch_sampled_positions,
+    fetch_ts_frame_data,
+    fetch_ts_frame_range,
+)
 
 from analytics.team_shape import TeamShapeResult, compute_team_shape
 from state.shared import get_tracking_match_id, register_page_refresher
@@ -124,159 +131,6 @@ __all__ = [
     "ts_warning_text",
     "ts_width_delta",
 ]
-
-
-# ── Data fetching ────────────────────────────────────────────────────────────
-#
-# IMPORTANT: Never fetch bulk tracking data (300K+ rows per match).
-# Each query returns a small, bounded result set:
-#   - _fetch_frame_data: ~22 rows (one frame)
-#   - _fetch_phase_averages: ~22 rows (server-side aggregation)
-#   - _fetch_sampled_positions: ~24K rows max (5s buckets x 22 players)
-#   - _fetch_frame_range: 1 row (min/max aggregates + fps)
-
-
-@ttl_cache()
-def _fetch_frame_data(match_id: str, frame: int) -> pd.DataFrame:
-    """Load all player rows for a specific frame (~22 rows)."""
-    tbl = t("fct_tracking_frames_synced")
-    return execute_query(
-        f"SELECT player_id, team, x, y, speed "  # noqa: S608
-        f"FROM {tbl} "
-        f"WHERE match_id = %s AND frame = %s "
-        f"LIMIT 50",
-        (str(match_id), int(frame)),
-    )
-
-
-@ttl_cache()
-def _fetch_phase_averages(match_id: str, period: int) -> pd.DataFrame:
-    """Average positions per player for a full period (~22 rows).
-
-    Reads from pre-aggregated fct_tracking_avg_positions_synced
-    (one row per match/period/player) instead of scanning ~1M raw frames.
-    """
-    tbl = t("fct_tracking_avg_positions_synced")
-    return execute_query(
-        f"SELECT player_id, team, avg_x AS x, avg_y AS y, avg_speed AS speed "  # noqa: S608
-        f"FROM {tbl} "
-        f"WHERE match_id = %s AND period = %s "
-        f"ORDER BY team, player_id "
-        f"LIMIT 50",
-        (str(match_id), int(period)),
-    )
-
-
-@ttl_cache()
-def _fetch_full_match_averages(match_id: str) -> pd.DataFrame:
-    """Average positions per player across the full match (~22 rows).
-
-    Uses pre-aggregated fct_tracking_avg_positions_synced, computing a
-    frame-weighted average across periods to get whole-match values.
-    """
-    tbl = t("fct_tracking_avg_positions_synced")
-    return execute_query(
-        f"SELECT player_id, team, "  # noqa: S608
-        f"  SUM(avg_x * frame_count) / SUM(frame_count) AS x, "
-        f"  SUM(avg_y * frame_count) / SUM(frame_count) AS y, "
-        f"  SUM(avg_speed * frame_count) / SUM(frame_count) AS speed "
-        f"FROM {tbl} "
-        f"WHERE match_id = %s "
-        f"GROUP BY player_id, team "
-        f"ORDER BY team, player_id "
-        f"LIMIT 50",
-        (str(match_id),),
-    )
-
-
-@ttl_cache()
-def _fetch_sampled_positions(match_id: str, period: int, sample_interval_s: int = 5) -> pd.DataFrame:
-    """Fetch pre-bucketed positions from fct_tracking_shape_timeline_synced.
-
-    The dbt model pre-computes 5-second time buckets, so this is a simple
-    indexed read (~12K rows per half) instead of a GROUP BY over ~1M raw frames.
-    """
-    tbl = t("fct_tracking_shape_timeline_synced")
-    return execute_query(
-        f"SELECT player_id, team, period, time_bucket, "  # noqa: S608
-        f"  avg_x AS x, avg_y AS y, avg_speed AS speed "
-        f"FROM {tbl} "
-        f"WHERE match_id = %s AND period = %s "
-        f"ORDER BY time_bucket, team, player_id "
-        f"LIMIT 50000",
-        (str(match_id), int(period)),
-    )
-
-
-@ttl_cache()
-def _fetch_frame_range(match_id: str, period: int) -> tuple[int, int, int]:
-    """Get min/max frame numbers and frame rate for a match + period.
-
-    Uses pre-aggregated fct_tracking_avg_positions_synced which already
-    stores min_frame, max_frame, and frame_rate per match/period.
-    Returns (min_frame, max_frame, fps).
-    """
-    tbl = t("fct_tracking_avg_positions_synced")
-    df = execute_query(
-        f"SELECT MIN(min_frame) AS min_frame, MAX(max_frame) AS max_frame, "  # noqa: S608
-        f"  MAX(frame_rate) AS fps "
-        f"FROM {tbl} "
-        f"WHERE match_id = %s AND period = %s "
-        f"LIMIT 1",
-        (str(match_id), int(period)),
-    )
-    if df.empty:
-        return (0, 0, 25)
-    row = df.iloc[0]
-    return (
-        int(row["min_frame"] or 0),
-        int(row["max_frame"] or 0),
-        int(row["fps"] or 25),
-    )
-
-
-@ttl_cache()
-def _fetch_formation_labels(match_id: str, team: str) -> pd.DataFrame:
-    """Fetch formation labels for a match + team from fct_formation_labels_synced.
-
-    Returns columns: period, window_start_s, window_end_s, formation_label, cost.
-    Returns empty DataFrame if the synced table does not exist yet.
-    """
-    try:
-        tbl = t("fct_formation_labels_synced")
-        return execute_query(
-            f"SELECT period, window_start_s, window_end_s, formation_label, cost "  # noqa: S608
-            f"FROM {tbl} "
-            f"WHERE match_id = %s AND team = %s "
-            f"ORDER BY period, window_start_s "
-            f"LIMIT 500",
-            (str(match_id), str(team)),
-        )
-    except Exception:
-        logger.warning("fct_formation_labels_synced not available — formation labels will be empty")
-        return pd.DataFrame()
-
-
-@ttl_cache()
-def _fetch_match_events(match_id: str) -> pd.DataFrame:
-    """Fetch goals and substitutions from match summary for timeline annotations.
-
-    Returns basic match metadata. Events table may not be synced, so this
-    uses fct_match_summary_synced as a lightweight fallback.
-    """
-    try:
-        tbl = t("fct_match_summary_synced")
-        return execute_query(
-            f"SELECT match_id, home_team_name, away_team_name, "  # noqa: S608
-            f"  home_score, away_score "
-            f"FROM {tbl} "
-            f"WHERE match_id::text = %s "
-            f"LIMIT 1",
-            (str(match_id),),
-        )
-    except Exception:
-        logger.warning("Could not fetch match events for timeline annotations")
-        return pd.DataFrame()
 
 
 # ── Pitch rendering (Plotly) ────────────────────────────────────────────────
@@ -471,9 +325,9 @@ def _render_snapshot(state: Any) -> None:
     """Render the snapshot sub-view: single-frame or phase-averaged formation.
 
     Data fetching strategy (per-frame or server-side aggregation):
-    - Single frame mode: _fetch_frame_data() returns ~22 rows for one frame
-    - Phase average mode: _fetch_phase_averages() returns ~22 rows (server-side AVG)
-    - Match-average baseline: _fetch_full_match_averages() returns ~22 rows
+    - Single frame mode: fetch_ts_frame_data() returns ~22 rows for one frame
+    - Phase average mode: fetch_phase_averages() returns ~22 rows (server-side AVG)
+    - Match-average baseline: fetch_full_match_averages() returns ~22 rows
     No bulk tracking fetch — every query is bounded.
     """
     match_id = get_tracking_match_id(state.selected_tracking_match)
@@ -496,7 +350,7 @@ def _render_snapshot(state: Any) -> None:
         return
 
     # Frame range for slider (small aggregate query — 1 row)
-    min_f, max_f, fps = _fetch_frame_range(match_id, period)
+    min_f, max_f, fps = fetch_ts_frame_range(match_id, period)
     if min_f == max_f == 0:
         _clear_snapshot(state)
         state.ts_warning_text = "No tracking data for the selected match and half."
@@ -515,9 +369,9 @@ def _render_snapshot(state: Any) -> None:
             # Phase average: server-side AVG per player (~22 rows)
             if half == "Full Match":
                 # Average across both halves via _fetch_full_match_averages
-                avg_positions = _fetch_full_match_averages(match_id)
+                avg_positions = fetch_full_match_averages(match_id)
             else:
-                avg_positions = _fetch_phase_averages(match_id, period)
+                avg_positions = fetch_phase_averages(match_id, period)
 
             # Filter to selected team
             avg_positions = avg_positions[avg_positions["team"] == team_side].copy()
@@ -526,7 +380,7 @@ def _render_snapshot(state: Any) -> None:
             # Single frame: convert elapsed_seconds to frame number (~22 rows)
             elapsed = int(state.ts_elapsed_seconds)
             target_frame = min_f + elapsed * fps
-            frame_data = _fetch_frame_data(match_id, target_frame)
+            frame_data = fetch_ts_frame_data(match_id, target_frame)
 
             # Filter to selected team
             avg_positions = frame_data[frame_data["team"] == team_side][["player_id", "x", "y", "team"]].copy()
@@ -550,7 +404,7 @@ def _render_snapshot(state: Any) -> None:
 
     # Compute match-average shape for deltas (server-side aggregation — ~22 rows)
     try:
-        all_avg = _fetch_full_match_averages(match_id)
+        all_avg = fetch_full_match_averages(match_id)
         team_avg = all_avg[all_avg["team"] == team_side]
         if len(team_avg) >= 3:
             match_avg_shape = compute_team_shape(
@@ -564,7 +418,7 @@ def _render_snapshot(state: Any) -> None:
         match_avg_shape = shape
 
     # Build match label for title
-    events = _fetch_match_events(match_id)
+    events = fetch_match_events(match_id)
     if not events.empty:
         r = events.iloc[0]
         match_label = f"{r['home_team_name']} v {r['away_team_name']}"
@@ -637,7 +491,7 @@ def _clear_snapshot(state: Any) -> None:
 def _render_timeline(state: Any) -> None:
     """Render the timeline sub-view: shape metrics over match duration.
 
-    Data fetching strategy: _fetch_sampled_positions() uses server-side
+    Data fetching strategy: fetch_sampled_positions() uses server-side
     GROUP BY on time buckets (5-second intervals). For a 45-min half at
     5s intervals: 540 buckets x ~11 players (one team) = ~6K rows per half.
     Two halves = ~12K rows total — vs the old 500K bulk fetch.
@@ -657,8 +511,8 @@ def _render_timeline(state: Any) -> None:
 
     try:
         # Fetch sampled positions for both halves (server-side aggregation)
-        h1_data = _fetch_sampled_positions(match_id, period=1, sample_interval_s=sample_interval_s)
-        h2_data = _fetch_sampled_positions(match_id, period=2, sample_interval_s=sample_interval_s)
+        h1_data = fetch_sampled_positions(match_id, period=1, sample_interval_s=sample_interval_s)
+        h2_data = fetch_sampled_positions(match_id, period=2, sample_interval_s=sample_interval_s)
     except Exception:
         logger.exception("Failed to fetch sampled tracking data for timeline")
         _clear_timeline(state)
@@ -722,7 +576,7 @@ def _render_timeline(state: Any) -> None:
     state.ts_timeline_figure = _build_timeline_figure(minutes, lengths, widths, def_heights, match_id)
 
     # Build formation figure
-    formation_labels = _fetch_formation_labels(match_id, team_side)
+    formation_labels = fetch_formation_labels(match_id, team_side)
     state.ts_formation_figure = _build_formation_figure(formation_labels)
 
     # Build phase comparison table (1st Half vs 2nd Half)
@@ -1039,7 +893,7 @@ def _init_team_lov(state: Any) -> None:
     match_id = get_tracking_match_id(state.selected_tracking_match)
     home_label, away_label = "Home", "Away"
     if match_id:
-        events = _fetch_match_events(match_id)
+        events = fetch_match_events(match_id)
         if not events.empty:
             r = events.iloc[0]
             home_name = r.get("home_team_name", "")
@@ -1145,7 +999,7 @@ def ts_refresh(state: Any) -> None:
     # selection — before _render_snapshot runs.
     half = state.ts_selected_half or "1st Half"
     period = 2 if half == "2nd Half" else 1
-    min_f, max_f, fps = _fetch_frame_range(match_id, period)
+    min_f, max_f, fps = fetch_ts_frame_range(match_id, period)
     if fps > 0 and max_f > min_f:
         state.ts_max_seconds = max((max_f - min_f) // fps, 1)
 

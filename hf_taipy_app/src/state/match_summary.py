@@ -11,10 +11,8 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
-from cache import ttl_cache
-from db import execute_query, t
 from filters import fetch_data_freshness, fetch_scope_label
+from queries.match import fetch_league_averages, fetch_match_summary
 from render import PITCH_BG_COLOR, TEXT_COLOR, chart_to_file, fmt_int
 
 from state.shared import get_comp_id, get_match_id, register_page_refresher
@@ -59,43 +57,6 @@ __all__ = [
     "ms_shooting_chart",
     "ms_warning_text",
 ]
-
-
-# ── Data fetching ────────────────────────────────────────────────────────────
-
-
-@ttl_cache()
-def _fetch_match_summary(match_id: int) -> pd.DataFrame:
-    """Fetch full match summary row for a single match."""
-    return execute_query(
-        f"SELECT match_id, match_date, home_team_name, away_team_name, "  # noqa: S608
-        f"  home_score, away_score, home_xg, away_xg, "
-        f"  home_shots, away_shots, home_shots_on_target, away_shots_on_target, "
-        f"  home_total_passes, away_total_passes, "
-        f"  home_completed_passes, away_completed_passes, "
-        f"  home_progressive_passes, away_progressive_passes, "
-        f"  home_pass_completion_pct, away_pass_completion_pct, "
-        f"  home_possession_pct, home_ppda, away_ppda "
-        f"FROM {t('fct_match_summary_synced')} WHERE match_id = %s",
-        (int(match_id),),
-    )
-
-
-@ttl_cache(ttl=600)
-def _fetch_league_averages(comp_id: int) -> pd.DataFrame:
-    """Fetch competition-wide averages for reference context.
-
-    Returns averages for xG per team, possession, and pass completion.
-    Used to display league-average reference text below match metrics.
-    """
-    tbl = t("fct_match_summary_synced")
-    return execute_query(
-        f"SELECT AVG(home_xg + away_xg) / 2 as avg_xg_per_team, "  # noqa: S608
-        f"  AVG(home_possession_pct) as avg_possession, "
-        f"  AVG((home_pass_completion_pct + away_pass_completion_pct) / 2) as avg_pass_completion "
-        f"FROM {tbl} WHERE competition_id = %s",
-        (comp_id,),
-    )
 
 
 # ── Rendering — stat comparison bar charts ───────────────────────────────────
@@ -168,7 +129,7 @@ def ms_refresh(state: Any) -> None:
     else:
         state.ms_scope_label = ""
 
-    match_data = _fetch_match_summary(match_id)
+    match_data = fetch_match_summary(match_id)
     if match_data.empty:
         state.ms_home_name = ""
         state.ms_away_name = ""
@@ -271,7 +232,7 @@ def ms_refresh(state: Any) -> None:
     # League averages reference text
     if comp_id is not None:
         try:
-            avg_df = _fetch_league_averages(comp_id)
+            avg_df = fetch_league_averages(comp_id)
             if not avg_df.empty:
                 avg = avg_df.iloc[0]
                 avg_xg = float(avg.get("avg_xg_per_team", 0) or 0)
