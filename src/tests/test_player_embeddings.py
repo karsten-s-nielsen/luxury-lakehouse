@@ -10,17 +10,18 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pandas as pd
 
-from ingestion.player_embeddings import (
+from ingestion.player_embeddings_common import (
     STAT_FEATURES,
     STAT_FEATURES_BY_GROUP,
     _build_bronze_dataframe,
     _compute_stat_vectors,
     _load_events,
     _load_events_sdf,
-    _make_behavioral_udf,
     _merge_vectors,
     _zscore_normalize,
 )
+from ingestion.player_embeddings_v1 import _make_behavioral_udf
+from ingestion.player_embeddings_v2 import main as _main_combined  # ensure module in sys.modules
 
 # ---------------------------------------------------------------------------
 # Stat vector feature list
@@ -887,13 +888,14 @@ class TestMainFunction:
             "pyspark.sql.types": MagicMock(),
         },
     )
-    @patch("ingestion.player_embeddings.get_spark_session")
-    @patch("ingestion.player_embeddings.parse_ingestion_args")
-    @patch("ingestion.player_embeddings._load_events_sdf")
-    @patch("ingestion.player_embeddings._compute_stat_vectors")
-    @patch("ingestion.player_embeddings.validate_dataframe")
-    @patch("ingestion.player_embeddings.write_delta_table")
-    @patch("ingestion.player_embeddings._make_behavioral_udf")
+    @patch("ingestion.player_embeddings_v2.get_spark_session")
+    @patch("ingestion.player_embeddings_v2.parse_ingestion_args")
+    @patch("ingestion.player_embeddings_v2._import_v2_embeddings", return_value=False)
+    @patch("ingestion.player_embeddings_v1._load_events_sdf")
+    @patch("ingestion.player_embeddings_v1._compute_stat_vectors")
+    @patch("ingestion.player_embeddings_v1.validate_dataframe")
+    @patch("ingestion.player_embeddings_v1.write_delta_table")
+    @patch("ingestion.player_embeddings_v1._make_behavioral_udf")
     def test_writes_with_replace_where(
         self,
         mock_make_udf: MagicMock,
@@ -901,6 +903,7 @@ class TestMainFunction:
         mock_validate: MagicMock,
         mock_stat: MagicMock,
         mock_events_sdf: MagicMock,
+        mock_import_v2: MagicMock,
         mock_args: MagicMock,
         mock_spark: MagicMock,
     ) -> None:
@@ -959,9 +962,7 @@ class TestMainFunction:
         # Mock Spark createDataFrame
         spark.createDataFrame.return_value = MagicMock()
 
-        from ingestion.player_embeddings import main
-
-        main()
+        _main_combined()
 
         # Verify write was called
         assert mock_write.called
@@ -972,12 +973,14 @@ class TestMainFunction:
         assert "replace_where" in call_kwargs.kwargs
         assert "data_source" in call_kwargs.kwargs["replace_where"]
 
-    @patch("ingestion.player_embeddings.get_spark_session")
-    @patch("ingestion.player_embeddings.parse_ingestion_args")
-    @patch("ingestion.player_embeddings._load_events_sdf")
+    @patch("ingestion.player_embeddings_v2.get_spark_session")
+    @patch("ingestion.player_embeddings_v2.parse_ingestion_args")
+    @patch("ingestion.player_embeddings_v2._import_v2_embeddings", return_value=False)
+    @patch("ingestion.player_embeddings_v1._load_events_sdf")
     def test_skips_when_all_matches_have_embeddings(
         self,
         mock_events_sdf: MagicMock,
+        mock_import_v2: MagicMock,
         mock_args: MagicMock,
         mock_spark: MagicMock,
     ) -> None:
@@ -1007,19 +1010,19 @@ class TestMainFunction:
         source_row_2.__getitem__ = lambda self, k: "m2"
         spark.sql.return_value.collect.return_value = [source_row_1, source_row_2]
 
-        from ingestion.player_embeddings import main
-
-        main()
+        _main_combined()
 
         # _load_events_sdf should NOT be called — pipeline skipped
         mock_events_sdf.assert_not_called()
 
-    @patch("ingestion.player_embeddings.get_spark_session")
-    @patch("ingestion.player_embeddings.parse_ingestion_args")
-    @patch("ingestion.player_embeddings._load_events_sdf")
+    @patch("ingestion.player_embeddings_v2.get_spark_session")
+    @patch("ingestion.player_embeddings_v2.parse_ingestion_args")
+    @patch("ingestion.player_embeddings_v2._import_v2_embeddings", return_value=False)
+    @patch("ingestion.player_embeddings_v1._load_events_sdf")
     def test_defensive_fallback_no_source_matches_but_existing_embeddings(
         self,
         mock_events_sdf: MagicMock,
+        mock_import_v2: MagicMock,
         mock_args: MagicMock,
         mock_spark: MagicMock,
     ) -> None:
@@ -1040,19 +1043,19 @@ class TestMainFunction:
         # source_matches: spark.sql().collect() returns empty (simulating query failure/mismatch)
         spark.sql.return_value.collect.return_value = []
 
-        from ingestion.player_embeddings import main
-
-        main()
+        _main_combined()
 
         # _load_events_sdf should NOT be called — defensive fallback triggered
         mock_events_sdf.assert_not_called()
 
-    @patch("ingestion.player_embeddings.get_spark_session")
-    @patch("ingestion.player_embeddings.parse_ingestion_args")
-    @patch("ingestion.player_embeddings._load_events_sdf")
+    @patch("ingestion.player_embeddings_v2.get_spark_session")
+    @patch("ingestion.player_embeddings_v2.parse_ingestion_args")
+    @patch("ingestion.player_embeddings_v2._import_v2_embeddings", return_value=False)
+    @patch("ingestion.player_embeddings_v1._load_events_sdf")
     def test_empty_events_exits_early(
         self,
         mock_events_sdf: MagicMock,
+        mock_import_v2: MagicMock,
         mock_args: MagicMock,
         mock_spark: MagicMock,
     ) -> None:
@@ -1067,7 +1070,7 @@ class TestMainFunction:
         mock_sdf.limit.return_value.count.return_value = 0
         mock_events_sdf.return_value = mock_sdf
 
-        from ingestion.player_embeddings import main
+        from ingestion.player_embeddings_v2 import main
 
         # Should not raise — just log and return
         main()

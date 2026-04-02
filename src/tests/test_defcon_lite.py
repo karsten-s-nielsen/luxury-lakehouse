@@ -575,7 +575,7 @@ class TestTryLoadChampionDefcon:
         import sys
         from unittest.mock import patch
 
-        from ingestion.defcon_lite import _try_load_champion_defcon
+        from ingestion.defcon_lite_common import _try_load_champion_defcon
 
         with patch.dict(sys.modules, {"mlflow": None, "mlflow.pyfunc": None}):
             result = _try_load_champion_defcon(logging.getLogger("test"), "soccer_analytics", "dev_gold")
@@ -586,7 +586,7 @@ class TestTryLoadChampionDefcon:
         import logging
         from unittest.mock import MagicMock, patch
 
-        from ingestion.defcon_lite import _try_load_champion_defcon
+        from ingestion.defcon_lite_common import _try_load_champion_defcon
 
         mock_mlflow = MagicMock()
         mock_pyfunc = MagicMock()
@@ -601,7 +601,7 @@ class TestTryLoadChampionDefcon:
         import logging
         from unittest.mock import MagicMock, patch
 
-        from ingestion.defcon_lite import _try_load_champion_defcon
+        from ingestion.defcon_lite_common import _try_load_champion_defcon
 
         mock_booster = MagicMock()
         mock_booster.save_raw.return_value = b'{"test": "model_data"}'

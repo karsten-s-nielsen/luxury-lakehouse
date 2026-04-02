@@ -32,6 +32,7 @@ import time
 from typing import TYPE_CHECKING
 
 from shared.constants import IDENTIFIER_RE
+from workflows import workflow
 
 # ---------------------------------------------------------------------------
 # Structured logging
@@ -418,41 +419,16 @@ def _upload_to_hf_hub(volume_path: str, spark: object) -> str:
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
+@workflow("wf-prepare-360-data", phase="export")
+def run_pipeline(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    volume_path: str,
+    *,
+    ctx: object = None,
+) -> None:
     """Join 360 freeze frames with SPADL actions, stage to UC Volume, upload to HF Hub."""
-    # Late import — PySpark only available in Databricks runtime
-    from pyspark.sql import SparkSession  # type: ignore[import-not-found]
-
-    logger.info("Starting Football2Vec 360 training data preparation pipeline")
-
-    parser = argparse.ArgumentParser(description="Prepare 360-enriched training data for Football2Vec 360 model")
-    parser.add_argument(
-        "--catalog",
-        default="soccer_analytics",
-        help="Unity Catalog name (default: soccer_analytics)",
-    )
-    parser.add_argument(
-        "--schema",
-        default="dev_gold",
-        help="Gold schema name (default: dev_gold)",
-    )
-    parser.add_argument(
-        "--volume-path",
-        default=_DEFAULT_VOLUME_PATH,
-        help=(f"UC Volume staging path for Parquet output (default: {_DEFAULT_VOLUME_PATH})"),
-    )
-    args = parser.parse_args()
-
-    catalog: str = args.catalog
-    schema: str = args.schema
-    volume_path: str = args.volume_path.rstrip("/")
-
-    # Validate SQL identifiers before interpolating into queries
-    _validate_identifier("catalog", catalog)
-    _validate_identifier("schema", schema)
-
-    spark = SparkSession.builder.getOrCreate()
-
     # ------------------------------------------------------------------
     # 1. Skip guard — compare upstream freshness against last export
     # ------------------------------------------------------------------
@@ -515,6 +491,48 @@ def main() -> None:
         "Final stats: %d player-match sequences with 360 context exported",
         row_count,
     )
+
+
+def main() -> None:
+    """CLI entry point for 360 training data preparation."""
+    # Late import — PySpark only available in Databricks runtime
+    from pyspark.sql import SparkSession  # type: ignore[import-not-found]
+
+    logger.info("Starting Football2Vec 360 training data preparation pipeline")
+
+    parser = argparse.ArgumentParser(description="Prepare 360-enriched training data for Football2Vec 360 model")
+    parser.add_argument(
+        "--catalog",
+        default="soccer_analytics",
+        help="Unity Catalog name (default: soccer_analytics)",
+    )
+    parser.add_argument(
+        "--schema",
+        default="dev_gold",
+        help="Gold schema name (default: dev_gold)",
+    )
+    parser.add_argument(
+        "--volume-path",
+        default=_DEFAULT_VOLUME_PATH,
+        help=(f"UC Volume staging path for Parquet output (default: {_DEFAULT_VOLUME_PATH})"),
+    )
+    args = parser.parse_args()
+
+    catalog: str = args.catalog
+    schema: str = args.schema
+    volume_path: str = args.volume_path.rstrip("/")
+
+    # Validate SQL identifiers before interpolating into queries
+    _validate_identifier("catalog", catalog)
+    _validate_identifier("schema", schema)
+
+    spark = SparkSession.builder.getOrCreate()
+
+    from ingestion.bootstrap import bootstrap_hooks
+
+    bootstrap_hooks(spark, catalog, schema)
+
+    run_pipeline(spark, catalog, schema, volume_path)
 
 
 if __name__ == "__main__":

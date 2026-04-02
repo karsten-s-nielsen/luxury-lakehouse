@@ -32,6 +32,7 @@ from ingestion.utils import (
     validate_dataframe,
     write_delta_table,
 )
+from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -580,17 +581,32 @@ def backfill_extra_json(
 # ---------------------------------------------------------------------------
 
 
+@workflow("wf-statsbomb", phase="ingestion")
+def run_pipeline(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    logger: logging.Logger,
+    *,
+    ctx: object = None,
+) -> None:
+    """Ingest all StatsBomb open data (competitions, matches, events, lineups, 360)."""
+    competitions_pdf = ingest_competitions(spark, catalog, schema, logger)
+    ingest_matches_and_details(spark, catalog, schema, competitions_pdf, logger)
+
+
 def main() -> None:
     """CLI entry point for StatsBomb ingestion."""
     args = parse_ingestion_args("Ingest StatsBomb open data into the bronze layer")
     logger = configure_logging("statsbomb")
     spark = get_spark_session()
 
+    from ingestion.bootstrap import bootstrap_hooks
+
+    bootstrap_hooks(spark, args.catalog, args.schema)
+
     logger.info("Starting StatsBomb ingestion into %s.%s", args.catalog, args.schema)
-
-    competitions_pdf = ingest_competitions(spark, args.catalog, args.schema, logger)
-    ingest_matches_and_details(spark, args.catalog, args.schema, competitions_pdf, logger)
-
+    run_pipeline(spark, args.catalog, args.schema, logger)
     logger.info("StatsBomb ingestion complete")
 
 
@@ -599,6 +615,10 @@ def backfill_360_main() -> None:
     args = parse_ingestion_args("Backfill StatsBomb 360 freeze-frame data for existing matches")
     logger = configure_logging("statsbomb_360_backfill")
     spark = get_spark_session()
+
+    from ingestion.bootstrap import bootstrap_hooks
+
+    bootstrap_hooks(spark, args.catalog, args.schema)
 
     logger.info("Starting 360 backfill into %s.%s", args.catalog, args.schema)
     competitions_pdf = ingest_competitions(spark, args.catalog, args.schema, logger)
@@ -611,6 +631,10 @@ def backfill_extra_json_main() -> None:
     args = parse_ingestion_args("Backfill _raw_extra_json for existing StatsBomb events")
     logger = configure_logging("statsbomb_extra_backfill")
     spark = get_spark_session()
+
+    from ingestion.bootstrap import bootstrap_hooks
+
+    bootstrap_hooks(spark, args.catalog, args.schema)
 
     logger.info("Starting _raw_extra_json backfill into %s.%s", args.catalog, args.schema)
     competitions_pdf = ingest_competitions(spark, args.catalog, args.schema, logger)

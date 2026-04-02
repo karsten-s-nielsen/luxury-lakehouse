@@ -312,7 +312,7 @@ def _upload_to_hf_hub(
 # ---------------------------------------------------------------------------
 
 
-@workflow("wf-football2vec-v2", phase="training")
+@workflow("wf-football2vec-v2-export", phase="export")
 def run_pipeline(
     spark: SparkSession,
     catalog: str,
@@ -334,10 +334,9 @@ def main() -> None:
     export_logger = configure_logging("export_embeddings_training_data")
     spark = get_spark_session()
 
-    from ingestion.cost_hook import CostEstimateHook
-    from workflows import register_hook
+    from ingestion.bootstrap import bootstrap_hooks
 
-    register_hook(CostEstimateHook(spark, args.catalog, args.schema))
+    bootstrap_hooks(spark, args.catalog, args.schema)
 
     run_pipeline(spark, args.catalog, args.schema, export_logger)
 

@@ -29,8 +29,13 @@ import argparse
 import logging
 import sys
 import time
+from typing import TYPE_CHECKING
 
 from shared.constants import IDENTIFIER_RE
+from workflows import workflow
+
+if TYPE_CHECKING:
+    from pyspark.sql import SparkSession
 
 # ---------------------------------------------------------------------------
 # Structured logging
@@ -124,41 +129,16 @@ def _upload_to_hf_hub(volume_path: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
+@workflow("wf-export-shots", phase="export")
+def run_pipeline(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    volume_path: str,
+    *,
+    ctx: object = None,
+) -> None:
     """Query on-target shots from gold layer, stage to UC Volume, upload to HF Hub."""
-    # Late import — PySpark only available in Databricks runtime
-    from pyspark.sql import SparkSession  # type: ignore[import-not-found]
-
-    logger.info("Starting on-target shots export pipeline")
-
-    parser = argparse.ArgumentParser(description="Export on-target shots to HF Hub")
-    parser.add_argument(
-        "--catalog",
-        default="soccer_analytics",
-        help="Unity Catalog name (default: soccer_analytics)",
-    )
-    parser.add_argument(
-        "--schema",
-        default="dev_gold",
-        help="Schema name (default: dev_gold)",
-    )
-    parser.add_argument(
-        "--volume-path",
-        default="/Volumes/soccer_analytics/dev_gold/model_weights/psxg",
-        help="UC Volume staging path for Parquet output",
-    )
-    args = parser.parse_args()
-
-    catalog: str = args.catalog
-    schema: str = args.schema
-    volume_path: str = args.volume_path.rstrip("/")
-
-    # Validate SQL identifiers before interpolating into queries
-    _validate_identifier("catalog", catalog)
-    _validate_identifier("schema", schema)
-
-    spark = SparkSession.builder.getOrCreate()
-
     # ------------------------------------------------------------------
     # 1. Query on-target shots from gold layer
     # ------------------------------------------------------------------
@@ -198,6 +178,48 @@ def main() -> None:
 
     logger.info("Pipeline complete. Dataset: %s", dataset_url)
     logger.info("Final stats: %d on-target shots exported", row_count)
+
+
+def main() -> None:
+    """CLI entry point for on-target shots export."""
+    # Late import — PySpark only available in Databricks runtime
+    from pyspark.sql import SparkSession  # type: ignore[import-not-found]
+
+    logger.info("Starting on-target shots export pipeline")
+
+    parser = argparse.ArgumentParser(description="Export on-target shots to HF Hub")
+    parser.add_argument(
+        "--catalog",
+        default="soccer_analytics",
+        help="Unity Catalog name (default: soccer_analytics)",
+    )
+    parser.add_argument(
+        "--schema",
+        default="dev_gold",
+        help="Schema name (default: dev_gold)",
+    )
+    parser.add_argument(
+        "--volume-path",
+        default="/Volumes/soccer_analytics/dev_gold/model_weights/psxg",
+        help="UC Volume staging path for Parquet output",
+    )
+    args = parser.parse_args()
+
+    catalog: str = args.catalog
+    schema: str = args.schema
+    volume_path: str = args.volume_path.rstrip("/")
+
+    # Validate SQL identifiers before interpolating into queries
+    _validate_identifier("catalog", catalog)
+    _validate_identifier("schema", schema)
+
+    spark = SparkSession.builder.getOrCreate()
+
+    from ingestion.bootstrap import bootstrap_hooks
+
+    bootstrap_hooks(spark, catalog, schema)
+
+    run_pipeline(spark, catalog, schema, volume_path)
 
 
 if __name__ == "__main__":

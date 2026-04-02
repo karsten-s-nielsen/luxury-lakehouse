@@ -25,6 +25,7 @@ from huggingface_hub import HfApi
 from huggingface_hub.hf_api import RepoFile
 
 from shared.constants import COST_TABLE_NAME, DEFAULT_OBSERVABILITY_SCHEMA, IDENTIFIER_RE
+from workflows import workflow
 
 logger = logging.getLogger(__name__)
 
@@ -174,9 +175,12 @@ def _resolve_task_key(card: dict[str, Any]) -> str:
     return ""
 
 
+@workflow("wf-sync-hf-costs", phase="sync")
 def sync_costs(
     catalog: str,
     cards_dir: Path,
+    *,
+    ctx: object = None,
 ) -> int:
     """Main sync logic. Returns number of records synced."""
     if not IDENTIFIER_RE.match(catalog):
@@ -237,7 +241,15 @@ def sync_costs(
 
 
 def main() -> None:
-    """CLI entry point."""
+    """CLI entry point.
+
+    Note: bootstrap_hooks is intentionally omitted here. This module writes
+    directly to ``workflow_cost_live`` — the same table that CostEstimateHook
+    targets. Adding the hook would create a circular write (the cost bridge
+    recording its own cost to the cost table it just merged into).
+    The ``@workflow`` decorator on ``sync_costs`` still provides registry
+    tracking without the cost hook.
+    """
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s — %(message)s",

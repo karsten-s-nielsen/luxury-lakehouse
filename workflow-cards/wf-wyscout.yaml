@@ -1,0 +1,72 @@
+---
+name: Wyscout Open Data Ingestion
+id: wf-wyscout
+version: "1.0.0"
+status: production
+type: heuristic
+domain: soccer-analytics
+owners:
+  - karsten
+tags:
+  - wyscout
+  - ingestion
+  - open-data
+  - events
+
+references:
+  - citation: "Pappalardo et al. (2019). A public data set of spatio-temporal match events in soccer competitions. Scientific Data, Nature."
+    role: dataset
+
+inputs:
+  datasets:
+    - id: "Figshare Wyscout Dataset"
+      source: huggingface
+      description: "Wyscout open data from Figshare (7 competitions, 2017/18)"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.wyscout_events"
+      destination: delta-table
+    - id: "{catalog}.bronze.wyscout_matches"
+      destination: delta-table
+    - id: "{catalog}.bronze.wyscout_players"
+      destination: delta-table
+
+execution:
+  inference:
+    trigger: manual
+    runtime: databricks-workflow
+    entry_point: ingest_wyscout
+    module: ingestion.wyscout
+    distribution: driver-bound
+    timeout: "900s"
+    environment: analytics
+
+depends_on: []
+
+idempotency:
+  strategy: full-overwrite
+  key: competition
+  description: "Full overwrite per competition — idempotent re-runs safe."
+
+performance:
+  inference_timeout: "900s"
+  memory_ceiling: "16 GB driver"
+
+cost:
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 30
+    typical_cost_usd: 2.1
+
+links:
+  source_code:
+    - "src/ingestion/wyscout.py"
+---
+
+## Overview
+
+Ingests Wyscout public event data for 7 competitions (2017/18 season) from Figshare
+into the Databricks bronze layer. Supports both local file mode and HTTPS download.
+Produces three bronze Delta tables: events, matches, and players.

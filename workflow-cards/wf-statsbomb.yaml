@@ -1,0 +1,78 @@
+---
+name: StatsBomb Open Data Ingestion
+id: wf-statsbomb
+version: "1.0.0"
+status: production
+type: heuristic
+domain: soccer-analytics
+owners:
+  - karsten
+tags:
+  - statsbomb
+  - ingestion
+  - open-data
+  - events
+  - lineups
+  - "360"
+
+references:
+  - citation: "StatsBomb Open Data. https://github.com/statsbomb/open-data"
+    role: dataset
+
+inputs:
+  datasets:
+    - id: "StatsBomb Open Data API"
+      source: huggingface
+      description: "StatsBomb open data via statsbombpy library"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.statsbomb_competitions"
+      destination: delta-table
+    - id: "{catalog}.bronze.statsbomb_matches"
+      destination: delta-table
+    - id: "{catalog}.bronze.statsbomb_events"
+      destination: delta-table
+    - id: "{catalog}.bronze.statsbomb_lineups"
+      destination: delta-table
+    - id: "{catalog}.bronze.statsbomb_360"
+      destination: delta-table
+
+execution:
+  inference:
+    trigger: manual
+    runtime: databricks-workflow
+    entry_point: ingest_statsbomb
+    module: ingestion.statsbomb
+    distribution: driver-bound
+    timeout: "900s"
+    environment: analytics
+
+depends_on: []
+
+idempotency:
+  strategy: skip-guard
+  key: match_id
+  description: "Checks existing matches in bronze before re-ingesting."
+
+performance:
+  inference_timeout: "900s"
+  memory_ceiling: "16 GB driver"
+
+cost:
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 50
+    typical_cost_usd: 3.5
+
+links:
+  source_code:
+    - "src/ingestion/statsbomb.py"
+---
+
+## Overview
+
+Ingests StatsBomb open event data into the Databricks bronze layer. Traverses the
+StatsBomb API hierarchy (competitions, matches, events, lineups, 360 freeze frames)
+via the statsbombpy library and writes to five bronze Delta tables.

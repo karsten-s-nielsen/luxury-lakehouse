@@ -1,0 +1,71 @@
+---
+name: IDSSE Bundesliga Data Ingestion
+id: wf-idsse
+version: "1.0.0"
+status: production
+type: heuristic
+domain: soccer-analytics
+owners:
+  - karsten
+tags:
+  - idsse
+  - bundesliga
+  - ingestion
+  - tracking-data
+  - event-data
+
+references:
+  - citation: "Bassek et al. (2025). An integrated dataset of spatiotemporal and event data in elite soccer. Scientific Data, Nature."
+    role: dataset
+
+inputs:
+  datasets:
+    - id: "IDSSE Figshare Collection"
+      source: uc-volume
+      description: "DFL position and event XML data for 7 Bundesliga matches"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.idsse_tracking"
+      destination: delta-table
+    - id: "{catalog}.bronze.idsse_events"
+      destination: delta-table
+
+execution:
+  inference:
+    trigger: manual
+    runtime: databricks-workflow
+    entry_point: ingest_idsse
+    module: ingestion.idsse
+    distribution: driver-bound
+    timeout: "900s"
+    environment: analytics
+
+depends_on: []
+
+idempotency:
+  strategy: skip-guard
+  key: match_id
+  description: "Checks existing matches in bronze before re-ingesting."
+
+performance:
+  inference_timeout: "900s"
+  memory_ceiling: "16 GB driver"
+
+cost:
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 60
+    typical_cost_usd: 4.2
+
+links:
+  source_code:
+    - "src/ingestion/idsse.py"
+---
+
+## Overview
+
+Reads pre-downloaded DFL position (tracking) and event XML data for 7 Bundesliga
+matches from a UC Volume. Parses XML using ElementTree to produce narrow-format
+tracking (one row per player per frame) and event tables in the bronze layer.

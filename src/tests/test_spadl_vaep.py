@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 from xgboost import XGBClassifier
 
-from ingestion.spadl_vaep import _clean_spadl_for_spark, _read_existing_match_ids
+from ingestion.spadl_conversion import _clean_spadl_for_spark, _read_existing_match_ids
 
 # ---------------------------------------------------------------------------
 # Spark type coercion

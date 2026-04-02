@@ -1,0 +1,69 @@
+---
+name: Sync HF Jobs Costs to Delta
+id: wf-sync-hf-costs
+version: "1.0.0"
+status: production
+type: heuristic
+domain: soccer-analytics
+owners:
+  - karsten
+tags:
+  - sync
+  - cost-tracking
+  - huggingface
+  - observability
+
+references: []
+
+inputs:
+  datasets:
+    - id: "HF Hub _cost_history/*.json files"
+      source: huggingface
+      description: "Per-run cost JSON files written by HFJobsCostRecorder"
+
+outputs:
+  tables:
+    - id: "{catalog}.observability.workflow_cost_live"
+      destination: delta-table
+
+execution:
+  inference:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: sync_hf_costs
+    module: ingestion.sync_hf_costs
+    distribution: driver-bound
+    schedule: "every 15 minutes"
+    timeout: "300s"
+    environment: analytics
+
+depends_on: []
+
+idempotency:
+  strategy: upsert
+  key: run_id
+  description: "MERGE on run_id — safe to re-run without duplicates."
+
+performance:
+  inference_timeout: "300s"
+  memory_ceiling: "16 GB driver"
+
+cost:
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 5
+    typical_cost_usd: 0.35
+
+links:
+  source_code:
+    - "src/ingestion/sync_hf_costs.py"
+---
+
+## Overview
+
+Cost bridge that reads per-run cost history from HF Hub repos (written by
+HFJobsCostRecorder) and MERGEs them into the ``workflow_cost_live`` Delta table.
+Discovers HF Jobs repos by parsing workflow-cards YAML. Designed to run as a
+scheduled Databricks task every 15 minutes, unifying Databricks and HF Jobs
+cost data in a single observability table.

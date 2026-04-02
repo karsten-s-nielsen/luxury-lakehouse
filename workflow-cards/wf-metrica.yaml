@@ -1,0 +1,72 @@
+---
+name: Metrica Sports Sample Data Ingestion
+id: wf-metrica
+version: "1.0.0"
+status: production
+type: heuristic
+domain: soccer-analytics
+owners:
+  - karsten
+tags:
+  - metrica
+  - ingestion
+  - tracking-data
+  - open-data
+
+references:
+  - citation: "Metrica Sports Open Data. https://github.com/metrica-sports/sample-data"
+    role: dataset
+
+inputs:
+  datasets:
+    - id: "Metrica Sports GitHub Open Data"
+      source: huggingface
+      description: "Metrica Sports sample tracking and event data (3 games)"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.metrica_tracking"
+      destination: delta-table
+    - id: "{catalog}.bronze.metrica_events"
+      destination: delta-table
+
+execution:
+  inference:
+    trigger: manual
+    runtime: databricks-workflow
+    entry_point: ingest_metrica
+    module: ingestion.metrica
+    distribution: driver-bound
+    timeout: "900s"
+    environment: analytics
+
+depends_on: []
+
+idempotency:
+  strategy: skip-guard
+  key: match_id
+  description: "Checks existing matches in bronze before re-ingesting."
+
+performance:
+  inference_timeout: "900s"
+  memory_ceiling: "16 GB driver"
+
+cost:
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 40
+    typical_cost_usd: 2.8
+
+links:
+  source_code:
+    - "src/ingestion/metrica.py"
+    - "src/ingestion/metrica_tracking.py"
+    - "src/ingestion/metrica_events.py"
+---
+
+## Overview
+
+Downloads and ingests Metrica Sports sample tracking and event data for 3 games
+from the Metrica open-data GitHub repository. Games 1-2 use CSV format; Game 3
+uses FIFA EPTS format. Tracking data is reshaped from wide to narrow format.

@@ -1,0 +1,69 @@
+---
+name: SkillCorner A-League Tracking Ingestion
+id: wf-skillcorner
+version: "1.0.0"
+status: production
+type: heuristic
+domain: soccer-analytics
+owners:
+  - karsten
+tags:
+  - skillcorner
+  - ingestion
+  - tracking-data
+  - a-league
+  - broadcast-tracking
+
+references:
+  - citation: "SkillCorner Open Data (MIT License). https://github.com/SkillCorner/opendata"
+    role: dataset
+
+inputs:
+  datasets:
+    - id: "SkillCorner Open Data Repository"
+      source: huggingface
+      description: "Broadcast tracking data for 10 A-League matches via kloppy"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.skillcorner_tracking"
+      destination: delta-table
+
+execution:
+  inference:
+    trigger: manual
+    runtime: databricks-workflow
+    entry_point: ingest_skillcorner
+    module: ingestion.skillcorner
+    distribution: driver-bound
+    timeout: "900s"
+    environment: analytics
+
+depends_on: []
+
+idempotency:
+  strategy: skip-guard
+  key: match_id
+  description: "Checks existing matches in bronze before re-ingesting."
+
+performance:
+  inference_timeout: "900s"
+  memory_ceiling: "16 GB driver"
+
+cost:
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 40
+    typical_cost_usd: 2.8
+
+links:
+  source_code:
+    - "src/ingestion/skillcorner.py"
+---
+
+## Overview
+
+Downloads broadcast tracking data for 10 A-League 2024/25 matches from the
+SkillCorner open data repository via the kloppy library. Converts frame objects
+to narrow format (one row per player per frame) with Savitzky-Golay smoothing.

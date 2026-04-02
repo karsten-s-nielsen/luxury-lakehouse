@@ -1,0 +1,70 @@
+---
+name: Import Space Creation Values from HF Hub
+id: wf-import-space-creation
+version: "1.0.0"
+status: production
+type: heuristic
+domain: soccer-analytics
+owners:
+  - karsten
+tags:
+  - import
+  - space-creation
+  - off-ball
+  - huggingface
+
+references:
+  - citation: "Fernandez & Bornn (2018). Wide Open Spaces: A statistical technique for measuring space creation in professional soccer. MIT Sloan."
+    role: methodology
+
+inputs:
+  datasets:
+    - id: "luxury-lakehouse/space-creation-values"
+      source: huggingface
+      description: "Space creation value Parquet from HF Hub"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.space_creation_values"
+      destination: delta-table
+
+execution:
+  inference:
+    trigger: manual
+    runtime: databricks-workflow
+    entry_point: import_space_creation
+    module: ingestion.import_space_creation
+    distribution: driver-bound
+    timeout: "600s"
+    environment: analytics
+
+depends_on:
+  - wf-space-creation
+
+idempotency:
+  strategy: upsert
+  key: match_id
+  description: "replaceWhere on match_id for idempotent partition-level writes."
+
+performance:
+  inference_timeout: "600s"
+  memory_ceiling: "16 GB driver"
+
+cost:
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 10
+    typical_cost_usd: 0.7
+
+links:
+  source_code:
+    - "src/ingestion/import_space_creation.py"
+  hf_dataset: "https://huggingface.co/datasets/luxury-lakehouse/space-creation-values"
+---
+
+## Overview
+
+Downloads space creation values from HF Hub (computed by Fernandez & Bornn's
+pitch control surfaces), stages the Parquet file to a UC Volume, and writes to
+a bronze Delta table with replaceWhere partitioning on match_id.

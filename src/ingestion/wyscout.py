@@ -41,6 +41,7 @@ from ingestion.utils import (
     validate_dataframe,
     write_delta_table,
 )
+from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -481,6 +482,22 @@ def ingest_players(
 # ---------------------------------------------------------------------------
 
 
+@workflow("wf-wyscout", phase="ingestion")
+def run_pipeline(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    logger: logging.Logger,
+    *,
+    data_dir: pathlib.Path | None = None,
+    ctx: object = None,
+) -> None:
+    """Ingest all Wyscout open data (events, matches, players)."""
+    ingest_events(spark, catalog, schema, data_dir, logger)
+    ingest_matches(spark, catalog, schema, data_dir, logger)
+    ingest_players(spark, catalog, schema, data_dir, logger)
+
+
 def main() -> None:
     """CLI entry point for Wyscout ingestion."""
     args = parse_ingestion_args(
@@ -491,14 +508,14 @@ def main() -> None:
     logger = configure_logging("wyscout")
     spark = get_spark_session()
 
+    from ingestion.bootstrap import bootstrap_hooks
+
+    bootstrap_hooks(spark, args.catalog, args.schema)
+
     data_dir = pathlib.Path(args.data_dir) if args.data_dir else None
 
     logger.info("Starting Wyscout ingestion into %s.%s", args.catalog, args.schema)
-
-    ingest_events(spark, args.catalog, args.schema, data_dir, logger)
-    ingest_matches(spark, args.catalog, args.schema, data_dir, logger)
-    ingest_players(spark, args.catalog, args.schema, data_dir, logger)
-
+    run_pipeline(spark, args.catalog, args.schema, logger, data_dir=data_dir)
     logger.info("Wyscout ingestion complete")
 
 

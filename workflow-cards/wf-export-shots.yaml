@@ -1,0 +1,69 @@
+---
+name: Export On-Target Shots to HF Hub
+id: wf-export-shots
+version: "1.0.0"
+status: production
+type: heuristic
+domain: soccer-analytics
+owners:
+  - karsten
+tags:
+  - export
+  - shots
+  - psxg
+  - huggingface
+
+references: []
+
+inputs:
+  datasets:
+    - id: "{catalog}.dev_gold.fct_shots"
+      source: delta-table
+      description: "Shot events from the gold mart (on-target filter)"
+
+outputs:
+  datasets:
+    - id: "luxury-lakehouse/statsbomb-shots-on-target"
+      destination: huggingface
+      description: "Parquet dataset of on-target shots for PSxG training"
+
+execution:
+  inference:
+    trigger: manual
+    runtime: databricks-workflow
+    entry_point: export_shots_on_target
+    module: ingestion.export_shots_on_target
+    distribution: driver-bound
+    timeout: "600s"
+    environment: analytics
+
+depends_on:
+  - wf-vaep
+
+idempotency:
+  strategy: full-overwrite
+  key: dataset
+  description: "Full overwrite of the HF Hub dataset on each run."
+
+performance:
+  inference_timeout: "600s"
+  memory_ceiling: "16 GB driver"
+
+cost:
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 10
+    typical_cost_usd: 0.7
+
+links:
+  source_code:
+    - "src/ingestion/export_shots_on_target.py"
+  hf_dataset: "https://huggingface.co/datasets/luxury-lakehouse/statsbomb-shots-on-target"
+---
+
+## Overview
+
+Reads on-target shots from the gold layer ``fct_shots``, filters to shots with
+``end_location_z IS NOT NULL``, stages a Parquet file to a UC Volume, and uploads
+the dataset to HF Hub. This is a prerequisite for PSxG model training on HF Jobs.

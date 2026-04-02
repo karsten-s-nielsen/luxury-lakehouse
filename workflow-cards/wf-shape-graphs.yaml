@@ -46,7 +46,7 @@ execution:
     trigger: scheduled
     runtime: databricks-workflow
     entry_point: compute_formations_shape_graph
-    module: ingestion.formations
+    module: ingestion.formations_shape_graph
     distribution: applyInPandas
     partition_key: match_id
     schedule: "daily 06:00 UTC"
@@ -77,7 +77,8 @@ monitoring:
 
 links:
   source_code:
-    - "src/ingestion/formations.py"
+    - "src/ingestion/formations_shape_graph.py"
+    - "src/ingestion/formations_common.py"
     - "src/analytics/shape_graph.py"
 ---
 
