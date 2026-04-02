@@ -186,13 +186,16 @@ player_match_minutes as (
 
 minutes as (
 
+    -- MAX() deduplicates: lineups can have multiple position entries per
+    -- player-match (formation changes), and UNION ALL can overlap with subs.
     select
         pmm.player_id,
         pmm.match_id,
-        pmm.minutes_played
+        max(pmm.minutes_played) as minutes_played
     from player_match_minutes pmm
     inner join gk_players gk
         on pmm.player_id = gk.player_id
+    group by pmm.player_id, pmm.match_id
 
 ),
 
@@ -242,15 +245,18 @@ save_stats as (
 
 ),
 
--- Base grain: distinct (player_id, match_id, competition_id, season_id)
+-- Base grain: one row per (player_id, match_id).
+-- MIN() on competition_id/season_id avoids fan-out when incremental
+-- ingestion produces inconsistent metadata for the same match.
 gk_matches as (
 
-    select distinct
+    select
         player_id,
         match_id,
-        competition_id,
-        season_id
+        min(competition_id) as competition_id,
+        min(season_id)      as season_id
     from gk_actions
+    group by player_id, match_id
 
 ),
 
