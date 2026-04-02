@@ -531,7 +531,7 @@ def upload_volume_to_hf_hub(
 
     hf_token = resolve_hf_token()
     if not hf_token:
-        log.warning(
+        log.warning(  # nosemgrep: python-logger-credential-disclosure
             "No HF token found — skipping upload. Data available at UC Volume: %s",
             volume_path,
         )
