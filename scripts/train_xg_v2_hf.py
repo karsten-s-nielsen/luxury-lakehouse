@@ -58,8 +58,8 @@ import torch.nn as nn
 from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 from sklearn.model_selection import train_test_split
 
-from analytics.cost import HF_RATE_A10G_LARGE, HFJobsCostRecorder
 from analytics.set_encoder import serialize_set_encoder_weights
+from ingestion.hf_jobs_cost import HF_RATE_A10G_LARGE, HFJobsCostRecorder
 from workflows import workflow
 
 # ---------------------------------------------------------------------------

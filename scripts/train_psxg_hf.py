@@ -39,8 +39,8 @@ from sklearn.calibration import calibration_curve
 from sklearn.metrics import brier_score_loss, log_loss
 from sklearn.model_selection import train_test_split
 
-from analytics.cost import HF_RATE_A10G_LARGE, HFJobsCostRecorder
 from analytics.goalkeeper import PSxGModel, predict_psxg, train_psxg_model
+from ingestion.hf_jobs_cost import HF_RATE_A10G_LARGE, HFJobsCostRecorder
 
 logging.basicConfig(
     level=logging.INFO,

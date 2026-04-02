@@ -15,6 +15,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from analytics.array_utils import _col_f64
 from analytics.pitch_control import PitchControlParams, compute_pitch_control_at_points
 
 
@@ -25,11 +26,6 @@ class OffBallXtParams:
     pitch_length: float = 120.0  # StatsBomb pitch length
     pitch_width: float = 80.0  # StatsBomb pitch width
     sample_fps: float = 1.0  # Sample 1 frame per second
-
-
-def _col_f64(df: pd.DataFrame, col: str) -> np.ndarray:
-    """Extract a DataFrame column as a float64 numpy array (pyright-safe)."""
-    return np.asarray(df[col], dtype=np.float64)
 
 
 def _lookup_xt(

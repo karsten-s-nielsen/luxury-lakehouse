@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from analytics.cost import (
+from ingestion.hf_jobs_cost import (
     HF_RATE_A10G_LARGE,
     HF_RATE_A10G_SMALL,
     HF_RATE_CPU_BASIC,
@@ -83,7 +83,7 @@ class TestConstruction:
 
 
 class TestStart:
-    @patch("analytics.cost.HfApi")
+    @patch("ingestion.hf_jobs_cost.HfApi")
     def test_start_uploads_running_state(self, mock_hf_api_cls: MagicMock) -> None:
         mock_api = mock_hf_api_cls.return_value
         recorder = HFJobsCostRecorder(
@@ -111,8 +111,8 @@ class TestStart:
         assert call_kwargs.kwargs["repo_id"] == "luxury-lakehouse/xg-shot-data"
         assert call_kwargs.kwargs["repo_type"] == "dataset"
 
-    @patch("analytics.cost.time.sleep")
-    @patch("analytics.cost.HfApi")
+    @patch("ingestion.hf_jobs_cost.time.sleep")
+    @patch("ingestion.hf_jobs_cost.HfApi")
     def test_start_swallows_connection_error(
         self, mock_hf_api_cls: MagicMock, _mock_sleep: MagicMock, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -126,12 +126,12 @@ class TestStart:
             repo_id="luxury-lakehouse/test",
         )
         # Must not raise
-        with caplog.at_level(logging.WARNING, logger="analytics.cost"):
+        with caplog.at_level(logging.WARNING, logger="ingestion.hf_jobs_cost"):
             recorder.start()
 
         assert any("failed" in record.message.lower() for record in caplog.records)
 
-    @patch("analytics.cost.HfApi")
+    @patch("ingestion.hf_jobs_cost.HfApi")
     def test_start_includes_hf_job_id(self, mock_hf_api_cls: MagicMock) -> None:
         mock_api = mock_hf_api_cls.return_value
 
@@ -154,7 +154,7 @@ class TestStart:
 
 
 class TestComplete:
-    @patch("analytics.cost.HfApi")
+    @patch("ingestion.hf_jobs_cost.HfApi")
     def test_complete_returns_new_dict_with_cost_fields(self, mock_hf_api_cls: MagicMock) -> None:
         recorder = HFJobsCostRecorder(
             workflow_id="wf-compute_xg",
@@ -182,7 +182,7 @@ class TestComplete:
         assert result["workflow_phase"] == "compute"
         assert result["rate_usd_per_hour"] == 1.00
 
-    @patch("analytics.cost.HfApi")
+    @patch("ingestion.hf_jobs_cost.HfApi")
     def test_complete_uploads_completed_state(self, mock_hf_api_cls: MagicMock) -> None:
         mock_api = mock_hf_api_cls.return_value
         recorder = HFJobsCostRecorder(
@@ -206,7 +206,7 @@ class TestComplete:
         assert "estimated_cost_usd" in payload
         assert payload["estimated_cost_usd"] >= 0.0
 
-    @patch("analytics.cost.HfApi")
+    @patch("ingestion.hf_jobs_cost.HfApi")
     def test_complete_cost_calculation(self, mock_hf_api_cls: MagicMock) -> None:
         """Cost = rate_usd_per_hour * duration_seconds / 3600."""
         recorder = HFJobsCostRecorder(
@@ -227,7 +227,7 @@ class TestComplete:
         expected_cost = 1.00 * duration / 3600
         assert abs(cost - expected_cost) < 1e-9
 
-    @patch("analytics.cost.HfApi")
+    @patch("ingestion.hf_jobs_cost.HfApi")
     def test_complete_row_count_none_default(self, mock_hf_api_cls: MagicMock) -> None:
         recorder = HFJobsCostRecorder(
             workflow_id="wf-test",
@@ -247,7 +247,7 @@ class TestComplete:
 
 
 class TestFail:
-    @patch("analytics.cost.HfApi")
+    @patch("ingestion.hf_jobs_cost.HfApi")
     def test_fail_uploads_failed_state(self, mock_hf_api_cls: MagicMock) -> None:
         mock_api = mock_hf_api_cls.return_value
         recorder = HFJobsCostRecorder(
@@ -271,7 +271,7 @@ class TestFail:
         assert "estimated_cost_usd" in payload
         assert payload["estimated_cost_usd"] >= 0.0
 
-    @patch("analytics.cost.HfApi")
+    @patch("ingestion.hf_jobs_cost.HfApi")
     def test_fail_swallows_upload_error(self, mock_hf_api_cls: MagicMock) -> None:
         mock_api = mock_hf_api_cls.return_value
         # First call (start) succeeds, second (fail) raises a non-retryable error
@@ -295,7 +295,7 @@ class TestFail:
 
 
 class TestSkip:
-    @patch("analytics.cost.HfApi")
+    @patch("ingestion.hf_jobs_cost.HfApi")
     def test_skip_uploads_skipped_state(self, mock_hf_api_cls: MagicMock) -> None:
         mock_api = mock_hf_api_cls.return_value
         recorder = HFJobsCostRecorder(
@@ -318,7 +318,7 @@ class TestSkip:
         assert payload["estimated_cost_usd"] == 0.0
         assert "ended_at" in payload
 
-    @patch("analytics.cost.HfApi")
+    @patch("ingestion.hf_jobs_cost.HfApi")
     def test_skip_without_start(self, mock_hf_api_cls: MagicMock) -> None:
         """Skip can be called without start — e.g. when skip guard fires early."""
         mock_api = mock_hf_api_cls.return_value
@@ -345,8 +345,8 @@ class TestSkip:
 
 
 class TestUploadRetry:
-    @patch("analytics.cost.time.sleep")
-    @patch("analytics.cost.HfApi")
+    @patch("ingestion.hf_jobs_cost.time.sleep")
+    @patch("ingestion.hf_jobs_cost.HfApi")
     def test_upload_retries_on_5xx_error(self, mock_hf_api_cls: MagicMock, _mock_sleep: MagicMock) -> None:
         """5xx errors are transient and should trigger retries."""
         mock_api = MagicMock()

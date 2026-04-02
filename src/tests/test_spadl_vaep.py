@@ -1,17 +1,15 @@
-"""Tests for SPADL/VAEP ingestion pipeline and chart functions."""
+"""Tests for SPADL/VAEP ingestion pipeline."""
 
 from __future__ import annotations
 
 import tempfile
 
-import matplotlib.figure
 import numpy as np
 import pandas as pd
 import pytest
 from xgboost import XGBClassifier
 
 from ingestion.spadl_vaep import _clean_spadl_for_spark, _read_existing_match_ids
-from streamlit_app.components.charts import plot_action_type_breakdown, plot_action_value_timeline
 
 # ---------------------------------------------------------------------------
 # Spark type coercion
@@ -107,79 +105,6 @@ class TestVaepFormula:
 
 
 # ---------------------------------------------------------------------------
-# Visualization tests
-# ---------------------------------------------------------------------------
-
-
-class TestPlotActionValueTimeline:
-    """Test action value timeline chart."""
-
-    def test_returns_figure_with_data(self) -> None:
-        actions = pd.DataFrame(
-            {
-                "time_seconds": [60.0, 300.0, 1500.0, 2700.0],
-                "vaep_value": [0.05, -0.02, 0.10, -0.01],
-            }
-        )
-        fig = plot_action_value_timeline(actions, title="Test Timeline")
-        assert isinstance(fig, matplotlib.figure.Figure)
-
-    def test_returns_figure_with_empty_data(self) -> None:
-        actions = pd.DataFrame({"time_seconds": [], "vaep_value": []})
-        fig = plot_action_value_timeline(actions)
-        assert isinstance(fig, matplotlib.figure.Figure)
-
-    def test_handles_single_action(self) -> None:
-        actions = pd.DataFrame({"time_seconds": [120.0], "vaep_value": [0.05]})
-        fig = plot_action_value_timeline(actions)
-        assert isinstance(fig, matplotlib.figure.Figure)
-
-    def test_handles_all_negative(self) -> None:
-        actions = pd.DataFrame(
-            {
-                "time_seconds": [60.0, 120.0, 180.0],
-                "vaep_value": [-0.05, -0.02, -0.01],
-            }
-        )
-        fig = plot_action_value_timeline(actions)
-        assert isinstance(fig, matplotlib.figure.Figure)
-
-
-class TestPlotActionTypeBreakdown:
-    """Test action type breakdown bar chart."""
-
-    def test_returns_figure_with_data(self) -> None:
-        data = pd.DataFrame(
-            {
-                "action_type": ["pass", "shot", "dribble", "tackle"],
-                "total_vaep": [5.0, 3.0, -1.0, 2.0],
-            }
-        )
-        fig = plot_action_type_breakdown(data, title="Test Breakdown")
-        assert isinstance(fig, matplotlib.figure.Figure)
-
-    def test_returns_figure_with_empty_data(self) -> None:
-        data = pd.DataFrame({"action_type": [], "total_vaep": []})
-        fig = plot_action_type_breakdown(data)
-        assert isinstance(fig, matplotlib.figure.Figure)
-
-    def test_handles_single_type(self) -> None:
-        data = pd.DataFrame({"action_type": ["pass"], "total_vaep": [10.0]})
-        fig = plot_action_type_breakdown(data)
-        assert isinstance(fig, matplotlib.figure.Figure)
-
-    def test_handles_all_negative(self) -> None:
-        data = pd.DataFrame(
-            {
-                "action_type": ["foul", "bad_touch"],
-                "total_vaep": [-2.0, -1.0],
-            }
-        )
-        fig = plot_action_type_breakdown(data)
-        assert isinstance(fig, matplotlib.figure.Figure)
-
-
-# ---------------------------------------------------------------------------
 # Incremental pipeline helpers
 # ---------------------------------------------------------------------------
 
@@ -265,7 +190,7 @@ class TestTryLoadChampionVaep:
 
         # Simulate mlflow not being importable
         with patch.dict(sys.modules, {"mlflow": None, "mlflow.pyfunc": None}):
-            result = _try_load_champion_vaep(logging.getLogger("test"))
+            result = _try_load_champion_vaep(logging.getLogger("test"), "soccer_analytics", "dev_gold")
         # Result is None because the import fails inside the function
         assert result is None
 
@@ -281,7 +206,7 @@ class TestTryLoadChampionVaep:
         mock_pyfunc.load_model.side_effect = Exception("Model not found")
 
         with patch.dict("sys.modules", {"mlflow": mock_mlflow, "mlflow.pyfunc": mock_pyfunc}):
-            result = _try_load_champion_vaep(logging.getLogger("test"))
+            result = _try_load_champion_vaep(logging.getLogger("test"), "soccer_analytics", "dev_gold")
         assert result is None
 
     def test_returns_models_when_champion_found(self) -> None:
@@ -307,7 +232,7 @@ class TestTryLoadChampionVaep:
         mock_mlflow = MagicMock()
 
         with patch.dict("sys.modules", {"mlflow": mock_mlflow, "mlflow.pyfunc": mock_pyfunc}):
-            result = _try_load_champion_vaep(logging.getLogger("test"))
+            result = _try_load_champion_vaep(logging.getLogger("test"), "soccer_analytics", "dev_gold")
 
         assert result is not None
         assert result[0] is mock_scores

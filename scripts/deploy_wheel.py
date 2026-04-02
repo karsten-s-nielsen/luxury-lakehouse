@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import re
 import sys
 from pathlib import Path
 
@@ -22,18 +21,18 @@ from databricks.sdk import WorkspaceClient
 from huggingface_hub import hf_hub_download
 from huggingface_hub.utils import get_token
 
+from shared.constants import IDENTIFIER_RE
+
 logger = logging.getLogger(__name__)
 
 HF_REPO_ID = "luxury-lakehouse/build-artifacts"
 HF_REPO_TYPE = "model"
 
-_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
-
 
 def _validate_identifier(value: str, label: str) -> None:
     """Validate a catalog or schema name against SQL injection patterns."""
-    if not _IDENTIFIER_RE.match(value):
-        logger.error("Invalid %s identifier: %r (must match %s)", label, value, _IDENTIFIER_RE.pattern)
+    if not IDENTIFIER_RE.match(value):
+        logger.error("Invalid %s identifier: %r (must match %s)", label, value, IDENTIFIER_RE.pattern)
         sys.exit(1)
 
 

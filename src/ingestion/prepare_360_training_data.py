@@ -27,10 +27,11 @@ from __future__ import annotations
 
 import argparse
 import logging
-import re
 import sys
 import time
 from typing import TYPE_CHECKING
+
+from shared.constants import IDENTIFIER_RE
 
 # ---------------------------------------------------------------------------
 # Structured logging
@@ -48,9 +49,6 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
-# Regex for safe SQL identifiers — prevents injection via catalog/schema names
-_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 HF_ORG = "luxury-lakehouse"
 DATASET_REPO = f"{HF_ORG}/football2vec-360-training-data"
@@ -113,8 +111,8 @@ def _validate_identifier(field_name: str, value: str) -> None:
     Raises:
         SystemExit: If the value does not match the safe identifier pattern.
     """
-    if not _IDENTIFIER_RE.match(value):
-        msg = f"Invalid {field_name} '{value}': must match {_IDENTIFIER_RE.pattern}"
+    if not IDENTIFIER_RE.match(value):
+        msg = f"Invalid {field_name} '{value}': must match {IDENTIFIER_RE.pattern}"
         raise SystemExit(msg)
 
 

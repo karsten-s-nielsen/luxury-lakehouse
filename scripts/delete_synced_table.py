@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import sys
 import uuid
 
@@ -21,7 +20,7 @@ import psycopg2
 import requests
 from databricks.sdk import WorkspaceClient
 
-_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+from shared.constants import IDENTIFIER_RE
 
 CATALOG = "soccer_analytics"
 SCHEMA = "dev_gold"
@@ -67,8 +66,8 @@ def main() -> None:
     table_name: str = args.table_name
 
     # Validate table name to prevent SQL injection in DDL statement
-    if not _IDENTIFIER_RE.match(table_name):
-        print(f"ERROR: Invalid table name '{table_name}': must match {_IDENTIFIER_RE.pattern}")
+    if not IDENTIFIER_RE.match(table_name):
+        print(f"ERROR: Invalid table name '{table_name}': must match {IDENTIFIER_RE.pattern}")
         sys.exit(1)
 
     full_name = f"{CATALOG}.{SCHEMA}.{table_name}"

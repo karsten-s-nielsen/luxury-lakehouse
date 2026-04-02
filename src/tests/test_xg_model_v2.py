@@ -313,7 +313,7 @@ class TestTryLoadChampionXgboost:
         from ingestion.xg_model_v2 import _try_load_champion_xgboost
 
         with patch.dict(sys.modules, {"mlflow.sklearn": None}):
-            result = _try_load_champion_xgboost(logging.getLogger("test"))
+            result = _try_load_champion_xgboost(logging.getLogger("test"), "soccer_analytics", "dev_gold")
         assert result is None
 
     def test_returns_none_when_champion_not_found(self) -> None:
@@ -327,7 +327,7 @@ class TestTryLoadChampionXgboost:
         mock_sklearn.load_model.side_effect = Exception("Model not found")
 
         with patch.dict("sys.modules", {"mlflow.sklearn": mock_sklearn}):
-            result = _try_load_champion_xgboost(logging.getLogger("test"))
+            result = _try_load_champion_xgboost(logging.getLogger("test"), "soccer_analytics", "dev_gold")
         assert result is None
 
     def test_returns_bytes_when_champion_found(self) -> None:
@@ -347,7 +347,7 @@ class TestTryLoadChampionXgboost:
         mock_sklearn.load_model.return_value = xgboost_model
 
         with patch.dict("sys.modules", {"mlflow.sklearn": mock_sklearn}):
-            result = _try_load_champion_xgboost(logging.getLogger("test"))
+            result = _try_load_champion_xgboost(logging.getLogger("test"), "soccer_analytics", "dev_gold")
 
         assert result is not None
         assert isinstance(result, bytes)

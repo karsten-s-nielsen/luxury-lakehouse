@@ -34,13 +34,13 @@ from ingestion.utils import (
     parse_ingestion_args,
     write_delta_table,
 )
+from shared.constants import DEFAULT_GOLD_SCHEMA, mlflow_model_uri
 from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 _TABLE_NAME = "defcon_results"
-_GOLD_SCHEMA = "dev_gold"
 
 # ---------------------------------------------------------------------------
 # Column name prefixes used to distinguish actions vs freeze-frame columns
@@ -52,6 +52,8 @@ _FF_PREFIX = "ff_"
 
 def _try_load_champion_defcon(
     logger: logging.Logger,
+    catalog: str,
+    schema: str,
 ) -> bytes | None:
     """Try to load DEFCON value estimator from MLflow @Champion alias.
 
@@ -66,7 +68,7 @@ def _try_load_champion_defcon(
         logger.info("mlflow not available — will use per-match DEFCON training")
         return None
 
-    model_name = "soccer_analytics.dev_gold.defcon_model"
+    model_name = mlflow_model_uri(catalog, schema, "defcon_model")
     try:
         model_uri = f"models:/{model_name}@Champion"
         logger.info("Loading DEFCON @Champion from %s", model_uri)
@@ -450,7 +452,7 @@ def _process_360_matches(
     from pyspark.sql import functions as F  # noqa: N812
     from pyspark.sql.types import DoubleType, LongType, StringType, StructField, StructType
 
-    action_table = f"{catalog}.{_GOLD_SCHEMA}.fct_action_values"
+    action_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_action_values"
     ff_table = f"{catalog}.bronze.statsbomb_360"
     results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
 
@@ -649,8 +651,8 @@ def _process_tracking_matches(
     from pyspark.sql import functions as F  # noqa: N812
     from pyspark.sql.types import DoubleType, LongType, StringType, StructField, StructType
 
-    action_table = f"{catalog}.{_GOLD_SCHEMA}.fct_action_values"
-    tracking_table = f"{catalog}.{_GOLD_SCHEMA}.fct_tracking_frames"
+    action_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_action_values"
+    tracking_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_tracking_frames"
     results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
 
     try:
@@ -852,7 +854,7 @@ def run_pipeline(
     params = DefconLiteParams()
 
     # Attempt to load @Champion model (driver-side only)
-    champion_bytes = _try_load_champion_defcon(logger)
+    champion_bytes = _try_load_champion_defcon(logger, catalog, DEFAULT_GOLD_SCHEMA)
     if champion_bytes is not None:
         logger.info("Using @Champion DEFCON model for value estimation")
     else:

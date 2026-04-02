@@ -578,7 +578,7 @@ class TestTryLoadChampionDefcon:
         from ingestion.defcon_lite import _try_load_champion_defcon
 
         with patch.dict(sys.modules, {"mlflow": None, "mlflow.pyfunc": None}):
-            result = _try_load_champion_defcon(logging.getLogger("test"))
+            result = _try_load_champion_defcon(logging.getLogger("test"), "soccer_analytics", "dev_gold")
         assert result is None
 
     def test_returns_none_when_champion_not_found(self) -> None:
@@ -593,7 +593,7 @@ class TestTryLoadChampionDefcon:
         mock_pyfunc.load_model.side_effect = Exception("Model not found")
 
         with patch.dict("sys.modules", {"mlflow": mock_mlflow, "mlflow.pyfunc": mock_pyfunc}):
-            result = _try_load_champion_defcon(logging.getLogger("test"))
+            result = _try_load_champion_defcon(logging.getLogger("test"), "soccer_analytics", "dev_gold")
         assert result is None
 
     def test_returns_bytes_when_champion_found(self) -> None:
@@ -621,7 +621,7 @@ class TestTryLoadChampionDefcon:
         mock_mlflow = MagicMock()
 
         with patch.dict("sys.modules", {"mlflow": mock_mlflow, "mlflow.pyfunc": mock_pyfunc}):
-            result = _try_load_champion_defcon(logging.getLogger("test"))
+            result = _try_load_champion_defcon(logging.getLogger("test"), "soccer_analytics", "dev_gold")
 
         assert result is not None
         assert isinstance(result, bytes)

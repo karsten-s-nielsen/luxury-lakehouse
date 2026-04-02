@@ -19,9 +19,9 @@ import requests as httplib
 from config import get_settings
 from databricks.sdk import WorkspaceClient
 
-logger = logging.getLogger(__name__)
+from shared.constants import IDENTIFIER_RE
 
-_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+logger = logging.getLogger(__name__)
 _SAFE_ID_RE = re.compile(r"^[a-zA-Z0-9_\-]+$")
 
 # Thread lock for token cache and connection pool state (L-4: thread safety)
@@ -182,7 +182,7 @@ def validate_table_name(table: str) -> str:
 
     Raises ValueError if the name contains invalid characters.
     """
-    if not _IDENTIFIER_RE.match(table):
+    if not IDENTIFIER_RE.match(table):
         msg = f"Invalid table name: {table!r}"
         raise ValueError(msg)
     return table

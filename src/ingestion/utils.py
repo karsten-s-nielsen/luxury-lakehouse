@@ -11,7 +11,6 @@ import argparse
 import json
 import logging
 import os
-import re
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -19,11 +18,10 @@ import pandas as pd
 import requests
 import requests_cache
 
+from shared.constants import IDENTIFIER_RE
+
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame, SparkSession
-
-# Regex for safe SQL identifiers — prevents injection via catalog/schema names
-_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 # HTTP status codes eligible for retry
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
@@ -63,8 +61,8 @@ def parse_ingestion_args(
 
     for field in ("catalog", "schema"):
         value = getattr(args, field)
-        if not _IDENTIFIER_RE.match(value):
-            parser.error(f"Invalid {field} name '{value}': must match {_IDENTIFIER_RE.pattern}")
+        if not IDENTIFIER_RE.match(value):
+            parser.error(f"Invalid {field} name '{value}': must match {IDENTIFIER_RE.pattern}")
 
     return args
 
@@ -195,8 +193,8 @@ def write_delta_table(
     Raises:
         ValueError: If ``table_name`` fails identifier validation.
     """
-    if not _IDENTIFIER_RE.match(table_name):
-        msg = f"Invalid table_name '{table_name}': must match {_IDENTIFIER_RE.pattern}"
+    if not IDENTIFIER_RE.match(table_name):
+        msg = f"Invalid table_name '{table_name}': must match {IDENTIFIER_RE.pattern}"
         raise ValueError(msg)
 
     full_table = f"{catalog}.{schema}.{table_name}"
@@ -254,8 +252,8 @@ def merge_delta_table(
     Raises:
         ValueError: If *table_name* fails identifier validation.
     """
-    if not _IDENTIFIER_RE.match(table_name):
-        msg = f"Invalid table_name '{table_name}': must match {_IDENTIFIER_RE.pattern}"
+    if not IDENTIFIER_RE.match(table_name):
+        msg = f"Invalid table_name '{table_name}': must match {IDENTIFIER_RE.pattern}"
         raise ValueError(msg)
 
     full_table = f"{catalog}.{schema}.{table_name}"

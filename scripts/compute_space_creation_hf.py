@@ -48,12 +48,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from analytics.cost import HF_RATE_A10G_LARGE, HFJobsCostRecorder
 from analytics.obso import interpolate_grid
 from analytics.pitch_control import (
     PitchControlParams,
     compute_pitch_control_player_removal,
 )
+from ingestion.hf_jobs_cost import HF_RATE_A10G_LARGE, HFJobsCostRecorder
 from workflows import workflow
 
 # ---------------------------------------------------------------------------

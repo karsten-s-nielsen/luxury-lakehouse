@@ -34,13 +34,13 @@ from ingestion.utils import (
     validate_dataframe,
     write_delta_table,
 )
+from shared.constants import DEFAULT_GOLD_SCHEMA
 from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 _TABLE_NAME = "model_validation_runs"
-_GOLD_SCHEMA = "dev_gold"
 
 # ---------------------------------------------------------------------------
 # Baseline loading
@@ -57,7 +57,7 @@ def _load_scalar_baselines(
     Returns a dict keyed by (model_name, metric_name) with fields:
     reference_value, threshold_warn, threshold_alert.
     """
-    table = f"{catalog}.{_GOLD_SCHEMA}.model_baseline_scalars"
+    table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.model_baseline_scalars"
     try:
         baselines_df = spark.table(table).toPandas()
     except Exception:
@@ -93,7 +93,7 @@ def _validate_xg_predictions(
 ) -> list[ValidationResult]:
     """Validate xG model predictions: mean prediction PSI and metric thresholds."""
     results: list[ValidationResult] = []
-    table = f"{catalog}.{_GOLD_SCHEMA}.fct_xg_predictions"
+    table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_xg_predictions"
 
     try:
         xg_df = spark.table(table).select("xg_prediction").limit(500_000).toPandas()
@@ -148,7 +148,7 @@ def _validate_action_values(
 ) -> list[ValidationResult]:
     """Validate VAEP action values: negative fraction, distribution shape."""
     results: list[ValidationResult] = []
-    table = f"{catalog}.{_GOLD_SCHEMA}.fct_action_values"
+    table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_action_values"
 
     try:
         vaep_df = spark.table(table).select("vaep_value").limit(500_000).toPandas()
@@ -197,7 +197,7 @@ def _validate_line_breaking(
 ) -> list[ValidationResult]:
     """Validate line-breaking detection rate via CUSUM."""
     results: list[ValidationResult] = []
-    table = f"{catalog}.{_GOLD_SCHEMA}.fct_passes"
+    table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_passes"
 
     try:
         passes_df = (
@@ -245,7 +245,7 @@ def _validate_physical_stats(
 ) -> list[ValidationResult]:
     """Validate physical stats: max speed within physics bounds."""
     results: list[ValidationResult] = []
-    table = f"{catalog}.{_GOLD_SCHEMA}.fct_physical_stats"
+    table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_physical_stats"
 
     try:
         phys_df = spark.table(table).select("max_speed_ms").limit(500_000).toPandas()
@@ -276,7 +276,7 @@ def _validate_pausa(
 ) -> list[ValidationResult]:
     """Validate PAUSA scores: temporal/spatial within [0, 1]."""
     results: list[ValidationResult] = []
-    table = f"{catalog}.{_GOLD_SCHEMA}.fct_pausa_values"
+    table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_pausa_values"
 
     try:
         pausa_df = spark.table(table).select("temporal_judgment", "spatial_selection").limit(500_000).toPandas()

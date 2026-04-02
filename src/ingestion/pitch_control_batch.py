@@ -27,13 +27,13 @@ from ingestion.utils import (
     parse_ingestion_args,
     write_delta_table,
 )
+from shared.constants import DEFAULT_GOLD_SCHEMA
 from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 _TABLE_NAME = "pitch_control_values"
-_GOLD_SCHEMA = "dev_gold"
 
 # Default number of source frames per batch group.  Each batch is processed
 # as a single ``applyInPandas`` partition on an executor.  A value of 500
@@ -158,7 +158,7 @@ def _process_matches(
 
     from analytics.pitch_control import PitchControlParams
 
-    gold_table = f"{catalog}.{_GOLD_SCHEMA}.fct_tracking_frames"
+    gold_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_tracking_frames"
     results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
 
     try:

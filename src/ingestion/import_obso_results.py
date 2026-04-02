@@ -20,12 +20,9 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import re
 import time
 
-# Regex for safe SQL identifiers — prevents injection via catalog/schema names
-_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
-
+from shared.constants import IDENTIFIER_RE
 
 # ---------------------------------------------------------------------------
 # Structured JSON logging (mirrors src/ingestion/utils.py pattern)
@@ -95,8 +92,8 @@ def main() -> None:
 
     # Validate identifiers to prevent SQL injection
     for field_name, value in [("catalog", catalog), ("schema", schema)]:
-        if not _IDENTIFIER_RE.match(value):
-            msg = f"Invalid {field_name} name '{value}': must match {_IDENTIFIER_RE.pattern}"
+        if not IDENTIFIER_RE.match(value):
+            msg = f"Invalid {field_name} name '{value}': must match {IDENTIFIER_RE.pattern}"
             raise SystemExit(msg)
 
     spark = SparkSession.builder.getOrCreate()

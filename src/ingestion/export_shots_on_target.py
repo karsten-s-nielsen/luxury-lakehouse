@@ -27,9 +27,10 @@ from __future__ import annotations
 
 import argparse
 import logging
-import re
 import sys
 import time
+
+from shared.constants import IDENTIFIER_RE
 
 # ---------------------------------------------------------------------------
 # Structured logging
@@ -44,9 +45,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
-# Regex for safe SQL identifiers — prevents injection via catalog/schema names
-_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 HF_ORG = "luxury-lakehouse"
 DATASET_REPO = f"{HF_ORG}/statsbomb-shots-on-target"
@@ -70,8 +68,8 @@ def _validate_identifier(field_name: str, value: str) -> None:
     Raises:
         SystemExit: If the value does not match the safe identifier pattern.
     """
-    if not _IDENTIFIER_RE.match(value):
-        msg = f"Invalid {field_name} '{value}': must match {_IDENTIFIER_RE.pattern}"
+    if not IDENTIFIER_RE.match(value):
+        msg = f"Invalid {field_name} '{value}': must match {IDENTIFIER_RE.pattern}"
         raise SystemExit(msg)
 
 

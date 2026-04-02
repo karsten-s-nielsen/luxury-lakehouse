@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import re
 from functools import lru_cache
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
-_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+from shared.constants import IDENTIFIER_RE
 
 
 class AppSettings(BaseSettings):
@@ -31,8 +30,8 @@ class AppSettings(BaseSettings):
     @field_validator("unity_catalog", "gold_schema", "observability_schema")
     @classmethod
     def _validate_identifier(cls, v: str) -> str:
-        if not _IDENTIFIER_RE.match(v):
-            msg = f"Invalid identifier: {v!r}. Must match {_IDENTIFIER_RE.pattern}"
+        if not IDENTIFIER_RE.match(v):
+            msg = f"Invalid identifier: {v!r}. Must match {IDENTIFIER_RE.pattern}"
             raise ValueError(msg)
         return v
 

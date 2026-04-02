@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from huggingface_hub.hf_api import RepoFile
 
-from analytics.cost import HFJobsCostRecorder
+from ingestion.hf_jobs_cost import HFJobsCostRecorder
 
 # ---------------------------------------------------------------------------
 # _cost_history/ upload on complete/fail/skip
@@ -25,7 +25,7 @@ from analytics.cost import HFJobsCostRecorder
 class TestCostHistoryUpload:
     """Test _cost_history/ file upload on complete/fail/skip."""
 
-    @patch("analytics.cost.HfApi")
+    @patch("ingestion.hf_jobs_cost.HfApi")
     def test_complete_uploads_history_file(self, mock_hf_api_cls: MagicMock) -> None:
         mock_api = mock_hf_api_cls.return_value
         with patch.dict("os.environ", {"HF_JOB_ID": "job-abc123"}):
@@ -50,7 +50,7 @@ class TestCostHistoryUpload:
         assert body["row_count"] == 100
         assert body["workflow_id"] == "wf-test"
 
-    @patch("analytics.cost.HfApi")
+    @patch("ingestion.hf_jobs_cost.HfApi")
     def test_fail_uploads_history_file(self, mock_hf_api_cls: MagicMock) -> None:
         mock_api = mock_hf_api_cls.return_value
         with patch.dict("os.environ", {"HF_JOB_ID": "job-fail1"}):
@@ -71,7 +71,7 @@ class TestCostHistoryUpload:
         assert body["state"] == "FAILED"
         assert "error" in body
 
-    @patch("analytics.cost.HfApi")
+    @patch("ingestion.hf_jobs_cost.HfApi")
     def test_skip_uploads_history_file(self, mock_hf_api_cls: MagicMock) -> None:
         mock_api = mock_hf_api_cls.return_value
         with patch.dict("os.environ", {"HF_JOB_ID": "job-skip1"}):
@@ -100,7 +100,7 @@ class TestCostHistoryUpload:
 class TestTimestampSlugFallback:
     """When HF_JOB_ID is not set, use a UTC timestamp slug as filename."""
 
-    @patch("analytics.cost.HfApi")
+    @patch("ingestion.hf_jobs_cost.HfApi")
     def test_no_job_id_uses_timestamp_slug(self, mock_hf_api_cls: MagicMock) -> None:
         mock_api = mock_hf_api_cls.return_value
         with patch.dict("os.environ", {}, clear=True):
@@ -133,7 +133,7 @@ class TestTimestampSlugFallback:
 class TestHistoryFireAndForget:
     """History upload failures are logged but never propagate."""
 
-    @patch("analytics.cost.HfApi")
+    @patch("ingestion.hf_jobs_cost.HfApi")
     def test_history_upload_failure_does_not_propagate(
         self, mock_hf_api_cls: MagicMock, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -150,14 +150,14 @@ class TestHistoryFireAndForget:
         mock_api.upload_file.side_effect = [None, None, ConnectionError("network down")]
 
         recorder.start()
-        with caplog.at_level(logging.WARNING, logger="analytics.cost"):
+        with caplog.at_level(logging.WARNING, logger="ingestion.hf_jobs_cost"):
             result = recorder.complete({"k": "v"})
 
         # complete() must still return enriched metadata
         assert "elapsed_seconds" in result
         assert any("history" in r.message.lower() or "failed" in r.message.lower() for r in caplog.records)
 
-    @patch("analytics.cost.HfApi")
+    @patch("ingestion.hf_jobs_cost.HfApi")
     def test_fail_history_upload_failure_does_not_propagate(self, mock_hf_api_cls: MagicMock) -> None:
         mock_api = mock_hf_api_cls.return_value
         with patch.dict("os.environ", {"HF_JOB_ID": "job-err2"}):
@@ -183,7 +183,7 @@ class TestHistoryFireAndForget:
 class TestCostHistoryPruning:
     """Test _cost_history/ pruning of old files."""
 
-    @patch("analytics.cost.HfApi")
+    @patch("ingestion.hf_jobs_cost.HfApi")
     def test_prunes_files_older_than_90_days(self, mock_hf_api_cls: MagicMock) -> None:
         mock_api = mock_hf_api_cls.return_value
         with patch.dict("os.environ", {"HF_JOB_ID": "job-new"}):
@@ -222,7 +222,7 @@ class TestCostHistoryPruning:
         delete_new = [c for c in mock_api.delete_file.call_args_list if "_cost_history/job-recent.json" in str(c)]
         assert len(delete_new) == 0
 
-    @patch("analytics.cost.HfApi")
+    @patch("ingestion.hf_jobs_cost.HfApi")
     def test_pruning_failure_does_not_propagate(self, mock_hf_api_cls: MagicMock) -> None:
         """Pruning errors are swallowed — never crashes the pipeline."""
         mock_api = mock_hf_api_cls.return_value
@@ -242,7 +242,7 @@ class TestCostHistoryPruning:
         result = recorder.complete({"k": "v"})
         assert "elapsed_seconds" in result
 
-    @patch("analytics.cost.HfApi")
+    @patch("ingestion.hf_jobs_cost.HfApi")
     def test_pruning_skips_non_json_files(self, mock_hf_api_cls: MagicMock, tmp_path: MagicMock) -> None:
         """Non-.json files in _cost_history/ are ignored during pruning."""
         mock_api = mock_hf_api_cls.return_value
@@ -267,7 +267,7 @@ class TestCostHistoryPruning:
         mock_api.hf_hub_download.assert_not_called()
         mock_api.delete_file.assert_not_called()
 
-    @patch("analytics.cost.HfApi")
+    @patch("ingestion.hf_jobs_cost.HfApi")
     def test_pruning_handles_empty_history_dir(self, mock_hf_api_cls: MagicMock) -> None:
         """Empty _cost_history/ directory does not cause errors."""
         mock_api = mock_hf_api_cls.return_value
@@ -296,7 +296,7 @@ class TestCostHistoryPruning:
 class TestExistingUploadUnchanged:
     """History feature must not break the existing _workflow_cost.json upload."""
 
-    @patch("analytics.cost.HfApi")
+    @patch("ingestion.hf_jobs_cost.HfApi")
     def test_complete_still_uploads_workflow_cost_json(self, mock_hf_api_cls: MagicMock) -> None:
         mock_api = mock_hf_api_cls.return_value
         with patch.dict("os.environ", {"HF_JOB_ID": "job-x"}):
@@ -314,7 +314,7 @@ class TestExistingUploadUnchanged:
             call = mock_api.upload_file.call_args_list[idx]
             assert call.kwargs["path_in_repo"] == "_workflow_cost.json"
 
-    @patch("analytics.cost.HfApi")
+    @patch("ingestion.hf_jobs_cost.HfApi")
     def test_start_does_not_upload_history(self, mock_hf_api_cls: MagicMock) -> None:
         """start() only writes _workflow_cost.json — no history file."""
         mock_api = mock_hf_api_cls.return_value

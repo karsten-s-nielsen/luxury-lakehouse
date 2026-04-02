@@ -15,6 +15,7 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from shared.constants import DEFAULT_GOLD_SCHEMA, mlflow_model_uri
 from workflows import workflow
 
 if TYPE_CHECKING:
@@ -41,7 +42,7 @@ def _try_load_champion_xg_v2(
         log.info("mlflow not available — will try UC Volume for xG v2 weights")
         return None
 
-    model_name = f"{catalog}.{schema}.xg_model_v2"
+    model_name = mlflow_model_uri(catalog, schema, "xg_model_v2")
     try:
         client = mlflow_tracking.MlflowClient()  # type: ignore[union-attr]
         alias_info = client.get_model_version_by_alias(model_name, "Champion")
@@ -63,6 +64,8 @@ def _try_load_champion_xg_v2(
 
 def _try_load_champion_xgboost(
     log: logging.Logger,
+    catalog: str,
+    schema: str,
 ) -> bytes | None:
     """Try to load v1 XGBoost model bytes from MLflow @Champion.
 
@@ -76,7 +79,7 @@ def _try_load_champion_xgboost(
         log.info("mlflow not available — will load XGBoost model from UC Volume")
         return None
 
-    model_name = "soccer_analytics.dev_gold.xg_model"
+    model_name = mlflow_model_uri(catalog, schema, "xg_model")
     try:
         model_uri = f"models:/{model_name}@Champion"
         log.info("Loading XGBoost @Champion from %s", model_uri)
@@ -271,7 +274,7 @@ def run_pipeline(
             return
 
     # 4. Load v1 XGBoost model (needed for tabular feature extraction)
-    xgboost_result = _try_load_champion_xgboost(logger)
+    xgboost_result = _try_load_champion_xgboost(logger, catalog, DEFAULT_GOLD_SCHEMA)
     if xgboost_result is not None:
         xgboost_bytes = xgboost_result
     else:

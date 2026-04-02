@@ -7,7 +7,6 @@ No raw IDs ever reach the user. SQL uses parameterized %s placeholders.
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any
 
 from cache import ttl_cache
@@ -23,7 +22,6 @@ _ALLOWED_EMBEDDING_TABLES = frozenset(
     }
 )
 _ALLOWED_COUNT_COLUMNS = frozenset({"total_matches", "matches_in_sample"})
-_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 
 def _validate_column(col: str, allowlist: frozenset[str], label: str) -> str:

@@ -69,12 +69,12 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 
-from analytics.cost import HF_RATE_A10G_LARGE, HFJobsCostRecorder
 from analytics.football2vec_transformer import (
     Football2VecConfig,
     Football2VecEncoder,
     TeamClassifierHead,
 )
+from ingestion.hf_jobs_cost import HF_RATE_A10G_LARGE, HFJobsCostRecorder
 from workflows import workflow
 
 # ---------------------------------------------------------------------------

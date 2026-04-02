@@ -45,7 +45,7 @@ from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
 
-from analytics.cost import HF_RATE_CPU_BASIC, HFJobsCostRecorder
+from ingestion.hf_jobs_cost import HF_RATE_CPU_BASIC, HFJobsCostRecorder
 from workflows import workflow
 
 # ---------------------------------------------------------------------------

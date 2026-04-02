@@ -42,8 +42,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from analytics.cost import HF_RATE_CPU_BASIC, HFJobsCostRecorder
 from analytics.obso import interpolate_grid
+from ingestion.hf_jobs_cost import HF_RATE_CPU_BASIC, HFJobsCostRecorder
 from workflows import workflow
 
 # ---------------------------------------------------------------------------

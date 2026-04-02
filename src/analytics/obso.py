@@ -47,59 +47,34 @@ def _make_synthetic_epv_grid(ny: int = 50, nx: int = 32) -> np.ndarray:
     return np.tile(x, (ny, 1))
 
 
-def load_trained_grids(
-    reachability_path: str | None = None,
-    epv_path: str | None = None,
+def get_default_grids(
+    reachability: np.ndarray | None = None,
+    epv: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Load trained 2D spatial grids from Parquet files.
+    """Return reachability and EPV grids, falling back to synthetic defaults.
 
     Both grids use (ny, nx) shape convention matching compute_obso_surface().
-    Falls back to synthetic grids if paths are None (backward compatible).
+    When pre-loaded arrays are provided, they are used directly. Otherwise,
+    synthetic proxy grids are generated (pure computation, no I/O).
+
+    Args:
+        reachability: Pre-loaded reachability grid, or None for synthetic.
+        epv: Pre-loaded EPV grid, or None for synthetic.
 
     Returns:
         (reachability_grid, epv_grid) — both (ny, nx) shaped.
     """
-    if reachability_path is not None:
-        df = pd.read_parquet(reachability_path)
-        reachability = df.pivot(
-            index="zone_y",
-            columns="zone_x",
-            values="reachability",
-        ).values.astype(np.float64)
-    else:
+    if reachability is None:
         reachability = _make_synthetic_reachability_grid()
-
-    if epv_path is not None:
-        df = pd.read_parquet(epv_path)
-        epv = df.pivot(
-            index="zone_y",
-            columns="zone_x",
-            values="epv_value",
-        ).values.astype(np.float64)
-    else:
+    if epv is None:
         epv = _make_synthetic_epv_grid()
 
     return reachability, epv
 
 
 # ---------------------------------------------------------------------------
-# Grid I/O and interpolation
+# Grid interpolation
 # ---------------------------------------------------------------------------
-
-
-def load_static_grid(path: str) -> np.ndarray:
-    """Load a static grid (EPV or Transition) from CSV.
-
-    Expects a CSV with no header, where each row is a grid row and columns
-    are grid columns.  Values are float probabilities.
-
-    Args:
-        path: Filesystem path to the CSV file.
-
-    Returns:
-        2D numpy array of grid values.
-    """
-    return np.loadtxt(path, delimiter=",", dtype=np.float64)
 
 
 def interpolate_grid(grid: np.ndarray, target_shape: tuple[int, int]) -> np.ndarray:

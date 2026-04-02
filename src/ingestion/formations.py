@@ -51,6 +51,7 @@ from ingestion.utils import (
     parse_ingestion_args,
     write_delta_table,
 )
+from shared.constants import DEFAULT_GOLD_SCHEMA
 from workflows import workflow
 
 if TYPE_CHECKING:
@@ -59,7 +60,6 @@ if TYPE_CHECKING:
 
 _TABLE_NAME = "formation_labels"
 _POSITIONS_TABLE_NAME = "player_positions"
-_GOLD_SCHEMA = "dev_gold"
 _TEMP_TABLE_SUFFIX = "__temp_formations_tracking"
 
 _RESULT_COLUMNS = [
@@ -390,7 +390,7 @@ def _prepare_tracking_data(
     so both detector passes can read from it without re-scanning the full
     38M-row gold source.
     """
-    gold_table = f"{catalog}.{_GOLD_SCHEMA}.fct_tracking_frames"
+    gold_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_tracking_frames"
     results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
 
     # Get all distinct match_ids from tracking data

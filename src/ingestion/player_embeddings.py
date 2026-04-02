@@ -43,6 +43,7 @@ from ingestion.utils import (
     validate_dataframe,
     write_delta_table,
 )
+from shared.constants import DEFAULT_GOLD_SCHEMA
 from workflows import workflow
 
 if TYPE_CHECKING:
@@ -50,7 +51,6 @@ if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 _TABLE_NAME = "player_embeddings_raw"
-_GOLD_SCHEMA = "dev_gold"
 _PLAYERS_PER_BATCH = 100
 
 STAT_FEATURES_BY_GROUP: dict[str, tuple[str, ...]] = {
@@ -193,7 +193,7 @@ def _load_events_sdf(
         (StatsBomb IDs).
     """
     _ = schema
-    gold = _GOLD_SCHEMA
+    gold = DEFAULT_GOLD_SCHEMA
 
     query = f"""
         SELECT
@@ -677,7 +677,7 @@ def _import_v2_embeddings(
 
     # Derive data_source + competition/season metadata from a single query
     # (OPT-AUDIT: combined two SELECT DISTINCT queries into one to halve shuffle)
-    gold = _GOLD_SCHEMA
+    gold = DEFAULT_GOLD_SCHEMA
     needs_data_source = "data_source" not in v2_pdf.columns
     try:
         meta_query = (
@@ -724,7 +724,9 @@ def _import_v2_embeddings(
         except (ValueError, TypeError):
             pass
 
-    stat_df, norm_params = _compute_stat_vectors(spark, catalog, _GOLD_SCHEMA, player_ids=event_player_ids or None)
+    stat_df, norm_params = _compute_stat_vectors(
+        spark, catalog, DEFAULT_GOLD_SCHEMA, player_ids=event_player_ids or None
+    )
     logger.info("Computed stat vectors for %d player-comp-season entries", len(stat_df))
 
     if norm_params:
@@ -826,7 +828,7 @@ def run_pipeline_v1(
 
     # Count source matches from fct_action_values (SPADL actions — embeddings
     # cover every match with SPADL-converted events joined to dim_players)
-    gold = _GOLD_SCHEMA
+    gold = DEFAULT_GOLD_SCHEMA
     try:
         source_match_query = (
             f"SELECT DISTINCT CAST(match_id AS STRING) AS match_id "  # noqa: S608
@@ -964,7 +966,9 @@ def run_pipeline_v1(
             event_player_ids.add(int(pid_str))
         except (ValueError, TypeError):
             pass  # non-numeric IDs are skipped — stat filter remains broad
-    stat_df, norm_params = _compute_stat_vectors(spark, catalog, _GOLD_SCHEMA, player_ids=event_player_ids or None)
+    stat_df, norm_params = _compute_stat_vectors(
+        spark, catalog, DEFAULT_GOLD_SCHEMA, player_ids=event_player_ids or None
+    )
     logger.info("Computed stat vectors for %d player-comp-season entries", len(stat_df))
 
     # Save normalization params alongside model artifacts

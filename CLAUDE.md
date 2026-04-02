@@ -10,10 +10,9 @@ These standards apply to ALL code in this repository. They are non-negotiable.
 
 - **SOLID**: Single responsibility per module/function. Depend on abstractions.
 - **Clean Code**: Meaningful names, small functions, no dead code.
-- **Separation of Concerns**: Ingestion, transformation (dbt), workflow orchestration (`src/workflows/`), and presentation (Taipy) are fully isolated layers. `src/workflows/` has zero Spark/Streamlit/Taipy imports — only stdlib + PyYAML + Pydantic.
+- **Separation of Concerns**: Ingestion, transformation (dbt), workflow orchestration (`src/workflows/`), and presentation (Taipy) are fully isolated layers. `src/workflows/` has zero Spark/Taipy imports — only stdlib + PyYAML + Pydantic.
 - **Idempotent Operations**: Every ingestion task can be re-run safely. Use partition-level overwrites, not full table drops.
 - **Structured Logging**: JSON-line logs to stdout. No print statements. Include source name, row counts, and timing.
-- **Streamlit retained for reference**: `src/streamlit_app/` and `hf_streamlit_app_deprecated/` are preserved during the Taipy transition period (~1 week). No changes needed to this code.
 
 ## Failure Investigation Protocol
 
@@ -144,9 +143,7 @@ The platform's architecture maps to classic EIP patterns (Hohpe & Woolf 2003). C
 
 ## App Performance
 
-- **`@st.cache_data` functions must be at module level**: Never define a `@st.cache_data`-decorated function inside another function — the decorator is re-applied on every call, creating a new cache key each time. This silently defeats caching.
-- **Bound all data queries**: Every Streamlit SQL query returning user-facing data must have a `LIMIT` clause. Use `LIMIT 500` for ranking/leaderboard queries, `LIMIT 2000` for timeline queries.
-- **Use recursive CTE for distinct values on fact tables**: `SELECT DISTINCT` forces full sequential scans. Use the recursive CTE loose index scan pattern instead (see Lakebase section above).
+- **Bound all data queries**: Every SQL query returning user-facing data must have a `LIMIT` clause. Use `LIMIT 500` for ranking/leaderboard queries, `LIMIT 2000` for timeline queries.
 
 ## UI Architecture
 
@@ -189,20 +186,17 @@ For operations/dashboard pages (stats cards + full-width content instead of 3fr/
 
 Building pages as imperative layout code leads to inconsistency debt that compounds per-page. With 12+ pages, hand-crafting each one guarantees: missing tooltips on some pages, different metric formats, inconsistent empty-state handling, and layout drift. The template makes these structurally impossible — required fields are constructor parameters, not afterthoughts. A CHI audit against a template architecture produces template-level fixes (one change, all pages); without it, the same audit produces N per-page fixes.
 
-## Streamlit UX Standards
+## UX Standards
 
-These rules prevent cognitive interface debt from accumulating. Derived from CHI-AUDIT-180 and CHI-AUDIT-190 (cognitive-interface-audit v1.8.0+, 15 frameworks). Every Streamlit, Gradio, or Taipy code change must satisfy all of these. Taipy equivalents: `Metric(help_text=)` for tooltips, `warning_var=` (amber `ll-warning-box`) vs `empty_message` (blue `ll-info-box`) for empty state distinction, `scope_vars=` for data context, `SidebarWidget(help=)` for widget tooltips, `GLOSSARY`/`PAGE_TERMS` in `template.py` for per-page glossary filtering.
+These rules prevent cognitive interface debt from accumulating. Derived from CHI-AUDIT-180 and CHI-AUDIT-190 (cognitive-interface-audit v1.8.0+, 15 frameworks). Every Taipy or Gradio code change must satisfy all of these.
 
-- **Every `st.metric` must have `help=`**: If the metric name is not universally understood (i.e., anything beyond "Goals", "Passes", "Score"), add a `help=` tooltip explaining what it means and what "good" looks like. Examples: xG, VAEP, PPDA, Brier Score, cosine distance, xT, DEFCON credits.
-- **Every `show_spinner=False` must be justified**: Default to descriptive spinner text (e.g., `show_spinner="Loading rankings..."`). Only suppress spinners on queries that complete in <100ms (e.g., small dimension lookups that are always cached). When in doubt, show the spinner.
-- **Never silently substitute data**: If a fallback, default, or NaN-fill changes what the user sees, surface it. Use `st.info`, `st.caption`, or a visual indicator. The user must be able to tell what data source produced what they're looking at.
+- **Never silently substitute data**: If a fallback, default, or NaN-fill changes what the user sees, surface it with a visual indicator. The user must be able to tell what data source produced what they're looking at.
 - **Patterns applied to some pages must be applied to all**: When adding a cross-cutting pattern (captions, tooltips, help text, layout changes), apply it to ALL pages in the same commit. If a page is excluded, add a code comment explaining why.
-- **Model selectors need comparison affordance**: When adding a selector that switches between models/algorithms/views, consider the comparison workflow: add `delta=` on metrics, a side-by-side layout, or at minimum persist the previous selection's values visually. Users should not need to remember numbers across radio button clicks.
-- **Navigation labels must be goal-oriented**: Page titles in `st.Page(title=...)` should describe the user's goal, not the implementation. "Player Comparison" not "Player Radar". "Defensive Impact" not "Def. Pressure".
-- **Distinguish "please select" from "no data"**: Use `st.info` for guidance prompts ("Select a competition to begin") and `st.warning` for empty results ("No data found for the selected filters"). Never use the same widget type for both — users cannot distinguish "take action" from "nothing exists."
-- **Raw IDs must never reach the user**: Never display `player_id`, `match_id`, or `team_id` in selectboxes, tables, or chart labels. Always join to dimension tables for human-readable names. Use `format_func` on selectboxes.
-- **Multi-surface UX parity**: When a Streamlit page has glossary terms, help tooltips, scale references, or academic citations, the corresponding HF Space tab must have equivalents (e.g., `gr.Accordion("Glossary")` with per-tab filtered terms, axis labels with range/direction, `gr.Markdown` citations). A feature on one surface without its UX scaffolding on the other is incomplete.
-- **Computed metrics must show scale and direction**: Any displayed score on a 0–1 or non-obvious scale (PAUSA, OBSO, cosine distance, xT, VAEP) must include the range and direction in at least one of: axis label, chart title, tooltip, or adjacent caption. "0.347" alone is never acceptable — "0.347 (0–1, higher = better)" is. This applies to both Streamlit (`help=`) and Gradio (axis labels, plot titles).
+- **Model selectors need comparison affordance**: When adding a selector that switches between models/algorithms/views, consider the comparison workflow: side-by-side layout, delta indicators, or at minimum persist the previous selection's values visually. Users should not need to remember numbers across selector clicks.
+- **Navigation labels must be goal-oriented**: Page titles should describe the user's goal, not the implementation. "Player Comparison" not "Player Radar". "Defensive Impact" not "Def. Pressure".
+- **Raw IDs must never reach the user**: Never display `player_id`, `match_id`, or `team_id` in selectboxes, tables, or chart labels. Always join to dimension tables for human-readable names.
+- **Multi-surface UX parity**: When a Taipy page has glossary terms, help tooltips, scale references, or academic citations, the corresponding Gradio demo tab must have equivalents (e.g., `gr.Accordion("Glossary")` with per-tab filtered terms, axis labels with range/direction, `gr.Markdown` citations). A feature on one surface without its UX scaffolding on the other is incomplete.
+- **Computed metrics must show scale and direction**: Any displayed score on a 0–1 or non-obvious scale (PAUSA, OBSO, cosine distance, xT, VAEP) must include the range and direction in at least one of: axis label, chart title, tooltip, or adjacent caption. "0.347" alone is never acceptable — "0.347 (0–1, higher = better)" is.
 - **HF artifact link completeness**: When publishing a new HF dataset or model, update ALL locations that reference the artifact list: HF Space header, HF Space footer, `docs/huggingface/org-card.md`, and `README.md`. A checklist in the PR description prevents drift.
 
 ## Project Conventions

@@ -35,6 +35,7 @@ from ingestion.utils import (
     parse_ingestion_args,
     write_delta_table,
 )
+from shared.constants import DEFAULT_GOLD_SCHEMA, mlflow_model_uri
 from workflows import workflow
 
 if TYPE_CHECKING:
@@ -623,6 +624,8 @@ def train_vaep_models(
 
 def _try_load_champion_vaep(
     logger: logging.Logger,
+    catalog: str,
+    schema: str,
 ) -> tuple[XGBClassifier, XGBClassifier] | None:
     """Try to load VAEP models from MLflow @Champion alias.
 
@@ -637,7 +640,7 @@ def _try_load_champion_vaep(
         logger.info("mlflow not available — will train VAEP models from scratch")
         return None
 
-    model_name = "soccer_analytics.dev_gold.vaep_model"
+    model_name = mlflow_model_uri(catalog, schema, "vaep_model")
     try:
         model_uri = f"models:/{model_name}@Champion"
         logger.info("Loading VAEP @Champion from %s", model_uri)
@@ -667,7 +670,7 @@ def _load_or_train_models(
     The training_game_ids and training_pdf parameters are retained for signature
     compatibility but are no longer used for fallback training.
     """
-    champion_models = _try_load_champion_vaep(logger)
+    champion_models = _try_load_champion_vaep(logger, catalog, DEFAULT_GOLD_SCHEMA)
     if champion_models is not None:
         return champion_models
 
