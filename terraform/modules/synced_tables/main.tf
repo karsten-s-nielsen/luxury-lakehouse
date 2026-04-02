@@ -28,6 +28,14 @@
 #   - fct_xg_predictions:   xG model predictions (logistic + gradient boosted) per shot
 #   - fct_action_values:    SPADL/VAEP action-level offensive and defensive values
 #   - fct_tracking_frames:  Tracking data (Metrica, IDSSE, SkillCorner) with velocity metrics
+#   - fct_formation_labels: Formation detection windows (EFPI + shape graph)
+#   - fct_goalkeeper_stats: Per-match goalkeeper statistics (saves, claims, xT, PSxG)
+#   - fct_line_breaking_results: Line-breaking detection per pass event
+#   - fct_off_ball_xt:      Off-ball expected threat per player per match
+#   - fct_pausa_rankings:   Player-level PAUSA aggregate rankings
+#   - fct_player_percentiles: Per-competition percentile ranks for player metrics
+#   - fct_player_positions: Per-frame tactical position labels (shape graph)
+#   - fct_position_maps:    Aggregated position maps per player per match
 #
 # Dimension tables (entities):
 #   - dim_players:          Player master data (name, position, birth date)
@@ -253,6 +261,246 @@ resource "databricks_database_synced_database_table" "fct_defcon_actions" {
   spec = {
     source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_defcon_actions"
     primary_key_columns    = ["defcon_action_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+resource "databricks_database_synced_database_table" "fct_pausa_values" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_pausa_values_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_pausa_values"
+    primary_key_columns    = ["pass_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+resource "databricks_database_synced_database_table" "fct_pass_timing" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_pass_timing_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_pass_timing"
+    primary_key_columns    = ["player_id", "match_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+resource "databricks_database_synced_database_table" "fct_tracking_avg_positions" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_tracking_avg_positions_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_tracking_avg_positions"
+    primary_key_columns    = ["avg_position_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+resource "databricks_database_synced_database_table" "fct_tracking_shape_timeline" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_tracking_shape_timeline_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_tracking_shape_timeline"
+    primary_key_columns    = ["shape_timeline_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+resource "databricks_database_synced_database_table" "fct_formation_labels" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_formation_labels_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_formation_labels"
+    primary_key_columns    = ["formation_label_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+resource "databricks_database_synced_database_table" "fct_goalkeeper_stats" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_goalkeeper_stats_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_goalkeeper_stats"
+    primary_key_columns    = ["gk_stat_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+resource "databricks_database_synced_database_table" "fct_line_breaking_results" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_line_breaking_results_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_line_breaking_results"
+    primary_key_columns    = ["line_breaking_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+resource "databricks_database_synced_database_table" "fct_off_ball_xt" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_off_ball_xt_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_off_ball_xt"
+    primary_key_columns    = ["off_ball_xt_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+resource "databricks_database_synced_database_table" "fct_pausa_rankings" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_pausa_rankings_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_pausa_rankings"
+    primary_key_columns    = ["player_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+resource "databricks_database_synced_database_table" "fct_player_percentiles" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_player_percentiles_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_player_percentiles"
+    primary_key_columns    = ["player_id", "competition_id", "season_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+resource "databricks_database_synced_database_table" "fct_player_positions" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_player_positions_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_player_positions"
+    primary_key_columns    = ["position_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+resource "databricks_database_synced_database_table" "fct_position_maps" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_position_maps_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_position_maps"
+    primary_key_columns    = ["position_map_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+resource "databricks_database_synced_database_table" "fct_space_creation" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_space_creation_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_space_creation"
+    primary_key_columns    = ["space_creation_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+resource "databricks_database_synced_database_table" "fct_player_embeddings_career_360" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_player_embeddings_career_360_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_player_embeddings_career_360"
+    primary_key_columns    = ["canonical_player_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+resource "databricks_database_synced_database_table" "fct_player_embeddings_season_360" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_player_embeddings_season_360_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_player_embeddings_season_360"
+    primary_key_columns    = ["embedding_season_360_id"]
     scheduling_policy      = "SNAPSHOT"
   }
 

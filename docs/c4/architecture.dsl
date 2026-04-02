@@ -123,11 +123,8 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 20 AI/ML wor
                 deploymentNode "cpu-basic ($0.01/hr)" "16 GB RAM" "Python 3.10, UV" {
                     cpuJobInstance = infrastructureNode "xT, EPV, xG v1, VAEP training"
                 }
-                deploymentNode "a10g-small ($1.00/hr)" "15 GB RAM, A10G GPU" "Python 3.10, UV" {
-                    gpuJobSmall = infrastructureNode "PSxG training, Football2vec 360 (MLM + adversarial)"
-                }
                 deploymentNode "a10g-large ($1.50/hr)" "46 GB RAM, A10G GPU" "Python 3.10, UV" {
-                    gpuJobInstance = infrastructureNode "OBSO, Space Creation, xG v2, Football2vec v2 (MLM + adversarial)"
+                    gpuJobInstance = infrastructureNode "PSxG, xG v2, Football2vec v2/360, OBSO, Space Creation"
                 }
             }
         }

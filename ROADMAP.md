@@ -142,6 +142,19 @@ Post-run parsing captures per-model execution time, test pass/fail counts, failu
 4. **Ingestion granularity**: Per-match spans or per-batch spans?
 5. **Real-time UI**: Is the $35/month Grafana LGTM tier worth it, or is S3 + DuckDB sufficient?
 
+### HF-native observability dashboard (alternative to Grafana)
+
+[Embedding Atlas](https://github.com/apple/embedding-atlas) (Apple, MIT) + DuckDB on a free HF Space could serve the observability UI without Lakebase or Grafana infrastructure. The pattern is proven at scale: [Daniel van Strien (HF)](https://www.linkedin.com/posts/danielvanstrien_built-an-interactive-embedding-map-of-2-million-share-7445467732268969984-MOn1/) renders 2M-point embedding maps with DuckDB server-side queries and WebGPU client-side rendering, all on a free Docker Space with HF Storage Buckets mounted for persistent data.
+
+**Architecture:** A standalone HF Space (`luxury-lakehouse/observability`) queries cost history Parquet files (already published at `_cost_history/` in each model repo) and embedding datasets via DuckDB. No Databricks PAT, no Lakebase CU, no always-on infrastructure. The Space could serve:
+
+- **Cost timeline charts** &mdash; from `_cost_history/*.json` Parquet across all model repos
+- **Model drift visualization** &mdash; embedding shift over time (Embedding Atlas on 144d vectors, colored by training epoch)
+- **Pipeline run history** &mdash; from `workflow_cost_live` exported to Parquet
+- **Player similarity explorer** &mdash; Embedding Atlas on football2vec embeddings with position/competition filtering
+
+This answers open question #5 ("Is Grafana worth it or is DuckDB sufficient?") &mdash; for a personal-tier project, DuckDB + Embedding Atlas on a free HF Space provides interactive dashboards at zero cost with zero infrastructure management.
+
 ### Dependencies
 
 - No blocking dependencies &mdash; can be implemented at any time
@@ -601,6 +614,7 @@ Position map similarity enables "find players who occupy similar tactical positi
 - How does position map similarity compare to existing football2vec embeddings on Player Similarity page?
 - Could position map vectors become a feature in D18's transformer embeddings?
 - Integration: add a "Tactical Profile" similarity mode alongside "Statistical" and "Embedding" options?
+- **Interactive embedding map:** An interactive 2D scatter of all ~8,950 players positioned by embedding similarity (UMAP/t-SNE reduction of 128d/144d vectors) would be a significant upgrade over the current table-based nearest-neighbor display. Clusters reveal playing style groups, filtering by position/competition highlights patterns. **Primary candidate: [Embedding Atlas](https://github.com/apple/embedding-atlas)** (Apple, MIT license) — WebGPU rendering (WebGL 2 fallback), scales to millions of points, automatic clustering + density contours, WASM-based UMAP, nearest-neighbor search, React/Svelte/Jupyter/Streamlit widgets. Parquet-native input matches HF Hub datasets exactly. [Demo by Daniel van Strien (HF)](https://www.linkedin.com/posts/danielvanstrien_built-an-interactive-embedding-map-of-2-million-share-7445467732268969984-MOn1/) renders 2M book embeddings with DuckDB server-side queries. Note: Cosmograph ([cosmograph.app](https://cosmograph.app/)) has excellent UX but is **CC-BY-NC-4.0** — incompatible with open-source.
 
 ### Cross-cutting connections
 
@@ -734,6 +748,10 @@ Extends VAEP (Phase 9) from *valuing what happened* to *optimizing what should h
 - Answers "where *should* the player have passed?" not just "how valuable was the pass?"
 - Requires synchronized 25fps tracking + event data (Stats Perform level — commercial)
 - Implementation would need CNN policy networks trained on 11-channel game state representations
+
+### Implementation path: OpenEnv
+
+[OpenEnv](https://github.com/meta-pytorch/OpenEnv) (PyTorch + HuggingFace, 2025) provides a standardized framework for agentic RL execution environments. Gymnasium-style API (`step`, `reset`, `state`) with Docker isolation and one-command deployment to HF Spaces. A soccer match environment could wrap the pitch control + OBSO + VAEP stack as the environment's `step()` function, with VAEP as the reward signal. Compatible with TRL's `GRPOTrainer` for reward-model training. Currently experimental — revisit when this research direction becomes active.
 
 ### Not immediately actionable
 

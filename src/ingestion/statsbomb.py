@@ -434,7 +434,16 @@ def backfill_360(
 
     logger.info("Found %d matches needing 360 backfill", len(backfill_candidates))
 
-    unique_combos = competitions_pdf[["competition_id", "season_id"]].drop_duplicates()
+    # Only iterate competition-seasons that already have 360 data in bronze.
+    # Non-360 competitions would produce thousands of empty sb.frames() API calls.
+    full_360_table = f"{catalog}.{schema}.statsbomb_360"
+    try:
+        combos_360 = spark.table(full_360_table).select("competition_id", "season_id").distinct().toPandas()
+        unique_combos = combos_360[["competition_id", "season_id"]].drop_duplicates()
+        logger.info("Restricting backfill to %d 360-enabled competition-seasons", len(unique_combos))
+    except Exception:
+        logger.info("Cannot read %s — falling back to all competitions", full_360_table)
+        unique_combos = competitions_pdf[["competition_id", "season_id"]].drop_duplicates()
 
     for _, row in unique_combos.iterrows():
         comp_id = int(row["competition_id"])

@@ -19,7 +19,7 @@ goalmouth coordinates (end_location_y, end_location_z) for on-target shots.
 Model weights are serialised to JSON (zero pickle surface) and published to
 HF Hub alongside per-shot predictions.
 
-Usage (HF Jobs):  hf jobs run train_psxg_hf.py --flavor a10g-small
+Usage (HF Jobs):  hf jobs run train_psxg_hf.py --flavor a10g-large
 Usage (local):    uv run scripts/train_psxg_hf.py
 """
 
@@ -39,7 +39,7 @@ from sklearn.calibration import calibration_curve
 from sklearn.metrics import brier_score_loss, log_loss
 from sklearn.model_selection import train_test_split
 
-from analytics.cost import HF_RATE_A10G_SMALL, HFJobsCostRecorder
+from analytics.cost import HF_RATE_A10G_LARGE, HFJobsCostRecorder
 from analytics.goalkeeper import PSxGModel, predict_psxg, train_psxg_model
 
 logging.basicConfig(
@@ -237,7 +237,7 @@ def main() -> None:
     recorder = HFJobsCostRecorder(
         workflow_id="wf-psxg",
         phase="training",
-        rate_usd_per_hour=HF_RATE_A10G_SMALL,
+        rate_usd_per_hour=HF_RATE_A10G_LARGE,
         repo_id=OUTPUT_MODEL,
         repo_type="model",
     )

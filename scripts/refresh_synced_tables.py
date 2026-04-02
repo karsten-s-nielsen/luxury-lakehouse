@@ -10,7 +10,7 @@ Run this script after any upstream dbt rebuild that materialises new data into
 Gold Delta tables.
 
 Usage:
-    python scripts/refresh_synced_tables.py                     # Fire-and-forget (all 28)
+    python scripts/refresh_synced_tables.py                     # Fire-and-forget (all 34)
     python scripts/refresh_synced_tables.py --wait              # Wait until all syncs complete
     python scripts/refresh_synced_tables.py --tables fct_shots_synced,dim_teams_synced
 
@@ -38,6 +38,7 @@ DEFAULT_SCHEMA = "dev_gold"
 # Tables in non-default schemas (e.g., observability) use the override.
 SYNCED_TABLES: list[tuple[str, str | None]] = [
     ("fct_shots_synced", None),
+    ("fct_xg_predictions_synced", None),
     ("fct_passes_synced", None),
     ("fct_player_stats_synced", None),
     ("fct_match_summary_synced", None),
@@ -62,6 +63,10 @@ SYNCED_TABLES: list[tuple[str, str | None]] = [
     ("fct_player_embeddings_career_360_synced", None),
     ("fct_player_embeddings_season_360_synced", None),
     ("fct_space_creation_synced", None),
+    ("fct_pausa_values_synced", None),
+    ("fct_pass_timing_synced", None),
+    ("fct_tracking_avg_positions_synced", None),
+    ("fct_tracking_shape_timeline_synced", None),
     ("workflow_cost_live_synced", "observability"),
     ("dim_players_synced", None),
     ("dim_teams_synced", None),

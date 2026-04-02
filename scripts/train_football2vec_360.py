@@ -30,14 +30,14 @@ References:
 
 Usage (HF Jobs CLI):
     hf jobs uv run scripts/train_football2vec_360.py --stage 1 \\
-        --flavor a10g-small --timeout 120m \\
+        --flavor a10g-large --timeout 120m \\
         --secrets HF_TOKEN=$HF_TOKEN \\
         --env MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI \\
         --env DATABRICKS_HOST=$DATABRICKS_HOST \\
         --env DATABRICKS_TOKEN=$DATABRICKS_TOKEN
 
     hf jobs uv run scripts/train_football2vec_360.py --stage 2 \\
-        --flavor a10g-small --timeout 120m \\
+        --flavor a10g-large --timeout 120m \\
         --secrets HF_TOKEN=$HF_TOKEN \\
         --env MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI \\
         --env DATABRICKS_HOST=$DATABRICKS_HOST \\
@@ -63,7 +63,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 
-from analytics.cost import HF_RATE_A10G_SMALL, HFJobsCostRecorder
+from analytics.cost import HF_RATE_A10G_LARGE, HFJobsCostRecorder
 from analytics.football2vec_360 import Football2Vec360Config, Football2Vec360Encoder
 from analytics.football2vec_transformer import TeamClassifierHead
 from workflows import workflow
@@ -231,7 +231,7 @@ def _parse_freeze_frames(
         for action_players in frames_per_seq[:max_seq_len]:
             players: list[list[float]] = []
             if action_players is not None:
-                for p in action_players[:max_players]:
+                for p in action_players["players"][:max_players]:
                     players.append(
                         [
                             float(p["x"]),
@@ -509,15 +509,15 @@ def _mlm_forward_360(
     Returns:
         (batch, seq_len, vocab_size) MLM logits.
     """
-    # Embed action tokens + spatial features
-    embedded = model._embed(action_ids, x_coords, y_coords)
+    # Embed action tokens + spatial features via base encoder internals
+    embedded = model.base_encoder._embed(action_ids, x_coords, y_coords)
 
     src_key_padding_mask: torch.Tensor | None = None
     if attention_mask is not None:
         src_key_padding_mask = ~attention_mask
 
     # Run transformer encoder to get per-token representations
-    encoded = model.transformer(embedded, src_key_padding_mask=src_key_padding_mask)
+    encoded = model.base_encoder.encoder(embedded, src_key_padding_mask=src_key_padding_mask)
 
     # MLM logits from per-token representations
     return mlm_head(encoded)
@@ -563,8 +563,8 @@ def train_stage1(
     # Expand token embedding to accommodate MASK_TOKEN_ID and PAD_TOKEN_ID
     expanded_embed = nn.Embedding(VOCAB_SIZE + 2, config.hidden_dim).to(device)
     with torch.no_grad():
-        expanded_embed.weight[:VOCAB_SIZE] = model.token_embedding.weight
-    model.token_embedding = expanded_embed
+        expanded_embed.weight[:VOCAB_SIZE] = model.base_encoder.token_embedding.weight
+    model.base_encoder.token_embedding = expanded_embed
 
     mlm_head = _MLMHead(config.hidden_dim, config.vocab_size).to(device)
     logger.info("MLM head parameters: %d", sum(p.numel() for p in mlm_head.parameters()))
@@ -1183,8 +1183,8 @@ def load_stage1_checkpoint(
 
     expanded_embed = nn.Embedding(VOCAB_SIZE + 2, config.hidden_dim)
     with torch.no_grad():
-        expanded_embed.weight[:VOCAB_SIZE] = model.token_embedding.weight
-    model.token_embedding = expanded_embed
+        expanded_embed.weight[:VOCAB_SIZE] = model.base_encoder.token_embedding.weight
+    model.base_encoder.token_embedding = expanded_embed
 
     local_path = hf_hub_download(
         OUTPUT_MODEL,
@@ -1308,7 +1308,7 @@ def log_to_mlflow(
                 "n_val": n_val,
                 "n_test": n_test,
                 "n_parameters": sum(p.numel() for p in model.parameters()),
-                "training_env": "hf_jobs_a10g_small",
+                "training_env": "hf_jobs_a10g_large",
                 "dataset_commit": dataset_commit,
             }
         )
@@ -1418,7 +1418,7 @@ def main() -> None:
     recorder = HFJobsCostRecorder(
         workflow_id="wf-football2vec-360",
         phase="training",
-        rate_usd_per_hour=HF_RATE_A10G_SMALL,
+        rate_usd_per_hour=HF_RATE_A10G_LARGE,
         repo_id=OUTPUT_MODEL,
         repo_type="model",
     )
@@ -1504,8 +1504,8 @@ def _run_stage1(
 
     expanded_embed = nn.Embedding(VOCAB_SIZE + 2, config.hidden_dim)
     with torch.no_grad():
-        expanded_embed.weight[:VOCAB_SIZE] = model.token_embedding.weight
-    model.token_embedding = expanded_embed
+        expanded_embed.weight[:VOCAB_SIZE] = model.base_encoder.token_embedding.weight
+    model.base_encoder.token_embedding = expanded_embed
 
     if not args.no_pretrained:
         model = _try_load_pretrained_transformer(model, config, device, hf_token)

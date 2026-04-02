@@ -58,7 +58,7 @@ import torch.nn as nn
 from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 from sklearn.model_selection import train_test_split
 
-from analytics.cost import HF_RATE_A10G_SMALL, HFJobsCostRecorder
+from analytics.cost import HF_RATE_A10G_LARGE, HFJobsCostRecorder
 from analytics.set_encoder import serialize_set_encoder_weights
 from workflows import workflow
 
@@ -736,7 +736,7 @@ def main() -> None:
     recorder = HFJobsCostRecorder(
         workflow_id="wf-xg-v2",
         phase="training",
-        rate_usd_per_hour=HF_RATE_A10G_SMALL,
+        rate_usd_per_hour=HF_RATE_A10G_LARGE,
         repo_id=V2_MODEL_REPO,
         repo_type="model",
     )

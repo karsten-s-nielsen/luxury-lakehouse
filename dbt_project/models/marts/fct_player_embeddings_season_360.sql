@@ -32,8 +32,8 @@ grouped as (
 select
     {{ dbt_utils.generate_surrogate_key(['canonical_player_id', 'competition_id', 'season_id']) }} as embedding_season_360_id,
     canonical_player_id,
-    competition_id,
-    season_id,
+    cast(competition_id as bigint) as competition_id,
+    cast(season_id as bigint) as season_id,
     transform(
         sequence(0, 143),
         i -> aggregate(
