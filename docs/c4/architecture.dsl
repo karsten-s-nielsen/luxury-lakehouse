@@ -44,10 +44,10 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 20 AI/ML wor
 
         lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL-compatible endpoint syncing 29 Delta Lake tables from Unity Catalog (50 btree + 6 HNSW vector indexes: 4x128d + 2x144d)" "External"
         databricksApi = softwareSystem "Databricks REST API" "OAuth credential endpoint for Lakebase authentication" "External"
-        databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 24 tasks (6 ingest + 16 compute + 1 validation + 1 HF cost sync), daily 06:00 UTC" "External"
+        databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 29 tasks (6 ingest, 14 compute, 4 HF export/import, 2 360 pipeline, 1 entity resolution, 1 validation, 1 cost sync), daily 06:00 UTC" "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds from Dockerfile, serves on port 7860" "External"
-        hfHub = softwareSystem "HuggingFace Hub" "Hosts 7 models (incl. football2vec-v2, football2vec-360, PSxG), 17 datasets (incl. training data, 360 embeddings), build-artifacts wheel, and _workflow_cost.json cost artifacts" "External"
-        hfJobs = softwareSystem "HuggingFace Jobs" "GPU/CPU compute: 8 PEP 723 UV scripts for training (xG, VAEP, Football2vec v2) and batch analytics (xT, EPV, OBSO, Space Creation)" "External"
+        hfHub = softwareSystem "HuggingFace Hub" "Hosts 8 models (incl. football2vec-v2, football2vec-360, PSxG), 18 datasets (incl. training data, 360 embeddings), build-artifacts wheel, and _workflow_cost.json cost artifacts" "External"
+        hfJobs = softwareSystem "HuggingFace Jobs" "GPU/CPU compute: 12 PEP 723 UV scripts for training (xG v1/v2, VAEP, PSxG, Football2vec v2/360), batch analytics (xT, EPV, OBSO, Space Creation), and dataset publishing (freeze frames, xG shots)" "External"
 
         # Relationships - users
         analyst -> guiLayer "Browses pages, selects filters, views interactive and static charts" "HTTPS"
@@ -80,7 +80,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 20 AI/ML wor
         ingestionPipelines -> analyticsLibrary "Imports domain logic (xG, xT, pitch control, OBSO)" ""
         ingestionPipelines -> bronzeSchema "Writes compute results to Delta tables" "PySpark/Delta"
         costEstimateHook -> observabilitySchema "MERGE run state + cost estimates to workflow_cost_live" "PySpark/Delta"
-        databricksWorkflows -> ingestionPipelines "Schedules and executes 24 pipeline tasks" "Databricks Jobs API"
+        databricksWorkflows -> ingestionPipelines "Schedules and executes 29 pipeline tasks" "Databricks Jobs API"
 
         # Relationships - HF Jobs
         hfJobs -> analyticsLibrary "Imports from wheel (luxury-lakehouse/build-artifacts)" "pip/HTTPS"

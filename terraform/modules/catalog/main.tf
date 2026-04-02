@@ -176,6 +176,27 @@ resource "databricks_grant" "ingestion_sp_libs_volume" {
   privileges = ["READ_VOLUME"]
 }
 
+# ── Unity Catalog Grants: MLflow model access ────────────────────────────────
+# Pipeline tasks load pre-trained models from the UC model registry via
+# mlflow.pyfunc.load_model("models:/<model>@Champion"). EXECUTE is required.
+# Models that don't exist yet are guarded by try/except in the pipeline code;
+# the grant is pre-provisioned so they work once registered.
+
+resource "databricks_grant" "ingestion_sp_vaep_model" {
+  count = var.enable_ingestion_sp_grants && var.gold_schema_override != "" ? 1 : 0
+
+  model = "${var.catalog_name}.${var.gold_schema_override}.vaep_model"
+
+  principal  = var.ingestion_sp_application_id
+  privileges = ["EXECUTE"]
+}
+
+# TODO: Add grants for xg_model and defcon_model once registered in UC.
+# Both pipelines (xg_model.py, defcon_lite.py) fall back to inline training
+# when the @Champion model is not found, so these are not blocking.
+# resource "databricks_grant" "ingestion_sp_xg_model" { model = "...xg_model" }
+# resource "databricks_grant" "ingestion_sp_defcon_model" { model = "...defcon_model" }
+
 # ── Unity Catalog Grants: Account Users (dbt / developer access) ─────────────
 # dbt builds staging views that SELECT from bronze source tables. Without
 # this grant, any user running `dbt build` locally gets INSUFFICIENT_PERMISSIONS

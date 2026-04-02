@@ -27,13 +27,9 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import re
-import shutil
 import sys
-import tempfile
 import time
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 # ---------------------------------------------------------------------------
@@ -287,12 +283,15 @@ def _build_training_dataset(
     # ------------------------------------------------------------------
 
     # Pass 1: Collect freeze-frame players per action
+    # Spark's collect_list/transform always infers nullable fields regardless
+    # of input nullability. All struct fields must be nullable=True to avoid
+    # DATATYPE_MISMATCH.CAST_WITHOUT_SUGGESTION on the downstream .cast() calls.
     player_struct = StructType(
         [
             StructField("x", FloatType(), True),
             StructField("y", FloatType(), True),
-            StructField("is_keeper", BooleanType(), False),
-            StructField("is_teammate", BooleanType(), False),
+            StructField("is_keeper", BooleanType(), True),
+            StructField("is_teammate", BooleanType(), True),
         ]
     )
 
@@ -311,8 +310,8 @@ def _build_training_dataset(
             F.struct(
                 F.col("ff_x_norm").cast("float").alias("x"),
                 F.col("ff_y_norm").cast("float").alias("y"),
-                F.col("ff_is_keeper").alias("is_keeper"),
-                F.col("ff_is_teammate").alias("is_teammate"),
+                F.coalesce(F.col("ff_is_keeper"), F.lit(False)).alias("is_keeper"),
+                F.coalesce(F.col("ff_is_teammate"), F.lit(False)).alias("is_teammate"),
             )
         )
         .cast(ArrayType(player_struct))
@@ -347,16 +346,16 @@ def _build_training_dataset(
     # ------------------------------------------------------------------
     action_struct = StructType(
         [
-            StructField("action_type", IntegerType(), False),
+            StructField("action_type", IntegerType(), True),
             StructField("x", FloatType(), True),
             StructField("y", FloatType(), True),
-            StructField("result", IntegerType(), False),
+            StructField("result", IntegerType(), True),
         ]
     )
 
     ff_entry_struct = StructType(
         [
-            StructField("players", ArrayType(player_struct), False),
+            StructField("players", ArrayType(player_struct), True),
         ]
     )
 
@@ -408,91 +407,12 @@ def _build_training_dataset(
 
 
 def _upload_to_hf_hub(volume_path: str, spark: object) -> str:
-    """Copy Parquet from UC Volume to local temp dir and upload to HF Hub.
-
-    On Databricks serverless, UC Volumes are accessible via FUSE at the same
-    path. We copy part files locally then use ``upload_folder`` to publish.
-
-    Args:
-        volume_path: UC Volume path containing Parquet part files.
-        spark: Active Spark session (unused — volume reads use FUSE mount).
-
-    Returns:
-        URL of the published HF Hub dataset.
-    """
+    """Upload Parquet from UC Volume to HF Hub dataset."""
     _ = spark  # Volume reads via FUSE, not Spark
 
-    hf_token = os.environ.get("HF_TOKEN", "")
-    if not hf_token:
-        try:
-            from databricks.sdk.runtime import dbutils as _dbutils  # type: ignore[import-not-found]
+    from ingestion.utils import upload_volume_to_hf_hub
 
-            hf_token = _dbutils.secrets.get(scope="hf", key="token")
-        except Exception:  # noqa: S110
-            pass
-    if not hf_token:
-        from huggingface_hub import get_token  # type: ignore[import-not-found]
-
-        hf_token = get_token() or ""
-
-    if not hf_token:
-        logger.warning(  # nosemgrep: python-logger-credential-disclosure
-            "No HF_TOKEN found - skipping HF Hub upload. Data is available at UC Volume: %s",
-            volume_path,
-        )
-        return f"file://{volume_path}"
-
-    from huggingface_hub import HfApi  # type: ignore[import-not-found]
-
-    api = HfApi(token=hf_token)
-
-    api.create_repo(
-        DATASET_REPO,
-        exist_ok=True,
-        repo_type="dataset",
-        token=hf_token,
-    )
-    logger.info("Ensured dataset repo exists: %s", DATASET_REPO)
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        staging_dir = Path(tmpdir) / "data"
-        staging_dir.mkdir(parents=True, exist_ok=True)
-
-        volume_dir = Path(volume_path)
-        if not volume_dir.exists():
-            raise RuntimeError(f"UC Volume path does not exist after write: {volume_path}")
-
-        part_count = 0
-        for part_file in volume_dir.glob("*.parquet"):
-            shutil.copy2(str(part_file), str(staging_dir / part_file.name))
-            part_count += 1
-
-        # Copy Spark metadata files (_SUCCESS, etc.)
-        for meta_file in volume_dir.glob("_*"):
-            if meta_file.is_file():
-                shutil.copy2(str(meta_file), str(staging_dir / meta_file.name))
-
-        logger.info("Staged %d Parquet part files for upload", part_count)
-
-        if part_count == 0:
-            raise RuntimeError(
-                f"No Parquet files found at {volume_path} after write — Spark write may have failed silently."
-            )
-
-        start = time.time()
-        api.upload_folder(
-            folder_path=str(staging_dir),
-            path_in_repo="data",
-            repo_id=DATASET_REPO,
-            repo_type="dataset",
-            token=hf_token,
-        )
-        elapsed = time.time() - start
-        logger.info("Uploaded %d Parquet files to HF Hub in %.2fs", part_count, elapsed)
-
-    dataset_url = f"https://huggingface.co/datasets/{DATASET_REPO}"
-    logger.info("Published dataset to %s", dataset_url)
-    return dataset_url
+    return upload_volume_to_hf_hub(volume_path, DATASET_REPO, logger=logger)
 
 
 # ---------------------------------------------------------------------------

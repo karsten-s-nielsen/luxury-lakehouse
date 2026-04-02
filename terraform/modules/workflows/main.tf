@@ -27,7 +27,8 @@
 #   import_space_creation — Space creation values from HF Hub to bronze (TD#29)
 #   export_shots_on_target — On-target shots export to HF Hub (D39 prerequisite)
 #   import_psxg_predictions — PSxG predictions from HF Hub to bronze (D39)
-#   prepare_360_training_data — SPADL + 360 freeze frame export to HF Hub (D31)
+#   backfill_statsbomb_360 — Catchup 360 freeze frames for already-ingested matches (depends on statsbomb)
+#   prepare_360_training_data — SPADL + 360 freeze frame export to HF Hub (D31, depends on backfill)
 #
 # HF Hub tasks use the "hf" (write) or "hf-readonly" (read) environments.
 # Write tasks require HF_TOKEN from Databricks secret scope "hf", key "token".
@@ -705,12 +706,42 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "hf-readonly"
   }
 
+  # ── Task: Backfill StatsBomb 360 freeze-frame data ──────────────────────
+  # The main ingestion skips already-ingested competition/seasons, so 360
+  # data added after the initial ingest is never fetched. This backfill
+  # targets matches that have events but no 360 data yet.
+  task {
+    task_key        = "backfill_statsbomb_360"
+    timeout_seconds = 1800
+    max_retries     = 1
+
+    depends_on {
+      task_key = "ingest_statsbomb"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "backfill_statsbomb_360"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    # Needs statsbombpy to call sb.frames()
+    environment_key = "statsbomb"
+  }
+
   # ── Task: Prepare 360 training data for Football2Vec 360 (D31) ────────
   task {
     task_key        = "prepare_360_training_data"
     timeout_seconds = 3600
     max_retries     = 1
 
+    depends_on {
+      task_key = "backfill_statsbomb_360"
+    }
     depends_on {
       task_key = "resolve_players"
     }

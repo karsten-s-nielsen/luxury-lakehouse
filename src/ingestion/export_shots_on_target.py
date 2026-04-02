@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import re
 import sys
 import time
@@ -115,50 +114,11 @@ WHERE end_location_z IS NOT NULL
 # ---------------------------------------------------------------------------
 
 
-def _upload_to_hf_hub(parquet_path: str) -> str:
-    """Upload the staged Parquet file to the HF Hub dataset repository.
+def _upload_to_hf_hub(volume_path: str) -> str:
+    """Upload staged Parquet from UC Volume to HF Hub."""
+    from ingestion.utils import upload_volume_to_hf_hub
 
-    Creates the dataset repository if it does not already exist, then
-    uploads the file into the ``data/`` path within the repo.
-
-    Args:
-        parquet_path: Absolute path to the Parquet file on the UC Volume.
-
-    Returns:
-        URL of the published HF Hub dataset.
-    """
-    from huggingface_hub import HfApi  # type: ignore[import-not-found]
-
-    # Resolve HF token: env var → Databricks secrets → cached CLI login
-    hf_token = os.environ.get("HF_TOKEN", "")
-    if not hf_token:
-        try:
-            from databricks.sdk.runtime import dbutils as _dbutils  # type: ignore[import-not-found]
-
-            hf_token = _dbutils.secrets.get(scope="hf", key="token")
-        except Exception:  # noqa: S110
-            pass
-    api = HfApi(token=hf_token or None)
-
-    api.create_repo(
-        DATASET_REPO,
-        exist_ok=True,
-        repo_type="dataset",
-    )
-    logger.info("Ensured dataset repo exists: %s", DATASET_REPO)
-
-    start = time.time()
-    api.upload_file(
-        path_or_fileobj=parquet_path,
-        path_in_repo=f"data/{_PARQUET_FILENAME}",
-        repo_id=DATASET_REPO,
-        repo_type="dataset",
-    )
-    elapsed = time.time() - start
-
-    dataset_url = f"https://huggingface.co/datasets/{DATASET_REPO}"
-    logger.info("Uploaded %s to %s in %.2fs", _PARQUET_FILENAME, dataset_url, elapsed)
-    return dataset_url
+    return upload_volume_to_hf_hub(volume_path, DATASET_REPO, logger=logger)
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +188,7 @@ def main() -> None:
     logger.info("Writing %d rows to %s", row_count, parquet_path)
 
     start = time.time()
-    (shots_df.coalesce(1).write.mode("overwrite").parquet(parquet_path))
+    shots_df.coalesce(1).write.mode("overwrite").parquet(parquet_path)
     elapsed = time.time() - start
     logger.info("Parquet write complete in %.2fs", elapsed)
 

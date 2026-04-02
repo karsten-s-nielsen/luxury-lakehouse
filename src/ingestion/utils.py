@@ -1,7 +1,8 @@
 """Shared utilities for data ingestion into the Databricks bronze layer.
 
 Provides CLI argument parsing, structured JSON logging, Delta table write helpers,
-an HTTPS-enforcing HTTP client with retry logic, and DataFrame content validation.
+an HTTPS-enforcing HTTP client with retry logic, DataFrame content validation,
+and HuggingFace Hub token resolution for serverless Databricks tasks.
 """
 
 from __future__ import annotations
@@ -9,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import re
 import time
 from typing import TYPE_CHECKING, Any
@@ -426,3 +428,157 @@ def validate_dataframe(
         )
 
     return row_count
+
+
+# ---------------------------------------------------------------------------
+# 7. HuggingFace Hub Token Resolution
+# ---------------------------------------------------------------------------
+
+_hf_logger = logging.getLogger("ingestion.hf_token")
+
+
+def resolve_hf_token() -> str:
+    """Resolve a HuggingFace Hub token from available sources.
+
+    Resolution order:
+        1. ``HF_TOKEN`` environment variable
+        2. Databricks secret scope ``hf``, key ``token``
+           (via :class:`~databricks.sdk.WorkspaceClient` — works on serverless)
+        3. Cached CLI login (``huggingface-cli login``)
+
+    Returns:
+        The token string, or empty string if no token is found.
+    """
+    # 1. Environment variable
+    token = os.environ.get("HF_TOKEN", "")
+    if token:
+        _hf_logger.info("HF token resolved from HF_TOKEN environment variable")
+        return token
+
+    # 2. Databricks secrets via WorkspaceClient (serverless-compatible)
+    #    The SDK returns base64-encoded secret values, unlike dbutils.secrets.get().
+    try:
+        import base64
+
+        from databricks.sdk import WorkspaceClient  # type: ignore[import-not-found]
+
+        client = WorkspaceClient()
+        resp = client.secrets.get_secret(scope="hf", key="token")
+        encoded = resp.value or ""
+        if encoded:
+            token = base64.b64decode(encoded).decode()
+            _hf_logger.info("HF token resolved from Databricks secret scope 'hf'")
+            return token
+    except Exception:
+        _hf_logger.debug("Databricks secrets unavailable — trying cached CLI login", exc_info=True)
+
+    # 3. Cached CLI login
+    try:
+        from huggingface_hub.utils import get_token  # type: ignore[import-not-found]
+
+        token = get_token() or ""
+        if token:
+            _hf_logger.info("HF token resolved from cached CLI login")
+            return token
+    except Exception:
+        _hf_logger.debug("huggingface_hub get_token unavailable", exc_info=True)
+
+    _hf_logger.warning("No HF token found from any source")
+    return ""
+
+
+# ---------------------------------------------------------------------------
+# 8. HuggingFace Hub Volume Upload
+# ---------------------------------------------------------------------------
+
+
+def upload_volume_to_hf_hub(
+    volume_path: str,
+    repo_id: str,
+    *,
+    repo_type: str = "dataset",
+    path_in_repo: str = "data",
+    logger: logging.Logger | None = None,
+) -> str:
+    """Upload Spark-written Parquet from a UC Volume to HuggingFace Hub.
+
+    Copies Parquet part files and Spark metadata from the UC Volume FUSE
+    mount to a local temp directory, then uploads via ``upload_folder``.
+    This pattern works at any scale — Spark writes directories of part
+    files, not single files.
+
+    Args:
+        volume_path: UC Volume directory containing Spark-written Parquet.
+        repo_id: HF Hub repository ID (e.g. ``luxury-lakehouse/my-dataset``).
+        repo_type: Repository type (``dataset``, ``model``, etc.).
+        path_in_repo: Target path within the repo (default ``data``).
+        logger: Optional logger; falls back to module-level ``_hf_logger``.
+
+    Returns:
+        URL of the published HF Hub repository.
+
+    Raises:
+        RuntimeError: If the volume path does not exist or contains no
+            Parquet files.
+    """
+    import shutil
+    import tempfile
+    from pathlib import Path
+
+    from huggingface_hub import HfApi  # type: ignore[import-not-found]
+
+    log = logger or _hf_logger
+
+    hf_token = resolve_hf_token()
+    if not hf_token:
+        log.warning(
+            "No HF token found — skipping upload. Data available at UC Volume: %s",
+            volume_path,
+        )
+        return f"file://{volume_path}"
+
+    api = HfApi(token=hf_token)
+
+    api.create_repo(repo_id, exist_ok=True, repo_type=repo_type)
+    log.info("Ensured %s repo exists: %s", repo_type, repo_id)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        staging_dir = Path(tmpdir) / path_in_repo
+        staging_dir.mkdir(parents=True, exist_ok=True)
+
+        volume_dir = Path(volume_path)
+        if not volume_dir.exists():
+            msg = f"UC Volume path does not exist: {volume_path}"
+            raise RuntimeError(msg)
+
+        # Copy Parquet part files
+        part_count = 0
+        for part_file in volume_dir.glob("*.parquet"):
+            shutil.copy2(str(part_file), str(staging_dir / part_file.name))
+            part_count += 1
+
+        # Copy Spark metadata files (_SUCCESS, _committed_*, etc.)
+        for meta_file in volume_dir.glob("_*"):
+            if meta_file.is_file():
+                shutil.copy2(str(meta_file), str(staging_dir / meta_file.name))
+
+        if part_count == 0:
+            msg = f"No Parquet files found at {volume_path}"
+            raise RuntimeError(msg)
+
+        log.info("Staged %d Parquet files for HF Hub upload", part_count)
+
+        start = time.time()
+        api.upload_folder(
+            folder_path=str(staging_dir),
+            path_in_repo=path_in_repo,
+            repo_id=repo_id,
+            repo_type=repo_type,
+            token=hf_token,
+        )
+        elapsed = time.time() - start
+
+    url_prefix = {"dataset": "datasets/", "model": "", "space": "spaces/"}.get(repo_type, "")
+    repo_url = f"https://huggingface.co/{url_prefix}{repo_id}"
+    log.info("Uploaded %d Parquet files to %s in %.2fs", part_count, repo_url, elapsed)
+    return repo_url

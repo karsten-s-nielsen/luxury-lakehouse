@@ -20,9 +20,6 @@ are normalized to [0, 1], and result is binary (1 = success, 0 = otherwise).
 from __future__ import annotations
 
 import logging
-import os
-import tempfile
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
@@ -299,92 +296,16 @@ def _upload_to_hf_hub(
     volume_path: str,
     upload_logger: logging.Logger,
 ) -> None:
-    """Download Parquet from UC Volume to local temp dir and upload to HF Hub.
-
-    On Databricks serverless, Spark cannot write to local filesystem. So
-    we read the Volume path on the driver and re-write locally for the
-    HF Hub upload_folder API.
-
-    Args:
-        spark: Active Spark session (unused — reads via dbutils/os).
-        volume_path: UC Volume path containing Parquet part files.
-        upload_logger: Logger instance.
-    """
+    """Upload Parquet from UC Volume to HF Hub dataset."""
     _ = spark  # Volume reads use the FUSE mount, not Spark
 
-    hf_token = os.environ.get("HF_TOKEN", "")
-    if not hf_token:
-        try:
-            from databricks.sdk.runtime import dbutils as _dbutils  # type: ignore[import-not-found]
+    from ingestion.utils import upload_volume_to_hf_hub
 
-            hf_token = _dbutils.secrets.get(scope="hf", key="token")
-        except Exception:  # noqa: S110
-            pass
-    if not hf_token:
-        from huggingface_hub import get_token
-
-        hf_token = get_token() or ""
-
-    if not hf_token:
-        upload_logger.warning(
-            "No HF_TOKEN found — skipping HF Hub upload. Data is available at UC Volume: %s",
-            volume_path,
-        )
+    url = upload_volume_to_hf_hub(volume_path, _HF_DATASET_REPO, logger=upload_logger)
+    if url.startswith("file://"):
+        upload_logger.warning("HF Hub upload skipped — data at UC Volume only")
         return
-
-    from huggingface_hub import HfApi
-
-    api = HfApi(token=hf_token)
-
-    # Ensure the dataset repo exists.
-    api.create_repo(
-        _HF_DATASET_REPO,
-        exist_ok=True,
-        repo_type="dataset",
-        token=hf_token,
-    )
-    upload_logger.info("Ensured HF dataset repo exists: %s", _HF_DATASET_REPO)
-
-    # Copy Parquet files from UC Volume to local temp dir for upload.
-    # UC Volumes are accessible via FUSE at the same path on Databricks.
-    with tempfile.TemporaryDirectory() as tmpdir:
-        staging_dir = Path(tmpdir) / "data"
-        staging_dir.mkdir(parents=True, exist_ok=True)
-
-        import shutil
-
-        volume_dir = Path(volume_path)
-        if not volume_dir.exists():
-            upload_logger.error("UC Volume path does not exist: %s", volume_path)
-            return
-
-        # Copy all parquet part files to staging
-        part_count = 0
-        for part_file in volume_dir.glob("*.parquet"):
-            shutil.copy2(str(part_file), str(staging_dir / part_file.name))
-            part_count += 1
-
-        # Also copy _SUCCESS and any other metadata files
-        for meta_file in volume_dir.glob("_*"):
-            if meta_file.is_file():
-                shutil.copy2(str(meta_file), str(staging_dir / meta_file.name))
-
-        upload_logger.info("Staged %d Parquet files for HF Hub upload", part_count)
-
-        if part_count == 0:
-            upload_logger.warning("No Parquet files found at %s — skipping upload", volume_path)
-            return
-
-        api.upload_folder(
-            folder_path=str(staging_dir),
-            path_in_repo="data",
-            repo_id=_HF_DATASET_REPO,
-            repo_type="dataset",
-            token=hf_token,
-        )
-
-    dataset_url = f"https://huggingface.co/datasets/{_HF_DATASET_REPO}"
-    upload_logger.info("Published training dataset to %s", dataset_url)
+    upload_logger.info("Published training dataset to %s", url)
 
 
 # ---------------------------------------------------------------------------

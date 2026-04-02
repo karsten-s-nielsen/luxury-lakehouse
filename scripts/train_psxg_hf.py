@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.10,<3.11"
 # dependencies = [
 #     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.1.0-py3-none-any.whl",
 #     "numpy>=1.26.0",
@@ -34,7 +34,7 @@ from pathlib import Path
 import mlflow
 import numpy as np
 import pandas as pd
-from huggingface_hub import HfApi, hf_hub_download
+from huggingface_hub import HfApi
 from sklearn.calibration import calibration_curve
 from sklearn.metrics import brier_score_loss, log_loss
 from sklearn.model_selection import train_test_split
@@ -71,16 +71,26 @@ def load_shots() -> pd.DataFrame:
     Expects the dataset to contain ``end_location_y``, ``end_location_z``,
     ``is_goal``, ``event_id``, ``match_id``, and ``player_id`` columns.
 
+    The dataset may contain Spark-written Parquet part files (``part-*.parquet``)
+    or a single ``shots_on_target.parquet``. Both are handled transparently.
+
     Returns:
         DataFrame of on-target shots ready for training.
     """
-    local_path = hf_hub_download(
+    from huggingface_hub import snapshot_download
+
+    local_dir = snapshot_download(
         repo_id=INPUT_DATASET,
-        filename="data/shots_on_target.parquet",
         repo_type="dataset",
+        allow_patterns="data/*.parquet",
     )
-    df = pd.read_parquet(local_path)
-    logger.info("Loaded %d on-target shots from %s", len(df), INPUT_DATASET)
+    parquet_files = list(Path(local_dir).glob("data/*.parquet"))
+    if not parquet_files:
+        msg = f"No Parquet files found in {INPUT_DATASET}/data/"
+        raise RuntimeError(msg)
+
+    df = pd.concat([pd.read_parquet(f) for f in parquet_files], ignore_index=True)
+    logger.info("Loaded %d on-target shots from %s (%d files)", len(df), INPUT_DATASET, len(parquet_files))
     return df
 
 

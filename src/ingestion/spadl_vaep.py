@@ -798,6 +798,7 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                             c
                             for c in [
                                 "game_id",
+                                "match_id",
                                 "original_event_id",
                                 "period_id",
                                 "time_seconds",
@@ -825,6 +826,9 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                         "bodypart_name": "bodypart",
                     }
                 )
+                # match_id may not survive add_names(); fall back to pdf
+                if "match_id" not in game_out.columns:
+                    game_out["match_id"] = pdf["match_id"].iloc[0]
                 game_out["offensive_value"] = values["offensive_value"].values
                 game_out["defensive_value"] = values["defensive_value"].values
                 game_out["vaep_value"] = values["vaep_value"].values
@@ -973,7 +977,11 @@ def run_pipeline(
     )
 
     scoring_udf = _make_scoring_udf(scores_raw, concedes_raw)
-    scored_sdf = unscored_sdf.groupBy("competition_id", "data_source").applyInPandas(
+    # Group by match_id — each match is ~1,600 SPADL actions (~5 MB), well
+    # within the 800 MB serverless UDF budget.  Competition-level grouping
+    # OOMs on large datasets (La Liga = 600K+ rows per group).  The model
+    # cache (_model_cache) loads once per executor, not per group.
+    scored_sdf = unscored_sdf.groupBy("match_id", "data_source").applyInPandas(
         scoring_udf,  # type: ignore[arg-type]
         schema=vaep_schema,
     )
