@@ -1,6 +1,6 @@
 # Databricks Lakebase Architecture — Soccer Analytics Platform
 
-> **Status**: Cycle 3 complete (GK Analytics + 360 Embeddings + Infrastructure) — 14 Taipy pages, 34 synced tables, 56 PG indexes (50 btree + 6 HNSW at 128d/144d). Hugging Face Hub: 7 models + 17 datasets published, GPU training on HF Jobs A10G. PSxG model (Brier 0.129). ScoutGPT decoder architecture (D32 Phase A).
+> **Status**: Cycle 3 complete (GK Analytics + 360 Embeddings + Infrastructure) — 14 Taipy pages, 34 synced tables, 56 PG indexes (50 btree + 6 HNSW at 128d/144d). Hugging Face Hub: 7 models + 18 datasets published, GPU training on HF Jobs A10G. PSxG model (Brier 0.129). ScoutGPT decoder + training pipeline (D32, training in progress). M2 OAuth PG role unblocked (databricks-sdk 0.102).
 > **Last Updated**: 2026-04-03
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready
@@ -147,7 +147,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │          TAIPY APPLICATION                                                │
 │  ┌───────────────────────────────────────────────────────────────────┐    │
 │  │  Deployed on Hugging Face Spaces (Docker SDK)                      │    │
-│  │  • PAT auth (OAuth M2M blocked — see TODO M2)                     │    │
+│  │  • PAT auth (OAuth M2M ready — PG role created, secret swap pending)│    │
 │  │  • Connects to Lakebase via psycopg2 (ThreadedConnectionPool)     │    │
 │  │  • 14 pages: Shot Map, Pass Map, Heat Map, Pass Network,          │    │
 │  │    Match Summary, Player Comparison, Player Impact,               │    │
@@ -399,92 +399,156 @@ luxury-lakehouse/
 │       └── tags.tf                   # Standard resource tagging
 │
 ├── src/
-│   ├── analytics/
-│   │   ├── pitch_control.py          # Spearman (2017) physics-based pitch control model + ghost trajectories
-│   │   ├── line_breaking.py          # Ward clustering + straddle test for line-breaking passes
-│   │   ├── off_ball_xt.py            # Off-ball xT: pitch control × expected threat zones
+│   ├── analytics/                    # Pure-Python domain models (zero I/O, 30 modules)
+│   │   ├── array_utils.py            # NumPy array helpers (shared by multiple modules)
+│   │   ├── augmentation.py           # Physics-based position jitter (TacticAI-inspired, pure NumPy)
+│   │   ├── coordinates.py            # Coordinate normalization utilities (provider-specific → unified 105×68m)
 │   │   ├── defcon_lite.py            # DEFCON-lite: heuristic defensive credit assignment + XGBoost
-│   │   ├── elastic_sync.py          # ELASTIC event-tracking sync (Kim et al. 2025) — pure compute
-│   │   ├── obso.py                  # OBSO value surface: PPCF × Transition × EPV (Spearman 2018)
-│   │   ├── augmentation.py          # Physics-based position jitter (TacticAI-inspired, pure NumPy)
-│   │   ├── model_validation.py      # Model drift detection: PSI, Wasserstein, CUSUM, KS (pure scipy)
-│   │   ├── entity_resolution.py     # Three-layer progressive player matching (TF-IDF + rapidfuzz)
-│   │   ├── football2vec.py          # Doc2Vec behavioral embeddings (tokenizer, training, inference)
+│   │   ├── elastic_sync.py           # ELASTIC event-tracking sync (Kim et al. 2025) — pure compute
+│   │   ├── entity_resolution.py      # Three-layer progressive player matching (TF-IDF + rapidfuzz)
+│   │   ├── expected_threat.py        # Data-driven Expected Threat via Markov chain value iteration
+│   │   ├── football2vec.py           # Doc2Vec behavioral embeddings (tokenizer, training, inference)
 │   │   ├── football2vec_transformer.py # Transformer encoder for 128-dim embeddings (adversarial team debiasing, Ganin GRL)
-│   │   ├── football2vec_360.py      # 360-enriched encoder: base transformer + Deep Sets context (144-dim, 128+16)
-│   │   ├── scoutgpt_decoder.py      # GPT-style causal decoder for player-conditioned action prediction (Hong et al. 2025)
-│   │   ├── coordinates.py           # Coordinate normalization utilities (provider-specific → unified 105×68m)
-│   │   ├── shape_graph.py           # Shape graph formation detection (Sotudeh 2026, Delaunay triangulation)
-│   │   ├── xg_model.py             # Custom xG: logistic baseline + calibrated XGBoost (JSON serialization, no pickle)
-│   │   ├── symmetry.py             # TacticAI symmetry augmentation (H-flip, V-flip, team swap → 8× data)
-│   │   └── smoothing.py             # Savitzky-Golay position smoothing for tracking data
+│   │   ├── football2vec_360.py       # 360-enriched encoder: base transformer + Deep Sets context (144-dim, 128+16)
+│   │   ├── formation_detection.py    # Formation label assignment from shape graph + EFPI
+│   │   ├── goalkeeper.py             # GK analytics: PSxG, distribution xT, collection, sweeper metrics
+│   │   ├── line_breaking.py          # Ward clustering + straddle test for line-breaking passes
+│   │   ├── model_validation.py       # Model drift detection: PSI, Wasserstein, CUSUM, KS (pure scipy)
+│   │   ├── obso.py                   # OBSO value surface: PPCF × Transition × EPV (Spearman 2018)
+│   │   ├── off_ball_xt.py            # Off-ball xT: pitch control × expected threat zones
+│   │   ├── pausa.py                  # PAUSA pass timing: temporal/spatial decomposition (Lee et al. 2026)
+│   │   ├── pitch_control.py          # Spearman (2017) physics-based pitch control model + ghost trajectories
+│   │   ├── pitch_control_numba.py    # Numba-accelerated pitch control for batch computation
+│   │   ├── scoutgpt_decoder.py       # GPT-style causal decoder for player-conditioned action prediction (Hong et al. 2025)
+│   │   ├── scoutgpt_training.py      # ScoutGPT training: dataset, training loop, evaluation, scheduling
+│   │   ├── set_encoder.py            # Deep Sets encoder for xG v2 (freeze-frame player features)
+│   │   ├── shape_graph.py            # Shape graph formation detection (Sotudeh 2026, Delaunay triangulation)
+│   │   ├── shape_graph_construction.py # Shape graph construction: Delaunay → role assignment
+│   │   ├── shape_graph_inference.py  # Shape graph inference: position assignment from graph structure
+│   │   ├── smoothing.py              # Savitzky-Golay position smoothing for tracking data
+│   │   ├── space_creation.py         # Space creation/destruction via differential OBSO (Fernandez & Bornn 2018)
+│   │   ├── symmetry.py               # TacticAI symmetry augmentation (H-flip, V-flip, team swap → 8× data)
+│   │   ├── team_shape.py             # Convex hull, centroid, formation lines, spatial metrics from tracking
+│   │   └── xg_model.py               # Custom xG: logistic baseline + calibrated XGBoost (JSON serialization)
 │   │
-│   ├── ingestion/
-│   │   ├── statsbomb.py              # StatsBomb API ingestion (5 bronze tables + 360 backfill)
-│   │   ├── metrica.py                # Metrica CSV + EPTS ingestion (Games 1-3)
-│   │   ├── wyscout.py                # Wyscout JSON ingestion
-│   │   ├── idsse.py                  # IDSSE Bundesliga DFL tracking + events (7 matches, stdlib XML)
-│   │   ├── skillcorner.py            # SkillCorner A-League broadcast tracking (10 matches, kloppy)
-│   │   ├── elastic_sync.py          # ELASTIC event-tracking alignment pipeline (applyInPandas)
-│   │   ├── pausa.py                 # PAUSA pass timing pipeline (temporal/spatial decomposition)
-│   │   ├── model_validation.py      # Model validation & drift detection pipeline (reads gold, writes results)
-│   │   ├── line_breaking.py          # Line-breaking pass batch computation (360 + tracking)
-│   │   ├── off_ball_xt.py            # Off-ball xT batch computation (gold → bronze)
+│   ├── ingestion/                    # @workflow-decorated Databricks pipelines (42 modules)
+│   │   ├── bootstrap.py              # Centralized hook registration for all pipelines
+│   │   ├── cost_hook.py              # CostEstimateHook: lifecycle hook writing cost to Delta
 │   │   ├── defcon_lite.py            # DEFCON-lite batch computation (gold+bronze → bronze)
-│   │   ├── entity_resolution.py     # Cross-source player entity resolution (StatsBomb × Wyscout → bronze)
-│   │   ├── player_embeddings.py     # Player embedding inference + stat vector computation
+│   │   ├── defcon_lite_360.py        # DEFCON-lite 360 variant (freeze-frame context)
+│   │   ├── defcon_lite_common.py     # Shared DEFCON-lite constants and helpers
+│   │   ├── defcon_lite_tracking.py   # DEFCON-lite tracking variant (player coordinates)
+│   │   ├── elastic_sync.py           # ELASTIC event-tracking alignment pipeline (applyInPandas)
+│   │   ├── entity_resolution.py      # Cross-source player entity resolution (StatsBomb × Wyscout → bronze)
+│   │   ├── expected_threat.py        # Expected Threat pipeline (Databricks → HF Hub)
 │   │   ├── export_embeddings_training_data.py # Export training data for football2vec v2 transformer
-│   │   ├── formations.py            # Formation detection pipeline (EFPI + shape graph dual-detector)
-│   │   ├── xg_model.py             # xG v1 scoring pipeline (logistic + XGBoost, writes xg_predictions)
-│   │   ├── xg_model_v2.py          # xG v2 scoring pipeline (Deep Sets + MC dropout, writes xg_predictions_v2)
-│   │   ├── pitch_control_batch.py  # Pitch control batch pipeline (applyInPandas + frame_batch_id)
+│   │   ├── export_scoutgpt_training_data.py   # Export SPADL possession episodes for ScoutGPT training
+│   │   ├── export_shots_on_target.py # On-target shots export to HF Hub (D39 prerequisite)
+│   │   ├── formations_common.py      # Shared formation detection constants
+│   │   ├── formations_efpi.py        # EFPI template-matching formation detection
+│   │   ├── formations_shape_graph.py # Shape graph geometric formation detection
+│   │   ├── hf_jobs_cost.py           # HFJobsCostRecorder for HF Jobs scripts
+│   │   ├── idsse.py                  # IDSSE Bundesliga DFL tracking + events (7 matches, stdlib XML)
+│   │   ├── import_obso_results.py    # Import OBSO values from HF Hub to bronze
+│   │   ├── import_psxg_predictions.py # Import PSxG predictions from HF Hub to bronze
+│   │   ├── import_space_creation.py  # Import space creation values from HF Hub to bronze
+│   │   ├── line_breaking.py          # Line-breaking pass batch computation (dispatcher)
+│   │   ├── line_breaking_360.py      # Line-breaking via 360 freeze frames
+│   │   ├── line_breaking_common.py   # Shared line-breaking constants
+│   │   ├── line_breaking_tracking.py # Line-breaking via tracking data
+│   │   ├── metrica.py                # Metrica CSV + EPTS ingestion (Games 1-3)
+│   │   ├── metrica_common.py         # Shared Metrica ingestion helpers
+│   │   ├── metrica_events.py         # Metrica event data ingestion
+│   │   ├── metrica_tracking.py       # Metrica tracking data ingestion
+│   │   ├── model_validation.py       # Model validation & drift detection pipeline
+│   │   ├── off_ball_xt.py            # Off-ball xT batch computation (gold → bronze)
+│   │   ├── pausa.py                  # PAUSA pass timing pipeline (temporal/spatial decomposition)
+│   │   ├── pitch_control_batch.py    # Pitch control batch pipeline (applyInPandas + frame_batch_id)
+│   │   ├── player_embeddings_common.py # Shared embedding constants and stat features
+│   │   ├── player_embeddings_v1.py   # Doc2Vec (gensim) player embeddings (v1 baseline)
+│   │   ├── player_embeddings_v2.py   # Transformer (128d) player embeddings with adversarial debiasing
+│   │   ├── prepare_360_training_data.py # SPADL + 360 freeze frame export to HF Hub
+│   │   ├── skillcorner.py            # SkillCorner A-League broadcast tracking (10 matches, kloppy)
 │   │   ├── spadl_adapter.py          # Bronze-to-socceraction format adapters
+│   │   ├── spadl_conversion.py       # SPADL conversion helpers (action type mapping)
 │   │   ├── spadl_vaep.py             # SPADL conversion + VAEP scoring pipeline
-│   │   └── utils.py                  # Shared CLI, logging, HTTP, Delta helpers
+│   │   ├── statsbomb.py              # StatsBomb API ingestion (5 bronze tables + 360 backfill)
+│   │   ├── sync_hf_costs.py          # Sync HF Jobs cost artifacts → Lakebase
+│   │   ├── utils.py                  # Shared CLI, logging, HTTP, Delta helpers
+│   │   ├── vaep_training.py          # VAEP model training pipeline
+│   │   ├── wyscout.py                # Wyscout JSON ingestion
+│   │   ├── xg_model.py               # xG v1 scoring pipeline (logistic + XGBoost)
+│   │   └── xg_model_v2.py            # xG v2 scoring pipeline (Deep Sets + MC dropout)
 │   │
-│   ├── streamlit_app/                # [DEPRECATED] Retained for reference during Taipy transition
-│   │   ├── app.py                    # Entrypoint: st.navigation, page routing
-│   │   ├── config.py                 # Pydantic BaseSettings
-│   │   ├── db.py                     # OAuth M2M, ThreadedConnectionPool, parameterized queries
-│   │   ├── pages/                    # 12 pages (incl. player_similarity.py, pass_timing.py)
-│   │   └── components/               # filters.py, pitch.py, charts.py, feedback.py, glossary.py
+│   ├── workflows/                    # Workflow framework (8 modules, zero Spark/Taipy imports)
+│   │   ├── card.py                   # WorkflowCard Pydantic model (YAML manifest schema)
+│   │   ├── context.py                # WorkflowContext: runtime metadata for lifecycle hooks
+│   │   ├── exceptions.py             # WorkflowSkippedError and custom exceptions
+│   │   ├── hooks.py                  # Hook protocol and base hook implementations
+│   │   ├── loader.py                 # YAML card loader + validate_cli entry point
+│   │   ├── registry.py               # WorkflowRegistry singleton: @workflow decorator registration
+│   │   └── runner.py                 # Lifecycle runner: on_start/on_complete/on_skip/on_error dispatch
 │   │
-│   └── tests/                        # 34 test modules
-│       ├── test_statsbomb.py
-│       ├── test_metrica.py
-│       ├── test_wyscout.py
+│   ├── shared/                       # Cross-package constants (zero external deps)
+│   │   └── constants.py              # IDENTIFIER_RE, DEFAULT_GOLD_SCHEMA, mlflow_model_uri()
+│   │
+│   └── tests/                        # 55 test modules
+│       ├── conftest.py               # Shared fixtures
+│       ├── test_augmentation.py
+│       ├── test_benchmarks.py        # Performance benchmarks (pytest-benchmark)
+│       ├── test_card.py              # WorkflowCard validation tests
+│       ├── test_context.py           # WorkflowContext tests
+│       ├── test_coordinates.py
+│       ├── test_cost_history.py      # HF Jobs cost history tests
+│       ├── test_cost_hook.py         # CostEstimateHook tests
+│       ├── test_cost_recorder.py     # HFJobsCostRecorder tests
+│       ├── test_defcon_lite.py
+│       ├── test_elastic_sync.py
+│       ├── test_entity_resolution.py
+│       ├── test_exceptions.py        # Workflow exception tests
+│       ├── test_expected_threat.py
+│       ├── test_football2vec.py
+│       ├── test_football2vec_360.py
+│       ├── test_football2vec_transformer.py
+│       ├── test_formations.py
+│       ├── test_goalkeeper.py        # GK analytics tests
+│       ├── test_hooks.py             # Workflow hook tests
 │       ├── test_idsse.py
+│       ├── test_ingestion_utils.py
+│       ├── test_line_breaking.py
+│       ├── test_loader.py            # YAML card loader tests
+│       ├── test_merge_delta.py
+│       ├── test_metrica.py
+│       ├── test_model_validation.py
+│       ├── test_obso.py
+│       ├── test_off_ball_xt.py
+│       ├── test_pausa.py
+│       ├── test_pitch_control_batch.py
+│       ├── test_pitch_control_model.py
+│       ├── test_player_embeddings.py
+│       ├── test_registry.py          # WorkflowRegistry tests
+│       ├── test_runner.py            # Lifecycle runner tests
+│       ├── test_scoutgpt_decoder.py  # ScoutGPT decoder architecture tests
+│       ├── test_scoutgpt_training.py # ScoutGPT E2E smoke tests (dataset, training, eval)
+│       ├── test_set_encoder.py       # Deep Sets encoder tests
+│       ├── test_setup_hf_buckets.py
+│       ├── test_shape_graph.py
+│       ├── test_shared_constants.py
 │       ├── test_skillcorner.py
+│       ├── test_smoothing.py
+│       ├── test_space_creation.py
 │       ├── test_spadl_adapter.py
 │       ├── test_spadl_vaep.py
-│       ├── test_ingestion_utils.py
-│       ├── test_pitch_control_model.py
-│       ├── test_line_breaking.py
-│       ├── test_off_ball_xt.py
-│       ├── test_defcon_lite.py
-│       ├── test_entity_resolution.py
-│       ├── test_football2vec.py
-│       ├── test_football2vec_transformer.py
-│       ├── test_coordinates.py
-│       ├── test_shape_graph.py
-│       ├── test_player_embeddings.py
-│       ├── test_xg_model.py
-│       ├── test_xg_model_v2.py
-│       ├── test_expected_threat.py
-│       ├── test_player_similarity.py
-│       ├── test_smoothing.py
-│       ├── test_pitch_control_batch.py
+│       ├── test_statsbomb.py
 │       ├── test_symmetry.py
-│       ├── test_merge_delta.py
-│       ├── test_benchmarks.py
-│       ├── test_elastic_sync.py
-│       ├── test_obso.py
-│       ├── test_pausa.py
-│       ├── test_model_validation.py
-│       ├── test_augmentation.py
-│       ├── test_streamlit_components.py
-│       ├── test_streamlit_config.py
-│       └── test_streamlit_db.py
+│       ├── test_sync_hf_costs.py
+│       ├── test_taipy_workflows_perf.py
+│       ├── test_taipy_workflows_styling.py
+│       ├── test_team_shape.py
+│       ├── test_workflows_auto_refresh.py
+│       ├── test_wyscout.py
+│       ├── test_xg_model.py
+│       └── test_xg_model_v2.py
 │
 ├── hf_taipy_app/                     # Production Taipy dashboard (deployed to HF Spaces)
 │   ├── src/
@@ -510,26 +574,35 @@ luxury-lakehouse/
 │   ├── sync_hf_weights.py           # Databricks notebook: Download model weights from HF Hub to UC Volume
 │   └── publish_datasets.py           # Databricks notebook: Export Gold tables as Parquet to HF Hub (5 datasets + model cards)
 │
-├── scripts/
-│   ├── manage_space.py               # HF Space lifecycle: create/deploy/status/rebuild/teardown (replaces deploy_taipy.py)
+├── scripts/                          # Infrastructure, HF Jobs, and deployment scripts (28 Python + 3 shell/SQL)
+│   ├── manage_space.py               # HF Space lifecycle: create/deploy/status/rebuild/teardown
 │   ├── deploy_wheel.py               # Downloads wheel from HF Hub build-artifacts → UC Volume for inference
 │   ├── setup_hf_buckets.py           # Initialize HF Buckets (demo-data) with versioned Parquet uploads
+│   ├── setup_lakebase_roles.py       # Manage Lakebase PG roles for service principals (databricks-sdk 0.102+)
 │   ├── sync_hf_costs.py              # Sync HF Jobs cost artifacts (_workflow_cost.json) → Lakebase
-│   ├── create_indexes.py             # PG indexes on Lakebase synced tables (38 indexes, 14 tables, --verify + ANALYZE)
+│   ├── create_indexes.py             # PG indexes on Lakebase synced tables (56 indexes, --verify + ANALYZE)
 │   ├── ensure_warehouse.py           # Verify SQL warehouse is RUNNING before dbt builds
-│   ├── compute_xt_grid_hf.py        # HF Jobs UV script: compute data-driven xT grid from SPADL actions
-│   ├── compute_obso_hf.py          # HF Jobs GPU script: OBSO value surfaces via JAX on A10G
-│   ├── compute_epv_transition_hf.py # HF Jobs script: EPV + transition grids for OBSO
-│   ├── compute_space_creation_hf.py  # HF Jobs GPU script: space creation via JAX double-vmap on A10G
-│   ├── train_xg_model_hf.py        # HF Jobs CPU script: xG model training with MLflow logging
-│   ├── train_xg_v2_hf.py            # HF Jobs GPU script: xG v2 Deep Sets + MC dropout training
-│   ├── train_vaep_model_hf.py        # HF Jobs CPU script: VAEP model training
-│   ├── train_football2vec_v2.py     # HF Jobs GPU script: football2vec v2 transformer + adversarial debiasing
-│   ├── publish_freeze_frame_hf.py    # Publish StatsBomb 360 freeze-frame dataset to HF Hub
-│   ├── publish_xg_shots_hf.py        # Publish xG shot dataset to HF Hub
+│   ├── maintain_synced_tables.py     # Synced table maintenance (refresh, health check)
 │   ├── refresh_synced_tables.py      # Trigger SNAPSHOT refresh on synced tables (--wait, --tables)
 │   ├── delete_synced_table.py        # Delete synced table + drop PG ghost table
-│   ├── import_obso_results.py        # Download OBSO Parquet from HF Hub → bronze Delta tables
+│   ├── compute_xt_grid_hf.py         # HF Jobs UV script: compute data-driven xT grid from SPADL actions
+│   ├── compute_obso_hf.py            # HF Jobs GPU script: OBSO value surfaces via JAX on A10G
+│   ├── compute_epv_transition_hf.py  # HF Jobs script: EPV + transition grids for OBSO
+│   ├── compute_epv_transition_hf_helpers.py # EPV computation helpers
+│   ├── compute_space_creation_hf.py  # HF Jobs GPU script: space creation via JAX double-vmap on A10G
+│   ├── compute_space_creation_hf_helpers.py # Space creation computation helpers
+│   ├── train_xg_model_hf.py          # HF Jobs CPU script: xG model training with MLflow logging
+│   ├── train_xg_v2_hf.py             # HF Jobs GPU script: xG v2 Deep Sets + MC dropout training
+│   ├── train_xg_v2_hf_helpers.py     # xG v2 training helpers (dataset, evaluation)
+│   ├── train_vaep_model_hf.py        # HF Jobs CPU script: VAEP model training
+│   ├── train_football2vec_v2.py      # HF Jobs GPU script: football2vec v2 transformer + adversarial debiasing
+│   ├── train_football2vec_v2_helpers.py # Football2vec v2 training helpers (dataset, MLM masking)
+│   ├── train_football2vec_360.py     # HF Jobs GPU script: football2vec 360-enriched encoder training
+│   ├── train_football2vec_360_helpers.py # Football2vec 360 training helpers
+│   ├── train_psxg_hf.py              # HF Jobs CPU script: PSxG logistic model training
+│   ├── train_scoutgpt_hf.py          # HF Jobs GPU script: ScoutGPT decoder training (Hong et al. 2025)
+│   ├── publish_freeze_frame_hf.py    # Publish StatsBomb 360 freeze-frame dataset to HF Hub
+│   ├── publish_xg_shots_hf.py        # Publish xG shot dataset to HF Hub
 │   ├── import_synced_tables.sh       # Terraform import workflow (19 tables)
 │   ├── lakebase_grants.sql           # PG GRANT SELECT for Taipy app SP
 │   └── deploy.sh                     # Wheel build + Terraform apply + ingestion trigger
@@ -569,7 +642,7 @@ luxury-lakehouse/
 
 | Concern | Implementation |
 |---------|---------------|
-| Secrets management | No hardcoded credentials; OAuth M2M for app + Terraform; GitHub OIDC federation for CI (zero secrets) |
+| Secrets management | No hardcoded credentials; OAuth M2M for Terraform + CI (OIDC federation, zero secrets); PAT for app (OAuth M2M ready, pending secret rotation) |
 | Network | TLS everywhere; HTTPS-only for all data fetches |
 | IAM | Least-privilege; separate service principals per workload |
 | Data classification | Open-source data only (no PII); Unity Catalog ACLs applied |

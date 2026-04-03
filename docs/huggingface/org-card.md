@@ -27,7 +27,7 @@ The infrastructure uses a **Medallion architecture** (Bronze &rarr; Silver &rarr
 
 - **38M+ tracking frames** ingested from three optical tracking providers (25fps and 10fps)
 - **5 distinct data sources** unified: StatsBomb, Wyscout, Metrica Sports, IDSSE (Bundesliga), and SkillCorner (A-League)
-- **[14 Taipy dashboard pages](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)** deployed on Hugging Face Spaces (Docker SDK), querying Lakebase PostgreSQL via OAuth
+- **[14 Taipy dashboard pages](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)** deployed on Hugging Face Spaces (Docker SDK), querying Lakebase PostgreSQL via Databricks OAuth
 - **34 synced tables** with Zero-ETL continuous sync from Gold Delta Lake to Lakebase PostgreSQL 17
 - **56 PostgreSQL indexes** (50 btree + 6 HNSW vector indexes: 4x128d + 2x144d) for sub-10ms OLTP queries
 - Pipeline reliability enforced through **1,118+ unit tests** and **381+ dbt data tests**
@@ -71,12 +71,13 @@ All model serialization uses **JSON envelopes** &mdash; zero pickle files (banne
 | [football2vec-360-training-data](https://huggingface.co/datasets/luxury-lakehouse/football2vec-360-training-data) | ~2M actions | SPADL action sequences with 360 freeze frame context |
 | [football2vec-statsbomb-wyscout](https://huggingface.co/datasets/luxury-lakehouse/football2vec-statsbomb-wyscout) | 87K vectors | Per-match v1 Doc2Vec (32-dim) + v2 transformer (128-dim) raw embeddings |
 | [football2vec-360-embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-360-embeddings) | ~4K players | 144-dim player embeddings from 360-enriched model |
+| [scoutgpt-training-data](https://huggingface.co/datasets/luxury-lakehouse/scoutgpt-training-data) | 894K episodes | SPADL possession episodes with per-action player attribution (Hong et al. 2025) |
 
 ### Interactive Spaces
 
 | Space | What it is |
 |-------|-----------|
-| [**Soccer Analytics App**](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) | Full 14-page Taipy dashboard (Docker SDK) querying Lakebase PostgreSQL via OAuth. Live data from 380+ matches. Shot maps, pass networks, player comparison, pitch control, PAUSA pass timing, DEFCON defensive pressure, and more. |
+| [**Soccer Analytics App**](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) | Full 14-page Taipy dashboard (Docker SDK) querying Lakebase PostgreSQL via Databricks OAuth. Live data from 380+ matches. Shot maps, pass networks, player comparison, pitch control, PAUSA pass timing, DEFCON defensive pressure, and more. |
 | [**Soccer Analytics Demo**](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) | Lightweight 6-tab Gradio explorer with pre-cached Parquet data. No database dependency &mdash; instant load for quick exploration. |
 
 ## Compute &amp; Bidirectional Sync
@@ -110,6 +111,7 @@ Every analytics module is grounded in peer-reviewed research, cited directly in 
 | **Space Creation** | Fernandez &amp; Bornn, "Wide Open Spaces" (2018), differential OBSO integration |
 | **xG v2 Set Encoder** | Zaheer et al., "Deep Sets" (NeurIPS 2017); Gal &amp; Ghahramani, "Dropout as Bayesian Approximation" (ICML 2016) |
 | **Pass Networks** | Pena &amp; Touchette, "A network theory analysis of football strategies" (2012) |
+| **ScoutGPT Decoder** | Hong et al., "ScoutGPT: Player-conditioned Football Language Model for Counterfactual Evaluation" (2025, arXiv:2512.17266) |
 
 ## Engineering Quality
 

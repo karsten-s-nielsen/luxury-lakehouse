@@ -54,14 +54,27 @@ IGNORE_PATTERNS: list[str] = [
 
 # Secrets to configure on the Space.  Each entry maps the HF secret name to the
 # local environment variable that supplies its value.
-SECRETS: dict[str, str] = {
+# Required secrets always fail if missing. Optional secrets log a warning but don't fail.
+REQUIRED_SECRETS: dict[str, str] = {
     "DATABRICKS_HOST": "DATABRICKS_HOST",
-    "DATABRICKS_TOKEN": "DATABRICKS_TOKEN",
     "LAKEBASE_HOST": "LAKEBASE_HOST",
     "LAKEBASE_ENDPOINT_NAME": "LAKEBASE_ENDPOINT_NAME",
     "LAKEBASE_DATABASE": "LAKEBASE_DATABASE",
     "GOLD_SCHEMA": "GOLD_SCHEMA",
 }
+
+# Auth secrets: OAuth M2M (preferred) or PAT (legacy fallback).
+# At least one auth method must be configured.
+OAUTH_SECRETS: dict[str, str] = {
+    "DATABRICKS_CLIENT_ID": "DATABRICKS_CLIENT_ID",
+    "DATABRICKS_CLIENT_SECRET": "DATABRICKS_CLIENT_SECRET",
+}
+PAT_SECRETS: dict[str, str] = {
+    "DATABRICKS_TOKEN": "DATABRICKS_TOKEN",
+}
+
+# Combined for iteration
+SECRETS: dict[str, str] = {**REQUIRED_SECRETS, **OAUTH_SECRETS, **PAT_SECRETS}
 
 POLL_INTERVAL_S = 15
 POLL_TIMEOUT_S = 600
@@ -252,26 +265,42 @@ def _create_space(repo_id: str, target: str, api: HfApi, *, force: bool, skip_se
     if skip_secrets:
         logger.info("Skipping secret configuration (--skip-secrets)")
     else:
-        missing_secrets: list[str] = []
+        # Set all available secrets
+        set_count = 0
         for secret_name, env_var in SECRETS.items():
             value = os.environ.get(env_var)
             if value:
                 api.add_space_secret(repo_id, key=secret_name, value=value)
                 # nosemgrep: python-logger-credential-disclosure -- logs name, not value
                 logger.info("Secret %s: set from $%s", secret_name, env_var)
-            else:
-                missing_secrets.append(secret_name)
-                # nosemgrep: python-logger-credential-disclosure -- logs name, not value
-                logger.warning("Secret %s: NOT SET -- $%s is not in environment", secret_name, env_var)
+                set_count += 1
 
-        if missing_secrets:
+        # Validate required secrets
+        missing_required = [k for k, v in REQUIRED_SECRETS.items() if not os.environ.get(v)]
+        if missing_required:
             msg = (
-                f"Missing secrets: {', '.join(missing_secrets)}. Set them via environment variables "
-                f"and re-run, or set manually:\n"
-                f"  python scripts/manage_space.py create {target} --skip-secrets\n"
-                f"  Then set each secret in the HF web UI at https://huggingface.co/spaces/{repo_id}/settings"
+                f"Missing required secrets: {', '.join(missing_required)}. "
+                f"Set them via environment variables and re-run."
             )
             raise SpaceError(msg)
+
+        # Validate auth: need OAuth OR PAT (OAuth preferred)
+        has_oauth = all(os.environ.get(v) for v in OAUTH_SECRETS.values())
+        has_pat = all(os.environ.get(v) for v in PAT_SECRETS.values())
+        if has_oauth:
+            logger.info("Auth method: OAuth M2M (DATABRICKS_CLIENT_ID + SECRET)")
+        elif has_pat:
+            logger.info("Auth method: PAT (DATABRICKS_TOKEN) -- consider migrating to OAuth M2M")
+        else:
+            msg = (
+                "No Databricks auth configured. Set either:\n"
+                "  OAuth M2M: DATABRICKS_CLIENT_ID + DATABRICKS_CLIENT_SECRET\n"
+                "  PAT:       DATABRICKS_TOKEN"
+            )
+            raise SpaceError(msg)
+
+        # nosemgrep: python-logger-credential-disclosure -- logs count and repo name, not values
+        logger.info("Configured %d secrets on %s", set_count, repo_id)
 
     # Step 4: Verify
     info = api.space_info(repo_id)
