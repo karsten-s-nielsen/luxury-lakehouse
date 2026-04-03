@@ -60,7 +60,11 @@ cost:
     typical_cost_usd: 2.10
 
 monitoring:
-  freshness_sla_hours: 336
+  freshness_sla_hours: 168
+  metrics:
+    - name: "episode_count"
+      threshold_min: 1000
+      baseline: 0
 
 links:
   source_code:
