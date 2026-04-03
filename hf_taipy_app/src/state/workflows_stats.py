@@ -211,12 +211,12 @@ def load_cards_from_yaml() -> dict[str, dict[str, Any]]:
 def build_task_key_to_wf_id(cards: dict[str, dict[str, Any]]) -> dict[str, str]:
     """Build entry_point -> workflow_id reverse lookup from loaded cards.
 
-    Looks at both training and inference phases for entry_point values.
+    Checks all execution phase keys — not just training/inference.
     """
     mapping: dict[str, str] = {}
     for card_id, card in cards.items():
         exec_cfg = card.get("execution") or {}
-        for phase in ("training", "inference"):
+        for phase in ("training", "inference", "export", "import", "ingestion", "sync"):
             ep = (exec_cfg.get(phase) or {}).get("entry_point", "")
             if ep:
                 mapping[ep] = card_id

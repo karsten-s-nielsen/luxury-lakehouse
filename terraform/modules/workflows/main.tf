@@ -666,6 +666,27 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "hf-readonly"
   }
 
+  # ── Task: Import OBSO/PAUSA results from UC Volume ────────────────────
+  # Imports pre-computed OBSO surfaces and PAUSA raw scores from HF Jobs
+  # GPU run into bronze Delta tables.
+  task {
+    task_key        = "import_obso_results"
+    timeout_seconds = 900
+    max_retries     = 1
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "import_obso_results"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "hf-readonly"
+  }
+
   # ── Task: Export on-target shots to HF Hub (D39 prerequisite) ──────────
   task {
     task_key        = "export_shots_on_target"
