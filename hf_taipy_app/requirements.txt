@@ -1,5 +1,5 @@
 taipy==4.1.1
-psycopg2-binary==2.9.10
+psycopg2-binary==2.9.11
 mplsoccer==1.6.1
 pandas==2.2.3
 numpy==1.26.4
