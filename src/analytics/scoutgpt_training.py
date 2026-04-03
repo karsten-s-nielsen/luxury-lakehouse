@@ -834,7 +834,10 @@ def evaluate_and_report(
 
     action_type_frequencies = build_action_type_frequencies(train_data)
     cf_metrics = evaluate_counterfactual_ranking(
-        model, test_ds, device, action_type_frequencies=action_type_frequencies,
+        model,
+        test_ds,
+        device,
+        action_type_frequencies=action_type_frequencies,
     )
     logger.info(
         "Counterfactual ranking — mean_rho=%.4f n=%d std=%.4f",
