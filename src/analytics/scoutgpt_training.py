@@ -100,7 +100,7 @@ def load_training_data(
     logger.info("Player ID map: %d players", len(player_id_map))
 
     dataset_info = api.repo_info(repo_id=dataset_repo, repo_type="dataset")
-    return data, player_id_map, dataset_info.sha
+    return data, player_id_map, dataset_info.sha or ""
 
 
 def parse_episode_actions(
@@ -304,7 +304,7 @@ def build_datasets(
     all_comp_ids: list[int] = []
 
     for _, row in data.iterrows():
-        atypes, sxs, sys_, exs, eys, res, vaeps, tds, pidxs = parse_episode_actions(row["actions"])
+        atypes, sxs, sys_, exs, eys, res, vaeps, tds, pidxs = parse_episode_actions(row["actions"])  # type: ignore[arg-type]
         all_atypes.append(atypes)
         all_sxs.append(sxs)
         all_sys.append(sys_)
@@ -329,7 +329,7 @@ def stratified_split(
 
     stratify_col = data["competition_id"].astype(str)
     counts = stratify_col.value_counts()
-    rare_mask = stratify_col.isin(counts[counts < 3].index)
+    rare_mask = stratify_col.isin(counts[counts < 3].index)  # type: ignore[arg-type]
     stratify_col = stratify_col.copy()
     stratify_col.loc[rare_mask] = "_other_"
 
@@ -393,7 +393,7 @@ def build_action_type_frequencies(
     """
     freq: dict[int, dict[int, float]] = {}
     for _, row in data.iterrows():
-        atypes, *_, pidxs = parse_episode_actions(row["actions"])
+        atypes, *_, pidxs = parse_episode_actions(row["actions"])  # type: ignore[arg-type]
         for atype, pidx in zip(atypes, pidxs, strict=True):
             if pidx not in freq:
                 freq[pidx] = {}
@@ -414,7 +414,7 @@ def compute_baselines(
     bigram_counts: dict[tuple[int, int], int] = {}
 
     for _, row in train_data.iterrows():
-        atypes, *_ = parse_episode_actions(row["actions"])
+        atypes, *_ = parse_episode_actions(row["actions"])  # type: ignore[arg-type]
         all_actions.extend(atypes)
         for i in range(len(atypes) - 1):
             key = (atypes[i], atypes[i + 1])
@@ -448,7 +448,7 @@ def compute_baselines(
             if true_label == most_frequent:
                 mf_correct += 1
             current_action = sample_actions[t].item()
-            if current_action < VOCAB_SIZE and bigram_next.get(current_action) == true_label:
+            if current_action < VOCAB_SIZE and bigram_next.get(int(current_action)) == true_label:
                 bg_correct += 1
 
     return {
@@ -506,8 +506,8 @@ def evaluate_counterfactual_ranking(
             valid_positions = (labels != -100).nonzero(as_tuple=True)[0]
             if len(valid_positions) == 0:
                 continue
-            last_pos = valid_positions[-1].item()
-            true_action = labels[last_pos].item()
+            last_pos = int(valid_positions[-1].item())
+            true_action = int(labels[last_pos].item())
 
             log_probs: list[float] = []
             plausibility_scores: list[float] = []
@@ -520,20 +520,21 @@ def evaluate_counterfactual_ranking(
                 }
                 batch["player_ids"][0, 0] = player_idx
 
-                action_logits, _ = model.predict(**batch)
+                action_logits, _ = model.predict(**batch)  # type: ignore[arg-type]
                 logits_at_pos = action_logits[0, last_pos, :]
-                log_prob = torch.log_softmax(logits_at_pos, dim=-1)[true_action].item()
+                log_prob = float(torch.log_softmax(logits_at_pos, dim=-1)[true_action].item())
                 log_probs.append(log_prob)
 
                 player_freqs = action_type_frequencies.get(player_idx, {})
                 total_actions = sum(player_freqs.values())
                 plausibility = player_freqs.get(true_action, 0) / max(total_actions, 1)
-                plausibility_scores.append(plausibility)
+                plausibility_scores.append(float(plausibility))
 
             if len(log_probs) >= 2:
                 rho, _ = spearmanr(log_probs, plausibility_scores)
-                if not np.isnan(rho):
-                    rho_values.append(float(rho))
+                rho_f = float(rho)  # type: ignore[arg-type]
+                if not np.isnan(rho_f):
+                    rho_values.append(rho_f)
 
     mean_rho = float(np.mean(rho_values)) if rho_values else 0.0
     return {
@@ -889,7 +890,7 @@ def _cross_source_accuracy(
         if len(subset) == 0:
             continue
 
-        parsed = build_datasets(subset)
+        parsed = build_datasets(subset)  # type: ignore[arg-type]
         (atypes, sxs, sys_, exs, eys, res, vaeps, tds, pidxs, comp_ids) = parsed
         ds = ScoutGPTDataset(atypes, sxs, sys_, exs, eys, res, vaeps, tds, pidxs, competition_ids=comp_ids)
         loader = DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=0)
