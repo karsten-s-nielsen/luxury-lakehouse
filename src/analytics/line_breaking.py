@@ -21,12 +21,9 @@ import numpy as np
 import pandas as pd
 from scipy.cluster.hierarchy import fcluster, linkage  # type: ignore[import-untyped]
 
+from analytics.array_utils import _col_f64
+
 logger = logging.getLogger(__name__)
-
-
-def _col_f64(df: pd.DataFrame, col: str) -> np.ndarray:
-    """Extract a DataFrame column as a float64 numpy array (pyright-safe)."""
-    return np.asarray(df[col], dtype=np.float64)
 
 
 @dataclass(frozen=True)

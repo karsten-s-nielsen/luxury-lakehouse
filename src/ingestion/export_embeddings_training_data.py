@@ -23,14 +23,13 @@ import logging
 from typing import TYPE_CHECKING
 
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
+from shared.constants import DEFAULT_GOLD_SCHEMA
 from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 logger = logging.getLogger(__name__)
-
-_GOLD_SCHEMA = "dev_gold"
 _HF_DATASET_REPO = "luxury-lakehouse/football2vec-training-data"
 _UC_VOLUME_PATH = "/Volumes/{catalog}/dev_gold/training_data/football2vec_v2"
 
@@ -97,8 +96,8 @@ def _export_training_sequences(
     Returns:
         Number of player-match rows exported.
     """
-    _ = schema  # reads from _GOLD_SCHEMA, not the pipeline schema
-    gold = _GOLD_SCHEMA
+    _ = schema  # reads from DEFAULT_GOLD_SCHEMA, not the pipeline schema
+    gold = DEFAULT_GOLD_SCHEMA
 
     # ------------------------------------------------------------------
     # 0. Skip guard — compare upstream freshness against last export
@@ -313,7 +312,7 @@ def _upload_to_hf_hub(
 # ---------------------------------------------------------------------------
 
 
-@workflow("wf-football2vec-v2", phase="training")
+@workflow("wf-football2vec-v2-export", phase="export")
 def run_pipeline(
     spark: SparkSession,
     catalog: str,
@@ -335,10 +334,9 @@ def main() -> None:
     export_logger = configure_logging("export_embeddings_training_data")
     spark = get_spark_session()
 
-    from ingestion.cost_hook import CostEstimateHook
-    from workflows import register_hook
+    from ingestion.bootstrap import bootstrap_hooks
 
-    register_hook(CostEstimateHook(spark, args.catalog, args.schema))
+    bootstrap_hooks(spark, args.catalog, args.schema)
 
     run_pipeline(spark, args.catalog, args.schema, export_logger)
 

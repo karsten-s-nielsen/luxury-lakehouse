@@ -1,0 +1,93 @@
+---
+name: Football2Vec v2 — Training Data Export
+id: wf-football2vec-v2-export
+version: "1.0"
+status: production
+type: heuristic
+domain: player-embeddings
+owners:
+  - karsten
+tags:
+  - embeddings
+  - training-data
+  - spadl
+  - huggingface
+
+references:
+  - citation: "Decroos et al. (2019). Actions Speak Louder than Goals. KDD."
+    role: methodology
+
+inputs:
+  tables:
+    - id: "{catalog}.{schema}.fct_action_values"
+      source: delta-table
+      description: "Per-player-match SPADL action sequences with value labels"
+    - id: "{catalog}.{schema}.dim_players"
+      source: delta-table
+      description: "Player dimension for canonical_player_id and position_group"
+
+outputs:
+  datasets:
+    - id: "luxury-lakehouse/football2vec-training-data"
+      destination: huggingface
+      description: "SPADL action sequences per player-match (Parquet), used for Football2Vec v2 transformer training"
+
+execution:
+  export:
+    trigger: manual
+    runtime: databricks-workflow
+    entry_point: export_embeddings_training_data
+    module: ingestion.export_embeddings_training_data
+    distribution: driver-bound
+    timeout: "900s"
+    environment: analytics
+
+depends_on:
+  - wf-vaep
+
+idempotency:
+  strategy: full-overwrite
+  key: canonical_player_id
+  description: "Exports all player-match sequences each run; HF Hub dataset is replaced in full."
+
+cost:
+  export:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 20
+    typical_cost_usd: 1.40
+
+monitoring:
+  freshness_sla_hours: 336
+
+links:
+  source_code:
+    - "src/ingestion/export_embeddings_training_data.py"
+---
+
+## Overview
+
+Reads per-player-match SPADL action sequences from `fct_action_values`, joins
+`dim_players` to resolve `canonical_player_id` and `position_group`, serializes
+action tuples as a struct array in Parquet, writes to a UC Volume staging path,
+and publishes the dataset to HF Hub as `luxury-lakehouse/football2vec-training-data`.
+
+This export is the upstream dependency of the Football2Vec v2 transformer training
+job (`wf-football2vec-v2`). It must be re-run whenever action-value data is updated
+or a new data source is added to the pipeline.
+
+## Output Schema
+
+One row per player-match:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `canonical_player_id` | string | Resolved player identity |
+| `match_id` | string | Match identifier |
+| `competition_id` | int | Competition identifier |
+| `season_id` | int | Season identifier |
+| `position_group` | string (nullable) | Positional role (FW/MF/DF/GK) |
+| `actions` | array\<struct\> | Ordered SPADL tuples: action_type (0–22), x (0–1), y (0–1), result (0/1) |
+
+Action types use the standard SPADL 23-type vocabulary. Coordinates are normalized
+to [0, 1]. Result is binary (1 = success, 0 = otherwise).

@@ -27,13 +27,13 @@ from ingestion.utils import (
     parse_ingestion_args,
     write_delta_table,
 )
+from shared.constants import DEFAULT_GOLD_SCHEMA
 from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 _TABLE_NAME = "pitch_control_values"
-_GOLD_SCHEMA = "dev_gold"
 
 # Default number of source frames per batch group.  Each batch is processed
 # as a single ``applyInPandas`` partition on an executor.  A value of 500
@@ -158,7 +158,7 @@ def _process_matches(
 
     from analytics.pitch_control import PitchControlParams
 
-    gold_table = f"{catalog}.{_GOLD_SCHEMA}.fct_tracking_frames"
+    gold_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_tracking_frames"
     results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
 
     try:
@@ -279,10 +279,9 @@ def main() -> None:
     logger = configure_logging("pitch_control_batch")
     spark = get_spark_session()
 
-    from ingestion.cost_hook import CostEstimateHook
-    from workflows import register_hook
+    from ingestion.bootstrap import bootstrap_hooks
 
-    register_hook(CostEstimateHook(spark, args.catalog, args.schema))
+    bootstrap_hooks(spark, args.catalog, args.schema)
 
     logger.info("Starting pitch control batch pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger)

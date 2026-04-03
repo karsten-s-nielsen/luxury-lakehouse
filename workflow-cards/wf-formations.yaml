@@ -37,7 +37,7 @@ execution:
     trigger: scheduled
     runtime: databricks-workflow
     entry_point: compute_formations_efpi
-    module: ingestion.formations
+    module: ingestion.formations_efpi
     distribution: applyInPandas
     partition_key: match_id
     schedule: "daily 06:00 UTC"
@@ -68,27 +68,20 @@ monitoring:
 
 links:
   source_code:
-    - "src/ingestion/formations.py"
+    - "src/ingestion/formations_efpi.py"
+    - "src/ingestion/formations_common.py"
     - "src/analytics/formation_detection.py"
 ---
 
 ## Overview
 
-This workflow houses two complementary formation detectors that share the same
-input (tracking frames) and output (formation labels) pipeline:
-
-**EFPI** classifies team formations from tracking data using template matching against
+EFPI classifies team formations from tracking data using template matching against
 canonical formation shapes. It labels each match phase (open play, set piece,
 transition) with the detected formation (e.g., 4-3-3, 4-4-2) for both the attacking
 and defending team.
 
-**Shape Graph** is a bottom-up detector using Delaunay-based shape graphs (Sotudeh 2026).
-Positions emerge from the geometric structure of the triangulation after unstable edges
-are iteratively removed. No formation template library is needed. It also produces
-per-player frame-level tactical positions and aggregated time-in-position maps.
-
-The pipeline runs on the 20 tracking matches in the gold layer and is the lightest
-compute workflow in the platform (~5 DBU per run).
+The pipeline runs on the 20 tracking matches in the gold layer and is one of the
+lightest compute workflows in the platform (~5 DBU per run).
 
 ## Algorithm
 

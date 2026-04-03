@@ -30,6 +30,8 @@ TypeLiteral = Literal[
     "inference",
     "grid-computation",
     "heuristic",
+    "ingestion",
+    "data-movement",
     "validation",
 ]
 

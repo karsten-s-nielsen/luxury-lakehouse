@@ -45,7 +45,8 @@ from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
 
-from analytics.cost import HF_RATE_CPU_BASIC, HFJobsCostRecorder
+from ingestion.hf_jobs_cost import HF_RATE_CPU_BASIC, HFJobsCostRecorder
+from shared.constants import mlflow_model_uri
 from workflows import workflow
 
 # ---------------------------------------------------------------------------
@@ -320,7 +321,7 @@ def main() -> None:
             mlflow.sklearn.log_model(
                 sk_model=xgboost_model,
                 artifact_path="xgboost_model",
-                registered_model_name="soccer_analytics.dev_gold.xg_model",
+                registered_model_name=mlflow_model_uri("soccer_analytics", "dev_gold", "xg_model"),
             )
             mlflow.sklearn.log_model(
                 sk_model=logistic_model,

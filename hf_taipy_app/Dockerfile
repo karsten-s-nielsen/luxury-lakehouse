@@ -5,6 +5,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
+COPY dist/luxury_lakehouse-*.whl /tmp/
+RUN pip install --no-cache-dir /tmp/luxury_lakehouse-*.whl && rm /tmp/*.whl
 RUN pip install --no-cache-dir -r requirements.txt
 
 RUN useradd -m -u 1000 appuser
@@ -19,6 +21,8 @@ USER appuser
 
 EXPOSE 7860
 
-HEALTHCHECK CMD curl --fail http://localhost:7860 || exit 1
+HEALTHCHECK CMD curl --fail http://localhost:7860/health || exit 1
+
+STOPSIGNAL SIGTERM
 
 CMD ["python", "src/main.py"]

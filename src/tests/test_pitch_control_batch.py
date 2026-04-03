@@ -212,9 +212,9 @@ class TestPitchControlBatchPipeline:
 
     def test_gold_schema(self) -> None:
         """Pipeline reads from the correct gold schema."""
-        from ingestion.pitch_control_batch import _GOLD_SCHEMA
+        from shared.constants import DEFAULT_GOLD_SCHEMA
 
-        assert _GOLD_SCHEMA == "dev_gold"
+        assert DEFAULT_GOLD_SCHEMA == "dev_gold"
 
     def test_udf_factory_returns_callable(self) -> None:
         """The UDF factory produces a callable object."""

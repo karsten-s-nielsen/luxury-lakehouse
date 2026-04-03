@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+from datetime import datetime, timezone
 
 from page_template import PageEntry, build_nav
 from pages.action_values import page_config as action_values_config
@@ -56,7 +58,25 @@ from state.workflows import RawHtml
 from taipy.gui import Gui
 from template import build_root_page
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+
+class _JsonFormatter(logging.Formatter):
+    """Structured JSON log formatter for container environments."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        log_entry = {
+            "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+            "level": record.levelname,
+            "name": record.name,
+            "message": record.getMessage(),
+        }
+        if record.exc_info and record.exc_info[0]:
+            log_entry["exception"] = self.formatException(record.exc_info)
+        return json.dumps(log_entry)
+
+
+_handler = logging.StreamHandler()
+_handler.setFormatter(_JsonFormatter())
+logging.basicConfig(level=logging.INFO, handlers=[_handler])
 
 
 # --- RawHtml content provider ---
@@ -97,11 +117,23 @@ PAGE_REGISTRY: list[PageEntry] = [
 _nav_md = build_nav(PAGE_REGISTRY)
 root_page = build_root_page(_nav_md)
 
-# Build Taipy pages dict
+# Health check page — returns HTTP 200 when Taipy server is alive.
+# DB pool connectivity is verified in the background via health_check module.
+_HEALTH_PAGE = "<|part|class_name=health-check|OK|>"
+
+# Build Taipy pages dict — Heat-Map must be the first non-root entry
+# (Taipy defaults to the first content page on initial load)
 pages: dict[str, str] = {"/": root_page}
 pages.update({entry.route: entry.markdown for entry in PAGE_REGISTRY})
+pages["health"] = _HEALTH_PAGE
 
 if __name__ == "__main__":
+    import health_check
+    from config import validate_databricks_credentials
+
+    validate_databricks_credentials()
+    health_check.start()
+
     gui = Gui(pages=pages, css_file="style_v2.css")
     gui.run(
         host="0.0.0.0",

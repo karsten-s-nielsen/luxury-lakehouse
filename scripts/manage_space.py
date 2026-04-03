@@ -19,9 +19,11 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import glob as globmod
 import logging
 import os
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -124,6 +126,53 @@ def _cleanup_workflow_cards(cards_dst: Path | None) -> None:
     if cards_dst is not None and cards_dst.exists():
         shutil.rmtree(cards_dst)
         logger.info("Cleaned up bundled workflow-cards")
+
+
+def _bundle_wheel() -> Path | None:
+    """Build the luxury-lakehouse wheel and copy it into hf_taipy_app/dist/ for Docker.
+
+    The Dockerfile installs the wheel to provide ``analytics``, ``ingestion``,
+    ``shared``, and ``workflows`` packages inside the container.  Returns the
+    destination directory or None on failure.
+    """
+    repo_root = Path(__file__).parent.parent
+    dist_src = repo_root / "dist"
+    dist_dst = repo_root / "hf_taipy_app" / "dist"
+
+    # Build wheel via uv
+    logger.info("Building wheel via `uv build` ...")
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-m", "uv", "build"],
+        cwd=str(repo_root),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        logger.error("uv build failed:\n%s\n%s", result.stdout, result.stderr)
+        msg = "Failed to build wheel -- cannot deploy without it"
+        raise SpaceError(msg)
+
+    # Find built wheel
+    wheels = globmod.glob(str(dist_src / "luxury_lakehouse-*.whl"))
+    if not wheels:
+        msg = f"No wheel found in {dist_src} after uv build"
+        raise SpaceError(msg)
+
+    # Copy to hf_taipy_app/dist/
+    if dist_dst.exists():
+        shutil.rmtree(dist_dst)
+    dist_dst.mkdir(parents=True)
+    for whl in wheels:
+        shutil.copy2(whl, dist_dst)
+    logger.info("Bundled wheel: %s -> %s", [os.path.basename(w) for w in wheels], dist_dst)
+    return dist_dst
+
+
+def _cleanup_wheel(dist_dst: Path | None) -> None:
+    """Remove bundled wheel directory after deployment."""
+    if dist_dst is not None and dist_dst.exists():
+        shutil.rmtree(dist_dst)
+        logger.info("Cleaned up bundled wheel")
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +312,7 @@ def _preflight(folder: Path, repo_id: str, api: HfApi) -> None:
 def _dry_run(folder: Path, repo_id: str, api: HfApi) -> None:
     """Preview what would be uploaded and deleted without making changes."""
     cards_dst = _bundle_workflow_cards()
+    wheel_dst = _bundle_wheel()
     try:
         all_local = _list_local_files(folder)
         upload_files = [(f, sz) for f, sz in all_local if not _matches_any(f, IGNORE_PATTERNS)]
@@ -302,6 +352,7 @@ def _dry_run(folder: Path, repo_id: str, api: HfApi) -> None:
         logger.info("  Total upload: %s bytes (%.1f KB)", f"{total_bytes:,}", total_bytes / 1024)
     finally:
         _cleanup_workflow_cards(cards_dst)
+        _cleanup_wheel(wheel_dst)
 
 
 def _deploy(folder: Path, repo_id: str, api: HfApi, *, clean: bool, wait: bool) -> None:
@@ -314,6 +365,7 @@ def _deploy(folder: Path, repo_id: str, api: HfApi, *, clean: bool, wait: bool) 
     delete_patterns = ["**"] if clean else None
 
     cards_dst = _bundle_workflow_cards()
+    wheel_dst = _bundle_wheel()
     try:
         # Temporarily remove workflow-cards from .gitignore so upload_folder includes them.
         gitignore = folder / ".gitignore"
@@ -337,6 +389,7 @@ def _deploy(folder: Path, repo_id: str, api: HfApi, *, clean: bool, wait: bool) 
                 gitignore.write_text(gitignore_backup)
     finally:
         _cleanup_workflow_cards(cards_dst)
+        _cleanup_wheel(wheel_dst)
 
     # Post-upload verification
     info_after = api.space_info(repo_id)

@@ -44,7 +44,8 @@ execution:
 monitoring:
   freshness_sla_hours: 168
 
-depends_on: []
+depends_on:
+  - wf-idsse
 
 idempotency:
   strategy: skip-guard

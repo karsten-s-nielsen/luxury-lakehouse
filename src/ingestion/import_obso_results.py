@@ -20,12 +20,14 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import re
 import time
+from typing import TYPE_CHECKING
 
-# Regex for safe SQL identifiers — prevents injection via catalog/schema names
-_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+from shared.constants import IDENTIFIER_RE
+from workflows import workflow
 
+if TYPE_CHECKING:
+    from pyspark.sql import SparkSession
 
 # ---------------------------------------------------------------------------
 # Structured JSON logging (mirrors src/ingestion/utils.py pattern)
@@ -63,43 +65,19 @@ def _configure_logging() -> logging.Logger:
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
+@workflow("wf-import-obso", phase="import")
+def run_pipeline(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    volume_path: str,
+    *,
+    ctx: object = None,
+) -> None:
     """Read OBSO Parquet from UC Volume and write to Delta tables."""
-    # Late import — PySpark only available in Databricks runtime
-    from pyspark.sql import SparkSession  # type: ignore[import-not-found]
     from pyspark.sql import functions as spark_fn  # type: ignore[import-not-found]
 
-    logger = _configure_logging()
-
-    parser = argparse.ArgumentParser(description="Import OBSO results to Delta")
-    parser.add_argument(
-        "--catalog",
-        default="soccer_analytics",
-        help="Unity Catalog name (default: soccer_analytics)",
-    )
-    parser.add_argument(
-        "--schema",
-        default="dev_bronze",
-        help="Schema name (default: dev_bronze)",
-    )
-    parser.add_argument(
-        "--volume-path",
-        default="/Volumes/soccer_analytics/dev_gold/model_weights/obso",
-        help="UC Volume path containing OBSO Parquet files",
-    )
-    args = parser.parse_args()
-
-    catalog: str = args.catalog
-    schema: str = args.schema
-    volume_path: str = args.volume_path
-
-    # Validate identifiers to prevent SQL injection
-    for field_name, value in [("catalog", catalog), ("schema", schema)]:
-        if not _IDENTIFIER_RE.match(value):
-            msg = f"Invalid {field_name} name '{value}': must match {_IDENTIFIER_RE.pattern}"
-            raise SystemExit(msg)
-
-    spark = SparkSession.builder.getOrCreate()
+    logger = logging.getLogger("import_obso_results")
 
     # ------------------------------------------------------------------
     # 1. Import PAUSA raw scores
@@ -182,6 +160,50 @@ def main() -> None:
         logger.info("OBSO surfaces not found at %s — skipping (surfaces are optional)", surfaces_path)
 
     logger.info("OBSO import complete")
+
+
+def main() -> None:
+    """CLI entry point for OBSO results import."""
+    # Late import — PySpark only available in Databricks runtime
+    from pyspark.sql import SparkSession  # type: ignore[import-not-found]
+
+    _configure_logging()
+
+    parser = argparse.ArgumentParser(description="Import OBSO results to Delta")
+    parser.add_argument(
+        "--catalog",
+        default="soccer_analytics",
+        help="Unity Catalog name (default: soccer_analytics)",
+    )
+    parser.add_argument(
+        "--schema",
+        default="dev_bronze",
+        help="Schema name (default: dev_bronze)",
+    )
+    parser.add_argument(
+        "--volume-path",
+        default="/Volumes/soccer_analytics/dev_gold/model_weights/obso",
+        help="UC Volume path containing OBSO Parquet files",
+    )
+    args = parser.parse_args()
+
+    catalog: str = args.catalog
+    schema: str = args.schema
+    volume_path: str = args.volume_path
+
+    # Validate identifiers to prevent SQL injection
+    for field_name, value in [("catalog", catalog), ("schema", schema)]:
+        if not IDENTIFIER_RE.match(value):
+            msg = f"Invalid {field_name} name '{value}': must match {IDENTIFIER_RE.pattern}"
+            raise SystemExit(msg)
+
+    spark = SparkSession.builder.getOrCreate()
+
+    from ingestion.bootstrap import bootstrap_hooks
+
+    bootstrap_hooks(spark, catalog, schema)
+
+    run_pipeline(spark, catalog, schema, volume_path)
 
 
 if __name__ == "__main__":

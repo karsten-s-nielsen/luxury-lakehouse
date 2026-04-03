@@ -39,7 +39,10 @@ execution:
     timeout: "7200s"
     environment: analytics
 
-depends_on: []
+depends_on:
+  - wf-metrica
+  - wf-idsse
+  - wf-skillcorner
 
 idempotency:
   strategy: skip-guard

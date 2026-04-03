@@ -52,10 +52,9 @@ execution:
   inference:
     trigger: scheduled
     runtime: databricks-workflow
-    entry_point: compute_goalkeeper_stats
-    module: ingestion.goalkeeper_stats
-    distribution: applyInPandas
-    partition_key: match_id
+    entry_point: n/a
+    module: dbt_project.models.marts.fct_goalkeeper_stats
+    distribution: none
     schedule: "daily 06:00 UTC"
     timeout: "3600s"
     environment: analytics
@@ -97,8 +96,8 @@ monitoring:
 links:
   source_code:
     - "scripts/train_psxg_hf.py"
-    - "src/ingestion/goalkeeper_stats.py"
-    - "src/analytics/psxg_model.py"
+    - "src/analytics/goalkeeper.py"
+    - "dbt_project/models/marts/fct_goalkeeper_stats.sql"
 ---
 
 ## Overview

@@ -20,6 +20,8 @@ import numpy as np
 import pandas as pd
 from xgboost import XGBRegressor
 
+from analytics.array_utils import _col_f64
+
 
 class CreditType(enum.Enum):
     """Defensive credit categories from the DEFCON framework."""
@@ -73,11 +75,6 @@ _ACTION_TYPE_IDS: dict[str, int] = {
     "dribble": 21,
     "goalkick": 22,
 }
-
-
-def _col_f64(df: pd.DataFrame, col: str) -> np.ndarray:
-    """Extract a DataFrame column as a float64 numpy array (pyright-safe)."""
-    return np.asarray(df[col], dtype=np.float64)
 
 
 def _euclidean_dist(x1: float, y1: float, x2: float, y2: float) -> float:

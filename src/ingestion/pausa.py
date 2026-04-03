@@ -26,13 +26,13 @@ from ingestion.utils import (
     validate_dataframe,
     write_delta_table,
 )
+from shared.constants import DEFAULT_GOLD_SCHEMA
 from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 _TABLE_NAME = "fct_pausa_values"
-_GOLD_SCHEMA = "dev_gold"
 
 
 def _make_pausa_udf() -> object:
@@ -118,7 +118,7 @@ def _process_matches(
     from pyspark.sql.types import DoubleType, IntegerType, StringType, StructField, StructType
 
     raw_table = f"{catalog}.bronze.pausa_raw_scores"
-    results_table = f"{catalog}.{_GOLD_SCHEMA}.{_TABLE_NAME}"
+    results_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.{_TABLE_NAME}"
 
     # Read raw OBSO scalars
     try:
@@ -247,7 +247,7 @@ def _process_matches(
     written = write_delta_table(
         result_df,
         catalog,
-        _GOLD_SCHEMA,
+        DEFAULT_GOLD_SCHEMA,
         _TABLE_NAME,
         replace_where=f"match_id IN ({ids_sql})",
         logger=logger,
@@ -279,10 +279,9 @@ def main() -> None:
     logger = configure_logging("pausa")
     spark = get_spark_session()
 
-    from ingestion.cost_hook import CostEstimateHook
-    from workflows import register_hook
+    from ingestion.bootstrap import bootstrap_hooks
 
-    register_hook(CostEstimateHook(spark, args.catalog, args.schema))
+    bootstrap_hooks(spark, args.catalog, args.schema)
 
     logger.info("Starting PAUSA pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger)

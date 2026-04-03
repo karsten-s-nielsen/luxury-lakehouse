@@ -46,7 +46,7 @@ execution:
     trigger: scheduled
     runtime: databricks-workflow
     entry_point: compute_embeddings_v1
-    module: ingestion.player_embeddings
+    module: ingestion.player_embeddings_v1
     distribution: applyInPandas
     partition_key: batch_id
     schedule: "daily 06:00 UTC"
@@ -78,7 +78,7 @@ monitoring:
 
 links:
   source_code:
-    - "src/ingestion/player_embeddings.py"
+    - "src/ingestion/player_embeddings_v1.py"
 ---
 
 ## Overview

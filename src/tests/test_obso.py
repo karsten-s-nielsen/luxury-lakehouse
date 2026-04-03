@@ -12,9 +12,8 @@ import pandas as pd
 from analytics.obso import (
     compute_obso_surface,
     compute_pass_obso,
+    get_default_grids,
     interpolate_grid,
-    load_static_grid,
-    load_trained_grids,
 )
 from analytics.pitch_control import generate_ghost_trajectories
 
@@ -94,27 +93,6 @@ class TestInterpolateGrid:
         grid = np.random.default_rng(42).uniform(0, 1, (68, 104))
         result = interpolate_grid(grid, (32, 50))
         assert result.shape == (32, 50)
-
-
-# ---------------------------------------------------------------------------
-# Tests: load_static_grid
-# ---------------------------------------------------------------------------
-
-
-class TestLoadStaticGrid:
-    """Test loading static grids from CSV."""
-
-    def test_load_from_csv(self, tmp_path: object) -> None:
-        """Load a CSV grid and verify shape and values."""
-        import pathlib
-
-        csv_path = pathlib.Path(str(tmp_path)) / "test_grid.csv"
-        grid_data = np.array([[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]])
-        np.savetxt(str(csv_path), grid_data, delimiter=",")
-
-        result = load_static_grid(str(csv_path))
-        assert result.shape == (2, 3)
-        np.testing.assert_allclose(result, grid_data, atol=1e-10)
 
 
 # ---------------------------------------------------------------------------
@@ -323,48 +301,37 @@ class TestComputePassObso:
 
 
 # ---------------------------------------------------------------------------
-# Tests: load_trained_grids
+# Tests: get_default_grids
 # ---------------------------------------------------------------------------
 
 
-class TestLoadTrainedGrids:
-    """Test loading trained 2D spatial grids from Parquet files."""
+class TestGetDefaultGrids:
+    """Test get_default_grids with pre-loaded arrays and synthetic fallbacks."""
 
-    def test_load_from_parquet(self, tmp_path: object) -> None:
-        """Round-trip: create parquet, load, verify shape."""
-        import pathlib
-
+    def test_passthrough_preloaded(self) -> None:
+        """Pre-loaded arrays are returned directly."""
         rng = np.random.default_rng(42)
-        ny_r, nx_r = 8, 6
-        reach_df = pd.DataFrame(
-            {
-                "zone_y": np.repeat(np.arange(ny_r), nx_r),
-                "zone_x": np.tile(np.arange(nx_r), ny_r),
-                "reachability": rng.random(ny_r * nx_r),
-            }
-        )
-        r_path = pathlib.Path(str(tmp_path)) / "reachability.parquet"
-        reach_df.to_parquet(str(r_path))
+        reach_arr = rng.random((8, 6))
+        epv_arr = rng.random((5, 4))
 
-        ny_e, nx_e = 5, 4
-        epv_df = pd.DataFrame(
-            {
-                "zone_y": np.repeat(np.arange(ny_e), nx_e),
-                "zone_x": np.tile(np.arange(nx_e), ny_e),
-                "epv_value": rng.random(ny_e * nx_e),
-            }
-        )
-        e_path = pathlib.Path(str(tmp_path)) / "epv.parquet"
-        epv_df.to_parquet(str(e_path))
-
-        reachability, epv = load_trained_grids(str(r_path), str(e_path))
-        assert reachability.shape == (ny_r, nx_r)
-        assert epv.shape == (ny_e, nx_e)
+        reachability, epv = get_default_grids(reachability=reach_arr, epv=epv_arr)
+        np.testing.assert_array_equal(reachability, reach_arr)
+        np.testing.assert_array_equal(epv, epv_arr)
 
     def test_fallback_to_synthetic(self) -> None:
-        """None paths produce synthetic grids."""
-        reachability, epv = load_trained_grids(None, None)
+        """None arrays produce synthetic grids."""
+        reachability, epv = get_default_grids(None, None)
         assert reachability.ndim == 2
         assert epv.ndim == 2
         assert np.all(reachability >= 0)
+        assert np.all(epv >= 0)
+
+    def test_mixed_preloaded_and_synthetic(self) -> None:
+        """One pre-loaded array + one synthetic fallback."""
+        rng = np.random.default_rng(42)
+        reach_arr = rng.random((10, 8))
+
+        reachability, epv = get_default_grids(reachability=reach_arr, epv=None)
+        np.testing.assert_array_equal(reachability, reach_arr)
+        assert epv.ndim == 2
         assert np.all(epv >= 0)

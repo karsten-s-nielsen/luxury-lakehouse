@@ -52,7 +52,9 @@ execution:
     timeout: "3600s"
     environment: analytics
 
-depends_on: []
+depends_on:
+  - wf-statsbomb
+  - wf-metrica
 
 idempotency:
   strategy: skip-guard

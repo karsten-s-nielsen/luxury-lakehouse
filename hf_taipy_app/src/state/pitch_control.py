@@ -15,10 +15,9 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from cache import ttl_cache
-from db import execute_query, t
 from filters import fetch_data_freshness
 from mplsoccer import Pitch
+from queries.tracking import fetch_pc_frame_data, fetch_pc_frame_range, fetch_pc_frame_rate, fetch_pc_match_label
 from render import PITCH_BG_COLOR, PITCH_LINE_COLOR, pitch_to_file
 from scipy.spatial import Voronoi  # type: ignore[import-untyped]
 
@@ -106,66 +105,6 @@ _min_frame: int = 0
 _max_frame: int = 0
 _fps: int = 25
 _cached_frame_data: pd.DataFrame = pd.DataFrame()
-
-
-# ── Data fetching ────────────────────────────────────────────────────────────
-
-
-@ttl_cache()
-def _fetch_frame_range(match_id: str, period: int) -> tuple[int, int]:
-    """Get min/max frame numbers for a match and period."""
-    tbl = t("fct_tracking_frames_synced")
-    df = execute_query(
-        f"SELECT MIN(frame) as min_frame, MAX(frame) as max_frame "  # noqa: S608
-        f"FROM {tbl} "
-        f"WHERE match_id = %s AND period = %s",
-        (str(match_id), int(period)),
-    )
-    if df.empty:
-        return (0, 0)
-    return (int(df.iloc[0]["min_frame"]), int(df.iloc[0]["max_frame"]))
-
-
-@ttl_cache()
-def _fetch_frame_rate(match_id: str) -> int:
-    """Get the frame rate for a specific match."""
-    tbl = t("fct_tracking_frames_synced")
-    df = execute_query(
-        f"SELECT frame_rate FROM {tbl} "  # noqa: S608
-        f"WHERE match_id = %s LIMIT 1",
-        (str(match_id),),
-    )
-    if df.empty:
-        return 25
-    return int(df.iloc[0]["frame_rate"])
-
-
-@ttl_cache()
-def _fetch_frame_data(match_id: str, frame: int) -> pd.DataFrame:
-    """Load all player rows for a specific frame."""
-    tbl = t("fct_tracking_frames_synced")
-    return execute_query(
-        f"SELECT player_id, team, x, y, ball_x, ball_y, "  # noqa: S608
-        f"  velocity_x, velocity_y, speed, distance_to_ball "
-        f"FROM {tbl} "
-        f"WHERE match_id = %s AND frame = %s",
-        (str(match_id), int(frame)),
-    )
-
-
-@ttl_cache()
-def _fetch_match_label(match_id: str) -> str:
-    """Resolve match_id to human-readable label."""
-    match_tbl = t("fct_match_summary_synced")
-    df = execute_query(
-        f"SELECT match_date, home_team_name, away_team_name "  # noqa: S608
-        f"FROM {match_tbl} WHERE match_id::text = %s LIMIT 1",
-        (str(match_id),),
-    )
-    if df.empty:
-        return match_id
-    r = df.iloc[0]
-    return f"{r['match_date']} \u2014 {r['home_team_name']} v {r['away_team_name']}"
 
 
 # ── Voronoi helpers ──────────────────────────────────────────────────────────
@@ -400,7 +339,7 @@ def _refresh_frame(state: Any) -> None:
     state.pc_time_display = f"{mm:02d}:{ss:02d}"
 
     # Fetch frame data
-    frame_data = _fetch_frame_data(match_id, frame)
+    frame_data = fetch_pc_frame_data(match_id, frame)
     _cached_frame_data = frame_data
 
     if frame_data.empty:
@@ -415,7 +354,7 @@ def _refresh_frame(state: Any) -> None:
 
     # Build title
     period = 1 if state.pc_half == "1st Half" else 2
-    match_label = _fetch_match_label(match_id)
+    match_label = fetch_pc_match_label(match_id)
     title = f"Pitch Control \u2014 {match_label} H{period} {mm:02d}:{ss:02d}"
 
     show_vel = bool(state.pc_show_velocity)
@@ -516,7 +455,7 @@ def pc_refresh(state: Any) -> None:
     period = 1 if state.pc_half == "1st Half" else 2
 
     # Load frame range and fps
-    _min_frame, _max_frame = _fetch_frame_range(match_id, period)
+    _min_frame, _max_frame = fetch_pc_frame_range(match_id, period)
     if _min_frame == _max_frame == 0:
         _clear_state(state)
         state.pc_status = "No frames for this match and period for the selected filters."
@@ -526,7 +465,7 @@ def pc_refresh(state: Any) -> None:
         state.pc_elapsed_seconds = 0
         return
 
-    _fps = _fetch_frame_rate(match_id)
+    _fps = fetch_pc_frame_rate(match_id)
     duration_secs = (_max_frame - _min_frame) // _fps if _fps > 0 else 0
 
     state.pc_min_seconds = 0

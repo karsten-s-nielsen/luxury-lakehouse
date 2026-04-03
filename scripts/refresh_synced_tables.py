@@ -30,7 +30,7 @@ import time
 
 import requests
 
-DATABRICKS_HOST = os.environ.get("DATABRICKS_HOST", "https://dbc-48322be9-16be.cloud.databricks.com")
+DATABRICKS_HOST = os.environ["DATABRICKS_HOST"]  # Required — fail fast if missing
 CATALOG = "soccer_analytics"
 DEFAULT_SCHEMA = "dev_gold"
 

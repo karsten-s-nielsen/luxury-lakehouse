@@ -35,7 +35,7 @@ jobs:
         run: uv python install 3.10
 
       - name: Install dependencies
-        run: uv sync --frozen --extra dev --extra analytics --extra app --extra embeddings --extra mlflow --extra jax
+        run: uv sync --frozen --extra analytics --extra embeddings --extra mlflow --extra jax
 
       - name: Lint with ruff
         run: uv run ruff check src/ scripts/
@@ -45,6 +45,9 @@ jobs:
 
       - name: Type check with pyright
         run: uv run pyright src/
+
+      - name: Import boundary check
+        run: uv run lint-imports
 
       - name: Run tests
         run: uv run pytest

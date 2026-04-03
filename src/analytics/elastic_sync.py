@@ -22,6 +22,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from analytics.array_utils import _col_f64
+
 
 @dataclass(frozen=True)
 class ElasticSyncParams:
@@ -32,11 +34,6 @@ class ElasticSyncParams:
     proximity_weight: float = 0.4  # Weight for player-ball distance feature
     min_confidence: float = 0.1  # Minimum confidence to report an alignment
     frame_rate: int = 25  # Tracking data frame rate (fps)
-
-
-def _col_f64(df: pd.DataFrame, col: str) -> np.ndarray:
-    """Extract a DataFrame column as a float64 numpy array (pyright-safe)."""
-    return np.asarray(df[col], dtype=np.float64)
 
 
 def extract_ball_features(

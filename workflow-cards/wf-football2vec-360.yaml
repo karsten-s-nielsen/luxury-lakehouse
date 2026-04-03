@@ -52,7 +52,7 @@ execution:
     trigger: scheduled
     runtime: databricks-workflow
     entry_point: compute_embeddings_360
-    module: ingestion.player_embeddings
+    module: ingestion.player_embeddings_v2
     distribution: applyInPandas
     partition_key: batch_id
     schedule: "daily 06:00 UTC"
@@ -97,7 +97,7 @@ links:
   source_code:
     - "scripts/train_football2vec_360.py"
     - "src/analytics/football2vec_360.py"
-    - "src/ingestion/player_embeddings.py"
+    - "src/ingestion/player_embeddings_v2.py"
     - "src/ingestion/export_embeddings_training_data.py"
 ---
 

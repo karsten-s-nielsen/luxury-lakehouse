@@ -1,0 +1,71 @@
+---
+name: Import PSxG Predictions from HF Hub
+id: wf-import-psxg
+version: "1.0.0"
+status: production
+type: data-movement
+domain: soccer-analytics
+owners:
+  - karsten
+tags:
+  - import
+  - psxg
+  - goalkeeper
+  - huggingface
+
+references: []
+
+inputs:
+  datasets:
+    - id: "luxury-lakehouse/psxg-predictions"
+      source: huggingface
+      description: "PSxG prediction Parquet from HF Hub"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.psxg_predictions"
+      destination: delta-table
+
+execution:
+  inference:
+    trigger: manual
+    runtime: databricks-workflow
+    entry_point: import_psxg_predictions
+    module: ingestion.import_psxg_predictions
+    distribution: driver-bound
+    timeout: "600s"
+    environment: analytics
+
+depends_on:
+  - wf-goalkeeper
+
+idempotency:
+  strategy: upsert
+  key: match_id
+  description: "replaceWhere on match_id for idempotent partition-level writes."
+
+performance:
+  inference_timeout: "600s"
+  memory_ceiling: "16 GB driver"
+
+cost:
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 10
+    typical_cost_usd: 0.7
+
+monitoring:
+  freshness_sla_hours: 168
+
+links:
+  source_code:
+    - "src/ingestion/import_psxg_predictions.py"
+  hf_dataset: "https://huggingface.co/datasets/luxury-lakehouse/psxg-predictions"
+---
+
+## Overview
+
+Downloads PSxG (Post-Shot Expected Goals) predictions from HF Hub, stages the
+Parquet file to a UC Volume, and writes to a bronze Delta table with replaceWhere
+partitioning on match_id.

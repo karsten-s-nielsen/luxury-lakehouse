@@ -14,13 +14,16 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import re
 import time
+from typing import TYPE_CHECKING
 
 from huggingface_hub import hf_hub_download
 
-# Regex for safe SQL identifiers — prevents injection via catalog/schema names
-_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+from shared.constants import IDENTIFIER_RE
+from workflows import workflow
+
+if TYPE_CHECKING:
+    from pyspark.sql import SparkSession
 
 HF_REPO = "luxury-lakehouse/space-creation-values"
 TABLE_NAME = "space_creation_values"
@@ -62,43 +65,19 @@ def _configure_logging() -> logging.Logger:
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
+@workflow("wf-import-space-creation", phase="import")
+def run_pipeline(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    volume_path: str,
+    *,
+    ctx: object = None,
+) -> None:
     """Download space creation values from HF Hub and write to bronze Delta table."""
-    # Late import — PySpark only available in Databricks runtime
-    from pyspark.sql import SparkSession  # type: ignore[import-not-found]
     from pyspark.sql import functions as spark_fn  # type: ignore[import-not-found]
 
-    logger = _configure_logging()
-
-    parser = argparse.ArgumentParser(description="Import space creation values to Delta")
-    parser.add_argument(
-        "--catalog",
-        default="soccer_analytics",
-        help="Unity Catalog name (default: soccer_analytics)",
-    )
-    parser.add_argument(
-        "--schema",
-        default="bronze",
-        help="Schema name (default: bronze)",
-    )
-    parser.add_argument(
-        "--volume-path",
-        required=True,
-        help="UC Volume path for staging the downloaded Parquet file",
-    )
-    args = parser.parse_args()
-
-    catalog: str = args.catalog
-    schema: str = args.schema
-    volume_path: str = args.volume_path
-
-    # Validate identifiers to prevent SQL injection
-    for field_name, value in [("catalog", catalog), ("schema", schema)]:
-        if not _IDENTIFIER_RE.match(value):
-            msg = f"Invalid {field_name} name '{value}': must match {_IDENTIFIER_RE.pattern}"
-            raise SystemExit(msg)
-
-    spark = SparkSession.builder.getOrCreate()
+    logger = logging.getLogger("import_space_creation")
 
     # ------------------------------------------------------------------
     # 1. Download from HF Hub to local cache, then copy to UC Volume
@@ -155,6 +134,50 @@ def main() -> None:
         logger.info("No space creation values to import — skipping")
 
     logger.info("Space creation import complete")
+
+
+def main() -> None:
+    """CLI entry point for space creation values import."""
+    # Late import — PySpark only available in Databricks runtime
+    from pyspark.sql import SparkSession  # type: ignore[import-not-found]
+
+    _configure_logging()
+
+    parser = argparse.ArgumentParser(description="Import space creation values to Delta")
+    parser.add_argument(
+        "--catalog",
+        default="soccer_analytics",
+        help="Unity Catalog name (default: soccer_analytics)",
+    )
+    parser.add_argument(
+        "--schema",
+        default="bronze",
+        help="Schema name (default: bronze)",
+    )
+    parser.add_argument(
+        "--volume-path",
+        required=True,
+        help="UC Volume path for staging the downloaded Parquet file",
+    )
+    args = parser.parse_args()
+
+    catalog: str = args.catalog
+    schema: str = args.schema
+    volume_path: str = args.volume_path
+
+    # Validate identifiers to prevent SQL injection
+    for field_name, value in [("catalog", catalog), ("schema", schema)]:
+        if not IDENTIFIER_RE.match(value):
+            msg = f"Invalid {field_name} name '{value}': must match {IDENTIFIER_RE.pattern}"
+            raise SystemExit(msg)
+
+    spark = SparkSession.builder.getOrCreate()
+
+    from ingestion.bootstrap import bootstrap_hooks
+
+    bootstrap_hooks(spark, catalog, schema)
+
+    run_pipeline(spark, catalog, schema, volume_path)
 
 
 if __name__ == "__main__":

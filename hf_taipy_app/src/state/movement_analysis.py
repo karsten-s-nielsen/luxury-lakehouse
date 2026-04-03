@@ -14,9 +14,8 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from cache import ttl_cache
-from db import execute_query, t
 from filters import fetch_data_freshness, fetch_scope_label
+from queries.tracking import fetch_physical_stats, fetch_ppda_data
 from render import GRAY, PITCH_BG_COLOR, TEXT_COLOR, chart_to_file
 
 from state.shared import (
@@ -103,43 +102,6 @@ __all__ = [
     "ma_warning_text",
     "on_ma_physical_metric_change",
 ]
-
-
-# ── Data fetching ────────────────────────────────────────────────────────────
-
-
-@ttl_cache()
-def _fetch_physical_stats(match_id: str) -> pd.DataFrame:
-    """Fetch physical stats for a tracking match, joined with player names."""
-    tbl = t("fct_physical_stats_synced")
-    dim = t("dim_players_synced")
-    return execute_query(
-        f"SELECT ps.player_id, COALESCE(dp.player_display_name, ps.player_id::text) AS player_name, "  # noqa: S608
-        f"  ps.match_id, ps.source_provider, ps.minutes_played, "
-        f"  ps.total_distance_m, ps.total_distance_km, ps.hsr_distance_m, ps.sprint_distance_m, "
-        f"  ps.sprint_frame_count, ps.high_accel_count, ps.high_decel_count, "
-        f"  ps.distance_per_minute_m, ps.avg_speed_ms, ps.max_speed_ms, "
-        f"  ps.total_off_ball_xt, ps.avg_off_ball_xt "
-        f"FROM {tbl} ps "
-        f"LEFT JOIN {dim} dp ON ps.player_id::text = dp.canonical_player_id::text "
-        f"WHERE ps.match_id = %s "
-        f"ORDER BY ps.total_distance_m DESC",
-        (str(match_id),),
-    )
-
-
-@ttl_cache()
-def _fetch_ppda_data(competition_id: int) -> pd.DataFrame:
-    """Fetch PPDA data for a competition from match summary."""
-    tbl = t("fct_match_summary_synced")
-    return execute_query(
-        f"SELECT match_id, match_date, home_team_name, away_team_name, "  # noqa: S608
-        f"  home_ppda, away_ppda, home_possession_pct "
-        f"FROM {tbl} "
-        f"WHERE competition_id = %s AND home_ppda IS NOT NULL "
-        f"ORDER BY match_date LIMIT 500",
-        (int(competition_id),),
-    )
 
 
 # ── Chart rendering ──────────────────────────────────────────────────────────
@@ -258,7 +220,7 @@ def _refresh_physical(state: Any) -> None:
         state.ma_warning_text = ""
         return
 
-    stats = _fetch_physical_stats(match_id)
+    stats = fetch_physical_stats(match_id)
     if stats.empty:
         state.ma_phys_players = "0"
         state.ma_phys_avg_dist = "0.0"
@@ -315,7 +277,7 @@ def _refresh_ppda(state: Any) -> None:
         state.ma_warning_text = ""
         return
 
-    data = _fetch_ppda_data(comp_id)
+    data = fetch_ppda_data(comp_id)
     state.ma_ppda_scope_label = fetch_scope_label(comp_id, None)
 
     if data.empty:
@@ -362,7 +324,7 @@ def _refresh_off_ball_xt(state: Any) -> None:
         state.ma_warning_text = ""
         return
 
-    stats = _fetch_physical_stats(match_id)
+    stats = fetch_physical_stats(match_id)
     xt_stats = stats[stats["total_off_ball_xt"].notna()] if not stats.empty else stats
 
     if xt_stats.empty:

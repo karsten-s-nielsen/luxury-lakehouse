@@ -582,7 +582,8 @@ class TestFormationUdf:
 
     def test_udf_returns_correct_columns(self, serialized_templates: dict[int, dict[str, dict[str, object]]]) -> None:
         """UDF should return DataFrame with expected columns."""
-        from ingestion.formations import _RESULT_COLUMNS, _make_formation_udf
+        from ingestion.formations_common import RESULT_COLUMNS as _RESULT_COLUMNS
+        from ingestion.formations_efpi import _make_formation_udf
 
         rng = np.random.default_rng(42)
         rows = []
@@ -614,7 +615,8 @@ class TestFormationUdf:
 
     def test_udf_empty_input(self, serialized_templates: dict[int, dict[str, dict[str, object]]]) -> None:
         """UDF with empty input should return empty DataFrame with correct columns."""
-        from ingestion.formations import _RESULT_COLUMNS, _make_formation_udf
+        from ingestion.formations_common import RESULT_COLUMNS as _RESULT_COLUMNS
+        from ingestion.formations_efpi import _make_formation_udf
 
         pdf = pd.DataFrame(columns=pd.Index(["match_id", "period", "team", "player_id", "timestamp_seconds", "x", "y"]))
         udf_fn = _make_formation_udf(
@@ -630,7 +632,7 @@ class TestFormationUdf:
 
     def test_udf_filters_null_players(self, serialized_templates: dict[int, dict[str, dict[str, object]]]) -> None:
         """UDF should filter out rows where player_id or team is null."""
-        from ingestion.formations import _make_formation_udf
+        from ingestion.formations_efpi import _make_formation_udf
 
         rng = np.random.default_rng(42)
         rows = []

@@ -28,8 +28,8 @@ The infrastructure uses a **Medallion architecture** (Bronze &rarr; Silver &rarr
 - **38M+ tracking frames** ingested from three optical tracking providers (25fps and 10fps)
 - **5 distinct data sources** unified: StatsBomb, Wyscout, Metrica Sports, IDSSE (Bundesliga), and SkillCorner (A-League)
 - **[14 Taipy dashboard pages](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)** deployed on Hugging Face Spaces (Docker SDK), querying Lakebase PostgreSQL via OAuth
-- **28 synced tables** with Zero-ETL continuous sync from Gold Delta Lake to Lakebase PostgreSQL 17
-- **56 PostgreSQL indexes** (52 btree + 4 HNSW vector indexes at 128-dim) for sub-10ms OLTP queries
+- **34 synced tables** with Zero-ETL continuous sync from Gold Delta Lake to Lakebase PostgreSQL 17
+- **56 PostgreSQL indexes** (50 btree + 6 HNSW vector indexes: 4x128d + 2x144d) for sub-10ms OLTP queries
 - Pipeline reliability enforced through **1,135 unit tests** and **381+ dbt data tests**
 
 ## The Hugging Face Footprint

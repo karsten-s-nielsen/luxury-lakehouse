@@ -33,6 +33,7 @@ from ingestion.utils import (
     validate_dataframe,
     write_delta_table,
 )
+from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -223,14 +224,31 @@ def ingest_skillcorner(
             gc.collect()
 
 
+@workflow("wf-skillcorner", phase="ingestion")
+def run_pipeline(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    logger: logging.Logger,
+    *,
+    ctx: object = None,
+) -> None:
+    """Ingest SkillCorner A-League broadcast tracking data."""
+    ingest_skillcorner(spark, catalog, schema, logger)
+
+
 def main() -> None:
     """CLI entry point for SkillCorner tracking data ingestion."""
     args = parse_ingestion_args("Ingest SkillCorner A-League tracking data into the bronze layer")
     logger = configure_logging("skillcorner")
     spark = get_spark_session()
 
+    from ingestion.bootstrap import bootstrap_hooks
+
+    bootstrap_hooks(spark, args.catalog, args.schema)
+
     logger.info("Starting SkillCorner ingestion into %s.%s", args.catalog, args.schema)
-    ingest_skillcorner(spark, args.catalog, args.schema, logger)
+    run_pipeline(spark, args.catalog, args.schema, logger)
     logger.info("SkillCorner ingestion complete")
 
 

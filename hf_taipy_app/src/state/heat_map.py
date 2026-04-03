@@ -12,10 +12,9 @@ from typing import Any
 import matplotlib
 import numpy as np
 import pandas as pd
-from cache import ttl_cache
-from db import execute_query, t
 from filters import fetch_data_freshness, fetch_scope_label
 from mplsoccer import Pitch
+from queries.tracking import fetch_heatmap_actions
 from render import PITCH_BG_COLOR, PITCH_LINE_COLOR, fmt_int, pitch_to_file
 
 from state.shared import get_comp_id, get_match_id, get_player_id, get_team_id, register_page_refresher
@@ -47,72 +46,6 @@ __all__ = [
     "hm_total",
     "hm_warning_text",
 ]
-
-
-# ---------------------------------------------------------------------------
-# Data fetching — server-side aggregation via UNION
-# ---------------------------------------------------------------------------
-
-
-@ttl_cache()
-def _fetch_heatmap_actions(
-    comp_id: int,
-    team_id: int | None,
-    player_id: int | None,
-    match_id: int | None,
-) -> pd.DataFrame:
-    """Fetch server-side aggregated heat data.
-
-    Bins coordinates to 10x10 grid centers via round(x/10)*10+5, groups by
-    action_type. Returns ~96 rows (12x8 grid) instead of raw events.
-    All user values use %s parameterized placeholders.
-    """
-    passes_tbl = t("fct_passes_synced")
-    shots_tbl = t("fct_shots_synced")
-
-    pass_conditions = ["p.competition_id = %s"]
-    shot_conditions = ["s.competition_id = %s"]
-    pass_params: list[Any] = [int(comp_id)]
-    shot_params: list[Any] = [int(comp_id)]
-
-    if team_id is not None:
-        pass_conditions.append("p.team_id = %s")
-        shot_conditions.append("s.team_id = %s")
-        pass_params.append(int(team_id))
-        shot_params.append(int(team_id))
-
-    if player_id is not None:
-        pass_conditions.append("p.player_id = %s")
-        shot_conditions.append("s.player_id = %s")
-        pass_params.append(int(player_id))
-        shot_params.append(int(player_id))
-
-    if match_id is not None:
-        pass_conditions.append("p.match_id = %s")
-        shot_conditions.append("s.match_id = %s")
-        pass_params.append(int(match_id))
-        shot_params.append(int(match_id))
-
-    pass_where = " AND ".join(pass_conditions)
-    shot_where = " AND ".join(shot_conditions)
-    all_params = tuple(pass_params + shot_params)
-
-    return execute_query(
-        f"SELECT x, y, action_type, sum(cnt) AS cnt FROM ("  # noqa: S608
-        f"  SELECT round(p.start_x / 10) * 10 + 5 AS x,"
-        f"    round(p.start_y / 10) * 10 + 5 AS y,"
-        f"    'pass' AS action_type, count(*) AS cnt "
-        f"  FROM {passes_tbl} p WHERE {pass_where} "
-        f"  GROUP BY round(p.start_x / 10), round(p.start_y / 10) "
-        f"  UNION ALL "
-        f"  SELECT round(s.location_x / 10) * 10 + 5 AS x,"
-        f"    round(s.location_y / 10) * 10 + 5 AS y,"
-        f"    'shot' AS action_type, count(*) AS cnt "
-        f"  FROM {shots_tbl} s WHERE {shot_where} "
-        f"  GROUP BY round(s.location_x / 10), round(s.location_y / 10)"
-        f") agg GROUP BY x, y, action_type",
-        all_params,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -237,7 +170,7 @@ def hm_refresh(state: Any) -> None:
     state.hm_scope_label = fetch_scope_label(comp_id, team_id)
 
     try:
-        actions = _fetch_heatmap_actions(comp_id, team_id, player_id, match_id)
+        actions = fetch_heatmap_actions(comp_id, team_id, player_id, match_id)
     except Exception:
         logger.exception("Failed to fetch heatmap actions for comp=%d", comp_id)
         state.hm_pitch_image = ""

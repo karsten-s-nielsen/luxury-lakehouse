@@ -621,24 +621,39 @@ class TestInferVectors:
 
 
 class TestFootball2VecModel:
-    """MLflow pyfunc wrapper (tested with mocked mlflow)."""
+    """MLflow pyfunc wrapper — constructable with in-memory data (no filesystem)."""
 
-    def test_predict_returns_dataframe_with_vector_column(self) -> None:
-        """Verify predict() shape without requiring mlflow runtime."""
-        # Build a real model
+    @staticmethod
+    def _trained_model() -> Doc2Vec:
         seqs = {
             ("p1", "m1"): ["pass_6_4", "shot_11_4", "dribble_5_2", "pass_6_4"],
             ("p1", "m2"): ["pass_6_4", "tackle_3_2", "pass_6_4", "tackle_3_2"],
             ("p2", "m1"): ["shot_11_4", "dribble_5_2", "pass_6_4", "shot_11_4"],
         }
-        model = train_model(seqs, TrainingConfig())
+        return train_model(seqs, TrainingConfig())
 
-        # Import the class — it only references mlflow types in method signatures
+    def test_construct_with_model_and_config(self) -> None:
+        """Direct construction with pre-loaded model — no filesystem needed."""
+        from analytics.football2vec import Football2VecModel
+
+        model = self._trained_model()
+        wrapper = Football2VecModel(model=model, tokenizer_config=TokenizerConfig())
+        assert wrapper.model is model
+        assert wrapper.tokenizer_config == TokenizerConfig()
+
+    def test_construct_empty_for_mlflow(self) -> None:
+        """Empty construction (MLflow pattern) — model is None until load_context."""
         from analytics.football2vec import Football2VecModel
 
         wrapper = Football2VecModel()
-        wrapper.model = model  # type: ignore[attr-defined]
-        wrapper.tokenizer_config = TokenizerConfig()
+        assert wrapper.model is None
+        assert wrapper.tokenizer_config == TokenizerConfig()
+
+    def test_predict_returns_dataframe_with_vector_column(self) -> None:
+        """Verify predict() shape without requiring mlflow runtime."""
+        from analytics.football2vec import Football2VecModel
+
+        wrapper = Football2VecModel(model=self._trained_model(), tokenizer_config=TokenizerConfig())
 
         input_df = pd.DataFrame(
             {

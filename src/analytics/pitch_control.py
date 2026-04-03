@@ -15,6 +15,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from analytics.array_utils import _col_f64
+
 try:
     import jax
     import jax.numpy as jnp
@@ -37,11 +39,6 @@ class PitchControlParams:
     pitch_width_m: float = 68.0  # meters
     sb_length: float = 120.0  # StatsBomb pitch length
     sb_width: float = 80.0  # StatsBomb pitch width
-
-
-def _col_f64(df: pd.DataFrame, col: str) -> np.ndarray:
-    """Extract a DataFrame column as a float64 numpy array (pyright-safe)."""
-    return np.asarray(df[col], dtype=np.float64)
 
 
 # ---------------------------------------------------------------------------

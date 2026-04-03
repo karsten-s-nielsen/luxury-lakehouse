@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import os
 import tempfile
 import time
@@ -34,13 +35,30 @@ _TMP_DIR = tempfile.gettempdir()
 # string and skips the update even though the file contents have changed.
 _render_counter: int = 0
 
+# Track temp files for cleanup on process exit (A28/OB2).
+_temp_files: list[str] = []
+
+
+def _cleanup_temp_files() -> None:
+    """Remove accumulated temp files on process exit."""
+    for path in _temp_files:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+atexit.register(_cleanup_temp_files)
+
 
 def _unique_path(name: str) -> str:
     """Return a temp file path with a cache-busting suffix."""
     global _render_counter
     _render_counter += 1
     ts = int(time.time() * 1000) % 1_000_000
-    return os.path.join(_TMP_DIR, f"{name}_{ts}_{_render_counter}.png")
+    path = os.path.join(_TMP_DIR, f"{name}_{ts}_{_render_counter}.png")
+    _temp_files.append(path)
+    return path
 
 
 def pitch_to_file(fig: matplotlib.figure.Figure, name: str) -> str:

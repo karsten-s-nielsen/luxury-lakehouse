@@ -16,7 +16,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -25,9 +24,10 @@ import yaml
 from huggingface_hub import HfApi
 from huggingface_hub.hf_api import RepoFile
 
-logger = logging.getLogger(__name__)
+from shared.constants import COST_TABLE_NAME, DEFAULT_OBSERVABILITY_SCHEMA, IDENTIFIER_RE
+from workflows import workflow
 
-_ID_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+logger = logging.getLogger(__name__)
 
 
 def discover_hf_repos(cards_dir: Path) -> list[tuple[str, str, str]]:
@@ -175,12 +175,15 @@ def _resolve_task_key(card: dict[str, Any]) -> str:
     return ""
 
 
+@workflow("wf-sync-hf-costs", phase="sync")
 def sync_costs(
     catalog: str,
     cards_dir: Path,
+    *,
+    ctx: object = None,
 ) -> int:
     """Main sync logic. Returns number of records synced."""
-    if not _ID_PATTERN.match(catalog):
+    if not IDENTIFIER_RE.match(catalog):
         msg = f"Invalid catalog name: {catalog}"
         raise ValueError(msg)
 
@@ -220,7 +223,7 @@ def sync_costs(
     from pyspark.sql import SparkSession
 
     spark = SparkSession.builder.getOrCreate()
-    target_table = f"{catalog}.observability.workflow_cost_live"
+    target_table = f"{catalog}.{DEFAULT_OBSERVABILITY_SCHEMA}.{COST_TABLE_NAME}"
     source_df = spark.createDataFrame(rows)
 
     from delta.tables import DeltaTable
@@ -238,7 +241,15 @@ def sync_costs(
 
 
 def main() -> None:
-    """CLI entry point."""
+    """CLI entry point.
+
+    Note: bootstrap_hooks is intentionally omitted here. This module writes
+    directly to ``workflow_cost_live`` — the same table that CostEstimateHook
+    targets. Adding the hook would create a circular write (the cost bridge
+    recording its own cost to the cost table it just merged into).
+    The ``@workflow`` decorator on ``sync_costs`` still provides registry
+    tracking without the cost hook.
+    """
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s — %(message)s",

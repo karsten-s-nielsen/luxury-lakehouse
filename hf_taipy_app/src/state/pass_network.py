@@ -10,9 +10,8 @@ from typing import Any
 
 import pandas as pd
 import plotly.graph_objects as go
-from cache import ttl_cache
-from db import execute_query, t
 from filters import fetch_data_freshness, fetch_scope_label
+from queries.passes import fetch_network_passes
 from render import fmt_int
 
 from state.shared import get_comp_id, get_match_id, get_team_id, register_page_refresher
@@ -43,31 +42,6 @@ __all__ = [
     "pn_unique_connections",
     "pn_warning_text",
 ]
-
-
-# ---------------------------------------------------------------------------
-# Data fetching
-# ---------------------------------------------------------------------------
-
-
-@ttl_cache()
-def _fetch_passes(comp_id: int, team_id: int, match_id: int) -> pd.DataFrame:
-    """Fetch completed passes with passer/receiver names for network construction."""
-    passes_tbl = t("fct_passes_synced")
-    players_tbl = t("dim_players_synced")
-    return execute_query(
-        f"SELECT p.player_id, p.pass_recipient_id, "  # noqa: S608
-        f"  p.start_x, p.start_y, p.end_x, p.end_y, p.is_complete, "
-        f"  passer.player_display_name AS passer_name, "
-        f"  receiver.player_display_name AS receiver_name "
-        f"FROM {passes_tbl} p "
-        f"JOIN {players_tbl} passer ON p.player_id = passer.player_id "
-        f"LEFT JOIN {players_tbl} receiver ON p.pass_recipient_id = receiver.player_id "
-        f"WHERE p.competition_id = %s AND p.team_id = %s AND p.match_id = %s "
-        f"  AND p.is_complete = true AND p.pass_recipient_id IS NOT NULL "
-        f"ORDER BY p.minute, p.second LIMIT 2000",
-        (comp_id, team_id, match_id),
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -244,7 +218,7 @@ def pn_refresh(state: Any) -> None:
     state.pn_scope_label = fetch_scope_label(comp_id, team_id)
 
     try:
-        passes = _fetch_passes(comp_id, team_id, match_id)
+        passes = fetch_network_passes(comp_id, team_id, match_id)
     except Exception:
         logger.exception("Failed to fetch pass network data")
         state.pn_total_passes = "Error"

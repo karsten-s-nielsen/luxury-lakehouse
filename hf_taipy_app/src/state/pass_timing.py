@@ -16,9 +16,13 @@ from typing import Any
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from cache import ttl_cache
-from db import execute_query, t
 from filters import fetch_data_freshness, fetch_pausa_matches, fetch_pausa_players, fetch_pausa_teams
+from queries.passes import (
+    fetch_pass_timing_rankings,
+    fetch_pausa_aggregate_rankings,
+    fetch_pausa_passes,
+    fetch_pausa_summary,
+)
 
 from state.shared import register_page_refresher
 
@@ -131,99 +135,6 @@ def _get_pt_player_id(label: str | None) -> str | None:
     if not label or label == "All players":
         return None
     return _pt_player_map.get(label)  # type: ignore[arg-type]
-
-
-# ---------------------------------------------------------------------------
-# Data fetching
-# ---------------------------------------------------------------------------
-
-
-@ttl_cache()
-def _fetch_pausa_summary(match_id: str, team: str | None, player_id: str | None) -> pd.DataFrame:
-    """Load aggregate PAUSA metrics for current filter selection."""
-    pausa_tbl = t("fct_pausa_values_synced")
-    conditions = ["match_id = %s"]
-    params: list[Any] = [match_id]
-
-    if team:
-        conditions.append("team = %s")
-        params.append(team)
-    if player_id:
-        conditions.append("player_id = %s")
-        params.append(player_id)
-
-    where = " AND ".join(conditions)
-    return execute_query(
-        f"SELECT "  # noqa: S608
-        f"  AVG(pausa_score) AS avg_pausa, "
-        f"  AVG(temporal_judgment) AS avg_temporal, "
-        f"  AVG(spatial_selection) AS avg_spatial, "
-        f"  COUNT(*) AS pass_count "
-        f"FROM {pausa_tbl} WHERE {where}",
-        tuple(params),
-    )
-
-
-@ttl_cache()
-def _fetch_pausa_passes(match_id: str, team: str | None, player_id: str | None) -> pd.DataFrame:
-    """Load individual pass PAUSA scores for scatter/heatmap (bounded)."""
-    pausa_tbl = t("fct_pausa_values_synced")
-    dim_tbl = t("dim_players_synced")
-    conditions = ["pv.match_id = %s"]
-    params: list[Any] = [match_id]
-
-    if team:
-        conditions.append("pv.team = %s")
-        params.append(team)
-    if player_id:
-        conditions.append("pv.player_id = %s")
-        params.append(player_id)
-
-    where = " AND ".join(conditions)
-    return execute_query(
-        f"SELECT pv.pass_id, pv.player_id, dp.player_display_name, pv.team, "  # noqa: S608
-        f"  pv.temporal_judgment, pv.spatial_selection, pv.pausa_score, "
-        f"  pv.actual_obso, pv.peak_obso, pv.optimal_obso, "
-        f"  pv.receiver_x, pv.receiver_y "
-        f"FROM {pausa_tbl} pv "
-        f"LEFT JOIN {dim_tbl} dp ON pv.player_id::text = dp.player_id::text "
-        f"WHERE {where} "
-        f"LIMIT 2000",
-        tuple(params),
-    )
-
-
-@ttl_cache()
-def _fetch_rankings() -> pd.DataFrame:
-    """Load fct_pass_timing rankings (bounded)."""
-    timing_tbl = t("fct_pass_timing_synced")
-    match_tbl = t("fct_match_summary_synced")
-    return execute_query(
-        f"SELECT COALESCE(pt.player_display_name, pt.player_id) AS player_display_name, "  # noqa: S608
-        f"  COALESCE(ms.match_date || ' \u2014 ' || ms.home_team_name || ' v ' || ms.away_team_name, "
-        f"    'Match ' || pt.match_id) AS match_label, "
-        f"  pt.pass_count, "
-        f"  pt.avg_pausa, pt.avg_temporal_judgment, pt.avg_spatial_selection, "
-        f"  pt.median_pausa, pt.passes_above_median_pausa "
-        f"FROM {timing_tbl} pt "
-        f"LEFT JOIN {match_tbl} ms ON pt.match_id::text = ms.match_id::text "
-        f"ORDER BY pt.avg_pausa DESC "
-        f"LIMIT 500",
-    )
-
-
-@ttl_cache(ttl=600)
-def _fetch_aggregate_rankings() -> pd.DataFrame:
-    """Load fct_pausa_rankings (player-level aggregate, bounded)."""
-    rankings_tbl = t("fct_pausa_rankings_synced")
-    return execute_query(
-        f"SELECT player_display_name, total_matches, total_passes, "  # noqa: S608
-        f"  passes_with_value, avg_pausa, avg_temporal_judgment, "
-        f"  avg_spatial_selection, median_pausa, total_minutes "
-        f"FROM {rankings_tbl} "
-        f"ORDER BY avg_pausa DESC "
-        f"LIMIT 500",
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -421,7 +332,7 @@ def _refresh_data(state: Any) -> None:
 
     try:
         # Summary metrics
-        summary_df = _fetch_pausa_summary(match_id, team, player_id)
+        summary_df = fetch_pausa_summary(match_id, team, player_id)
         if summary_df.empty or summary_df.iloc[0]["avg_pausa"] is None:
             _clear_data(state)
             state.pt_warning_text = (
@@ -436,7 +347,7 @@ def _refresh_data(state: Any) -> None:
         state.pt_pass_count = str(int(row["pass_count"]))
 
         # Individual pass data for charts
-        passes_df = _fetch_pausa_passes(match_id, team, player_id)
+        passes_df = fetch_pausa_passes(match_id, team, player_id)
         if passes_df.empty:
             state.pt_scatter_figure = None
             state.pt_heatmap_figure = None
@@ -445,7 +356,7 @@ def _refresh_data(state: Any) -> None:
             state.pt_heatmap_figure = _build_heatmap_figure(passes_df)
 
         # Rankings (per-match) with activity filter
-        rankings_df = _fetch_rankings()
+        rankings_df = fetch_pass_timing_rankings()
         if not rankings_df.empty:
             rankings_df = rankings_df[rankings_df["pass_count"] >= state.pt_per_match_min_passes].reset_index(drop=True)
         if rankings_df.empty:
@@ -484,7 +395,7 @@ def _refresh_data(state: Any) -> None:
             state.pt_show_dfl_caption = rankings_df["player_display_name"].str.startswith("DFL-OBJ-").any()
 
         # Aggregate rankings with activity filter
-        agg_df = _fetch_aggregate_rankings()
+        agg_df = fetch_pausa_aggregate_rankings()
         if not agg_df.empty:
             mask = agg_df["passes_with_value"] >= state.pt_min_passes_with_value
             if state.pt_min_minutes > 0:

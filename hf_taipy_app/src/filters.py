@@ -7,7 +7,6 @@ No raw IDs ever reach the user. SQL uses parameterized %s placeholders.
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any
 
 from cache import ttl_cache
@@ -23,7 +22,6 @@ _ALLOWED_EMBEDDING_TABLES = frozenset(
     }
 )
 _ALLOWED_COUNT_COLUMNS = frozenset({"total_matches", "matches_in_sample"})
-_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 
 def _validate_column(col: str, allowlist: frozenset[str], label: str) -> str:
@@ -41,11 +39,23 @@ def _validate_column(col: str, allowlist: frozenset[str], label: str) -> str:
 
 @ttl_cache()
 def fetch_competitions() -> list[tuple[str, int]]:
-    """Competitions with human-readable 'country — name' labels."""
+    """Competitions with human-readable 'country -- name' labels.
+
+    Uses recursive CTE loose index scan to avoid SELECT DISTINCT sequential scan.
+    """
     tbl = t("dim_competitions_synced")
     df = execute_query(
-        f"SELECT DISTINCT competition_id, competition_name, country "  # noqa: S608
-        f"FROM {tbl} ORDER BY country, competition_name LIMIT 50",
+        f"WITH RECURSIVE dc AS ("  # noqa: S608
+        f"  SELECT MIN(competition_id) AS competition_id FROM {tbl}"
+        f"  UNION ALL"
+        f"  SELECT (SELECT MIN(competition_id) FROM {tbl}"
+        f"          WHERE competition_id > dc.competition_id)"
+        f"  FROM dc WHERE dc.competition_id IS NOT NULL"
+        f") SELECT dc.competition_id, c.competition_name, c.country "
+        f"FROM dc "
+        f"JOIN {tbl} c ON dc.competition_id = c.competition_id "
+        f"WHERE dc.competition_id IS NOT NULL "
+        f"ORDER BY c.country, c.competition_name LIMIT 50",
     )
     if df.empty:
         return []
@@ -60,9 +70,13 @@ def fetch_competitions() -> list[tuple[str, int]]:
 
 @ttl_cache()
 def fetch_teams(competition_id: int) -> list[tuple[str, int]]:
-    """Teams that appear in matches for this competition."""
+    """Teams that appear in matches for this competition.
+
+    UNION (not UNION ALL) already deduplicates team_ids, and dim_teams has
+    unique team_id, so no DISTINCT needed on the outer query.
+    """
     df = execute_query(
-        f"SELECT DISTINCT t.team_id, t.team_name "  # noqa: S608
+        f"SELECT t.team_id, t.team_name "  # noqa: S608
         f"FROM {t('dim_teams_synced')} t "
         f"WHERE t.team_id IN ("
         f"  SELECT m.home_team_id FROM {t('fct_match_summary_synced')} m WHERE m.competition_id = %s "
@@ -129,11 +143,15 @@ def fetch_players(competition_id: int, team_id: int | None) -> list[tuple[str, i
         )
         params.extend([int(team_id), int(team_id)])
     where = " AND ".join(conditions)
+    stats_tbl = t("fct_player_stats_synced")
+    players_tbl = t("dim_players_synced")
+    # Group by player_id instead of DISTINCT to leverage index scan
     df = execute_query(
-        f"SELECT DISTINCT ps.player_id, p.player_display_name "  # noqa: S608
-        f"FROM {t('fct_player_stats_synced')} ps "
-        f"JOIN {t('dim_players_synced')} p ON ps.player_id = p.player_id "
+        f"SELECT ps.player_id, p.player_display_name "  # noqa: S608
+        f"FROM {stats_tbl} ps "
+        f"JOIN {players_tbl} p ON ps.player_id = p.player_id "
         f"WHERE {where} "
+        f"GROUP BY ps.player_id, p.player_display_name "
         f"ORDER BY p.player_display_name LIMIT 500",
         tuple(params),
     )
@@ -219,16 +237,20 @@ def fetch_defcon_competitions() -> list[tuple[str, int]]:
 
 @ttl_cache()
 def fetch_defcon_teams(competition_id: int) -> list[tuple[str, int]]:
-    """Teams with DEFCON pressure data in this competition."""
+    """Teams with DEFCON pressure data in this competition.
+
+    Uses GROUP BY instead of SELECT DISTINCT to leverage index-based grouping.
+    """
     defcon_tbl = t("fct_defcon_pressure_synced")
     match_tbl = t("fct_match_summary_synced")
     teams_tbl = t("dim_teams_synced")
     df = execute_query(
-        f"SELECT DISTINCT t.team_id, t.team_name "  # noqa: S608
+        f"SELECT t.team_id, t.team_name "  # noqa: S608
         f"FROM {defcon_tbl} dp "
         f"JOIN {match_tbl} ms ON dp.match_id::text = ms.match_id::text "
         f"JOIN {teams_tbl} t ON ms.home_team_id = t.team_id OR ms.away_team_id = t.team_id "
         f"WHERE dp.competition_id = %s "
+        f"GROUP BY t.team_id, t.team_name "
         f"ORDER BY t.team_name",
         (int(competition_id),),
     )

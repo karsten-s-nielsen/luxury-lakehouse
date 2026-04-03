@@ -260,13 +260,32 @@ class Football2VecModel:
 
     Note: Inherits from mlflow.pyfunc.PythonModel at runtime on Databricks.
     Locally, the class stands alone for testability without mlflow installed.
+
+    Can be constructed in two ways:
+
+    1. **Direct (testing / non-MLflow):** Pass pre-loaded model and config::
+
+           wrapper = Football2VecModel(model=trained_model, tokenizer_config=cfg)
+
+    2. **MLflow runtime:** Construct empty, then ``load_context()`` reads from disk::
+
+           wrapper = Football2VecModel()  # MLflow calls load_context() after
     """
 
-    model: Doc2Vec
-    tokenizer_config: TokenizerConfig
+    def __init__(
+        self,
+        model: Doc2Vec | None = None,
+        tokenizer_config: TokenizerConfig | None = None,
+    ) -> None:
+        self.model: Doc2Vec = model  # type: ignore[assignment]
+        self.tokenizer_config: TokenizerConfig = tokenizer_config or TokenizerConfig()
 
     def load_context(self, context: Any) -> None:
         """Load model artifacts from MLflow context.
+
+        Reads gensim Doc2Vec files and tokenizer config JSON from the
+        artifact directory. This method is called by MLflow after construction;
+        it is not needed when the model is passed directly to ``__init__``.
 
         Args:
             context: MLflow PythonModelContext with artifacts dict.

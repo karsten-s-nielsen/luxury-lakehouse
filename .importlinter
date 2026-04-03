@@ -1,0 +1,35 @@
+[importlinter]
+root_packages =
+    analytics
+    ingestion
+    shared
+    workflows
+
+[importlinter:contract:analytics-isolation]
+name = analytics must not import ingestion or workflows
+type = forbidden
+source_modules =
+    analytics
+forbidden_modules =
+    ingestion
+    workflows
+
+[importlinter:contract:workflows-isolation]
+name = workflows must not import ingestion or analytics
+type = forbidden
+source_modules =
+    workflows
+forbidden_modules =
+    ingestion
+    analytics
+    shared
+
+[importlinter:contract:shared-isolation]
+name = shared must not import ingestion, analytics, or workflows
+type = forbidden
+source_modules =
+    shared
+forbidden_modules =
+    ingestion
+    analytics
+    workflows

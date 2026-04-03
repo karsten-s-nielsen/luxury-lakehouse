@@ -39,6 +39,7 @@ from ingestion.utils import (
     validate_dataframe,
     write_delta_table,
 )
+from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -356,11 +357,29 @@ def ingest_idsse(
         gc.collect()
 
 
+@workflow("wf-idsse", phase="ingestion")
+def run_pipeline(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    logger: logging.Logger,
+    *,
+    ctx: object = None,
+) -> None:
+    """Ingest IDSSE tracking and event data into the bronze layer."""
+    ingest_idsse(spark, catalog, schema, logger)
+    ingest_idsse_events(spark, catalog, schema, logger)
+
+
 def main() -> None:
     """CLI entry point for IDSSE tracking data ingestion."""
     args = parse_ingestion_args("Ingest IDSSE Bundesliga tracking data into the bronze layer")
     logger = configure_logging("idsse")
     spark = get_spark_session()
+
+    from ingestion.bootstrap import bootstrap_hooks
+
+    bootstrap_hooks(spark, args.catalog, args.schema)
 
     logger.info("Starting IDSSE ingestion into %s.%s", args.catalog, args.schema)
     ingest_idsse(spark, args.catalog, args.schema, logger)
@@ -661,6 +680,10 @@ def main_events() -> None:
     args = parse_ingestion_args("Ingest IDSSE Bundesliga event data into the bronze layer")
     logger = configure_logging("idsse_events")
     spark = get_spark_session()
+
+    from ingestion.bootstrap import bootstrap_hooks
+
+    bootstrap_hooks(spark, args.catalog, args.schema)
 
     logger.info("Starting IDSSE event ingestion into %s.%s", args.catalog, args.schema)
     ingest_idsse_events(spark, args.catalog, args.schema, logger)

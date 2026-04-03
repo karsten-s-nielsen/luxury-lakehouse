@@ -1,0 +1,76 @@
+---
+name: Import OBSO Results from UC Volume
+id: wf-import-obso
+version: "1.0.0"
+status: production
+type: data-movement
+domain: soccer-analytics
+owners:
+  - karsten
+tags:
+  - import
+  - obso
+  - pausa
+  - off-ball
+
+references:
+  - citation: "Spearman (2018). Beyond Expected Goals. MIT Sloan."
+    role: methodology
+  - citation: "Lee, Jo, Hong, Bauer & Ko (2026). Valuing La Pausa. MIT Sloan 2026."
+    role: methodology
+
+inputs:
+  datasets:
+    - id: "OBSO Parquet files on UC Volume"
+      source: uc-volume
+      description: "PAUSA raw scores and OBSO surfaces from HF Jobs compute"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.pausa_raw_scores"
+      destination: delta-table
+    - id: "{catalog}.bronze.obso_surfaces"
+      destination: delta-table
+
+execution:
+  inference:
+    trigger: manual
+    runtime: databricks-workflow
+    entry_point: import_obso_results
+    module: ingestion.import_obso_results
+    distribution: driver-bound
+    timeout: "600s"
+    environment: analytics
+
+depends_on:
+  - wf-obso-pausa
+
+idempotency:
+  strategy: upsert
+  key: match_id
+  description: "replaceWhere on match_id for idempotent partition-level writes."
+
+performance:
+  inference_timeout: "600s"
+  memory_ceiling: "16 GB driver"
+
+cost:
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 10
+    typical_cost_usd: 0.7
+
+monitoring:
+  freshness_sla_hours: 168
+
+links:
+  source_code:
+    - "src/ingestion/import_obso_results.py"
+---
+
+## Overview
+
+Reads OBSO/PAUSA Parquet results from a UC Volume staging path and writes them to
+bronze Delta tables. Imports both PAUSA raw scores and optional OBSO surfaces with
+replaceWhere partitioning on match_id for idempotent writes.

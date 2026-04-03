@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
+from shared.constants import COST_TABLE_NAME, DEFAULT_OBSERVABILITY_SCHEMA, IDENTIFIER_RE
 from workflows.context import WorkflowContext
 
 if TYPE_CHECKING:
@@ -28,9 +28,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 DATABRICKS_SERVERLESS_RATE: float = float(os.environ.get("DATABRICKS_SERVERLESS_RATE_USD", "0.07"))
-
-# SQL identifier validation — same pattern as src/ingestion/utils.py:24
-_IDENTIFIER_RE: re.Pattern[str] = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 
 class CostEstimateHook:
@@ -59,15 +56,15 @@ class CostEstimateHook:
         schema: str,
         rate_usd_per_hour: float = DATABRICKS_SERVERLESS_RATE,
         runtime: str = "databricks",
-        cost_schema: str = "observability",
+        cost_schema: str = DEFAULT_OBSERVABILITY_SCHEMA,
     ) -> None:
         for name, value in [("catalog", catalog), ("schema", schema), ("cost_schema", cost_schema)]:
-            if not _IDENTIFIER_RE.match(value):
-                msg = f"Invalid {name} name {value!r}: must match {_IDENTIFIER_RE.pattern}"
+            if not IDENTIFIER_RE.match(value):
+                msg = f"Invalid {name} name {value!r}: must match {IDENTIFIER_RE.pattern}"
                 raise ValueError(msg)
 
         self._spark = spark
-        self._table = f"{catalog}.{cost_schema}.workflow_cost_live"
+        self._table = f"{catalog}.{cost_schema}.{COST_TABLE_NAME}"
         self._rate_usd_per_hour = rate_usd_per_hour
         self._runtime = runtime
 

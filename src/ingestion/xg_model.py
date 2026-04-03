@@ -13,6 +13,7 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from shared.constants import DEFAULT_GOLD_SCHEMA, mlflow_model_uri
 from workflows import workflow
 
 if TYPE_CHECKING:
@@ -78,6 +79,8 @@ def _make_scoring_udf(
 
 def _try_load_champion_xg(
     log: logging.Logger,
+    catalog: str,
+    schema: str,
 ) -> tuple[bytes, bytes] | None:
     """Try to load xG models from MLflow @Champion alias.
 
@@ -91,7 +94,7 @@ def _try_load_champion_xg(
         log.info("mlflow not available — will load xG models from UC Volume")
         return None
 
-    model_name = "soccer_analytics.dev_gold.xg_model"
+    model_name = mlflow_model_uri(catalog, schema, "xg_model")
     try:
         model_uri = f"models:/{model_name}@Champion"
         log.info("Loading xG @Champion from %s", model_uri)
@@ -171,7 +174,7 @@ def run_pipeline(
     shots_filtered = shots_df.filter(filter_expr)
 
     # 3. Load v1 models from MLflow @Champion (preferred) or UC Volume (fallback)
-    champion_result = _try_load_champion_xg(logger)
+    champion_result = _try_load_champion_xg(logger, catalog, DEFAULT_GOLD_SCHEMA)
     if champion_result is not None:
         logistic_bytes, xgboost_bytes = champion_result
     else:
@@ -224,10 +227,9 @@ def main() -> None:
     logger = configure_logging("xg_model")
     spark = get_spark_session()
 
-    from ingestion.cost_hook import CostEstimateHook
-    from workflows import register_hook
+    from ingestion.bootstrap import bootstrap_hooks
 
-    register_hook(CostEstimateHook(spark, args.catalog, args.schema))
+    bootstrap_hooks(spark, args.catalog, args.schema)
 
     logger.info("Starting xG scoring pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger)

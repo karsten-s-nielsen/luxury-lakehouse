@@ -10,12 +10,14 @@ import textwrap
 import pandas as pd
 import pytest
 
-from ingestion.metrica import (
-    _build_player_columns,
+from ingestion.metrica_common import (
     _EPTSMetadata,
     _parse_epts_events,
     _parse_epts_metadata,
     _parse_epts_tracking,
+)
+from ingestion.metrica_tracking import (
+    _build_player_columns,
     _parse_tracking_header,
     _reshape_tracking_to_narrow,
 )

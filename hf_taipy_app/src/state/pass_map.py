@@ -12,10 +12,9 @@ from typing import Any
 import matplotlib
 import matplotlib.patches as mpatches
 import pandas as pd
-from cache import ttl_cache
-from db import execute_query, t
 from filters import fetch_data_freshness, fetch_scope_label
 from mplsoccer import Pitch
+from queries.passes import fetch_passes
 from render import (
     PITCH_BG_COLOR,
     PITCH_LINE_COLOR,
@@ -67,25 +66,6 @@ __all__ = [
     "pm_total",
     "pm_warning_text",
 ]
-
-
-# ---------------------------------------------------------------------------
-# Data fetching
-# ---------------------------------------------------------------------------
-
-
-@ttl_cache()
-def _fetch_passes(comp_id: int, team_id: int, match_id: int) -> pd.DataFrame:
-    """Fetch passes for a specific team in a specific match."""
-    tbl = t("fct_passes_synced")
-    return execute_query(
-        f"SELECT start_x, start_y, end_x, end_y, is_complete, is_progressive, "  # noqa: S608
-        f"  is_line_breaking, minute, second "
-        f"FROM {tbl} "
-        f"WHERE competition_id = %s AND team_id = %s AND match_id = %s "
-        f"ORDER BY minute, second LIMIT 2000",
-        (int(comp_id), int(team_id), int(match_id)),
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +248,7 @@ def pm_refresh(state: Any) -> None:
     state.pm_scope_label = fetch_scope_label(comp_id, team_id)
 
     try:
-        passes = _fetch_passes(comp_id, team_id, match_id)
+        passes = fetch_passes(comp_id, team_id, match_id)
         _cached_passes = passes
     except Exception:
         logger.exception("Failed to fetch passes for comp=%d team=%d match=%d", comp_id, team_id, match_id)

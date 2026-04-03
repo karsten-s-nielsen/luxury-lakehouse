@@ -152,9 +152,9 @@ def test_bench_wf_refresh(benchmark: Any, mock_cards: dict[str, dict[str, Any]])
         state = _MockState()
 
         with (
-            patch.object(wf_mod, "_load_cards_from_yaml", return_value=mock_cards),
-            patch.object(wf_mod, "_fetch_cold_costs", return_value=cold),
-            patch.object(wf_mod, "_fetch_warm_costs", return_value=warm),
+            patch.object(wf_mod, "load_cards_from_yaml", return_value=mock_cards),
+            patch.object(wf_mod, "fetch_cold_costs", return_value=cold),
+            patch.object(wf_mod, "fetch_warm_costs", return_value=warm),
             patch.object(wf_mod, "_fetch_job_runs", return_value=jobs),
         ):
             wf_mod.wf_refresh(state)
@@ -175,7 +175,7 @@ def test_bench_wf_filter_change(benchmark: Any, mock_cards: dict[str, dict[str, 
 
     # Pre-populate module state (simulates page already loaded)
     wf_mod._cards = mock_cards
-    wf_mod._unfiltered_dag_html = wf_mod._build_dag_html(mock_cards)
+    wf_mod._unfiltered_dag_html = wf_mod.build_dag_html(mock_cards)
 
     def run_filter() -> None:
         state = _MockState()
@@ -184,8 +184,8 @@ def test_bench_wf_filter_change(benchmark: Any, mock_cards: dict[str, dict[str, 
         state.wf_freshness_filter = "All"
 
         with (
-            patch.object(wf_mod, "_fetch_cold_costs", return_value=cold),
-            patch.object(wf_mod, "_fetch_warm_costs", return_value=warm),
+            patch.object(wf_mod, "fetch_cold_costs", return_value=cold),
+            patch.object(wf_mod, "fetch_warm_costs", return_value=warm),
             patch.object(wf_mod, "_fetch_job_runs", return_value=jobs),
         ):
             wf_mod._refresh_table(state)
