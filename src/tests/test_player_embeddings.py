@@ -63,13 +63,33 @@ class TestStatVectorFeatures:
         assert set(STAT_FEATURES_BY_GROUP.keys()) == {"Goalkeeper", "Defender", "Midfielder", "Forward"}
 
     def test_goalkeeper_features(self) -> None:
-        expected_gk = {"save_pct", "gk_xt_per_pass", "launch_rate", "claim_success_rate"}
+        expected_gk = {
+            "save_pct",
+            "gk_xt_per_pass",
+            "launch_rate",
+            "claim_success_rate",
+            "goals_prevented_per_90",
+            "psxg_per_shot_faced",
+            "avg_defensive_action_distance",
+            "actions_outside_box_per_90",
+            "clean_sheet_pct",
+            "saves_per_90",
+            "distribution_passes_per_90",
+            "gk_xt_delta_total_per_90",
+            "punches_per_90",
+        }
         assert set(STAT_FEATURES_BY_GROUP["Goalkeeper"]) == expected_gk
 
     def test_outfield_groups_share_features(self) -> None:
         """Defender, Midfielder, Forward currently share the same feature set."""
         assert STAT_FEATURES_BY_GROUP["Defender"] == STAT_FEATURES_BY_GROUP["Midfielder"]
         assert STAT_FEATURES_BY_GROUP["Defender"] == STAT_FEATURES_BY_GROUP["Forward"]
+
+    def test_goalkeeper_stat_features_has_13_dimensions(self) -> None:
+        """GK stat vector must match outfield dimensionality for pgvector index compatibility."""
+        gk_features = STAT_FEATURES_BY_GROUP["Goalkeeper"]
+        outfield_features = STAT_FEATURES_BY_GROUP["Defender"]
+        assert len(gk_features) == len(outfield_features) == 13
 
     def test_no_duplicates_per_group(self) -> None:
         for group, features in STAT_FEATURES_BY_GROUP.items():
@@ -607,18 +627,16 @@ class TestComputeStatVectors:
         # Outfield vectors have 13 features
         assert len(result.iloc[0]["stat_vector"]) == 13
 
-    def test_goalkeeper_stat_vector_length_is_4(self) -> None:
-        """Goalkeeper stat vectors have 4 features (save_pct, gk_xt_per_pass, launch_rate, claim_success_rate)."""
+    def test_goalkeeper_stat_vector_length_is_13(self) -> None:
+        """Goalkeeper stat vectors have 13 features matching outfield dimensionality."""
+        gk_features = STAT_FEATURES_BY_GROUP["Goalkeeper"]
         gk_pdf = pd.DataFrame(
             {
                 "canonical_player_id": ["gk1"],
                 "competition_id": ["c1"],
                 "season_id": ["s1"],
                 "position_group": ["Goalkeeper"],
-                "save_pct": [75.0],
-                "gk_xt_per_pass": [0.02],
-                "launch_rate": [30.0],
-                "claim_success_rate": [85.0],
+                **{f: [1.0] for f in gk_features},
             }
         )
         mock_spark = self._make_mock_spark(gk_pdf=gk_pdf)
@@ -626,7 +644,7 @@ class TestComputeStatVectors:
         result, params = _compute_stat_vectors(mock_spark, "cat", "dev_gold")
         assert len(result) >= 1
         gk_row = result.iloc[0]
-        assert len(gk_row["stat_vector"]) == 4
+        assert len(gk_row["stat_vector"]) == 13
         assert "Goalkeeper" in params
 
     def test_null_defcon_features_preserved(self) -> None:
@@ -670,10 +688,7 @@ class TestComputeStatVectors:
                 "competition_id": ["c1"],
                 "season_id": ["s1"],
                 "position_group": ["Goalkeeper"],
-                "save_pct": [75.0],
-                "gk_xt_per_pass": [0.02],
-                "launch_rate": [30.0],
-                "claim_success_rate": [85.0],
+                **{f: [1.0] for f in STAT_FEATURES_BY_GROUP["Goalkeeper"]},
             }
         )
         mock_spark = MagicMock()

@@ -14,9 +14,9 @@
 -- Zone index: x = least(cast(x / (105.0 / 12) as int), 11)
 --             y = least(cast(y / (68.0 / 8) as int), 7)
 --
--- D39 columns (psxg_faced, goals_conceded, goals_prevented,
--- avg_defensive_action_distance, actions_outside_box_per_90)
--- are initially NULL — populated after PSxG prediction import.
+-- D39 columns: psxg_faced, goals_conceded, goals_prevented from
+-- stg_psxg__predictions; avg_defensive_action_distance, actions_outside_box_per_90
+-- computed from defensive actions in gk_actions.
 
 {% if var('goalkeeper_enabled', false) %}
 
@@ -34,6 +34,7 @@ gk_actions as (
     select
         av.match_id,
         av.player_id,
+        av.team_id,
         av.competition_id,
         av.season_id,
         av.action_type,
@@ -253,10 +254,78 @@ gk_matches as (
     select
         player_id,
         match_id,
+        min(team_id)        as team_id,
         min(competition_id) as competition_id,
         min(season_id)      as season_id
     from gk_actions
     group by player_id, match_id
+
+),
+
+-- Sweeper-keeper stats: defensive actions outside the penalty area.
+-- SPADL coordinates: own goal at x=0, opponent goal at x=105.
+-- Penalty area extends 16.5m from the goal line.
+-- Defensive action types match src/analytics/goalkeeper.py.
+sweeper_stats as (
+
+    select
+        ga.player_id,
+        ga.match_id,
+        avg(ga.start_x)                                                  as avg_defensive_action_distance,
+        case
+            when max(m.minutes_played) > 0
+            then cast(
+                     sum(case when ga.start_x > 16.5 then 1 else 0 end)
+                     * (90.0 / max(m.minutes_played))
+                 as double)
+            else cast(0 as double)
+        end                                                               as actions_outside_box_per_90
+
+    from gk_actions ga
+    inner join minutes m
+        on ga.player_id = m.player_id
+        and ga.match_id = m.match_id
+    where ga.action_type in (
+        'tackle', 'interception', 'clearance', 'block',
+        'keeper_save', 'keeper_claim', 'keeper_punch', 'keeper_pick_up'
+    )
+    group by ga.player_id, ga.match_id
+
+),
+
+-- PSxG aggregation: shots faced by the GK's team, joined with PSxG predictions.
+-- stg_psxg__predictions.event_id is fct_shots.shot_id (MD5 surrogate key,
+-- aliased as event_id by export_shots_on_target.py line 103).
+-- stg_psxg__predictions.player_id is the SHOOTER — match via same match_id
+-- where the shooter's team != the GK's team.
+psxg_shots as (
+
+    select
+        psxg.event_id,
+        psxg.match_id,
+        psxg.psxg,
+        shots.team_id    as shooter_team_id,
+        shots.shot_outcome
+    from {{ ref('stg_psxg__predictions') }} psxg
+    inner join {{ ref('fct_shots') }} shots
+        on shots.shot_id = psxg.event_id
+        and cast(shots.match_id as string) = psxg.match_id
+
+),
+
+psxg_agg as (
+
+    select
+        gm.player_id,
+        gm.match_id,
+        sum(ps.psxg)                                                      as psxg_faced,
+        cast(sum(case when ps.shot_outcome = 'Goal' then 1 else 0 end)
+            as int)                                                       as goals_conceded
+    from gk_matches gm
+    inner join psxg_shots ps
+        on cast(gm.match_id as string) = ps.match_id
+        and cast(gm.team_id as int) != cast(ps.shooter_team_id as int)
+    group by gm.player_id, gm.match_id
 
 ),
 
@@ -295,12 +364,14 @@ final as (
         end                                                             as launch_rate,
         coalesce(ss.keeper_pick_ups, 0)                                 as keeper_pick_ups,
 
-        -- D39 stubs (populated after PSxG prediction import)
-        cast(null as double)                                            as psxg_faced,
-        cast(null as int)                                               as goals_conceded,
-        cast(null as double)                                            as goals_prevented,
-        cast(null as double)                                            as avg_defensive_action_distance,
-        cast(null as double)                                            as actions_outside_box_per_90
+        -- D39: PSxG shot-stopping metrics
+        pa.psxg_faced,
+        pa.goals_conceded,
+        pa.psxg_faced - pa.goals_conceded                              as goals_prevented,
+
+        -- D39: Sweeper-keeper positioning metrics
+        sw.avg_defensive_action_distance,
+        sw.actions_outside_box_per_90
 
     from gk_matches gm
     left join minutes m
@@ -315,6 +386,12 @@ final as (
     left join pass_stats ps
         on gm.player_id = ps.player_id
         and gm.match_id = ps.match_id
+    left join sweeper_stats sw
+        on gm.player_id = sw.player_id
+        and gm.match_id = sw.match_id
+    left join psxg_agg pa
+        on gm.player_id = pa.player_id
+        and gm.match_id = pa.match_id
 
 )
 
@@ -341,7 +418,7 @@ select
     cast(null as double)    as launch_rate,
     cast(null as bigint)    as keeper_pick_ups,
     cast(null as double)    as psxg_faced,
-    cast(null as bigint)    as goals_conceded,
+    cast(null as int)       as goals_conceded,
     cast(null as double)    as goals_prevented,
     cast(null as double)    as avg_defensive_action_distance,
     cast(null as double)    as actions_outside_box_per_90
