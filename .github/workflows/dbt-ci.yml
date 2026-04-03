@@ -45,9 +45,9 @@ jobs:
                 type: databricks
                 catalog: soccer_analytics
                 schema: ci
-                host: "ci-placeholder.cloud.databricks.com"
-                http_path: "/sql/1.0/warehouses/ci-placeholder"
-                token: "__CI_PLACEHOLDER__"
+                host: "${{ secrets.DATABRICKS_HOST }}"
+                http_path: "${{ secrets.DATABRICKS_HTTP_PATH }}"
+                token: "${{ secrets.DATABRICKS_TOKEN }}"
                 threads: 1
           PROFILES
 
@@ -73,8 +73,13 @@ jobs:
           git checkout ${{ github.sha }} -- .
           git stash pop || true
 
-      # Schema-only validation of modified models (zero-cost DDL check)
+      # Schema-only validation of modified models (zero-cost DDL check).
+      # Requires Databricks warehouse connection — skipped when secrets are not
+      # available (forks, external contributors). The warehouse auto-stops after
+      # 10 min; this step may take up to 60s for auto-resume.
       - name: dbt build --empty (modified models, PR only)
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && env.HAS_SECRETS == 'true'  # pragma: allowlist secret
         working-directory: dbt_project
+        env:
+          HAS_SECRETS: ${{ secrets.DATABRICKS_TOKEN != '' }}  # pragma: allowlist secret
         run: uv run dbt build --empty --select state:modified+ --defer --state target-main --profiles-dir .
