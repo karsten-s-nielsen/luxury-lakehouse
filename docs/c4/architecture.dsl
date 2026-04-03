@@ -48,7 +48,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 34 AI/ML wor
         databricksApi = softwareSystem "Databricks REST API" "OAuth credential endpoint for Lakebase authentication" "External"
         databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 30 tasks (6 ingest, 14 compute, 5 HF export/import, 2 360 pipeline, 1 entity resolution, 1 validation, 1 cost sync), daily 06:00 UTC" "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds from Dockerfile, serves on port 7860" "External"
-        hfHub = softwareSystem "HuggingFace Hub" "Hosts 8 models (incl. football2vec-v2, football2vec-360, PSxG), 18 datasets (incl. training data, 360 embeddings), build-artifacts wheel, and _workflow_cost.json cost artifacts" "External"
+        hfHub = softwareSystem "HuggingFace Hub" "Hosts 7 models (incl. football2vec-v2, football2vec-360, PSxG), 18 datasets (incl. training data, ScoutGPT episodes, 360 embeddings), build-artifacts wheel, and _workflow_cost.json cost artifacts" "External"
         hfJobs = softwareSystem "HuggingFace Jobs" "GPU/CPU compute: 12 PEP 723 UV scripts for training (xG v1/v2, VAEP, PSxG, Football2vec v2/360), batch analytics (xT, EPV, OBSO, Space Creation), and dataset publishing (freeze frames, xG shots)" "External"
 
         # Relationships - users

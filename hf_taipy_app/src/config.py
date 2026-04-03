@@ -25,8 +25,11 @@ class AppSettings(BaseSettings):
     # Optional — Databricks credentials (validated at startup for early warning)
     # WorkspaceClient() does ambient lookup, but misconfiguration only surfaces
     # at first user query. These fields surface the problem at boot.
+    # Auth: set DATABRICKS_TOKEN (PAT) OR DATABRICKS_CLIENT_ID + DATABRICKS_CLIENT_SECRET (OAuth M2M).
     databricks_host: str | None = None
     databricks_token: str | None = None
+    databricks_client_id: str | None = None
+    databricks_client_secret: str | None = None
 
     # Defaults
     lakebase_database: str = "databricks_postgres"
@@ -61,6 +64,10 @@ def validate_databricks_credentials() -> None:
 
     Called once at startup. Does not crash — the app can still serve
     static content without Databricks connectivity.
+
+    Supports two auth methods (WorkspaceClient auto-detects):
+    - PAT: DATABRICKS_HOST + DATABRICKS_TOKEN
+    - OAuth M2M: DATABRICKS_HOST + DATABRICKS_CLIENT_ID + DATABRICKS_CLIENT_SECRET
     """
     settings = get_settings()
     if not settings.databricks_host:
@@ -68,8 +75,14 @@ def validate_databricks_credentials() -> None:
             "DATABRICKS_HOST is not set — Lakebase token refresh will rely on "
             "WorkspaceClient ambient auth. Misconfiguration will surface at first query."
         )
-    if not settings.databricks_token:
+    has_pat = bool(settings.databricks_token)
+    has_oauth = bool(settings.databricks_client_id and settings.databricks_client_secret)
+    if has_pat:
+        _logger.info("Databricks auth: PAT (DATABRICKS_TOKEN)")
+    elif has_oauth:
+        _logger.info("Databricks auth: OAuth M2M (DATABRICKS_CLIENT_ID)")
+    else:
         _logger.warning(
-            "DATABRICKS_TOKEN is not set — WorkspaceClient will attempt ambient "
-            "OAuth. If running outside Databricks, set DATABRICKS_TOKEN explicitly."
+            "No Databricks credentials found. Set DATABRICKS_TOKEN (PAT) or "
+            "DATABRICKS_CLIENT_ID + DATABRICKS_CLIENT_SECRET (OAuth M2M)."
         )

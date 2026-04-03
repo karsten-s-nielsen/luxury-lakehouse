@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [ARCHITECTURE.md](ARCHITECTURE.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
 
-**Last updated**: 2026-04-02 (D41 DONE; football2vec-360 trained; GK stats 110 dupes fixed; 34 synced tables fully in TF; all GPU scripts → a10g-large)
+**Last updated**: 2026-04-03 (D32 ScoutGPT architecture + training pipeline merged; M2 PG role blocker resolved via databricks-sdk 0.102 `w.postgres.create_role()`; orphaned SP role cleaned up)
 
 ---
 
@@ -26,7 +26,7 @@ Tasks warming up in the on-deck circle.
 | U3 | Global player search — search by name across all pages | Monstah | CHI-AUDIT-180-rev-1 #1 | New search component with 11,918-player index + cross-page routing + session state. Needs design decisions |
 | U4 | Uncertainty/confidence bounds on model outputs | Monstah | CHI-AUDIT-180-rev-1 #4 | xG v2 now outputs MC dropout 95% CI (`xg_ci_lower`, `xg_ci_upper`). VAEP/pitch control still lack native uncertainty. Partial — xG done, others remain |
 | M1 | Rotate Databricks PAT for HF Spaces | Dunkin' | HF-MIGRATION | PAT created 2026-03-16 with 90-day lifetime. **Expires ~2026-06-14.** Generate new PAT in Databricks workspace Settings → Developer → Access tokens, then update `DATABRICKS_TOKEN` secret at huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app/settings |
-| M2 | Migrate HF Space auth from PAT to OAuth M2M | Wicked | SEC-AUDIT-200 #2 | Two SPs created with OAuth secrets: `luxury-lakehouse-hf-app-dev` (`330f96b9-...`, orphaned PG role) and `luxury-lakehouse-hf-app-v2-dev` (`1a1dbf08-...`). UC grants in place. **Blocked:** Lakebase Autoscaling does not auto-provision PG roles for SPs authenticated via M2M OAuth — workspace API works but PG credential JWT is rejected at the PG auth layer. The existing working SP (`be66af99-...`) was internally provisioned by Lakebase during synced table creation. Need Databricks support ticket to clarify how to provision SP PG access for Lakebase Autoscaling endpoints |
+| M2 | Deploy OAuth M2M credentials to HF Spaces | Dunkin' | SEC-AUDIT-200 #2 | All infrastructure ready: PG role created (`scripts/setup_lakebase_roles.py`), `config.py` supports OAuth env vars, `manage_space.py` deploys OAuth secrets. **Steps:** (1) Retrieve OAuth client secret from Databricks workspace (Settings → Service Principals → luxury-lakehouse-hf-app-v2-dev), (2) `export DATABRICKS_CLIENT_ID=1a1dbf08-df56-48de-b97a-276b2a4232d8 DATABRICKS_CLIENT_SECRET=<secret>`, (3) test locally, (4) deploy staging (`python scripts/manage_space.py deploy staging`), (5) verify, (6) deploy production, (7) remove `DATABRICKS_TOKEN` PAT from both Spaces. One-time operation — OAuth M2M credentials don't expire. Completes M2, makes M1 (PAT rotation) unnecessary |
 
 ---
 
