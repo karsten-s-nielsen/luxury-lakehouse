@@ -33,7 +33,7 @@ outputs:
       destination: delta-table
 
 execution:
-  inference:
+  import:
     trigger: manual
     runtime: databricks-workflow
     entry_point: import_obso_results

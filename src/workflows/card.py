@@ -140,6 +140,9 @@ class Execution(BaseModel):
     ingestion: InferenceExecution | None = None
     sync: InferenceExecution | None = None
 
+    # PEP 681: pydantic aliases cannot use Python reserved words as field names.
+    # "import" is a reserved word, so we use model_config extra="allow" to
+    # capture it dynamically rather than as a typed field.
     model_config = ConfigDict(extra="allow")
 
 

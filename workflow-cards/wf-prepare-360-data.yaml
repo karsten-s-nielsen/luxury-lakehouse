@@ -35,7 +35,7 @@ outputs:
       description: "Per-player-match sequences with 360 freeze frame context"
 
 execution:
-  inference:
+  export:
     trigger: manual
     runtime: databricks-workflow
     entry_point: prepare_360_training_data

@@ -30,7 +30,7 @@ The infrastructure uses a **Medallion architecture** (Bronze &rarr; Silver &rarr
 - **[14 Taipy dashboard pages](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)** deployed on Hugging Face Spaces (Docker SDK), querying Lakebase PostgreSQL via OAuth
 - **34 synced tables** with Zero-ETL continuous sync from Gold Delta Lake to Lakebase PostgreSQL 17
 - **56 PostgreSQL indexes** (50 btree + 6 HNSW vector indexes: 4x128d + 2x144d) for sub-10ms OLTP queries
-- Pipeline reliability enforced through **1,135 unit tests** and **381+ dbt data tests**
+- Pipeline reliability enforced through **1,118+ unit tests** and **381+ dbt data tests**
 
 ## The Hugging Face Footprint
 
@@ -116,8 +116,8 @@ The platform maintains professional-grade engineering standards:
 
 - **Security**: OAuth M2M everywhere, HTTPS-only, zero secrets in code, input validation on all identifiers, SSL verification enforced, JSON-only model serialization
 - **Type safety**: Pyright basic mode, Pydantic models for configuration
-- **Testing**: 807 pytest unit tests (819+ with gensim, including performance benchmarks), 381 dbt data quality tests
-- **CI/CD**: GitHub Actions with OIDC federation (zero-secret CI), ruff linting, pre-commit hooks
+- **Testing**: 1,118+ pytest unit tests (including performance benchmarks), 381+ dbt data quality tests
+- **CI/CD**: GitHub Actions with OIDC federation (zero-secret CI), ruff linting, import-linter boundary enforcement, pre-commit hooks
 - **UX discipline**: 71 of 78 findings resolved across two cognitive interface audits (CHI-AUDIT-180, CHI-AUDIT-190), grounded in 15 HCI frameworks including Norman, Sweller, Gergle, Kahneman, and Cleveland &amp; McGill. Every metric has a help tooltip, every page has academic citations, and every analytics term is defined in a context-sensitive glossary.
 
 ## Links

@@ -28,7 +28,7 @@ outputs:
       description: "Parquet dataset of on-target shots for PSxG training"
 
 execution:
-  inference:
+  export:
     trigger: manual
     runtime: databricks-workflow
     entry_point: export_shots_on_target

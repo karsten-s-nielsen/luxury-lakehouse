@@ -10,7 +10,7 @@ These standards apply to ALL code in this repository. They are non-negotiable.
 
 - **SOLID**: Single responsibility per module/function. Depend on abstractions.
 - **Clean Code**: Meaningful names, small functions, no dead code.
-- **Separation of Concerns**: Ingestion, transformation (dbt), workflow orchestration (`src/workflows/`), and presentation (Taipy) are fully isolated layers. `src/workflows/` has zero Spark/Taipy imports — only stdlib + PyYAML + Pydantic.
+- **Separation of Concerns**: Ingestion, transformation (dbt), workflow orchestration (`src/workflows/`), shared constants (`src/shared/`), and presentation (Taipy) are fully isolated layers. `src/workflows/` has zero Spark/Taipy imports — only stdlib + PyYAML + Pydantic. `src/shared/` has zero external dependencies — stdlib only. Dependency direction enforced by `import-linter` in CI.
 - **Idempotent Operations**: Every ingestion task can be re-run safely. Use partition-level overwrites, not full table drops.
 - **Structured Logging**: JSON-line logs to stdout. No print statements. Include source name, row counts, and timing.
 

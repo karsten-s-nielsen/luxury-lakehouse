@@ -58,7 +58,7 @@ cost:
     typical_cost_usd: 1.40
 
 monitoring:
-  freshness_sla_hours: 336
+  freshness_sla_hours: 168
 
 links:
   source_code:

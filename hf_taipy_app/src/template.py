@@ -566,7 +566,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         "wf_on_type_filter",
         condition=f"current_page in {_WF_PAGES}",
         lov="wf_type_lov",
-        help="Filter by workflow type: Train+Infer, Grid Compute, Heuristic, Validation.",
+        help="Filter by workflow type: Train+Infer, Grid Compute, Heuristic, Ingestion, Data Movement, Validation.",
     ),
     SidebarWidget(
         "dropdown",

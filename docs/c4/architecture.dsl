@@ -27,7 +27,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 32 AI/ML wor
             workflowCards = container "Workflow Cards" "32 YAML manifests defining inputs, outputs, deps, execution config, cost estimates, academic provenance" "YAML, workflow-cards/" "Database"
             costEstimateHook = container "CostEstimateHook" "Lifecycle hook writing run state + cost estimates to workflow_cost_live Delta table via MERGE. Centralized registration via bootstrap_hooks()" "Python, PySpark, Delta, src/ingestion/cost_hook.py"
             hfCostRecorder = container "HFJobsCostRecorder" "Standalone cost recorder for HF Jobs scripts. Writes _workflow_cost.json (live status) and _cost_history/{job_id}.json (per-run history) to HF Hub repos. 90-day auto-pruning" "Python, huggingface_hub, src/ingestion/hf_jobs_cost.py"
-            ingestionPipelines = container "Compute Pipelines" "28 @workflow-decorated Databricks pipelines (all instrumented): 5 raw ingestors (StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner), 14 compute (xG, VAEP, DEFCON 360+tracking, pitch control, xT, OBSO/PAUSA, entity resolution, line-breaking 360+tracking, formations EFPI+shape graph, embeddings v1/v2, model validation), 4 HF export/import, elastic sync, cost sync. Centralized hook registration via bootstrap.py" "Python, PySpark, src/ingestion/"
+            ingestionPipelines = container "Compute Pipelines" "30 @workflow-decorated Databricks pipelines (all instrumented): 5 raw ingestors (StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner), 14 compute (xG, VAEP, DEFCON 360+tracking, pitch control, xT, OBSO/PAUSA, entity resolution, line-breaking 360+tracking, formations EFPI+shape graph, embeddings v1/v2, model validation), 5 HF export/import (shots, OBSO, PSxG, space creation, 360 training data), elastic sync, cost sync. Centralized hook registration via bootstrap.py" "Python, PySpark, src/ingestion/"
             analyticsLibrary = container "Analytics Library" "Pure-Python domain models (zero I/O). Pitch control (Spearman 2017), xG, xT, VAEP, OBSO, line-breaking, DEFCON, entity resolution, shape graph (construction + inference split), football2vec v2/360, goalkeeper, coordinates. Split modules all under 800 lines" "Python, NumPy, SciPy, PyTorch, scikit-learn, src/analytics/"
             sharedLibrary = container "Shared Library" "Cross-package constants: IDENTIFIER_RE, DEFAULT_GOLD_SCHEMA, mlflow_model_uri(). Zero external deps. Imported by analytics, ingestion, and Taipy Docker image" "Python, src/shared/"
         }
@@ -46,7 +46,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 32 AI/ML wor
 
         lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL-compatible endpoint syncing 34 Delta Lake tables from Unity Catalog (50 btree + 6 HNSW vector indexes: 4x128d + 2x144d)" "External"
         databricksApi = softwareSystem "Databricks REST API" "OAuth credential endpoint for Lakebase authentication" "External"
-        databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 29 tasks (6 ingest, 14 compute, 4 HF export/import, 2 360 pipeline, 1 entity resolution, 1 validation, 1 cost sync), daily 06:00 UTC" "External"
+        databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 30 tasks (6 ingest, 14 compute, 5 HF export/import, 2 360 pipeline, 1 entity resolution, 1 validation, 1 cost sync), daily 06:00 UTC" "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds from Dockerfile, serves on port 7860" "External"
         hfHub = softwareSystem "HuggingFace Hub" "Hosts 8 models (incl. football2vec-v2, football2vec-360, PSxG), 18 datasets (incl. training data, 360 embeddings), build-artifacts wheel, and _workflow_cost.json cost artifacts" "External"
         hfJobs = softwareSystem "HuggingFace Jobs" "GPU/CPU compute: 12 PEP 723 UV scripts for training (xG v1/v2, VAEP, PSxG, Football2vec v2/360), batch analytics (xT, EPV, OBSO, Space Creation), and dataset publishing (freeze frames, xG shots)" "External"
@@ -71,7 +71,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 32 AI/ML wor
         dbLayer -> configLayer "Reads Lakebase host and endpoint settings" ""
 
         # Relationships - external (Taipy)
-        dbLayer -> lakebase "Queries 28 synced tables via parameterized SQL" "PostgreSQL/SSL"
+        dbLayer -> lakebase "Queries 34 synced tables via parameterized SQL" "PostgreSQL/SSL"
         dbLayer -> databricksApi "Fetches OAuth tokens for Lakebase auth" "HTTPS/REST"
         stateModules -> workflowCards "Reads YAML manifests on first page load (cached in _cards module variable)" ""
         stateModules -> hfHub "Loads embeddings for similarity search; reads _workflow_cost.json (RUNNING detection) + _cost_history/ (30-day cost aggregation) via 60s TTL" "HTTPS"
@@ -86,7 +86,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 32 AI/ML wor
         costEstimateHook -> sharedLibrary "Imports COST_TABLE_NAME and schema constants" ""
         ingestionPipelines -> bronzeSchema "Writes compute results to Delta tables" "PySpark/Delta"
         costEstimateHook -> observabilitySchema "MERGE run state + cost estimates to workflow_cost_live" "PySpark/Delta"
-        databricksWorkflows -> ingestionPipelines "Schedules and executes 29 pipeline tasks" "Databricks Jobs API"
+        databricksWorkflows -> ingestionPipelines "Schedules and executes 30 pipeline tasks" "Databricks Jobs API"
 
         # Relationships - HF Jobs
         hfJobs -> analyticsLibrary "Imports from wheel (luxury-lakehouse/build-artifacts)" "pip/HTTPS"

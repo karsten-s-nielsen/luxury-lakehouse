@@ -30,7 +30,7 @@ outputs:
       destination: delta-table
 
 execution:
-  inference:
+  ingestion:
     trigger: manual
     runtime: databricks-workflow
     entry_point: ingest_skillcorner

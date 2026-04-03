@@ -3,7 +3,7 @@ name: DEFCON Defensive Credit Assignment
 id: wf-defcon
 version: "1.0"
 status: production
-type: training-and-inference
+type: heuristic
 domain: defensive-valuation
 owners:
   - karsten
