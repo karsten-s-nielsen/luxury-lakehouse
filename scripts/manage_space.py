@@ -299,6 +299,7 @@ def _create_space(repo_id: str, target: str, api: HfApi, *, force: bool, skip_se
             )
             raise SpaceError(msg)
 
+        # nosemgrep: python-logger-credential-disclosure -- logs count and repo name, not values
         logger.info("Configured %d secrets on %s", set_count, repo_id)
 
     # Step 4: Verify
