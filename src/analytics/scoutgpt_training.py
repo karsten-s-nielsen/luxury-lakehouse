@@ -1,7 +1,8 @@
-"""ScoutGPT training helpers: dataset, data loading, evaluation, scheduling.
+"""ScoutGPT training: dataset, training loop, evaluation, scheduling.
 
-Companion to ``train_scoutgpt_hf.py``. Follows the established pattern from
-``train_football2vec_v2_helpers.py``.
+Domain logic for ScoutGPT decoder training. The HF Jobs entry point
+(``scripts/train_scoutgpt_hf.py``) is a thin wrapper that handles I/O,
+checkpointing, cost recording, and MLflow logging.
 """
 
 from __future__ import annotations
@@ -9,14 +10,18 @@ from __future__ import annotations
 import json
 import logging
 import math
+import time
 from collections import Counter
 from typing import Any
 
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn as nn
 from scipy.stats import spearmanr
-from torch.utils.data import Dataset
+from torch.utils.data import DataLoader, Dataset
+
+from analytics.scoutgpt_decoder import ScoutGPTConfig, ScoutGPTDecoder
 
 logger = logging.getLogger(__name__)
 
@@ -536,3 +541,359 @@ def evaluate_counterfactual_ranking(
         "n_episodes_evaluated": len(rho_values),
         "rho_std": float(np.std(rho_values)) if rho_values else 0.0,
     }
+
+
+# ---------------------------------------------------------------------------
+# Training loop
+# ---------------------------------------------------------------------------
+
+
+def train_loop(
+    train_ds: ScoutGPTDataset,
+    val_ds: ScoutGPTDataset,
+    config: ScoutGPTConfig,
+    device: torch.device,
+    epochs: int,
+    batch_size: int,
+    lr: float,
+    patience: int,
+) -> tuple[ScoutGPTDecoder, dict[str, list[float]]]:
+    """Train ScoutGPT with autoregressive action loss + VAEP auxiliary loss.
+
+    Returns:
+        Tuple of (best model, training history dict).
+    """
+    model = ScoutGPTDecoder(config).to(device)
+    logger.info("Model parameters: %d", sum(p.numel() for p in model.parameters()))
+
+    tl = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=device.type == "cuda")
+    vl = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=device.type == "cuda")
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=WEIGHT_DECAY)
+    total_steps = len(tl) * epochs
+    scheduler = get_cosine_schedule_with_warmup(optimizer, int(total_steps * WARMUP_FRACTION), total_steps)
+
+    action_criterion = nn.CrossEntropyLoss(ignore_index=-100)
+    vaep_criterion = nn.MSELoss(reduction="none")
+
+    best_val = float("inf")
+    patience_ctr = 0
+    best_state: dict[str, Any] = {}
+    history: dict[str, list[float]] = {
+        "train_loss": [],
+        "train_action_loss": [],
+        "train_vaep_loss": [],
+        "val_loss": [],
+        "val_action_loss": [],
+        "val_vaep_loss": [],
+        "val_top1_accuracy": [],
+        "val_top5_accuracy": [],
+    }
+
+    for epoch in range(epochs):
+        t0 = time.time()
+        model.train()
+        total_loss = 0.0
+        total_action_loss = 0.0
+        total_vaep_loss = 0.0
+        nb = 0
+
+        for batch in tl:
+            optimizer.zero_grad()
+            action_logits, vaep_preds = model.predict(
+                action_ids=batch["action_ids"].to(device),
+                start_x=batch["start_x"].to(device),
+                start_y=batch["start_y"].to(device),
+                end_x=batch["end_x"].to(device),
+                end_y=batch["end_y"].to(device),
+                result=batch["result"].to(device),
+                time_delta=batch["time_delta"].to(device),
+                player_ids=batch["player_ids"].to(device),
+                attention_mask=batch["attention_mask"].to(device),
+            )
+            action_loss = action_criterion(
+                action_logits.view(-1, config.vocab_size),
+                batch["labels"].to(device).view(-1),
+            )
+
+            valid_mask = (batch["action_ids"].to(device) != BOS_TOKEN_ID) & batch["attention_mask"].to(device)
+            vaep_raw = vaep_criterion(vaep_preds.squeeze(-1), batch["vaep_targets"].to(device))
+            valid_count = valid_mask.sum().clamp(min=1)
+            vaep_loss = (vaep_raw * valid_mask.float()).sum() / valid_count
+
+            loss = action_loss + config.vaep_loss_weight * vaep_loss
+            loss.backward()
+            nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            optimizer.step()
+            scheduler.step()
+
+            total_loss += loss.item()
+            total_action_loss += action_loss.item()
+            total_vaep_loss += vaep_loss.item()
+            nb += 1
+
+        avg_loss = total_loss / max(nb, 1)
+        avg_action = total_action_loss / max(nb, 1)
+        avg_vaep = total_vaep_loss / max(nb, 1)
+
+        v_loss, v_action, v_vaep, v_top1, v_top5 = eval_loop(
+            model, vl, config, device, action_criterion, vaep_criterion
+        )
+
+        history["train_loss"].append(avg_loss)
+        history["train_action_loss"].append(avg_action)
+        history["train_vaep_loss"].append(avg_vaep)
+        history["val_loss"].append(v_loss)
+        history["val_action_loss"].append(v_action)
+        history["val_vaep_loss"].append(v_vaep)
+        history["val_top1_accuracy"].append(v_top1)
+        history["val_top5_accuracy"].append(v_top5)
+
+        logger.info(
+            "Epoch %d/%d — loss=%.4f val_loss=%.4f top1=%.4f top5=%.4f (%.1fs)",
+            epoch + 1,
+            epochs,
+            avg_loss,
+            v_loss,
+            v_top1,
+            v_top5,
+            time.time() - t0,
+        )
+
+        if v_loss < best_val:
+            best_val = v_loss
+            patience_ctr = 0
+            best_state = {k: v.clone() for k, v in model.state_dict().items()}
+        else:
+            patience_ctr += 1
+            if patience_ctr >= patience:
+                logger.info("Early stopping at epoch %d", epoch + 1)
+                break
+
+    if best_state:
+        model.load_state_dict(best_state)
+    return model, history
+
+
+def eval_loop(
+    model: ScoutGPTDecoder,
+    vl: DataLoader,
+    config: ScoutGPTConfig,
+    device: torch.device,
+    action_criterion: nn.CrossEntropyLoss,
+    vaep_criterion: nn.MSELoss,
+) -> tuple[float, float, float, float, float]:
+    """Evaluate model on a DataLoader.
+
+    Returns:
+        (combined_loss, action_loss, vaep_loss, top1_accuracy, top5_accuracy)
+    """
+    model.eval()
+    total_loss = 0.0
+    total_action = 0.0
+    total_vaep = 0.0
+    correct_top1 = 0
+    correct_top5 = 0
+    total_valid = 0
+    nb = 0
+
+    with torch.no_grad():
+        for batch in vl:
+            action_logits, vaep_preds = model.predict(
+                action_ids=batch["action_ids"].to(device),
+                start_x=batch["start_x"].to(device),
+                start_y=batch["start_y"].to(device),
+                end_x=batch["end_x"].to(device),
+                end_y=batch["end_y"].to(device),
+                result=batch["result"].to(device),
+                time_delta=batch["time_delta"].to(device),
+                player_ids=batch["player_ids"].to(device),
+                attention_mask=batch["attention_mask"].to(device),
+            )
+            labels = batch["labels"].to(device)
+            action_loss = action_criterion(action_logits.view(-1, config.vocab_size), labels.view(-1))
+
+            valid_mask = (batch["action_ids"].to(device) != BOS_TOKEN_ID) & batch["attention_mask"].to(device)
+            vaep_raw = vaep_criterion(vaep_preds.squeeze(-1), batch["vaep_targets"].to(device))
+            valid_count = valid_mask.sum().clamp(min=1)
+            vaep_loss = (vaep_raw * valid_mask.float()).sum() / valid_count
+
+            total_action += action_loss.item()
+            total_vaep += vaep_loss.item()
+            total_loss += (action_loss + config.vaep_loss_weight * vaep_loss).item()
+            nb += 1
+
+            label_mask = labels != -100
+            if label_mask.any():
+                valid_logits = action_logits[label_mask]
+                valid_labels = labels[label_mask]
+                preds_top1 = valid_logits.argmax(dim=-1)
+                correct_top1 += (preds_top1 == valid_labels).sum().item()
+                top5 = valid_logits.topk(min(5, config.vocab_size), dim=-1).indices
+                correct_top5 += (top5 == valid_labels.unsqueeze(-1)).any(dim=-1).sum().item()
+                total_valid += valid_labels.size(0)
+
+    n = max(nb, 1)
+    nv = max(total_valid, 1)
+    return total_loss / n, total_action / n, total_vaep / n, correct_top1 / nv, correct_top5 / nv
+
+
+def accuracy_by_bucket(
+    model: ScoutGPTDecoder,
+    test_ds: ScoutGPTDataset,
+    device: torch.device,
+    batch_size: int,
+) -> dict[str, float]:
+    """Compute top-1 accuracy bucketed by episode length quartile."""
+    model.eval()
+
+    ep_lengths: list[int] = []
+    for i in range(len(test_ds)):
+        sample = test_ds[i]
+        n_valid = int(((sample["action_ids"] != BOS_TOKEN_ID) & sample["attention_mask"]).sum().item())
+        ep_lengths.append(n_valid)
+
+    lengths_arr = np.array(ep_lengths, dtype=np.int64)
+    q1 = int(np.percentile(lengths_arr, 25))
+    q2 = int(np.percentile(lengths_arr, 50))
+    q3 = int(np.percentile(lengths_arr, 75))
+
+    bucket_correct: dict[str, int] = {"q1": 0, "q2": 0, "q3": 0, "q4": 0}
+    bucket_total: dict[str, int] = {"q1": 0, "q2": 0, "q3": 0, "q4": 0}
+
+    loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False, num_workers=0)
+    sample_idx = 0
+    with torch.no_grad():
+        for batch in loader:
+            bs = batch["action_ids"].size(0)
+            action_logits, _ = model.predict(
+                action_ids=batch["action_ids"].to(device),
+                start_x=batch["start_x"].to(device),
+                start_y=batch["start_y"].to(device),
+                end_x=batch["end_x"].to(device),
+                end_y=batch["end_y"].to(device),
+                result=batch["result"].to(device),
+                time_delta=batch["time_delta"].to(device),
+                player_ids=batch["player_ids"].to(device),
+                attention_mask=batch["attention_mask"].to(device),
+            )
+            labels = batch["labels"].to(device)
+
+            for b in range(bs):
+                ep_len = ep_lengths[sample_idx]
+                if ep_len <= q1:
+                    bucket = "q1"
+                elif ep_len <= q2:
+                    bucket = "q2"
+                elif ep_len <= q3:
+                    bucket = "q3"
+                else:
+                    bucket = "q4"
+                sample_idx += 1
+
+                lbl = labels[b]
+                valid_mask = lbl != -100
+                if not valid_mask.any():
+                    continue
+                preds = action_logits[b].argmax(dim=-1)
+                bucket_correct[bucket] += int((preds[valid_mask] == lbl[valid_mask]).sum().item())
+                bucket_total[bucket] += int(valid_mask.sum().item())
+
+    return {f"test_top1_accuracy_{bkt}": bucket_correct[bkt] / max(bucket_total[bkt], 1) for bkt in bucket_correct}
+
+
+def evaluate_and_report(
+    model: ScoutGPTDecoder,
+    test_ds: ScoutGPTDataset,
+    train_data: pd.DataFrame,
+    test_data: pd.DataFrame,
+    device: torch.device,
+    history: dict[str, list[float]],
+    config: ScoutGPTConfig,
+    batch_size: int,
+) -> dict[str, Any]:
+    """Compute full evaluation suite and return metrics dict."""
+    action_criterion = nn.CrossEntropyLoss(ignore_index=-100)
+    vaep_criterion = nn.MSELoss(reduction="none")
+    test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False, num_workers=0)
+
+    test_loss, test_action_loss, test_vaep_loss, test_top1, test_top5 = eval_loop(
+        model, test_loader, config, device, action_criterion, vaep_criterion
+    )
+    logger.info("Test — loss=%.4f top1=%.4f top5=%.4f", test_loss, test_top1, test_top5)
+
+    bucket_metrics = accuracy_by_bucket(model, test_ds, device, batch_size)
+    logger.info("Bucket accuracies: %s", {k: f"{v:.4f}" for k, v in bucket_metrics.items()})
+
+    baselines = compute_baselines(test_ds, train_data)
+    logger.info(
+        "Baselines — most_frequent=%.4f bigram=%.4f",
+        baselines["baseline_most_frequent_accuracy"],
+        baselines["baseline_bigram_accuracy"],
+    )
+
+    action_type_frequencies = build_action_type_frequencies(train_data)
+    cf_metrics = evaluate_counterfactual_ranking(
+        model, test_ds, device, action_type_frequencies=action_type_frequencies,
+    )
+    logger.info(
+        "Counterfactual ranking — mean_rho=%.4f n=%d std=%.4f",
+        cf_metrics["mean_spearman_rho"],
+        cf_metrics["n_episodes_evaluated"],
+        cf_metrics["rho_std"],
+    )
+
+    cross_source = _cross_source_accuracy(model, test_data, config, device, batch_size)
+    cross_source_gap = 0.0
+    if cross_source:
+        source_accs = list(cross_source.values())
+        cross_source_gap = max(source_accs) - min(source_accs)
+        logger.info("Cross-source accuracy gap: %.4f (%s)", cross_source_gap, cross_source)
+
+    return {
+        "actual_epochs": len(history["train_loss"]),
+        "test_loss": test_loss,
+        "test_action_loss": test_action_loss,
+        "test_vaep_loss": test_vaep_loss,
+        "test_top1_accuracy": test_top1,
+        "test_top5_accuracy": test_top5,
+        **bucket_metrics,
+        **baselines,
+        **cf_metrics,
+        "cross_source_gap": cross_source_gap,
+        **{f"cross_source_accuracy_{src}": acc for src, acc in cross_source.items()},
+    }
+
+
+def _cross_source_accuracy(
+    model: ScoutGPTDecoder,
+    test_data: pd.DataFrame,
+    config: ScoutGPTConfig,
+    device: torch.device,
+    batch_size: int,
+) -> dict[str, float]:
+    """Per-data-source top-1 accuracy on test set."""
+    if "data_source" not in test_data.columns:
+        logger.warning("data_source column not found — skipping cross-source evaluation")
+        return {}
+
+    action_criterion = nn.CrossEntropyLoss(ignore_index=-100)
+    vaep_criterion = nn.MSELoss(reduction="none")
+    source_accuracies: dict[str, float] = {}
+
+    for source in test_data["data_source"].unique():
+        subset = test_data[test_data["data_source"] == source].reset_index(drop=True)
+        if len(subset) == 0:
+            continue
+
+        parsed = build_datasets(subset)
+        (atypes, sxs, sys_, exs, eys, res, vaeps, tds, pidxs, comp_ids) = parsed
+        ds = ScoutGPTDataset(atypes, sxs, sys_, exs, eys, res, vaeps, tds, pidxs, competition_ids=comp_ids)
+        loader = DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=0)
+
+        _, _, _, top1, _ = eval_loop(model, loader, config, device, action_criterion, vaep_criterion)
+        source_name = str(source).replace(" ", "_").lower()
+        source_accuracies[source_name] = top1
+        logger.info("  source=%s n=%d top1=%.4f", source, len(subset), top1)
+
+    return source_accuracies

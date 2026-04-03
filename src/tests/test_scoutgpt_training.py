@@ -10,20 +10,12 @@ together correctly and produce the expected shapes/types.
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import pytest
 
 torch = pytest.importorskip("torch")
 
-# The training helpers live in scripts/, not in the installed package.
-# Add scripts/ to sys.path so we can import them.
-_SCRIPTS_DIR = str(Path(__file__).resolve().parents[2] / "scripts")
-if _SCRIPTS_DIR not in sys.path:
-    sys.path.insert(0, _SCRIPTS_DIR)
-
-from train_scoutgpt_hf_helpers import (  # noqa: E402
+from analytics.scoutgpt_decoder import ScoutGPTConfig, ScoutGPTDecoder  # noqa: E402
+from analytics.scoutgpt_training import (  # noqa: E402
     BOS_TOKEN_ID,
     PAD_TOKEN_ID,
     VOCAB_SIZE,
@@ -32,8 +24,6 @@ from train_scoutgpt_hf_helpers import (  # noqa: E402
     compute_baselines,
     evaluate_counterfactual_ranking,
 )
-
-from analytics.scoutgpt_decoder import ScoutGPTConfig, ScoutGPTDecoder  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Synthetic data factory
@@ -208,8 +198,7 @@ class TestTrainingSmoke:
 
     def test_training_loop_loss_decreases(self) -> None:
         """Run 2 epochs and verify final train loss < initial train loss."""
-        # Import the training loop function
-        from train_scoutgpt_hf import _train_loop
+        from analytics.scoutgpt_training import train_loop
 
         config = _make_config()
         fields = _make_synthetic_episodes(n_episodes=30)
@@ -220,7 +209,7 @@ class TestTrainingSmoke:
         val_ds = ScoutGPTDataset(*val_fields[:-1], max_seq_len=_MAX_SEQ_LEN, competition_ids=val_fields[-1])
 
         device = torch.device("cpu")
-        model, history = _train_loop(
+        model, history = train_loop(
             train_ds,
             val_ds,
             config,
