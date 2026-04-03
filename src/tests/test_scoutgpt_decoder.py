@@ -14,7 +14,7 @@ def _make_batch(
     seq_len: int = 30,
     vocab_size: int = 23,
     num_players: int = 100,
-) -> tuple[torch.Tensor, ...]:
+):
     """Create synthetic inputs for decoder testing."""
     g = torch.Generator().manual_seed(42)
     action_ids = torch.randint(0, vocab_size, (batch_size, seq_len), generator=g)
