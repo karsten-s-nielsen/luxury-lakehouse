@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 _logger = logging.getLogger(__name__)
 
@@ -132,10 +132,15 @@ class InferenceExecution(BaseModel):
 
 
 class Execution(BaseModel):
-    """Combined training and inference execution specs."""
+    """Combined execution specs across all phase types."""
 
     training: TrainingExecution | None = None
     inference: InferenceExecution | None = None
+    export: InferenceExecution | None = None
+    ingestion: InferenceExecution | None = None
+    sync: InferenceExecution | None = None
+
+    model_config = ConfigDict(extra="allow")
 
 
 class Idempotency(BaseModel):
