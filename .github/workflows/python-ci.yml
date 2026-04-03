@@ -74,6 +74,17 @@ jobs:
               print(f'Uploaded {whl}')
           "
 
+      # Deploy wheel to Databricks UC Volume so jobs pick up the latest code.
+      # Uses the Databricks SDK Files API (REST) — not Thrift, so it works
+      # from GitHub Actions runners. Only runs on main pushes (not PRs).
+      - name: Deploy wheel to Databricks
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}  # pragma: allowlist secret
+        run: uv run python scripts/deploy_wheel.py
+
       - name: Scan for secrets
         run: uv run pip install detect-secrets && uv run detect-secrets scan --baseline .secrets.baseline
 
