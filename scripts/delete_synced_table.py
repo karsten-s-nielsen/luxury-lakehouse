@@ -24,7 +24,7 @@ from shared.constants import IDENTIFIER_RE
 
 CATALOG = "soccer_analytics"
 SCHEMA = "dev_gold"
-LAKEBASE_HOST = os.environ.get("LAKEBASE_HOST", "ep-spring-rain-d2i6lozx.database.us-east-1.cloud.databricks.com")
+LAKEBASE_HOST = os.environ["LAKEBASE_HOST"]  # Required — fail fast if missing
 ENDPOINT_NAME = os.environ.get(
     "LAKEBASE_ENDPOINT_NAME", "projects/soccer-analytics-dev/branches/production/endpoints/primary"
 )

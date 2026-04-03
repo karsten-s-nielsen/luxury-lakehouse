@@ -3,7 +3,7 @@ name: Sync HF Jobs Costs to Delta
 id: wf-sync-hf-costs
 version: "1.0.0"
 status: production
-type: heuristic
+type: data-movement
 domain: soccer-analytics
 owners:
   - karsten
@@ -54,6 +54,9 @@ cost:
     sku: "jobs_serverless_compute_run_dbus"
     typical_dbu: 5
     typical_cost_usd: 0.35
+
+monitoring:
+  freshness_sla_hours: 24
 
 links:
   source_code:

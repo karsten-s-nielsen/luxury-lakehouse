@@ -55,6 +55,7 @@ from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
 
 from ingestion.hf_jobs_cost import HF_RATE_CPU_BASIC, HFJobsCostRecorder
+from shared.constants import mlflow_model_uri
 from workflows import workflow
 
 logger = logging.getLogger(__name__)
@@ -487,7 +488,7 @@ def main() -> None:
             mlflow.pyfunc.log_model(
                 python_model=wrapper,
                 artifact_path="vaep_model",
-                registered_model_name="soccer_analytics.dev_gold.vaep_model",
+                registered_model_name=mlflow_model_uri("soccer_analytics", "dev_gold", "vaep_model"),
                 input_example=input_example,
             )
 
@@ -496,11 +497,12 @@ def main() -> None:
 
         client = mlflow.tracking.MlflowClient()
         # Get the latest version just created
-        versions = client.search_model_versions("name='soccer_analytics.dev_gold.vaep_model'")
+        _vaep_fqn = mlflow_model_uri("soccer_analytics", "dev_gold", "vaep_model")
+        versions = client.search_model_versions(f"name='{_vaep_fqn}'")
         if versions:
             latest = max(versions, key=lambda v: int(v.version))
             client.set_registered_model_alias(
-                name="soccer_analytics.dev_gold.vaep_model",
+                name=_vaep_fqn,
                 alias="Champion",
                 version=latest.version,
             )

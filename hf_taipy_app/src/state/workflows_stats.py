@@ -118,6 +118,8 @@ _TYPE_CELL_STYLES: dict[str, str] = {
     "Inference": "ll-cell-type-train",
     "Grid Compute": "ll-cell-type-grid",
     "Heuristic": "ll-cell-type-heuristic",
+    "Ingestion": "ll-cell-type-ingestion",
+    "Data Movement": "ll-cell-type-data-movement",
     "Validation": "ll-cell-type-validation",
 }
 

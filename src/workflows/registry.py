@@ -7,9 +7,10 @@ runner.
 
 Circular-dependency strategy:
     ``registry.py`` does NOT import ``runner.py`` at module level.
-    The decorator wrapper uses a lazy import inside the function body
-    so that Python resolves the import only at call time — after both
-    modules are fully loaded.
+    Instead, ``__init__.py`` calls ``_set_runner(run_workflow)`` after
+    both modules are loaded, injecting the runner function at package
+    init time.  The decorator wrapper calls ``_runner_fn(...)`` instead
+    of using a lazy import.
 """
 
 from __future__ import annotations
@@ -116,6 +117,19 @@ class WorkflowRegistry:
 
 
 # ---------------------------------------------------------------------------
+# Runner injection (set by __init__.py to break circular dependency)
+# ---------------------------------------------------------------------------
+
+_runner_fn: Callable[..., Any] | None = None
+
+
+def _set_runner(fn: Callable[..., Any]) -> None:
+    """Inject the runner function — called once by ``workflows.__init__``."""
+    global _runner_fn
+    _runner_fn = fn
+
+
+# ---------------------------------------------------------------------------
 # Decorator
 # ---------------------------------------------------------------------------
 
@@ -144,10 +158,14 @@ def workflow(
 
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            # Lazy import to break circular dependency
-            from workflows.runner import run_workflow
-
-            return run_workflow(entry, *args, **kwargs)
+            if _runner_fn is None:
+                msg = (
+                    "Workflow runner not initialized. "
+                    "Import 'workflows' package (not 'workflows.registry' directly) "
+                    "to ensure _set_runner() is called."
+                )
+                raise RuntimeError(msg)
+            return _runner_fn(entry, *args, **kwargs)
 
         wrapper._workflow_entry = entry  # type: ignore[attr-defined]
         return wrapper

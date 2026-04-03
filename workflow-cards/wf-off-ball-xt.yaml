@@ -46,6 +46,9 @@ execution:
     environment: analytics
 
 depends_on:
+  - wf-metrica
+  - wf-idsse
+  - wf-skillcorner
   - wf-xt-grids
 
 idempotency:

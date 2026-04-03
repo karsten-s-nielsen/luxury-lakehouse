@@ -3,7 +3,7 @@ name: StatsBomb Open Data Ingestion
 id: wf-statsbomb
 version: "1.0.0"
 status: production
-type: heuristic
+type: ingestion
 domain: soccer-analytics
 owners:
   - karsten
@@ -65,6 +65,9 @@ cost:
     sku: "jobs_serverless_compute_run_dbus"
     typical_dbu: 50
     typical_cost_usd: 3.5
+
+monitoring:
+  freshness_sla_hours: 168
 
 links:
   source_code:

@@ -121,13 +121,17 @@ root_page = build_root_page(_nav_md)
 # DB pool connectivity is verified in the background via health_check module.
 _HEALTH_PAGE = "<|part|class_name=health-check|OK|>"
 
-# Build Taipy pages dict
-pages: dict[str, str] = {"/": root_page, "health": _HEALTH_PAGE}
+# Build Taipy pages dict — Heat-Map must be the first non-root entry
+# (Taipy defaults to the first content page on initial load)
+pages: dict[str, str] = {"/": root_page}
 pages.update({entry.route: entry.markdown for entry in PAGE_REGISTRY})
+pages["health"] = _HEALTH_PAGE
 
 if __name__ == "__main__":
     import health_check
+    from config import validate_databricks_credentials
 
+    validate_databricks_credentials()
     health_check.start()
 
     gui = Gui(pages=pages, css_file="style_v2.css")

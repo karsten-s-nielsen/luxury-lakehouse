@@ -95,6 +95,8 @@ COLOR_HEX: dict[str, str] = {
     "purple": "#bc8cff",
     "teal": "#3fb9a0",
     "amber": "#e3b341",
+    "orange": "#f0883e",
+    "rose": "#f778ba",
     "gray": "#6e7681",
 }
 
@@ -104,6 +106,8 @@ TYPE_COLORS: dict[str, str] = {
     "inference": "blue",
     "grid-computation": "purple",
     "heuristic": "teal",
+    "ingestion": "orange",
+    "data-movement": "rose",
     "validation": "amber",
 }
 
@@ -113,6 +117,8 @@ TYPE_LABELS: dict[str, str] = {
     "inference": "Inference",
     "grid-computation": "Grid Compute",
     "heuristic": "Heuristic",
+    "ingestion": "Ingestion",
+    "data-movement": "Data Movement",
     "validation": "Validation",
 }
 
@@ -231,7 +237,8 @@ def build_dag_html(
     )
 
     # Legend items — shapes match table column ::before markers (WCAG 1.4.1).
-    # circle (train), diamond (grid), triangle (heuristic), square (validation).
+    # circle (train), diamond (grid), triangle (heuristic), ring (ingestion),
+    # bar (data-movement), square (validation).
     _legend_shapes: dict[str, str] = {
         "training-and-inference": "width:8px;height:8px;border-radius:50%;background:{c};",
         "grid-computation": "width:7px;height:7px;transform:rotate(45deg);background:{c};",
@@ -240,6 +247,8 @@ def build_dag_html(
             "border-left:4px solid transparent;border-right:4px solid transparent;"
             "border-bottom:8px solid {c};"
         ),
+        "ingestion": "width:7px;height:7px;border-radius:50%;border:2px solid {c};background:transparent;",
+        "data-movement": "width:10px;height:4px;border-radius:1px;background:{c};",
         "validation": "width:8px;height:8px;border-radius:1px;background:{c};",
     }
     legend_items = "".join(
@@ -252,6 +261,8 @@ def build_dag_html(
             ("training-and-inference", "blue"),
             ("grid-computation", "purple"),
             ("heuristic", "teal"),
+            ("ingestion", "orange"),
+            ("data-movement", "rose"),
             ("validation", "amber"),
         ]
     )

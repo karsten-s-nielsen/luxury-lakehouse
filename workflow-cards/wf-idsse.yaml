@@ -3,7 +3,7 @@ name: IDSSE Bundesliga Data Ingestion
 id: wf-idsse
 version: "1.0.0"
 status: production
-type: heuristic
+type: ingestion
 domain: soccer-analytics
 owners:
   - karsten
@@ -58,6 +58,9 @@ cost:
     sku: "jobs_serverless_compute_run_dbus"
     typical_dbu: 60
     typical_cost_usd: 4.2
+
+monitoring:
+  freshness_sla_hours: 168
 
 links:
   source_code:

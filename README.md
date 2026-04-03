@@ -89,12 +89,13 @@ luxury-lakehouse/
 ├── src/
 │   ├── analytics/      # Pure-Python analytics models (pitch control, line-breaking, entity resolution, DEFCON, football2vec, football2vec transformer, shape graphs, xG, xT, symmetry, smoothing)
 │   ├── ingestion/      # Data ingestion + compute pipelines (StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner, pitch control batch)
+│   ├── shared/         # Cross-package constants and identifier validation (zero external deps)
 │   └── workflows/      # Workflow framework (@workflow decorator, registry, lifecycle hooks, YAML card parser)
 ├── hf_taipy_app/       # Taipy production dashboard (deployed to HF Spaces)
 ├── notebooks/          # Databricks notebooks (football2vec/xG training, model weight sync, dataset publishing to HF Hub)
 ├── demo_space/         # Hugging Face Gradio demo Space (pass quality, pitch control, player similarity, shot map, DEFCON pressure, pass timing)
 ├── dbt_project/        # Bronze → Silver → Gold transformations
-├── workflow-cards/     # YAML workflow card manifests (20 AI/ML workflow definitions)
+├── workflow-cards/     # YAML workflow card manifests (32 AI/ML workflow definitions)
 ├── scripts/            # Operational scripts (PG indexes, grants, synced table management)
 ├── docs/
 │   ├── c4/             # C4 architecture diagrams (Structurizr DSL)
@@ -168,7 +169,7 @@ See the [Getting Started guide](docs/getting-started.md) for local setup (clone,
 | Vector Search | pgvector HNSW (native in Lakebase) |
 | Embeddings | gensim (Doc2Vec) + huggingface_hub (model publishing) |
 | Python | 3.10+ (Databricks serverless), managed with uv |
-| Linting | ruff + pyright + sqlfluff |
+| Linting | ruff + pyright + sqlfluff + import-linter |
 | CI/CD | GitHub Actions |
 | Architecture Docs | C4 diagrams (Structurizr DSL) |
 

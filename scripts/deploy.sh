@@ -7,7 +7,7 @@
 #
 # Prerequisites:
 #   1. Databricks CLI configured:
-#        databricks configure --host https://dbc-48322be9-16be.cloud.databricks.com
+#        databricks configure --host "$DATABRICKS_HOST"
 #      (generates ~/.databrickscfg with a personal access token)
 #
 #   2. Databricks token exported as an environment variable:
@@ -68,7 +68,7 @@ echo ""
 # ── Step 5: Monitor ──────────────────────────────────────────────────────────
 
 echo "Step 5: Monitoring job run..."
-echo "  Databricks UI: https://dbc-48322be9-16be.cloud.databricks.com/#job/$JOB_ID/run/$RUN_ID"
+echo "  Databricks UI: ${DATABRICKS_HOST}/#job/$JOB_ID/run/$RUN_ID"
 echo ""
 echo "  Waiting for completion (Ctrl+C to stop monitoring)..."
 databricks runs get --run-id "$RUN_ID" --output json | python -c "
