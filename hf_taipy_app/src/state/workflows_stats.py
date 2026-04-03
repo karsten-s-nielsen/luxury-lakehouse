@@ -93,7 +93,7 @@ def classify_runtime(exec_cfg: dict[str, Any]) -> str:
     Returns human-readable label: 'DB', 'HF', 'DB + HF', or em-dash.
     """
     rts: list[str] = []
-    for phase in ("training", "inference"):
+    for phase in ("training", "inference", "export", "import", "ingestion", "sync"):
         rt = ((exec_cfg.get(phase) or {}).get("runtime") or "").lower()
         if "hf" in rt:
             if "HF" not in rts:
@@ -284,7 +284,7 @@ def build_table_data(
         exec_cfg = card.get("execution") or {}
         runtime_str = classify_runtime(exec_cfg)
         trigger_str = "\u2014"
-        for phase in ("training", "inference"):
+        for phase in ("training", "inference", "export", "import", "ingestion", "sync"):
             trigger_val = (exec_cfg.get(phase) or {}).get("trigger")
             if trigger_val:
                 trigger_str = trigger_val.capitalize()
