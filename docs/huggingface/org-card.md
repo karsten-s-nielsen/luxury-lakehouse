@@ -69,6 +69,7 @@ All model serialization uses **JSON envelopes** &mdash; zero pickle files (banne
 | [statsbomb-shots-on-target](https://huggingface.co/datasets/luxury-lakehouse/statsbomb-shots-on-target) | ~15K shots | On-target shots with goalmouth coordinates for PSxG training |
 | [psxg-predictions](https://huggingface.co/datasets/luxury-lakehouse/psxg-predictions) | ~15K shots | Per-shot PSxG probabilities from logistic model |
 | [football2vec-360-training-data](https://huggingface.co/datasets/luxury-lakehouse/football2vec-360-training-data) | ~2M actions | SPADL action sequences with 360 freeze frame context |
+| [football2vec-statsbomb-wyscout](https://huggingface.co/datasets/luxury-lakehouse/football2vec-statsbomb-wyscout) | 87K vectors | Per-match v1 Doc2Vec (32-dim) + v2 transformer (128-dim) raw embeddings |
 | [football2vec-360-embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-360-embeddings) | ~4K players | 144-dim player embeddings from 360-enriched model |
 
 ### Interactive Spaces

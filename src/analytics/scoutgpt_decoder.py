@@ -149,13 +149,18 @@ class ScoutGPTDecoder(nn.Module):
     ) -> torch.Tensor:
         """Run causal transformer. Returns (batch, seq_len, hidden_dim)."""
         emb = self._embed(action_ids, start_x, start_y, end_x, end_y, result, time_delta, player_ids)
+        seq_len = emb.size(1)
+
+        # Explicit causal mask (upper triangular, True = blocked).
+        # Required when src_key_padding_mask is present in PyTorch 2.10+.
+        causal_mask = torch.triu(torch.ones(seq_len, seq_len, device=emb.device, dtype=torch.bool), diagonal=1)
 
         # Padding mask: TransformerEncoder uses True = ignore
         src_key_padding_mask: torch.Tensor | None = None
         if attention_mask is not None:
             src_key_padding_mask = ~attention_mask
 
-        return self.transformer(emb, is_causal=True, src_key_padding_mask=src_key_padding_mask)
+        return self.transformer(emb, mask=causal_mask, src_key_padding_mask=src_key_padding_mask)
 
     def forward(
         self,

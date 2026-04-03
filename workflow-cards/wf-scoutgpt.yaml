@@ -56,7 +56,7 @@ cost:
     typical_cost_usd: 3.00
 
 monitoring:
-  freshness_sla_hours: 336
+  freshness_sla_hours: 168
   metrics:
     - name: "next_action_top1_accuracy"
       threshold_min: 0.20
