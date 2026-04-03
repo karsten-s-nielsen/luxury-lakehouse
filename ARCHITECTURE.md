@@ -411,6 +411,8 @@ luxury-lakehouse/
 │   │   ├── entity_resolution.py     # Three-layer progressive player matching (TF-IDF + rapidfuzz)
 │   │   ├── football2vec.py          # Doc2Vec behavioral embeddings (tokenizer, training, inference)
 │   │   ├── football2vec_transformer.py # Transformer encoder for 128-dim embeddings (adversarial team debiasing, Ganin GRL)
+│   │   ├── football2vec_360.py      # 360-enriched encoder: base transformer + Deep Sets context (144-dim, 128+16)
+│   │   ├── scoutgpt_decoder.py      # GPT-style causal decoder for player-conditioned action prediction (Hong et al. 2025)
 │   │   ├── coordinates.py           # Coordinate normalization utilities (provider-specific → unified 105×68m)
 │   │   ├── shape_graph.py           # Shape graph formation detection (Sotudeh 2026, Delaunay triangulation)
 │   │   ├── xg_model.py             # Custom xG: logistic baseline + calibrated XGBoost (JSON serialization, no pickle)

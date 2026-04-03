@@ -1,0 +1,100 @@
+---
+name: ScoutGPT — Player-Conditioned Decoder
+id: wf-scoutgpt
+version: "1.0"
+status: development
+type: training
+domain: player-embeddings
+owners:
+  - karsten
+tags:
+  - embeddings
+  - transformer
+  - decoder
+  - counterfactual
+  - player-similarity
+
+references:
+  - citation: "Hong et al. (2025). ScoutGPT: Player-conditioned Football Language Model for Counterfactual Evaluation. arXiv:2512.17266."
+    role: methodology
+  - citation: "Decroos et al. (2019). Actions Speak Louder than Goals. KDD."
+    role: algorithm
+
+inputs:
+  datasets:
+    - id: "luxury-lakehouse/scoutgpt-training-data"
+      source: huggingface
+      description: "SPADL possession episodes with per-action player attribution"
+
+outputs:
+  models:
+    - id: "luxury-lakehouse/scoutgpt"
+      destination: huggingface
+
+execution:
+  training:
+    trigger: manual
+    runtime: hf-jobs
+    flavor: a10g-large
+    script: "scripts/train_scoutgpt_hf.py"
+    timeout: "180m"
+
+depends_on:
+  - wf-scoutgpt-export
+
+idempotency:
+  strategy: full-overwrite
+  key: model_version
+  description: "Each training run produces a new model version. Weights are overwritten on HF Hub."
+
+cost:
+  training:
+    runtime: hf-jobs
+    flavor: a10g-large
+    rate_usd_per_hour: 1.50
+    typical_duration_minutes: 120
+    typical_cost_usd: 3.00
+
+monitoring:
+  freshness_sla_hours: 336
+  metrics:
+    - name: "next_action_top1_accuracy"
+      threshold_min: 0.20
+      baseline: 0.04
+    - name: "counterfactual_spearman_rho"
+      threshold_min: 0.15
+      baseline: 0.00
+
+links:
+  source_code:
+    - "scripts/train_scoutgpt_hf.py"
+    - "scripts/train_scoutgpt_hf_helpers.py"
+    - "src/analytics/scoutgpt_decoder.py"
+---
+
+## Overview
+
+ScoutGPT is a player-conditioned GPT-style causal decoder trained on SPADL possession
+episodes. Architecture: 256d hidden, 6 transformer layers, 8 attention heads (~11M params).
+Per-action player attribution via player embedding table (11,918 players). VAEP auxiliary
+regression head enriches learned representations.
+
+Follows Hong et al. (2025) -- player ID as conditioning token enables counterfactual
+substitution: swap the focal player ID to predict "what would Player X do here?"
+
+## Architecture
+
+- Token embedding: 23 SPADL action types + PAD + BOS -> 256d
+- Player embedding: 11,918 players -> 256d (per-action attribution + position-0 conditioning)
+- Spatial encoding: 4x SpatialMLP (start_x/y, end_x/y) + 1x SpatialMLP (time_delta) -> 256d each
+- Result embedding: binary success/fail -> 256d
+- 6-layer causal transformer, 8 heads, GELU activation
+- Mean pooling over valid tokens -> 256d player embedding
+- Primary head: next action type (23-class cross-entropy)
+- Auxiliary head: VAEP regression (MSE, weight 0.1)
+
+## Evaluation
+
+- Next-action accuracy (top-1, top-5) stratified by episode length
+- Counterfactual ranking correlation (Spearman rho over 1K episodes, 100 player swaps)
+- Cross-source validation gap (StatsBomb vs Wyscout)
