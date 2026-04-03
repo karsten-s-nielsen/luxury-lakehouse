@@ -86,8 +86,10 @@ def _download_from_hf(repo_id: str, filename: str, volume_path: str) -> Path:
         repo_type="dataset",
     )
     logger.info("Downloaded to local cache: %s", local_path)
+    from ingestion.utils import ensure_volume_directory
+
+    ensure_volume_directory(volume_path)
     volume_file = Path(volume_path) / Path(filename).name
-    volume_file.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(local_path, volume_file)
     logger.info("Staged %s → %s", filename, volume_file)
     return volume_file
@@ -112,10 +114,6 @@ def run_pipeline(
     from pyspark.sql import functions as spark_fn  # type: ignore[import-not-found]
 
     logger = logging.getLogger("import_obso_results")
-
-    if not volume_path.startswith("/Volumes/"):
-        msg = f"volume_path must start with /Volumes/, got: {volume_path}"
-        raise ValueError(msg)
 
     # ------------------------------------------------------------------
     # 0. Download from HF Hub to UC Volume staging path

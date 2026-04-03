@@ -580,3 +580,60 @@ def upload_volume_to_hf_hub(
     repo_url = f"https://huggingface.co/{url_prefix}{repo_id}"
     log.info("Uploaded %d Parquet files to %s in %.2fs", part_count, repo_url, elapsed)
     return repo_url
+
+
+# ---------------------------------------------------------------------------
+# UC Volume directory helpers
+# ---------------------------------------------------------------------------
+
+_vol_logger = logging.getLogger("utils.volume")
+
+
+def ensure_volume_directory(volume_path: str) -> None:
+    """Ensure a UC Volume directory exists, creating it via the Files API if needed.
+
+    On Databricks serverless, Python's ``os.makedirs`` / ``Path.mkdir`` on
+    FUSE-mounted ``/Volumes/...`` paths may fail for directories that do not
+    yet exist.  This function uses the Databricks Files API (REST) which
+    reliably creates Volume directories regardless of FUSE state.
+
+    The Files API endpoint is ``PUT /api/2.0/fs/directories/{path}`` and
+    returns 204 on success (idempotent — safe to call if directory exists).
+
+    Args:
+        volume_path: UC Volume path, e.g. ``/Volumes/catalog/schema/volume/subdir``.
+
+    Raises:
+        ValueError: If ``volume_path`` does not start with ``/Volumes/``.
+        requests.HTTPError: If the Files API call fails.
+    """
+    if not volume_path.startswith("/Volumes/"):
+        msg = f"volume_path must start with /Volumes/, got: {volume_path}"
+        raise ValueError(msg)
+
+    host = os.environ.get("DATABRICKS_HOST", "")
+    token = os.environ.get("DATABRICKS_TOKEN", "")
+
+    if not host or not token:
+        # Fallback to FUSE mkdir when running outside Databricks
+        # (e.g. local testing with a mounted Volume).
+        _vol_logger.debug("No DATABRICKS_HOST/TOKEN — falling back to os.makedirs")
+        os.makedirs(volume_path, exist_ok=True)
+        return
+
+    # Strip leading slash for the API path (API expects Volumes/... not /Volumes/...)
+    api_path = volume_path.lstrip("/")
+    url = f"https://{host}/api/2.0/fs/directories/{api_path}/"
+    resp = requests.put(
+        url,
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=(10, 30),
+        verify=True,
+    )
+    if resp.status_code == 204:
+        _vol_logger.info("Volume directory ready: %s", volume_path)
+    elif resp.status_code == 409:
+        # 409 = already exists (some API versions)
+        _vol_logger.debug("Volume directory already exists: %s", volume_path)
+    else:
+        resp.raise_for_status()

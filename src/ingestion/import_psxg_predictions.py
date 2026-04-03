@@ -86,9 +86,10 @@ def run_pipeline(
     volume_file = f"{volume_path}/psxg_predictions.parquet"
     logger.info("Copying to UC Volume: %s", volume_file)
     import shutil
-    from pathlib import Path
 
-    Path(volume_path).mkdir(parents=True, exist_ok=True)
+    from ingestion.utils import ensure_volume_directory
+
+    ensure_volume_directory(volume_path)
     shutil.copy2(local_path, volume_file)
     logger.info("Copy complete")
 
