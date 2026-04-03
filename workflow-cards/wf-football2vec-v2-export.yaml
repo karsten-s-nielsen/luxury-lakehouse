@@ -3,7 +3,7 @@ name: Football2Vec v2 — Training Data Export
 id: wf-football2vec-v2-export
 version: "1.0"
 status: production
-type: heuristic
+type: data-movement
 domain: player-embeddings
 owners:
   - karsten
