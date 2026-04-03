@@ -674,13 +674,18 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 900
     max_retries     = 1
 
+    depends_on {
+      task_key = "compute_elastic_sync"
+    }
+
     python_wheel_task {
       package_name = "luxury_lakehouse"
       entry_point  = "import_obso_results"
 
       parameters = [
         "--catalog", var.catalog_name,
-        "--schema", "bronze"
+        "--schema", "bronze",
+        "--volume-path", "/Volumes/${var.catalog_name}/dev_gold/model_weights/obso"
       ]
     }
 
@@ -692,6 +697,10 @@ resource "databricks_job" "data_ingestion" {
     task_key        = "export_shots_on_target"
     timeout_seconds = 900
     max_retries     = 1
+
+    depends_on {
+      task_key = "compute_spadl_vaep"
+    }
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
@@ -712,6 +721,10 @@ resource "databricks_job" "data_ingestion" {
     task_key        = "import_psxg_predictions"
     timeout_seconds = 900
     max_retries     = 1
+
+    depends_on {
+      task_key = "export_shots_on_target"
+    }
 
     python_wheel_task {
       package_name = "luxury_lakehouse"

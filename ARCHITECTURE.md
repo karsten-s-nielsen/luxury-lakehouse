@@ -1,7 +1,7 @@
 # Databricks Lakebase Architecture — Soccer Analytics Platform
 
-> **Status**: Cycle 2 complete (Shape Graphs + Transformer Embeddings) — 14 Taipy pages, 28 synced tables, 48 PG indexes (44 btree + 4 HNSW at 128d). Hugging Face Hub: 5 models + 13 datasets published, GPU training on HF Jobs A10G. Football2vec v2 (128-dim transformer, adversarial team debiasing). Shape graph formation detection (Sotudeh 2026) + 5x5 position maps.
-> **Last Updated**: 2026-03-31
+> **Status**: Cycle 3 complete (GK Analytics + 360 Embeddings + Infrastructure) — 14 Taipy pages, 34 synced tables, 56 PG indexes (50 btree + 6 HNSW at 128d/144d). Hugging Face Hub: 7 models + 17 datasets published, GPU training on HF Jobs A10G. PSxG model (Brier 0.129). ScoutGPT decoder architecture (D32 Phase A).
+> **Last Updated**: 2026-04-03
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready
 

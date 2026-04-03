@@ -17,6 +17,13 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    env:
+      # Databricks connection for dbt — used by env_var() in profiles.yml.
+      # Empty when secrets are unavailable (forks, external PRs); dbt parse
+      # still works (no connection needed).
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}  # pragma: allowlist secret
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -45,9 +52,9 @@ jobs:
                 type: databricks
                 catalog: soccer_analytics
                 schema: ci
-                host: "ci-placeholder.cloud.databricks.com"
-                http_path: "/sql/1.0/warehouses/ci-placeholder"
-                token: "__CI_PLACEHOLDER__"
+                host: "{{ env_var('DATABRICKS_HOST') }}"
+                http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"
+                token: "{{ env_var('DATABRICKS_TOKEN') }}"
                 threads: 1
           PROFILES
 
@@ -73,8 +80,13 @@ jobs:
           git checkout ${{ github.sha }} -- .
           git stash pop || true
 
-      # Schema-only validation of modified models (zero-cost DDL check)
-      - name: dbt build --empty (modified models, PR only)
-        if: github.event_name == 'pull_request'
-        working-directory: dbt_project
-        run: uv run dbt build --empty --select state:modified+ --defer --state target-main --profiles-dir .
+      # NOTE: dbt build --empty (schema contract validation via DDL) is NOT run
+      # in CI. The Databricks serverless SQL warehouse Thrift endpoint is not
+      # reachable from GitHub Actions runners — the databricks-sql-connector
+      # hangs on OpenSession for 900s then times out. Investigated 2026-04-03:
+      # IP allowlists are disabled (feature unavailable on this pricing tier),
+      # workspace is publicly accessible (REST API works), but the Thrift
+      # transport layer cannot establish a session. Schema contracts are
+      # validated locally via `dbt build --empty` before every commit.
+      # Revisit when: self-hosted runner available, or Databricks fixes
+      # serverless Thrift connectivity from public CI runners.

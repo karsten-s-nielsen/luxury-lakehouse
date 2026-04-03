@@ -754,12 +754,21 @@ MIT -- computed from IDSSE open data (CC-BY 4.0).
             f.write(card)
 
         api.create_repo(OUTPUT_DATASET, repo_type="dataset", exist_ok=True, token=hf_token)
-        api.upload_folder(
-            folder_path=tmpdir,
-            repo_id=OUTPUT_DATASET,
-            repo_type="dataset",
-            token=hf_token,
-        )
+        # Upload individual files — upload_folder fails on xet storage backend
+        # in HF Jobs. upload_file is reliable (proven by CostEstimateHook and
+        # all training scripts in this repo).
+        for local_path, repo_path in [
+            (str(data_dir / "pausa_raw_scores.parquet"), "data/pausa_raw_scores.parquet"),
+            (str(Path(tmpdir) / "metadata.json"), "metadata.json"),
+            (str(Path(tmpdir) / "README.md"), "README.md"),
+        ]:
+            api.upload_file(
+                path_or_fileobj=local_path,
+                path_in_repo=repo_path,
+                repo_id=OUTPUT_DATASET,
+                repo_type="dataset",
+                token=hf_token,
+            )
 
     print(f"\n  Published: https://huggingface.co/datasets/{OUTPUT_DATASET}")
     print(f"  Passes processed: {n_passes}")

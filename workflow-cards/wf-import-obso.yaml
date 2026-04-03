@@ -1,5 +1,5 @@
 ---
-name: Import OBSO Results from UC Volume
+name: Import OBSO Results from HF Hub
 id: wf-import-obso
 version: "1.0.0"
 status: production
@@ -21,9 +21,9 @@ references:
 
 inputs:
   datasets:
-    - id: "OBSO Parquet files on UC Volume"
-      source: uc-volume
-      description: "PAUSA raw scores and OBSO surfaces from HF Jobs compute"
+    - id: "luxury-lakehouse/obso-pausa-values"
+      source: huggingface
+      description: "OBSO/PAUSA Parquet downloaded from HF Hub to UC Volume staging path"
 
 outputs:
   tables:
@@ -39,11 +39,11 @@ execution:
     entry_point: import_obso_results
     module: ingestion.import_obso_results
     distribution: driver-bound
-    timeout: "600s"
+    timeout: "900s"
     environment: analytics
 
 depends_on:
-  - wf-obso-pausa
+  - wf-elastic-sync
 
 idempotency:
   strategy: upsert
@@ -51,7 +51,7 @@ idempotency:
   description: "replaceWhere on match_id for idempotent partition-level writes."
 
 performance:
-  inference_timeout: "600s"
+  inference_timeout: "900s"
   memory_ceiling: "16 GB driver"
 
 cost:
@@ -71,6 +71,6 @@ links:
 
 ## Overview
 
-Reads OBSO/PAUSA Parquet results from a UC Volume staging path and writes them to
-bronze Delta tables. Imports both PAUSA raw scores and optional OBSO surfaces with
-replaceWhere partitioning on match_id for idempotent writes.
+Downloads from HF Hub, stages to UC Volume, then writes to bronze Delta tables.
+Imports both PAUSA raw scores and optional OBSO surfaces with replaceWhere
+partitioning on match_id for idempotent writes.

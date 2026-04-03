@@ -33,11 +33,11 @@ execution:
     entry_point: import_psxg_predictions
     module: ingestion.import_psxg_predictions
     distribution: driver-bound
-    timeout: "600s"
+    timeout: "900s"
     environment: analytics
 
 depends_on:
-  - wf-goalkeeper
+  - wf-export-shots
 
 idempotency:
   strategy: upsert
@@ -45,7 +45,7 @@ idempotency:
   description: "replaceWhere on match_id for idempotent partition-level writes."
 
 performance:
-  inference_timeout: "600s"
+  inference_timeout: "900s"
   memory_ceiling: "16 GB driver"
 
 cost:

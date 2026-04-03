@@ -29,6 +29,9 @@ inputs:
     - id: "{catalog}.{schema}.fct_action_values"
       source: delta-table
       description: "SPADL action values for GK distribution xT delta computation"
+    - id: "{catalog}.bronze.psxg_predictions"
+      source: delta-table
+      description: "PSxG predictions for goals_prevented / psxg_faced columns"
 
 outputs:
   tables:
@@ -62,6 +65,7 @@ execution:
 depends_on:
   - wf-vaep
   - wf-xt-grids
+  - wf-import-psxg
 
 idempotency:
   strategy: skip-guard
@@ -84,9 +88,9 @@ cost:
 monitoring:
   metrics:
     - name: brier_score
-      baseline: 0.20
-      warn_above: 0.25
-      alert_above: 0.30
+      baseline: 0.13
+      warn_above: 0.16
+      alert_above: 0.20
     - name: log_loss
       baseline: 0.60
       warn_above: 0.70

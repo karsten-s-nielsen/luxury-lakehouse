@@ -1,0 +1,35 @@
+version: 2
+
+sources:
+  - name: psxg
+    description: >
+      Post-Shot Expected Goals predictions from the PSxG logistic regression model.
+      Imported from HF Hub dataset luxury-lakehouse/psxg-predictions via
+      import_psxg_predictions entry point.
+    database: soccer_analytics
+    schema: bronze
+    loader: python_wheel
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 168, period: hour}
+        error_after: {count: 336, period: hour}
+
+    tables:
+      - name: psxg_predictions
+        description: >
+          Per-shot PSxG probability predictions. One row per shot event.
+          event_id is the shot's surrogate key (matches fct_shots.shot_id).
+          player_id is the SHOOTER (not the goalkeeper).
+          psxg is NaN for off-target shots.
+        columns:
+          - name: event_id
+            description: Shot event surrogate key (FK to fct_shots.shot_id)
+          - name: match_id
+            description: Match identifier (string)
+          - name: player_id
+            description: Shooter player_id (NOT the goalkeeper)
+          - name: psxg
+            description: Post-shot xG probability (0-1, NaN for off-target)
+          - name: _ingested_at
+            description: UTC timestamp of ingestion

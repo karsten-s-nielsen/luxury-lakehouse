@@ -32,6 +32,15 @@ STAT_FEATURES_BY_GROUP: dict[str, tuple[str, ...]] = {
         "gk_xt_per_pass",
         "launch_rate",
         "claim_success_rate",
+        "goals_prevented_per_90",
+        "psxg_per_shot_faced",
+        "avg_defensive_action_distance",
+        "actions_outside_box_per_90",
+        "clean_sheet_pct",
+        "saves_per_90",
+        "distribution_passes_per_90",
+        "gk_xt_delta_total_per_90",
+        "punches_per_90",
     ),
     "Defender": (
         "goals_per_90",
@@ -82,6 +91,27 @@ STAT_FEATURES_BY_GROUP: dict[str, tuple[str, ...]] = {
 
 # Backwards compatibility — outfield features as an immutable tuple.
 STAT_FEATURES: tuple[str, ...] = STAT_FEATURES_BY_GROUP["Defender"]
+
+# SQL expressions for GK features that need per-90 or ratio derivation.
+# Features not listed here fall back to simple ``AVG(gk.{f})``.
+GK_FEATURE_SQL: dict[str, str] = {
+    "goals_prevented_per_90": (
+        "AVG(CASE WHEN gk.minutes_played > 0 THEN gk.goals_prevented / gk.minutes_played * 90 ELSE NULL END)"
+    ),
+    "psxg_per_shot_faced": (
+        "AVG(CASE WHEN (gk.saves + gk.goals_conceded) > 0"
+        " THEN gk.psxg_faced / (gk.saves + gk.goals_conceded) ELSE NULL END)"
+    ),
+    "clean_sheet_pct": "AVG(CASE WHEN gk.goals_conceded = 0 THEN 1.0 ELSE 0.0 END)",
+    "saves_per_90": ("AVG(CASE WHEN gk.minutes_played > 0 THEN gk.saves / gk.minutes_played * 90 ELSE NULL END)"),
+    "distribution_passes_per_90": (
+        "AVG(CASE WHEN gk.minutes_played > 0 THEN gk.distribution_passes / gk.minutes_played * 90 ELSE NULL END)"
+    ),
+    "gk_xt_delta_total_per_90": (
+        "AVG(CASE WHEN gk.minutes_played > 0 THEN gk.gk_xt_delta_total / gk.minutes_played * 90 ELSE NULL END)"
+    ),
+    "punches_per_90": ("AVG(CASE WHEN gk.minutes_played > 0 THEN gk.punches / gk.minutes_played * 90 ELSE NULL END)"),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -313,7 +343,11 @@ def _load_goalkeeper_stats(
         Pandas DataFrame with canonical_player_id, competition_id, season_id,
         position_group='Goalkeeper', and the requested feature columns.
     """
-    agg_cols = ", ".join(f"AVG(gk.{f}) AS {f}" for f in features)
+    select_parts: list[str] = []
+    for f in features:
+        sql_expr = GK_FEATURE_SQL.get(f, f"AVG(gk.{f})")
+        select_parts.append(f"{sql_expr} AS {f}")
+    agg_cols = ", ".join(select_parts)
     query = f"""
         SELECT
             CAST(dp.canonical_player_id AS STRING) AS canonical_player_id,

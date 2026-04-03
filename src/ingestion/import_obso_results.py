@@ -1,14 +1,13 @@
-"""Import OBSO results from Parquet into bronze Delta tables.
+"""Import OBSO results from HF Hub into bronze Delta tables.
 
-Standalone PySpark script (run as a Databricks notebook, not an entry point).
-Reads OBSO Parquet from a UC Volume staging path and writes to
-``obso_surfaces`` and ``pausa_raw_scores`` bronze Delta tables.
+Downloads OBSO/PAUSA Parquet from HF Hub (``luxury-lakehouse/obso-pausa-values``),
+stages to a UC Volume path, and writes to ``pausa_raw_scores`` and (optionally)
+``obso_surfaces`` bronze Delta tables.
 
-Usage (Databricks notebook):
-    %run /Workspace/Users/.../import_obso_results
-
-Or from CLI:
-    databricks jobs create --json '...'
+Usage (Databricks):
+    import_obso_results --catalog soccer_analytics --schema bronze \
+        --volume-path /Volumes/soccer_analytics/dev_gold/model_weights/obso \
+        --hf-repo luxury-lakehouse/obso-pausa-values
 
 References:
     Spearman (2018). "Beyond Expected Goals." MIT Sloan.
@@ -20,14 +19,22 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import shutil
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING
+
+from huggingface_hub import hf_hub_download
 
 from shared.constants import IDENTIFIER_RE
 from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
+
+HF_REPO = "luxury-lakehouse/obso-pausa-values"
+PAUSA_TABLE = "pausa_raw_scores"
+OBSO_TABLE = "obso_surfaces"
 
 # ---------------------------------------------------------------------------
 # Structured JSON logging (mirrors src/ingestion/utils.py pattern)
@@ -61,6 +68,32 @@ def _configure_logging() -> logging.Logger:
 
 
 # ---------------------------------------------------------------------------
+# HF Hub download bridge
+# ---------------------------------------------------------------------------
+
+
+def _download_from_hf(repo_id: str, filename: str, volume_path: str) -> Path:
+    """Download a file from HF Hub to UC Volume staging path.
+
+    Returns:
+        Path to the staged file on the UC Volume.
+    """
+    logger = logging.getLogger("import_obso_results")
+    logger.info("Downloading %s from %s", filename, repo_id)
+    local_path = hf_hub_download(
+        repo_id=repo_id,
+        filename=filename,
+        repo_type="dataset",
+    )
+    logger.info("Downloaded to local cache: %s", local_path)
+    volume_file = Path(volume_path) / Path(filename).name
+    volume_file.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(local_path, volume_file)
+    logger.info("Staged %s → %s", filename, volume_file)
+    return volume_file
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -71,13 +104,23 @@ def run_pipeline(
     catalog: str,
     schema: str,
     volume_path: str,
+    hf_repo: str = HF_REPO,
     *,
     ctx: object = None,
 ) -> None:
-    """Read OBSO Parquet from UC Volume and write to Delta tables."""
+    """Download OBSO results from HF Hub and write to bronze Delta tables."""
     from pyspark.sql import functions as spark_fn  # type: ignore[import-not-found]
 
     logger = logging.getLogger("import_obso_results")
+
+    if not volume_path.startswith("/Volumes/"):
+        msg = f"volume_path must start with /Volumes/, got: {volume_path}"
+        raise ValueError(msg)
+
+    # ------------------------------------------------------------------
+    # 0. Download from HF Hub to UC Volume staging path
+    # ------------------------------------------------------------------
+    _download_from_hf(hf_repo, f"data/{PAUSA_TABLE}.parquet", volume_path)
 
     # ------------------------------------------------------------------
     # 1. Import PAUSA raw scores
@@ -95,7 +138,7 @@ def run_pipeline(
         # Collect distinct match_ids for replaceWhere predicate
         match_ids = [str(row["match_id"]) for row in scores_df.select("match_id").distinct().collect()]
         if match_ids:
-            quoted = ", ".join(f"'{mid}'" for mid in match_ids)
+            quoted = ", ".join(f"'{mid.replace(chr(39), '')}'" for mid in match_ids)
             replace_where = f"match_id IN ({quoted})"
             start = time.time()
             (
@@ -156,8 +199,10 @@ def run_pipeline(
                 logger.warning("No match_ids found in surfaces — skipping write")
         else:
             logger.info("No surfaces to import — skipping")
-    except Exception:
+    except FileNotFoundError:
         logger.info("OBSO surfaces not found at %s — skipping (surfaces are optional)", surfaces_path)
+    except Exception:
+        logger.warning("Unexpected error reading OBSO surfaces at %s — skipping", surfaces_path, exc_info=True)
 
     logger.info("OBSO import complete")
 
@@ -185,6 +230,11 @@ def main() -> None:
         default="/Volumes/soccer_analytics/dev_gold/model_weights/obso",
         help="UC Volume path containing OBSO Parquet files",
     )
+    parser.add_argument(
+        "--hf-repo",
+        default=HF_REPO,
+        help="HF Hub dataset repo to download OBSO results from (default: %(default)s)",
+    )
     args = parser.parse_args()
 
     catalog: str = args.catalog
@@ -203,7 +253,7 @@ def main() -> None:
 
     bootstrap_hooks(spark, catalog, schema)
 
-    run_pipeline(spark, catalog, schema, volume_path)
+    run_pipeline(spark, catalog, schema, volume_path, hf_repo=args.hf_repo)
 
 
 if __name__ == "__main__":
