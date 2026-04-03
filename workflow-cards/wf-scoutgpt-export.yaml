@@ -1,0 +1,97 @@
+---
+name: ScoutGPT — Training Data Export
+id: wf-scoutgpt-export
+version: "1.0"
+status: development
+type: data-movement
+domain: player-embeddings
+owners:
+  - karsten
+tags:
+  - embeddings
+  - training-data
+  - spadl
+  - huggingface
+  - possession-episodes
+
+references:
+  - citation: "Decroos et al. (2019). Actions Speak Louder than Goals. KDD."
+    role: methodology
+
+inputs:
+  tables:
+    - id: "{catalog}.{schema}.fct_action_values"
+      source: delta-table
+      description: "SPADL action sequences with VAEP values"
+    - id: "{catalog}.{schema}.dim_players"
+      source: delta-table
+      description: "Player dimension for canonical_player_id mapping"
+
+outputs:
+  datasets:
+    - id: "luxury-lakehouse/scoutgpt-training-data"
+      destination: huggingface
+      description: "SPADL possession episodes with per-action player attribution (Parquet)"
+
+execution:
+  export:
+    trigger: manual
+    runtime: databricks-workflow
+    entry_point: export_scoutgpt_training_data
+    module: ingestion.export_scoutgpt_training_data
+    distribution: driver-bound
+    timeout: "900s"
+    environment: analytics
+
+depends_on:
+  - wf-vaep
+  - wf-entity-resolution
+
+idempotency:
+  strategy: full-overwrite
+  key: episode_id
+  description: "Exports all possession episodes each run; HF Hub dataset is replaced in full."
+
+cost:
+  export:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 30
+    typical_cost_usd: 2.10
+
+monitoring:
+  freshness_sla_hours: 336
+
+links:
+  source_code:
+    - "src/ingestion/export_scoutgpt_training_data.py"
+---
+
+## Overview
+
+Reads SPADL actions from fct_action_values, segments them into possession episodes
+using team-change, period-boundary, set-piece-restart, and time-gap rules. Joins
+dim_players for canonical player ID mapping. Serializes episodes as struct arrays
+in Parquet and publishes to HF Hub as luxury-lakehouse/scoutgpt-training-data.
+
+Possession segmentation rules:
+1. Team change -> new episode
+2. Period boundary -> new episode
+3. Set piece restart (goalkick, throw_in, freekick_short/crossed, corner_short/crossed) -> new episode
+4. Time gap > 10 seconds -> new episode
+
+Minimum episode length: 3 actions.
+
+## Output Schema
+
+One row per possession episode:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| episode_id | string | Surrogate: match_id + period + episode_seq |
+| match_id | string | Match identifier |
+| competition_id | int | Competition identifier |
+| season_id | int | Season identifier |
+| team_id | int | Possessing team |
+| data_source | string | statsbomb or wyscout |
+| actions | array<struct> | Per-action: action_type (0-22), start_x/y, end_x/y (0-1), result (0/1), vaep_value, time_delta, player_idx (0-11917) |

@@ -91,6 +91,7 @@ export_shots_on_target = "ingestion.export_shots_on_target:main"
 import_psxg_predictions = "ingestion.import_psxg_predictions:main"
 import_obso_results = "ingestion.import_obso_results:main"
 prepare_360_training_data = "ingestion.prepare_360_training_data:main"
+export_scoutgpt_training_data = "ingestion.export_scoutgpt_training_data:main"
 
 [tool.ruff]
 target-version = "py310"
