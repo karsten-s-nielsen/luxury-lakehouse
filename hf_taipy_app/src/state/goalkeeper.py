@@ -631,6 +631,11 @@ def _dispatch_refresh(state: Any) -> None:
 
 def gk_refresh(state: Any) -> None:
     """Full refresh: configure sub-views, LOVs, then dispatch."""
+    global _cached_rankings
+    # Invalidate rankings cache on every full refresh (competition/team change)
+    # to prevent stale cross-competition data in Shot Stopping charts
+    _cached_rankings = pd.DataFrame()
+
     # Ensure sub-view LOV is populated on page navigate
     if not getattr(state, "sub_view_lov", None) or state.sub_view_lov != GK_SUB_VIEW_LOV:
         state.sub_view_lov = GK_SUB_VIEW_LOV
