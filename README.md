@@ -43,7 +43,7 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 | **Transformation** | dbt-databricks on Serverless SQL | Flatten nested JSON, compute xG/xT metrics |
 | **Synchronization** | Lakeflow Synced Tables | Zero-ETL continuous sync from Gold → Lakebase |
 | **Serving** | Lakebase PostgreSQL 17 (Autoscaling) | Sub-10ms OLTP queries, native pgvector, scale-to-zero |
-| **Application** | [Taipy on Hugging Face Spaces](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) | 14-page interactive dashboard (Docker SDK, Lakebase PostgreSQL) |
+| **Application** | [Taipy on Hugging Face Spaces](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) | 16-page interactive dashboard (Docker SDK, Lakebase PostgreSQL) |
 | **ML Artifacts** | [Hugging Face Hub](https://huggingface.co/luxury-lakehouse) | Publish [7 models](https://huggingface.co/luxury-lakehouse) + [18 datasets](https://huggingface.co/luxury-lakehouse), GPU training on HF Jobs, and [interactive demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) |
 | **Security** | OAuth M2M + OIDC Federation + KMS | Zero-secret CI, least-privilege SPs, encrypted state |
 | **Infrastructure** | Terraform + Databricks Provider | Everything as code |
@@ -80,6 +80,7 @@ Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by 
 - **Team Shape** — Convex hull, centroid, formation lines, 6 spatial metrics (stretch index, team length/width, defensive line height, inter-line gaps) from tracking data
 - **Formation Detection** — Dual-detector: EFPI template matching (Bekkers & Dabadghao 2025) + shape graph geometric detection (Sotudeh 2026, Delaunay triangulation)
 - **Position Maps** — 5x5 time-in-position matrices per player per match (all/in-possession/out-of-possession phases) from shape graph position assignments
+- **Goalkeeper Analytics** — Four-pillar GK evaluation: shot stopping (PSxG goals prevented, Butcher et al. 2025), distribution (pass distance categories, xT progression, Lamberts 2025), claiming, and sweeping
 
 ## Project Structure
 
@@ -95,7 +96,7 @@ luxury-lakehouse/
 ├── notebooks/          # Databricks notebooks (football2vec/xG training, model weight sync, dataset publishing to HF Hub)
 ├── demo_space/         # Hugging Face Gradio demo Space (pass quality, pitch control, player similarity, shot map, DEFCON pressure, pass timing)
 ├── dbt_project/        # Bronze → Silver → Gold transformations
-├── workflow-cards/     # YAML workflow card manifests (32 AI/ML workflow definitions)
+├── workflow-cards/     # YAML workflow card manifests (34 AI/ML workflow definitions)
 ├── scripts/            # Operational scripts (PG indexes, grants, synced table management)
 ├── docs/
 │   ├── c4/             # C4 architecture diagrams (Structurizr DSL)
@@ -123,7 +124,7 @@ The `src/analytics/` modules (pitch control, line-breaking, DEFCON, off-ball xT,
 
 ## Status
 
-**Cycle 3 complete (PSxG + Football2Vec 360)** — 14 Taipy pages, 34 synced tables (Lakebase reverse-ETL), 56 PG indexes (sub-second dashboard queries), 1,118+ unit tests. Hugging Face Hub: 7 models + 18 datasets published, GPU training on HF Jobs A10G, [Gradio demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme (6 tabs). Football2vec v2: 128-dim transformer embeddings with adversarial team debiasing (Ganin GRL). Shape graph formation detection (Sotudeh 2026) + 5x5 position maps. xG v2 set encoder (ROC-AUC 0.915, MC dropout uncertainty). PSxG logistic model (Butcher et al. 2025) + Football2Vec 360 encoder (144-dim). See [ARCHITECTURE.md](ARCHITECTURE.md) for the platform architecture and [ROADMAP.md](ROADMAP.md) for research directions.
+**Cycle 4 Phase 2 (GK Analytics + Tactical Positions)** — 16 Taipy pages, 34 synced tables (Lakebase reverse-ETL), 56 PG indexes (sub-second dashboard queries), 1,118+ unit tests. Hugging Face Hub: 7 models + 18 datasets published, GPU training on HF Jobs A10G, [Gradio demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme (6 tabs). Football2vec v2: 128-dim transformer embeddings with adversarial team debiasing (Ganin GRL). Shape graph formation detection (Sotudeh 2026) + 5x5 position maps. xG v2 set encoder (ROC-AUC 0.915, MC dropout uncertainty). PSxG logistic model (Butcher et al. 2025) + Football2Vec 360 encoder (144-dim). See [ARCHITECTURE.md](ARCHITECTURE.md) for the platform architecture and [ROADMAP.md](ROADMAP.md) for research directions.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -149,7 +150,7 @@ The `src/analytics/` modules (pitch control, line-breaking, DEFCON, off-ball xT,
 | 17 | DEFCON-lite Defensive Pressure | Complete |
 | 18 | Hugging Face Hub Expansion | Complete |
 | 19 | Model Ops & Event Sync (ELASTIC, PAUSA, drift detection) | Complete |
-| 20 | Taipy Migration (14 pages, full content parity) | Complete |
+| 20 | Taipy Migration (16 pages, full content parity) | Complete |
 
 ## Getting Started
 

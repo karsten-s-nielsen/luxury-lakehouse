@@ -143,6 +143,52 @@ GLOSSARY: dict[str, str] = {
     "Inter-Line Gaps": "Distance between defensive-midfield and midfield-attack line centroids. Under 12m = compact, over 18m = exposed.",
     "Team Length": "Distance between deepest and most advanced outfield players along the goal-to-goal axis.",
     "Team Width": "Distance between widest outfield players along the touchline-to-touchline axis.",
+    "PSxG (Post-Shot Expected Goals)": (
+        "Probability of a shot being scored given its end location in the goal frame "
+        "(0-1 per shot, higher = harder to save). Summed across shots faced to evaluate GK workload."
+    ),
+    "Goals Prevented": (
+        "PSxG faced minus goals conceded. Positive = GK saved more than the model expected. "
+        "Negative = conceded more than expected. Zero = exactly average."
+    ),
+    "Launch Rate": "Percentage of GK distribution passes over 60m. Higher = more direct style. Typical range: 15-40%.",
+    "xT / Pass (Distribution)": (
+        "Average Expected Threat gained per GK distribution pass. "
+        "Higher = more progressive distribution (typical: 0.001\u20130.005)."
+    ),
+    "Save %": (
+        "Percentage of on-target shots saved. Higher = better shot-stopping. "
+        "Only available for competitions with tracking data."
+    ),
+    "Claim Success %": (
+        "Successful claims divided by total claim attempts. "
+        "A claim is when the GK comes to catch a cross or high ball. Higher = more reliable claiming."
+    ),
+    "Sweeper Distance": (
+        "Average distance (meters) of GK defensive actions from own goal line. "
+        "Higher = more proactive sweeper style. Typical range: 8-15m."
+    ),
+    "Outside Box/90": (
+        "Defensive actions outside the penalty area per 90 minutes. "
+        "Higher = more involved in outfield play. Typical range: 0.5-2.0."
+    ),
+    "Position Label": (
+        "Combined tactical role (e.g., RCB, LWB, CAM) from vertical level (B/DM/M/AM/F) "
+        "and horizontal level (L/LC/C/RC/R)."
+    ),
+    "Vertical Level": (
+        "Depth classification of a player's position: Back (B), Defensive Midfield (DM), "
+        "Midfield (M), Attacking Midfield (AM), Forward (F)."
+    ),
+    "Horizontal Level": "Width classification: Left (L), Left-Center (LC), Center (C), Right-Center (RC), Right (R).",
+    "Position Map": (
+        "5x5 grid showing percentage of time a player occupies each tactical role combination "
+        "(vertical level x horizontal level)."
+    ),
+    "Formation Detector": (
+        "Algorithm that assigns formation labels (e.g., 4-3-3) to player positioning data. "
+        "EFPI uses template matching; Shape Graph uses Delaunay triangulation."
+    ),
 }
 
 PAGE_TERMS: dict[str, list[str]] = {
@@ -169,6 +215,16 @@ PAGE_TERMS: dict[str, list[str]] = {
         "Percentile Rank",
     ],
     "Player-Similarity": ["Cosine Distance", "Behavioral Vector", "Statistical Vector"],
+    "Goalkeeper-Analytics": [
+        "PSxG (Post-Shot Expected Goals)",
+        "Goals Prevented",
+        "Save %",
+        "Launch Rate",
+        "xT / Pass (Distribution)",
+        "Claim Success %",
+        "Sweeper Distance",
+        "Outside Box/90",
+    ],
     "Movement-Pressing": ["PPDA", "xT (Expected Threat)", "Off-Ball xT", "Pitch Control"],
     "Pitch-Control": ["Pitch Control"],
     "Pass-Timing": ["PAUSA", "Temporal Judgment", "Spatial Selection", "OBSO", "Passes with Value"],
@@ -183,6 +239,15 @@ PAGE_TERMS: dict[str, list[str]] = {
         "Inter-Line Gaps",
         "Team Length",
         "Team Width",
+    ],
+    "Tactical-Positions": [
+        "Shape Graph",
+        "Position Label",
+        "Vertical Level",
+        "Horizontal Level",
+        "EFPI",
+        "Position Map",
+        "Formation Detector",
     ],
     "AI-ML-Workflows": [
         "Cost Tier",
@@ -219,26 +284,29 @@ def _build_glossary_panels() -> str:
 _glossary_panels = _build_glossary_panels()
 
 # fmt: off
-_COMP_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary", "Player-Impact", "Player-Comparison")
-_TEAM_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary", "Player-Impact", "Player-Comparison")
+_COMP_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary", "Player-Impact", "Player-Comparison", "Goalkeeper-Analytics")
+_TEAM_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary", "Player-Impact", "Player-Comparison", "Goalkeeper-Analytics")
 _MATCH_PAGES = ("Pass-Map", "Pass-Network", "Match-Summary", "Player-Impact")
 _PLAYER_PAGES = ("Shot-Map", "Heat-Map", "Player-Impact")
 _PLAYER_MULTI_PAGES = ("Player-Comparison",)
 _XG_MODEL_PAGES = ("Shot-Map",)
 _MIN_PASSES_PAGES = ("Pass-Network",)
 _MIN_MINUTES_PAGES = ("Player-Impact", "Player-Comparison")
+_GK_PAGES = ("Goalkeeper-Analytics",)
 _TRACKING_PROVIDER_PAGES = ("Pitch-Control",)
-_SUB_VIEW_PAGES = ("Player-Impact", "Movement-Pressing", "Team-Shape")
+_SUB_VIEW_PAGES = ("Player-Impact", "Movement-Pressing", "Team-Shape", "Goalkeeper-Analytics", "Tactical-Positions")
 _PASS_OVERLAY_PAGES = ("Pass-Map",)
 _SIMILARITY_PAGES = ("Player-Similarity",)
 _PASS_TIMING_PAGES = ("Pass-Timing",)
 _DEFCON_PAGES = ("Defensive-Impact",)
 _PC_CONTROL_PAGES = ("Pitch-Control",)
 _TEAM_SHAPE_PAGES = ("Team-Shape",)
+_TACTICAL_POSITIONS_PAGES = ("Tactical-Positions",)
 _WF_PAGES = ("AI-ML-Workflows",)
 _FILTER_HEADER_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary",
-                        "Player-Impact", "Player-Comparison", "Movement-Pressing",
-                        "Pitch-Control", "Team-Shape", "Pass-Timing", "Defensive-Impact", "AI-ML-Workflows")
+                        "Player-Impact", "Player-Comparison", "Goalkeeper-Analytics", "Movement-Pressing",
+                        "Pitch-Control", "Team-Shape", "Tactical-Positions", "Pass-Timing",
+                        "Defensive-Impact", "AI-ML-Workflows")
 # fmt: on
 
 # ---------------------------------------------------------------------------
@@ -349,6 +417,30 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         slider_range_labels=("0", "2000"),
         depends_on="selected_competition",
         help="Minimum total minutes played to include a player in rankings. Filters low-sample entries.",
+    ),
+    # Goalkeeper Analytics — GK-only player selector + min minutes
+    SidebarWidget(
+        "dropdown",
+        "gk_selected_player",
+        "Goalkeeper",
+        "gk_on_gk_player_change",
+        condition=f"current_page in {_GK_PAGES}",
+        lov="gk_player_lov",
+        depends_on="selected_competition",
+        help="Select a goalkeeper to view their shot stopping and distribution. Only goalkeepers with GK stats are listed.",
+    ),
+    SidebarWidget(
+        "slider",
+        "min_minutes",
+        "Min. minutes played",
+        "on_min_minutes_change",
+        condition=f"current_page in {_GK_PAGES}",
+        slider_min="0",
+        slider_max="2000",
+        slider_step="45",
+        slider_range_labels=("0", "2000"),
+        depends_on="selected_competition",
+        help="Minimum total minutes played to include a GK in rankings. Filters low-sample entries.",
     ),
     SidebarWidget(
         "toggle",
@@ -706,6 +798,56 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         "ts_on_formation_lines_toggle",
         condition='current_page == "Team-Shape" and selected_sub_view == "Snapshot"',
         help="Toggle dashed formation lines connecting players by detected line clusters.",
+    ),
+    # Tactical Positions — Provider + Tracking Match + Team + Player selectors
+    SidebarWidget(
+        "dropdown",
+        "selected_provider",
+        "Provider",
+        "on_provider_change",
+        condition=f"current_page in {_TACTICAL_POSITIONS_PAGES}",
+        lov="provider_lov",
+        help="Tracking data source for tactical position analysis.",
+    ),
+    SidebarWidget(
+        "dropdown",
+        "selected_tracking_match",
+        "Tracking Match",
+        "on_tracking_match_change",
+        condition=f"current_page in {_TACTICAL_POSITIONS_PAGES}",
+        lov="tracking_match_lov",
+        depends_on="selected_provider",
+        help="Select a tracking match for position detection.",
+    ),
+    SidebarWidget(
+        "dropdown",
+        "tac_selected_team",
+        "Team",
+        "tac_on_team_change",
+        condition=f"current_page in {_TACTICAL_POSITIONS_PAGES}",
+        lov="tac_team_lov",
+        depends_on="selected_tracking_match",
+        help="Select home or away team for position analysis.",
+    ),
+    SidebarWidget(
+        "dropdown",
+        "tac_selected_player",
+        "Player",
+        "tac_on_player_change",
+        condition='current_page == "Tactical-Positions" and selected_sub_view == "Position Maps"',
+        lov="tac_player_lov",
+        depends_on="tac_selected_team",
+        help="Select a player to view their 5x5 position map heatmap.",
+    ),
+    SidebarWidget(
+        "dropdown",
+        "tac_selected_compare_player",
+        "Compare with",
+        "tac_on_compare_player_change",
+        condition='current_page == "Tactical-Positions" and selected_sub_view == "Position Maps"',
+        lov="tac_compare_player_lov",
+        depends_on="tac_selected_team",
+        help="Select a second player to compare position maps side by side.",
     ),
 ]
 

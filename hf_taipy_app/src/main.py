@@ -11,6 +11,8 @@ from pages.action_values import page_config as action_values_config
 from pages.action_values import page_md as action_values_page
 from pages.defensive_valuation import page_config as defensive_impact_config
 from pages.defensive_valuation import page_md as defensive_impact_page
+from pages.goalkeeper import page_config as goalkeeper_config
+from pages.goalkeeper import page_md as goalkeeper_page
 from pages.heat_map import page_config as heat_map_config
 from pages.heat_map import page_md as heat_map_page
 from pages.match_summary import page_config as match_summary_config
@@ -33,12 +35,15 @@ from pages.player_similarity import page_md as player_similarity_page
 # --- Page layouts ---
 from pages.shot_map import page_config as shot_map_config
 from pages.shot_map import page_md as shot_map_page
+from pages.tactical_positions import page_config as tactical_positions_config
+from pages.tactical_positions import page_md as tactical_positions_page
 from pages.team_shape import page_config as team_shape_config
 from pages.team_shape import page_md as team_shape_page
 from pages.workflows import page_config as workflows_config
 from pages.workflows import page_md as workflows_page
 from state.action_values import *  # noqa: F403
 from state.defensive_valuation import *  # noqa: F403
+from state.goalkeeper import *  # noqa: F403
 from state.heat_map import *  # noqa: F403
 from state.match_summary import *  # noqa: F403
 from state.movement_analysis import *  # noqa: F403
@@ -52,6 +57,7 @@ from state.player_similarity import *  # noqa: F403
 # --- State imports (star import required for Taipy module-level binding) ---
 from state.shared import *  # noqa: F403
 from state.shot_map import *  # noqa: F403
+from state.tactical_positions import *  # noqa: F403
 from state.team_shape import *  # noqa: F403
 from state.workflows import *  # noqa: F403
 from state.workflows import RawHtml
@@ -99,14 +105,16 @@ PAGE_REGISTRY: list[PageEntry] = [
     PageEntry("Pass-Map", pass_map_config, pass_map_page),
     PageEntry("Pass-Network", pass_network_config, pass_network_page),
     PageEntry("Shot-Map", shot_map_config, shot_map_page),
-    # Player Analysis (alphabetical)
+    # Player Analysis
+    PageEntry("Goalkeeper-Analytics", goalkeeper_config, goalkeeper_page),
     PageEntry("Player-Comparison", player_radar_config, player_radar_page),
     PageEntry("Player-Impact", action_values_config, action_values_page),
     PageEntry("Player-Similarity", player_similarity_config, player_similarity_page),
-    # Advanced (alphabetical, Defensive Impact last per user preference)
+    # Advanced (Defensive Impact last per user preference)
     PageEntry("Movement-Pressing", movement_config, movement_page),
     PageEntry("Pass-Timing", pass_timing_config, pass_timing_page),
     PageEntry("Pitch-Control", pitch_control_config, pitch_control_page),
+    PageEntry("Tactical-Positions", tactical_positions_config, tactical_positions_page),
     PageEntry("Team-Shape", team_shape_config, team_shape_page),
     PageEntry("Defensive-Impact", defensive_impact_config, defensive_impact_page),
     # Operations
