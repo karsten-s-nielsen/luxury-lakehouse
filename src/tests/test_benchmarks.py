@@ -647,7 +647,7 @@ def test_bench_scoutgpt_forward(benchmark: Any) -> None:
         "attention_mask": torch.ones(4, 32, dtype=torch.bool),
     }
 
-    def run() -> tuple[torch.Tensor, torch.Tensor]:
+    def run() -> Any:
         with torch.no_grad():
             return model.predict(**batch)
 
@@ -701,7 +701,7 @@ def test_bench_f2v_forward(benchmark: Any) -> None:
     y_coords = torch.rand(4, 50, generator=g)
     mask = torch.ones(4, 50, dtype=torch.bool)
 
-    def run() -> torch.Tensor:
+    def run() -> Any:
         with torch.no_grad():
             return model(action_ids, x_coords, y_coords, mask)
 
@@ -767,7 +767,7 @@ def test_bench_f2v360_forward(benchmark: Any) -> None:
     mask = torch.ones(4, 20, dtype=torch.bool)
     context = torch.rand(4, 20, 22, 4, generator=g)
 
-    def run() -> torch.Tensor:
+    def run() -> Any:
         with torch.no_grad():
             return model(action_ids, x_coords, y_coords, mask, context)
 
