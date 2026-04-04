@@ -111,10 +111,20 @@ def _train_stage1_loop(
 
     mlm_head = MLMHead(config.hidden_dim, config.vocab_size).to(device)
     train_loader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=device.type == "cuda"
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=4,
+        pin_memory=device.type == "cuda",
+        persistent_workers=True,
     )
     val_loader = DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=device.type == "cuda"
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=device.type == "cuda",
+        persistent_workers=True,
     )
 
     all_params = list(model.parameters()) + list(mlm_head.parameters())
@@ -245,10 +255,20 @@ def _train_stage2_loop(
     ).to(device)
 
     train_loader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=device.type == "cuda"
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=4,
+        pin_memory=device.type == "cuda",
+        persistent_workers=True,
     )
     val_loader = DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=device.type == "cuda"
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=device.type == "cuda",
+        persistent_workers=True,
     )
 
     all_params = list(model.parameters()) + list(mlm_head.parameters()) + list(adversary.parameters())
@@ -402,7 +422,14 @@ def _generate_embeddings(
     """Run inference on all data to produce 144d embeddings."""
     model.eval()
     ds = Football2Vec360Dataset(action_ids_all, x_coords_all, y_coords_all, freeze_frames=freeze_frames_all, mlm=False)
-    loader = DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=device.type == "cuda")
+    loader = DataLoader(
+        ds,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=device.type == "cuda",
+        persistent_workers=True,
+    )
     all_emb: list[np.ndarray] = []
     with torch.no_grad():
         for batch in loader:
@@ -712,7 +739,12 @@ def _run_stage1(args: argparse.Namespace, hf_token: str, device: torch.device, r
         mlm=True,
     )
     test_loader = DataLoader(
-        test_ds, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=device.type == "cuda"
+        test_ds,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=device.type == "cuda",
+        persistent_workers=True,
     )
     test_loss, test_acc = _evaluate_mlm(
         model, mlm_head, test_loader, nn.CrossEntropyLoss(ignore_index=-100), config, device
@@ -796,7 +828,12 @@ def _run_stage2(args: argparse.Namespace, hf_token: str, device: torch.device, r
         competition_ids=[comp_labels[i] for i in tei],
     )
     test_loader = DataLoader(
-        test_ds, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=device.type == "cuda"
+        test_ds,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=device.type == "cuda",
+        persistent_workers=True,
     )
     test_mlm_head = MLMHead(config.hidden_dim, config.vocab_size).to(device)
     test_mlm_loss, test_adv_acc = _evaluate_stage2(

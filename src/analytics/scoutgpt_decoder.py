@@ -89,6 +89,12 @@ class ScoutGPTDecoder(nn.Module):
         self.action_head = nn.Linear(hd, c.vocab_size)
         self.vaep_head = nn.Linear(hd, 1)
 
+        # Pre-computed buffers (avoids per-forward-pass GPU allocation)
+        self.register_buffer(
+            "_causal_mask", torch.triu(torch.ones(c.max_seq_len, c.max_seq_len, dtype=torch.bool), diagonal=1)
+        )
+        self.register_buffer("_pos_ids", torch.arange(c.max_seq_len).unsqueeze(0))
+
         self.apply(self._init_weights)
 
     @staticmethod
@@ -120,7 +126,6 @@ class ScoutGPTDecoder(nn.Module):
         All inputs are (batch, seq_len). Returns (batch, seq_len, hidden_dim).
         """
         seq_len = action_ids.size(1)
-        positions = torch.arange(seq_len, device=action_ids.device).unsqueeze(0)
 
         emb = (
             self.token_embedding(action_ids)
@@ -131,7 +136,7 @@ class ScoutGPTDecoder(nn.Module):
             + self.result_embedding(result)
             + self.time_delta_mlp(time_delta)
             + self.player_embedding(player_ids)
-            + self.position_embedding(positions)
+            + self.position_embedding(self._pos_ids[:, :seq_len])  # type: ignore[index]
         )
         return self.embedding_dropout(emb)
 
@@ -151,9 +156,8 @@ class ScoutGPTDecoder(nn.Module):
         emb = self._embed(action_ids, start_x, start_y, end_x, end_y, result, time_delta, player_ids)
         seq_len = emb.size(1)
 
-        # Explicit causal mask (upper triangular, True = blocked).
-        # Required when src_key_padding_mask is present in PyTorch 2.10+.
-        causal_mask = torch.triu(torch.ones(seq_len, seq_len, device=emb.device, dtype=torch.bool), diagonal=1)
+        # Pre-computed causal mask (register_buffer), sliced to seq_len
+        causal_mask = self._causal_mask[:seq_len, :seq_len]  # type: ignore[index]
 
         # Padding mask: TransformerEncoder uses True = ignore
         src_key_padding_mask: torch.Tensor | None = None

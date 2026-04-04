@@ -127,6 +127,9 @@ class Football2Vec360Encoder(nn.Module):
         # --- Deep Sets branch ---
         self.deep_sets = _DeepSetsEncoder(cfg)
 
+        # Zero fallback for missing 360 data (avoids allocation per forward pass)
+        self.register_buffer("_zero_context", torch.zeros(1, cfg.context_dim))
+
     def forward(
         self,
         action_ids: torch.Tensor,
@@ -180,13 +183,8 @@ class Football2Vec360Encoder(nn.Module):
             else:
                 deep_sets_out = context_encoded.mean(dim=1)
         else:
-            # No 360 data: use zeros
-            deep_sets_out = torch.zeros(
-                batch_size,
-                self.config.context_dim,
-                device=action_ids.device,
-                dtype=transformer_out.dtype,
-            )
+            # No 360 data: expand pre-allocated zero buffer to batch size
+            deep_sets_out = self._zero_context.expand(batch_size, -1)  # type: ignore[union-attr]
 
         # Concatenate: (batch, hidden_dim + context_dim)
         return torch.cat([transformer_out, deep_sets_out], dim=-1)

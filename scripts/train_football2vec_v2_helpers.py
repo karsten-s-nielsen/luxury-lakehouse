@@ -112,58 +112,63 @@ class Football2VecDataset(Dataset[dict[str, torch.Tensor]]):
         mlm: bool = True,
         competition_ids: list[int] | None = None,
     ) -> None:
-        self.action_ids = action_ids
-        self.x_coords = x_coords
-        self.y_coords = y_coords
-        self.max_seq_len = max_seq_len
+        n = len(action_ids)
+        sl = max_seq_len
         self.mask_prob = mask_prob
         self.mlm = mlm
-        self.competition_ids = competition_ids
+        self._n = n
+
+        # Pre-tensorize: pad all sequences once at init time.
+        t_action = torch.full((n, sl), PAD_TOKEN_ID, dtype=torch.long)
+        t_x = torch.zeros(n, sl, dtype=torch.float32)
+        t_y = torch.zeros(n, sl, dtype=torch.float32)
+        t_mask = torch.zeros(n, sl, dtype=torch.bool)
+        t_seq_lens = torch.zeros(n, dtype=torch.long)
+
+        for i in range(n):
+            seq_len = min(len(action_ids[i]), sl)
+            if seq_len > 0:
+                t_action[i, :seq_len] = torch.tensor(action_ids[i][:seq_len], dtype=torch.long)
+                t_x[i, :seq_len] = torch.tensor(x_coords[i][:seq_len], dtype=torch.float32)
+                t_y[i, :seq_len] = torch.tensor(y_coords[i][:seq_len], dtype=torch.float32)
+                t_mask[i, :seq_len] = True
+                t_seq_lens[i] = seq_len
+
+        self._action_ids = t_action
+        self._x_coords = t_x
+        self._y_coords = t_y
+        self._attention_mask = t_mask
+        self._seq_lens = t_seq_lens
+        self._competition_ids = torch.tensor(competition_ids, dtype=torch.long) if competition_ids else None
 
     def __len__(self) -> int:
-        return len(self.action_ids)
+        return self._n
 
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         """Return a single tokenized, padded, optionally masked sample."""
-        aids = self.action_ids[idx]
-        xs = self.x_coords[idx]
-        ys = self.y_coords[idx]
-        seq_len = min(len(aids), self.max_seq_len)
-        aids = aids[:seq_len]
-        xs = xs[:seq_len]
-        ys = ys[:seq_len]
-
-        action_tensor = torch.full((self.max_seq_len,), PAD_TOKEN_ID, dtype=torch.long)
-        x_tensor = torch.zeros(self.max_seq_len, dtype=torch.float32)
-        y_tensor = torch.zeros(self.max_seq_len, dtype=torch.float32)
-        attention_mask = torch.zeros(self.max_seq_len, dtype=torch.bool)
-
-        if seq_len > 0:
-            action_tensor[:seq_len] = torch.tensor(aids, dtype=torch.long)
-            x_tensor[:seq_len] = torch.tensor(xs, dtype=torch.float32)
-            y_tensor[:seq_len] = torch.tensor(ys, dtype=torch.float32)
-            attention_mask[:seq_len] = True
+        # Index pre-tensorized data — zero allocation for base fields
+        action_tensor = self._action_ids[idx].clone()  # clone for MLM mutation
+        seq_len = int(self._seq_lens[idx].item())
 
         result: dict[str, torch.Tensor] = {
             "action_ids": action_tensor,
-            "x_coords": x_tensor,
-            "y_coords": y_tensor,
-            "attention_mask": attention_mask,
+            "x_coords": self._x_coords[idx],
+            "y_coords": self._y_coords[idx],
+            "attention_mask": self._attention_mask[idx],
         }
 
         if self.mlm and seq_len > 0:
-            labels = torch.full((self.max_seq_len,), -100, dtype=torch.long)
-            mask_candidates = torch.arange(seq_len)
+            labels = torch.full_like(action_tensor, -100)
             n_mask = max(1, int(seq_len * self.mask_prob))
-            mask_indices = mask_candidates[torch.randperm(seq_len)[:n_mask]]
+            mask_indices = torch.randperm(seq_len)[:n_mask]
             labels[mask_indices] = action_tensor[mask_indices].clone()
             action_tensor[mask_indices] = MASK_TOKEN_ID
             result["labels"] = labels
         elif self.mlm:
-            result["labels"] = torch.full((self.max_seq_len,), -100, dtype=torch.long)
+            result["labels"] = torch.full_like(action_tensor, -100)
 
-        if self.competition_ids is not None:
-            result["competition_id"] = torch.tensor(self.competition_ids[idx], dtype=torch.long)
+        if self._competition_ids is not None:
+            result["competition_id"] = self._competition_ids[idx]
 
         return result
 

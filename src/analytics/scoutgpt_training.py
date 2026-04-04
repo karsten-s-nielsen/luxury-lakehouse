@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import time
 from collections import Counter
 from typing import Any
@@ -179,93 +180,82 @@ class ScoutGPTDataset(Dataset):
         *,
         competition_ids: list[int] | None = None,
     ) -> None:
-        self.action_types = action_types
-        self.start_xs = start_xs
-        self.start_ys = start_ys
-        self.end_xs = end_xs
-        self.end_ys = end_ys
-        self.results = results
-        self.vaep_values = vaep_values
-        self.time_deltas = time_deltas
-        self.player_idxs = player_idxs
-        self.max_seq_len = max_seq_len
-        self.competition_ids = competition_ids
+        n = len(action_types)
+        sl = max_seq_len
+        max_actions = sl - 1  # leave room for BOS at position 0
+
+        # Pre-tensorize: pad all episodes once, store as contiguous tensors.
+        # __getitem__ becomes a pure index lookup — zero per-sample allocation.
+        t_action = torch.full((n, sl), PAD_TOKEN_ID, dtype=torch.long)
+        t_sx = torch.zeros(n, sl, dtype=torch.float32)
+        t_sy = torch.zeros(n, sl, dtype=torch.float32)
+        t_ex = torch.zeros(n, sl, dtype=torch.float32)
+        t_ey = torch.zeros(n, sl, dtype=torch.float32)
+        t_res = torch.zeros(n, sl, dtype=torch.long)
+        t_td = torch.zeros(n, sl, dtype=torch.float32)
+        t_pid = torch.zeros(n, sl, dtype=torch.long)
+        t_mask = torch.zeros(n, sl, dtype=torch.bool)
+        t_labels = torch.full((n, sl), -100, dtype=torch.long)
+        t_vaep = torch.zeros(n, sl, dtype=torch.float32)
+
+        for i in range(n):
+            ep_len = min(len(action_types[i]), max_actions)
+            total_len = ep_len + 1
+
+            # Position 0: BOS + focal player
+            t_action[i, 0] = BOS_TOKEN_ID
+            t_pid[i, 0] = player_idxs[i][0] if ep_len > 0 else 0
+            t_mask[i, 0] = True
+
+            if ep_len > 0:
+                t_action[i, 1:total_len] = torch.tensor(action_types[i][:ep_len], dtype=torch.long)
+                t_sx[i, 1:total_len] = torch.tensor(start_xs[i][:ep_len], dtype=torch.float32)
+                t_sy[i, 1:total_len] = torch.tensor(start_ys[i][:ep_len], dtype=torch.float32)
+                t_ex[i, 1:total_len] = torch.tensor(end_xs[i][:ep_len], dtype=torch.float32)
+                t_ey[i, 1:total_len] = torch.tensor(end_ys[i][:ep_len], dtype=torch.float32)
+                t_res[i, 1:total_len] = torch.tensor(results[i][:ep_len], dtype=torch.long)
+                t_td[i, 1:total_len] = torch.tensor(time_deltas[i][:ep_len], dtype=torch.float32)
+                t_pid[i, 1:total_len] = torch.tensor(player_idxs[i][:ep_len], dtype=torch.long)
+                t_mask[i, 1:total_len] = True
+                t_vaep[i, 1:total_len] = torch.tensor(vaep_values[i][:ep_len], dtype=torch.float32)
+
+                # Vectorized label shift: label[t] = action_ids[t+1], PAD → -100
+                shifted = t_action[i, 1:total_len]
+                t_labels[i, : total_len - 1] = torch.where(shifted == PAD_TOKEN_ID, torch.tensor(-100), shifted)
+
+        self._action_ids = t_action
+        self._start_x = t_sx
+        self._start_y = t_sy
+        self._end_x = t_ex
+        self._end_y = t_ey
+        self._result = t_res
+        self._time_delta = t_td
+        self._player_ids = t_pid
+        self._attention_mask = t_mask
+        self._labels = t_labels
+        self._vaep_targets = t_vaep
+        self._competition_ids = torch.tensor(competition_ids, dtype=torch.long) if competition_ids else None
+        self._n = n
 
     def __len__(self) -> int:
-        return len(self.action_types)
+        return self._n
 
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
-        atypes = self.action_types[idx]
-        sxs = self.start_xs[idx]
-        sys_ = self.start_ys[idx]
-        exs = self.end_xs[idx]
-        eys = self.end_ys[idx]
-        res = self.results[idx]
-        vaeps = self.vaep_values[idx]
-        tds = self.time_deltas[idx]
-        pidxs = self.player_idxs[idx]
-
-        # Truncate to max_seq_len - 1 (leave room for BOS)
-        max_actions = self.max_seq_len - 1
-        ep_len = min(len(atypes), max_actions)
-        total_len = ep_len + 1  # +1 for BOS
-
-        # Initialize padded tensors
-        action_ids = torch.full((self.max_seq_len,), PAD_TOKEN_ID, dtype=torch.long)
-        start_x = torch.zeros(self.max_seq_len, dtype=torch.float32)
-        start_y = torch.zeros(self.max_seq_len, dtype=torch.float32)
-        end_x = torch.zeros(self.max_seq_len, dtype=torch.float32)
-        end_y = torch.zeros(self.max_seq_len, dtype=torch.float32)
-        result = torch.zeros(self.max_seq_len, dtype=torch.long)
-        time_delta = torch.zeros(self.max_seq_len, dtype=torch.float32)
-        player_ids = torch.zeros(self.max_seq_len, dtype=torch.long)
-        attention_mask = torch.zeros(self.max_seq_len, dtype=torch.bool)
-
-        # Position 0: BOS conditioning token
-        # Focal player = player who performs the first action
-        action_ids[0] = BOS_TOKEN_ID
-        player_ids[0] = pidxs[0] if ep_len > 0 else 0
-        attention_mask[0] = True
-
-        # Positions 1..ep_len: actual episode actions
-        if ep_len > 0:
-            action_ids[1:total_len] = torch.tensor(atypes[:ep_len], dtype=torch.long)
-            start_x[1:total_len] = torch.tensor(sxs[:ep_len], dtype=torch.float32)
-            start_y[1:total_len] = torch.tensor(sys_[:ep_len], dtype=torch.float32)
-            end_x[1:total_len] = torch.tensor(exs[:ep_len], dtype=torch.float32)
-            end_y[1:total_len] = torch.tensor(eys[:ep_len], dtype=torch.float32)
-            result[1:total_len] = torch.tensor(res[:ep_len], dtype=torch.long)
-            time_delta[1:total_len] = torch.tensor(tds[:ep_len], dtype=torch.float32)
-            player_ids[1:total_len] = torch.tensor(pidxs[:ep_len], dtype=torch.long)
-            attention_mask[1:total_len] = True
-
-        # Autoregressive labels: label at position t = action_ids[t+1]
-        labels = torch.full((self.max_seq_len,), -100, dtype=torch.long)
-        vaep_targets = torch.zeros(self.max_seq_len, dtype=torch.float32)
-
-        if ep_len > 0:
-            for t in range(total_len - 1):
-                next_id = action_ids[t + 1].item()
-                labels[t] = next_id if next_id != PAD_TOKEN_ID else -100
-
-            # VAEP targets aligned with actual actions (positions 1..total_len-1)
-            vaep_targets[1:total_len] = torch.tensor(vaeps[:ep_len], dtype=torch.float32)
-
         out: dict[str, torch.Tensor] = {
-            "action_ids": action_ids,
-            "start_x": start_x,
-            "start_y": start_y,
-            "end_x": end_x,
-            "end_y": end_y,
-            "result": result,
-            "time_delta": time_delta,
-            "player_ids": player_ids,
-            "attention_mask": attention_mask,
-            "labels": labels,
-            "vaep_targets": vaep_targets,
+            "action_ids": self._action_ids[idx],
+            "start_x": self._start_x[idx],
+            "start_y": self._start_y[idx],
+            "end_x": self._end_x[idx],
+            "end_y": self._end_y[idx],
+            "result": self._result[idx],
+            "time_delta": self._time_delta[idx],
+            "player_ids": self._player_ids[idx],
+            "attention_mask": self._attention_mask[idx],
+            "labels": self._labels[idx],
+            "vaep_targets": self._vaep_targets[idx],
         }
-        if self.competition_ids is not None:
-            out["competition_id"] = torch.tensor(self.competition_ids[idx], dtype=torch.long)
+        if self._competition_ids is not None:
+            out["competition_id"] = self._competition_ids[idx]
         return out
 
 
@@ -423,33 +413,47 @@ def compute_baselines(
     action_counter = Counter(all_actions)
     most_frequent = action_counter.most_common(1)[0][0]
 
-    # Bigram: for each action type, most likely successor
+    # Bigram: index by first action for O(1) lookup instead of linear scan
+    bigram_by_first: dict[int, dict[int, int]] = {}
+    for (a1, a2), count in bigram_counts.items():
+        if a1 not in bigram_by_first:
+            bigram_by_first[a1] = {}
+        bigram_by_first[a1][a2] = count
+
     bigram_next: dict[int, int] = {}
     for action_type in range(VOCAB_SIZE):
-        candidates = {k: v for k, v in bigram_counts.items() if k[0] == action_type}
-        if candidates:
-            bigram_next[action_type] = max(candidates, key=lambda k: candidates[k])[1]
+        successors = bigram_by_first.get(action_type, {})
+        if successors:
+            bigram_next[action_type] = max(successors, key=lambda k: successors[k])
         else:
             bigram_next[action_type] = most_frequent
 
+    # Build bigram lookup tensor for vectorized evaluation
+    bigram_next_t = torch.full((VOCAB_SIZE,), -1, dtype=torch.long)
+    for at, next_at in bigram_next.items():
+        bigram_next_t[at] = next_at
+
+    # Vectorized baseline evaluation over all samples
     mf_correct = 0
     bg_correct = 0
     total = 0
 
     for i in range(len(test_ds)):
         sample = test_ds[i]
-        sample_labels = sample["labels"]
-        sample_actions = sample["action_ids"]
-        for t in range(len(sample_labels)):
-            if sample_labels[t].item() == -100:
-                continue
-            total += 1
-            true_label = sample_labels[t].item()
-            if true_label == most_frequent:
-                mf_correct += 1
-            current_action = sample_actions[t].item()
-            if current_action < VOCAB_SIZE and bigram_next.get(int(current_action)) == true_label:
-                bg_correct += 1
+        labels = sample["labels"]
+        actions = sample["action_ids"]
+        valid = labels != -100
+        if not valid.any():
+            continue
+        valid_labels = labels[valid]
+        valid_actions = actions[valid]
+        n_valid = int(valid_labels.size(0))
+        total += n_valid
+        mf_correct += int((valid_labels == most_frequent).sum().item())
+        # Bigram: look up predicted next action for each current action
+        action_clamped = valid_actions.clamp(0, VOCAB_SIZE - 1)
+        bg_predicted = bigram_next_t[action_clamped]
+        bg_correct += int((bg_predicted == valid_labels).sum().item())
 
     return {
         "baseline_most_frequent_accuracy": mf_correct / max(total, 1),
@@ -493,9 +497,9 @@ def evaluate_counterfactual_ranking(
     n_episodes = min(num_episodes, len(test_ds))
     episode_indices = rng.choice(len(test_ds), size=n_episodes, replace=False)
 
-    # Top-N most active players by total action count
-    player_activity = {pid: sum(freqs.values()) for pid, freqs in action_type_frequencies.items()}
-    top_players = sorted(player_activity, key=lambda p: player_activity[p], reverse=True)[:num_players]
+    # Top-N most active players by total action count (pre-compute sums once)
+    player_total_actions = {pid: sum(freqs.values()) for pid, freqs in action_type_frequencies.items()}
+    top_players = sorted(player_total_actions, key=lambda p: player_total_actions[p], reverse=True)[:num_players]
 
     rho_values: list[float] = []
 
@@ -509,15 +513,20 @@ def evaluate_counterfactual_ranking(
             last_pos = int(valid_positions[-1].item())
             true_action = int(labels[last_pos].item())
 
+            # Move sample to GPU once, clone player_ids for mutation
+            batch = {
+                k: v.unsqueeze(0).to(device)
+                for k, v in sample.items()
+                if k not in ("labels", "vaep_targets", "competition_id")
+            }
+            player_ids_base = batch["player_ids"].clone()
+
             log_probs: list[float] = []
             plausibility_scores: list[float] = []
 
             for player_idx in top_players:
-                batch = {
-                    k: v.unsqueeze(0).to(device)
-                    for k, v in sample.items()
-                    if k not in ("labels", "vaep_targets", "competition_id")
-                }
+                # Mutate only the focal player (position 0) — no re-transfer
+                batch["player_ids"] = player_ids_base.clone()
                 batch["player_ids"][0, 0] = player_idx
 
                 action_logits, _ = model.predict(**batch)  # type: ignore[arg-type]
@@ -526,8 +535,8 @@ def evaluate_counterfactual_ranking(
                 log_probs.append(log_prob)
 
                 player_freqs = action_type_frequencies.get(player_idx, {})
-                total_actions = sum(player_freqs.values())
-                plausibility = player_freqs.get(true_action, 0) / max(total_actions, 1)
+                total_act = player_total_actions.get(player_idx, 1)
+                plausibility = player_freqs.get(true_action, 0) / max(total_act, 1)
                 plausibility_scores.append(float(plausibility))
 
             if len(log_probs) >= 2:
@@ -567,8 +576,23 @@ def train_loop(
     model = ScoutGPTDecoder(config).to(device)
     logger.info("Model parameters: %d", sum(p.numel() for p in model.parameters()))
 
-    tl = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=device.type == "cuda")
-    vl = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=device.type == "cuda")
+    _nw = min(4, len(os.sched_getaffinity(0))) if hasattr(os, "sched_getaffinity") else 4  # type: ignore[attr-defined]
+    tl = DataLoader(
+        train_ds,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=_nw,
+        pin_memory=device.type == "cuda",
+        persistent_workers=_nw > 0,
+    )
+    vl = DataLoader(
+        val_ds,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=_nw,
+        pin_memory=device.type == "cuda",
+        persistent_workers=_nw > 0,
+    )
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=WEIGHT_DECAY)
     total_steps = len(tl) * epochs
@@ -576,6 +600,7 @@ def train_loop(
 
     action_criterion = nn.CrossEntropyLoss(ignore_index=-100)
     vaep_criterion = nn.MSELoss(reduction="none")
+    vaep_weight = config.vaep_loss_weight
 
     best_val = float("inf")
     patience_ctr = 0
@@ -600,29 +625,30 @@ def train_loop(
         nb = 0
 
         for batch in tl:
+            b = {k: v.to(device) for k, v in batch.items()}
             optimizer.zero_grad()
             action_logits, vaep_preds = model.predict(
-                action_ids=batch["action_ids"].to(device),
-                start_x=batch["start_x"].to(device),
-                start_y=batch["start_y"].to(device),
-                end_x=batch["end_x"].to(device),
-                end_y=batch["end_y"].to(device),
-                result=batch["result"].to(device),
-                time_delta=batch["time_delta"].to(device),
-                player_ids=batch["player_ids"].to(device),
-                attention_mask=batch["attention_mask"].to(device),
+                action_ids=b["action_ids"],
+                start_x=b["start_x"],
+                start_y=b["start_y"],
+                end_x=b["end_x"],
+                end_y=b["end_y"],
+                result=b["result"],
+                time_delta=b["time_delta"],
+                player_ids=b["player_ids"],
+                attention_mask=b["attention_mask"],
             )
             action_loss = action_criterion(
                 action_logits.view(-1, config.vocab_size),
-                batch["labels"].to(device).view(-1),
+                b["labels"].view(-1),
             )
 
-            valid_mask = (batch["action_ids"].to(device) != BOS_TOKEN_ID) & batch["attention_mask"].to(device)
-            vaep_raw = vaep_criterion(vaep_preds.squeeze(-1), batch["vaep_targets"].to(device))
+            valid_mask = (b["action_ids"] != BOS_TOKEN_ID) & b["attention_mask"]
+            vaep_raw = vaep_criterion(vaep_preds.squeeze(-1), b["vaep_targets"])
             valid_count = valid_mask.sum().clamp(min=1)
             vaep_loss = (vaep_raw * valid_mask.float()).sum() / valid_count
 
-            loss = action_loss + config.vaep_loss_weight * vaep_loss
+            loss = action_loss + vaep_weight * vaep_loss
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
@@ -690,6 +716,7 @@ def eval_loop(
         (combined_loss, action_loss, vaep_loss, top1_accuracy, top5_accuracy)
     """
     model.eval()
+    vaep_weight = config.vaep_loss_weight
     total_loss = 0.0
     total_action = 0.0
     total_vaep = 0.0
@@ -700,28 +727,29 @@ def eval_loop(
 
     with torch.no_grad():
         for batch in vl:
+            b = {k: v.to(device) for k, v in batch.items()}
             action_logits, vaep_preds = model.predict(
-                action_ids=batch["action_ids"].to(device),
-                start_x=batch["start_x"].to(device),
-                start_y=batch["start_y"].to(device),
-                end_x=batch["end_x"].to(device),
-                end_y=batch["end_y"].to(device),
-                result=batch["result"].to(device),
-                time_delta=batch["time_delta"].to(device),
-                player_ids=batch["player_ids"].to(device),
-                attention_mask=batch["attention_mask"].to(device),
+                action_ids=b["action_ids"],
+                start_x=b["start_x"],
+                start_y=b["start_y"],
+                end_x=b["end_x"],
+                end_y=b["end_y"],
+                result=b["result"],
+                time_delta=b["time_delta"],
+                player_ids=b["player_ids"],
+                attention_mask=b["attention_mask"],
             )
-            labels = batch["labels"].to(device)
+            labels = b["labels"]
             action_loss = action_criterion(action_logits.view(-1, config.vocab_size), labels.view(-1))
 
-            valid_mask = (batch["action_ids"].to(device) != BOS_TOKEN_ID) & batch["attention_mask"].to(device)
-            vaep_raw = vaep_criterion(vaep_preds.squeeze(-1), batch["vaep_targets"].to(device))
+            valid_mask = (b["action_ids"] != BOS_TOKEN_ID) & b["attention_mask"]
+            vaep_raw = vaep_criterion(vaep_preds.squeeze(-1), b["vaep_targets"])
             valid_count = valid_mask.sum().clamp(min=1)
             vaep_loss = (vaep_raw * valid_mask.float()).sum() / valid_count
 
             total_action += action_loss.item()
             total_vaep += vaep_loss.item()
-            total_loss += (action_loss + config.vaep_loss_weight * vaep_loss).item()
+            total_loss += (action_loss + vaep_weight * vaep_loss).item()
             nb += 1
 
             label_mask = labels != -100
@@ -762,7 +790,7 @@ def accuracy_by_bucket(
     bucket_correct: dict[str, int] = {"q1": 0, "q2": 0, "q3": 0, "q4": 0}
     bucket_total: dict[str, int] = {"q1": 0, "q2": 0, "q3": 0, "q4": 0}
 
-    loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False, num_workers=0)
+    loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False, num_workers=2)
     sample_idx = 0
     with torch.no_grad():
         for batch in loader:
@@ -816,7 +844,7 @@ def evaluate_and_report(
     """Compute full evaluation suite and return metrics dict."""
     action_criterion = nn.CrossEntropyLoss(ignore_index=-100)
     vaep_criterion = nn.MSELoss(reduction="none")
-    test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False, num_workers=0)
+    test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False, num_workers=2)
 
     test_loss, test_action_loss, test_vaep_loss, test_top1, test_top5 = eval_loop(
         model, test_loader, config, device, action_criterion, vaep_criterion
@@ -893,7 +921,7 @@ def _cross_source_accuracy(
         parsed = build_datasets(subset)  # type: ignore[arg-type]
         (atypes, sxs, sys_, exs, eys, res, vaeps, tds, pidxs, comp_ids) = parsed
         ds = ScoutGPTDataset(atypes, sxs, sys_, exs, eys, res, vaeps, tds, pidxs, competition_ids=comp_ids)
-        loader = DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=0)
+        loader = DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=2)
 
         _, _, _, top1, _ = eval_loop(model, loader, config, device, action_criterion, vaep_criterion)
         source_name = str(source).replace(" ", "_").lower()
