@@ -348,7 +348,11 @@ def on_player_change(state: Any, var_name: str, var_value: Any) -> None:
 
 
 def on_provider_change(state: Any, var_name: str, var_value: Any) -> None:
-    """Provider changed — reload tracking matches."""
+    """Provider changed — reload tracking matches and refresh page.
+
+    Clearing selected_tracking_match without refreshing leaves stale chart
+    data from the previous provider visible until a new match is selected.
+    """
     global _tracking_match_map
 
     provider = var_value if var_value != "All" else None
@@ -360,6 +364,8 @@ def on_provider_change(state: Any, var_name: str, var_value: Any) -> None:
         state.tracking_match_lov = [label for label, _ in matches]
     except Exception:
         logger.exception("Failed on provider change")
+
+    _refresh_current_page(state)
 
 
 def on_tracking_match_change(state: Any, var_name: str, var_value: Any) -> None:

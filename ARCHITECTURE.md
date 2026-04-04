@@ -1,6 +1,6 @@
 # Databricks Lakebase Architecture — Soccer Analytics Platform
 
-> **Status**: Cycle 3 complete (GK Analytics + 360 Embeddings + Infrastructure) — 14 Taipy pages, 34 synced tables, 56 PG indexes (50 btree + 6 HNSW at 128d/144d). Hugging Face Hub: 7 models + 18 datasets published, GPU training on HF Jobs A10G. PSxG model (Brier 0.129). ScoutGPT decoder + training pipeline (D32, training in progress). M2 OAuth PG role unblocked (databricks-sdk 0.102).
+> **Status**: Cycle 4 Phase 2 (GK Analytics + Tactical Positions pages) — 16 Taipy pages, 34 synced tables, 56 PG indexes (50 btree + 6 HNSW at 128d/144d). Hugging Face Hub: 7 models + 18 datasets published, GPU training on HF Jobs A10G. PSxG model (Brier 0.129). ScoutGPT decoder + training pipeline (D32). M2 OAuth PG role unblocked (databricks-sdk 0.102).
 > **Last Updated**: 2026-04-03
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready
@@ -149,11 +149,11 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  Deployed on Hugging Face Spaces (Docker SDK)                      │    │
 │  │  • PAT auth (OAuth M2M ready — PG role created, secret swap pending)│    │
 │  │  • Connects to Lakebase via psycopg2 (ThreadedConnectionPool)     │    │
-│  │  • 14 pages: Shot Map, Pass Map, Heat Map, Pass Network,          │    │
+│  │  • 16 pages: Shot Map, Pass Map, Heat Map, Pass Network,          │    │
 │  │    Match Summary, Player Comparison, Player Impact,               │    │
-│  │    Player Similarity, Movement & Pressing, Pass Timing,           │    │
-│  │    Pitch Control, Team Shape, Defensive Impact,                   │    │
-│  │    AI/ML Workflows                                                │    │
+│  │    Player Similarity, Goalkeeper Analytics, Movement & Pressing,  │    │
+│  │    Pass Timing, Pitch Control, Tactical Positions, Team Shape,    │    │
+│  │    Defensive Impact, AI/ML Workflows                              │    │
 │  └───────────────────────────────────────────────────────────────────┘    │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
@@ -555,7 +555,7 @@ luxury-lakehouse/
 │   │   ├── main.py                   # Entrypoint: PAGE_REGISTRY, Taipy GUI init
 │   │   ├── page_template.py          # Template engine: build_page(PageConfig)
 │   │   ├── template.py              # GLOSSARY, PAGE_TERMS, shared constants
-│   │   ├── pages/                    # 14 pages (PageConfig + build_page per page)
+│   │   ├── pages/                    # 16 pages (PageConfig + build_page per page)
 │   │   └── state/                    # Per-page state modules (callbacks, queries, charts)
 │   └── README.md                     # HF Spaces metadata (Docker SDK)
 │

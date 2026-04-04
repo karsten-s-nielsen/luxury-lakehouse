@@ -9,13 +9,13 @@ startup_duration_timeout: 2m
 pinned: true
 license: apache-2.0
 tags: [soccer, football, analytics, taipy, databricks, lakebase]
-short_description: 14-page soccer analytics dashboard on Lakebase
+short_description: 16-page soccer analytics dashboard on Lakebase
 ---
 
 # (Right! Luxury!) Lakehouse
 
 Interactive soccer analytics dashboard powered by [Databricks Lakebase](https://www.databricks.com/product/lakebase) PostgreSQL.
-14 analysis pages covering 380+ matches across 5 data providers.
+16 analysis pages covering 380+ matches across 5 data providers.
 
 **Data:** [StatsBomb](https://github.com/statsbomb/open-data) (CC-BY 4.0) ·
 [Wyscout](https://figshare.com/collections/Soccer_match_event_dataset/4415000) (CC-BY-NC 4.0) ·

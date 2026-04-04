@@ -180,6 +180,7 @@ For operations/dashboard pages (stats cards + full-width content instead of 3fr/
 - **`is_dashboard=True` on `register_page_refresher`**: Required for dashboard pages. Controls `show_site_footer` state variable — omitting it causes footer duplication.
 - **`ll-dashboard-scroll` for dashboard viewport**: Dashboard content is wrapped in a viewport-contained scroll area (`overflow: auto`, `max-height: calc(100vh - 245px)`). Both horizontal and vertical scrollbars live inside this container. The horizontal scrollbar stays at the viewport bottom.
 - **State module isolation**: Each page's state module manages its own variables and callbacks. Shared state (competition/team/match filters) lives in `state/shared.py`. No cross-page state imports except from `shared`.
+- **Never use `tp_` as a state variable prefix**: Taipy reserves `tp_` internally for its expression evaluator (`TpExPr_`). Variables starting with `tp_` will have state updates silently dropped — no error, no warning. Also avoid `tpec_` (Taipy edge-case prefix). Safe prefixes: `tac_`, `gk_`, `ts_`, `pt_`, `dv_`, etc.
 - **Glossary coverage**: Every domain-specific term used in metric names, chart labels, or descriptions must have an entry in `GLOSSARY` (in `template.py`) and be listed in the page's `PAGE_TERMS` entry.
 
 ### Why Template-First
