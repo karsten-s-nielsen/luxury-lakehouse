@@ -110,8 +110,22 @@ def _train_stage1_loop(
         expanded.weight[:VOCAB_SIZE] = model.token_embedding.weight
     model.token_embedding = expanded
 
-    tl = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=device.type == "cuda")
-    vl = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=device.type == "cuda")
+    tl = DataLoader(
+        train_ds,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=4,
+        pin_memory=device.type == "cuda",
+        persistent_workers=True,
+    )
+    vl = DataLoader(
+        val_ds,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=device.type == "cuda",
+        persistent_workers=True,
+    )
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=WEIGHT_DECAY)
     total_steps = len(tl) * epochs
     scheduler = get_cosine_schedule_with_warmup(optimizer, int(total_steps * WARMUP_FRACTION), total_steps)
@@ -215,8 +229,22 @@ def _train_stage2_loop(
 ) -> tuple[Football2VecEncoder, TeamClassifierHead, dict[str, list[float]]]:
     model = model.to(device)
     adversary = TeamClassifierHead(hidden_dim=config.hidden_dim, num_teams=num_comp, lambda_val=0.0).to(device)
-    tl = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=device.type == "cuda")
-    vl = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=device.type == "cuda")
+    tl = DataLoader(
+        train_ds,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=4,
+        pin_memory=device.type == "cuda",
+        persistent_workers=True,
+    )
+    vl = DataLoader(
+        val_ds,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=device.type == "cuda",
+        persistent_workers=True,
+    )
     all_p = list(model.parameters()) + list(adversary.parameters())
     optimizer = torch.optim.AdamW(all_p, lr=lr, weight_decay=WEIGHT_DECAY)
     total_steps = len(tl) * epochs
@@ -347,7 +375,9 @@ def _gen_embeddings(
 ) -> pd.DataFrame:
     model.eval()
     ds = Football2VecDataset(aids, xs, ys, mlm=False)
-    loader = DataLoader(ds, batch_size=512, shuffle=False, num_workers=0, pin_memory=device.type == "cuda")
+    loader = DataLoader(
+        ds, batch_size=512, shuffle=False, num_workers=4, pin_memory=device.type == "cuda", persistent_workers=True
+    )
     embs: list[np.ndarray] = []
     with torch.no_grad():
         for b in loader:
@@ -590,7 +620,7 @@ def _run_stage1(args: argparse.Namespace, hf_token: str, device: torch.device, r
     )
     tl, ta = _eval_mlm(
         model,
-        DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, num_workers=0),
+        DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, num_workers=2),
         nn.CrossEntropyLoss(ignore_index=-100),
         config,
         device,
@@ -663,7 +693,7 @@ def _run_stage2(args: argparse.Namespace, hf_token: str, device: torch.device, r
     t_mlm, t_adv_acc = _eval_stage2(
         model,
         adversary,
-        DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, num_workers=0),
+        DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, num_workers=2),
         nn.CrossEntropyLoss(ignore_index=-100),
         config,
         device,

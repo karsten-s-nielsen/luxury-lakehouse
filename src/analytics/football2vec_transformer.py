@@ -154,6 +154,9 @@ class Football2VecEncoder(nn.Module):
             nn.Linear(cfg.hidden_dim, cfg.vocab_size),
         )
 
+        # Pre-computed positional indices (avoids torch.arange allocation per forward pass)
+        self.register_buffer("_pos_ids", torch.arange(cfg.max_seq_len).unsqueeze(0))
+
         # Initialize weights
         self.apply(self._init_weights)
 
@@ -195,9 +198,8 @@ class Football2VecEncoder(nn.Module):
         x_emb = self.spatial_x(x_coords)
         y_emb = self.spatial_y(y_coords)
 
-        # Positional embeddings
-        positions = torch.arange(seq_len, device=action_ids.device).unsqueeze(0)
-        pos_emb = self.position_embedding(positions)
+        # Positional embeddings (pre-computed buffer, sliced to seq_len)
+        pos_emb = self.position_embedding(self._pos_ids[:, :seq_len])  # type: ignore[index]
 
         # Sum all embedding components
         combined = tok_emb + x_emb + y_emb + pos_emb

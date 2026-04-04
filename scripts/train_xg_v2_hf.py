@@ -176,15 +176,16 @@ def main() -> None:
         batch_size=BATCH_SIZE,
         shuffle=True,
         collate_fn=collate_fn,
-        num_workers=0,
+        num_workers=4,
         pin_memory=device.type == "cuda",
+        persistent_workers=True,
     )
     test_loader = torch.utils.data.DataLoader(
         ShotDataset(x_test, test_players, y_test),
         batch_size=BATCH_SIZE,
         shuffle=False,
         collate_fn=collate_fn,
-        num_workers=0,
+        num_workers=2,
         pin_memory=device.type == "cuda",
     )
 
