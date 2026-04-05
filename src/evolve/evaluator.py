@@ -14,7 +14,7 @@ import logging
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, model_validator
 
 from evolve.backends.base import ComputeBackend
 from evolve.config import EvalConfig, FitnessConfig
@@ -69,6 +69,14 @@ class CandidateConfig(BaseModel):
     weight_decay: float = 0.01
     batch_size: int = 256
     dataset: str = "luxury-lakehouse/scoutgpt-training-data"
+
+    @field_validator("dataset")
+    @classmethod
+    def _validate_dataset_prefix(cls, v: str) -> str:
+        if not v.startswith("luxury-lakehouse/"):
+            msg = f"dataset must be a luxury-lakehouse/ HF repo, got '{v}'"
+            raise ValueError(msg)
+        return v
 
     @model_validator(mode="after")
     def _validate_search_space(self) -> CandidateConfig:
