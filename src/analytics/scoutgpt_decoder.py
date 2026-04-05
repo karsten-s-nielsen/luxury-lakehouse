@@ -35,6 +35,7 @@ class ScoutGPTConfig:
     num_players: int = 11_918
     spatial_mlp_dim: int = 64
     vaep_loss_weight: float = 0.1
+    conditioning_type: str = "additive"
 
 
 class ScoutGPTDecoder(nn.Module):
@@ -58,6 +59,22 @@ class ScoutGPTDecoder(nn.Module):
         # Token and player embeddings
         self.token_embedding = nn.Embedding(EXPANDED_VOCAB_SIZE, hd)
         self.player_embedding = nn.Embedding(c.num_players, hd)
+
+        # Conditioning mechanism for player identity
+        self._conditioning_type = c.conditioning_type
+        if c.conditioning_type == "additive":
+            pass  # Player embedding summed directly with action embedding
+        elif c.conditioning_type == "cross_attention":
+            self.player_cross_attn = nn.MultiheadAttention(hd, c.num_heads, dropout=c.dropout, batch_first=True)
+            self.player_cross_norm = nn.LayerNorm(hd)
+        elif c.conditioning_type == "film":
+            self.film_scale = nn.Sequential(nn.Linear(hd, hd), nn.Sigmoid())
+            self.film_shift = nn.Linear(hd, hd)
+        elif c.conditioning_type == "gated":
+            self.player_gate = nn.Sequential(nn.Linear(hd, hd), nn.Sigmoid())
+        else:
+            msg = f"Unknown conditioning_type: {c.conditioning_type!r}"
+            raise ValueError(msg)
 
         # Spatial encoders (4 for coordinates + 1 for time delta)
         self.start_x_mlp = SpatialMLP(hd, c.spatial_mlp_dim)
@@ -121,13 +138,23 @@ class ScoutGPTDecoder(nn.Module):
         time_delta: torch.Tensor,
         player_ids: torch.Tensor,
     ) -> torch.Tensor:
-        """Compute input embeddings.
+        """Compute input embeddings with configurable player conditioning.
 
         All inputs are (batch, seq_len). Returns (batch, seq_len, hidden_dim).
+
+        Conditioning types:
+          - additive: player_emb summed with action features (original behavior)
+          - cross_attention: action attends to player embedding via multi-head attention
+          - film: Feature-wise Linear Modulation — player controls scale and shift
+          - gated: learned sigmoid gate weights the action signal, plus player residual
         """
         seq_len = action_ids.size(1)
 
-        emb = (
+        # Player embedding computed separately for conditioning
+        player_emb = self.player_embedding(player_ids)
+
+        # Action embedding: all components EXCEPT player
+        action_emb = (
             self.token_embedding(action_ids)
             + self.start_x_mlp(start_x)
             + self.start_y_mlp(start_y)
@@ -135,9 +162,26 @@ class ScoutGPTDecoder(nn.Module):
             + self.end_y_mlp(end_y)
             + self.result_embedding(result)
             + self.time_delta_mlp(time_delta)
-            + self.player_embedding(player_ids)
             + self.position_embedding(self._pos_ids[:, :seq_len])  # type: ignore[index]
         )
+
+        # Apply conditioning
+        if self._conditioning_type == "additive":
+            emb = action_emb + player_emb
+        elif self._conditioning_type == "cross_attention":
+            attn_out, _ = self.player_cross_attn(query=action_emb, key=player_emb, value=player_emb)
+            emb = self.player_cross_norm(action_emb + attn_out)
+        elif self._conditioning_type == "film":
+            scale = self.film_scale(player_emb)
+            shift = self.film_shift(player_emb)
+            emb = scale * action_emb + shift
+        elif self._conditioning_type == "gated":
+            gate = self.player_gate(player_emb)
+            emb = gate * action_emb + player_emb
+        else:
+            msg = f"Unknown conditioning_type: {self._conditioning_type!r}"
+            raise ValueError(msg)
+
         return self.embedding_dropout(emb)
 
     def _encode(

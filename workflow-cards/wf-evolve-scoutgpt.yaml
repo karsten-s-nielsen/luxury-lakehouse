@@ -1,0 +1,103 @@
+---
+name: "Evolve ScoutGPT Architecture"
+id: wf-evolve-scoutgpt
+version: "1.0.0"
+status: development
+type: training
+domain: player-valuation
+owners:
+  - karsten
+tags:
+  - alphaevolve
+  - architecture-search
+  - scoutgpt
+  - counterfactual
+
+references:
+  - citation: "Romera-Paredes et al. (2025). AlphaEvolve: A coding agent for scientific and algorithmic discovery. arXiv:2506.13131"
+    role: methodology
+  - citation: "Hong et al. (2025). ScoutGPT: Player-Conditioned Counterfactual Prediction. arXiv:2512.17266"
+    role: methodology
+  - citation: "Perez et al. (2018). FiLM: Visual Reasoning with a General Conditioning Layer. AAAI."
+    role: methodology
+
+inputs:
+  datasets:
+    - id: scoutgpt-training-data
+      source: huggingface
+      description: "894K SPADL possession episodes with player IDs and VAEP values"
+
+outputs:
+  models:
+    - id: scoutgpt-evolved
+      destination: uc-volume
+      format: "python"
+      alias: "best_program"
+
+execution:
+  training:
+    trigger: manual
+    runtime: hf-jobs
+    flavor: "RTX 5070 Ti (16 GB) or DGX Spark (128 GB)"
+    script: "uv run evolve --target scoutgpt"
+    timeout: "24h"
+
+depends_on:
+  - wf-scoutgpt-export
+
+idempotency:
+  strategy: full-overwrite
+  key: timestamp
+  description: "Each evolution run creates a new timestamped results directory"
+
+cost:
+  training:
+    runtime: hf-jobs
+    flavor: "local-gpu"
+    rate_usd_per_hour: 0.00
+    typical_duration_minutes: 750
+    typical_cost_usd: 0.00
+
+monitoring:
+  freshness_sla_hours: 168
+  metrics:
+    - name: "best_spearman_rho"
+      baseline: 0.094
+      warn_below: 0.15
+    - name: "best_top1_accuracy"
+      baseline: 0.815
+      warn_below: 0.75
+
+links:
+  source_code:
+    - "src/evolve/"
+    - "src/analytics/scoutgpt_decoder.py"
+    - "docs/superpowers/specs/2026-04-04-evolve-engine-design.md"
+---
+
+## Overview
+
+Evolve ScoutGPT is an LLM-guided evolutionary architecture search that applies the MAP-Elites
+algorithm (Romera-Paredes et al. 2025, AlphaEvolve) to discover improved ScoutGPT conditioning
+architectures. Starting from the baseline FiLM + cross-attention seed pool, the engine mutates
+model configurations via an LLM, trains each candidate on the 894K SPADL episode dataset,
+and selects survivors by Spearman rho on the counterfactual ranking task. The goal is to push
+the baseline rho (0.094) above the 0.15 target threshold.
+
+## Architecture
+
+The engine consists of three layers: the search space (Python dataclasses encoding conditioning
+mechanism, hidden size, depth, and attention variants), the evaluator bridge (which compiles
+each candidate into a ScoutGPT config and runs a lightweight 5-epoch training trial), and the
+MAP-Elites population manager (which maintains a quality-diversity grid keyed on model size
+and conditioning type). LLM mutations are issued via the OpenAI API against the seed program
+pool, with each generation evaluated in parallel on local GPU (RTX 5070 Ti) or DGX Spark.
+The best-performing program is written to `results/evolve/scoutgpt/{timestamp}/best_program.py`.
+
+## Evaluation
+
+Candidate fitness is measured by Spearman rank correlation (rho) on 1K counterfactual episodes
+with 100 player swaps each, matching the wf-scoutgpt evaluation protocol. Secondary metrics
+include next-action top-1 accuracy and cross-source validation gap (StatsBomb vs Wyscout).
+A typical search run of 150 LLM iterations with 5-epoch trials per candidate costs approximately
+$12 in LLM API calls and runs in 12–13 hours on a single GPU.

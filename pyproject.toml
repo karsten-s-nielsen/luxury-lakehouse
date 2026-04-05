@@ -52,7 +52,8 @@ jax = [
 mlflow = [
     "mlflow>=2.17.0",
 ]
-training = ["torch>=2.0"]
+training = ["torch>=2.0", "pyarrow>=14.0"]
+evolve = ["openevolve>=0.2.0"]
 # NOTE: kloppy (SkillCorner tracking) is NOT listed here — it runs in a separate
 # Databricks task environment defined in terraform/modules/workflows/main.tf.
 # IDSSE tracking uses stdlib xml.etree.ElementTree and needs no extra dependencies.
@@ -92,6 +93,7 @@ import_psxg_predictions = "ingestion.import_psxg_predictions:main"
 import_obso_results = "ingestion.import_obso_results:main"
 prepare_360_training_data = "ingestion.prepare_360_training_data:main"
 export_scoutgpt_training_data = "ingestion.export_scoutgpt_training_data:main"
+evolve = "evolve.runner:main"
 
 [tool.ruff]
 target-version = "py310"
@@ -116,7 +118,7 @@ select = [
 "hf_taipy_app/**" = ["E501", "S104", "F405", "RUF022", "RUF005"]  # Taipy app: long help text, 0.0.0.0, star imports, unsorted __all__, list concat
 
 [tool.ruff.lint.isort]
-known-first-party = ["analytics", "ingestion", "shared", "workflows"]
+known-first-party = ["analytics", "evolve", "ingestion", "shared", "workflows"]
 
 [tool.pyright]
 pythonVersion = "3.10"
@@ -130,11 +132,22 @@ addopts = "--tb=short -q"
 pythonpath = ["."]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ingestion", "src/analytics", "src/shared", "src/workflows"]
+packages = ["src/ingestion", "src/analytics", "src/shared", "src/workflows", "src/evolve"]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+# --- uv: PyTorch CUDA index ---
+# RTX 5070 Ti (Blackwell) requires CUDA 12.8+ wheels.
+# explicit = true ensures only torch resolves from this index, not other packages.
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
 
 [dependency-groups]
 dev = [

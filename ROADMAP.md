@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the current [architecture](ARCHITECTURE.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-03-31 (Cycle 3: D38/D39 GK analytics, D31 360-enriched embeddings, TD#29 space creation pipeline, TD#2 maintenance automation)
+**Last updated**: 2026-04-04 (Evolve Engine Level 1 shipped — AlphaEvolve/OpenEvolve architecture search for ScoutGPT; D32 training pipeline merged; Cycle 3 complete)
 
 ---
 
@@ -165,11 +165,11 @@ This answers open question #5 ("Is Grafana worth it or is DuckDB sufficient?") &
 
 ## Deep Learning Infrastructure &amp; Pre-trained Models
 
-**Status:** GNN training infrastructure (DEFCON Tier 4), continual learning, FunSearch/AlphaEvolve exploration
+**Status:** GNN training infrastructure (DEFCON Tier 4), continual learning, pre-trained model integration
 **Budget:** ~$6-14/month incremental (external GPU training + existing Databricks governance)
 **References:** DeepMind AlphaEvolve/FunSearch (Apache 2.0); TacticAI (Nature Communications, 2024); SoccerNet benchmarks
 
-Foundation in place (MLflow UC Model Registry with Champion/Challenger aliases, scipy-based drift detection, HF Jobs A10G training). This section defines the remaining DL stack needed for GNN training, continual learning, and pre-trained model integration.
+Foundation in place (MLflow UC Model Registry with Champion/Challenger aliases, scipy-based drift detection, HF Jobs A10G training, Evolve Engine for LLM-guided architecture search). This section defines the remaining DL stack needed for GNN training, continual learning, and pre-trained model integration.
 
 ### Core principle: train cheap, govern centrally
 
@@ -197,15 +197,9 @@ Delta Lake &rarr; Synced tables &rarr; Lakebase &rarr; Taipy
 | MLflow tracking + model registry | Included in workspace | $0 |
 | Pre-trained weight storage (UC Volume, ~10GB) | Delta storage | ~$1-2 |
 
-### DeepMind-inspired optimization patterns
+### Continual learning (EWC / Knowledge Distillation)
 
-Three approaches from DeepMind's recent work apply directly to soccer analytics at individual-developer scale:
-
-**FunSearch / AlphaEvolve pattern.** LLM-driven algorithm evolution: define an `evaluate(candidate) &rarr; score` function, let an LLM generate and mutate candidates, keep the best. [OpenEvolve](https://huggingface.co/blog/codelion/openevolve) (MIT) is a community implementation that works with any LLM API. Targets: evolve xT grid values against StatsBomb event data; optimize pitch control kernel vectorization strategies. Cost: ~$5-20 for a weekend search run, CPU only.
-
-**JAX `vmap` vectorization.** Already deployed: `compute_pitch_control_grid_fast()` with `@jax.jit` backend in `src/analytics/pitch_control.py` (dual NumPy/JAX auto-dispatch). Unlocked full Space Creation (Fernandez &amp; Bornn 2018 OBSO) on CPU without GPU infrastructure. Same pattern applies to future array-intensive analytics.
-
-**Continual learning (EWC / Knowledge Distillation).** DeepMind's Elastic Weight Consolidation (Kirkpatrick et al. 2017) prevents catastrophic forgetting when adapting models to new seasons or competitions. The practical variant &mdash; Knowledge Distillation (Learning without Forgetting) &mdash; maps directly to the MLflow Champion/Challenger pattern: the `@Champion` model provides soft labels for `@Challenger` training on new data, preserving historical calibration.
+DeepMind's Elastic Weight Consolidation (Kirkpatrick et al. 2017) prevents catastrophic forgetting when adapting models to new seasons or competitions. The practical variant &mdash; Knowledge Distillation (Learning without Forgetting) &mdash; maps directly to the MLflow Champion/Challenger pattern: the `@Champion` model provides soft labels for `@Challenger` training on new data, preserving historical calibration.
 
 ### Data augmentation for limited tracking data
 
@@ -331,7 +325,6 @@ Steps 1-2 are immediately feasible on local hardware. Steps 3-5 are the integrat
 | **PyTorch Geometric** | GNN training (player interaction graphs) | MIT |
 | **Flax NNX** | JAX neural networks (2024 rewrite, clean API) | Apache 2.0 |
 | **Optax** | EWC-compatible optimizers, LR schedules | Apache 2.0 |
-| **OpenEvolve** | AlphaEvolve-style algorithm evolution | MIT |
 | **MosaicML StreamingDataset** | Stream Delta to external GPU DataLoaders | Apache 2.0 |
 | **MLflow 3** | Experiment tracking, model registry, deployment | Apache 2.0 |
 
