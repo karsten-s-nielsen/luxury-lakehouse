@@ -12,7 +12,7 @@ fitness:
 evaluation:
   epochs: 5
   dataset: "luxury-lakehouse/scoutgpt-training-data"
-  timeout_seconds: 900
+  timeout_seconds: 6000
   seed: 42
 
 backend:

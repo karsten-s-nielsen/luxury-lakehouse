@@ -5,6 +5,16 @@ from __future__ import annotations
 from typing import Any, Protocol, runtime_checkable
 
 
+def fail_metrics() -> dict[str, float]:
+    """Return a fresh failure-result dict.
+
+    Shared sentinel used by all backends and the pool to signal that an
+    evaluation failed without propagating exceptions to the evolution loop.
+    Returns a new dict each call to avoid shared mutable state.
+    """
+    return {"combined_score": 0.0, "error": 1.0}
+
+
 @runtime_checkable
 class ComputeBackend(Protocol):
     """Structural protocol for compute backends used by the Evolve engine.

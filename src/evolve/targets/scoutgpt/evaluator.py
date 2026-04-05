@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
+from dataclasses import dataclass
 from typing import Any
 
 _log = logging.getLogger(__name__)
@@ -12,6 +14,72 @@ _log = logging.getLogger(__name__)
 # Reduced evaluation budget for evolution (vs. full training)
 _EVOLVE_COUNTERFACTUAL_EPISODES = 200
 _EVOLVE_COUNTERFACTUAL_PLAYERS = 50
+
+# ---------------------------------------------------------------------------
+# Module-level dataset cache — loaded once, reused across all candidates.
+# The underlying lists are read-only during training; each candidate gets
+# its own ScoutGPTDataset wrapper that references the shared data.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _CachedData:
+    """Immutable container for parsed + split dataset data."""
+
+    parsed: tuple[list[Any], ...]
+    train_indices: list[int]
+    val_indices: list[int]
+    test_indices: list[int]
+    action_freqs: dict[int, dict[int, float]]
+
+
+_dataset_cache: dict[str, _CachedData] = {}
+_cache_lock = threading.Lock()
+
+
+def _load_or_cache(dataset_repo: str, hf_token: str) -> _CachedData:
+    """Load and parse the dataset, caching by repo name.
+
+    On the first call, downloads from HF Hub, parses all episodes, computes
+    the stratified split, and builds action type frequencies.  Subsequent
+    calls return the cached result immediately.
+
+    Thread-safe: a lock prevents concurrent threads from loading the
+    dataset simultaneously (each load takes ~28 minutes).
+    """
+    with _cache_lock:
+        if dataset_repo in _dataset_cache:
+            _log.info("Using cached dataset for %s", dataset_repo)
+            return _dataset_cache[dataset_repo]
+
+        from analytics.scoutgpt_training import (
+            build_action_type_frequencies,
+            build_datasets,
+            load_training_data,
+            stratified_split,
+        )
+
+        data, _player_map, _sha = load_training_data(hf_token=hf_token, dataset_repo=dataset_repo)
+        parsed = build_datasets(data)
+
+        train_df, val_df, test_df = stratified_split(data)
+        ti = train_df.index.tolist()
+        vi = val_df.index.tolist()
+        tei = test_df.index.tolist()
+
+        _log.info("Dataset split: train=%d val=%d test=%d", len(ti), len(vi), len(tei))
+
+        action_freqs = build_action_type_frequencies(all_atypes=parsed[0], all_pidxs=parsed[8], indices=ti)
+
+        cached = _CachedData(
+            parsed=parsed,
+            train_indices=ti,
+            val_indices=vi,
+            test_indices=tei,
+            action_freqs=action_freqs,
+        )
+        _dataset_cache[dataset_repo] = cached
+        return cached
 
 
 def train_and_evaluate(
@@ -43,11 +111,7 @@ def train_and_evaluate(
     from analytics.scoutgpt_decoder import ScoutGPTConfig
     from analytics.scoutgpt_training import (
         ScoutGPTDataset,
-        build_action_type_frequencies,
-        build_datasets,
         evaluate_counterfactual_ranking,
-        load_training_data,
-        stratified_split,
         train_loop,
     )
 
@@ -73,62 +137,21 @@ def train_and_evaluate(
     model_kwargs = {k: v for k, v in candidate_config.items() if k in config_keys}
     config = ScoutGPTConfig(**model_kwargs)
 
-    # --- Load dataset and parse all episodes up front ---
+    # --- Load dataset (cached across candidates) ---
     hf_token = os.environ.get("HF_TOKEN", "")
     dataset_repo: str = candidate_config.get("dataset", "luxury-lakehouse/scoutgpt-training-data")
-    data, _player_map, _sha = load_training_data(hf_token=hf_token, dataset_repo=dataset_repo)
+    cached = _load_or_cache(dataset_repo, hf_token)
 
-    # build_datasets parses the full DataFrame into per-field lists once.
-    # The split is done on indices so we avoid re-parsing per split.
-    parsed = build_datasets(data)
-    (all_atypes, all_sxs, all_sys, all_exs, all_eys, all_res, all_vaeps, all_tds, all_pidxs, all_comp_ids) = parsed
+    # Slice cached parsed fields into per-split datasets.
+    def _slice(indices: list[int]) -> tuple[list[Any], ...]:
+        return tuple([field[i] for i in indices] for field in cached.parsed)
 
-    train_df, val_df, test_df = stratified_split(data)
-    ti = train_df.index.tolist()
-    vi = val_df.index.tolist()
-    tei = test_df.index.tolist()
+    def _make_dataset(sliced: tuple[list[Any], ...]) -> ScoutGPTDataset:
+        return ScoutGPTDataset(*sliced[:9], max_seq_len=config.max_seq_len, competition_ids=sliced[9])
 
-    _log.info("Dataset split: train=%d val=%d test=%d", len(ti), len(vi), len(tei))
-
-    train_ds = ScoutGPTDataset(
-        [all_atypes[i] for i in ti],
-        [all_sxs[i] for i in ti],
-        [all_sys[i] for i in ti],
-        [all_exs[i] for i in ti],
-        [all_eys[i] for i in ti],
-        [all_res[i] for i in ti],
-        [all_vaeps[i] for i in ti],
-        [all_tds[i] for i in ti],
-        [all_pidxs[i] for i in ti],
-        max_seq_len=config.max_seq_len,
-        competition_ids=[all_comp_ids[i] for i in ti],
-    )
-    val_ds = ScoutGPTDataset(
-        [all_atypes[i] for i in vi],
-        [all_sxs[i] for i in vi],
-        [all_sys[i] for i in vi],
-        [all_exs[i] for i in vi],
-        [all_eys[i] for i in vi],
-        [all_res[i] for i in vi],
-        [all_vaeps[i] for i in vi],
-        [all_tds[i] for i in vi],
-        [all_pidxs[i] for i in vi],
-        max_seq_len=config.max_seq_len,
-        competition_ids=[all_comp_ids[i] for i in vi],
-    )
-    test_ds = ScoutGPTDataset(
-        [all_atypes[i] for i in tei],
-        [all_sxs[i] for i in tei],
-        [all_sys[i] for i in tei],
-        [all_exs[i] for i in tei],
-        [all_eys[i] for i in tei],
-        [all_res[i] for i in tei],
-        [all_vaeps[i] for i in tei],
-        [all_tds[i] for i in tei],
-        [all_pidxs[i] for i in tei],
-        max_seq_len=config.max_seq_len,
-        competition_ids=[all_comp_ids[i] for i in tei],
-    )
+    train_ds = _make_dataset(_slice(cached.train_indices))
+    val_ds = _make_dataset(_slice(cached.val_indices))
+    test_ds = _make_dataset(_slice(cached.test_indices))
 
     # --- Train ---
     model, history = train_loop(
@@ -146,14 +169,13 @@ def train_and_evaluate(
     model.eval()
     top1 = history["val_top1_accuracy"][-1] if history["val_top1_accuracy"] else 0.0
 
-    action_freqs = build_action_type_frequencies(all_atypes=all_atypes, all_pidxs=all_pidxs, indices=ti)
     cf_results = evaluate_counterfactual_ranking(
         model=model,
         test_ds=test_ds,
         device=torch_device,
         num_episodes=_EVOLVE_COUNTERFACTUAL_EPISODES,
         num_players=_EVOLVE_COUNTERFACTUAL_PLAYERS,
-        action_type_frequencies=action_freqs,
+        action_type_frequencies=cached.action_freqs,
     )
 
     elapsed = time.monotonic() - start_time

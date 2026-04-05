@@ -6,7 +6,7 @@ import logging
 import queue
 from typing import Any
 
-from evolve.backends.base import ComputeBackend
+from evolve.backends.base import ComputeBackend, fail_metrics
 
 _log = logging.getLogger(__name__)
 
@@ -22,6 +22,11 @@ class BackendPool:
 
     Satisfies the :class:`ComputeBackend` protocol.
     """
+
+    # Maximum seconds to wait for an idle backend before giving up.
+    # Set generously above the per-evaluation timeout to allow for queue
+    # contention without masking genuine deadlocks.
+    _ACQUIRE_TIMEOUT = 3600
 
     def __init__(self, backends: list[ComputeBackend]) -> None:
         if not backends:
@@ -41,7 +46,11 @@ class BackendPool:
         seed: int,
     ) -> dict[str, float]:
         """Acquire the next idle backend, train, then release it."""
-        backend = self._available.get()  # blocks until a backend is free
+        try:
+            backend = self._available.get(timeout=self._ACQUIRE_TIMEOUT)
+        except queue.Empty:
+            _log.error("No backend available after %ds — possible deadlock", self._ACQUIRE_TIMEOUT)
+            return fail_metrics()
         backend_name = type(backend).__name__
         _log.info("BackendPool dispatching to %s", backend_name)
         try:

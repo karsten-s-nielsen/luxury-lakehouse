@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import json
 import logging
 import os
@@ -10,9 +11,10 @@ import tempfile
 import threading
 from typing import Any
 
+from evolve.backends.base import fail_metrics
+
 _log = logging.getLogger(__name__)
 
-_FAIL_METRICS: dict[str, float] = {"combined_score": 0.0, "error": 1.0}
 
 # Timeouts (seconds) for lightweight SSH commands (availability check, mkdir, scp).
 _SSH_CMD_TIMEOUT = 30
@@ -37,12 +39,18 @@ class RemoteSSHBackend:
         remote_dir: str = "",
         python_path: str = "",
         timeout: int = 900,
+        device: str = "cuda:0",
     ) -> None:
         self._host = host
         self._user = user or os.environ.get("USER", "")
         self._remote_dir = remote_dir or "~/Development/evolve-workspace"
         self._python_path = python_path or "~/Development/evolve-env/bin/python"
         self._timeout = timeout
+        self._device = device
+        self._hf_cache_warmed = False
+        self._active_procs: set[subprocess.Popen[str]] = set()
+        self._proc_lock = threading.Lock()
+        atexit.register(self._cleanup_remote_procs)
         _log.info(
             "RemoteSSHBackend initialised",
             extra={
@@ -61,6 +69,24 @@ class RemoteSSHBackend:
     def _ssh_target(self) -> str:
         """Return ``user@host`` string for SSH/SCP commands."""
         return f"{self._user}@{self._host}"
+
+    def _cleanup_remote_procs(self) -> None:
+        """Kill any SSH subprocesses still running (registered via atexit).
+
+        Prevents orphaned training processes on the remote host when the
+        parent process crashes or is terminated (SIGTERM, Ctrl+C).
+        """
+        with self._proc_lock:
+            if not self._active_procs:
+                return
+            _log.info("Cleaning up %d active SSH subprocess(es)", len(self._active_procs))
+            for proc in list(self._active_procs):
+                try:
+                    proc.kill()
+                    proc.wait(timeout=5)
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+            self._active_procs.clear()
 
     def _run_ssh(
         self,
@@ -101,6 +127,30 @@ class RemoteSSHBackend:
                 "Failed to create remote directory",
                 extra={"remote_dir": self._remote_dir, "stderr": result.stderr.strip()},
             )
+
+    def _warm_hf_cache(self, dataset_repo: str) -> None:
+        """Pre-download HF dataset on the remote host so training doesn't pay the cold-cache cost.
+
+        Only runs once per backend lifetime. Failures are logged but not fatal —
+        training will still download on first use, just slower.
+        """
+        if self._hf_cache_warmed:
+            return
+        _log.info("Pre-warming HF cache on remote: %s", dataset_repo)
+        cmd = (
+            f"{self._python_path} -c "
+            f'"from huggingface_hub import snapshot_download; '
+            f"snapshot_download('{dataset_repo}', repo_type='dataset')\""
+        )
+        try:
+            result = self._run_ssh(cmd, timeout=300)
+            if result.returncode == 0:
+                _log.info("HF cache warm on remote")
+            else:
+                _log.warning("HF cache warming failed (non-fatal): %s", result.stderr.strip()[:200])
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            _log.warning("HF cache warming failed (non-fatal): %s", exc)
+        self._hf_cache_warmed = True
 
     def _scp_to_remote(self, local_path: str, remote_filename: str) -> None:
         """Copy a local file to the remote workspace via ``scp``.
@@ -146,25 +196,25 @@ class RemoteSSHBackend:
                 "Remote training timed out",
                 extra={"host": self._host, "timeout": self._timeout},
             )
-            return dict(_FAIL_METRICS)
+            return fail_metrics()
         except subprocess.CalledProcessError as exc:
             _log.error(
                 "Remote command failed",
                 extra={"host": self._host, "returncode": exc.returncode, "stderr": (exc.stderr or "").strip()},
             )
-            return dict(_FAIL_METRICS)
+            return fail_metrics()
         except json.JSONDecodeError as exc:
             _log.error(
                 "Failed to parse JSON from remote stdout",
                 extra={"host": self._host, "error": str(exc)},
             )
-            return dict(_FAIL_METRICS)
+            return fail_metrics()
         except OSError as exc:
             _log.error(
                 "OS error during remote training",
                 extra={"host": self._host, "error": str(exc)},
             )
-            return dict(_FAIL_METRICS)
+            return fail_metrics()
 
     def _train_impl(
         self,
@@ -174,9 +224,13 @@ class RemoteSSHBackend:
         seed: int,
     ) -> dict[str, float]:
         """Core training logic — separated so ``train`` can catch all errors."""
-        # 1. Write candidate config to a temporary local file.
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as tmp:
-            tmp.write(f"config = {candidate_config!r}\n")
+        # 0. Pre-warm HF cache on first call to avoid cold-start timeout.
+        dataset_repo = candidate_config.get("dataset", "luxury-lakehouse/scoutgpt-training-data")
+        self._warm_hf_cache(dataset_repo)
+
+        # 1. Write candidate config as JSON to a temporary local file.
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
+            json.dump(candidate_config, tmp)
             local_candidate_path = tmp.name
 
         try:
@@ -184,7 +238,7 @@ class RemoteSSHBackend:
             self._ensure_remote_dir()
 
             # 3. Transfer the candidate file.
-            remote_filename = "candidate.py"
+            remote_filename = "candidate.json"
             self._scp_to_remote(local_candidate_path, remote_filename)
         finally:
             # Clean up the local temp file regardless of transfer outcome.
@@ -197,7 +251,7 @@ class RemoteSSHBackend:
             f"cd {self._remote_dir} && "
             f"PYTHONUNBUFFERED=1 stdbuf -oL -eL "
             f"{self._python_path} -m evolve.remote_worker "
-            f"{remote_filename} cuda:0 {epochs} {seed} {target}"
+            f"{remote_filename} {self._device} {epochs} {seed} {target}"
         )
         cmd = ["ssh", self._ssh_target, remote_cmd]
         effective_timeout = self._timeout
@@ -208,12 +262,15 @@ class RemoteSSHBackend:
             stderr=subprocess.PIPE,
             text=True,
         )
+        with self._proc_lock:
+            self._active_procs.add(proc)
 
         # Stream stderr in a background thread so it doesn't block stdout reading.
         stderr_lines: list[str] = []
 
         def _stream_stderr() -> None:
-            assert proc.stderr is not None  # noqa: S101
+            if proc.stderr is None:
+                return
             try:
                 for line in proc.stderr:
                     stripped = line.rstrip()
@@ -232,6 +289,9 @@ class RemoteSSHBackend:
             proc.kill()
             proc.communicate()
             raise
+        finally:
+            with self._proc_lock:
+                self._active_procs.discard(proc)
 
         stderr_thread.join(timeout=5)
 
@@ -244,7 +304,7 @@ class RemoteSSHBackend:
                     "stdout": (stdout or "").strip()[:500],
                 },
             )
-            return dict(_FAIL_METRICS)
+            return fail_metrics()
 
         # 5. Parse JSON metrics from stdout.
         #    The remote worker prints exactly one JSON line. If there is
@@ -253,7 +313,7 @@ class RemoteSSHBackend:
         stdout = (stdout or "").strip()
         if not stdout:
             _log.error("Remote worker produced empty stdout", extra={"host": self._host})
-            return dict(_FAIL_METRICS)
+            return fail_metrics()
 
         # Take the last non-empty line — earlier lines may be stray warnings.
         json_line = stdout.splitlines()[-1]
