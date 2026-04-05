@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [ARCHITECTURE.md](ARCHITECTURE.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
 
-**Last updated**: 2026-04-04 (Evolve Engine Level 1 implemented — AlphaEvolve-style architecture search for ScoutGPT with 4 conditioning seeds, pluggable backends, OpenEvolve integration; D32 training pipeline merged)
+**Last updated**: 2026-04-05 (Cycle 4 Phase 3: GK saves from shots, Wyscout comp mapping, tracking metadata, embedding neighborhood chart, dim_tracking_matches)
 
 ---
 
@@ -74,7 +74,7 @@ See [ROADMAP.md](ROADMAP.md) for research directions, long-horizon features, and
 - **Deep Learning Infrastructure** — GNN training, continual learning, pre-trained model integration
 - **Provider Abstraction** — configurable multi-tier ingestion; free/open tiers default, commercial activates via credentials
 - **Shape Graph Visualizations & Tactical Applications** — position plots, dual-detector UX, scouting via position maps (D36/D37 shipped in Cycle 2)
-- **Goalkeeper Analytics** — four-pillar GK evaluation taxonomy, key references, embedding gap (D38/D39 are the implementation items)
+- **Goalkeeper Analytics** — four-pillar GK evaluation complete (D38/D39 shipped, Cycle 4 added shot-based saves + Wyscout competition mapping)
 - **Visual Exploratory Behavior** — partially unblocked: 6 Veo3 recordings + local RTMO pose estimation feasible (BSD 3-Clause)
 - **Staging Environment** — Lakebase branching for pre-production validation
 - **Graph-Based Tactical Patterns** — GNN research direction (Raabe et al. 2022)

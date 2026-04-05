@@ -27,6 +27,7 @@ import io
 import json
 import logging
 import pathlib
+import re
 import zipfile
 from typing import TYPE_CHECKING
 
@@ -62,6 +63,28 @@ _COMPETITIONS = [
     "European_Championship",
     "World_Cup",
 ]
+
+
+_UNICODE_ESCAPE_RE = re.compile(r"\\u([0-9a-fA-F]{4})")
+
+
+def _decode_unicode_escapes(df: pd.DataFrame) -> pd.DataFrame:
+    """Decode literal ``\\uXXXX`` escape sequences in string columns.
+
+    The Wyscout Figshare JSON files contain double-escaped Unicode in player
+    name fields (e.g., ``G\\u00f3mez`` instead of ``Gómez``). After
+    ``json.loads``, these become literal backslash-u sequences in Python
+    strings.  This function converts them to proper Unicode characters.
+    """
+    for col in df.select_dtypes(include=["object"]).columns:
+        sample = df[col].dropna()
+        if sample.empty or not isinstance(sample.iloc[0], str):
+            continue
+        if sample.str.contains(_UNICODE_ESCAPE_RE.pattern, na=False, regex=True).any():
+            df[col] = df[col].apply(
+                lambda v: _UNICODE_ESCAPE_RE.sub(lambda m: chr(int(m.group(1), 16)), v) if isinstance(v, str) else v
+            )
+    return df
 
 
 def _normalize_mixed_types(df: pd.DataFrame) -> pd.DataFrame:
@@ -427,6 +450,7 @@ def _load_players(
         if local_path.exists():
             logger.info("Loading local players file: %s", local_path)
             df = pd.read_json(local_path)
+            df = _decode_unicode_escapes(df)
             df = serialize_json_columns(df, ["role", "passportArea", "birthArea"])
             return df
 
@@ -434,6 +458,7 @@ def _load_players(
     resp = fetch_url(_PLAYERS_URL, timeout=(10, 60))
     data = resp.json()
     df = pd.DataFrame(data)
+    df = _decode_unicode_escapes(df)
     df = serialize_json_columns(df, ["role", "passportArea", "birthArea"])
     logger.info("Loaded %d players from Figshare", len(df))
     return df

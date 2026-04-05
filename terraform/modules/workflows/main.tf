@@ -692,6 +692,35 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "hf-readonly"
   }
 
+  # ── Task: Extract tracking player metadata ─────────────────────────────
+  # Reads IDSSE DFL match info XMLs and SkillCorner kloppy metadata to
+  # populate tracking_player_metadata bronze table with player/team names.
+  task {
+    task_key        = "extract_tracking_metadata"
+    timeout_seconds = 900
+    max_retries     = 1
+
+    depends_on {
+      task_key = "ingest_idsse"
+    }
+
+    depends_on {
+      task_key = "ingest_skillcorner"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "extract_tracking_metadata"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "tracking"
+  }
+
   # ── Task: Export on-target shots to HF Hub (D39 prerequisite) ──────────
   task {
     task_key        = "export_shots_on_target"

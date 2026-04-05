@@ -26,6 +26,17 @@ deduplicated as (
 
 ),
 
+-- Wyscout → StatsBomb competition ID mapping so all SPADL actions use
+-- a single competition ID space (StatsBomb IDs).
+comp_mapping as (
+
+    select
+        wyscout_competition_id,
+        statsbomb_competition_id
+    from {{ ref('competition_id_mapping') }}
+
+),
+
 cleaned as (
 
     select
@@ -62,11 +73,14 @@ cleaned as (
 
         -- Provenance
         data_source,
-        cast(competition_id as int)                     as competition_id,
+        cast(coalesce(cm.statsbomb_competition_id,
+                 cast(competition_id as int)) as int)    as competition_id,
         cast(season_id as int)                          as season_id
 
-    from deduplicated
-    where _row_num = 1
+    from deduplicated d
+    left join comp_mapping cm
+        on cast(d.competition_id as int) = cm.wyscout_competition_id
+    where d._row_num = 1
 
 )
 

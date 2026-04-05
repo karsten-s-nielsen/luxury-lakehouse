@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the current [architecture](ARCHITECTURE.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-04-04 (Evolve Engine Level 1 shipped — AlphaEvolve/OpenEvolve architecture search for ScoutGPT; D32 training pipeline merged; Cycle 3 complete)
+**Last updated**: 2026-04-05 (Cycle 4 Phase 3: GK saves, Wyscout competition mapping, tracking metadata, embedding neighborhood chart)
 
 ---
 
@@ -626,9 +626,9 @@ Position map similarity enables "find players who occupy similar tactical positi
 
 ## Goalkeeper Analytics
 
-**Status:** D38 + D39 shipped (Cycle 3). Four-pillar GK evaluation: distribution xT, collection stats, PSxG model (Butcher et al. 2025), sweeper metrics. Position-group percentiles. GK-specific stat vectors for embeddings.
+**Status:** Complete. Four-pillar GK evaluation shipped (Cycle 3: D38+D39). Cycle 4 added shot-based saves, Wyscout competition mapping, team_id filtering, GK selector UX.
 
-The platform has zero GK-specific performance metrics. GKs are handled as a filtering concern (excluded from formations, normalized separately in embeddings) but never as subjects of dedicated measurement. This is a significant gap for a platform with a GK coaching stakeholder.
+All four pillars are implemented with data from 21 competitions across StatsBomb and Wyscout sources.
 
 ### Four-pillar taxonomy
 
@@ -649,14 +649,6 @@ The industry converges on four GK evaluation dimensions. D38/D39 address all fou
 | Lamberts (2025), [Goalkeeper Value Model](https://marclamberts.substack.com/p/introducing-the-goalkeeper-value) | Blog + design pattern | Composite score formula: `S = B + ω_ss·V̄_ss + ω_dist·V̄_dist + ω_ll·V̄_ll + ω_bh·V̄_bh`. Four-phase xT-based approach. Python package planned but not yet public |
 | Yam, [Data-Driven GK Evaluation Framework](https://www.sloansportsconference.com/research-papers/a-data-driven-goalkeeper-evaluation-framework) | MIT Sloan paper | KNN positional deviation for sweeper detection, StatsBomb data |
 | Stats Perform, [Enhancing xGOT](https://www.statsperform.com/resource/enhancing-expected-goals-on-target/) | Industry whitepaper | Separate men's/women's xGOT models trained on 300K+ shots across 63 competitions |
-
-### Known issue: GK embeddings
-
-Current player embeddings (`src/ingestion/player_embeddings.py`) use a 13-feature stat vector that is 100% outfield-centric (`goals_per_90`, `xg_per_90`, `passes_per_90`, etc.). GKs are included but represented by irrelevant features. Once D38 lands GK-specific stats (distribution xT, claim rate, save counts), the embedding stat vector should be extended with GK features — or GKs should use a separate stat vector entirely. This is a prerequisite for meaningful GK similarity search.
-
-### Known issue: `fct_player_percentiles`
-
-Ranks GKs against all players with no `position_group` filter. A GK's `xg_per_90` percentile ranked against strikers is meaningless. D39 fixes this by adding a position_group guard.
 
 ---
 

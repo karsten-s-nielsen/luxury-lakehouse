@@ -33,21 +33,21 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
             sharedLibrary = container "Shared Library" "Cross-package constants: IDENTIFIER_RE, DEFAULT_GOLD_SCHEMA, mlflow_model_uri(). Zero external deps. Imported by analytics, ingestion, and Taipy Docker image" "Python, src/shared/"
         }
 
-        dbtProject = softwareSystem "dbt Project" "Medallion transformation: 53 models (staging/intermediate/marts), normalize_coordinates macro, data classification meta tags, model contracts, liquid clustering" {
+        dbtProject = softwareSystem "dbt Project" "Medallion transformation: 65 models (27 staging, 5 intermediate, 33 marts), normalize_coordinates macro, data classification meta tags, model contracts, liquid clustering" {
             fctWorkflowCosts = container "fct_workflow_costs" "Gold-layer cost attribution from system.billing.usage × list_prices, proportional per-task by execution_duration. 90-day rolling window. Post-hook cleanup of warm-tier rows" "SQL, dbt" "Database"
-            goldModels = container "Gold Models" "31 fact tables + 3 dimension tables with enforced contracts, liquid clustering, auto-compaction" "SQL, dbt" "Database"
+            goldModels = container "Gold Models" "29 fact tables + 4 dimension tables with enforced contracts, liquid clustering, auto-compaction" "SQL, dbt" "Database"
         }
 
         # Data stores
         unityCatalog = softwareSystem "Unity Catalog" "Governed Delta Lake storage: bronze (raw), gold (analytics), observability (platform metadata)" "External" {
             bronzeSchema = container "Bronze Schema" "Raw ingested data: events, tracking, SPADL actions, VAEP scores, compute results" "Delta Lake" "Database"
-            goldSchema = container "Gold Schema" "Analytics-ready facts and dimensions: 25 fact tables, 3 dim tables, fct_workflow_costs" "Delta Lake" "Database"
+            goldSchema = container "Gold Schema" "Analytics-ready facts and dimensions: 29 fact tables, 4 dim tables, fct_workflow_costs" "Delta Lake" "Database"
             observabilitySchema = container "Observability Schema" "Platform operational metadata: workflow_cost_live (warm/hot cost tracking)" "Delta Lake" "Database"
         }
 
-        lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL-compatible endpoint syncing 34 Delta Lake tables from Unity Catalog (50 btree + 6 HNSW vector indexes: 4x128d + 2x144d)" "External"
+        lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL-compatible endpoint syncing 36 Delta Lake tables from Unity Catalog (56 btree/HNSW indexes: 50 btree + 6 HNSW vector: 4x128d + 2x144d)" "External"
         databricksApi = softwareSystem "Databricks REST API" "OAuth credential endpoint for Lakebase authentication" "External"
-        databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 30 tasks (6 ingest, 14 compute, 5 HF export/import, 2 360 pipeline, 1 entity resolution, 1 validation, 1 cost sync), daily 06:00 UTC" "External"
+        databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 31 tasks (6 ingest, 14 compute, 5 HF export/import, 2 360 pipeline, 1 entity resolution, 1 validation, 1 cost sync, 1 tracking metadata), daily 06:00 UTC" "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds from Dockerfile, serves on port 7860" "External"
         hfHub = softwareSystem "HuggingFace Hub" "Hosts 7 models (incl. football2vec-v2, football2vec-360, PSxG), 18 datasets (incl. training data, ScoutGPT episodes, 360 embeddings), build-artifacts wheel, and _workflow_cost.json cost artifacts" "External"
         hfJobs = softwareSystem "HuggingFace Jobs" "GPU/CPU compute: 12 PEP 723 UV scripts for training (xG v1/v2, VAEP, PSxG, Football2vec v2/360), batch analytics (xT, EPV, OBSO, Space Creation), and dataset publishing (freeze frames, xG shots)" "External"
@@ -73,7 +73,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
         dbLayer -> configLayer "Reads Lakebase host and endpoint settings" ""
 
         # Relationships - external (Taipy)
-        dbLayer -> lakebase "Queries 34 synced tables via parameterized SQL" "PostgreSQL/SSL"
+        dbLayer -> lakebase "Queries 36 synced tables via parameterized SQL" "PostgreSQL/SSL"
         dbLayer -> databricksApi "Fetches OAuth tokens for Lakebase auth" "HTTPS/REST"
         stateModules -> workflowCards "Reads YAML manifests on first page load (cached in _cards module variable)" ""
         stateModules -> hfHub "Loads embeddings for similarity search; reads _workflow_cost.json (RUNNING detection) + _cost_history/ (30-day cost aggregation) via 60s TTL" "HTTPS"
@@ -88,7 +88,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
         costEstimateHook -> sharedLibrary "Imports COST_TABLE_NAME and schema constants" ""
         ingestionPipelines -> bronzeSchema "Writes compute results to Delta tables" "PySpark/Delta"
         costEstimateHook -> observabilitySchema "MERGE run state + cost estimates to workflow_cost_live" "PySpark/Delta"
-        databricksWorkflows -> ingestionPipelines "Schedules and executes 30 pipeline tasks" "Databricks Jobs API"
+        databricksWorkflows -> ingestionPipelines "Schedules and executes 31 pipeline tasks" "Databricks Jobs API"
 
         # Relationships - Evolve Engine
         developer -> evolveEngine "Runs 'uv run evolve --target scoutgpt'" "CLI"

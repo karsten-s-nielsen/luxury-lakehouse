@@ -15,6 +15,7 @@ from typing import Any
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import pandas as pd
+import plotly.graph_objects as go
 from filters import fetch_data_freshness, fetch_embedding_players
 from mplsoccer import Radar
 from queries.players import fetch_player_embedding_vector, fetch_similarity_radar_stats, search_similar_players
@@ -83,6 +84,7 @@ ps_spoke_caption: str = ""
 ps_compare_lov: list[str] = []
 ps_selected_compare: str | None = None
 ps_threshold_caption: str = _DISTANCE_THRESHOLDS_CAPTION
+ps_neighborhood_chart: go.Figure | None = None
 ps_status_message: str = ""
 ps_warning_text: str = ""
 
@@ -102,6 +104,7 @@ __all__ = [
     "ps_competition_lov",
     "ps_filter_by_competition",
     "ps_min_matches",
+    "ps_neighborhood_chart",
     "ps_player_lov",
     "ps_radar_image",
     "ps_result_count",
@@ -227,6 +230,7 @@ def _render_comparison_radar(
 def _clear_results(state: Any) -> None:
     """Reset result-related state variables."""
     state.ps_results_data = pd.DataFrame(columns=_PS_RESULTS_COLS)
+    state.ps_neighborhood_chart = None
     state.ps_radar_image = ""
     state.ps_spoke_caption = ""
     state.ps_compare_lov = []
@@ -356,6 +360,62 @@ def on_ps_selected_compare_change(state: Any, var_name: str, var_value: Any) -> 
         state.ps_spoke_caption = ""
 
 
+_SIMILARITY_COLORS = {
+    "Very Similar": "#2ecc71",
+    "Similar": "#3498db",
+    "Moderately Similar": "#f39c12",
+    "Different": "#e74c3c",
+}
+
+
+def _render_neighborhood_chart(results: pd.DataFrame, query_player: str) -> go.Figure | None:
+    """Build a Plotly horizontal dot chart of the similarity neighborhood.
+
+    Each dot is a neighbor, positioned by similarity score (0-1, higher = more similar)
+    and colored by the interpretation bucket.
+    """
+    if results.empty:
+        return None
+
+    similarity = 1 - results["distance"]
+    labels = results["interpretation"]
+    names = results["player_display_name"]
+
+    fig = go.Figure()
+
+    # Add one trace per interpretation bucket (for legend)
+    for bucket, color in _SIMILARITY_COLORS.items():
+        mask = labels == bucket
+        if not mask.any():
+            continue
+        fig.add_trace(
+            go.Scatter(
+                x=similarity[mask],
+                y=names[mask],
+                mode="markers",
+                marker={"size": 12, "color": color},
+                name=bucket,
+                hovertemplate="%{y}<br>Similarity: %{x:.1%}<extra></extra>",
+            )
+        )
+
+    # Vertical reference lines for thresholds
+    for thresh, lbl in [(0.80, "Very Similar"), (0.65, "Similar"), (0.50, "Moderate")]:
+        fig.add_vline(x=thresh, line_dash="dot", line_color="#bdc3c7", opacity=0.5, annotation_text=lbl)
+
+    fig.update_layout(
+        title=f"Embedding Neighborhood — {query_player}",
+        xaxis_title="Cosine Similarity (higher = more similar, 0\u20131)",
+        yaxis={"categoryorder": "total ascending"},
+        height=max(300, 50 * len(results)),
+        margin={"l": 200, "r": 40, "t": 60, "b": 60},
+        legend={"orientation": "h", "y": -0.15},
+        template="plotly_white",
+    )
+
+    return fig
+
+
 def _run_similarity_search(state: Any) -> None:
     """Execute the pgvector similarity search and populate results state."""
     global _ps_compare_map, _ps_results_df
@@ -460,6 +520,7 @@ def _run_similarity_search(state: Any) -> None:
             display_df["Cosine Distance"] = display_df["Cosine Distance"].apply(lambda x: f"{x:.4f}")
 
         state.ps_results_data = display_df
+        state.ps_neighborhood_chart = _render_neighborhood_chart(results, player_label or "")
         state.ps_compare_lov = list(_ps_compare_map.keys())
         state.ps_selected_compare = None
         state.ps_status_message = f"Found {len(results)} similar players."

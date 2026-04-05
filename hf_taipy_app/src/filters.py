@@ -167,12 +167,18 @@ def fetch_players(competition_id: int, team_id: int | None) -> list[tuple[str, i
 
 @ttl_cache()
 def fetch_tracking_matches(provider: str | None) -> list[tuple[str, str]]:
-    """Tracking matches with labels from match summary.
+    """Tracking matches with labels from match summary or tracking metadata.
+
+    Resolution order for match labels:
+    1. fct_match_summary (StatsBomb matches with date + team names)
+    2. dim_tracking_matches (IDSSE/SkillCorner team names from metadata)
+    3. Fallback: 'Match {match_id}'
 
     provider: 'metrica', 'idsse', 'skillcorner', or None for all.
     """
     tracking_tbl = t("fct_tracking_frames_synced")
     match_tbl = t("fct_match_summary_synced")
+    tracking_meta = t("dim_tracking_matches_synced")
     provider_clause = ""
     params: tuple[Any, ...] = ()
     if provider and provider != "All":
@@ -189,10 +195,14 @@ def fetch_tracking_matches(provider: str | None) -> list[tuple[str, str]]:
         f"    match_id > dm.match_id)"
         f"  FROM dm WHERE dm.match_id IS NOT NULL"
         f") SELECT dm.match_id, "
-        f"  COALESCE(ms.match_date || ' \u2014 ' || ms.home_team_name || ' v ' || ms.away_team_name, "
-        f"    'Match ' || dm.match_id) AS match_label "
+        f"  COALESCE("
+        f"    ms.match_date || ' \u2014 ' || ms.home_team_name || ' v ' || ms.away_team_name, "
+        f"    tm.home_team_name || ' v ' || tm.away_team_name, "
+        f"    'Match ' || dm.match_id"
+        f"  ) AS match_label "
         f"FROM dm "
         f"LEFT JOIN {match_tbl} ms ON dm.match_id::text = ms.match_id::text "
+        f"LEFT JOIN {tracking_meta} tm ON dm.match_id::text = tm.match_id::text "
         f"WHERE dm.match_id IS NOT NULL "
         f"ORDER BY match_label LIMIT 100",
         params * 2 if params else (),

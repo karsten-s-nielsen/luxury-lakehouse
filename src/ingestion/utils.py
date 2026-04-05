@@ -94,11 +94,15 @@ def serialize_json_columns(df: pd.DataFrame, columns: list[str] | None = None) -
             if sample.empty:
                 continue
             if isinstance(sample.iloc[0], dict | list):
-                df[col] = df[col].apply(lambda v: json.dumps(v, default=str) if isinstance(v, dict | list) else v)
+                df[col] = df[col].apply(
+                    lambda v: json.dumps(v, default=str, ensure_ascii=False) if isinstance(v, dict | list) else v
+                )
     else:
         for col in columns:
             if col in df.columns:
-                df[col] = df[col].apply(lambda v: json.dumps(v, default=str) if isinstance(v, dict | list) else v)
+                df[col] = df[col].apply(
+                    lambda v: json.dumps(v, default=str, ensure_ascii=False) if isinstance(v, dict | list) else v
+                )
     return df
 
 

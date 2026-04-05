@@ -424,7 +424,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         "gk_selected_player",
         "Goalkeeper",
         "gk_on_gk_player_change",
-        condition=f"current_page in {_GK_PAGES}",
+        condition=f"current_page in {_GK_PAGES} and selected_sub_view != 'Rankings'",
         lov="gk_player_lov",
         depends_on="selected_competition",
         help="Select a goalkeeper to view their shot stopping and distribution. Only goalkeepers with GK stats are listed.",
