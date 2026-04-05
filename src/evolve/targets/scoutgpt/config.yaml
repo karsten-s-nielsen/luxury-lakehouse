@@ -1,0 +1,42 @@
+target: scoutgpt
+description: "Evolve ScoutGPT conditioning mechanism to maximize counterfactual Spearman rho"
+
+fitness:
+  primary: spearman_rho
+  secondary: top1_accuracy
+  combined_weights:
+    spearman_rho: 0.7
+    top1_accuracy: 0.3
+  minimize: false
+
+evaluation:
+  epochs: 5
+  dataset: "luxury-lakehouse/scoutgpt-training-data"
+  timeout_seconds: 900
+  seed: 42
+
+backend:
+  type: local_cuda
+  device: "cuda:0"
+
+llm:
+  models:
+    - name: "anthropic/claude-sonnet-4"
+      weight: 0.8
+      api_base: "https://openrouter.ai/api/v1"
+      api_key_env: "OPENROUTER_API_KEY"
+    - name: "anthropic/claude-haiku-4.5"
+      weight: 0.2
+      api_base: "https://openrouter.ai/api/v1"
+      api_key_env: "OPENROUTER_API_KEY"
+  temperature: 0.7
+  max_tokens: 4096
+
+evolution:
+  iterations: 150
+  population_size: 200
+  num_islands: 3
+  migration_interval: 30
+  parallel_evaluations: 1
+  diff_based: true
+  early_stopping_patience: 40

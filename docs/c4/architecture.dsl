@@ -1,4 +1,4 @@
-workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 34 AI/ML workflows, three-tier cost tracking, 16-page Taipy dashboard on HF Spaces, Databricks Lakebase. Four-pillar GK evaluation (PSxG, distribution xT, collection, sweeper). Football2vec 360-enriched embeddings (144d transformer + Deep Sets). ScoutGPT decoder (256d GPT-style, player-conditioned, Hong et al. 2025). Shape graph formation detection (Sotudeh 2026), Football2vec v2 transformer with adversarial debiasing (128d). Semgrep SAST, ruff S (bandit), and import-linter boundary enforcement in CI." {
+workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML workflows, three-tier cost tracking, 16-page Taipy dashboard on HF Spaces, Databricks Lakebase. Evolve Engine (AlphaEvolve-style LLM-guided architecture search via OpenEvolve). Four-pillar GK evaluation (PSxG, distribution xT, collection, sweeper). Football2vec 360-enriched embeddings (144d transformer + Deep Sets). ScoutGPT decoder (256d GPT-style, player-conditioned, Hong et al. 2025). Shape graph formation detection (Sotudeh 2026), Football2vec v2 transformer with adversarial debiasing (128d). Semgrep SAST, ruff S (bandit), and import-linter boundary enforcement in CI." {
 
     model {
         analyst = person "Soccer Analyst" "Coaches, scouts, and analysts exploring match and player data"
@@ -22,12 +22,13 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 34 AI/ML wor
             deployWheel = container "deploy_wheel.py" "Downloads wheel from HF Hub build-artifacts, uploads to UC Volume /Volumes/{catalog}/bronze/libs/, post-upload size verification" "Python, huggingface_hub, databricks-sdk"
         }
 
-        pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "34 workflow-card-registered compute pipelines with @workflow decorators, centralized bootstrap hooks, lifecycle tracking, three-tier cost tracking, YAML manifests, and import-linter boundary enforcement" {
+        pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "35 workflow-card-registered compute pipelines with @workflow decorators, centralized bootstrap hooks, lifecycle tracking, three-tier cost tracking, YAML manifests, Evolve Engine for LLM-guided architecture search, and import-linter boundary enforcement" {
             workflowFramework = container "Workflow Framework" "Registry, @workflow decorator, WorkflowContext, lifecycle runner with on_start/on_complete/on_skip/on_error dispatch. Circular dependency broken via _set_runner injection" "Python, src/workflows/"
-            workflowCards = container "Workflow Cards" "34 YAML manifests defining inputs, outputs, deps, execution config, cost estimates, academic provenance" "YAML, workflow-cards/" "Database"
+            workflowCards = container "Workflow Cards" "35 YAML manifests defining inputs, outputs, deps, execution config, cost estimates, academic provenance" "YAML, workflow-cards/" "Database"
             costEstimateHook = container "CostEstimateHook" "Lifecycle hook writing run state + cost estimates to workflow_cost_live Delta table via MERGE. Centralized registration via bootstrap_hooks()" "Python, PySpark, Delta, src/ingestion/cost_hook.py"
             hfCostRecorder = container "HFJobsCostRecorder" "Standalone cost recorder for HF Jobs scripts. Writes _workflow_cost.json (live status) and _cost_history/{job_id}.json (per-run history) to HF Hub repos. 90-day auto-pruning" "Python, huggingface_hub, src/ingestion/hf_jobs_cost.py"
             ingestionPipelines = container "Compute Pipelines" "30 @workflow-decorated Databricks pipelines (all instrumented): 5 raw ingestors (StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner), 14 compute (xG, VAEP, DEFCON 360+tracking, pitch control, xT, OBSO/PAUSA, entity resolution, line-breaking 360+tracking, formations EFPI+shape graph, embeddings v1/v2, model validation), 5 HF export/import (shots, OBSO, PSxG, space creation, 360 training data), elastic sync, cost sync. Centralized hook registration via bootstrap.py" "Python, PySpark, src/ingestion/"
+            evolveEngine = container "Evolve Engine" "AlphaEvolve-style LLM-guided evolutionary architecture search. CLI runner, Pydantic config, target-specific evaluators (ScoutGPT: 4 conditioning seeds), pluggable compute backends (local CUDA, remote SSH, Docker/HF Jobs stubs), OpenEvolve MAP-Elites population management" "Python, OpenEvolve, src/evolve/"
             analyticsLibrary = container "Analytics Library" "Pure-Python domain models (zero I/O). Pitch control (Spearman 2017), xG, xT, VAEP, OBSO, line-breaking, DEFCON, entity resolution, shape graph (construction + inference split), football2vec v2/360, ScoutGPT decoder (256d GPT-style causal, Hong et al. 2025), goalkeeper, coordinates. Split modules all under 800 lines" "Python, NumPy, SciPy, PyTorch, scikit-learn, src/analytics/"
             sharedLibrary = container "Shared Library" "Cross-package constants: IDENTIFIER_RE, DEFAULT_GOLD_SCHEMA, mlflow_model_uri(). Zero external deps. Imported by analytics, ingestion, and Taipy Docker image" "Python, src/shared/"
         }
@@ -50,6 +51,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 34 AI/ML wor
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds from Dockerfile, serves on port 7860" "External"
         hfHub = softwareSystem "HuggingFace Hub" "Hosts 7 models (incl. football2vec-v2, football2vec-360, PSxG), 18 datasets (incl. training data, ScoutGPT episodes, 360 embeddings), build-artifacts wheel, and _workflow_cost.json cost artifacts" "External"
         hfJobs = softwareSystem "HuggingFace Jobs" "GPU/CPU compute: 12 PEP 723 UV scripts for training (xG v1/v2, VAEP, PSxG, Football2vec v2/360), batch analytics (xT, EPV, OBSO, Space Creation), and dataset publishing (freeze frames, xG shots)" "External"
+        openRouter = softwareSystem "OpenRouter" "LLM API gateway: Claude Sonnet 4 (80%) and Haiku 4.5 (20%) for evolutionary code mutation via OpenAI-compatible endpoint" "External"
 
         # Relationships - users
         analyst -> guiLayer "Browses pages, selects filters, views interactive and static charts" "HTTPS"
@@ -87,6 +89,13 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 34 AI/ML wor
         ingestionPipelines -> bronzeSchema "Writes compute results to Delta tables" "PySpark/Delta"
         costEstimateHook -> observabilitySchema "MERGE run state + cost estimates to workflow_cost_live" "PySpark/Delta"
         databricksWorkflows -> ingestionPipelines "Schedules and executes 30 pipeline tasks" "Databricks Jobs API"
+
+        # Relationships - Evolve Engine
+        developer -> evolveEngine "Runs 'uv run evolve --target scoutgpt'" "CLI"
+        evolveEngine -> analyticsLibrary "Imports ScoutGPT decoder for candidate training" ""
+        evolveEngine -> openRouter "Sends LLM mutation prompts via OpenAI-compatible API" "HTTPS/REST"
+        evolveEngine -> hfHub "Downloads ScoutGPT training data" "HTTPS/HF API"
+        evolveEngine -> workflowCards "Registered as wf-evolve-scoutgpt" ""
 
         # Relationships - HF Jobs
         hfJobs -> analyticsLibrary "Imports from wheel (luxury-lakehouse/build-artifacts)" "pip/HTTPS"
@@ -147,6 +156,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 34 AI/ML wor
             include unityCatalog
             include databricksWorkflows
             include hfJobs
+            include openRouter
             autoLayout
         }
 
@@ -157,6 +167,8 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 34 AI/ML wor
             include hfHub
             include observabilitySchema
             include bronzeSchema
+            include openRouter
+            include developer
             autoLayout
         }
 

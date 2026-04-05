@@ -11,6 +11,7 @@ import json
 import logging
 import math
 import os
+import sys
 import time
 from collections import Counter
 from typing import Any
@@ -45,6 +46,10 @@ VAEP_LOSS_WEIGHT = 0.1
 # Evaluation constants
 COUNTERFACTUAL_NUM_EPISODES = 1000
 COUNTERFACTUAL_NUM_PLAYERS = 100
+
+# Windows spawn-based multiprocessing crashes DataLoader workers unless the
+# caller uses ``if __name__ == '__main__':``.  Safe default: 0 on Windows.
+_EVAL_NUM_WORKERS = 0 if sys.platform == "win32" else 2
 
 
 # ---------------------------------------------------------------------------
@@ -374,14 +379,41 @@ def get_cosine_schedule_with_warmup(
 
 
 def build_action_type_frequencies(
-    data: pd.DataFrame,
+    data: pd.DataFrame | None = None,
+    *,
+    all_atypes: list[list[int]] | None = None,
+    all_pidxs: list[list[int]] | None = None,
+    indices: list[int] | None = None,
 ) -> dict[int, dict[int, float]]:
-    """Build per-player action type frequency table from training data.
+    """Build per-player action type frequency table.
+
+    Two calling conventions:
+
+    1. ``build_action_type_frequencies(data)`` — parses the ``"actions"``
+       column from scratch (legacy path, used by standalone training).
+    2. ``build_action_type_frequencies(all_atypes=..., all_pidxs=...,
+       indices=...)`` — builds from already-parsed lists (fast path, used
+       by the evolve evaluator which has already called ``build_datasets``).
 
     Returns:
-        {player_idx: {action_type: count}}
+        ``{player_idx: {action_type: count}}``
     """
     freq: dict[int, dict[int, float]] = {}
+
+    if all_atypes is not None and all_pidxs is not None:
+        # Fast path: use pre-parsed episode lists directly.
+        episode_range = indices if indices is not None else range(len(all_atypes))
+        for i in episode_range:
+            for atype, pidx in zip(all_atypes[i], all_pidxs[i], strict=True):
+                if pidx not in freq:
+                    freq[pidx] = {}
+                freq[pidx][atype] = freq[pidx].get(atype, 0) + 1
+        return freq
+
+    # Legacy path: parse from DataFrame.
+    if data is None:
+        msg = "Either data or (all_atypes, all_pidxs) must be provided"
+        raise ValueError(msg)
     for _, row in data.iterrows():
         atypes, *_, pidxs = parse_episode_actions(row["actions"])  # type: ignore[arg-type]
         for atype, pidx in zip(atypes, pidxs, strict=True):
@@ -576,7 +608,14 @@ def train_loop(
     model = ScoutGPTDecoder(config).to(device)
     logger.info("Model parameters: %d", sum(p.numel() for p in model.parameters()))
 
-    _nw = min(4, len(os.sched_getaffinity(0))) if hasattr(os, "sched_getaffinity") else 4  # type: ignore[attr-defined]
+    # Windows spawn-based multiprocessing crashes DataLoader workers unless
+    # the caller uses ``if __name__ == '__main__':``.  Safe: 0 on Windows.
+    if sys.platform == "win32":
+        _nw = 0
+    elif hasattr(os, "sched_getaffinity"):
+        _nw = min(4, len(os.sched_getaffinity(0)))  # type: ignore[attr-defined]
+    else:
+        _nw = 4
     tl = DataLoader(
         train_ds,
         batch_size=batch_size,
@@ -790,7 +829,7 @@ def accuracy_by_bucket(
     bucket_correct: dict[str, int] = {"q1": 0, "q2": 0, "q3": 0, "q4": 0}
     bucket_total: dict[str, int] = {"q1": 0, "q2": 0, "q3": 0, "q4": 0}
 
-    loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False, num_workers=2)
+    loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False, num_workers=_EVAL_NUM_WORKERS)
     sample_idx = 0
     with torch.no_grad():
         for batch in loader:
@@ -844,7 +883,7 @@ def evaluate_and_report(
     """Compute full evaluation suite and return metrics dict."""
     action_criterion = nn.CrossEntropyLoss(ignore_index=-100)
     vaep_criterion = nn.MSELoss(reduction="none")
-    test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False, num_workers=2)
+    test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False, num_workers=_EVAL_NUM_WORKERS)
 
     test_loss, test_action_loss, test_vaep_loss, test_top1, test_top5 = eval_loop(
         model, test_loader, config, device, action_criterion, vaep_criterion
@@ -921,7 +960,7 @@ def _cross_source_accuracy(
         parsed = build_datasets(subset)  # type: ignore[arg-type]
         (atypes, sxs, sys_, exs, eys, res, vaeps, tds, pidxs, comp_ids) = parsed
         ds = ScoutGPTDataset(atypes, sxs, sys_, exs, eys, res, vaeps, tds, pidxs, competition_ids=comp_ids)
-        loader = DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=2)
+        loader = DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=_EVAL_NUM_WORKERS)
 
         _, _, _, top1, _ = eval_loop(model, loader, config, device, action_criterion, vaep_criterion)
         source_name = str(source).replace(" ", "_").lower()
