@@ -1,0 +1,41 @@
+version: 2
+
+sources:
+  - name: tracking
+    description: >
+      Tracking data metadata extracted from source files (DFL match info
+      XMLs, SkillCorner kloppy, Metrica CSVs). Maps provider-specific
+      player IDs to human-readable display names and team names.
+    database: "{{ var('catalog', 'soccer_analytics') }}"
+    schema: bronze
+    loader: python_wheel
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 168, period: hour}
+        error_after: {count: 720, period: hour}
+
+    tables:
+      - name: tracking_player_metadata
+        description: >
+          Per-player per-match metadata from tracking data providers.
+          IDSSE: player short names and team names from DFL match info XML.
+          SkillCorner: player names and team names from kloppy metadata.
+          Metrica: not included (anonymised data — raw player_id fallback).
+        columns:
+          - name: match_id
+            description: Match identifier (string, prefixed by provider)
+          - name: player_id
+            description: Player identifier from the tracking data source
+          - name: player_display_name
+            description: Human-readable player name (ShortName for DFL, name for SkillCorner)
+          - name: team_side
+            description: Team side (home or away)
+          - name: team_display_name
+            description: Human-readable team name
+          - name: jersey_number
+            description: Shirt number (nullable)
+          - name: provider
+            description: Tracking data provider (idsse, skillcorner)
+          - name: _ingested_at
+            description: UTC timestamp when the row was written

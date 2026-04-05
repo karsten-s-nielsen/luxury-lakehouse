@@ -24,6 +24,7 @@ from queries.tactical_positions import (
     fetch_position_maps,
     fetch_position_timeline,
     fetch_tp_players,
+    fetch_tracking_teams,
 )
 from queries.team_shape import fetch_match_events
 
@@ -192,12 +193,15 @@ def _resolve_team_side(state: Any) -> str | None:
 def _init_team_lov(state: Any) -> None:
     """Set the team LOV with actual team names and auto-select Home.
 
-    Uses match summary to get real team names (e.g., "Home — Arsenal").
-    Falls back to plain "Home"/"Away" when match summary unavailable.
+    Resolution order:
+    1. Match events (StatsBomb): home_team_name / away_team_name
+    2. Tracking metadata: team_display_name from fct_position_maps
+    3. Fallback: plain "Home" / "Away"
     """
     match_id = get_tracking_match_id(state.selected_tracking_match)
     home_label, away_label = "Home", "Away"
     if match_id:
+        # Try StatsBomb events first (has team names for SB matches)
         events = fetch_match_events(match_id)
         if not events.empty:
             r = events.iloc[0]
@@ -207,6 +211,17 @@ def _init_team_lov(state: Any) -> None:
                 home_label = f"Home \u2014 {home_name}"
             if away_name:
                 away_label = f"Away \u2014 {away_name}"
+        else:
+            # Fallback: tracking metadata (IDSSE/SkillCorner team names)
+            teams_df = fetch_tracking_teams(match_id)
+            if not teams_df.empty:
+                for _, row in teams_df.iterrows():
+                    side = row.get("team", "")
+                    name = row.get("team_display_name", "")
+                    if side == "home" and name and name != "Home":
+                        home_label = f"Home \u2014 {name}"
+                    elif side == "away" and name and name != "Away":
+                        away_label = f"Away \u2014 {name}"
     state.tac_team_lov = [home_label, away_label]
     if not state.tac_selected_team or state.tac_selected_team not in state.tac_team_lov:
         state.tac_selected_team = home_label
@@ -896,7 +911,19 @@ def tac_refresh(state: Any) -> None:
         r = events.iloc[0]
         state.tac_scope_label = f"{r['home_team_name']} v {r['away_team_name']}"
     else:
-        state.tac_scope_label = match_id
+        # Fallback: tracking metadata team names
+        teams_df = fetch_tracking_teams(match_id)
+        home_name, away_name = "", ""
+        if not teams_df.empty:
+            for _, row in teams_df.iterrows():
+                if row.get("team") == "home":
+                    home_name = row.get("team_display_name", "")
+                elif row.get("team") == "away":
+                    away_name = row.get("team_display_name", "")
+        if home_name and away_name and home_name != "Home":
+            state.tac_scope_label = f"{home_name} v {away_name}"
+        else:
+            state.tac_scope_label = match_id
 
 
 # ---------------------------------------------------------------------------

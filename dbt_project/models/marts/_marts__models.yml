@@ -2130,6 +2130,11 @@ models:
         description: Player identifier from the tracking data source
         data_tests:
           - not_null
+      - name: player_display_name
+        data_type: string
+        description: "Human-readable player name from tracking metadata (falls back to player_id)"
+        data_tests:
+          - not_null
       - name: team
         data_type: string
         description: Team side (home or away)
@@ -2138,6 +2143,11 @@ models:
           - accepted_values:
               arguments:
                 values: ['home', 'away']
+      - name: team_display_name
+        data_type: string
+        description: "Human-readable team name from tracking metadata (falls back to Home/Away)"
+        data_tests:
+          - not_null
       - name: position_label
         data_type: string
         description: "Tactical position label (e.g., LC-DM, C-B, R-AM)"
@@ -2194,6 +2204,11 @@ models:
         description: Player identifier from the tracking data source
         data_tests:
           - not_null
+      - name: player_display_name
+        data_type: string
+        description: "Human-readable player name from tracking metadata (falls back to player_id)"
+        data_tests:
+          - not_null
       - name: match_id
         data_type: string
         description: Match identifier (string, prefixed by tracking provider)
@@ -2207,6 +2222,11 @@ models:
           - accepted_values:
               arguments:
                 values: ['home', 'away']
+      - name: team_display_name
+        data_type: string
+        description: "Human-readable team name from tracking metadata (falls back to Home/Away)"
+        data_tests:
+          - not_null
       - name: position_label
         data_type: string
         description: "Tactical position label (e.g., LC-DM, C-B, R-AM)"
@@ -2502,10 +2522,8 @@ models:
         contains_pii: false
     description: >
       Per-match goalkeeper statistics combining saves, claims, distribution xT,
-      and future PSxG metrics. One row per goalkeeper per match. Feature-gated:
-      requires goalkeeper_enabled=true. D39 columns (psxg_faced, goals_conceded,
-      goals_prevented, avg_defensive_action_distance, actions_outside_box_per_90)
-      are initially NULL stubs populated after PSxG prediction import.
+      PSxG shot-stopping, and sweeper-keeper positioning metrics. One row per
+      goalkeeper per match. Feature-gated: requires goalkeeper_enabled=true.
     columns:
       - name: gk_stat_id
         data_type: string
@@ -2523,6 +2541,9 @@ models:
         description: Match identifier
         data_tests:
           - not_null
+      - name: team_id
+        data_type: int
+        description: "GK's team in this match (min team_id from SPADL actions)"
       - name: competition_id
         data_type: int
         description: Foreign key to dim_competitions
@@ -2564,19 +2585,19 @@ models:
         description: Number of keeper pick-ups (SPADL keeper_pick_up actions)
       - name: psxg_faced
         data_type: double
-        description: "Post-shot expected goals faced (D39 stub — NULL until PSxG predictions imported)"
+        description: "Post-shot expected goals faced (sum of PSxG for shots on target against this GK)"
       - name: goals_conceded
         data_type: int
-        description: "Goals conceded in this match (D39 stub — NULL until PSxG predictions imported)"
+        description: "Goals conceded in this match (from PSxG shot outcome join)"
       - name: goals_prevented
         data_type: double
-        description: "Goals prevented vs PSxG expectation (D39 stub — NULL until PSxG predictions imported)"
+        description: "Goals prevented vs PSxG expectation (psxg_faced - goals_conceded)"
       - name: avg_defensive_action_distance
         data_type: double
-        description: "Average distance from goal of defensive actions (D39 stub — NULL until populated)"
+        description: "Average x-coordinate of defensive actions (SPADL coords, higher = further from own goal)"
       - name: actions_outside_box_per_90
         data_type: double
-        description: "Defensive actions outside the penalty box per 90 min (D39 stub — NULL until populated)"
+        description: "Defensive actions outside the penalty box per 90 minutes played"
 
   # ── Space Creation ───────────────────────────────────────────────────
 

@@ -223,32 +223,10 @@ collection_stats as (
 
 ),
 
--- Save stats: keeper_save + keeper_pick_up
-save_stats as (
-
-    select
-        player_id,
-        match_id,
-        sum(case when action_type = 'keeper_save' then 1 else 0 end)   as saves,
-        case
-            when sum(case when action_type = 'keeper_save' then 1 else 0 end) > 0
-            then cast(
-                sum(case when action_type = 'keeper_save' and action_result = 'success' then 1 else 0 end)
-                as double
-            ) / sum(case when action_type = 'keeper_save' then 1 else 0 end)
-            else cast(null as double)
-        end                                                             as save_pct,
-        sum(case when action_type = 'keeper_pick_up' then 1 else 0 end) as keeper_pick_ups
-
-    from gk_actions
-    where action_type in ('keeper_save', 'keeper_pick_up')
-    group by player_id, match_id
-
-),
-
 -- Base grain: one row per (player_id, match_id).
 -- MIN() on competition_id/season_id avoids fan-out when incremental
 -- ingestion produces inconsistent metadata for the same match.
+-- Positioned before save CTEs which reference it.
 gk_matches as (
 
     select
@@ -259,6 +237,42 @@ gk_matches as (
         min(season_id)      as season_id
     from gk_actions
     group by player_id, match_id
+
+),
+
+-- SPADL save stats: keeper_save (Wyscout source) + keeper_pick_up
+spadl_save_stats as (
+
+    select
+        player_id,
+        match_id,
+        sum(case when action_type = 'keeper_save' then 1 else 0 end)   as saves,
+        sum(case when action_type = 'keeper_pick_up' then 1 else 0 end) as keeper_pick_ups
+
+    from gk_actions
+    where action_type in ('keeper_save', 'keeper_pick_up')
+    group by player_id, match_id
+
+),
+
+-- Shot-based save stats: shots with outcome 'Saved' / 'Saved Off Target' /
+-- 'Saved to Post' counted against the GK's team. StatsBomb provides granular
+-- shot outcomes; Wyscout only has 'Goal' / 'No Goal' so this CTE only
+-- contributes saves for StatsBomb matches. COALESCE with SPADL saves below
+-- ensures both sources are covered.
+shot_save_stats as (
+
+    select
+        gm.player_id,
+        gm.match_id,
+        cast(count(*) as bigint)                                        as saves
+
+    from {{ ref('fct_shots') }} s
+    inner join gk_matches gm
+        on s.match_id = gm.match_id
+        and s.team_id != gm.team_id
+    where s.shot_outcome in ('Saved', 'Saved Off Target', 'Saved to Post')
+    group by gm.player_id, gm.match_id
 
 ),
 
@@ -329,6 +343,37 @@ psxg_agg as (
 
 ),
 
+-- Combined saves: prefer shot-based (ground truth) over SPADL (derived).
+-- StatsBomb matches have shot_outcome granularity -> shot_save_stats.
+-- Wyscout matches have SPADL keeper_save -> spadl_save_stats.
+-- save_pct = saves / (saves + goals_conceded) i.e. shots stopped / shots on target.
+save_stats as (
+
+    select
+        gm.player_id,
+        gm.match_id,
+        coalesce(shs.saves, ss.saves, cast(0 as bigint))               as saves,
+        case
+            when coalesce(shs.saves, ss.saves, 0) + coalesce(pa.goals_conceded, 0) > 0
+            then cast(coalesce(shs.saves, ss.saves, 0) as double)
+                 / (coalesce(shs.saves, ss.saves, 0) + coalesce(pa.goals_conceded, 0))
+            else cast(null as double)
+        end                                                             as save_pct,
+        coalesce(ss.keeper_pick_ups, cast(0 as bigint))                 as keeper_pick_ups
+
+    from gk_matches gm
+    left join shot_save_stats shs
+        on gm.player_id = shs.player_id
+        and gm.match_id = shs.match_id
+    left join spadl_save_stats ss
+        on gm.player_id = ss.player_id
+        and gm.match_id = ss.match_id
+    left join psxg_agg pa
+        on gm.player_id = pa.player_id
+        and gm.match_id = pa.match_id
+
+),
+
 final as (
 
     select
@@ -339,6 +384,7 @@ final as (
 
         gm.player_id,
         gm.match_id,
+        gm.team_id,
         gm.competition_id,
         gm.season_id,
 
@@ -404,6 +450,7 @@ select
     cast(null as string)    as gk_stat_id,
     cast(null as int)       as player_id,
     cast(null as bigint)    as match_id,
+    cast(null as int)       as team_id,
     cast(null as int)       as competition_id,
     cast(null as int)       as season_id,
     cast(null as double)    as minutes_played,

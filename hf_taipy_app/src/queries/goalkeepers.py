@@ -42,6 +42,9 @@ def fetch_gk_rankings(
     if competition_id is not None:
         where_parts.append("gk.competition_id = %s")
         where_params.append(int(competition_id))
+    if team_id is not None:
+        where_parts.append("gk.team_id = %s")
+        where_params.append(int(team_id))
 
     where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
@@ -90,80 +93,49 @@ def fetch_gk_player_lov(competition_id: int, team_id: int | None = None) -> list
 
     Returns (display_label, player_id) tuples sorted by minutes played DESC.
     Only includes players with position_group = 'Goalkeeper' who have GK stats.
-    When team_id is provided, restricts to GKs whose PRIMARY team in this
-    competition matches (determined by the team appearing most often across
-    the GK's matches — the mode approach from resolve_gk_team_id).
+    When team_id is provided, filters directly on fct_goalkeeper_stats.team_id.
     """
     gk = t("fct_goalkeeper_stats_synced")
     dp = t("dim_players_synced")
-    ms = t("fct_match_summary_synced")
 
+    where_parts = ["gk.competition_id = %s"]
+    params: list[Any] = [int(competition_id)]
     if team_id is not None:
-        # CTE: for each GK in this competition, determine their primary team
-        # by finding which team_id appears most often across their matches.
-        df = execute_query(
-            f"WITH gk_teams AS ("  # noqa: S608
-            f"  SELECT sub.player_id, sub.team_id, "
-            f"    ROW_NUMBER() OVER (PARTITION BY sub.player_id ORDER BY count(*) DESC) AS rn "
-            f"  FROM ("
-            f"    SELECT g.player_id, m.home_team_id AS team_id "
-            f"    FROM {gk} g JOIN {ms} m ON g.match_id = m.match_id "
-            f"    WHERE g.competition_id = %s "
-            f"    UNION ALL "
-            f"    SELECT g.player_id, m.away_team_id AS team_id "
-            f"    FROM {gk} g JOIN {ms} m ON g.match_id = m.match_id "
-            f"    WHERE g.competition_id = %s "
-            f"  ) sub GROUP BY sub.player_id, sub.team_id"
-            f") "
-            f"SELECT p.player_id, p.player_display_name, sum(gk.minutes_played) AS total_min "
-            f"FROM {gk} gk "
-            f"JOIN {dp} p ON gk.player_id = p.player_id "
-            f"JOIN gk_teams gt ON gk.player_id = gt.player_id AND gt.rn = 1 AND gt.team_id = %s "
-            f"WHERE gk.competition_id = %s "
-            f"GROUP BY p.player_id, p.player_display_name "
-            f"ORDER BY total_min DESC "
-            f"LIMIT 200",
-            (int(competition_id), int(competition_id), int(team_id), int(competition_id)),
-        )
-    else:
-        df = execute_query(
-            f"SELECT p.player_id, p.player_display_name, sum(gk.minutes_played) AS total_min "  # noqa: S608
-            f"FROM {gk} gk "
-            f"JOIN {dp} p ON gk.player_id = p.player_id "
-            f"WHERE gk.competition_id = %s "
-            f"GROUP BY p.player_id, p.player_display_name "
-            f"ORDER BY total_min DESC "
-            f"LIMIT 200",
-            (int(competition_id),),
-        )
+        where_parts.append("gk.team_id = %s")
+        params.append(int(team_id))
+
+    where = " AND ".join(where_parts)
+    df = execute_query(
+        f"SELECT p.player_id, p.player_display_name, sum(gk.minutes_played) AS total_min "  # noqa: S608
+        f"FROM {gk} gk "
+        f"JOIN {dp} p ON gk.player_id = p.player_id "
+        f"WHERE {where} "
+        f"GROUP BY p.player_id, p.player_display_name "
+        f"ORDER BY total_min DESC "
+        f"LIMIT 200",
+        tuple(params),
+    )
     return [(row["player_display_name"], int(row["player_id"])) for _, row in df.iterrows()]
 
 
 @ttl_cache()
 def resolve_gk_team_id(player_id: int, competition_id: int | None = None) -> int | None:
-    """Resolve a GK's team_id from match_summary within a competition.
+    """Resolve a GK's team_id directly from fct_goalkeeper_stats.
 
-    The GK's team is the team_id that appears in ALL their matches.
-    For each GK match, both home_team_id and away_team_id are candidates.
-    The GK's team appears in every match; opponents change per match.
-    The mode (most frequent) team_id across all match sides is the GK's team.
+    Uses the mode (most frequent team_id) across all matches for this GK.
     """
     gk_tbl = t("fct_goalkeeper_stats_synced")
-    ms_tbl = t("fct_match_summary_synced")
-    comp_filter = "AND g.competition_id = %s " if competition_id else ""
-    params = [int(player_id), int(player_id)]
-    if competition_id:
-        params = [int(player_id), int(competition_id), int(player_id), int(competition_id)]
+    where_parts = ["g.player_id = %s"]
+    params: list[Any] = [int(player_id)]
+    if competition_id is not None:
+        where_parts.append("g.competition_id = %s")
+        params.append(int(competition_id))
+    where = " AND ".join(where_parts)
     df = execute_query(
-        f"SELECT team_id, count(*) AS n FROM ("  # noqa: S608
-        f"  SELECT m.home_team_id AS team_id "
-        f"  FROM {gk_tbl} g JOIN {ms_tbl} m ON g.match_id = m.match_id "
-        f"  WHERE g.player_id = %s {comp_filter}"
-        f"  UNION ALL "
-        f"  SELECT m.away_team_id AS team_id "
-        f"  FROM {gk_tbl} g JOIN {ms_tbl} m ON g.match_id = m.match_id "
-        f"  WHERE g.player_id = %s {comp_filter}"
-        f") sub GROUP BY team_id ORDER BY n DESC LIMIT 1",
+        f"SELECT g.team_id, count(*) AS n "  # noqa: S608
+        f"FROM {gk_tbl} g "
+        f"WHERE {where} "
+        f"GROUP BY g.team_id ORDER BY n DESC LIMIT 1",
         tuple(params),
     )
     if df.empty:

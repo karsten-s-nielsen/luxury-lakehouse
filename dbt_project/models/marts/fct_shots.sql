@@ -35,9 +35,17 @@ with unified_shots as (
 
 ),
 
-matches as (
+sb_matches as (
 
-    select * from {{ ref('stg_statsbomb__matches') }}
+    select match_id, competition_id, season_id
+    from {{ ref('stg_statsbomb__matches') }}
+
+),
+
+ws_matches as (
+
+    select match_id, competition_id, season_id
+    from {{ ref('stg_wyscout__matches') }}
 
 ),
 
@@ -52,9 +60,9 @@ final as (
         unified_shots.player_id,
         unified_shots.team_id,
 
-        -- Match context
-        matches.competition_id,
-        matches.season_id,
+        -- Match context (StatsBomb first, Wyscout fallback)
+        cast(coalesce(sb_matches.competition_id, ws_matches.competition_id) as int) as competition_id,
+        cast(coalesce(sb_matches.season_id, ws_matches.season_id) as int)           as season_id,
 
         -- Temporal context
         unified_shots.period,
@@ -97,8 +105,10 @@ final as (
         unified_shots.data_source
 
     from unified_shots
-    left join matches
-        on unified_shots.match_id = matches.match_id
+    left join sb_matches
+        on unified_shots.match_id = sb_matches.match_id
+    left join ws_matches
+        on unified_shots.match_id = ws_matches.match_id
 
 )
 

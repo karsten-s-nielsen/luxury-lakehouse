@@ -32,6 +32,16 @@ page_config = PageConfig(
         ContentRow(
             [
                 ContentBlock(
+                    "chart",
+                    "ps_neighborhood_chart",
+                    header="Embedding Neighborhood",
+                    condition="len(ps_results_data) > 0 and ps_neighborhood_chart is not None",
+                )
+            ]
+        ),
+        ContentRow(
+            [
+                ContentBlock(
                     "image",
                     "ps_radar_image",
                     header="Radar Comparison",

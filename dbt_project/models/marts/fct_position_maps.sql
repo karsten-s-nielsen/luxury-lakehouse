@@ -31,8 +31,10 @@ player_positions as (
 
     select
         player_id,
+        player_display_name,
         match_id,
         team,
+        team_display_name,
         position_label,
         vertical_level,
         horizontal_level
@@ -47,8 +49,10 @@ frame_counts as (
 
     select
         player_id,
+        player_display_name,
         match_id,
         team,
+        team_display_name,
         position_label,
         vertical_level,
         horizontal_level,
@@ -56,8 +60,10 @@ frame_counts as (
     from player_positions
     group by
         player_id,
+        player_display_name,
         match_id,
         team,
+        team_display_name,
         position_label,
         vertical_level,
         horizontal_level
@@ -88,8 +94,10 @@ final as (
         ]) }}                                       as position_map_id,
 
         fc.player_id,
+        fc.player_display_name,
         fc.match_id,
         fc.team,
+        fc.team_display_name,
         fc.position_label,
         fc.vertical_level,
         fc.horizontal_level,
