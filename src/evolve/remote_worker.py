@@ -2,43 +2,30 @@
 
 This module is invoked on a remote machine by :class:`evolve.backends.remote_ssh.RemoteSSHBackend`::
 
-    python -m evolve.remote_worker candidate.py cuda:0 5 42 scoutgpt
+    python -m evolve.remote_worker candidate.json cuda:0 5 42 scoutgpt
 
-It loads the candidate config from the given Python file, imports the
-target evaluator, runs ``train_and_evaluate``, and writes the resulting
-metrics dict as a single JSON line to stdout.  All other output (logs,
-warnings) goes to stderr so it does not interfere with JSON parsing on
-the caller side.
+It loads the candidate config from a JSON file, imports the target
+evaluator, runs ``train_and_evaluate``, and writes the resulting metrics
+dict as a single JSON line to stdout.  All other output (logs, warnings)
+goes to stderr so it does not interfere with JSON parsing on the caller
+side.
 """
 
 from __future__ import annotations
 
 import importlib
-import importlib.util
 import json
 import logging
 import sys
-import types
 from typing import Any
 
 _log = logging.getLogger(__name__)
 
 
 def _load_candidate_config(candidate_path: str) -> dict[str, Any]:
-    """Load ``config`` from a Python file written by the SSH backend.
-
-    The file is expected to contain a single assignment:
-    ``config = {...}``
-    """
-    spec = importlib.util.spec_from_file_location("_candidate", candidate_path)
-    if spec is None or spec.loader is None:
-        msg = f"Cannot load candidate config from {candidate_path}"
-        raise ImportError(msg)
-
-    module = types.ModuleType("_candidate")
-    spec.loader.exec_module(module)  # type: ignore[union-attr]
-
-    config: dict[str, Any] = module.config  # type: ignore[attr-defined]
+    """Load candidate config from a JSON file written by the SSH backend."""
+    with open(candidate_path) as f:
+        config: dict[str, Any] = json.load(f)
     return config
 
 
@@ -46,14 +33,15 @@ def main() -> None:
     """Entry point for remote candidate evaluation.
 
     Arguments (positional):
-        1. candidate_path — path to a Python file containing ``config = {...}``
+        1. candidate_path — path to a JSON file containing the candidate config
         2. device — PyTorch device string (default ``cuda:0``)
         3. epochs — number of training epochs (default ``5``)
         4. seed — random seed (default ``42``)
         5. target — target name under ``evolve.targets`` (default ``scoutgpt``)
     """
     if len(sys.argv) < 2:
-        print("Usage: python -m evolve.remote_worker <candidate.py> [device] [epochs] [seed] [target]", file=sys.stderr)
+        msg = "Usage: python -m evolve.remote_worker <candidate.json> [device] [epochs] [seed] [target]"
+        print(msg, file=sys.stderr)
         sys.exit(1)
 
     candidate_path = sys.argv[1]

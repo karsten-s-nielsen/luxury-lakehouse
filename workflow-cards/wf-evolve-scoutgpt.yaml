@@ -73,6 +73,7 @@ links:
     - "src/evolve/"
     - "src/analytics/scoutgpt_decoder.py"
     - "docs/superpowers/specs/2026-04-04-evolve-engine-design.md"
+    - "docs/superpowers/specs/2026-04-05-multi-backend-dispatcher-design.md"
 ---
 
 ## Overview
@@ -86,18 +87,19 @@ the baseline rho (0.094) above the 0.15 target threshold.
 
 ## Architecture
 
-The engine consists of three layers: the search space (Python dataclasses encoding conditioning
-mechanism, hidden size, depth, and attention variants), the evaluator bridge (which compiles
-each candidate into a ScoutGPT config and runs a lightweight 5-epoch training trial), and the
+The engine consists of three layers: the search space (candidate configs encoding conditioning
+mechanism, hidden size, depth, and attention variants), the evaluator bridge (which validates
+each candidate via a typed `CandidateConfig` model and delegates to a compute backend), and the
 MAP-Elites population manager (which maintains a quality-diversity grid keyed on model size
-and conditioning type). LLM mutations are issued via the OpenAI API against the seed program
-pool, with each generation evaluated in parallel on local GPU (RTX 5070 Ti) or DGX Spark.
+and conditioning type). LLM mutations are issued via OpenRouter against the seed program
+pool, with each generation evaluated in parallel across a `BackendPool` (RTX 5070 Ti + DGX Spark).
+The pool dispatches via a thread-safe queue — faster backends naturally handle more candidates.
 The best-performing program is written to `results/evolve/scoutgpt/{timestamp}/best_program.py`.
 
 ## Evaluation
 
-Candidate fitness is measured by Spearman rank correlation (rho) on 1K counterfactual episodes
-with 100 player swaps each, matching the wf-scoutgpt evaluation protocol. Secondary metrics
+Candidate fitness is measured by Spearman rank correlation (rho) on 200 counterfactual episodes
+with 50 player swaps each (reduced budget for evolution speed). Secondary metrics
 include next-action top-1 accuracy and cross-source validation gap (StatsBomb vs Wyscout).
 A typical search run of 150 LLM iterations with 5-epoch trials per candidate costs approximately
-$12 in LLM API calls and runs in 12–13 hours on a single GPU.
+$12 in LLM API calls and runs in ~8 hours on the dual-GPU pool (RTX 5070 Ti + DGX Spark).

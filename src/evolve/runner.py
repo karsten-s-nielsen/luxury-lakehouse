@@ -13,6 +13,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import logging
 import os
@@ -53,8 +54,14 @@ def _evaluate_seeds(
     evaluator: EvolveEvaluator,
     seed_programs: list[Path],
     results_dir: Path,
+    max_parallel: int = 1,
 ) -> tuple[Path, dict[str, float]]:
     """Evaluate all seed programs and return the best one.
+
+    When *max_parallel* > 1 and multiple compute backends are available,
+    seed evaluations are dispatched concurrently via a thread pool.  The
+    :class:`BackendPool` is thread-safe, so each thread acquires the next
+    idle backend automatically.
 
     Saves individual seed results as JSON files under ``results_dir/seed_results/``.
 
@@ -62,6 +69,7 @@ def _evaluate_seeds(
         evaluator: The configured evaluator instance.
         seed_programs: List of paths to seed ``.py`` files.
         results_dir: Timestamped results directory for this run.
+        max_parallel: Maximum concurrent evaluations (matches backend count).
 
     Returns:
         Tuple of (best_seed_path, best_metrics).
@@ -72,24 +80,32 @@ def _evaluate_seeds(
     seed_results_dir = results_dir / "seed_results"
     seed_results_dir.mkdir(parents=True, exist_ok=True)
 
-    best_path: Path | None = None
-    best_metrics: dict[str, float] = {}
-    best_score = float("-inf")
-
-    for program in seed_programs:
+    def _eval_one(program: Path) -> tuple[Path, dict[str, float]]:
         _log.info("Evaluating seed program: %s", program.name)
         metrics = evaluator.evaluate(str(program))
         score = metrics.get("combined_score", 0.0)
 
-        # Save individual seed result
         result_file = seed_results_dir / f"{program.stem}.json"
         result_file.write_text(json.dumps({"program": program.name, "metrics": metrics}, indent=2))
         _log.info("Seed %s: combined_score=%.4f", program.name, score)
+        return program, metrics
 
-        if score > best_score:
-            best_score = score
-            best_path = program
-            best_metrics = metrics
+    workers = min(max_parallel, len(seed_programs))
+    _log.info("Evaluating %d seeds with %d parallel workers", len(seed_programs), workers)
+
+    best_path: Path | None = None
+    best_metrics: dict[str, float] = {}
+    best_score = float("-inf")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_eval_one, p): p for p in seed_programs}
+        for future in concurrent.futures.as_completed(futures):
+            program, metrics = future.result()
+            score = metrics.get("combined_score", 0.0)
+            if score > best_score:
+                best_score = score
+                best_path = program
+                best_metrics = metrics
 
     if best_path is None or best_score <= 0.0:
         msg = "No seed program produced a valid (non-zero) combined score"
@@ -135,6 +151,7 @@ def _translate_to_openevolve_config(config: EvolveConfig) -> dict[str, Any]:
                     "name": m.name,
                     "weight": m.weight,
                     "api_base": m.api_base,
+                    "api_key": f"${{{m.api_key_env}}}",
                 }
                 for m in llm.models
             ],
@@ -234,11 +251,22 @@ def main(argv: list[str] | None = None) -> None:
         config.evolution.iterations = args.iterations
 
     # ---- Create backend and verify ----------------------------------
-    backend = create_backend(config.backend)
+    backend = create_backend(config.backend, timeout=config.evaluation.timeout_seconds)
     if not backend.available():
         _log.error("Backend '%s' is not available. Check hardware and drivers.", config.backend.type)
         raise SystemExit(1)
     _log.info("Backend '%s' is available", config.backend.type)
+
+    # Warn if parallel_evaluations exceeds the number of backends — extra
+    # threads will block waiting for an idle backend, wasting thread resources.
+    backend_count = len([t.strip() for t in config.backend.type.split(",")])
+    if config.evolution.parallel_evaluations > backend_count:
+        _log.warning(
+            "parallel_evaluations (%d) exceeds backend count (%d) — %d thread(s) will block waiting",
+            config.evolution.parallel_evaluations,
+            backend_count,
+            config.evolution.parallel_evaluations - backend_count,
+        )
 
     # ---- Set up results directory -----------------------------------
     timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -261,7 +289,9 @@ def main(argv: list[str] | None = None) -> None:
     seed_programs = _discover_seed_programs(target)
     _log.info("Found %d seed programs", len(seed_programs))
 
-    best_seed, seed_metrics = _evaluate_seeds(evaluator, seed_programs, results_dir)
+    best_seed, seed_metrics = _evaluate_seeds(
+        evaluator, seed_programs, results_dir, max_parallel=config.evolution.parallel_evaluations
+    )
     _log.info("Best seed: %s -> %s", best_seed.name, json.dumps(seed_metrics, indent=2))
 
     # ---- Run evolutionary search ------------------------------------

@@ -9,9 +9,12 @@ combined fitness score from the weighted metrics.
 
 from __future__ import annotations
 
-import importlib.util
+import ast
 import logging
-from typing import Any
+from pathlib import Path
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 
 from evolve.backends.base import ComputeBackend
 from evolve.config import EvalConfig, FitnessConfig
@@ -19,7 +22,7 @@ from evolve.config import EvalConfig, FitnessConfig
 _log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Search space bounds
+# Typed candidate config with search space validation
 # ---------------------------------------------------------------------------
 
 _BOUNDS: dict[str, tuple[float, float]] = {
@@ -33,54 +36,69 @@ _BOUNDS: dict[str, tuple[float, float]] = {
     "batch_size": (64, 512),
 }
 
-_VALID_CONDITIONING_TYPES: frozenset[str] = frozenset({"additive", "cross_attention", "film", "gated"})
 
-# ---------------------------------------------------------------------------
-# Validation
-# ---------------------------------------------------------------------------
+class CandidateConfig(BaseModel):
+    """Typed schema for candidate architecture configs.
+
+    Defines all known fields with defaults so that typos in key names
+    are surfaced: an unknown key like ``"hiddem_dim"`` goes into
+    ``__pydantic_extra__`` and triggers a logged warning, while
+    ``hidden_dim`` silently falls back to its default — the combination
+    makes typos visible.
+
+    Search space bounds and cross-field constraints (e.g. divisibility)
+    are validated in the model validator.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    # Model architecture
+    conditioning_type: Literal["additive", "cross_attention", "film", "gated"] = "additive"
+    hidden_dim: int = 256
+    num_layers: int = 6
+    num_heads: int = 8
+    dropout: float = 0.1
+    max_seq_len: int = 128
+    num_players: int = 100
+    spatial_mlp_dim: int = 64
+    vaep_loss_weight: float = 0.1
+    player_prediction_weight: float = 0.0
+
+    # Training hyperparams
+    learning_rate: float = 1e-4
+    weight_decay: float = 0.01
+    batch_size: int = 256
+    dataset: str = "luxury-lakehouse/scoutgpt-training-data"
+
+    @model_validator(mode="after")
+    def _validate_search_space(self) -> CandidateConfig:
+        for key, (lo, hi) in _BOUNDS.items():
+            val = getattr(self, key, None)
+            if val is not None and not (lo <= val <= hi):
+                msg = f"{key}={val!r} not in [{lo}, {hi}]"
+                raise ValueError(msg)
+        if self.hidden_dim % self.num_heads != 0:
+            msg = f"hidden_dim={self.hidden_dim} not divisible by num_heads={self.num_heads}"
+            raise ValueError(msg)
+        if self.__pydantic_extra__:
+            _log.warning(
+                "Candidate config has unrecognised keys (possible typos?): %s",
+                sorted(self.__pydantic_extra__),
+            )
+        return self
 
 
 def validate_search_space(config: dict[str, Any]) -> bool:
-    """Validate *config* against known search space bounds.
+    """Validate *config* against the :class:`CandidateConfig` schema.
 
     Returns ``True`` if the config is valid, ``False`` otherwise.
     Invalid configs are logged at WARNING level with the rejection reason.
     """
-    for key, (lo, hi) in _BOUNDS.items():
-        val = config.get(key)
-        if val is None:
-            continue
-        if not (lo <= val <= hi):
-            _log.warning(
-                "Search space rejection: %s=%r not in [%s, %s]",
-                key,
-                val,
-                lo,
-                hi,
-            )
-            return False
-
-    # num_heads must evenly divide hidden_dim
-    hidden_dim = config.get("hidden_dim")
-    num_heads = config.get("num_heads")
-    if hidden_dim is not None and num_heads is not None and hidden_dim % num_heads != 0:
-        _log.warning(
-            "Search space rejection: hidden_dim=%d not divisible by num_heads=%d",
-            hidden_dim,
-            num_heads,
-        )
+    try:
+        CandidateConfig(**config)
+    except (ValidationError, ValueError) as exc:
+        _log.warning("Search space rejection: %s", exc)
         return False
-
-    # conditioning_type must be in the allowed set
-    cond = config.get("conditioning_type")
-    if cond is not None and cond not in _VALID_CONDITIONING_TYPES:
-        _log.warning(
-            "Search space rejection: conditioning_type=%r not in %s",
-            cond,
-            sorted(_VALID_CONDITIONING_TYPES),
-        )
-        return False
-
     return True
 
 
@@ -90,37 +108,43 @@ def validate_search_space(config: dict[str, Any]) -> bool:
 
 
 def _load_config_from_program(program_path: str) -> dict[str, Any]:
-    """Dynamically load a Python file and extract its ``config`` dict.
+    """Extract the ``config`` dict from a candidate ``.py`` file using AST parsing.
+
+    Safely parses the file as an AST and extracts the literal value assigned
+    to ``config`` without executing any code.  Only Python literal values
+    (dicts, lists, strings, numbers, booleans, None) are supported — this is
+    intentional to prevent code injection from LLM-generated candidates.
 
     Args:
-        program_path: Filesystem path to the candidate ``.py`` file generated
-            by the LLM.
+        program_path: Filesystem path to the candidate ``.py`` file.
 
     Returns:
-        The ``config`` dict defined in the loaded module.
+        The ``config`` dict defined in the file.
 
     Raises:
-        ImportError: If the module cannot be loaded.
-        ValueError: If the loaded module has no ``config`` attribute or it is
-            not a dict.
+        ValueError: If the file has no ``config`` assignment, or the value
+            is not a literal dict.
     """
-    spec = importlib.util.spec_from_file_location("_candidate", program_path)
-    if spec is None or spec.loader is None:
-        msg = f"Cannot create import spec for '{program_path}'"
-        raise ImportError(msg)
+    source = Path(program_path).read_text()
+    tree = ast.parse(source, filename=program_path)
 
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)  # type: ignore[union-attr]
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name) and target.id == "config":
+                value_source = ast.get_source_segment(source, node.value)
+                if value_source is None:
+                    msg = f"Cannot extract config value from '{program_path}'"
+                    raise ValueError(msg)
+                raw = ast.literal_eval(value_source)
+                if not isinstance(raw, dict):
+                    msg = f"'config' in '{program_path}' must be a dict, got {type(raw).__name__}"
+                    raise ValueError(msg)
+                return raw  # type: ignore[return-value]
 
-    raw = getattr(module, "config", None)
-    if raw is None:
-        msg = f"Module '{program_path}' has no 'config' attribute"
-        raise ValueError(msg)
-    if not isinstance(raw, dict):
-        msg = f"'config' in '{program_path}' must be a dict, got {type(raw).__name__}"
-        raise ValueError(msg)
-
-    return raw  # type: ignore[return-value]
+    msg = f"No 'config' assignment found in '{program_path}'"
+    raise ValueError(msg)
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +192,7 @@ class EvolveEvaluator:
         """
         try:
             config = _load_config_from_program(program_path)
-        except (ImportError, ValueError):
+        except (ValueError, SyntaxError):
             _log.warning("Failed to load config from '%s'", program_path, exc_info=True)
             return self._zero_result()
 

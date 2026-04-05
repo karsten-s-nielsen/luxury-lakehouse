@@ -19,6 +19,7 @@ class LocalCudaBackend:
 
     def __init__(self, device: str = "cuda:0") -> None:
         self._device = device
+        self._available_cached: bool | None = None
         _log.info("LocalCudaBackend initialised", extra={"device": device})
 
     # ------------------------------------------------------------------
@@ -63,11 +64,17 @@ class LocalCudaBackend:
         return metrics
 
     def available(self) -> bool:
-        """Return True when a CUDA device is accessible on this machine."""
+        """Return True when a CUDA device is accessible on this machine.
+
+        The result is cached after the first call to avoid re-importing torch.
+        """
+        if self._available_cached is not None:
+            return self._available_cached
         try:
             import torch  # type: ignore[import-untyped]
 
-            return bool(torch.cuda.is_available())
+            self._available_cached = bool(torch.cuda.is_available())
         except ImportError:
             _log.warning("torch not installed; LocalCudaBackend unavailable")
-            return False
+            self._available_cached = False
+        return self._available_cached

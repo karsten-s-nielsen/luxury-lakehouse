@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from evolve.backends.base import fail_metrics
+
 _log = logging.getLogger(__name__)
 
 
@@ -30,8 +32,9 @@ class DockerBackend:
         epochs: int,
         seed: int,
     ) -> dict[str, float]:
-        """Not implemented."""
-        raise NotImplementedError("DockerBackend.train is not yet implemented")
+        """Return failure metrics — backend not yet implemented."""
+        _log.warning("DockerBackend.train called but backend is not yet implemented")
+        return fail_metrics()
 
     def available(self) -> bool:
         """Always returns False — backend not yet implemented."""
