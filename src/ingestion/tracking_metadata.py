@@ -113,7 +113,7 @@ def _extract_idsse_metadata(data_dir: str, logger: logging.Logger) -> list[dict[
         match_id = f"idsse_{mid}"
 
         try:
-            tree = ET.parse(info_path)  # noqa: S314
+            tree = ET.parse(info_path)  # noqa: S314  # nosemgrep: use-defused-xml-parse
             root = tree.getroot()
         except Exception:
             logger.warning("Could not parse IDSSE match info XML: %s", info_path, exc_info=True)
