@@ -21,21 +21,8 @@ _log = logging.getLogger(__name__)
 __all__ = ["ComputeBackend", "create_backend"]
 
 
-def create_backend(config: BackendConfig) -> ComputeBackend:
-    """Instantiate and return the compute backend described by *config*.
-
-    Args:
-        config: A validated :class:`~evolve.config.BackendConfig` instance.
-
-    Returns:
-        A concrete backend that satisfies the :class:`ComputeBackend` protocol.
-
-    Raises:
-        ValueError: If ``config.type`` is not a recognised backend name.
-    """
-    backend_type = config.type
-    _log.info("create_backend called", extra={"type": backend_type})
-
+def _create_single_backend(backend_type: str, config: BackendConfig) -> ComputeBackend:
+    """Instantiate a single backend by type name."""
     if backend_type == "local_cuda":
         from evolve.backends.local_cuda import LocalCudaBackend
 
@@ -63,3 +50,31 @@ def create_backend(config: BackendConfig) -> ComputeBackend:
 
     msg = f"Unknown backend type '{backend_type}'"
     raise ValueError(msg)
+
+
+def create_backend(config: BackendConfig) -> ComputeBackend:
+    """Instantiate and return the compute backend described by *config*.
+
+    Supports comma-separated types (e.g. ``"local_cuda,remote_ssh"``)
+    to create a :class:`~evolve.backends.pool.BackendPool` that dispatches
+    evaluations across multiple backends concurrently.
+
+    Args:
+        config: A validated :class:`~evolve.config.BackendConfig` instance.
+
+    Returns:
+        A concrete backend (or pool) that satisfies the :class:`ComputeBackend` protocol.
+
+    Raises:
+        ValueError: If any type in ``config.type`` is not a recognised backend name.
+    """
+    types = [t.strip() for t in config.type.split(",")]
+    _log.info("create_backend called", extra={"types": types})
+
+    if len(types) == 1:
+        return _create_single_backend(types[0], config)
+
+    from evolve.backends.pool import BackendPool
+
+    backends = [_create_single_backend(t, config) for t in types]
+    return BackendPool(backends)

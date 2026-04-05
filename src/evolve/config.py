@@ -46,9 +46,11 @@ class BackendConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_type(self) -> BackendConfig:
-        if self.type not in _VALID_BACKEND_TYPES:
-            msg = f"Unknown backend type '{self.type}'. Must be one of: {sorted(_VALID_BACKEND_TYPES)}"
-            raise ValueError(msg)
+        types = [t.strip() for t in self.type.split(",")]
+        for t in types:
+            if t not in _VALID_BACKEND_TYPES:
+                msg = f"Unknown backend type '{t}'. Must be one of: {sorted(_VALID_BACKEND_TYPES)}"
+                raise ValueError(msg)
         return self
 
 
