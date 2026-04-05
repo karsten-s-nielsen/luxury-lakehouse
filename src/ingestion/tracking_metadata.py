@@ -21,7 +21,7 @@ import argparse
 import json
 import logging
 import time
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # nosemgrep: use-defused-xml -- trusted DFL XML from UC Volume, not untrusted input
 from typing import TYPE_CHECKING
 
 import pandas as pd

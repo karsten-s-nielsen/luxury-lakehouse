@@ -377,7 +377,9 @@ def main() -> None:
             )
             logger.info("Uploaded to %s", DATASET_REPO)
         else:
-            logger.warning("HF_TOKEN not set — skipping upload. Parquet at: %s", parquet_path)
+            logger.warning(  # nosemgrep: python-logger-credential-disclosure -- logs env var NAME, not value
+                "HF_TOKEN not set — skipping upload. Parquet at: %s", parquet_path
+            )
 
     logger.info("Export complete: %d rows", len(output_df))
 
