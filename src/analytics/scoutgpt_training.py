@@ -12,6 +12,7 @@ import logging
 import math
 import os
 import sys
+import threading
 import time
 from collections import Counter
 from typing import Any
@@ -616,12 +617,16 @@ def train_loop(
         _nw = min(4, len(os.sched_getaffinity(0)))  # type: ignore[attr-defined]
     else:
         _nw = 4
+    # pin_memory accelerates CPU→GPU transfer but is significantly slower on
+    # Windows when called from a non-main thread (e.g. OpenEvolve's
+    # asyncio.run_in_executor).  Only enable on main thread.
+    _pin = device.type == "cuda" and threading.current_thread() is threading.main_thread()
     tl = DataLoader(
         train_ds,
         batch_size=batch_size,
         shuffle=True,
         num_workers=_nw,
-        pin_memory=device.type == "cuda",
+        pin_memory=_pin,
         persistent_workers=_nw > 0,
     )
     vl = DataLoader(
@@ -629,7 +634,7 @@ def train_loop(
         batch_size=batch_size,
         shuffle=False,
         num_workers=_nw,
-        pin_memory=device.type == "cuda",
+        pin_memory=_pin,
         persistent_workers=_nw > 0,
     )
 

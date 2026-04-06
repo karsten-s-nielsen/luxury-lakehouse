@@ -379,6 +379,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> None:
     """CLI entry point for the Evolve engine."""
+    # OpenEvolve logs emoji (arrows, checkmarks) that crash Windows cp1252 console.
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+
     logging.basicConfig(
         level=logging.INFO,
         format='{"time":"%(asctime)s","name":"%(name)s","level":"%(levelname)s","message":"%(message)s"}',
@@ -427,26 +430,26 @@ def main(argv: list[str] | None = None) -> None:
     cached_seeds: dict[str, dict[str, float]] = {}
 
     if args.resume:
-        # Find the latest existing results directory for this target
+        # Scan results directories newest-to-oldest, use the first one
+        # that has any valid cached seeds (skips killed/incomplete runs).
         target_results = Path("results/evolve") / target
         if target_results.is_dir():
-            existing = sorted(target_results.iterdir(), reverse=True)
-            if existing:
-                resume_dir = existing[0]
-                fingerprint = _eval_fingerprint(config.evaluation)
+            fingerprint = _eval_fingerprint(config.evaluation)
+            for resume_dir in sorted(target_results.iterdir(), reverse=True):
                 seed_results_dir = resume_dir / "seed_results"
-                if seed_results_dir.is_dir():
-                    cached_seeds = _load_cached_seeds(seed_results_dir, seed_programs, fingerprint)
+                if not seed_results_dir.is_dir():
+                    continue
+                cached_seeds = _load_cached_seeds(seed_results_dir, seed_programs, fingerprint)
+                if cached_seeds:
                     _log.info(
                         "Resuming from %s: %d/%d seeds cached",
                         resume_dir.name,
                         len(cached_seeds),
                         len(seed_programs),
                     )
-                else:
-                    _log.warning("No seed_results/ in %s — running fresh", resume_dir)
+                    break
             else:
-                _log.warning("No previous results for target '%s' — running fresh", target)
+                _log.warning("No valid cached seeds for target '%s' — running fresh", target)
         else:
             _log.warning("No results directory for target '%s' — running fresh", target)
 
