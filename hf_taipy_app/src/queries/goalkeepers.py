@@ -10,7 +10,7 @@ from typing import Any
 
 import pandas as pd
 
-from queries.common import execute_query, t, ttl_cache
+from queries.common import decode_unicode_columns, execute_query, t, ttl_cache
 
 logger = logging.getLogger(__name__)
 
@@ -24,15 +24,15 @@ def fetch_gk_rankings(
     """Fetch GK rankings aggregated per player across all matches.
 
     Aggregates fct_goalkeeper_stats per player_id: sums counting stats
-    (saves, goals_conceded, distribution_passes, punches), averages rate
-    stats (save_pct, launch_rate, claim_success_rate, gk_xt_per_pass),
-    and sums cumulative stats (minutes_played, psxg_faced, goals_prevented,
-    gk_xt_delta_total).
+    (saves, goals_conceded, distribution_passes, punches), recomputes rate
+    stats from summed counts (save_pct, launch_rate, claim_success_rate,
+    gk_xt_per_pass), and normalizes per 90 min (psxg_per_90,
+    goals_prevented_per_90).
 
     Expected columns: player_id, player_display_name, matches,
     minutes_played, saves, save_pct, gk_xt_per_pass, launch_rate,
-    claim_success_rate, goals_prevented, psxg_faced, goals_conceded,
-    avg_defensive_action_distance, actions_outside_box_per_90,
+    claim_success_rate, goals_prevented_per_90, psxg_per_90,
+    goals_conceded, avg_defensive_action_distance, actions_outside_box_per_90,
     distribution_passes, gk_xt_delta_total, punches, keeper_pick_ups.
     """
     # Build params in SQL clause order: WHERE first, then HAVING.
@@ -60,12 +60,40 @@ def fetch_gk_rankings(
             count(*)                                      AS matches,
             round(sum(gk.minutes_played)::numeric)        AS minutes_played,
             sum(gk.saves)                                 AS saves,
-            round(avg(gk.save_pct)::numeric, 1)           AS save_pct,
-            round(avg(gk.gk_xt_per_pass)::numeric, 4)    AS gk_xt_per_pass,
-            round(avg(gk.launch_rate)::numeric, 1)        AS launch_rate,
-            round(avg(gk.claim_success_rate)::numeric, 1) AS claim_success_rate,
-            round(sum(gk.goals_prevented)::numeric, 2)    AS goals_prevented,
-            round(sum(gk.psxg_faced)::numeric, 2)         AS psxg_faced,
+            round(
+                CASE WHEN sum(gk.saves) + sum(gk.goals_conceded) > 0
+                     THEN sum(gk.saves)::numeric
+                          / (sum(gk.saves) + sum(gk.goals_conceded)) * 100
+                     ELSE NULL END, 1)                    AS save_pct,
+            round(
+                CASE WHEN sum(gk.distribution_passes) > 0
+                     THEN sum(gk.gk_xt_delta_total)::numeric
+                          / sum(gk.distribution_passes)
+                     ELSE NULL END, 4)                    AS gk_xt_per_pass,
+            round(
+                CASE WHEN sum(gk.distribution_passes) > 0
+                     THEN sum(CASE WHEN gk.launch_rate IS NOT NULL
+                                   THEN round(gk.launch_rate * gk.distribution_passes)
+                                   ELSE 0 END)::numeric
+                          / sum(gk.distribution_passes) * 100
+                     ELSE NULL END, 1)                    AS launch_rate,
+            round(
+                CASE WHEN sum(gk.claims) > 0
+                     THEN sum(CASE WHEN gk.claim_success_rate IS NOT NULL
+                                   THEN round(gk.claim_success_rate * gk.claims)
+                                   ELSE 0 END)::numeric
+                          / sum(gk.claims) * 100
+                     ELSE NULL END, 1)                    AS claim_success_rate,
+            round((
+                CASE WHEN sum(gk.minutes_played) > 0
+                     THEN sum(gk.goals_prevented)::numeric * 90
+                          / sum(gk.minutes_played)::numeric
+                     ELSE NULL END)::numeric, 2)          AS goals_prevented_per_90,
+            round((
+                CASE WHEN sum(gk.minutes_played) > 0
+                     THEN sum(gk.psxg_faced)::numeric * 90
+                          / sum(gk.minutes_played)::numeric
+                     ELSE NULL END)::numeric, 2)          AS psxg_per_90,
             sum(gk.goals_conceded)                        AS goals_conceded,
             round(avg(gk.avg_defensive_action_distance)::numeric, 1)
                                                           AS avg_defensive_action_distance,
@@ -84,7 +112,7 @@ def fetch_gk_rankings(
         LIMIT 500
     """  # noqa: S608
 
-    return execute_query(sql, tuple(params))
+    return decode_unicode_columns(execute_query(sql, tuple(params)))
 
 
 @ttl_cache()
@@ -105,80 +133,55 @@ def fetch_gk_player_lov(competition_id: int, team_id: int | None = None) -> list
         params.append(int(team_id))
 
     where = " AND ".join(where_parts)
-    df = execute_query(
-        f"SELECT p.player_id, p.player_display_name, sum(gk.minutes_played) AS total_min "  # noqa: S608
-        f"FROM {gk} gk "
-        f"JOIN {dp} p ON gk.player_id = p.player_id "
-        f"WHERE {where} "
-        f"GROUP BY p.player_id, p.player_display_name "
-        f"ORDER BY total_min DESC "
-        f"LIMIT 200",
-        tuple(params),
+    df = decode_unicode_columns(
+        execute_query(
+            f"SELECT p.player_id, p.player_display_name, sum(gk.minutes_played) AS total_min "  # noqa: S608
+            f"FROM {gk} gk "
+            f"JOIN {dp} p ON gk.player_id = p.player_id "
+            f"WHERE {where} "
+            f"GROUP BY p.player_id, p.player_display_name "
+            f"ORDER BY total_min DESC "
+            f"LIMIT 200",
+            tuple(params),
+        )
     )
     return [(row["player_display_name"], int(row["player_id"])) for _, row in df.iterrows()]
-
-
-@ttl_cache()
-def resolve_gk_team_id(player_id: int, competition_id: int | None = None) -> int | None:
-    """Resolve a GK's team_id directly from fct_goalkeeper_stats.
-
-    Uses the mode (most frequent team_id) across all matches for this GK.
-    """
-    gk_tbl = t("fct_goalkeeper_stats_synced")
-    where_parts = ["g.player_id = %s"]
-    params: list[Any] = [int(player_id)]
-    if competition_id is not None:
-        where_parts.append("g.competition_id = %s")
-        params.append(int(competition_id))
-    where = " AND ".join(where_parts)
-    df = execute_query(
-        f"SELECT g.team_id, count(*) AS n "  # noqa: S608
-        f"FROM {gk_tbl} g "
-        f"WHERE {where} "
-        f"GROUP BY g.team_id ORDER BY n DESC LIMIT 1",
-        tuple(params),
-    )
-    if df.empty:
-        return None
-    return int(df.iloc[0]["team_id"])
 
 
 @ttl_cache()
 def fetch_gk_shots(
     competition_id: int | None,
     player_id: int | None,
-    gk_team_id: int | None = None,
 ) -> pd.DataFrame:
     """Fetch on-target shots faced by a GK for shot map scatter.
 
-    Filters to on-target shots (Goal or Saved outcomes). When a GK is
-    selected, restricts to matches where the GK played (from
-    fct_goalkeeper_stats) and excludes shots by the GK's own team.
+    When a GK is selected, joins fct_goalkeeper_stats to get per-match
+    team_id for correct team exclusion (handles mid-season transfers).
     Uses end_location_x/y (pitch coordinates) since goalmouth Z is not
     available in the synced table.
 
     Expected columns: event_id, match_id, end_x, end_y, shot_outcome,
-    psxg, shooter_name.
+    xg, shooter_name.
     """
-    where_parts = ["s.shot_outcome IN ('Goal', 'Saved')"]
-    params: list[Any] = []
+    where_parts = ["s.shot_outcome IN ('Goal', 'Saved', 'Saved Off Target', 'Saved to Post')"]
+    join_params: list[Any] = []
+    where_params: list[Any] = []
+    join_clause = ""
 
     if competition_id is not None:
         where_parts.append("s.competition_id = %s")
-        params.append(int(competition_id))
+        where_params.append(int(competition_id))
     if player_id is not None:
-        # Restrict to matches where this GK played.
+        # Join GK stats for per-match team_id — handles transfers correctly
         gk_tbl = t("fct_goalkeeper_stats_synced")
-        where_parts.append(
-            f"s.match_id IN (SELECT gk.match_id FROM {gk_tbl} gk WHERE gk.player_id = %s)"  # noqa: S608
-        )
-        params.append(int(player_id))
-        # Exclude shots by the GK's own team — resolved via _resolve_gk_team_id().
-        if gk_team_id is not None:
-            where_parts.append("s.team_id != %s")
-            params.append(int(gk_team_id))
+        join_clause = f"INNER JOIN {gk_tbl} gk ON gk.match_id = s.match_id AND gk.player_id = %s"
+        join_params.append(int(player_id))
+        # Exclude shots by the GK's own team (per-match correct)
+        where_parts.append("s.team_id != gk.team_id")
 
     where = " AND ".join(where_parts)
+    # Params must match SQL order: JOIN params before WHERE params
+    params = join_params + where_params
 
     sql = (
         f"SELECT "  # noqa: S608
@@ -187,9 +190,10 @@ def fetch_gk_shots(
         f"  s.end_location_x AS end_x, "
         f"  s.end_location_y AS end_y, "
         f"  s.shot_outcome, "
-        f"  s.statsbomb_xg AS psxg, "
+        f"  s.statsbomb_xg AS xg, "
         f"  shooter.player_display_name AS shooter_name "
         f"FROM {t('fct_shots_synced')} s "
+        f"{join_clause} "
         f"LEFT JOIN {t('dim_players_synced')} shooter "
         f"  ON s.player_id = shooter.player_id "
         f"WHERE {where} "
@@ -197,7 +201,7 @@ def fetch_gk_shots(
         f"LIMIT 2000"
     )
 
-    return execute_query(sql, tuple(params))
+    return decode_unicode_columns(execute_query(sql, tuple(params)))
 
 
 @ttl_cache()

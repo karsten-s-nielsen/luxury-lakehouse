@@ -2594,7 +2594,7 @@ models:
         description: "Goals prevented vs PSxG expectation (psxg_faced - goals_conceded)"
       - name: avg_defensive_action_distance
         data_type: double
-        description: "Average x-coordinate of defensive actions (SPADL coords, higher = further from own goal)"
+        description: "Average distance from own goal line in meters (LEAST(x, 105-x), lower = closer to goal)"
       - name: actions_outside_box_per_90
         data_type: double
         description: "Defensive actions outside the penalty box per 90 minutes played"

@@ -277,7 +277,9 @@ shot_save_stats as (
 ),
 
 -- Sweeper-keeper stats: defensive actions outside the penalty area.
--- SPADL coordinates: own goal at x=0, opponent goal at x=105.
+-- SPADL coordinates have mixed orientation: some matches place the GK's
+-- own goal at x=0, others at x=105. LEAST(x, 105-x) computes distance
+-- from the nearest goal line, which is always the GK's own goal.
 -- Penalty area extends 16.5m from the goal line.
 -- Defensive action types match src/analytics/goalkeeper.py.
 sweeper_stats as (
@@ -285,11 +287,11 @@ sweeper_stats as (
     select
         ga.player_id,
         ga.match_id,
-        avg(ga.start_x)                                                  as avg_defensive_action_distance,
+        avg(least(ga.start_x, 105.0 - ga.start_x))                      as avg_defensive_action_distance,
         case
             when max(m.minutes_played) > 0
             then cast(
-                     sum(case when ga.start_x > 16.5 then 1 else 0 end)
+                     sum(case when least(ga.start_x, 105.0 - ga.start_x) > 16.5 then 1 else 0 end)
                      * (90.0 / max(m.minutes_played))
                  as double)
             else cast(0 as double)
