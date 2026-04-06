@@ -401,7 +401,7 @@ def compute_sweeper_metrics(events_df: pd.DataFrame) -> pd.DataFrame:
     Args:
         events_df: GK events with columns ``player_id, match_id, start_x,
             start_y, action_type, minutes_played``. SPADL coordinates
-            (own goal at x=0).
+            (mixed orientation: own goal at x=0 or x=105 depending on match).
 
     Returns:
         DataFrame with one row per ``(player_id, match_id)``. Columns:
@@ -416,8 +416,10 @@ def compute_sweeper_metrics(events_df: pd.DataFrame) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     for key, group in events_df.groupby(["player_id", "match_id"]):
         pid, mid = key  # type: ignore[misc]
-        avg_distance = float(group["start_x"].mean())
-        outside_box_count = int((group["start_x"] > _PENALTY_AREA_X).sum())
+        # SPADL has mixed orientation — LEAST(x, 105-x) gives distance from nearest goal
+        distance_from_goal = np.minimum(group["start_x"], _PITCH_LENGTH - group["start_x"])
+        avg_distance = float(distance_from_goal.mean())
+        outside_box_count = int((distance_from_goal > _PENALTY_AREA_X).sum())
         minutes = float(group["minutes_played"].max())
         per_90 = outside_box_count * (90.0 / minutes) if minutes > 0 else 0.0
         rows.append(

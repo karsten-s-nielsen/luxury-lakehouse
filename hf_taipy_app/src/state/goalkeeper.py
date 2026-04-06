@@ -23,7 +23,6 @@ from queries.goalkeepers import (
     fetch_gk_player_lov,
     fetch_gk_rankings,
     fetch_gk_shots,
-    resolve_gk_team_id,
 )
 from render import PITCH_BG_COLOR, PITCH_LINE_COLOR, pitch_to_file
 
@@ -69,7 +68,9 @@ _GK_RANKINGS_COLS = [
     "Minutes",
     "Saves",
     "Save %",
-    "Goals Prevented",
+    "PSxG/90",
+    "GP/90",
+    "Claim Success %",
     "Launch Rate",
     "xT / Pass",
     "Sweeper Distance",
@@ -93,7 +94,7 @@ gk_short_pct: str = "\u2014"
 gk_medium_pct: str = "\u2014"
 gk_long_pct: str = "\u2014"
 gk_launch_rate_val: str = "\u2014"
-gk_xt_per_pass_val: str = "\u2014"  # noqa: S105
+gk_xt_per_distribution: str = "\u2014"
 gk_xt_total_val: str = "\u2014"
 
 # GK-specific player selector (only goalkeepers, not all players)
@@ -127,7 +128,7 @@ __all__ = [
     "gk_selected_player",
     "gk_short_pct",
     "gk_warning_text",
-    "gk_xt_per_pass_val",
+    "gk_xt_per_distribution",
     "gk_xt_total_val",
 ]
 
@@ -188,8 +189,8 @@ def _format_rankings_table(df: pd.DataFrame) -> pd.DataFrame:
             "minutes_played": "Minutes",
             "saves": "Saves",
             "save_pct": "Save %",
-            "goals_prevented": "Goals Prevented",
-            "psxg_faced": "PSxG Faced",
+            "goals_prevented_per_90": "GP/90",
+            "psxg_per_90": "PSxG/90",
             "launch_rate": "Launch Rate",
             "gk_xt_per_pass": "xT / Pass",
             "claim_success_rate": "Claim Success %",
@@ -201,7 +202,7 @@ def _format_rankings_table(df: pd.DataFrame) -> pd.DataFrame:
     # Round numeric columns for display
     for col in [
         "Save %",
-        "Goals Prevented",
+        "GP/90",
         "Launch Rate",
         "xT / Pass",
         "Sweeper Distance",
@@ -297,21 +298,21 @@ def _build_goals_prevented_chart(rankings: pd.DataFrame, selected_player_id: int
     Positive = GK outperformed PSxG (green), negative = underperformed (red).
     The selected GK's bar is highlighted with full opacity; others are dimmed.
     """
-    if rankings.empty or "goals_prevented" not in rankings.columns:
+    if rankings.empty or "goals_prevented_per_90" not in rankings.columns:
         return None
 
-    df = rankings.dropna(subset=["goals_prevented"]).copy()
+    df = rankings.dropna(subset=["goals_prevented_per_90"]).copy()
     if df.empty:
         return None
 
     # Use display name if available, fall back to player_id
     name_col = "player_display_name" if "player_display_name" in df.columns else "player_id"
-    df = df.sort_values("goals_prevented", ascending=True).tail(20)
+    df = df.sort_values("goals_prevented_per_90", ascending=True).tail(20)
 
     # Color bars: green/red by sign, dimmed if a player is selected and this isn't them
     colors = []
     for _, row in df.iterrows():
-        base = _POSITIVE_COLOR if row["goals_prevented"] >= 0 else _NEGATIVE_COLOR
+        base = _POSITIVE_COLOR if row["goals_prevented_per_90"] >= 0 else _NEGATIVE_COLOR
         if selected_player_id is not None and row["player_id"] != selected_player_id:
             # Dim non-selected bars
             base = base.replace("1)", "0.3)") if "rgba" in base else base
@@ -323,20 +324,20 @@ def _build_goals_prevented_chart(rankings: pd.DataFrame, selected_player_id: int
     fig.add_trace(
         go.Bar(
             y=df[name_col],
-            x=df["goals_prevented"],
+            x=df["goals_prevented_per_90"],
             orientation="h",
             marker_color=colors,
-            hovertemplate="<b>%{y}</b><br>Goals Prevented: %{x:.2f}<extra></extra>",
+            hovertemplate="<b>%{y}</b><br>Goals Prevented/90: %{x:.2f}<extra></extra>",
         )
     )
 
     fig.update_layout(
-        title="Goals Prevented (PSxG - Goals Conceded, higher = better)",
+        title="Goals Prevented per 90 min (PSxG - Goals Conceded, higher = better)",
         title_font=dict(color="white", size=14),
         template="plotly_dark",
         plot_bgcolor=PITCH_BG_COLOR,
         paper_bgcolor="rgba(0,0,0,0)",
-        xaxis=dict(title="Goals Prevented", color="white", gridcolor="rgba(255,255,255,0.1)"),
+        xaxis=dict(title="Goals Prevented/90", color="white", gridcolor="rgba(255,255,255,0.1)"),
         yaxis=dict(color="white"),
         margin=dict(l=140, r=20, t=50, b=50),
         height=max(300, len(df) * 28),
@@ -480,12 +481,9 @@ def _refresh_shot_stopping(state: Any) -> None:
     team_id = get_team_id(state.selected_team)
     state.gk_scope_label = fetch_scope_label(comp_id, team_id)
 
-    # Resolve GK's team for shot filtering (scoped to selected competition)
-    gk_team_id = resolve_gk_team_id(player_id, comp_id) if player_id else None
-
-    # Fetch shots faced
+    # Fetch shots faced (per-match team exclusion via GK stats join)
     try:
-        shots = fetch_gk_shots(comp_id, player_id, gk_team_id)
+        shots = fetch_gk_shots(comp_id, player_id)
     except Exception:
         logger.exception("Failed to fetch GK shots")
         state.gk_goalmouth_figure = None
@@ -512,10 +510,10 @@ def _refresh_shot_stopping(state: Any) -> None:
         player_rows = _cached_rankings[_cached_rankings["player_id"] == player_id]
         if not player_rows.empty:
             row = player_rows.iloc[0]
-            psxg = row.get("psxg_faced")
-            state.gk_psxg_faced = f"{psxg:.2f} ({n_shots} shots)" if pd.notna(psxg) else "\u2014"
-            gp = row.get("goals_prevented")
-            state.gk_goals_prevented_val = f"{gp:+.2f}" if pd.notna(gp) else "\u2014"
+            psxg = row.get("psxg_per_90")
+            state.gk_psxg_faced = f"{psxg:.2f}/90 ({n_shots} shots)" if pd.notna(psxg) else "\u2014"
+            gp = row.get("goals_prevented_per_90")
+            state.gk_goals_prevented_val = f"{gp:+.2f}/90" if pd.notna(gp) else "\u2014"
             sp = row.get("save_pct")
             state.gk_save_pct_val = f"{sp:.1f}%" if pd.notna(sp) else "\u2014"
         else:
@@ -534,6 +532,8 @@ def _refresh_shot_stopping(state: Any) -> None:
 
 def _refresh_distribution(state: Any) -> None:
     """Refresh the Distribution sub-view."""
+    global _cached_rankings
+
     comp_id = get_comp_id(state.selected_competition)
     player_id = _get_gk_player_id(state)
 
@@ -543,7 +543,7 @@ def _refresh_distribution(state: Any) -> None:
         state.gk_medium_pct = "\u2014"
         state.gk_long_pct = "\u2014"
         state.gk_launch_rate_val = "\u2014"
-        state.gk_xt_per_pass_val = "\u2014"  # noqa: S105
+        state.gk_xt_per_distribution = "\u2014"
         state.gk_xt_total_val = "\u2014"
         state.gk_warning_text = ""
         return
@@ -565,7 +565,7 @@ def _refresh_distribution(state: Any) -> None:
         state.gk_medium_pct = "0%"
         state.gk_long_pct = "0%"
         state.gk_launch_rate_val = "\u2014"
-        state.gk_xt_per_pass_val = "\u2014"  # noqa: S105
+        state.gk_xt_per_distribution = "\u2014"
         state.gk_xt_total_val = "\u2014"
         state.gk_warning_text = "No GK distribution passes for the selected filters."
         return
@@ -588,24 +588,35 @@ def _refresh_distribution(state: Any) -> None:
     state.gk_medium_pct = f"{n_medium / total * 100:.0f}%" if total > 0 else "0%"
     state.gk_long_pct = f"{n_long / total * 100:.0f}%" if total > 0 else "0%"
 
-    # Pull per-GK metrics from cached rankings if available
-    if player_id is not None and not _cached_rankings.empty:
-        player_rows = _cached_rankings[_cached_rankings["player_id"] == player_id]
+    # Pull per-GK metrics from rankings (fetch if not cached)
+    if player_id is not None:
+        if _cached_rankings.empty:
+            min_min = int(state.min_minutes) if hasattr(state, "min_minutes") else 90
+            try:
+                _cached_rankings = fetch_gk_rankings(comp_id, team_id, min_min)
+            except Exception:
+                logger.exception("Failed to fetch GK rankings for distribution metrics")
+                _cached_rankings = pd.DataFrame()
+        player_rows = (
+            _cached_rankings[_cached_rankings["player_id"] == player_id]
+            if not _cached_rankings.empty
+            else pd.DataFrame()
+        )
         if not player_rows.empty:
             row = player_rows.iloc[0]
             lr = row.get("launch_rate")
             state.gk_launch_rate_val = f"{lr:.1f}%" if pd.notna(lr) else "\u2014"
             xtp = row.get("gk_xt_per_pass")
-            state.gk_xt_per_pass_val = f"{xtp:.4f}" if pd.notna(xtp) else "\u2014"
+            state.gk_xt_per_distribution = f"{xtp:.4f}" if pd.notna(xtp) else "\u2014"
             xtd = row.get("gk_xt_delta_total")
             state.gk_xt_total_val = f"{xtd:.3f}" if pd.notna(xtd) else "\u2014"
         else:
             state.gk_launch_rate_val = "\u2014"
-            state.gk_xt_per_pass_val = "\u2014"  # noqa: S105
+            state.gk_xt_per_distribution = "\u2014"
             state.gk_xt_total_val = "\u2014"
     else:
         state.gk_launch_rate_val = "\u2014"
-        state.gk_xt_per_pass_val = "\u2014"  # noqa: S105
+        state.gk_xt_per_distribution = "\u2014"
         state.gk_xt_total_val = "\u2014"
 
     logger.info("GK distribution: %d passes (short=%d, medium=%d, long=%d)", total, n_short, n_medium, n_long)
@@ -636,8 +647,12 @@ def gk_refresh(state: Any) -> None:
     # to prevent stale cross-competition data in Shot Stopping charts
     _cached_rankings = pd.DataFrame()
 
-    # Ensure sub-view LOV is populated on page navigate
-    if not getattr(state, "sub_view_lov", None) or state.sub_view_lov != GK_SUB_VIEW_LOV:
+    # Set sub-view LOV only once (on first page navigate). Resetting it on
+    # every refresh causes Taipy to re-render the selector, which can reset
+    # selected_sub_view to the first option — breaking Distribution/Shot
+    # Stopping when the user changes competition while on those views.
+    current_lov = getattr(state, "sub_view_lov", None) or []
+    if not current_lov or list(current_lov) != GK_SUB_VIEW_LOV:
         state.sub_view_lov = GK_SUB_VIEW_LOV
     if not state.selected_sub_view or state.selected_sub_view not in GK_SUB_VIEW_LOV:
         state.selected_sub_view = GK_SUB_VIEW_LOV[0]

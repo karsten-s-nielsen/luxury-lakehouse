@@ -145,11 +145,11 @@ GLOSSARY: dict[str, str] = {
     "Team Width": "Distance between widest outfield players along the touchline-to-touchline axis.",
     "PSxG (Post-Shot Expected Goals)": (
         "Probability of a shot being scored given its end location in the goal frame "
-        "(0-1 per shot, higher = harder to save). Summed across shots faced to evaluate GK workload."
+        "(0-1 per shot, higher = harder to save). Normalized per 90 minutes for cross-GK comparison."
     ),
     "Goals Prevented": (
-        "PSxG faced minus goals conceded. Positive = GK saved more than the model expected. "
-        "Negative = conceded more than expected. Zero = exactly average."
+        "PSxG faced minus goals conceded, normalized per 90 minutes. "
+        "Positive = GK saved more than the model expected. Negative = conceded more than expected."
     ),
     "Launch Rate": "Percentage of GK distribution passes over 60m. Higher = more direct style. Typical range: 15-40%.",
     "xT / Pass (Distribution)": (

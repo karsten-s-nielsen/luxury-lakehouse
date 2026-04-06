@@ -75,16 +75,16 @@ page_config = PageConfig(
             ],
             metrics=[
                 Metric(
-                    "PSxG Faced",
+                    "PSxG/90",
                     "gk_psxg_faced",
-                    "Post-Shot Expected Goals faced — probability of each shot being scored given its end "
-                    "location in the goal frame (0-1 per shot, summed). Higher = harder shots faced.",
+                    "Post-Shot Expected Goals faced per 90 minutes — probability of each shot being scored "
+                    "given its end location in the goal frame. Higher = harder shots faced per match.",
                 ),
                 Metric(
-                    "Goals Prevented",
+                    "GP/90",
                     "gk_goals_prevented_val",
-                    "PSxG faced minus goals conceded. Positive = GK saved more than expected "
-                    "(outperforming the model). Negative = conceded more than expected.",
+                    "Goals Prevented per 90 minutes (PSxG - Goals Conceded). Positive = GK saved more than "
+                    "expected (outperforming the model). Negative = conceded more than expected.",
                 ),
                 Metric(
                     "Save %",
@@ -129,7 +129,7 @@ page_config = PageConfig(
                 ),
                 Metric(
                     "xT / Pass",
-                    "gk_xt_per_pass_val",
+                    "gk_xt_per_distribution",
                     "Average Expected Threat gained per GK distribution pass. "
                     "Higher = more progressive distribution (typical: 0.001-0.005).",
                 ),

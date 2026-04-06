@@ -47,7 +47,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
 
         lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL-compatible endpoint syncing 36 Delta Lake tables from Unity Catalog (56 btree/HNSW indexes: 50 btree + 6 HNSW vector: 4x128d + 2x144d)" "External"
         databricksApi = softwareSystem "Databricks REST API" "OAuth credential endpoint for Lakebase authentication" "External"
-        databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 31 tasks (6 ingest, 14 compute, 5 HF export/import, 2 360 pipeline, 1 entity resolution, 1 validation, 1 cost sync, 1 tracking metadata), daily 06:00 UTC" "External"
+        databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 32 tasks (6 ingest, 1 backfill, 14 compute, 5 HF export/import, 2 360 pipeline, 1 entity resolution, 1 validation, 1 cost sync, 1 tracking metadata), daily 06:00 UTC" "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds from Dockerfile, serves on port 7860" "External"
         hfHub = softwareSystem "HuggingFace Hub" "Hosts 7 models (incl. football2vec-v2, football2vec-360, PSxG), 18 datasets (incl. training data, ScoutGPT episodes, 360 embeddings), build-artifacts wheel, and _workflow_cost.json cost artifacts" "External"
         hfJobs = softwareSystem "HuggingFace Jobs" "L40S GPU compute: 12 PEP 723 UV scripts for training (xG v1/v2, VAEP, PSxG, Football2vec v2/360), batch analytics (xT, EPV, OBSO, Space Creation), dataset publishing (freeze frames, xG shots), and Evolve Engine candidate evaluation" "External"

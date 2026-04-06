@@ -624,34 +624,6 @@ Position map similarity enables "find players who occupy similar tactical positi
 
 ---
 
-## Goalkeeper Analytics
-
-**Status:** Complete. Four-pillar GK evaluation shipped (Cycle 3: D38+D39). Cycle 4 added shot-based saves, Wyscout competition mapping, team_id filtering, GK selector UX.
-
-All four pillars are implemented with data from 21 competitions across StatsBomb and Wyscout sources.
-
-### Four-pillar taxonomy
-
-The industry converges on four GK evaluation dimensions. D38/D39 address all four:
-
-| Pillar | What it measures | Implementation |
-|--------|-----------------|----------------|
-| **Shot stopping** | Save quality relative to shot difficulty | D39: PSxG model (goalmouth end_location), goals prevented (PSxG+/-) |
-| **Distribution** | Passing value from GK-initiated actions | D38: xT delta on GK passes, short/medium/long split, launch rate |
-| **Cross collection** | Aerial dominance in the box | D38: `keeper_claim`/`keeper_punch` success rates per 90 |
-| **Defensive activity** | Proactive positioning outside the box | D39: sweeper-keeper distance from goal, actions outside penalty area |
-
-### Key references
-
-| Source | Type | Value |
-|--------|------|-------|
-| [Butcher et al. (2025), "An Expected Goals On Target (xGOT) Model"](https://www.mdpi.com/2504-2289/9/3/64) | Open-access paper (MDPI) | Replicable PSxG methodology — logistic regression on goalmouth coordinates |
-| Lamberts (2025), [Goalkeeper Value Model](https://marclamberts.substack.com/p/introducing-the-goalkeeper-value) | Blog + design pattern | Composite score formula: `S = B + ω_ss·V̄_ss + ω_dist·V̄_dist + ω_ll·V̄_ll + ω_bh·V̄_bh`. Four-phase xT-based approach. Python package planned but not yet public |
-| Yam, [Data-Driven GK Evaluation Framework](https://www.sloansportsconference.com/research-papers/a-data-driven-goalkeeper-evaluation-framework) | MIT Sloan paper | KNN positional deviation for sweeper detection, StatsBomb data |
-| Stats Perform, [Enhancing xGOT](https://www.statsperform.com/resource/enhancing-expected-goals-on-target/) | Industry whitepaper | Separate men's/women's xGOT models trained on 300K+ shots across 63 competitions |
-
----
-
 ## Staging Environment (Lakebase Branching)
 
 **Status:** Design phase

@@ -46,6 +46,14 @@ _HTTP_MAX_WORKERS = 4
 # ---------------------------------------------------------------------------
 
 
+_TYPE_KEY_OVERRIDES: dict[str, str] = {
+    # StatsBomb JSON uses "goalkeeper" for Goal Keeper events, not "goal_keeper".
+    # Without this override, the goalkeeper sub-dict (containing claim/punch/save
+    # type info) is silently dropped, and keeper_claim actions are never generated.
+    "goal_keeper": "goalkeeper",
+}
+
+
 def _build_raw_extra_json(match_id: int, logger: logging.Logger) -> dict[str, str]:
     """Fetch raw StatsBomb JSON and extract type-specific 'extra' dicts.
 
@@ -64,9 +72,10 @@ def _build_raw_extra_json(match_id: int, logger: logging.Logger) -> dict[str, st
         type_obj = raw.get("type", {})
         type_name = type_obj.get("name", "") if isinstance(type_obj, dict) else ""
         type_key = type_name.lower().replace(" ", "_").replace("*", "")
+        json_key = _TYPE_KEY_OVERRIDES.get(type_key, type_key)
         extra: dict[str, Any] = {}
-        if type_key and type_key in raw:
-            extra[type_key] = raw[type_key]
+        if json_key and json_key in raw:
+            extra[json_key] = raw[json_key]
         for aux_key in ("related_events", "tactics", "50_50"):
             if aux_key in raw:
                 extra[aux_key] = raw[aux_key]
@@ -544,36 +553,36 @@ def backfill_extra_json(
 
     logger.info("Fetched extra JSON for %d/%d matches", len(extra_maps), len(match_ids_to_backfill))
 
-    # Apply extra JSON maps via Delta MERGE — updates only _raw_extra_json
-    # without reading/writing all columns (P0-07).
-    for row in needs_backfill_rows:
-        match_id = int(row["match_id"])
-        comp_id = int(row["competition_id"])
-        season_id = int(row["season_id"])
-
-        if match_id not in extra_maps:
+    # Build a single mapping DataFrame across ALL matches, then execute ONE
+    # Delta MERGE. The old approach ran one MERGE per match (900 sequential
+    # Spark jobs = 2+ hours). A single batched MERGE runs in minutes.
+    all_mapping_rows: list[tuple[str, str]] = []
+    for extra_map in extra_maps.values():
+        if not extra_map:
             continue
+        for eid, ejson in extra_map.items():
+            all_mapping_rows.append((eid, ejson))
 
-        try:
-            extra_map = extra_maps[match_id]
-            if not extra_map:
-                continue
+    if not all_mapping_rows:
+        logger.info("No extra JSON mappings to apply — skipping MERGE")
+        return
 
-            # Build a small mapping DataFrame with (event_id, extra_json)
-            mapping_rows = [(eid, ejson) for eid, ejson in extra_map.items()]
-            mapping_sdf = spark.createDataFrame(mapping_rows, ["_eid", "_extra_json"])
-            mapping_sdf.createOrReplaceTempView("_backfill_map")
+    logger.info("Applying %d event updates via single MERGE", len(all_mapping_rows))
 
-            spark.sql(
-                f"MERGE INTO {events_table} AS t "
-                f"USING _backfill_map AS s "
-                f"ON t.id = s._eid AND t.match_id = {match_id} "
-                "WHEN MATCHED THEN UPDATE SET t._raw_extra_json = s._extra_json"
-            )
+    try:
+        mapping_sdf = spark.createDataFrame(all_mapping_rows, ["_eid", "_extra_json"])
+        mapping_sdf.createOrReplaceTempView("_backfill_map")
 
-            logger.info("Backfilled _raw_extra_json for match %d (comp=%d, season=%d)", match_id, comp_id, season_id)
-        except Exception:
-            logger.exception("Failed backfill for match %d", match_id)
+        spark.sql(
+            f"MERGE INTO {events_table} AS t "
+            "USING _backfill_map AS s "
+            "ON t.id = s._eid "
+            "WHEN MATCHED THEN UPDATE SET t._raw_extra_json = s._extra_json"
+        )
+
+        logger.info("Backfilled _raw_extra_json for %d matches (%d events)", len(extra_maps), len(all_mapping_rows))
+    except Exception:
+        logger.exception("Failed batch MERGE for _raw_extra_json backfill")
 
 
 # ---------------------------------------------------------------------------

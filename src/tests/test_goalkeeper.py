@@ -263,6 +263,8 @@ class TestPSxGModel:
 
 
 def _make_gk_events_with_position() -> pd.DataFrame:
+    # SPADL coords: mixed orientation, own goal at either x=0 or x=105.
+    # LEAST(x, 105-x) gives distance from nearest goal → [8, 12, 20, 5, 10].
     return pd.DataFrame(
         {
             "player_id": [99, 99, 99, 99, 99],
@@ -287,6 +289,28 @@ class TestComputeSweeperMetrics:
         assert pytest.approx(row["avg_defensive_action_distance"], abs=0.1) == 11.0
         # Penalty area extends to x=16.5. Action at x=20 is outside.
         # actions_outside_box_per_90: 1 action outside in 90 min = 1.0
+        assert pytest.approx(row["actions_outside_box_per_90"], abs=0.1) == 1.0
+
+    def test_flipped_orientation(self) -> None:
+        """SPADL can have GK actions near x=105 (own goal at far end).
+
+        LEAST(x, 105-x) must produce the same distances as the normal case.
+        start_x = [97, 93, 85, 100, 95] → distances = [8, 12, 20, 5, 10] = mean 11.0
+        """
+        events = pd.DataFrame(
+            {
+                "player_id": [99, 99, 99, 99, 99],
+                "match_id": ["m1"] * 5,
+                "start_x": [97.0, 93.0, 85.0, 100.0, 95.0],
+                "start_y": [34.0, 34.0, 34.0, 34.0, 34.0],
+                "action_type": ["keeper_save", "clearance", "interception", "keeper_pick_up", "keeper_save"],
+                "minutes_played": [90.0] * 5,
+            }
+        )
+        result = compute_sweeper_metrics(events)
+        assert len(result) == 1
+        row = result.iloc[0]
+        assert pytest.approx(row["avg_defensive_action_distance"], abs=0.1) == 11.0
         assert pytest.approx(row["actions_outside_box_per_90"], abs=0.1) == 1.0
 
     def test_empty(self) -> None:

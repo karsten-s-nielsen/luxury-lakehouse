@@ -10,7 +10,8 @@
 #   idsse             — Bundesliga DFL tracking (25fps, 7 matches from UC Volume)
 #   idsse_events      — Bundesliga DFL event XML (7 matches, depends on idsse)
 #   skillcorner       — A-League broadcast tracking (10fps, 10 matches via kloppy)
-#   compute_spadl_vaep — SPADL conversion + VAEP scoring (depends on statsbomb + wyscout)
+#   backfill_statsbomb_extra — Backfill _raw_extra_json for GK sub-types (depends on statsbomb)
+#   compute_spadl_vaep — SPADL conversion + VAEP scoring (depends on backfill_extra + wyscout)
 #   compute_xg_model   — Custom xG model scoring (depends on SPADL/VAEP)
 #   compute_off_ball_xt — Off-Ball xT from tracking + pitch control (depends on tracking tasks)
 #   compute_pitch_control — Spearman 2017 pitch control values (depends on tracking tasks)
@@ -158,6 +159,33 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "tracking"
   }
 
+  # ── Task: Backfill StatsBomb _raw_extra_json ─────────────────────────────
+  # Ensures the goalkeeper sub-dict (and other type-specific extras) are
+  # present in statsbomb_events._raw_extra_json. Without this, socceraction
+  # cannot distinguish keeper_claim/keeper_punch/keeper_save sub-types.
+  # Idempotent: only processes matches where _raw_extra_json IS NULL or '{}'.
+  task {
+    task_key        = "backfill_statsbomb_extra"
+    timeout_seconds = 3600
+    max_retries     = 1
+
+    depends_on {
+      task_key = "ingest_statsbomb"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "backfill_statsbomb_extra"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "statsbomb"
+  }
+
   # ── Task: Compute SPADL actions and VAEP scores ─────────────────────────
   task {
     task_key        = "compute_spadl_vaep"
@@ -165,7 +193,7 @@ resource "databricks_job" "data_ingestion" {
     max_retries     = 1
 
     depends_on {
-      task_key = "ingest_statsbomb"
+      task_key = "backfill_statsbomb_extra"
     }
     depends_on {
       task_key = "ingest_wyscout"
