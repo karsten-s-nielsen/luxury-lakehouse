@@ -129,6 +129,7 @@ if __name__ == "__main__":
 # Job management
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class BenchmarkJob:
     """Tracks a submitted benchmark job."""
@@ -165,12 +166,14 @@ def submit_all(api: HfApi, namespace: str, script_path: str) -> list[BenchmarkJo
                 timeout=TIMEOUT,
                 namespace=namespace,
             )
-            jobs.append(BenchmarkJob(
-                flavor=flavor,
-                cost_per_hr=cost_hr,
-                job_id=info.id,
-                submit_time=time.monotonic(),
-            ))
+            jobs.append(
+                BenchmarkJob(
+                    flavor=flavor,
+                    cost_per_hr=cost_hr,
+                    job_id=info.id,
+                    submit_time=time.monotonic(),
+                )
+            )
             _log.info("  -> job_id=%s", info.id)
         except Exception:
             _log.exception("Failed to submit job for %s", flavor)
@@ -195,7 +198,9 @@ def poll_all(api: HfApi, jobs: list[BenchmarkJob], namespace: str) -> None:
                     elapsed = job.end_time - job.submit_time
                     _log.info(
                         "%s COMPLETED in %.0fs (score=%.4f)",
-                        job.flavor, elapsed, job.metrics.get("combined_score", 0),
+                        job.flavor,
+                        elapsed,
+                        job.metrics.get("combined_score", 0),
                     )
                     del pending[job_id]
                 elif stage in (JobStage.ERROR, JobStage.CANCELED, JobStage.DELETED):
@@ -231,6 +236,7 @@ def parse_metrics(api: HfApi, job_id: str, namespace: str) -> dict:
 # ---------------------------------------------------------------------------
 # Report
 # ---------------------------------------------------------------------------
+
 
 def print_report(jobs: list[BenchmarkJob]) -> None:
     """Print the benchmark comparison table."""
@@ -279,6 +285,7 @@ def print_report(jobs: list[BenchmarkJob]) -> None:
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     api = HfApi()
 
@@ -310,15 +317,17 @@ def main() -> None:
     results = []
     for job in jobs:
         wall = (job.end_time - job.submit_time) if job.end_time else 0
-        results.append({
-            "flavor": job.flavor,
-            "job_id": job.job_id,
-            "status": job.status,
-            "wall_seconds": wall,
-            "cost_per_hr": job.cost_per_hr,
-            "cost_total": (wall / 3600) * job.cost_per_hr,
-            "metrics": job.metrics,
-        })
+        results.append(
+            {
+                "flavor": job.flavor,
+                "job_id": job.job_id,
+                "status": job.status,
+                "wall_seconds": wall,
+                "cost_per_hr": job.cost_per_hr,
+                "cost_total": (wall / 3600) * job.cost_per_hr,
+                "metrics": job.metrics,
+            }
+        )
 
     out_path = "results/evolve/hf_jobs_benchmark.json"
     with open(out_path, "w") as f:

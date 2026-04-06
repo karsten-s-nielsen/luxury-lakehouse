@@ -190,9 +190,7 @@ _FITNESS_CFG = FitnessConfig(
 )
 
 
-def _write_seed_result(
-    seed_dir: Path, name: str, metrics: dict[str, float], fingerprint: str
-) -> None:
+def _write_seed_result(seed_dir: Path, name: str, metrics: dict[str, float], fingerprint: str) -> None:
     """Write a cached seed result JSON file."""
     seed_dir.mkdir(parents=True, exist_ok=True)
     (seed_dir / f"{name}.json").write_text(
@@ -279,9 +277,7 @@ class TestSeedResume:
         programs = [_write_seed_program(tmp_path, "additive")]
         cached = {"additive": {"combined_score": 0.5, "spearman_rho": 0.4, "top1_accuracy": 0.6}}
 
-        best_path, _ = _evaluate_seeds(
-            evaluator, programs, tmp_path, eval_config=_EVAL_CFG, cached_seeds=cached
-        )
+        best_path, _ = _evaluate_seeds(evaluator, programs, tmp_path, eval_config=_EVAL_CFG, cached_seeds=cached)
 
         assert best_path.stem == "additive"
         mock_backend.train.assert_not_called()

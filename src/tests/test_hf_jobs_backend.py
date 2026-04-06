@@ -52,8 +52,7 @@ class TestHFJobsBackend:
             f"{metrics_json}\n",
         ]
 
-        with patch("huggingface_hub.HfApi", return_value=mock_api), \
-             patch("evolve.backends.hf_jobs.time") as mock_time:
+        with patch("huggingface_hub.HfApi", return_value=mock_api), patch("evolve.backends.hf_jobs.time") as mock_time:
             mock_time.monotonic.side_effect = [0.0, 1.0, 2.0, 3.0]
             mock_time.sleep = MagicMock()
 
@@ -86,8 +85,7 @@ class TestHFJobsBackend:
             status=_FakeStatus(stage=JobStage.ERROR, message="OOM killed"),
         )
 
-        with patch("huggingface_hub.HfApi", return_value=mock_api), \
-             patch("evolve.backends.hf_jobs.time") as mock_time:
+        with patch("huggingface_hub.HfApi", return_value=mock_api), patch("evolve.backends.hf_jobs.time") as mock_time:
             mock_time.monotonic.side_effect = [0.0, 1.0]
             mock_time.sleep = MagicMock()
 
@@ -112,8 +110,7 @@ class TestHFJobsBackend:
             status=_FakeStatus(stage=JobStage.RUNNING),
         )
 
-        with patch("huggingface_hub.HfApi", return_value=mock_api), \
-             patch("evolve.backends.hf_jobs.time") as mock_time:
+        with patch("huggingface_hub.HfApi", return_value=mock_api), patch("evolve.backends.hf_jobs.time") as mock_time:
             # monotonic returns values past the deadline
             mock_time.monotonic.side_effect = [0.0, 0.0, 31.0]
             mock_time.sleep = MagicMock()
