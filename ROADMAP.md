@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the current [architecture](ARCHITECTURE.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-04-05 (Cycle 4 Phase 3: GK saves, Wyscout competition mapping, tracking metadata, embedding neighborhood chart)
+**Last updated**: 2026-04-05 (Evolve Level 1: self-contained evaluator bridge, --resume, HF Jobs L40S backend + GPU benchmark)
 
 ---
 
@@ -169,7 +169,7 @@ This answers open question #5 ("Is Grafana worth it or is DuckDB sufficient?") &
 **Budget:** ~$6-14/month incremental (external GPU training + existing Databricks governance)
 **References:** DeepMind AlphaEvolve/FunSearch (Apache 2.0); TacticAI (Nature Communications, 2024); SoccerNet benchmarks
 
-Foundation in place (MLflow UC Model Registry with Champion/Challenger aliases, scipy-based drift detection, HF Jobs A10G training, Evolve Engine for LLM-guided architecture search). This section defines the remaining DL stack needed for GNN training, continual learning, and pre-trained model integration.
+Foundation in place (MLflow UC Model Registry with Champion/Challenger aliases, scipy-based drift detection, HF Jobs L40S training, Evolve Engine for LLM-guided architecture search). This section defines the remaining DL stack needed for GNN training, continual learning, and pre-trained model integration.
 
 ### Core principle: train cheap, govern centrally
 

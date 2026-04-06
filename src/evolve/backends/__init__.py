@@ -43,7 +43,7 @@ def _make_docker(config: BackendConfig, timeout: int) -> ComputeBackend:
 def _make_hf_jobs(config: BackendConfig, timeout: int) -> ComputeBackend:
     from evolve.backends.hf_jobs import HFJobsBackend
 
-    return HFJobsBackend(hf_flavor=config.hf_flavor or "")
+    return HFJobsBackend(hf_flavor=config.hf_flavor or "l40sx1", timeout=timeout)
 
 
 def _make_remote_ssh(config: BackendConfig, timeout: int) -> ComputeBackend:

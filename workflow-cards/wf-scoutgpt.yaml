@@ -35,7 +35,7 @@ execution:
   training:
     trigger: manual
     runtime: hf-jobs
-    flavor: a10g-large
+    flavor: l40sx1
     script: "scripts/train_scoutgpt_hf.py"
     timeout: "180m"
 
@@ -50,7 +50,7 @@ idempotency:
 cost:
   training:
     runtime: hf-jobs
-    flavor: a10g-large
+    flavor: l40sx1
     rate_usd_per_hour: 1.50
     typical_duration_minutes: 120
     typical_cost_usd: 3.00

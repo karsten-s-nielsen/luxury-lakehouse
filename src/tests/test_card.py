@@ -79,7 +79,7 @@ FULL_CARD = textwrap.dedent("""\
       training:
         trigger: manual
         runtime: hf-jobs
-        flavor: a10g-large
+        flavor: l40sx1
         script: scripts/train_xg.py
         timeout: "2h"
         also_trainable_via: databricks-notebook
@@ -113,7 +113,7 @@ FULL_CARD = textwrap.dedent("""\
     cost:
       training:
         runtime: hf-jobs
-        flavor: a10g-large
+        flavor: l40sx1
         rate_usd_per_hour: 3.15
         typical_duration_minutes: 45
         typical_cost_usd: 2.36
@@ -228,7 +228,7 @@ def test_full_card_execution() -> None:
     assert card.execution.training is not None
     assert card.execution.training.trigger == "manual"
     assert card.execution.training.runtime == "hf-jobs"
-    assert card.execution.training.flavor == "a10g-large"
+    assert card.execution.training.flavor == "l40sx1"
     assert card.execution.inference is not None
     assert card.execution.inference.distribution == "applyInPandas"
     assert card.execution.inference.entry_point == "compute_xg_model"

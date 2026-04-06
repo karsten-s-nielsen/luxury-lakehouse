@@ -10,7 +10,7 @@ fitness:
   minimize: false
 
 evaluation:
-  epochs: 5
+  epochs: 3
   dataset: "luxury-lakehouse/scoutgpt-training-data"
   timeout_seconds: 6000
   seed: 42

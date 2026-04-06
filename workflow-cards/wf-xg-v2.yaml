@@ -40,7 +40,7 @@ execution:
   training:
     trigger: manual
     runtime: hf-jobs
-    flavor: a10g-small
+    flavor: l40sx1
     script: "scripts/train_xg_v2_hf.py"
     timeout: "1800s"
   inference:
@@ -70,7 +70,7 @@ performance:
 cost:
   training:
     runtime: hf-jobs
-    flavor: a10g-small
+    flavor: l40sx1
     rate_usd_per_hour: 1.00
     typical_duration_minutes: 30
     typical_cost_usd: 0.50

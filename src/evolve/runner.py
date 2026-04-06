@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import hashlib
 import json
 import logging
 import os
@@ -24,12 +25,13 @@ from typing import Any
 import yaml
 
 from evolve.backends import create_backend
-from evolve.config import EvolveConfig
+from evolve.config import EvalConfig, EvolveConfig
 from evolve.evaluator import EvolveEvaluator
 
 _log = logging.getLogger(__name__)
 
 _TARGETS_DIR = Path(__file__).parent / "targets"
+
 
 
 # ---------------------------------------------------------------------------
@@ -50,11 +52,53 @@ def _discover_seed_programs(target: str) -> list[Path]:
     return programs
 
 
+def _eval_fingerprint(eval_config: EvalConfig) -> str:
+    """Deterministic hash of evaluation parameters that affect seed results.
+
+    Used to detect stale cached seed results after config changes.
+    """
+    key = f"{eval_config.epochs}:{eval_config.seed}:{eval_config.dataset}"
+    return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+
+def _load_cached_seeds(
+    seed_results_dir: Path,
+    seed_programs: list[Path],
+    fingerprint: str,
+) -> dict[str, dict[str, float]]:
+    """Load valid cached seed results, skipping stale or missing ones.
+
+    Returns a mapping of ``{program_stem: metrics}`` for seeds whose
+    cached result has a matching fingerprint.  Seeds with missing,
+    corrupt, or stale result files are excluded (and will be evaluated).
+    """
+    cached: dict[str, dict[str, float]] = {}
+    for program in seed_programs:
+        result_file = seed_results_dir / f"{program.stem}.json"
+        if not result_file.exists():
+            continue
+        try:
+            data = json.loads(result_file.read_text())
+            if data.get("fingerprint") != fingerprint:
+                _log.info("Stale seed cache for %s (fingerprint mismatch), will re-evaluate", program.name)
+                continue
+            metrics = data["metrics"]
+            if metrics.get("combined_score", 0.0) > 0.0:
+                cached[program.stem] = metrics
+                score = metrics["combined_score"]
+                _log.info("Loaded cached seed: %s (combined_score=%.4f)", program.name, score)
+        except (json.JSONDecodeError, KeyError):
+            _log.warning("Corrupt seed cache for %s, will re-evaluate", program.name)
+    return cached
+
+
 def _evaluate_seeds(
     evaluator: EvolveEvaluator,
     seed_programs: list[Path],
     results_dir: Path,
+    eval_config: EvalConfig,
     max_parallel: int = 1,
+    cached_seeds: dict[str, dict[str, float]] | None = None,
 ) -> tuple[Path, dict[str, float]]:
     """Evaluate all seed programs and return the best one.
 
@@ -63,13 +107,17 @@ def _evaluate_seeds(
     :class:`BackendPool` is thread-safe, so each thread acquires the next
     idle backend automatically.
 
+    Seeds with valid cached results (via *cached_seeds*) are skipped.
     Saves individual seed results as JSON files under ``results_dir/seed_results/``.
 
     Args:
         evaluator: The configured evaluator instance.
         seed_programs: List of paths to seed ``.py`` files.
         results_dir: Timestamped results directory for this run.
+        eval_config: Evaluation config (used for fingerprinting).
         max_parallel: Maximum concurrent evaluations (matches backend count).
+        cached_seeds: Pre-loaded seed results from a previous run, keyed by
+            program stem.  Seeds present here are skipped.
 
     Returns:
         Tuple of (best_seed_path, best_metrics).
@@ -79,6 +127,17 @@ def _evaluate_seeds(
     """
     seed_results_dir = results_dir / "seed_results"
     seed_results_dir.mkdir(parents=True, exist_ok=True)
+    fingerprint = _eval_fingerprint(eval_config)
+
+    cached = cached_seeds or {}
+    to_evaluate = [p for p in seed_programs if p.stem not in cached]
+
+    if cached:
+        _log.info(
+            "Resuming seeds: %d cached, %d to evaluate",
+            len(cached),
+            len(to_evaluate),
+        )
 
     def _eval_one(program: Path) -> tuple[Path, dict[str, float]]:
         _log.info("Evaluating seed program: %s", program.name)
@@ -86,26 +145,41 @@ def _evaluate_seeds(
         score = metrics.get("combined_score", 0.0)
 
         result_file = seed_results_dir / f"{program.stem}.json"
-        result_file.write_text(json.dumps({"program": program.name, "metrics": metrics}, indent=2))
+        result_file.write_text(
+            json.dumps({"program": program.name, "fingerprint": fingerprint, "metrics": metrics}, indent=2)
+        )
         _log.info("Seed %s: combined_score=%.4f", program.name, score)
         return program, metrics
 
-    workers = min(max_parallel, len(seed_programs))
-    _log.info("Evaluating %d seeds with %d parallel workers", len(seed_programs), workers)
-
+    # Start with cached results
     best_path: Path | None = None
     best_metrics: dict[str, float] = {}
     best_score = float("-inf")
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(_eval_one, p): p for p in seed_programs}
-        for future in concurrent.futures.as_completed(futures):
-            program, metrics = future.result()
-            score = metrics.get("combined_score", 0.0)
+    for program in seed_programs:
+        if program.stem in cached:
+            score = cached[program.stem].get("combined_score", 0.0)
             if score > best_score:
                 best_score = score
                 best_path = program
-                best_metrics = metrics
+                best_metrics = cached[program.stem]
+
+    # Evaluate remaining seeds
+    if to_evaluate:
+        workers = min(max_parallel, len(to_evaluate))
+        _log.info("Evaluating %d seeds with %d parallel workers", len(to_evaluate), workers)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(_eval_one, p): p for p in to_evaluate}
+            for future in concurrent.futures.as_completed(futures):
+                program, metrics = future.result()
+                score = metrics.get("combined_score", 0.0)
+                if score > best_score:
+                    best_score = score
+                    best_path = program
+                    best_metrics = metrics
+    else:
+        _log.info("All %d seeds loaded from cache — skipping evaluation", len(cached))
 
     if best_path is None or best_score <= 0.0:
         msg = "No seed program produced a valid (non-zero) combined score"
@@ -160,6 +234,87 @@ def _translate_to_openevolve_config(config: EvolveConfig) -> dict[str, Any]:
         }
 
     return oe_config
+
+
+_EVALUATOR_SCRIPT = '''\
+"""Standalone evaluator loaded by OpenEvolve via importlib.
+
+Fully self-contained: constructs its own EvolveEvaluator from a JSON
+config file written alongside this script.  This is necessary because
+OpenEvolve's ``process_parallel`` spawns worker processes via
+``ProcessPoolExecutor`` — each worker gets a fresh Python interpreter
+where in-process globals (like module-level references) are ``None``.
+
+The JSON config file is written by ``_write_evaluator_script()`` in
+``evolve.runner`` and contains all parameters needed to reconstruct
+the backend, evaluator, and fitness config.
+"""
+
+import json
+import logging
+from pathlib import Path
+
+_log = logging.getLogger(__name__)
+
+# Lazy singleton — constructed once per process on first evaluate() call.
+_evaluator = None
+
+
+def _get_evaluator():
+    global _evaluator
+    if _evaluator is not None:
+        return _evaluator
+
+    config_path = Path(__file__).with_name("_openevolve_evaluator_config.json")
+    cfg = json.loads(config_path.read_text())
+
+    from evolve.backends import create_backend
+    from evolve.config import BackendConfig, EvalConfig, FitnessConfig
+    from evolve.evaluator import EvolveEvaluator
+
+    backend_config = BackendConfig(**cfg["backend"])
+    backend = create_backend(backend_config, timeout=cfg["timeout_seconds"])
+    eval_config = EvalConfig(**cfg["eval_config"])
+    fitness_config = FitnessConfig(**cfg["fitness_config"])
+
+    _evaluator = EvolveEvaluator(
+        backend=backend,
+        target=cfg["target"],
+        eval_config=eval_config,
+        fitness_config=fitness_config,
+    )
+    _log.info("Evaluator constructed in worker process (pid=%d)", __import__("os").getpid())
+    return _evaluator
+
+
+def evaluate(program_path: str) -> dict:
+    """Entry point called by OpenEvolve for each candidate."""
+    return _get_evaluator().evaluate(program_path)
+'''
+
+
+def _write_evaluator_script(results_dir: Path, config: EvolveConfig) -> Path:
+    """Write a standalone evaluator ``.py`` and its config JSON.
+
+    The script and config are placed in ``results_dir`` so they persist
+    with the run artifacts for debugging.  OpenEvolve accepts a file
+    path as the *evaluator* argument to :func:`run_evolution`.
+    """
+    # Write the config JSON that the script loads at init time
+    eval_cfg = {
+        "target": config.target,
+        "timeout_seconds": config.evaluation.timeout_seconds,
+        "backend": config.backend.model_dump(),
+        "eval_config": config.evaluation.model_dump(),
+        "fitness_config": config.fitness.model_dump(),
+    }
+    config_path = results_dir / "_openevolve_evaluator_config.json"
+    config_path.write_text(json.dumps(eval_cfg, indent=2))
+
+    # Write the evaluator script
+    script_path = results_dir / "_openevolve_evaluator.py"
+    script_path.write_text(_EVALUATOR_SCRIPT, encoding="utf-8")
+    return script_path
 
 
 def _set_api_keys(config: EvolveConfig) -> None:
@@ -269,6 +424,33 @@ def main(argv: list[str] | None = None) -> None:
         )
 
     # ---- Set up results directory -----------------------------------
+    seed_programs = _discover_seed_programs(target)
+    cached_seeds: dict[str, dict[str, float]] = {}
+
+    if args.resume:
+        # Find the latest existing results directory for this target
+        target_results = Path("results/evolve") / target
+        if target_results.is_dir():
+            existing = sorted(target_results.iterdir(), reverse=True)
+            if existing:
+                resume_dir = existing[0]
+                fingerprint = _eval_fingerprint(config.evaluation)
+                seed_results_dir = resume_dir / "seed_results"
+                if seed_results_dir.is_dir():
+                    cached_seeds = _load_cached_seeds(seed_results_dir, seed_programs, fingerprint)
+                    _log.info(
+                        "Resuming from %s: %d/%d seeds cached",
+                        resume_dir.name,
+                        len(cached_seeds),
+                        len(seed_programs),
+                    )
+                else:
+                    _log.warning("No seed_results/ in %s — running fresh", resume_dir)
+            else:
+                _log.warning("No previous results for target '%s' — running fresh", target)
+        else:
+            _log.warning("No results directory for target '%s' — running fresh", target)
+
     timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     results_dir = Path("results/evolve") / target / timestamp
     results_dir.mkdir(parents=True, exist_ok=True)
@@ -286,11 +468,15 @@ def main(argv: list[str] | None = None) -> None:
         fitness_config=config.fitness,
     )
 
-    seed_programs = _discover_seed_programs(target)
     _log.info("Found %d seed programs", len(seed_programs))
 
     best_seed, seed_metrics = _evaluate_seeds(
-        evaluator, seed_programs, results_dir, max_parallel=config.evolution.parallel_evaluations
+        evaluator,
+        seed_programs,
+        results_dir,
+        eval_config=config.evaluation,
+        max_parallel=config.evolution.parallel_evaluations,
+        cached_seeds=cached_seeds,
     )
     _log.info("Best seed: %s -> %s", best_seed.name, json.dumps(seed_metrics, indent=2))
 
@@ -312,9 +498,13 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     oe_cfg = openevolve.Config.from_dict(oe_config)
+
+    evaluator_path = _write_evaluator_script(results_dir, config)
+    _log.info("Evaluator script: %s", evaluator_path)
+
     best_result = openevolve.run_evolution(
         initial_program=str(best_seed),
-        evaluator=evaluator.evaluate,
+        evaluator=str(evaluator_path),
         config=oe_cfg,
         iterations=config.evolution.iterations,
         output_dir=str(results_dir),
