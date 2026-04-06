@@ -19,7 +19,7 @@ goalmouth coordinates (end_location_y, end_location_z) for on-target shots.
 Model weights are serialised to JSON (zero pickle surface) and published to
 HF Hub alongside per-shot predictions.
 
-Usage (HF Jobs):  hf jobs run train_psxg_hf.py --flavor a10g-large
+Usage (HF Jobs):  hf jobs run train_psxg_hf.py --flavor l40sx1
 Usage (local):    uv run scripts/train_psxg_hf.py
 """
 

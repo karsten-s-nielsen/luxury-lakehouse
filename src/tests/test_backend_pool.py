@@ -83,23 +83,33 @@ class TestBackendPool:
         assert slow.train.call_count >= 1
 
     def test_backend_failure_does_not_crash_pool(self) -> None:
-        """A failing backend should propagate the exception but not poison the pool."""
-        good = _make_mock_backend(metrics={"combined_score": 1.0})
-        bad = MagicMock()
-        bad.train.side_effect = RuntimeError("GPU on fire")
-        bad.available.return_value = True
-        pool = BackendPool([good, bad])
+        """A failing backend should propagate the exception but not poison the pool.
 
-        # First call gets good backend, second gets bad
-        result = pool.train(candidate_config={}, target="test", epochs=1, seed=42)
-        assert result["combined_score"] == 1.0
+        Uses a single-backend pool to isolate the concern: after a failure,
+        the backend is released back and subsequent calls work normally.
+        """
+        flaky = MagicMock()
+        call_count = 0
 
+        def _train(**kwargs: Any) -> dict[str, float]:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("GPU on fire")
+            return {"combined_score": 1.0}
+
+        flaky.train.side_effect = _train
+        flaky.available.return_value = True
+        pool = BackendPool([flaky])
+
+        # First call fails
         with pytest.raises(RuntimeError, match="GPU on fire"):
             pool.train(candidate_config={}, target="test", epochs=1, seed=42)
 
-        # Pool still works — bad backend was released back
+        # Pool is not poisoned — second call succeeds
         result = pool.train(candidate_config={}, target="test", epochs=1, seed=42)
         assert result["combined_score"] == 1.0
+        assert flaky.train.call_count == 2
 
     def test_available_any(self) -> None:
         b1 = MagicMock()
@@ -114,6 +124,23 @@ class TestBackendPool:
         b1.available.return_value = False
         pool = BackendPool([b1])
         assert pool.available() is False
+
+    def test_priority_prefers_first_backend(self) -> None:
+        """When both backends are idle, the first (highest-priority) is chosen."""
+        first = _make_mock_backend(delay=0.0, metrics={"combined_score": 1.0, "backend": 1.0})
+        second = _make_mock_backend(delay=0.0, metrics={"combined_score": 0.8, "backend": 2.0})
+        pool = BackendPool([first, second])
+
+        # Sequential calls — both idle each time, first should always be picked
+        r1 = pool.train(candidate_config={}, target="test", epochs=1, seed=42)
+        r2 = pool.train(candidate_config={}, target="test", epochs=1, seed=42)
+        r3 = pool.train(candidate_config={}, target="test", epochs=1, seed=42)
+
+        assert r1["backend"] == 1.0
+        assert r2["backend"] == 1.0
+        assert r3["backend"] == 1.0
+        assert first.train.call_count == 3
+        assert second.train.call_count == 0
 
     def test_empty_pool_rejected(self) -> None:
         with pytest.raises(ValueError, match="at least one backend"):

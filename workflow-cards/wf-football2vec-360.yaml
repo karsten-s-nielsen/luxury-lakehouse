@@ -45,7 +45,7 @@ execution:
   training:
     trigger: manual
     runtime: hf-jobs
-    flavor: a10g-small
+    flavor: l40sx1
     script: "scripts/train_football2vec_360.py"
     timeout: "120m"
   inference:
@@ -71,7 +71,7 @@ idempotency:
 cost:
   training:
     runtime: hf-jobs
-    flavor: a10g-small
+    flavor: l40sx1
     rate_usd_per_hour: 1.00
     typical_duration_minutes: 90
     typical_cost_usd: 1.50

@@ -23,7 +23,7 @@ References:
 
 Usage (HF Jobs CLI):
     hf jobs uv run scripts/train_football2vec_v2.py --stage 1 \\
-        --flavor a10g-large --timeout 120m \\
+        --flavor l40sx1 --timeout 120m \\
         --secrets HF_TOKEN=$HF_TOKEN \\
         --env MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI \\
         --env DATABRICKS_HOST=$DATABRICKS_HOST \\
@@ -516,7 +516,7 @@ def _log_mlflow(
                 "n_val": nv,
                 "n_test": nte,
                 "n_parameters": sum(p.numel() for p in model.parameters()),
-                "training_env": "hf_jobs_a10g_large",
+                "training_env": "hf_jobs_l40s",
                 "dataset_commit": dc,
             }
         )

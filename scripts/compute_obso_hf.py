@@ -28,7 +28,7 @@ Data sources:
 
 Usage (HF Jobs CLI):
     hf jobs uv run scripts/compute_obso_hf.py \
-        --flavor a10g --timeout 60m \
+        --flavor l40sx1 --timeout 60m \
         --secrets HF_TOKEN=$HF_TOKEN
 
 References:
@@ -618,7 +618,7 @@ def main() -> None:
                     "window_after_s": WINDOW_AFTER_S,
                     "n_passes": n_passes,
                     "n_matches": len(match_ids),
-                    "training_env": "hf_jobs_a10g",
+                    "training_env": "hf_jobs_l40s",
                     "jax_available": _USE_JAX,
                 }
             )

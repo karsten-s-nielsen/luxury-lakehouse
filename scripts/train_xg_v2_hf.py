@@ -25,7 +25,7 @@ References:
 
 Usage (HF Jobs CLI):
     hf jobs uv run scripts/train_xg_v2_hf.py \\
-        --flavor a10g --timeout 60m \\
+        --flavor l40sx1 --timeout 60m \\
         --secrets HF_TOKEN=$HF_TOKEN \\
         --env MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI \\
         --env DATABRICKS_HOST=$DATABRICKS_HOST \\
@@ -273,7 +273,7 @@ def main() -> None:
                     "n_test": len(test_idx),
                     "tabular_dim": tabular_dim,
                     "n_parameters": sum(p.numel() for p in model.parameters()),
-                    "training_env": "hf_jobs_a10g",
+                    "training_env": "hf_jobs_l40s",
                     "device": str(device),
                     "xg_shot_data_commit": shots_commit,
                 }

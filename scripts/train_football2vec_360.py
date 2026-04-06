@@ -607,7 +607,7 @@ def _log_to_mlflow(
                 "n_val": n_val,
                 "n_test": n_test,
                 "n_parameters": sum(p.numel() for p in model.parameters()),
-                "training_env": "hf_jobs_a10g_large",
+                "training_env": "hf_jobs_l40s",
                 "dataset_commit": dataset_commit,
             }
         )

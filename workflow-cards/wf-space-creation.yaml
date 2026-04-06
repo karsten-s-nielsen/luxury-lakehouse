@@ -37,7 +37,7 @@ execution:
   training:
     trigger: manual
     runtime: hf-jobs
-    flavor: a10g-large
+    flavor: l40sx1
     script: "scripts/compute_space_creation_hf.py"
     timeout: "2700s"
 
@@ -51,7 +51,7 @@ performance:
 cost:
   training:
     runtime: hf-jobs
-    flavor: a10g-large
+    flavor: l40sx1
     rate_usd_per_hour: 1.50
     typical_duration_minutes: 45
     typical_cost_usd: 1.13

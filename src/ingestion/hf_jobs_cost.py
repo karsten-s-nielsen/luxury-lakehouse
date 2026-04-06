@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 HF_RATE_CPU_BASIC: float = 0.01
 HF_RATE_A10G_SMALL: float = 1.00
 HF_RATE_A10G_LARGE: float = 1.50
+HF_RATE_L40S: float = 1.80
+HF_RATE_A100_LARGE: float = 2.50
 
 # Workflow ID validation
 _WORKFLOW_ID_RE: re.Pattern[str] = re.compile(r"^wf-[a-zA-Z0-9_-]+$")
