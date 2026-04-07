@@ -13,7 +13,15 @@
     enabled=var('embeddings_enabled', false)
 ) }}
 
-with embeddings_with_context as (
+with player_best_dim as (
+    -- For players with mixed-dimension vectors (32d v1 + 128d v2),
+    -- keep only the highest-dimension embeddings per player.
+    select canonical_player_id, max(size(behavioral_vector)) as best_dim
+    from {{ ref('fct_player_embeddings') }}
+    group by canonical_player_id
+),
+
+embeddings_with_context as (
 
     select
         e.canonical_player_id,
@@ -26,6 +34,9 @@ with embeddings_with_context as (
     from {{ ref('fct_player_embeddings') }} e
     inner join {{ ref('fct_match_summary') }} m
         on e.match_id = m.match_id
+    inner join player_best_dim p
+        on e.canonical_player_id = p.canonical_player_id
+        and size(e.behavioral_vector) = p.best_dim
 
 ),
 
@@ -50,9 +61,9 @@ select
     canonical_player_id,
     competition_id,
     season_id,
-    -- Element-wise mean of behavioral vectors
+    -- Element-wise mean of behavioral vectors (dimension derived from data)
     transform(
-        sequence(0, 127),
+        sequence(0, size(behavioral_vectors[0]) - 1),
         i -> aggregate(
             behavioral_vectors,
             cast(0.0 as double),

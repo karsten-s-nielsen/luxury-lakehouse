@@ -4,9 +4,9 @@ sources:
   - name: embeddings
     description: >
       Player behavioral and statistical embedding vectors produced by the
-      football2vec pipeline. Contains dual-vector representations (128-dim
-      transformer behavioral + 13-dim z-score statistical) for player
-      similarity search.
+      football2vec pipeline. Contains dual-vector representations (32-dim
+      Doc2Vec v1 or 128-dim transformer v2 behavioral + 13-dim z-score
+      statistical) for player similarity search.
     database: "{{ var('catalog', 'soccer_analytics') }}"
     schema: bronze
     loader: python_wheel
@@ -20,9 +20,9 @@ sources:
       - name: player_embeddings_raw
         description: >
           Player behavioral + statistical embedding vectors from football2vec
-          pipeline. Each row contains a 128-dim transformer encoder behavioral
-          vector (Football2vec v2) and an optional 13-dim z-score normalized
-          per-90 stat vector for one player in one match.
+          pipeline. Each row contains a behavioral vector (32-dim Doc2Vec v1
+          for StatsBomb, 128-dim transformer v2 for Wyscout) and an optional
+          13-dim z-score normalized per-90 stat vector for one player in one match.
         columns:
           - name: canonical_player_id
             description: Unified player identifier (from dim_players Phase 14)
@@ -31,7 +31,7 @@ sources:
           - name: data_source
             description: Source provider (statsbomb or wyscout)
           - name: behavioral_vector
-            description: 128-dim transformer encoder (Football2vec v2)
+            description: Behavioral embedding (32-dim v1 or 128-dim v2, varies by data_source)
           - name: stat_vector
             description: 13-dim z-score normalized per-90 stats (nullable)
           - name: _ingested_at
