@@ -891,7 +891,7 @@ resource "databricks_job" "data_ingestion" {
 
       dependencies = [
         var.wheel_path,
-        "silly-kicks>=0.1.0,<1.0",
+        "silly-kicks>=1.0.0,<2.0",
         "xgboost==3.2.0",
         "rapidfuzz>=3.6.0",
         "unidecode>=1.3.0",

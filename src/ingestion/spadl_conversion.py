@@ -123,10 +123,6 @@ def _make_sb_spadl_udf() -> object:
         actions["season_id"] = season_id
         actions["data_source"] = "statsbomb"
 
-        # Ensure all output columns exist (metadata columns added above)
-        for col in _spadl_cols:
-            if col not in actions.columns:
-                actions[col] = "" if col in {"original_event_id", "data_source"} else 0
         return _pd.DataFrame(actions[_spadl_cols])
 
     return _udf
@@ -322,10 +318,6 @@ def _make_ws_spadl_udf(goalkeeper_ids: set[int] | None = None) -> object:
         actions["season_id"] = season_id
         actions["data_source"] = "wyscout"
 
-        # Ensure all output columns exist (metadata columns added above)
-        for col in _spadl_cols:
-            if col not in actions.columns:
-                actions[col] = "" if col in {"original_event_id", "data_source"} else 0
         return _pd.DataFrame(actions[_spadl_cols])
 
     return _udf

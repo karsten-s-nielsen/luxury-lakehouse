@@ -46,14 +46,6 @@ _HTTP_MAX_WORKERS = 4
 # ---------------------------------------------------------------------------
 
 
-_TYPE_KEY_OVERRIDES: dict[str, str] = {
-    # StatsBomb JSON nests Goal Keeper payloads under "goalkeeper", but our
-    # snake_case normalisation produces "goal_keeper".  This mapping ensures
-    # the extra dict uses the key the SPADL converter actually reads.
-    "goal_keeper": "goalkeeper",
-}
-
-
 def _build_raw_extra_json(match_id: int, logger: logging.Logger) -> dict[str, str]:
     """Fetch raw StatsBomb JSON and extract type-specific 'extra' dicts.
 
@@ -72,10 +64,9 @@ def _build_raw_extra_json(match_id: int, logger: logging.Logger) -> dict[str, st
         type_obj = raw.get("type", {})
         type_name = type_obj.get("name", "") if isinstance(type_obj, dict) else ""
         type_key = type_name.lower().replace(" ", "_").replace("*", "")
-        json_key = _TYPE_KEY_OVERRIDES.get(type_key, type_key)
         extra: dict[str, Any] = {}
-        if json_key and json_key in raw:
-            extra[json_key] = raw[json_key]
+        if type_key and type_key in raw:
+            extra[type_key] = raw[type_key]
         for aux_key in ("related_events", "tactics", "50_50"):
             if aux_key in raw:
                 extra[aux_key] = raw[aux_key]
