@@ -152,6 +152,22 @@ class RemoteSSHBackend:
             _log.warning("HF cache warming failed (non-fatal): %s", exc)
         self._hf_cache_warmed = True
 
+    def _kill_remote_workers(self) -> None:
+        """Kill orphaned ``evolve.remote_worker`` processes on the remote host.
+
+        Called after a timeout to prevent orphaned training processes from
+        hogging GPU memory on the remote machine.  Safe to call when no
+        workers are running (the kill command silently succeeds).
+        """
+        _log.info("Killing orphaned remote workers on %s", self._host)
+        try:
+            self._run_ssh(
+                "pkill -f 'evolve.remote_worker' 2>/dev/null; true",
+                timeout=_SSH_CMD_TIMEOUT,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            _log.warning("Failed to kill remote workers on %s", self._host, exc_info=True)
+
     def _scp_to_remote(self, local_path: str, remote_filename: str) -> None:
         """Copy a local file to the remote workspace via ``scp``.
 
@@ -196,6 +212,7 @@ class RemoteSSHBackend:
                 "Remote training timed out",
                 extra={"host": self._host, "timeout": self._timeout},
             )
+            self._kill_remote_workers()
             return fail_metrics()
         except subprocess.CalledProcessError as exc:
             _log.error(

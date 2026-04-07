@@ -197,7 +197,8 @@ def _translate_to_openevolve_config(config: EvolveConfig) -> dict[str, Any]:
     """Translate our EvolveConfig to the nested dict expected by ``openevolve.Config.from_dict``.
 
     OpenEvolve uses nested sections: ``database`` (population/islands),
-    ``evaluator`` (parallelism/timeout), ``llm`` (models/temperature).
+    ``evaluator`` (parallelism/timeout), ``llm`` (models/temperature),
+    ``prompt`` (custom template directory).
     """
     evo = config.evolution
     llm = config.llm
@@ -206,6 +207,7 @@ def _translate_to_openevolve_config(config: EvolveConfig) -> dict[str, Any]:
         "max_iterations": evo.iterations,
         "diff_based_evolution": evo.diff_based,
         "early_stopping_patience": evo.early_stopping_patience,
+        "checkpoint_interval": evo.checkpoint_interval,
         "database": {
             "population_size": evo.population_size,
             "num_islands": evo.num_islands,
@@ -216,6 +218,11 @@ def _translate_to_openevolve_config(config: EvolveConfig) -> dict[str, Any]:
             "timeout": config.evaluation.timeout_seconds,
         },
     }
+
+    # Use target-specific prompt templates if they exist.
+    prompts_dir = _TARGETS_DIR / config.target / "prompts"
+    if prompts_dir.is_dir():
+        oe_config["prompt"] = {"template_dir": str(prompts_dir.resolve())}
 
     if llm.models:
         oe_config["llm"] = {
@@ -244,6 +251,12 @@ OpenEvolve's ``process_parallel`` spawns worker processes via
 ``ProcessPoolExecutor`` — each worker gets a fresh Python interpreter
 where in-process globals (like module-level references) are ``None``.
 
+Each worker claims a unique backend via atomic claim files so that N
+workers map 1:1 to N backends (e.g. RTX → worker 0, GB10 → worker 1,
+L40S → worker 2).  Without this, every worker creates a full
+BackendPool but only ever makes one concurrent call, always picking
+priority 0 and leaving the other backends idle.
+
 The JSON config file is written by ``_write_evaluator_script()`` in
 ``evolve.runner`` and contains all parameters needed to reconstruct
 the backend, evaluator, and fitness config.
@@ -251,6 +264,7 @@ the backend, evaluator, and fitness config.
 
 import json
 import logging
+import os
 from pathlib import Path
 
 _log = logging.getLogger(__name__)
@@ -259,10 +273,40 @@ _log = logging.getLogger(__name__)
 _evaluator = None
 
 
+def _claim_backend_index(backend_types, claim_dir):
+    """Atomically claim a unique backend index via exclusive file creation.
+
+    Each worker process tries to create ``_backend_claim_0``,
+    ``_backend_claim_1``, etc.  The first file that does not already
+    exist is claimed (``O_CREAT | O_EXCL`` is atomic on NTFS and POSIX).
+    Falls back to ``pid % N`` if all slots are taken.
+
+    Only called from ProcessPoolExecutor worker processes — never from
+    the main process (which uses a full BackendPool for the initial
+    program evaluation).
+    """
+    pid = os.getpid()
+    for i in range(len(backend_types)):
+        claim_file = claim_dir / f"_backend_claim_{i}"
+        try:
+            fd = os.open(str(claim_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(pid).encode())
+            os.close(fd)
+            _log.info("Worker pid=%d claimed backend index %d (%s)", pid, i, backend_types[i])
+            return i
+        except FileExistsError:
+            continue
+    fallback = pid % len(backend_types)
+    _log.warning("All backend slots claimed, worker pid=%d falling back to index %d", pid, fallback)
+    return fallback
+
+
 def _get_evaluator():
     global _evaluator
     if _evaluator is not None:
         return _evaluator
+
+    import multiprocessing
 
     config_path = Path(__file__).with_name("_openevolve_evaluator_config.json")
     cfg = json.loads(config_path.read_text())
@@ -271,8 +315,22 @@ def _get_evaluator():
     from evolve.config import BackendConfig, EvalConfig, FitnessConfig
     from evolve.evaluator import EvolveEvaluator
 
-    backend_config = BackendConfig(**cfg["backend"])
-    backend = create_backend(backend_config, timeout=cfg["timeout_seconds"])
+    backend_cfg = cfg["backend"]
+    backend_types = [t.strip() for t in backend_cfg["type"].split(",")]
+    is_worker = multiprocessing.current_process().name != "MainProcess"
+
+    if len(backend_types) == 1 or not is_worker:
+        # Main process (initial eval) or single backend — use full pool.
+        backend_config = BackendConfig(**backend_cfg)
+        backend = create_backend(backend_config, timeout=cfg["timeout_seconds"])
+    else:
+        # Worker process — claim a unique single backend.
+        claim_dir = Path(__file__).parent
+        index = _claim_backend_index(backend_types, claim_dir)
+        single_cfg = {**backend_cfg, "type": backend_types[index]}
+        backend_config = BackendConfig(**single_cfg)
+        backend = create_backend(backend_config, timeout=cfg["timeout_seconds"])
+
     eval_config = EvalConfig(**cfg["eval_config"])
     fitness_config = FitnessConfig(**cfg["fitness_config"])
 
@@ -282,7 +340,10 @@ def _get_evaluator():
         eval_config=eval_config,
         fitness_config=fitness_config,
     )
-    _log.info("Evaluator constructed in worker process (pid=%d)", __import__("os").getpid())
+    _log.info(
+        "Evaluator constructed (pid=%d, process=%s, backend=%s)",
+        os.getpid(), multiprocessing.current_process().name, backend_config.type,
+    )
     return _evaluator
 
 
