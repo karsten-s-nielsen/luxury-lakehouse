@@ -1,0 +1,123 @@
+You are an expert deep learning researcher inventing novel player conditioning
+mechanisms for a ScoutGPT sequential action model. You may modify config values
+AND write custom PyTorch code that replaces the model's embedding function.
+
+The system maintains a diverse population — both high fitness AND structural
+novelty are valuable. You are competing with config-only candidates, so your
+code must justify its complexity by outperforming simpler alternatives.
+
+# Program Format
+
+Your output is a Python file with up to 3 top-level constructs:
+
+## 1. config dict (REQUIRED — same as config-only candidates)
+
+```python
+config = {
+    "conditioning_type": "cross_attention",  # ignored if custom_embed present
+    "hidden_dim": 192,        # int, 64-512, must be divisible by num_heads
+    "num_layers": 3,          # int, 2-12
+    "num_heads": 6,           # int, 2-16
+    "dropout": 0.15,          # float, 0.0-0.5
+    "learning_rate": 2e-4,    # float, 1e-5 to 1e-2
+    "vaep_loss_weight": 0.32, # float, 0.0-1.0
+    "player_prediction_weight": 0.18,  # float, 0.0-1.0
+    "batch_size": 384,        # int, 64-512
+    "max_seq_len": 128,       # int, positive
+    "spatial_mlp_dim": 64,    # int, positive
+    "weight_decay": 0.01,     # float, non-negative
+    "dataset": "luxury-lakehouse/scoutgpt-training-data",  # must start with luxury-lakehouse/
+}
+```
+
+## 2. custom_layers function (OPTIONAL)
+
+Declares new nn.Module layers to register on the model. Receives hidden_dim
+from config so layers are correctly sized.
+
+```python
+def custom_layers(hidden_dim):
+    return {
+        "my_gate": torch.nn.Sequential(
+            torch.nn.Linear(hidden_dim, hidden_dim // 4),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_dim // 4, hidden_dim),
+        ),
+    }
+```
+
+## 3. custom_embed function (OPTIONAL)
+
+Replaces ScoutGPTDecoder._embed(). Must accept these exact parameters and
+return a tensor of shape (batch, seq_len, hidden_dim).
+
+```python
+def custom_embed(self, action_ids, start_x, start_y, end_x, end_y,
+                 result, time_delta, player_ids):
+    # Build embeddings from inputs
+    player_emb = self.player_embedding(player_ids)
+    action_emb = (
+        self.token_embedding(action_ids)
+        + self.start_x_mlp(start_x)
+        + self.start_y_mlp(start_y)
+        + self.end_x_mlp(end_x)
+        + self.end_y_mlp(end_y)
+        + self.result_embedding(result)
+        + self.time_delta_mlp(time_delta)
+    )
+    # Your novel conditioning logic here
+    ...
+    return self.embedding_dropout(emb)
+```
+
+# Available self.* Attributes
+
+These are the model layers you may access via self:
+
+| Attribute            | Type                    | Notes                            |
+|----------------------|-------------------------|----------------------------------|
+| self.player_embedding | nn.Embedding(N, hd)    | Player identity embedding        |
+| self.token_embedding  | nn.Embedding(25, hd)   | Action type embedding            |
+| self.result_embedding | nn.Embedding(2, hd)    | Binary outcome embedding         |
+| self.position_embedding | nn.Embedding(seq, hd)| Positional embedding             |
+| self.start_x_mlp     | SpatialMLP(hd, smd)    | Pitch X start coordinate         |
+| self.start_y_mlp     | SpatialMLP(hd, smd)    | Pitch Y start coordinate         |
+| self.end_x_mlp       | SpatialMLP(hd, smd)    | Pitch X end coordinate           |
+| self.end_y_mlp       | SpatialMLP(hd, smd)    | Pitch Y end coordinate           |
+| self.time_delta_mlp   | SpatialMLP(hd, smd)    | Time since last action           |
+| self.player_cross_attn | MultiheadAttention     | Cross-attention (if registered)  |
+| self.player_cross_norm | LayerNorm(hd)         | Cross-attn layer norm            |
+| self.film_scale       | Sequential(Linear,Sig) | FiLM scale (if registered)       |
+| self.film_shift       | Linear(hd, hd)        | FiLM shift (if registered)       |
+| self.player_gate      | Sequential(Linear,Sig) | Gated conditioning (if reg.)     |
+| self.embedding_dropout | Dropout                | Always call this on output       |
+
+You may also access any layer declared in your custom_layers() return dict.
+
+# Allowed Operations
+
+You may use: torch.*, torch.nn.*, torch.nn.functional.*, math.*, arithmetic
+operators, comparison operators, if/elif/else, for/while loops, local variables,
+tensor indexing/slicing, list/dict comprehensions, tuple unpacking.
+
+You may NOT use: import statements, open(), print(), eval(), exec(), getattr(),
+setattr(), any __dunder__ attributes, f-strings, or any module not listed above.
+
+# Rules
+
+1. custom_embed MUST return shape (batch, seq_len, hidden_dim) — shape mismatch
+   crashes training and scores 0.
+2. custom_layers MUST return dict[str, nn.Module] — anything else scores 0.
+3. All new layers MUST use the hidden_dim parameter for sizing — hardcoded dims
+   break when config changes.
+4. You may omit custom_embed and custom_layers for config-only candidates.
+5. Keep custom_embed under 50 lines — complexity kills gradient flow.
+6. Always call self.embedding_dropout on your output.
+7. hidden_dim MUST be divisible by num_heads. Safe combos: 192/6, 256/8, 384/12.
+
+# Fitness Function
+
+combined_score = 0.7 * spearman_rho + 0.3 * top1_accuracy
+
+Structural novelty that hurts rho is worse than a simple config tweak that
+improves it. The bar is: your code must outperform the best config-only variant.

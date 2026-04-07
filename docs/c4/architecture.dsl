@@ -28,7 +28,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
             costEstimateHook = container "CostEstimateHook" "Lifecycle hook writing run state + cost estimates to workflow_cost_live Delta table via MERGE. Centralized registration via bootstrap_hooks()" "Python, PySpark, Delta, src/ingestion/cost_hook.py"
             hfCostRecorder = container "HFJobsCostRecorder" "Standalone cost recorder for HF Jobs scripts. Writes _workflow_cost.json (live status) and _cost_history/{job_id}.json (per-run history) to HF Hub repos. 90-day auto-pruning" "Python, huggingface_hub, src/ingestion/hf_jobs_cost.py"
             ingestionPipelines = container "Compute Pipelines" "30 @workflow-decorated Databricks pipelines (all instrumented): 5 raw ingestors (StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner), 14 compute (xG, VAEP, DEFCON 360+tracking, pitch control, xT, OBSO/PAUSA, entity resolution, line-breaking 360+tracking, formations EFPI+shape graph, embeddings v1/v2, model validation), 5 HF export/import (shots, OBSO, PSxG, space creation, 360 training data), elastic sync, cost sync. Centralized hook registration via bootstrap.py" "Python, PySpark, src/ingestion/"
-            evolveEngine = container "Evolve Engine" "AlphaEvolve-style LLM-guided evolutionary architecture search. CLI runner with --resume (fingerprinted seed caching), self-contained evaluator bridge for OpenEvolve subprocess workers, PriorityQueue-based BackendPool. Pluggable compute backends: local CUDA, remote SSH, HF Jobs L40S. OpenEvolve MAP-Elites population management with island migration" "Python, OpenEvolve, src/evolve/"
+            evolveEngine = container "Evolve Engine" "LLM-guided evolutionary architecture search (Level 1: config-only, Level 2: code evolution). CLI runner with --resume/--code-evolution, AST allowlist validator (ValidationProfile), self-contained evaluator bridge, PriorityQueue-based BackendPool. Level 2: LLM generates custom_embed()/custom_layers() PyTorch functions, AST-validated then exec'd with restricted globals (__builtins__={}). Defense-in-depth per ADR-001. Pluggable backends: local CUDA, remote SSH, HF Jobs L40S" "Python, OpenEvolve, src/evolve/"
             analyticsLibrary = container "Analytics Library" "Pure-Python domain models (zero I/O). Pitch control (Spearman 2017), xG, xT, VAEP, OBSO, line-breaking, DEFCON, entity resolution, shape graph (construction + inference split), football2vec v2/360, ScoutGPT decoder (256d GPT-style causal, Hong et al. 2025), goalkeeper, coordinates. Split modules all under 800 lines" "Python, NumPy, SciPy, PyTorch, scikit-learn, src/analytics/"
             sharedLibrary = container "Shared Library" "Cross-package constants: IDENTIFIER_RE, DEFAULT_GOLD_SCHEMA, mlflow_model_uri(). Zero external deps. Imported by analytics, ingestion, and Taipy Docker image" "Python, src/shared/"
         }
@@ -211,6 +211,14 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
             stateModules -> guiLayer "Updates team_lov, match_lov, player_lov state"
             stateModules -> renderEngine "Re-renders chart with new data scope"
             renderEngine -> guiLayer "Returns new image path (cache-busted)"
+            autoLayout
+        }
+
+        dynamic pipelinePlatform "EvolveLevel2" {
+            developer -> evolveEngine "Launch --code-evolution run"
+            evolveEngine -> openRouter "Generate candidate (config + custom_embed)"
+            evolveEngine -> analyticsLibrary "AST-validate, then exec with restricted globals, monkey-patch _embed"
+            evolveEngine -> hfJobs "Dispatch to L40S for training"
             autoLayout
         }
 

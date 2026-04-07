@@ -1411,6 +1411,7 @@ training = [
 [package.dev-dependencies]
 dev = [
     { name = "import-linter" },
+    { name = "luxury-lakehouse", extra = ["analytics", "embeddings"] },
     { name = "matplotlib" },
     { name = "numba" },
     { name = "pip-audit" },
@@ -1459,6 +1460,7 @@ provides-extras = ["analytics", "dbt", "sdk", "embeddings", "jax", "mlflow", "tr
 [package.metadata.requires-dev]
 dev = [
     { name = "import-linter", specifier = ">=2.0" },
+    { name = "luxury-lakehouse", extras = ["analytics", "embeddings"] },
     { name = "matplotlib", specifier = ">=3.10.8" },
     { name = "numba", specifier = ">=0.60.0" },
     { name = "pip-audit", specifier = ">=2.7.0" },
@@ -3179,9 +3181,9 @@ dependencies = [
     { name = "typing-extensions" },
 ]
 wheels = [
-    { url = "https://download.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp310-cp310-manylinux_2_28_aarch64.whl" },
-    { url = "https://download.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp310-cp310-manylinux_2_28_x86_64.whl" },
-    { url = "https://download.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp310-cp310-win_amd64.whl" },
+    { url = "https://download-r2.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp310-cp310-manylinux_2_28_aarch64.whl" },
+    { url = "https://download-r2.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp310-cp310-manylinux_2_28_x86_64.whl" },
+    { url = "https://download-r2.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp310-cp310-win_amd64.whl" },
 ]
 
 [[package]]

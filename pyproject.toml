@@ -117,6 +117,7 @@ select = [
 [tool.ruff.lint.per-file-ignores]
 "src/tests/**" = ["S101"]  # assert is standard in pytest
 "hf_taipy_app/**" = ["E501", "S104", "F405", "RUF022", "RUF005"]  # Taipy app: long help text, 0.0.0.0, star imports, unsorted __all__, list concat
+"src/evolve/targets/*/seed_programs/**" = ["F821"]  # Seed programs are exec'd with torch/math injected in globals
 
 [tool.ruff.lint.isort]
 known-first-party = ["analytics", "evolve", "ingestion", "shared", "workflows"]
@@ -125,7 +126,7 @@ known-first-party = ["analytics", "evolve", "ingestion", "shared", "workflows"]
 pythonVersion = "3.10"
 typeCheckingMode = "basic"
 reportMissingImports = "warning"  # pyspark only available in Databricks runtime
-exclude = ["demo_space", "notebooks", "scripts"]
+exclude = ["demo_space", "notebooks", "scripts", "src/evolve/targets/*/seed_programs"]
 
 [tool.pytest.ini_options]
 testpaths = ["src/tests"]
@@ -165,4 +166,5 @@ dev = [
     "matplotlib>=3.10.8",
     "pydantic-settings>=2.0.0",
     "psycopg2-binary>=2.9.9",
+    "luxury-lakehouse[analytics,embeddings]",
 ]

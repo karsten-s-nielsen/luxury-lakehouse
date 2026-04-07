@@ -100,6 +100,7 @@ class EvolutionConfig(BaseModel):
     diff_based: bool = True
     early_stopping_patience: int = 40
     checkpoint_interval: int = 5
+    code_evolution: bool = False
 
 
 class EvolveConfig(BaseModel):

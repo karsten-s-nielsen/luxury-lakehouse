@@ -20,6 +20,8 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
+pytest.importorskip("databricks.sdk", reason="databricks-sdk not installed (conflicts with dev deps)")
+
 # Add hf_taipy_app/src to path so we can import the state module
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "hf_taipy_app" / "src"))
 

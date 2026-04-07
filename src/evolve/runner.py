@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import hashlib
+import importlib
 import json
 import logging
 import os
@@ -219,8 +220,11 @@ def _translate_to_openevolve_config(config: EvolveConfig) -> dict[str, Any]:
         },
     }
 
-    # Use target-specific prompt templates if they exist.
-    prompts_dir = _TARGETS_DIR / config.target / "prompts"
+    # Select prompt directory based on code evolution level
+    if config.evolution.code_evolution:
+        prompts_dir = _TARGETS_DIR / config.target / "prompts_l2"
+    else:
+        prompts_dir = _TARGETS_DIR / config.target / "prompts"
     if prompts_dir.is_dir():
         oe_config["prompt"] = {"template_dir": str(prompts_dir.resolve())}
 
@@ -262,6 +266,7 @@ The JSON config file is written by ``_write_evaluator_script()`` in
 the backend, evaluator, and fitness config.
 """
 
+import importlib
 import json
 import logging
 import os
@@ -334,11 +339,19 @@ def _get_evaluator():
     eval_config = EvalConfig(**cfg["eval_config"])
     fitness_config = FitnessConfig(**cfg["fitness_config"])
 
+    code_evolution = cfg.get("code_evolution", False)
+    validation_profile = None
+    if code_evolution:
+        target_mod = importlib.import_module(f"evolve.targets.{cfg['target']}")
+        validation_profile = getattr(target_mod, "VALIDATION_PROFILE", None)
+
     _evaluator = EvolveEvaluator(
         backend=backend,
         target=cfg["target"],
         eval_config=eval_config,
         fitness_config=fitness_config,
+        code_evolution=code_evolution,
+        validation_profile=validation_profile,
     )
     _log.info(
         "Evaluator constructed (pid=%d, process=%s, backend=%s)",
@@ -367,6 +380,7 @@ def _write_evaluator_script(results_dir: Path, config: EvolveConfig) -> Path:
         "backend": config.backend.model_dump(),
         "eval_config": config.evaluation.model_dump(),
         "fitness_config": config.fitness.model_dump(),
+        "code_evolution": config.evolution.code_evolution,
     }
     config_path = results_dir / "_openevolve_evaluator_config.json"
     config_path.write_text(json.dumps(eval_cfg, indent=2))
@@ -435,6 +449,12 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Resume from the latest results directory for this target.",
     )
+    parser.add_argument(
+        "--code-evolution",
+        action="store_true",
+        default=False,
+        help="Enable Level 2 code evolution (LLM generates PyTorch functions)",
+    )
     return parser
 
 
@@ -467,6 +487,17 @@ def main(argv: list[str] | None = None) -> None:
         config.backend.device = args.device
     if args.iterations:
         config.evolution.iterations = args.iterations
+    if args.code_evolution:
+        config.evolution.code_evolution = True
+
+    # ---- Load validation profile for Level 2 -----------------------
+    validation_profile = None
+    if config.evolution.code_evolution:
+        target_module = importlib.import_module(f"evolve.targets.{target}")
+        validation_profile = getattr(target_module, "VALIDATION_PROFILE", None)
+        if validation_profile is None:
+            _log.warning("Target %s has no VALIDATION_PROFILE; Level 2 disabled", target)
+            config.evolution.code_evolution = False
 
     # ---- Create backend and verify ----------------------------------
     backend = create_backend(config.backend, timeout=config.evaluation.timeout_seconds)
@@ -529,6 +560,8 @@ def main(argv: list[str] | None = None) -> None:
         target=target,
         eval_config=config.evaluation,
         fitness_config=config.fitness,
+        code_evolution=config.evolution.code_evolution,
+        validation_profile=validation_profile,
     )
 
     _log.info("Found %d seed programs", len(seed_programs))

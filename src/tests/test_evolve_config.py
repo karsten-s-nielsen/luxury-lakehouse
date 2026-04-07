@@ -9,6 +9,7 @@ import yaml
 
 from evolve.config import (
     BackendConfig,
+    EvolutionConfig,
     EvolveConfig,
     FitnessConfig,
     LLMConfig,
@@ -94,3 +95,13 @@ class TestLLMConfig:
                     LLMModelConfig(name="b", weight=0.3, api_base="http://x", api_key_env="K"),
                 ],
             )
+
+
+class TestEvolutionConfigCodeEvolution:
+    def test_default_is_false(self) -> None:
+        cfg = EvolutionConfig()
+        assert cfg.code_evolution is False
+
+    def test_can_enable(self) -> None:
+        cfg = EvolutionConfig(code_evolution=True)
+        assert cfg.code_evolution is True

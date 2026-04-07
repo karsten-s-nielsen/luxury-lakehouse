@@ -54,6 +54,7 @@ class BackendPool:
         target: str,
         epochs: int,
         seed: int,
+        program_path: str | None = None,
     ) -> dict[str, float]:
         """Acquire the highest-priority idle backend, train, then release it."""
         try:
@@ -69,6 +70,7 @@ class BackendPool:
                 target=target,
                 epochs=epochs,
                 seed=seed,
+                program_path=program_path,
             )
         finally:
             pri = self._priority[id(backend)]
