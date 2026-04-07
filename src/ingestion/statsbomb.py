@@ -65,8 +65,12 @@ def _build_raw_extra_json(match_id: int, logger: logging.Logger) -> dict[str, st
         type_name = type_obj.get("name", "") if isinstance(type_obj, dict) else ""
         type_key = type_name.lower().replace(" ", "_").replace("*", "")
         extra: dict[str, Any] = {}
-        if type_key and type_key in raw:
-            extra[type_key] = raw[type_key]
+        # Try snake_cased key first, then concatenated form (handles
+        # "Goal Keeper" → "goal_keeper" vs raw JSON key "goalkeeper")
+        for candidate in (type_key, type_key.replace("_", "")):
+            if candidate and candidate in raw:
+                extra[candidate] = raw[candidate]
+                break
         for aux_key in ("related_events", "tactics", "50_50"):
             if aux_key in raw:
                 extra[aux_key] = raw[aux_key]
