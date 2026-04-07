@@ -4,7 +4,7 @@ sources:
   - name: spadl
     description: >
       SPADL-formatted action data with VAEP scores, produced by the
-      socceraction-based ingestion pipeline. Contains all 22 SPADL action types
+      silly-kicks-based ingestion pipeline. Contains all 23 SPADL action types
       (passes, shots, tackles, dribbles, etc.) with offensive and defensive
       value scores from trained VAEP classifiers.
     database: soccer_analytics

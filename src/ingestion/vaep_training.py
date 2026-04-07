@@ -19,9 +19,9 @@ import logging
 from typing import Any
 
 import pandas as pd
-import socceraction.spadl as spadl
-import socceraction.vaep.features as fs
-import socceraction.vaep.labels as labels
+import silly_kicks.spadl as spadl
+import silly_kicks.vaep.features as fs
+import silly_kicks.vaep.labels as labels
 from xgboost import XGBClassifier
 
 from ingestion.spadl_vaep import _FEATURE_FNS, _NB_PREV_ACTIONS
@@ -45,7 +45,7 @@ def extract_features_for_games(
 
     Args:
         actions: SPADL-format DataFrame with at least ``game_id`` and
-            the standard socceraction columns.
+            the standard SPADL columns.
         game_ids: Iterable of game IDs to process.
         log: Optional logger (falls back to module-level logger).
 

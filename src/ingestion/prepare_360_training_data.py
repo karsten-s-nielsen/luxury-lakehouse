@@ -63,7 +63,7 @@ _SPADL_PITCH_LENGTH = 105.0
 _SPADL_PITCH_WIDTH = 68.0
 
 # SPADL 23-type action vocabulary mapping (string → int).
-# Canonical ordering matches socceraction and football2vec v2.
+# Canonical ordering matches silly_kicks SPADL and football2vec v2.
 _ACTION_TYPE_IDS: dict[str, int] = {
     "pass": 0,
     "cross": 1,

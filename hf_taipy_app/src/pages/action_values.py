@@ -18,12 +18,12 @@ page_config = PageConfig(
     icon="trending_up",
     nav_section=NAV_PLAYER_ANALYSIS,
     description=(
-        "Valuing Actions by Estimating Probabilities (VAEP) \u2014 Decroos et al. (2019). Implemented via socceraction."
+        "Valuing Actions by Estimating Probabilities (VAEP) \u2014 Decroos et al. (2019). Implemented via silly-kicks."
     ),
     freshness_var="av_data_freshness",
     citations=[
         Citation("Decroos et al. (2019)", "https://doi.org/10.1007/s10994-021-05989-6"),
-        Citation("socceraction", "https://github.com/ML-KULeuven/socceraction"),
+        Citation("silly-kicks", "https://github.com/karsten-s-nielsen/silly-kicks"),
     ],
     empty_message="",
     empty_condition="",

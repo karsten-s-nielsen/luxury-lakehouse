@@ -4,7 +4,7 @@
 -- SPADL coordinate system:
 --   - Pitch is 105 x 68 meters (academic standard)
 --   - Origin (0,0) is bottom-left
---   - All actions normalized to attack left-to-right by socceraction
+--   - All actions normalized to attack left-to-right by silly-kicks
 --
 -- Dedup: ROW_NUMBER partitioned by natural key, latest _ingested_at wins.
 

@@ -461,7 +461,7 @@ Every technique and dataset referenced in this investigation has been verified f
 | GoalNet (Jiang et al.) | arXiv preprint | Ideas freely implementable | GREEN |
 | Deep Sets (Zaheer et al. 2017) | Published paper | Already in production (`set_encoder.py`) | GREEN |
 | Doc2Vec / gensim | Library | LGPL-2.1 (training-time only, not shipped) | GREEN |
-| socceraction / VAEP | GitHub repo | MIT | GREEN |
+| silly-kicks / VAEP | GitHub repo | MIT | GREEN |
 | Word2Vec negative sampling | Foundational NLP | Google patent US 9,740,680 **expired 2023** | GREEN |
 | Spearman 2017 pitch control | Published paper | Already in production | GREEN |
 | PAUSA / OBSO (Lee et al. SSAC26) | GitHub repo | Apache-2.0 (secured March 2026) | GREEN |

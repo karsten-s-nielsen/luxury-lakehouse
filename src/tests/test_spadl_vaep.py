@@ -6,81 +6,9 @@ import tempfile
 
 import numpy as np
 import pandas as pd
-import pytest
 from xgboost import XGBClassifier
 
-from ingestion.spadl_conversion import _clean_spadl_for_spark, _read_existing_match_ids
-
-# ---------------------------------------------------------------------------
-# Spark type coercion
-# ---------------------------------------------------------------------------
-
-
-class TestCleanSpadlForSpark:
-    """Test _clean_spadl_for_spark type coercion."""
-
-    def test_coerces_int_columns(self) -> None:
-        df = pd.DataFrame(
-            {
-                "game_id": [1.0, 2.0],
-                "period_id": [1, 2],
-                "team_id": ["10", "20"],
-                "player_id": [np.nan, 5.0],
-                "type_id": [3, 4],
-                "result_id": [0, 1],
-                "bodypart_id": [0, 1],
-            }
-        )
-        result = _clean_spadl_for_spark(df)
-        assert result["game_id"].dtype == np.int64
-        assert result["team_id"].dtype == np.int64
-        assert result["player_id"].iloc[0] == 0  # NaN → 0
-
-    def test_coerces_float_columns(self) -> None:
-        df = pd.DataFrame(
-            {
-                "time_seconds": ["60.5", "120.0"],
-                "start_x": [50, 75],
-                "start_y": [30, 40],
-                "end_x": [None, 80.0],
-                "end_y": [35.0, 45.0],
-            }
-        )
-        result = _clean_spadl_for_spark(df)
-        assert result["time_seconds"].dtype == np.float64
-        assert result["end_x"].iloc[0] == pytest.approx(0.0)  # None → 0.0
-
-    def test_coerces_metadata_columns(self) -> None:
-        df = pd.DataFrame(
-            {
-                "competition_id": [11.0, 12.0],
-                "season_id": ["2020", "2021"],
-                "data_source": ["statsbomb", "wyscout"],
-            }
-        )
-        result = _clean_spadl_for_spark(df)
-        assert result["competition_id"].dtype == np.int64
-        assert result["season_id"].dtype == np.int64
-        assert result["data_source"].dtype == object
-
-    def test_drops_dict_columns(self) -> None:
-        df = pd.DataFrame(
-            {
-                "game_id": [1],
-                "extra": [{"pass": {"end_location": [75, 30]}}],
-                "related_events": [["abc", "def"]],
-            }
-        )
-        result = _clean_spadl_for_spark(df)
-        assert "extra" not in result.columns
-        assert "related_events" not in result.columns
-        assert "game_id" in result.columns
-
-    def test_handles_empty_dataframe(self) -> None:
-        df = pd.DataFrame({"game_id": pd.Series([], dtype="int64")})
-        result = _clean_spadl_for_spark(df)
-        assert len(result) == 0
-
+from ingestion.spadl_conversion import _read_existing_match_ids
 
 # ---------------------------------------------------------------------------
 # VAEP scoring

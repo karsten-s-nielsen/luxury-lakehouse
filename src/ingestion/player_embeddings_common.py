@@ -202,7 +202,7 @@ def _load_events_sdf(
 
     Reads from ``fct_action_values`` (23-type SPADL vocabulary, 105x68m
     coordinate system) instead of raw provider events.  Source-agnostic:
-    StatsBomb and Wyscout events are already unified by socceraction.
+    StatsBomb and Wyscout events are already unified by the SPADL converter.
 
     Args:
         spark: Active Spark session.

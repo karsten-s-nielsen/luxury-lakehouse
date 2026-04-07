@@ -2,7 +2,7 @@
 
 Reads events from existing bronze Delta tables (``statsbomb_events``,
 ``wyscout_events``) and converts them into SPADL unified format via
-socceraction.  Each data source has a dedicated UDF factory (for
+silly-kicks.  Each data source has a dedicated UDF factory (for
 ``applyInPandas`` distribution) and a bronze-to-SPADL converter function.
 
 This module is consumed by :mod:`ingestion.spadl_vaep` which orchestrates
@@ -34,62 +34,6 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 _SPADL_TABLE = "spadl_actions"
-
-
-# ---------------------------------------------------------------------------
-# Spark type coercion
-# ---------------------------------------------------------------------------
-
-
-def _clean_spadl_for_spark(actions: pd.DataFrame) -> pd.DataFrame:
-    """Cast SPADL DataFrame columns to explicit types for Spark compatibility.
-
-    PySpark's schema inference can fail on pandas DataFrames with mixed types
-    (e.g. numpy int64 vs float64 with NaN).  This function forces all columns
-    to known Spark-compatible types.
-    """
-    df = actions.copy()
-
-    int_cols = [
-        "game_id",
-        "period_id",
-        "team_id",
-        "player_id",
-        "type_id",
-        "result_id",
-        "bodypart_id",
-    ]
-    for col in int_cols:
-        if col in df.columns:
-            series: pd.Series = pd.to_numeric(df[col], errors="coerce")  # type: ignore[assignment]
-            df[col] = series.fillna(0).astype("int64")
-
-    float_cols = ["time_seconds", "start_x", "start_y", "end_x", "end_y"]
-    for col in float_cols:
-        if col in df.columns:
-            fseries: pd.Series = pd.to_numeric(df[col], errors="coerce")  # type: ignore[assignment]
-            df[col] = fseries.fillna(0.0).astype("float64")
-
-    if "competition_id" in df.columns:
-        comp_s: pd.Series = pd.to_numeric(df["competition_id"], errors="coerce")  # type: ignore[assignment]
-        df["competition_id"] = comp_s.fillna(0).astype("int64")
-    if "season_id" in df.columns:
-        season_s: pd.Series = pd.to_numeric(df["season_id"], errors="coerce")  # type: ignore[assignment]
-        df["season_id"] = season_s.fillna(0).astype("int64")
-    if "data_source" in df.columns:
-        df["data_source"] = df["data_source"].astype(str)
-
-    # Normalize original_event_id to string (StatsBomb=UUID, Wyscout=int)
-    if "original_event_id" in df.columns:
-        df["original_event_id"] = df["original_event_id"].astype(str)
-
-    # Drop any columns with dict/list values that Spark can't serialize
-    for col in list(df.columns):
-        sample = df[col].dropna()
-        if not sample.empty and isinstance(sample.iloc[0], dict | list):
-            df = df.drop(columns=[col])
-
-    return df
 
 
 # ---------------------------------------------------------------------------
@@ -161,7 +105,7 @@ def _make_sb_spadl_udf() -> object:
         if pdf.empty:
             return _pd.DataFrame(columns=_spadl_cols)
 
-        import socceraction.spadl.statsbomb as _spadl_sb
+        import silly_kicks.spadl.statsbomb as _spadl_sb
 
         home_team_id = int(pdf["home_team_id"].iloc[0])
         match_id = int(pdf["match_id"].iloc[0])
@@ -170,7 +114,7 @@ def _make_sb_spadl_udf() -> object:
 
         try:
             adapted = _adapt(pdf, home_team_id)
-            actions = _spadl_sb.convert_to_actions(adapted, home_team_id)
+            actions, _report = _spadl_sb.convert_to_actions(adapted, home_team_id)
         except Exception:
             return _pd.DataFrame(columns=_spadl_cols)
 
@@ -179,15 +123,10 @@ def _make_sb_spadl_udf() -> object:
         actions["season_id"] = season_id
         actions["data_source"] = "statsbomb"
 
-        # Keep only the expected output columns (drop any extras from socceraction)
-        _str_cols = {"original_event_id", "data_source"}
+        # Ensure all output columns exist (metadata columns added above)
         for col in _spadl_cols:
             if col not in actions.columns:
-                actions[col] = "" if col in _str_cols else 0
-        # Ensure string columns are consistently typed (socceraction may return mixed types)
-        for col in _str_cols:
-            if col in actions.columns:
-                actions[col] = actions[col].astype(str)
+                actions[col] = "" if col in {"original_event_id", "data_source"} else 0
         return _pd.DataFrame(actions[_spadl_cols])
 
     return _udf
@@ -316,16 +255,22 @@ def _convert_statsbomb_from_bronze(
 # ---------------------------------------------------------------------------
 
 
-def _make_ws_spadl_udf() -> object:
+def _make_ws_spadl_udf(goalkeeper_ids: set[int] | None = None) -> object:
     """Build the ``applyInPandas`` UDF closure for Wyscout SPADL conversion.
 
     All library imports happen inside the closure so they are available
     on Spark executors without requiring module-level serialisation.
 
+    Args:
+        goalkeeper_ids: Wyscout player IDs of goalkeepers.  When provided,
+            aerial duels by these players are reclassified as ``keeper_claim``
+            by the silly-kicks converter (fixes Wyscout Bug #37).
+
     Returns:
         A callable ``(pd.DataFrame) -> pd.DataFrame`` suitable for
         ``applyInPandas``.
     """
+    _gk_ids = goalkeeper_ids  # captured in closure, serialized to executors
 
     def _udf(pdf: pd.DataFrame) -> pd.DataFrame:
         """Convert one game's Wyscout events to SPADL actions."""
@@ -358,7 +303,7 @@ def _make_ws_spadl_udf() -> object:
         if pdf.empty:
             return _pd.DataFrame(columns=_spadl_cols)
 
-        import socceraction.spadl.wyscout as _spadl_ws
+        import silly_kicks.spadl.wyscout as _spadl_ws
 
         home_team_id = int(pdf["home_team_id"].iloc[0])
         # Wyscout uses matchId or match_id depending on ingestion format
@@ -368,7 +313,7 @@ def _make_ws_spadl_udf() -> object:
 
         try:
             adapted = _adapt(pdf)
-            actions = _spadl_ws.convert_to_actions(adapted, home_team_id)
+            actions, _report = _spadl_ws.convert_to_actions(adapted, home_team_id, goalkeeper_ids=_gk_ids)
         except Exception:
             return _pd.DataFrame(columns=_spadl_cols)
 
@@ -377,15 +322,10 @@ def _make_ws_spadl_udf() -> object:
         actions["season_id"] = season_id
         actions["data_source"] = "wyscout"
 
-        # Keep only the expected output columns (drop any extras from socceraction)
-        _str_cols = {"original_event_id", "data_source"}
+        # Ensure all output columns exist (metadata columns added above)
         for col in _spadl_cols:
             if col not in actions.columns:
-                actions[col] = "" if col in _str_cols else 0
-        # Ensure string columns are consistently typed (socceraction may return mixed types)
-        for col in _str_cols:
-            if col in actions.columns:
-                actions[col] = actions[col].astype(str)
+                actions[col] = "" if col in {"original_event_id", "data_source"} else 0
         return _pd.DataFrame(actions[_spadl_cols])
 
     return _udf
@@ -447,6 +387,16 @@ def _convert_wyscout_from_bronze(
 
     logger.info("Wyscout: converting %d new games (of %d total)", len(new_game_ids), len(all_game_ids))
 
+    # Load goalkeeper player IDs for keeper_claim reclassification
+    goalkeeper_ids: set[int] = set()
+    try:
+        players_table = f"{catalog}.{schema}.wyscout_players"
+        gk_rows = spark.table(players_table).filter("role:code2 = 'GK'").select("wyId").collect()
+        goalkeeper_ids = {int(row["wyId"]) for row in gk_rows}
+        logger.info("Wyscout: loaded %d goalkeeper IDs for keeper_claim routing", len(goalkeeper_ids))
+    except Exception:
+        logger.warning("Could not load wyscout_players — keeper_claim reclassification disabled", exc_info=True)
+
     # Build lookup DataFrame with home_team_id, competition_id, season_id per game
     # Derive competition_id and season_id from matches metadata
     match_meta: dict[int, tuple[int, int]] = {}
@@ -500,7 +450,7 @@ def _convert_wyscout_from_bronze(
         ]
     )
 
-    udf_fn = _make_ws_spadl_udf()
+    udf_fn = _make_ws_spadl_udf(goalkeeper_ids=goalkeeper_ids or None)
     spadl_sdf = new_events_sdf.groupBy(match_id_col).applyInPandas(
         udf_fn,  # type: ignore[arg-type]
         schema=spadl_schema,

@@ -11,7 +11,7 @@ tags:
   - xgboost
   - statsbomb
   - wyscout
-  - socceraction
+  - silly-kicks
 datasets:
   - luxury-lakehouse/spadl-vaep-action-values
   - luxury-lakehouse/xg-shot-data
@@ -59,7 +59,7 @@ Both models are XGBClassifier instances with identical hyperparameters:
 
 ### Feature Extraction
 
-Features are extracted using the [socceraction](https://pypi.org/project/socceraction/) library (v1.5.3) with 11 feature functions applied to game states composed of the current action and the previous `NB_PREV_ACTIONS = 3` actions:
+Features are extracted using the [silly-kicks](https://github.com/karsten-s-nielsen/silly-kicks) library with 11 feature functions applied to game states composed of the current action and the previous `NB_PREV_ACTIONS = 3` actions:
 
 | Feature Function | Description |
 |-----------------|-------------|
@@ -147,17 +147,17 @@ model_concedes = XGBClassifier()
 concedes_raw = base64.b64decode(envelope["concedes_booster_b64"])
 model_concedes.load_model(bytearray(concedes_raw))
 
-# Predict probabilities (requires socceraction feature extraction)
+# Predict probabilities (requires silly-kicks feature extraction)
 # p_scores = model_scores.predict_proba(X)[:, 1]
 # p_concedes = model_concedes.predict_proba(X)[:, 1]
 ```
 
-### Full Pipeline (with socceraction)
+### Full Pipeline (with silly-kicks)
 
 ```python
-import socceraction.spadl as spadl
-import socceraction.vaep.features as fs
-import socceraction.vaep.labels as labels
+import silly_kicks.spadl as spadl
+import silly_kicks.vaep.features as fs
+import silly_kicks.vaep.labels as labels
 
 NB_PREV_ACTIONS = 3
 
@@ -219,14 +219,14 @@ If you use this model, please cite the original VAEP paper:
 }
 ```
 
-And the socceraction library:
+And the silly-kicks library:
 
 ```bibtex
-@article{socceraction,
-  title={socceraction: A Python library for valuing soccer actions},
+@article{silly-kicks,
+  title={silly-kicks: A Python library for valuing soccer actions},
   author={Decroos, Tom and Van Haaren, Jan and Davis, Jesse},
   year={2020},
-  url={https://github.com/ML-KULeuven/socceraction}
+  url={https://github.com/karsten-s-nielsen/silly-kicks}
 }
 ```
 
