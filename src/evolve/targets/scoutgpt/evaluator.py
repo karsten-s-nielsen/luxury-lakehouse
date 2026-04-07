@@ -106,7 +106,7 @@ def _apply_program(
         "math": __import__("math"),
         "__builtins__": {},
     }
-    exec(source, restricted_globals)  # noqa: S102 — see ADR-001
+    exec(source, restricted_globals)  # noqa: S102 — see ADR-001  # nosemgrep: python.lang.security.audit.exec-detected.exec-detected
 
     # Register custom layers
     if "custom_layers" in restricted_globals:
