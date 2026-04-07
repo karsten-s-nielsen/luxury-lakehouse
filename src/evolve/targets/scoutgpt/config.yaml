@@ -10,7 +10,7 @@ fitness:
   minimize: false
 
 evaluation:
-  epochs: 3
+  epochs: 5
   dataset: "luxury-lakehouse/scoutgpt-training-data"
   timeout_seconds: 6000
   seed: 42
@@ -44,3 +44,4 @@ evolution:
   parallel_evaluations: 2
   diff_based: true
   early_stopping_patience: 40
+  checkpoint_interval: 5

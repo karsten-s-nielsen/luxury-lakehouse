@@ -99,6 +99,7 @@ class EvolutionConfig(BaseModel):
     parallel_evaluations: int = 1
     diff_based: bool = True
     early_stopping_patience: int = 40
+    checkpoint_interval: int = 5
 
 
 class EvolveConfig(BaseModel):
