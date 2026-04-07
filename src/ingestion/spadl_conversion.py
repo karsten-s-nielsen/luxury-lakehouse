@@ -123,6 +123,10 @@ def _make_sb_spadl_udf() -> object:
         actions["season_id"] = season_id
         actions["data_source"] = "statsbomb"
 
+        # Cast original_event_id to str for Spark/PyArrow serialization
+        # (silly-kicks outputs object dtype; Spark needs explicit string)
+        actions["original_event_id"] = actions["original_event_id"].astype(str)
+
         return _pd.DataFrame(actions[_spadl_cols])
 
     return _udf
@@ -317,6 +321,9 @@ def _make_ws_spadl_udf(goalkeeper_ids: set[int] | None = None) -> object:
         actions["competition_id"] = competition_id
         actions["season_id"] = season_id
         actions["data_source"] = "wyscout"
+
+        # Cast original_event_id to str for Spark/PyArrow serialization
+        actions["original_event_id"] = actions["original_event_id"].astype(str)
 
         return _pd.DataFrame(actions[_spadl_cols])
 
