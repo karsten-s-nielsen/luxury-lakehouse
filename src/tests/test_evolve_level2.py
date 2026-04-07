@@ -11,12 +11,13 @@ import types
 from pathlib import Path
 
 import pytest
-import torch
 
-from analytics.scoutgpt_decoder import ScoutGPTConfig, ScoutGPTDecoder
-from evolve.code_validator import validate_program
-from evolve.targets.scoutgpt.evaluator import _apply_program
-from evolve.targets.scoutgpt.validation import SCOUTGPT_PROFILE
+torch = pytest.importorskip("torch", reason="torch not installed in CI")
+
+from analytics.scoutgpt_decoder import ScoutGPTConfig, ScoutGPTDecoder  # noqa: E402
+from evolve.code_validator import validate_program  # noqa: E402
+from evolve.targets.scoutgpt.evaluator import _apply_program  # noqa: E402
+from evolve.targets.scoutgpt.validation import SCOUTGPT_PROFILE  # noqa: E402
 
 
 class TestApplyProgram:
