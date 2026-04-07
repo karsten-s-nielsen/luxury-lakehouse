@@ -23,7 +23,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
-import socceraction.vaep.features as fs
+import silly_kicks.vaep.features as fs
 from xgboost import XGBClassifier
 
 from ingestion.spadl_conversion import (
@@ -184,9 +184,9 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
         if pdf.empty:
             return _pd.DataFrame(columns=_output_cols)
 
-        import socceraction.spadl as _spadl
-        import socceraction.vaep.features as _fs
-        import socceraction.vaep.formula as _vaepformula
+        import silly_kicks.spadl as _spadl
+        import silly_kicks.vaep.features as _fs
+        import silly_kicks.vaep.formula as _vaepformula
 
         _feature_fns: list = [
             _fs.actiontype_onehot,
@@ -274,9 +274,6 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                         "bodypart_name": "bodypart",
                     }
                 )
-                # match_id may not survive add_names(); fall back to pdf
-                if "match_id" not in game_out.columns:
-                    game_out["match_id"] = pdf["match_id"].iloc[0]
                 game_out["offensive_value"] = values["offensive_value"].values
                 game_out["defensive_value"] = values["defensive_value"].values
                 game_out["vaep_value"] = values["vaep_value"].values

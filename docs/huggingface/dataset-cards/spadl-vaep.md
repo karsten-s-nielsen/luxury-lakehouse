@@ -13,7 +13,7 @@ configs:
 
 # SPADL/VAEP Action Values
 
-Every on-ball action from **~9.5 million** professional soccer events, converted to the [SPADL](https://github.com/ML-KULeuven/socceraction) unified format and scored with offensive, defensive, and net VAEP values. Built with the [socceraction](https://pypi.org/project/socceraction/) library &mdash; enabling player ranking by total contribution beyond goals and assists.
+Every on-ball action from **~9.5 million** professional soccer events, converted to the [SPADL](https://github.com/karsten-s-nielsen/silly-kicks) unified format and scored with offensive, defensive, and net VAEP values. Built with the [silly-kicks](https://github.com/karsten-s-nielsen/silly-kicks) library &mdash; enabling player ranking by total contribution beyond goals and assists.
 
 Part of the (Right! Luxury!) Lakehouse soccer analytics platform.
 
@@ -107,14 +107,14 @@ If you use this dataset, please cite the original VAEP paper:
 }
 ```
 
-And the socceraction library:
+And the silly-kicks library:
 
 ```bibtex
-@article{socceraction,
-  title={socceraction: A Python library for valuing soccer actions},
+@article{silly-kicks,
+  title={silly-kicks: A Python library for valuing soccer actions},
   author={Decroos, Tom and Van Haaren, Jan and Davis, Jesse},
   year={2020},
-  url={https://github.com/ML-KULeuven/socceraction}
+  url={https://github.com/karsten-s-nielsen/silly-kicks}
 }
 ```
 

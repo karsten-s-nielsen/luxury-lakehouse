@@ -1,8 +1,8 @@
-"""Adapters to transform bronze event tables into socceraction-compatible DataFrames.
+"""Adapters to transform bronze event tables into SPADL-converter-compatible DataFrames.
 
 The SPADL/VAEP pipeline reads from existing bronze Delta tables instead of
 re-fetching from external APIs.  These adapters bridge the gap between the
-serialized bronze column layout and the DataFrame shape that socceraction's
+serialized bronze column layout and the DataFrame shape that silly-kicks'
 ``convert_to_actions()`` functions expect.
 
 Supported sources:
@@ -32,7 +32,7 @@ def adapt_statsbomb_events(
     events_pdf: pd.DataFrame,
     home_team_id: int,
 ) -> pd.DataFrame:
-    """Convert bronze ``statsbomb_events`` rows to socceraction input format.
+    """Convert bronze ``statsbomb_events`` rows to SPADL converter input format.
 
     Column mapping:
         ``match_id`` -> ``game_id``, ``id`` -> ``event_id``,
@@ -45,7 +45,7 @@ def adapt_statsbomb_events(
             (used by ``spadl_sb.convert_to_actions``).
 
     Returns:
-        Adapted DataFrame ready for ``socceraction.spadl.statsbomb.convert_to_actions``.
+        Adapted DataFrame ready for ``silly_kicks.spadl.statsbomb.convert_to_actions``.
     """
     adapted = events_pdf.rename(columns=_SB_RENAME)
 
@@ -60,7 +60,7 @@ def adapt_statsbomb_events(
             lambda s: json.loads(s) if isinstance(s, str) and s not in ("", "null") else s
         )
 
-    # Ensure timestamp is timedelta (socceraction expects this)
+    # Ensure timestamp is timedelta (the SPADL converter expects this)
     if "timestamp" in adapted.columns:
         ts_series: pd.Series = adapted["timestamp"]  # type: ignore[assignment]
         adapted["timestamp"] = pd.to_timedelta(ts_series, errors="coerce").fillna(pd.Timedelta(0))
@@ -109,7 +109,7 @@ _WS_PERIOD_MAP = {"1H": 1, "2H": 2, "E1": 3, "E2": 4, "P": 5}
 
 
 def adapt_wyscout_events(events_pdf: pd.DataFrame) -> pd.DataFrame:
-    """Convert bronze ``wyscout_events`` rows to socceraction input format.
+    """Convert bronze ``wyscout_events`` rows to SPADL converter input format.
 
     Column mapping:
         ``matchId`` -> ``game_id``, ``eventId`` -> ``type_id``,
@@ -125,7 +125,7 @@ def adapt_wyscout_events(events_pdf: pd.DataFrame) -> pd.DataFrame:
         events_pdf: DataFrame read from the ``wyscout_events`` bronze table.
 
     Returns:
-        Adapted DataFrame ready for ``socceraction.spadl.wyscout.convert_to_actions``.
+        Adapted DataFrame ready for ``silly_kicks.spadl.wyscout.convert_to_actions``.
     """
     adapted = events_pdf.rename(columns=_WS_RENAME)
 

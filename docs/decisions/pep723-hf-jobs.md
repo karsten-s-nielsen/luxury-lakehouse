@@ -5,7 +5,7 @@
 
 ## Context
 
-ML training and inference scripts run on HF Jobs GPU containers (a10g-large: 46 GB, a10g-small: 15 GB). Each script has its own dependency set: a shared analytics wheel from HF Hub plus script-specific ML libraries (torch, jax, flax, socceraction, etc.). The platform needs a dependency management approach that works on HF Jobs without requiring per-script Docker image builds or a monolithic shared environment.
+ML training and inference scripts run on HF Jobs GPU containers (a10g-large: 46 GB, a10g-small: 15 GB). Each script has its own dependency set: a shared analytics wheel from HF Hub plus script-specific ML libraries (torch, jax, flax, silly-kicks, etc.). The platform needs a dependency management approach that works on HF Jobs without requiring per-script Docker image builds or a monolithic shared environment.
 
 The key constraints are: HF Jobs uses `uv run` as its execution model, each script must declare its own deps without affecting others, and the luxury-lakehouse analytics wheel must be importable at runtime (it is not on PyPI — it is hosted at `luxury-lakehouse/build-artifacts` on HF Hub and uploaded by CI on main merges).
 

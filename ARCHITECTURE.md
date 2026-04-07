@@ -262,7 +262,7 @@ External Systems:
 System Boundary: Soccer Analytics Platform (Databricks on AWS)
   │
   ├── Ingestion Workflows          [Databricks Serverless Compute]
-  │   Technology: Python + statsbombpy + requests + socceraction
+  │   Technology: Python + statsbombpy + requests + silly-kicks
   │   Responsibility: Fetch raw data from providers → write to Bronze
   │
   ├── Unity Catalog                [Databricks Managed]
@@ -469,7 +469,7 @@ luxury-lakehouse/
 │   │   ├── player_embeddings_v2.py   # Transformer (128d) player embeddings with adversarial debiasing
 │   │   ├── prepare_360_training_data.py # SPADL + 360 freeze frame export to HF Hub
 │   │   ├── skillcorner.py            # SkillCorner A-League broadcast tracking (10 matches, kloppy)
-│   │   ├── spadl_adapter.py          # Bronze-to-socceraction format adapters
+│   │   ├── spadl_adapter.py          # Bronze-to-SPADL-converter format adapters
 │   │   ├── spadl_conversion.py       # SPADL conversion helpers (action type mapping)
 │   │   ├── spadl_vaep.py             # SPADL conversion + VAEP scoring pipeline
 │   │   ├── statsbomb.py              # StatsBomb API ingestion (5 bronze tables + 360 backfill)

@@ -161,8 +161,8 @@ resource "databricks_job" "data_ingestion" {
 
   # ── Task: Backfill StatsBomb _raw_extra_json ─────────────────────────────
   # Ensures the goalkeeper sub-dict (and other type-specific extras) are
-  # present in statsbomb_events._raw_extra_json. Without this, socceraction
-  # cannot distinguish keeper_claim/keeper_punch/keeper_save sub-types.
+  # present in statsbomb_events._raw_extra_json. Without this, the SPADL
+  # converter cannot distinguish keeper_claim/keeper_punch/keeper_save sub-types.
   # Idempotent: only processes matches where _raw_extra_json IS NULL or '{}'.
   task {
     task_key        = "backfill_statsbomb_extra"
@@ -891,9 +891,8 @@ resource "databricks_job" "data_ingestion" {
 
       dependencies = [
         var.wheel_path,
-        "socceraction==1.5.3",
+        "silly-kicks>=0.1.0,<1.0",
         "xgboost==3.2.0",
-        "multimethod==1.12",
         "rapidfuzz>=3.6.0",
         "unidecode>=1.3.0",
         "sparse-dot-topn>=1.1.0",

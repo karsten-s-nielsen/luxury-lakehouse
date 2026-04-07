@@ -7,8 +7,7 @@
 #     "pyarrow>=14.0",
 #     "scikit-learn>=1.3.0",
 #     "xgboost>=2.0",
-#     "socceraction==1.5.3",
-#     "multimethod==1.12",
+#     "silly-kicks>=0.1.0,<1.0",
 #     "huggingface-hub>=1.5.0",
 #     "mlflow>=2.17.0",
 # ]
@@ -16,7 +15,7 @@
 """Train VAEP models (scores + concedes) on HuggingFace Jobs (CPU).
 
 Downloads SPADL action data from HF Hub, extracts features via
-socceraction, trains two XGBClassifier models (P(scoring) and
+silly-kicks, trains two XGBClassifier models (P(scoring) and
 P(conceding)), logs to MLflow, and pushes weights to HF Hub.
 
 This is a standalone PEP 723 script that runs on HF Jobs. The project wheel
@@ -46,10 +45,10 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-import socceraction.spadl as spadl
-import socceraction.spadl.config as spadlcfg
-import socceraction.vaep.features as fs
-import socceraction.vaep.labels as labels
+import silly_kicks.spadl as spadl
+import silly_kicks.spadl.config as spadlcfg
+import silly_kicks.vaep.features as fs
+import silly_kicks.vaep.labels as labels
 from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
@@ -96,7 +95,7 @@ RANDOM_STATE = 42
 
 
 # ---------------------------------------------------------------------------
-# Column mapping: HF dataset -> socceraction SPADL format
+# Column mapping: HF dataset -> SPADL format
 # ---------------------------------------------------------------------------
 
 # Reverse-lookup dicts: string name -> integer ID
@@ -106,11 +105,11 @@ _BODYPART_TO_ID: dict[str, int] = {name: idx for idx, name in enumerate(spadlcfg
 
 
 def _convert_hf_to_spadl(df: pd.DataFrame) -> pd.DataFrame:
-    """Convert HF dataset columns to socceraction SPADL format.
+    """Convert HF dataset columns to SPADL format.
 
     The HF dataset has string-typed columns (action_type, action_result,
     bodypart) and uses different column names (match_id, period) than
-    socceraction expects (game_id, period_id, type_id, result_id,
+    SPADL expects (game_id, period_id, type_id, result_id,
     bodypart_id). This function:
 
     1. Renames columns to SPADL standard names.

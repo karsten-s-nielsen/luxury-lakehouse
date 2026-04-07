@@ -47,9 +47,9 @@ _HTTP_MAX_WORKERS = 4
 
 
 _TYPE_KEY_OVERRIDES: dict[str, str] = {
-    # StatsBomb JSON uses "goalkeeper" for Goal Keeper events, not "goal_keeper".
-    # Without this override, the goalkeeper sub-dict (containing claim/punch/save
-    # type info) is silently dropped, and keeper_claim actions are never generated.
+    # StatsBomb JSON nests Goal Keeper payloads under "goalkeeper", but our
+    # snake_case normalisation produces "goal_keeper".  This mapping ensures
+    # the extra dict uses the key the SPADL converter actually reads.
     "goal_keeper": "goalkeeper",
 }
 
@@ -57,7 +57,7 @@ _TYPE_KEY_OVERRIDES: dict[str, str] = {
 def _build_raw_extra_json(match_id: int, logger: logging.Logger) -> dict[str, str]:
     """Fetch raw StatsBomb JSON and extract type-specific 'extra' dicts.
 
-    socceraction's SPADL converter needs an ``extra`` dict containing
+    The SPADL converter needs an ``extra`` dict containing
     type-specific event payloads (e.g. pass.end_location, shot.outcome).
     statsbombpy's default ``fmt="dataframe"`` flattens these, destroying the
     nested structure.  ``fmt="json"`` preserves it.

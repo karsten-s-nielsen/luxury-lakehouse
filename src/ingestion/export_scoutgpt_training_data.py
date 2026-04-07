@@ -50,7 +50,7 @@ _HF_DATASET_REPO = "luxury-lakehouse/scoutgpt-training-data"
 _UC_VOLUME_PATH = "/Volumes/{catalog}/dev_gold/training_data/scoutgpt"
 
 # SPADL 23-type action vocabulary mapping (string -> int).
-# Canonical ordering matches socceraction and defcon_lite._ACTION_TYPE_IDS.
+# Canonical ordering matches silly_kicks SPADL and defcon_lite._ACTION_TYPE_IDS.
 _ACTION_TYPE_IDS: dict[str, int] = {
     "pass": 0,
     "cross": 1,

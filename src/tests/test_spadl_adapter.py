@@ -1,4 +1,4 @@
-"""Tests for ingestion.spadl_adapter — bronze-to-socceraction format mapping."""
+"""Tests for ingestion.spadl_adapter — bronze-to-SPADL-converter format mapping."""
 
 from __future__ import annotations
 
