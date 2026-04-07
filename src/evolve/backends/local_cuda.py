@@ -32,6 +32,7 @@ class LocalCudaBackend:
         target: str,
         epochs: int,
         seed: int,
+        program_path: str | None = None,
     ) -> dict[str, float]:
         """Load the target evaluator and run ``train_and_evaluate``.
 
@@ -41,6 +42,8 @@ class LocalCudaBackend:
                 resolved as ``evolve.targets.<target>.evaluator``.
             epochs: Number of training epochs to run.
             seed: Random seed for reproducibility.
+            program_path: Path to the candidate ``.py`` file for Level 2
+                code evolution.  ``None`` for config-only candidates.
 
         Returns:
             Scalar evaluation metrics returned by ``train_and_evaluate``.
@@ -56,6 +59,7 @@ class LocalCudaBackend:
             device=self._device,
             epochs=epochs,
             seed=seed,
+            program_path=program_path,
         )
         _log.info(
             "LocalCudaBackend.train complete",

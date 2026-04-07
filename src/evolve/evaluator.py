@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import ast
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, model_validator
 
-from evolve.backends.base import ComputeBackend
+from evolve.backends.base import ComputeBackend, fail_metrics
+from evolve.code_validator import ValidationProfile, validate_program
 from evolve.config import EvalConfig, FitnessConfig
 
 _log = logging.getLogger(__name__)
@@ -111,7 +113,61 @@ def validate_search_space(config: dict[str, Any]) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Config loader
+# Program dataclass (Level 2+)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Program:
+    """Parsed evolve program — config dict + optional custom functions."""
+
+    config: dict[str, Any]
+    has_custom_embed: bool
+    has_custom_layers: bool
+    source_path: str
+
+
+def _extract_config(tree: ast.Module, source: str, filename: str) -> dict[str, Any]:
+    """Extract the config dict from a parsed AST via ast.literal_eval."""
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name) and target.id == "config":
+                value_source = ast.get_source_segment(source, node.value)
+                if value_source is None:
+                    msg = f"Cannot extract config value from {filename}"
+                    raise ValueError(msg)
+                raw = ast.literal_eval(value_source)
+                if not isinstance(raw, dict):
+                    msg = f"config must be a dict, got {type(raw).__name__} in {filename}"
+                    raise ValueError(msg)
+                return raw  # type: ignore[return-value]
+    msg = f"No 'config = {{...}}' assignment found in {filename}"
+    raise ValueError(msg)
+
+
+def _load_program(program_path: str) -> Program:
+    """Load an evolve program file, extracting config and detecting custom functions."""
+    source = Path(program_path).read_text()
+    tree = ast.parse(source, filename=program_path)
+
+    # Extract config via AST (same as Level 1)
+    config = _extract_config(tree, source, program_path)
+
+    # Detect custom functions via AST walk (no execution)
+    func_names = {node.name for node in ast.iter_child_nodes(tree) if isinstance(node, ast.FunctionDef)}
+
+    return Program(
+        config=config,
+        has_custom_embed="custom_embed" in func_names,
+        has_custom_layers="custom_layers" in func_names,
+        source_path=program_path,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Config loader (Level 1 — kept for _EVALUATOR_SCRIPT compatibility)
 # ---------------------------------------------------------------------------
 
 
@@ -174,11 +230,15 @@ class EvolveEvaluator:
         target: str,
         eval_config: EvalConfig,
         fitness_config: FitnessConfig,
+        code_evolution: bool = False,
+        validation_profile: ValidationProfile | None = None,
     ) -> None:
         self._backend = backend
         self._target = target
         self._eval_config = eval_config
         self._fitness_config = fitness_config
+        self._code_evolution = code_evolution
+        self._validation_profile = validation_profile
 
     # ------------------------------------------------------------------
     # Public API
@@ -192,31 +252,54 @@ class EvolveEvaluator:
         continue without crashing.
 
         Args:
-            program_path: Path to the ``.py`` file containing a ``config`` dict.
+            program_path: Path to the ``.py`` file containing a ``config`` dict
+                and optional ``custom_embed`` / ``custom_layers`` functions.
 
         Returns:
             Mapping with at least ``"combined_score"`` and all raw metrics
             from the training backend.
         """
         try:
-            config = _load_config_from_program(program_path)
-        except (ValueError, SyntaxError):
-            _log.warning("Failed to load config from '%s'", program_path, exc_info=True)
-            return self._zero_result()
+            program = _load_program(program_path)
+        except Exception:
+            _log.exception("Failed to load program %s", program_path)
+            return {**fail_metrics(), **self._fail_score()}
 
+        config = program.config
         if not validate_search_space(config):
-            return self._zero_result()
+            return {**fail_metrics(), **self._fail_score()}
+
+        # Level 2 validation gate
+        send_program_path: str | None = None
+        if program.has_custom_embed or program.has_custom_layers:
+            if self._validation_profile is None:
+                _log.error("Level 2 program but no ValidationProfile configured")
+                return {**fail_metrics(), **self._fail_score()}
+            source = Path(program_path).read_text()
+            valid, reason = validate_program(
+                source,
+                self._validation_profile,
+                code_evolution=self._code_evolution,
+            )
+            if not valid:
+                _log.warning("Program %s rejected: %s", program_path, reason)
+                return {**fail_metrics(), **self._fail_score()}
+            send_program_path = program_path
+
+        train_kwargs: dict[str, Any] = {
+            "candidate_config": config,
+            "target": self._target,
+            "epochs": self._eval_config.epochs,
+            "seed": self._eval_config.seed,
+        }
+        if send_program_path is not None:
+            train_kwargs["program_path"] = send_program_path
 
         try:
-            metrics = self._backend.train(
-                candidate_config=config,
-                target=self._target,
-                epochs=self._eval_config.epochs,
-                seed=self._eval_config.seed,
-            )
+            metrics = self._backend.train(**train_kwargs)
         except Exception:
-            _log.warning("Backend training failed for '%s'", program_path, exc_info=True)
-            return self._zero_result()
+            _log.exception("Backend training failed for %s", program_path)
+            return {**fail_metrics(), **self._fail_score()}
 
         combined = self._compute_combined_score(metrics)
         return {**metrics, "combined_score": combined}
@@ -235,8 +318,17 @@ class EvolveEvaluator:
             score += w * metrics.get(key, 0.0)
         return score
 
+    def _fail_score(self) -> dict[str, float]:
+        """Return a zero-score dict for all configured fitness weight keys."""
+        return {key: 0.0 for key in self._fitness_config.combined_weights}
+
     def _zero_result(self) -> dict[str, float]:
-        """Return a safe zero-score result dict."""
+        """Return a safe zero-score result dict.
+
+        .. deprecated:: Level 2
+            Kept for backward compatibility.  New code uses
+            ``{**fail_metrics(), **self._fail_score()}``.
+        """
         result: dict[str, float] = {"combined_score": 0.0}
         for key in self._fitness_config.combined_weights:
             result[key] = 0.0

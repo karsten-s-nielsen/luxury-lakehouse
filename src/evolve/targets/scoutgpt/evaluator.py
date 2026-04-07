@@ -6,7 +6,9 @@ import logging
 import os
 import threading
 import time
+import types
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 _log = logging.getLogger(__name__)
@@ -82,11 +84,52 @@ def _load_or_cache(dataset_repo: str, hf_token: str) -> _CachedData:
         return cached
 
 
+def _apply_program(
+    model: Any,
+    program_path: str | None,
+) -> None:
+    """Apply a Level 2 program to a model: register custom layers, monkey-patch _embed.
+
+    If *program_path* is ``None`` or the program has no custom functions,
+    this is a no-op.  Code is ``exec``'d with restricted globals
+    (``__builtins__={}```) as a runtime safeguard.  AST validation must have
+    already passed before calling this function.
+    """
+    import torch
+
+    if program_path is None:
+        return
+
+    source = Path(program_path).read_text()
+    restricted_globals: dict[str, Any] = {
+        "torch": torch,
+        "math": __import__("math"),
+        "__builtins__": {},
+    }
+    exec(source, restricted_globals)  # noqa: S102 — see ADR-001  # nosemgrep: python.lang.security.audit.exec-detected.exec-detected
+
+    # Register custom layers
+    if "custom_layers" in restricted_globals:
+        layers_fn = restricted_globals["custom_layers"]
+        hidden_dim = model.config.hidden_dim
+        layers = layers_fn(hidden_dim)
+        if not isinstance(layers, dict):
+            msg = f"custom_layers must return dict, got {type(layers).__name__}"
+            raise TypeError(msg)
+        for name, module in layers.items():
+            model.register_module(name, module)
+
+    # Monkey-patch custom embed
+    if "custom_embed" in restricted_globals:
+        model._embed = types.MethodType(restricted_globals["custom_embed"], model)  # type: ignore[assignment]
+
+
 def train_and_evaluate(
     candidate_config: dict[str, Any],
     device: str,
     epochs: int,
     seed: int,
+    program_path: str | None = None,
 ) -> dict[str, float]:
     """Build model from candidate config, train, return evaluation metrics.
 
@@ -100,6 +143,9 @@ def train_and_evaluate(
         epochs: Maximum training epochs (early stopping may terminate sooner).
         seed: Random seed — reserved for future deterministic evaluation; not yet
             threaded through all PyTorch samplers.
+        program_path: Optional path to a Level 2 program file.  When provided,
+            ``_apply_program`` execs the file and monkey-patches the model's
+            ``_embed`` method and/or registers custom layers before training.
 
     Returns:
         Dict of scalar fitness metrics (all float-castable):
@@ -108,7 +154,7 @@ def train_and_evaluate(
     """
     import torch
 
-    from analytics.scoutgpt_decoder import ScoutGPTConfig
+    from analytics.scoutgpt_decoder import ScoutGPTConfig, ScoutGPTDecoder
     from analytics.scoutgpt_training import (
         ScoutGPTDataset,
         evaluate_counterfactual_ranking,
@@ -117,6 +163,7 @@ def train_and_evaluate(
 
     torch_device = torch.device(device)
     start_time = time.monotonic()
+    _log.info("program_path=%s", program_path)
 
     # --- Extract training hyperparams (not part of ScoutGPTConfig) ---
     lr: float = candidate_config.get("learning_rate", 1e-4)
@@ -153,6 +200,10 @@ def train_and_evaluate(
     val_ds = _make_dataset(_slice(cached.val_indices))
     test_ds = _make_dataset(_slice(cached.test_indices))
 
+    # --- Build model and apply Level 2 program (if any) ---
+    model = ScoutGPTDecoder(config).to(torch_device)
+    _apply_program(model, program_path)
+
     # --- Train ---
     model, history = train_loop(
         train_ds=train_ds,
@@ -163,6 +214,7 @@ def train_and_evaluate(
         batch_size=batch_size,
         lr=lr,
         patience=max(3, epochs // 2),
+        model=model,
     )
 
     # --- Evaluate ---
@@ -207,4 +259,4 @@ def train_and_evaluate(
     return metrics
 
 
-__all__ = ["train_and_evaluate"]
+__all__ = ["_apply_program", "train_and_evaluate"]

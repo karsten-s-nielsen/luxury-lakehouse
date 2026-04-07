@@ -600,13 +600,20 @@ def train_loop(
     batch_size: int,
     lr: float,
     patience: int,
+    model: ScoutGPTDecoder | None = None,
 ) -> tuple[ScoutGPTDecoder, dict[str, list[float]]]:
     """Train ScoutGPT with autoregressive action loss + VAEP auxiliary loss.
+
+    Args:
+        model: Optional pre-built model.  When provided the model is used
+            as-is (already on *device*); when ``None`` a fresh
+            ``ScoutGPTDecoder(config)`` is created and moved to *device*.
 
     Returns:
         Tuple of (best model, training history dict).
     """
-    model = ScoutGPTDecoder(config).to(device)
+    resolved_model: ScoutGPTDecoder = model if model is not None else ScoutGPTDecoder(config).to(device)
+    model = resolved_model
     logger.info("Model parameters: %d", sum(p.numel() for p in model.parameters()))
 
     # Windows spawn-based multiprocessing crashes DataLoader workers unless

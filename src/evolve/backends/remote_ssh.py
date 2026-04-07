@@ -193,6 +193,7 @@ class RemoteSSHBackend:
         target: str,
         epochs: int,
         seed: int,
+        program_path: str | None = None,
     ) -> dict[str, float]:
         """Transfer the candidate config and run training on the remote host.
 
@@ -206,7 +207,7 @@ class RemoteSSHBackend:
         )
 
         try:
-            return self._train_impl(candidate_config, target, epochs, seed)
+            return self._train_impl(candidate_config, target, epochs, seed, program_path=program_path)
         except subprocess.TimeoutExpired:
             _log.error(
                 "Remote training timed out",
@@ -239,6 +240,7 @@ class RemoteSSHBackend:
         target: str,
         epochs: int,
         seed: int,
+        program_path: str | None = None,
     ) -> dict[str, float]:
         """Core training logic — separated so ``train`` can catch all errors."""
         # 0. Pre-warm HF cache on first call to avoid cold-start timeout.
@@ -261,14 +263,22 @@ class RemoteSSHBackend:
             # Clean up the local temp file regardless of transfer outcome.
             os.unlink(local_candidate_path)
 
+        # Transfer program file for Level 2
+        remote_program: str | None = None
+        if program_path is not None:
+            remote_program = "program.py"
+            self._scp_to_remote(program_path, remote_program)
+
         # 4. Run the remote worker, streaming stderr for live progress.
         #    stdout is captured in full (contains the JSON metrics line).
         #    stderr is streamed line-by-line to the local logger.
+        program_arg = f" --program {remote_program}" if remote_program else ""
         remote_cmd = (
             f"cd {self._remote_dir} && "
             f"PYTHONUNBUFFERED=1 stdbuf -oL -eL "
             f"{self._python_path} -m evolve.remote_worker "
             f"{remote_filename} {self._device} {epochs} {seed} {target}"
+            f"{program_arg}"
         )
         cmd = ["ssh", self._ssh_target, remote_cmd]
         effective_timeout = self._timeout

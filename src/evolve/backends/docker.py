@@ -31,6 +31,7 @@ class DockerBackend:
         target: str,
         epochs: int,
         seed: int,
+        program_path: str | None = None,
     ) -> dict[str, float]:
         """Return failure metrics — backend not yet implemented."""
         _log.warning("DockerBackend.train called but backend is not yet implemented")

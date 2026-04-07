@@ -12,9 +12,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from evolve.code_validator import ValidationProfile
 from evolve.config import EvalConfig, FitnessConfig
-from evolve.evaluator import EvolveEvaluator, validate_search_space
-from evolve.runner import _eval_fingerprint, _evaluate_seeds, _load_cached_seeds, _write_evaluator_script
+from evolve.evaluator import EvolveEvaluator, Program, _load_program, validate_search_space
+from evolve.runner import _build_parser, _eval_fingerprint, _evaluate_seeds, _load_cached_seeds, _write_evaluator_script
 
 VALID_CONFIG: dict[str, Any] = {
     "hidden_dim": 256,
@@ -281,3 +282,214 @@ class TestSeedResume:
 
         assert best_path.stem == "additive"
         mock_backend.train.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Program dataclass / _load_program tests
+# ---------------------------------------------------------------------------
+
+
+class TestLoadProgram:
+    def test_config_only(self, tmp_path: Path) -> None:
+        """Level 1 program returns Program with no custom functions."""
+        prog = tmp_path / "config_only.py"
+        prog.write_text('config = {"hidden_dim": 256, "num_layers": 6}\n')
+        result = _load_program(str(prog))
+        assert isinstance(result, Program)
+        assert result.config == {"hidden_dim": 256, "num_layers": 6}
+        assert result.has_custom_embed is False
+        assert result.has_custom_layers is False
+        assert result.source_path == str(prog)
+
+    def test_with_custom_embed(self, tmp_path: Path) -> None:
+        prog = tmp_path / "with_embed.py"
+        prog.write_text(
+            textwrap.dedent("""\
+            config = {"hidden_dim": 256}
+
+            def custom_embed(self, x, y):
+                return x + y
+        """)
+        )
+        result = _load_program(str(prog))
+        assert result.has_custom_embed is True
+        assert result.has_custom_layers is False
+
+    def test_with_custom_layers_and_embed(self, tmp_path: Path) -> None:
+        prog = tmp_path / "with_both.py"
+        prog.write_text(
+            textwrap.dedent("""\
+            config = {"hidden_dim": 256}
+
+            def custom_layers(hidden_dim):
+                return {"gate": None}
+
+            def custom_embed(self, x, y):
+                return x + y
+        """)
+        )
+        result = _load_program(str(prog))
+        assert result.has_custom_embed is True
+        assert result.has_custom_layers is True
+
+    def test_no_config_raises(self, tmp_path: Path) -> None:
+        prog = tmp_path / "no_config.py"
+        prog.write_text("x = 42\n")
+        with pytest.raises(ValueError, match="config"):
+            _load_program(str(prog))
+
+
+# ---------------------------------------------------------------------------
+# Evaluator validation gate tests (Level 2)
+# ---------------------------------------------------------------------------
+
+
+class TestEvaluatorValidationGate:
+    """Tests that the evaluator rejects invalid Level 2 programs before dispatch."""
+
+    _PROFILE = ValidationProfile(
+        patch_method="_embed",
+        patch_signature=["self", "x", "y"],
+        return_shape="(batch, hidden_dim)",
+        known_model_attrs=frozenset({"linear"}),
+        allowed_namespaces=frozenset({"torch", "math"}),
+        layers_args=["hidden_dim"],
+        rejected_builtins=frozenset({"eval", "exec", "open"}),
+    )
+
+    def test_invalid_program_returns_zero_score(self, tmp_path: Path) -> None:
+        """Program with import should be rejected before backend is called."""
+        prog = tmp_path / "bad.py"
+        prog.write_text(
+            textwrap.dedent("""\
+            config = {"hidden_dim": 256, "num_layers": 6, "num_heads": 8,
+                      "conditioning_type": "additive", "dropout": 0.1}
+
+            def custom_embed(self, x, y):
+                import os
+                return x + y
+        """)
+        )
+        backend = MagicMock()
+        backend.train = MagicMock(return_value={"combined_score": 1.0})
+        evaluator = EvolveEvaluator(
+            backend=backend,
+            target="scoutgpt",
+            eval_config=EvalConfig(),
+            fitness_config=FitnessConfig(
+                primary="combined_score",
+                combined_weights={"combined_score": 1.0},
+            ),
+            code_evolution=True,
+            validation_profile=self._PROFILE,
+        )
+        metrics = evaluator.evaluate(str(prog))
+        assert metrics["combined_score"] == 0.0
+        backend.train.assert_not_called()
+
+    def test_valid_config_only_dispatches(self, tmp_path: Path) -> None:
+        """Config-only program should pass and reach the backend."""
+        prog = tmp_path / "good.py"
+        prog.write_text(
+            'config = {"hidden_dim": 256, "num_layers": 6, "num_heads": 8,'
+            ' "conditioning_type": "additive", "dropout": 0.1}\n'
+        )
+        backend = MagicMock()
+        backend.train = MagicMock(
+            return_value={
+                "spearman_rho": 0.5,
+                "top1_accuracy": 0.8,
+            }
+        )
+        evaluator = EvolveEvaluator(
+            backend=backend,
+            target="scoutgpt",
+            eval_config=EvalConfig(),
+            fitness_config=FitnessConfig(
+                primary="spearman_rho",
+                combined_weights={"spearman_rho": 0.7, "top1_accuracy": 0.3},
+            ),
+            code_evolution=False,
+            validation_profile=self._PROFILE,
+        )
+        metrics = evaluator.evaluate(str(prog))
+        assert metrics["spearman_rho"] == 0.5
+        backend.train.assert_called_once()
+
+    def test_code_evolution_disabled_rejects(self, tmp_path: Path) -> None:
+        prog = tmp_path / "has_code.py"
+        prog.write_text(
+            textwrap.dedent("""\
+            config = {"hidden_dim": 256, "num_layers": 6, "num_heads": 8,
+                      "conditioning_type": "additive", "dropout": 0.1}
+
+            def custom_embed(self, x, y):
+                return x + y
+        """)
+        )
+        backend = MagicMock()
+        evaluator = EvolveEvaluator(
+            backend=backend,
+            target="scoutgpt",
+            eval_config=EvalConfig(),
+            fitness_config=FitnessConfig(
+                primary="combined_score",
+                combined_weights={"combined_score": 1.0},
+            ),
+            code_evolution=False,
+            validation_profile=self._PROFILE,
+        )
+        metrics = evaluator.evaluate(str(prog))
+        assert metrics["combined_score"] == 0.0
+        backend.train.assert_not_called()
+
+    def test_level2_passes_program_path(self, tmp_path: Path) -> None:
+        prog = tmp_path / "l2.py"
+        prog.write_text(
+            textwrap.dedent("""\
+            config = {"hidden_dim": 256, "num_layers": 6, "num_heads": 8,
+                      "conditioning_type": "additive", "dropout": 0.1}
+
+            def custom_embed(self, x, y):
+                return self.linear(x) + y
+        """)
+        )
+        backend = MagicMock()
+        backend.train = MagicMock(
+            return_value={
+                "spearman_rho": 0.5,
+                "top1_accuracy": 0.8,
+            }
+        )
+        evaluator = EvolveEvaluator(
+            backend=backend,
+            target="scoutgpt",
+            eval_config=EvalConfig(),
+            fitness_config=FitnessConfig(
+                primary="spearman_rho",
+                combined_weights={"spearman_rho": 0.7, "top1_accuracy": 0.3},
+            ),
+            code_evolution=True,
+            validation_profile=self._PROFILE,
+        )
+        evaluator.evaluate(str(prog))
+        # Backend should have received program_path
+        call_kwargs = backend.train.call_args.kwargs
+        assert call_kwargs.get("program_path") == str(prog)
+
+
+# ---------------------------------------------------------------------------
+# Runner --code-evolution flag tests
+# ---------------------------------------------------------------------------
+
+
+class TestRunnerCodeEvolutionFlag:
+    def test_default_is_false(self) -> None:
+        parser = _build_parser()
+        args = parser.parse_args(["--target", "scoutgpt"])
+        assert args.code_evolution is False
+
+    def test_flag_enables(self) -> None:
+        parser = _build_parser()
+        args = parser.parse_args(["--target", "scoutgpt", "--code-evolution"])
+        assert args.code_evolution is True

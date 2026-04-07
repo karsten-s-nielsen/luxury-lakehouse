@@ -21,10 +21,18 @@ import logging
 import math
 import os
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pandas as pd
-from gensim.models.doc2vec import Doc2Vec, TaggedDocument
+
+if TYPE_CHECKING:
+    from gensim.models.doc2vec import Doc2Vec, TaggedDocument
+else:
+    try:
+        from gensim.models.doc2vec import Doc2Vec, TaggedDocument
+    except ImportError:
+        Doc2Vec = None  # type: ignore[assignment,misc]
+        TaggedDocument = None  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
 

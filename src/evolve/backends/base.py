@@ -29,6 +29,7 @@ class ComputeBackend(Protocol):
         target: str,
         epochs: int,
         seed: int,
+        program_path: str | None = None,
     ) -> dict[str, float]:
         """Train a candidate architecture and return scalar evaluation metrics.
 
@@ -37,6 +38,10 @@ class ComputeBackend(Protocol):
             target: Short name of the target domain (``evolve.targets.<target>.evaluator``).
             epochs: Number of training epochs to run.
             seed: Random seed for reproducibility.
+            program_path: Path to the candidate ``.py`` file.  Provided when
+                the program contains Level 2 custom code (``custom_embed`` /
+                ``custom_layers``) so the backend can hot-patch the model.
+                ``None`` for config-only (Level 1) candidates.
 
         Returns:
             Mapping of metric name → float value (e.g. ``{"top1_acc": 0.815}``).

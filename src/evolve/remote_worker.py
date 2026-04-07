@@ -50,6 +50,13 @@ def main() -> None:
     seed = int(sys.argv[4]) if len(sys.argv) > 4 else 42
     target = sys.argv[5] if len(sys.argv) > 5 else "scoutgpt"
 
+    # Optional: Level 2 program file
+    program_path: str | None = None
+    for i, arg in enumerate(sys.argv[1:], 1):
+        if arg == "--program" and i + 1 < len(sys.argv):
+            program_path = sys.argv[i + 1]
+            break
+
     # Redirect logging to stderr so stdout stays clean for JSON output.
     logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="%(name)s %(message)s")
 
@@ -63,6 +70,7 @@ def main() -> None:
         device=device,
         epochs=epochs,
         seed=seed,
+        program_path=program_path,
     )
 
     # Single JSON line to stdout — the SSH caller parses this.

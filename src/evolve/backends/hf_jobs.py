@@ -70,6 +70,16 @@ def main() -> None:
     seed = int(os.environ.get("EVOLVE_SEED", "42"))
     target = os.environ.get("EVOLVE_TARGET", "scoutgpt")
 
+    # Decode Level 2 program file if provided.
+    program_b64 = os.environ.get("EVOLVE_PROGRAM")
+    program_path = None
+    if program_b64:
+        from pathlib import Path as _Path
+
+        program_source = base64.b64decode(program_b64).decode()
+        program_path = "/tmp/evolve_program.py"
+        _Path(program_path).write_text(program_source)
+
     _log.info("Running %s evaluator (device=%s, epochs=%d, seed=%d)", target, device, epochs, seed)
 
     target_module = importlib.import_module(f"evolve.targets.{target}.evaluator")
@@ -78,6 +88,7 @@ def main() -> None:
         device=device,
         epochs=epochs,
         seed=seed,
+        program_path=program_path,
     )
 
     # Single JSON line to stdout — the backend parses this from job logs.
@@ -124,6 +135,7 @@ class HFJobsBackend:
         target: str,
         epochs: int,
         seed: int,
+        program_path: str | None = None,
     ) -> dict[str, float]:
         """Submit a training job to HF Jobs and wait for results.
 
@@ -135,7 +147,7 @@ class HFJobsBackend:
             extra={"target": target, "epochs": epochs, "seed": seed, "flavor": self._hf_flavor},
         )
         try:
-            return self._train_impl(candidate_config, target, epochs, seed)
+            return self._train_impl(candidate_config, target, epochs, seed, program_path=program_path)
         except Exception:
             _log.exception("HFJobsBackend.train failed")
             return fail_metrics()
@@ -146,6 +158,7 @@ class HFJobsBackend:
         target: str,
         epochs: int,
         seed: int,
+        program_path: str | None = None,
     ) -> dict[str, float]:
         """Core training logic — submit job, poll, parse metrics."""
         from huggingface_hub import HfApi
@@ -160,16 +173,24 @@ class HFJobsBackend:
         script_file = tmp_dir / "worker.py"
         script_file.write_text(_WORKER_SCRIPT, encoding="utf-8")
 
+        # Build env dict for the job.
+        env: dict[str, str] = {
+            "EVOLVE_CANDIDATE_CONFIG": config_b64,
+            "EVOLVE_DEVICE": "cuda:0",
+            "EVOLVE_EPOCHS": str(epochs),
+            "EVOLVE_SEED": str(seed),
+            "EVOLVE_TARGET": target,
+        }
+
+        # Encode program source for Level 2 code evolution.
+        if program_path is not None:
+            program_source = Path(program_path).read_text()
+            env["EVOLVE_PROGRAM"] = base64.b64encode(program_source.encode()).decode()
+
         # Submit the job.
         job_info = api.run_uv_job(
             script=str(script_file),
-            env={
-                "EVOLVE_CANDIDATE_CONFIG": config_b64,
-                "EVOLVE_DEVICE": "cuda:0",
-                "EVOLVE_EPOCHS": str(epochs),
-                "EVOLVE_SEED": str(seed),
-                "EVOLVE_TARGET": target,
-            },
+            env=env,
             secrets={"HF_TOKEN": self._get_hf_token()},
             flavor=self._hf_flavor,
             timeout=f"{self._timeout}s",
