@@ -612,8 +612,8 @@ def train_loop(
     Returns:
         Tuple of (best model, training history dict).
     """
-    if model is None:
-        model = ScoutGPTDecoder(config).to(device)
+    resolved_model: ScoutGPTDecoder = model if model is not None else ScoutGPTDecoder(config).to(device)
+    model = resolved_model
     logger.info("Model parameters: %d", sum(p.numel() for p in model.parameters()))
 
     # Windows spawn-based multiprocessing crashes DataLoader workers unless
