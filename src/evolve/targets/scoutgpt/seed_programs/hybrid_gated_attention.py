@@ -37,8 +37,7 @@ def custom_layers(hidden_dim):
     }
 
 
-def custom_embed(self, action_ids, start_x, start_y, end_x, end_y,
-                 result, time_delta, player_ids):
+def custom_embed(self, action_ids, start_x, start_y, end_x, end_y, result, time_delta, player_ids):
     """Gated cross-attention: attention output is modulated by a learned gate."""
     player_emb = self.player_embedding(player_ids)
     action_emb = (
@@ -53,7 +52,9 @@ def custom_embed(self, action_ids, start_x, start_y, end_x, end_y,
 
     # Cross-attention: action queries attend to player keys/values
     attn_out, _ = self.player_cross_attn(
-        query=action_emb, key=player_emb, value=player_emb,
+        query=action_emb,
+        key=player_emb,
+        value=player_emb,
     )
     attn_out = self.player_cross_norm(action_emb + attn_out)
 

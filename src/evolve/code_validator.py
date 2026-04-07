@@ -150,11 +150,7 @@ _GENERIC_CONTAINER_NODES: frozenset[type] = frozenset(
 
 def _extract_functions(tree: ast.Module) -> dict[str, ast.FunctionDef]:
     """Extract top-level FunctionDef nodes by name."""
-    return {
-        node.name: node
-        for node in ast.iter_child_nodes(tree)
-        if isinstance(node, ast.FunctionDef)
-    }
+    return {node.name: node for node in ast.iter_child_nodes(tree) if isinstance(node, ast.FunctionDef)}
 
 
 def _extract_layers_keys(func: ast.FunctionDef) -> set[str]:
@@ -336,9 +332,7 @@ class _AllowlistVisitor:
 
         # Dunder attributes — always rejected
         if attr_name.startswith("__"):
-            self.errors.append(
-                f"Dunder attribute '__{attr_name[2:]}' is not allowed"
-            )
+            self.errors.append(f"Dunder attribute '__{attr_name[2:]}' is not allowed")
             return
 
         root = _get_attribute_root(node)
@@ -353,9 +347,7 @@ class _AllowlistVisitor:
         if root_name == "self":
             first_attr = _get_first_attr_after_root(node)
             if first_attr and first_attr not in self.allowed_self_attrs:
-                self.errors.append(
-                    f"Unknown self attribute '{first_attr}' — not in known_model_attrs or custom_layers"
-                )
+                self.errors.append(f"Unknown self attribute '{first_attr}' — not in known_model_attrs or custom_layers")
             return
 
         # Allowed namespaces (torch, math, etc.) — always OK (chained too)
@@ -367,9 +359,7 @@ class _AllowlistVisitor:
             return
 
         # Unknown namespace — reject
-        self.errors.append(
-            f"Attribute access on unknown namespace '{root_name}' is not allowed"
-        )
+        self.errors.append(f"Attribute access on unknown namespace '{root_name}' is not allowed")
 
     def _check_call(self, node: ast.Call) -> None:
         """Validate function/method calls."""
@@ -379,9 +369,7 @@ class _AllowlistVisitor:
         if isinstance(func, ast.Attribute):
             # Check dunder method calls
             if func.attr.startswith("__"):
-                self.errors.append(
-                    f"Dunder method '__{func.attr[2:]}' call is not allowed"
-                )
+                self.errors.append(f"Dunder method '__{func.attr[2:]}' call is not allowed")
                 # Still visit arguments
                 for arg in node.args:
                     self.visit(arg)
@@ -420,9 +408,35 @@ class _AllowlistVisitor:
                     self.visit(kw)
                 return
             # int/float/bool/str/list/tuple/dict/set are allowed
-            if name in {"int", "float", "bool", "str", "list", "tuple", "dict", "set", "max", "min", "sum", "abs",
-                        "round", "sorted", "reversed", "enumerate", "zip", "map", "filter", "any", "all", "isinstance",
-                        "hasattr", "id", "hash", "repr", "slice"}:
+            if name in {
+                "int",
+                "float",
+                "bool",
+                "str",
+                "list",
+                "tuple",
+                "dict",
+                "set",
+                "max",
+                "min",
+                "sum",
+                "abs",
+                "round",
+                "sorted",
+                "reversed",
+                "enumerate",
+                "zip",
+                "map",
+                "filter",
+                "any",
+                "all",
+                "isinstance",
+                "hasattr",
+                "id",
+                "hash",
+                "repr",
+                "slice",
+            }:
                 for arg in node.args:
                     self.visit(arg)
                 for kw in node.keywords:
@@ -443,9 +457,7 @@ class _AllowlistVisitor:
                     self.visit(kw)
                 return
             # Unknown bare function call — reject
-            self.errors.append(
-                f"Unknown function call '{name}' is not allowed"
-            )
+            self.errors.append(f"Unknown function call '{name}' is not allowed")
             return
 
         # Anything else (e.g., lambda calls) — visit children
@@ -468,11 +480,7 @@ def _validate_signature(
     """
     actual = [arg.arg for arg in func.args.args]
     if actual != expected_params:
-        return (
-            f"{func_label} signature mismatch: "
-            f"expected ({', '.join(expected_params)}), "
-            f"got ({', '.join(actual)})"
-        )
+        return f"{func_label} signature mismatch: expected ({', '.join(expected_params)}), got ({', '.join(actual)})"
     return None
 
 
@@ -598,9 +606,7 @@ def validate_program(
 
     # Step 6: Validate custom_embed
     if has_custom_embed:
-        err = _validate_custom_embed(
-            functions["custom_embed"], profile, dynamic_attrs
-        )
+        err = _validate_custom_embed(functions["custom_embed"], profile, dynamic_attrs)
         if err:
             return False, err
 

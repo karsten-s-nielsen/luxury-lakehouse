@@ -41,8 +41,15 @@ class TestScoutGPTProfile:
 
     def test_signature_has_all_embed_params(self) -> None:
         expected = {
-            "self", "action_ids", "start_x", "start_y", "end_x", "end_y",
-            "result", "time_delta", "player_ids",
+            "self",
+            "action_ids",
+            "start_x",
+            "start_y",
+            "end_x",
+            "end_y",
+            "result",
+            "time_delta",
+            "player_ids",
         }
         assert set(SCOUTGPT_PROFILE.patch_signature) == expected
 
@@ -52,8 +59,11 @@ class TestScoutGPTProfile:
 
     def test_known_attrs_include_conditioning_layers(self) -> None:
         conditioning = {
-            "player_cross_attn", "player_cross_norm",
-            "film_scale", "film_shift", "player_gate",
+            "player_cross_attn",
+            "player_cross_norm",
+            "film_scale",
+            "film_shift",
+            "player_gate",
         }
         assert conditioning.issubset(SCOUTGPT_PROFILE.known_model_attrs)
 
@@ -76,11 +86,26 @@ _TEST_PROFILE = ValidationProfile(
     known_model_attrs=frozenset({"linear", "norm", "dropout"}),
     allowed_namespaces=frozenset({"torch", "math"}),
     layers_args=["hidden_dim"],
-    rejected_builtins=frozenset({
-        "eval", "exec", "compile", "__import__", "open", "print", "input",
-        "getattr", "setattr", "delattr", "globals", "locals", "vars",
-        "dir", "type", "super",
-    }),
+    rejected_builtins=frozenset(
+        {
+            "eval",
+            "exec",
+            "compile",
+            "__import__",
+            "open",
+            "print",
+            "input",
+            "getattr",
+            "setattr",
+            "delattr",
+            "globals",
+            "locals",
+            "vars",
+            "dir",
+            "type",
+            "super",
+        }
+    ),
 )
 
 

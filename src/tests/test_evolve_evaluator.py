@@ -360,14 +360,16 @@ class TestEvaluatorValidationGate:
     def test_invalid_program_returns_zero_score(self, tmp_path: Path) -> None:
         """Program with import should be rejected before backend is called."""
         prog = tmp_path / "bad.py"
-        prog.write_text(textwrap.dedent("""\
+        prog.write_text(
+            textwrap.dedent("""\
             config = {"hidden_dim": 256, "num_layers": 6, "num_heads": 8,
                       "conditioning_type": "additive", "dropout": 0.1}
 
             def custom_embed(self, x, y):
                 import os
                 return x + y
-        """))
+        """)
+        )
         backend = MagicMock()
         backend.train = MagicMock(return_value={"combined_score": 1.0})
         evaluator = EvolveEvaluator(
@@ -393,9 +395,12 @@ class TestEvaluatorValidationGate:
             ' "conditioning_type": "additive", "dropout": 0.1}\n'
         )
         backend = MagicMock()
-        backend.train = MagicMock(return_value={
-            "spearman_rho": 0.5, "top1_accuracy": 0.8,
-        })
+        backend.train = MagicMock(
+            return_value={
+                "spearman_rho": 0.5,
+                "top1_accuracy": 0.8,
+            }
+        )
         evaluator = EvolveEvaluator(
             backend=backend,
             target="scoutgpt",
@@ -413,13 +418,15 @@ class TestEvaluatorValidationGate:
 
     def test_code_evolution_disabled_rejects(self, tmp_path: Path) -> None:
         prog = tmp_path / "has_code.py"
-        prog.write_text(textwrap.dedent("""\
+        prog.write_text(
+            textwrap.dedent("""\
             config = {"hidden_dim": 256, "num_layers": 6, "num_heads": 8,
                       "conditioning_type": "additive", "dropout": 0.1}
 
             def custom_embed(self, x, y):
                 return x + y
-        """))
+        """)
+        )
         backend = MagicMock()
         evaluator = EvolveEvaluator(
             backend=backend,
@@ -438,17 +445,22 @@ class TestEvaluatorValidationGate:
 
     def test_level2_passes_program_path(self, tmp_path: Path) -> None:
         prog = tmp_path / "l2.py"
-        prog.write_text(textwrap.dedent("""\
+        prog.write_text(
+            textwrap.dedent("""\
             config = {"hidden_dim": 256, "num_layers": 6, "num_heads": 8,
                       "conditioning_type": "additive", "dropout": 0.1}
 
             def custom_embed(self, x, y):
                 return self.linear(x) + y
-        """))
+        """)
+        )
         backend = MagicMock()
-        backend.train = MagicMock(return_value={
-            "spearman_rho": 0.5, "top1_accuracy": 0.8,
-        })
+        backend.train = MagicMock(
+            return_value={
+                "spearman_rho": 0.5,
+                "top1_accuracy": 0.8,
+            }
+        )
         evaluator = EvolveEvaluator(
             backend=backend,
             target="scoutgpt",

@@ -146,7 +146,8 @@ class TestLevel2EndToEnd:
     def test_config_only_backward_compat(self, tmp_path: Path) -> None:
         """Level 1 program works with code_evolution=True."""
         prog = tmp_path / "config_only.py"
-        prog.write_text(textwrap.dedent("""\
+        prog.write_text(
+            textwrap.dedent("""\
             config = {
                 "conditioning_type": "additive",
                 "hidden_dim": 64,
@@ -159,7 +160,8 @@ class TestLevel2EndToEnd:
                 "num_players": 50,
                 "max_seq_len": 32,
             }
-        """))
+        """)
+        )
         source = prog.read_text()
         valid, reason = validate_program(source, SCOUTGPT_PROFILE)
         assert valid, reason
@@ -195,9 +197,13 @@ class TestLevel2EndToEnd:
     def test_hybrid_seed_runs_on_model(self) -> None:
         """The Level 2 seed can be applied to a real model and produces correct output."""
         config = ScoutGPTConfig(
-            hidden_dim=192, num_layers=1, num_heads=6,
-            dropout=0.0, conditioning_type="cross_attention",
-            num_players=50, max_seq_len=32,
+            hidden_dim=192,
+            num_layers=1,
+            num_heads=6,
+            dropout=0.0,
+            conditioning_type="cross_attention",
+            num_players=50,
+            max_seq_len=32,
         )
         model = ScoutGPTDecoder(config)
         seed_path = str(Path("src/evolve/targets/scoutgpt/seed_programs/hybrid_gated_attention.py"))
