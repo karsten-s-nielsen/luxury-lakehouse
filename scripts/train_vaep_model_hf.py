@@ -7,7 +7,7 @@
 #     "pyarrow>=14.0",
 #     "scikit-learn>=1.3.0",
 #     "xgboost>=2.0",
-#     "silly-kicks>=0.1.0,<1.0",
+#     "silly-kicks>=1.0.0,<2.0",
 #     "huggingface-hub>=1.5.0",
 #     "mlflow>=2.17.0",
 # ]
@@ -98,10 +98,10 @@ RANDOM_STATE = 42
 # Column mapping: HF dataset -> SPADL format
 # ---------------------------------------------------------------------------
 
-# Reverse-lookup dicts: string name -> integer ID
-_ACTIONTYPE_TO_ID: dict[str, int] = {name: idx for idx, name in enumerate(spadlcfg.actiontypes)}
-_RESULT_TO_ID: dict[str, int] = {name: idx for idx, name in enumerate(spadlcfg.results)}
-_BODYPART_TO_ID: dict[str, int] = {name: idx for idx, name in enumerate(spadlcfg.bodyparts)}
+# Reverse-lookup dicts: string name -> integer ID (pre-built by silly-kicks)
+_ACTIONTYPE_TO_ID: dict[str, int] = spadlcfg.actiontype_id
+_RESULT_TO_ID: dict[str, int] = spadlcfg.result_id
+_BODYPART_TO_ID: dict[str, int] = spadlcfg.bodypart_id
 
 
 def _convert_hf_to_spadl(df: pd.DataFrame) -> pd.DataFrame:
