@@ -164,5 +164,5 @@ dev = [
     "matplotlib>=3.10.8",
     "pydantic-settings>=2.0.0",
     "psycopg2-binary>=2.9.9",
-    "luxury-lakehouse[analytics,embeddings]",
+    "luxury-lakehouse[analytics,embeddings,training,evolve]",
 ]

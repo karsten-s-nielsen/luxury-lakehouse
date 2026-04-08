@@ -1410,7 +1410,7 @@ training = [
 [package.dev-dependencies]
 dev = [
     { name = "import-linter" },
-    { name = "luxury-lakehouse", extra = ["analytics", "embeddings"] },
+    { name = "luxury-lakehouse", extra = ["analytics", "embeddings", "evolve", "training"] },
     { name = "matplotlib" },
     { name = "numba" },
     { name = "pip-audit" },
@@ -1458,7 +1458,7 @@ provides-extras = ["analytics", "dbt", "sdk", "embeddings", "jax", "mlflow", "tr
 [package.metadata.requires-dev]
 dev = [
     { name = "import-linter", specifier = ">=2.0" },
-    { name = "luxury-lakehouse", extras = ["analytics", "embeddings"] },
+    { name = "luxury-lakehouse", extras = ["analytics", "embeddings", "training", "evolve"] },
     { name = "matplotlib", specifier = ">=3.10.8" },
     { name = "numba", specifier = ">=0.60.0" },
     { name = "pip-audit", specifier = ">=2.7.0" },

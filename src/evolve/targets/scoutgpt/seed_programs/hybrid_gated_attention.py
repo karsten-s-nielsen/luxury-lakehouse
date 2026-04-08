@@ -10,7 +10,7 @@ the gating mechanism and the attention pattern.
 """
 
 config = {
-    "conditioning_type": "cross_attention",  # ignored — custom_embed overrides
+    "conditioning_type": "cross_attention",  # overridden to "additive" by evaluator when custom_embed present
     "hidden_dim": 192,
     "num_layers": 3,
     "num_heads": 6,
@@ -26,8 +26,19 @@ config = {
 
 
 def custom_layers(hidden_dim):
-    """Learned gate: projects player info to a per-dimension sigmoid mask."""
+    """Cross-attention + learned gate for hybrid conditioning.
+
+    Must register player_cross_attn and player_cross_norm here because
+    code_evolution=true forces conditioning_type="additive", so the base
+    model will not create them.
+    """
+    num_heads = config["num_heads"]
+    dropout = config["dropout"]
     return {
+        "player_cross_attn": torch.nn.MultiheadAttention(
+            hidden_dim, num_heads, dropout=dropout, batch_first=True,
+        ),
+        "player_cross_norm": torch.nn.LayerNorm(hidden_dim),
         "hybrid_gate": torch.nn.Sequential(
             torch.nn.Linear(hidden_dim, hidden_dim // 4),
             torch.nn.ReLU(),
