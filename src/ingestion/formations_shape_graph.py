@@ -42,17 +42,73 @@ from ingestion.formations_common import (
     derive_formation_label,
     prepare_tracking_data,
 )
+from ingestion.guards import FilterResult
 from ingestion.utils import (
     configure_logging,
     get_spark_session,
     parse_ingestion_args,
     write_delta_table,
 )
+from shared.constants import DEFAULT_GOLD_SCHEMA
 from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame as SparkDataFrame
     from pyspark.sql import SparkSession
+
+_guard_logger = logging.getLogger(f"{__name__}.guard")
+
+
+class _FormationsShapeGraphGuard:
+    """SkipGuard adapter for shape graph formation detection pipeline."""
+
+    workflow_id = "wf-formations-sg"
+
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        """Check which tracking matches need shape graph detection."""
+        gold_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_tracking_frames"
+        results_table = f"{catalog}.{schema}.{TABLE_NAME}"
+
+        try:
+            match_id_rows = spark.table(gold_table).select("match_id").distinct().collect()
+        except Exception:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        if not match_id_rows:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        all_match_ids = [row["match_id"] for row in match_id_rows]
+
+        # Same logic as EFPI: skip matches with both detectors done
+        fully_processed: set[str] = set()
+        try:
+            from pyspark.sql import functions as _F  # noqa: N812
+
+            detector_counts = (
+                spark.table(results_table)
+                .groupBy("match_id")
+                .agg(_F.countDistinct("detector").alias("n_detectors"))
+                .filter(_F.col("n_detectors") >= 2)
+                .select("match_id")
+                .collect()
+            )
+            fully_processed = {str(row["match_id"]) for row in detector_counts}
+        except Exception:
+            _guard_logger.debug("No existing %s table -- processing all matches", results_table)
+
+        new_match_ids = [str(mid) for mid in all_match_ids if str(mid) not in fully_processed]
+
+        if not new_match_ids:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        return FilterResult(
+            workflow_id=self.workflow_id,
+            count=len(new_match_ids),
+            metadata={"new_match_ids": new_match_ids},
+        )
+
+
+skip_guard = _FormationsShapeGraphGuard()
 
 
 # ---------------------------------------------------------------------------

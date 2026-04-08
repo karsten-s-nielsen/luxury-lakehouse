@@ -18,16 +18,30 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from huggingface_hub import HfApi
 from huggingface_hub.hf_api import RepoFile
 
+from ingestion.guards import FilterResult
 from shared.constants import COST_TABLE_NAME, DEFAULT_OBSERVABILITY_SCHEMA, IDENTIFIER_RE
 from workflows import workflow
 
+if TYPE_CHECKING:
+    from pyspark.sql import SparkSession
+
 logger = logging.getLogger(__name__)
+
+
+class _SyncHfCostsGuard:
+    workflow_id = "wf-sync-hf-costs"
+
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        return FilterResult(workflow_id=self.workflow_id, count=1)
+
+
+skip_guard = _SyncHfCostsGuard()
 
 
 def discover_hf_repos(cards_dir: Path) -> list[tuple[str, str, str]]:

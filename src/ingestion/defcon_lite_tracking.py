@@ -14,11 +14,68 @@ import pandas as pd
 
 from analytics.defcon_lite import DefconLiteParams
 from ingestion.defcon_lite_common import _TABLE_NAME, _make_values_udf
+from ingestion.guards import FilterResult
 from ingestion.utils import write_delta_table
 from shared.constants import DEFAULT_GOLD_SCHEMA
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
+
+_guard_logger = logging.getLogger(f"{__name__}.guard")
+
+
+class _DefconTrackingGuard:
+    """SkipGuard adapter for DEFCON-lite tracking data path."""
+
+    workflow_id = "wf-defcon-tracking"
+
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        """Check which tracking matches need DEFCON computation."""
+        tracking_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_tracking_frames"
+        results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+
+        try:
+            match_id_rows = (
+                spark.table(tracking_table)
+                .filter("source_provider = 'metrica'")
+                .select("match_id")
+                .distinct()
+                .collect()
+            )
+        except Exception:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        if not match_id_rows:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        all_match_ids = [row["match_id"] for row in match_id_rows]
+
+        existing_ids: set[str] = set()
+        try:
+            existing_rows = (
+                spark.table(results_table)
+                .filter("data_source = 'metrica_tracking'")
+                .select("match_id")
+                .distinct()
+                .collect()
+            )
+            existing_ids = {str(row["match_id"]) for row in existing_rows}
+        except Exception:
+            _guard_logger.debug("No existing %s table -- processing all matches", results_table)
+
+        new_match_ids = [str(mid) for mid in all_match_ids if str(mid) not in existing_ids]
+
+        if not new_match_ids:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        return FilterResult(
+            workflow_id=self.workflow_id,
+            count=len(new_match_ids),
+            metadata={"new_match_ids": new_match_ids},
+        )
+
+
+skip_guard = _DefconTrackingGuard()
 
 
 def _make_credits_udf_tracking(

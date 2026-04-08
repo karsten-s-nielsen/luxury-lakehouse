@@ -17,6 +17,7 @@ from analytics.expected_threat import (
     grid_to_dataframe,
     validate_xt_grid,
 )
+from ingestion.guards import FilterResult
 from ingestion.utils import (
     configure_logging,
     get_spark_session,
@@ -50,6 +51,57 @@ _RELEVANT_TYPES = (
 )
 
 logger = logging.getLogger(__name__)
+_guard_logger = logging.getLogger(f"{__name__}.guard")
+
+
+class _ExpectedThreatGuard:
+    """SkipGuard adapter for expected threat grid computation."""
+
+    workflow_id = "wf-xt-grids"
+
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        """Check which competitions need xT grid computation."""
+        results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+        types_sql = ", ".join(f"'{t}'" for t in _RELEVANT_TYPES)
+
+        existing: set[str] = set()
+        try:
+            existing = {
+                str(row["competition_id"])
+                for row in spark.table(results_table).select("competition_id").distinct().collect()
+            }
+        except Exception:
+            _guard_logger.debug("No existing %s table -- will process all competitions", _TABLE_NAME)
+
+        try:
+            available_comps = {
+                str(row["competition_id"])
+                for row in spark.sql(
+                    f"SELECT DISTINCT competition_id FROM {catalog}.dev_gold.{_GOLD_TABLE}"  # noqa: S608
+                    f" WHERE action_type IN ({types_sql}) AND competition_id IS NOT NULL"
+                ).collect()
+            }
+        except Exception:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        new_comps = sorted(available_comps - existing)
+        need_global = "global" not in existing
+
+        if not new_comps and not need_global:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        total = len(new_comps) + (1 if need_global else 0)
+        return FilterResult(
+            workflow_id=self.workflow_id,
+            count=total,
+            metadata={
+                "new_competition_ids": new_comps,
+                "need_global": need_global,
+            },
+        )
+
+
+skip_guard = _ExpectedThreatGuard()
 
 
 def _load_actions(spark: SparkSession, catalog: str) -> pd.DataFrame:

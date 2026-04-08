@@ -4,6 +4,7 @@
 # Creates a Databricks job that ingests data from five soccer data providers
 # in parallel, then runs SPADL/VAEP action valuation:
 #
+#   freshness_gate    — Centralized skip guard (DAG root, all tasks depend transitively)
 #   statsbomb         — Free open-data events (shots, passes, lineups)
 #   metrica           — Tracking data (player coordinates at 25fps)
 #   wyscout           — Match events and player attributes
@@ -21,15 +22,11 @@
 #   resolve_players   — Cross-source entity resolution (depends on statsbomb + wyscout)
 #   compute_embeddings_v2 — Transformer (128d) player embeddings with adversarial debiasing (depends on entity resolution)
 #   compute_embeddings_v1 — Doc2Vec (gensim) player embeddings, deprecated (depends on compute_embeddings_v2)
-#   export_embeddings_training_data — SPADL sequences for Football2vec v2 (depends on SPADL + entity resolution)
 #   compute_formations_efpi — EFPI template-matching formation detection (depends on pitch control)
 #   compute_formations_shape_graph — Shape graph geometric formation detection (depends on EFPI)
 #   run_model_validation — Model drift detection (depends on compute_pausa)
-#   import_space_creation — Space creation values from HF Hub to bronze (TD#29)
-#   export_shots_on_target — On-target shots export to HF Hub (D39 prerequisite)
-#   import_psxg_predictions — PSxG predictions from HF Hub to bronze (D39)
 #   backfill_statsbomb_360 — Catchup 360 freeze frames for already-ingested matches (depends on statsbomb)
-#   prepare_360_training_data — SPADL + 360 freeze frame export to HF Hub (D31, depends on backfill)
+#   hf_sync — Combined HF Hub imports + exports (depends on gate + compute tasks)
 #
 # HF Hub tasks use the "hf" environment (huggingface_hub + wheel).
 # Write tasks require HF_TOKEN from Databricks secret scope "hf", key "token".
@@ -61,11 +58,38 @@ resource "databricks_job" "data_ingestion" {
     pause_status           = var.environment == "dev" ? "PAUSED" : "UNPAUSED"
   }
 
+  # ── Task: Freshness Gate — centralized skip guard ────────────────────
+  # Runs all workflow skip guards, writes FilterResult task values, and
+  # emits SKIPPED records for idle workflows.
+  # TODO(D40a): Wire run_if conditions on downstream tasks to consume the
+  # gate's task values and skip tasks with no new work. Also wire
+  # for_each_task for pitch_control and off_ball_xt fan-out.
+  task {
+    task_key        = "freshness_gate"
+    timeout_seconds = 300
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "freshness_gate"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "default"
+  }
+
   # ── Task: Ingest StatsBomb data ──────────────────────────────────────────
   task {
     task_key        = "ingest_statsbomb"
     timeout_seconds = 900
     max_retries     = 1
+
+    depends_on {
+      task_key = "freshness_gate"
+    }
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
@@ -87,6 +111,10 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 900
     max_retries     = 1
 
+    depends_on {
+      task_key = "freshness_gate"
+    }
+
     python_wheel_task {
       package_name = "luxury_lakehouse"
       entry_point  = "ingest_metrica"
@@ -105,6 +133,10 @@ resource "databricks_job" "data_ingestion" {
     task_key        = "ingest_wyscout"
     timeout_seconds = 900
     max_retries     = 1
+
+    depends_on {
+      task_key = "freshness_gate"
+    }
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
@@ -128,6 +160,10 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 900
     max_retries     = 1
 
+    depends_on {
+      task_key = "freshness_gate"
+    }
+
     python_wheel_task {
       package_name = "luxury_lakehouse"
       entry_point  = "ingest_idsse"
@@ -146,6 +182,10 @@ resource "databricks_job" "data_ingestion" {
     task_key        = "ingest_skillcorner"
     timeout_seconds = 900
     max_retries     = 1
+
+    depends_on {
+      task_key = "freshness_gate"
+    }
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
@@ -528,34 +568,6 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "embeddings"
   }
 
-  # ── Task: Export SPADL action sequences for Football2Vec v2 training ──
-  # Reads fct_action_values joined to dim_players, groups by player-match,
-  # writes Parquet to UC Volume and uploads to HF Hub.
-  task {
-    task_key        = "export_embeddings_training_data"
-    timeout_seconds = 3600
-    max_retries     = 1
-
-    depends_on {
-      task_key = "resolve_players"
-    }
-    depends_on {
-      task_key = "compute_spadl_vaep"
-    }
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "export_embeddings_training_data"
-
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze",
-      ]
-    }
-
-    environment_key = "hf"
-  }
-
   # ── Task: Ingest IDSSE event data (DFL event XML) ──────────────────────
   # Parses DFL event XML from UC Volume for the same 7 Bundesliga matches.
   # Separate from tracking ingestion — different XML schema.
@@ -657,70 +669,6 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
-  # ── Task: Sync HF Jobs costs to Delta (independent, no dependencies) ────
-  task {
-    task_key        = "sync_hf_costs"
-    timeout_seconds = 600
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "sync_hf_costs"
-
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--cards-dir", "/Workspace/Repos/luxury-lakehouse/workflow-cards"
-      ]
-    }
-
-    environment_key = "hf"
-  }
-
-  # ── Task: Import space creation values from HF Hub (TD#29) ─────────────
-  task {
-    task_key        = "import_space_creation"
-    timeout_seconds = 900
-    max_retries     = 1
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "import_space_creation"
-
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze",
-        "--volume-path", "/Volumes/${var.catalog_name}/dev_gold/model_weights/space_creation"
-      ]
-    }
-
-    environment_key = "hf"
-  }
-
-  # ── Task: Import OBSO/PAUSA results from UC Volume ────────────────────
-  # Imports pre-computed OBSO surfaces and PAUSA raw scores from HF Jobs
-  # GPU run into bronze Delta tables.
-  task {
-    task_key        = "import_obso_results"
-    timeout_seconds = 900
-    max_retries     = 1
-
-    depends_on {
-      task_key = "compute_elastic_sync"
-    }
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "import_obso_results"
-
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze",
-        "--volume-path", "/Volumes/${var.catalog_name}/dev_gold/model_weights/obso"
-      ]
-    }
-
-    environment_key = "hf"
-  }
-
   # ── Task: Extract tracking player metadata ─────────────────────────────
   # Reads IDSSE DFL match info XMLs and SkillCorner kloppy metadata to
   # populate tracking_player_metadata bronze table with player/team names.
@@ -750,54 +698,6 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "tracking"
   }
 
-  # ── Task: Export on-target shots to HF Hub (D39 prerequisite) ──────────
-  task {
-    task_key        = "export_shots_on_target"
-    timeout_seconds = 900
-    max_retries     = 1
-
-    depends_on {
-      task_key = "compute_spadl_vaep"
-    }
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "export_shots_on_target"
-
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "dev_gold",
-        "--volume-path", "/Volumes/${var.catalog_name}/dev_gold/model_weights/psxg"
-      ]
-    }
-
-    environment_key = "hf"
-  }
-
-  # ── Task: Import PSxG predictions from HF Hub (D39) ────────────────────
-  task {
-    task_key        = "import_psxg_predictions"
-    timeout_seconds = 900
-    max_retries     = 1
-
-    depends_on {
-      task_key = "export_shots_on_target"
-    }
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "import_psxg_predictions"
-
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze",
-        "--volume-path", "/Volumes/${var.catalog_name}/dev_gold/model_weights/psxg"
-      ]
-    }
-
-    environment_key = "hf"
-  }
-
   # ── Task: Backfill StatsBomb 360 freeze-frame data ──────────────────────
   # The main ingestion skips already-ingested competition/seasons, so 360
   # data added after the initial ingest is never fetched. This backfill
@@ -825,31 +725,39 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "statsbomb"
   }
 
-  # ── Task: Prepare 360 training data for Football2Vec 360 (D31) ────────
+  # ── Task: HF Hub sync — combined imports + exports ───────────────────
   task {
-    task_key        = "prepare_360_training_data"
-    timeout_seconds = 3600
-    max_retries     = 1
+    task_key        = "hf_sync"
+    timeout_seconds = 1800
 
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "hf_sync"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    # Depends on gate + all compute tasks that produce data for exports
     depends_on {
-      task_key = "backfill_statsbomb_360"
+      task_key = "freshness_gate"
+    }
+    depends_on {
+      task_key = "compute_spadl_vaep"
     }
     depends_on {
       task_key = "resolve_players"
     }
     depends_on {
-      task_key = "compute_spadl_vaep"
+      task_key = "compute_xg_model"
     }
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "prepare_360_training_data"
-
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "dev_gold",
-        "--volume-path", "/Volumes/${var.catalog_name}/dev_gold/model_weights/football2vec_360"
-      ]
+    depends_on {
+      task_key = "backfill_statsbomb_360"
+    }
+    depends_on {
+      task_key = "compute_elastic_sync"
     }
 
     environment_key = "hf"

@@ -23,3 +23,5 @@ ingest_wyscout,ingest-wyscout
 ingest_idsse,ingest-idsse
 ingest_idsse_events,ingest-idsse-events
 ingest_skillcorner,ingest-skillcorner
+freshness_gate,wf-freshness-gate
+hf_sync,wf-hf-sync

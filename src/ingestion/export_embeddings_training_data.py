@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from ingestion.guards import FilterResult
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
 from shared.constants import DEFAULT_GOLD_SCHEMA
 from workflows import workflow
@@ -30,6 +31,42 @@ if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 logger = logging.getLogger(__name__)
+_guard_logger = logging.getLogger(f"{__name__}.guard")
+
+
+class _Football2VecV2ExportGuard:
+    """SkipGuard adapter for Football2Vec v2 training data export."""
+
+    workflow_id = "wf-football2vec-v2-export"
+
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        """Check if upstream data has grown since last export."""
+        gold = DEFAULT_GOLD_SCHEMA
+        output_path = _UC_VOLUME_PATH.format(catalog=catalog)
+
+        try:
+            upstream_count = (
+                spark.table(f"{catalog}.{gold}.fct_action_values").select("player_id", "match_id").distinct().count()
+            )
+        except Exception:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        existing_count = 0
+        try:
+            existing_count = spark.read.parquet(output_path).count()
+        except Exception:
+            _guard_logger.debug("No existing export at %s", output_path)
+
+        if existing_count >= upstream_count and existing_count > 0:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        return FilterResult(
+            workflow_id=self.workflow_id,
+            count=upstream_count - existing_count,
+        )
+
+
+skip_guard = _Football2VecV2ExportGuard()
 _HF_DATASET_REPO = "luxury-lakehouse/football2vec-training-data"
 _UC_VOLUME_PATH = "/Volumes/{catalog}/dev_gold/training_data/football2vec_v2"
 
