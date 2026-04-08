@@ -24,6 +24,7 @@ from ingestion.utils import (
     parse_ingestion_args,
     write_delta_table,
 )
+from shared.constants import DEFAULT_GOLD_SCHEMA
 from workflows import workflow
 
 if TYPE_CHECKING:
@@ -61,43 +62,39 @@ class _ExpectedThreatGuard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check which competitions need xT grid computation."""
-        results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
-        types_sql = ", ".join(f"'{t}'" for t in _RELEVANT_TYPES)
+        from ingestion.guards import find_new_ids
 
-        existing: set[str] = set()
+        types_sql = ", ".join(f"'{t}'" for t in _RELEVANT_TYPES)
+        new_comps = find_new_ids(
+            spark,
+            source_table=f"{catalog}.{DEFAULT_GOLD_SCHEMA}.{_GOLD_TABLE}",
+            results_table=f"{catalog}.{schema}.{_TABLE_NAME}",
+            id_column="competition_id",
+            source_filter=f"action_type IN ({types_sql}) AND competition_id IS NOT NULL",
+        )
+
+        # Check global sentinel separately — find_new_ids only handles
+        # real competition IDs from the source table.
+        need_global = False
         try:
             existing = {
                 str(row["competition_id"])
-                for row in spark.table(results_table).select("competition_id").distinct().collect()
+                for row in spark.table(f"{catalog}.{schema}.{_TABLE_NAME}")
+                .select("competition_id")
+                .distinct()
+                .collect()
             }
+            need_global = "global" not in existing
         except Exception:
-            _guard_logger.debug("No existing %s table -- will process all competitions", _TABLE_NAME)
-
-        try:
-            available_comps = {
-                str(row["competition_id"])
-                for row in spark.sql(
-                    f"SELECT DISTINCT competition_id FROM {catalog}.dev_gold.{_GOLD_TABLE}"  # noqa: S608
-                    f" WHERE action_type IN ({types_sql}) AND competition_id IS NOT NULL"
-                ).collect()
-            }
-        except Exception:
-            return FilterResult(workflow_id=self.workflow_id, count=0)
-
-        new_comps = sorted(available_comps - existing)
-        need_global = "global" not in existing
-
-        if not new_comps and not need_global:
-            return FilterResult(workflow_id=self.workflow_id, count=0)
+            need_global = True
 
         total = len(new_comps) + (1 if need_global else 0)
+        if total == 0:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
         return FilterResult(
             workflow_id=self.workflow_id,
             count=total,
-            metadata={
-                "new_competition_ids": new_comps,
-                "need_global": need_global,
-            },
+            metadata={"new_competition_ids": sorted(new_comps), "need_global": need_global},
         )
 
 
@@ -116,7 +113,7 @@ def _load_actions(spark: SparkSession, catalog: str) -> pd.DataFrame:
             start_y,
             end_x,
             end_y
-        FROM {catalog}.dev_gold.{_GOLD_TABLE}
+        FROM {catalog}.{DEFAULT_GOLD_SCHEMA}.{_GOLD_TABLE}
         WHERE action_type IN ({types_sql})
     """  # noqa: S608
     return spark.sql(query).toPandas()  # type: ignore[union-attr]
@@ -129,9 +126,15 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
+    filter_result: FilterResult | None = None,
     ctx=None,
 ) -> None:
     """Compute per-competition and global xT grids, write to Delta."""
+    # Early exit if freshness gate determined no new work
+    if filter_result and filter_result.count == 0:
+        logger.info("Freshness gate: no new xT grid work")
+        return
+
     params = ExpectedThreatParams()
     results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
 
@@ -150,7 +153,7 @@ def run_pipeline(
     available_comps = {
         str(row["competition_id"])
         for row in spark.sql(
-            f"SELECT DISTINCT competition_id FROM {catalog}.dev_gold.{_GOLD_TABLE}"  # noqa: S608
+            f"SELECT DISTINCT competition_id FROM {catalog}.{DEFAULT_GOLD_SCHEMA}.{_GOLD_TABLE}"  # noqa: S608
             f" WHERE action_type IN ({types_sql}) AND competition_id IS NOT NULL"
         ).collect()
     }
@@ -177,7 +180,12 @@ def run_pipeline(
     # Global grid needs all actions; per-comp grids only need their slice.
     # When global is needed, load everything; otherwise load only new comps.
     if need_global:
-        logger.info("Loading all SPADL actions from %s.dev_gold.%s (global grid needed)", catalog, _GOLD_TABLE)
+        logger.info(
+            "Loading all SPADL actions from %s.%s.%s (global grid needed)",
+            catalog,
+            DEFAULT_GOLD_SCHEMA,
+            _GOLD_TABLE,
+        )
         actions_df = _load_actions(spark, catalog)
     else:
         comp_filter = ", ".join(f"'{c}'" for c in new_comps)
@@ -187,7 +195,7 @@ def run_pipeline(
                 action_type AS type_name,
                 action_result AS result_name,
                 start_x, start_y, end_x, end_y
-            FROM {catalog}.dev_gold.{_GOLD_TABLE}
+            FROM {catalog}.{DEFAULT_GOLD_SCHEMA}.{_GOLD_TABLE}
             WHERE action_type IN ({types_sql})
               AND CAST(competition_id AS STRING) IN ({comp_filter})
         """  # noqa: S608
@@ -258,4 +266,8 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    run_pipeline(spark, args.catalog, args.schema, logger)
+    from ingestion.guards import read_gate_result
+
+    filter_result = read_gate_result("wf-xt-grids")
+
+    run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)

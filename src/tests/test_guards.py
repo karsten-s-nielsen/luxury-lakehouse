@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from ingestion.guards import FilterResult
+from ingestion.guards import FilterResult, find_new_ids, read_gate_result
 
 
 class TestFilterResult:
@@ -104,22 +104,26 @@ def _row(match_id: str) -> dict[str, str]:
 
 
 class TestPitchControlGuard:
-    """Pitch control skip guard adapter."""
+    """Pitch control skip guard adapter — delegates to find_new_ids()."""
 
     def test_returns_skip_when_all_processed(self) -> None:
         from ingestion.pitch_control_batch import skip_guard
 
+        _mock_pyspark_functions()
         spark = MagicMock()
-        gold_rows = [_row("m1"), _row("m2")]
-        results_rows = [_row("m1"), _row("m2")]
+
+        source_df = _make_chainable_df([])
+        results_df = _make_chainable_df([])
+
+        # Anti-join returns empty — all matches processed
+        anti_join_df = MagicMock()
+        anti_join_df.collect.return_value = []
+        source_df.join.return_value = anti_join_df
 
         def table_side_effect(name: str) -> MagicMock:
-            mock_df = MagicMock()
             if "fct_tracking_frames" in name:
-                mock_df.select.return_value.distinct.return_value.collect.return_value = gold_rows
-            else:
-                mock_df.select.return_value.distinct.return_value.collect.return_value = results_rows
-            return mock_df
+                return source_df
+            return results_df
 
         spark.table.side_effect = table_side_effect
 
@@ -131,17 +135,21 @@ class TestPitchControlGuard:
         """Two new matches — below chunk threshold, no fan-out."""
         from ingestion.pitch_control_batch import skip_guard
 
+        _mock_pyspark_functions()
         spark = MagicMock()
-        gold_rows = [_row("m1"), _row("m2"), _row("m3")]
-        results_rows = [_row("m1")]
+
+        source_df = _make_chainable_df([])
+        results_df = _make_chainable_df([])
+
+        # Anti-join returns 2 new matches
+        anti_join_df = MagicMock()
+        anti_join_df.collect.return_value = [_id_row("m2"), _id_row("m3")]
+        source_df.join.return_value = anti_join_df
 
         def table_side_effect(name: str) -> MagicMock:
-            mock_df = MagicMock()
             if "fct_tracking_frames" in name:
-                mock_df.select.return_value.distinct.return_value.collect.return_value = gold_rows
-            else:
-                mock_df.select.return_value.distinct.return_value.collect.return_value = results_rows
-            return mock_df
+                return source_df
+            return results_df
 
         spark.table.side_effect = table_side_effect
 
@@ -154,17 +162,21 @@ class TestPitchControlGuard:
         """Five new matches at 2/chunk = 3 chunks — fan-out."""
         from ingestion.pitch_control_batch import skip_guard
 
+        _mock_pyspark_functions()
         spark = MagicMock()
-        gold_rows = [_row(f"m{i}") for i in range(1, 7)]
-        results_rows = [_row("m1")]
+
+        source_df = _make_chainable_df([])
+        results_df = _make_chainable_df([])
+
+        # Anti-join returns 5 new matches
+        anti_join_df = MagicMock()
+        anti_join_df.collect.return_value = [_id_row(f"m{i}") for i in range(2, 7)]
+        source_df.join.return_value = anti_join_df
 
         def table_side_effect(name: str) -> MagicMock:
-            mock_df = MagicMock()
             if "fct_tracking_frames" in name:
-                mock_df.select.return_value.distinct.return_value.collect.return_value = gold_rows
-            else:
-                mock_df.select.return_value.distinct.return_value.collect.return_value = results_rows
-            return mock_df
+                return source_df
+            return results_df
 
         spark.table.side_effect = table_side_effect
 
@@ -178,19 +190,333 @@ class TestPitchControlGuard:
     def test_returns_all_when_no_results_table(self) -> None:
         from ingestion.pitch_control_batch import skip_guard
 
+        _mock_pyspark_functions()
         spark = MagicMock()
-        gold_rows = [_row("m1"), _row("m2")]
+
+        # Source returns 2 IDs, results table raises — all returned
+        source_df = _make_chainable_df([_id_row("m1"), _id_row("m2")])
+        call_count = 0
 
         def table_side_effect(name: str) -> MagicMock:
-            mock_df = MagicMock()
-            if "fct_tracking_frames" in name:
-                mock_df.select.return_value.distinct.return_value.collect.return_value = gold_rows
-            else:
-                raise Exception("Table not found")
-            return mock_df
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return source_df
+            raise Exception("Table not found")
 
         spark.table.side_effect = table_side_effect
 
         result = skip_guard.check(spark, "soccer_analytics", "bronze")
         assert result.count == 2
         assert result.chunks is None  # Only 1 chunk of 2 — no fan-out
+
+
+def _id_row(value: str, column: str = "match_id") -> dict[str, str]:
+    """Simulate a Spark Row with a single ID column."""
+    return {column: value}
+
+
+def _make_chainable_df(collect_rows: list[dict[str, str]]) -> MagicMock:
+    """Build a mock DataFrame where filter/select/distinct/join all chain and collect returns rows."""
+    mock_df = MagicMock()
+    # Make filter/select/distinct return self for chaining
+    mock_df.filter.return_value = mock_df
+    mock_df.select.return_value = mock_df
+    mock_df.distinct.return_value = mock_df
+    mock_df.collect.return_value = collect_rows
+    return mock_df
+
+
+def _mock_pyspark_functions() -> MagicMock:
+    """Create a mock pyspark.sql.functions module and register it in sys.modules.
+
+    Returns the mock ``functions`` module so tests can assert on ``F.col()`` calls.
+    Must be called before ``find_new_ids()`` because the function uses a local
+    ``from pyspark.sql import functions as F`` that resolves via ``sys.modules``.
+    """
+    import sys
+
+    mock_functions = MagicMock()
+    # Ensure pyspark module hierarchy exists in sys.modules
+    if "pyspark" not in sys.modules:
+        sys.modules["pyspark"] = MagicMock()
+    mock_sql = MagicMock()
+    # ``from pyspark.sql import functions`` resolves via getattr on the
+    # pyspark.sql module object, so we must set the attribute explicitly.
+    mock_sql.functions = mock_functions
+    sys.modules["pyspark.sql"] = mock_sql
+    sys.modules["pyspark.sql.functions"] = mock_functions
+    return mock_functions
+
+
+class TestFindNewIds:
+    """Tests for the Spark-native LEFT ANTI JOIN helper."""
+
+    def test_basic_anti_join(self) -> None:
+        """5 source IDs, 3 in results -> returns 2 new."""
+        mock_f = _mock_pyspark_functions()
+        spark = MagicMock()
+
+        source_df = _make_chainable_df([])  # collect not called on source directly
+        results_df = _make_chainable_df([])
+
+        # The anti-join result contains only the new IDs
+        anti_join_df = MagicMock()
+        anti_join_df.collect.return_value = [_id_row("m4"), _id_row("m5")]
+        source_df.join.return_value = anti_join_df
+
+        def table_side_effect(name: str) -> MagicMock:
+            if name == "catalog.schema.source":
+                return source_df
+            return results_df
+
+        spark.table.side_effect = table_side_effect
+
+        result = find_new_ids(spark, "catalog.schema.source", "catalog.schema.results")
+
+        assert sorted(result) == ["m4", "m5"]
+        source_df.join.assert_called_once_with(results_df, on="match_id", how="left_anti")
+        mock_f.col.assert_called_with("match_id")
+
+    def test_missing_results_table(self) -> None:
+        """Results table raises Exception -> returns all source IDs."""
+        _mock_pyspark_functions()
+        spark = MagicMock()
+
+        source_df = _make_chainable_df([_id_row("m1"), _id_row("m2"), _id_row("m3")])
+
+        call_count = 0
+
+        def table_side_effect(name: str) -> MagicMock:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return source_df
+            raise Exception("Table not found")
+
+        spark.table.side_effect = table_side_effect
+
+        result = find_new_ids(spark, "catalog.schema.source", "catalog.schema.results")
+
+        assert sorted(result) == ["m1", "m2", "m3"]
+        # join should never be called since results table doesn't exist
+        source_df.join.assert_not_called()
+
+    def test_empty_source(self) -> None:
+        """Source has 0 rows -> returns empty list."""
+        _mock_pyspark_functions()
+        spark = MagicMock()
+
+        source_df = _make_chainable_df([])
+        results_df = _make_chainable_df([])
+
+        anti_join_df = MagicMock()
+        anti_join_df.collect.return_value = []
+        source_df.join.return_value = anti_join_df
+
+        def table_side_effect(name: str) -> MagicMock:
+            if name == "catalog.schema.source":
+                return source_df
+            return results_df
+
+        spark.table.side_effect = table_side_effect
+
+        result = find_new_ids(spark, "catalog.schema.source", "catalog.schema.results")
+
+        assert result == []
+
+    def test_all_already_processed(self) -> None:
+        """Source IDs == results IDs -> returns empty list."""
+        _mock_pyspark_functions()
+        spark = MagicMock()
+
+        source_df = _make_chainable_df([])
+        results_df = _make_chainable_df([])
+
+        anti_join_df = MagicMock()
+        anti_join_df.collect.return_value = []
+        source_df.join.return_value = anti_join_df
+
+        def table_side_effect(name: str) -> MagicMock:
+            if name == "catalog.schema.source":
+                return source_df
+            return results_df
+
+        spark.table.side_effect = table_side_effect
+
+        result = find_new_ids(spark, "catalog.schema.source", "catalog.schema.results")
+
+        assert result == []
+        source_df.join.assert_called_once()
+
+    def test_with_source_filter(self) -> None:
+        """Verify .filter() called on source DataFrame when source_filter provided."""
+        _mock_pyspark_functions()
+        spark = MagicMock()
+
+        source_df = _make_chainable_df([])
+        results_df = _make_chainable_df([])
+
+        anti_join_df = MagicMock()
+        anti_join_df.collect.return_value = [_id_row("m1")]
+        source_df.join.return_value = anti_join_df
+
+        def table_side_effect(name: str) -> MagicMock:
+            if name == "catalog.schema.source":
+                return source_df
+            return results_df
+
+        spark.table.side_effect = table_side_effect
+
+        result = find_new_ids(
+            spark, "catalog.schema.source", "catalog.schema.results", source_filter="competition_id = 43"
+        )
+
+        assert result == ["m1"]
+        source_df.filter.assert_called_once_with("competition_id = 43")
+
+    def test_with_results_filter(self) -> None:
+        """Verify .filter() called on results DataFrame when results_filter provided."""
+        _mock_pyspark_functions()
+        spark = MagicMock()
+
+        source_df = _make_chainable_df([])
+        results_df = _make_chainable_df([])
+
+        anti_join_df = MagicMock()
+        anti_join_df.collect.return_value = [_id_row("m2")]
+        source_df.join.return_value = anti_join_df
+
+        def table_side_effect(name: str) -> MagicMock:
+            if name == "catalog.schema.source":
+                return source_df
+            return results_df
+
+        spark.table.side_effect = table_side_effect
+
+        result = find_new_ids(
+            spark, "catalog.schema.source", "catalog.schema.results", results_filter="status = 'complete'"
+        )
+
+        assert result == ["m2"]
+        results_df.filter.assert_called_once_with("status = 'complete'")
+
+    def test_custom_id_column(self) -> None:
+        """Pass id_column='competition_id', verify it's used in select and join."""
+        mock_f = _mock_pyspark_functions()
+        spark = MagicMock()
+
+        source_df = _make_chainable_df([])
+        results_df = _make_chainable_df([])
+
+        anti_join_df = MagicMock()
+        anti_join_df.collect.return_value = [{"competition_id": "43"}]
+        source_df.join.return_value = anti_join_df
+
+        def table_side_effect(name: str) -> MagicMock:
+            if name == "catalog.schema.source":
+                return source_df
+            return results_df
+
+        spark.table.side_effect = table_side_effect
+
+        result = find_new_ids(spark, "catalog.schema.source", "catalog.schema.results", id_column="competition_id")
+
+        assert result == ["43"]
+        # Verify F.col was called with the custom column name
+        mock_f.col.assert_called_with("competition_id")
+        # Verify join uses the custom column name
+        source_df.join.assert_called_once_with(results_df, on="competition_id", how="left_anti")
+
+
+class TestReadGateResult:
+    """Tests for read_gate_result() — reads FilterResult from Databricks task values."""
+
+    def test_successful_read(self) -> None:
+        """Returns a correct FilterResult when dbutils.jobs.taskValues.get succeeds."""
+        import sys
+        from unittest.mock import MagicMock, patch
+
+        expected = FilterResult(workflow_id="wf-pausa", count=3, chunks=[["m1", "m2"], ["m3"]])
+        raw_json = expected.to_json()
+
+        mock_spark = MagicMock()
+        mock_dbutils = MagicMock()
+        mock_dbutils.jobs.taskValues.get.return_value = raw_json
+
+        mock_dbutils_cls = MagicMock(return_value=mock_dbutils)
+        mock_spark_cls = MagicMock()
+        mock_spark_cls.getActiveSession.return_value = mock_spark
+
+        mock_pyspark_dbutils_module = MagicMock()
+        mock_pyspark_dbutils_module.DBUtils = mock_dbutils_cls
+
+        with (
+            patch.dict(sys.modules, {"pyspark.dbutils": mock_pyspark_dbutils_module}),
+            patch("pyspark.sql.SparkSession", mock_spark_cls),
+        ):
+            result = read_gate_result("wf-pausa")
+
+        assert result is not None
+        assert result.workflow_id == "wf-pausa"
+        assert result.count == 3
+        assert result.chunks == [["m1", "m2"], ["m3"]]
+        mock_dbutils.jobs.taskValues.get.assert_called_once_with(taskKey="freshness_gate", key="wf-pausa")
+
+    def test_returns_none_on_import_failure(self) -> None:
+        """Returns None when pyspark.dbutils is not importable (standalone mode)."""
+        import sys
+        from unittest.mock import patch
+
+        with patch.dict(sys.modules, {"pyspark.dbutils": None}):
+            result = read_gate_result("wf-pausa")
+
+        assert result is None
+
+    def test_returns_none_on_missing_key(self) -> None:
+        """Returns None when taskValues.get raises (key not set by freshness gate)."""
+        import sys
+        from unittest.mock import MagicMock, patch
+
+        mock_spark = MagicMock()
+        mock_dbutils = MagicMock()
+        mock_dbutils.jobs.taskValues.get.side_effect = Exception("Key not found: wf-pausa")
+
+        mock_dbutils_cls = MagicMock(return_value=mock_dbutils)
+        mock_spark_cls = MagicMock()
+        mock_spark_cls.getActiveSession.return_value = mock_spark
+
+        mock_pyspark_dbutils_module = MagicMock()
+        mock_pyspark_dbutils_module.DBUtils = mock_dbutils_cls
+
+        with (
+            patch.dict(sys.modules, {"pyspark.dbutils": mock_pyspark_dbutils_module}),
+            patch("pyspark.sql.SparkSession", mock_spark_cls),
+        ):
+            result = read_gate_result("wf-pausa")
+
+        assert result is None
+
+    def test_returns_none_on_invalid_json(self) -> None:
+        """Returns None when taskValues.get returns malformed JSON."""
+        import sys
+        from unittest.mock import MagicMock, patch
+
+        mock_spark = MagicMock()
+        mock_dbutils = MagicMock()
+        mock_dbutils.jobs.taskValues.get.return_value = "not-valid-json{{{"
+
+        mock_dbutils_cls = MagicMock(return_value=mock_dbutils)
+        mock_spark_cls = MagicMock()
+        mock_spark_cls.getActiveSession.return_value = mock_spark
+
+        mock_pyspark_dbutils_module = MagicMock()
+        mock_pyspark_dbutils_module.DBUtils = mock_dbutils_cls
+
+        with (
+            patch.dict(sys.modules, {"pyspark.dbutils": mock_pyspark_dbutils_module}),
+            patch("pyspark.sql.SparkSession", mock_spark_cls),
+        ):
+            result = read_gate_result("wf-pausa")
+
+        assert result is None

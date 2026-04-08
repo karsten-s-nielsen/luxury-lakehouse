@@ -61,27 +61,13 @@ class _ElasticSyncGuard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check which IDSSE matches need ELASTIC synchronization."""
-        events_table = f"{catalog}.{schema}.idsse_events"
-        results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+        from ingestion.guards import find_new_ids
 
-        try:
-            event_match_rows = spark.table(events_table).select("match_id").distinct().collect()
-        except Exception:
-            return FilterResult(workflow_id=self.workflow_id, count=0)
-
-        if not event_match_rows:
-            return FilterResult(workflow_id=self.workflow_id, count=0)
-
-        match_ids = [str(row["match_id"]) for row in event_match_rows]
-
-        existing_ids: set[str] = set()
-        try:
-            existing_rows = spark.table(results_table).select("match_id").distinct().collect()
-            existing_ids = {str(row["match_id"]) for row in existing_rows}
-        except Exception:
-            _guard_logger.debug("No existing %s table -- processing all matches", results_table)
-
-        new_match_ids = [mid for mid in match_ids if mid not in existing_ids]
+        new_match_ids = find_new_ids(
+            spark,
+            source_table=f"{catalog}.{schema}.idsse_events",
+            results_table=f"{catalog}.{schema}.{_TABLE_NAME}",
+        )
 
         if not new_match_ids:
             return FilterResult(workflow_id=self.workflow_id, count=0)
@@ -224,33 +210,14 @@ def run_pipeline(
         logger.info("ELASTIC sync: %d matches to process (from freshness gate)", len(new_match_ids))
     else:
         # Standalone execution — run inline guard
-        try:
-            event_match_rows = spark.table(events_table).select("match_id").distinct().collect()
-        except Exception:
-            logger.exception("Cannot read IDSSE events table %s", events_table)
-            return 0
+        from ingestion.guards import find_new_ids
 
-        if not event_match_rows:
-            logger.info("No events found in %s — skipping ELASTIC sync", events_table)
-            return 0
-
-        match_ids = [str(row["match_id"]) for row in event_match_rows]
-        logger.info("ELASTIC sync: %d matches with events", len(match_ids))
-
-        existing_ids: set[str] = set()
-        try:
-            existing_rows = spark.table(results_table).select("match_id").distinct().collect()
-            existing_ids = {str(row["match_id"]) for row in existing_rows}
-        except Exception:
-            logger.info("No existing %s table — processing all matches", results_table)
-
-        new_match_ids = [mid for mid in match_ids if mid not in existing_ids]
-        logger.info(
-            "ELASTIC sync: %d matches total, %d already processed, %d to process",
-            len(match_ids),
-            len(existing_ids),
-            len(new_match_ids),
+        new_match_ids = find_new_ids(
+            spark,
+            source_table=events_table,
+            results_table=results_table,
         )
+        logger.info("ELASTIC sync: %d matches to process (standalone mode)", len(new_match_ids))
 
     if not new_match_ids:
         return 0
@@ -365,8 +332,12 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
+    from ingestion.guards import read_gate_result
+
+    filter_result = read_gate_result("wf-elastic-sync")
+
     logger.info("Starting ELASTIC sync pipeline into %s.%s", args.catalog, args.schema)
-    run_pipeline(spark, args.catalog, args.schema, logger)
+    run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
     logger.info("ELASTIC sync pipeline complete")
 
 

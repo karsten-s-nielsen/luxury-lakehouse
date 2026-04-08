@@ -50,39 +50,34 @@ class _Football2VecGuard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check if new source matches need embedding computation."""
+        from ingestion.guards import find_new_ids
+
+        source_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_action_values"
         results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
-        gold = DEFAULT_GOLD_SCHEMA
 
+        # Defensive fallback: if source returns empty but results exist,
+        # skip rather than recomputing everything.
         try:
-            existing_matches = {
-                str(row["match_id"]) for row in spark.table(results_table).select("match_id").distinct().collect()
-            }
+            has_results = spark.table(results_table).limit(1).count() > 0
         except Exception:
-            existing_matches = set()
+            has_results = False
 
-        try:
-            source_match_query = (
-                f"SELECT DISTINCT CAST(match_id AS STRING) AS match_id "  # noqa: S608
-                f"FROM {catalog}.{gold}.fct_action_values"
-            )
-            source_matches = {str(row["match_id"]) for row in spark.sql(source_match_query).collect()}
-        except Exception:
-            source_matches = set()
+        new_match_ids = find_new_ids(
+            spark,
+            source_table=source_table,
+            results_table=results_table,
+        )
 
-        # Defensive fallback: if source query returned nothing but embeddings
-        # already exist, skip rather than recomputing everything.
-        if not source_matches and existing_matches:
+        if not new_match_ids and has_results:
             return FilterResult(workflow_id=self.workflow_id, count=0)
 
-        new_matches = source_matches - existing_matches
-
-        if source_matches and not new_matches:
+        if not new_match_ids:
             return FilterResult(workflow_id=self.workflow_id, count=0)
 
         return FilterResult(
             workflow_id=self.workflow_id,
-            count=len(new_matches),
-            metadata={"new_match_ids": sorted(new_matches)},
+            count=len(new_match_ids),
+            metadata={"new_match_ids": sorted(new_match_ids)},
         )
 
 
@@ -226,6 +221,7 @@ def run_pipeline_v1(
     schema: str,
     logger: logging.Logger,
     *,
+    filter_result: FilterResult | None = None,
     ctx: object = None,
 ) -> None:
     """Compute v1 Doc2Vec player embeddings via applyInPandas.
@@ -237,55 +233,40 @@ def run_pipeline_v1(
     """
     logger.info("Starting v1 Doc2Vec embedding pipeline for %s.%s", catalog, schema)
 
-    # 0. Incremental check — skip if all source matches already have embeddings
-    results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
-    try:
-        existing_matches = {
-            str(row["match_id"]) for row in spark.table(results_table).select("match_id").distinct().collect()
-        }
-    except Exception:
-        existing_matches = set()  # table doesn't exist yet
+    # 0. Incremental check — use guard metadata if available, else inline check
+    if filter_result and filter_result.metadata.get("new_match_ids"):
+        new_matches = filter_result.metadata["new_match_ids"]
+    else:
+        from ingestion.guards import find_new_ids
 
-    # Count source matches from fct_action_values (SPADL actions — embeddings
-    # cover every match with SPADL-converted events joined to dim_players)
-    gold = DEFAULT_GOLD_SCHEMA
-    try:
-        source_match_query = (
-            f"SELECT DISTINCT CAST(match_id AS STRING) AS match_id "  # noqa: S608
-            f"FROM {catalog}.{gold}.fct_action_values"
+        source_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_action_values"
+        results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+
+        # Defensive fallback: if source returns empty but results exist,
+        # the query may have a transient issue — skip rather than recomputing.
+        try:
+            has_results = spark.table(results_table).limit(1).count() > 0
+        except Exception:
+            has_results = False
+
+        new_matches = find_new_ids(
+            spark,
+            source_table=source_table,
+            results_table=results_table,
         )
-        source_matches = {str(row["match_id"]) for row in spark.sql(source_match_query).collect()}
-    except Exception:
-        source_matches = set()
 
-    # Defensive fallback: if source query returned nothing but embeddings
-    # already exist, the query may have a transient issue — skip rather
-    # than recomputing everything and risking OOM.
-    if not source_matches and existing_matches:
-        logger.warning(
-            "Source match query returned 0 rows but %d existing embeddings found — "
-            "skipping to avoid unnecessary full recompute",
-            len(existing_matches),
-        )
-        return
+        if not new_matches and has_results:
+            logger.info("All matches already have embeddings — skipping full recompute")
+            return
 
-    new_matches = source_matches - existing_matches
-    if source_matches and not new_matches:
-        logger.info(
-            "All %d matches already have embeddings — skipping full recompute",
-            len(existing_matches),
-        )
-        return
+        if not new_matches:
+            logger.info("No source matches found — skipping")
+            return
 
-    logger.info(
-        "%d source matches, %d existing, %d new — running full pipeline",
-        len(source_matches),
-        len(existing_matches),
-        len(new_matches),
-    )
+    logger.info("%d new matches to process — running full pipeline", len(new_matches))
 
     # 1. Load events as distributed Spark DataFrame (no .toPandas())
-    events_sdf = _load_events_sdf(spark, catalog, schema, match_ids=new_matches)
+    events_sdf = _load_events_sdf(spark, catalog, schema, match_ids=set(new_matches))
 
     # Quick emptiness check via limit(1) — avoids full DAG recomputation
     if events_sdf.limit(1).count() == 0:
@@ -443,4 +424,8 @@ def main_v1() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    run_pipeline_v1(spark, args.catalog, args.schema, logger)
+    from ingestion.guards import read_gate_result
+
+    filter_result = read_gate_result("wf-football2vec")
+
+    run_pipeline_v1(spark, args.catalog, args.schema, logger, filter_result=filter_result)

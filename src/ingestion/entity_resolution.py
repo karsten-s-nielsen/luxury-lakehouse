@@ -118,9 +118,15 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
+    filter_result: FilterResult | None = None,
     ctx=None,
 ) -> None:
     """Execute cross-source player entity resolution pipeline."""
+    # Early exit if freshness gate determined no new work
+    if filter_result and filter_result.count == 0:
+        logger.info("Freshness gate: no new entity resolution work")
+        return
+
     logger.info("Starting entity resolution for %s.%s", catalog, schema)
 
     # Incremental skip guard: compare source row counts against existing xref.
@@ -200,7 +206,11 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    run_pipeline(spark, args.catalog, args.schema, logger)
+    from ingestion.guards import read_gate_result
+
+    filter_result = read_gate_result("wf-entity-resolution")
+
+    run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
 
 
 if __name__ == "__main__":

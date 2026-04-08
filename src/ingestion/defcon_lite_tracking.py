@@ -31,39 +31,15 @@ class _DefconTrackingGuard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check which tracking matches need DEFCON computation."""
-        tracking_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_tracking_frames"
-        results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+        from ingestion.guards import find_new_ids
 
-        try:
-            match_id_rows = (
-                spark.table(tracking_table)
-                .filter("source_provider = 'metrica'")
-                .select("match_id")
-                .distinct()
-                .collect()
-            )
-        except Exception:
-            return FilterResult(workflow_id=self.workflow_id, count=0)
-
-        if not match_id_rows:
-            return FilterResult(workflow_id=self.workflow_id, count=0)
-
-        all_match_ids = [row["match_id"] for row in match_id_rows]
-
-        existing_ids: set[str] = set()
-        try:
-            existing_rows = (
-                spark.table(results_table)
-                .filter("data_source = 'metrica_tracking'")
-                .select("match_id")
-                .distinct()
-                .collect()
-            )
-            existing_ids = {str(row["match_id"]) for row in existing_rows}
-        except Exception:
-            _guard_logger.debug("No existing %s table -- processing all matches", results_table)
-
-        new_match_ids = [str(mid) for mid in all_match_ids if str(mid) not in existing_ids]
+        new_match_ids = find_new_ids(
+            spark,
+            source_table=f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_tracking_frames",
+            results_table=f"{catalog}.{schema}.{_TABLE_NAME}",
+            source_filter="source_provider = 'metrica'",
+            results_filter="data_source = 'metrica_tracking'",
+        )
 
         if not new_match_ids:
             return FilterResult(workflow_id=self.workflow_id, count=0)
@@ -234,6 +210,8 @@ def process_tracking_matches(
     logger: logging.Logger,
     params: DefconLiteParams,
     champion_model_bytes: bytes | None = None,
+    *,
+    filter_result: FilterResult | None = None,
 ) -> int:
     """Process Metrica tracking matches via two-pass applyInPandas.
 
@@ -253,46 +231,23 @@ def process_tracking_matches(
     tracking_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_tracking_frames"
     results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
 
-    try:
-        match_id_rows = (
-            spark.table(tracking_table).filter("source_provider = 'metrica'").select("match_id").distinct().collect()
+    # Use guard metadata if available, otherwise fall back to inline guard
+    if filter_result and filter_result.metadata.get("new_match_ids"):
+        new_ids_str = filter_result.metadata["new_match_ids"]
+    else:
+        from ingestion.guards import find_new_ids
+
+        new_ids_str = find_new_ids(
+            spark,
+            source_table=tracking_table,
+            results_table=results_table,
+            source_filter="source_provider = 'metrica'",
+            results_filter="data_source = 'metrica_tracking'",
         )
-    except Exception:
-        logger.warning("Cannot read table %s", tracking_table)
+    logger.info("%d tracking matches to process", len(new_ids_str))
+
+    if not new_ids_str:
         return 0
-
-    if not match_id_rows:
-        return 0
-
-    all_match_ids = [row["match_id"] for row in match_id_rows]
-
-    # Check which matches already have DEFCON results (incremental)
-    existing_ids: set[str] = set()
-    try:
-        existing_rows = (
-            spark.table(results_table)
-            .filter("data_source = 'metrica_tracking'")
-            .select("match_id")
-            .distinct()
-            .collect()
-        )
-        existing_ids = {str(row["match_id"]) for row in existing_rows}
-    except Exception:
-        logger.info("No existing %s table — processing all matches", results_table)
-
-    new_match_ids = [mid for mid in all_match_ids if str(mid) not in existing_ids]
-    logger.info(
-        "%d tracking matches total, %d already processed, %d to process",
-        len(all_match_ids),
-        len(existing_ids),
-        len(new_match_ids),
-    )
-
-    if not new_match_ids:
-        return 0
-
-    # Build Spark DataFrames for all new matches at once
-    new_ids_str = [str(mid) for mid in new_match_ids]
 
     # Early-out: check if fct_action_values has ANY matching entries.
     # Metrica tracking has no SPADL action values (SPADL only covers StatsBomb/Wyscout).
@@ -301,7 +256,7 @@ def process_tracking_matches(
         spark.table(action_table).filter(F.col("match_id").cast("string").isin(new_ids_str)).limit(1).count()
     )
     if matching_action_count == 0:
-        logger.info("No matching action values for %d tracking matches — skipping DEFCON tracking", len(new_match_ids))
+        logger.info("No matching action values for %d tracking matches — skipping DEFCON tracking", len(new_ids_str))
         return 0
 
     actions_df = (
@@ -430,5 +385,5 @@ def process_tracking_matches(
         logger=logger,
     )
 
-    logger.info("Tracking matches: %d DEFCON-lite rows written across %d matches", written, len(new_match_ids))
+    logger.info("Tracking matches: %d DEFCON-lite rows written across %d matches", written, len(new_ids_str))
     return written

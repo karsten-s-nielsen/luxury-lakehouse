@@ -45,52 +45,42 @@ from workflows import workflow
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
-_guard_logger = logging.getLogger(f"{__name__}.guard")
-
 
 class _VaepGuard:
     """SkipGuard adapter for SPADL/VAEP pipeline.
 
     Two-stage guard: checks both SPADL conversion and VAEP scoring,
-    returning combined metadata with counts for each stage.
+    returning combined metadata with match ID lists for each stage.
     """
 
     workflow_id = "wf-vaep"
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check if SPADL conversion or VAEP scoring has new work."""
+        from ingestion.guards import find_new_ids
+
         spadl_table = f"{catalog}.{schema}.{_SPADL_TABLE}"
         vaep_table = f"{catalog}.{schema}.{_VAEP_TABLE}"
 
-        # Stage 1: Check SPADL conversion needs
-        existing_spadl: set[int] = set()
-        try:
-            rows = spark.table(spadl_table).select("match_id").distinct().collect()
-            existing_spadl = {int(row["match_id"]) for row in rows}
-        except Exception:
-            _guard_logger.debug("No existing %s table", spadl_table)
+        # Stage 1: Source events not yet in SPADL (two sources, union results)
+        sb_new = find_new_ids(
+            spark,
+            f"{catalog}.{schema}.statsbomb_events",
+            spadl_table,
+        )
+        ws_new = find_new_ids(
+            spark,
+            f"{catalog}.{schema}.wyscout_events",
+            spadl_table,
+        )
+        new_spadl = sorted(set(sb_new) | set(ws_new))
 
-        # Count source matches from StatsBomb + Wyscout bronze
-        source_match_ids: set[int] = set()
-        for tbl in [f"{catalog}.{schema}.statsbomb_events", f"{catalog}.{schema}.wyscout_events"]:
-            try:
-                src_rows = spark.table(tbl).select("match_id").distinct().collect()
-                source_match_ids.update(int(row["match_id"]) for row in src_rows)
-            except Exception:
-                _guard_logger.debug("Cannot read source table %s", tbl)
-
-        new_spadl = source_match_ids - existing_spadl
-
-        # Stage 2: Check VAEP scoring needs
-        existing_vaep: set[int] = set()
-        try:
-            rows = spark.table(vaep_table).select("match_id").distinct().collect()
-            existing_vaep = {int(row["match_id"]) for row in rows}
-        except Exception:
-            _guard_logger.debug("No existing %s table", vaep_table)
-
-        # Unscored = already in SPADL but not in VAEP
-        unscored = existing_spadl - existing_vaep
+        # Stage 2: SPADL actions not yet scored with VAEP
+        unscored = find_new_ids(
+            spark,
+            spadl_table,
+            vaep_table,
+        )
 
         total_new = len(new_spadl) + len(unscored)
 
@@ -101,8 +91,8 @@ class _VaepGuard:
             workflow_id=self.workflow_id,
             count=total_new,
             metadata={
-                "new_spadl_count": len(new_spadl),
-                "unscored_vaep_count": len(unscored),
+                "new_spadl_match_ids": sorted(new_spadl),
+                "unscored_vaep_match_ids": sorted(unscored),
             },
         )
 
@@ -373,6 +363,7 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
+    filter_result: FilterResult | None = None,
     ctx=None,
 ) -> None:
     """Execute the full SPADL/VAEP pipeline.
@@ -384,6 +375,11 @@ def run_pipeline(
     2. Read a small training subset from Delta -> extract features -> train (or load cached)
     3. Read per-competition from Delta -> score unscored games -> write results (incremental)
     """
+    # Early exit if freshness gate determined no new work
+    if filter_result and filter_result.count == 0:
+        logger.info("Freshness gate: no new SPADL/VAEP work")
+        return
+
     spadl_table = f"{catalog}.{schema}.{_SPADL_TABLE}"
 
     # Phase A+B: Convert events from bronze to SPADL (incremental)
@@ -519,8 +515,12 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
+    from ingestion.guards import read_gate_result
+
+    filter_result = read_gate_result("wf-vaep")
+
     logger.info("Starting SPADL/VAEP pipeline into %s.%s", args.catalog, args.schema)
-    run_pipeline(spark, args.catalog, args.schema, logger)
+    run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
 
 
 if __name__ == "__main__":

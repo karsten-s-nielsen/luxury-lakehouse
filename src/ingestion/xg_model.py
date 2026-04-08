@@ -32,34 +32,21 @@ class _XgV1Guard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check which competitions need xG v1 scoring."""
-        results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+        from ingestion.guards import find_new_ids
 
-        existing: set[str] = set()
-        try:
-            existing = {
-                str(row["competition_id"])
-                for row in spark.table(results_table).select("competition_id").distinct().collect()
-            }
-        except Exception:
-            _guard_logger.debug("No existing %s table -- will process all competitions", _TABLE_NAME)
-
-        try:
-            shots_df = spark.table(f"{catalog}.dev_gold.fct_shots").filter("competition_id IS NOT NULL")
-            available_comps = {
-                str(row["competition_id"]) for row in shots_df.select("competition_id").distinct().collect()
-            }
-        except Exception:
-            return FilterResult(workflow_id=self.workflow_id, count=0)
-
-        new_comps = sorted(available_comps - existing)
-
+        new_comps = find_new_ids(
+            spark,
+            source_table=f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_shots",
+            results_table=f"{catalog}.{schema}.{_TABLE_NAME}",
+            id_column="competition_id",
+            source_filter="competition_id IS NOT NULL",
+        )
         if not new_comps:
             return FilterResult(workflow_id=self.workflow_id, count=0)
-
         return FilterResult(
             workflow_id=self.workflow_id,
             count=len(new_comps),
-            metadata={"new_competition_ids": new_comps},
+            metadata={"new_competition_ids": sorted(new_comps)},
         )
 
 
@@ -174,6 +161,7 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
+    filter_result: FilterResult | None = None,
     ctx=None,
 ) -> None:
     """Score all shots with v1 logistic + XGBoost xG models.
@@ -185,6 +173,11 @@ def run_pipeline(
       4. Distribute scoring across executors with ``applyInPandas``
       5. Write per-``competition_id`` with ``replaceWhere`` for idempotency
     """
+    # Early exit if freshness gate determined no new work
+    if filter_result and filter_result.count == 0:
+        logger.info("Freshness gate: no new xG v1 work")
+        return
+
     from ingestion.utils import write_delta_table
 
     results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
@@ -200,7 +193,7 @@ def run_pipeline(
         logger.info("No existing %s table -- will process all competitions", _TABLE_NAME)
 
     # 2. Load fct_shots from gold mart
-    shots_df = spark.table(f"{catalog}.dev_gold.fct_shots").filter("competition_id IS NOT NULL")
+    shots_df = spark.table(f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_shots").filter("competition_id IS NOT NULL")
 
     available_comps = {str(row["competition_id"]) for row in shots_df.select("competition_id").distinct().collect()}
     new_comps = available_comps - existing
@@ -221,7 +214,7 @@ def run_pipeline(
     if champion_result is not None:
         logistic_bytes, xgboost_bytes = champion_result
     else:
-        model_dir = f"/Volumes/{catalog}/dev_gold/model_weights/xg_model"
+        model_dir = f"/Volumes/{catalog}/{DEFAULT_GOLD_SCHEMA}/model_weights/xg_model"
         logistic_bytes = spark.read.format("binaryFile").load(f"{model_dir}/logistic_model.json").first()["content"]
         xgboost_bytes = spark.read.format("binaryFile").load(f"{model_dir}/xgboost_model.json").first()["content"]
 
@@ -274,5 +267,9 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
+    from ingestion.guards import read_gate_result
+
+    filter_result = read_gate_result("wf-xg-v1")
+
     logger.info("Starting xG scoring pipeline into %s.%s", args.catalog, args.schema)
-    run_pipeline(spark, args.catalog, args.schema, logger)
+    run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)

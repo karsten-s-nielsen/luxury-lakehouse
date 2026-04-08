@@ -53,6 +53,16 @@ class _WyscoutGuard:
     workflow_id = "wf-wyscout"
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        """Skip if all Wyscout competitions are already ingested."""
+        expected = len(_COMPETITIONS)
+        try:
+            e_count = spark.table(f"{catalog}.{schema}.wyscout_events").select("competition_name").distinct().count()
+            m_count = spark.table(f"{catalog}.{schema}.wyscout_matches").select("competition_name").distinct().count()
+            p_exists = spark.table(f"{catalog}.{schema}.wyscout_players").limit(1).count() > 0
+            if e_count >= expected and m_count >= expected and p_exists:
+                return FilterResult(workflow_id=self.workflow_id, count=0)
+        except Exception:  # noqa: S110
+            pass
         return FilterResult(workflow_id=self.workflow_id, count=1)
 
 
