@@ -116,8 +116,10 @@ def _apply_program(
         if not isinstance(layers, dict):
             msg = f"custom_layers must return dict, got {type(layers).__name__}"
             raise TypeError(msg)
+        # Determine target device from an existing model parameter
+        device = next(model.parameters()).device
         for name, module in layers.items():
-            model.register_module(name, module)
+            model.register_module(name, module.to(device))
 
     # Monkey-patch custom embed
     if "custom_embed" in restricted_globals:
@@ -204,52 +206,56 @@ def train_and_evaluate(
     model = ScoutGPTDecoder(config).to(torch_device)
     _apply_program(model, program_path)
 
-    # --- Train ---
-    model, history = train_loop(
-        train_ds=train_ds,
-        val_ds=val_ds,
-        config=config,
-        device=torch_device,
-        epochs=epochs,
-        batch_size=batch_size,
-        lr=lr,
-        patience=max(3, epochs // 2),
-        model=model,
-    )
+    try:
+        # --- Train ---
+        model, history = train_loop(
+            train_ds=train_ds,
+            val_ds=val_ds,
+            config=config,
+            device=torch_device,
+            epochs=epochs,
+            batch_size=batch_size,
+            lr=lr,
+            patience=max(3, epochs // 2),
+            model=model,
+        )
 
-    # --- Evaluate ---
-    model.eval()
-    top1 = history["val_top1_accuracy"][-1] if history["val_top1_accuracy"] else 0.0
+        # --- Evaluate ---
+        model.eval()
+        top1 = history["val_top1_accuracy"][-1] if history["val_top1_accuracy"] else 0.0
 
-    cf_results = evaluate_counterfactual_ranking(
-        model=model,
-        test_ds=test_ds,
-        device=torch_device,
-        num_episodes=_EVOLVE_COUNTERFACTUAL_EPISODES,
-        num_players=_EVOLVE_COUNTERFACTUAL_PLAYERS,
-        action_type_frequencies=cached.action_freqs,
-    )
+        cf_results = evaluate_counterfactual_ranking(
+            model=model,
+            test_ds=test_ds,
+            device=torch_device,
+            num_episodes=_EVOLVE_COUNTERFACTUAL_EPISODES,
+            num_players=_EVOLVE_COUNTERFACTUAL_PLAYERS,
+            action_type_frequencies=cached.action_freqs,
+        )
 
-    elapsed = time.monotonic() - start_time
-    param_count = sum(p.numel() for p in model.parameters())
+        elapsed = time.monotonic() - start_time
+        param_count = sum(p.numel() for p in model.parameters())
 
-    metrics: dict[str, float] = {
-        "spearman_rho": cf_results["mean_spearman_rho"],
-        "rho_std": cf_results["rho_std"],
-        "top1_accuracy": top1,
-        "val_loss": history["val_loss"][-1] if history["val_loss"] else float("inf"),
-        "param_count": float(param_count),
-        "training_time_seconds": elapsed,
-        "epochs_trained": float(len(history["val_loss"])),
-    }
+        metrics: dict[str, float] = {
+            "spearman_rho": cf_results["mean_spearman_rho"],
+            "rho_std": cf_results["rho_std"],
+            "top1_accuracy": top1,
+            "val_loss": history["val_loss"][-1] if history["val_loss"] else float("inf"),
+            "param_count": float(param_count),
+            "training_time_seconds": elapsed,
+            "epochs_trained": float(len(history["val_loss"])),
+        }
 
-    _log.info(
-        "ScoutGPT candidate: rho=%.4f, top1=%.4f, params=%d, time=%.1fs",
-        metrics["spearman_rho"],
-        metrics["top1_accuracy"],
-        param_count,
-        elapsed,
-    )
+        _log.info(
+            "ScoutGPT candidate: rho=%.4f, top1=%.4f, params=%d, time=%.1fs",
+            metrics["spearman_rho"],
+            metrics["top1_accuracy"],
+            param_count,
+            elapsed,
+        )
+    except (torch.cuda.OutOfMemoryError, RuntimeError) as exc:
+        _log.warning("Candidate failed (OOM or runtime error), returning score 0: %s", exc)
+        metrics = {"combined_score": 0.0, "error": 1.0}
 
     # Clean up GPU memory before returning so the next candidate starts clean
     del model, train_ds, val_ds, test_ds

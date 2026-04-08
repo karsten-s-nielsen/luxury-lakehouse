@@ -54,45 +54,81 @@ return a tensor of shape (batch, seq_len, hidden_dim).
 ```python
 def custom_embed(self, action_ids, start_x, start_y, end_x, end_y,
                  result, time_delta, player_ids):
-    # Build embeddings from inputs
-    player_emb = self.player_embedding(player_ids)
+    # ALL inputs are (batch, seq_len) — one value per token in the sequence.
+    # ALL embedding/MLP outputs are (batch, seq_len, hidden_dim) — already 3D.
+    # player_ids is (batch, seq_len) so player_emb is (batch, seq_len, hd).
+    # DO NOT use .unsqueeze(1) on any embedding output — they are already 3D.
+    player_emb = self.player_embedding(player_ids)    # (batch, seq_len, hd)
     action_emb = (
-        self.token_embedding(action_ids)
-        + self.start_x_mlp(start_x)
-        + self.start_y_mlp(start_y)
-        + self.end_x_mlp(end_x)
-        + self.end_y_mlp(end_y)
-        + self.result_embedding(result)
-        + self.time_delta_mlp(time_delta)
-    )
-    # Your novel conditioning logic here
+        self.token_embedding(action_ids)              # (batch, seq_len, hd)
+        + self.start_x_mlp(start_x)                   # (batch, seq_len, hd)
+        + self.start_y_mlp(start_y)                    # (batch, seq_len, hd)
+        + self.end_x_mlp(end_x)                        # (batch, seq_len, hd)
+        + self.end_y_mlp(end_y)                        # (batch, seq_len, hd)
+        + self.result_embedding(result)                # (batch, seq_len, hd)
+        + self.time_delta_mlp(time_delta)              # (batch, seq_len, hd)
+    )                                                  # (batch, seq_len, hd)
+    # Your novel conditioning logic here — keep all tensors 3D throughout.
+    # Example: element-wise gating (shapes match, no unsqueeze needed):
+    #   gate = torch.sigmoid(self.my_gate(player_emb))   # (batch, seq_len, hd)
+    #   emb = gate * action_emb + (1 - gate) * player_emb  # (batch, seq_len, hd)
     ...
-    return self.embedding_dropout(emb)
+    return self.embedding_dropout(emb)                 # (batch, seq_len, hd)
 ```
+
+# CRITICAL: Tensor Shape Rules
+
+ALL tensors inside custom_embed are 3D: (batch, seq_len, hidden_dim).
+
+## Input shapes
+- action_ids, start_x, start_y, end_x, end_y, result, time_delta, player_ids:
+  ALL are (batch, seq_len) — one scalar per token.
+
+## Embedding/MLP output shapes
+- self.player_embedding(player_ids) -> (batch, seq_len, hidden_dim)
+- self.token_embedding(action_ids) -> (batch, seq_len, hidden_dim)
+- self.start_x_mlp(start_x) -> (batch, seq_len, hidden_dim)
+- self.result_embedding(result) -> (batch, seq_len, hidden_dim)
+- Every self.*_embedding() and self.*_mlp() returns (batch, seq_len, hidden_dim).
+
+## Common shape errors that score 0
+- NEVER use .unsqueeze(1) on player_emb or action_emb — they are ALREADY 3D.
+  player_emb.unsqueeze(1) creates (batch, 1, seq_len, hd) which is 4D and
+  will crash with "4-D query tensor" or shape mismatch errors.
+- NEVER use .expand() to broadcast embeddings — shapes already match.
+- Keep all intermediate tensors exactly (batch, seq_len, hidden_dim).
+- Element-wise operations (+, *, torch.sigmoid) preserve shape — prefer these.
+- self.player_cross_attn(query, key, value) expects 3D inputs:
+  query/key/value must each be (batch, seq_len, hidden_dim).
+- torch.cat on dim=-1 doubles hidden_dim — make sure downstream layers
+  accept the wider dimension (e.g., Linear(hidden_dim * 2, hidden_dim)).
 
 # Available self.* Attributes
 
-These are the model layers you may access via self:
+These are the model layers you may access via self. ALL embedding/MLP layers
+take (batch, seq_len, ...) input and return (batch, seq_len, hidden_dim).
 
-| Attribute            | Type                    | Notes                            |
+| Attribute            | Type                    | Input -> Output shape            |
 |----------------------|-------------------------|----------------------------------|
-| self.player_embedding | nn.Embedding(N, hd)    | Player identity embedding        |
-| self.token_embedding  | nn.Embedding(25, hd)   | Action type embedding            |
-| self.result_embedding | nn.Embedding(2, hd)    | Binary outcome embedding         |
-| self.position_embedding | nn.Embedding(seq, hd)| Positional embedding             |
-| self.start_x_mlp     | SpatialMLP(hd, smd)    | Pitch X start coordinate         |
-| self.start_y_mlp     | SpatialMLP(hd, smd)    | Pitch Y start coordinate         |
-| self.end_x_mlp       | SpatialMLP(hd, smd)    | Pitch X end coordinate           |
-| self.end_y_mlp       | SpatialMLP(hd, smd)    | Pitch Y end coordinate           |
-| self.time_delta_mlp   | SpatialMLP(hd, smd)    | Time since last action           |
-| self.player_cross_attn | MultiheadAttention     | Cross-attention (if registered)  |
-| self.player_cross_norm | LayerNorm(hd)         | Cross-attn layer norm            |
-| self.film_scale       | Sequential(Linear,Sig) | FiLM scale (if registered)       |
-| self.film_shift       | Linear(hd, hd)        | FiLM shift (if registered)       |
-| self.player_gate      | Sequential(Linear,Sig) | Gated conditioning (if reg.)     |
-| self.embedding_dropout | Dropout                | Always call this on output       |
+| self.player_embedding | nn.Embedding(N, hd)    | (B,S) -> (B,S,hd)               |
+| self.token_embedding  | nn.Embedding(25, hd)   | (B,S) -> (B,S,hd)               |
+| self.result_embedding | nn.Embedding(2, hd)    | (B,S) -> (B,S,hd)               |
+| self.position_embedding | nn.Embedding(seq, hd)| (B,S) -> (B,S,hd)               |
+| self.start_x_mlp     | SpatialMLP(hd, smd)    | (B,S) -> (B,S,hd)               |
+| self.start_y_mlp     | SpatialMLP(hd, smd)    | (B,S) -> (B,S,hd)               |
+| self.end_x_mlp       | SpatialMLP(hd, smd)    | (B,S) -> (B,S,hd)               |
+| self.end_y_mlp       | SpatialMLP(hd, smd)    | (B,S) -> (B,S,hd)               |
+| self.time_delta_mlp   | SpatialMLP(hd, smd)    | (B,S) -> (B,S,hd)               |
+| self.player_cross_attn | MultiheadAttention     | 3x(B,S,hd) -> (B,S,hd)          |
+| self.player_cross_norm | LayerNorm(hd)         | (B,S,hd) -> (B,S,hd)            |
+| self.film_scale       | Sequential(Linear,Sig) | (B,S,hd) -> (B,S,hd)            |
+| self.film_shift       | Linear(hd, hd)        | (B,S,hd) -> (B,S,hd)            |
+| self.player_gate      | Sequential(Linear,Sig) | (B,S,hd) -> (B,S,hd)            |
+| self.embedding_dropout | Dropout                | (B,S,hd) -> (B,S,hd)            |
 
 You may also access any layer declared in your custom_layers() return dict.
+Custom Linear/Sequential layers applied to (B,S,hd) tensors will broadcast
+correctly over (B,S) and transform the last dimension.
 
 # Allowed Operations
 
@@ -114,6 +150,12 @@ setattr(), any __dunder__ attributes, f-strings, or any module not listed above.
 5. Keep custom_embed under 50 lines — complexity kills gradient flow.
 6. Always call self.embedding_dropout on your output.
 7. hidden_dim MUST be divisible by num_heads. Safe combos: 192/6, 256/8, 384/12.
+8. VRAM BUDGET: Total model parameters MUST stay under 10M. The GPU has 16 GB
+   VRAM. Never create intermediate tensors larger than (batch, seq_len, hidden_dim).
+   Avoid operations that scale quadratically with hidden_dim (e.g., outer products,
+   full attention over hidden dimensions). A candidate that OOMs scores 0.
+9. ALL tensors must stay 3D: (batch, seq_len, hidden_dim). Never use unsqueeze(1)
+   on embedding outputs. Never create 4D intermediates. Shape errors score 0.
 
 # Fitness Function
 
