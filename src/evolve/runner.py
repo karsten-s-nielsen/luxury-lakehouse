@@ -65,14 +65,14 @@ def _load_cached_seeds(
     seed_results_dir: Path,
     seed_programs: list[Path],
     fingerprint: str,
-) -> dict[str, dict[str, float | str]]:
+) -> dict[str, dict[str, Any]]:
     """Load valid cached seed results, skipping stale or missing ones.
 
     Returns a mapping of ``{program_stem: metrics}`` for seeds whose
     cached result has a matching fingerprint.  Seeds with missing,
     corrupt, or stale result files are excluded (and will be evaluated).
     """
-    cached: dict[str, dict[str, float | str]] = {}
+    cached: dict[str, dict[str, Any]] = {}
     for program in seed_programs:
         result_file = seed_results_dir / f"{program.stem}.json"
         if not result_file.exists():
@@ -98,8 +98,8 @@ def _evaluate_seeds(
     results_dir: Path,
     eval_config: EvalConfig,
     max_parallel: int = 1,
-    cached_seeds: dict[str, dict[str, float | str]] | None = None,
-) -> tuple[Path, dict[str, float | str]]:
+    cached_seeds: dict[str, dict[str, Any]] | None = None,
+) -> tuple[Path, dict[str, Any]]:
     """Evaluate all seed programs and return the best one.
 
     When *max_parallel* > 1 and multiple compute backends are available,
@@ -139,7 +139,7 @@ def _evaluate_seeds(
             len(to_evaluate),
         )
 
-    def _eval_one(program: Path) -> tuple[Path, dict[str, float | str]]:
+    def _eval_one(program: Path) -> tuple[Path, dict[str, Any]]:
         _log.info("Evaluating seed program: %s", program.name)
         metrics = evaluator.evaluate(str(program))
         score = metrics.get("combined_score", 0.0)
@@ -153,7 +153,7 @@ def _evaluate_seeds(
 
     # Start with cached results
     best_path: Path | None = None
-    best_metrics: dict[str, float | str] = {}
+    best_metrics: dict[str, Any] = {}
     best_score = float("-inf")
 
     for program in seed_programs:
@@ -519,7 +519,7 @@ def main(argv: list[str] | None = None) -> None:
 
     # ---- Set up results directory -----------------------------------
     seed_programs = _discover_seed_programs(target)
-    cached_seeds: dict[str, dict[str, float | str]] = {}
+    cached_seeds: dict[str, dict[str, Any]] = {}
 
     if args.resume:
         # Scan results directories newest-to-oldest, use the first one
