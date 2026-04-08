@@ -60,6 +60,8 @@ class RemoteSSHBackend:
                 "timeout": self._timeout,
             },
         )
+        # Proactively kill any orphaned workers from previous runs
+        self._kill_remote_workers()
 
     # ------------------------------------------------------------------
     # Internal helpers

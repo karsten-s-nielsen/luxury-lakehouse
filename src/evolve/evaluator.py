@@ -263,18 +263,27 @@ class EvolveEvaluator:
             program = _load_program(program_path)
         except Exception:
             _log.exception("Failed to load program %s", program_path)
-            return {**fail_metrics(), **self._fail_score()}
+            return {**fail_metrics(), **self._fail_score(), "reject_reason": "load_error"}
 
         config = program.config
+
+        # When custom_embed is present, conditioning_type is ignored (the custom
+        # function replaces the built-in conditioning).  Override to a valid value
+        # so search-space validation doesn't reject creative type names the LLM
+        # may invent (e.g. "adaptive_gating").
+        if program.has_custom_embed and "conditioning_type" in config:
+            config = {**config, "conditioning_type": "additive"}
+
         if not validate_search_space(config):
-            return {**fail_metrics(), **self._fail_score()}
+            _log.warning("Program %s rejected: search space validation failed", program_path)
+            return {**fail_metrics(), **self._fail_score(), "reject_reason": "search_space"}
 
         # Level 2 validation gate
         send_program_path: str | None = None
         if program.has_custom_embed or program.has_custom_layers:
             if self._validation_profile is None:
                 _log.error("Level 2 program but no ValidationProfile configured")
-                return {**fail_metrics(), **self._fail_score()}
+                return {**fail_metrics(), **self._fail_score(), "reject_reason": "no_profile"}
             source = Path(program_path).read_text()
             valid, reason = validate_program(
                 source,
@@ -283,7 +292,7 @@ class EvolveEvaluator:
             )
             if not valid:
                 _log.warning("Program %s rejected: %s", program_path, reason)
-                return {**fail_metrics(), **self._fail_score()}
+                return {**fail_metrics(), **self._fail_score(), "reject_reason": reason}
             send_program_path = program_path
 
         train_kwargs: dict[str, Any] = {
@@ -299,7 +308,7 @@ class EvolveEvaluator:
             metrics = self._backend.train(**train_kwargs)
         except Exception:
             _log.exception("Backend training failed for %s", program_path)
-            return {**fail_metrics(), **self._fail_score()}
+            return {**fail_metrics(), **self._fail_score(), "reject_reason": "backend_error"}
 
         combined = self._compute_combined_score(metrics)
         return {**metrics, "combined_score": combined}

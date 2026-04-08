@@ -114,6 +114,10 @@ setattr(), any __dunder__ attributes, f-strings, or any module not listed above.
 5. Keep custom_embed under 50 lines — complexity kills gradient flow.
 6. Always call self.embedding_dropout on your output.
 7. hidden_dim MUST be divisible by num_heads. Safe combos: 192/6, 256/8, 384/12.
+8. VRAM BUDGET: Total model parameters MUST stay under 10M. The GPU has 16 GB
+   VRAM. Never create intermediate tensors larger than (batch, seq_len, hidden_dim).
+   Avoid operations that scale quadratically with hidden_dim (e.g., outer products,
+   full attention over hidden dimensions). A candidate that OOMs scores 0.
 
 # Fitness Function
 
