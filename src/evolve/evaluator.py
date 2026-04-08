@@ -244,7 +244,7 @@ class EvolveEvaluator:
     # Public API
     # ------------------------------------------------------------------
 
-    def evaluate(self, program_path: str) -> dict[str, float]:
+    def evaluate(self, program_path: str) -> dict[str, float | str]:
         """Evaluate a candidate program and return fitness metrics.
 
         On any failure (bad config, training error, missing metrics) returns
