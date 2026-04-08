@@ -119,12 +119,19 @@ take (batch, seq_len, ...) input and return (batch, seq_len, hidden_dim).
 | self.end_x_mlp       | SpatialMLP(hd, smd)    | (B,S) -> (B,S,hd)               |
 | self.end_y_mlp       | SpatialMLP(hd, smd)    | (B,S) -> (B,S,hd)               |
 | self.time_delta_mlp   | SpatialMLP(hd, smd)    | (B,S) -> (B,S,hd)               |
-| self.player_cross_attn | MultiheadAttention     | 3x(B,S,hd) -> (B,S,hd)          |
-| self.player_cross_norm | LayerNorm(hd)         | (B,S,hd) -> (B,S,hd)            |
-| self.film_scale       | Sequential(Linear,Sig) | (B,S,hd) -> (B,S,hd)            |
-| self.film_shift       | Linear(hd, hd)        | (B,S,hd) -> (B,S,hd)            |
-| self.player_gate      | Sequential(Linear,Sig) | (B,S,hd) -> (B,S,hd)            |
+| self.player_cross_attn | MultiheadAttention     | 3x(B,S,hd) -> (B,S,hd)  [seed]  |
+| self.player_cross_norm | LayerNorm(hd)         | (B,S,hd) -> (B,S,hd)    [seed]  |
+| self.film_scale       | Sequential(Linear,Sig) | (B,S,hd) -> (B,S,hd)  [film only] |
+| self.film_shift       | Linear(hd, hd)        | (B,S,hd) -> (B,S,hd)  [film only] |
+| self.player_gate      | Sequential(Linear,Sig) | (B,S,hd) -> (B,S,hd)  [gated only]|
 | self.embedding_dropout | Dropout                | (B,S,hd) -> (B,S,hd)            |
+
+IMPORTANT: Attributes marked [seed], [film only], [gated only] are CONDITIONAL —
+they only exist when the model was initialized with that conditioning_type. The
+seed uses cross_attention, so only player_cross_attn and player_cross_norm are
+available. film_scale, film_shift, and player_gate DO NOT EXIST on the seed model.
+If you need a gate or scale layer, declare it in custom_layers(). Referencing an
+attribute that does not exist will crash and score 0.
 
 You may also access any layer declared in your custom_layers() return dict.
 Custom Linear/Sequential layers applied to (B,S,hd) tensors will broadcast
@@ -163,3 +170,22 @@ combined_score = 0.7 * spearman_rho + 0.3 * top1_accuracy
 
 Structural novelty that hurts rho is worse than a simple config tweak that
 improves it. The bar is: your code must outperform the best config-only variant.
+
+# Performance Reference
+
+The cross_attention seed achieves rho ~0.56 using this pattern:
+```python
+    attn_out, _ = self.player_cross_attn(query=action_emb, key=player_emb, value=player_emb)
+    emb = self.player_cross_norm(action_emb + attn_out)
+```
+
+Simple gating patterns (gate * action + (1 - gate) * player) consistently score
+rho < 0.05 — they destroy the ranking signal. The attention mechanism is what
+drives rho because it allows each action token to selectively attend to the
+player context.
+
+To beat the seed, consider:
+- Hybrid approaches: attention + gating, multi-head variants, learned residual weights
+- Richer player-action interaction: bilinear pooling, FiLM on attention output
+- Multi-scale conditioning: different mechanisms for spatial vs temporal features
+- Do NOT replace attention with simple gating — that is a known regression.
