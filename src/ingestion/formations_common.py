@@ -94,6 +94,44 @@ def derive_formation_label(vertical_levels: list[str]) -> str:
     return "-".join(parts) if parts else "unknown"
 
 
+def find_incomplete_formation_ids(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+) -> list[str]:
+    """Match IDs in tracking that don't have results from BOTH detectors.
+
+    A match is "fully processed" when it has results from at least 2 distinct
+    detectors (EFPI + Shape Graph). Uses Spark-native aggregation to push the
+    completeness check to executors.
+    """
+    from pyspark.sql import functions as F  # noqa: N812
+
+    gold_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_tracking_frames"
+    results_table = f"{catalog}.{schema}.{TABLE_NAME}"
+
+    try:
+        source_df = spark.table(gold_table).select(F.col("match_id").cast("string").alias("match_id")).distinct()
+    except Exception:
+        return []
+
+    try:
+        fully_processed = (
+            spark.table(results_table)
+            .groupBy(F.col("match_id").cast("string").alias("match_id"))
+            .agg(F.countDistinct("detector").alias("n_detectors"))
+            .filter(F.col("n_detectors") >= 2)
+            .select("match_id")
+        )
+        new_df = source_df.join(fully_processed, on="match_id", how="left_anti")
+    except Exception:
+        # Results table doesn't exist — all source IDs are new
+        new_df = source_df
+
+    rows = new_df.collect()
+    return [str(row["match_id"]) for row in rows]
+
+
 def prepare_tracking_data(
     spark: SparkSession,
     catalog: str,

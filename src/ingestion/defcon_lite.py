@@ -34,6 +34,7 @@ from analytics.defcon_lite import DefconLiteParams
 from ingestion.defcon_lite_360 import process_360_matches
 from ingestion.defcon_lite_common import _try_load_champion_defcon
 from ingestion.defcon_lite_tracking import process_tracking_matches
+from ingestion.guards import FilterResult
 from ingestion.utils import (
     configure_logging,
     get_spark_session,
@@ -53,6 +54,8 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
+    filter_360: FilterResult | None = None,
+    filter_tracking: FilterResult | None = None,
     ctx=None,
 ) -> None:
     """Execute the DEFCON-lite computation pipeline.
@@ -70,10 +73,12 @@ def run_pipeline(
     else:
         logger.info("Using per-match DEFCON training (no @Champion model found)")
 
-    total_360 = process_360_matches(spark, catalog, schema, logger, params, champion_bytes)
+    total_360 = process_360_matches(spark, catalog, schema, logger, params, champion_bytes, filter_result=filter_360)
     logger.info("360 processing complete: %d rows", total_360)
 
-    total_tracking = process_tracking_matches(spark, catalog, schema, logger, params, champion_bytes)
+    total_tracking = process_tracking_matches(
+        spark, catalog, schema, logger, params, champion_bytes, filter_result=filter_tracking
+    )
     logger.info("Tracking processing complete: %d rows", total_tracking)
 
     logger.info("DEFCON-lite pipeline complete — %d total rows written", total_360 + total_tracking)
@@ -89,8 +94,13 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
+    from ingestion.guards import read_gate_result
+
+    filter_360 = read_gate_result("wf-defcon")
+    filter_tracking = read_gate_result("wf-defcon-tracking")
+
     logger.info("Starting DEFCON-lite pipeline into %s.%s", args.catalog, args.schema)
-    run_pipeline(spark, args.catalog, args.schema, logger)
+    run_pipeline(spark, args.catalog, args.schema, logger, filter_360=filter_360, filter_tracking=filter_tracking)
 
 
 if __name__ == "__main__":

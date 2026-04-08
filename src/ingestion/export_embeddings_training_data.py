@@ -356,10 +356,15 @@ def run_pipeline(
     schema: str,
     pipeline_logger: logging.Logger,
     *,
+    filter_result: FilterResult | None = None,
     ctx: object | None = None,
 ) -> None:
     """Execute the Football2Vec v2 training data export pipeline."""
     _ = ctx
+    # Early exit if freshness gate determined no new work
+    if filter_result and filter_result.count == 0:
+        pipeline_logger.info("Freshness gate: no new training data export work")
+        return
     pipeline_logger.info("Starting Football2Vec v2 training data export for %s.%s", catalog, schema)
     row_count = _export_training_sequences(spark, catalog, schema, pipeline_logger)
     pipeline_logger.info("Exported %d player-match training sequences", row_count)
@@ -375,7 +380,11 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    run_pipeline(spark, args.catalog, args.schema, export_logger)
+    from ingestion.guards import read_gate_result
+
+    filter_result = read_gate_result("wf-football2vec-v2-export")
+
+    run_pipeline(spark, args.catalog, args.schema, export_logger, filter_result=filter_result)
 
 
 if __name__ == "__main__":

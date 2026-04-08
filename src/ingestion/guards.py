@@ -58,6 +58,89 @@ class FilterResult:
         return cls(**data)
 
 
+def find_new_ids(
+    spark: SparkSession,
+    source_table: str,
+    results_table: str,
+    id_column: str = "match_id",
+    *,
+    source_filter: str | None = None,
+    results_filter: str | None = None,
+) -> list[str]:
+    """Spark-native anti-join to find IDs present in source but not in results.
+
+    Pushes the set-difference to Spark executors via LEFT ANTI JOIN,
+    collecting only the (small) list of new IDs to the driver.
+    All IDs are cast to string for consistent cross-system normalization.
+
+    Args:
+        spark: Active SparkSession.
+        source_table: Fully-qualified source table (e.g., ``catalog.schema.table``).
+        results_table: Fully-qualified results table.
+        id_column: Column name for the join key (default ``match_id``).
+        source_filter: Optional SQL filter expression for source table.
+        results_filter: Optional SQL filter expression for results table.
+
+    Returns:
+        List of string IDs present in source but absent from results.
+        Empty list if source is empty or all IDs are already processed.
+        All source IDs if results table does not exist.
+    """
+    from pyspark.sql import functions as F  # noqa: N812
+
+    source_df = spark.table(source_table)
+    if source_filter:
+        source_df = source_df.filter(source_filter)
+    source_df = source_df.select(F.col(id_column).cast("string").alias(id_column)).distinct()
+
+    try:
+        results_df = spark.table(results_table)
+    except Exception:
+        # Results table does not exist — all source IDs are new
+        rows = source_df.collect()
+        return [str(row[id_column]) for row in rows]
+
+    if results_filter:
+        results_df = results_df.filter(results_filter)
+    results_df = results_df.select(F.col(id_column).cast("string").alias(id_column)).distinct()
+
+    new_df = source_df.join(results_df, on=id_column, how="left_anti")
+    rows = new_df.collect()
+    return [str(row[id_column]) for row in rows]
+
+
+def read_gate_result(workflow_id: str) -> FilterResult | None:
+    """Read a FilterResult written by the freshness gate via Databricks task values.
+
+    Called from pipeline ``main()`` functions to receive the gate's pre-computed
+    guard result, avoiding redundant inline guard queries.
+
+    Args:
+        workflow_id: Databricks task value key written by the freshness gate
+            (e.g., ``"wf-pitch-control"``). Must match the key used in
+            ``_write_task_values()``.
+
+    Returns ``None`` in standalone mode (no dbutils available), if the
+    freshness gate task key is missing, or on any deserialization error.
+    """
+    import logging
+
+    _logger = logging.getLogger(__name__)
+    try:
+        from pyspark.dbutils import DBUtils  # type: ignore[import-untyped]
+        from pyspark.sql import SparkSession
+
+        spark = SparkSession.getActiveSession()
+        if not spark:
+            return None
+        dbutils = DBUtils(spark)
+        raw = dbutils.jobs.taskValues.get(taskKey="freshness_gate", key=workflow_id)
+        return FilterResult.from_json(raw)
+    except Exception:
+        _logger.debug("read_gate_result(%s): not available (standalone mode or missing key)", workflow_id)
+        return None
+
+
 class SkipGuard(Protocol):
     """Port: each workflow exposes its freshness check.
 

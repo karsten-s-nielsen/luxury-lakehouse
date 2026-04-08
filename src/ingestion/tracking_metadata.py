@@ -40,6 +40,13 @@ class _TrackingMetadataGuard:
     workflow_id = "wf-tracking-metadata"
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        """Skip if tracking metadata table already exists and is populated."""
+        try:
+            row_count = spark.table(f"{catalog}.{schema}.tracking_player_metadata").limit(1).count()
+            if row_count > 0:
+                return FilterResult(workflow_id=self.workflow_id, count=0)
+        except Exception:  # noqa: S110
+            pass
         return FilterResult(workflow_id=self.workflow_id, count=1)
 
 

@@ -40,8 +40,6 @@ from workflows import workflow
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
-_guard_logger = logging.getLogger(f"{__name__}.guard")
-
 
 class _LineBreakingGuard:
     """SkipGuard adapter for line-breaking pass detection pipeline."""
@@ -50,69 +48,44 @@ class _LineBreakingGuard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check if any data path has unprocessed matches."""
+        from ingestion.guards import find_new_ids
+
         results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
 
-        total_new = 0
+        sb_ids = find_new_ids(
+            spark,
+            f"{catalog}.bronze.statsbomb_360",
+            results_table,
+            results_filter="data_source = 'statsbomb_360'",
+        )
+        metrica_ids = find_new_ids(
+            spark,
+            f"{catalog}.bronze.metrica_events",
+            results_table,
+            source_filter="event_type = 'PASS'",
+            results_filter="data_source = 'metrica_tracking'",
+        )
+        idsse_ids = find_new_ids(
+            spark,
+            f"{catalog}.bronze.idsse_events",
+            results_table,
+            source_filter="event_type IN ('successfulPassEvent', 'failedPassEvent')",
+            results_filter="data_source = 'idsse_tracking'",
+        )
 
-        # Path A: StatsBomb 360
-        try:
-            a_rows = spark.table(f"{catalog}.bronze.statsbomb_360").select("match_id").distinct().collect()
-            a_all = {str(r["match_id"]) for r in a_rows}
-        except Exception:
-            a_all = set()
-
-        # Path B: Metrica events
-        try:
-            b_rows = (
-                spark.table(f"{catalog}.bronze.metrica_events")
-                .filter("event_type = 'PASS'")
-                .select("match_id")
-                .distinct()
-                .collect()
-            )
-            b_all = {str(r["match_id"]) for r in b_rows}
-        except Exception:
-            b_all = set()
-
-        # Path C: IDSSE events
-        try:
-            c_rows = (
-                spark.table(f"{catalog}.bronze.idsse_events")
-                .filter("event_type = 'successfulPassEvent' OR event_type = 'failedPassEvent'")
-                .select("match_id")
-                .distinct()
-                .collect()
-            )
-            c_all = {str(r["match_id"]) for r in c_rows}
-        except Exception:
-            c_all = set()
-
-        # Existing results by data source
-        for source, source_ids in [
-            ("statsbomb_360", a_all),
-            ("metrica_tracking", b_all),
-            ("idsse_tracking", c_all),
-        ]:
-            if not source_ids:
-                continue
-            existing: set[str] = set()
-            try:
-                ex_rows = (
-                    spark.table(results_table)
-                    .filter(f"data_source = '{source}'")
-                    .select("match_id")
-                    .distinct()
-                    .collect()
-                )
-                existing = {str(r["match_id"]) for r in ex_rows}
-            except Exception:
-                _guard_logger.debug("Cannot read %s for source %s", results_table, source)
-            total_new += len(source_ids - existing)
-
+        total_new = len(sb_ids) + len(metrica_ids) + len(idsse_ids)
         if total_new == 0:
             return FilterResult(workflow_id=self.workflow_id, count=0)
 
-        return FilterResult(workflow_id=self.workflow_id, count=total_new)
+        return FilterResult(
+            workflow_id=self.workflow_id,
+            count=total_new,
+            metadata={
+                "statsbomb_360_ids": sb_ids,
+                "metrica_ids": metrica_ids,
+                "idsse_ids": idsse_ids,
+            },
+        )
 
 
 skip_guard = _LineBreakingGuard()
@@ -130,9 +103,15 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
+    filter_result: FilterResult | None = None,
     ctx=None,
 ) -> None:
     """Execute the line-breaking detection pipeline."""
+    # Early exit if freshness gate determined no new work
+    if filter_result and filter_result.count == 0:
+        logger.info("Freshness gate: no new line-breaking work")
+        return
+
     params = LineBreakingParams()
 
     path_a_rows = _process_statsbomb_360(spark, catalog, schema, logger, params)
@@ -158,8 +137,12 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
+    from ingestion.guards import read_gate_result
+
+    filter_result = read_gate_result("wf-line-breaking")
+
     logger.info("Starting line-breaking pipeline into %s.%s", args.catalog, args.schema)
-    run_pipeline(spark, args.catalog, args.schema, logger)
+    run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
 
 
 if __name__ == "__main__":
