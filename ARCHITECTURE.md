@@ -1,7 +1,7 @@
 # Databricks Lakebase Architecture — Soccer Analytics Platform
 
-> **Status**: Cycle 4 Phase 2 (GK Analytics + Tactical Positions pages) — 16 Taipy pages, 34 synced tables, 56 PG indexes (50 btree + 6 HNSW at 128d/144d). Hugging Face Hub: 7 models + 18 datasets published, GPU training on HF Jobs A10G. PSxG model (Brier 0.129). ScoutGPT decoder + training pipeline (D32). M2 OAuth PG role unblocked (databricks-sdk 0.102).
-> **Last Updated**: 2026-04-03
+> **Status**: Cycle 4 Phase 3 (Guard audit + pipeline fixes) — 16 Taipy pages, 34 synced tables, 56 PG indexes (50 btree + 6 HNSW at 128d/144d). Hugging Face Hub: 7 models + 18 datasets published, GPU training on HF Jobs L40S. PSxG model (Brier 0.129). ScoutGPT decoder + training pipeline (D32). Freshness gate + 29 skip guards (D40). M2 OAuth PG role unblocked (databricks-sdk 0.102).
+> **Last Updated**: 2026-04-08
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready
 
@@ -73,6 +73,15 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • elastic_sync → ELASTIC event-tracking alignment (Kim 2025)    │    │
 │  │  • compute_pausa → PAUSA pass timing (Lee et al. 2026)          │    │
 │  │  • model_validation → Drift detection (PSI/Wasserstein/CUSUM)   │    │
+│  │  • compute_pitch_control → Batch pitch control (applyInPandas)  │    │
+│  │  • compute_off_ball_xt → Off-ball xT (pitch control × xT grid)  │    │
+│  │  • compute_line_breaking → Line-breaking pass detection (batch)  │    │
+│  │  • import_obso_results → OBSO values from HF Hub to bronze      │    │
+│  │  • import_psxg_predictions → PSxG predictions from HF Hub       │    │
+│  │  • import_space_creation → Space creation values from HF Hub    │    │
+│  │  • extract_tracking_metadata → Tracking data metadata extraction│    │
+│  │  • freshness_gate → Centralized skip-guard evaluation (29 guards)│    │
+│  │  • evolve → Level 2 code evolution (ScoutGPT decoder, D32)      │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
@@ -110,17 +119,21 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • stg_idsse__events, stg_idsse__elastic_sync                  │    │
 │  │  • stg_pausa__values                                           │    │
 │  │                                                                  │    │
-│  │  GOLD (business logic, analytics-ready):                         │    │
+│  │  GOLD (business logic, analytics-ready — 29 fact + 4 dim):       │    │
 │  │  • fct_shots, fct_passes, fct_player_stats, fct_match_summary    │    │
 │  │  • fct_xg_predictions, fct_tracking_frames, fct_action_values    │    │
 │  │  • fct_player_embeddings, fct_physical_stats                     │    │
 │  │  • fct_defensive_values, fct_defcon_actions, fct_defcon_pressure │    │
 │  │  • fct_player_embeddings_season/career                           │    │
-│  │  • fct_pausa_values, fct_pass_timing, fct_pausa_rankings         │    │
+│  │  • fct_player_embeddings_season_360/career_360                   │    │
+│  │  • fct_pass_timing, fct_pausa_rankings                            │    │
 │  │  • fct_player_percentiles, fct_workflow_costs                    │    │
 │  │  • fct_formation_labels, fct_tracking_avg_positions              │    │
-│  │  • fct_tracking_shape_timeline                                   │    │
-│  │  • dim_players, dim_teams, dim_competitions                      │    │
+│  │  • fct_tracking_shape_timeline, fct_player_positions             │    │
+│  │  • fct_position_maps, fct_goalkeeper_stats                       │    │
+│  │  • fct_line_breaking_results, fct_off_ball_xt                    │    │
+│  │  • fct_space_creation                                            │    │
+│  │  • dim_players, dim_teams, dim_competitions, dim_tracking_matches│    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
@@ -190,6 +203,12 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 | `dev_gold.fct_player_positions` | `fct_player_positions_synced` | `position_id` | ~8,500 |
 | `dev_gold.fct_position_maps` | `fct_position_maps_synced` | `position_map_id` | ~600 |
 | `dev_gold.fct_line_breaking_results` | `fct_line_breaking_results_synced` | `line_breaking_id` | ~5,000,000 |
+| `dev_gold.fct_goalkeeper_stats` | `fct_goalkeeper_stats_synced` | `goalkeeper_stats_id` | ~600 |
+| `dev_gold.fct_off_ball_xt` | `fct_off_ball_xt_synced` | `off_ball_xt_id` | ~100,000 |
+| `dev_gold.fct_space_creation` | `fct_space_creation_synced` | `space_creation_id` | ~3,500 |
+| `dev_gold.fct_player_embeddings_career_360` | `fct_player_embeddings_career_360_synced` | `embedding_career_360_id` | ~8,950 |
+| `dev_gold.fct_player_embeddings_season_360` | `fct_player_embeddings_season_360_synced` | `embedding_season_360_id` | ~8,950 |
+| `observability.workflow_cost_live` | `workflow_cost_live_synced` | `cost_live_id` | ~500 |
 
 **Implementation notes:**
 
@@ -197,7 +216,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 - `logical_database_name = "databricks_postgres"` — standard Lakebase database
 - **Autoscaling workaround (provider v1.110.0):** `databricks_database_synced_database_table` only supports `database_instance_name` (Provisioned). Synced tables targeting Autoscaling projects must be created via Databricks UI, then imported into Terraform. `lifecycle { ignore_changes = all }` prevents drift. This applies to any new synced table.
 - **Schema changes:** Must delete synced table, drop ghost PG table, recreate via API, re-import into Terraform.
-- **PG indexes:** 44 btree indexes across 20 tables + 4 HNSW vector indexes on embedding tables (128-dim) = 45 total. Dropped on synced table recreation — re-run `scripts/create_indexes.py` alongside `scripts/lakebase_grants.sql`. Script now runs `ANALYZE` on all indexed tables to ensure the query planner uses indexes.
+- **PG indexes:** 50 btree indexes across 23 tables + 6 HNSW vector indexes on embedding tables (128-dim/144-dim) = 56 total. Dropped on synced table recreation — re-run `scripts/create_indexes.py` alongside `scripts/lakebase_grants.sql`. Script now runs `ANALYZE` on all indexed tables to ensure the query planner uses indexes.
 - **SNAPSHOT refresh:** Synced tables with `scheduling_policy = "SNAPSHOT"` do not auto-refresh. Run `scripts/refresh_synced_tables.py` after upstream dbt rebuilds. Supports `--wait` (poll until IDLE) and `--tables` (comma-separated subset). The Terraform provider has no schedule/cron field — this is the operational workaround.
 - **Credential API:** REST endpoint is `/api/2.0/postgres/credentials` (NOT `/api/2.0/database/credentials`).
 
@@ -217,8 +236,33 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 | Pass Timing | PAUSA scores, OBSO heatmap, temporal/spatial scatter | `fct_pausa_values_synced`, `fct_pass_timing_synced` |
 | Pitch Control | Physics (Spearman 2017) + Voronoi toggle from tracking data | `fct_tracking_frames_synced` |
 | Team Shape | Convex hull, centroid, formation lines, 6 spatial metrics, snapshot + timeline | `fct_tracking_avg_positions_synced`, `fct_tracking_shape_timeline_synced`, `fct_tracking_frames_synced` |
+| Goalkeeper Analytics | PSxG, distribution xT, collection, sweeper metrics, shot-stopping | `fct_goalkeeper_stats_synced`, `fct_shots_synced` |
+| Tactical Positions | Average positions, position maps, role assignments from tracking | `fct_player_positions_synced`, `fct_position_maps_synced`, `fct_tracking_avg_positions_synced` |
 | Defensive Impact | DEFCON-lite attacker pressure rankings, breakdown, match timeline | `fct_defcon_pressure_synced`, `fct_defcon_actions_synced` |
 | AI/ML Workflows | DAG visualization, cost tracking, workflow cards, run status | `fct_workflow_costs_synced` |
+
+### Freshness Gate & Skip Guards
+
+The freshness gate (`freshness_gate` entry point) is a centralized task that runs before all compute pipelines in the Databricks workflow. It evaluates 29 registered `SkipGuard` adapters (in `src/ingestion/guards.py`) to determine which downstream pipelines have new data to process.
+
+**Architecture:**
+- **Guard registry** (`_GUARD_MODULES`): Maps workflow IDs to guard modules. Each guard's `check()` returns a `FilterResult(workflow_id, count, chunks, metadata)`.
+- **`find_new_ids()`**: Spark LEFT ANTI JOIN with `cast("string")` normalization — pushes set difference to executors instead of collecting all IDs to the driver.
+- **`read_gate_result()`**: Pipelines read gate results via Databricks task values. Eliminates redundant data scans.
+- **Conformance tests**: `test_guard_conformance.py` auto-discovers all guards from the registry and validates their contracts.
+- **Production behavior**: Gate correctly identifies which pipelines have work (count > 0) vs. should skip (count = 0). Skipped pipelines exit early via `WorkflowSkippedError`.
+
+### Evolve Engine (Level 2 Code Evolution)
+
+The evolve engine (`src/evolve/`, entry point `evolve`) implements automated code evolution for neural network conditioning architectures. Governed by [ADR-001](docs/superpowers/adrs/ADR-001-evolve-code-execution.md).
+
+**Architecture:**
+- **Runner** (`runner.py`): Evolution loop — generates candidate programs via LLM, validates, evaluates, selects.
+- **Code validator** (`code_validator.py`): AST allowlist (parse-time) rejects dangerous constructs before execution.
+- **Evaluator** (`evaluator.py`): `exec()` under defense-in-depth: AST allowlist + restricted globals (`__builtins__: {}`) + subprocess isolation.
+- **5 execution backends**: Docker, HF Jobs, local CUDA, remote SSH, job pool. Selected by config.
+- **Target: ScoutGPT decoder** (`targets/scoutgpt/`): Evolves player-conditioned action prediction architectures. 5 seed programs (additive, cross-attention, FiLM, gated, hybrid gated attention).
+- **Gated by `code_evolution=True`**: Disabled by default. All other code continues to avoid `exec()`/`eval()`.
 
 ---
 
@@ -238,6 +282,7 @@ C4 diagrams (Context, Container, Component, Dynamic) are the standard deliverabl
 | **L4 — Dynamic** | Data Flow | End-to-end: API fetch → Bronze → dbt → Gold → Synced Table → Lakebase → Taipy |
 | **L4 — Dynamic** | Zero-ETL Sync | Gold Delta change → Lakeflow pipeline → Lakebase mirror update |
 | **Deployment** | Infrastructure | Databricks/AWS resource mapping |
+| **L3 — Component** | Guard Registry & Freshness Gate | 29 SkipGuard adapters, find_new_ids(), gate task, pipeline plumbing |
 
 ### 3.2 — C4 Model: Persons & External Systems
 
@@ -252,6 +297,9 @@ External Systems:
   - StatsBomb Open Data       : REST API + GitHub JSON (events, lineups, 360)
   - Metrica Sports Sample     : GitHub CSV (25fps tracking data)
   - Wyscout Public Dataset    : JSON (event streams, top 5 leagues)
+  - IDSSE (Bundesliga)        : DFL position + event XML from UC Volume (7 matches, 25fps)
+  - SkillCorner Open Data     : JSONL broadcast tracking via kloppy (10 A-League matches, 10fps)
+  - Hugging Face Hub          : Model/dataset hosting, HF Jobs GPU compute, wheel distribution
   - GitHub                    : Source control, CI/CD via Actions
   - AWS                       : Underlying cloud (S3 storage, IAM, networking)
 ```
@@ -286,9 +334,17 @@ System Boundary: Soccer Analytics Platform (Databricks on AWS)
   │   Technology: PostgreSQL 17, Autoscaling (0.5–4 CU), pgvector
   │   Responsibility: Low-latency OLTP queries for the Taipy app
   │
-  └── Taipy Dashboard              [Hugging Face Spaces (Docker SDK)]
-      Technology: Python + Taipy + mplsoccer + Plotly + psycopg2
-      Responsibility: Interactive analytics UI for coaches/analysts
+  ├── Taipy Dashboard              [Hugging Face Spaces (Docker SDK)]
+  │   Technology: Python + Taipy + mplsoccer + Plotly + psycopg2
+  │   Responsibility: Interactive analytics UI for coaches/analysts
+  │
+  ├── Evolve Engine                [Local CUDA / HF Jobs / Docker / Remote SSH]
+  │   Technology: Python + AST validation + restricted exec() (ADR-001)
+  │   Responsibility: Automated code evolution for ScoutGPT conditioning architectures
+  │
+  └── Hugging Face Hub             [External SaaS]
+      Technology: huggingface_hub + HF Jobs + HF Spaces
+      Responsibility: Model/dataset hosting, GPU training, wheel distribution, app deployment
 ```
 
 ### 3.4 — C4 Diagram Lifecycle
@@ -354,8 +410,8 @@ docs/c4/
 | 2 | AWS us-east-1 | Consistent with existing infrastructure |
 | 3 | Dev only (single environment) | Simplifies structure; add prod later |
 | 4 | Under $100/month budget | Scale-to-zero mandatory everywhere |
-| 5 | All 3 data sources from start | StatsBomb, Metrica, Wyscout all in Phase 2 |
-| 6 | No Kloppy in Phase 9 | Direct bronze adapters simpler; Kloppy deferred to Phase 10 |
+| 5 | All 5 data sources | StatsBomb, Metrica, Wyscout (Phase 2), IDSSE + SkillCorner (Phase 11/13) |
+| 6 | Kloppy for multi-provider tracking | SkillCorner ingestion uses Kloppy for standardized tracking data parsing. Event data adapters remain direct (simpler for provider-specific JSON/XML). |
 | 7 | "Fetch Once, Fork Twice" | SPADL reads from bronze — no redundant API calls |
 | 8 | Synced tables via UI + import | Provider lacks project/branch fields; `lifecycle { ignore_changes = all }` |
 | 9 | OAuth M2M everywhere | Zero secrets in CI; short-lived JWT (60 min) for app |
@@ -389,7 +445,7 @@ luxury-lakehouse/
 │   │   ├── lakebase/                 # Lakebase Autoscaling (PG 17)
 │   │   ├── sql_warehouse/            # Serverless SQL Warehouse
 │   │   ├── workflows/                # Ingestion job definitions
-│   │   ├── synced_tables/            # Gold → Lakebase sync (28 synced tables)
+│   │   ├── synced_tables/            # Gold → Lakebase sync (34 synced tables)
 │   │   ├── app/                      # (removed — Streamlit migrated to HF Spaces)
 │   │   ├── service_principals/       # Ingestion SP, App SP, CI SP + federation
 │   │   ├── github_oidc/              # AWS IAM OIDC provider + scoped role
@@ -431,7 +487,7 @@ luxury-lakehouse/
 │   │   ├── team_shape.py             # Convex hull, centroid, formation lines, spatial metrics from tracking
 │   │   └── xg_model.py               # Custom xG: logistic baseline + calibrated XGBoost (JSON serialization)
 │   │
-│   ├── ingestion/                    # @workflow-decorated Databricks pipelines (52 modules)
+│   ├── ingestion/                    # @workflow-decorated Databricks pipelines (51 modules)
 │   │   ├── bootstrap.py              # Centralized hook registration for all pipelines
 │   │   ├── cost_hook.py              # CostEstimateHook: lifecycle hook writing cost to Delta
 │   │   ├── defcon_lite.py            # DEFCON-lite batch computation (gold+bronze → bronze)
@@ -478,9 +534,13 @@ luxury-lakehouse/
 │   │   ├── vaep_training.py          # VAEP model training pipeline
 │   │   ├── wyscout.py                # Wyscout JSON ingestion
 │   │   ├── xg_model.py               # xG v1 scoring pipeline (logistic + XGBoost)
-│   │   └── xg_model_v2.py            # xG v2 scoring pipeline (Deep Sets + MC dropout)
+│   │   ├── xg_model_v2.py            # xG v2 scoring pipeline (Deep Sets + MC dropout)
+│   │   ├── freshness_gate.py         # Centralized skip-guard evaluation (29 guards)
+│   │   ├── guards.py                 # SkipGuard registry + find_new_ids() + read_gate_result()
+│   │   ├── hf_sync.py                # HF Hub dataset sync utilities
+│   │   └── tracking_metadata.py      # Tracking data metadata extraction
 │   │
-│   ├── workflows/                    # Workflow framework (8 modules, zero Spark/Taipy imports)
+│   ├── workflows/                    # Workflow framework (7 modules, zero Spark/Taipy imports)
 │   │   ├── card.py                   # WorkflowCard Pydantic model (YAML manifest schema)
 │   │   ├── context.py                # WorkflowContext: runtime metadata for lifecycle hooks
 │   │   ├── exceptions.py             # WorkflowSkippedError and custom exceptions
@@ -492,7 +552,25 @@ luxury-lakehouse/
 │   ├── shared/                       # Cross-package constants (zero external deps)
 │   │   └── constants.py              # IDENTIFIER_RE, DEFAULT_GOLD_SCHEMA, mlflow_model_uri()
 │   │
-│   └── tests/                        # 55 test modules
+│   ├── evolve/                       # Level 2 code evolution engine (ADR-001)
+│   │   ├── config.py                 # Evolution configuration (Pydantic)
+│   │   ├── code_validator.py         # AST allowlist validation (defense-in-depth)
+│   │   ├── evaluator.py              # Candidate evaluation (exec() under ADR-001 policy)
+│   │   ├── remote_worker.py          # Distributed execution handler
+│   │   ├── runner.py                 # Evolution loop entry point
+│   │   ├── backends/                 # 5 execution backends
+│   │   │   ├── docker.py             # Docker container isolation
+│   │   │   ├── hf_jobs.py            # Hugging Face Jobs execution
+│   │   │   ├── local_cuda.py         # Local GPU (RTX 5070 Ti)
+│   │   │   ├── pool.py               # Job pooling / scheduling
+│   │   │   └── remote_ssh.py         # Remote SSH execution (DGX Spark)
+│   │   └── targets/scoutgpt/         # ScoutGPT decoder evolution target
+│   │       ├── evaluator.py          # Fitness function (cross-entropy loss)
+│   │       ├── validation.py         # Solution validation
+│   │       ├── prompts/              # L1 + L2 system messages
+│   │       └── seed_programs/        # 5 conditioning architectures (additive, cross_attention, film, gated, hybrid)
+│   │
+│   └── tests/                        # 66 test modules
 │       ├── conftest.py               # Shared fixtures
 │       ├── test_augmentation.py
 │       ├── test_benchmarks.py        # Performance benchmarks (pytest-benchmark)
@@ -548,7 +626,18 @@ luxury-lakehouse/
 │       ├── test_workflows_auto_refresh.py
 │       ├── test_wyscout.py
 │       ├── test_xg_model.py
-│       └── test_xg_model_v2.py
+│       ├── test_xg_model_v2.py
+│       ├── test_scoutgpt_conditioning.py
+│       ├── test_backend_pool.py      # Evolve backend pool tests
+│       ├── test_hf_jobs_backend.py   # Evolve HF Jobs backend tests
+│       ├── test_code_validator.py    # Evolve AST validator tests
+│       ├── test_evolve_config.py     # Evolve configuration tests
+│       ├── test_evolve_evaluator.py  # Evolve evaluator tests
+│       ├── test_evolve_level2.py     # Evolve L2 prompt tests
+│       ├── test_freshness_gate.py    # Freshness gate tests
+│       ├── test_hf_sync.py           # HF sync tests
+│       ├── test_guards.py            # Guard registry + individual guard tests
+│       └── test_guard_conformance.py # Guard conformance suite (auto-discovers all guards)
 │
 ├── hf_taipy_app/                     # Production Taipy dashboard (deployed to HF Spaces)
 │   ├── src/
@@ -563,18 +652,24 @@ luxury-lakehouse/
 │   ├── models/
 │   │   ├── staging/                  # SILVER: statsbomb/, metrica/, wyscout/, spadl/, idsse/, skillcorner/, line_breaking/, off_ball_xt/, defcon/, entity_resolution/, pitch_control/, pausa/
 │   │   ├── intermediate/             # Cross-source joins (ephemeral)
-│   │   └── marts/                    # GOLD: 25 fact + 3 dimension tables
+│   │   └── marts/                    # GOLD: 29 fact + 4 dimension tables (33 total)
 │   ├── tests/                        # Custom data tests
 │   ├── macros/                       # distance_to_goal, shot_angle
-│   └── seeds/                        # competition_metadata.csv, position_mapping.csv, player_xref_overrides.csv
+│   └── seeds/                        # 6 seeds: competition_metadata, position_mapping, player_xref_overrides, competition_id_mapping, model_baseline_scalars, task_workflow_mapping
 │
-├── notebooks/
-│   ├── train_football2vec.py         # Databricks notebook: Doc2Vec training + Hugging Face Hub publishing
-│   ├── train_xg_model.py            # Databricks notebook: xG model training (logistic + XGBoost) + HF Hub publishing
-│   ├── sync_hf_weights.py           # Databricks notebook: Download model weights from HF Hub to UC Volume
-│   └── publish_datasets.py           # Databricks notebook: Export Gold tables as Parquet to HF Hub (5 datasets + model cards)
+├── workflow-cards/                    # 36 YAML workflow manifests (inputs, outputs, deps, cost, monitoring)
 │
-├── scripts/                          # Infrastructure, HF Jobs, and deployment scripts (28 Python + 3 shell/SQL)
+├── notebooks/                        # Databricks notebooks (8 scripts)
+│   ├── train_football2vec.py         # Doc2Vec training + HF Hub publishing
+│   ├── train_xg_model.py            # xG model training (logistic + XGBoost) + HF Hub publishing
+│   ├── sync_hf_weights.py           # Download model weights from HF Hub to UC Volume
+│   ├── publish_datasets.py           # Export Gold tables as Parquet to HF Hub
+│   ├── export_demo_data.py           # Export demo data for Gradio Space
+│   ├── import_obso_results.py        # Import OBSO results to bronze
+│   ├── publish_obso_data.py          # Publish OBSO data to HF Hub
+│   └── diag_defcon2.py               # DEFCON diagnostic notebook
+│
+├── scripts/                          # Infrastructure, HF Jobs, and deployment scripts (31 Python + 6 shell/SQL)
 │   ├── manage_space.py               # HF Space lifecycle: create/deploy/status/rebuild/teardown
 │   ├── deploy_wheel.py               # Downloads wheel from HF Hub build-artifacts → UC Volume for inference
 │   ├── setup_hf_buckets.py           # Initialize HF Buckets (demo-data) with versioned Parquet uploads
@@ -603,9 +698,15 @@ luxury-lakehouse/
 │   ├── train_scoutgpt_hf.py          # HF Jobs GPU script: ScoutGPT decoder training (Hong et al. 2025)
 │   ├── publish_freeze_frame_hf.py    # Publish StatsBomb 360 freeze-frame dataset to HF Hub
 │   ├── publish_xg_shots_hf.py        # Publish xG shot dataset to HF Hub
+│   ├── publish_spadl_vaep_hf.py      # Publish SPADL + VAEP dataset to HF Hub
+│   ├── export_embedding_atlas_data.py # Export embedding atlas data for visualization
+│   ├── benchmark_hf_jobs.py          # HF Jobs performance benchmarking
 │   ├── import_synced_tables.sh       # Terraform import workflow (19 tables)
+│   ├── create_cost_table.sql         # Create observability cost table DDL
 │   ├── lakebase_grants.sql           # PG GRANT SELECT for Taipy app SP
-│   └── deploy.sh                     # Wheel build + Terraform apply + ingestion trigger
+│   ├── deploy.sh                     # Wheel build + Terraform apply + ingestion trigger
+│   ├── run_evolve_local.sh           # Run evolve engine locally (CUDA)
+│   └── run_evolve_overnight.sh       # Run evolve engine overnight (multi-backend)
 │
 ├── .github/workflows/
 │   ├── python-ci.yml                 # ruff + pyright + pytest
@@ -629,7 +730,7 @@ luxury-lakehouse/
     │   │   └── vaep-model.md         # HF Hub model card: VAEP model (source of truth)
     │   ├── org-card.md               # HF Hub org card (source of truth)
     │   ├── org-interests.md          # HF Hub org "AI & ML interests" (paste via web UI)
-    │   └── dataset-cards/            # HF Hub dataset cards (13 datasets)
+    │   └── dataset-cards/            # HF Hub dataset cards (16 datasets)
     ├── huggingface-setup.md          # Hugging Face Hub integration guide (forks)
     └── plans/                        # Implementation design documents
 ```
@@ -651,7 +752,7 @@ luxury-lakehouse/
 | SSL verification | Explicit `verify=True` on all HTTP requests |
 | Timeouts | `(10, 30)` connect/read on every HTTP call |
 | Retry safety | Exponential backoff on transient errors (429/5xx); max 3 retries |
-| Bandit compliance | Ruff S rules enforced on `src/` and `scripts/`; no eval/exec/pickle/shell=True |
+| Bandit compliance | Ruff S rules enforced on `src/` and `scripts/`; no eval/exec/pickle/shell=True. Scoped exception: `exec()` permitted in `src/evolve/targets/*/evaluator.py` and `src/evolve/remote_worker.py` only, under [ADR-001](docs/superpowers/adrs/ADR-001-evolve-code-execution.md) defense-in-depth (AST allowlist + restricted globals + subprocess isolation) |
 | SAST | Semgrep in CI (`p/python` + `p/security-audit` rulesets) |
 | Content validation | Schema checks and non-empty assertions before every Delta write |
 | Model serialization | MLflow cloudpickle bounded by UC ACLs; executors receive JSON only (see [SECURITY.md](SECURITY.md)) |
@@ -692,9 +793,9 @@ All code must pass these gates before merge:
 
 | Level | What | How |
 |-------|------|-----|
-| Unit | Ingestion logic, utility functions, analytics models | pytest (807 passed, incl. pytest-benchmark baselines) |
+| Unit | Ingestion logic, utility functions, analytics models | pytest (66 test modules, incl. pytest-benchmark baselines) |
 | Integration | dbt models compile and run | dbt slim CI (`state:modified+`, `--empty`, `--defer`) |
-| Data quality | Row counts, value ranges, referential integrity | dbt tests (381) + dbt-expectations |
+| Data quality | Row counts, value ranges, referential integrity | dbt tests (~523) + dbt-expectations |
 | E2E | Taipy pages render with real data | Manual smoke test |
 | Infrastructure | Terraform validates | `terraform validate` + `terraform plan` |
 
@@ -703,9 +804,9 @@ All code must pass these gates before merge:
 Lakebase and Databricks performance standards are codified in [CLAUDE.md § Database Performance](CLAUDE.md#database-performance). Key rules:
 
 - **Lakebase (PG):** Index every filtered column on fact tables >100K rows. No `ON ONLY` indexes (partitioned tables). Avoid `SELECT DISTINCT` on large tables — use recursive CTE. Re-run `scripts/create_indexes.py` after every synced table recreation.
-- **Databricks (Spark/dbt):** `validate_dataframe()` returns row count to `write_delta_table()` (no double `df.count()`), all writes use `replaceWhere` for idempotency, don't `.toPandas()` unbounded tables, extract repeated window functions into CTEs. All 14 mart fact tables use `liquid_clustered_by` for automatic data layout (replaced static Z-ordering). Predictive Optimization enabled at catalog level. Auto-compaction and `optimizeWrite` enabled via `+tblproperties` on all mart tables. All 17 mart models enforce dbt model contracts (`contract: {enforced: true}`, `on_schema_change: fail`).
+- **Databricks (Spark/dbt):** `validate_dataframe()` returns row count to `write_delta_table()` (no double `df.count()`), all writes use `replaceWhere` for idempotency, don't `.toPandas()` unbounded tables, extract repeated window functions into CTEs. 24 mart models use `liquid_clustered_by` for automatic data layout (replaced static Z-ordering). Predictive Optimization enabled at catalog level. Auto-compaction and `optimizeWrite` enabled via `+tblproperties` on all mart tables. 30 of 33 mart models enforce dbt model contracts (`contract: {enforced: true}`, `on_schema_change: fail`).
 
-The platform has 44 btree indexes across 20 tables + 4 HNSW vector indexes on embedding tables at 128-dim (45 total) covering all Taipy query patterns. Managed by `scripts/create_indexes.py` with `ANALYZE` for planner statistics and `--verify` for EXPLAIN ANALYZE validation.
+The platform has 50 btree indexes across 23 tables + 6 HNSW vector indexes on embedding tables at 128-dim/144-dim (56 total) covering all Taipy query patterns. Managed by `scripts/create_indexes.py` with `ANALYZE` for planner statistics and `--verify` for EXPLAIN ANALYZE validation.
 
 ### 6.7 — Architecture Documentation
 
@@ -764,6 +865,12 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 | — | Defensive contribution (DEFCON) | Phase 17 — EPV decomposition + credit assignment |
 | — | PAUSA pass timing (Lee et al. 2026) | D9/D10/D16 — ELASTIC sync + OBSO + temporal/spatial decomposition |
 | — | Model validation & drift detection | D12 — PSI, Wasserstein, CUSUM, KS across all models |
+| — | Goalkeeper analytics (PSxG, dist. xT) | Cycle 4 Phase 2 — `fct_goalkeeper_stats` |
+| — | Tactical positions & formations | Cycle 4 Phase 2 — `fct_player_positions`, `fct_position_maps`, shape graphs |
+| — | Player embeddings (transformer) | D25/D45 — football2vec v2 128d + 360-enriched 144d |
+| — | ScoutGPT decoder | D32 — player-conditioned action prediction (Hong et al. 2025) |
+| — | Space creation & destruction | D20 — differential OBSO (Fernandez & Bornn 2018) |
+| — | Freshness gate + skip guards | D40 — centralized pipeline scheduling (29 guards) |
 
 ### C. Dependencies on MCP CodeDeploy Project
 

@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the current [architecture](ARCHITECTURE.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-04-05 (Evolve Level 1: self-contained evaluator bridge, --resume, HF Jobs L40S backend + GPU benchmark)
+**Last updated**: 2026-04-08 (Match Insights Page + Data Governance & Privacy-Preserving Analytics sections added)
 
 ---
 
@@ -788,6 +788,71 @@ Even before the Polars branch merges, two things are actionable today:
 
 1. **XET is already active** &mdash; our existing `HfApi().upload_folder()` calls already benefit from chunk-level dedup when updating published datasets. No code change needed.
 2. **Storage Buckets for demo data** &mdash; **DONE.** Demo data migrated to HF Bucket; `demo_space/app.py` reads from `hf://buckets/luxury-lakehouse/demo-data/`.
+
+---
+
+## Match Insights Page (Data → Wisdom)
+
+**Status:** Research — architectural design needed
+**Source:** Performance analysis course curricula (Donnelly, Thomson, Sfeir, Gronnemark)
+
+The philosophical endgame from six PA courses: the platform currently stops at the Information/Knowledge level of the Data → Wisdom pyramid. "The purpose of knowledge is action, not knowledge" (Aristotle, cited in every course). The numbers and charts are not the product — **actionable coaching implications** are the product.
+
+### What an Insight Is
+
+An insight has four elements:
+1. **Pattern** — automated detection across matches (trend, anomaly, benchmark deviation)
+2. **Context** — game state, opposition quality, time period, venue
+3. **Implication** — coaching recommendation ("prioritize left-side A3 entries", "address second-chance goal concession")
+4. **Benchmark** — reference values from published research or historical team performance
+
+### Implementation Approach
+
+Hybrid rule-based + LLM synthesis:
+
+- **Rule-based** (deterministic, trustworthy): conversion funnels, game-state splits, trend detection, benchmark comparisons, statistical significance tests
+- **LLM-driven** (narrative, prioritized): synthesize detected patterns into 2-3 coaching-language insights per match (Donnelly's "Power of Three" — max 3 coaching points), connect to practice implications
+
+### Insight Types
+
+| Type | Example |
+|------|---------|
+| **Match-level** | "You created 12 chances from 32 A3 entries (38%) — above your season average of 28%. However, 8/12 came from the left side." |
+| **Trend** | "Chance-to-goal conversion dropped from 25% to 12% over last 5 matches. xG per chance unchanged — finishing quality is the issue, not chance creation." |
+| **Player development** | "#3's cutback effectiveness 32% vs traditional crosses 19%. But in-behind runs at 47% — consider more early runs." |
+| **GK-specific** | "70% of GK actions were distribution. Play Beyond completion: 40% — long distribution is the development priority." |
+
+### Prerequisites
+
+- PA1 (Game State Segmentation) provides the context layer
+- PA2 (Set Piece Effectiveness) provides set piece pattern detection
+- PA3 (Throw-In Analytics) provides throw-in possession retention patterns
+- PA4 (Conversion Rate Funnel) provides the funnel metrics
+- LLM integration pattern for Taipy (research needed — could use HF Inference API or local model)
+
+---
+
+## Data Governance & Privacy-Preserving Analytics
+
+**Status:** Research — foundational capabilities for enterprise-grade governance
+
+### Data Lineage Documentation
+
+Formalize source-to-gold lineage per data provider. For each of the 5 providers, document: source format, coordinate system, sampling rate, schema mapping to canonical bronze table, staging model, mart model, and known limitations. Currently implicit in code — needs explicit documentation for governance audit readiness.
+
+**Deliverable:** `docs/data-lineage/` with one page per provider + a summary diagram showing the full medallion flow from source API to Taipy page.
+
+### Privacy-Preserving Aggregate Analytics
+
+Research spike for privacy-preserving statistical publishing. Use case: publish aggregate xG calibration curves, physical load percentile distributions, or formation frequency distributions without revealing individual match or player data.
+
+**Libraries to evaluate:**
+- [OpenDP](https://opendp.org/) (`opendp`) — Rust-backed, composable privacy framework
+- [IBM diffprivlib](https://github.com/IBM/differential-privacy-library) (`diffprivlib`) — scikit-learn-compatible DP mechanisms
+
+**Prototype target:** Add one library to dev dependencies in `pyproject.toml`. Implement epsilon-bounded DP noise on existing aggregate queries (COUNT/AVG on xG calibration data). Goal: working utility functions demonstrating the privacy-utility tradeoff, not production deployment.
+
+**Why this matters:** Any future multi-party analytics scenario (cross-club benchmarking, league-wide aggregate publishing) requires provable privacy guarantees. Starting with aggregate statistics is simpler than model training and delivers real analytical value.
 
 ---
 
