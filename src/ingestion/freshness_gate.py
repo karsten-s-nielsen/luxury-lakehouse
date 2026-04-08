@@ -116,7 +116,13 @@ def _emit_skipped_records(
 
 
 def _write_task_values(results: dict[str, FilterResult]) -> None:
-    """Write FilterResults as Databricks task values for downstream run_if."""
+    """Write FilterResults as Databricks task values for downstream gates.
+
+    Two task values per workflow:
+    - ``{wf_id}``: JSON FilterResult for ``read_gate_result()`` consumers.
+    - ``{wf_id}-count``: Raw integer count for Terraform ``condition_task``
+      ``GREATER_THAN 0`` evaluation (condition_task needs a numeric value).
+    """
     try:
         from pyspark.dbutils import DBUtils  # type: ignore[import-untyped]
         from pyspark.sql import SparkSession
@@ -126,6 +132,7 @@ def _write_task_values(results: dict[str, FilterResult]) -> None:
             dbutils = DBUtils(spark)
             for wf_id, result in results.items():
                 dbutils.jobs.taskValues.set(key=wf_id, value=result.to_json())
+                dbutils.jobs.taskValues.set(key=f"{wf_id}-count", value=result.count)
     except Exception:
         logger.debug("Task values not available (standalone mode)")
 

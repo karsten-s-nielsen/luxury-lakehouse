@@ -195,6 +195,7 @@ class CostEstimateHook:
             "job_run_id": int(self._job_run_id) if self._job_run_id and self._job_run_id.isdigit() else None,
             "task_key": self._task_key,
             "hf_job_id": None,  # Always None for Databricks runtime
+            "entity_count": ctx.entity_count,
             "rate_usd_per_hour": Decimal(str(self._rate_usd_per_hour)),
         }
         row.update(fields)
@@ -213,6 +214,7 @@ class CostEstimateHook:
                 StructField("ended_at", TimestampType(), True),
                 StructField("duration_seconds", IntegerType(), True),
                 StructField("row_count", IntegerType(), True),
+                StructField("entity_count", IntegerType(), True),
                 StructField("rate_usd_per_hour", DecimalType(10, 6), True),
                 StructField("estimated_cost_usd", DecimalType(10, 4), True),
                 StructField("cost_source", StringType(), False),

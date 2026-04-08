@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS {catalog}.observability.workflow_cost_live (
     ended_at           TIMESTAMP,
     duration_seconds   INT,
     row_count          INT,
+    entity_count       INT,
     rate_usd_per_hour  DECIMAL(10,6),
     estimated_cost_usd DECIMAL(10,4),
     cost_source        STRING        NOT NULL,

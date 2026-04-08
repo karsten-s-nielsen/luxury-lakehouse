@@ -36,6 +36,7 @@ from ingestion.utils import (
 )
 from shared.constants import DEFAULT_GOLD_SCHEMA
 from workflows import workflow
+from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -221,7 +222,7 @@ def run_pipeline_v1(
     schema: str,
     logger: logging.Logger,
     *,
-    filter_result: FilterResult | None = None,
+    filter_result: FilterResult,
     ctx: object = None,
 ) -> None:
     """Compute v1 Doc2Vec player embeddings via applyInPandas.
@@ -231,42 +232,22 @@ def run_pipeline_v1(
     batch assignment, applyInPandas behavioral inference, stat vector merge,
     and Delta write.
     """
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new work")
+
     logger.info("Starting v1 Doc2Vec embedding pipeline for %s.%s", catalog, schema)
 
-    # 0. Incremental check — use guard metadata if available, else inline check
-    if filter_result and filter_result.metadata.get("new_match_ids"):
-        new_matches = filter_result.metadata["new_match_ids"]
+    # 0. Extract new match IDs from guard metadata if available
+    new_match_ids = filter_result.metadata.get("new_match_ids")
+    match_id_set: set[str] | None = set(new_match_ids) if new_match_ids else None
+
+    if new_match_ids:
+        logger.info("%d new matches to process — running full pipeline", len(new_match_ids))
     else:
-        from ingestion.guards import find_new_ids
-
-        source_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_action_values"
-        results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
-
-        # Defensive fallback: if source returns empty but results exist,
-        # the query may have a transient issue — skip rather than recomputing.
-        try:
-            has_results = spark.table(results_table).limit(1).count() > 0
-        except Exception:
-            has_results = False
-
-        new_matches = find_new_ids(
-            spark,
-            source_table=source_table,
-            results_table=results_table,
-        )
-
-        if not new_matches and has_results:
-            logger.info("All matches already have embeddings — skipping full recompute")
-            return
-
-        if not new_matches:
-            logger.info("No source matches found — skipping")
-            return
-
-    logger.info("%d new matches to process — running full pipeline", len(new_matches))
+        logger.info("Guard reported %d items — running full pipeline", filter_result.count)
 
     # 1. Load events as distributed Spark DataFrame (no .toPandas())
-    events_sdf = _load_events_sdf(spark, catalog, schema, match_ids=set(new_matches))
+    events_sdf = _load_events_sdf(spark, catalog, schema, match_ids=match_id_set)
 
     # Quick emptiness check via limit(1) — avoids full DAG recomputation
     if events_sdf.limit(1).count() == 0:
@@ -427,5 +408,7 @@ def main_v1() -> None:
     from ingestion.guards import read_gate_result
 
     filter_result = read_gate_result("wf-football2vec")
+    if filter_result is None:
+        filter_result = skip_guard.check(spark, args.catalog, args.schema)
 
     run_pipeline_v1(spark, args.catalog, args.schema, logger, filter_result=filter_result)

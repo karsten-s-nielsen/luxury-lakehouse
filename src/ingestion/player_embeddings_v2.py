@@ -31,6 +31,7 @@ from ingestion.utils import (
 )
 from shared.constants import DEFAULT_GOLD_SCHEMA
 from workflows import workflow
+from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -222,7 +223,7 @@ def run_pipeline_v2(
     schema: str,
     logger: logging.Logger,
     *,
-    filter_result: FilterResult | None = None,
+    filter_result: FilterResult,
     ctx: object = None,
 ) -> None:
     """Import pre-computed v2 transformer embeddings from HF Hub.
@@ -230,10 +231,8 @@ def run_pipeline_v2(
     Decorated with ``wf-football2vec-v2`` for independent cost/runtime tracking.
     Wraps ``_import_v2_embeddings`` and logs the outcome.
     """
-    # Early exit if freshness gate determined no new work
-    if filter_result and filter_result.count == 0:
-        logger.info("Freshness gate: no new v2 embedding work")
-        return
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new v2 embedding work")
 
     logger.info("Starting v2 transformer embedding import for %s.%s", catalog, schema)
 
@@ -255,7 +254,7 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
-    filter_result: FilterResult | None = None,
+    filter_result: FilterResult,
     ctx: object = None,
 ) -> None:
     """Execute the player embedding computation pipeline (convenience wrapper).
@@ -268,10 +267,8 @@ def run_pipeline(
     ``run_pipeline_v2`` or ``run_pipeline_v1`` for independent Databricks
     task execution with separate cost/runtime tracking.
     """
-    # Early exit if freshness gate determined no new work
-    if filter_result and filter_result.count == 0:
-        logger.info("Freshness gate: no new player embedding work")
-        return
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new player embedding work")
 
     from ingestion.player_embeddings_v1 import run_pipeline_v1
 
@@ -286,7 +283,7 @@ def run_pipeline(
         logger.warning("v2 import failed — falling back to Doc2Vec v1", exc_info=True)
 
     logger.info("Proceeding with v1 Doc2Vec inference path")
-    run_pipeline_v1(spark, catalog, schema, logger)
+    run_pipeline_v1(spark, catalog, schema, logger, filter_result=filter_result)
 
 
 # ---------------------------------------------------------------------------
@@ -307,6 +304,8 @@ def main() -> None:
     from ingestion.guards import read_gate_result
 
     filter_result = read_gate_result("wf-football2vec-v2")
+    if filter_result is None:
+        filter_result = skip_guard.check(spark, args.catalog, args.schema)
 
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
 
@@ -324,5 +323,7 @@ def main_v2() -> None:
     from ingestion.guards import read_gate_result
 
     filter_result = read_gate_result("wf-football2vec-v2")
+    if filter_result is None:
+        filter_result = skip_guard.check(spark, args.catalog, args.schema)
 
     run_pipeline_v2(spark, args.catalog, args.schema, logger, filter_result=filter_result)

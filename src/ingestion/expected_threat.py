@@ -11,12 +11,6 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from analytics.expected_threat import (
-    ExpectedThreatParams,
-    compute_expected_threat_grid,
-    grid_to_dataframe,
-    validate_xt_grid,
-)
 from ingestion.guards import FilterResult
 from ingestion.utils import (
     configure_logging,
@@ -26,6 +20,7 @@ from ingestion.utils import (
 )
 from shared.constants import DEFAULT_GOLD_SCHEMA
 from workflows import workflow
+from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -126,54 +121,34 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
-    filter_result: FilterResult | None = None,
+    filter_result: FilterResult,
     ctx=None,
 ) -> None:
     """Compute per-competition and global xT grids, write to Delta."""
-    # Early exit if freshness gate determined no new work
-    if filter_result and filter_result.count == 0:
-        logger.info("Freshness gate: no new xT grid work")
-        return
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new work")
+
+    from analytics.expected_threat import (
+        ExpectedThreatParams,
+        compute_expected_threat_grid,
+        grid_to_dataframe,
+        validate_xt_grid,
+    )
 
     params = ExpectedThreatParams()
-    results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
 
-    # ── Incremental skip guard on competition_id ──────────────────────
-    existing: set[str] = set()
-    try:
-        existing = {
-            str(row["competition_id"])
-            for row in spark.table(results_table).select("competition_id").distinct().collect()
-        }
-    except Exception:
-        logger.info("No existing %s table — will process all competitions", _TABLE_NAME)
-
-    # Determine available competition IDs from the gold mart (cheap Spark query)
-    types_sql = ", ".join(f"'{t}'" for t in _RELEVANT_TYPES)
-    available_comps = {
-        str(row["competition_id"])
-        for row in spark.sql(
-            f"SELECT DISTINCT competition_id FROM {catalog}.{DEFAULT_GOLD_SCHEMA}.{_GOLD_TABLE}"  # noqa: S608
-            f" WHERE action_type IN ({types_sql}) AND competition_id IS NOT NULL"
-        ).collect()
-    }
-
-    # Compute what's missing: per-competition grids + global grid
-    new_comps = sorted(available_comps - existing)
-    need_global = "global" not in existing
+    # Use guard-provided metadata instead of inline re-computation
+    new_comps = filter_result.metadata["new_competition_ids"]
+    need_global = filter_result.metadata.get("need_global", False)
 
     if not new_comps and not need_global:
-        logger.info(
-            "All %d xT grids already computed (including global) — skipping",
-            len(existing),
-        )
+        logger.info("All xT grids already computed (including global) — skipping")
         return
 
     logger.info(
-        "Need to compute %d new competition grids%s (existing: %d)",
+        "Need to compute %d new competition grids%s",
         len(new_comps),
         " + global" if need_global else "",
-        len(existing),
     )
 
     # ── Load actions (only for missing competitions + global) ─────────
@@ -189,6 +164,7 @@ def run_pipeline(
         actions_df = _load_actions(spark, catalog)
     else:
         comp_filter = ", ".join(f"'{c}'" for c in new_comps)
+        types_filter = ", ".join(f"'{t}'" for t in _RELEVANT_TYPES)
         query = f"""
             SELECT
                 competition_id,
@@ -196,7 +172,7 @@ def run_pipeline(
                 action_result AS result_name,
                 start_x, start_y, end_x, end_y
             FROM {catalog}.{DEFAULT_GOLD_SCHEMA}.{_GOLD_TABLE}
-            WHERE action_type IN ({types_sql})
+            WHERE action_type IN ({types_filter})
               AND CAST(competition_id AS STRING) IN ({comp_filter})
         """  # noqa: S608
         actions_df = spark.sql(query).toPandas()  # type: ignore[union-attr]
@@ -269,5 +245,7 @@ def main() -> None:
     from ingestion.guards import read_gate_result
 
     filter_result = read_gate_result("wf-xt-grids")
+    if filter_result is None:
+        filter_result = skip_guard.check(spark, args.catalog, args.schema)
 
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)

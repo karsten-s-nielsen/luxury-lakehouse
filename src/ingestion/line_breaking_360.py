@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from analytics.line_breaking import LineBreakingParams
 from ingestion.line_breaking_common import (
     _RESULT_COLUMNS,
     _TABLE_NAME,
@@ -24,6 +23,8 @@ from ingestion.utils import merge_delta_table
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
+
+    from analytics.line_breaking import LineBreakingParams
 
 
 # ---------------------------------------------------------------------------
@@ -122,6 +123,8 @@ def _process_statsbomb_360(
     schema: str,
     logger: logging.Logger,
     params: LineBreakingParams,
+    *,
+    new_ids: list[str],
 ) -> int:
     """Detect line-breaking passes using StatsBomb 360 freeze frame data.
 
@@ -129,45 +132,19 @@ def _process_statsbomb_360(
     ``groupBy("pass_match_id").applyInPandas`` to distribute detection
     across executors.
 
+    Parameters
+    ----------
+    new_ids : list[str]
+        Pre-computed list of new match IDs from the guard.
+
     Returns number of rows written.
     """
     events_table = f"{catalog}.{schema}.statsbomb_events"
     ff_table = f"{catalog}.{schema}.statsbomb_360"
 
-    # Get distinct match_ids that have 360 data (small query — just unique IDs)
-    try:
-        match_id_rows = spark.table(ff_table).select("match_id").distinct().collect()
-    except Exception:
-        logger.exception("Cannot read StatsBomb 360 table")
-        return 0
+    logger.info("Path A: %d matches from guard metadata", len(new_ids))
 
-    if not match_id_rows:
-        logger.info("No 360 data available — skipping Path A")
-        return 0
-
-    match_ids = [row["match_id"] for row in match_id_rows]
-    logger.info("Path A: %d matches with 360 data", len(match_ids))
-
-    # Incremental skip — only process matches not already in results table
-    results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
-    existing_ids: set[str] = set()
-    try:
-        existing_rows = (
-            spark.table(results_table).filter("data_source = 'statsbomb_360'").select("match_id").distinct().collect()
-        )
-        existing_ids = {str(row["match_id"]) for row in existing_rows}
-    except Exception:
-        logger.info("No existing %s table — processing all matches", results_table)
-
-    new_match_ids = [mid for mid in match_ids if str(mid) not in existing_ids]
-    logger.info(
-        "Path A: %d matches total, %d already processed, %d to process",
-        len(match_ids),
-        len(existing_ids),
-        len(new_match_ids),
-    )
-
-    if not new_match_ids:
+    if not new_ids:
         return 0
 
     # --- pyspark imports deferred past early-exit guards (not installed in test env) ---
@@ -175,7 +152,7 @@ def _process_statsbomb_360(
     from pyspark.sql.types import BooleanType, IntegerType, StringType, StructField, StructType
 
     # Build Spark DFs for passes and opponents, filtered to new matches only
-    new_ids_int = [int(mid) for mid in new_match_ids]
+    new_ids_int = [int(mid) for mid in new_ids]
 
     passes_df = (
         spark.table(events_table)

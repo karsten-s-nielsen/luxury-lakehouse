@@ -26,12 +26,15 @@ class WorkflowContext:
     workflow_name: str = ""
     workflow_type: str = ""
 
+    # Observability — how many input entities (matches, competitions) were requested
+    entity_count: int | None = None
+
     # Runtime metadata — set at context creation, not mutated
     partition_key: str = ""
 
-    def log_extra(self) -> dict[str, str]:
+    def log_extra(self) -> dict[str, str | int]:
         """Fields injected into every structured log line for this run."""
-        extra = {
+        extra: dict[str, str | int] = {
             "workflow_id": self.workflow_id,
             "workflow_phase": self.phase,
             "run_id": self.run_id,
@@ -40,6 +43,8 @@ class WorkflowContext:
         }
         if self.workflow_type:
             extra["workflow_type"] = self.workflow_type
+        if self.entity_count is not None:
+            extra["entity_count"] = self.entity_count
         if self.partition_key:
             extra["partition_key"] = self.partition_key
         return extra

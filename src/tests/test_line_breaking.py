@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from analytics.line_breaking import (
     LineBreakingParams,
@@ -677,74 +679,57 @@ class TestIncrementalSkipGuardPathA:
         return logging.getLogger("test_lb_skip")
 
     def test_all_matches_already_processed_skips(self) -> None:
-        """When all 360 match_ids exist in results, processing should be skipped entirely."""
+        """When new_ids is empty, processing should be skipped entirely."""
         spark = MagicMock()
         logger = self._make_logger()
         params = LineBreakingParams()
 
-        # spark.table(ff_table).select("match_id").distinct().toPandas()
-        # returns match_ids 100, 200
-        ff_pdf = pd.DataFrame({"match_id": [100, 200]})
-        # spark.table(results_table).filter(...).select("match_id").distinct().collect()
-        # returns same match_ids
-        existing_row_1 = MagicMock()
-        existing_row_1.__getitem__ = lambda self, k: "100"
-        existing_row_2 = MagicMock()
-        existing_row_2.__getitem__ = lambda self, k: "200"
-
-        # First call: ff_table -> toPandas returns match IDs
-        # Second call: results_table -> filter -> select -> distinct -> collect returns existing IDs
-        ff_table_mock = MagicMock()
-        ff_table_mock.select.return_value.distinct.return_value.toPandas.return_value = ff_pdf
-
-        results_table_mock = MagicMock()
-        results_table_mock.filter.return_value.select.return_value.distinct.return_value.collect.return_value = [
-            existing_row_1,
-            existing_row_2,
-        ]
-
-        def table_side_effect(name: str) -> MagicMock:
-            if name.endswith("statsbomb_360"):
-                return ff_table_mock
-            if name.endswith("line_breaking_results"):
-                return results_table_mock
-            return MagicMock()
-
-        spark.table.side_effect = table_side_effect
-
-        result = _process_statsbomb_360(spark, "cat", "bronze", logger, params)
+        result = _process_statsbomb_360(spark, "cat", "bronze", logger, params, new_ids=[])
 
         assert result == 0
-        # Should NOT have tried to read events (no new matches to process)
-        events_calls = [c for c in spark.table.call_args_list if "statsbomb_events" in str(c)]
-        assert len(events_calls) == 0
+        # Should NOT have tried to read any tables
+        assert spark.table.call_count == 0
 
-    def test_no_360_data_returns_zero(self) -> None:
-        """When 360 table is empty, should return 0."""
+    @patch.dict(
+        sys.modules,
+        {
+            "pyspark": MagicMock(),
+            "pyspark.sql": MagicMock(),
+            "pyspark.sql.functions": MagicMock(),
+            "pyspark.sql.types": MagicMock(),
+        },
+    )
+    @patch("ingestion.line_breaking_360.merge_delta_table", return_value=0)
+    def test_no_360_data_returns_zero(self, _mock_merge: MagicMock) -> None:
+        """When 360 table has no data for the given match, should return 0."""
         spark = MagicMock()
         logger = self._make_logger()
         params = LineBreakingParams()
 
-        ff_table_mock = MagicMock()
-        ff_table_mock.select.return_value.distinct.return_value.toPandas.return_value = pd.DataFrame(
-            columns=pd.Index(["match_id"])
-        )
+        spark.table.return_value = MagicMock()
 
-        spark.table.return_value = ff_table_mock
-
-        result = _process_statsbomb_360(spark, "cat", "bronze", logger, params)
+        result = _process_statsbomb_360(spark, "cat", "bronze", logger, params, new_ids=["100"])
         assert result == 0
 
+    @patch.dict(
+        sys.modules,
+        {
+            "pyspark": MagicMock(),
+            "pyspark.sql": MagicMock(),
+            "pyspark.sql.functions": MagicMock(),
+            "pyspark.sql.types": MagicMock(),
+        },
+    )
     def test_360_table_exception_returns_zero(self) -> None:
-        """When 360 table cannot be read, should return 0."""
+        """When 360 table cannot be read, the exception propagates (caller handles)."""
         spark = MagicMock()
         logger = self._make_logger()
         params = LineBreakingParams()
 
         spark.table.side_effect = Exception("Table not found")
 
-        result = _process_statsbomb_360(spark, "cat", "bronze", logger, params)
-        assert result == 0
+        with pytest.raises(Exception, match="Table not found"):
+            _process_statsbomb_360(spark, "cat", "bronze", logger, params, new_ids=["100"])
 
 
 # ---------------------------------------------------------------------------
@@ -759,75 +744,57 @@ class TestIncrementalSkipGuardPathB:
         return logging.getLogger("test_lb_skip_b")
 
     def test_all_matches_already_processed_skips(self) -> None:
-        """When all Metrica match_ids exist in results, processing should be skipped."""
+        """When new_ids is empty, processing should be skipped entirely."""
         spark = MagicMock()
         logger = self._make_logger()
         params = LineBreakingParams()
 
-        # Events table returns PASS events for matches m1, m2
-        events_match_row_1 = MagicMock()
-        events_match_row_1.__getitem__ = lambda self, k: "m1"
-        events_match_row_2 = MagicMock()
-        events_match_row_2.__getitem__ = lambda self, k: "m2"
-
-        # Results table has m1, m2 already
-        existing_row_1 = MagicMock()
-        existing_row_1.__getitem__ = lambda self, k: "m1"
-        existing_row_2 = MagicMock()
-        existing_row_2.__getitem__ = lambda self, k: "m2"
-
-        events_table_mock = MagicMock()
-        events_table_mock.filter.return_value.select.return_value.distinct.return_value.collect.return_value = [
-            events_match_row_1,
-            events_match_row_2,
-        ]
-
-        results_table_mock = MagicMock()
-        results_table_mock.filter.return_value.select.return_value.distinct.return_value.collect.return_value = [
-            existing_row_1,
-            existing_row_2,
-        ]
-
-        def table_side_effect(name: str) -> MagicMock:
-            if name.endswith("metrica_events"):
-                return events_table_mock
-            if name.endswith("line_breaking_results"):
-                return results_table_mock
-            return MagicMock()
-
-        spark.table.side_effect = table_side_effect
-
-        result = _process_metrica_tracking(spark, "cat", "bronze", logger, params)
+        result = _process_metrica_tracking(spark, "cat", "bronze", logger, params, new_ids=[])
 
         assert result == 0
-        # Should NOT have tried to read tracking data (all matches skipped)
-        tracking_calls = [c for c in spark.table.call_args_list if "metrica_tracking" in str(c)]
-        assert len(tracking_calls) == 0
+        # Should NOT have tried to read any tables
+        assert spark.table.call_count == 0
 
-    def test_no_pass_events_returns_zero(self) -> None:
-        """When there are no PASS events, should return 0."""
+    @patch.dict(
+        sys.modules,
+        {
+            "pyspark": MagicMock(),
+            "pyspark.sql": MagicMock(),
+            "pyspark.sql.functions": MagicMock(),
+            "pyspark.sql.types": MagicMock(),
+        },
+    )
+    @patch("ingestion.line_breaking_tracking.merge_delta_table", return_value=0)
+    def test_no_pass_events_returns_zero(self, _mock_merge: MagicMock) -> None:
+        """When there are no PASS events for the given match, should return 0."""
         spark = MagicMock()
         logger = self._make_logger()
         params = LineBreakingParams()
 
-        events_table_mock = MagicMock()
-        events_table_mock.filter.return_value.select.return_value.distinct.return_value.collect.return_value = []
+        spark.table.return_value = MagicMock()
 
-        spark.table.return_value = events_table_mock
-
-        result = _process_metrica_tracking(spark, "cat", "bronze", logger, params)
+        result = _process_metrica_tracking(spark, "cat", "bronze", logger, params, new_ids=["m1"])
         assert result == 0
 
+    @patch.dict(
+        sys.modules,
+        {
+            "pyspark": MagicMock(),
+            "pyspark.sql": MagicMock(),
+            "pyspark.sql.functions": MagicMock(),
+            "pyspark.sql.types": MagicMock(),
+        },
+    )
     def test_events_table_exception_returns_zero(self) -> None:
-        """When events table cannot be read, should return 0."""
+        """When events table cannot be read, the exception propagates (caller handles)."""
         spark = MagicMock()
         logger = self._make_logger()
         params = LineBreakingParams()
 
         spark.table.side_effect = Exception("Table not found")
 
-        result = _process_metrica_tracking(spark, "cat", "bronze", logger, params)
-        assert result == 0
+        with pytest.raises(Exception, match="Table not found"):
+            _process_metrica_tracking(spark, "cat", "bronze", logger, params, new_ids=["m1"])
 
 
 # ---------------------------------------------------------------------------
@@ -1055,72 +1022,54 @@ class TestIncrementalSkipGuardPathC:
         return logging.getLogger("test_lb_skip_c")
 
     def test_all_matches_already_processed_skips(self) -> None:
-        """When all IDSSE match_ids exist in results, processing should be skipped."""
+        """When new_ids is empty, processing should be skipped entirely."""
         spark = MagicMock()
         logger = self._make_logger()
         params = LineBreakingParams()
 
-        # Events table returns Play events for matches m1, m2
-        events_match_row_1 = MagicMock()
-        events_match_row_1.__getitem__ = lambda self, k: "idsse_J03WMX"
-        events_match_row_2 = MagicMock()
-        events_match_row_2.__getitem__ = lambda self, k: "idsse_J03WN1"
-
-        # Results table has same matches already
-        existing_row_1 = MagicMock()
-        existing_row_1.__getitem__ = lambda self, k: "idsse_J03WMX"
-        existing_row_2 = MagicMock()
-        existing_row_2.__getitem__ = lambda self, k: "idsse_J03WN1"
-
-        events_table_mock = MagicMock()
-        events_table_mock.filter.return_value.select.return_value.distinct.return_value.collect.return_value = [
-            events_match_row_1,
-            events_match_row_2,
-        ]
-
-        results_table_mock = MagicMock()
-        results_table_mock.filter.return_value.select.return_value.distinct.return_value.collect.return_value = [
-            existing_row_1,
-            existing_row_2,
-        ]
-
-        def table_side_effect(name: str) -> MagicMock:
-            if name.endswith("idsse_events"):
-                return events_table_mock
-            if name.endswith("line_breaking_results"):
-                return results_table_mock
-            return MagicMock()
-
-        spark.table.side_effect = table_side_effect
-
-        result = _process_idsse_tracking(spark, "cat", "bronze", logger, params)
+        result = _process_idsse_tracking(spark, "cat", "bronze", logger, params, new_ids=[])
 
         assert result == 0
-        # Should NOT have tried to read tracking data (all matches skipped)
-        tracking_calls = [c for c in spark.table.call_args_list if "idsse_tracking" in str(c)]
-        assert len(tracking_calls) == 0
+        # Should NOT have tried to read any tables
+        assert spark.table.call_count == 0
 
-    def test_no_play_events_returns_zero(self) -> None:
-        """When there are no Play events, should return 0."""
+    @staticmethod
+    def _pyspark_modules() -> dict[str, MagicMock]:
+        """Build mock pyspark modules with __le__ support for temporal join."""
+        mock_col = MagicMock()
+        mock_col.__le__ = MagicMock(return_value=MagicMock())
+        mock_functions = MagicMock()
+        mock_functions.abs.return_value = mock_col
+        mock_sql = MagicMock()
+        # Wire up so `from pyspark.sql import functions` resolves to mock_functions
+        mock_sql.functions = mock_functions
+        return {
+            "pyspark": MagicMock(),
+            "pyspark.sql": mock_sql,
+            "pyspark.sql.functions": mock_functions,
+            "pyspark.sql.types": MagicMock(),
+        }
+
+    @patch("ingestion.line_breaking_tracking.merge_delta_table", return_value=0)
+    def test_no_play_events_returns_zero(self, _mock_merge: MagicMock) -> None:
+        """When there are no Play events for the given match, should return 0."""
         spark = MagicMock()
         logger = self._make_logger()
         params = LineBreakingParams()
 
-        events_table_mock = MagicMock()
-        events_table_mock.filter.return_value.select.return_value.distinct.return_value.collect.return_value = []
+        spark.table.return_value = MagicMock()
 
-        spark.table.return_value = events_table_mock
-
-        result = _process_idsse_tracking(spark, "cat", "bronze", logger, params)
+        with patch.dict(sys.modules, self._pyspark_modules()):
+            result = _process_idsse_tracking(spark, "cat", "bronze", logger, params, new_ids=["m1"])
         assert result == 0
 
     def test_events_table_exception_returns_zero(self) -> None:
-        """When events table cannot be read, should return 0."""
+        """When events table cannot be read, the exception propagates (caller handles)."""
         spark = MagicMock()
         logger = self._make_logger()
         params = LineBreakingParams()
 
         spark.table.side_effect = Exception("Table not found")
 
-        result = _process_idsse_tracking(spark, "cat", "bronze", logger, params)
-        assert result == 0
+        with patch.dict(sys.modules, self._pyspark_modules()), pytest.raises(Exception, match="Table not found"):
+            _process_idsse_tracking(spark, "cat", "bronze", logger, params, new_ids=["m1"])

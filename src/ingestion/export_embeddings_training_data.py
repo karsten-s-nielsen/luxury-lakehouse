@@ -26,6 +26,7 @@ from ingestion.guards import FilterResult
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
 from shared.constants import DEFAULT_GOLD_SCHEMA
 from workflows import workflow
+from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -135,51 +136,7 @@ def _export_training_sequences(
     """
     _ = schema  # reads from DEFAULT_GOLD_SCHEMA, not the pipeline schema
     gold = DEFAULT_GOLD_SCHEMA
-
-    # ------------------------------------------------------------------
-    # 0. Skip guard — compare upstream freshness against last export
-    # ------------------------------------------------------------------
     output_path = _UC_VOLUME_PATH.format(catalog=catalog)
-    try:
-        upstream_max_ts = (
-            spark.table(f"{catalog}.{gold}.fct_action_values")
-            .selectExpr("MAX(_ingested_at) AS max_ts")
-            .collect()[0]["max_ts"]
-        )
-    except Exception:
-        upstream_max_ts = None
-
-    if upstream_max_ts is not None:
-        try:
-            existing_count = spark.read.parquet(output_path).count()
-            if existing_count > 0:
-                export_logger.info(
-                    "Training data already exists at %s (%d rows) — checking upstream freshness",
-                    output_path,
-                    existing_count,
-                )
-                # Compare against a simple marker: if the Parquet already has
-                # the same row count as the grouped action values, skip.
-                upstream_count = (
-                    spark.table(f"{catalog}.{gold}.fct_action_values")
-                    .select("player_id", "match_id")
-                    .distinct()
-                    .count()
-                )
-                if existing_count >= upstream_count:
-                    export_logger.info(
-                        "Existing export (%d rows) covers all %d upstream player-match pairs — skipping re-export",
-                        existing_count,
-                        upstream_count,
-                    )
-                    return existing_count
-                export_logger.info(
-                    "Upstream has %d player-match pairs vs %d exported — re-exporting",
-                    upstream_count,
-                    existing_count,
-                )
-        except Exception:
-            export_logger.info("No existing export at %s — full export", output_path)
 
     # ------------------------------------------------------------------
     # 1. Load actions joined to dim_players (Spark-native, no .toPandas())
@@ -356,15 +313,13 @@ def run_pipeline(
     schema: str,
     pipeline_logger: logging.Logger,
     *,
-    filter_result: FilterResult | None = None,
+    filter_result: FilterResult,
     ctx: object | None = None,
 ) -> None:
     """Execute the Football2Vec v2 training data export pipeline."""
     _ = ctx
-    # Early exit if freshness gate determined no new work
-    if filter_result and filter_result.count == 0:
-        pipeline_logger.info("Freshness gate: no new training data export work")
-        return
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new training data export work")
     pipeline_logger.info("Starting Football2Vec v2 training data export for %s.%s", catalog, schema)
     row_count = _export_training_sequences(spark, catalog, schema, pipeline_logger)
     pipeline_logger.info("Exported %d player-match training sequences", row_count)
@@ -383,6 +338,8 @@ def main() -> None:
     from ingestion.guards import read_gate_result
 
     filter_result = read_gate_result("wf-football2vec-v2-export")
+    if filter_result is None:
+        filter_result = skip_guard.check(spark, args.catalog, args.schema)
 
     run_pipeline(spark, args.catalog, args.schema, export_logger, filter_result=filter_result)
 

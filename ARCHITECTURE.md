@@ -1,6 +1,6 @@
 # Databricks Lakebase Architecture — Soccer Analytics Platform
 
-> **Status**: Cycle 4 Phase 3 (Guard audit + pipeline fixes) — 16 Taipy pages, 34 synced tables, 56 PG indexes (50 btree + 6 HNSW at 128d/144d). Hugging Face Hub: 7 models + 18 datasets published, GPU training on HF Jobs L40S. PSxG model (Brier 0.129). ScoutGPT decoder + training pipeline (D32). Freshness gate + 29 skip guards (D40). M2 OAuth PG role unblocked (databricks-sdk 0.102).
+> **Status**: Cycle 5 Phase 1 (Guard plumbing + observability) — 16 Taipy pages, 34 synced tables, 56 PG indexes (50 btree + 6 HNSW at 128d/144d). Hugging Face Hub: 7 models + 18 datasets published, GPU training on HF Jobs L40S. PSxG model (Brier 0.129). ScoutGPT decoder + training pipeline (D32). Freshness gate + 33 skip guards with mandatory `FilterResult` injection, Terraform `condition_task` gates, and `entity_count` observability (D40). M2 OAuth PG role unblocked (databricks-sdk 0.102).
 > **Last Updated**: 2026-04-08
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready
@@ -80,7 +80,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • import_psxg_predictions → PSxG predictions from HF Hub       │    │
 │  │  • import_space_creation → Space creation values from HF Hub    │    │
 │  │  • extract_tracking_metadata → Tracking data metadata extraction│    │
-│  │  • freshness_gate → Centralized skip-guard evaluation (29 guards)│    │
+│  │  • freshness_gate → Centralized skip-guard evaluation (33 guards)│    │
 │  │  • evolve → Level 2 code evolution (ScoutGPT decoder, D32)      │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
@@ -243,14 +243,16 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 
 ### Freshness Gate & Skip Guards
 
-The freshness gate (`freshness_gate` entry point) is a centralized task that runs before all compute pipelines in the Databricks workflow. It evaluates 29 registered `SkipGuard` adapters (in `src/ingestion/guards.py`) to determine which downstream pipelines have new data to process.
+The freshness gate (`freshness_gate` entry point) is a centralized task that runs before all compute pipelines in the Databricks workflow. It evaluates 33 registered `SkipGuard` adapters (in `src/ingestion/guards.py`) to determine which downstream pipelines have new data to process.
 
 **Architecture:**
 - **Guard registry** (`_GUARD_MODULES`): Maps workflow IDs to guard modules. Each guard's `check()` returns a `FilterResult(workflow_id, count, chunks, metadata)`.
 - **`find_new_ids()`**: Spark LEFT ANTI JOIN with `cast("string")` normalization — pushes set difference to executors instead of collecting all IDs to the driver.
-- **`read_gate_result()`**: Pipelines read gate results via Databricks task values. Eliminates redundant data scans.
-- **Conformance tests**: `test_guard_conformance.py` auto-discovers all guards from the registry and validates their contracts.
-- **Production behavior**: Gate correctly identifies which pipelines have work (count > 0) vs. should skip (count = 0). Skipped pipelines exit early via `WorkflowSkippedError`.
+- **Mandatory `FilterResult` injection**: `run_pipeline()` receives `FilterResult` as a **required** parameter (no default). Pipelines cannot run their own guards — `main()` resolves via `read_gate_result()` (production) or `skip_guard.check()` (standalone fallback). Inline `find_new_ids()` calls are prohibited outside guard classes, enforced by `TestNoInlineGuardInPipeline`.
+- **Terraform `condition_task` gates**: 27 zero-cost condition tasks evaluate `{{tasks.freshness_gate.values.wf-xxx-count}} GREATER_THAN 0` to prevent idle compute tasks from starting. The gate writes dual task values: JSON `FilterResult` (for pipeline consumption) + integer count (for Terraform conditions).
+- **Entity count observability**: `CostEstimateHook` writes `entity_count` (input entities from gate) alongside `row_count` (output rows) to `workflow_cost_live` in the observability schema.
+- **Conformance tests**: `test_guard_conformance.py` auto-discovers all guards from the registry and validates 6 architectural invariants: import isolation, mandatory parameters, no inline guards, standalone fallback, early exit structure, and early exit behavior (21 tests).
+- **Production behavior**: Gate correctly identifies which pipelines have work (count > 0) vs. should skip (count = 0). Skipped pipelines raise `WorkflowSkippedError` (triggers `on_skip` hook). Idle tasks don't start at all (Terraform condition gates).
 
 ### Evolve Engine (Level 2 Code Evolution)
 
@@ -282,7 +284,7 @@ C4 diagrams (Context, Container, Component, Dynamic) are the standard deliverabl
 | **L4 — Dynamic** | Data Flow | End-to-end: API fetch → Bronze → dbt → Gold → Synced Table → Lakebase → Taipy |
 | **L4 — Dynamic** | Zero-ETL Sync | Gold Delta change → Lakeflow pipeline → Lakebase mirror update |
 | **Deployment** | Infrastructure | Databricks/AWS resource mapping |
-| **L3 — Component** | Guard Registry & Freshness Gate | 29 SkipGuard adapters, find_new_ids(), gate task, pipeline plumbing |
+| **L3 — Component** | Guard Registry & Freshness Gate | 33 SkipGuard adapters, mandatory FilterResult injection, 15 condition_task gates, entity_count observability |
 
 ### 3.2 — C4 Model: Persons & External Systems
 
@@ -535,7 +537,7 @@ luxury-lakehouse/
 │   │   ├── wyscout.py                # Wyscout JSON ingestion
 │   │   ├── xg_model.py               # xG v1 scoring pipeline (logistic + XGBoost)
 │   │   ├── xg_model_v2.py            # xG v2 scoring pipeline (Deep Sets + MC dropout)
-│   │   ├── freshness_gate.py         # Centralized skip-guard evaluation (29 guards)
+│   │   ├── freshness_gate.py         # Centralized skip-guard evaluation (33 guards)
 │   │   ├── guards.py                 # SkipGuard registry + find_new_ids() + read_gate_result()
 │   │   ├── hf_sync.py                # HF Hub dataset sync utilities
 │   │   └── tracking_metadata.py      # Tracking data metadata extraction
@@ -787,6 +789,7 @@ All code must pass these gates before merge:
 | Infrastructure | Terraform plan output, Databricks audit logs |
 | Data pipeline | dbt test results, source freshness checks |
 | Ingestion | Databricks Workflow run history, row count assertions |
+| Cost tracking | `CostEstimateHook` → `observability.workflow_cost_live` (Delta MERGE per run: state, duration, cost, entity count, row count) |
 | Application | Taipy built-in metrics, Lakebase query logs |
 
 ### 6.5 — Testing Strategy
@@ -870,7 +873,7 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 | — | Player embeddings (transformer) | D25/D45 — football2vec v2 128d + 360-enriched 144d |
 | — | ScoutGPT decoder | D32 — player-conditioned action prediction (Hong et al. 2025) |
 | — | Space creation & destruction | D20 — differential OBSO (Fernandez & Bornn 2018) |
-| — | Freshness gate + skip guards | D40 — centralized pipeline scheduling (29 guards) |
+| — | Freshness gate + skip guards | D40 — centralized pipeline scheduling (33 guards), mandatory injection, condition_task gates, entity_count observability |
 
 ### C. Dependencies on MCP CodeDeploy Project
 

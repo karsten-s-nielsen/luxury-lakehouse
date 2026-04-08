@@ -25,8 +25,11 @@ from ingestion.guards import _GUARD_MODULES, FilterResult
 # ---------------------------------------------------------------------------
 _METADATA_EXEMPT = {
     "wf-statsbomb",  # Live data, internal skip logic
+    "wf-backfill-extra",  # Existence check, no ID metadata
+    "wf-backfill-360",  # Set-difference guard, no ID metadata
     "wf-metrica",  # Static dataset, count-based guard
     "wf-idsse",  # Static dataset, count-based guard
+    "wf-idsse-events",  # Static dataset, count-based guard
     "wf-skillcorner",  # Static dataset, count-based guard
     "wf-wyscout",  # Static dataset, count-based guard
     "wf-import-obso",  # HF Hub import, always-run
@@ -34,6 +37,7 @@ _METADATA_EXEMPT = {
     "wf-import-space-creation",  # HF Hub import, always-run
     "wf-model-validation",  # Monitoring, always-run
     "wf-sync-hf-costs",  # Polling sync, always-run
+    "wf-hf-sync",  # Orchestrator, always-run stub
     "wf-football2vec-v2",  # HF Hub import, always-run stub
     "wf-football2vec-v2-export",  # Count-comparison guard
     "wf-prepare-360-data",  # Count-comparison guard
@@ -52,17 +56,6 @@ _NO_OWN_PIPELINE = {
 # they are always-run stubs, static-dataset ingestors, or have
 # special orchestration that doesn't use the freshness gate.
 _READ_GATE_EXEMPT = {
-    "ingestion.statsbomb",  # Always-run, internal skip logic
-    "ingestion.metrica",  # Static dataset, guard is count-based
-    "ingestion.idsse",  # Static dataset, guard is count-based
-    "ingestion.skillcorner",  # Static dataset, guard is count-based
-    "ingestion.wyscout",  # Static dataset, guard is count-based
-    "ingestion.import_obso_results",  # HF Hub import, always-run
-    "ingestion.import_psxg_predictions",  # HF Hub import, always-run
-    "ingestion.import_space_creation",  # HF Hub import, always-run
-    "ingestion.tracking_metadata",  # Simple existence check
-    "ingestion.model_validation",  # Monitoring, always-run
-    "ingestion.sync_hf_costs",  # Polling sync, always-run
     "ingestion.defcon_lite_360",  # No own main(), orchestrated by defcon_lite
     "ingestion.defcon_lite_tracking",  # No own main(), orchestrated by defcon_lite
 }
@@ -224,45 +217,96 @@ class TestGuardMetadataContract:
 
 
 # ---------------------------------------------------------------------------
-# TestPipelineAcceptsFilterResult — Pipeline signatures
+# TestGuardImportIsolation — Guard module imports
 # ---------------------------------------------------------------------------
 
 
-class TestPipelineAcceptsFilterResult:
-    """Every pipeline's run_pipeline() must accept filter_result kwarg."""
+class TestGuardImportIsolation:
+    """Guard modules must not have analytics-extra imports at module level.
 
-    # Modules where the pipeline function uses non-standard filter params
-    _SPECIAL_CASES: ClassVar[dict[str, set[str]]] = {
-        "ingestion.defcon_lite": {"filter_360", "filter_tracking"},
-    }
+    The freshness gate runs in the ``default`` Databricks environment which
+    only has the luxury-lakehouse wheel (no analytics extras like scipy,
+    xgboost, silly-kicks). Module-level imports of these packages cause
+    silent guard failures — the gate swallows the ImportError and treats
+    the guard as count=0, so the pipeline bypasses the gate entirely.
+    """
 
-    # Modules whose run_pipeline legitimately omits filter_result
-    # (always-run stubs, static-dataset ingestors, or HF imports).
-    _FILTER_RESULT_EXEMPT: ClassVar[set[str]] = {
-        "ingestion.statsbomb",
-        "ingestion.metrica",
-        "ingestion.idsse",
-        "ingestion.skillcorner",
-        "ingestion.wyscout",
-        "ingestion.import_obso_results",
-        "ingestion.import_psxg_predictions",
-        "ingestion.import_space_creation",
-        "ingestion.tracking_metadata",
-        "ingestion.model_validation",
-        "ingestion.sync_hf_costs",
-        "ingestion.defcon_lite_360",  # Sub-module, no run_pipeline
-        "ingestion.defcon_lite_tracking",  # Sub-module, no run_pipeline
-    }
+    _ANALYTICS_PACKAGES: ClassVar[frozenset[str]] = frozenset(
+        {
+            "analytics",
+            "silly_kicks",
+            "xgboost",
+            "scipy",
+            "sklearn",
+            "rapidfuzz",
+            "sparse_dot_topn",
+            "unidecode",
+            "mplsoccer",
+            "matplotlib",
+            "torch",
+            "socceraction",
+        }
+    )
 
-    def test_run_pipeline_has_filter_result_param(self) -> None:
-        """Inspect the signature of run_pipeline functions for filter_result param."""
+    def test_no_analytics_imports_at_module_level(self) -> None:
+        """Top-level imports in guard modules must not pull analytics extras."""
+        failures: list[str] = []
         for module_path in _GUARD_MODULES:
-            if module_path in self._FILTER_RESULT_EXEMPT:
+            mod = importlib.import_module(module_path)
+            source_file = inspect.getfile(mod)
+            source = Path(source_file).read_text(encoding="utf-8")
+            tree = ast.parse(source)
+
+            for node in ast.iter_child_nodes(tree):
+                # Skip TYPE_CHECKING blocks (those are fine — not executed at runtime)
+                if isinstance(node, ast.If):
+                    continue
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        root = alias.name.split(".")[0]
+                        if root in self._ANALYTICS_PACKAGES:
+                            failures.append(f"{module_path}: import {alias.name}")
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    root = node.module.split(".")[0]
+                    if root in self._ANALYTICS_PACKAGES:
+                        failures.append(f"{module_path}: from {node.module}")
+
+        assert not failures, (
+            "Guard modules have analytics imports at module level "
+            "(move to function bodies):\n" + "\n".join(sorted(failures))
+        )
+
+
+# ---------------------------------------------------------------------------
+# TestMandatoryFilterResult — Pipeline signatures (strict)
+# ---------------------------------------------------------------------------
+
+
+class TestMandatoryFilterResult:
+    """run_pipeline() must accept filter_result as a REQUIRED parameter.
+
+    The mandatory injection pattern means pipelines cannot run without a
+    FilterResult — they receive it from main() which resolves it from
+    either the freshness gate (production) or skip_guard.check() (standalone).
+    """
+
+    _EXEMPT: ClassVar[set[str]] = {
+        "ingestion.defcon_lite_360",
+        "ingestion.defcon_lite_tracking",
+    }
+
+    _SPECIAL_CASES: ClassVar[dict[str, list[str]]] = {
+        "ingestion.defcon_lite": ["filter_360", "filter_tracking"],
+    }
+
+    def test_filter_result_is_required(self) -> None:
+        """filter_result param must have no default value."""
+        for module_path in _GUARD_MODULES:
+            if module_path in self._EXEMPT:
                 continue
 
             mod = importlib.import_module(module_path)
 
-            # Find the run_pipeline function (may be named run_pipeline_xxx)
             pipeline_fn = None
             for name, obj in inspect.getmembers(mod, inspect.isfunction):
                 if name.startswith("run_pipeline"):
@@ -270,57 +314,126 @@ class TestPipelineAcceptsFilterResult:
                     break
 
             if pipeline_fn is None:
-                continue  # Sub-modules without their own run_pipeline
+                continue
 
             sig = inspect.signature(pipeline_fn)
-            param_names = set(sig.parameters.keys())
+            expected_params = self._SPECIAL_CASES.get(module_path, ["filter_result"])
 
-            # Check for standard filter_result or special-case params
-            special = self._SPECIAL_CASES.get(module_path)
-            if special:
-                for expected_param in special:
-                    assert expected_param in param_names, (
-                        f"{module_path}.{pipeline_fn.__name__}() missing '{expected_param}' param"
-                    )
-            else:
-                assert "filter_result" in param_names, (
-                    f"{module_path}.{pipeline_fn.__name__}() missing 'filter_result' param"
+            for param_name in expected_params:
+                assert param_name in sig.parameters, (
+                    f"{module_path}.{pipeline_fn.__name__}() missing '{param_name}' param"
+                )
+                param = sig.parameters[param_name]
+                assert param.default is inspect.Parameter.empty, (
+                    f"{module_path}.{pipeline_fn.__name__}(): '{param_name}' must be "
+                    f"required (no default), but has default={param.default}"
                 )
 
 
 # ---------------------------------------------------------------------------
-# TestMainCallsReadGateResult — AST inspection
+# TestNoInlineGuardInPipeline — No guard calls in pipeline functions
 # ---------------------------------------------------------------------------
 
 
-class TestMainCallsReadGateResult:
-    """Every main() function must call read_gate_result() (unless exempt)."""
+class TestNoInlineGuardInPipeline:
+    """Pipeline functions must not run inline guards — IDs come from filter_result.
 
-    def test_main_calls_read_gate_result(self) -> None:
-        """AST-inspect each main() to verify read_gate_result is called."""
+    ``find_new_ids`` and ``find_incomplete_formation_ids`` must only appear
+    inside guard classes (``*Guard``) and ``main*`` functions. Any other
+    function calling them duplicates the gate's work.
+    """
+
+    _EXEMPT: ClassVar[set[str]] = {
+        "ingestion.defcon_lite_360",
+        "ingestion.defcon_lite_tracking",
+    }
+
+    _GUARD_CALL_MARKERS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "find_new_ids",
+            "find_incomplete_formation_ids",
+        }
+    )
+
+    def test_no_guard_calls_outside_guard_class(self) -> None:
+        """Non-guard, non-main functions must not call find_new_ids."""
+        failures: list[str] = []
         for module_path in _GUARD_MODULES:
-            if module_path in _READ_GATE_EXEMPT:
+            if module_path in self._EXEMPT:
                 continue
 
             mod = importlib.import_module(module_path)
-
-            # Skip modules without main()
-            if not hasattr(mod, "main"):
-                continue
-
-            # Get the source file
             source_file = inspect.getfile(mod)
             source = Path(source_file).read_text(encoding="utf-8")
             tree = ast.parse(source)
 
-            # Find all main* functions
+            guard_classes = {
+                node.name
+                for node in ast.iter_child_nodes(tree)
+                if isinstance(node, ast.ClassDef) and "Guard" in node.name
+            }
+
+            for node in ast.iter_child_nodes(tree):
+                if isinstance(node, ast.ClassDef) and node.name in guard_classes:
+                    continue
+                if isinstance(node, ast.FunctionDef) and node.name.startswith("main"):
+                    continue
+                if isinstance(node, ast.FunctionDef):
+                    for marker in self._GUARD_CALL_MARKERS:
+                        if _ast_has_name_or_attr(node, marker):
+                            failures.append(f"{module_path}.{node.name}() calls {marker}()")
+
+        assert not failures, (
+            "Pipeline functions must not run inline guards "
+            "(use filter_result.metadata instead):\n" + "\n".join(sorted(failures))
+        )
+
+
+# ---------------------------------------------------------------------------
+# TestMainStandaloneResolution — Gate + fallback in main()
+# ---------------------------------------------------------------------------
+
+
+class TestMainStandaloneResolution:
+    """main() must resolve guard result: gate first, skip_guard.check() fallback.
+
+    In production, main() reads FilterResult from Databricks task values
+    via read_gate_result(). In standalone mode (no task values), it must
+    call skip_guard.check() to compute the result locally. Both paths
+    must be present.
+    """
+
+    _EXEMPT: ClassVar[set[str]] = {
+        "ingestion.defcon_lite_360",
+        "ingestion.defcon_lite_tracking",
+    }
+
+    def test_main_has_gate_and_fallback(self) -> None:
+        """main() must call both read_gate_result and skip_guard.check."""
+        for module_path in _GUARD_MODULES:
+            if module_path in self._EXEMPT:
+                continue
+
+            mod = importlib.import_module(module_path)
+            if not hasattr(mod, "main"):
+                continue
+
+            source_file = inspect.getfile(mod)
+            source = Path(source_file).read_text(encoding="utf-8")
+            tree = ast.parse(source)
+
             main_fns = [
                 node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name.startswith("main")
             ]
 
             for main_fn in main_fns:
-                has_read_gate = _ast_has_name_or_attr(main_fn, "read_gate_result")
-                assert has_read_gate, f"{module_path}.{main_fn.name}() does not call read_gate_result()"
+                has_gate = _ast_has_name_or_attr(main_fn, "read_gate_result")
+                has_fallback = _ast_has_name_or_attr(main_fn, "skip_guard")
+
+                assert has_gate, f"{module_path}.{main_fn.name}() does not call read_gate_result()"
+                assert has_fallback, (
+                    f"{module_path}.{main_fn.name}() does not call skip_guard.check() as standalone fallback"
+                )
 
 
 def _ast_has_name_or_attr(node: ast.AST, name: str) -> bool:
@@ -418,3 +531,147 @@ class TestStaticDatasetGuards:
         spark.table.side_effect = Exception("Table not found")
         result = skip_guard.check(spark, "soccer_analytics", "dev_gold")
         assert result.count > 0, "wf-wyscout: expected work but got count=0"
+
+
+# ---------------------------------------------------------------------------
+# TestEarlyExitStructure — AST-based early exit verification
+# ---------------------------------------------------------------------------
+
+
+class TestEarlyExitStructure:
+    """run_pipeline() must reference WorkflowSkippedError for count==0 early exit."""
+
+    _EXEMPT: ClassVar[set[str]] = {
+        "ingestion.defcon_lite_360",
+        "ingestion.defcon_lite_tracking",
+    }
+
+    def test_run_pipeline_references_workflow_skipped_error(self) -> None:
+        """Every run_pipeline must raise WorkflowSkippedError on count==0."""
+        failures: list[str] = []
+        for module_path in _GUARD_MODULES:
+            if module_path in self._EXEMPT:
+                continue
+
+            mod = importlib.import_module(module_path)
+            source_file = inspect.getfile(mod)
+            source = Path(source_file).read_text(encoding="utf-8")
+            tree = ast.parse(source)
+
+            for node in ast.iter_child_nodes(tree):
+                if isinstance(node, ast.FunctionDef) and node.name.startswith("run_pipeline"):
+                    if not _ast_has_name_or_attr(node, "WorkflowSkippedError"):
+                        failures.append(f"{module_path}.{node.name}()")
+
+        assert not failures, "run_pipeline() must raise WorkflowSkippedError when count==0:\n" + "\n".join(
+            sorted(failures)
+        )
+
+
+# ---------------------------------------------------------------------------
+# TestEarlyExitBehavior — Behavioral early exit verification
+# ---------------------------------------------------------------------------
+
+
+class TestEarlyExitBehavior:
+    """run_pipeline() must actually raise WorkflowSkippedError when count==0."""
+
+    _EXEMPT: ClassVar[set[str]] = {
+        "ingestion.defcon_lite_360",
+        "ingestion.defcon_lite_tracking",
+    }
+
+    # Special cases: pipelines with non-standard signatures
+    _SPECIAL_CALL_ARGS: ClassVar[dict[str, dict[str, object]]] = {
+        "ingestion.defcon_lite": {
+            "filter_360": None,  # will be set per-test
+            "filter_tracking": None,
+        },
+        "ingestion.prepare_360_training_data": {
+            "volume_path": "/tmp/test",  # noqa: S108
+        },
+    }
+
+    def test_raises_on_zero_count(self) -> None:
+        """Calling run_pipeline with count=0 must raise WorkflowSkippedError."""
+        from workflows.exceptions import WorkflowSkippedError
+
+        _mock_pyspark_functions()
+        failures: list[str] = []
+
+        for module_path in _GUARD_MODULES:
+            if module_path in self._EXEMPT:
+                continue
+
+            mod = importlib.import_module(module_path)
+
+            # Find the run_pipeline function
+            pipeline_fn = None
+            for name, obj in inspect.getmembers(mod, inspect.isfunction):
+                if name.startswith("run_pipeline"):
+                    pipeline_fn = obj
+                    break
+
+            if pipeline_fn is None:
+                continue
+
+            # Unwrap the @workflow decorator
+            fn = getattr(pipeline_fn, "__wrapped__", pipeline_fn)
+
+            spark = MagicMock()
+            logger = MagicMock()
+
+            # Build kwargs
+            sig = inspect.signature(fn)
+            kwargs: dict[str, object] = {}
+
+            # Handle special cases
+            special = self._SPECIAL_CALL_ARGS.get(module_path, {})
+            for key, val in special.items():
+                kwargs[key] = val
+
+            # Set filter_result (or special filter params) to count=0
+            if "filter_result" in sig.parameters:
+                kwargs["filter_result"] = FilterResult(workflow_id="wf-test", count=0)
+            if "filter_360" in sig.parameters:
+                kwargs["filter_360"] = FilterResult(workflow_id="wf-test-360", count=0)
+            if "filter_tracking" in sig.parameters:
+                kwargs["filter_tracking"] = FilterResult(workflow_id="wf-test-tracking", count=0)
+
+            # Build positional args from signature
+            positional: list[object] = []
+            for pname, param in sig.parameters.items():
+                if pname in kwargs:
+                    continue
+                if param.kind in (
+                    inspect.Parameter.KEYWORD_ONLY,
+                    inspect.Parameter.VAR_KEYWORD,
+                ):
+                    continue
+                if pname == "spark":
+                    positional.append(spark)
+                elif pname == "logger":
+                    positional.append(logger)
+                elif pname in ("catalog", "schema"):
+                    positional.append("test")
+                elif pname == "ctx":
+                    continue
+                else:
+                    positional.append(special.get(pname, MagicMock()))
+
+            try:
+                fn(*positional, **kwargs)
+                # If it didn't raise, that's a failure
+                failures.append(f"{module_path}.{fn.__name__}() did not raise WorkflowSkippedError on count=0")
+            except WorkflowSkippedError:
+                pass  # Expected — test passes
+            except Exception as exc:
+                # Some other exception — might be OK if it's before any work
+                # But we specifically want WorkflowSkippedError
+                failures.append(
+                    f"{module_path}.{fn.__name__}() raised {type(exc).__name__} instead of WorkflowSkippedError: {exc}"
+                )
+
+        assert not failures, "run_pipeline() must raise WorkflowSkippedError on count=0:\n" + "\n".join(
+            sorted(failures)
+        )

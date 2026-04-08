@@ -29,6 +29,7 @@ import pandas as pd
 from ingestion.guards import FilterResult
 from shared.constants import IDENTIFIER_RE
 from workflows import workflow
+from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -270,9 +271,12 @@ def run_pipeline(
     schema: str,
     data_dir: str = _IDSSE_DATA_DIR,
     *,
+    filter_result: FilterResult,
     ctx: object = None,
 ) -> None:
     """Extract tracking metadata from all providers and write to bronze."""
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new work")
     from pyspark.sql import functions as spark_fn  # type: ignore[import-not-found]
 
     from ingestion.utils import validate_dataframe, write_delta_table
@@ -359,7 +363,13 @@ def main() -> None:
 
     bootstrap_hooks(spark, catalog, schema)
 
-    run_pipeline(spark, catalog, schema, data_dir)
+    from ingestion.guards import read_gate_result
+
+    filter_result = read_gate_result("wf-tracking-metadata")
+    if filter_result is None:
+        filter_result = skip_guard.check(spark, catalog, schema)
+
+    run_pipeline(spark, catalog, schema, data_dir, filter_result=filter_result)
 
 
 if __name__ == "__main__":
