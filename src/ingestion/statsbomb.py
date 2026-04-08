@@ -22,8 +22,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
-import statsbombpy.sb as sb
 
+from ingestion.guards import FilterResult
 from ingestion.utils import (
     configure_logging,
     get_spark_session,
@@ -37,8 +37,31 @@ from workflows import workflow
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
+
+class _StatsbombGuard:
+    workflow_id = "wf-statsbomb"
+
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        return FilterResult(workflow_id=self.workflow_id, count=1)
+
+
+skip_guard = _StatsbombGuard()
+
 # Max concurrent HTTP requests to StatsBomb API (polite concurrency limit)
 _HTTP_MAX_WORKERS = 4
+
+
+def _get_sb() -> Any:
+    """Lazy-load the ``statsbombpy.sb`` module.
+
+    Deferred so the module is importable from environments that lack
+    ``statsbombpy`` (e.g., the freshness gate's ``default`` environment).
+    The guard only needs Spark SQL — ``statsbombpy`` is only required by
+    the pipeline functions that call the StatsBomb API.
+    """
+    import statsbombpy.sb as sb
+
+    return sb
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +80,7 @@ def _build_raw_extra_json(match_id: int, logger: logging.Logger) -> dict[str, st
     Returns:
         Mapping of event_id → JSON string of the extra dict.
     """
-    raw_events: dict[str, Any] = sb.events(match_id=match_id, fmt="json")  # type: ignore[assignment]
+    raw_events: dict[str, Any] = _get_sb().events(match_id=match_id, fmt="json")  # type: ignore[assignment]
 
     extra_map: dict[str, str] = {}
     for event_id_str, raw in raw_events.items():
@@ -106,7 +129,7 @@ def ingest_competitions(
         logger.info("No existing statsbomb_competitions table — will fetch from API")
 
     logger.info("Fetching StatsBomb competitions")
-    raw = sb.competitions()
+    raw = _get_sb().competitions()
     competitions_pdf: pd.DataFrame = pd.DataFrame(raw) if not isinstance(raw, pd.DataFrame) else raw
     competitions_pdf = serialize_json_columns(competitions_pdf)
 
@@ -176,11 +199,11 @@ def _fetch_match_details(
         ``(events_pdf, lineups_raw, frames_pdf, extra_map)`` — any element
         may be ``None`` on fetch failure.
     """
-    events_pdf = _safe_fetch(sb.events, match_id=match_id, logger=logger, label="events")
+    events_pdf = _safe_fetch(_get_sb().events, match_id=match_id, logger=logger, label="events")
 
-    lineups_raw = _safe_fetch(sb.lineups, match_id=match_id, logger=logger, label="lineups")
+    lineups_raw = _safe_fetch(_get_sb().lineups, match_id=match_id, logger=logger, label="lineups")
 
-    frames_pdf = _safe_fetch(sb.frames, match_id=match_id, logger=logger, label="360")
+    frames_pdf = _safe_fetch(_get_sb().frames, match_id=match_id, logger=logger, label="360")
 
     extra_map: dict[str, str] | None = None
     if events_pdf is not None and not events_pdf.empty:
@@ -242,7 +265,7 @@ def ingest_matches_and_details(
 
         # --- Matches ---
         matches_pdf = _safe_fetch(
-            sb.matches,
+            _get_sb().matches,
             competition_id=comp_id,
             season_id=season_id,
             logger=logger,
@@ -253,7 +276,7 @@ def ingest_matches_and_details(
             continue
 
         # Ensure competition_id and season_id columns exist for partitioning
-        # (sb.matches() may return these as nested objects rather than flat columns)
+        # (_get_sb().matches() may return these as nested objects rather than flat columns)
         if "competition_id" not in matches_pdf.columns:
             matches_pdf["competition_id"] = comp_id
         if "season_id" not in matches_pdf.columns:
@@ -373,7 +396,7 @@ def _process_lineups(
 ) -> None:
     """Process lineups response into a flat DataFrame and append to batch.
 
-    ``sb.lineups()`` returns a dict keyed by team name, each value being a
+    ``_get_sb().lineups()`` returns a dict keyed by team name, each value being a
     DataFrame of player entries.
     """
     if isinstance(lineups_raw, dict):
@@ -440,7 +463,7 @@ def backfill_360(
     logger.info("Found %d matches needing 360 backfill", len(backfill_candidates))
 
     # Only iterate competition-seasons that already have 360 data in bronze.
-    # Non-360 competitions would produce thousands of empty sb.frames() API calls.
+    # Non-360 competitions would produce thousands of empty _get_sb().frames() API calls.
     full_360_table = f"{catalog}.{schema}.statsbomb_360"
     try:
         combos_360 = spark.table(full_360_table).select("competition_id", "season_id").distinct().toPandas()
@@ -455,7 +478,7 @@ def backfill_360(
         season_id = int(row["season_id"])
 
         matches_pdf = _safe_fetch(
-            sb.matches,
+            _get_sb().matches,
             competition_id=comp_id,
             season_id=season_id,
             logger=logger,
@@ -479,7 +502,7 @@ def backfill_360(
 
         frames_batch: list[pd.DataFrame] = []
         for match_id in target_ids:
-            frames_pdf = _safe_fetch(sb.frames, match_id=match_id, logger=logger, label="360")
+            frames_pdf = _safe_fetch(_get_sb().frames, match_id=match_id, logger=logger, label="360")
             if frames_pdf is not None and not frames_pdf.empty:
                 frames_pdf["match_id"] = match_id
                 frames_pdf["competition_id"] = comp_id

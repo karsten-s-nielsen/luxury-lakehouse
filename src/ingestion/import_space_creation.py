@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 from huggingface_hub import hf_hub_download
 
+from ingestion.guards import FilterResult
 from shared.constants import IDENTIFIER_RE
 from workflows import workflow
 
@@ -26,6 +27,16 @@ if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 HF_REPO = "luxury-lakehouse/space-creation-values"
+
+
+class _ImportSpaceCreationGuard:
+    workflow_id = "wf-import-space-creation"
+
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        return FilterResult(workflow_id=self.workflow_id, count=1)
+
+
+skip_guard = _ImportSpaceCreationGuard()
 TABLE_NAME = "space_creation_values"
 
 

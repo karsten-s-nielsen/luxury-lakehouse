@@ -27,6 +27,7 @@ from analytics.model_validation import (
     check_physical_bounds,
     compute_cusum,
 )
+from ingestion.guards import FilterResult
 from ingestion.utils import (
     configure_logging,
     get_spark_session,
@@ -39,6 +40,16 @@ from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
+
+
+class _ModelValidationGuard:
+    workflow_id = "wf-model-validation"
+
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        return FilterResult(workflow_id=self.workflow_id, count=1)
+
+
+skip_guard = _ModelValidationGuard()
 
 _TABLE_NAME = "model_validation_runs"
 

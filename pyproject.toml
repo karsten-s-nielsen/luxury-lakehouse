@@ -91,6 +91,8 @@ extract_tracking_metadata = "ingestion.tracking_metadata:main"
 prepare_360_training_data = "ingestion.prepare_360_training_data:main"
 export_scoutgpt_training_data = "ingestion.export_scoutgpt_training_data:main"
 evolve = "evolve.runner:main"
+freshness_gate = "ingestion.freshness_gate:main"
+hf_sync = "ingestion.hf_sync:main"
 
 [tool.ruff]
 target-version = "py310"

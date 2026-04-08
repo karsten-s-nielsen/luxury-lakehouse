@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from ingestion.guards import FilterResult
 from ingestion.utils import (
     configure_logging,
     get_spark_session,
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 _TABLE_NAME = "pitch_control_values"
+_guard_logger = logging.getLogger(f"{__name__}.guard")
 
 # Default number of source frames per batch group.  Each batch is processed
 # as a single ``applyInPandas`` partition on an executor.  A value of 500
@@ -143,11 +145,65 @@ def _make_batch_udf(
     return _udf
 
 
+# Maximum matches per fan-out chunk.  Each match produces ~200-400 MB
+# of tracking data in the applyInPandas group — at 2 per chunk we stay
+# safely under the 800 MB UDF executor memory budget.
+_MATCHES_PER_CHUNK = 2
+
+
+class _PitchControlGuard:
+    """SkipGuard adapter for pitch control batch pipeline."""
+
+    workflow_id = "wf-pitch-control"
+
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        """Check which tracking matches need pitch control computation."""
+        gold_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_tracking_frames"
+        results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+
+        try:
+            match_id_rows = spark.table(gold_table).select("match_id").distinct().collect()
+        except Exception:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        if not match_id_rows:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        all_match_ids = [row["match_id"] for row in match_id_rows]
+
+        existing_ids: set[str] = set()
+        try:
+            existing_rows = spark.table(results_table).select("match_id").distinct().collect()
+            existing_ids = {str(row["match_id"]) for row in existing_rows}
+        except Exception:
+            _guard_logger.debug("No existing %s table -- processing all matches", results_table)
+
+        new_match_ids = [str(mid) for mid in all_match_ids if str(mid) not in existing_ids]
+
+        if not new_match_ids:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        # Pre-compute fan-out chunks at _MATCHES_PER_CHUNK per chunk
+        chunks = [new_match_ids[i : i + _MATCHES_PER_CHUNK] for i in range(0, len(new_match_ids), _MATCHES_PER_CHUNK)]
+
+        return FilterResult(
+            workflow_id=self.workflow_id,
+            count=len(new_match_ids),
+            chunks=chunks if len(chunks) > 1 else None,
+            metadata={"new_match_ids": new_match_ids},
+        )
+
+
+skip_guard = _PitchControlGuard()
+
+
 def _process_matches(
     spark: SparkSession,
     catalog: str,
     schema: str,
     logger: logging.Logger,
+    *,
+    filter_result: FilterResult | None = None,
 ) -> int:
     """Process all new matches from fct_tracking_frames via applyInPandas.
 
@@ -161,39 +217,41 @@ def _process_matches(
     gold_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_tracking_frames"
     results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
 
-    try:
-        match_id_rows = spark.table(gold_table).select("match_id").distinct().collect()
-    except Exception:
-        logger.warning("Cannot read table %s", gold_table)
+    # Use pre-computed filter result from freshness gate, or run inline guard
+    if filter_result and filter_result.metadata.get("new_match_ids"):
+        new_ids_str = filter_result.metadata["new_match_ids"]
+        logger.info("%d matches to process (from freshness gate)", len(new_ids_str))
+    else:
+        # Standalone execution — run inline guard
+        try:
+            match_id_rows = spark.table(gold_table).select("match_id").distinct().collect()
+        except Exception:
+            logger.warning("Cannot read table %s", gold_table)
+            return 0
+
+        if not match_id_rows:
+            logger.info("No matches in %s", gold_table)
+            return 0
+
+        all_match_ids = [row["match_id"] for row in match_id_rows]
+
+        existing_ids: set[str] = set()
+        try:
+            existing_rows = spark.table(results_table).select("match_id").distinct().collect()
+            existing_ids = {str(row["match_id"]) for row in existing_rows}
+        except Exception:
+            logger.info("No existing %s table -- processing all matches", results_table)
+
+        new_ids_str = [str(mid) for mid in all_match_ids if str(mid) not in existing_ids]
+        logger.info(
+            "%d matches total, %d already processed, %d to process",
+            len(all_match_ids),
+            len(existing_ids),
+            len(new_ids_str),
+        )
+
+    if not new_ids_str:
         return 0
-
-    if not match_id_rows:
-        logger.info("No matches in %s", gold_table)
-        return 0
-
-    all_match_ids = [row["match_id"] for row in match_id_rows]
-
-    # Incremental skip guard
-    existing_ids: set[str] = set()
-    try:
-        existing_rows = spark.table(results_table).select("match_id").distinct().collect()
-        existing_ids = {str(row["match_id"]) for row in existing_rows}
-    except Exception:
-        logger.info("No existing %s table -- processing all matches", results_table)
-
-    new_match_ids = [mid for mid in all_match_ids if str(mid) not in existing_ids]
-    logger.info(
-        "%d matches total, %d already processed, %d to process",
-        len(all_match_ids),
-        len(existing_ids),
-        len(new_match_ids),
-    )
-
-    if not new_match_ids:
-        return 0
-
-    # Build filter predicate for all new matches at once
-    new_ids_str = [str(mid) for mid in new_match_ids]
     tracking_df = (
         spark.table(gold_table)
         .filter(F.col("match_id").isin(new_ids_str))
@@ -266,10 +324,11 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
+    filter_result: FilterResult | None = None,
     ctx=None,
 ) -> None:
     """Execute the pitch control value computation pipeline."""
-    total = _process_matches(spark, catalog, schema, logger)
+    total = _process_matches(spark, catalog, schema, logger, filter_result=filter_result)
     logger.info("Pitch control pipeline complete -- %d total rows written", total)
 
 

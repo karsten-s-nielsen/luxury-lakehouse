@@ -31,6 +31,7 @@ import sys
 import time
 from typing import TYPE_CHECKING
 
+from ingestion.guards import FilterResult
 from shared.constants import IDENTIFIER_RE
 from workflows import workflow
 
@@ -43,6 +44,7 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 logger = logging.getLogger(__name__)
+_guard_logger = logging.getLogger(f"{__name__}.guard")
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -95,6 +97,44 @@ _DEFAULT_VOLUME_PATH = "/Volumes/soccer_analytics/dev_gold/training_data/footbal
 
 # Silver schema where stg_statsbomb__360 lives
 _SILVER_SCHEMA = "dev_silver"
+
+
+class _Prepare360Guard:
+    """SkipGuard adapter for 360 training data preparation."""
+
+    workflow_id = "wf-prepare-360-data"
+
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        """Check if upstream data has grown since last export."""
+        volume_path = _DEFAULT_VOLUME_PATH
+
+        try:
+            upstream_count = (
+                spark.table(f"{catalog}.{schema}.fct_action_values")
+                .filter("data_source = 'statsbomb'")
+                .select("player_id", "match_id")
+                .distinct()
+                .count()
+            )
+        except Exception:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        existing_count = 0
+        try:
+            existing_count = spark.read.parquet(volume_path).count()
+        except Exception:
+            _guard_logger.debug("No existing export at %s", volume_path)
+
+        if existing_count >= upstream_count and existing_count > 0:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        return FilterResult(
+            workflow_id=self.workflow_id,
+            count=upstream_count - existing_count,
+        )
+
+
+skip_guard = _Prepare360Guard()
 
 
 # ---------------------------------------------------------------------------

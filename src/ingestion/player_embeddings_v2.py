@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from ingestion.guards import FilterResult
 from ingestion.player_embeddings_common import (
     _TABLE_NAME,
     _compute_stat_vectors,
@@ -33,6 +34,16 @@ from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
+
+
+class _Football2VecV2Guard:
+    workflow_id = "wf-football2vec-v2"
+
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        return FilterResult(workflow_id=self.workflow_id, count=1)
+
+
+skip_guard = _Football2VecV2Guard()
 
 
 # ---------------------------------------------------------------------------

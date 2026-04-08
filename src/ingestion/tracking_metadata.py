@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from ingestion.guards import FilterResult
 from shared.constants import IDENTIFIER_RE
 from workflows import workflow
 
@@ -33,6 +34,16 @@ if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 TABLE_NAME = "tracking_player_metadata"
+
+
+class _TrackingMetadataGuard:
+    workflow_id = "wf-tracking-metadata"
+
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        return FilterResult(workflow_id=self.workflow_id, count=1)
+
+
+skip_guard = _TrackingMetadataGuard()
 
 # IDSSE match IDs and competition mapping (mirrors idsse.py)
 _IDSSE_MATCH_IDS = ["J03WMX", "J03WN1", "J03WPY", "J03WOH", "J03WQQ", "J03WOY", "J03WR9"]

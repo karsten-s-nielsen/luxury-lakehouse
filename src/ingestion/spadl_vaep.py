@@ -26,6 +26,7 @@ import pandas as pd
 import silly_kicks.vaep.features as fs
 from xgboost import XGBClassifier
 
+from ingestion.guards import FilterResult
 from ingestion.spadl_conversion import (
     _SPADL_TABLE,
     _convert_statsbomb_from_bronze,
@@ -43,6 +44,70 @@ from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
+
+_guard_logger = logging.getLogger(f"{__name__}.guard")
+
+
+class _VaepGuard:
+    """SkipGuard adapter for SPADL/VAEP pipeline.
+
+    Two-stage guard: checks both SPADL conversion and VAEP scoring,
+    returning combined metadata with counts for each stage.
+    """
+
+    workflow_id = "wf-vaep"
+
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        """Check if SPADL conversion or VAEP scoring has new work."""
+        spadl_table = f"{catalog}.{schema}.{_SPADL_TABLE}"
+        vaep_table = f"{catalog}.{schema}.{_VAEP_TABLE}"
+
+        # Stage 1: Check SPADL conversion needs
+        existing_spadl: set[int] = set()
+        try:
+            rows = spark.table(spadl_table).select("match_id").distinct().collect()
+            existing_spadl = {int(row["match_id"]) for row in rows}
+        except Exception:
+            _guard_logger.debug("No existing %s table", spadl_table)
+
+        # Count source matches from StatsBomb + Wyscout bronze
+        source_match_ids: set[int] = set()
+        for tbl in [f"{catalog}.{schema}.statsbomb_events", f"{catalog}.{schema}.wyscout_events"]:
+            try:
+                src_rows = spark.table(tbl).select("match_id").distinct().collect()
+                source_match_ids.update(int(row["match_id"]) for row in src_rows)
+            except Exception:
+                _guard_logger.debug("Cannot read source table %s", tbl)
+
+        new_spadl = source_match_ids - existing_spadl
+
+        # Stage 2: Check VAEP scoring needs
+        existing_vaep: set[int] = set()
+        try:
+            rows = spark.table(vaep_table).select("match_id").distinct().collect()
+            existing_vaep = {int(row["match_id"]) for row in rows}
+        except Exception:
+            _guard_logger.debug("No existing %s table", vaep_table)
+
+        # Unscored = already in SPADL but not in VAEP
+        unscored = existing_spadl - existing_vaep
+
+        total_new = len(new_spadl) + len(unscored)
+
+        if total_new == 0:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        return FilterResult(
+            workflow_id=self.workflow_id,
+            count=total_new,
+            metadata={
+                "new_spadl_count": len(new_spadl),
+                "unscored_vaep_count": len(unscored),
+            },
+        )
+
+
+skip_guard = _VaepGuard()
 
 # Feature extraction functions (standard VAEP feature set)
 _FEATURE_FNS: list[Any] = [

@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 
 from huggingface_hub import hf_hub_download
 
+from ingestion.guards import FilterResult
 from shared.constants import IDENTIFIER_RE
 from workflows import workflow
 
@@ -33,6 +34,16 @@ if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 HF_REPO = "luxury-lakehouse/obso-pausa-values"
+
+
+class _ImportObsoGuard:
+    workflow_id = "wf-import-obso"
+
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        return FilterResult(workflow_id=self.workflow_id, count=1)
+
+
+skip_guard = _ImportObsoGuard()
 PAUSA_TABLE = "pausa_raw_scores"
 OBSO_TABLE = "obso_surfaces"
 

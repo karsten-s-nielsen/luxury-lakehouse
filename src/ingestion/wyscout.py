@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from ingestion.guards import FilterResult
 from ingestion.utils import (
     configure_logging,
     fetch_url,
@@ -46,6 +47,16 @@ from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
+
+
+class _WyscoutGuard:
+    workflow_id = "wf-wyscout"
+
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        return FilterResult(workflow_id=self.workflow_id, count=1)
+
+
+skip_guard = _WyscoutGuard()
 
 # Figshare HTTPS URLs for Wyscout open data (ZIP archives)
 # Source: https://figshare.com/collections/Soccer_match_event_dataset/4415000

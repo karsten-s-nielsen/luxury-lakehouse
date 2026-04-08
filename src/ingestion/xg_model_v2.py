@@ -15,6 +15,7 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from ingestion.guards import FilterResult
 from shared.constants import DEFAULT_GOLD_SCHEMA, mlflow_model_uri
 from workflows import workflow
 
@@ -23,6 +24,48 @@ if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 _TABLE_NAME = "xg_predictions_v2"
+_guard_logger = logging.getLogger(f"{__name__}.guard")
+
+
+class _XgV2Guard:
+    """SkipGuard adapter for xG v2 scoring pipeline."""
+
+    workflow_id = "wf-xg-v2"
+
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        """Check which competitions need xG v2 scoring."""
+        results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+
+        existing: set[str] = set()
+        try:
+            existing = {
+                str(row["competition_id"])
+                for row in spark.table(results_table).select("competition_id").distinct().collect()
+            }
+        except Exception:
+            _guard_logger.debug("No existing %s table -- will process all competitions", _TABLE_NAME)
+
+        try:
+            shots_df = spark.table(f"{catalog}.dev_gold.fct_shots").filter("competition_id IS NOT NULL")
+            available_comps = {
+                str(row["competition_id"]) for row in shots_df.select("competition_id").distinct().collect()
+            }
+        except Exception:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        new_comps = sorted(available_comps - existing)
+
+        if not new_comps:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        return FilterResult(
+            workflow_id=self.workflow_id,
+            count=len(new_comps),
+            metadata={"new_competition_ids": new_comps},
+        )
+
+
+skip_guard = _XgV2Guard()
 
 
 def _try_load_champion_xg_v2(

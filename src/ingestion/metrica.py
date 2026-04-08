@@ -29,6 +29,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from ingestion.guards import FilterResult
 from ingestion.metrica_events import ingest_events
 from ingestion.metrica_tracking import ingest_tracking
 from ingestion.utils import (
@@ -40,6 +41,16 @@ from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
+
+
+class _MetricaGuard:
+    workflow_id = "wf-metrica"
+
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        return FilterResult(workflow_id=self.workflow_id, count=1)
+
+
+skip_guard = _MetricaGuard()
 
 
 @workflow("wf-metrica", phase="ingestion")

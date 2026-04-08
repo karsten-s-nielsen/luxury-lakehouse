@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, cast
 
 import pandas as pd
 
+from ingestion.guards import FilterResult
 from ingestion.player_embeddings_common import (
     _PLAYERS_PER_BATCH,
     _TABLE_NAME,
@@ -38,6 +39,54 @@ from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
+
+_guard_logger = logging.getLogger(f"{__name__}.guard")
+
+
+class _Football2VecGuard:
+    """SkipGuard adapter for v1 Doc2Vec player embedding pipeline."""
+
+    workflow_id = "wf-football2vec"
+
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        """Check if new source matches need embedding computation."""
+        results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+        gold = DEFAULT_GOLD_SCHEMA
+
+        try:
+            existing_matches = {
+                str(row["match_id"]) for row in spark.table(results_table).select("match_id").distinct().collect()
+            }
+        except Exception:
+            existing_matches = set()
+
+        try:
+            source_match_query = (
+                f"SELECT DISTINCT CAST(match_id AS STRING) AS match_id "  # noqa: S608
+                f"FROM {catalog}.{gold}.fct_action_values"
+            )
+            source_matches = {str(row["match_id"]) for row in spark.sql(source_match_query).collect()}
+        except Exception:
+            source_matches = set()
+
+        # Defensive fallback: if source query returned nothing but embeddings
+        # already exist, skip rather than recomputing everything.
+        if not source_matches and existing_matches:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        new_matches = source_matches - existing_matches
+
+        if source_matches and not new_matches:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        return FilterResult(
+            workflow_id=self.workflow_id,
+            count=len(new_matches),
+            metadata={"new_match_ids": sorted(new_matches)},
+        )
+
+
+skip_guard = _Football2VecGuard()
 
 
 # ---------------------------------------------------------------------------
