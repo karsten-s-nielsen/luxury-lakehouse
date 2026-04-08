@@ -46,13 +46,10 @@ from ingestion.utils import (
     parse_ingestion_args,
     write_delta_table,
 )
-from shared.constants import DEFAULT_GOLD_SCHEMA
 from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
-
-_guard_logger = logging.getLogger(f"{__name__}.guard")
 
 
 class _FormationsEfpiGuard:
@@ -62,45 +59,15 @@ class _FormationsEfpiGuard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check which tracking matches need formation detection."""
-        gold_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_tracking_frames"
-        results_table = f"{catalog}.{schema}.{TABLE_NAME}"
+        from ingestion.formations_common import find_incomplete_formation_ids
 
-        try:
-            match_id_rows = spark.table(gold_table).select("match_id").distinct().collect()
-        except Exception:
+        new_ids = find_incomplete_formation_ids(spark, catalog, schema)
+        if not new_ids:
             return FilterResult(workflow_id=self.workflow_id, count=0)
-
-        if not match_id_rows:
-            return FilterResult(workflow_id=self.workflow_id, count=0)
-
-        all_match_ids = [row["match_id"] for row in match_id_rows]
-
-        # Skip matches that already have results from BOTH detectors
-        fully_processed: set[str] = set()
-        try:
-            from pyspark.sql import functions as _F  # noqa: N812
-
-            detector_counts = (
-                spark.table(results_table)
-                .groupBy("match_id")
-                .agg(_F.countDistinct("detector").alias("n_detectors"))
-                .filter(_F.col("n_detectors") >= 2)
-                .select("match_id")
-                .collect()
-            )
-            fully_processed = {str(row["match_id"]) for row in detector_counts}
-        except Exception:
-            _guard_logger.debug("No existing %s table -- processing all matches", results_table)
-
-        new_match_ids = [str(mid) for mid in all_match_ids if str(mid) not in fully_processed]
-
-        if not new_match_ids:
-            return FilterResult(workflow_id=self.workflow_id, count=0)
-
         return FilterResult(
             workflow_id=self.workflow_id,
-            count=len(new_match_ids),
-            metadata={"new_match_ids": new_match_ids},
+            count=len(new_ids),
+            metadata={"new_match_ids": new_ids},
         )
 
 
@@ -287,9 +254,15 @@ def run_pipeline_efpi(
     schema: str,
     logger: logging.Logger,
     *,
+    filter_result: FilterResult | None = None,
     ctx: object = None,
 ) -> None:
     """Execute the EFPI formation detection pipeline."""
+    # Early exit if freshness gate determined no new work
+    if filter_result and filter_result.count == 0:
+        logger.info("Freshness gate: no new EFPI formation work")
+        return
+
     total = _run_efpi(spark, catalog, schema, logger)
     logger.info("EFPI formation detection complete -- %d rows written", total)
 
@@ -300,6 +273,7 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
+    filter_result: FilterResult | None = None,
     ctx: object = None,
 ) -> None:
     """Execute both formation detection pipelines sequentially.
@@ -308,6 +282,11 @@ def run_pipeline(
     Runs EFPI first (which creates the temp table), then shape graph (which
     reads the temp table and drops it).
     """
+    # Early exit if freshness gate determined no new work
+    if filter_result and filter_result.count == 0:
+        logger.info("Freshness gate: no new formation detection work")
+        return
+
     from ingestion.formations_shape_graph import _run_shape_graph
 
     efpi_total = _run_efpi(spark, catalog, schema, logger)
@@ -335,8 +314,12 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
+    from ingestion.guards import read_gate_result
+
+    filter_result = read_gate_result("wf-formations")
+
     logger.info("Starting formation detection pipeline into %s.%s", args.catalog, args.schema)
-    run_pipeline(spark, args.catalog, args.schema, logger)
+    run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
 
 
 def main_efpi() -> None:
@@ -349,8 +332,12 @@ def main_efpi() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
+    from ingestion.guards import read_gate_result
+
+    filter_result = read_gate_result("wf-formations")
+
     logger.info("Starting EFPI formation detection pipeline into %s.%s", args.catalog, args.schema)
-    run_pipeline_efpi(spark, args.catalog, args.schema, logger)
+    run_pipeline_efpi(spark, args.catalog, args.schema, logger, filter_result=filter_result)
 
 
 if __name__ == "__main__":

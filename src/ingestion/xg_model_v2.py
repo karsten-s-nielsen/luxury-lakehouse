@@ -34,34 +34,21 @@ class _XgV2Guard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check which competitions need xG v2 scoring."""
-        results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+        from ingestion.guards import find_new_ids
 
-        existing: set[str] = set()
-        try:
-            existing = {
-                str(row["competition_id"])
-                for row in spark.table(results_table).select("competition_id").distinct().collect()
-            }
-        except Exception:
-            _guard_logger.debug("No existing %s table -- will process all competitions", _TABLE_NAME)
-
-        try:
-            shots_df = spark.table(f"{catalog}.dev_gold.fct_shots").filter("competition_id IS NOT NULL")
-            available_comps = {
-                str(row["competition_id"]) for row in shots_df.select("competition_id").distinct().collect()
-            }
-        except Exception:
-            return FilterResult(workflow_id=self.workflow_id, count=0)
-
-        new_comps = sorted(available_comps - existing)
-
+        new_comps = find_new_ids(
+            spark,
+            source_table=f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_shots",
+            results_table=f"{catalog}.{schema}.{_TABLE_NAME}",
+            id_column="competition_id",
+            source_filter="competition_id IS NOT NULL",
+        )
         if not new_comps:
             return FilterResult(workflow_id=self.workflow_id, count=0)
-
         return FilterResult(
             workflow_id=self.workflow_id,
             count=len(new_comps),
-            metadata={"new_competition_ids": new_comps},
+            metadata={"new_competition_ids": sorted(new_comps)},
         )
 
 
@@ -155,7 +142,7 @@ def _load_shots_with_context(
                s.shot_type, s.play_pattern, s.is_first_time, s.period, s.minute,
                s.is_goal, s.data_source,
                e.shot_freeze_frame
-        FROM {catalog}.dev_gold.fct_shots s
+        FROM {catalog}.{DEFAULT_GOLD_SCHEMA}.fct_shots s
         LEFT JOIN {catalog}.dev_silver.stg_statsbomb__events e
             ON s.shot_id = md5(CAST(CONCAT(
                    COALESCE(CAST(e.event_id AS STRING), '_dbt_utils_surrogate_key_null_'),
@@ -262,6 +249,7 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
+    filter_result: FilterResult | None = None,
     ctx: Any = None,
 ) -> None:
     """Score all shots with v2 set encoder xG model (Deep Sets + MC dropout).
@@ -274,6 +262,11 @@ def run_pipeline(
       5. Distribute scoring across executors with ``applyInPandas``
       6. Write per-``competition_id`` with ``replaceWhere`` for idempotency
     """
+    # Early exit if freshness gate determined no new work
+    if filter_result and filter_result.count == 0:
+        logger.info("Freshness gate: no new xG v2 work")
+        return
+
     from ingestion.utils import write_delta_table
 
     results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
@@ -308,7 +301,7 @@ def run_pipeline(
     # 3. Load v2 set encoder weights from MLflow @Champion or UC Volume
     v2_weights_bytes = _try_load_champion_xg_v2(logger, catalog, schema)
     if v2_weights_bytes is None:
-        v2_model_path = f"/Volumes/{catalog}/dev_gold/model_weights/xg_model_v2/model_weights.json"
+        v2_model_path = f"/Volumes/{catalog}/{DEFAULT_GOLD_SCHEMA}/model_weights/xg_model_v2/model_weights.json"
         try:
             v2_weights_bytes = spark.read.format("binaryFile").load(v2_model_path).first()["content"]
             logger.info("Loaded xG v2 weights from UC Volume (%d bytes)", len(v2_weights_bytes))
@@ -321,7 +314,7 @@ def run_pipeline(
     if xgboost_result is not None:
         xgboost_bytes = xgboost_result
     else:
-        model_dir = f"/Volumes/{catalog}/dev_gold/model_weights/xg_model"
+        model_dir = f"/Volumes/{catalog}/{DEFAULT_GOLD_SCHEMA}/model_weights/xg_model"
         xgboost_bytes = spark.read.format("binaryFile").load(f"{model_dir}/xgboost_model.json").first()["content"]
 
     # 5. Build UDF and distribute scoring across executors
@@ -374,5 +367,9 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
+    from ingestion.guards import read_gate_result
+
+    filter_result = read_gate_result("wf-xg-v2")
+
     logger.info("Starting xG v2 scoring pipeline into %s.%s", args.catalog, args.schema)
-    run_pipeline(spark, args.catalog, args.schema, logger)
+    run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)

@@ -168,27 +168,13 @@ class _OffBallXtGuard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check which tracking matches need off-ball xT computation."""
-        gold_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_tracking_frames"
-        results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+        from ingestion.guards import find_new_ids
 
-        try:
-            match_id_rows = spark.table(gold_table).select("match_id").distinct().collect()
-        except Exception:
-            return FilterResult(workflow_id=self.workflow_id, count=0)
-
-        if not match_id_rows:
-            return FilterResult(workflow_id=self.workflow_id, count=0)
-
-        all_match_ids = [row["match_id"] for row in match_id_rows]
-
-        existing_ids: set[str] = set()
-        try:
-            existing_rows = spark.table(results_table).select("match_id").distinct().collect()
-            existing_ids = {str(row["match_id"]) for row in existing_rows}
-        except Exception:
-            _guard_logger.debug("No existing %s table -- processing all matches", results_table)
-
-        new_match_ids = [str(mid) for mid in all_match_ids if str(mid) not in existing_ids]
+        new_match_ids = find_new_ids(
+            spark,
+            source_table=f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_tracking_frames",
+            results_table=f"{catalog}.{schema}.{_TABLE_NAME}",
+        )
 
         if not new_match_ids:
             return FilterResult(workflow_id=self.workflow_id, count=0)
@@ -239,32 +225,14 @@ def _process_matches(
         logger.info("%d matches to process (from freshness gate)", len(new_ids_str))
     else:
         # Standalone execution — run inline guard
-        try:
-            match_id_rows = spark.table(gold_table).select("match_id").distinct().collect()
-        except Exception:
-            logger.warning("Cannot read table %s", gold_table)
-            return 0
+        from ingestion.guards import find_new_ids
 
-        if not match_id_rows:
-            logger.info("No matches in %s", gold_table)
-            return 0
-
-        all_match_ids = [row["match_id"] for row in match_id_rows]
-
-        existing_ids: set[str] = set()
-        try:
-            existing_rows = spark.table(results_table).select("match_id").distinct().collect()
-            existing_ids = {str(row["match_id"]) for row in existing_rows}
-        except Exception:
-            logger.info("No existing %s table — processing all matches", results_table)
-
-        new_ids_str = [str(mid) for mid in all_match_ids if str(mid) not in existing_ids]
-        logger.info(
-            "%d matches total, %d already processed, %d to process",
-            len(all_match_ids),
-            len(existing_ids),
-            len(new_ids_str),
+        new_ids_str = find_new_ids(
+            spark,
+            source_table=gold_table,
+            results_table=results_table,
         )
+        logger.info("%d matches to process (standalone mode)", len(new_ids_str))
 
     if not new_ids_str:
         return 0
@@ -377,8 +345,12 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
+    from ingestion.guards import read_gate_result
+
+    filter_result = read_gate_result("wf-off-ball-xt")
+
     logger.info("Starting Off-Ball xT pipeline into %s.%s", args.catalog, args.schema)
-    run_pipeline(spark, args.catalog, args.schema, logger)
+    run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
 
 
 if __name__ == "__main__":

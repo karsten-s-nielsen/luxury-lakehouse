@@ -45,8 +45,17 @@ if TYPE_CHECKING:
 
 class _MetricaGuard:
     workflow_id = "wf-metrica"
+    _EXPECTED_MATCH_COUNT = 3  # Metrica sample-data: 3 games (static, never grows)
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        """Skip if all 3 Metrica sample games are already ingested."""
+        try:
+            t_count = spark.table(f"{catalog}.{schema}.metrica_tracking").select("match_id").distinct().count()
+            e_count = spark.table(f"{catalog}.{schema}.metrica_events").select("match_id").distinct().count()
+            if t_count >= self._EXPECTED_MATCH_COUNT and e_count >= self._EXPECTED_MATCH_COUNT:
+                return FilterResult(workflow_id=self.workflow_id, count=0)
+        except Exception:  # noqa: S110
+            pass  # Table missing — needs ingestion
         return FilterResult(workflow_id=self.workflow_id, count=1)
 
 

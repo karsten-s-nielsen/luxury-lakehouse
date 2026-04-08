@@ -466,9 +466,15 @@ def run_pipeline(
     schema: str,
     volume_path: str,
     *,
+    filter_result: FilterResult | None = None,
     ctx: object = None,
 ) -> None:
     """Join 360 freeze frames with SPADL actions, stage to UC Volume, upload to HF Hub."""
+    # Early exit if freshness gate determined no new work
+    if filter_result and filter_result.count == 0:
+        logger.info("Freshness gate: no new 360 training data work")
+        return
+
     # ------------------------------------------------------------------
     # 1. Skip guard — compare upstream freshness against last export
     # ------------------------------------------------------------------
@@ -572,7 +578,11 @@ def main() -> None:
 
     bootstrap_hooks(spark, catalog, schema)
 
-    run_pipeline(spark, catalog, schema, volume_path)
+    from ingestion.guards import read_gate_result
+
+    filter_result = read_gate_result("wf-prepare-360-data")
+
+    run_pipeline(spark, catalog, schema, volume_path, filter_result=filter_result)
 
 
 if __name__ == "__main__":

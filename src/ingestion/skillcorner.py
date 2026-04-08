@@ -44,6 +44,14 @@ class _SkillcornerGuard:
     workflow_id = "wf-skillcorner"
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        """Skip if all SkillCorner A-League matches are already ingested."""
+        expected = len(SKILLCORNER_MATCH_IDS)
+        try:
+            t_count = spark.table(f"{catalog}.{schema}.skillcorner_tracking").select("match_id").distinct().count()
+            if t_count >= expected:
+                return FilterResult(workflow_id=self.workflow_id, count=0)
+        except Exception:  # noqa: S110
+            pass
         return FilterResult(workflow_id=self.workflow_id, count=1)
 
 

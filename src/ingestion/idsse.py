@@ -50,6 +50,15 @@ class _IdsseGuard:
     workflow_id = "wf-idsse"
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        """Skip if all IDSSE matches are already ingested."""
+        expected = len(IDSSE_MATCH_IDS)
+        try:
+            t_count = spark.table(f"{catalog}.{schema}.idsse_tracking").select("match_id").distinct().count()
+            e_count = spark.table(f"{catalog}.{schema}.idsse_events").select("match_id").distinct().count()
+            if t_count >= expected and e_count >= expected:
+                return FilterResult(workflow_id=self.workflow_id, count=0)
+        except Exception:  # noqa: S110
+            pass
         return FilterResult(workflow_id=self.workflow_id, count=1)
 
 

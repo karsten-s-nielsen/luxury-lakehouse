@@ -906,6 +906,7 @@ class TestMainFunction:
     @patch("ingestion.player_embeddings_v2.get_spark_session")
     @patch("ingestion.player_embeddings_v2.parse_ingestion_args")
     @patch("ingestion.player_embeddings_v2._import_v2_embeddings", return_value=False)
+    @patch("ingestion.guards.find_new_ids", return_value=["m1"])
     @patch("ingestion.player_embeddings_v1._load_events_sdf")
     @patch("ingestion.player_embeddings_v1._compute_stat_vectors")
     @patch("ingestion.player_embeddings_v1.validate_dataframe")
@@ -918,6 +919,7 @@ class TestMainFunction:
         mock_validate: MagicMock,
         mock_stat: MagicMock,
         mock_events_sdf: MagicMock,
+        mock_find_new_ids: MagicMock,
         mock_import_v2: MagicMock,
         mock_args: MagicMock,
         mock_spark: MagicMock,

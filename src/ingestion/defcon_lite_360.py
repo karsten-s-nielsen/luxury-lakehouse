@@ -31,33 +31,14 @@ class _Defcon360Guard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check which 360 matches need DEFCON computation."""
-        ff_table = f"{catalog}.bronze.statsbomb_360"
-        results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+        from ingestion.guards import find_new_ids
 
-        try:
-            match_id_rows = spark.table(ff_table).select("match_id").distinct().collect()
-        except Exception:
-            return FilterResult(workflow_id=self.workflow_id, count=0)
-
-        if not match_id_rows:
-            return FilterResult(workflow_id=self.workflow_id, count=0)
-
-        all_match_ids = [row["match_id"] for row in match_id_rows]
-
-        existing_ids: set[str] = set()
-        try:
-            existing_rows = (
-                spark.table(results_table)
-                .filter("data_source = 'statsbomb_360'")
-                .select("match_id")
-                .distinct()
-                .collect()
-            )
-            existing_ids = {str(row["match_id"]) for row in existing_rows}
-        except Exception:
-            _guard_logger.debug("No existing %s table -- processing all matches", results_table)
-
-        new_match_ids = [str(mid) for mid in all_match_ids if str(mid) not in existing_ids]
+        new_match_ids = find_new_ids(
+            spark,
+            source_table=f"{catalog}.bronze.statsbomb_360",
+            results_table=f"{catalog}.{schema}.{_TABLE_NAME}",
+            results_filter="data_source = 'statsbomb_360'",
+        )
 
         if not new_match_ids:
             return FilterResult(workflow_id=self.workflow_id, count=0)
@@ -178,6 +159,8 @@ def process_360_matches(
     logger: logging.Logger,
     params: DefconLiteParams,
     champion_model_bytes: bytes | None = None,
+    *,
+    filter_result: FilterResult | None = None,
 ) -> int:
     """Process StatsBomb 360 matches via two-pass applyInPandas.
 
@@ -195,42 +178,22 @@ def process_360_matches(
     ff_table = f"{catalog}.bronze.statsbomb_360"
     results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
 
-    try:
-        match_id_rows = spark.table(ff_table).select("match_id").distinct().collect()
-    except Exception:
-        logger.warning("Cannot read table %s", ff_table)
-        return 0
+    # Use guard metadata if available, otherwise fall back to inline guard
+    if filter_result and filter_result.metadata.get("new_match_ids"):
+        new_ids_str = filter_result.metadata["new_match_ids"]
+    else:
+        from ingestion.guards import find_new_ids
 
-    if not match_id_rows:
-        logger.info("No matches in %s", ff_table)
-        return 0
-
-    all_match_ids = [row["match_id"] for row in match_id_rows]
-
-    # Check which matches already have DEFCON results (incremental)
-    # Normalize to str for comparison — source tables may store match_id as int or str
-    existing_ids: set[str] = set()
-    try:
-        existing_rows = (
-            spark.table(results_table).filter("data_source = 'statsbomb_360'").select("match_id").distinct().collect()
+        new_ids_str = find_new_ids(
+            spark,
+            source_table=ff_table,
+            results_table=results_table,
+            results_filter="data_source = 'statsbomb_360'",
         )
-        existing_ids = {str(row["match_id"]) for row in existing_rows}
-    except Exception:
-        logger.info("No existing %s table — processing all matches", results_table)
+    logger.info("%d 360 matches to process", len(new_ids_str))
 
-    new_match_ids = [mid for mid in all_match_ids if str(mid) not in existing_ids]
-    logger.info(
-        "%d 360 matches total, %d already processed, %d to process",
-        len(all_match_ids),
-        len(existing_ids),
-        len(new_match_ids),
-    )
-
-    if not new_match_ids:
+    if not new_ids_str:
         return 0
-
-    # Build Spark DataFrames for all new matches at once
-    new_ids_str = [str(mid) for mid in new_match_ids]
 
     actions_df = (
         spark.table(action_table)
@@ -364,5 +327,5 @@ def process_360_matches(
         logger=logger,
     )
 
-    logger.info("360 matches: %d DEFCON-lite rows written across %d matches", written, len(new_match_ids))
+    logger.info("360 matches: %d DEFCON-lite rows written across %d matches", written, len(new_ids_str))
     return written

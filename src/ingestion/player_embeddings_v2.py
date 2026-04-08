@@ -222,6 +222,7 @@ def run_pipeline_v2(
     schema: str,
     logger: logging.Logger,
     *,
+    filter_result: FilterResult | None = None,
     ctx: object = None,
 ) -> None:
     """Import pre-computed v2 transformer embeddings from HF Hub.
@@ -229,6 +230,11 @@ def run_pipeline_v2(
     Decorated with ``wf-football2vec-v2`` for independent cost/runtime tracking.
     Wraps ``_import_v2_embeddings`` and logs the outcome.
     """
+    # Early exit if freshness gate determined no new work
+    if filter_result and filter_result.count == 0:
+        logger.info("Freshness gate: no new v2 embedding work")
+        return
+
     logger.info("Starting v2 transformer embedding import for %s.%s", catalog, schema)
 
     success = _import_v2_embeddings(spark, catalog, schema, logger)
@@ -249,6 +255,7 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
+    filter_result: FilterResult | None = None,
     ctx: object = None,
 ) -> None:
     """Execute the player embedding computation pipeline (convenience wrapper).
@@ -261,6 +268,11 @@ def run_pipeline(
     ``run_pipeline_v2`` or ``run_pipeline_v1`` for independent Databricks
     task execution with separate cost/runtime tracking.
     """
+    # Early exit if freshness gate determined no new work
+    if filter_result and filter_result.count == 0:
+        logger.info("Freshness gate: no new player embedding work")
+        return
+
     from ingestion.player_embeddings_v1 import run_pipeline_v1
 
     logger.info("Starting player embedding pipeline for %s.%s", catalog, schema)
@@ -292,7 +304,11 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    run_pipeline(spark, args.catalog, args.schema, logger)
+    from ingestion.guards import read_gate_result
+
+    filter_result = read_gate_result("wf-football2vec-v2")
+
+    run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
 
 
 def main_v2() -> None:
@@ -305,4 +321,8 @@ def main_v2() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    run_pipeline_v2(spark, args.catalog, args.schema, logger)
+    from ingestion.guards import read_gate_result
+
+    filter_result = read_gate_result("wf-football2vec-v2")
+
+    run_pipeline_v2(spark, args.catalog, args.schema, logger, filter_result=filter_result)
