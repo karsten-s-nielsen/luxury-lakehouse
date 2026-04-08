@@ -65,14 +65,14 @@ def _load_cached_seeds(
     seed_results_dir: Path,
     seed_programs: list[Path],
     fingerprint: str,
-) -> dict[str, dict[str, float]]:
+) -> dict[str, dict[str, float | str]]:
     """Load valid cached seed results, skipping stale or missing ones.
 
     Returns a mapping of ``{program_stem: metrics}`` for seeds whose
     cached result has a matching fingerprint.  Seeds with missing,
     corrupt, or stale result files are excluded (and will be evaluated).
     """
-    cached: dict[str, dict[str, float]] = {}
+    cached: dict[str, dict[str, float | str]] = {}
     for program in seed_programs:
         result_file = seed_results_dir / f"{program.stem}.json"
         if not result_file.exists():
@@ -98,7 +98,7 @@ def _evaluate_seeds(
     results_dir: Path,
     eval_config: EvalConfig,
     max_parallel: int = 1,
-    cached_seeds: dict[str, dict[str, float]] | None = None,
+    cached_seeds: dict[str, dict[str, float | str]] | None = None,
 ) -> tuple[Path, dict[str, float | str]]:
     """Evaluate all seed programs and return the best one.
 
@@ -139,7 +139,7 @@ def _evaluate_seeds(
             len(to_evaluate),
         )
 
-    def _eval_one(program: Path) -> tuple[Path, dict[str, float]]:
+    def _eval_one(program: Path) -> tuple[Path, dict[str, float | str]]:
         _log.info("Evaluating seed program: %s", program.name)
         metrics = evaluator.evaluate(str(program))
         score = metrics.get("combined_score", 0.0)
@@ -519,7 +519,7 @@ def main(argv: list[str] | None = None) -> None:
 
     # ---- Set up results directory -----------------------------------
     seed_programs = _discover_seed_programs(target)
-    cached_seeds: dict[str, dict[str, float]] = {}
+    cached_seeds: dict[str, dict[str, float | str]] = {}
 
     if args.resume:
         # Scan results directories newest-to-oldest, use the first one
