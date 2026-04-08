@@ -31,7 +31,7 @@
 #   backfill_statsbomb_360 — Catchup 360 freeze frames for already-ingested matches (depends on statsbomb)
 #   prepare_360_training_data — SPADL + 360 freeze frame export to HF Hub (D31, depends on backfill)
 #
-# HF Hub tasks use the "hf" (write) or "hf-readonly" (read) environments.
+# HF Hub tasks use the "hf" environment (huggingface_hub + wheel).
 # Write tasks require HF_TOKEN from Databricks secret scope "hf", key "token".
 # Setup: databricks secrets put-secret --scope hf --key token
 #
@@ -44,6 +44,7 @@
 resource "databricks_job" "data_ingestion" {
   name                = "soccer-analytics-ingestion-${var.environment}"
   max_concurrent_runs = 1
+  performance_target  = "PERFORMANCE_OPTIMIZED"
 
   # ── Run as: dedicated ingestion service principal ────────────────────────
   dynamic "run_as" {
@@ -671,7 +672,7 @@ resource "databricks_job" "data_ingestion" {
       ]
     }
 
-    environment_key = "hf-sync"
+    environment_key = "hf"
   }
 
   # ── Task: Import space creation values from HF Hub (TD#29) ─────────────
@@ -691,7 +692,7 @@ resource "databricks_job" "data_ingestion" {
       ]
     }
 
-    environment_key = "hf-readonly"
+    environment_key = "hf"
   }
 
   # ── Task: Import OBSO/PAUSA results from UC Volume ────────────────────
@@ -717,7 +718,7 @@ resource "databricks_job" "data_ingestion" {
       ]
     }
 
-    environment_key = "hf-readonly"
+    environment_key = "hf"
   }
 
   # ── Task: Extract tracking player metadata ─────────────────────────────
@@ -794,7 +795,7 @@ resource "databricks_job" "data_ingestion" {
       ]
     }
 
-    environment_key = "hf-readonly"
+    environment_key = "hf"
   }
 
   # ── Task: Backfill StatsBomb 360 freeze-frame data ──────────────────────
@@ -936,9 +937,9 @@ resource "databricks_job" "data_ingestion" {
     }
   }
 
-  # ── Environment for HF Hub write tasks (uploads to HF Hub repos) ──────
-  # Tasks using this environment call dbutils.secrets.get(scope="hf", key="token")
-  # at runtime to authenticate with HF Hub for write operations.
+  # ── Environment for HF Hub tasks (huggingface_hub + wheel) ────────────
+  # Write tasks call dbutils.secrets.get(scope="hf", key="token") at runtime.
+  # Read-only tasks (imports from public repos) need no token.
   # Setup: databricks secrets put-secret --scope hf --key token
   environment {
     environment_key = "hf"
@@ -949,35 +950,6 @@ resource "databricks_job" "data_ingestion" {
       dependencies = [
         var.wheel_path,
         "huggingface_hub>=0.25.0"
-      ]
-    }
-  }
-
-  # ── Environment for HF Hub read-only tasks (public repos, no token) ───
-  environment {
-    environment_key = "hf-readonly"
-
-    spec {
-      client = "1"
-
-      dependencies = [
-        var.wheel_path,
-        "huggingface_hub>=0.25.0"
-      ]
-    }
-  }
-
-  # ── Environment for HF cost sync (huggingface_hub + pyyaml) ───────────
-  environment {
-    environment_key = "hf-sync"
-
-    spec {
-      client = "1"
-
-      dependencies = [
-        var.wheel_path,
-        "huggingface_hub>=0.25.0",
-        "pyyaml>=6.0"
       ]
     }
   }
