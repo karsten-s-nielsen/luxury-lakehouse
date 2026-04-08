@@ -47,7 +47,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
             observabilitySchema = container "Observability Schema" "Platform operational metadata: workflow_cost_live (warm/hot cost tracking)" "Delta Lake" "Database"
         }
 
-        lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL-compatible endpoint syncing 36 Delta Lake tables from Unity Catalog (56 btree/HNSW indexes: 50 btree + 6 HNSW vector: 4x128d + 2x144d)" "External"
+        lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL-compatible endpoint syncing 34 Delta Lake tables from Unity Catalog (56 btree/HNSW indexes: 50 btree + 6 HNSW vector: 4x128d + 2x144d)" "External"
         databricksApi = softwareSystem "Databricks REST API" "OAuth credential endpoint for Lakebase authentication" "External"
         databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 27 tasks (1 freshness gate, 5 ingest, 2 backfill, 14 compute, 1 HF sync, 2 360 pipeline, 1 entity resolution, 1 tracking metadata), performance-optimized mode (1-4s cold starts), daily 06:00 UTC" "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds from Dockerfile, serves on port 7860" "External"
@@ -75,7 +75,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
         dbLayer -> configLayer "Reads Lakebase host and endpoint settings" ""
 
         # Relationships - external (Taipy)
-        dbLayer -> lakebase "Queries 36 synced tables via parameterized SQL" "PostgreSQL/SSL"
+        dbLayer -> lakebase "Queries 34 synced tables via parameterized SQL" "PostgreSQL/SSL"
         dbLayer -> databricksApi "Fetches OAuth tokens for Lakebase auth" "HTTPS/REST"
         stateModules -> workflowCards "Reads YAML manifests on first page load (cached in _cards module variable)" ""
         stateModules -> hfHub "Loads embeddings for similarity search; reads _workflow_cost.json (RUNNING detection) + _cost_history/ (30-day cost aggregation) via 60s TTL" "HTTPS"
