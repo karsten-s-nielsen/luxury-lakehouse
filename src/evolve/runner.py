@@ -99,7 +99,7 @@ def _evaluate_seeds(
     eval_config: EvalConfig,
     max_parallel: int = 1,
     cached_seeds: dict[str, dict[str, float]] | None = None,
-) -> tuple[Path, dict[str, float]]:
+) -> tuple[Path, dict[str, float | str]]:
     """Evaluate all seed programs and return the best one.
 
     When *max_parallel* > 1 and multiple compute backends are available,
@@ -153,7 +153,7 @@ def _evaluate_seeds(
 
     # Start with cached results
     best_path: Path | None = None
-    best_metrics: dict[str, float] = {}
+    best_metrics: dict[str, float | str] = {}
     best_score = float("-inf")
 
     for program in seed_programs:
