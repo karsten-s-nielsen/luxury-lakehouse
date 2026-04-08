@@ -156,7 +156,7 @@ display(spark.table("soccer_analytics.dev_gold.fct_player_embeddings").count())
    databricks secrets create-scope hf
    databricks secrets put-secret hf token --string-value hf_xxxxx
    ```
-   The Terraform workflow injects `HF_TOKEN` via `{{secrets/hf/token}}` into tasks using the `hf` environment. Read-only tasks (importing from public repos) use the `hf-readonly` environment and need no token. See `terraform/modules/workflows/main.tf` for the environment definitions.
+   The Terraform workflow injects `HF_TOKEN` via `{{secrets/hf/token}}` into tasks using the `hf` environment. Write tasks call `dbutils.secrets.get` at runtime; read-only tasks (importing from public repos) need no token. See `terraform/modules/workflows/main.tf` for the environment definitions.
 
 **Verify:** Confirm the upload succeeded:
 ```python
