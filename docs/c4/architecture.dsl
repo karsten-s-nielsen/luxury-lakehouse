@@ -22,12 +22,14 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
             deployWheel = container "deploy_wheel.py" "Downloads wheel from HF Hub build-artifacts, uploads to UC Volume /Volumes/{catalog}/bronze/libs/, post-upload size verification" "Python, huggingface_hub, databricks-sdk"
         }
 
-        pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "35 workflow-card-registered compute pipelines with @workflow decorators, centralized bootstrap hooks, lifecycle tracking, three-tier cost tracking, YAML manifests, Evolve Engine for LLM-guided architecture search, and import-linter boundary enforcement" {
+        pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "36 workflow-card-registered compute pipelines with @workflow decorators, centralized bootstrap hooks, lifecycle tracking, three-tier cost tracking, YAML manifests, Evolve Engine for LLM-guided architecture search, and import-linter boundary enforcement" {
             workflowFramework = container "Workflow Framework" "Registry, @workflow decorator, WorkflowContext, lifecycle runner with on_start/on_complete/on_skip/on_error dispatch. Circular dependency broken via _set_runner injection" "Python, src/workflows/"
-            workflowCards = container "Workflow Cards" "35 YAML manifests defining inputs, outputs, deps, execution config, cost estimates, academic provenance" "YAML, workflow-cards/" "Database"
+            workflowCards = container "Workflow Cards" "36 YAML manifests defining inputs, outputs, deps, execution config, cost estimates, academic provenance" "YAML, workflow-cards/" "Database"
             costEstimateHook = container "CostEstimateHook" "Lifecycle hook writing run state + cost estimates to workflow_cost_live Delta table via MERGE. Centralized registration via bootstrap_hooks()" "Python, PySpark, Delta, src/ingestion/cost_hook.py"
             hfCostRecorder = container "HFJobsCostRecorder" "Standalone cost recorder for HF Jobs scripts. Writes _workflow_cost.json (live status) and _cost_history/{job_id}.json (per-run history) to HF Hub repos. 90-day auto-pruning" "Python, huggingface_hub, src/ingestion/hf_jobs_cost.py"
-            ingestionPipelines = container "Compute Pipelines" "30 @workflow-decorated Databricks pipelines (all instrumented): 5 raw ingestors (StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner), 14 compute (xG, VAEP, DEFCON 360+tracking, pitch control, xT, OBSO/PAUSA, entity resolution, line-breaking 360+tracking, formations EFPI+shape graph, embeddings v1/v2, model validation), 5 HF export/import (shots, OBSO, PSxG, space creation, 360 training data), elastic sync, cost sync. Centralized hook registration via bootstrap.py" "Python, PySpark, src/ingestion/"
+            freshnessGate = container "Freshness Gate" "Centralized skip guard orchestrator. Calls all SkipGuard adapters (29 guards), emits SKIPPED records for idle workflows, writes FilterResult task values for downstream run_if. Per-guard timing logged for performance monitoring. Runs in default environment (wheel only)" "Python, PySpark, src/ingestion/freshness_gate.py"
+            guardRegistry = container "Guard Registry" "SkipGuard protocol + FilterResult dataclass. Per-module lazy imports via get_workflow_guards(). Guards return count, pre-computed fan-out chunks (pitch control, off-ball xT at 2 matches/chunk), and metadata. JSON-serializable for task values" "Python, src/ingestion/guards.py"
+            ingestionPipelines = container "Compute Pipelines" "30 @workflow-decorated Databricks pipelines (all instrumented): 5 raw ingestors (StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner), 14 compute (xG, VAEP, DEFCON 360+tracking, pitch control, xT, OBSO/PAUSA, entity resolution, line-breaking 360+tracking, formations EFPI+shape graph, embeddings v1/v2, model validation), 1 HF sync (consolidates 7 former tasks: 3 imports + 3 exports + cost sync), elastic sync. Each exposes a SkipGuard adapter for the freshness gate. Centralized hook registration via bootstrap.py" "Python, PySpark, src/ingestion/"
             evolveEngine = container "Evolve Engine" "LLM-guided evolutionary architecture search (Level 1: config-only, Level 2: code evolution). CLI runner with --resume/--code-evolution, AST allowlist validator (ValidationProfile), self-contained evaluator bridge, PriorityQueue-based BackendPool. Level 2: LLM generates custom_embed()/custom_layers() PyTorch functions, AST-validated then exec'd with restricted globals (__builtins__={}). Defense-in-depth per ADR-001. Pluggable backends: local CUDA, remote SSH, HF Jobs L40S" "Python, OpenEvolve, src/evolve/"
             analyticsLibrary = container "Analytics Library" "Pure-Python domain models (zero I/O). Pitch control (Spearman 2017), xG, xT, VAEP, OBSO, line-breaking, DEFCON, entity resolution, shape graph (construction + inference split), football2vec v2/360, ScoutGPT decoder (256d GPT-style causal, Hong et al. 2025), goalkeeper, coordinates. Split modules all under 800 lines" "Python, NumPy, SciPy, PyTorch, scikit-learn, src/analytics/"
             sharedLibrary = container "Shared Library" "Cross-package constants: IDENTIFIER_RE, DEFAULT_GOLD_SCHEMA, mlflow_model_uri(). Zero external deps. Imported by analytics, ingestion, and Taipy Docker image" "Python, src/shared/"
@@ -47,7 +49,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
 
         lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL-compatible endpoint syncing 36 Delta Lake tables from Unity Catalog (56 btree/HNSW indexes: 50 btree + 6 HNSW vector: 4x128d + 2x144d)" "External"
         databricksApi = softwareSystem "Databricks REST API" "OAuth credential endpoint for Lakebase authentication" "External"
-        databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 32 tasks (6 ingest, 1 backfill, 14 compute, 5 HF export/import, 2 360 pipeline, 1 entity resolution, 1 validation, 1 cost sync, 1 tracking metadata), daily 06:00 UTC" "External"
+        databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 27 tasks (1 freshness gate, 5 ingest, 2 backfill, 14 compute, 1 HF sync, 2 360 pipeline, 1 entity resolution, 1 tracking metadata), performance-optimized mode (1-4s cold starts), daily 06:00 UTC" "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds from Dockerfile, serves on port 7860" "External"
         hfHub = softwareSystem "HuggingFace Hub" "Hosts 7 models (incl. football2vec-v2, football2vec-360, PSxG), 18 datasets (incl. training data, ScoutGPT episodes, 360 embeddings), build-artifacts wheel, and _workflow_cost.json cost artifacts" "External"
         hfJobs = softwareSystem "HuggingFace Jobs" "L40S GPU compute: 12 PEP 723 UV scripts for training (xG v1/v2, VAEP, PSxG, Football2vec v2/360), batch analytics (xT, EPV, OBSO, Space Creation), dataset publishing (freeze frames, xG shots), and Evolve Engine candidate evaluation" "External"
@@ -88,7 +90,11 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
         costEstimateHook -> sharedLibrary "Imports COST_TABLE_NAME and schema constants" ""
         ingestionPipelines -> bronzeSchema "Writes compute results to Delta tables" "PySpark/Delta"
         costEstimateHook -> observabilitySchema "MERGE run state + cost estimates to workflow_cost_live" "PySpark/Delta"
-        databricksWorkflows -> ingestionPipelines "Schedules and executes 31 pipeline tasks" "Databricks Jobs API"
+        databricksWorkflows -> freshnessGate "Executes gate as DAG root task" "Databricks Jobs API"
+        databricksWorkflows -> ingestionPipelines "Executes 25 pipeline tasks after gate" "Databricks Jobs API"
+        freshnessGate -> guardRegistry "Calls get_workflow_guards() to load all 29 SkipGuard adapters" ""
+        guardRegistry -> ingestionPipelines "Each pipeline exposes a skip_guard module attribute" ""
+        freshnessGate -> costEstimateHook "Emits SKIPPED records for idle workflows" ""
 
         # Relationships - Evolve Engine
         developer -> evolveEngine "Runs 'uv run evolve --target scoutgpt'" "CLI"
@@ -211,6 +217,16 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
             stateModules -> guiLayer "Updates team_lov, match_lov, player_lov state"
             stateModules -> renderEngine "Re-renders chart with new data scope"
             renderEngine -> guiLayer "Returns new image path (cache-busted)"
+            autoLayout
+        }
+
+        dynamic pipelinePlatform "FreshnessGate" {
+            databricksWorkflows -> freshnessGate "Job starts, gate task launches first"
+            freshnessGate -> guardRegistry "Loads all 29 SkipGuard adapters"
+            guardRegistry -> ingestionPipelines "Calls check() on each guard via Spark SQL"
+            freshnessGate -> costEstimateHook "Emits SKIPPED for count=0 workflows"
+            costEstimateHook -> observabilitySchema "MERGE SKIPPED state to workflow_cost_live"
+            databricksWorkflows -> ingestionPipelines "Launches tasks with work (gate wrote task values)"
             autoLayout
         }
 

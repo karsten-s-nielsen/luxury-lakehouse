@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from ingestion.guards import FilterResult
 from ingestion.utils import (
     configure_logging,
     get_spark_session,
@@ -33,6 +34,49 @@ if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 _TABLE_NAME = "fct_pausa_values"
+_guard_logger = logging.getLogger(f"{__name__}.guard")
+
+
+class _PausaGuard:
+    """SkipGuard adapter for PAUSA batch pipeline."""
+
+    workflow_id = "wf-obso-pausa"
+
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        """Check which matches need PAUSA computation."""
+        raw_table = f"{catalog}.bronze.pausa_raw_scores"
+        results_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.{_TABLE_NAME}"
+
+        try:
+            match_id_rows = spark.table(raw_table).select("match_id").distinct().collect()
+        except Exception:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        if not match_id_rows:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        all_match_ids = [row["match_id"] for row in match_id_rows]
+
+        existing_ids: set[str] = set()
+        try:
+            existing_rows = spark.table(results_table).select("match_id").distinct().collect()
+            existing_ids = {str(row["match_id"]) for row in existing_rows}
+        except Exception:
+            _guard_logger.debug("No existing %s table -- processing all matches", results_table)
+
+        new_match_ids = [str(mid) for mid in all_match_ids if str(mid) not in existing_ids]
+
+        if not new_match_ids:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        return FilterResult(
+            workflow_id=self.workflow_id,
+            count=len(new_match_ids),
+            metadata={"new_match_ids": new_match_ids},
+        )
+
+
+skip_guard = _PausaGuard()
 
 
 def _make_pausa_udf() -> object:
@@ -109,6 +153,8 @@ def _process_matches(
     catalog: str,
     schema: str,
     logger: logging.Logger,
+    *,
+    filter_result: FilterResult | None = None,
 ) -> int:
     """Process all matches from pausa_raw_scores via applyInPandas.
 
@@ -127,40 +173,41 @@ def _process_matches(
         logger.warning("Cannot read table %s — run OBSO batch (D16) first", raw_table)
         return 0
 
-    # Check which matches have raw data
-    try:
-        match_id_rows = raw_df.select("match_id").distinct().collect()
-    except Exception:
-        logger.warning("Cannot read match_id from %s", raw_table)
+    # Use pre-computed filter result from freshness gate, or run inline guard
+    if filter_result and filter_result.metadata.get("new_match_ids"):
+        new_ids_str = filter_result.metadata["new_match_ids"]
+        logger.info("%d matches to process (from freshness gate)", len(new_ids_str))
+    else:
+        # Standalone execution — run inline guard
+        try:
+            match_id_rows = raw_df.select("match_id").distinct().collect()
+        except Exception:
+            logger.warning("Cannot read match_id from %s", raw_table)
+            return 0
+
+        if not match_id_rows:
+            logger.info("No matches in %s", raw_table)
+            return 0
+
+        all_match_ids = [row["match_id"] for row in match_id_rows]
+
+        existing_ids: set[str] = set()
+        try:
+            existing_rows = spark.table(results_table).select("match_id").distinct().collect()
+            existing_ids = {str(row["match_id"]) for row in existing_rows}
+        except Exception:
+            logger.info("No existing %s table — processing all matches", results_table)
+
+        new_ids_str = [str(mid) for mid in all_match_ids if str(mid) not in existing_ids]
+        logger.info(
+            "%d matches total, %d already processed, %d to process",
+            len(all_match_ids),
+            len(existing_ids),
+            len(new_ids_str),
+        )
+
+    if not new_ids_str:
         return 0
-
-    if not match_id_rows:
-        logger.info("No matches in %s", raw_table)
-        return 0
-
-    all_match_ids = [row["match_id"] for row in match_id_rows]
-
-    # Incremental skip guard: check already-processed matches
-    existing_ids: set[str] = set()
-    try:
-        existing_rows = spark.table(results_table).select("match_id").distinct().collect()
-        existing_ids = {str(row["match_id"]) for row in existing_rows}
-    except Exception:
-        logger.info("No existing %s table — processing all matches", results_table)
-
-    new_match_ids = [mid for mid in all_match_ids if str(mid) not in existing_ids]
-    logger.info(
-        "%d matches total, %d already processed, %d to process",
-        len(all_match_ids),
-        len(existing_ids),
-        len(new_match_ids),
-    )
-
-    if not new_match_ids:
-        return 0
-
-    # Filter raw data to new matches only
-    new_ids_str = [str(mid) for mid in new_match_ids]
     filtered_df = raw_df.filter(F.col("match_id").isin(new_ids_str))
 
     # Ensure required columns exist — fill optional columns with defaults
@@ -265,10 +312,11 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
+    filter_result: FilterResult | None = None,
     ctx=None,
 ) -> int:
     """Execute the PAUSA computation pipeline."""
-    total = _process_matches(spark, catalog, schema, logger)
+    total = _process_matches(spark, catalog, schema, logger, filter_result=filter_result)
     logger.info("PAUSA pipeline complete — %d total rows written", total)
     return total
 

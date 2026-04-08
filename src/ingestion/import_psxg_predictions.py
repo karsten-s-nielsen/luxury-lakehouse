@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 from huggingface_hub import hf_hub_download
 
+from ingestion.guards import FilterResult
 from shared.constants import IDENTIFIER_RE
 from workflows import workflow
 
@@ -22,6 +23,16 @@ if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 HF_REPO = "luxury-lakehouse/psxg-predictions"
+
+
+class _ImportPsxgGuard:
+    workflow_id = "wf-import-psxg"
+
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        return FilterResult(workflow_id=self.workflow_id, count=1)
+
+
+skip_guard = _ImportPsxgGuard()
 TABLE_NAME = "psxg_predictions"
 
 

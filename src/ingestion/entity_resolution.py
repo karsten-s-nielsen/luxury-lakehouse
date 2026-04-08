@@ -14,6 +14,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from analytics.entity_resolution import ResolutionConfig, resolve_players
+from ingestion.guards import FilterResult
 from ingestion.utils import (
     configure_logging,
     get_spark_session,
@@ -26,6 +27,35 @@ from workflows import workflow
 if TYPE_CHECKING:
     import pandas as pd
     from pyspark.sql import SparkSession
+
+_guard_logger = logging.getLogger(f"{__name__}.guard")
+
+
+class _EntityResolutionGuard:
+    """SkipGuard adapter for entity resolution pipeline."""
+
+    workflow_id = "wf-entity-resolution"
+
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        """Check if entity resolution needs to run.
+
+        Heuristic: skip if xref table exists and both source tables are present.
+        """
+        xref_table = f"{catalog}.{schema}.player_xref_raw"
+
+        try:
+            existing_count = spark.table(xref_table).limit(1).count()
+            if existing_count > 0:
+                ws_count = spark.table(f"{catalog}.{schema}.wyscout_players").limit(1).count()
+                if ws_count > 0:
+                    return FilterResult(workflow_id=self.workflow_id, count=0)
+        except Exception:
+            _guard_logger.debug("No existing %s table -- needs resolution", xref_table)
+
+        return FilterResult(workflow_id=self.workflow_id, count=1)
+
+
+skip_guard = _EntityResolutionGuard()
 
 
 def _load_statsbomb_players(spark: SparkSession, catalog: str, schema: str) -> pd.DataFrame:

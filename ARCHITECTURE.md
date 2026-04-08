@@ -431,7 +431,7 @@ luxury-lakehouse/
 │   │   ├── team_shape.py             # Convex hull, centroid, formation lines, spatial metrics from tracking
 │   │   └── xg_model.py               # Custom xG: logistic baseline + calibrated XGBoost (JSON serialization)
 │   │
-│   ├── ingestion/                    # @workflow-decorated Databricks pipelines (42 modules)
+│   ├── ingestion/                    # @workflow-decorated Databricks pipelines (52 modules)
 │   │   ├── bootstrap.py              # Centralized hook registration for all pipelines
 │   │   ├── cost_hook.py              # CostEstimateHook: lifecycle hook writing cost to Delta
 │   │   ├── defcon_lite.py            # DEFCON-lite batch computation (gold+bronze → bronze)

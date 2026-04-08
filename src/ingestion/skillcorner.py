@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from ingestion.guards import FilterResult
 from ingestion.utils import (
     configure_logging,
     get_spark_session,
@@ -37,6 +38,16 @@ from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
+
+
+class _SkillcornerGuard:
+    workflow_id = "wf-skillcorner"
+
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        return FilterResult(workflow_id=self.workflow_id, count=1)
+
+
+skip_guard = _SkillcornerGuard()
 
 # All 10 SkillCorner A-League 2024/25 match IDs
 SKILLCORNER_MATCH_IDS: list[str] = [
