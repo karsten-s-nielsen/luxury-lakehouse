@@ -7,9 +7,9 @@ coordinates before fusing with the action embedding. The sin/cos mapping
 lifts each scalar into a rich frequency space, allowing the model to
 capture rapid spatial variations (e.g., near-goal vs midfield).
 
-The Fourier projection matrix B is frozen (not learned) — it acts as a
-fixed random basis. Only the downstream cross-attention layers learn
-how to use the enriched spatial signal.
+The Fourier projection matrix B is initialized randomly and learned
+during training (learnable Fourier features). The downstream cross-
+attention layers learn how to use the enriched spatial signal.
 
 Reference: Tancik et al. (2020), "Fourier Features Let Networks Learn
 High Frequency Functions in Low Dimensional Domains".
@@ -46,7 +46,10 @@ def custom_layers(hidden_dim):
         "fourier_proj": torch.nn.Linear(_N_FREQS * 4 * 2, hidden_dim),
         # Cross-attention for player conditioning
         "fourier_cross_attn": torch.nn.MultiheadAttention(
-            hidden_dim, num_heads, dropout=dropout, batch_first=True,
+            hidden_dim,
+            num_heads,
+            dropout=dropout,
+            batch_first=True,
         ),
         "fourier_cross_norm": torch.nn.LayerNorm(hidden_dim),
     }
@@ -66,15 +69,14 @@ def custom_embed(self, action_ids, start_x, start_y, end_x, end_y, result, time_
 
     # Combine token + spatial + temporal + result
     action_emb = (
-        self.token_embedding(action_ids)
-        + spatial_emb
-        + self.result_embedding(result)
-        + self.time_delta_mlp(time_delta)
+        self.token_embedding(action_ids) + spatial_emb + self.result_embedding(result) + self.time_delta_mlp(time_delta)
     )
 
     # Cross-attention: action queries attend to player keys/values
     attn_out, _ = self.fourier_cross_attn(
-        query=action_emb, key=player_emb, value=player_emb,
+        query=action_emb,
+        key=player_emb,
+        value=player_emb,
     )
     emb = self.fourier_cross_norm(action_emb + attn_out)
 

@@ -263,7 +263,7 @@ The evolve engine (`src/evolve/`, entry point `evolve`) implements automated cod
 - **Code validator** (`code_validator.py`): AST allowlist (parse-time) rejects dangerous constructs before execution.
 - **Evaluator** (`evaluator.py`): `exec()` under defense-in-depth: AST allowlist + restricted globals (`__builtins__: {}`) + subprocess isolation.
 - **5 execution backends**: Docker, HF Jobs, local CUDA, remote SSH, job pool. Selected by config.
-- **Target: ScoutGPT decoder** (`targets/scoutgpt/`): Evolves player-conditioned action prediction architectures. 5 seed programs (additive, cross-attention, FiLM, gated, hybrid gated attention).
+- **Target: ScoutGPT decoder** (`targets/scoutgpt/`): Evolves player-conditioned action prediction architectures. 8 seed programs (additive, cross-attention, FiLM, gated, hybrid gated attention, SwiGLU, orthogonal cross-attention, Fourier spatial). 9 pre-validated building blocks (`building_blocks.py`) exposed in restricted globals for LLM use.
 - **Gated by `code_evolution=True`**: Disabled by default. All other code continues to avoid `exec()`/`eval()`.
 
 ---

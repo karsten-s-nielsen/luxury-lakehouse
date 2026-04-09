@@ -51,9 +51,9 @@ def custom_embed(self, action_ids, start_x, start_y, end_x, end_y, result, time_
 
     # Concat player + action, split into data path and gating path
     combined = torch.cat([action_emb, player_emb], dim=-1)  # (B, S, 2*hd)
-    data_path = self.swiglu_w1(combined)                     # (B, S, hd)
+    data_path = self.swiglu_w1(combined)  # (B, S, hd)
     gate_path = torch.nn.functional.silu(self.swiglu_w2(combined))  # (B, S, hd) — Swish
-    fused = data_path * gate_path                            # (B, S, hd) — Hadamard product
+    fused = data_path * gate_path  # (B, S, hd) — Hadamard product
 
     # Project back and residual connection with action embedding
     emb = self.swiglu_norm(action_emb + self.swiglu_proj(fused))

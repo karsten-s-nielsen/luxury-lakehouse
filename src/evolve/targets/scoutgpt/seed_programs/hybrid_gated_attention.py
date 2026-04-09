@@ -36,7 +36,10 @@ def custom_layers(hidden_dim):
     dropout = config["dropout"]
     return {
         "player_cross_attn": torch.nn.MultiheadAttention(
-            hidden_dim, num_heads, dropout=dropout, batch_first=True,
+            hidden_dim,
+            num_heads,
+            dropout=dropout,
+            batch_first=True,
         ),
         "player_cross_norm": torch.nn.LayerNorm(hidden_dim),
         "hybrid_gate": torch.nn.Sequential(

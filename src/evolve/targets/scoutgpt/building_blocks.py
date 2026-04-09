@@ -57,14 +57,16 @@ class MoERouter(nn.Module):
         self.router = nn.Linear(hidden_dim, n_experts)
 
         # Experts: independent 2-layer MLPs
-        self.experts = nn.ModuleList([
-            nn.Sequential(
-                nn.Linear(hidden_dim, hidden_dim),
-                nn.GELU(),
-                nn.Linear(hidden_dim, hidden_dim),
-            )
-            for _ in range(n_experts)
-        ])
+        self.experts = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Linear(hidden_dim, hidden_dim),
+                    nn.GELU(),
+                    nn.Linear(hidden_dim, hidden_dim),
+                )
+                for _ in range(n_experts)
+            ]
+        )
 
     def forward(self, x: torch.Tensor, conditioning: torch.Tensor) -> torch.Tensor:
         """Route x through top-k experts based on conditioning signal.
@@ -143,13 +145,13 @@ class HyperLinear(nn.Module):
         params = self.hyper_net(conditioning)  # (B, S, output_size)
 
         # Split into factorized components
-        a_flat = params[..., :r * hd]                          # (B, S, r*hd)
-        b_flat = params[..., r * hd:2 * r * hd]               # (B, S, r*hd)
-        bias = params[..., 2 * r * hd:]                        # (B, S, hd)
+        a_flat = params[..., : r * hd]  # (B, S, r*hd)
+        b_flat = params[..., r * hd : 2 * r * hd]  # (B, S, r*hd)
+        bias = params[..., 2 * r * hd :]  # (B, S, hd)
 
         # Reshape for batched matmul: x @ A @ B + bias
-        a_mat = a_flat.reshape(*a_flat.shape[:-1], hd, r)      # (B, S, hd, r)
-        b_mat = b_flat.reshape(*b_flat.shape[:-1], r, hd)      # (B, S, r, hd)
+        a_mat = a_flat.reshape(*a_flat.shape[:-1], hd, r)  # (B, S, hd, r)
+        b_mat = b_flat.reshape(*b_flat.shape[:-1], r, hd)  # (B, S, r, hd)
 
         # x: (B, S, hd) -> (B, S, 1, hd) @ (B, S, hd, r) -> (B, S, 1, r)
         mid = torch.matmul(x.unsqueeze(-2), a_mat).squeeze(-2)  # (B, S, r)
@@ -214,7 +216,7 @@ class KANLayer(nn.Module):
         # x: (..., in_dim) -> (..., in_dim, 1)
         # centers: (n_basis,) broadcast
         x_expanded = x.unsqueeze(-1)  # (..., in_dim, 1)
-        rbf = torch.exp(-((x_expanded - self.centers) ** 2) / (2 * sigma ** 2))  # (..., in_dim, n_basis)
+        rbf = torch.exp(-((x_expanded - self.centers) ** 2) / (2 * sigma**2))  # (..., in_dim, n_basis)
 
         # Weighted sum over basis functions, then sum over input dimensions
         # edge_weights: (in_dim, out_dim, n_basis)
@@ -265,9 +267,7 @@ class AdaLNZero(nn.Module):
         nn.init.zeros_(self.proj.weight[2 * hidden_dim :])
         nn.init.zeros_(self.proj.bias[2 * hidden_dim :])
 
-    def forward(
-        self, x: torch.Tensor, conditioning: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor, conditioning: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Apply adaptive layer norm and return (normed_output, residual_gate).
 
         Args:

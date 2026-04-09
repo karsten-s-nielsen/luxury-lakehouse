@@ -36,7 +36,10 @@ def custom_layers(hidden_dim):
     dropout = config["dropout"]
     return {
         "orth_cross_attn": torch.nn.MultiheadAttention(
-            hidden_dim, num_heads, dropout=dropout, batch_first=True,
+            hidden_dim,
+            num_heads,
+            dropout=dropout,
+            batch_first=True,
         ),
         "orth_gate": torch.nn.Sequential(
             torch.nn.Linear(hidden_dim * 2, hidden_dim),
@@ -61,7 +64,9 @@ def custom_embed(self, action_ids, start_x, start_y, end_x, end_y, result, time_
 
     # Cross-attention: action queries attend to player keys/values
     attn_out, _ = self.orth_cross_attn(
-        query=action_emb, key=player_emb, value=player_emb,
+        query=action_emb,
+        key=player_emb,
+        value=player_emb,
     )
 
     # Orthogonal projection: remove the component parallel to action_emb
