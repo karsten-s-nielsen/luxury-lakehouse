@@ -39,6 +39,26 @@ class FilterResult:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+def ensure_table(spark: SparkSession, table_name: str, schema_ddl: str) -> None:
+    """Create a Delta table if it does not exist.
+
+    Called by guards before ``find_new_ids()`` to guarantee the results
+    table exists.  On first-ever pipeline run the table is empty and the
+    anti-join correctly returns all source IDs.  After the first write,
+    this is a metadata-only no-op (~100 ms).
+
+    Args:
+        spark: Active SparkSession.
+        table_name: Fully-qualified table name (``catalog.schema.table``).
+        schema_ddl: SQL column definitions (e.g., ``"match_id STRING, value DOUBLE"``).
+    """
+    spark.sql(
+        f"CREATE TABLE IF NOT EXISTS {table_name} ({schema_ddl}) USING DELTA"
+        " TBLPROPERTIES ('delta.autoOptimize.autoCompact' = 'true',"
+        " 'delta.autoOptimize.optimizeWrite' = 'true')"
+    )
+
+
 def find_new_ids(
     spark: SparkSession,
     source_table: str,
@@ -55,10 +75,13 @@ def find_new_ids(
     collecting only the (small) list of new IDs to the driver.
     All IDs are cast to string for consistent cross-system normalization.
 
+    The results table **must exist** before calling this function.  Use
+    :func:`ensure_table` in the guard's ``check()`` to create it on first run.
+
     Args:
         spark: Active SparkSession.
         source_table: Fully-qualified source table (e.g., ``catalog.schema.table``).
-        results_table: Fully-qualified results table.
+        results_table: Fully-qualified results table (must exist).
         id_column: Column name for the join key in the source table (default ``match_id``).
         results_id_column: Column name for the join key in the results table.
             Defaults to ``id_column`` when source and results use the same name.
@@ -70,7 +93,10 @@ def find_new_ids(
     Returns:
         List of string IDs present in source but absent from results.
         Empty list if source is empty or all IDs are already processed.
-        All source IDs if results table does not exist.
+
+    Raises:
+        AnalysisException: If the results table does not exist (call
+            ``ensure_table`` first).
     """
     from pyspark.sql import functions as F  # noqa: N812
 
@@ -82,13 +108,7 @@ def find_new_ids(
         source_df = source_df.filter(source_filter)
     source_df = source_df.select(F.col(id_column).cast("string").alias(join_alias)).distinct()
 
-    try:
-        results_df = spark.table(results_table)
-    except Exception:
-        # Results table does not exist — all source IDs are new
-        rows = source_df.collect()
-        return [str(row[join_alias]) for row in rows]
-
+    results_df = spark.table(results_table)
     if results_filter:
         results_df = results_df.filter(results_filter)
     results_df = results_df.select(F.col(res_col).cast("string").alias(join_alias)).distinct()

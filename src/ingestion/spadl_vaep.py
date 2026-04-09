@@ -46,6 +46,23 @@ if TYPE_CHECKING:
     from xgboost import XGBClassifier
 
 
+_SPADL_SCHEMA = (
+    "game_id BIGINT, original_event_id STRING, period_id BIGINT, time_seconds DOUBLE, "
+    "team_id BIGINT, player_id BIGINT, start_x DOUBLE, start_y DOUBLE, end_x DOUBLE, end_y DOUBLE, "
+    "type_id BIGINT, result_id BIGINT, bodypart_id BIGINT, action_id BIGINT, "
+    "competition_id BIGINT, season_id BIGINT, data_source STRING, _ingested_at TIMESTAMP, match_id BIGINT"
+)
+_VAEP_TABLE = "vaep_action_values"
+_VAEP_SCHEMA = (
+    "game_id BIGINT, match_id BIGINT, original_event_id STRING, period_id BIGINT, "
+    "time_seconds DOUBLE, team_id BIGINT, player_id BIGINT, start_x DOUBLE, start_y DOUBLE, "
+    "end_x DOUBLE, end_y DOUBLE, type_id BIGINT, action_type STRING, result_id BIGINT, "
+    "action_result STRING, bodypart_id BIGINT, bodypart STRING, offensive_value DOUBLE, "
+    "defensive_value DOUBLE, vaep_value DOUBLE, competition_id BIGINT, season_id BIGINT, "
+    "data_source STRING, _ingested_at TIMESTAMP"
+)
+
+
 class _VaepGuard:
     """SkipGuard adapter for SPADL/VAEP pipeline.
 
@@ -57,10 +74,13 @@ class _VaepGuard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check if SPADL conversion or VAEP scoring has new work."""
-        from ingestion.guards import find_new_ids
+        from ingestion.guards import ensure_table, find_new_ids
 
         spadl_table = f"{catalog}.{schema}.{_SPADL_TABLE}"
         vaep_table = f"{catalog}.{schema}.{_VAEP_TABLE}"
+
+        ensure_table(spark, spadl_table, _SPADL_SCHEMA)
+        ensure_table(spark, vaep_table, _VAEP_SCHEMA)
 
         # Stage 1: Source events not yet in SPADL (two sources, union results)
         sb_new = find_new_ids(
@@ -122,7 +142,6 @@ def _get_feature_fns() -> list[Any]:
 
 
 _NB_PREV_ACTIONS = 3
-_VAEP_TABLE = "vaep_action_values"
 
 
 # ---------------------------------------------------------------------------

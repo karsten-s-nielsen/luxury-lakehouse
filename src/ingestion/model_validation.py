@@ -44,12 +44,20 @@ class _ModelValidationGuard:
     workflow_id = "wf-model-validation"
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        from ingestion.guards import ensure_table
+
+        results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+        ensure_table(spark, results_table, _RESULTS_SCHEMA)
         return FilterResult(workflow_id=self.workflow_id, count=1)
 
 
 skip_guard = _ModelValidationGuard()
 
 _TABLE_NAME = "model_validation_runs"
+_RESULTS_SCHEMA = (
+    "run_id STRING, run_date TIMESTAMP, model_name STRING, metric_name STRING, value DOUBLE, "
+    "status STRING, threshold_warn DOUBLE, threshold_alert DOUBLE, reference_value DOUBLE, _ingested_at TIMESTAMP"
+)
 
 # ---------------------------------------------------------------------------
 # Baseline loading

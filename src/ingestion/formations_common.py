@@ -23,7 +23,18 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from ingestion.guards import ensure_table
 from shared.constants import DEFAULT_GOLD_SCHEMA
+
+_FORMATION_LABELS_SCHEMA = (
+    "match_id STRING, period INT, team STRING, window_start_s DOUBLE, window_end_s DOUBLE, "
+    "formation_label STRING, cost DOUBLE, _ingested_at TIMESTAMP, detector STRING"
+)
+_POSITIONS_SCHEMA = (
+    "match_id STRING, frame_id BIGINT, player_id STRING, team STRING, "
+    "position_label STRING, vertical_level STRING, horizontal_level STRING, "
+    "detector STRING, _ingested_at TIMESTAMP"
+)
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame as SparkDataFrame
@@ -110,23 +121,20 @@ def find_incomplete_formation_ids(
     gold_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_tracking_frames"
     results_table = f"{catalog}.{schema}.{TABLE_NAME}"
 
-    try:
-        source_df = spark.table(gold_table).select(F.col("match_id").cast("string").alias("match_id")).distinct()
-    except Exception:
+    if not spark.catalog.tableExists(gold_table):
         return []
 
-    try:
-        fully_processed = (
-            spark.table(results_table)
-            .groupBy(F.col("match_id").cast("string").alias("match_id"))
-            .agg(F.countDistinct("detector").alias("n_detectors"))
-            .filter(F.col("n_detectors") >= 2)
-            .select("match_id")
-        )
-        new_df = source_df.join(fully_processed, on="match_id", how="left_anti")
-    except Exception:
-        # Results table doesn't exist — all source IDs are new
-        new_df = source_df
+    source_df = spark.table(gold_table).select(F.col("match_id").cast("string").alias("match_id")).distinct()
+
+    ensure_table(spark, results_table, _FORMATION_LABELS_SCHEMA)
+    fully_processed = (
+        spark.table(results_table)
+        .groupBy(F.col("match_id").cast("string").alias("match_id"))
+        .agg(F.countDistinct("detector").alias("n_detectors"))
+        .filter(F.col("n_detectors") >= 2)
+        .select("match_id")
+    )
+    new_df = source_df.join(fully_processed, on="match_id", how="left_anti")
 
     rows = new_df.collect()
     return [str(row["match_id"]) for row in rows]
@@ -151,11 +159,11 @@ def prepare_tracking_data(
     results_table = f"{catalog}.{schema}.{TABLE_NAME}"
 
     # Get all distinct match_ids from tracking data
-    try:
-        match_id_rows = spark.table(gold_table).select("match_id").distinct().collect()
-    except Exception:
-        logger.warning("Cannot read table %s", gold_table)
+    if not spark.catalog.tableExists(gold_table):
+        logger.warning("Source table %s does not exist", gold_table)
         return None
+
+    match_id_rows = spark.table(gold_table).select("match_id").distinct().collect()
 
     if not match_id_rows:
         logger.info("No matches in %s", gold_table)
@@ -166,21 +174,19 @@ def prepare_tracking_data(
     # Incremental skip guard — only skip matches that have results from BOTH
     # detectors.  A match with only EFPI results (pre-Cycle 2) still needs
     # shape graph processing.
-    fully_processed: set[str] = set()
-    try:
-        from pyspark.sql import functions as _F  # noqa: N812
+    ensure_table(spark, results_table, _FORMATION_LABELS_SCHEMA)
 
-        detector_counts = (
-            spark.table(results_table)
-            .groupBy("match_id")
-            .agg(_F.countDistinct("detector").alias("n_detectors"))
-            .filter(_F.col("n_detectors") >= 2)
-            .select("match_id")
-            .collect()
-        )
-        fully_processed = {str(row["match_id"]) for row in detector_counts}
-    except Exception:
-        logger.info("No existing %s table -- processing all matches", results_table)
+    from pyspark.sql import functions as _F  # noqa: N812
+
+    detector_counts = (
+        spark.table(results_table)
+        .groupBy("match_id")
+        .agg(_F.countDistinct("detector").alias("n_detectors"))
+        .filter(_F.col("n_detectors") >= 2)
+        .select("match_id")
+        .collect()
+    )
+    fully_processed: set[str] = {str(row["match_id"]) for row in detector_counts}
 
     new_match_ids = [mid for mid in all_match_ids if str(mid) not in fully_processed]
     logger.info(

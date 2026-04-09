@@ -41,6 +41,10 @@ from workflows.exceptions import WorkflowSkippedError
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
+_RESULTS_SCHEMA = (
+    "canonical_player_id STRING, match_id STRING, data_source STRING, "
+    "behavioral_vector ARRAY<DOUBLE>, stat_vector ARRAY<DOUBLE>, _ingested_at TIMESTAMP"
+)
 _guard_logger = logging.getLogger(f"{__name__}.guard")
 
 
@@ -51,10 +55,11 @@ class _Football2VecGuard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check if new source matches need embedding computation."""
-        from ingestion.guards import find_new_ids
+        from ingestion.guards import ensure_table, find_new_ids
 
         source_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_action_values"
         results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+        ensure_table(spark, results_table, _RESULTS_SCHEMA)
 
         # Defensive fallback: if source returns empty but results exist,
         # skip rather than recomputing everything.

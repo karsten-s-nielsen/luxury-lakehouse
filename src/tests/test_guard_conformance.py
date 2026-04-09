@@ -54,6 +54,40 @@ _NO_OWN_PIPELINE = {
 # ---------------------------------------------------------------------------
 
 
+class _ColumnMock:
+    """Mock PySpark Column that supports comparison operators.
+
+    PySpark Column objects support ``col >= 2`` etc.  Plain MagicMock raises
+    ``TypeError`` on ``>=`` in Python 3.10 because MagicMock's metaclass
+    explicitly removes comparison dunder methods.  This plain class delegates
+    all attribute access to a MagicMock but keeps comparison operators working.
+    """
+
+    def __init__(self) -> None:
+        self._inner = MagicMock()
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._inner, name)
+
+    def __ge__(self, other: object) -> _ColumnMock:
+        return _ColumnMock()
+
+    def __le__(self, other: object) -> _ColumnMock:
+        return _ColumnMock()
+
+    def __gt__(self, other: object) -> _ColumnMock:
+        return _ColumnMock()
+
+    def __lt__(self, other: object) -> _ColumnMock:
+        return _ColumnMock()
+
+    def __eq__(self, other: object) -> _ColumnMock:  # type: ignore[override]
+        return _ColumnMock()
+
+    def __ne__(self, other: object) -> _ColumnMock:  # type: ignore[override]
+        return _ColumnMock()
+
+
 def _mock_pyspark_functions() -> MagicMock:
     """Register a mock pyspark.sql.functions module in sys.modules.
 
@@ -61,6 +95,7 @@ def _mock_pyspark_functions() -> MagicMock:
     ``from pyspark.sql import functions as F``.
     """
     mock_functions = MagicMock()
+    mock_functions.col.return_value = _ColumnMock()
     if "pyspark" not in sys.modules:
         sys.modules["pyspark"] = MagicMock()
     mock_sql = MagicMock()
