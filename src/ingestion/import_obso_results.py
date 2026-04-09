@@ -29,6 +29,7 @@ from huggingface_hub import hf_hub_download
 from ingestion.guards import FilterResult
 from shared.constants import IDENTIFIER_RE
 from workflows import workflow
+from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -119,9 +120,12 @@ def run_pipeline(
     volume_path: str,
     hf_repo: str = HF_REPO,
     *,
+    filter_result: FilterResult,
     ctx: object = None,
 ) -> None:
     """Download OBSO results from HF Hub and write to bronze Delta tables."""
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new work")
     from pyspark.sql import functions as spark_fn  # type: ignore[import-not-found]
 
     logger = logging.getLogger("import_obso_results")
@@ -262,7 +266,13 @@ def main() -> None:
 
     bootstrap_hooks(spark, catalog, schema)
 
-    run_pipeline(spark, catalog, schema, volume_path, hf_repo=args.hf_repo)
+    from ingestion.guards import read_gate_result
+
+    filter_result = read_gate_result("wf-import-obso")
+    if filter_result is None:
+        filter_result = skip_guard.check(spark, catalog, schema)
+
+    run_pipeline(spark, catalog, schema, volume_path, hf_repo=args.hf_repo, filter_result=filter_result)
 
 
 if __name__ == "__main__":

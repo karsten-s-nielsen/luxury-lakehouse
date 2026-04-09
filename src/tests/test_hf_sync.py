@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+from ingestion.guards import FilterResult
+
 
 class TestHfSync:
     """Combined HF task calls all sub-operations."""
@@ -14,8 +16,9 @@ class TestHfSync:
 
         spark = MagicMock()
         logger_mock = MagicMock()
+        filter_result = FilterResult(workflow_id="wf-hf-sync", count=1)
 
-        run_pipeline(spark, "cat", "schema", logger_mock)
+        run_pipeline(spark, "cat", "schema", logger_mock, filter_result=filter_result)
 
         assert mock_run.call_count == 7
 

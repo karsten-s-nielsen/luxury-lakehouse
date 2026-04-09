@@ -286,6 +286,34 @@ class TestOnStart:
         row = row_data[0]
         assert row["started_at"] == ctx.started_at
 
+    def test_on_start_includes_entity_count(self) -> None:
+        """on_start row should include entity_count from context."""
+        spark = _make_spark()
+        hook = CostEstimateHook(spark, catalog="cat", schema="sch")
+        ctx = WorkflowContext(
+            workflow_id="wf-test",
+            phase="compute",
+            entity_count=5,
+        )
+
+        hook.on_start(ctx)
+
+        row_data = spark.createDataFrame.call_args[0][0]
+        row = row_data[0]
+        assert row["entity_count"] == 5
+
+    def test_on_start_entity_count_none_when_not_set(self) -> None:
+        """entity_count should be None when context has no entity_count."""
+        spark = _make_spark()
+        hook = CostEstimateHook(spark, catalog="cat", schema="sch")
+        ctx = WorkflowContext(workflow_id="wf-test", phase="compute")
+
+        hook.on_start(ctx)
+
+        row_data = spark.createDataFrame.call_args[0][0]
+        row = row_data[0]
+        assert row["entity_count"] is None
+
 
 # ---------------------------------------------------------------------------
 # on_complete
@@ -517,6 +545,7 @@ class TestColumnCompleteness:
         "ended_at",
         "duration_seconds",
         "row_count",
+        "entity_count",
         "rate_usd_per_hour",
         "estimated_cost_usd",
         "cost_source",

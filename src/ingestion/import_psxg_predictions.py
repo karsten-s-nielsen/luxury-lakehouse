@@ -18,6 +18,7 @@ from huggingface_hub import hf_hub_download
 from ingestion.guards import FilterResult
 from shared.constants import IDENTIFIER_RE
 from workflows import workflow
+from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -79,9 +80,12 @@ def run_pipeline(
     schema: str,
     volume_path: str,
     *,
+    filter_result: FilterResult,
     ctx: object = None,
 ) -> None:
     """Download PSxG predictions from HF Hub and write to bronze Delta table."""
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new work")
     from pyspark.sql import functions as spark_fn  # type: ignore[import-not-found]
 
     logger = logging.getLogger("import_psxg_predictions")
@@ -185,7 +189,13 @@ def main() -> None:
 
     bootstrap_hooks(spark, catalog, schema)
 
-    run_pipeline(spark, catalog, schema, volume_path)
+    from ingestion.guards import read_gate_result
+
+    filter_result = read_gate_result("wf-import-psxg")
+    if filter_result is None:
+        filter_result = skip_guard.check(spark, catalog, schema)
+
+    run_pipeline(spark, catalog, schema, volume_path, filter_result=filter_result)
 
 
 if __name__ == "__main__":

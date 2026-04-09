@@ -23,8 +23,6 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
-import silly_kicks.vaep.features as fs
-from xgboost import XGBClassifier
 
 from ingestion.guards import FilterResult
 from ingestion.spadl_conversion import (
@@ -41,9 +39,11 @@ from ingestion.utils import (
 )
 from shared.constants import DEFAULT_GOLD_SCHEMA, mlflow_model_uri
 from workflows import workflow
+from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
+    from xgboost import XGBClassifier
 
 
 class _VaepGuard:
@@ -99,20 +99,25 @@ class _VaepGuard:
 
 skip_guard = _VaepGuard()
 
-# Feature extraction functions (standard VAEP feature set)
-_FEATURE_FNS: list[Any] = [
-    fs.actiontype_onehot,
-    fs.result_onehot,
-    fs.bodypart_onehot,
-    fs.time,
-    fs.startlocation,
-    fs.endlocation,
-    fs.startpolar,
-    fs.endpolar,
-    fs.movement,
-    fs.team,
-    fs.time_delta,
-]
+
+def _get_feature_fns() -> list[Any]:
+    """Return the standard VAEP feature function list (lazy import)."""
+    import silly_kicks.vaep.features as fs
+
+    return [
+        fs.actiontype_onehot,
+        fs.result_onehot,
+        fs.bodypart_onehot,
+        fs.time,
+        fs.startlocation,
+        fs.endlocation,
+        fs.startpolar,
+        fs.endpolar,
+        fs.movement,
+        fs.team,
+        fs.time_delta,
+    ]
+
 
 _NB_PREV_ACTIONS = 3
 _VAEP_TABLE = "vaep_action_values"
@@ -363,7 +368,7 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
-    filter_result: FilterResult | None = None,
+    filter_result: FilterResult,
     ctx=None,
 ) -> None:
     """Execute the full SPADL/VAEP pipeline.
@@ -375,10 +380,10 @@ def run_pipeline(
     2. Read a small training subset from Delta -> extract features -> train (or load cached)
     3. Read per-competition from Delta -> score unscored games -> write results (incremental)
     """
-    # Early exit if freshness gate determined no new work
-    if filter_result and filter_result.count == 0:
-        logger.info("Freshness gate: no new SPADL/VAEP work")
-        return
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new work")
+
+    unscored_ids = filter_result.metadata["unscored_vaep_match_ids"]
 
     spadl_table = f"{catalog}.{schema}.{_SPADL_TABLE}"
 
@@ -414,9 +419,12 @@ def run_pipeline(
     model_scores, model_concedes = models
 
     # Phase D: Score unscored games via applyInPandas (distributed on executors)
-    existing_vaep_matches = _read_existing_match_ids(spark, catalog, schema, _VAEP_TABLE, logger)
-    if existing_vaep_matches:
-        logger.info("Found %d games already scored in %s -- will skip", len(existing_vaep_matches), _VAEP_TABLE)
+    # Use guard-provided unscored IDs instead of inline re-computation
+    unscored_match_ids = unscored_ids
+
+    if not unscored_match_ids:
+        logger.info("No unscored matches -- nothing to do")
+        return
 
     # Serialize models to bytes for executor distribution via UDF closure.
     # XGBoost's C-level save_model/load_model cannot use UC Volume FUSE on
@@ -427,19 +435,9 @@ def run_pipeline(
 
     from pyspark.sql import functions as spark_fn
 
-    # Filter SPADL to unscored matches only (using match_id, not game_id)
-    all_match_rows = spadl_sdf.select("match_id").distinct().collect()
-    all_match_ids = [int(r["match_id"]) for r in all_match_rows]
-    unscored_match_ids = [mid for mid in all_match_ids if mid not in existing_vaep_matches]
-
-    if not unscored_match_ids:
-        logger.info("All %d matches already scored -- nothing to do", len(all_match_ids))
-        return
-
     logger.info(
-        "Scoring %d unscored matches (of %d total) via applyInPandas",
+        "Scoring %d unscored matches via applyInPandas",
         len(unscored_match_ids),
-        len(all_match_ids),
     )
 
     unscored_sdf = spadl_sdf.filter(spark_fn.col("match_id").isin(unscored_match_ids))
@@ -518,6 +516,8 @@ def main() -> None:
     from ingestion.guards import read_gate_result
 
     filter_result = read_gate_result("wf-vaep")
+    if filter_result is None:
+        filter_result = skip_guard.check(spark, args.catalog, args.schema)
 
     logger.info("Starting SPADL/VAEP pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)

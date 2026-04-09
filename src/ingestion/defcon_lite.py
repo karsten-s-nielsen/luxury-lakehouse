@@ -42,6 +42,7 @@ from ingestion.utils import (
 )
 from shared.constants import DEFAULT_GOLD_SCHEMA
 from workflows import workflow
+from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -54,8 +55,8 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
-    filter_360: FilterResult | None = None,
-    filter_tracking: FilterResult | None = None,
+    filter_360: FilterResult,
+    filter_tracking: FilterResult,
     ctx=None,
 ) -> None:
     """Execute the DEFCON-lite computation pipeline.
@@ -64,6 +65,9 @@ def run_pipeline(
     If available, passes serialized model bytes to value UDFs for consistent
     cross-match scoring. Falls back to per-match XGBoost training otherwise.
     """
+    if filter_360.count == 0 and filter_tracking.count == 0:
+        raise WorkflowSkippedError("No new work")
+
     params = DefconLiteParams()
 
     # Attempt to load @Champion model (driver-side only)
@@ -97,7 +101,16 @@ def main() -> None:
     from ingestion.guards import read_gate_result
 
     filter_360 = read_gate_result("wf-defcon")
+    if filter_360 is None:
+        from ingestion.defcon_lite_360 import skip_guard as guard_360
+
+        filter_360 = guard_360.check(spark, args.catalog, args.schema)
+
     filter_tracking = read_gate_result("wf-defcon-tracking")
+    if filter_tracking is None:
+        from ingestion.defcon_lite_tracking import skip_guard as guard_tracking
+
+        filter_tracking = guard_tracking.check(spark, args.catalog, args.schema)
 
     logger.info("Starting DEFCON-lite pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger, filter_360=filter_360, filter_tracking=filter_tracking)

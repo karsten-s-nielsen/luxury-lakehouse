@@ -25,7 +25,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from analytics.line_breaking import LineBreakingParams
 from ingestion.guards import FilterResult
 from ingestion.line_breaking_360 import _make_statsbomb_udf as _make_statsbomb_udf
 from ingestion.line_breaking_360 import _process_statsbomb_360
@@ -36,6 +35,7 @@ from ingestion.line_breaking_tracking import _make_metrica_udf as _make_metrica_
 from ingestion.line_breaking_tracking import _process_idsse_tracking, _process_metrica_tracking
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
 from workflows import workflow
+from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -103,20 +103,24 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
-    filter_result: FilterResult | None = None,
+    filter_result: FilterResult,
     ctx=None,
 ) -> None:
     """Execute the line-breaking detection pipeline."""
-    # Early exit if freshness gate determined no new work
-    if filter_result and filter_result.count == 0:
-        logger.info("Freshness gate: no new line-breaking work")
-        return
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new work")
+
+    from analytics.line_breaking import LineBreakingParams
 
     params = LineBreakingParams()
 
-    path_a_rows = _process_statsbomb_360(spark, catalog, schema, logger, params)
-    path_b_rows = _process_metrica_tracking(spark, catalog, schema, logger, params)
-    path_c_rows = _process_idsse_tracking(spark, catalog, schema, logger, params)
+    sb_ids = filter_result.metadata.get("statsbomb_360_ids", [])
+    metrica_ids = filter_result.metadata.get("metrica_ids", [])
+    idsse_ids = filter_result.metadata.get("idsse_ids", [])
+
+    path_a_rows = _process_statsbomb_360(spark, catalog, schema, logger, params, new_ids=sb_ids)
+    path_b_rows = _process_metrica_tracking(spark, catalog, schema, logger, params, new_ids=metrica_ids)
+    path_c_rows = _process_idsse_tracking(spark, catalog, schema, logger, params, new_ids=idsse_ids)
 
     total = path_a_rows + path_b_rows + path_c_rows
     logger.info("Line-breaking pipeline complete — %d total rows written", total)
@@ -140,6 +144,8 @@ def main() -> None:
     from ingestion.guards import read_gate_result
 
     filter_result = read_gate_result("wf-line-breaking")
+    if filter_result is None:
+        filter_result = skip_guard.check(spark, args.catalog, args.schema)
 
     logger.info("Starting line-breaking pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)

@@ -30,6 +30,7 @@ from ingestion.utils import (
 )
 from shared.constants import DEFAULT_GOLD_SCHEMA
 from workflows import workflow
+from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -189,7 +190,7 @@ def _process_matches(
     schema: str,
     logger: logging.Logger,
     *,
-    filter_result: FilterResult | None = None,
+    filter_result: FilterResult,
 ) -> int:
     """Process all new matches from fct_tracking_frames via applyInPandas.
 
@@ -201,22 +202,9 @@ def _process_matches(
     from analytics.pitch_control import PitchControlParams
 
     gold_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_tracking_frames"
-    results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
 
-    # Use pre-computed filter result from freshness gate, or run inline guard
-    if filter_result and filter_result.metadata.get("new_match_ids"):
-        new_ids_str = filter_result.metadata["new_match_ids"]
-        logger.info("%d matches to process (from freshness gate)", len(new_ids_str))
-    else:
-        # Standalone execution — run inline guard
-        from ingestion.guards import find_new_ids
-
-        new_ids_str = find_new_ids(
-            spark,
-            source_table=gold_table,
-            results_table=results_table,
-        )
-        logger.info("%d matches to process (standalone mode)", len(new_ids_str))
+    new_ids_str = filter_result.metadata["new_match_ids"]
+    logger.info("%d matches to process", len(new_ids_str))
 
     if not new_ids_str:
         return 0
@@ -292,10 +280,12 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
-    filter_result: FilterResult | None = None,
+    filter_result: FilterResult,
     ctx=None,
 ) -> None:
     """Execute the pitch control value computation pipeline."""
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new work")
     total = _process_matches(spark, catalog, schema, logger, filter_result=filter_result)
     logger.info("Pitch control pipeline complete -- %d total rows written", total)
 
@@ -313,6 +303,8 @@ def main() -> None:
     from ingestion.guards import read_gate_result
 
     filter_result = read_gate_result("wf-pitch-control")
+    if filter_result is None:
+        filter_result = skip_guard.check(spark, args.catalog, args.schema)
 
     logger.info("Starting pitch control batch pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)

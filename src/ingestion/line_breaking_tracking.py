@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from analytics.line_breaking import LineBreakingParams
 from ingestion.line_breaking_common import (
     _RESULT_COLUMNS,
     _TABLE_NAME,
@@ -23,6 +22,8 @@ from ingestion.utils import merge_delta_table
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
+
+    from analytics.line_breaking import LineBreakingParams
 
 
 # ---------------------------------------------------------------------------
@@ -220,6 +221,8 @@ def _process_metrica_tracking(
     schema: str,
     logger: logging.Logger,
     params: LineBreakingParams,
+    *,
+    new_ids: list[str],
 ) -> int:
     """Detect line-breaking passes using Metrica tracking + event data.
 
@@ -227,49 +230,19 @@ def _process_metrica_tracking(
     then uses ``groupBy("evt_match_id").applyInPandas`` to distribute
     detection across executors.
 
+    Parameters
+    ----------
+    new_ids : list[str]
+        Pre-computed list of new match IDs from the guard.
+
     Returns number of rows written.
     """
     events_table = f"{catalog}.{schema}.metrica_events"
     tracking_table = f"{catalog}.{schema}.metrica_tracking"
 
-    # Get distinct match_ids from pass events
-    try:
-        match_ids_rows = spark.table(events_table).filter("type = 'PASS'").select("match_id").distinct().collect()
-    except Exception:
-        logger.exception("Cannot read Metrica events table")
-        return 0
+    logger.info("Path B: %d matches from guard metadata", len(new_ids))
 
-    if not match_ids_rows:
-        logger.info("No PASS events in Metrica events — skipping Path B")
-        return 0
-
-    match_ids = [row["match_id"] for row in match_ids_rows]
-    logger.info("Path B: %d matches with PASS events", len(match_ids))
-
-    # Incremental skip — only process matches not already in results table
-    results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
-    existing_ids: set[str] = set()
-    try:
-        existing_rows = (
-            spark.table(results_table)
-            .filter("data_source = 'metrica_tracking'")
-            .select("match_id")
-            .distinct()
-            .collect()
-        )
-        existing_ids = {str(row["match_id"]) for row in existing_rows}
-    except Exception:
-        logger.info("No existing %s table — processing all matches", results_table)
-
-    new_match_ids = [mid for mid in match_ids if str(mid) not in existing_ids]
-    logger.info(
-        "Path B: %d matches total, %d already processed, %d to process",
-        len(match_ids),
-        len(existing_ids),
-        len(new_match_ids),
-    )
-
-    if not new_match_ids:
+    if not new_ids:
         return 0
 
     # --- pyspark imports deferred past early-exit guards (not installed in test env) ---
@@ -277,7 +250,7 @@ def _process_metrica_tracking(
     from pyspark.sql.types import BooleanType, IntegerType, StringType, StructField, StructType
 
     # Build Spark DFs for passes and tracking, filtered to new matches
-    new_ids_str = [str(mid) for mid in new_match_ids]
+    new_ids_str = [str(mid) for mid in new_ids]
 
     passes_df = (
         spark.table(events_table)
@@ -361,6 +334,8 @@ def _process_idsse_tracking(
     schema: str,
     logger: logging.Logger,
     params: LineBreakingParams,
+    *,
+    new_ids: list[str],
 ) -> int:
     """Detect line-breaking passes using IDSSE tracking + event data.
 
@@ -374,45 +349,19 @@ def _process_idsse_tracking(
       - Tracking: center-origin meters (-52.5 to 52.5, -34 to 34)
       Both are converted to StatsBomb 120x80 inside the UDF.
 
+    Parameters
+    ----------
+    new_ids : list[str]
+        Pre-computed list of new match IDs from the guard.
+
     Returns number of rows written.
     """
     events_table = f"{catalog}.{schema}.idsse_events"
     tracking_table = f"{catalog}.{schema}.idsse_tracking"
 
-    # Get distinct match_ids from Play events (DFL pass events)
-    try:
-        match_ids_rows = spark.table(events_table).filter("event_type = 'Play'").select("match_id").distinct().collect()
-    except Exception:
-        logger.exception("Cannot read IDSSE events table")
-        return 0
+    logger.info("Path C: %d matches from guard metadata", len(new_ids))
 
-    if not match_ids_rows:
-        logger.info("No Play events in IDSSE events — skipping Path C")
-        return 0
-
-    match_ids = [row["match_id"] for row in match_ids_rows]
-    logger.info("Path C: %d matches with Play events", len(match_ids))
-
-    # Incremental skip — only process matches not already in results table
-    results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
-    existing_ids: set[str] = set()
-    try:
-        existing_rows = (
-            spark.table(results_table).filter("data_source = 'idsse_tracking'").select("match_id").distinct().collect()
-        )
-        existing_ids = {str(row["match_id"]) for row in existing_rows}
-    except Exception:
-        logger.info("No existing %s table — processing all matches", results_table)
-
-    new_match_ids = [mid for mid in match_ids if str(mid) not in existing_ids]
-    logger.info(
-        "Path C: %d matches total, %d already processed, %d to process",
-        len(match_ids),
-        len(existing_ids),
-        len(new_match_ids),
-    )
-
-    if not new_match_ids:
+    if not new_ids:
         return 0
 
     # --- pyspark imports deferred past early-exit guards (not installed in test env) ---
@@ -420,7 +369,7 @@ def _process_idsse_tracking(
     from pyspark.sql.types import BooleanType, IntegerType, StringType, StructField, StructType
 
     # Build Spark DFs for events and tracking, filtered to new matches
-    new_ids_str = [str(mid) for mid in new_match_ids]
+    new_ids_str = [str(mid) for mid in new_ids]
 
     events_df = (
         spark.table(events_table)

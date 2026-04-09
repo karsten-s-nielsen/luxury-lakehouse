@@ -44,6 +44,7 @@ from ingestion.utils import (
     write_delta_table,
 )
 from workflows import workflow
+from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -535,10 +536,13 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
+    filter_result: FilterResult,
     data_dir: pathlib.Path | None = None,
     ctx: object = None,
 ) -> None:
     """Ingest all Wyscout open data (events, matches, players)."""
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new work")
     ingest_events(spark, catalog, schema, data_dir, logger)
     ingest_matches(spark, catalog, schema, data_dir, logger)
     ingest_players(spark, catalog, schema, data_dir, logger)
@@ -560,8 +564,14 @@ def main() -> None:
 
     data_dir = pathlib.Path(args.data_dir) if args.data_dir else None
 
+    from ingestion.guards import read_gate_result
+
+    filter_result = read_gate_result("wf-wyscout")
+    if filter_result is None:
+        filter_result = skip_guard.check(spark, args.catalog, args.schema)
+
     logger.info("Starting Wyscout ingestion into %s.%s", args.catalog, args.schema)
-    run_pipeline(spark, args.catalog, args.schema, logger, data_dir=data_dir)
+    run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result, data_dir=data_dir)
     logger.info("Wyscout ingestion complete")
 
 

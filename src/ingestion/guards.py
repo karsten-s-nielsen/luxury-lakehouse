@@ -178,9 +178,12 @@ _GUARD_MODULES: list[str] = [
     "ingestion.prepare_360_training_data",
     "ingestion.entity_resolution",
     "ingestion.statsbomb",
+    "ingestion.statsbomb_backfill_extra",
+    "ingestion.statsbomb_backfill_360",
     "ingestion.metrica",
     "ingestion.wyscout",
     "ingestion.idsse",
+    "ingestion.idsse_events",
     "ingestion.skillcorner",
     "ingestion.import_obso_results",
     "ingestion.import_psxg_predictions",
@@ -189,6 +192,7 @@ _GUARD_MODULES: list[str] = [
     "ingestion.model_validation",
     "ingestion.sync_hf_costs",
     "ingestion.player_embeddings_v2",
+    "ingestion.hf_sync",
 ]
 
 

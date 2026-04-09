@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING
 from ingestion.guards import FilterResult
 from shared.constants import IDENTIFIER_RE
 from workflows import workflow
+from workflows.exceptions import WorkflowSkippedError
 
 # ---------------------------------------------------------------------------
 # Structured logging
@@ -466,46 +467,15 @@ def run_pipeline(
     schema: str,
     volume_path: str,
     *,
-    filter_result: FilterResult | None = None,
+    filter_result: FilterResult,
     ctx: object = None,
 ) -> None:
     """Join 360 freeze frames with SPADL actions, stage to UC Volume, upload to HF Hub."""
-    # Early exit if freshness gate determined no new work
-    if filter_result and filter_result.count == 0:
-        logger.info("Freshness gate: no new 360 training data work")
-        return
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new 360 training data work")
 
     # ------------------------------------------------------------------
-    # 1. Skip guard — compare upstream freshness against last export
-    # ------------------------------------------------------------------
-    try:
-        existing_count = spark.read.parquet(volume_path).count()
-        if existing_count > 0:
-            upstream_count = (
-                spark.table(f"{catalog}.{schema}.fct_action_values")
-                .filter("data_source = 'statsbomb'")
-                .select("player_id", "match_id")
-                .distinct()
-                .count()
-            )
-            if existing_count >= upstream_count:
-                logger.info(
-                    "Existing export (%d rows) covers all %d upstream StatsBomb player-match "
-                    "pairs — skipping re-export",
-                    existing_count,
-                    upstream_count,
-                )
-                return
-            logger.info(
-                "Upstream has %d player-match pairs vs %d exported — re-exporting",
-                upstream_count,
-                existing_count,
-            )
-    except Exception:
-        logger.info("No existing export at %s — full export", volume_path)
-
-    # ------------------------------------------------------------------
-    # 2. Build 360-enriched training dataset via Spark aggregation
+    # 1. Build 360-enriched training dataset via Spark aggregation
     # ------------------------------------------------------------------
     grouped_sdf, row_count = _build_training_dataset(spark, catalog, schema)
 
@@ -581,6 +551,8 @@ def main() -> None:
     from ingestion.guards import read_gate_result
 
     filter_result = read_gate_result("wf-prepare-360-data")
+    if filter_result is None:
+        filter_result = skip_guard.check(spark, catalog, schema)
 
     run_pipeline(spark, catalog, schema, volume_path, filter_result=filter_result)
 
