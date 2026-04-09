@@ -323,11 +323,7 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    from ingestion.guards import read_gate_result
-
-    filter_result = read_gate_result("wf-elastic-sync")
-    if filter_result is None:
-        filter_result = skip_guard.check(spark, args.catalog, args.schema)
+    filter_result = skip_guard.check(spark, args.catalog, args.schema)
 
     logger.info("Starting ELASTIC sync pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)

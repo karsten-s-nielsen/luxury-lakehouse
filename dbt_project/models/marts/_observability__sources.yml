@@ -1,0 +1,31 @@
+version: 2
+
+sources:
+  - name: observability
+    description: >
+      Platform operational metadata schema. Tables written by runtime hooks
+      (CostEstimateHook), not by dbt. Used as read-only enrichment sources.
+    database: "{{ target.catalog }}"
+    schema: observability
+    tables:
+      - name: workflow_cost_live
+        description: >
+          Warm-tier cost and lifecycle data written by CostEstimateHook during
+          pipeline execution. Rows are pruned by fct_workflow_costs post-hook
+          after cold-tier capture. Not managed by dbt.
+        loaded_at_field: updated_at
+        columns:
+          - name: job_run_id
+            description: Databricks job run identifier. Join key to billing tables.
+          - name: task_key
+            description: Databricks task key. Join key to job_task_run_timeline.
+          - name: state
+            description: "Pipeline outcome: RUNNING, COMPLETED, SKIPPED, or ERROR."
+          - name: duration_seconds
+            description: Wall-clock pipeline duration (excludes scheduling overhead).
+          - name: entity_count
+            description: Number of entities the guard found for this run.
+          - name: row_count
+            description: Number of rows the pipeline output.
+          - name: estimated_cost_usd
+            description: "Hook's per-task cost estimate (rate * duration)."

@@ -448,11 +448,7 @@ def main_shape_graph() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    from ingestion.guards import read_gate_result
-
-    filter_result = read_gate_result("wf-formations-sg")
-    if filter_result is None:
-        filter_result = skip_guard.check(spark, args.catalog, args.schema)
+    filter_result = skip_guard.check(spark, args.catalog, args.schema)
 
     logger.info("Starting shape graph formation detection pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline_shape_graph(spark, args.catalog, args.schema, logger, filter_result=filter_result)

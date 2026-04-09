@@ -13,6 +13,10 @@
 -- proportionally by execution duration within each job run.
 -- 90-day rolling window refreshed daily.
 --
+-- Warm-tier enrichment: LEFT JOINs workflow_cost_live (written by
+-- CostEstimateHook) to capture lifecycle fields (duration, entity_count,
+-- row_count, state, estimated_cost_usd) before the post-hook prunes them.
+--
 -- Post-hook cleanup removes redundant warm-tier rows from workflow_cost_live.
 -- COALESCE sentinel: if table is empty (first build), threshold becomes
 -- 1970-01-02 — no legitimate workflow ended in 1970, so DELETE matches zero rows.
@@ -57,13 +61,26 @@ tasks AS (
 workflow_ids AS (
     SELECT task_key, workflow_id
     FROM {{ ref('task_workflow_mapping') }}
+),
+
+warm_tier AS (
+    SELECT
+        job_run_id,
+        task_key,
+        duration_seconds,
+        entity_count,
+        row_count,
+        state AS pipeline_state,
+        estimated_cost_usd
+    FROM {{ source('observability', 'workflow_cost_live') }}
+    WHERE state != 'RUNNING'
 )
 
 SELECT
     tasks.task_key,
     billing.usage_date,
     CAST(billing.job_run_id AS BIGINT) AS job_run_id,
-    wcl.workflow_id,
+    wid.workflow_id,
     CAST(ROUND(
         billing.dbu * (
             tasks.execution_duration_seconds
@@ -79,8 +96,16 @@ SELECT
                 OVER (PARTITION BY billing.job_run_id), 0)
         ),
         4
-    ) AS DECIMAL(10, 4)) AS attributed_cost_usd
+    ) AS DECIMAL(10, 4)) AS attributed_cost_usd,
+    wt.duration_seconds,
+    wt.entity_count,
+    wt.row_count,
+    wt.pipeline_state,
+    wt.estimated_cost_usd
 FROM billing
 INNER JOIN tasks ON billing.job_run_id = tasks.job_run_id
-LEFT JOIN workflow_ids AS wcl
-    ON wcl.task_key = tasks.task_key
+LEFT JOIN workflow_ids AS wid
+    ON wid.task_key = tasks.task_key
+LEFT JOIN warm_tier AS wt
+    ON CAST(billing.job_run_id AS BIGINT) = wt.job_run_id
+    AND tasks.task_key = wt.task_key

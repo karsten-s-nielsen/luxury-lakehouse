@@ -277,12 +277,8 @@ def main() -> None:
     parser.add_argument("--cards-dir", type=Path, default=Path("workflow-cards"), help="Workflow cards directory")
     args = parser.parse_args()
 
-    from ingestion.guards import read_gate_result
-
-    filter_result = read_gate_result("wf-sync-hf-costs")
-    if filter_result is None:
-        # No Spark available yet for guard check — create a standalone FilterResult
-        filter_result = skip_guard.check(None, args.catalog, "")  # type: ignore[arg-type]
+    # No Spark available yet for guard check — create a standalone FilterResult
+    filter_result = skip_guard.check(None, args.catalog, "")  # type: ignore[arg-type]
 
     count = run_pipeline(args.catalog, args.cards_dir, filter_result=filter_result)
     logger.info("Done — %d records synced", count)

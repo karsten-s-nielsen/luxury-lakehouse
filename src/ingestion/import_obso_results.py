@@ -266,11 +266,7 @@ def main() -> None:
 
     bootstrap_hooks(spark, catalog, schema)
 
-    from ingestion.guards import read_gate_result
-
-    filter_result = read_gate_result("wf-import-obso")
-    if filter_result is None:
-        filter_result = skip_guard.check(spark, catalog, schema)
+    filter_result = skip_guard.check(spark, catalog, schema)
 
     run_pipeline(spark, catalog, schema, volume_path, hf_repo=args.hf_repo, filter_result=filter_result)
 

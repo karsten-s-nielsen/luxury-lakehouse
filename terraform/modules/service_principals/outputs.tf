@@ -11,3 +11,8 @@ output "terraform_ci_sp_application_id" {
   description = "Application (client) ID of the Terraform CI service principal"
   value       = databricks_service_principal.terraform_ci.application_id
 }
+
+output "hf_app_sp_application_id" {
+  description = "Application (client) ID of the HF Spaces app service principal"
+  value       = databricks_service_principal.hf_app.application_id
+}

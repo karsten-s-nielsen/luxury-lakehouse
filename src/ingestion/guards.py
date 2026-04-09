@@ -1,17 +1,15 @@
-"""Port/adapter infrastructure for the freshness gate.
+"""Port/adapter infrastructure for pipeline skip guards.
 
 Each workflow exposes a :class:`SkipGuard` adapter whose ``check()``
 method returns a :class:`FilterResult` describing whether the workflow
 has new work and how to chunk it for fan-out.
 
-The freshness gate task (:mod:`ingestion.freshness_gate`) calls every
-registered guard once at job start and uses the results to skip or
-invoke downstream tasks.
+Each pipeline's ``main()`` calls its guard's ``check()`` at startup
+and raises ``WorkflowSkippedError`` when ``count == 0``.
 """
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -21,7 +19,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class FilterResult:
-    """What the freshness gate learns from a single workflow's guard.
+    """Result of a single workflow's skip guard check.
 
     Attributes:
         workflow_id: The ``wf-xxx`` identifier matching the workflow card.
@@ -39,23 +37,6 @@ class FilterResult:
     count: int
     chunks: list[list[str]] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
-
-    def to_json(self) -> str:
-        """Serialize for ``dbutils.jobs.taskValues.set``."""
-        return json.dumps(
-            {
-                "workflow_id": self.workflow_id,
-                "count": self.count,
-                "chunks": self.chunks,
-                "metadata": self.metadata,
-            }
-        )
-
-    @classmethod
-    def from_json(cls, raw: str) -> FilterResult:
-        """Deserialize from ``dbutils.jobs.taskValues.get``."""
-        data = json.loads(raw)
-        return cls(**data)
 
 
 def find_new_ids(
@@ -107,38 +88,6 @@ def find_new_ids(
     new_df = source_df.join(results_df, on=id_column, how="left_anti")
     rows = new_df.collect()
     return [str(row[id_column]) for row in rows]
-
-
-def read_gate_result(workflow_id: str) -> FilterResult | None:
-    """Read a FilterResult written by the freshness gate via Databricks task values.
-
-    Called from pipeline ``main()`` functions to receive the gate's pre-computed
-    guard result, avoiding redundant inline guard queries.
-
-    Args:
-        workflow_id: Databricks task value key written by the freshness gate
-            (e.g., ``"wf-pitch-control"``). Must match the key used in
-            ``_write_task_values()``.
-
-    Returns ``None`` in standalone mode (no dbutils available), if the
-    freshness gate task key is missing, or on any deserialization error.
-    """
-    import logging
-
-    _logger = logging.getLogger(__name__)
-    try:
-        from pyspark.dbutils import DBUtils  # type: ignore[import-untyped]
-        from pyspark.sql import SparkSession
-
-        spark = SparkSession.getActiveSession()
-        if not spark:
-            return None
-        dbutils = DBUtils(spark)
-        raw = dbutils.jobs.taskValues.get(taskKey="freshness_gate", key=workflow_id)
-        return FilterResult.from_json(raw)
-    except Exception:
-        _logger.debug("read_gate_result(%s): not available (standalone mode or missing key)", workflow_id)
-        return None
 
 
 class SkipGuard(Protocol):

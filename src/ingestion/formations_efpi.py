@@ -326,11 +326,7 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    from ingestion.guards import read_gate_result
-
-    filter_result = read_gate_result("wf-formations")
-    if filter_result is None:
-        filter_result = skip_guard.check(spark, args.catalog, args.schema)
+    filter_result = skip_guard.check(spark, args.catalog, args.schema)
 
     logger.info("Starting formation detection pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
@@ -346,11 +342,7 @@ def main_efpi() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    from ingestion.guards import read_gate_result
-
-    filter_result = read_gate_result("wf-formations")
-    if filter_result is None:
-        filter_result = skip_guard.check(spark, args.catalog, args.schema)
+    filter_result = skip_guard.check(spark, args.catalog, args.schema)
 
     logger.info("Starting EFPI formation detection pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline_efpi(spark, args.catalog, args.schema, logger, filter_result=filter_result)

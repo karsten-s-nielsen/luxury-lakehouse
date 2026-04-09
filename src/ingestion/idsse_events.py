@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from ingestion.guards import FilterResult, read_gate_result
+from ingestion.guards import FilterResult
 from ingestion.idsse import IDSSE_MATCH_IDS
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
 from workflows import workflow
@@ -69,9 +69,7 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    filter_result = read_gate_result("wf-idsse-events")
-    if filter_result is None:
-        filter_result = skip_guard.check(spark, args.catalog, args.schema)
+    filter_result = skip_guard.check(spark, args.catalog, args.schema)
 
     logger.info("Starting IDSSE event ingestion into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)

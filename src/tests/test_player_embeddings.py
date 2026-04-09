@@ -907,24 +907,28 @@ class TestMainFunction:
     @patch("ingestion.player_embeddings_v2.get_spark_session")
     @patch("ingestion.player_embeddings_v2.parse_ingestion_args")
     @patch("ingestion.player_embeddings_v2._import_v2_embeddings", return_value=False)
-    @patch("ingestion.guards.find_new_ids", return_value=["m1"])
     @patch("ingestion.player_embeddings_v1._load_events_sdf")
     @patch("ingestion.player_embeddings_v1._compute_stat_vectors")
     @patch("ingestion.player_embeddings_v1.validate_dataframe")
     @patch("ingestion.player_embeddings_v1.write_delta_table")
     @patch("ingestion.player_embeddings_v1._make_behavioral_udf")
+    @patch("ingestion.bootstrap.bootstrap_hooks")
+    @patch("ingestion.player_embeddings_v2.skip_guard")
     def test_writes_with_replace_where(
         self,
+        mock_guard: MagicMock,
+        mock_bootstrap: MagicMock,
         mock_make_udf: MagicMock,
         mock_write: MagicMock,
         mock_validate: MagicMock,
         mock_stat: MagicMock,
         mock_events_sdf: MagicMock,
-        mock_find_new_ids: MagicMock,
         mock_import_v2: MagicMock,
         mock_args: MagicMock,
         mock_spark: MagicMock,
     ) -> None:
+        from ingestion.guards import FilterResult
+
         # Setup mock args
         args = MagicMock()
         args.catalog = "soccer_analytics"
@@ -934,6 +938,11 @@ class TestMainFunction:
         # Setup mock Spark
         spark = MagicMock()
         mock_spark.return_value = spark
+
+        # Guard returns count=1 — one match to process
+        mock_guard.check.return_value = FilterResult(
+            workflow_id="wf-football2vec-v2", count=1, metadata={"new_match_ids": ["m1"]}
+        )
 
         # Setup events SDF: non-empty (limit(1).count() > 0)
         mock_sdf = MagicMock()
@@ -996,10 +1005,10 @@ class TestMainFunction:
     @patch("ingestion.player_embeddings_v2._import_v2_embeddings", return_value=False)
     @patch("ingestion.player_embeddings_v1._load_events_sdf")
     @patch("ingestion.bootstrap.bootstrap_hooks")
-    @patch("ingestion.guards.read_gate_result")
+    @patch("ingestion.player_embeddings_v2.skip_guard")
     def test_skips_when_all_matches_have_embeddings(
         self,
-        mock_gate: MagicMock,
+        mock_guard: MagicMock,
         mock_bootstrap: MagicMock,
         mock_events_sdf: MagicMock,
         mock_import_v2: MagicMock,
@@ -1019,7 +1028,7 @@ class TestMainFunction:
         mock_spark.return_value = spark
 
         # Guard returns count=0 — all matches already have embeddings
-        mock_gate.return_value = FilterResult(workflow_id="wf-football2vec-v2", count=0)
+        mock_guard.check.return_value = FilterResult(workflow_id="wf-football2vec-v2", count=0)
 
         with pytest.raises(WorkflowSkippedError):
             _main_combined()
@@ -1032,10 +1041,10 @@ class TestMainFunction:
     @patch("ingestion.player_embeddings_v2._import_v2_embeddings", return_value=False)
     @patch("ingestion.player_embeddings_v1._load_events_sdf")
     @patch("ingestion.bootstrap.bootstrap_hooks")
-    @patch("ingestion.guards.read_gate_result")
+    @patch("ingestion.player_embeddings_v2.skip_guard")
     def test_defensive_fallback_no_source_matches_but_existing_embeddings(
         self,
-        mock_gate: MagicMock,
+        mock_guard: MagicMock,
         mock_bootstrap: MagicMock,
         mock_events_sdf: MagicMock,
         mock_import_v2: MagicMock,
@@ -1055,7 +1064,7 @@ class TestMainFunction:
         mock_spark.return_value = spark
 
         # Guard returns count=0 — no source matches to process
-        mock_gate.return_value = FilterResult(workflow_id="wf-football2vec-v2", count=0)
+        mock_guard.check.return_value = FilterResult(workflow_id="wf-football2vec-v2", count=0)
 
         with pytest.raises(WorkflowSkippedError):
             _main_combined()

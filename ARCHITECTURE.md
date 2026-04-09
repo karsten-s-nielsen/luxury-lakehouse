@@ -1,7 +1,7 @@
 # Databricks Lakebase Architecture — Soccer Analytics Platform
 
-> **Status**: Cycle 5 Phase 2 (Guard pipeline hardening) — 16 Taipy pages, 34 synced tables, 56 PG indexes (50 btree + 6 HNSW at 128d/144d). Hugging Face Hub: 7 models + 18 datasets published, GPU training on HF Jobs L40S. PSxG model (Brier 0.129). ScoutGPT decoder + training pipeline (D32). Freshness gate: 33 skip guards with mandatory `FilterResult` injection, `entity_count` observability, parallelized `ThreadPoolExecutor(max_workers=4)`, 4 guards promoted to full entity-ID returns, 11 conformance test classes (D40/D47/D48/D49/D50). M2 OAuth PG role unblocked (databricks-sdk 0.102).
-> **Last Updated**: 2026-04-08
+> **Status**: Cycle 5 Phase 3 (Cost enrichment, gate removal, OAuth M2M) — 16 Taipy pages, 34 synced tables, 56 PG indexes (50 btree + 6 HNSW at 128d/144d). Hugging Face Hub: 7 models + 18 datasets published, GPU training on HF Jobs L40S. PSxG model (Brier 0.129). ScoutGPT decoder + training pipeline (D32). Guard-as-wrapper: 33 skip guards with mandatory `FilterResult` injection, each pipeline runs its own guard at startup (centralized gate removed — D52). `fct_workflow_costs` enriched with warm-tier lifecycle data (D51). HF-app SP codified in Terraform with UC grants (TF-SP). M2 OAuth infrastructure complete.
+> **Last Updated**: 2026-04-09
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready
 
@@ -80,7 +80,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • import_psxg_predictions → PSxG predictions from HF Hub       │    │
 │  │  • import_space_creation → Space creation values from HF Hub    │    │
 │  │  • extract_tracking_metadata → Tracking data metadata extraction│    │
-│  │  • freshness_gate → Centralized skip-guard evaluation (33 guards)│    │
+│  │  • guards → 33 skip guards (each pipeline runs its own at startup)│    │
 │  │  • evolve → Level 2 code evolution (ScoutGPT decoder, D32)      │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
@@ -241,18 +241,17 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 | Defensive Impact | DEFCON-lite attacker pressure rankings, breakdown, match timeline | `fct_defcon_pressure_synced`, `fct_defcon_actions_synced` |
 | AI/ML Workflows | DAG visualization, cost tracking, workflow cards, run status | `fct_workflow_costs_synced` |
 
-### Freshness Gate & Skip Guards
+### Skip Guards (Guard-as-Wrapper)
 
-The freshness gate (`freshness_gate` entry point) is a centralized task that runs before all compute pipelines in the Databricks workflow. It evaluates 33 registered `SkipGuard` adapters (in `src/ingestion/guards.py`) to determine which downstream pipelines have new data to process.
+Each pipeline runs its own skip guard at startup via `skip_guard.check()`, raising `WorkflowSkippedError` when there is no new data. The 33 registered `SkipGuard` adapters live in `src/ingestion/guards.py`. This replaced the centralized freshness gate (D52) — each pipeline is self-contained, removing the 170s serial bottleneck that existed when all guards ran sequentially in a single task.
 
 **Architecture:**
 - **Guard registry** (`_GUARD_MODULES`): Maps workflow IDs to guard modules. Each guard's `check()` returns a `FilterResult(workflow_id, count, chunks, metadata)`.
 - **`find_new_ids()`**: Spark LEFT ANTI JOIN with `cast("string")` normalization — pushes set difference to executors instead of collecting all IDs to the driver.
-- **Mandatory `FilterResult` injection**: `run_pipeline()` receives `FilterResult` as a **required** parameter (no default). Pipelines cannot run their own guards — `main()` resolves via `read_gate_result()` (production) or `skip_guard.check()` (standalone fallback). Inline `find_new_ids()` calls are prohibited outside guard classes, enforced by `TestNoInlineGuardInPipeline`.
-- **Dual task values**: The gate writes both JSON `FilterResult` (for pipeline consumption via `read_gate_result()`) and integer count (for future Terraform `condition_task` gates — D40c, blocked on API syntax investigation). Code-level skip via `WorkflowSkippedError` prevents redundant work; Terraform gates would additionally prevent cluster spin-up.
-- **Entity count observability**: `CostEstimateHook` writes `entity_count` (input entities from gate) alongside `row_count` (output rows) to `workflow_cost_live` in the observability schema.
-- **Conformance tests**: `test_guard_conformance.py` auto-discovers all guards from the registry and validates 6 architectural invariants: import isolation, mandatory parameters, no inline guards, standalone fallback, early exit structure, and early exit behavior (21 tests).
-- **Production behavior**: Gate correctly identifies which pipelines have work (count > 0) vs. should skip (count = 0). Skipped pipelines raise `WorkflowSkippedError` (triggers `on_skip` hook). Idle tasks don't start at all (Terraform condition gates).
+- **Mandatory `FilterResult` injection**: `run_pipeline()` receives `FilterResult` as a **required** parameter (no default). Each pipeline's `main()` calls `skip_guard.check()` directly at startup. Inline `find_new_ids()` calls are prohibited outside guard classes, enforced by `TestNoInlineGuardInPipeline`.
+- **Entity count observability**: `CostEstimateHook` writes `entity_count` (input entities from guard) alongside `row_count` (output rows) to `workflow_cost_live` in the observability schema. `fct_workflow_costs` LEFT JOINs warm-tier data to preserve lifecycle fields (D51).
+- **Conformance tests**: `test_guard_conformance.py` auto-discovers all guards from the registry and validates architectural invariants: import isolation, mandatory parameters, no inline guards, direct guard call (no gate indirection), early exit structure, and early exit behavior.
+- **Production behavior**: Each pipeline starts, runs its guard (~5s), and either proceeds (count > 0) or raises `WorkflowSkippedError` (count = 0, triggers `on_skip` hook). No centralized gate — the 5 ingest tasks are DAG roots, running in parallel with infrastructure-level concurrency.
 
 ### Evolve Engine (Level 2 Code Evolution)
 
@@ -284,7 +283,7 @@ C4 diagrams (Context, Container, Component, Dynamic) are the standard deliverabl
 | **L4 — Dynamic** | Data Flow | End-to-end: API fetch → Bronze → dbt → Gold → Synced Table → Lakebase → Taipy |
 | **L4 — Dynamic** | Zero-ETL Sync | Gold Delta change → Lakeflow pipeline → Lakebase mirror update |
 | **Deployment** | Infrastructure | Databricks/AWS resource mapping |
-| **L3 — Component** | Guard Registry & Freshness Gate | 33 SkipGuard adapters, mandatory FilterResult injection, 15 condition_task gates, entity_count observability |
+| **L3 — Component** | Guard Registry & Skip Guards | 33 SkipGuard adapters, mandatory FilterResult injection, guard-as-wrapper (each pipeline self-contained), entity_count observability |
 
 ### 3.2 — C4 Model: Persons & External Systems
 
@@ -537,8 +536,7 @@ luxury-lakehouse/
 │   │   ├── wyscout.py                # Wyscout JSON ingestion
 │   │   ├── xg_model.py               # xG v1 scoring pipeline (logistic + XGBoost)
 │   │   ├── xg_model_v2.py            # xG v2 scoring pipeline (Deep Sets + MC dropout)
-│   │   ├── freshness_gate.py         # Centralized skip-guard evaluation (33 guards)
-│   │   ├── guards.py                 # SkipGuard registry + find_new_ids() + read_gate_result()
+│   │   ├── guards.py                 # SkipGuard registry + find_new_ids()
 │   │   ├── hf_sync.py                # HF Hub dataset sync utilities
 │   │   └── tracking_metadata.py      # Tracking data metadata extraction
 │   │
@@ -636,7 +634,6 @@ luxury-lakehouse/
 │       ├── test_evolve_config.py     # Evolve configuration tests
 │       ├── test_evolve_evaluator.py  # Evolve evaluator tests
 │       ├── test_evolve_level2.py     # Evolve L2 prompt tests
-│       ├── test_freshness_gate.py    # Freshness gate tests
 │       ├── test_hf_sync.py           # HF sync tests
 │       ├── test_guards.py            # Guard registry + individual guard tests
 │       └── test_guard_conformance.py # Guard conformance suite (auto-discovers all guards)
@@ -875,7 +872,7 @@ Some Terraform provider gaps and data constraints require manual workarounds tha
 | — | Player embeddings (transformer) | D25/D45 — football2vec v2 128d + 360-enriched 144d |
 | — | ScoutGPT decoder | D32 — player-conditioned action prediction (Hong et al. 2025) |
 | — | Space creation & destruction | D20 — differential OBSO (Fernandez & Bornn 2018) |
-| — | Freshness gate + skip guards | D40 — centralized pipeline scheduling (33 guards), mandatory injection, condition_task gates, entity_count observability |
+| — | Skip guards (guard-as-wrapper) | D40/D52 — 33 guards with mandatory injection, guard-as-wrapper (each pipeline self-contained), entity_count observability |
 
 ### C. Dependencies on MCP CodeDeploy Project
 

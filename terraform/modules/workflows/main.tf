@@ -2,9 +2,9 @@
 # Module: Workflows — Data Ingestion Pipeline
 # ──────────────────────────────────────────────────────────────────────────────
 # Creates a Databricks job that ingests data from five soccer data providers
-# in parallel, then runs SPADL/VAEP action valuation:
+# in parallel, then runs compute pipelines. Each task runs its own skip guard
+# at startup and raises WorkflowSkippedError when there is no new work.
 #
-#   freshness_gate    — Centralized skip guard (DAG root, all tasks depend transitively)
 #   statsbomb         — Free open-data events (shots, passes, lineups)
 #   metrica           — Tracking data (player coordinates at 25fps)
 #   wyscout           — Match events and player attributes
@@ -58,43 +58,11 @@ resource "databricks_job" "data_ingestion" {
     pause_status           = var.environment == "dev" ? "PAUSED" : "UNPAUSED"
   }
 
-  # ── Task: Freshness Gate — centralized skip guard ────────────────────
-  # Runs all workflow skip guards, writes FilterResult task values, and
-  # emits SKIPPED records for idle workflows.  Downstream compute tasks
-  # read gate results via read_gate_result() at code level.
-  task {
-    task_key        = "freshness_gate"
-    timeout_seconds = 300
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "freshness_gate"
-
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze"
-      ]
-    }
-
-    environment_key = "default"
-  }
-
-  # TODO(D40c): Terraform condition_task gates — dynamic value references
-  # ({{tasks.X.values.Y}}) are rejected by the Databricks Jobs API in
-  # condition_task operands. Investigate correct syntax or use lightweight
-  # Python gate tasks as alternative. The code-level skip (WorkflowSkippedError)
-  # still prevents redundant work; condition gates would additionally prevent
-  # cluster spin-up.
-
   # ── Task: Ingest StatsBomb data ──────────────────────────────────────────
   task {
     task_key        = "ingest_statsbomb"
     timeout_seconds = 900
     max_retries     = 1
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
@@ -116,10 +84,6 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 900
     max_retries     = 1
 
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
     python_wheel_task {
       package_name = "luxury_lakehouse"
       entry_point  = "ingest_metrica"
@@ -138,10 +102,6 @@ resource "databricks_job" "data_ingestion" {
     task_key        = "ingest_wyscout"
     timeout_seconds = 900
     max_retries     = 1
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
@@ -165,10 +125,6 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 900
     max_retries     = 1
 
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
     python_wheel_task {
       package_name = "luxury_lakehouse"
       entry_point  = "ingest_idsse"
@@ -187,10 +143,6 @@ resource "databricks_job" "data_ingestion" {
     task_key        = "ingest_skillcorner"
     timeout_seconds = 900
     max_retries     = 1
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
 
     python_wheel_task {
       package_name = "luxury_lakehouse"

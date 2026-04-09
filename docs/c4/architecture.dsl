@@ -27,9 +27,8 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
             workflowCards = container "Workflow Cards" "36 YAML manifests defining inputs, outputs, deps, execution config, cost estimates, academic provenance" "YAML, workflow-cards/" "Database"
             costEstimateHook = container "CostEstimateHook" "Lifecycle hook writing run state, entity_count (input entities from guard), row_count (output rows), and cost estimates to workflow_cost_live Delta table via MERGE. Centralized registration via bootstrap_hooks()" "Python, PySpark, Delta, src/ingestion/cost_hook.py"
             hfCostRecorder = container "HFJobsCostRecorder" "Standalone cost recorder for HF Jobs scripts. Writes _workflow_cost.json (live status) and _cost_history/{job_id}.json (per-run history) to HF Hub repos. 90-day auto-pruning" "Python, huggingface_hub, src/ingestion/hf_jobs_cost.py"
-            freshnessGate = container "Freshness Gate" "Parallelized skip guard orchestrator (ThreadPoolExecutor, max_workers=4). Calls 33 SkipGuard adapters concurrently, emits SKIPPED records for idle workflows, writes dual task values (JSON FilterResult for pipelines + integer count for future Terraform condition_task gates). Code-level skip via WorkflowSkippedError prevents redundant work. Runs in default environment (wheel only)" "Python, PySpark, concurrent.futures, src/ingestion/freshness_gate.py"
-            guardRegistry = container "Guard Registry" "SkipGuard protocol + FilterResult dataclass + find_new_ids() (Spark LEFT ANTI JOIN) + read_gate_result() (task value reader). Mandatory injection: filter_result is a required parameter on all run_pipeline() functions (no default). Pipelines cannot run their own guards. main() resolves via read_gate_result() (production) or skip_guard.check() (standalone). 11 conformance test classes (42 tests) enforce import isolation (AST + runtime transitive), mandatory params, no inline guards, standalone fallback, early exit structure/behavior, exception propagation, count/ID consistency, cost/time capture, workflow ID consistency, task value propagation" "Python, src/ingestion/guards.py"
-            ingestionPipelines = container "Compute Pipelines" "30 @workflow-decorated Databricks pipelines (all instrumented): 5 raw ingestors (StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner), 14 compute (xG, VAEP, DEFCON 360+tracking, pitch control, xT, OBSO/PAUSA, entity resolution, line-breaking 360+tracking, formations EFPI+shape graph, embeddings v1/v2, model validation), 1 HF sync (consolidates 7 former tasks: 3 imports + 3 exports + cost sync), elastic sync. Each exposes a SkipGuard adapter for the freshness gate. Centralized hook registration via bootstrap.py" "Python, PySpark, src/ingestion/"
+            guardRegistry = container "Guard Registry" "SkipGuard protocol + FilterResult dataclass + find_new_ids() (Spark LEFT ANTI JOIN). Guard-as-wrapper: each pipeline's main() calls skip_guard.check() directly at startup (no centralized gate). Mandatory injection: filter_result is a required parameter on all run_pipeline() functions (no default). Conformance tests enforce import isolation, mandatory params, no inline guards, direct guard call, early exit structure/behavior, exception propagation, count/ID consistency, cost/time capture, workflow ID consistency" "Python, src/ingestion/guards.py"
+            ingestionPipelines = container "Compute Pipelines" "30 @workflow-decorated Databricks pipelines (all instrumented): 5 raw ingestors (StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner), 14 compute (xG, VAEP, DEFCON 360+tracking, pitch control, xT, OBSO/PAUSA, entity resolution, line-breaking 360+tracking, formations EFPI+shape graph, embeddings v1/v2, model validation), 1 HF sync (consolidates 7 former tasks: 3 imports + 3 exports + cost sync), elastic sync. Each runs its own SkipGuard at startup (guard-as-wrapper, D52). Centralized hook registration via bootstrap.py" "Python, PySpark, src/ingestion/"
             evolveEngine = container "Evolve Engine" "LLM-guided evolutionary architecture search (Level 1: config-only, Level 2: code evolution). CLI runner with --resume/--code-evolution, AST allowlist validator (ValidationProfile), self-contained evaluator bridge, PriorityQueue-based BackendPool. Level 2: LLM generates custom_embed()/custom_layers() PyTorch functions, AST-validated then exec'd with restricted globals (__builtins__={}). Defense-in-depth per ADR-001. Pluggable backends: local CUDA, remote SSH, HF Jobs L40S" "Python, OpenEvolve, src/evolve/"
             analyticsLibrary = container "Analytics Library" "Pure-Python domain models (zero I/O). Pitch control (Spearman 2017), xG, xT, VAEP, OBSO, line-breaking, DEFCON, entity resolution, shape graph (construction + inference split), football2vec v2/360, ScoutGPT decoder (256d GPT-style causal, Hong et al. 2025), goalkeeper, coordinates. Split modules all under 800 lines" "Python, NumPy, SciPy, PyTorch, scikit-learn, src/analytics/"
             sharedLibrary = container "Shared Library" "Cross-package constants: IDENTIFIER_RE, DEFAULT_GOLD_SCHEMA, mlflow_model_uri(). Zero external deps. Imported by analytics, ingestion, and Taipy Docker image" "Python, src/shared/"
@@ -49,7 +48,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
 
         lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL-compatible endpoint syncing 34 Delta Lake tables from Unity Catalog (56 btree/HNSW indexes: 50 btree + 6 HNSW vector: 4x128d + 2x144d)" "External"
         databricksApi = softwareSystem "Databricks REST API" "OAuth credential endpoint for Lakebase authentication" "External"
-        databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 27 tasks (1 freshness gate, 5 ingest, 2 backfill, 14 compute, 1 HF sync, 2 360 pipeline, 1 entity resolution, 1 tracking metadata), performance-optimized mode (1-4s cold starts), daily 06:00 UTC" "External"
+        databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 26 tasks (5 ingest as DAG roots, 2 backfill, 14 compute, 1 HF sync, 2 360 pipeline, 1 entity resolution, 1 tracking metadata), each task runs its own skip guard at startup, performance-optimized mode (1-4s cold starts), daily 06:00 UTC" "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds from Dockerfile, serves on port 7860" "External"
         hfHub = softwareSystem "HuggingFace Hub" "Hosts 7 models (incl. football2vec-v2, football2vec-360, PSxG), 18 datasets (incl. training data, ScoutGPT episodes, 360 embeddings), build-artifacts wheel, and _workflow_cost.json cost artifacts" "External"
         hfJobs = softwareSystem "HuggingFace Jobs" "L40S GPU compute: 12 PEP 723 UV scripts for training (xG v1/v2, VAEP, PSxG, Football2vec v2/360), batch analytics (xT, EPV, OBSO, Space Creation), dataset publishing (freeze frames, xG shots), and Evolve Engine candidate evaluation" "External"
@@ -90,11 +89,8 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
         costEstimateHook -> sharedLibrary "Imports COST_TABLE_NAME and schema constants" ""
         ingestionPipelines -> bronzeSchema "Writes compute results to Delta tables" "PySpark/Delta"
         costEstimateHook -> observabilitySchema "MERGE run state + cost estimates to workflow_cost_live" "PySpark/Delta"
-        databricksWorkflows -> freshnessGate "Executes gate as DAG root task" "Databricks Jobs API"
-        databricksWorkflows -> ingestionPipelines "Executes 25 pipeline tasks after gate" "Databricks Jobs API"
-        freshnessGate -> guardRegistry "Calls get_workflow_guards() to load all 33 SkipGuard adapters (parallel)" ""
-        guardRegistry -> ingestionPipelines "Each pipeline exposes a skip_guard module attribute" ""
-        freshnessGate -> costEstimateHook "Emits SKIPPED records for idle workflows" ""
+        databricksWorkflows -> ingestionPipelines "Executes 26 pipeline tasks (5 ingest as DAG roots)" "Databricks Jobs API"
+        ingestionPipelines -> guardRegistry "Each pipeline calls skip_guard.check() at startup (guard-as-wrapper)" ""
 
         # Relationships - Evolve Engine
         developer -> evolveEngine "Runs 'uv run evolve --target scoutgpt'" "CLI"
@@ -220,14 +216,12 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
             autoLayout
         }
 
-        dynamic pipelinePlatform "FreshnessGate" {
-            databricksWorkflows -> freshnessGate "Job starts, gate task launches first"
-            freshnessGate -> guardRegistry "Loads all 33 SkipGuard adapters, calls check() in parallel (ThreadPoolExecutor)"
-            freshnessGate -> costEstimateHook "Emits SKIPPED for count=0 workflows"
+        dynamic pipelinePlatform "GuardAsWrapper" {
+            databricksWorkflows -> ingestionPipelines "Job starts, 5 ingest tasks launch as DAG roots (no gate)"
+            ingestionPipelines -> guardRegistry "Each main() calls skip_guard.check() at startup"
+            ingestionPipelines -> workflowFramework "WorkflowSkippedError caught by @workflow decorator"
+            workflowFramework -> costEstimateHook "Dispatches on_skip to CostEstimateHook"
             costEstimateHook -> observabilitySchema "MERGE SKIPPED state + entity_count to workflow_cost_live"
-            freshnessGate -> databricksWorkflows "Writes dual task values: JSON FilterResult + integer count"
-            databricksWorkflows -> ingestionPipelines "condition_task evaluates count > 0; if true, launches compute task"
-            ingestionPipelines -> guardRegistry "main() reads FilterResult (required), passes to run_pipeline()"
             autoLayout
         }
 

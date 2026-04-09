@@ -26,9 +26,15 @@ variable "enable_ingestion_sp_grants" {
 }
 
 variable "app_sp_application_id" {
-  description = "Application ID of the Streamlit app service principal (empty = skip grants)"
+  description = "Application ID of the HF Spaces app service principal (empty = skip grants)"
   type        = string
   default     = ""
+}
+
+variable "enable_app_sp_grants" {
+  description = "Whether to create grants for the HF Spaces app service principal (avoids unknown count at plan time)"
+  type        = bool
+  default     = false
 }
 
 variable "silver_schema_override" {

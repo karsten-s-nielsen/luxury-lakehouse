@@ -214,7 +214,7 @@ resource "databricks_grant" "account_users_bronze_schema" {
 # SELECT on the gold schema (which may be dbt-prefixed, e.g. dev_gold).
 
 resource "databricks_grant" "app_sp_use_catalog" {
-  count = var.app_sp_application_id != "" ? 1 : 0
+  count = var.enable_app_sp_grants ? 1 : 0
 
   catalog = var.catalog_name
 
@@ -223,9 +223,18 @@ resource "databricks_grant" "app_sp_use_catalog" {
 }
 
 resource "databricks_grant" "app_sp_gold_schema" {
-  count = var.app_sp_application_id != "" ? 1 : 0
+  count = var.enable_app_sp_grants ? 1 : 0
 
   schema = "${var.catalog_name}.${var.gold_schema_override != "" ? var.gold_schema_override : databricks_schema.gold.name}"
+
+  principal  = var.app_sp_application_id
+  privileges = ["USE_SCHEMA", "SELECT"]
+}
+
+resource "databricks_grant" "app_sp_observability_schema" {
+  count = var.enable_app_sp_grants ? 1 : 0
+
+  schema = "${var.catalog_name}.${databricks_schema.observability.name}"
 
   principal  = var.app_sp_application_id
   privileges = ["USE_SCHEMA", "SELECT"]

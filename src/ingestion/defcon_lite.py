@@ -98,19 +98,11 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    from ingestion.guards import read_gate_result
+    from ingestion.defcon_lite_360 import skip_guard as guard_360
+    from ingestion.defcon_lite_tracking import skip_guard as guard_tracking
 
-    filter_360 = read_gate_result("wf-defcon")
-    if filter_360 is None:
-        from ingestion.defcon_lite_360 import skip_guard as guard_360
-
-        filter_360 = guard_360.check(spark, args.catalog, args.schema)
-
-    filter_tracking = read_gate_result("wf-defcon-tracking")
-    if filter_tracking is None:
-        from ingestion.defcon_lite_tracking import skip_guard as guard_tracking
-
-        filter_tracking = guard_tracking.check(spark, args.catalog, args.schema)
+    filter_360 = guard_360.check(spark, args.catalog, args.schema)
+    filter_tracking = guard_tracking.check(spark, args.catalog, args.schema)
 
     logger.info("Starting DEFCON-lite pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger, filter_360=filter_360, filter_tracking=filter_tracking)
