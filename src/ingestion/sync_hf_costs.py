@@ -27,6 +27,7 @@ from huggingface_hub.hf_api import RepoFile
 from ingestion.guards import FilterResult
 from shared.constants import COST_TABLE_NAME, DEFAULT_OBSERVABILITY_SCHEMA, IDENTIFIER_RE
 from workflows import workflow
+from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -190,13 +191,16 @@ def _resolve_task_key(card: dict[str, Any]) -> str:
 
 
 @workflow("wf-sync-hf-costs", phase="sync")
-def sync_costs(
+def run_pipeline(
     catalog: str,
     cards_dir: Path,
     *,
+    filter_result: FilterResult,
     ctx: object = None,
 ) -> int:
     """Main sync logic. Returns number of records synced."""
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new work")
     if not IDENTIFIER_RE.match(catalog):
         msg = f"Invalid catalog name: {catalog}"
         raise ValueError(msg)
@@ -261,7 +265,7 @@ def main() -> None:
     directly to ``workflow_cost_live`` — the same table that CostEstimateHook
     targets. Adding the hook would create a circular write (the cost bridge
     recording its own cost to the cost table it just merged into).
-    The ``@workflow`` decorator on ``sync_costs`` still provides registry
+    The ``@workflow`` decorator on ``run_pipeline`` still provides registry
     tracking without the cost hook.
     """
     logging.basicConfig(
@@ -273,7 +277,14 @@ def main() -> None:
     parser.add_argument("--cards-dir", type=Path, default=Path("workflow-cards"), help="Workflow cards directory")
     args = parser.parse_args()
 
-    count = sync_costs(args.catalog, args.cards_dir)
+    from ingestion.guards import read_gate_result
+
+    filter_result = read_gate_result("wf-sync-hf-costs")
+    if filter_result is None:
+        # No Spark available yet for guard check — create a standalone FilterResult
+        filter_result = skip_guard.check(None, args.catalog, "")  # type: ignore[arg-type]
+
+    count = run_pipeline(args.catalog, args.cards_dir, filter_result=filter_result)
     logger.info("Done — %d records synced", count)
 
 

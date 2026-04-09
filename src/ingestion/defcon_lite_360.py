@@ -12,14 +12,16 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from analytics.defcon_lite import DefconLiteParams
-from ingestion.defcon_lite_common import _TABLE_NAME, _make_values_udf
 from ingestion.guards import FilterResult
 from ingestion.utils import write_delta_table
 from shared.constants import DEFAULT_GOLD_SCHEMA
 
+_TABLE_NAME = "defcon_results"
+
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
+
+    from analytics.defcon_lite import DefconLiteParams
 
 _guard_logger = logging.getLogger(f"{__name__}.guard")
 
@@ -299,6 +301,8 @@ def process_360_matches(
             StructField("data_source", StringType(), nullable=True),
         ]
     )
+
+    from ingestion.defcon_lite_common import _make_values_udf
 
     values_udf = _make_values_udf(
         disturb_radius_m=params.disturb_radius_m,

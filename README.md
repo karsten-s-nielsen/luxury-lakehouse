@@ -97,7 +97,7 @@ luxury-lakehouse/
 ├── notebooks/          # Databricks notebooks (football2vec/xG training, model weight sync, dataset publishing to HF Hub)
 ├── demo_space/         # Hugging Face Gradio demo Space (pass quality, pitch control, player similarity, shot map, DEFCON pressure, pass timing)
 ├── dbt_project/        # Bronze → Silver → Gold transformations
-├── workflow-cards/     # YAML workflow card manifests (35 AI/ML workflow definitions)
+├── workflow-cards/     # YAML workflow card manifests (36 AI/ML workflow definitions)
 ├── scripts/            # Operational scripts (PG indexes, grants, synced table management)
 ├── docs/
 │   ├── c4/             # C4 architecture diagrams (Structurizr DSL)
@@ -125,7 +125,7 @@ The `src/analytics/` modules (pitch control, line-breaking, DEFCON, off-ball xT,
 
 ## Status
 
-**Cycle 4 Phase 2 (GK Analytics + Tactical Positions)** — 16 Taipy pages, 34 synced tables (Lakebase reverse-ETL), 56 PG indexes (sub-second dashboard queries), 1,118+ unit tests. Hugging Face Hub: 7 models + 18 datasets published, GPU training on HF Jobs A10G, [Gradio demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme (6 tabs). Football2vec v2: 128-dim transformer embeddings with adversarial team debiasing (Ganin GRL). Shape graph formation detection (Sotudeh 2026) + 5x5 position maps. xG v2 set encoder (ROC-AUC 0.915, MC dropout uncertainty). PSxG logistic model (Butcher et al. 2025) + Football2Vec 360 encoder (144-dim). See [ARCHITECTURE.md](ARCHITECTURE.md) for the platform architecture and [ROADMAP.md](ROADMAP.md) for research directions.
+**Cycle 5 Phase 1 (Guard plumbing + observability)** — 16 Taipy pages, 34 synced tables (Lakebase reverse-ETL), 56 PG indexes (sub-second dashboard queries), 1,206 unit tests. Hugging Face Hub: 7 models + 18 datasets published, GPU training on HF Jobs L40S, [Gradio demo Space](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) with luxury flagship theme (6 tabs). Football2vec v2: 128-dim transformer embeddings with adversarial team debiasing (Ganin GRL). Shape graph formation detection (Sotudeh 2026) + 5x5 position maps. xG v2 set encoder (ROC-AUC 0.915, MC dropout uncertainty). PSxG logistic model (Butcher et al. 2025) + Football2Vec 360 encoder (144-dim). ScoutGPT decoder + training pipeline (D32). Freshness gate + 33 skip guards with mandatory injection, entity count observability (D40). See [ARCHITECTURE.md](ARCHITECTURE.md) for the platform architecture and [ROADMAP.md](ROADMAP.md) for research directions.
 
 | Phase | Description | Status |
 |-------|-------------|--------|

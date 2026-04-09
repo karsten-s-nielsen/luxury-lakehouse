@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Any
 
@@ -33,9 +34,12 @@ from ingestion.utils import (
     write_delta_table,
 )
 from workflows import workflow
+from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
+
+from ingestion.utils import SparkAnalysisException as _SparkAnalysisException
 
 
 class _StatsbombGuard:
@@ -125,7 +129,7 @@ def ingest_competitions(
         if spark.catalog.tableExists(full_table_name):
             logger.info("statsbomb_competitions already populated — skipping")
             return spark.table(full_table_name).toPandas()
-    except Exception:
+    except _SparkAnalysisException:
         logger.info("No existing statsbomb_competitions table — will fetch from API")
 
     logger.info("Fetching StatsBomb competitions")
@@ -443,18 +447,24 @@ def backfill_360(
     schema: str,
     competitions_pdf: pd.DataFrame,
     logger: logging.Logger,
+    *,
+    match_ids: list[str] | None = None,
 ) -> None:
     """Backfill 360 freeze-frame data for matches already ingested.
 
     The main ingestion pipeline only fetches 360 data for *new* matches.
     This function targets matches that have events but no 360 data yet,
     enabling one-time catchup after the 360 ingestion code was added.
-    """
-    existing_360_match_ids = _read_existing_match_ids(spark, catalog, schema, "statsbomb_360", logger)
-    existing_event_match_ids = _read_existing_match_ids(spark, catalog, schema, "statsbomb_events", logger)
 
-    # Only process matches that have events but no 360 data
-    backfill_candidates = existing_event_match_ids - existing_360_match_ids
+    When *match_ids* is provided (from guard metadata), uses those directly
+    instead of doing a full set-difference discovery query.
+    """
+    if match_ids is not None:
+        backfill_candidates = {int(m) for m in match_ids}
+    else:
+        existing_360_match_ids = _read_existing_match_ids(spark, catalog, schema, "statsbomb_360", logger)
+        existing_event_match_ids = _read_existing_match_ids(spark, catalog, schema, "statsbomb_events", logger)
+        backfill_candidates = existing_event_match_ids - existing_360_match_ids
 
     if not backfill_candidates:
         logger.info("No matches need 360 backfill")
@@ -469,7 +479,7 @@ def backfill_360(
         combos_360 = spark.table(full_360_table).select("competition_id", "season_id").distinct().toPandas()
         unique_combos = combos_360[["competition_id", "season_id"]].drop_duplicates()
         logger.info("Restricting backfill to %d 360-enabled competition-seasons", len(unique_combos))
-    except Exception:
+    except _SparkAnalysisException:
         logger.info("Cannot read %s — falling back to all competitions", full_360_table)
         unique_combos = competitions_pdf[["competition_id", "season_id"]].drop_duplicates()
 
@@ -533,22 +543,33 @@ def backfill_extra_json(
     schema: str,
     competitions_pdf: pd.DataFrame,
     logger: logging.Logger,
+    *,
+    match_ids: list[str] | None = None,
 ) -> None:
     """Backfill ``_raw_extra_json`` for existing events that lack it.
 
-    Reads distinct ``match_id`` values where the column is NULL or ``'{}'``,
-    fetches the raw JSON from StatsBomb, and overwrites each partition.
+    Discovers matches needing backfill, then processes them in chunks grouped
+    by ``(competition_id, season_id)`` to keep each MERGE well under the
+    Spark protobuf serialization limit (~2 GB).
+
+    Args:
+        match_ids: Optional pre-filtered match IDs from the guard's metadata.
+            When provided, only these matches are considered for backfill.
     """
     events_table = f"{catalog}.{schema}.statsbomb_events"
     try:
-        needs_backfill_rows = spark.sql(
+        base_query = (
             f"SELECT DISTINCT match_id, competition_id, season_id "  # noqa: S608
             f"FROM {events_table} "
-            f"WHERE _raw_extra_json IS NULL OR _raw_extra_json = '{{}}'"
-        ).collect()
+            f"WHERE _raw_extra_json IS NULL"
+        )
+        if match_ids:
+            id_list = ", ".join(str(int(mid)) for mid in match_ids)
+            base_query += f" AND match_id IN ({id_list})"
+        needs_backfill_rows = spark.sql(base_query).collect()
     except Exception:
         logger.exception("Cannot read %s for backfill — table may not exist", events_table)
-        return
+        raise
 
     if not needs_backfill_rows:
         logger.info("No matches need _raw_extra_json backfill")
@@ -556,51 +577,98 @@ def backfill_extra_json(
 
     logger.info("Found %d match partitions needing _raw_extra_json backfill", len(needs_backfill_rows))
 
-    # Pre-fetch all extra JSON maps concurrently (HTTP is the bottleneck)
-    match_ids_to_backfill = [int(row["match_id"]) for row in needs_backfill_rows]
-    extra_maps: dict[int, dict[str, str]] = {}
+    # Group matches by (competition_id, season_id) for chunked processing.
+    # Each chunk gets its own HTTP fetch → createDataFrame → MERGE cycle,
+    # keeping DataFrame size well under the protobuf serialization limit.
+    chunks: dict[tuple[int, int], list[int]] = defaultdict(list)
+    for row in needs_backfill_rows:
+        key = (int(row["competition_id"]), int(row["season_id"]))
+        chunks[key].append(int(row["match_id"]))
 
-    with ThreadPoolExecutor(max_workers=_HTTP_MAX_WORKERS) as executor:
-        futures = {executor.submit(_build_raw_extra_json, mid, logger): mid for mid in match_ids_to_backfill}
-        for future in as_completed(futures):
-            mid = futures[future]
-            try:
-                extra_maps[mid] = future.result()
-            except Exception:
-                logger.exception("Failed to fetch _raw_extra_json for match %d", mid)
+    logger.info(
+        "Processing %d competition-season chunks (%d matches total)",
+        len(chunks),
+        len(needs_backfill_rows),
+    )
 
-    logger.info("Fetched extra JSON for %d/%d matches", len(extra_maps), len(match_ids_to_backfill))
+    total_events_written = 0
+    total_matches_written = 0
 
-    # Build a single mapping DataFrame across ALL matches, then execute ONE
-    # Delta MERGE. The old approach ran one MERGE per match (900 sequential
-    # Spark jobs = 2+ hours). A single batched MERGE runs in minutes.
-    all_mapping_rows: list[tuple[str, str]] = []
-    for extra_map in extra_maps.values():
-        if not extra_map:
-            continue
-        for eid, ejson in extra_map.items():
-            all_mapping_rows.append((eid, ejson))
-
-    if not all_mapping_rows:
-        logger.info("No extra JSON mappings to apply — skipping MERGE")
-        return
-
-    logger.info("Applying %d event updates via single MERGE", len(all_mapping_rows))
-
-    try:
-        mapping_sdf = spark.createDataFrame(all_mapping_rows, ["_eid", "_extra_json"])
-        mapping_sdf.createOrReplaceTempView("_backfill_map")
-
-        spark.sql(
-            f"MERGE INTO {events_table} AS t "
-            "USING _backfill_map AS s "
-            "ON t.id = s._eid "
-            "WHEN MATCHED THEN UPDATE SET t._raw_extra_json = s._extra_json"
+    for (comp_id, season_id), chunk_match_ids in chunks.items():
+        logger.info(
+            "Backfilling comp=%d season=%d: %d matches",
+            comp_id,
+            season_id,
+            len(chunk_match_ids),
         )
 
-        logger.info("Backfilled _raw_extra_json for %d matches (%d events)", len(extra_maps), len(all_mapping_rows))
-    except Exception:
-        logger.exception("Failed batch MERGE for _raw_extra_json backfill")
+        # HTTP-fetch extra JSON for this chunk concurrently
+        extra_maps: dict[int, dict[str, str]] = {}
+        with ThreadPoolExecutor(max_workers=_HTTP_MAX_WORKERS) as executor:
+            futures = {executor.submit(_build_raw_extra_json, mid, logger): mid for mid in chunk_match_ids}
+            for future in as_completed(futures):
+                mid = futures[future]
+                try:
+                    extra_maps[mid] = future.result()
+                except (OSError, ValueError, KeyError):
+                    logger.exception("Failed to fetch _raw_extra_json for match %d", mid)
+
+        logger.info(
+            "Fetched extra JSON for %d/%d matches in comp=%d season=%d",
+            len(extra_maps),
+            len(chunk_match_ids),
+            comp_id,
+            season_id,
+        )
+
+        # Build mapping rows for this chunk
+        mapping_rows: list[tuple[str, str]] = []
+        for extra_map in extra_maps.values():
+            if not extra_map:
+                continue
+            for eid, ejson in extra_map.items():
+                mapping_rows.append((eid, ejson))
+
+        if not mapping_rows:
+            logger.info("No extra JSON mappings for comp=%d season=%d — skipping", comp_id, season_id)
+            continue
+
+        # Execute MERGE for this chunk
+        try:
+            mapping_sdf = spark.createDataFrame(mapping_rows, ["_eid", "_extra_json"])
+            mapping_sdf.createOrReplaceTempView("_backfill_map")
+
+            spark.sql(
+                f"MERGE INTO {events_table} AS t "
+                "USING _backfill_map AS s "
+                "ON t.id = s._eid "
+                "WHEN MATCHED THEN UPDATE SET t._raw_extra_json = s._extra_json"
+            )
+
+            total_events_written += len(mapping_rows)
+            total_matches_written += len(extra_maps)
+            logger.info(
+                "MERGE complete for comp=%d season=%d: %d events across %d matches",
+                comp_id,
+                season_id,
+                len(mapping_rows),
+                len(extra_maps),
+            )
+        except Exception:
+            logger.exception(
+                "Failed MERGE for _raw_extra_json backfill (comp=%d season=%d, %d events)",
+                comp_id,
+                season_id,
+                len(mapping_rows),
+            )
+            raise
+
+    logger.info(
+        "Backfill complete: %d events updated across %d matches in %d chunks",
+        total_events_written,
+        total_matches_written,
+        len(chunks),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -615,9 +683,12 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
+    filter_result: FilterResult,
     ctx: object = None,
 ) -> None:
     """Ingest all StatsBomb open data (competitions, matches, events, lineups, 360)."""
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new work")
     competitions_pdf = ingest_competitions(spark, catalog, schema, logger)
     ingest_matches_and_details(spark, catalog, schema, competitions_pdf, logger)
 
@@ -632,8 +703,14 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
+    from ingestion.guards import read_gate_result
+
+    filter_result = read_gate_result("wf-statsbomb")
+    if filter_result is None:
+        filter_result = skip_guard.check(spark, args.catalog, args.schema)
+
     logger.info("Starting StatsBomb ingestion into %s.%s", args.catalog, args.schema)
-    run_pipeline(spark, args.catalog, args.schema, logger)
+    run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
     logger.info("StatsBomb ingestion complete")
 
 

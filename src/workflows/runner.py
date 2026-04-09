@@ -44,11 +44,29 @@ def run_workflow(entry: WorkflowEntry, *args: Any, **kwargs: Any) -> int | None:
     ``on_complete`` / ``on_error`` hooks, and returns the function's
     result.
     """
+    # Extract entity_count from filter_result(s) for observability
+    entity_count: int | None = None
+    fr = kwargs.get("filter_result")
+    if fr is not None and hasattr(fr, "count"):
+        entity_count = fr.count
+    # defcon_lite special case: sum of filter_360 + filter_tracking
+    if entity_count is None:
+        total = 0
+        found = False
+        for key in ("filter_360", "filter_tracking"):
+            fr_multi = kwargs.get(key)
+            if fr_multi is not None and hasattr(fr_multi, "count"):
+                total += fr_multi.count
+                found = True
+        if found:
+            entity_count = total
+
     ctx = WorkflowContext(
         workflow_id=entry.workflow_id,
         phase=entry.phase,
         workflow_name=entry.card.name if entry.card else entry.workflow_id,
         workflow_type=entry.card.type if entry.card else "",
+        entity_count=entity_count,
     )
 
     # Inject context into kwargs if the function accepts it

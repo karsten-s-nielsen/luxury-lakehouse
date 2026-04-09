@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 from ingestion.guards import FilterResult
 from shared.constants import DEFAULT_GOLD_SCHEMA, mlflow_model_uri
 from workflows import workflow
+from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -249,43 +250,26 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
-    filter_result: FilterResult | None = None,
+    filter_result: FilterResult,
     ctx: Any = None,
 ) -> None:
     """Score all shots with v2 set encoder xG model (Deep Sets + MC dropout).
 
     Pipeline steps:
-      1. Incremental skip guard on ``competition_id``
+      1. Use guard-provided new competition IDs
       2. Load ``fct_shots`` with freeze-frame context from gold/silver marts
       3. Load v2 set encoder weights from MLflow @Champion or UC Volume
       4. Load v1 XGBoost model (needed for tabular feature extraction)
       5. Distribute scoring across executors with ``applyInPandas``
       6. Write per-``competition_id`` with ``replaceWhere`` for idempotency
     """
-    # Early exit if freshness gate determined no new work
-    if filter_result and filter_result.count == 0:
-        logger.info("Freshness gate: no new xG v2 work")
-        return
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new work")
 
     from ingestion.utils import write_delta_table
 
-    results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
-
-    # 1. Incremental skip guard on competition_id
-    existing: set[str] = set()
-    try:
-        existing = {
-            str(row["competition_id"])
-            for row in spark.table(results_table).select("competition_id").distinct().collect()
-        }
-    except Exception:
-        logger.info("No existing %s table -- will process all competitions", _TABLE_NAME)
-
-    # 2. Load fct_shots with freeze-frame context
-    shots_df = _load_shots_with_context(spark, catalog)
-
-    available_comps = {str(row["competition_id"]) for row in shots_df.select("competition_id").distinct().collect()}
-    new_comps = available_comps - existing
+    # 1. Use guard-provided new competition IDs
+    new_comps = filter_result.metadata["new_competition_ids"]
 
     if not new_comps:
         logger.info("All competitions already scored with v2 -- skipping")
@@ -293,7 +277,9 @@ def run_pipeline(
 
     logger.info("Scoring %d new competitions with v2: %s", len(new_comps), sorted(new_comps))
 
-    # Filter to new competitions only
+    # 2. Load fct_shots with freeze-frame context, filtered to new competitions
+    shots_df = _load_shots_with_context(spark, catalog)
+
     new_comp_list = ", ".join(f"'{c}'" for c in new_comps)
     filter_expr = f"CAST(competition_id AS STRING) IN ({new_comp_list})"
     shots_filtered = shots_df.filter(filter_expr)
@@ -370,6 +356,8 @@ def main() -> None:
     from ingestion.guards import read_gate_result
 
     filter_result = read_gate_result("wf-xg-v2")
+    if filter_result is None:
+        filter_result = skip_guard.check(spark, args.catalog, args.schema)
 
     logger.info("Starting xG v2 scoring pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)

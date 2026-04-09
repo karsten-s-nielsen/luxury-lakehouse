@@ -410,45 +410,29 @@ class TestSkipGuard:
         # already loaded, we test the already-decorated function via its public API.
 
     def test_skips_when_all_competitions_exist(self) -> None:
-        """Pipeline should return early when all competitions already scored."""
+        """Pipeline raises WorkflowSkippedError when guard says count=0."""
         import logging
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import MagicMock
+
+        from ingestion.guards import FilterResult
+        from workflows.exceptions import WorkflowSkippedError
 
         logger = logging.getLogger("test")
 
         mock_spark = MagicMock()
 
-        # Mock the existing results table -- all competitions already scored
-        mock_existing_row_1 = MagicMock()
-        mock_existing_row_1.__getitem__ = lambda self, key: "11" if key == "competition_id" else None
-        mock_existing_row_2 = MagicMock()
-        mock_existing_row_2.__getitem__ = lambda self, key: "43" if key == "competition_id" else None
+        from ingestion.xg_model_v2 import run_pipeline
 
-        mock_spark.table.return_value.select.return_value.distinct.return_value.collect.return_value = [
-            mock_existing_row_1,
-            mock_existing_row_2,
-        ]
+        # The decorated run_pipeline is already wrapped by @workflow.
+        # Call the underlying function directly to bypass Spark dependency.
+        fn = getattr(run_pipeline, "__wrapped__", run_pipeline)
 
-        # Mock _load_shots_with_context to return a DataFrame with the same competitions
-        mock_shots_df = MagicMock()
-        mock_comp_row_1 = MagicMock()
-        mock_comp_row_1.__getitem__ = lambda self, key: "11" if key == "competition_id" else None
-        mock_comp_row_2 = MagicMock()
-        mock_comp_row_2.__getitem__ = lambda self, key: "43" if key == "competition_id" else None
-        mock_shots_df.select.return_value.distinct.return_value.collect.return_value = [
-            mock_comp_row_1,
-            mock_comp_row_2,
-        ]
-
-        with patch("ingestion.xg_model_v2._load_shots_with_context", return_value=mock_shots_df):
-            from ingestion.xg_model_v2 import run_pipeline
-
-            # The decorated run_pipeline is already wrapped by @workflow.
-            # Call the underlying function directly to bypass Spark dependency.
-            # Since @workflow wraps it, we access __wrapped__ if available.
-            fn = getattr(run_pipeline, "__wrapped__", run_pipeline)
-            fn(mock_spark, "catalog", "schema", logger)
-
-        # Should NOT have called write_delta_table since all comps are skipped
-        # Verify by checking that _try_load_champion_xg_v2 was never called
-        # (pipeline returns early before model loading)
+        # Guard returns count=0 — all competitions already scored
+        with pytest.raises(WorkflowSkippedError):
+            fn(
+                mock_spark,
+                "catalog",
+                "schema",
+                logger,
+                filter_result=FilterResult(workflow_id="wf-xg-v2", count=0),
+            )

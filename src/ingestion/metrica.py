@@ -38,6 +38,7 @@ from ingestion.utils import (
     parse_ingestion_args,
 )
 from workflows import workflow
+from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -69,9 +70,12 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
+    filter_result: FilterResult,
     ctx: object = None,
 ) -> None:
     """Ingest all Metrica Sports sample data (tracking + events)."""
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new work")
     ingest_tracking(spark, catalog, schema, logger)
     ingest_events(spark, catalog, schema, logger)
 
@@ -86,8 +90,14 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
+    from ingestion.guards import read_gate_result
+
+    filter_result = read_gate_result("wf-metrica")
+    if filter_result is None:
+        filter_result = skip_guard.check(spark, args.catalog, args.schema)
+
     logger.info("Starting Metrica ingestion into %s.%s", args.catalog, args.schema)
-    run_pipeline(spark, args.catalog, args.schema, logger)
+    run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
     logger.info("Metrica ingestion complete")
 
 

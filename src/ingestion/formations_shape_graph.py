@@ -50,16 +50,19 @@ from ingestion.utils import (
     write_delta_table,
 )
 from workflows import workflow
+from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame as SparkDataFrame
     from pyspark.sql import SparkSession
 
+from ingestion.utils import SparkAnalysisException as _SparkAnalysisException
+
 
 class _FormationsShapeGraphGuard:
     """SkipGuard adapter for shape graph formation detection pipeline."""
 
-    workflow_id = "wf-formations-sg"
+    workflow_id = "wf-shape-graphs"
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check which tracking matches need shape graph detection."""
@@ -257,6 +260,8 @@ def _run_shape_graph(
     catalog: str,
     schema: str,
     logger: logging.Logger,
+    *,
+    new_match_ids: list[str] | None = None,
 ) -> int:
     """Run the shape graph formation detector on all new matches.
 
@@ -266,6 +271,13 @@ def _run_shape_graph(
 
     Writes shape graph formation labels to ``formation_labels`` and player
     positions to ``player_positions``.  Drops the temp table on completion.
+
+    Parameters
+    ----------
+    new_match_ids : list[str] | None
+        Pre-computed list of new match IDs from the guard. When provided,
+        takes precedence over IDs discovered from the temp table or
+        ``prepare_tracking_data()``.
 
     Returns the total number of rows written across both tables.
     """
@@ -293,7 +305,7 @@ def _run_shape_graph(
         else:
             tracking_df = temp_df
             logger.info("Read %d match IDs from existing temp table %s", len(new_ids_str), temp_table)
-    except Exception:
+    except _SparkAnalysisException:
         logger.info("Temp table %s not found -- preparing tracking data from scratch", temp_table)
 
     # Fallback: prepare from gold table if temp table is unavailable.
@@ -308,6 +320,11 @@ def _run_shape_graph(
     if tracking_df is None or new_ids_str is None:  # pragma: no cover -- defensive guard
         logger.error("tracking_df or new_ids_str unexpectedly None after preparation")
         return 0
+
+    # If guard provided IDs, use them (they may be a subset of what
+    # prepare_tracking_data discovered, or match exactly)
+    if new_match_ids is not None:
+        new_ids_str = new_match_ids
 
     from analytics.formation_detection import FormationParams
 
@@ -386,7 +403,7 @@ def _run_shape_graph(
     try:
         spark.sql(f"DROP TABLE IF EXISTS {temp_table}")
         logger.info("Dropped temp table %s", temp_table)
-    except Exception:
+    except _SparkAnalysisException:
         logger.warning("Could not drop temp table %s -- manual cleanup needed", temp_table)
 
     return total_written
@@ -404,16 +421,15 @@ def run_pipeline_shape_graph(
     schema: str,
     logger: logging.Logger,
     *,
-    filter_result: FilterResult | None = None,
+    filter_result: FilterResult,
     ctx: object = None,
 ) -> None:
     """Execute the shape graph formation detection pipeline."""
-    # Early exit if freshness gate determined no new work
-    if filter_result and filter_result.count == 0:
-        logger.info("Freshness gate: no new shape graph formation work")
-        return
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new work")
 
-    total = _run_shape_graph(spark, catalog, schema, logger)
+    new_match_ids = filter_result.metadata.get("new_match_ids")
+    total = _run_shape_graph(spark, catalog, schema, logger, new_match_ids=new_match_ids)
     logger.info("Shape graph formation detection complete -- %d rows written", total)
 
 
@@ -435,6 +451,8 @@ def main_shape_graph() -> None:
     from ingestion.guards import read_gate_result
 
     filter_result = read_gate_result("wf-formations-sg")
+    if filter_result is None:
+        filter_result = skip_guard.check(spark, args.catalog, args.schema)
 
     logger.info("Starting shape graph formation detection pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline_shape_graph(spark, args.catalog, args.schema, logger, filter_result=filter_result)

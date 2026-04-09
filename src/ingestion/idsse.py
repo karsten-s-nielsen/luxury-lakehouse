@@ -41,9 +41,12 @@ from ingestion.utils import (
     write_delta_table,
 )
 from workflows import workflow
+from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
+
+from ingestion.utils import SparkAnalysisException as _SparkAnalysisException
 
 
 class _IdsseGuard:
@@ -384,9 +387,12 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
+    filter_result: FilterResult,
     ctx: object = None,
 ) -> None:
     """Ingest IDSSE tracking and event data into the bronze layer."""
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new work")
     ingest_idsse(spark, catalog, schema, logger)
     ingest_idsse_events(spark, catalog, schema, logger)
 
@@ -401,8 +407,14 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
+    from ingestion.guards import read_gate_result
+
+    filter_result = read_gate_result("wf-idsse")
+    if filter_result is None:
+        filter_result = skip_guard.check(spark, args.catalog, args.schema)
+
     logger.info("Starting IDSSE ingestion into %s.%s", args.catalog, args.schema)
-    ingest_idsse(spark, args.catalog, args.schema, logger)
+    run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
     logger.info("IDSSE ingestion complete")
 
 
@@ -641,7 +653,7 @@ def ingest_idsse_events(
     try:
         existing_rows = spark.table(f"{catalog}.{schema}.idsse_events").select("match_id").distinct().collect()
         existing_ids = {str(row["match_id"]) for row in existing_rows}
-    except Exception:
+    except _SparkAnalysisException:
         logger.info("No existing idsse_events table — processing all matches")
 
     new_match_ids = [mid for mid in ids_to_ingest if f"idsse_{mid}" not in existing_ids]
@@ -689,25 +701,6 @@ def ingest_idsse_events(
         )
         del df, sdf
         gc.collect()
-
-
-def main_events() -> None:
-    """CLI entry point for IDSSE event data ingestion.
-
-    Parses DFL event XML files (DFL_03_02 series) from the IDSSE figshare
-    collection and writes event data to the ``idsse_events`` bronze table.
-    """
-    args = parse_ingestion_args("Ingest IDSSE Bundesliga event data into the bronze layer")
-    logger = configure_logging("idsse_events")
-    spark = get_spark_session()
-
-    from ingestion.bootstrap import bootstrap_hooks
-
-    bootstrap_hooks(spark, args.catalog, args.schema)
-
-    logger.info("Starting IDSSE event ingestion into %s.%s", args.catalog, args.schema)
-    ingest_idsse_events(spark, args.catalog, args.schema, logger)
-    logger.info("IDSSE event ingestion complete")
 
 
 if __name__ == "__main__":

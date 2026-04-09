@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from ingestion.player_embeddings_common import (
     STAT_FEATURES,
@@ -994,14 +995,21 @@ class TestMainFunction:
     @patch("ingestion.player_embeddings_v2.parse_ingestion_args")
     @patch("ingestion.player_embeddings_v2._import_v2_embeddings", return_value=False)
     @patch("ingestion.player_embeddings_v1._load_events_sdf")
+    @patch("ingestion.bootstrap.bootstrap_hooks")
+    @patch("ingestion.guards.read_gate_result")
     def test_skips_when_all_matches_have_embeddings(
         self,
+        mock_gate: MagicMock,
+        mock_bootstrap: MagicMock,
         mock_events_sdf: MagicMock,
         mock_import_v2: MagicMock,
         mock_args: MagicMock,
         mock_spark: MagicMock,
     ) -> None:
-        """Pipeline returns early when all source matches already have embeddings."""
+        """Pipeline raises WorkflowSkippedError when guard says count=0."""
+        from ingestion.guards import FilterResult
+        from workflows.exceptions import WorkflowSkippedError
+
         args = MagicMock()
         args.catalog = "cat"
         args.schema = "bronze"
@@ -1010,24 +1018,11 @@ class TestMainFunction:
         spark = MagicMock()
         mock_spark.return_value = spark
 
-        # existing_matches: spark.table().select().distinct().collect() returns m1, m2
-        existing_row_1 = MagicMock()
-        existing_row_1.__getitem__ = lambda self, k: "m1"
-        existing_row_2 = MagicMock()
-        existing_row_2.__getitem__ = lambda self, k: "m2"
-        spark.table.return_value.select.return_value.distinct.return_value.collect.return_value = [
-            existing_row_1,
-            existing_row_2,
-        ]
+        # Guard returns count=0 — all matches already have embeddings
+        mock_gate.return_value = FilterResult(workflow_id="wf-football2vec-v2", count=0)
 
-        # source_matches: spark.sql().collect() returns m1, m2 (same set)
-        source_row_1 = MagicMock()
-        source_row_1.__getitem__ = lambda self, k: "m1"
-        source_row_2 = MagicMock()
-        source_row_2.__getitem__ = lambda self, k: "m2"
-        spark.sql.return_value.collect.return_value = [source_row_1, source_row_2]
-
-        _main_combined()
+        with pytest.raises(WorkflowSkippedError):
+            _main_combined()
 
         # _load_events_sdf should NOT be called — pipeline skipped
         mock_events_sdf.assert_not_called()
@@ -1036,14 +1031,21 @@ class TestMainFunction:
     @patch("ingestion.player_embeddings_v2.parse_ingestion_args")
     @patch("ingestion.player_embeddings_v2._import_v2_embeddings", return_value=False)
     @patch("ingestion.player_embeddings_v1._load_events_sdf")
+    @patch("ingestion.bootstrap.bootstrap_hooks")
+    @patch("ingestion.guards.read_gate_result")
     def test_defensive_fallback_no_source_matches_but_existing_embeddings(
         self,
+        mock_gate: MagicMock,
+        mock_bootstrap: MagicMock,
         mock_events_sdf: MagicMock,
         mock_import_v2: MagicMock,
         mock_args: MagicMock,
         mock_spark: MagicMock,
     ) -> None:
-        """If source_matches query returns empty but existing embeddings exist, skip."""
+        """Pipeline raises WorkflowSkippedError when guard says count=0 (no source matches)."""
+        from ingestion.guards import FilterResult
+        from workflows.exceptions import WorkflowSkippedError
+
         args = MagicMock()
         args.catalog = "cat"
         args.schema = "bronze"
@@ -1052,17 +1054,13 @@ class TestMainFunction:
         spark = MagicMock()
         mock_spark.return_value = spark
 
-        # existing_matches: spark.table().select().distinct().collect() returns m1
-        existing_row = MagicMock()
-        existing_row.__getitem__ = lambda self, k: "m1"
-        spark.table.return_value.select.return_value.distinct.return_value.collect.return_value = [existing_row]
+        # Guard returns count=0 — no source matches to process
+        mock_gate.return_value = FilterResult(workflow_id="wf-football2vec-v2", count=0)
 
-        # source_matches: spark.sql().collect() returns empty (simulating query failure/mismatch)
-        spark.sql.return_value.collect.return_value = []
+        with pytest.raises(WorkflowSkippedError):
+            _main_combined()
 
-        _main_combined()
-
-        # _load_events_sdf should NOT be called — defensive fallback triggered
+        # _load_events_sdf should NOT be called — pipeline skipped via guard
         mock_events_sdf.assert_not_called()
 
     @patch("ingestion.player_embeddings_v2.get_spark_session")

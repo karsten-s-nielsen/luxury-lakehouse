@@ -23,8 +23,6 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-from analytics.off_ball_xt import OffBallXtParams
-from analytics.pitch_control import PitchControlParams
 from ingestion.guards import FilterResult
 from ingestion.utils import (
     configure_logging,
@@ -34,9 +32,13 @@ from ingestion.utils import (
 )
 from shared.constants import DEFAULT_GOLD_SCHEMA
 from workflows import workflow
+from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
+
+    from analytics.off_ball_xt import OffBallXtParams
+    from analytics.pitch_control import PitchControlParams
 
 _TABLE_NAME = "off_ball_xt_results"
 _guard_logger = logging.getLogger(f"{__name__}.guard")
@@ -202,7 +204,7 @@ def _process_matches(
     params: OffBallXtParams,
     pc_params: PitchControlParams,
     *,
-    filter_result: FilterResult | None = None,
+    filter_result: FilterResult,
 ) -> int:
     """Process all matches from fct_tracking_frames via applyInPandas.
 
@@ -217,22 +219,9 @@ def _process_matches(
     from pyspark.sql.types import DoubleType, IntegerType, StringType, StructField, StructType
 
     gold_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_tracking_frames"
-    results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
 
-    # Use pre-computed filter result from freshness gate, or run inline guard
-    if filter_result and filter_result.metadata.get("new_match_ids"):
-        new_ids_str = filter_result.metadata["new_match_ids"]
-        logger.info("%d matches to process (from freshness gate)", len(new_ids_str))
-    else:
-        # Standalone execution — run inline guard
-        from ingestion.guards import find_new_ids
-
-        new_ids_str = find_new_ids(
-            spark,
-            source_table=gold_table,
-            results_table=results_table,
-        )
-        logger.info("%d matches to process (standalone mode)", len(new_ids_str))
+    new_ids_str = filter_result.metadata["new_match_ids"]
+    logger.info("%d matches to process", len(new_ids_str))
 
     if not new_ids_str:
         return 0
@@ -321,10 +310,16 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
-    filter_result: FilterResult | None = None,
+    filter_result: FilterResult,
     ctx=None,
 ) -> None:
     """Execute the Off-Ball xT computation pipeline."""
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new work")
+
+    from analytics.off_ball_xt import OffBallXtParams
+    from analytics.pitch_control import PitchControlParams
+
     params = OffBallXtParams()
     pc_params = PitchControlParams()
 
@@ -348,6 +343,8 @@ def main() -> None:
     from ingestion.guards import read_gate_result
 
     filter_result = read_gate_result("wf-off-ball-xt")
+    if filter_result is None:
+        filter_result = skip_guard.check(spark, args.catalog, args.schema)
 
     logger.info("Starting Off-Ball xT pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)

@@ -25,3 +25,7 @@ ingest_idsse_events,ingest-idsse-events
 ingest_skillcorner,ingest-skillcorner
 freshness_gate,wf-freshness-gate
 hf_sync,wf-hf-sync
+backfill_statsbomb_extra,wf-backfill-extra
+backfill_statsbomb_360,wf-backfill-360
+extract_tracking_metadata,wf-tracking-metadata
+sync_hf_costs,wf-sync-hf-costs

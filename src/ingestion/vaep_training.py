@@ -24,7 +24,7 @@ import silly_kicks.vaep.features as fs
 import silly_kicks.vaep.labels as labels
 from xgboost import XGBClassifier
 
-from ingestion.spadl_vaep import _FEATURE_FNS, _NB_PREV_ACTIONS
+from ingestion.spadl_vaep import _NB_PREV_ACTIONS, _get_feature_fns
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ def extract_features_for_games(
             continue
         try:
             gamestates = fs.gamestates(game_actions, nb_prev_actions=_NB_PREV_ACTIONS)  # type: ignore[arg-type]
-            x_game = pd.concat([fn(gamestates) for fn in _FEATURE_FNS], axis=1)
+            x_game = pd.concat([fn(gamestates) for fn in _get_feature_fns()], axis=1)
             y_scores = labels.scores(game_actions, nr_actions=10)  # type: ignore[arg-type]
             y_concedes = labels.concedes(game_actions, nr_actions=10)  # type: ignore[arg-type]
             all_x.append(x_game)

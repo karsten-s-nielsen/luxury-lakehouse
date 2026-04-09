@@ -13,7 +13,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from analytics.entity_resolution import ResolutionConfig, resolve_players
 from ingestion.guards import FilterResult
 from ingestion.utils import (
     configure_logging,
@@ -23,6 +22,7 @@ from ingestion.utils import (
     write_delta_table,
 )
 from workflows import workflow
+from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -39,20 +39,32 @@ class _EntityResolutionGuard:
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check if entity resolution needs to run.
 
-        Heuristic: skip if xref table exists and both source tables are present.
+        Finds StatsBomb player IDs that lack cross-reference entries.
         """
+        from ingestion.guards import find_new_ids
+
         xref_table = f"{catalog}.{schema}.player_xref_raw"
+        lineups_table = f"{catalog}.{schema}.statsbomb_lineups"
 
         try:
-            existing_count = spark.table(xref_table).limit(1).count()
-            if existing_count > 0:
-                ws_count = spark.table(f"{catalog}.{schema}.wyscout_players").limit(1).count()
-                if ws_count > 0:
-                    return FilterResult(workflow_id=self.workflow_id, count=0)
+            new_player_ids = find_new_ids(
+                spark,
+                source_table=lineups_table,
+                results_table=xref_table,
+                id_column="player_id",
+            )
         except Exception:
-            _guard_logger.debug("No existing %s table -- needs resolution", xref_table)
+            _guard_logger.debug("Cannot check %s — needs resolution", xref_table)
+            return FilterResult(workflow_id=self.workflow_id, count=1)
 
-        return FilterResult(workflow_id=self.workflow_id, count=1)
+        if not new_player_ids:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        return FilterResult(
+            workflow_id=self.workflow_id,
+            count=len(new_player_ids),
+            metadata={"new_player_ids": new_player_ids},
+        )
 
 
 skip_guard = _EntityResolutionGuard()
@@ -118,44 +130,14 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
-    filter_result: FilterResult | None = None,
+    filter_result: FilterResult,
     ctx=None,
 ) -> None:
     """Execute cross-source player entity resolution pipeline."""
-    # Early exit if freshness gate determined no new work
-    if filter_result and filter_result.count == 0:
-        logger.info("Freshness gate: no new entity resolution work")
-        return
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new work")
 
     logger.info("Starting entity resolution for %s.%s", catalog, schema)
-
-    # Incremental skip guard: compare source row counts against existing xref.
-    # Entity resolution is a global operation (TF-IDF across all sources), so
-    # we can't do partition-level skipping. Instead, skip if the source tables
-    # haven't grown since the last run (row counts match stored metadata).
-    xref_table = f"{catalog}.{schema}.player_xref_raw"
-    try:
-        existing_count = spark.table(xref_table).limit(1).count()
-        if existing_count > 0:
-            # Check if source tables have grown — count lineups and wyscout_players
-            sb_lineups = f"{catalog}.{schema}.statsbomb_lineups"
-            sb_count = spark.table(sb_lineups).select("player_id").distinct().count()
-            ws_count = spark.table(f"{catalog}.{schema}.wyscout_players").limit(1).count()
-            xref_rows = spark.table(xref_table).count()
-            logger.info(
-                "Existing xref has %d rows (SB: %d distinct players, WS: %s)",
-                xref_rows,
-                sb_count,
-                "present" if ws_count > 0 else "absent",
-            )
-            # Simple heuristic: if xref already exists and both sources are present,
-            # skip unless explicitly forced. Full re-resolution only needed when
-            # new source data is ingested (new lineups or new wyscout_players).
-            if ws_count > 0:
-                logger.info("Entity resolution already complete — skipping (delete %s to force re-run)", xref_table)
-                return
-    except Exception:
-        logger.info("No existing %s table — running full resolution", xref_table)
 
     # Load player metadata from each source
     sb_players = _load_statsbomb_players(spark, catalog, schema)
@@ -164,6 +146,8 @@ def run_pipeline(
     logger.info("Loaded %d StatsBomb players, %d Wyscout players", len(sb_players), len(ws_players))
 
     # Run three-layer resolution
+    from analytics.entity_resolution import ResolutionConfig, resolve_players
+
     config = ResolutionConfig(confidence_threshold=70.0)
     xref = resolve_players(sb_players, ws_players, config=config)
 
@@ -209,6 +193,8 @@ def main() -> None:
     from ingestion.guards import read_gate_result
 
     filter_result = read_gate_result("wf-entity-resolution")
+    if filter_result is None:
+        filter_result = skip_guard.check(spark, args.catalog, args.schema)
 
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
 

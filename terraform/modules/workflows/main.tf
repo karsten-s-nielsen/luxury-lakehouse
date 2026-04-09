@@ -60,10 +60,8 @@ resource "databricks_job" "data_ingestion" {
 
   # ── Task: Freshness Gate — centralized skip guard ────────────────────
   # Runs all workflow skip guards, writes FilterResult task values, and
-  # emits SKIPPED records for idle workflows.
-  # TODO(D40a): Wire run_if conditions on downstream tasks to consume the
-  # gate's task values and skip tasks with no new work. Also wire
-  # for_each_task for pitch_control and off_ball_xt fan-out.
+  # emits SKIPPED records for idle workflows.  Downstream compute tasks
+  # read gate results via read_gate_result() at code level.
   task {
     task_key        = "freshness_gate"
     timeout_seconds = 300
@@ -80,6 +78,13 @@ resource "databricks_job" "data_ingestion" {
 
     environment_key = "default"
   }
+
+  # TODO(D40c): Terraform condition_task gates — dynamic value references
+  # ({{tasks.X.values.Y}}) are rejected by the Databricks Jobs API in
+  # condition_task operands. Investigate correct syntax or use lightweight
+  # Python gate tasks as alternative. The code-level skip (WorkflowSkippedError)
+  # still prevents redundant work; condition gates would additionally prevent
+  # cluster spin-up.
 
   # ── Task: Ingest StatsBomb data ──────────────────────────────────────────
   task {
@@ -740,10 +745,7 @@ resource "databricks_job" "data_ingestion" {
       ]
     }
 
-    # Depends on gate + all compute tasks that produce data for exports
-    depends_on {
-      task_key = "freshness_gate"
-    }
+    # Depends on all compute tasks that produce data for exports
     depends_on {
       task_key = "compute_spadl_vaep"
     }

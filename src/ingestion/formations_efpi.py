@@ -47,6 +47,7 @@ from ingestion.utils import (
     write_delta_table,
 )
 from workflows import workflow
+from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -169,12 +170,21 @@ def _run_efpi(
     catalog: str,
     schema: str,
     logger: logging.Logger,
+    *,
+    new_match_ids: list[str] | None = None,
 ) -> int:
     """Run the EFPI formation detector on all new matches.
 
     Calls ``prepare_tracking_data()`` to materialise filtered tracking data.
     Writes EFPI formation labels to ``formation_labels``.  Does NOT drop the
     temp table (shape graph may still need it).
+
+    Parameters
+    ----------
+    new_match_ids : list[str] | None
+        Pre-computed list of new match IDs from the guard. When provided,
+        ``prepare_tracking_data()`` is still called for data materialisation
+        but the guard's ID list takes precedence.
 
     Returns the number of rows written.
     """
@@ -197,6 +207,10 @@ def _run_efpi(
         return 0
 
     tracking_df, new_ids_str, _temp_table = prepared
+    # If guard provided IDs, use them (they may be a subset of what
+    # prepare_tracking_data discovered, or match exactly)
+    if new_match_ids is not None:
+        new_ids_str = new_match_ids
 
     params = FormationParams()
 
@@ -254,16 +268,15 @@ def run_pipeline_efpi(
     schema: str,
     logger: logging.Logger,
     *,
-    filter_result: FilterResult | None = None,
+    filter_result: FilterResult,
     ctx: object = None,
 ) -> None:
     """Execute the EFPI formation detection pipeline."""
-    # Early exit if freshness gate determined no new work
-    if filter_result and filter_result.count == 0:
-        logger.info("Freshness gate: no new EFPI formation work")
-        return
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new work")
 
-    total = _run_efpi(spark, catalog, schema, logger)
+    new_match_ids = filter_result.metadata.get("new_match_ids")
+    total = _run_efpi(spark, catalog, schema, logger, new_match_ids=new_match_ids)
     logger.info("EFPI formation detection complete -- %d rows written", total)
 
 
@@ -273,7 +286,7 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
-    filter_result: FilterResult | None = None,
+    filter_result: FilterResult,
     ctx: object = None,
 ) -> None:
     """Execute both formation detection pipelines sequentially.
@@ -282,15 +295,14 @@ def run_pipeline(
     Runs EFPI first (which creates the temp table), then shape graph (which
     reads the temp table and drops it).
     """
-    # Early exit if freshness gate determined no new work
-    if filter_result and filter_result.count == 0:
-        logger.info("Freshness gate: no new formation detection work")
-        return
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new work")
 
     from ingestion.formations_shape_graph import _run_shape_graph
 
-    efpi_total = _run_efpi(spark, catalog, schema, logger)
-    sg_total = _run_shape_graph(spark, catalog, schema, logger)
+    new_match_ids = filter_result.metadata.get("new_match_ids")
+    efpi_total = _run_efpi(spark, catalog, schema, logger, new_match_ids=new_match_ids)
+    sg_total = _run_shape_graph(spark, catalog, schema, logger, new_match_ids=new_match_ids)
     logger.info(
         "Formation detection pipeline complete -- %d total rows written (EFPI: %d, shape graph: %d)",
         efpi_total + sg_total,
@@ -317,6 +329,8 @@ def main() -> None:
     from ingestion.guards import read_gate_result
 
     filter_result = read_gate_result("wf-formations")
+    if filter_result is None:
+        filter_result = skip_guard.check(spark, args.catalog, args.schema)
 
     logger.info("Starting formation detection pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
@@ -335,6 +349,8 @@ def main_efpi() -> None:
     from ingestion.guards import read_gate_result
 
     filter_result = read_gate_result("wf-formations")
+    if filter_result is None:
+        filter_result = skip_guard.check(spark, args.catalog, args.schema)
 
     logger.info("Starting EFPI formation detection pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline_efpi(spark, args.catalog, args.schema, logger, filter_result=filter_result)

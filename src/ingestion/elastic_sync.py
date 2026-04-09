@@ -44,6 +44,7 @@ from ingestion.utils import (
     write_delta_table,
 )
 from workflows import workflow
+from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -180,7 +181,7 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
-    filter_result: FilterResult | None = None,
+    filter_result: FilterResult,
     ctx=None,
 ) -> int:
     """Execute the ELASTIC event-tracking synchronization pipeline.
@@ -200,24 +201,14 @@ def run_pipeline(
     Returns:
         Number of rows written.
     """
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new work")
+
     events_table = f"{catalog}.{schema}.idsse_events"
     tracking_table = f"{catalog}.{schema}.idsse_tracking"
-    results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
 
-    # Use pre-computed filter result from freshness gate, or run inline guard
-    if filter_result and filter_result.metadata.get("new_match_ids"):
-        new_match_ids = filter_result.metadata["new_match_ids"]
-        logger.info("ELASTIC sync: %d matches to process (from freshness gate)", len(new_match_ids))
-    else:
-        # Standalone execution — run inline guard
-        from ingestion.guards import find_new_ids
-
-        new_match_ids = find_new_ids(
-            spark,
-            source_table=events_table,
-            results_table=results_table,
-        )
-        logger.info("ELASTIC sync: %d matches to process (standalone mode)", len(new_match_ids))
+    new_match_ids = filter_result.metadata["new_match_ids"]
+    logger.info("ELASTIC sync: %d matches to process", len(new_match_ids))
 
     if not new_match_ids:
         return 0
@@ -335,6 +326,8 @@ def main() -> None:
     from ingestion.guards import read_gate_result
 
     filter_result = read_gate_result("wf-elastic-sync")
+    if filter_result is None:
+        filter_result = skip_guard.check(spark, args.catalog, args.schema)
 
     logger.info("Starting ELASTIC sync pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)

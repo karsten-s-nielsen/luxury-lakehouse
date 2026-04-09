@@ -29,25 +29,57 @@ import pandas as pd
 from ingestion.guards import FilterResult
 from shared.constants import IDENTIFIER_RE
 from workflows import workflow
+from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 TABLE_NAME = "tracking_player_metadata"
 
+_guard_logger = logging.getLogger(f"{__name__}.guard")
+
 
 class _TrackingMetadataGuard:
     workflow_id = "wf-tracking-metadata"
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
-        """Skip if tracking metadata table already exists and is populated."""
+        """Find tracking data sources that lack metadata extraction."""
+        from ingestion.guards import find_new_ids
+
+        results_table = f"{catalog}.{schema}.{TABLE_NAME}"
+
+        # Check IDSSE matches
+        idsse_ids: list[str] = []
         try:
-            row_count = spark.table(f"{catalog}.{schema}.tracking_player_metadata").limit(1).count()
-            if row_count > 0:
-                return FilterResult(workflow_id=self.workflow_id, count=0)
-        except Exception:  # noqa: S110
-            pass
-        return FilterResult(workflow_id=self.workflow_id, count=1)
+            idsse_ids = find_new_ids(
+                spark,
+                source_table=f"{catalog}.bronze.idsse_tracking",
+                results_table=results_table,
+            )
+        except Exception:
+            _guard_logger.debug("Cannot check IDSSE tracking — table may not exist")
+
+        # Check SkillCorner matches
+        skillcorner_ids: list[str] = []
+        try:
+            skillcorner_ids = find_new_ids(
+                spark,
+                source_table=f"{catalog}.bronze.skillcorner_tracking",
+                results_table=results_table,
+            )
+        except Exception:
+            _guard_logger.debug("Cannot check SkillCorner tracking — table may not exist")
+
+        all_ids = sorted(set(idsse_ids) | set(skillcorner_ids))
+
+        if not all_ids:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        return FilterResult(
+            workflow_id=self.workflow_id,
+            count=len(all_ids),
+            metadata={"new_match_ids": all_ids},
+        )
 
 
 skip_guard = _TrackingMetadataGuard()
@@ -270,9 +302,12 @@ def run_pipeline(
     schema: str,
     data_dir: str = _IDSSE_DATA_DIR,
     *,
+    filter_result: FilterResult,
     ctx: object = None,
 ) -> None:
     """Extract tracking metadata from all providers and write to bronze."""
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new work")
     from pyspark.sql import functions as spark_fn  # type: ignore[import-not-found]
 
     from ingestion.utils import validate_dataframe, write_delta_table
@@ -359,7 +394,13 @@ def main() -> None:
 
     bootstrap_hooks(spark, catalog, schema)
 
-    run_pipeline(spark, catalog, schema, data_dir)
+    from ingestion.guards import read_gate_result
+
+    filter_result = read_gate_result("wf-tracking-metadata")
+    if filter_result is None:
+        filter_result = skip_guard.check(spark, catalog, schema)
+
+    run_pipeline(spark, catalog, schema, data_dir, filter_result=filter_result)
 
 
 if __name__ == "__main__":

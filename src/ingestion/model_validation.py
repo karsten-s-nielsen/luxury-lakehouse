@@ -22,11 +22,6 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-from analytics.model_validation import (
-    ValidationResult,
-    check_physical_bounds,
-    compute_cusum,
-)
 from ingestion.guards import FilterResult
 from ingestion.utils import (
     configure_logging,
@@ -37,9 +32,12 @@ from ingestion.utils import (
 )
 from shared.constants import DEFAULT_GOLD_SCHEMA
 from workflows import workflow
+from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
+
+    from analytics.model_validation import ValidationResult
 
 
 class _ModelValidationGuard:
@@ -103,6 +101,8 @@ def _validate_xg_predictions(
     logger: logging.Logger,
 ) -> list[ValidationResult]:
     """Validate xG model predictions: mean prediction PSI and metric thresholds."""
+    from analytics.model_validation import ValidationResult, check_physical_bounds
+
     results: list[ValidationResult] = []
     table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_xg_predictions"
 
@@ -158,6 +158,8 @@ def _validate_action_values(
     logger: logging.Logger,
 ) -> list[ValidationResult]:
     """Validate VAEP action values: negative fraction, distribution shape."""
+    from analytics.model_validation import ValidationResult
+
     results: list[ValidationResult] = []
     table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_action_values"
 
@@ -207,6 +209,8 @@ def _validate_line_breaking(
     logger: logging.Logger,
 ) -> list[ValidationResult]:
     """Validate line-breaking detection rate via CUSUM."""
+    from analytics.model_validation import ValidationResult, compute_cusum
+
     results: list[ValidationResult] = []
     table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_passes"
 
@@ -255,6 +259,8 @@ def _validate_physical_stats(
     logger: logging.Logger,
 ) -> list[ValidationResult]:
     """Validate physical stats: max speed within physics bounds."""
+    from analytics.model_validation import check_physical_bounds
+
     results: list[ValidationResult] = []
     table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_physical_stats"
 
@@ -286,6 +292,8 @@ def _validate_pausa(
     logger: logging.Logger,
 ) -> list[ValidationResult]:
     """Validate PAUSA scores: temporal/spatial within [0, 1]."""
+    from analytics.model_validation import check_physical_bounds
+
     results: list[ValidationResult] = []
     table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_pausa_values"
 
@@ -349,6 +357,7 @@ def run_pipeline(
     schema: str,
     logger: logging.Logger,
     *,
+    filter_result: FilterResult,
     ctx=None,
 ) -> int:
     """Execute the full model validation pipeline.
@@ -365,6 +374,8 @@ def run_pipeline(
     Returns:
         Number of validation results written.
     """
+    if filter_result.count == 0:
+        raise WorkflowSkippedError("No new work")
     run_id = str(uuid.uuid4())
     run_date = datetime.now(tz=timezone.utc)
 
@@ -448,8 +459,14 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
+    from ingestion.guards import read_gate_result
+
+    filter_result = read_gate_result("wf-model-validation")
+    if filter_result is None:
+        filter_result = skip_guard.check(spark, args.catalog, args.schema)
+
     logger.info("Starting model validation into %s.%s", args.catalog, args.schema)
-    run_pipeline(spark, args.catalog, args.schema, logger)
+    run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
 
 
 if __name__ == "__main__":
