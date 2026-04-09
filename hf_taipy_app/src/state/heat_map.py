@@ -10,6 +10,7 @@ import logging
 from typing import Any
 
 import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from filters import fetch_data_freshness, fetch_scope_label
@@ -99,7 +100,11 @@ def _render_heatmap(actions: pd.DataFrame) -> str:
     expanded_y = np.repeat(actions["y"].values, counts)
 
     bin_stats = pitch.bin_statistic(expanded_x, expanded_y, statistic="count", bins=(12, 8))
-    pitch.heatmap(bin_stats, ax=ax, cmap="hot", edgecolors=PITCH_BG_COLOR)
+    hm = pitch.heatmap(bin_stats, ax=ax, cmap="hot", edgecolors=PITCH_BG_COLOR)
+    cbar = fig.colorbar(hm, ax=ax, shrink=0.6, pad=0.02)
+    cbar.set_label("Action Count", color=PITCH_LINE_COLOR, fontsize=10)
+    cbar.ax.yaxis.set_tick_params(color=PITCH_LINE_COLOR)
+    plt.setp(cbar.ax.yaxis.get_ticklabels(), color=PITCH_LINE_COLOR)
 
     ax.set_title("Action Density Heat Map", color=PITCH_LINE_COLOR, fontsize=14, pad=10)
     return pitch_to_file(fig, "pitch_heat_map")
@@ -183,7 +188,7 @@ def hm_refresh(state: Any) -> None:
         state.hm_shots = "0"
         state.hm_most_active_zone = "--"
         state.hm_pitch_image = ""
-        state.hm_warning_text = "No actions for the selected filters."
+        state.hm_warning_text = "No actions found for this filter combination. Try broadening your selection."
         state.hm_data_freshness = ""
         return
 

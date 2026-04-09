@@ -14,6 +14,8 @@ import pytest
 # Add hf_taipy_app/src to path so we can import the state module
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "hf_taipy_app" / "src"))
 
+pytest.importorskip("databricks.sdk", reason="databricks-sdk not installed")
+
 from state.workflows import (
     RawHtml,
     wf_style_freshness,

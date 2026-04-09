@@ -382,12 +382,12 @@ def _refresh_position_plots(state: Any) -> None:
     except Exception:
         logger.exception("Failed to fetch position timeline")
         _clear_position_plots(state)
-        state.tac_warning_text = "Error loading position timeline data."
+        state.tac_warning_text = "Something went wrong loading position data. Try refreshing the page."
         return
 
     if timeline.empty:
         _clear_position_plots(state)
-        state.tac_warning_text = "No position label data available for this match and team."
+        state.tac_warning_text = "No position data for this match and team. Try selecting a different match."
         return
 
     fig = _build_position_timeline(timeline)
@@ -594,12 +594,12 @@ def _refresh_formation_comparison(state: Any) -> None:
     except Exception:
         logger.exception("Failed to fetch formation labels")
         _clear_formation_comparison(state)
-        state.tac_warning_text = "Error loading formation labels."
+        state.tac_warning_text = "Something went wrong loading formations. Try refreshing the page."
         return
 
     if labels.empty:
         _clear_formation_comparison(state)
-        state.tac_warning_text = "No formation label data available for this match and team."
+        state.tac_warning_text = "No formation data for this match and team. Try selecting a different match."
         return
 
     state.tac_formation_comparison_figure = _build_formation_comparison(labels)
@@ -753,12 +753,12 @@ def _refresh_position_maps(state: Any) -> None:
     except Exception:
         logger.exception("Failed to fetch players for position maps")
         _clear_position_maps(state)
-        state.tac_warning_text = "Error loading player list."
+        state.tac_warning_text = "Something went wrong loading the player list. Try refreshing the page."
         return
 
     if players_df.empty:
         _clear_position_maps(state)
-        state.tac_warning_text = "No position map data available for this match and team."
+        state.tac_warning_text = "No position map data for this match and team. Try selecting a different team."
         return
 
     player_names = players_df["player_display_name"].tolist()
@@ -771,7 +771,7 @@ def _refresh_position_maps(state: Any) -> None:
 
     if state.tac_selected_player is None:
         _clear_position_maps(state)
-        state.tac_warning_text = "No players available."
+        state.tac_warning_text = "No players available for this selection."
         return
 
     # Fetch position map for selected player
@@ -781,12 +781,12 @@ def _refresh_position_maps(state: Any) -> None:
     except Exception:
         logger.exception("Failed to fetch position maps for player %s", player_id)
         _clear_position_maps(state)
-        state.tac_warning_text = "Error loading position map data."
+        state.tac_warning_text = "Something went wrong loading position maps. Try refreshing the page."
         return
 
     if pm_data.empty:
         _clear_position_maps(state)
-        state.tac_warning_text = "No position map data for the selected player."
+        state.tac_warning_text = "No position map data for this player. Try selecting a different player."
         return
 
     # Build primary heatmap

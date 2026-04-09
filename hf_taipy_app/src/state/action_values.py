@@ -278,14 +278,22 @@ def _refresh_rankings(state: Any) -> None:
     except Exception:
         logger.exception("Failed to fetch VAEP rankings")
         state.av_rankings_data = pd.DataFrame(columns=_AV_RANKINGS_COLS)
-        state.av_rankings_empty_msg = "Error loading rankings."
-        state.av_warning_text = "Error loading VAEP rankings."
+        state.av_rankings_empty_msg = "Something went wrong loading rankings. Try refreshing the page."
+        state.av_warning_text = "Something went wrong loading VAEP rankings. Try refreshing the page."
         return
 
     table = _format_rankings_table(rankings)
     state.av_rankings_data = table
-    state.av_rankings_empty_msg = "" if not table.empty else "No VAEP data available for the selected filters."
-    state.av_warning_text = "" if not table.empty else "No VAEP data for the selected filters."
+    state.av_rankings_empty_msg = (
+        ""
+        if not table.empty
+        else "No VAEP data for this filter combination. Try selecting a different competition or removing player filters."
+    )
+    state.av_warning_text = (
+        ""
+        if not table.empty
+        else "No VAEP data for this filter combination. Try selecting a different competition or removing player filters."
+    )
 
 
 def _refresh_breakdown(state: Any) -> None:
@@ -308,11 +316,11 @@ def _refresh_breakdown(state: Any) -> None:
         breakdown = fetch_vaep_breakdown(comp_id, team_id, player_id)
     except Exception:
         logger.exception("Failed to fetch action breakdown")
-        state.av_total_vaep = "Error"
-        state.av_total_actions = "Error"
-        state.av_top_action = "Error"
+        state.av_total_vaep = "\u2013"
+        state.av_total_actions = "\u2013"
+        state.av_top_action = "\u2013"
         state.av_breakdown_image = ""
-        state.av_warning_text = "Error loading action breakdown."
+        state.av_warning_text = "Something went wrong loading the breakdown. Try refreshing the page."
         return
 
     if breakdown.empty:
@@ -320,7 +328,9 @@ def _refresh_breakdown(state: Any) -> None:
         state.av_total_actions = "0"
         state.av_top_action = "N/A"
         state.av_breakdown_image = ""
-        state.av_warning_text = "No VAEP data for the selected filters."
+        state.av_warning_text = (
+            "No VAEP data for this filter combination. Try selecting a different competition or match."
+        )
         return
 
     state.av_warning_text = ""
@@ -364,15 +374,15 @@ def _refresh_timeline(state: Any) -> None:
         actions = fetch_vaep_timeline(match_id, team_id)
     except Exception:
         logger.exception("Failed to fetch match timeline")
-        state.av_positive = "Error"
-        state.av_negative = "Error"
-        state.av_net_vaep = "Error"
-        state.av_most_valuable = "Error"
+        state.av_positive = "\u2013"
+        state.av_negative = "\u2013"
+        state.av_net_vaep = "\u2013"
+        state.av_most_valuable = "\u2013"
         state.av_timeline_image = ""
         state.av_timeline_data = pd.DataFrame(
             columns=["Action", "Minute", "Second", "Period", "Result", "VAEP Value", "Offensive", "Defensive"]
         )
-        state.av_warning_text = "Error loading match timeline."
+        state.av_warning_text = "Something went wrong loading the timeline. Try refreshing the page."
         return
 
     if actions.empty:
@@ -384,7 +394,7 @@ def _refresh_timeline(state: Any) -> None:
         state.av_timeline_data = pd.DataFrame(
             columns=["Action", "Minute", "Second", "Period", "Result", "VAEP Value", "Offensive", "Defensive"]
         )
-        state.av_warning_text = "No VAEP data for the selected match."
+        state.av_warning_text = "No VAEP data for this match. Try selecting a different match."
         return
 
     state.av_warning_text = ""

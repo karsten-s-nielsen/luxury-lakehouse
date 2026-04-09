@@ -18,7 +18,7 @@ import pandas as pd
 from filters import fetch_data_freshness
 from mplsoccer import Pitch
 from queries.tracking import fetch_pc_frame_data, fetch_pc_frame_range, fetch_pc_frame_rate, fetch_pc_match_label
-from render import PITCH_BG_COLOR, PITCH_LINE_COLOR, pitch_to_file
+from render import AWAY_COLOR, HOME_COLOR, PITCH_BG_COLOR, PITCH_LINE_COLOR, pitch_to_file
 from scipy.spatial import Voronoi  # type: ignore[import-untyped]
 
 from analytics.pitch_control import compute_pitch_control_at_point, compute_pitch_control_frame
@@ -28,8 +28,6 @@ matplotlib.use("Agg")
 logger = logging.getLogger(__name__)
 
 # ── Team / ball colors ───────────────────────────────────────────────────────
-_HOME_COLOR = "#457b9d"
-_AWAY_COLOR = "#e63946"
 _BALL_COLOR = "#f4d03f"
 _TEXT_COLOR = "#e0e0e0"
 
@@ -153,25 +151,27 @@ def _draw_players_and_ball(
         pitch_obj.scatter(
             home["x"],
             home["y"],
-            color=_HOME_COLOR,
+            color=HOME_COLOR,
             s=120,
             edgecolors=PITCH_LINE_COLOR,
             linewidth=0.8,
             ax=ax,
             zorder=3,
             label="Home",
+            marker="o",
         )
     if not away.empty:
         pitch_obj.scatter(
             away["x"],
             away["y"],
-            color=_AWAY_COLOR,
+            color=AWAY_COLOR,
             s=120,
             edgecolors=PITCH_LINE_COLOR,
             linewidth=0.8,
             ax=ax,
             zorder=3,
             label="Away",
+            marker="s",
         )
 
     if ball_x is not None and ball_y is not None:
@@ -233,7 +233,7 @@ def _render_voronoi(
 
         teams_array = players.loc[players[["x", "y"]].dropna().index, "team"].values
         for i, polygon in enumerate(clipped_regions):
-            color = _HOME_COLOR if teams_array[i] == "home" else _AWAY_COLOR
+            color = HOME_COLOR if teams_array[i] == "home" else AWAY_COLOR
             ax.fill(*polygon.T, alpha=0.15, color=color, zorder=1)
 
     _draw_players_and_ball(pitch, ax, players, ball_x, ball_y, show_velocity)
@@ -344,8 +344,8 @@ def _refresh_frame(state: Any) -> None:
 
     if frame_data.empty:
         _clear_state(state)
-        state.pc_status = "No data for this frame for the selected filters."
-        state.pc_warning_text = "No data for this frame for the selected filters."
+        state.pc_status = "No pitch control data for this frame. Try selecting a different frame or half."
+        state.pc_warning_text = "No pitch control data for this frame. Try selecting a different frame or half."
         return
 
     # Extract ball position
@@ -458,7 +458,7 @@ def pc_refresh(state: Any) -> None:
     _min_frame, _max_frame = fetch_pc_frame_range(match_id, period)
     if _min_frame == _max_frame == 0:
         _clear_state(state)
-        state.pc_status = "No frames for this match and period for the selected filters."
+        state.pc_status = "No frames found for this match and period. Try a different half or match."
         state.pc_warning_text = ""
         state.pc_min_seconds = 0
         state.pc_max_seconds = 1

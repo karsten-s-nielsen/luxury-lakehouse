@@ -665,7 +665,7 @@ def _compute_freshness_stats(
             detail_parts.append(f'<span style="color:{FRESHNESS_HEX["stale"]}">{stale_count} stale</span>')
         state.wf_freshness_detail = _stat_detail_html(" \u2014 ".join(detail_parts))
     else:
-        state.wf_freshness_summary = "No SLAs configured"
+        state.wf_freshness_summary = "No SLAs configured yet."
         state.wf_freshness_detail = RawHtml("")
 
 

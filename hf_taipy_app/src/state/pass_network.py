@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from filters import fetch_data_freshness, fetch_scope_label
@@ -158,10 +159,20 @@ def _build_network_figure(nodes: pd.DataFrame, edges: pd.DataFrame) -> go.Figure
             )
         )
 
+    fig.add_annotation(
+        text="Line thickness = pass frequency between pair",
+        xref="paper",
+        yref="paper",
+        x=0.5,
+        y=-0.02,
+        showarrow=False,
+        font=dict(color="rgba(255,255,255,0.5)", size=10),
+    )
+
     # Add nodes as scatter
     pc_min = nodes["pass_count"].min()
     pc_range = max(nodes["pass_count"].max() - pc_min, 1)
-    sizes = 8 + (nodes["pass_count"] - pc_min) / pc_range * 30
+    sizes = 8 + np.sqrt((nodes["pass_count"] - pc_min) / pc_range) * 30
     fig.add_trace(
         go.Scatter(
             x=nodes["avg_x"],
@@ -221,8 +232,8 @@ def pn_refresh(state: Any) -> None:
         passes = fetch_network_passes(comp_id, team_id, match_id)
     except Exception:
         logger.exception("Failed to fetch pass network data")
-        state.pn_total_passes = "Error"
-        state.pn_unique_connections = "Error"
+        state.pn_total_passes = "\u2013"
+        state.pn_unique_connections = "\u2013"
         state.pn_top_pair_count = "--"
         state.pn_top_pair_names = ""
         state.pn_chart_figure = None
@@ -260,7 +271,7 @@ def pn_refresh(state: Any) -> None:
         state.pn_top_pair_names = f"{p_name} \u2192 {r_name}"
     else:
         state.pn_top_pair_count = "0"
-        state.pn_top_pair_names = "No connections meet threshold"
+        state.pn_top_pair_names = "No connections meet the minimum threshold. Try lowering the pass count filter."
 
     # Render pitch
     state.pn_chart_figure = _build_network_figure(nodes, edges)

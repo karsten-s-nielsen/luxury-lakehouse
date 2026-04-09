@@ -4,8 +4,10 @@
 
 ## Prerequisites
 
+> **Python 3.10 specifically — not newer.** Databricks serverless only supports 3.10, so the project pins to it to catch version-specific issues locally before they hit production. If you're on 3.12+, you'll need to install 3.10 alongside it — `uv` handles the rest.
+
 - [Git](https://git-scm.com/)
-- [Python 3.10](https://www.python.org/downloads/) (strict: >=3.10, <3.11 — Databricks serverless constraint means 3.11+ will cause failures)
+- [Python 3.10](https://www.python.org/downloads/) (strict: >=3.10, <3.11)
 - [uv](https://docs.astral.sh/uv/) (Python package manager)
 
 ## 1. Clone and Install
@@ -27,23 +29,23 @@ If you see a different Python version, ensure Python 3.10 is installed and set `
 
 ## 2. Verify the Environment
 
-Run the quality checks that CI enforces:
+Run the same quality checks that CI enforces — if these pass locally, your PR will pass CI:
 
 ```bash
-# Lint (should report 0 violations)
+# Lint — catches unused imports, security anti-patterns, naming issues
 uv run ruff check src/ scripts/
 
-# Format check (should report 0 reformatted)
+# Format — ensures consistent code style across all contributors
 uv run ruff format --check src/ scripts/
 
-# Type check (should report 0 errors)
+# Type check — catches type mismatches before runtime
 uv run pyright src/
 
-# Unit tests (should all pass)
+# Unit tests — verifies correctness of analytics and pipeline logic
 uv run pytest src/tests/ -x -q
 ```
 
-**Verify:** All four commands exit with code 0 and no failures. If `pyright` reports errors, ensure you ran `uv sync` first — it installs all type stubs.
+**Verify:** All four commands exit with code 0. If `pyright` reports errors, run `uv sync` first — it installs the required type stubs.
 
 ## 3. Explore the Project
 

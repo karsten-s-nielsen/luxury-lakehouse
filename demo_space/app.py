@@ -21,6 +21,16 @@ from pitch_control import PitchControlParams, compute_pitch_control_frame
 
 _BUCKET = "hf://buckets/luxury-lakehouse/demo-data"
 
+# Canonical colours — must match hf_taipy_app/src/render.py (Kirk audit K-1, K-2)
+_HOME_COLOR = "#e63946"
+_AWAY_COLOR = "#457b9d"
+_DEFCON_COLORS = {
+    "Intercept": "#e63946",
+    "Concede": "#f4a261",
+    "Disturb": "#457b9d",
+    "Deter": "#2a9d8f",
+}
+
 # ---------------------------------------------------------------------------
 # Data loading (cached at startup)
 # ---------------------------------------------------------------------------
@@ -73,8 +83,14 @@ for _col in _TRACKING_NUMERIC:
 
 # Coerce PAUSA numeric columns
 _PAUSA_NUMERIC = [
-    "temporal_judgment", "spatial_selection", "pausa_score",
-    "actual_obso", "peak_obso", "optimal_obso", "receiver_x", "receiver_y",
+    "temporal_judgment",
+    "spatial_selection",
+    "pausa_score",
+    "actual_obso",
+    "peak_obso",
+    "optimal_obso",
+    "receiver_x",
+    "receiver_y",
 ]
 for _col in _PAUSA_NUMERIC:
     if not pausa_df.empty and _col in pausa_df.columns:
@@ -130,7 +146,8 @@ def find_similar_players(selected_player: str | None, top_k: int = 10) -> pd.Dat
     # Exact match on selected player name
     matches = embeddings_df[embeddings_df["player_name"] == selected_player]
     if matches.empty:
-        return pd.DataFrame({"message": [f"No player found matching '{selected_player}'"]})
+        msg = f"No player found matching '{selected_player}'. Check the spelling or try a different name."
+        return pd.DataFrame({"message": [msg]})
 
     query_idx = matches.index[0]
     vectors = _extract_vectors(embeddings_df, "behavioral_vector")
@@ -139,7 +156,7 @@ def find_similar_players(selected_player: str | None, top_k: int = 10) -> pd.Dat
     query_vec = vectors[query_idx]
     norm_q = np.linalg.norm(query_vec)
     if norm_q == 0:
-        return pd.DataFrame({"error": ["Query player has zero embedding vector."]})
+        return pd.DataFrame({"error": ["This player has no embedding vector. They may not have enough match data."]})
 
     norms = np.linalg.norm(vectors, axis=1)
     norms = np.maximum(norms, 1e-10)
@@ -222,7 +239,15 @@ def create_shot_map(competition: str, goals_only: bool = False) -> plt.Figure:
     fig.set_facecolor("#1a1a2e")
 
     if shots_df.empty:
-        ax.text(90, 40, "No shot data loaded.", ha="center", va="center", color="white", fontsize=14)
+        ax.text(
+            90,
+            40,
+            "No shot data loaded. Try selecting a competition first.",
+            ha="center",
+            va="center",
+            color="white",
+            fontsize=14,
+        )
         return fig
 
     df = shots_df.copy()
@@ -235,7 +260,15 @@ def create_shot_map(competition: str, goals_only: bool = False) -> plt.Figure:
     y_col = "location_y" if "location_y" in df.columns else "start_y"
 
     if x_col not in df.columns or y_col not in df.columns:
-        ax.text(90, 40, "Missing coordinate columns.", ha="center", va="center", color="white", fontsize=14)
+        ax.text(
+            90,
+            40,
+            "Shot coordinate data is missing for this selection.",
+            ha="center",
+            va="center",
+            color="white",
+            fontsize=14,
+        )
         return fig
 
     if "is_goal" in df.columns:
@@ -308,7 +341,15 @@ def create_pass_map(
     fig.set_facecolor("#1a1a2e")
 
     if passes_df.empty:
-        ax.text(60, 40, "No pass data loaded.", ha="center", va="center", color="white", fontsize=14)
+        ax.text(
+            60,
+            40,
+            "No pass data loaded. Try selecting a competition first.",
+            ha="center",
+            va="center",
+            color="white",
+            fontsize=14,
+        )
         return fig
 
     df = passes_df.copy()
@@ -499,7 +540,15 @@ def create_pitch_control_plot(
     fig.set_facecolor("#1a1a2e")
 
     if tracking_df.empty:
-        ax.text(60, 40, "No tracking data loaded.", ha="center", va="center", color="white", fontsize=14)
+        ax.text(
+            60,
+            40,
+            "No tracking data loaded. Tracking data is available for ~20 matches.",
+            ha="center",
+            va="center",
+            color="white",
+            fontsize=14,
+        )
         return fig
 
     # Convert elapsed seconds to frame number
@@ -510,7 +559,15 @@ def create_pitch_control_plot(
     frame_df = tracking_df.loc[mask].copy()
 
     if frame_df.empty:
-        ax.text(60, 40, "No data for this frame.", ha="center", va="center", color="white", fontsize=14)
+        ax.text(
+            60,
+            40,
+            "No data for this frame. Try a different frame number.",
+            ha="center",
+            va="center",
+            color="white",
+            fontsize=14,
+        )
         return fig
 
     # Prepare player DataFrame for pitch control computation
@@ -549,7 +606,7 @@ def create_pitch_control_plot(
             home["x"],
             home["y"],
             ax=ax,
-            c="#457b9d",
+            c=_HOME_COLOR,
             s=120,
             edgecolors="white",
             linewidth=1.5,
@@ -561,7 +618,7 @@ def create_pitch_control_plot(
             away["x"],
             away["y"],
             ax=ax,
-            c="#e63946",
+            c=_AWAY_COLOR,
             s=120,
             edgecolors="white",
             linewidth=1.5,
@@ -576,7 +633,7 @@ def create_pitch_control_plot(
             vx = float(row.get("velocity_x", 0) or 0)
             vy = float(row.get("velocity_y", 0) or 0)
             if abs(vx) > 0.1 or abs(vy) > 0.1:
-                color = "#457b9d" if row["team"] == "home" else "#e63946"
+                color = _HOME_COLOR if row["team"] == "home" else _AWAY_COLOR
                 ax.arrow(
                     float(row["x"]),
                     float(row["y"]),
@@ -671,7 +728,7 @@ def create_pressure_chart(player_name: str | None) -> plt.Figure | go.Figure:
         ax_empty.text(
             0.5,
             0.5,
-            "No pressure data loaded.",
+            "No pressure data loaded. Try selecting a competition and player.",
             ha="center",
             va="center",
             color="white",
@@ -693,7 +750,7 @@ def create_pressure_chart(player_name: str | None) -> plt.Figure | go.Figure:
         ax_empty.text(
             0.5,
             0.5,
-            f"No data for '{player_name}'.",
+            f"No data found for '{player_name}'. Try selecting a different player.",
             ha="center",
             va="center",
             color="white",
@@ -726,12 +783,7 @@ def create_pressure_chart(player_name: str | None) -> plt.Figure | go.Figure:
     }
     melted["pressure_type"] = melted["pressure_type"].map(category_map)
 
-    color_map = {
-        "Intercept": "#e63946",
-        "Concede": "#f4a261",
-        "Disturb": "#457b9d",
-        "Deter": "#2a9d8f",
-    }
+    color_map = _DEFCON_COLORS
 
     n_matches = player_data["match_id"].nunique()
     total_actions = int(player_data["total_defensive_actions"].sum())
@@ -741,6 +793,7 @@ def create_pressure_chart(player_name: str | None) -> plt.Figure | go.Figure:
         x="match_label",
         y="pressure_value",
         color="pressure_type",
+        pattern_shape="pressure_type",
         barmode="group",
         color_discrete_map=color_map,
         labels={
@@ -801,8 +854,9 @@ def create_pausa_scatter(match_id: str, team: str, player: str) -> go.Figure:
     """Create PAUSA temporal vs spatial scatter plot."""
     if pausa_df.empty:
         return go.Figure().update_layout(
-            template="plotly_dark", paper_bgcolor="#1a1a2e",
-            title="No PAUSA data available",
+            template="plotly_dark",
+            paper_bgcolor="#1a1a2e",
+            title="No PAUSA data available \u2014 try an IDSSE match",
         )
 
     df = pausa_df[pausa_df["match_id"] == match_id].copy()
@@ -815,8 +869,9 @@ def create_pausa_scatter(match_id: str, team: str, player: str) -> go.Figure:
 
     if df.empty:
         return go.Figure().update_layout(
-            template="plotly_dark", paper_bgcolor="#1a1a2e",
-            title="No data for selected filters",
+            template="plotly_dark",
+            paper_bgcolor="#1a1a2e",
+            title="No data for selected filters \u2014 try broadening selection",
         )
 
     fig = px.scatter(
@@ -873,7 +928,15 @@ def create_pausa_heatmap(match_id: str, team: str, player: str) -> plt.Figure:
     fig.set_facecolor("#1a1a2e")
 
     if pausa_df.empty:
-        ax.text(60, 40, "No PAUSA data available.", ha="center", va="center", color="white", fontsize=14)
+        ax.text(
+            60,
+            40,
+            "No PAUSA data available. PAUSA is computed for 7 IDSSE matches.",
+            ha="center",
+            va="center",
+            color="white",
+            fontsize=14,
+        )
         return fig
 
     df = pausa_df[pausa_df["match_id"] == match_id].copy()
@@ -885,12 +948,28 @@ def create_pausa_heatmap(match_id: str, team: str, player: str) -> plt.Figure:
         df = df[df[name_col].astype(str) == player]
 
     if df.empty or "receiver_x" not in df.columns or "receiver_y" not in df.columns:
-        ax.text(60, 40, "No receiver data for selection.", ha="center", va="center", color="white", fontsize=14)
+        ax.text(
+            60,
+            40,
+            "No receiver data for this selection. Try a different match or pass filter.",
+            ha="center",
+            va="center",
+            color="white",
+            fontsize=14,
+        )
         return fig
 
     valid = df.dropna(subset=["receiver_x", "receiver_y"])
     if valid.empty:
-        ax.text(60, 40, "No receiver coordinates available.", ha="center", va="center", color="white", fontsize=14)
+        ax.text(
+            60,
+            40,
+            "Receiver coordinates aren't available for this data source.",
+            ha="center",
+            va="center",
+            color="white",
+            fontsize=14,
+        )
         return fig
 
     # Scatter receivers colored by OBSO value
@@ -914,7 +993,9 @@ def create_pausa_heatmap(match_id: str, team: str, player: str) -> plt.Figure:
     avg_pausa = float(valid["pausa_score"].mean()) if "pausa_score" in valid.columns else 0.0
     ax.set_title(
         f"OBSO at Receiver \u2014 {n_passes} passes, Avg PAUSA {avg_pausa:.3f} (0\u20131, higher = better)",
-        color="white", fontsize=13, pad=8,
+        color="white",
+        fontsize=13,
+        pad=8,
     )
 
     plt.tight_layout()
@@ -924,28 +1005,34 @@ def create_pausa_heatmap(match_id: str, team: str, player: str) -> plt.Figure:
 def create_pausa_rankings(match_id: str) -> pd.DataFrame:
     """Create per-player PAUSA rankings table."""
     if pausa_df.empty:
-        return pd.DataFrame({"message": ["No PAUSA data loaded."]})
+        return pd.DataFrame({"message": ["No PAUSA data loaded. PAUSA is available for 7 IDSSE matches."]})
 
     df = pausa_df[pausa_df["match_id"] == match_id].copy()
     if df.empty:
-        return pd.DataFrame({"message": ["No data for this match."]})
+        return pd.DataFrame({"message": ["No data for this match. Try selecting a different match."]})
 
     name_col = "player_display_name" if "player_display_name" in df.columns else "player_id"
-    agg = df.groupby(name_col).agg(
-        passes=("pausa_score", "count"),
-        avg_pausa=("pausa_score", "mean"),
-        avg_temporal=("temporal_judgment", "mean"),
-        avg_spatial=("spatial_selection", "mean"),
-    ).reset_index()
+    agg = (
+        df.groupby(name_col)
+        .agg(
+            passes=("pausa_score", "count"),
+            avg_pausa=("pausa_score", "mean"),
+            avg_temporal=("temporal_judgment", "mean"),
+            avg_spatial=("spatial_selection", "mean"),
+        )
+        .reset_index()
+    )
 
     agg = agg.sort_values("avg_pausa", ascending=False)
-    agg = agg.rename(columns={
-        name_col: "Player",
-        "passes": "Passes",
-        "avg_pausa": "Avg PAUSA (higher = better timing + target)",
-        "avg_temporal": "Avg Temporal (higher = better timing)",
-        "avg_spatial": "Avg Spatial (higher = better target)",
-    })
+    agg = agg.rename(
+        columns={
+            name_col: "Player",
+            "passes": "Passes",
+            "avg_pausa": "Avg PAUSA (higher = better timing + target)",
+            "avg_temporal": "Avg Temporal (higher = better timing)",
+            "avg_spatial": "Avg Spatial (higher = better target)",
+        }
+    )
     return agg.round(3)
 
 
@@ -971,9 +1058,7 @@ _TAB_GLOSSARY: dict[str, dict[str, str]] = {
             "A pass that penetrates at least one defensive line, detected via "
             "Ward clustering on 360 freeze-frame defender positions."
         ),
-        "Progressive Pass": (
-            "A pass that moves the ball significantly closer to the opponent's goal."
-        ),
+        "Progressive Pass": ("A pass that moves the ball significantly closer to the opponent's goal."),
     },
     "Pass Timing": {
         "PAUSA": (
@@ -1259,9 +1344,7 @@ with demo:
         _pausa_matches = _get_pausa_matches()
         _pausa_default_match = _pausa_matches[0] if _pausa_matches else ""
         _pausa_default_teams = _get_pausa_teams(_pausa_default_match) if _pausa_default_match else ["All"]
-        _pausa_default_players = (
-            _get_pausa_players(_pausa_default_match, "All") if _pausa_default_match else ["All"]
-        )
+        _pausa_default_players = _get_pausa_players(_pausa_default_match, "All") if _pausa_default_match else ["All"]
 
         if not _pausa_matches:
             gr.Markdown(
@@ -1297,9 +1380,7 @@ with demo:
             _pausa_scatter_inputs = [pausa_match_dd, pausa_team_dd, pausa_player_dd]
             _pausa_heatmap_inputs = [pausa_match_dd, pausa_team_dd, pausa_player_dd]
 
-            pausa_match_dd.change(
-                fn=_update_pausa_teams, inputs=[pausa_match_dd], outputs=[pausa_team_dd]
-            )
+            pausa_match_dd.change(fn=_update_pausa_teams, inputs=[pausa_match_dd], outputs=[pausa_team_dd])
             pausa_match_dd.change(
                 fn=_update_pausa_players, inputs=[pausa_match_dd, pausa_team_dd], outputs=[pausa_player_dd]
             )
@@ -1307,27 +1388,13 @@ with demo:
                 fn=_update_pausa_players, inputs=[pausa_match_dd, pausa_team_dd], outputs=[pausa_player_dd]
             )
 
-            pausa_match_dd.change(
-                fn=create_pausa_heatmap, inputs=_pausa_heatmap_inputs, outputs=pausa_heatmap
-            )
-            pausa_match_dd.change(
-                fn=create_pausa_scatter, inputs=_pausa_scatter_inputs, outputs=pausa_scatter
-            )
-            pausa_match_dd.change(
-                fn=create_pausa_rankings, inputs=[pausa_match_dd], outputs=pausa_rankings
-            )
-            pausa_team_dd.change(
-                fn=create_pausa_heatmap, inputs=_pausa_heatmap_inputs, outputs=pausa_heatmap
-            )
-            pausa_team_dd.change(
-                fn=create_pausa_scatter, inputs=_pausa_scatter_inputs, outputs=pausa_scatter
-            )
-            pausa_player_dd.change(
-                fn=create_pausa_heatmap, inputs=_pausa_heatmap_inputs, outputs=pausa_heatmap
-            )
-            pausa_player_dd.change(
-                fn=create_pausa_scatter, inputs=_pausa_scatter_inputs, outputs=pausa_scatter
-            )
+            pausa_match_dd.change(fn=create_pausa_heatmap, inputs=_pausa_heatmap_inputs, outputs=pausa_heatmap)
+            pausa_match_dd.change(fn=create_pausa_scatter, inputs=_pausa_scatter_inputs, outputs=pausa_scatter)
+            pausa_match_dd.change(fn=create_pausa_rankings, inputs=[pausa_match_dd], outputs=pausa_rankings)
+            pausa_team_dd.change(fn=create_pausa_heatmap, inputs=_pausa_heatmap_inputs, outputs=pausa_heatmap)
+            pausa_team_dd.change(fn=create_pausa_scatter, inputs=_pausa_scatter_inputs, outputs=pausa_scatter)
+            pausa_player_dd.change(fn=create_pausa_heatmap, inputs=_pausa_heatmap_inputs, outputs=pausa_heatmap)
+            pausa_player_dd.change(fn=create_pausa_scatter, inputs=_pausa_scatter_inputs, outputs=pausa_scatter)
 
             demo.load(fn=create_pausa_heatmap, inputs=_pausa_heatmap_inputs, outputs=pausa_heatmap)
             demo.load(fn=create_pausa_scatter, inputs=_pausa_scatter_inputs, outputs=pausa_scatter)
