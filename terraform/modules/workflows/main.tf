@@ -61,7 +61,7 @@ resource "databricks_job" "data_ingestion" {
   # ── Task: Freshness Gate — centralized skip guard ────────────────────
   # Runs all workflow skip guards, writes FilterResult task values, and
   # emits SKIPPED records for idle workflows.  Downstream compute tasks
-  # are gated by condition_task blocks that evaluate {wf_id}-count > 0.
+  # read gate results via read_gate_result() at code level.
   task {
     task_key        = "freshness_gate"
     timeout_seconds = 300
@@ -79,20 +79,12 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
-  # ── Gate: StatsBomb — skip if no new competitions/seasons ──────────────
-  task {
-    task_key = "gate_wf_statsbomb"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-statsbomb-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
+  # TODO(D40c): Terraform condition_task gates — dynamic value references
+  # ({{tasks.X.values.Y}}) are rejected by the Databricks Jobs API in
+  # condition_task operands. Investigate correct syntax or use lightweight
+  # Python gate tasks as alternative. The code-level skip (WorkflowSkippedError)
+  # still prevents redundant work; condition gates would additionally prevent
+  # cluster spin-up.
 
   # ── Task: Ingest StatsBomb data ──────────────────────────────────────────
   task {
@@ -101,8 +93,7 @@ resource "databricks_job" "data_ingestion" {
     max_retries     = 1
 
     depends_on {
-      task_key = "gate_wf_statsbomb"
-      outcome  = "true"
+      task_key = "freshness_gate"
     }
 
     python_wheel_task {
@@ -119,21 +110,6 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "statsbomb"
   }
 
-  # ── Gate: Metrica — skip if no new tracking data ──────────────────────
-  task {
-    task_key = "gate_wf_metrica"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-metrica-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
   # ── Task: Ingest Metrica tracking data ───────────────────────────────────
   task {
     task_key        = "ingest_metrica"
@@ -141,8 +117,7 @@ resource "databricks_job" "data_ingestion" {
     max_retries     = 1
 
     depends_on {
-      task_key = "gate_wf_metrica"
-      outcome  = "true"
+      task_key = "freshness_gate"
     }
 
     python_wheel_task {
@@ -158,21 +133,6 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
-  # ── Gate: Wyscout — skip if no new match data ────────────────────────
-  task {
-    task_key = "gate_wf_wyscout"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-wyscout-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
   # ── Task: Ingest Wyscout data ────────────────────────────────────────────
   task {
     task_key        = "ingest_wyscout"
@@ -180,8 +140,7 @@ resource "databricks_job" "data_ingestion" {
     max_retries     = 1
 
     depends_on {
-      task_key = "gate_wf_wyscout"
-      outcome  = "true"
+      task_key = "freshness_gate"
     }
 
     python_wheel_task {
@@ -198,21 +157,6 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
-  # ── Gate: IDSSE — skip if no new Bundesliga tracking data ─────────────
-  task {
-    task_key = "gate_wf_idsse"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-idsse-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
   # ── Task: Ingest IDSSE Bundesliga tracking data ─────────────────────────
   # Uses stdlib XML parser — reads pre-downloaded DFL XML from UC Volume.
   # No floodlight dependency needed (only pandas from default env).
@@ -222,8 +166,7 @@ resource "databricks_job" "data_ingestion" {
     max_retries     = 1
 
     depends_on {
-      task_key = "gate_wf_idsse"
-      outcome  = "true"
+      task_key = "freshness_gate"
     }
 
     python_wheel_task {
@@ -239,21 +182,6 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
-  # ── Gate: SkillCorner — skip if no new A-League tracking data ─────────
-  task {
-    task_key = "gate_wf_skillcorner"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-skillcorner-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
   # ── Task: Ingest SkillCorner A-League tracking data ────────────────────
   task {
     task_key        = "ingest_skillcorner"
@@ -261,8 +189,7 @@ resource "databricks_job" "data_ingestion" {
     max_retries     = 1
 
     depends_on {
-      task_key = "gate_wf_skillcorner"
-      outcome  = "true"
+      task_key = "freshness_gate"
     }
 
     python_wheel_task {
@@ -278,21 +205,6 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "tracking"
   }
 
-  # ── Gate: Backfill extra — skip if no matches needing extra JSON ──────
-  task {
-    task_key = "gate_wf_backfill_extra"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-backfill-extra-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
   # ── Task: Backfill StatsBomb _raw_extra_json ─────────────────────────────
   # Ensures the goalkeeper sub-dict (and other type-specific extras) are
   # present in statsbomb_events._raw_extra_json. Without this, the SPADL
@@ -303,10 +215,6 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 3600
     max_retries     = 1
 
-    depends_on {
-      task_key = "gate_wf_backfill_extra"
-      outcome  = "true"
-    }
     depends_on {
       task_key = "ingest_statsbomb"
     }
@@ -324,31 +232,12 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "statsbomb"
   }
 
-  # ── Gate: SPADL/VAEP — skip if no new events ──────────────────────────
-  task {
-    task_key = "gate_wf_vaep"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-vaep-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
   # ── Task: Compute SPADL actions and VAEP scores ─────────────────────────
   task {
     task_key        = "compute_spadl_vaep"
     timeout_seconds = 7200
     max_retries     = 1
 
-    depends_on {
-      task_key = "gate_wf_vaep"
-      outcome  = "true"
-    }
     depends_on {
       task_key = "backfill_statsbomb_extra"
     }
@@ -369,31 +258,12 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "analytics"
   }
 
-  # ── Gate: Expected Threat — skip if no new actions ────────────────────
-  task {
-    task_key = "gate_wf_xt_grids"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-xt-grids-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
   # ── Task: Compute Expected Threat grids from SPADL actions ─────────
   task {
     task_key        = "compute_expected_threat"
     timeout_seconds = 900
     max_retries     = 1
 
-    depends_on {
-      task_key = "gate_wf_xt_grids"
-      outcome  = "true"
-    }
     depends_on {
       task_key = "compute_spadl_vaep"
     }
@@ -411,31 +281,12 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
-  # ── Gate: xG v1 — skip if no new actions ──────────────────────────────
-  task {
-    task_key = "gate_wf_xg_v1"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-xg-v1-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
   # ── Task: Score shots with custom xG models ─────────────────────────
   task {
     task_key        = "compute_xg_model"
     timeout_seconds = 3600
     max_retries     = 1
 
-    depends_on {
-      task_key = "gate_wf_xg_v1"
-      outcome  = "true"
-    }
     depends_on {
       task_key = "compute_spadl_vaep"
     }
@@ -452,31 +303,12 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "analytics"
   }
 
-  # ── Gate: xG v2 — skip if no new actions ──────────────────────────────
-  task {
-    task_key = "gate_wf_xg_v2"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-xg-v2-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
   # ── Task: Score shots with xG v2 set encoder (Deep Sets + MC dropout) ──
   task {
     task_key        = "compute_xg_model_v2"
     timeout_seconds = 3600
     max_retries     = 1
 
-    depends_on {
-      task_key = "gate_wf_xg_v2"
-      outcome  = "true"
-    }
     depends_on {
       task_key = "compute_spadl_vaep"
     }
@@ -493,21 +325,6 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "analytics"
   }
 
-  # ── Gate: Off-Ball xT — skip if no new tracking data ──────────────────
-  task {
-    task_key = "gate_wf_off_ball_xt"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-off-ball-xt-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
   # ── Task: Compute Off-Ball xT from tracking data ───────────────────
   # Depends on all three tracking providers + xT grid computation.
   task {
@@ -515,10 +332,6 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 3600
     max_retries     = 1
 
-    depends_on {
-      task_key = "gate_wf_off_ball_xt"
-      outcome  = "true"
-    }
     depends_on {
       task_key = "ingest_metrica"
     }
@@ -545,21 +358,6 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
-  # ── Gate: Pitch control — skip if no new tracking data ────────────────
-  task {
-    task_key = "gate_wf_pitch_control"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-pitch-control-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
   # ── Task: Compute pitch control values for tracking data ───────────────
   # Reads gold fct_tracking_frames, computes Spearman 2017 pitch control
   # at each player's position, writes bronze.pitch_control_values.
@@ -568,10 +366,6 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 7200
     max_retries     = 1
 
-    depends_on {
-      task_key = "gate_wf_pitch_control"
-      outcome  = "true"
-    }
     depends_on {
       task_key = "ingest_metrica"
     }
@@ -595,21 +389,6 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
-  # ── Gate: EFPI formations — skip if no new tracking data ──────────────
-  task {
-    task_key = "gate_wf_formations"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-formations-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
   # ── Task: Detect team formations via EFPI template matching ──────────
   # Reads fct_tracking_frames, runs EFPI template matching (Bekkers &
   # Dabadghao 2025). Writes formation_labels (detector='efpi') and
@@ -619,10 +398,6 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 3600
     max_retries     = 1
 
-    depends_on {
-      task_key = "gate_wf_formations"
-      outcome  = "true"
-    }
     depends_on {
       task_key = "compute_pitch_control"
     }
@@ -640,21 +415,6 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "analytics"
   }
 
-  # ── Gate: Shape graph formations — skip if no new tracking data ───────
-  task {
-    task_key = "gate_wf_formations_sg"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-formations-sg-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
   # ── Task: Detect formations via shape graph geometric detector ──────
   # Reads fct_tracking_frames, runs Sotudeh (2026) Delaunay-based shape
   # graph detector. Writes formation_labels (detector='shape_graph'),
@@ -664,10 +424,6 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 3600
     max_retries     = 1
 
-    depends_on {
-      task_key = "gate_wf_formations_sg"
-      outcome  = "true"
-    }
     depends_on {
       task_key = "compute_formations_efpi"
     }
@@ -685,21 +441,6 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "analytics"
   }
 
-  # ── Gate: Line-breaking passes — skip if no new data ──────────────────
-  task {
-    task_key = "gate_wf_line_breaking"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-line-breaking-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
   # ── Task: Detect line-breaking passes ────────────────────────────────
   # Path A: StatsBomb 360 freeze-frame defender positions.
   # Path B: Metrica tracking data for defender line estimation.
@@ -709,10 +450,6 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 3600
     max_retries     = 1
 
-    depends_on {
-      task_key = "gate_wf_line_breaking"
-      outcome  = "true"
-    }
     depends_on {
       task_key = "ingest_statsbomb"
     }
@@ -733,54 +470,14 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
-  # ── Gate: DEFCON 360 — skip if no new 360 data ───────────────────────
-  task {
-    task_key = "gate_wf_defcon_360"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-defcon-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
-  # ── Gate: DEFCON tracking — skip if no new tracking data ────────────
-  task {
-    task_key = "gate_wf_defcon_tracking"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-defcon-tracking-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
   # ── Task: Compute DEFCON-lite defensive valuation ──────────────────────
   # Reads gold fct_action_values + bronze statsbomb_360, assigns defensive
   # credits per-defender per-action, trains XGBoost value estimators.
-  # Runs if EITHER 360 or tracking guard has new work (AT_LEAST_ONE_SUCCESS).
   task {
     task_key        = "compute_defcon_lite"
     timeout_seconds = 7200
     max_retries     = 1
-    run_if          = "AT_LEAST_ONE_SUCCESS"
 
-    depends_on {
-      task_key = "gate_wf_defcon_360"
-      outcome  = "true"
-    }
-    depends_on {
-      task_key = "gate_wf_defcon_tracking"
-      outcome  = "true"
-    }
     depends_on {
       task_key = "compute_spadl_vaep"
     }
@@ -798,21 +495,6 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "analytics"
   }
 
-  # ── Gate: Entity resolution — skip if no new players ──────────────────
-  task {
-    task_key = "gate_wf_entity_resolution"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-entity-resolution-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
   # ── Task: Resolve cross-source player identity ───────────────────────────
   # Matches StatsBomb and Wyscout players via TF-IDF + rapidfuzz.
   # Writes player_xref_raw bronze table for dbt int_player_xref → dim_players.
@@ -821,10 +503,6 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 900
     max_retries     = 1
 
-    depends_on {
-      task_key = "gate_wf_entity_resolution"
-      outcome  = "true"
-    }
     depends_on {
       task_key = "ingest_statsbomb"
     }
@@ -845,21 +523,6 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "analytics"
   }
 
-  # ── Gate: Football2vec v2 — skip if no new embeddings needed ──────────
-  task {
-    task_key = "gate_wf_football2vec_v2"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-football2vec-v2-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
   # ── Task: Compute player embeddings v2 (transformer + adversarial) ───
   # Football2vec v2: imports pre-trained 128d transformer embeddings from
   # HF Hub, writes to bronze.player_embeddings_raw with model_version='v2'.
@@ -868,10 +531,6 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 3600
     max_retries     = 1
 
-    depends_on {
-      task_key = "gate_wf_football2vec_v2"
-      outcome  = "true"
-    }
     depends_on {
       task_key = "resolve_players"
     }
@@ -889,21 +548,6 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "embeddings"
   }
 
-  # ── Gate: Football2vec v1 — skip if no new embeddings needed ──────────
-  task {
-    task_key = "gate_wf_football2vec"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-football2vec-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
   # ── Task: Compute player embeddings v1 (Doc2Vec, deprecated) ────────
   # Football2vec v1: Doc2Vec action sequences + statistical z-score vectors.
   # Retained for comparison; superseded by v2 transformer embeddings.
@@ -912,10 +556,6 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 3600
     max_retries     = 1
 
-    depends_on {
-      task_key = "gate_wf_football2vec"
-      outcome  = "true"
-    }
     depends_on {
       task_key = "compute_embeddings_v2"
     }
@@ -933,21 +573,6 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "embeddings"
   }
 
-  # ── Gate: IDSSE events — skip if no new event XML ─────────────────────
-  task {
-    task_key = "gate_wf_idsse_events"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-idsse-events-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
   # ── Task: Ingest IDSSE event data (DFL event XML) ──────────────────────
   # Parses DFL event XML from UC Volume for the same 7 Bundesliga matches.
   # Separate from tracking ingestion — different XML schema.
@@ -956,10 +581,6 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 900
     max_retries     = 1
 
-    depends_on {
-      task_key = "gate_wf_idsse_events"
-      outcome  = "true"
-    }
     depends_on {
       task_key = "ingest_idsse"
     }
@@ -977,21 +598,6 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
-  # ── Gate: ELASTIC sync — skip if no new event-tracking data ───────────
-  task {
-    task_key = "gate_wf_elastic_sync"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-elastic-sync-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
   # ── Task: Compute ELASTIC event-tracking alignment ────────────────────
   # Kim et al. (2025) ELASTIC sync: aligns discrete events with 25fps
   # tracking frames via ball acceleration + player-ball distance features.
@@ -1000,10 +606,6 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 3600
     max_retries     = 1
 
-    depends_on {
-      task_key = "gate_wf_elastic_sync"
-      outcome  = "true"
-    }
     depends_on {
       task_key = "ingest_idsse_events"
     }
@@ -1021,21 +623,6 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
-  # ── Gate: PAUSA — skip if no new event-tracking data ──────────────────
-  task {
-    task_key = "gate_wf_pausa"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-obso-pausa-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
   # ── Task: Compute PAUSA pass timing values ────────────────────────────
   # Lee et al. (2026) PAUSA: temporal judgment × spatial selection from
   # OBSO surfaces. Depends on ELASTIC sync results and pre-computed OBSO
@@ -1045,10 +632,6 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 3600
     max_retries     = 1
 
-    depends_on {
-      task_key = "gate_wf_pausa"
-      outcome  = "true"
-    }
     depends_on {
       task_key = "compute_elastic_sync"
     }
@@ -1066,21 +649,6 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
-  # ── Gate: Model validation — skip if no new model outputs ─────────────
-  task {
-    task_key = "gate_wf_model_validation"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-model-validation-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
   # ── Task: Run model validation and drift detection ────────────────────
   # PSI, Wasserstein, CUSUM, and hard bounds across all ML models.
   # Runs post-dbt and post-PAUSA to validate all model outputs.
@@ -1089,10 +657,6 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 900
     max_retries     = 1
 
-    depends_on {
-      task_key = "gate_wf_model_validation"
-      outcome  = "true"
-    }
     depends_on {
       task_key = "compute_pausa"
     }
@@ -1110,21 +674,6 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
-  # ── Gate: Tracking metadata — skip if no new tracking data ────────────
-  task {
-    task_key = "gate_wf_tracking_metadata"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-tracking-metadata-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
   # ── Task: Extract tracking player metadata ─────────────────────────────
   # Reads IDSSE DFL match info XMLs and SkillCorner kloppy metadata to
   # populate tracking_player_metadata bronze table with player/team names.
@@ -1133,10 +682,6 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 900
     max_retries     = 1
 
-    depends_on {
-      task_key = "gate_wf_tracking_metadata"
-      outcome  = "true"
-    }
     depends_on {
       task_key = "ingest_idsse"
     }
@@ -1158,21 +703,6 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "tracking"
   }
 
-  # ── Gate: Backfill 360 — skip if no matches needing 360 data ─────────
-  task {
-    task_key = "gate_wf_backfill_360"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-backfill-360-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
   # ── Task: Backfill StatsBomb 360 freeze-frame data ──────────────────────
   # The main ingestion skips already-ingested competition/seasons, so 360
   # data added after the initial ingest is never fetched. This backfill
@@ -1182,10 +712,6 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 1800
     max_retries     = 1
 
-    depends_on {
-      task_key = "gate_wf_backfill_360"
-      outcome  = "true"
-    }
     depends_on {
       task_key = "ingest_statsbomb"
     }
@@ -1204,21 +730,6 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "statsbomb"
   }
 
-  # ── Gate: HF sync — skip if no new data to sync ──────────────────────
-  task {
-    task_key = "gate_wf_hf_sync"
-
-    depends_on {
-      task_key = "freshness_gate"
-    }
-
-    condition_task {
-      left  = "{{tasks.freshness_gate.values.wf-hf-sync-count}}"
-      op    = "GREATER_THAN"
-      right = "0"
-    }
-  }
-
   # ── Task: HF Hub sync — combined imports + exports ───────────────────
   task {
     task_key        = "hf_sync"
@@ -1234,11 +745,7 @@ resource "databricks_job" "data_ingestion" {
       ]
     }
 
-    # Depends on gate + all compute tasks that produce data for exports
-    depends_on {
-      task_key = "gate_wf_hf_sync"
-      outcome  = "true"
-    }
+    # Depends on all compute tasks that produce data for exports
     depends_on {
       task_key = "compute_spadl_vaep"
     }
