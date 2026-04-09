@@ -99,6 +99,7 @@ module "catalog" {
   ingestion_sp_application_id = module.service_principals.ingestion_sp_application_id
   enable_ingestion_sp_grants  = true
   app_sp_application_id       = module.service_principals.hf_app_sp_application_id
+  enable_app_sp_grants        = true
   silver_schema_override      = "${var.environment}_silver"
   gold_schema_override        = "${var.environment}_gold"
 }

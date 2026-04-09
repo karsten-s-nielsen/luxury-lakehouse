@@ -31,6 +31,12 @@ variable "app_sp_application_id" {
   default     = ""
 }
 
+variable "enable_app_sp_grants" {
+  description = "Whether to create grants for the HF Spaces app service principal (avoids unknown count at plan time)"
+  type        = bool
+  default     = false
+}
+
 variable "silver_schema_override" {
   description = "Override for the silver schema name (e.g. dev_silver when dbt prefixes with environment)"
   type        = string
