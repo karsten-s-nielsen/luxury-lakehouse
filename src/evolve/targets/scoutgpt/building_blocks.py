@@ -216,7 +216,8 @@ class KANLayer(nn.Module):
         # x: (..., in_dim) -> (..., in_dim, 1)
         # centers: (n_basis,) broadcast
         x_expanded = x.unsqueeze(-1)  # (..., in_dim, 1)
-        rbf = torch.exp(-((x_expanded - self.centers) ** 2) / (2 * sigma**2))  # (..., in_dim, n_basis)
+        centers: torch.Tensor = self.centers  # type: ignore[assignment]  # registered buffer
+        rbf = torch.exp(-((x_expanded - centers) ** 2) / (2 * sigma**2))  # (..., in_dim, n_basis)
 
         # Weighted sum over basis functions, then sum over input dimensions
         # edge_weights: (in_dim, out_dim, n_basis)
@@ -439,7 +440,7 @@ class _GradientReversalFn(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor) -> tuple[torch.Tensor, None]:
-        (lambda_,) = ctx.saved_tensors
+        (lambda_,) = ctx.saved_tensors  # type: ignore[attr-defined]  # autograd Function
         return -lambda_ * grad_output, None
 
 
