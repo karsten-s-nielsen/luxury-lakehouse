@@ -140,6 +140,12 @@ You may use: torch.*, torch.nn.*, torch.nn.functional.*, math.*, arithmetic
 operators, comparison operators, if/elif/else, for/while loops, local variables,
 tensor indexing/slicing, list/dict comprehensions, tuple unpacking.
 
+You may also use these pre-built building blocks (no import needed):
+- MoERouter(hidden_dim, n_experts=4, top_k=2, temperature=1.0)
+- HyperLinear(hidden_dim, rank=16)
+- KANLayer(in_dim, out_dim, n_basis=8)
+See "Building Blocks" section below for details and usage.
+
 You may NOT use: import statements, open(), print(), eval(), exec(), getattr(),
 setattr(), any __dunder__ attributes, f-strings, or any module not listed above.
 
@@ -206,5 +212,62 @@ To beat the seed, consider:
 - Hybrid approaches: attention + gating, multi-head variants, learned residual weights
 - Richer player-action interaction: bilinear pooling, FiLM on attention output
 - Multi-scale conditioning: different mechanisms for spatial vs temporal features
+- SwiGLU fusion: concat(action, player) -> split -> Swish-gated Hadamard product
+- Orthogonal attention: project attn output onto complement of action space
+- Fourier spatial features: sin/cos projection of (x,y) coordinates before fusion
+- Dynamic routing: MoERouter to dispatch different experts by player/spatial context
+- Hypernetworks: HyperLinear to generate player-specific transformations
 - Do NOT replace attention with simple gating — that is a known regression.
 - ALWAYS register any layer you reference in custom_embed via custom_layers.
+
+# Building Blocks
+
+Pre-validated modules available in custom_layers() — no import needed. These
+encapsulate complex patterns that are hard to implement correctly from scratch.
+
+## MoERouter(hidden_dim, n_experts=4, top_k=2, temperature=1.0)
+
+Mixture-of-Experts with sparse top-k routing. A small router network selects
+which experts process each token based on a conditioning signal.
+
+```python
+def custom_layers(hidden_dim):
+    return {"moe": MoERouter(hidden_dim, n_experts=4, top_k=2)}
+
+def custom_embed(self, ...):
+    # player_emb drives routing, action_emb is processed by selected experts
+    routed = self.moe(action_emb, player_emb)  # (B, S, hd)
+```
+
+## HyperLinear(hidden_dim, rank=16)
+
+Hypernetwork that generates a low-rank linear transformation conditioned on
+input. The conditioning signal (e.g., player embedding) dynamically generates
+the weight matrix applied to the input — every player gets a unique transform.
+
+```python
+def custom_layers(hidden_dim):
+    return {"hyper": HyperLinear(hidden_dim, rank=16)}
+
+def custom_embed(self, ...):
+    # player_emb generates weights, action_emb is transformed
+    out = self.hyper(action_emb, player_emb)  # (B, S, hd)
+```
+
+## KANLayer(in_dim, out_dim, n_basis=8)
+
+Kolmogorov-Arnold Network layer with learnable Gaussian RBF activations on
+edges. More expressive than standard Linear+ReLU for continuous inputs like
+spatial coordinates, with fewer parameters.
+
+```python
+def custom_layers(hidden_dim):
+    return {"kan_spatial": KANLayer(4, hidden_dim, n_basis=8)}
+
+def custom_embed(self, ...):
+    spatial = torch.stack([start_x, start_y, end_x, end_y], dim=-1)  # (B, S, 4)
+    spatial_emb = self.kan_spatial(spatial)  # (B, S, hd)
+```
+
+These blocks can be freely combined with each other and with standard
+torch.nn modules in custom_layers. Composing multiple blocks is encouraged.
