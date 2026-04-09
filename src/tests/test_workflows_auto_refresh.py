@@ -7,8 +7,12 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 # Add hf_taipy_app/src to path so we can import the state module
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "hf_taipy_app" / "src"))
+
+pytest.importorskip("databricks.sdk", reason="databricks-sdk not installed")
 
 from state.workflows import (
     _fetch_hf_cost_history_impl,

@@ -28,6 +28,7 @@ from queries.defensive import (
     fetch_pressure_teams,
     fetch_timeline_player_ids,
 )
+from render import DEFCON_COLORS
 
 from state.shared import register_page_refresher
 
@@ -143,12 +144,12 @@ _dv_rankings_full: pd.DataFrame = pd.DataFrame()
 # Chart rendering (Plotly → matplotlib conversion)
 # ---------------------------------------------------------------------------
 
-# Credit type color mapping (consistent across views)
+# Credit type color mapping — derived from canonical render.DEFCON_COLORS (Kirk audit K-1)
 _CREDIT_COLORS = {
-    "intercept_pressure": "#2a9d8f",
-    "concede_pressure": "#e63946",
-    "disturb_pressure": "#457b9d",
-    "deter_pressure": "#f4a261",
+    "intercept_pressure": DEFCON_COLORS["Intercept"],
+    "concede_pressure": DEFCON_COLORS["Concede"],
+    "disturb_pressure": DEFCON_COLORS["Disturb"],
+    "deter_pressure": DEFCON_COLORS["Deter"],
 }
 _CREDIT_LABELS = {
     "intercept_pressure": "Intercept",
@@ -181,6 +182,7 @@ def _build_breakdown_figure(breakdown: pd.DataFrame, player_name: str) -> go.Fig
         x=label_col,
         y="Pressure",
         color="Credit Type",
+        pattern_shape="Credit Type",
         barmode="group",
         title=title,
     )
@@ -340,11 +342,11 @@ def _refresh_rankings(state: Any) -> None:
         logger.exception("Failed to fetch DEFCON rankings")
         state.dv_rankings_data = pd.DataFrame(columns=_DV_RANKINGS_COLS)
         _dv_rankings_full = pd.DataFrame()
-        state.dv_warning_text = "No defensive pressure data for the selected filters."
+        state.dv_warning_text = "No DEFCON data for this filter combination. DEFCON requires tracking data \u2014 try selecting an IDSSE Bundesliga match."
         return
 
     if rankings.empty:
-        state.dv_warning_text = "No defensive pressure data for the selected filters."
+        state.dv_warning_text = "No DEFCON data for this filter combination. DEFCON requires tracking data \u2014 try selecting an IDSSE Bundesliga match."
     else:
         state.dv_warning_text = ""
 
@@ -379,7 +381,7 @@ def _refresh_breakdown(state: Any) -> None:
 
     if _dv_rankings_full.empty:
         _reset_breakdown(state)
-        state.dv_warning_text = "No defensive pressure data for the selected filters."
+        state.dv_warning_text = "No DEFCON data for this filter combination. DEFCON requires tracking data \u2014 try selecting an IDSSE Bundesliga match."
         return
 
     # Filter to players who have breakdown data
@@ -388,7 +390,7 @@ def _refresh_breakdown(state: Any) -> None:
     except Exception:
         logger.exception("Failed to fetch breakdown player IDs")
         _reset_breakdown(state)
-        state.dv_warning_text = "No defensive pressure data for the selected filters."
+        state.dv_warning_text = "No DEFCON data for this filter combination. DEFCON requires tracking data \u2014 try selecting an IDSSE Bundesliga match."
         return
 
     player_options = _build_player_options(_dv_rankings_full)
@@ -396,7 +398,7 @@ def _refresh_breakdown(state: Any) -> None:
 
     if not filtered:
         _reset_breakdown(state)
-        state.dv_warning_text = "No defensive pressure data for the selected filters."
+        state.dv_warning_text = "No DEFCON data for this filter combination. DEFCON requires tracking data \u2014 try selecting an IDSSE Bundesliga match."
         return
 
     _dv_breakdown_player_map = filtered
@@ -428,10 +430,10 @@ def _load_breakdown_for_player(state: Any) -> None:
         breakdown = fetch_pressure_breakdown(player_id, comp_id, team_id)
     except Exception:
         logger.exception("Failed to fetch pressure breakdown for player %d", player_id)
-        state.dv_intercept = "Error"
-        state.dv_concede = "Error"
-        state.dv_disturb = "Error"
-        state.dv_deter = "Error"
+        state.dv_intercept = "\u2013"
+        state.dv_concede = "\u2013"
+        state.dv_disturb = "\u2013"
+        state.dv_deter = "\u2013"
         state.dv_breakdown_figure = None
         state.dv_breakdown_caption = ""
         return
@@ -487,7 +489,7 @@ def _refresh_timeline(state: Any) -> None:
 
     if _dv_rankings_full.empty:
         _reset_timeline(state)
-        state.dv_warning_text = "No defensive pressure data for the selected filters."
+        state.dv_warning_text = "No DEFCON data for this filter combination. DEFCON requires tracking data \u2014 try selecting an IDSSE Bundesliga match."
         return
 
     # Filter to players who have timeline data
@@ -496,7 +498,7 @@ def _refresh_timeline(state: Any) -> None:
     except Exception:
         logger.exception("Failed to fetch timeline player IDs")
         _reset_timeline(state)
-        state.dv_warning_text = "No defensive pressure data for the selected filters."
+        state.dv_warning_text = "No DEFCON data for this filter combination. DEFCON requires tracking data \u2014 try selecting an IDSSE Bundesliga match."
         return
 
     player_options = _build_player_options(_dv_rankings_full)
@@ -504,7 +506,7 @@ def _refresh_timeline(state: Any) -> None:
 
     if not filtered:
         _reset_timeline(state)
-        state.dv_warning_text = "No defensive pressure data for the selected filters."
+        state.dv_warning_text = "No DEFCON data for this filter combination. DEFCON requires tracking data \u2014 try selecting an IDSSE Bundesliga match."
         return
 
     _dv_timeline_player_map = filtered

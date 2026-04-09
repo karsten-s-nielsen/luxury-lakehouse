@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from filters import fetch_data_freshness, fetch_scope_label
 from queries.match import fetch_league_averages, fetch_match_summary
-from render import PITCH_BG_COLOR, TEXT_COLOR, chart_to_file, fmt_int
+from render import AWAY_COLOR, HOME_COLOR, PITCH_BG_COLOR, TEXT_COLOR, chart_to_file, fmt_int
 
 from state.shared import get_comp_id, get_match_id, register_page_refresher
 
@@ -61,9 +61,6 @@ __all__ = [
 
 # ── Rendering — stat comparison bar charts ───────────────────────────────────
 
-_HOME_COLOR = "#e63946"
-_AWAY_COLOR = "#457b9d"
-
 
 def _render_stat_bars(
     home_vals: list[float],
@@ -73,15 +70,18 @@ def _render_stat_bars(
     away_name: str,
     title: str,
     file_name: str,
+    *,
+    primary: bool = False,
 ) -> str:
     """Render a grouped horizontal bar chart to temp PNG, return file path."""
-    fig, ax = plt.subplots(figsize=(6, max(2.5, len(labels) * 0.8)), facecolor=PITCH_BG_COLOR)
+    width = 7 if primary else 6
+    fig, ax = plt.subplots(figsize=(width, max(2.5, len(labels) * 0.8)), facecolor=PITCH_BG_COLOR)
     ax.set_facecolor(PITCH_BG_COLOR)
 
     y = np.arange(len(labels))
     bar_h = 0.35
-    ax.barh(y - bar_h / 2, home_vals, bar_h, label=home_name, color=_HOME_COLOR, alpha=0.85)
-    ax.barh(y + bar_h / 2, away_vals, bar_h, label=away_name, color=_AWAY_COLOR, alpha=0.85, hatch="///")
+    ax.barh(y - bar_h / 2, home_vals, bar_h, label=home_name, color=HOME_COLOR, alpha=0.85)
+    ax.barh(y + bar_h / 2, away_vals, bar_h, label=away_name, color=AWAY_COLOR, alpha=0.85, hatch="///")
 
     ax.set_yticks(y)
     ax.set_yticklabels(labels, color=TEXT_COLOR, fontsize=10)
@@ -143,7 +143,7 @@ def ms_refresh(state: Any) -> None:
         state.ms_passing_chart = ""
         state.ms_possession_chart = ""
         state.ms_ppda_chart = ""
-        state.ms_warning_text = "No match data for the selected filters."
+        state.ms_warning_text = "No match data for this selection. Try choosing a different competition or match."
         state.ms_data_freshness = ""
         state.ms_league_averages = ""
         return
@@ -177,6 +177,7 @@ def ms_refresh(state: Any) -> None:
         away_name=away_name,
         title="Shooting",
         file_name="ms_bars_shooting",
+        primary=True,
     )
 
     # --- Passing chart ---

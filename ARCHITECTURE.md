@@ -819,6 +819,8 @@ C4 diagrams are the single source of truth for architecture documentation, maint
 
 ## 7. Risk Register
 
+Some Terraform provider gaps and data constraints require manual workarounds that add operational friction. The table below tracks these risks and their mitigations.
+
 | # | Risk | Likelihood | Impact | Mitigation |
 |---|------|-----------|--------|------------|
 | R1 | Lakebase Terraform provider support incomplete | Medium | High | **Realized**: Provider v1.110.0 lacks project/branch fields for synced tables. Mitigated via UI creation + `terraform import` + `lifecycle { ignore_changes = all }`. |

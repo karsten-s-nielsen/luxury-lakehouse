@@ -124,6 +124,8 @@ def _render_pitch(shots: pd.DataFrame, xg_col: str, player_name: str | None = No
                 color=GRAY,
                 alpha=0.5,
                 zorder=2,
+                marker="o",
+                label="Miss / Saved",
             )
         if goals_mask.any():
             pitch.scatter(
@@ -136,7 +138,16 @@ def _render_pitch(shots: pd.DataFrame, xg_col: str, player_name: str | None = No
                 zorder=3,
                 edgecolors="#ffffff",
                 linewidth=1,
+                marker="*",
+                label="Goal",
             )
+        ax.legend(
+            loc="upper left",
+            fontsize=9,
+            facecolor=PITCH_BG_COLOR,
+            edgecolor="white",
+            labelcolor="white",
+        )
 
     return pitch_to_file(fig, "sm_pitch_shot_map")
 
@@ -189,7 +200,7 @@ def sm_refresh(state: Any) -> None:
         state.sm_data_scope_note = ""
         state.sm_nan_fallback_note = ""
         state.sm_empty_message = ""
-        state.sm_warning_text = "No shots for the selected filters."
+        state.sm_warning_text = "No shots found for this filter combination. Try selecting a different match or player."
         state.sm_data_freshness = ""
         return
 

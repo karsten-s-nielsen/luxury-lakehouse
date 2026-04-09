@@ -10,9 +10,9 @@ import logging
 from typing import Any
 
 import matplotlib
-import matplotlib.patches as mpatches
 import pandas as pd
 from filters import fetch_data_freshness, fetch_scope_label
+from matplotlib.lines import Line2D
 from mplsoccer import Pitch
 from queries.passes import fetch_passes
 from render import (
@@ -153,16 +153,16 @@ def _render_pass_map(
             )
 
     # Legend
-    legend_entries: list[tuple[str, str, float]] = [
-        ("Incomplete", _INCOMPLETE_COLOR, 0.5),
-        ("Complete", _COMPLETE_COLOR, 0.7),
+    legend_entries: list[tuple[str, str, float, float]] = [
+        ("Incomplete", _INCOMPLETE_COLOR, 0.5, 1.0),
+        ("Complete", _COMPLETE_COLOR, 0.7, 1.5),
     ]
     if highlight_progressive:
-        legend_entries.append(("Progressive", _PROGRESSIVE_COLOR, 0.9))
+        legend_entries.append(("Progressive", _PROGRESSIVE_COLOR, 0.9, 2.0))
     if highlight_line_breaking and "is_line_breaking" in passes.columns:
-        legend_entries.append(("Line-Breaking", _LINE_BREAKING_COLOR, 0.95))
+        legend_entries.append(("Line-Breaking", _LINE_BREAKING_COLOR, 0.95, 2.5))
 
-    handles = [mpatches.Patch(color=c, alpha=a, label=lbl) for lbl, c, a in legend_entries]
+    handles = [Line2D([0], [0], color=c, alpha=a, linewidth=w * 2, label=lbl) for lbl, c, a, w in legend_entries]
     ax.legend(
         handles=handles,
         loc="lower center",
@@ -263,7 +263,7 @@ def pm_refresh(state: Any) -> None:
         state.pm_line_breaking = "0"
         state.pm_completion_pct = "0.0%"
         state.pm_pitch_image = ""
-        state.pm_warning_text = "No passes for the selected filters."
+        state.pm_warning_text = "No passes found for this filter combination. Try selecting a different match or team."
         state.pm_data_freshness = ""
         return
 

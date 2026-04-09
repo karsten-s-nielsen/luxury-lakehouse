@@ -238,9 +238,9 @@ def _build_goalmouth_scatter(shots: pd.DataFrame) -> go.Figure | None:
         saved_mask = df["shot_outcome"].str.lower().isin(["saved", "saved off target", "saved to post"])
         goal_mask = df["shot_outcome"].str.lower() == "goal"
 
-        for mask, color, name in [
-            (saved_mask, _SAVED_COLOR, "Saved"),
-            (goal_mask, _GOAL_COLOR, "Goal"),
+        for mask, color, name, symbol in [
+            (saved_mask, _SAVED_COLOR, "Saved", "circle"),
+            (goal_mask, _GOAL_COLOR, "Goal", "star"),
         ]:
             subset = df[mask]
             if subset.empty:
@@ -250,7 +250,7 @@ def _build_goalmouth_scatter(shots: pd.DataFrame) -> go.Figure | None:
                     x=subset["end_x"],
                     y=subset["end_y"],
                     mode="markers",
-                    marker=dict(size=8, color=color, opacity=0.7),
+                    marker=dict(size=8, color=color, opacity=0.7, symbol=symbol),
                     name=name,
                     hovertemplate=(
                         "<b>%{customdata}</b><br>Outcome: " + name + "<br>Position: (%{x:.1f}, %{y:.1f})<extra></extra>"
@@ -284,7 +284,7 @@ def _build_goalmouth_scatter(shots: pd.DataFrame) -> go.Figure | None:
             color="white",
         ),
         margin=dict(l=50, r=20, t=50, b=50),
-        height=450,
+        height=520,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         font=dict(color="white"),
     )
@@ -389,6 +389,7 @@ def _render_distribution_pitch(passes: pd.DataFrame) -> str:
         df["category"] = _categorise_distance(df["distance"])
 
         color_map = {"short": _SHORT_COLOR, "medium": _MEDIUM_COLOR, "long": _LONG_COLOR}
+        width_map = {"short": 1.0, "medium": 1.5, "long": 2.5}
 
         for cat, color in color_map.items():
             subset = df[df["category"] == cat]
@@ -402,7 +403,7 @@ def _render_distribution_pitch(passes: pd.DataFrame) -> str:
                 subset["end_y"],
                 ax=ax,
                 color=color,
-                width=1.5,
+                width=width_map[cat],
                 headwidth=4,
                 headlength=3,
                 alpha=0.6,
@@ -450,14 +451,18 @@ def _refresh_rankings(state: Any) -> None:
     except Exception:
         logger.exception("Failed to fetch GK rankings")
         state.gk_rankings_df = pd.DataFrame(columns=_GK_RANKINGS_COLS)
-        state.gk_warning_text = "Error loading GK rankings."
+        state.gk_warning_text = "Something went wrong loading GK rankings. Try refreshing the page."
         _cached_rankings = pd.DataFrame()
         return
 
     _cached_rankings = rankings
     table = _format_rankings_table(rankings)
     state.gk_rankings_df = table
-    state.gk_warning_text = "" if not table.empty else "No GK data available for the selected filters."
+    state.gk_warning_text = (
+        ""
+        if not table.empty
+        else "No GK data for this filter combination. Try selecting a different competition or team."
+    )
 
     logger.info("GK rankings: %d rows", len(table))
 
@@ -488,7 +493,7 @@ def _refresh_shot_stopping(state: Any) -> None:
         logger.exception("Failed to fetch GK shots")
         state.gk_goalmouth_figure = None
         state.gk_goals_prevented_figure = None
-        state.gk_warning_text = "Error loading shot stopping data."
+        state.gk_warning_text = "Something went wrong loading shot stopping data. Try refreshing the page."
         return
 
     state.gk_goalmouth_figure = _build_goalmouth_scatter(shots)
@@ -525,7 +530,9 @@ def _refresh_shot_stopping(state: Any) -> None:
         state.gk_goals_prevented_val = "\u2014"
         state.gk_save_pct_val = "\u2014"
 
-    state.gk_warning_text = "" if not shots.empty else "No on-target shots found for the selected filters."
+    state.gk_warning_text = (
+        "" if not shots.empty else "No on-target shots for this selection. Try a different GK or match range."
+    )
 
     logger.info("GK shot stopping: %d shots", len(shots))
 
@@ -556,7 +563,7 @@ def _refresh_distribution(state: Any) -> None:
     except Exception:
         logger.exception("Failed to fetch GK passes")
         state.gk_distribution_image = ""
-        state.gk_warning_text = "Error loading distribution data."
+        state.gk_warning_text = "Something went wrong loading distribution data. Try refreshing the page."
         return
 
     if passes.empty:
@@ -567,7 +574,7 @@ def _refresh_distribution(state: Any) -> None:
         state.gk_launch_rate_val = "\u2014"
         state.gk_xt_per_distribution = "\u2014"
         state.gk_xt_total_val = "\u2014"
-        state.gk_warning_text = "No GK distribution passes for the selected filters."
+        state.gk_warning_text = "No GK distribution passes found. Try selecting a different match or GK."
         return
 
     state.gk_warning_text = ""

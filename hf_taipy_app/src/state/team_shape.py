@@ -25,6 +25,14 @@ from queries.team_shape import (
     fetch_ts_frame_data,
     fetch_ts_frame_range,
 )
+from render import (
+    AWAY_COLOR,
+    HOME_COLOR,
+    HULL_AWAY_COLOR,
+    HULL_HOME_COLOR,
+    LINE_AWAY_COLOR,
+    LINE_HOME_COLOR,
+)
 
 from analytics.team_shape import TeamShapeResult, compute_team_shape
 from state.shared import get_tracking_match_id, register_page_refresher
@@ -35,12 +43,6 @@ logger = logging.getLogger(__name__)
 TS_SUB_VIEWS: list[str] = ["Snapshot", "Timeline"]
 
 # ── Chart colors ─────────────────────────────────────────────────────────────
-_HOME_COLOR = "#3b82f6"
-_AWAY_COLOR = "#ef4444"
-_HULL_HOME_COLOR = "rgba(59,130,246,0.15)"
-_HULL_AWAY_COLOR = "rgba(239,68,68,0.15)"
-_LINE_HOME_COLOR = "rgba(59,130,246,0.5)"
-_LINE_AWAY_COLOR = "rgba(239,68,68,0.5)"
 _PITCH_BG = "#1a3a2a"
 _PITCH_LINE = "rgba(255,255,255,0.25)"
 
@@ -210,9 +212,9 @@ def _build_snapshot_figure(
 
     px_arr = team_players["x"].to_numpy(dtype=np.float64)
     py_arr = team_players["y"].to_numpy(dtype=np.float64)
-    color = _HOME_COLOR if team_side == "home" else _AWAY_COLOR
-    hull_color = _HULL_HOME_COLOR if team_side == "home" else _HULL_AWAY_COLOR
-    line_color = _LINE_HOME_COLOR if team_side == "home" else _LINE_AWAY_COLOR
+    color = HOME_COLOR if team_side == "home" else AWAY_COLOR
+    hull_color = HULL_HOME_COLOR if team_side == "home" else HULL_AWAY_COLOR
+    line_color = LINE_HOME_COLOR if team_side == "home" else LINE_AWAY_COLOR
 
     # Player IDs for hover
     player_ids = team_players["player_id"].astype(str).tolist()
@@ -353,7 +355,9 @@ def _render_snapshot(state: Any) -> None:
     min_f, max_f, fps = fetch_ts_frame_range(match_id, period)
     if min_f == max_f == 0:
         _clear_snapshot(state)
-        state.ts_warning_text = "No tracking data for the selected match and half."
+        state.ts_warning_text = (
+            "No tracking data for this match and half. Tracking requires Metrica, IDSSE, or SkillCorner matches."
+        )
         return
 
     duration_secs = (max_f - min_f) // fps if fps > 0 else 0
@@ -389,7 +393,7 @@ def _render_snapshot(state: Any) -> None:
     except Exception:
         logger.exception("Failed to fetch tracking data for snapshot")
         _clear_snapshot(state)
-        state.ts_warning_text = "Failed to load tracking data."
+        state.ts_warning_text = "Something went wrong loading tracking data. Try refreshing the page."
         return
 
     if avg_positions.empty or len(avg_positions) < 3:
@@ -516,12 +520,12 @@ def _render_timeline(state: Any) -> None:
     except Exception:
         logger.exception("Failed to fetch sampled tracking data for timeline")
         _clear_timeline(state)
-        state.ts_warning_text = "Failed to load tracking data."
+        state.ts_warning_text = "Something went wrong loading tracking data. Try refreshing the page."
         return
 
     if h1_data.empty and h2_data.empty:
         _clear_timeline(state)
-        state.ts_warning_text = "No tracking data for the selected match."
+        state.ts_warning_text = "No tracking data for this match. Try a Metrica, IDSSE, or SkillCorner match."
         return
 
     # Combine halves and filter to selected team
@@ -529,7 +533,7 @@ def _render_timeline(state: Any) -> None:
     team_data = all_sampled[all_sampled["team"] == team_side]
     if team_data.empty:
         _clear_timeline(state)
-        state.ts_warning_text = f"No tracking data for {team_side} team."
+        state.ts_warning_text = f"No tracking data for the {team_side} team in this match."
         return
 
     # Group by time_bucket to compute shape per time bucket
@@ -566,7 +570,7 @@ def _render_timeline(state: Any) -> None:
 
     if not timestamps:
         _clear_timeline(state)
-        state.ts_warning_text = "Insufficient data to compute timeline."
+        state.ts_warning_text = "Not enough data points to compute the timeline. Try a different match or half."
         return
 
     # Convert timestamps to minutes for display

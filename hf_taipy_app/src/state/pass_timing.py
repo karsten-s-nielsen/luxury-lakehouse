@@ -165,7 +165,7 @@ def _build_scatter_figure(df: pd.DataFrame) -> go.Figure | None:
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
         font=dict(color="white"),
-        height=450,
+        height=520,
     )
     # Quadrant annotations
     fig.add_annotation(

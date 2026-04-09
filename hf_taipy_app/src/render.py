@@ -21,6 +21,26 @@ GRAY = "#888888"
 TEXT_COLOR = "#e0e0e0"
 PLAYER_COLORS = ["#e63946", "#457b9d", "#2a9d8f"]
 
+# Home / Away — canonical convention across all pages and surfaces.
+# Red = Home, Steel-blue = Away (Kirk audit K-2).
+HOME_COLOR = "#e63946"
+AWAY_COLOR = "#457b9d"
+# Plotly rgba variants for team shape hulls and lines
+HULL_HOME_COLOR = "rgba(230,57,70,0.15)"
+HULL_AWAY_COLOR = "rgba(69,123,157,0.15)"
+LINE_HOME_COLOR = "rgba(230,57,70,0.5)"
+LINE_AWAY_COLOR = "rgba(69,123,157,0.5)"
+
+# DEFCON credit type colours — canonical mapping across surfaces.
+# Semantic: red = decisive intercept, orange = negative concede,
+# steel-blue = disrupt, teal = deter (Kirk audit K-1).
+DEFCON_COLORS = {
+    "Intercept": "#e63946",
+    "Concede": "#f4a261",
+    "Disturb": "#457b9d",
+    "Deter": "#2a9d8f",
+}
+
 
 def fmt_int(value: int) -> str:
     """Format integer with thousands separators."""

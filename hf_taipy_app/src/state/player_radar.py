@@ -259,8 +259,12 @@ def pr_refresh(state: Any) -> None:
         _clear_state(state)
         state.pr_comp_selected = True
         state.pr_scope_label = fetch_scope_label(comp_id, team_id)
-        state.pr_no_data_warning = "No player stats for the selected filters."
-        state.pr_warning_text = "No player stats for the selected filters."
+        state.pr_no_data_warning = (
+            "No player stats for this filter combination. Try selecting a different competition, team, or position."
+        )
+        state.pr_warning_text = (
+            "No player stats for this filter combination. Try selecting a different competition, team, or position."
+        )
         state.pr_data_freshness = fetch_data_freshness()
         return
 

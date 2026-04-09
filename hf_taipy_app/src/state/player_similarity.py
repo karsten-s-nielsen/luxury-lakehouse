@@ -263,7 +263,9 @@ def _load_player_list(state: Any) -> None:
     try:
         players = fetch_embedding_players(comp_id, min_matches, raw_table, count_col)
         if not players:
-            state.ps_warning_text = "No players with embeddings found."
+            state.ps_warning_text = (
+                "No players with embeddings found. Embeddings are available for players with enough match history."
+            )
             return
         _ps_player_map = {label: pid for label, pid in players}
         state.ps_player_lov = [label for label, _ in players]
@@ -367,6 +369,13 @@ _SIMILARITY_COLORS = {
     "Different": "#e74c3c",
 }
 
+_SIMILARITY_SYMBOLS = {
+    "Very Similar": "circle",
+    "Similar": "diamond",
+    "Moderately Similar": "square",
+    "Different": "x",
+}
+
 
 def _render_neighborhood_chart(results: pd.DataFrame, query_player: str) -> go.Figure | None:
     """Build a Plotly horizontal dot chart of the similarity neighborhood.
@@ -393,7 +402,7 @@ def _render_neighborhood_chart(results: pd.DataFrame, query_player: str) -> go.F
                 x=similarity[mask],
                 y=names[mask],
                 mode="markers",
-                marker={"size": 12, "color": color},
+                marker={"size": 12, "color": color, "symbol": _SIMILARITY_SYMBOLS[bucket]},
                 name=bucket,
                 hovertemplate="%{y}<br>Similarity: %{x:.1%}<extra></extra>",
             )
@@ -444,13 +453,13 @@ def _run_similarity_search(state: Any) -> None:
         # Fetch target vector
         target_result = fetch_player_embedding_vector(raw_table, player_id, comp_id)
         if target_result.empty:
-            state.ps_warning_text = "No embedding vector for this player for the selected filters."
+            state.ps_warning_text = "No embedding vector for this player. Try switching the search mode or selecting a player with more match history."
             state.ps_status_message = ""
             return
 
         raw_vector = target_result.iloc[0][vector_col]
         if raw_vector is None:
-            state.ps_warning_text = f"No {search_mode.lower()} vector for this player for the selected filters."
+            state.ps_warning_text = f"No {search_mode.lower()} vector for this player. Try switching the search mode."
             state.ps_status_message = ""
             return
 

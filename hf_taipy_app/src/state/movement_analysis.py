@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 from filters import fetch_data_freshness, fetch_scope_label
 from queries.tracking import fetch_physical_stats, fetch_ppda_data
-from render import GRAY, PITCH_BG_COLOR, TEXT_COLOR, chart_to_file
+from render import AWAY_COLOR, GRAY, HOME_COLOR, PITCH_BG_COLOR, TEXT_COLOR, chart_to_file
 
 from state.shared import (
     get_comp_id,
@@ -32,8 +32,6 @@ MA_SUB_VIEWS: list[str] = ["Physical Performance", "PPDA / Pressing Intensity", 
 
 # ── Chart palette ────────────────────────────────────────────────────────────
 _BAR_COLOR = "#2a9d8f"
-_HOME_PPDA_COLOR = "#e63946"
-_AWAY_PPDA_COLOR = "#457b9d"
 
 # ── Physical metric selector (M5) ───────────────────────────────────────────
 _PHYSICAL_METRIC_MAP: dict[str, tuple[str, str, str]] = {
@@ -168,8 +166,8 @@ def _render_ppda_bars(data: pd.DataFrame, title: str = "PPDA by Match") -> str:
         home_vals = plot_data["home_ppda"].fillna(0).astype(float)
         away_vals = plot_data["away_ppda"].fillna(0).astype(float)
 
-        ax.barh(y_pos + 0.15, home_vals, height=0.3, color=_HOME_PPDA_COLOR, alpha=0.85, label="Home PPDA")
-        ax.barh(y_pos - 0.15, away_vals, height=0.3, color=_AWAY_PPDA_COLOR, alpha=0.85, label="Away PPDA")
+        ax.barh(y_pos + 0.15, home_vals, height=0.3, color=HOME_COLOR, alpha=0.85, label="Home PPDA")
+        ax.barh(y_pos - 0.15, away_vals, height=0.3, color=AWAY_COLOR, alpha=0.85, label="Away PPDA")
 
         ax.set_yticks(y_pos)
         ax.set_yticklabels(labels, color=TEXT_COLOR, fontsize=9)
@@ -228,7 +226,7 @@ def _refresh_physical(state: Any) -> None:
         state.ma_phys_max_speed_ms = "0.0"
         state.ma_physical_image = ""
         state.ma_physical_table = pd.DataFrame()
-        state.ma_warning_text = "No physical stats for the selected match."
+        state.ma_warning_text = "No physical stats for this match. Physical data requires tracking (~20 matches from Metrica, IDSSE, SkillCorner)."
         return
 
     # Metrics
@@ -286,7 +284,7 @@ def _refresh_ppda(state: Any) -> None:
         state.ma_ppda_matches = "0"
         state.ma_ppda_image = ""
         state.ma_ppda_table = pd.DataFrame()
-        state.ma_warning_text = "No PPDA data for the selected competition."
+        state.ma_warning_text = "No PPDA data for this competition. PPDA uses StatsBomb defensive actions \u2014 try a StatsBomb competition."
         return
 
     # Metrics
@@ -333,7 +331,7 @@ def _refresh_off_ball_xt(state: Any) -> None:
         state.ma_oxt_max = "0.000"
         state.ma_oxt_image = ""
         state.ma_oxt_table = pd.DataFrame()
-        state.ma_warning_text = "No off-ball xT data for the selected match."
+        state.ma_warning_text = "No off-ball xT data for this match. Off-ball xT requires tracking data \u2014 try a Metrica, IDSSE, or SkillCorner match."
         return
 
     # Metrics
