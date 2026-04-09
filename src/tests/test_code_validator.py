@@ -68,7 +68,21 @@ class TestScoutGPTProfile:
         assert conditioning.issubset(SCOUTGPT_PROFILE.known_model_attrs)
 
     def test_torch_and_math_allowed(self) -> None:
-        assert SCOUTGPT_PROFILE.allowed_namespaces == frozenset({"torch", "math"})
+        assert {"torch", "math"}.issubset(SCOUTGPT_PROFILE.allowed_namespaces)
+
+    def test_building_blocks_allowed(self) -> None:
+        building_blocks = {
+            "MoERouter",
+            "HyperLinear",
+            "KANLayer",
+            "AdaLNZero",
+            "CrossLayer",
+            "CompetitiveGate",
+            "GradientReversal",
+            "AdaptiveBandwidth",
+            "RatioGate",
+        }
+        assert building_blocks.issubset(SCOUTGPT_PROFILE.allowed_namespaces)
 
     def test_rejected_builtins(self) -> None:
         dangerous = {"eval", "exec", "compile", "__import__", "open"}
