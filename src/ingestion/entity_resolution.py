@@ -39,20 +39,32 @@ class _EntityResolutionGuard:
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check if entity resolution needs to run.
 
-        Heuristic: skip if xref table exists and both source tables are present.
+        Finds StatsBomb player IDs that lack cross-reference entries.
         """
+        from ingestion.guards import find_new_ids
+
         xref_table = f"{catalog}.{schema}.player_xref_raw"
+        lineups_table = f"{catalog}.{schema}.statsbomb_lineups"
 
         try:
-            existing_count = spark.table(xref_table).limit(1).count()
-            if existing_count > 0:
-                ws_count = spark.table(f"{catalog}.{schema}.wyscout_players").limit(1).count()
-                if ws_count > 0:
-                    return FilterResult(workflow_id=self.workflow_id, count=0)
+            new_player_ids = find_new_ids(
+                spark,
+                source_table=lineups_table,
+                results_table=xref_table,
+                id_column="player_id",
+            )
         except Exception:
-            _guard_logger.debug("No existing %s table -- needs resolution", xref_table)
+            _guard_logger.debug("Cannot check %s — needs resolution", xref_table)
+            return FilterResult(workflow_id=self.workflow_id, count=1)
 
-        return FilterResult(workflow_id=self.workflow_id, count=1)
+        if not new_player_ids:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        return FilterResult(
+            workflow_id=self.workflow_id,
+            count=len(new_player_ids),
+            metadata={"new_player_ids": new_player_ids},
+        )
 
 
 skip_guard = _EntityResolutionGuard()

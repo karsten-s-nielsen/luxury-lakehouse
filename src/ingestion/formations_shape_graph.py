@@ -56,11 +56,13 @@ if TYPE_CHECKING:
     from pyspark.sql import DataFrame as SparkDataFrame
     from pyspark.sql import SparkSession
 
+from ingestion.utils import SparkAnalysisException as _SparkAnalysisException
+
 
 class _FormationsShapeGraphGuard:
     """SkipGuard adapter for shape graph formation detection pipeline."""
 
-    workflow_id = "wf-formations-sg"
+    workflow_id = "wf-shape-graphs"
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check which tracking matches need shape graph detection."""
@@ -303,7 +305,7 @@ def _run_shape_graph(
         else:
             tracking_df = temp_df
             logger.info("Read %d match IDs from existing temp table %s", len(new_ids_str), temp_table)
-    except Exception:
+    except _SparkAnalysisException:
         logger.info("Temp table %s not found -- preparing tracking data from scratch", temp_table)
 
     # Fallback: prepare from gold table if temp table is unavailable.
@@ -401,7 +403,7 @@ def _run_shape_graph(
     try:
         spark.sql(f"DROP TABLE IF EXISTS {temp_table}")
         logger.info("Dropped temp table %s", temp_table)
-    except Exception:
+    except _SparkAnalysisException:
         logger.warning("Could not drop temp table %s -- manual cleanup needed", temp_table)
 
     return total_written

@@ -7,17 +7,19 @@ used by both ``defcon_lite_360`` and ``defcon_lite_tracking``.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from analytics.defcon_lite import DefconLiteParams
 from shared.constants import mlflow_model_uri
+
+if TYPE_CHECKING:
+    from analytics.defcon_lite import DefconLiteParams  # noqa: F401
 
 __all__ = [
     "_ACTION_PREFIX",
     "_FF_PREFIX",
     "_TABLE_NAME",
-    "DefconLiteParams",
     "_make_values_udf",
     "_try_load_champion_defcon",
 ]

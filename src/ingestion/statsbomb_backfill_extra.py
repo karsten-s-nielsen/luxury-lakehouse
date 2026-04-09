@@ -3,9 +3,8 @@
 Separated from ``statsbomb.py`` so it has its own ``skip_guard`` entry
 in ``_GUARD_MODULES`` and can be gated independently by the freshness gate.
 
-The backfill scans the events table for rows where ``_raw_extra_json`` is
-NULL or empty, which previously took 19 minutes even when there was no work.
-The guard short-circuits with a ``LIMIT 1`` existence check.
+The guard finds matches where ``_raw_extra_json IS NULL`` and returns
+their IDs in metadata for targeted backfill.
 """
 
 from __future__ import annotations
@@ -26,17 +25,24 @@ class _BackfillExtraGuard:
     workflow_id = "wf-backfill-extra"
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
-        """Skip if no events need _raw_extra_json backfill.
+        """Find matches needing _raw_extra_json backfill.
 
-        Uses ``LIMIT 1`` for an O(1) existence check — avoids a full
-        table scan when there is no work (the 19-minute bottleneck).
+        Uses ``IS NULL`` only — events with ``'{}'`` are legitimately
+        backfilled (no type-specific data). Prevents infinite re-runs.
         """
         table = f"{catalog}.{schema}.statsbomb_events"
         try:
-            needs_backfill = (
-                spark.table(table).filter("_raw_extra_json IS NULL OR _raw_extra_json = '{}'").limit(1).count()
+            rows = spark.table(table).filter("_raw_extra_json IS NULL").select("match_id").distinct().collect()
+            match_ids = sorted({str(row["match_id"]) for row in rows})
+
+            if not match_ids:
+                return FilterResult(workflow_id=self.workflow_id, count=0)
+
+            return FilterResult(
+                workflow_id=self.workflow_id,
+                count=len(match_ids),
+                metadata={"new_match_ids": match_ids},
             )
-            return FilterResult(workflow_id=self.workflow_id, count=needs_backfill)
         except Exception:
             # Table may not exist — assume work needed
             return FilterResult(workflow_id=self.workflow_id, count=1)
@@ -62,7 +68,8 @@ def run_pipeline(
     from ingestion.statsbomb import backfill_extra_json, ingest_competitions
 
     competitions_pdf = ingest_competitions(spark, catalog, schema, logger)
-    backfill_extra_json(spark, catalog, schema, competitions_pdf, logger)
+    guard_match_ids = filter_result.metadata.get("new_match_ids") if filter_result.metadata else None
+    backfill_extra_json(spark, catalog, schema, competitions_pdf, logger, match_ids=guard_match_ids)
 
 
 def main() -> None:

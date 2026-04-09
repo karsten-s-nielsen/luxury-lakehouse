@@ -40,7 +40,6 @@ from typing import TYPE_CHECKING
 
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
 from shared.constants import DEFAULT_GOLD_SCHEMA
-from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame, SparkSession
@@ -571,7 +570,6 @@ def _upload_to_hf_hub(
 # ---------------------------------------------------------------------------
 
 
-@workflow("wf-scoutgpt-export", phase="export")
 def run_pipeline(
     spark: SparkSession,
     catalog: str,
