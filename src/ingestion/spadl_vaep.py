@@ -73,6 +73,7 @@ class _VaepGuard:
             f"{catalog}.{schema}.wyscout_events",
             spadl_table,
             id_column="matchId",
+            results_id_column="match_id",
         )
         new_spadl = sorted(set(sb_new) | set(ws_new))
 

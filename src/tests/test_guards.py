@@ -49,8 +49,8 @@ class TestFilterResult:
 
 
 def _row(match_id: str) -> dict[str, str]:
-    """Simulate a Spark Row with dict-style access (``row["match_id"]``)."""
-    return {"match_id": match_id}
+    """Simulate a Spark Row with the join alias used by find_new_ids."""
+    return {"_join_id": match_id}
 
 
 class TestPitchControlGuard:
@@ -161,9 +161,9 @@ class TestPitchControlGuard:
         assert result.chunks is None  # Only 1 chunk of 2 — no fan-out
 
 
-def _id_row(value: str, column: str = "match_id") -> dict[str, str]:
-    """Simulate a Spark Row with a single ID column."""
-    return {column: value}
+def _id_row(value: str) -> dict[str, str]:
+    """Simulate a Spark Row with the join alias used by find_new_ids."""
+    return {"_join_id": value}
 
 
 def _make_chainable_df(collect_rows: list[dict[str, str]]) -> MagicMock:
@@ -225,7 +225,7 @@ class TestFindNewIds:
         result = find_new_ids(spark, "catalog.schema.source", "catalog.schema.results")
 
         assert sorted(result) == ["m4", "m5"]
-        source_df.join.assert_called_once_with(results_df, on="match_id", how="left_anti")
+        source_df.join.assert_called_once_with(results_df, on="_join_id", how="left_anti")
         mock_f.col.assert_called_with("match_id")
 
     def test_missing_results_table(self) -> None:
@@ -360,7 +360,7 @@ class TestFindNewIds:
         results_df = _make_chainable_df([])
 
         anti_join_df = MagicMock()
-        anti_join_df.collect.return_value = [{"competition_id": "43"}]
+        anti_join_df.collect.return_value = [_id_row("43")]
         source_df.join.return_value = anti_join_df
 
         def table_side_effect(name: str) -> MagicMock:
@@ -375,5 +375,40 @@ class TestFindNewIds:
         assert result == ["43"]
         # Verify F.col was called with the custom column name
         mock_f.col.assert_called_with("competition_id")
-        # Verify join uses the custom column name
-        source_df.join.assert_called_once_with(results_df, on="competition_id", how="left_anti")
+        # Verify join uses the join alias
+        source_df.join.assert_called_once_with(results_df, on="_join_id", how="left_anti")
+
+    def test_results_id_column_different_from_source(self) -> None:
+        """results_id_column allows different column names in source vs results (e.g., matchId vs match_id)."""
+        mock_f = _mock_pyspark_functions()
+        spark = MagicMock()
+
+        source_df = _make_chainable_df([])
+        results_df = _make_chainable_df([])
+
+        anti_join_df = MagicMock()
+        anti_join_df.collect.return_value = [{"_join_id": "99"}]
+        source_df.join.return_value = anti_join_df
+
+        def table_side_effect(name: str) -> MagicMock:
+            if name == "catalog.schema.source":
+                return source_df
+            return results_df
+
+        spark.table.side_effect = table_side_effect
+
+        result = find_new_ids(
+            spark,
+            "catalog.schema.source",
+            "catalog.schema.results",
+            id_column="matchId",
+            results_id_column="match_id",
+        )
+
+        assert result == ["99"]
+        # F.col should be called with both column names (source first, then results)
+        col_calls = [str(c) for c in mock_f.col.call_args_list]
+        assert any("matchId" in c for c in col_calls), f"Expected matchId in col calls: {col_calls}"
+        assert any("match_id" in c for c in col_calls), f"Expected match_id in col calls: {col_calls}"
+        # Join uses the shared alias
+        source_df.join.assert_called_once_with(results_df, on="_join_id", how="left_anti")

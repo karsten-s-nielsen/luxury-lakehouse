@@ -45,6 +45,7 @@ def find_new_ids(
     results_table: str,
     id_column: str = "match_id",
     *,
+    results_id_column: str | None = None,
     source_filter: str | None = None,
     results_filter: str | None = None,
 ) -> list[str]:
@@ -58,7 +59,11 @@ def find_new_ids(
         spark: Active SparkSession.
         source_table: Fully-qualified source table (e.g., ``catalog.schema.table``).
         results_table: Fully-qualified results table.
-        id_column: Column name for the join key (default ``match_id``).
+        id_column: Column name for the join key in the source table (default ``match_id``).
+        results_id_column: Column name for the join key in the results table.
+            Defaults to ``id_column`` when source and results use the same name.
+            Use when comparing bronze (raw schema) against gold (canonical schema),
+            e.g., ``id_column="matchId", results_id_column="match_id"``.
         source_filter: Optional SQL filter expression for source table.
         results_filter: Optional SQL filter expression for results table.
 
@@ -69,25 +74,28 @@ def find_new_ids(
     """
     from pyspark.sql import functions as F  # noqa: N812
 
+    res_col = results_id_column or id_column
+    join_alias = "_join_id"
+
     source_df = spark.table(source_table)
     if source_filter:
         source_df = source_df.filter(source_filter)
-    source_df = source_df.select(F.col(id_column).cast("string").alias(id_column)).distinct()
+    source_df = source_df.select(F.col(id_column).cast("string").alias(join_alias)).distinct()
 
     try:
         results_df = spark.table(results_table)
     except Exception:
         # Results table does not exist — all source IDs are new
         rows = source_df.collect()
-        return [str(row[id_column]) for row in rows]
+        return [str(row[join_alias]) for row in rows]
 
     if results_filter:
         results_df = results_df.filter(results_filter)
-    results_df = results_df.select(F.col(id_column).cast("string").alias(id_column)).distinct()
+    results_df = results_df.select(F.col(res_col).cast("string").alias(join_alias)).distinct()
 
-    new_df = source_df.join(results_df, on=id_column, how="left_anti")
+    new_df = source_df.join(results_df, on=join_alias, how="left_anti")
     rows = new_df.collect()
-    return [str(row[id_column]) for row in rows]
+    return [str(row[join_alias]) for row in rows]
 
 
 class SkipGuard(Protocol):
