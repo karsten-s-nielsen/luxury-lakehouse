@@ -12,10 +12,11 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from ingestion.defcon_lite_common import _TABLE_NAME
 from ingestion.guards import FilterResult
 from ingestion.utils import write_delta_table
 from shared.constants import DEFAULT_GOLD_SCHEMA
+
+_TABLE_NAME = "defcon_results"
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession

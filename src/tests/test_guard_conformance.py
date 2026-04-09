@@ -25,8 +25,6 @@ from ingestion.guards import _GUARD_MODULES, FilterResult
 # ---------------------------------------------------------------------------
 _METADATA_EXEMPT = {
     "wf-statsbomb",  # Live data, internal skip logic
-    "wf-backfill-extra",  # Existence check, no ID metadata
-    "wf-backfill-360",  # Set-difference guard, no ID metadata
     "wf-metrica",  # Static dataset, count-based guard
     "wf-idsse",  # Static dataset, count-based guard
     "wf-idsse-events",  # Static dataset, count-based guard
@@ -41,8 +39,6 @@ _METADATA_EXEMPT = {
     "wf-football2vec-v2",  # HF Hub import, always-run stub
     "wf-football2vec-v2-export",  # Count-comparison guard
     "wf-prepare-360-data",  # Count-comparison guard
-    "wf-entity-resolution",  # Binary existence check
-    "wf-tracking-metadata",  # Simple existence check
 }
 
 # Guard modules whose pipeline doesn't have its own run_pipeline —
@@ -97,8 +93,8 @@ def _make_permissive_spark_mock() -> MagicMock:
     spark = MagicMock()
 
     rows: list[dict[str, str]] = [
-        {"match_id": "m1", "competition_name": "test", "competition_id": "c1"},
-        {"match_id": "m2", "competition_name": "test2", "competition_id": "c2"},
+        {"match_id": "m1", "matchId": "m1", "competition_name": "test", "competition_id": "c1", "player_id": "p1"},
+        {"match_id": "m2", "matchId": "m2", "competition_name": "test2", "competition_id": "c2", "player_id": "p2"},
     ]
 
     def make_df_mock() -> MagicMock:
@@ -275,6 +271,413 @@ class TestGuardImportIsolation:
             "Guard modules have analytics imports at module level "
             "(move to function bodies):\n" + "\n".join(sorted(failures))
         )
+
+    def test_no_transitive_analytics_imports_at_module_level(self) -> None:
+        """Runtime: importing a guard must not trigger analytics package loads.
+
+        Runs each probe in a **subprocess** so sentinel patching cannot
+        leak into the parent pytest process (sys.modules manipulation
+        inside the same process is unreliable — Python's import system
+        has internal caches beyond sys.modules).
+        """
+        import subprocess
+        import textwrap
+
+        analytics_csv = ",".join(sorted(self._ANALYTICS_PACKAGES))
+        failures: list[str] = []
+
+        for module_path in _GUARD_MODULES:
+            script = textwrap.dedent(f"""\
+                import sys
+
+                # Plant sentinel modules that raise on attribute access
+                class _Sentinel:
+                    def __init__(self, name):
+                        self._name = name
+                    def __getattr__(self, attr):
+                        raise ImportError(f"Guard transitively imported {{self._name}}")
+
+                for pkg in "{analytics_csv}".split(","):
+                    sys.modules[pkg] = _Sentinel(pkg)
+
+                try:
+                    import importlib
+                    importlib.import_module("{module_path}")
+                    print("OK")
+                except ImportError as exc:
+                    print(f"FAIL: {{exc}}")
+            """)
+
+            result = subprocess.run(  # noqa: S603 — trusted script, not user input
+                [sys.executable, "-c", script],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            output = (result.stdout + result.stderr).strip()
+            if "FAIL:" in output:
+                failures.append(f"{module_path}: {output.split('FAIL: ', 1)[1]}")
+            elif result.returncode != 0:
+                failures.append(f"{module_path}: subprocess exited {result.returncode}: {output}")
+
+        assert not failures, "Guard modules have transitive analytics imports at module level:\n" + "\n".join(
+            sorted(failures)
+        )
+
+
+# ---------------------------------------------------------------------------
+# TestExceptionPropagation — Silent exception swallowing
+# ---------------------------------------------------------------------------
+
+
+class TestExceptionPropagation:
+    """Pipeline functions and their helpers must not silently swallow exceptions.
+
+    ``except Exception`` without a ``raise`` hides failures. D48 showed that
+    ``backfill_extra_json`` silently swallowed a protobuf overflow affecting
+    12.1M rows, so the MERGE appeared to succeed while writing zero rows.
+    """
+
+    _EXEMPT: ClassVar[set[str]] = _NO_OWN_PIPELINE  # No own run_pipeline to scan
+
+    @staticmethod
+    def _has_silent_except(
+        func_node: ast.FunctionDef,
+        *,
+        top_level_only: bool = True,
+        critical_only: bool = True,
+    ) -> list[str]:
+        """Return descriptions of ExceptHandler nodes that catch Exception without raise.
+
+        Args:
+            func_node: The function AST node to scan.
+            top_level_only: If True, only check try/except blocks that are
+                direct children of the function body (not nested inside loops,
+                conditionals, or inner try blocks). This avoids false positives
+                from cleanup operations and optional fallback patterns.
+            critical_only: If True (and top_level_only), only flag try/except
+                blocks where the handler contains a ``return`` statement or
+                the try is the last statement in the function body. Cleanup
+                blocks (e.g., DROP TABLE) that just log and let the function
+                continue are not flagged.
+
+        Exempt: handlers that specifically catch WorkflowSkippedError.
+        """
+        issues: list[str] = []
+
+        if top_level_only:
+            # Only scan direct children of the function body
+            candidates: list[ast.ExceptHandler] = []
+            for stmt in func_node.body:
+                if isinstance(stmt, ast.Try):
+                    candidates.extend(stmt.handlers)
+        else:
+            # Scan ALL exception handlers in the function tree
+            candidates = [n for n in ast.walk(func_node) if isinstance(n, ast.ExceptHandler)]
+
+        for node in candidates:
+            # Check if handler catches Exception (or bare except)
+            if node.type is not None:
+                if isinstance(node.type, ast.Name) and node.type.id != "Exception":
+                    continue
+                if isinstance(node.type, ast.Attribute):
+                    continue  # e.g., some_module.SomeError — not generic
+                if isinstance(node.type, ast.Tuple):
+                    # except (ValueError, TypeError): — all specific, not generic
+                    all_specific = all(
+                        (isinstance(elt, ast.Name) and elt.id != "Exception") or isinstance(elt, ast.Attribute)
+                        for elt in node.type.elts
+                    )
+                    if all_specific:
+                        continue
+            # Check handler body for a raise statement
+            has_raise = any(isinstance(child, ast.Raise) for child in ast.walk(node))
+            if has_raise:
+                continue
+            # Exempt WorkflowSkippedError catches
+            if node.type and isinstance(node.type, ast.Name) and node.type.id == "WorkflowSkippedError":
+                continue
+            # In critical_only mode, only flag if the handler contains a
+            # ``return`` statement — silently exiting the function instead
+            # of propagating the error. Cleanup blocks (e.g., DROP TABLE)
+            # that log and let the function fall through are not flagged,
+            # even when they are the last statement in the function body.
+            if top_level_only and critical_only:
+                has_return = any(isinstance(child, ast.Return) for child in ast.walk(node))
+                if not has_return:
+                    continue
+            issues.append(f"{func_node.name}() line {node.lineno}")
+        return issues
+
+    def test_no_silent_exception_swallow_in_run_pipeline(self) -> None:
+        """run_pipeline functions must not catch Exception without re-raising."""
+        failures: list[str] = []
+        for module_path in _GUARD_MODULES:
+            if module_path in self._EXEMPT:
+                continue
+
+            mod = importlib.import_module(module_path)
+            source_file = inspect.getfile(mod)
+            source = Path(source_file).read_text(encoding="utf-8")
+            tree = ast.parse(source)
+
+            for node in ast.iter_child_nodes(tree):
+                if isinstance(node, ast.FunctionDef) and node.name.startswith("run_pipeline"):
+                    issues = self._has_silent_except(node)
+                    for issue in issues:
+                        failures.append(f"{module_path}.{issue}")
+
+        assert not failures, "run_pipeline() must not silently swallow exceptions:\n" + "\n".join(sorted(failures))
+
+    def test_helper_functions_propagate_exceptions(self) -> None:
+        """Functions directly called by run_pipeline must not silently swallow exceptions.
+
+        Scans run_pipeline for deferred ``from X import Y`` statements, then
+        inspects ONLY the imported functions (not the entire module) for
+        ``except Exception`` without ``raise``. Uses ``critical_only=False``
+        to catch deep-nested silent swallowing (like D48's backfill_extra_json).
+        """
+        failures: list[str] = []
+        for module_path in _GUARD_MODULES:
+            if module_path in self._EXEMPT:
+                continue
+
+            mod = importlib.import_module(module_path)
+            source_file = inspect.getfile(mod)
+            source = Path(source_file).read_text(encoding="utf-8")
+            tree = ast.parse(source)
+
+            # Find run_pipeline function(s)
+            for node in ast.iter_child_nodes(tree):
+                if not (isinstance(node, ast.FunctionDef) and node.name.startswith("run_pipeline")):
+                    continue
+
+                # Extract ImportFrom nodes: {module: [func_names]}
+                imported_funcs: dict[str, set[str]] = {}
+                for child in ast.walk(node):
+                    if isinstance(child, ast.ImportFrom) and child.module:
+                        names = {alias.name for alias in child.names}
+                        imported_funcs.setdefault(child.module, set()).update(names)
+
+                # Scan only the specifically imported functions
+                for imp_mod_name, func_names in imported_funcs.items():
+                    try:
+                        imp_mod = importlib.import_module(imp_mod_name)
+                        imp_source_file = inspect.getfile(imp_mod)
+                    except (ImportError, TypeError):
+                        # TypeError: MagicMock modules from pyspark stubs
+                        continue
+
+                    imp_source = Path(imp_source_file).read_text(encoding="utf-8")
+                    imp_tree = ast.parse(imp_source)
+
+                    for func_node in ast.iter_child_nodes(imp_tree):
+                        if not isinstance(func_node, ast.FunctionDef):
+                            continue
+                        if func_node.name not in func_names:
+                            continue
+                        issues = self._has_silent_except(
+                            func_node,
+                            top_level_only=False,
+                            critical_only=False,
+                        )
+                        for issue in issues:
+                            failures.append(f"{imp_mod_name}.{issue} (called from {module_path}.run_pipeline)")
+
+        assert not failures, (
+            "Helper functions called from run_pipeline silently swallow exceptions "
+            "(add 'raise' or use specific exception types):\n" + "\n".join(sorted(failures))
+        )
+
+
+# ---------------------------------------------------------------------------
+# TestGuardCountMatchesIds — Count/metadata consistency
+# ---------------------------------------------------------------------------
+
+
+class TestGuardCountMatchesIds:
+    """Guard count must equal the total number of entity IDs in metadata."""
+
+    # Guards where count includes non-ID metadata (e.g., boolean flags that
+    # add +1 to count). These are tested by TestGuardMetadataContract instead.
+    _COUNT_EXEMPT: ClassVar[set[str]] = _METADATA_EXEMPT | {
+        "wf-xt-grids",  # count includes +1 for need_global boolean
+    }
+
+    def test_count_equals_metadata_id_count(self) -> None:
+        """For non-exempt guards, count must equal sum of all ID list lengths in metadata."""
+        for module_path in _GUARD_MODULES:
+            mod = importlib.import_module(module_path)
+            guard = mod.skip_guard
+            if guard.workflow_id in self._COUNT_EXEMPT:
+                continue
+
+            spark = _make_permissive_spark_mock()
+            result = guard.check(spark, "soccer_analytics", "dev_gold")
+
+            if result.count == 0:
+                continue
+
+            # Sum lengths of all list[str] values in metadata
+            total_ids = 0
+            for val in result.metadata.values():
+                if isinstance(val, list) and all(isinstance(v, str) for v in val):
+                    total_ids += len(val)
+
+            assert result.count == total_ids, (
+                f"{guard.workflow_id}: count={result.count} but metadata has "
+                f"{total_ids} total IDs across {len(result.metadata)} keys"
+            )
+
+    def test_metadata_ids_are_distinct(self) -> None:
+        """Each ID list in metadata must contain no duplicates."""
+        for module_path in _GUARD_MODULES:
+            mod = importlib.import_module(module_path)
+            guard = mod.skip_guard
+            if guard.workflow_id in self._COUNT_EXEMPT:
+                continue
+
+            spark = _make_permissive_spark_mock()
+            result = guard.check(spark, "soccer_analytics", "dev_gold")
+
+            for key, val in result.metadata.items():
+                if isinstance(val, list):
+                    dupes = [v for v in val if val.count(v) > 1]
+                    assert not dupes, f"{guard.workflow_id}: metadata['{key}'] has duplicates: {set(dupes)}"
+
+
+# ---------------------------------------------------------------------------
+# TestCostTimeCapture — Cost hook lifecycle
+# ---------------------------------------------------------------------------
+
+
+class TestCostTimeCapture:
+    """CostEstimateHook must write cost rows on both success and failure paths."""
+
+    @staticmethod
+    def _run_with_hook(*, should_raise: bool = False) -> int:
+        """Run a trivial workflow through the lifecycle runner with CostEstimateHook.
+
+        Returns the number of ``spark.createDataFrame`` calls (each MERGE = one call).
+        Mocks ``delta.tables.DeltaTable`` to avoid requiring the Delta library.
+        """
+        from unittest.mock import patch
+
+        import workflows.runner as runner
+        from ingestion.cost_hook import CostEstimateHook
+        from workflows.registry import WorkflowEntry
+
+        # Save and restore hooks
+        saved_hooks = list(runner._hooks)
+        runner._hooks.clear()
+
+        # Mock delta.tables module so CostEstimateHook._merge can import it
+        delta_mock = MagicMock()
+        pyspark_types_mock = MagicMock()
+
+        try:
+            # Build a CostEstimateHook with mocked internals
+            spark_mock = MagicMock()
+            spark_mock.createDataFrame.return_value.alias.return_value = MagicMock()
+
+            hook = CostEstimateHook.__new__(CostEstimateHook)
+            hook._spark = spark_mock
+            hook._table = "cat.observability.workflow_cost_live"
+            hook._rate_usd_per_hour = 0.07
+            hook._runtime = "test"
+            hook._job_run_id = None
+            hook._task_key = None
+
+            runner.register_hook(hook)
+
+            # Create a trivial workflow entry
+            def trivial_fn(*, filter_result: FilterResult, ctx: object = None) -> int:
+                if should_raise:
+                    msg = "intentional test failure"
+                    raise RuntimeError(msg)
+                return 42
+
+            entry = WorkflowEntry(
+                workflow_id="wf-cost-test",
+                phase="test",
+                func=trivial_fn,
+            )
+
+            fr = FilterResult(workflow_id="wf-cost-test", count=1)
+
+            with patch.dict(
+                sys.modules,
+                {
+                    "delta": delta_mock,
+                    "delta.tables": delta_mock.tables,
+                    "pyspark.sql.types": pyspark_types_mock,
+                },
+            ):
+                try:
+                    runner.run_workflow(entry, filter_result=fr)
+                except RuntimeError:
+                    pass  # Expected when should_raise=True
+
+            return spark_mock.createDataFrame.call_count
+
+        finally:
+            runner._hooks.clear()
+            runner._hooks.extend(saved_hooks)
+
+    def test_completed_workflow_produces_cost_row(self) -> None:
+        """Successful workflow: on_start + on_complete each call createDataFrame."""
+        call_count = self._run_with_hook(should_raise=False)
+        assert call_count >= 2, f"Expected >= 2 createDataFrame calls, got {call_count}"
+
+    def test_failed_workflow_produces_cost_row(self) -> None:
+        """Failed workflow: on_start + on_error each call createDataFrame."""
+        call_count = self._run_with_hook(should_raise=True)
+        assert call_count >= 2, f"Expected >= 2 createDataFrame calls, got {call_count}"
+
+
+# ---------------------------------------------------------------------------
+# TestWorkflowIdConsistency — Guard ID matches decorator ID
+# ---------------------------------------------------------------------------
+
+
+class TestWorkflowIdConsistency:
+    """Guard workflow_id must match the @workflow decorator's ID on run_pipeline."""
+
+    _EXEMPT: ClassVar[set[str]] = _NO_OWN_PIPELINE  # No own run_pipeline / decorator to compare
+
+    def test_guard_id_matches_decorator_id(self) -> None:
+        """guard.workflow_id must equal @workflow('wf-xxx') on run_pipeline."""
+        failures: list[str] = []
+        for module_path in _GUARD_MODULES:
+            if module_path in self._EXEMPT:
+                continue
+
+            mod = importlib.import_module(module_path)
+            guard = mod.skip_guard
+            guard_id = guard.workflow_id
+
+            source_file = inspect.getfile(mod)
+            source = Path(source_file).read_text(encoding="utf-8")
+            tree = ast.parse(source)
+
+            for node in ast.iter_child_nodes(tree):
+                if not (isinstance(node, ast.FunctionDef) and node.name.startswith("run_pipeline")):
+                    continue
+
+                # Extract @workflow("wf-xxx") decorator ID
+                for dec in node.decorator_list:
+                    if not _ast_has_name_or_attr(dec, "workflow"):
+                        continue
+                    if isinstance(dec, ast.Call) and dec.args:
+                        first_arg = dec.args[0]
+                        if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+                            decorator_id = first_arg.value
+                            if guard_id != decorator_id:
+                                failures.append(
+                                    f"{module_path}: guard.workflow_id={guard_id!r} != @workflow({decorator_id!r})"
+                                )
+
+        assert not failures, "Guard workflow_id must match @workflow decorator ID:\n" + "\n".join(sorted(failures))
 
 
 # ---------------------------------------------------------------------------

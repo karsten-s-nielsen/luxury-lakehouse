@@ -1,6 +1,6 @@
 # Databricks Lakebase Architecture — Soccer Analytics Platform
 
-> **Status**: Cycle 5 Phase 1 (Guard plumbing + observability) — 16 Taipy pages, 34 synced tables, 56 PG indexes (50 btree + 6 HNSW at 128d/144d). Hugging Face Hub: 7 models + 18 datasets published, GPU training on HF Jobs L40S. PSxG model (Brier 0.129). ScoutGPT decoder + training pipeline (D32). Freshness gate + 33 skip guards with mandatory `FilterResult` injection, Terraform `condition_task` gates, and `entity_count` observability (D40). M2 OAuth PG role unblocked (databricks-sdk 0.102).
+> **Status**: Cycle 5 Phase 2 (Guard pipeline hardening) — 16 Taipy pages, 34 synced tables, 56 PG indexes (50 btree + 6 HNSW at 128d/144d). Hugging Face Hub: 7 models + 18 datasets published, GPU training on HF Jobs L40S. PSxG model (Brier 0.129). ScoutGPT decoder + training pipeline (D32). Freshness gate: 33 skip guards with mandatory `FilterResult` injection, `entity_count` observability, parallelized `ThreadPoolExecutor(max_workers=4)`, 4 guards promoted to full entity-ID returns, 11 conformance test classes (D40/D47/D48/D49/D50). M2 OAuth PG role unblocked (databricks-sdk 0.102).
 > **Last Updated**: 2026-04-08
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready

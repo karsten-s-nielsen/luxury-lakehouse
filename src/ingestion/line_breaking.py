@@ -62,7 +62,7 @@ class _LineBreakingGuard:
             spark,
             f"{catalog}.bronze.metrica_events",
             results_table,
-            source_filter="event_type = 'PASS'",
+            source_filter="type = 'PASS'",
             results_filter="data_source = 'metrica_tracking'",
         )
         idsse_ids = find_new_ids(

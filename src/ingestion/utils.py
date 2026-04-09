@@ -23,6 +23,14 @@ from shared.constants import IDENTIFIER_RE
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame, SparkSession
 
+# Spark AnalysisException — used by guards and pipelines for table-not-found
+# fallbacks.  Imported at module level so callers can use a single name
+# regardless of whether pyspark is installed.
+try:
+    from pyspark.errors import AnalysisException as SparkAnalysisException
+except Exception:
+    SparkAnalysisException: type[Exception] = type("SparkAnalysisException", (Exception,), {})  # type: ignore[no-redef]
+
 # HTTP status codes eligible for retry
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 

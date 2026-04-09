@@ -28,17 +28,16 @@ class _Backfill360Guard:
         """Skip if all event matches already have 360 data.
 
         Compares distinct match_ids between statsbomb_events and
-        statsbomb_360 — if events has matches that 360 does not,
-        backfill is needed.
+        statsbomb_360 — returns IDs of matches that need backfill.
         """
         try:
             event_ids = {
-                row["match_id"]
+                str(row["match_id"])
                 for row in spark.table(f"{catalog}.{schema}.statsbomb_events").select("match_id").distinct().collect()
             }
             try:
                 three60_ids = {
-                    row["match_id"]
+                    str(row["match_id"])
                     for row in spark.table(f"{catalog}.{schema}.statsbomb_360").select("match_id").distinct().collect()
                 }
             except Exception:
@@ -46,10 +45,17 @@ class _Backfill360Guard:
                 return FilterResult(
                     workflow_id=self.workflow_id,
                     count=len(event_ids),
+                    metadata={"new_match_ids": sorted(event_ids)},
                 )
 
-            missing = event_ids - three60_ids
-            return FilterResult(workflow_id=self.workflow_id, count=len(missing))
+            missing = sorted(event_ids - three60_ids)
+            if not missing:
+                return FilterResult(workflow_id=self.workflow_id, count=0)
+            return FilterResult(
+                workflow_id=self.workflow_id,
+                count=len(missing),
+                metadata={"new_match_ids": missing},
+            )
         except Exception:
             # Events table doesn't exist — nothing to backfill
             return FilterResult(workflow_id=self.workflow_id, count=0)
@@ -75,7 +81,8 @@ def run_pipeline(
     from ingestion.statsbomb import backfill_360, ingest_competitions
 
     competitions_pdf = ingest_competitions(spark, catalog, schema, logger)
-    backfill_360(spark, catalog, schema, competitions_pdf, logger)
+    match_ids = filter_result.metadata.get("new_match_ids")
+    backfill_360(spark, catalog, schema, competitions_pdf, logger, match_ids=match_ids)
 
 
 def main() -> None:

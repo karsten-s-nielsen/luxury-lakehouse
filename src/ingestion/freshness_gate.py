@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Any
 
 from ingestion.guards import FilterResult, get_workflow_guards
@@ -24,6 +25,40 @@ if TYPE_CHECKING:
     from ingestion.guards import SkipGuard
 
 logger = logging.getLogger(__name__)
+
+_GATE_MAX_WORKERS = 4
+
+
+def _check_one_guard(
+    wf_id: str,
+    guard: SkipGuard,
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+) -> tuple[FilterResult, float]:
+    """Run a single guard with timing and exception handling."""
+    t0 = time.monotonic()
+    try:
+        result = guard.check(spark, catalog, schema)
+        elapsed = round(time.monotonic() - t0, 2)
+        logger.info(
+            "guard_check",
+            extra={
+                "workflow_id": wf_id,
+                "count": result.count,
+                "elapsed_seconds": elapsed,
+                "chunks": len(result.chunks) if result.chunks else 0,
+            },
+        )
+        return result, elapsed
+    except Exception:
+        elapsed = round(time.monotonic() - t0, 2)
+        logger.warning(
+            "guard_check_failed",
+            extra={"workflow_id": wf_id, "elapsed_seconds": elapsed},
+            exc_info=True,
+        )
+        return FilterResult(workflow_id=wf_id, count=0), elapsed
 
 
 def run_gate(
@@ -50,30 +85,15 @@ def run_gate(
     results: dict[str, FilterResult] = {}
     timings: dict[str, float] = {}
 
-    for wf_id, guard in guards.items():
-        t0 = time.monotonic()
-        try:
-            result = guard.check(spark, catalog, schema)
-            elapsed = round(time.monotonic() - t0, 2)
+    with ThreadPoolExecutor(max_workers=_GATE_MAX_WORKERS) as pool:
+        futures = {
+            pool.submit(_check_one_guard, wf_id, guard, spark, catalog, schema): wf_id
+            for wf_id, guard in guards.items()
+        }
+        for future in as_completed(futures):
+            wf_id = futures[future]
+            result, elapsed = future.result()
             results[wf_id] = result
-            timings[wf_id] = elapsed
-            logger.info(
-                "guard_check",
-                extra={
-                    "workflow_id": wf_id,
-                    "count": result.count,
-                    "elapsed_seconds": elapsed,
-                    "chunks": len(result.chunks) if result.chunks else 0,
-                },
-            )
-        except Exception:
-            elapsed = round(time.monotonic() - t0, 2)
-            logger.warning(
-                "guard_check_failed",
-                extra={"workflow_id": wf_id, "elapsed_seconds": elapsed},
-                exc_info=True,
-            )
-            results[wf_id] = FilterResult(workflow_id=wf_id, count=0)
             timings[wf_id] = elapsed
 
     logger.info(

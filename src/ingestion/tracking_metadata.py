@@ -36,19 +36,50 @@ if TYPE_CHECKING:
 
 TABLE_NAME = "tracking_player_metadata"
 
+_guard_logger = logging.getLogger(f"{__name__}.guard")
+
 
 class _TrackingMetadataGuard:
     workflow_id = "wf-tracking-metadata"
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
-        """Skip if tracking metadata table already exists and is populated."""
+        """Find tracking data sources that lack metadata extraction."""
+        from ingestion.guards import find_new_ids
+
+        results_table = f"{catalog}.{schema}.{TABLE_NAME}"
+
+        # Check IDSSE matches
+        idsse_ids: list[str] = []
         try:
-            row_count = spark.table(f"{catalog}.{schema}.tracking_player_metadata").limit(1).count()
-            if row_count > 0:
-                return FilterResult(workflow_id=self.workflow_id, count=0)
-        except Exception:  # noqa: S110
-            pass
-        return FilterResult(workflow_id=self.workflow_id, count=1)
+            idsse_ids = find_new_ids(
+                spark,
+                source_table=f"{catalog}.bronze.idsse_tracking",
+                results_table=results_table,
+            )
+        except Exception:
+            _guard_logger.debug("Cannot check IDSSE tracking — table may not exist")
+
+        # Check SkillCorner matches
+        skillcorner_ids: list[str] = []
+        try:
+            skillcorner_ids = find_new_ids(
+                spark,
+                source_table=f"{catalog}.bronze.skillcorner_tracking",
+                results_table=results_table,
+            )
+        except Exception:
+            _guard_logger.debug("Cannot check SkillCorner tracking — table may not exist")
+
+        all_ids = sorted(set(idsse_ids) | set(skillcorner_ids))
+
+        if not all_ids:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        return FilterResult(
+            workflow_id=self.workflow_id,
+            count=len(all_ids),
+            metadata={"new_match_ids": all_ids},
+        )
 
 
 skip_guard = _TrackingMetadataGuard()

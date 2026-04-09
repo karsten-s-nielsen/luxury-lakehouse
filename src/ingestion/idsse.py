@@ -46,6 +46,8 @@ from workflows.exceptions import WorkflowSkippedError
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
+from ingestion.utils import SparkAnalysisException as _SparkAnalysisException
+
 
 class _IdsseGuard:
     workflow_id = "wf-idsse"
@@ -651,7 +653,7 @@ def ingest_idsse_events(
     try:
         existing_rows = spark.table(f"{catalog}.{schema}.idsse_events").select("match_id").distinct().collect()
         existing_ids = {str(row["match_id"]) for row in existing_rows}
-    except Exception:
+    except _SparkAnalysisException:
         logger.info("No existing idsse_events table — processing all matches")
 
     new_match_ids = [mid for mid in ids_to_ingest if f"idsse_{mid}" not in existing_ids]
