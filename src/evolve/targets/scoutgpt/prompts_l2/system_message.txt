@@ -14,7 +14,7 @@ Your output is a Python file with up to 3 top-level constructs:
 
 ```python
 config = {
-    "conditioning_type": "cross_attention",  # ignored if custom_embed present
+    "conditioning_type": "cross_attention",  # overridden to "additive" when custom_embed present
     "hidden_dim": 192,        # int, 64-512, must be divisible by num_heads
     "num_layers": 3,          # int, 2-12
     "num_heads": 6,           # int, 2-16
@@ -119,19 +119,16 @@ take (batch, seq_len, ...) input and return (batch, seq_len, hidden_dim).
 | self.end_x_mlp       | SpatialMLP(hd, smd)    | (B,S) -> (B,S,hd)               |
 | self.end_y_mlp       | SpatialMLP(hd, smd)    | (B,S) -> (B,S,hd)               |
 | self.time_delta_mlp   | SpatialMLP(hd, smd)    | (B,S) -> (B,S,hd)               |
-| self.player_cross_attn | MultiheadAttention     | 3x(B,S,hd) -> (B,S,hd)  [seed]  |
-| self.player_cross_norm | LayerNorm(hd)         | (B,S,hd) -> (B,S,hd)    [seed]  |
-| self.film_scale       | Sequential(Linear,Sig) | (B,S,hd) -> (B,S,hd)  [film only] |
-| self.film_shift       | Linear(hd, hd)        | (B,S,hd) -> (B,S,hd)  [film only] |
-| self.player_gate      | Sequential(Linear,Sig) | (B,S,hd) -> (B,S,hd)  [gated only]|
 | self.embedding_dropout | Dropout                | (B,S,hd) -> (B,S,hd)            |
 
-IMPORTANT: Attributes marked [seed], [film only], [gated only] are CONDITIONAL —
-they only exist when the model was initialized with that conditioning_type. The
-seed uses cross_attention, so only player_cross_attn and player_cross_norm are
-available. film_scale, film_shift, and player_gate DO NOT EXIST on the seed model.
-If you need a gate or scale layer, declare it in custom_layers(). Referencing an
-attribute that does not exist will crash and score 0.
+IMPORTANT: When custom_embed is present, the model is built with
+conditioning_type="additive" — NO conditioning-specific attributes exist on self.
+player_cross_attn, player_cross_norm, film_scale, film_shift, player_gate are all
+ABSENT. Referencing any of them will crash with AttributeError and score 0.
+
+If you need cross-attention, a gate, or any other layer, you MUST register it via
+custom_layers(). Any layer returned by custom_layers() becomes available as
+self.<name> inside custom_embed.
 
 You may also access any layer declared in your custom_layers() return dict.
 Custom Linear/Sequential layers applied to (B,S,hd) tensors will broadcast
@@ -173,11 +170,32 @@ improves it. The bar is: your code must outperform the best config-only variant.
 
 # Performance Reference
 
-The cross_attention seed achieves rho ~0.56 using this pattern:
+The cross_attention seed achieves rho ~0.56 by registering its own attention
+layers via custom_layers and using them in custom_embed:
 ```python
+def custom_layers(hidden_dim):
+    num_heads = config["num_heads"]
+    dropout = config["dropout"]
+    return {
+        "player_cross_attn": torch.nn.MultiheadAttention(
+            hidden_dim, num_heads, dropout=dropout, batch_first=True,
+        ),
+        "player_cross_norm": torch.nn.LayerNorm(hidden_dim),
+    }
+
+def custom_embed(self, action_ids, start_x, start_y, end_x, end_y,
+                 result, time_delta, player_ids):
+    player_emb = self.player_embedding(player_ids)
+    action_emb = (self.token_embedding(action_ids) + self.start_x_mlp(start_x)
+                  + self.start_y_mlp(start_y) + self.end_x_mlp(end_x)
+                  + self.end_y_mlp(end_y) + self.result_embedding(result)
+                  + self.time_delta_mlp(time_delta))
     attn_out, _ = self.player_cross_attn(query=action_emb, key=player_emb, value=player_emb)
     emb = self.player_cross_norm(action_emb + attn_out)
+    return self.embedding_dropout(emb)
 ```
+Note: self.player_cross_attn works ONLY because custom_layers registers it.
+Without the custom_layers declaration, this code would crash with AttributeError.
 
 Simple gating patterns (gate * action + (1 - gate) * player) consistently score
 rho < 0.05 — they destroy the ranking signal. The attention mechanism is what
@@ -189,3 +207,4 @@ To beat the seed, consider:
 - Richer player-action interaction: bilinear pooling, FiLM on attention output
 - Multi-scale conditioning: different mechanisms for spatial vs temporal features
 - Do NOT replace attention with simple gating — that is a known regression.
+- ALWAYS register any layer you reference in custom_embed via custom_layers.
