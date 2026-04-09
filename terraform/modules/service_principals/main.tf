@@ -85,3 +85,12 @@ resource "databricks_service_principal_federation_policy" "github_actions" {
     subject_claim = "repository"
   }
 }
+
+# ── HF Spaces App (OAuth M2M) ───────────────────────────────────────────────
+# Taipy app on HF Spaces authenticates to Databricks and Lakebase via OAuth
+# M2M (no expiring PAT). Read-only: SELECT on gold + observability schemas.
+
+resource "databricks_service_principal" "hf_app" {
+  display_name = "luxury-lakehouse-hf-app-v2-${var.environment}"
+  active       = true
+}

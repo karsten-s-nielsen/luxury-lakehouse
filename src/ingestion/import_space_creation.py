@@ -192,11 +192,7 @@ def main() -> None:
 
     bootstrap_hooks(spark, catalog, schema)
 
-    from ingestion.guards import read_gate_result
-
-    filter_result = read_gate_result("wf-import-space-creation")
-    if filter_result is None:
-        filter_result = skip_guard.check(spark, catalog, schema)
+    filter_result = skip_guard.check(spark, catalog, schema)
 
     run_pipeline(spark, catalog, schema, volume_path, filter_result=filter_result)
 

@@ -230,3 +230,12 @@ resource "databricks_grant" "app_sp_gold_schema" {
   principal  = var.app_sp_application_id
   privileges = ["USE_SCHEMA", "SELECT"]
 }
+
+resource "databricks_grant" "app_sp_observability_schema" {
+  count = var.app_sp_application_id != "" ? 1 : 0
+
+  schema = "${var.catalog_name}.${databricks_schema.observability.name}"
+
+  principal  = var.app_sp_application_id
+  privileges = ["USE_SCHEMA", "SELECT"]
+}

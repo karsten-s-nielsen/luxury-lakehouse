@@ -48,14 +48,6 @@ _NO_OWN_PIPELINE = {
     "ingestion.defcon_lite_tracking",
 }
 
-# Modules whose main() legitimately omits read_gate_result because
-# they are always-run stubs, static-dataset ingestors, or have
-# special orchestration that doesn't use the freshness gate.
-_READ_GATE_EXEMPT = {
-    "ingestion.defcon_lite_360",  # No own main(), orchestrated by defcon_lite
-    "ingestion.defcon_lite_tracking",  # No own main(), orchestrated by defcon_lite
-}
-
 
 # ---------------------------------------------------------------------------
 # Spark mock helpers
@@ -793,17 +785,16 @@ class TestNoInlineGuardInPipeline:
 
 
 # ---------------------------------------------------------------------------
-# TestMainStandaloneResolution — Gate + fallback in main()
+# TestDirectGuardCall — main() calls skip_guard.check() directly (D52)
 # ---------------------------------------------------------------------------
 
 
-class TestMainStandaloneResolution:
-    """main() must resolve guard result: gate first, skip_guard.check() fallback.
+class TestDirectGuardCall:
+    """main() must call skip_guard.check() directly — no gate indirection.
 
-    In production, main() reads FilterResult from Databricks task values
-    via read_gate_result(). In standalone mode (no task values), it must
-    call skip_guard.check() to compute the result locally. Both paths
-    must be present.
+    After D52, the centralized freshness gate is removed. Each pipeline's
+    main() calls its guard's check() at startup. read_gate_result must not
+    appear anywhere in main().
     """
 
     _EXEMPT: ClassVar[set[str]] = {
@@ -811,8 +802,9 @@ class TestMainStandaloneResolution:
         "ingestion.defcon_lite_tracking",
     }
 
-    def test_main_has_gate_and_fallback(self) -> None:
-        """main() must call both read_gate_result and skip_guard.check."""
+    def test_main_calls_skip_guard_directly(self) -> None:
+        """main() must call skip_guard.check and must NOT call read_gate_result."""
+        failures: list[str] = []
         for module_path in _GUARD_MODULES:
             if module_path in self._EXEMPT:
                 continue
@@ -830,13 +822,17 @@ class TestMainStandaloneResolution:
             ]
 
             for main_fn in main_fns:
+                has_guard = _ast_has_name_or_attr(main_fn, "skip_guard")
                 has_gate = _ast_has_name_or_attr(main_fn, "read_gate_result")
-                has_fallback = _ast_has_name_or_attr(main_fn, "skip_guard")
 
-                assert has_gate, f"{module_path}.{main_fn.name}() does not call read_gate_result()"
-                assert has_fallback, (
-                    f"{module_path}.{main_fn.name}() does not call skip_guard.check() as standalone fallback"
-                )
+                if not has_guard:
+                    failures.append(f"{module_path}.{main_fn.name}() does not call skip_guard.check()")
+                if has_gate:
+                    failures.append(
+                        f"{module_path}.{main_fn.name}() still references read_gate_result (removed in D52)"
+                    )
+
+        assert not failures, "main() guard call conformance failures:\n" + "\n".join(failures)
 
 
 def _ast_has_name_or_attr(node: ast.AST, name: str) -> bool:

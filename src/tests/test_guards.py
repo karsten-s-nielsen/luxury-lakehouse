@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import FrozenInstanceError
 from unittest.mock import MagicMock
 
 import pytest
 
-from ingestion.guards import FilterResult, find_new_ids, read_gate_result
+from ingestion.guards import FilterResult, find_new_ids
 
 
 class TestFilterResult:
-    """FilterResult is a frozen dataclass with JSON round-trip support."""
+    """FilterResult is a frozen dataclass."""
 
     def test_skip_when_count_zero(self) -> None:
         """count=0 signals the freshness gate to skip this workflow."""
@@ -47,55 +46,6 @@ class TestFilterResult:
         result = FilterResult(workflow_id="wf-spadl", count=3)
         with pytest.raises(FrozenInstanceError):
             result.count = 10  # type: ignore[misc]
-
-    def test_json_round_trip(self) -> None:
-        """to_json/from_json preserves all fields."""
-        original = FilterResult(
-            workflow_id="wf-pausa",
-            count=7,
-            chunks=[["m1", "m2"], ["m3"]],
-            metadata={"need_global": False},
-        )
-        restored = FilterResult.from_json(original.to_json())
-        assert restored == original
-
-    def test_json_round_trip_skip(self) -> None:
-        """Round-trip works for skip results (count=0, no chunks)."""
-        original = FilterResult(workflow_id="wf-xg", count=0)
-        restored = FilterResult.from_json(original.to_json())
-        assert restored == original
-
-    def test_manual_json_interop(self) -> None:
-        """Consumers that don't use FilterResult can parse the JSON directly."""
-        result = FilterResult(
-            workflow_id="wf-defcon",
-            count=3,
-            chunks=[["m1"], ["m2"], ["m3"]],
-            metadata={"phase": "silver"},
-        )
-        raw = result.to_json()
-        data = json.loads(raw)
-
-        assert data["workflow_id"] == "wf-defcon"
-        assert data["count"] == 3
-        assert data["chunks"] == [["m1"], ["m2"], ["m3"]]
-        assert data["metadata"]["phase"] == "silver"
-
-    def test_manual_json_construction(self) -> None:
-        """FilterResult can be built from hand-crafted JSON (task value consumers)."""
-        payload = json.dumps(
-            {
-                "workflow_id": "wf-xt",
-                "count": 2,
-                "chunks": None,
-                "metadata": {"source": "statsbomb"},
-            }
-        )
-        result = FilterResult.from_json(payload)
-        assert result.workflow_id == "wf-xt"
-        assert result.count == 2
-        assert result.chunks is None
-        assert result.metadata["source"] == "statsbomb"
 
 
 def _row(match_id: str) -> dict[str, str]:
@@ -427,96 +377,3 @@ class TestFindNewIds:
         mock_f.col.assert_called_with("competition_id")
         # Verify join uses the custom column name
         source_df.join.assert_called_once_with(results_df, on="competition_id", how="left_anti")
-
-
-class TestReadGateResult:
-    """Tests for read_gate_result() — reads FilterResult from Databricks task values."""
-
-    def test_successful_read(self) -> None:
-        """Returns a correct FilterResult when dbutils.jobs.taskValues.get succeeds."""
-        import sys
-        from unittest.mock import MagicMock, patch
-
-        expected = FilterResult(workflow_id="wf-pausa", count=3, chunks=[["m1", "m2"], ["m3"]])
-        raw_json = expected.to_json()
-
-        mock_spark = MagicMock()
-        mock_dbutils = MagicMock()
-        mock_dbutils.jobs.taskValues.get.return_value = raw_json
-
-        mock_dbutils_cls = MagicMock(return_value=mock_dbutils)
-        mock_spark_cls = MagicMock()
-        mock_spark_cls.getActiveSession.return_value = mock_spark
-
-        mock_pyspark_dbutils_module = MagicMock()
-        mock_pyspark_dbutils_module.DBUtils = mock_dbutils_cls
-
-        with (
-            patch.dict(sys.modules, {"pyspark.dbutils": mock_pyspark_dbutils_module}),
-            patch("pyspark.sql.SparkSession", mock_spark_cls),
-        ):
-            result = read_gate_result("wf-pausa")
-
-        assert result is not None
-        assert result.workflow_id == "wf-pausa"
-        assert result.count == 3
-        assert result.chunks == [["m1", "m2"], ["m3"]]
-        mock_dbutils.jobs.taskValues.get.assert_called_once_with(taskKey="freshness_gate", key="wf-pausa")
-
-    def test_returns_none_on_import_failure(self) -> None:
-        """Returns None when pyspark.dbutils is not importable (standalone mode)."""
-        import sys
-        from unittest.mock import patch
-
-        with patch.dict(sys.modules, {"pyspark.dbutils": None}):
-            result = read_gate_result("wf-pausa")
-
-        assert result is None
-
-    def test_returns_none_on_missing_key(self) -> None:
-        """Returns None when taskValues.get raises (key not set by freshness gate)."""
-        import sys
-        from unittest.mock import MagicMock, patch
-
-        mock_spark = MagicMock()
-        mock_dbutils = MagicMock()
-        mock_dbutils.jobs.taskValues.get.side_effect = Exception("Key not found: wf-pausa")
-
-        mock_dbutils_cls = MagicMock(return_value=mock_dbutils)
-        mock_spark_cls = MagicMock()
-        mock_spark_cls.getActiveSession.return_value = mock_spark
-
-        mock_pyspark_dbutils_module = MagicMock()
-        mock_pyspark_dbutils_module.DBUtils = mock_dbutils_cls
-
-        with (
-            patch.dict(sys.modules, {"pyspark.dbutils": mock_pyspark_dbutils_module}),
-            patch("pyspark.sql.SparkSession", mock_spark_cls),
-        ):
-            result = read_gate_result("wf-pausa")
-
-        assert result is None
-
-    def test_returns_none_on_invalid_json(self) -> None:
-        """Returns None when taskValues.get returns malformed JSON."""
-        import sys
-        from unittest.mock import MagicMock, patch
-
-        mock_spark = MagicMock()
-        mock_dbutils = MagicMock()
-        mock_dbutils.jobs.taskValues.get.return_value = "not-valid-json{{{"
-
-        mock_dbutils_cls = MagicMock(return_value=mock_dbutils)
-        mock_spark_cls = MagicMock()
-        mock_spark_cls.getActiveSession.return_value = mock_spark
-
-        mock_pyspark_dbutils_module = MagicMock()
-        mock_pyspark_dbutils_module.DBUtils = mock_dbutils_cls
-
-        with (
-            patch.dict(sys.modules, {"pyspark.dbutils": mock_pyspark_dbutils_module}),
-            patch("pyspark.sql.SparkSession", mock_spark_cls),
-        ):
-            result = read_gate_result("wf-pausa")
-
-        assert result is None

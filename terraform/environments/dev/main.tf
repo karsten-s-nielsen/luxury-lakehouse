@@ -98,7 +98,7 @@ module "catalog" {
   environment                 = var.environment
   ingestion_sp_application_id = module.service_principals.ingestion_sp_application_id
   enable_ingestion_sp_grants  = true
-  app_sp_application_id       = "" # Databricks App deprecated — Streamlit runs on HF Spaces
+  app_sp_application_id       = module.service_principals.hf_app_sp_application_id
   silver_schema_override      = "${var.environment}_silver"
   gold_schema_override        = "${var.environment}_gold"
 }

@@ -2002,8 +2002,8 @@ models:
         data_type: string
         description: >
           Workflow card identifier (e.g., wf-vaep). Resolved from
-          workflow_cost_live via task_key + job_run_id join. NULL for
-          runs predating the CostEstimateHook deployment.
+          task_workflow_mapping seed via task_key join. NULL for
+          task_keys not yet mapped in the seed.
       - name: attributed_dbu
         data_type: decimal(10,4)
         description: >
@@ -2014,6 +2014,33 @@ models:
         description: >
           Proportional dollar cost for this task within the job run.
           Attributed by execution_duration_seconds ratio.
+      - name: duration_seconds
+        data_type: int
+        description: >
+          Pipeline wall-clock duration in seconds from CostEstimateHook.
+          More accurate than execution_duration_seconds (excludes scheduling
+          overhead). NULL for runs predating hook deployment.
+      - name: entity_count
+        data_type: int
+        description: >
+          Number of entities the guard found for this run (e.g., match count).
+          NULL for runs predating hook deployment or when hook failed.
+      - name: row_count
+        data_type: int
+        description: >
+          Number of rows the pipeline wrote. NULL for runs predating hook
+          deployment, SKIPPED runs (always 0), or when hook failed.
+      - name: pipeline_state
+        data_type: string
+        description: >
+          Pipeline outcome from CostEstimateHook: COMPLETED, SKIPPED, or ERROR.
+          NULL for runs predating hook deployment.
+      - name: estimated_cost_usd
+        data_type: decimal(10,4)
+        description: >
+          Hook's per-task cost estimate (rate_usd_per_hour * duration).
+          Independent of billing attribution — useful for comparing hook
+          estimates against actual attributed_cost_usd. NULL for older runs.
 
   # ── Formation Detection ────────────────────────────────────────────────
 

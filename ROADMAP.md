@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the current [architecture](ARCHITECTURE.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-04-08 (Match Insights Page + Data Governance & Privacy-Preserving Analytics sections added)
+**Last updated**: 2026-04-09 (Semantic Layer + Conversational Analytics additions from Gartner D&A Summit 2026 review)
 
 ---
 
@@ -235,11 +235,12 @@ Models with available weights compatible with current data sources:
 |-------|--------|--------|----------------|
 | [**SoccerMaster**](https://arxiv.org/abs/2512.11016) | Vision foundation (multi-task) | CVPR 2026, weights released 2026-03-05 | First soccer-specific foundation model — unified backbone for detection, calibration, event classification. See details below |
 
-### Watch list (pending weight release)
+### Watch list (pending weight release or maturity)
 
 | Model | Domain | Status | Why It Matters |
 |-------|--------|--------|----------------|
 | [**SportMamba**](https://arxiv.org/abs/2506.03335) | Video tracking (Mamba SSM) | CVPR 2025 | State-of-the-art multi-object tracking for team sports |
+| [**SimpliHuMoN**](https://github.com/aadya-agrawal/SimpliHuMoN) | 3D motion prediction (transformer) | arXiv 2603.04399 (Agrawal & Schwing, UIUC, 2026) | Predicts 1s of full-body skeleton motion from 1s history. 18% improvement over baselines, ~70 samples/sec on single GPU (~3 full 22-player scenes/sec). Applied to WorldPose (2022 FIFA WC). No pre-trained checkpoints yet. Deps: PyTorch Geometric, PyTorch Lightning. **Relevance:** candidate motion prediction layer for enhanced pitch control (non-linear trajectory forecasts vs current linear velocity extrapolation). Requires 3D skeleton input &mdash; directly compatible with Respo.Vision output, not with current 2D tracking. See Visual Exploratory Behavior section for pipeline integration path. |
 
 ### SoccerMaster — Investigation Notes (2026-03-26)
 
@@ -490,6 +491,12 @@ The `Vision` class is a clean NumPy/scipy implementation. Once pose data arrives
 | `int_vision_maps.sql` | dbt intermediate | Per-player per-frame vision metrics |
 | `fct_player_stats.sql` (update) | dbt marts | Vision-derived per-90 stats |
 | Heat Map page (update) | Taipy | Vision map overlay on tracking viz |
+
+### Motion prediction extension
+
+When 3D skeleton data is available (Respo.Vision path), [SimpliHuMoN](https://github.com/aadya-agrawal/SimpliHuMoN) (Agrawal &amp; Schwing 2026, arXiv 2603.04399) could add a motion prediction layer: given 1s of skeleton history, predict the next 1s of full-body motion for all 22 players. This would enhance pitch control by replacing linear velocity extrapolation with learned non-linear trajectory forecasts (defenders change direction, attackers make runs). The model processes ~3 full 22-player scenes/sec on single GPU. See Deep Learning Infrastructure watch list for details.
+
+The pipeline chain would be: Veo3 footage &rarr; RTMO-l (2D keypoints) or Respo.Vision (3D keypoints) &rarr; SimpliHuMoN (predicted motion) &rarr; Spearman pitch control (with predicted positions). The 2D RTMO path would require a 2D&rarr;3D lifting step before SimpliHuMoN.
 
 ### Dependencies
 
@@ -822,6 +829,16 @@ Hybrid rule-based + LLM synthesis:
 | **Player development** | "#3's cutback effectiveness 32% vs traditional crosses 19%. But in-behind runs at 47% — consider more early runs." |
 | **GK-specific** | "70% of GK actions were distribution. Play Beyond completion: 40% — long distribution is the development priority." |
 
+### Conversational Analytics Interface
+
+The current Taipy app is entirely widget-driven (filters, dropdowns, charts). A natural language query interface would let users ask questions like "How did our pressing intensity change after going ahead?" instead of navigating to the right page, selecting the right filters, and interpreting the chart themselves.
+
+This aligns with industry direction: Gartner D&A Summit 2026 identified conversational analytics as a key trend &mdash; moving from complex dashboards to natural language queries and narrative-driven insights (Desai 2026). Analytics becomes more reflective of how humans naturally think and make decisions.
+
+**Integration with Match Insights:** The LLM synthesis component (below) already produces narrative text. A conversational layer would accept user questions, route them to the appropriate rule-based detectors or SQL queries, and compose narrative responses. The same LLM that generates coaching insights could power the conversational interface.
+
+**Research needed:** Taipy does not have a native chat component. Options: (1) custom chat widget via Taipy's extension API, (2) separate Gradio chat tab alongside the Taipy app, (3) HF Inference API or local model for query understanding + SQL generation.
+
 ### Prerequisites
 
 - PA1 (Game State Segmentation) provides the context layer
@@ -829,6 +846,44 @@ Hybrid rule-based + LLM synthesis:
 - PA3 (Throw-In Analytics) provides throw-in possession retention patterns
 - PA4 (Conversion Rate Funnel) provides the funnel metrics
 - LLM integration pattern for Taipy (research needed — could use HF Inference API or local model)
+- Semantic Layer (see below) — shared business definitions for AI-generated queries
+
+---
+
+## Semantic Layer — Machine-Readable Business Definitions
+
+**Status:** Research — gap identified
+**Source:** Gartner D&A Summit 2026 (Desai 2026), Desai's 4-layer architecture framework
+
+### The Gap
+
+The platform has business definitions scattered across three human-readable locations: the `GLOSSARY` dict in `page_template.py` (UI tooltips), workflow card YAML files (pipeline metadata), and `_marts__models.yml` (dbt column descriptions). None of these are structured for AI consumption &mdash; an LLM or agent cannot query "what does PAUSA measure?" or "which metric tells me about pressing intensity?" without reading source code.
+
+Desai's 4-layer architecture (Data &rarr; Semantics &rarr; AI/Agents &rarr; Decision Systems) positions the semantic layer as the bridge between clean data and intelligent AI agents. Our Data layer (Delta Lake + dbt contracts) and AI/Agents layer (evolve engine, ScoutGPT, embeddings) are active, but the Semantic layer is the weakest link.
+
+### Where It Matters
+
+| Consumer | Why semantics needed |
+|----------|---------------------|
+| **Match Insights page** (conversational analytics) | LLM needs to know which metric answers "how is our pressing?" without hardcoded mappings |
+| **ScoutGPT / evolve engine** | Code evolution agents need domain vocabulary to generate meaningful features |
+| **Multi-surface UX parity** | Taipy glossary and Gradio demo terms should derive from a single source |
+| **Future: cross-club benchmarking** | Shared definitions are prerequisite for any multi-party analytics |
+
+### Implementation Options
+
+| Option | Approach | Pros | Cons |
+|--------|----------|------|------|
+| **dbt Semantic Layer** | Define metrics via `dbt_metrics` or MetricFlow | Industry-standard, queryable via dbt Cloud Semantic Layer API | Requires dbt Cloud (not OSS), MetricFlow complexity |
+| **YAML knowledge base** | Extend workflow card format with a `domain_terms.yml` file mapping terms &rarr; definitions, units, ranges, related metrics | Simple, version-controlled, queryable by LLM tools | Custom format, no query optimization |
+| **Extend existing glossary** | Promote `GLOSSARY` from Python dict to a YAML file, add structured fields (range, direction, unit, related_page, dbt_column) | Builds on what exists, single source for UI + AI | Still custom, but lower migration cost |
+
+**Recommendation:** Option 3 (extend glossary) as the pragmatic first step &mdash; it unifies the existing Taipy glossary with machine-readable metadata without introducing new infrastructure. Migrate `GLOSSARY` from `page_template.py` to `glossary.yml`, add structured fields, load into Taipy at startup, and make available to LLM contexts.
+
+### Prerequisites
+
+- No hard prerequisites &mdash; can be done incrementally alongside any other work
+- Becomes load-bearing when Match Insights page or conversational analytics is built
 
 ---
 
