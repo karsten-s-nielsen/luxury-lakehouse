@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 _TABLE_NAME = "pitch_control_values"
+_RESULTS_SCHEMA = "tracking_id STRING, match_id STRING, pitch_control_value DOUBLE, _ingested_at TIMESTAMP"
 _guard_logger = logging.getLogger(f"{__name__}.guard")
 
 # Default number of source frames per batch group.  Each batch is processed
@@ -159,12 +160,14 @@ class _PitchControlGuard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check which tracking matches need pitch control computation."""
-        from ingestion.guards import find_new_ids
+        from ingestion.guards import ensure_table, find_new_ids
 
+        results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+        ensure_table(spark, results_table, _RESULTS_SCHEMA)
         new_match_ids = find_new_ids(
             spark,
             source_table=f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_tracking_frames",
-            results_table=f"{catalog}.{schema}.{_TABLE_NAME}",
+            results_table=results_table,
         )
 
         if not new_match_ids:

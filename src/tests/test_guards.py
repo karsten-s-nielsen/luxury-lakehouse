@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from ingestion.guards import FilterResult, find_new_ids
+from ingestion.guards import FilterResult, ensure_table, find_new_ids
 
 
 class TestFilterResult:
@@ -46,6 +46,29 @@ class TestFilterResult:
         result = FilterResult(workflow_id="wf-spadl", count=3)
         with pytest.raises(FrozenInstanceError):
             result.count = 10  # type: ignore[misc]
+
+
+class TestEnsureTable:
+    """ensure_table issues CREATE TABLE IF NOT EXISTS DDL."""
+
+    def test_creates_table_with_delta_and_properties(self) -> None:
+        """Verify the DDL includes table name, schema, USING DELTA, and tblproperties."""
+        spark = MagicMock()
+        ensure_table(spark, "cat.schema.my_table", "match_id STRING, value DOUBLE")
+        spark.sql.assert_called_once()
+        sql = spark.sql.call_args[0][0]
+        assert "CREATE TABLE IF NOT EXISTS cat.schema.my_table" in sql
+        assert "match_id STRING, value DOUBLE" in sql
+        assert "USING DELTA" in sql
+        assert "delta.autoOptimize.autoCompact" in sql
+        assert "delta.autoOptimize.optimizeWrite" in sql
+
+    def test_is_idempotent(self) -> None:
+        """Calling twice issues SQL twice (metadata-only no-op on second call)."""
+        spark = MagicMock()
+        ensure_table(spark, "cat.schema.t", "id STRING")
+        ensure_table(spark, "cat.schema.t", "id STRING")
+        assert spark.sql.call_count == 2
 
 
 def _row(match_id: str) -> dict[str, str]:
@@ -137,22 +160,27 @@ class TestPitchControlGuard:
         assert len(result.chunks[0]) == 2
         assert len(result.chunks[2]) == 1  # Last chunk may be smaller
 
-    def test_returns_all_when_no_results_table(self) -> None:
+    def test_returns_all_when_results_table_empty(self) -> None:
+        """Guard uses ensure_table, so results table always exists.
+
+        After ``ensure_table`` creates an empty table, ``find_new_ids``
+        returns all source IDs because the anti-join finds no matches.
+        """
         from ingestion.pitch_control_batch import skip_guard
 
         _mock_pyspark_functions()
         spark = MagicMock()
 
-        # Source returns 2 IDs, results table raises — all returned
         source_df = _make_chainable_df([_id_row("m1"), _id_row("m2")])
-        call_count = 0
+        # Empty results table — anti-join returns all source IDs
+        empty_results_df = _make_chainable_df([])
+        # Anti-join of source against empty results returns all source rows
+        source_df.join.return_value = source_df
 
         def table_side_effect(name: str) -> MagicMock:
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
+            if "fct_tracking_frames" in name:
                 return source_df
-            raise Exception("Table not found")
+            return empty_results_df
 
         spark.table.side_effect = table_side_effect
 
@@ -229,7 +257,11 @@ class TestFindNewIds:
         mock_f.col.assert_called_with("match_id")
 
     def test_missing_results_table(self) -> None:
-        """Results table raises Exception -> returns all source IDs."""
+        """Results table raises Exception -> propagates to caller.
+
+        Since the new contract requires callers to use ``ensure_table``
+        before ``find_new_ids``, a missing results table is an error.
+        """
         _mock_pyspark_functions()
         spark = MagicMock()
 
@@ -246,11 +278,8 @@ class TestFindNewIds:
 
         spark.table.side_effect = table_side_effect
 
-        result = find_new_ids(spark, "catalog.schema.source", "catalog.schema.results")
-
-        assert sorted(result) == ["m1", "m2", "m3"]
-        # join should never be called since results table doesn't exist
-        source_df.join.assert_not_called()
+        with pytest.raises(Exception, match="Table not found"):
+            find_new_ids(spark, "catalog.schema.source", "catalog.schema.results")
 
     def test_empty_source(self) -> None:
         """Source has 0 rows -> returns empty list."""

@@ -40,6 +40,11 @@ from workflows.exceptions import WorkflowSkippedError
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
+_RESULTS_SCHEMA = (
+    "event_id STRING, match_id STRING, is_line_breaking BOOLEAN, "
+    "lines_broken BIGINT, line_breaking_type STRING, data_source STRING, _ingested_at TIMESTAMP"
+)
+
 
 class _LineBreakingGuard:
     """SkipGuard adapter for line-breaking pass detection pipeline."""
@@ -48,9 +53,10 @@ class _LineBreakingGuard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check if any data path has unprocessed matches."""
-        from ingestion.guards import find_new_ids
+        from ingestion.guards import ensure_table, find_new_ids
 
         results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+        ensure_table(spark, results_table, _RESULTS_SCHEMA)
 
         sb_ids = find_new_ids(
             spark,

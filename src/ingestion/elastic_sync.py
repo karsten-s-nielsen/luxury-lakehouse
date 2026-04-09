@@ -50,6 +50,10 @@ if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 _TABLE_NAME = "elastic_sync_results"
+_RESULTS_SCHEMA = (
+    "match_id STRING, event_id STRING, frame_id INT, "
+    "alignment_confidence DOUBLE, alignment_error_seconds DOUBLE, _ingested_at TIMESTAMP"
+)
 _guard_logger = logging.getLogger(f"{__name__}.guard")
 
 _RESULT_COLUMNS = ["match_id", "event_id", "frame_id", "alignment_confidence", "alignment_error_seconds"]
@@ -62,12 +66,14 @@ class _ElasticSyncGuard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check which IDSSE matches need ELASTIC synchronization."""
-        from ingestion.guards import find_new_ids
+        from ingestion.guards import ensure_table, find_new_ids
 
+        results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+        ensure_table(spark, results_table, _RESULTS_SCHEMA)
         new_match_ids = find_new_ids(
             spark,
             source_table=f"{catalog}.{schema}.idsse_events",
-            results_table=f"{catalog}.{schema}.{_TABLE_NAME}",
+            results_table=results_table,
         )
 
         if not new_match_ids:

@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 _TABLE_NAME = "expected_threat_grids"
+_RESULTS_SCHEMA = "zone_x BIGINT, zone_y BIGINT, xt_value DOUBLE, competition_id STRING, _ingested_at TIMESTAMP"
 _GOLD_TABLE = "fct_action_values"
 
 # SPADL action types relevant to xT
@@ -57,13 +58,15 @@ class _ExpectedThreatGuard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check which competitions need xT grid computation."""
-        from ingestion.guards import find_new_ids
+        from ingestion.guards import ensure_table, find_new_ids
 
+        results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+        ensure_table(spark, results_table, _RESULTS_SCHEMA)
         types_sql = ", ".join(f"'{t}'" for t in _RELEVANT_TYPES)
         new_comps = find_new_ids(
             spark,
             source_table=f"{catalog}.{DEFAULT_GOLD_SCHEMA}.{_GOLD_TABLE}",
-            results_table=f"{catalog}.{schema}.{_TABLE_NAME}",
+            results_table=results_table,
             id_column="competition_id",
             source_filter=f"action_type IN ({types_sql}) AND competition_id IS NOT NULL",
         )

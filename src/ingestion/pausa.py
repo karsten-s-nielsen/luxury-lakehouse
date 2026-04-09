@@ -35,6 +35,12 @@ if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 _TABLE_NAME = "fct_pausa_values"
+_RESULTS_SCHEMA = (
+    "pass_id STRING, match_id STRING, player_id STRING, team STRING, period INT, "
+    "timestamp_seconds DOUBLE, frame_id INT, temporal_judgment DOUBLE, spatial_selection DOUBLE, "
+    "pausa_score DOUBLE, actual_obso DOUBLE, peak_obso DOUBLE, optimal_obso DOUBLE, "
+    "receiver_x DOUBLE, receiver_y DOUBLE, _ingested_at TIMESTAMP"
+)
 _guard_logger = logging.getLogger(f"{__name__}.guard")
 
 
@@ -45,12 +51,14 @@ class _PausaGuard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check which matches need PAUSA computation."""
-        from ingestion.guards import find_new_ids
+        from ingestion.guards import ensure_table, find_new_ids
 
+        results_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.{_TABLE_NAME}"
+        ensure_table(spark, results_table, _RESULTS_SCHEMA)
         new_match_ids = find_new_ids(
             spark,
             source_table=f"{catalog}.bronze.pausa_raw_scores",
-            results_table=f"{catalog}.{DEFAULT_GOLD_SCHEMA}.{_TABLE_NAME}",
+            results_table=results_table,
         )
 
         if not new_match_ids:

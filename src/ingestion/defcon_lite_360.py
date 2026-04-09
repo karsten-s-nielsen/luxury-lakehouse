@@ -17,6 +17,13 @@ from ingestion.utils import write_delta_table
 from shared.constants import DEFAULT_GOLD_SCHEMA
 
 _TABLE_NAME = "defcon_results"
+_RESULTS_SCHEMA = (
+    "event_id STRING, match_id STRING, competition_id BIGINT, season_id BIGINT, "
+    "defender_player_id BIGINT, defender_team_id BIGINT, defender_x DOUBLE, defender_y DOUBLE, "
+    "action_player_id BIGINT, action_type STRING, action_x DOUBLE, action_y DOUBLE, "
+    "credit_type STRING, confidence STRING, dist_to_ball DOUBLE, pitch_control_at_action DOUBLE, "
+    "defcon_value FLOAT, data_source STRING, _ingested_at TIMESTAMP"
+)
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -33,7 +40,10 @@ class _Defcon360Guard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check which 360 matches need DEFCON computation."""
-        from ingestion.guards import find_new_ids
+        from ingestion.guards import ensure_table, find_new_ids
+
+        results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+        ensure_table(spark, results_table, _RESULTS_SCHEMA)
 
         new_match_ids = find_new_ids(
             spark,

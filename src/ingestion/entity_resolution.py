@@ -28,6 +28,10 @@ if TYPE_CHECKING:
     import pandas as pd
     from pyspark.sql import SparkSession
 
+_RESULTS_SCHEMA = (
+    "player_id_a BIGINT, player_id_b BIGINT, confidence DOUBLE, match_method STRING,"
+    " match_layer BIGINT, source_a STRING, source_b STRING, _ingested_at TIMESTAMP"
+)
 _guard_logger = logging.getLogger(f"{__name__}.guard")
 
 
@@ -41,21 +45,20 @@ class _EntityResolutionGuard:
 
         Finds StatsBomb player IDs that lack cross-reference entries.
         """
-        from ingestion.guards import find_new_ids
+        from ingestion.guards import ensure_table, find_new_ids
 
         xref_table = f"{catalog}.{schema}.player_xref_raw"
         lineups_table = f"{catalog}.{schema}.statsbomb_lineups"
 
-        try:
-            new_player_ids = find_new_ids(
-                spark,
-                source_table=lineups_table,
-                results_table=xref_table,
-                id_column="player_id",
-            )
-        except Exception:
-            _guard_logger.debug("Cannot check %s — needs resolution", xref_table)
-            return FilterResult(workflow_id=self.workflow_id, count=1)
+        ensure_table(spark, xref_table, _RESULTS_SCHEMA)
+
+        new_player_ids = find_new_ids(
+            spark,
+            source_table=lineups_table,
+            results_table=xref_table,
+            id_column="player_id",
+            results_id_column="player_id_a",
+        )
 
         if not new_player_ids:
             return FilterResult(workflow_id=self.workflow_id, count=0)

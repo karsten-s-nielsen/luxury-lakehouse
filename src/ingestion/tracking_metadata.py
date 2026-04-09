@@ -35,6 +35,10 @@ if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 TABLE_NAME = "tracking_player_metadata"
+_RESULTS_SCHEMA = (
+    "match_id STRING, player_id STRING, player_display_name STRING, "
+    "team_side STRING, team_display_name STRING, provider STRING, jersey_number STRING, _ingested_at TIMESTAMP"
+)
 
 _guard_logger = logging.getLogger(f"{__name__}.guard")
 
@@ -44,31 +48,30 @@ class _TrackingMetadataGuard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Find tracking data sources that lack metadata extraction."""
-        from ingestion.guards import find_new_ids
+        from ingestion.guards import ensure_table, find_new_ids
 
         results_table = f"{catalog}.{schema}.{TABLE_NAME}"
+        ensure_table(spark, results_table, _RESULTS_SCHEMA)
 
         # Check IDSSE matches
         idsse_ids: list[str] = []
-        try:
+        idsse_source = f"{catalog}.bronze.idsse_tracking"
+        if spark.catalog.tableExists(idsse_source):
             idsse_ids = find_new_ids(
                 spark,
-                source_table=f"{catalog}.bronze.idsse_tracking",
+                source_table=idsse_source,
                 results_table=results_table,
             )
-        except Exception:
-            _guard_logger.debug("Cannot check IDSSE tracking — table may not exist")
 
         # Check SkillCorner matches
         skillcorner_ids: list[str] = []
-        try:
+        skillcorner_source = f"{catalog}.bronze.skillcorner_tracking"
+        if spark.catalog.tableExists(skillcorner_source):
             skillcorner_ids = find_new_ids(
                 spark,
-                source_table=f"{catalog}.bronze.skillcorner_tracking",
+                source_table=skillcorner_source,
                 results_table=results_table,
             )
-        except Exception:
-            _guard_logger.debug("Cannot check SkillCorner tracking — table may not exist")
 
         all_ids = sorted(set(idsse_ids) | set(skillcorner_ids))
 

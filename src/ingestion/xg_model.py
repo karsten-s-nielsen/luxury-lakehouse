@@ -23,6 +23,10 @@ if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 _TABLE_NAME = "xg_predictions"
+_RESULTS_SCHEMA = (
+    "shot_id STRING, match_id BIGINT, competition_id INT, "
+    "xg_logistic DOUBLE, xg_gradient_boosted DOUBLE, _ingested_at TIMESTAMP"
+)
 _guard_logger = logging.getLogger(f"{__name__}.guard")
 
 
@@ -33,12 +37,14 @@ class _XgV1Guard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check which competitions need xG v1 scoring."""
-        from ingestion.guards import find_new_ids
+        from ingestion.guards import ensure_table, find_new_ids
 
+        results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
+        ensure_table(spark, results_table, _RESULTS_SCHEMA)
         new_comps = find_new_ids(
             spark,
             source_table=f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_shots",
-            results_table=f"{catalog}.{schema}.{_TABLE_NAME}",
+            results_table=results_table,
             id_column="competition_id",
             source_filter="competition_id IS NOT NULL",
         )
