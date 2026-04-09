@@ -144,6 +144,12 @@ You may also use these pre-built building blocks (no import needed):
 - MoERouter(hidden_dim, n_experts=4, top_k=2, temperature=1.0)
 - HyperLinear(hidden_dim, rank=16)
 - KANLayer(in_dim, out_dim, n_basis=8)
+- AdaLNZero(hidden_dim, conditioning_dim=None)
+- CrossLayer(hidden_dim)
+- CompetitiveGate(hidden_dim)
+- GradientReversal(lambda_=1.0)
+- AdaptiveBandwidth(hidden_dim)
+- RatioGate(hidden_dim, mode="spatial")
 See "Building Blocks" section below for details and usage.
 
 You may NOT use: import statements, open(), print(), eval(), exec(), getattr(),
@@ -267,6 +273,108 @@ def custom_layers(hidden_dim):
 def custom_embed(self, ...):
     spatial = torch.stack([start_x, start_y, end_x, end_y], dim=-1)  # (B, S, 4)
     spatial_emb = self.kan_spatial(spatial)  # (B, S, hd)
+```
+
+## AdaLNZero(hidden_dim, conditioning_dim=None)
+
+Adaptive Layer Normalization with zero-initialized residual gates (DiT).
+The conditioning signal generates scale, shift, AND residual gate for a
+LayerNorm + residual connection. Superset of FiLM. Zero-init means the
+block starts as pure residual and conditioning is learned incrementally.
+
+```python
+def custom_layers(hidden_dim):
+    return {"adaln": AdaLNZero(hidden_dim)}
+
+def custom_embed(self, ...):
+    normed, gate = self.adaln(action_emb, player_emb)
+    # gate controls how much the sublayer contributes:
+    emb = action_emb + gate * some_transform(normed)  # (B, S, hd)
+```
+
+## CrossLayer(hidden_dim)
+
+DCN-V2 cross layer for explicit polynomial feature interactions.
+x_{l+1} = x_base ⊙ (W·x + b) + x. Stacking N layers produces N-th
+order interactions. Strictly more expressive than FiLM (first-order only).
+
+```python
+def custom_layers(hidden_dim):
+    return {
+        "cross1": CrossLayer(hidden_dim),
+        "cross2": CrossLayer(hidden_dim),  # stack for higher-order
+    }
+
+def custom_embed(self, ...):
+    x = self.cross1(action_emb, player_emb)  # 2nd-order crossing
+    x = self.cross2(x, player_emb)            # 3rd-order crossing
+```
+
+## CompetitiveGate(hidden_dim)
+
+Competitive advantage gate from pitch control physics. Gates by the
+*relative advantage* between two competing signals — sigmoid(k * (primary - competitor)).
+Domain-validated for modeling spatial competition in football.
+
+```python
+def custom_layers(hidden_dim):
+    return {"comp": CompetitiveGate(hidden_dim)}
+
+def custom_embed(self, ...):
+    # player_emb vs action_emb: how much does player context dominate?
+    gated = self.comp(action_emb, player_emb, action_emb)  # (B, S, hd)
+```
+
+## GradientReversal(lambda_=1.0)
+
+Adversarial debiasing — identity forward, negated gradient backward.
+Suppresses a conditioning variable from the representation. Use with
+a classification head to push embeddings AWAY from encoding a variable.
+
+```python
+def custom_layers(hidden_dim):
+    return {
+        "grl": GradientReversal(lambda_=0.1),
+        "debias_head": torch.nn.Linear(hidden_dim, 8),  # e.g., 8 position types
+    }
+
+def custom_embed(self, ...):
+    # Main embedding computation...
+    emb = ...
+    # Adversarial branch (gradient pushes emb away from encoding position type):
+    reversed_emb = self.grl(emb)
+    _ = self.debias_head(reversed_emb)  # loss computed externally
+    return self.embedding_dropout(emb)
+```
+
+## AdaptiveBandwidth(hidden_dim)
+
+State-dependent attention bandwidth from Bekkers' vision model. A scalar
+intensity signal (e.g., time_delta) controls how focused or diffuse the
+conditioning is. Higher intensity = sharper, narrower attention.
+
+```python
+def custom_layers(hidden_dim):
+    return {"bw": AdaptiveBandwidth(hidden_dim)}
+
+def custom_embed(self, ...):
+    # time_delta controls focus: fast actions get sharp conditioning
+    focused = self.bw(action_emb, player_emb, time_delta)  # (B, S, hd)
+```
+
+## RatioGate(hidden_dim, mode="spatial")
+
+Reference-normalized ratio gate from PAUSA/Bekkers. Gates by the ratio
+of a score to its maximum: "what fraction of the possible signal does
+this input capture?" Mode "spatial" takes max over sequence; "channel"
+takes max over features.
+
+```python
+def custom_layers(hidden_dim):
+    return {"ratio": RatioGate(hidden_dim, mode="spatial")}
+
+def custom_embed(self, ...):
+    gated = self.ratio(action_emb, player_emb)  # (B, S, hd)
 ```
 
 These blocks can be freely combined with each other and with standard

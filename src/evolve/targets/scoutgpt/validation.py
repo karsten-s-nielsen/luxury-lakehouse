@@ -48,7 +48,12 @@ SCOUTGPT_PROFILE = ValidationProfile(
             "player_gate",
         }
     ),
-    allowed_namespaces=frozenset({"torch", "math", "MoERouter", "HyperLinear", "KANLayer"}),
+    allowed_namespaces=frozenset({
+        "torch", "math",
+        "MoERouter", "HyperLinear", "KANLayer",
+        "AdaLNZero", "CrossLayer", "CompetitiveGate", "GradientReversal",
+        "AdaptiveBandwidth", "RatioGate",
+    }),
     layers_args=["hidden_dim"],
     rejected_builtins=frozenset(
         {

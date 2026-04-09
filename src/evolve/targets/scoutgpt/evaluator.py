@@ -101,9 +101,15 @@ def _apply_program(
         return
 
     from evolve.targets.scoutgpt.building_blocks import (
+        AdaLNZero,
+        AdaptiveBandwidth,
+        CompetitiveGate,
+        CrossLayer,
+        GradientReversal,
         HyperLinear,
         KANLayer,
         MoERouter,
+        RatioGate,
     )
 
     source = Path(program_path).read_text()
@@ -113,6 +119,12 @@ def _apply_program(
         "MoERouter": MoERouter,
         "HyperLinear": HyperLinear,
         "KANLayer": KANLayer,
+        "AdaLNZero": AdaLNZero,
+        "CrossLayer": CrossLayer,
+        "CompetitiveGate": CompetitiveGate,
+        "GradientReversal": GradientReversal,
+        "AdaptiveBandwidth": AdaptiveBandwidth,
+        "RatioGate": RatioGate,
         "__builtins__": {},
     }
     exec(source, restricted_globals)  # noqa: S102 — see ADR-001  # nosemgrep: python.lang.security.audit.exec-detected.exec-detected
