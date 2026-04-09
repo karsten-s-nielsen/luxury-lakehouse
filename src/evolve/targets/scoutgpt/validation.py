@@ -48,7 +48,7 @@ SCOUTGPT_PROFILE = ValidationProfile(
             "player_gate",
         }
     ),
-    allowed_namespaces=frozenset({"torch", "math"}),
+    allowed_namespaces=frozenset({"torch", "math", "MoERouter", "HyperLinear", "KANLayer"}),
     layers_args=["hidden_dim"],
     rejected_builtins=frozenset(
         {

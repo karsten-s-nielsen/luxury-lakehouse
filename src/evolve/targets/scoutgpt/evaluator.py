@@ -100,10 +100,19 @@ def _apply_program(
     if program_path is None:
         return
 
+    from evolve.targets.scoutgpt.building_blocks import (
+        HyperLinear,
+        KANLayer,
+        MoERouter,
+    )
+
     source = Path(program_path).read_text()
     restricted_globals: dict[str, Any] = {
         "torch": torch,
         "math": __import__("math"),
+        "MoERouter": MoERouter,
+        "HyperLinear": HyperLinear,
+        "KANLayer": KANLayer,
         "__builtins__": {},
     }
     exec(source, restricted_globals)  # noqa: S102 — see ADR-001  # nosemgrep: python.lang.security.audit.exec-detected.exec-detected
