@@ -85,8 +85,22 @@ def _make_permissive_spark_mock() -> MagicMock:
     spark = MagicMock()
 
     rows: list[dict[str, str]] = [
-        {"match_id": "m1", "matchId": "m1", "competition_name": "test", "competition_id": "c1", "player_id": "p1"},
-        {"match_id": "m2", "matchId": "m2", "competition_name": "test2", "competition_id": "c2", "player_id": "p2"},
+        {
+            "match_id": "m1",
+            "matchId": "m1",
+            "competition_name": "test",
+            "competition_id": "c1",
+            "player_id": "p1",
+            "_join_id": "m1",
+        },
+        {
+            "match_id": "m2",
+            "matchId": "m2",
+            "competition_name": "test2",
+            "competition_id": "c2",
+            "player_id": "p2",
+            "_join_id": "m2",
+        },
     ]
 
     def make_df_mock() -> MagicMock:
