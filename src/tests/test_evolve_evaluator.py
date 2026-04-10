@@ -535,7 +535,7 @@ class TestErrorTextCapture:
         assert isinstance(result, EvaluationResult)
         assert result.has_artifacts()
         assert "error" in result.artifacts
-        assert "CUDA OOM" in result.artifacts["error"]
+        assert "CUDA OOM" in str(result.artifacts["error"])
         assert "_error_text" not in result.metrics
 
     def test_no_artifact_on_success(self, tmp_path: Path) -> None:
