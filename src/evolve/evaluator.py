@@ -269,8 +269,8 @@ class EvolveEvaluator:
         except Exception:
             _log.exception("Failed to load program %s", program_path)
             return EvaluationResult(
-                metrics={**fail_metrics(), **self._fail_score(), "reject_reason": "load_error"},
-                artifacts={"error": traceback.format_exc()},
+                metrics={**fail_metrics(), **self._fail_score()},
+                artifacts={"error": f"load_error: {traceback.format_exc()}"},
             )
 
         config = program.config
@@ -286,8 +286,8 @@ class EvolveEvaluator:
             _log.warning("Program %s rejected: search space validation failed", program_path)
             filename = Path(program_path).name
             return EvaluationResult(
-                metrics={**fail_metrics(), **self._fail_score(), "reject_reason": "search_space"},
-                artifacts={"error": f"Search space validation failed for {filename}"},
+                metrics={**fail_metrics(), **self._fail_score()},
+                artifacts={"error": f"search_space: Search space validation failed for {filename}"},
             )
 
         # Level 2 validation gate
@@ -296,8 +296,8 @@ class EvolveEvaluator:
             if self._validation_profile is None:
                 _log.error("Level 2 program but no ValidationProfile configured")
                 return EvaluationResult(
-                    metrics={**fail_metrics(), **self._fail_score(), "reject_reason": "no_profile"},
-                    artifacts={"error": "Level 2 program but no ValidationProfile configured"},
+                    metrics={**fail_metrics(), **self._fail_score()},
+                    artifacts={"error": "no_profile: Level 2 program but no ValidationProfile configured"},
                 )
             source = Path(program_path).read_text()
             valid, reason = validate_program(
@@ -308,8 +308,8 @@ class EvolveEvaluator:
             if not valid:
                 _log.warning("Program %s rejected: %s", program_path, reason)
                 return EvaluationResult(
-                    metrics={**fail_metrics(), **self._fail_score(), "reject_reason": reason},
-                    artifacts={"error": f"Code validation rejected: {reason}"},
+                    metrics={**fail_metrics(), **self._fail_score()},
+                    artifacts={"error": f"validation_rejected: {reason}"},
                 )
             send_program_path = program_path
 
@@ -327,8 +327,8 @@ class EvolveEvaluator:
         except Exception:
             _log.exception("Backend training failed for %s", program_path)
             return EvaluationResult(
-                metrics={**fail_metrics(), **self._fail_score(), "reject_reason": "backend_error"},
-                artifacts={"error": traceback.format_exc()},
+                metrics={**fail_metrics(), **self._fail_score()},
+                artifacts={"error": f"backend_error: {traceback.format_exc()}"},
             )
 
         # Pop _error_text from metrics (if present) and surface as artifact
@@ -337,7 +337,7 @@ class EvolveEvaluator:
         result_metrics = {**metrics, "combined_score": combined}
 
         if error_text is not None:
-            return EvaluationResult(metrics=result_metrics, artifacts={"error": error_text})
+            return EvaluationResult(metrics=result_metrics, artifacts={"error": str(error_text)})
         return EvaluationResult.from_dict(result_metrics)
 
     # ------------------------------------------------------------------
