@@ -226,3 +226,40 @@ models:
               arguments:
                 min_value: 0
                 max_value: 50000
+
+  - name: int_running_score
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Running scoreline per match. One kickoff row (0-0) plus one row per
+      goal event with cumulative home/away scores. Ephemeral CTE consumed
+      by mart models to derive per-action game state.
+    columns:
+      - name: match_id
+        description: Match identifier
+        data_tests:
+          - not_null
+      - name: home_team_id
+        description: Home team identifier
+        data_tests:
+          - not_null
+      - name: away_team_id
+        description: Away team identifier
+        data_tests:
+          - not_null
+      - name: period
+        description: Match period of the score change
+      - name: minute
+        description: Match minute of the score change
+      - name: second
+        description: Match second of the score change
+      - name: home_score_after
+        description: Cumulative home team goals after this event
+        data_tests:
+          - not_null
+      - name: away_score_after
+        description: Cumulative away team goals after this event
+        data_tests:
+          - not_null

@@ -13,7 +13,11 @@ from queries.common import execute_query, t, ttl_cache
 
 
 @ttl_cache()
-def fetch_shots(competition_id: int, team_id: int | None, player_id: int | None) -> pd.DataFrame:
+def fetch_shots(
+    competition_id: int,
+    team_id: int | None,
+    player_id: int | None,
+) -> pd.DataFrame:
     """Fetch shots with player names, filtered by competition/team/player.
 
     Expected columns: shot_id, location_x, location_y, statsbomb_xg, is_goal,

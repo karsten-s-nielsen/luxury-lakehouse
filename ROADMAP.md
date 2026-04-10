@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the current [architecture](ARCHITECTURE.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-04-09 (Semantic Layer + Conversational Analytics additions from Gartner D&A Summit 2026 review)
+**Last updated**: 2026-04-10 (PA1/PA4 status corrected — PA1 dbt-only, PA4 disabled pending D57/D58)
 
 ---
 
@@ -841,10 +841,10 @@ This aligns with industry direction: Gartner D&A Summit 2026 identified conversa
 
 ### Prerequisites
 
-- PA1 (Game State Segmentation) provides the context layer
+- PA1 (Game State Segmentation) — dbt layer done (game_state column in 3 marts); app-side shared filter descoped (see TODO PA1)
 - PA2 (Set Piece Effectiveness) provides set piece pattern detection
 - PA3 (Throw-In Analytics) provides throw-in possession retention patterns
-- PA4 (Conversion Rate Funnel) provides the funnel metrics
+- PA4 (Conversion Rate Funnel) — page built but disabled in nav pending D57 (SPADL goal encoding) and D58 (query performance)
 - LLM integration pattern for Taipy (research needed — could use HF Inference API or local model)
 - Semantic Layer (see below) — shared business definitions for AI-generated queries
 

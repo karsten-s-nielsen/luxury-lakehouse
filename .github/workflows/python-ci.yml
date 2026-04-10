@@ -55,6 +55,16 @@ jobs:
       - name: Validate workflow cards
         run: uv run python -m workflows.loader --validate workflow-cards/
 
+      - name: Verify taipy-app requirements are up to date
+        run: |
+          uv pip compile pyproject.toml --extra taipy-app --python-version 3.10 --python-platform linux -o /tmp/requirements-check.txt
+          tail -n +3 hf_taipy_app/requirements.txt > /tmp/req-actual.txt
+          tail -n +3 /tmp/requirements-check.txt > /tmp/req-expected.txt
+          diff -u /tmp/req-actual.txt /tmp/req-expected.txt || {
+            echo "::error::hf_taipy_app/requirements.txt is stale — run: uv pip compile pyproject.toml --extra taipy-app --python-version 3.10 --python-platform linux -o hf_taipy_app/requirements.txt"
+            exit 1
+          }
+
       - name: Build wheel
         run: uv build
 

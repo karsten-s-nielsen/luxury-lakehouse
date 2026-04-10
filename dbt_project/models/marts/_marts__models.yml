@@ -156,6 +156,16 @@ models:
       - name: play_pattern
         data_type: string
         description: "Play pattern (e.g., Regular Play, From Corner). StatsBomb only; NULL for Wyscout."
+      - name: game_state
+        data_type: string
+        description: >
+          Game state from the shooting team's perspective at the moment of
+          the shot: winning, losing, or drawing.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['winning', 'losing', 'drawing']
 
   - name: fct_passes
     config:
@@ -323,6 +333,16 @@ models:
               config:
                 severity: warn
                 where: "line_breaking_type is not null"
+      - name: game_state
+        data_type: string
+        description: >
+          Game state from the passing team's perspective at the moment of
+          the pass: winning, losing, or drawing.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['winning', 'losing', 'drawing']
 
   - name: fct_player_stats
     config:
@@ -680,6 +700,28 @@ models:
       - name: original_event_id
         data_type: string
         description: Original event ID from source data (NULL for synthetic dribbles)
+      - name: possession_id
+        data_type: bigint
+        description: >
+          StatsBomb possession sequence number identifying the possession
+          chain this action belongs to. NULL for Wyscout (no possession
+          tracking in open data).
+      - name: possession_team_id
+        data_type: int
+        description: >
+          Team ID of the team in possession during this action.
+          NULL for Wyscout.
+      - name: game_state
+        data_type: string
+        description: >
+          Game state from the acting team's perspective at the moment of
+          this action: winning, losing, or drawing. Derived from
+          int_running_score cumulative scoreline.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['winning', 'losing', 'drawing']
       - name: _loaded_at
         data_type: timestamp
         description: Timestamp when the action values were loaded into the gold table

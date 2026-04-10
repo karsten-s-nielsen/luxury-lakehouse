@@ -41,23 +41,6 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --extra dbt
 
-      - name: Create CI profiles.yml
-        working-directory: dbt_project
-        run: |
-          cat > profiles.yml << 'PROFILES'
-          databricks:
-            target: ci
-            outputs:
-              ci:
-                type: databricks
-                catalog: soccer_analytics
-                schema: ci
-                host: "{{ env_var('DATABRICKS_HOST') }}"
-                http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"
-                token: "{{ env_var('DATABRICKS_TOKEN') }}"
-                threads: 1
-          PROFILES
-
       - name: dbt deps
         working-directory: dbt_project
         run: uv run dbt deps --profiles-dir .

@@ -58,7 +58,8 @@ override.tf.json
 dbt_project/target/
 dbt_project/dbt_packages/
 dbt_project/logs/
-dbt_project/profiles.yml
+# profiles.yml uses {{ env_var() }} only — no secrets, safe to commit.
+# CI depends on it for dbt parse/deps (--profiles-dir .).
 dbt_project/.user.yml
 
 # Databricks

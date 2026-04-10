@@ -71,6 +71,8 @@ INDEXES: list[tuple[str, str, str]] = [
     ("idx_action_values_comp_team_player", "fct_action_values_synced", "competition_id, team_id, player_id"),
     # AV-4: match action timeline (match_id)
     ("idx_action_values_match_id", "fct_action_values_synced", "match_id"),
+    # AV-5: game state filter on comp+team queries (Shot Map, Heat Map, Player Impact, GK)
+    ("idx_action_values_comp_team_gs", "fct_action_values_synced", "competition_id, team_id, game_state"),
     # ── fct_player_stats_synced — 10K+ rows ───────────────────────────
     # F-3, R-1, AV-1: player filter + radar + VAEP rankings (competition_id prefix)
     ("idx_player_stats_comp_id", "fct_player_stats_synced", "competition_id"),

@@ -229,7 +229,6 @@ def fetch_gk_passes(
     if player_id is not None:
         where_parts.append("a.player_id = %s")
         params.append(int(player_id))
-
     where = " AND ".join(where_parts)
 
     sql = (

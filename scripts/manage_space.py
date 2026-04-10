@@ -142,6 +142,49 @@ def _cleanup_workflow_cards(cards_dst: Path | None) -> None:
         logger.info("Cleaned up bundled workflow-cards")
 
 
+def _compile_requirements() -> None:
+    """Regenerate hf_taipy_app/requirements.txt from pyproject.toml [taipy-app] extra.
+
+    Uses ``uv pip compile --python-version 3.10 --python-platform linux`` so the
+    resolved pins always match the Docker target, regardless of the host environment.
+    Eliminates dependency drift between pyproject.toml and the Space container.
+    """
+    repo_root = Path(__file__).parent.parent
+    output = repo_root / "hf_taipy_app" / "requirements.txt"
+
+    uv_bin = shutil.which("uv")
+    if uv_bin is None:
+        msg = "uv not found on PATH — install via https://docs.astral.sh/uv/"
+        raise SpaceError(msg)
+
+    logger.info("Compiling requirements for taipy-app extra (Python 3.10, linux) ...")
+    result = subprocess.run(  # noqa: S603
+        [
+            uv_bin,
+            "pip",
+            "compile",
+            "pyproject.toml",
+            "--extra",
+            "taipy-app",
+            "--python-version",
+            "3.10",
+            "--python-platform",
+            "linux",
+            "-o",
+            str(output),
+        ],
+        cwd=str(repo_root),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        logger.error("uv pip compile failed:\n%s\n%s", result.stdout, result.stderr)
+        msg = "Failed to compile requirements — cannot deploy with stale pins"
+        raise SpaceError(msg)
+
+    logger.info("Compiled requirements: %s", output)
+
+
 def _bundle_wheel() -> Path | None:
     """Build the luxury-lakehouse wheel and copy it into hf_taipy_app/dist/ for Docker.
 
@@ -153,10 +196,16 @@ def _bundle_wheel() -> Path | None:
     dist_src = repo_root / "dist"
     dist_dst = repo_root / "hf_taipy_app" / "dist"
 
-    # Build wheel via uv
+    # Build wheel via uv CLI (uv is a standalone tool, not a Python module)
+    import shutil
+
+    uv_bin = shutil.which("uv")
+    if uv_bin is None:
+        msg = "uv not found on PATH — install via https://docs.astral.sh/uv/"
+        raise SpaceError(msg)
     logger.info("Building wheel via `uv build` ...")
     result = subprocess.run(  # noqa: S603
-        [sys.executable, "-m", "uv", "build"],
+        [uv_bin, "build"],
         cwd=str(repo_root),
         capture_output=True,
         text=True,
@@ -340,6 +389,7 @@ def _preflight(folder: Path, repo_id: str, api: HfApi) -> None:
 
 def _dry_run(folder: Path, repo_id: str, api: HfApi) -> None:
     """Preview what would be uploaded and deleted without making changes."""
+    _compile_requirements()
     cards_dst = _bundle_workflow_cards()
     wheel_dst = _bundle_wheel()
     try:
@@ -393,6 +443,7 @@ def _deploy(folder: Path, repo_id: str, api: HfApi, *, clean: bool, wait: bool) 
 
     delete_patterns = ["**"] if clean else None
 
+    _compile_requirements()
     cards_dst = _bundle_workflow_cards()
     wheel_dst = _bundle_wheel()
     try:

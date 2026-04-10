@@ -59,14 +59,87 @@ Now that your environment works, explore the codebase:
 | [Glossary](glossary.md) | Domain terminology (xG, VAEP, OBSO, etc.) |
 | [C4 Diagrams](c4/architecture.html) | Interactive architecture diagrams (open in a browser) |
 
-## 4. Next Steps
+## 4. Databricks & dbt Setup (Optional)
+
+> **Skip this section** if you only want to run tests and linting. Databricks access is needed for running dbt models and ingestion pipelines against real data.
+
+### a. Configure environment variables
+
+Copy the example file and fill in your Databricks credentials:
+
+```bash
+cp .env.example .env
+# Edit .env with your values (see comments in the file for where to find them)
+```
+
+Load them into your shell:
+
+```bash
+# Option 1: manual (run in each terminal session)
+export $(grep -v '^#' .env | xargs)
+
+# Option 2: direnv (automatic, recommended)
+cp .env .envrc && direnv allow
+```
+
+### b. Install dbt dependencies
+
+```bash
+uv sync --extra dbt          # Install dbt-core + dbt-databricks
+cd dbt_project && uv run dbt deps    # Install dbt packages (dbt_utils, dbt_expectations)
+```
+
+### c. Run dbt
+
+The SQL warehouse auto-stops after 10 minutes. Always use `ensure_warehouse.py` to start it first:
+
+```bash
+# Start warehouse + run dbt build
+uv run python scripts/ensure_warehouse.py -- uv run dbt build --project-dir dbt_project --profiles-dir dbt_project
+
+# Or just start the warehouse (no dbt command)
+uv run python scripts/ensure_warehouse.py
+```
+
+**Verify:** `dbt build` completes with all models passing.
+
+### d. Lakebase (Taipy app)
+
+The Taipy dashboard connects to Lakebase (PostgreSQL) via OAuth M2M. Two setup steps are needed:
+
+**Step 1: Create the PG role for the service principal** (one-time):
+
+```bash
+uv run python scripts/setup_lakebase_roles.py          # Create PG role
+uv run python scripts/setup_lakebase_roles.py --verify  # Confirm role exists
+```
+
+**Step 2: Grant SELECT access on synced tables** (after initial setup, or after synced table recreation):
+
+```bash
+uv run python scripts/run_lakebase_grants.py            # Apply grants
+uv run python scripts/run_lakebase_grants.py --verify    # Confirm grants exist
+```
+
+Both scripts use your PAT (`DATABRICKS_TOKEN`) to authenticate as the workspace admin. The grants are applied to the service principal UUID configured in the scripts.
+
+> **When to re-run grants:** After creating new synced tables, or if the Taipy app connects to Lakebase but queries return empty results (the connection succeeds but the service principal has no SELECT permission).
+
+**Step 3: Run locally:**
+
+```bash
+cd hf_taipy_app && python src/main.py
+# Opens on http://localhost:7860
+```
+
+## 5. Next Steps
 
 - **Try the live demo:** [Soccer Analytics Dashboard](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 - **Use pre-trained models:** See the [Hugging Face setup guide](huggingface-setup.md)
 - **Understand the architecture:** Read [ARCHITECTURE.md](../ARCHITECTURE.md)
 - **Contribute:** See [CONTRIBUTING.md](../CONTRIBUTING.md)
 
-## Common Issues
+## 6. Common Issues
 
 | Problem | Cause | Fix |
 |---------|-------|-----|
