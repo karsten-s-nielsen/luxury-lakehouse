@@ -141,7 +141,8 @@ def _evaluate_seeds(
 
     def _eval_one(program: Path) -> tuple[Path, dict[str, Any]]:
         _log.info("Evaluating seed program: %s", program.name)
-        metrics = evaluator.evaluate(str(program))
+        eval_result = evaluator.evaluate(str(program))
+        metrics = eval_result.to_dict()
         score = metrics.get("combined_score", 0.0)
 
         result_file = seed_results_dir / f"{program.stem}.json"
@@ -360,8 +361,13 @@ def _get_evaluator():
     return _evaluator
 
 
-def evaluate(program_path: str) -> dict:
-    """Entry point called by OpenEvolve for each candidate."""
+def evaluate(program_path: str):
+    """Entry point called by OpenEvolve for each candidate.
+
+    Returns an EvaluationResult (metrics + optional artifacts).
+    OpenEvolve's _process_evaluation_result handles both dict and
+    EvaluationResult, so this is backward-compatible.
+    """
     return _get_evaluator().evaluate(program_path)
 '''
 

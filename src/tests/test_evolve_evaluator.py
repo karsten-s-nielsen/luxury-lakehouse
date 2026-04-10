@@ -11,6 +11,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from openevolve.evaluation_result import EvaluationResult
 
 from evolve.code_validator import ValidationProfile
 from evolve.config import EvalConfig, FitnessConfig
@@ -97,9 +98,10 @@ class TestEvolveEvaluator:
             seed=42,
         )
         expected_score = 0.7 * 0.5 + 0.3 * 0.6
-        assert result["combined_score"] == pytest.approx(expected_score)
-        assert result["spearman_rho"] == pytest.approx(0.5)
-        assert result["top1_accuracy"] == pytest.approx(0.6)
+        assert isinstance(result, EvaluationResult)
+        assert result.metrics["combined_score"] == pytest.approx(expected_score)
+        assert result.metrics["spearman_rho"] == pytest.approx(0.5)
+        assert result.metrics["top1_accuracy"] == pytest.approx(0.6)
 
     def test_openevolve_evaluator_script_is_self_contained(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -149,8 +151,9 @@ class TestEvolveEvaluator:
 
             result = module.evaluate(str(candidate_path))
 
-            assert result["combined_score"] == pytest.approx(0.7 * 0.42 + 0.3 * 0.75)
-            assert result["spearman_rho"] == pytest.approx(0.42)
+            assert isinstance(result, EvaluationResult)
+            assert result.metrics["combined_score"] == pytest.approx(0.7 * 0.42 + 0.3 * 0.75)
+            assert result.metrics["spearman_rho"] == pytest.approx(0.42)
             mock_backend.train.assert_called_once()
         finally:
             sys.modules.pop("test_eval_module", None)
@@ -175,7 +178,8 @@ class TestEvolveEvaluator:
         )
         result = evaluator.evaluate(str(candidate_path))
 
-        assert result["combined_score"] == 0.0
+        assert isinstance(result, EvaluationResult)
+        assert result.metrics["combined_score"] == 0.0
         mock_backend.train.assert_not_called()
 
 
@@ -383,8 +387,9 @@ class TestEvaluatorValidationGate:
             code_evolution=True,
             validation_profile=self._PROFILE,
         )
-        metrics = evaluator.evaluate(str(prog))
-        assert metrics["combined_score"] == 0.0
+        result = evaluator.evaluate(str(prog))
+        assert isinstance(result, EvaluationResult)
+        assert result.metrics["combined_score"] == 0.0
         backend.train.assert_not_called()
 
     def test_valid_config_only_dispatches(self, tmp_path: Path) -> None:
@@ -412,8 +417,9 @@ class TestEvaluatorValidationGate:
             code_evolution=False,
             validation_profile=self._PROFILE,
         )
-        metrics = evaluator.evaluate(str(prog))
-        assert metrics["spearman_rho"] == 0.5
+        result = evaluator.evaluate(str(prog))
+        assert isinstance(result, EvaluationResult)
+        assert result.metrics["spearman_rho"] == 0.5
         backend.train.assert_called_once()
 
     def test_code_evolution_disabled_rejects(self, tmp_path: Path) -> None:
@@ -439,8 +445,9 @@ class TestEvaluatorValidationGate:
             code_evolution=False,
             validation_profile=self._PROFILE,
         )
-        metrics = evaluator.evaluate(str(prog))
-        assert metrics["combined_score"] == 0.0
+        result = evaluator.evaluate(str(prog))
+        assert isinstance(result, EvaluationResult)
+        assert result.metrics["combined_score"] == 0.0
         backend.train.assert_not_called()
 
     def test_level2_passes_program_path(self, tmp_path: Path) -> None:
@@ -493,3 +500,129 @@ class TestRunnerCodeEvolutionFlag:
         parser = _build_parser()
         args = parser.parse_args(["--target", "scoutgpt", "--code-evolution"])
         assert args.code_evolution is True
+
+
+# ---------------------------------------------------------------------------
+# Error text capture tests (EvaluationResult artifact pipeline)
+# ---------------------------------------------------------------------------
+
+
+class TestErrorTextCapture:
+    """Tests that the evaluator correctly surfaces error text as EvaluationResult artifacts."""
+
+    def test_error_text_returned_on_backend_error(self, tmp_path: Path) -> None:
+        """When backend returns _error_text in metrics, evaluator returns EvaluationResult
+        with an 'error' artifact containing the text, and _error_text is NOT in metrics."""
+        candidate_path = _write_candidate(tmp_path, VALID_CONFIG)
+
+        mock_backend = MagicMock()
+        mock_backend.train.return_value = {
+            "spearman_rho": 0.0,
+            "top1_accuracy": 0.0,
+            "_error_text": "Traceback (most recent call last):\n  RuntimeError: CUDA OOM",
+        }
+
+        fitness = FitnessConfig(
+            primary="spearman_rho",
+            secondary="top1_accuracy",
+            combined_weights={"spearman_rho": 0.7, "top1_accuracy": 0.3},
+        )
+        evaluator = EvolveEvaluator(
+            backend=mock_backend, target="scoutgpt", eval_config=EvalConfig(), fitness_config=fitness
+        )
+        result = evaluator.evaluate(str(candidate_path))
+
+        assert isinstance(result, EvaluationResult)
+        assert result.has_artifacts()
+        assert "error" in result.artifacts
+        assert "CUDA OOM" in str(result.artifacts["error"])
+        assert "_error_text" not in result.metrics
+
+    def test_no_artifact_on_success(self, tmp_path: Path) -> None:
+        """Successful evaluation returns EvaluationResult with no artifacts."""
+        candidate_path = _write_candidate(tmp_path, VALID_CONFIG)
+
+        mock_backend = MagicMock()
+        mock_backend.train.return_value = {
+            "spearman_rho": 0.5,
+            "top1_accuracy": 0.6,
+        }
+
+        fitness = FitnessConfig(
+            primary="spearman_rho",
+            secondary="top1_accuracy",
+            combined_weights={"spearman_rho": 0.7, "top1_accuracy": 0.3},
+        )
+        evaluator = EvolveEvaluator(
+            backend=mock_backend, target="scoutgpt", eval_config=EvalConfig(), fitness_config=fitness
+        )
+        result = evaluator.evaluate(str(candidate_path))
+
+        assert isinstance(result, EvaluationResult)
+        assert not result.has_artifacts()
+
+    def test_error_text_stripped_before_combined_score(self, tmp_path: Path) -> None:
+        """_error_text in metrics doesn't affect combined_score computation."""
+        candidate_path = _write_candidate(tmp_path, VALID_CONFIG)
+
+        mock_backend = MagicMock()
+        mock_backend.train.return_value = {
+            "spearman_rho": 0.5,
+            "top1_accuracy": 0.6,
+            "_error_text": "some error traceback",
+        }
+
+        fitness = FitnessConfig(
+            primary="spearman_rho",
+            secondary="top1_accuracy",
+            combined_weights={"spearman_rho": 0.7, "top1_accuracy": 0.3},
+        )
+        evaluator = EvolveEvaluator(
+            backend=mock_backend, target="scoutgpt", eval_config=EvalConfig(), fitness_config=fitness
+        )
+        result = evaluator.evaluate(str(candidate_path))
+
+        expected_score = 0.7 * 0.5 + 0.3 * 0.6
+        assert result.metrics["combined_score"] == pytest.approx(expected_score)
+        assert "_error_text" not in result.metrics
+
+
+# ---------------------------------------------------------------------------
+# Remote worker error capture tests
+# ---------------------------------------------------------------------------
+
+
+class TestRemoteWorkerErrorCapture:
+    """Tests that the remote worker captures tracebacks and outputs valid JSON on error."""
+
+    def test_remote_worker_captures_traceback(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When train_and_evaluate raises, remote worker outputs JSON with _error_text."""
+        import io
+
+        # Write a dummy candidate.json
+        candidate = tmp_path / "candidate.json"
+        candidate.write_text(json.dumps(VALID_CONFIG))
+
+        # Mock module whose train_and_evaluate raises
+        mock_module = MagicMock()
+        mock_module.train_and_evaluate.side_effect = RuntimeError("CUDA out of memory")
+        monkeypatch.setattr("importlib.import_module", lambda *a, **kw: mock_module)
+
+        # Capture stdout
+        captured = io.StringIO()
+        monkeypatch.setattr("sys.stdout", captured)
+
+        # Set argv
+        monkeypatch.setattr("sys.argv", ["remote_worker", str(candidate), "cpu", "1", "42", "scoutgpt"])
+
+        from evolve.remote_worker import main
+
+        main()
+
+        output = captured.getvalue().strip()
+        result = json.loads(output)
+
+        assert result["combined_score"] == 0.0
+        assert result["error"] == 1.0
+        assert "_error_text" in result
+        assert "CUDA out of memory" in result["_error_text"]
