@@ -551,7 +551,8 @@ luxury-lakehouse/
 │   │   └── runner.py                 # Lifecycle runner: on_start/on_complete/on_skip/on_error dispatch
 │   │
 │   ├── shared/                       # Cross-package constants (zero external deps)
-│   │   └── constants.py              # IDENTIFIER_RE, DEFAULT_GOLD_SCHEMA, mlflow_model_uri()
+│   │   ├── constants.py              # IDENTIFIER_RE, DEFAULT_GOLD_SCHEMA, mlflow_model_uri()
+│   │   └── wheel.py                  # WHEEL_VERSION, WHEEL_FILENAME, WHEEL_BASE_URL, rewrite utilities
 │   │
 │   ├── evolve/                       # Level 2 code evolution engine (ADR-001)
 │   │   ├── config.py                 # Evolution configuration (Pydantic)
@@ -669,8 +670,9 @@ luxury-lakehouse/
 │   ├── publish_obso_data.py          # Publish OBSO data to HF Hub
 │   └── diag_defcon2.py               # DEFCON diagnostic notebook
 │
-├── scripts/                          # Infrastructure, HF Jobs, and deployment scripts (31 Python + 6 shell/SQL)
+├── scripts/                          # Infrastructure, HF Jobs, and deployment scripts (32 Python + 6 shell/SQL)
 │   ├── manage_space.py               # HF Space lifecycle: create/deploy/status/rebuild/teardown
+│   ├── bump_wheel.py                 # Sync wheel version from pyproject.toml to all static consumers (PEP 723, deploy.sh, Terraform)
 │   ├── deploy_wheel.py               # Downloads wheel from HF Hub build-artifacts → UC Volume for inference
 │   ├── setup_hf_buckets.py           # Initialize HF Buckets (demo-data) with versioned Parquet uploads
 │   ├── setup_lakebase_roles.py       # Manage Lakebase PG roles for service principals (databricks-sdk 0.102+)

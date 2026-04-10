@@ -22,10 +22,11 @@ from huggingface_hub import hf_hub_download
 from huggingface_hub.utils import get_token
 
 from shared.constants import IDENTIFIER_RE
+from shared.wheel import WHEEL_FILENAME, WHEEL_REPO
 
 logger = logging.getLogger(__name__)
 
-HF_REPO_ID = "luxury-lakehouse/build-artifacts"
+HF_REPO_ID = WHEEL_REPO
 HF_REPO_TYPE = "model"
 
 
@@ -57,24 +58,9 @@ def _preflight_hf() -> None:
     logger.info("HuggingFace token: present")
 
 
-def _find_wheel_filename() -> str:
-    """Find the latest luxury_lakehouse wheel filename in the HF Hub repo."""
-    from huggingface_hub import HfApi
-
-    api = HfApi()
-    files = api.list_repo_files(repo_id=HF_REPO_ID, repo_type=HF_REPO_TYPE)
-    wheels = [f for f in files if f.startswith("luxury_lakehouse") and f.endswith(".whl")]
-    if not wheels:
-        logger.error("No luxury_lakehouse wheel found in %s", HF_REPO_ID)
-        sys.exit(1)
-    # Sort by name (version ordering) and take the latest
-    wheels.sort()
-    return wheels[-1]
-
-
 def _download_wheel() -> Path:
     """Download the wheel from HuggingFace Hub and return the local path."""
-    filename = _find_wheel_filename()
+    filename = WHEEL_FILENAME
     logger.info("Downloading %s from %s ...", filename, HF_REPO_ID)
     local_path = hf_hub_download(
         repo_id=HF_REPO_ID,

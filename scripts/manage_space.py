@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
-import glob as globmod
 import logging
 import os
 import shutil
@@ -29,6 +28,8 @@ import time
 from pathlib import Path
 
 from huggingface_hub import HfApi, SpaceHardware, get_token
+
+from shared.wheel import WHEEL_FILENAME
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,7 @@ REQUIRED_SECRETS: dict[str, str] = {
 # At least one auth method must be configured.
 OAUTH_SECRETS: dict[str, str] = {
     "DATABRICKS_CLIENT_ID": "DATABRICKS_CLIENT_ID",
-    "DATABRICKS_CLIENT_SECRET": "DATABRICKS_CLIENT_SECRET",
+    "DATABRICKS_CLIENT_SECRET": "DATABRICKS_CLIENT_SECRET",  # pragma: allowlist secret
 }
 PAT_SECRETS: dict[str, str] = {
     "DATABRICKS_TOKEN": "DATABRICKS_TOKEN",
@@ -165,19 +166,18 @@ def _bundle_wheel() -> Path | None:
         msg = "Failed to build wheel -- cannot deploy without it"
         raise SpaceError(msg)
 
-    # Find built wheel
-    wheels = globmod.glob(str(dist_src / "luxury_lakehouse-*.whl"))
-    if not wheels:
-        msg = f"No wheel found in {dist_src} after uv build"
+    # Find built wheel (exact version match — avoids bundling stale wheels)
+    expected_wheel = dist_src / WHEEL_FILENAME
+    if not expected_wheel.exists():
+        msg = f"Expected wheel not found: {expected_wheel}. Is pyproject.toml version in sync?"
         raise SpaceError(msg)
 
     # Copy to hf_taipy_app/dist/
     if dist_dst.exists():
         shutil.rmtree(dist_dst)
     dist_dst.mkdir(parents=True)
-    for whl in wheels:
-        shutil.copy2(whl, dist_dst)
-    logger.info("Bundled wheel: %s -> %s", [os.path.basename(w) for w in wheels], dist_dst)
+    shutil.copy2(str(expected_wheel), dist_dst)
+    logger.info("Bundled wheel: %s -> %s", WHEEL_FILENAME, dist_dst)
     return dist_dst
 
 

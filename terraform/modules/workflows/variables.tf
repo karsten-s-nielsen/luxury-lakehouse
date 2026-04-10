@@ -14,7 +14,7 @@ variable "environment" {
 }
 
 variable "wheel_path" {
-  description = "Full path to the luxury_lakehouse wheel on a UC Volume (e.g. /Volumes/soccer_analytics/bronze/libs/luxury_lakehouse-0.1.0-py3-none-any.whl)"
+  description = "Full path to the luxury_lakehouse wheel on a UC Volume (e.g. /Volumes/soccer_analytics/bronze/libs/luxury_lakehouse-0.3.0-py3-none-any.whl)"
   type        = string
 }
 

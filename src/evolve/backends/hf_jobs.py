@@ -23,23 +23,21 @@ from pathlib import Path
 from typing import Any
 
 from evolve.backends.base import fail_metrics
+from shared.wheel import WHEEL_BASE_URL
 
 _log = logging.getLogger(__name__)
 
 # Polling interval (seconds) when waiting for a job to complete.
 _POLL_INTERVAL = 15
 
-# HF Hub org where the build-artifacts wheel is hosted.
-_WHEEL_REPO = "luxury-lakehouse/build-artifacts"
-
 # The PEP 723 worker script that runs on HF Jobs.  It receives the candidate
 # config as a base64-encoded JSON string in the ``EVOLVE_CANDIDATE_CONFIG``
 # env var, and the target/device/epochs/seed as additional env vars.
-_WORKER_SCRIPT = '''\
+_WORKER_SCRIPT = f'''\
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
-#     "luxury-lakehouse[analytics,training] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.1.0-py3-none-any.whl",
+#     "luxury-lakehouse[analytics,training] @ {WHEEL_BASE_URL}",
 # ]
 # ///
 
@@ -61,7 +59,7 @@ _log = logging.getLogger("hf_jobs_worker")
 def main() -> None:
     config_b64 = os.environ.get("EVOLVE_CANDIDATE_CONFIG", "")
     if not config_b64:
-        print(json.dumps({"combined_score": 0.0, "error": 1.0, "reason": "missing EVOLVE_CANDIDATE_CONFIG"}))
+        print(json.dumps({{"combined_score": 0.0, "error": 1.0, "reason": "missing EVOLVE_CANDIDATE_CONFIG"}}))
         sys.exit(0)
 
     candidate_config: dict = json.loads(base64.b64decode(config_b64).decode())
@@ -82,7 +80,7 @@ def main() -> None:
 
     _log.info("Running %s evaluator (device=%s, epochs=%d, seed=%d)", target, device, epochs, seed)
 
-    target_module = importlib.import_module(f"evolve.targets.{target}.evaluator")
+    target_module = importlib.import_module(f"evolve.targets.{{target}}.evaluator")
     metrics: dict = target_module.train_and_evaluate(
         candidate_config=candidate_config,
         device=device,
