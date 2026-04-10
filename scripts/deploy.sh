@@ -22,7 +22,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-WHEEL_NAME="luxury_lakehouse-0.3.0-py3-none-any.whl"
+WHEEL_NAME="luxury_lakehouse-0.3.0-py3-none-any.whl#sha256=64c37d638fefdc0a448e9babb0e7dc4851e5c0d04d48bd42638076e55b06df8d"
 WHEEL_PATH="$PROJECT_ROOT/dist/$WHEEL_NAME"
 VOLUME_PATH="/Volumes/soccer_analytics/bronze/libs"
 JOB_ID="${DATABRICKS_JOB_ID:?Set DATABRICKS_JOB_ID to the ingestion job ID}"

@@ -134,7 +134,7 @@ module "workflows" {
   source = "../../modules/workflows"
 
   catalog_name             = module.workspace.catalog_name
-  wheel_path               = "${module.catalog.libs_volume_path}/luxury_lakehouse-0.3.0-py3-none-any.whl"
+  wheel_path               = "${module.catalog.libs_volume_path}/luxury_lakehouse-0.3.0-py3-none-any.whl#sha256=64c37d638fefdc0a448e9babb0e7dc4851e5c0d04d48bd42638076e55b06df8d"
   environment              = var.environment
   notification_emails      = var.notification_emails
   run_as_sp_application_id = module.service_principals.ingestion_sp_application_id
@@ -180,7 +180,7 @@ resource "databricks_job" "sync_hf_costs_daily" {
       client = "1"
 
       dependencies = [
-        "${module.catalog.libs_volume_path}/luxury_lakehouse-0.3.0-py3-none-any.whl",
+        "${module.catalog.libs_volume_path}/luxury_lakehouse-0.3.0-py3-none-any.whl#sha256=64c37d638fefdc0a448e9babb0e7dc4851e5c0d04d48bd42638076e55b06df8d",
         "huggingface_hub>=0.25.0",
         "pyyaml>=6.0"
       ]
