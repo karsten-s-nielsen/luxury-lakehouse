@@ -37,7 +37,7 @@ dbt = [
     "dbt-databricks>=1.7.0",
 ]
 sdk = [
-    "databricks-sdk>=0.20.0",
+    "databricks-sdk>=0.102.0",
 ]
 embeddings = [
     "gensim>=4.3.0",
@@ -50,6 +50,20 @@ mlflow = [
 ]
 training = ["torch>=2.0", "pyarrow>=14.0"]
 evolve = ["openevolve>=0.2.0"]
+taipy-app = [
+    "taipy==4.1.1",
+    "psycopg2-binary==2.9.11",
+    "mplsoccer==1.6.1",
+    "pandas==2.2.3",
+    "numpy==1.26.4",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.13.0",
+    "requests>=2.33.0",
+    "databricks-sdk>=0.102.0",
+    "huggingface-hub>=1.5.0",
+    "scipy>=1.15.0",
+    "plotly>=5.24.0,<6",
+]
 # NOTE: kloppy (SkillCorner tracking) is NOT listed here — it runs in a separate
 # Databricks task environment defined in terraform/modules/workflows/main.tf.
 # IDSSE tracking uses stdlib xml.etree.ElementTree and needs no extra dependencies.
@@ -137,7 +151,17 @@ packages = ["src/ingestion", "src/analytics", "src/shared", "src/workflows", "sr
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-# --- uv: PyTorch CUDA index ---
+# --- uv configuration ---
+[tool.uv]
+# taipy requires sqlalchemy>=2.0; dbt-databricks requires sqlalchemy<2.0.
+# These extras are separate deployment targets that never coexist in a single env.
+conflicts = [
+    [
+        { extra = "taipy-app" },
+        { extra = "dbt" },
+    ],
+]
+
 # RTX 5070 Ti (Blackwell) requires CUDA 12.8+ wheels.
 # explicit = true ensures only torch resolves from this index, not other packages.
 [[tool.uv.index]]

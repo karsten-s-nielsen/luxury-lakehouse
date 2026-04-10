@@ -42,6 +42,7 @@ from pages.team_shape import page_md as team_shape_page
 from pages.workflows import page_config as workflows_config
 from pages.workflows import page_md as workflows_page
 from state.action_values import *  # noqa: F403
+from state.conversion_funnel import *  # noqa: F403
 from state.defensive_valuation import *  # noqa: F403
 from state.goalkeeper import *  # noqa: F403
 from state.heat_map import *  # noqa: F403
@@ -100,6 +101,7 @@ Gui.register_content_provider(RawHtml, _raw_html_provider)
 # The on_navigate callback receives route keys as page_name.
 PAGE_REGISTRY: list[PageEntry] = [
     # Match Analysis (alphabetical)
+    # PageEntry("Conversion-Funnel", funnel_config, funnel_page),  # disabled — query perf not validated from HF Space
     PageEntry("Heat-Map", heat_map_config, heat_map_page),
     PageEntry("Match-Summary", match_summary_config, match_summary_page),
     PageEntry("Pass-Map", pass_map_config, pass_map_page),

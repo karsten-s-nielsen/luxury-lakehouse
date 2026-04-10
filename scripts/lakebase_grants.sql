@@ -1,20 +1,24 @@
 -- ──────────────────────────────────────────────────────────────────────────────
--- Lakebase PostgreSQL Grants — Streamlit App Service Principal
+-- Lakebase PostgreSQL Grants — Taipy App Service Principal
 -- ──────────────────────────────────────────────────────────────────────────────
--- Run this script against the Lakebase Autoscaling PostgreSQL 17 endpoint
--- after synced tables are created. Connects as the workspace admin user
--- (requires manual PG login via OAuth).
+-- Grants SELECT access on dev_gold and observability schemas to the Taipy app
+-- service principal. Must be run after:
+--   1. Initial Lakebase setup (synced tables created)
+--   2. OAuth M2M migration (new SP needs grants)
+--   3. Synced table recreation (grants are dropped with tables)
 --
--- Usage (psql with Autoscaling endpoint):
---   psql -h <lakebase-read-write-dns> -U <admin-uuid> -d databricks_postgres -f scripts/lakebase_grants.sql
+-- The :app_sp_uuid variable is the service principal's UUID — the 'sub' claim
+-- from its OAuth JWT. Find it via:
+--   terraform output -raw hf_app_sp_application_id
+--   (current: 1a1dbf08-df56-48de-b97a-276b2a4232d8)
 --
--- The :app_sp_uuid variable must be set to the Streamlit app service principal
--- UUID (the 'sub' claim from its OAuth JWT). Find it via:
---   terraform output -raw app_sp_application_id
+-- Automated usage (via scripts/run_lakebase_grants.py):
+--   uv run python scripts/run_lakebase_grants.py
 --
--- Example:
---   psql -v app_sp_uuid="'be66af99-5296-4fd9-887a-c081bce38bfa'" \
---        -h <host> -U <admin> -d databricks_postgres -f scripts/lakebase_grants.sql
+-- Manual usage (psql):
+--   psql -v app_sp_uuid="'1a1dbf08-df56-48de-b97a-276b2a4232d8'" \
+--        -h <lakebase-read-write-dns> -U <admin-uuid> -d databricks_postgres \
+--        -f scripts/lakebase_grants.sql
 -- ──────────────────────────────────────────────────────────────────────────────
 
 -- Grant schema-level access (required to see tables in dev_gold)

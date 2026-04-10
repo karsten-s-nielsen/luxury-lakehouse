@@ -1,6 +1,6 @@
 # ── Databricks Profile ──────────────────────────────────────────────────
-# Copy this file to ~/.dbt/profiles.yml and fill in your credentials.
-# NEVER commit the real profiles.yml — it contains secrets.
+# Reference for profiles.yml structure. The actual profiles.yml is committed
+# (it uses {{ env_var() }} — no secrets) and is used by CI.
 #
 # To find your http_path:
 #   Databricks workspace → SQL Warehouses → <your warehouse> → Connection Details

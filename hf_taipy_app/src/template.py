@@ -76,7 +76,9 @@ GLOSSARY: dict[str, str] = {
     "Concede": "DEFCON credit when a shot/goal occurs despite pressure. Lower is better.",
     "Disturb": "DEFCON credit for disrupting possession without winning the ball.",
     "Deter": "DEFCON credit for preventing attacker progression through positioning.",
+    "Conversion Rate": "The percentage of events at one funnel stage that progress to the next stage. Higher = more efficient progression through the attack.",
     "Cosine Distance": "Player similarity measure. 0.0 = identical style, 1.0 = completely different.",
+    "A3 Entry": "A successful action (pass, dribble, or carry) that crosses from outside the attacking third into the final 35 meters of the pitch. Measures territorial penetration.",
     "Behavioral Vector": (
         "128-dimensional embedding from a transformer encoder trained on SPADL action sequences. "
         "Captures playing style — movement patterns, decision sequences, and positional tendencies. "
@@ -172,6 +174,7 @@ GLOSSARY: dict[str, str] = {
         "Defensive actions outside the penalty area per 90 minutes. "
         "Higher = more involved in outfield play. Typical range: 0.5-2.0."
     ),
+    "Possession": "A continuous sequence of on-ball actions by one team, ending when the opposing team gains control. StatsBomb definition.",
     "Position Label": (
         "Combined tactical role (e.g., RCB, LWB, CAM) from vertical level (B/DM/M/AM/F) "
         "and horizontal level (L/LC/C/RC/R)."
@@ -256,6 +259,7 @@ PAGE_TERMS: dict[str, list[str]] = {
         "Workflow Status",
         "Trigger",
     ],
+    "Conversion-Funnel": ["A3 Entry", "Conversion Rate", "Possession"],
 }
 
 
@@ -284,9 +288,9 @@ def _build_glossary_panels() -> str:
 _glossary_panels = _build_glossary_panels()
 
 # fmt: off
-_COMP_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary", "Player-Impact", "Player-Comparison", "Goalkeeper-Analytics")
-_TEAM_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary", "Player-Impact", "Player-Comparison", "Goalkeeper-Analytics")
-_MATCH_PAGES = ("Pass-Map", "Pass-Network", "Match-Summary", "Player-Impact")
+_COMP_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary", "Player-Impact", "Player-Comparison", "Goalkeeper-Analytics", "Conversion-Funnel")
+_TEAM_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary", "Player-Impact", "Player-Comparison", "Goalkeeper-Analytics", "Conversion-Funnel")
+_MATCH_PAGES = ("Pass-Map", "Pass-Network", "Match-Summary", "Player-Impact", "Conversion-Funnel")
 _PLAYER_PAGES = ("Shot-Map", "Heat-Map", "Player-Impact")
 _PLAYER_MULTI_PAGES = ("Player-Comparison",)
 _XG_MODEL_PAGES = ("Shot-Map",)
@@ -303,10 +307,11 @@ _PC_CONTROL_PAGES = ("Pitch-Control",)
 _TEAM_SHAPE_PAGES = ("Team-Shape",)
 _TACTICAL_POSITIONS_PAGES = ("Tactical-Positions",)
 _WF_PAGES = ("AI-ML-Workflows",)
+_CONVERSION_FUNNEL_PAGES = ("Conversion-Funnel",)
 _FILTER_HEADER_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary",
                         "Player-Impact", "Player-Comparison", "Goalkeeper-Analytics", "Movement-Pressing",
                         "Pitch-Control", "Team-Shape", "Tactical-Positions", "Pass-Timing",
-                        "Defensive-Impact", "AI-ML-Workflows")
+                        "Defensive-Impact", "AI-ML-Workflows", "Conversion-Funnel")
 # fmt: on
 
 # ---------------------------------------------------------------------------
@@ -363,6 +368,15 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         lov="match_lov",
         depends_on="selected_team",
         help="Select a specific match. Shows date and opponent.",
+    ),
+    SidebarWidget(
+        "dropdown",
+        "cf_selected_game_state",
+        "Game State",
+        "on_cf_game_state_change",
+        condition=f"current_page in {_CONVERSION_FUNNEL_PAGES}",
+        lov="cf_game_state_lov",
+        help="Filter by game state at the time of each action: winning, losing, or drawing. Based on the cumulative scoreline.",
     ),
     SidebarWidget(
         "dropdown",

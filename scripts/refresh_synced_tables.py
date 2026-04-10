@@ -30,7 +30,8 @@ import time
 
 import requests
 
-DATABRICKS_HOST = os.environ["DATABRICKS_HOST"]  # Required — fail fast if missing
+_raw_host = os.environ["DATABRICKS_HOST"]  # Required — fail fast if missing
+DATABRICKS_HOST = f"https://{_raw_host}" if not _raw_host.startswith("https://") else _raw_host
 CATALOG = "soccer_analytics"
 DEFAULT_SCHEMA = "dev_gold"
 

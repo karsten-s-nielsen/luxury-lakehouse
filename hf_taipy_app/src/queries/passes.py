@@ -17,20 +17,28 @@ from queries.common import execute_query, t, ttl_cache
 
 
 @ttl_cache()
-def fetch_passes(comp_id: int, team_id: int, match_id: int) -> pd.DataFrame:
+def fetch_passes(
+    comp_id: int,
+    team_id: int,
+    match_id: int,
+) -> pd.DataFrame:
     """Fetch passes for a specific team in a specific match.
 
     Expected columns: start_x, start_y, end_x, end_y, is_complete,
     is_progressive, is_line_breaking, minute, second.
     """
     tbl = t("fct_passes_synced")
+    conditions = ["competition_id = %s", "team_id = %s", "match_id = %s"]
+    params: list[Any] = [int(comp_id), int(team_id), int(match_id)]
+
+    where = " AND ".join(conditions)
     return execute_query(
         f"SELECT start_x, start_y, end_x, end_y, is_complete, is_progressive, "  # noqa: S608
         f"  is_line_breaking, minute, second "
         f"FROM {tbl} "
-        f"WHERE competition_id = %s AND team_id = %s AND match_id = %s "
+        f"WHERE {where} "
         f"ORDER BY minute, second LIMIT 2000",
-        (int(comp_id), int(team_id), int(match_id)),
+        tuple(params),
     )
 
 

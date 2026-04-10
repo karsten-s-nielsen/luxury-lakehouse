@@ -49,7 +49,13 @@ ws_matches as (
 
 ),
 
-final as (
+running_score as (
+
+    select * from {{ ref('int_running_score') }}
+
+),
+
+shots_with_score as (
 
     select
         -- Surrogate key
@@ -102,13 +108,74 @@ final as (
         unified_shots.statsbomb_xg,
 
         -- Data provenance
-        unified_shots.data_source
+        unified_shots.data_source,
+
+        -- Running score columns for game state derivation
+        rs.home_score_after,
+        rs.away_score_after,
+        rs.home_team_id as _rs_home_team_id,
+
+        row_number() over (
+            partition by unified_shots.event_id, unified_shots.data_source
+            order by rs.period desc, rs.minute desc, rs.second desc
+        ) as _score_rn
 
     from unified_shots
     left join sb_matches
         on unified_shots.match_id = sb_matches.match_id
     left join ws_matches
         on unified_shots.match_id = ws_matches.match_id
+    left join running_score rs
+        on unified_shots.match_id = rs.match_id
+        and (
+            rs.period < unified_shots.period
+            or (rs.period = unified_shots.period
+                and (rs.minute * 60 + rs.second)
+                    <= (unified_shots.minute * 60 + unified_shots.second))
+        )
+
+),
+
+final as (
+
+    select
+        shot_id,
+        match_id,
+        player_id,
+        team_id,
+        competition_id,
+        season_id,
+        period,
+        minute,
+        second,
+        location_x,
+        location_y,
+        end_location_x,
+        end_location_y,
+        end_location_z,
+        shot_outcome,
+        shot_body_part,
+        shot_technique,
+        shot_type,
+        is_goal,
+        distance_to_goal,
+        shot_angle,
+        is_first_time,
+        play_pattern,
+        statsbomb_xg,
+        case
+            when coalesce(home_score_after, 0) = coalesce(away_score_after, 0)
+                then 'drawing'
+            when (team_id = _rs_home_team_id
+                      and home_score_after > away_score_after)
+                 or (team_id != _rs_home_team_id
+                      and away_score_after > home_score_after)
+                then 'winning'
+            else 'losing'
+        end as game_state,
+        data_source
+    from shots_with_score
+    where _score_rn = 1
 
 )
 

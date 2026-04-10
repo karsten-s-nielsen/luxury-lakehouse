@@ -156,3 +156,13 @@ Zaheer, M., Kottur, S., Ravanbakhsh, S., Poczos, B., Salakhutdinov, R., & Smola,
 MC Dropout Uncertainty Quantification
 Gal, Y. & Ghahramani, Z. (2016). "Dropout as a Bayesian Approximation:
 Representing Model Uncertainty in Deep Learning." International Conference on Machine Learning (ICML).
+
+Conversion Rate Funnel & Game State Segmentation
+The conversion funnel methodology (Possessions -> A3 Entries -> Shots -> Goals)
+and game state segmentation approach are informed by practitioner course
+materials from performance analysis curricula, principally: Donnelly, R.
+(2024). "Systematic Approach to Performance Analysis" (course materials).
+The "Power of Three" coaching framework and game state context layer
+(winning/losing/drawing) are standard constructs in applied performance
+analysis practice (Thomson, Sfeir, Gronnemark). These are practitioner
+methodologies, not peer-reviewed publications.
