@@ -62,7 +62,7 @@ taipy-app = [
     "databricks-sdk>=0.102.0",
     "huggingface-hub>=1.5.0",
     "scipy>=1.15.0",
-    "plotly>=5.24.0,<6",
+    "plotly>=5.24.0,<7",
 ]
 # NOTE: kloppy (SkillCorner tracking) is NOT listed here — it runs in a separate
 # Databricks task environment defined in terraform/modules/workflows/main.tf.
