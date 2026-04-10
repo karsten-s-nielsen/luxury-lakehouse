@@ -19,7 +19,8 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
 
         deployPipeline = softwareSystem "Deploy Pipeline" "Deployment scripts for Taipy app and analytics wheel" {
             deployScript = container "manage_space.py" "CLI tool: full Space lifecycle -- create, deploy, status, rebuild, teardown. Pre-flight checks, upload_folder with ignore/delete patterns, secret management, polling." "Python, huggingface_hub"
-            deployWheel = container "deploy_wheel.py" "Downloads wheel from HF Hub build-artifacts, uploads to UC Volume /Volumes/{catalog}/bronze/libs/, post-upload size verification" "Python, huggingface_hub, databricks-sdk"
+            deployWheel = container "deploy_wheel.py" "Downloads wheel from HF Hub build-artifacts (WHEEL_FILENAME from shared.wheel), uploads to UC Volume /Volumes/{catalog}/bronze/libs/, post-upload size verification" "Python, huggingface_hub, databricks-sdk"
+            bumpWheel = container "bump_wheel.py" "Syncs wheel version from pyproject.toml to all static consumers (PEP 723 scripts, deploy.sh, Terraform). Modes: --check (CI), --dry-run (preview), --pin-hash (SEC3 SHA-256). Discovers consumers via glob + regex matching" "Python, shared.wheel"
         }
 
         pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "36 workflow-card-registered compute pipelines with @workflow decorators, centralized bootstrap hooks, lifecycle tracking, three-tier cost tracking, YAML manifests, Evolve Engine for LLM-guided architecture search, and import-linter boundary enforcement" {
@@ -31,7 +32,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
             ingestionPipelines = container "Compute Pipelines" "30 @workflow-decorated Databricks pipelines (all instrumented): 5 raw ingestors (StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner), 14 compute (xG, VAEP, DEFCON 360+tracking, pitch control, xT, OBSO/PAUSA, entity resolution, line-breaking 360+tracking, formations EFPI+shape graph, embeddings v1/v2, model validation), 1 HF sync (consolidates 7 former tasks: 3 imports + 3 exports + cost sync), elastic sync. Each runs its own SkipGuard at startup (guard-as-wrapper, D52). Centralized hook registration via bootstrap.py" "Python, PySpark, src/ingestion/"
             evolveEngine = container "Evolve Engine" "LLM-guided evolutionary architecture search (Level 1: config-only, Level 2: code evolution). CLI runner with --resume/--code-evolution, AST allowlist validator (ValidationProfile), evaluator bridge returning EvaluationResult with error artifacts (tracebacks fed back to LLM prompt), PriorityQueue-based BackendPool. Level 2: LLM generates custom_embed()/custom_layers() PyTorch functions, AST-validated then exec'd with restricted globals (__builtins__={}). Defense-in-depth per ADR-001. Pluggable backends: local CUDA, remote SSH, HF Jobs L40S" "Python, OpenEvolve, src/evolve/"
             analyticsLibrary = container "Analytics Library" "Pure-Python domain models (zero I/O). Pitch control (Spearman 2017), xG, xT, VAEP, OBSO, line-breaking, DEFCON, entity resolution, shape graph (construction + inference split), football2vec v2/360, ScoutGPT decoder (256d GPT-style causal, Hong et al. 2025), goalkeeper, coordinates. Split modules all under 800 lines" "Python, NumPy, SciPy, PyTorch, scikit-learn, src/analytics/"
-            sharedLibrary = container "Shared Library" "Cross-package constants: IDENTIFIER_RE, DEFAULT_GOLD_SCHEMA, mlflow_model_uri(). Zero external deps. Imported by analytics, ingestion, and Taipy Docker image" "Python, src/shared/"
+            sharedLibrary = container "Shared Library" "Cross-package constants: IDENTIFIER_RE, DEFAULT_GOLD_SCHEMA, mlflow_model_uri(). Wheel version management: WHEEL_VERSION, WHEEL_FILENAME, WHEEL_BASE_URL, rewrite utilities. Zero external deps. Imported by analytics, ingestion, evolve, deploy scripts, and Taipy Docker image" "Python, src/shared/"
         }
 
         dbtProject = softwareSystem "dbt Project" "Medallion transformation: 65 models (27 staging, 5 intermediate, 33 marts), normalize_coordinates macro, data classification meta tags, model contracts, liquid clustering" {
@@ -58,6 +59,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
         analyst -> guiLayer "Browses pages, selects filters, views interactive and static charts" "HTTPS"
         developer -> deployScript "Runs manage_space.py {create|deploy|status|rebuild|teardown} staging" "CLI"
         developer -> deployWheel "Runs deploy_wheel.py to push wheel to UC Volume" "CLI"
+        developer -> bumpWheel "Runs bump_wheel.py to sync version after pyproject.toml bump" "CLI"
 
         # Relationships - Taipy internal
         guiLayer -> templateEngine "Calls build_page() and build_nav() to generate Taipy Markdown" ""
@@ -98,6 +100,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
         evolveEngine -> openRouter "Sends LLM mutation prompts via OpenAI-compatible API" "HTTPS/REST"
         evolveEngine -> hfHub "Downloads ScoutGPT training data" "HTTPS/HF API"
         evolveEngine -> workflowCards "Registered as wf-evolve-scoutgpt" ""
+        evolveEngine -> sharedLibrary "Imports WHEEL_BASE_URL for worker script PEP 723 header" ""
         evolveEngine -> hfJobs "Submits candidate training jobs via run_uv_job" "HTTPS/HF API"
 
         # Relationships - HF Jobs
@@ -112,6 +115,8 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
 
         # Relationships - deploy
         deployScript -> hfSpaces "upload_folder() with ignore_patterns + delete_patterns for full sync" "HTTPS/HF API"
+        bumpWheel -> sharedLibrary "Imports rewrite_wheel_url, read_pyproject_version" ""
+        deployWheel -> sharedLibrary "Imports WHEEL_FILENAME, WHEEL_REPO" ""
         deployWheel -> hfHub "Downloads wheel from build-artifacts" "HTTPS/HF API"
         deployWheel -> bronzeSchema "Uploads wheel to /Volumes/{catalog}/bronze/libs/" "Databricks SDK"
         taipyApp -> analyticsLibrary "Installs luxury-lakehouse wheel at Docker build time (analytics, shared packages)" "pip/wheel"

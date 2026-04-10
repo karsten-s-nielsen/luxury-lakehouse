@@ -58,20 +58,44 @@ jobs:
       - name: Build wheel
         run: uv build
 
+      - name: Check wheel version consistency
+        run: uv run python scripts/bump_wheel.py --check
+
       - name: Upload wheel to HF Hub
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          uv run pip install huggingface_hub
           uv run python -c "
+          import hashlib, json
+          from pathlib import Path
           from huggingface_hub import HfApi
-          import glob
+          from shared.wheel import WHEEL_FILENAME, WHEEL_REPO
+
           api = HfApi()
-          wheels = glob.glob('dist/luxury_lakehouse-*.whl')
-          for whl in wheels:
-              api.upload_file(path_or_fileobj=whl, path_in_repo=whl.split('/')[-1], repo_id='luxury-lakehouse/build-artifacts', repo_type='model')
-              print(f'Uploaded {whl}')
+          repo_id = WHEEL_REPO
+          repo_type = 'model'
+          wheel_path = Path('dist') / WHEEL_FILENAME
+
+          if not wheel_path.exists():
+              raise FileNotFoundError(f'Expected {wheel_path} — is pyproject.toml version in sync with shared/wheel.py?')
+
+          # Upload wheel
+          api.upload_file(path_or_fileobj=str(wheel_path), path_in_repo=WHEEL_FILENAME, repo_id=repo_id, repo_type=repo_type)
+          print(f'Uploaded {WHEEL_FILENAME}')
+
+          # Compute and upload SHA-256 sidecar
+          sha256 = hashlib.sha256(wheel_path.read_bytes()).hexdigest()
+          manifest = json.dumps({'filename': WHEEL_FILENAME, 'sha256': sha256}, indent=2)
+          api.upload_file(path_or_fileobj=manifest.encode(), path_in_repo='sha256sums.json', repo_id=repo_id, repo_type=repo_type, commit_message=f'Update SHA-256 for {WHEEL_FILENAME}')
+          print(f'SHA-256: {sha256}')
+
+          # Clean up old-version wheels (keep only current)
+          all_files = api.list_repo_files(repo_id=repo_id, repo_type=repo_type)
+          stale = [f for f in all_files if f.startswith('luxury_lakehouse-') and f.endswith('.whl') and f != WHEEL_FILENAME]
+          for old in stale:
+              api.delete_file(path_in_repo=old, repo_id=repo_id, repo_type=repo_type, commit_message=f'Remove stale wheel {old}')
+              print(f'Deleted stale: {old}')
           "
 
       # Deploy wheel to Databricks UC Volume so jobs pick up the latest code.

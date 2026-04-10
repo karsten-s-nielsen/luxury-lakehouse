@@ -21,6 +21,8 @@ from pathlib import Path
 from huggingface_hub import HfApi, get_token
 from huggingface_hub._jobs_api import JobStage
 
+from shared.wheel import WHEEL_BASE_URL
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
@@ -67,11 +69,11 @@ POLL_INTERVAL = 30  # seconds (conservative to avoid HF API rate limits)
 # Worker script (runs on HF Jobs)
 # ---------------------------------------------------------------------------
 
-WORKER_SCRIPT = '''\
+WORKER_SCRIPT = f'''\
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
-#     "luxury-lakehouse[analytics,training] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.1.0-py3-none-any.whl",
+#     "luxury-lakehouse[analytics,training] @ {WHEEL_BASE_URL}",
 # ]
 # ///
 
@@ -91,7 +93,7 @@ _log = logging.getLogger("benchmark_worker")
 def main() -> None:
     config_b64 = os.environ.get("EVOLVE_CANDIDATE_CONFIG", "")
     if not config_b64:
-        print(json.dumps({"error": 1.0, "reason": "missing config"}))
+        print(json.dumps({{"error": 1.0, "reason": "missing config"}}))
         sys.exit(0)
 
     candidate_config = json.loads(base64.b64decode(config_b64).decode())
@@ -102,7 +104,7 @@ def main() -> None:
 
     _log.info("Benchmark: %s evaluator (device=%s, epochs=%d)", target, device, epochs)
 
-    target_module = importlib.import_module(f"evolve.targets.{target}.evaluator")
+    target_module = importlib.import_module(f"evolve.targets.{{target}}.evaluator")
     metrics = target_module.train_and_evaluate(
         candidate_config=candidate_config,
         device=device,
