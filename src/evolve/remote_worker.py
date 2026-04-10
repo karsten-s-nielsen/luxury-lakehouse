@@ -17,6 +17,7 @@ import importlib
 import json
 import logging
 import sys
+import traceback
 from typing import Any
 
 _log = logging.getLogger(__name__)
@@ -65,13 +66,17 @@ def main() -> None:
 
     _log.info("Running %s evaluator (device=%s, epochs=%d, seed=%d)", target, device, epochs, seed)
     target_module = importlib.import_module(f"evolve.targets.{target}.evaluator")
-    metrics: dict[str, float] = target_module.train_and_evaluate(
-        candidate_config=config,
-        device=device,
-        epochs=epochs,
-        seed=seed,
-        program_path=program_path,
-    )
+    try:
+        metrics: dict[str, Any] = target_module.train_and_evaluate(
+            candidate_config=config,
+            device=device,
+            epochs=epochs,
+            seed=seed,
+            program_path=program_path,
+        )
+    except Exception:
+        _log.exception("Remote worker evaluation failed")
+        metrics = {"combined_score": 0.0, "error": 1.0, "_error_text": traceback.format_exc()}
 
     # Single JSON line to stdout — the SSH caller parses this.
     print(json.dumps(metrics))

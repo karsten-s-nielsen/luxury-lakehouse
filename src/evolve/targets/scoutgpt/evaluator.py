@@ -6,6 +6,7 @@ import logging
 import os
 import threading
 import time
+import traceback
 import types
 from dataclasses import dataclass
 from pathlib import Path
@@ -153,7 +154,7 @@ def train_and_evaluate(
     epochs: int,
     seed: int,
     program_path: str | None = None,
-) -> dict[str, float]:
+) -> dict[str, Any]:
     """Build model from candidate config, train, return evaluation metrics.
 
     This function is called by the LocalCudaBackend (and future backends).
@@ -257,7 +258,7 @@ def train_and_evaluate(
         elapsed = time.monotonic() - start_time
         param_count = sum(p.numel() for p in model.parameters())
 
-        metrics: dict[str, float] = {
+        metrics: dict[str, Any] = {
             "spearman_rho": cf_results["mean_spearman_rho"],
             "rho_std": cf_results["rho_std"],
             "top1_accuracy": top1,
@@ -276,7 +277,7 @@ def train_and_evaluate(
         )
     except (torch.cuda.OutOfMemoryError, RuntimeError) as exc:
         _log.warning("Candidate failed (OOM or runtime error), returning score 0: %s", exc)
-        metrics = {"combined_score": 0.0, "error": 1.0}
+        metrics = {"combined_score": 0.0, "error": 1.0, "_error_text": traceback.format_exc()}
 
     # Clean up GPU memory before returning so the next candidate starts clean
     del model, train_ds, val_ds, test_ds

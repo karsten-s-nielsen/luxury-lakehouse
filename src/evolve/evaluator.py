@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import ast
 import logging
+import traceback
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from openevolve.evaluation_result import EvaluationResult
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, model_validator
 
 from evolve.backends.base import ComputeBackend, fail_metrics
@@ -244,26 +246,32 @@ class EvolveEvaluator:
     # Public API
     # ------------------------------------------------------------------
 
-    def evaluate(self, program_path: str) -> dict[str, Any]:
+    def evaluate(self, program_path: str) -> EvaluationResult:
         """Evaluate a candidate program and return fitness metrics.
 
         On any failure (bad config, training error, missing metrics) returns
-        ``{"combined_score": 0.0, ...}`` so that the evolutionary loop can
-        continue without crashing.
+        an :class:`EvaluationResult` with zero scores and an ``"error"``
+        artifact containing the traceback or rejection reason, so the
+        evolutionary loop can continue without crashing.
 
         Args:
             program_path: Path to the ``.py`` file containing a ``config`` dict
                 and optional ``custom_embed`` / ``custom_layers`` functions.
 
         Returns:
-            Mapping with at least ``"combined_score"`` and all raw metrics
-            from the training backend.
+            :class:`EvaluationResult` with at least ``"combined_score"`` in
+            metrics and all raw metrics from the training backend.  On
+            failure, an ``"error"`` artifact carries the traceback or
+            rejection reason for the LLM prompt sampler.
         """
         try:
             program = _load_program(program_path)
         except Exception:
             _log.exception("Failed to load program %s", program_path)
-            return {**fail_metrics(), **self._fail_score(), "reject_reason": "load_error"}
+            return EvaluationResult(
+                metrics={**fail_metrics(), **self._fail_score(), "reject_reason": "load_error"},
+                artifacts={"error": traceback.format_exc()},
+            )
 
         config = program.config
 
@@ -276,14 +284,21 @@ class EvolveEvaluator:
 
         if not validate_search_space(config):
             _log.warning("Program %s rejected: search space validation failed", program_path)
-            return {**fail_metrics(), **self._fail_score(), "reject_reason": "search_space"}
+            filename = Path(program_path).name
+            return EvaluationResult(
+                metrics={**fail_metrics(), **self._fail_score(), "reject_reason": "search_space"},
+                artifacts={"error": f"Search space validation failed for {filename}"},
+            )
 
         # Level 2 validation gate
         send_program_path: str | None = None
         if program.has_custom_embed or program.has_custom_layers:
             if self._validation_profile is None:
                 _log.error("Level 2 program but no ValidationProfile configured")
-                return {**fail_metrics(), **self._fail_score(), "reject_reason": "no_profile"}
+                return EvaluationResult(
+                    metrics={**fail_metrics(), **self._fail_score(), "reject_reason": "no_profile"},
+                    artifacts={"error": "Level 2 program but no ValidationProfile configured"},
+                )
             source = Path(program_path).read_text()
             valid, reason = validate_program(
                 source,
@@ -292,7 +307,10 @@ class EvolveEvaluator:
             )
             if not valid:
                 _log.warning("Program %s rejected: %s", program_path, reason)
-                return {**fail_metrics(), **self._fail_score(), "reject_reason": reason}
+                return EvaluationResult(
+                    metrics={**fail_metrics(), **self._fail_score(), "reject_reason": reason},
+                    artifacts={"error": f"Code validation rejected: {reason}"},
+                )
             send_program_path = program_path
 
         train_kwargs: dict[str, Any] = {
@@ -308,10 +326,19 @@ class EvolveEvaluator:
             metrics = self._backend.train(**train_kwargs)
         except Exception:
             _log.exception("Backend training failed for %s", program_path)
-            return {**fail_metrics(), **self._fail_score(), "reject_reason": "backend_error"}
+            return EvaluationResult(
+                metrics={**fail_metrics(), **self._fail_score(), "reject_reason": "backend_error"},
+                artifacts={"error": traceback.format_exc()},
+            )
 
+        # Pop _error_text from metrics (if present) and surface as artifact
+        error_text = metrics.pop("_error_text", None)
         combined = self._compute_combined_score(metrics)
-        return {**metrics, "combined_score": combined}
+        result_metrics = {**metrics, "combined_score": combined}
+
+        if error_text is not None:
+            return EvaluationResult(metrics=result_metrics, artifacts={"error": error_text})
+        return EvaluationResult.from_dict(result_metrics)
 
     # ------------------------------------------------------------------
     # Internals
@@ -330,15 +357,3 @@ class EvolveEvaluator:
     def _fail_score(self) -> dict[str, float]:
         """Return a zero-score dict for all configured fitness weight keys."""
         return {key: 0.0 for key in self._fitness_config.combined_weights}
-
-    def _zero_result(self) -> dict[str, float]:
-        """Return a safe zero-score result dict.
-
-        .. deprecated:: Level 2
-            Kept for backward compatibility.  New code uses
-            ``{**fail_metrics(), **self._fail_score()}``.
-        """
-        result: dict[str, float] = {"combined_score": 0.0}
-        for key in self._fitness_config.combined_weights:
-            result[key] = 0.0
-        return result
