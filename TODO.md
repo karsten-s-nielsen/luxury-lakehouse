@@ -2,7 +2,7 @@
 
 Quick-reference action items. Full details in [ARCHITECTURE.md](ARCHITECTURE.md). For research directions and unscheduled ideas, see [ROADMAP.md](ROADMAP.md).
 
-**Last updated**: 2026-04-11 (D55 serverless join fix, D54 Taipy cost wiring, effective_cost_usd fallback, pipeline row_count conformance)
+**Last updated**: 2026-04-11 (D55 dead code removal — column dropped; guard timing 3-way decomposition via timed_check; permanent grant fix via ALTER DEFAULT PRIVILEGES FOR ROLE databricks_superuser; Jobs API CAN_VIEW for Workflows page; #sha256= removed from UC Volume paths; PR #115)
 
 ---
 
