@@ -57,6 +57,15 @@ page_config = PageConfig(
             "wf_run_volume_detail",
             help_text="Total pipeline runs in the last 30 days. Detail shows daily rate and average cost per run.",
         ),
+        StatCard(
+            "Avg Cold Start",
+            "wf_avg_cold_start",
+            "wf_cold_start_detail",
+            help_text=(
+                "Average serverless environment setup time (spin-up, wheel install, imports) "
+                "before pipeline work begins. Lower is better. Range shows fastest to slowest workflow."
+            ),
+        ),
     ],
     content=[
         ContentRow(

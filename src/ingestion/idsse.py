@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from ingestion.guards import FilterResult
+from ingestion.guards import FilterResult, timed_check
 from ingestion.utils import (
     configure_logging,
     get_spark_session,
@@ -389,12 +389,13 @@ def run_pipeline(
     *,
     filter_result: FilterResult,
     ctx: object = None,
-) -> None:
+) -> int:
     """Ingest IDSSE tracking and event data into the bronze layer."""
     if filter_result.count == 0:
         raise WorkflowSkippedError("No new work")
     ingest_idsse(spark, catalog, schema, logger)
     ingest_idsse_events(spark, catalog, schema, logger)
+    return 0
 
 
 def main() -> None:
@@ -407,7 +408,7 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    filter_result = skip_guard.check(spark, args.catalog, args.schema)
+    filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
 
     logger.info("Starting IDSSE ingestion into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)

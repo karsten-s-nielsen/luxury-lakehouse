@@ -626,8 +626,6 @@ class TestCostTimeCapture:
             hook._table = "cat.observability.workflow_cost_live"
             hook._rate_usd_per_hour = 0.07
             hook._runtime = "test"
-            hook._job_run_id = None
-            hook._task_key = None
 
             runner.register_hook(hook)
 

@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
-from ingestion.guards import FilterResult
+from ingestion.guards import FilterResult, timed_check
 from ingestion.spadl_conversion import (
     _SPADL_TABLE,
     _convert_statsbomb_from_bronze,
@@ -391,7 +391,7 @@ def run_pipeline(
     *,
     filter_result: FilterResult,
     ctx=None,
-) -> None:
+) -> int:
     """Execute the full SPADL/VAEP pipeline.
 
     Memory strategy: never hold all data in memory.  Use Delta as
@@ -435,7 +435,7 @@ def run_pipeline(
     models = _load_models(catalog, schema, logger)
 
     if models is None:
-        return
+        return 0
 
     model_scores, model_concedes = models
 
@@ -445,7 +445,7 @@ def run_pipeline(
 
     if not unscored_match_ids:
         logger.info("No unscored matches -- nothing to do")
-        return
+        return 0
 
     # Serialize models to bytes for executor distribution via UDF closure.
     # XGBoost's C-level save_model/load_model cannot use UC Volume FUSE on
@@ -517,6 +517,7 @@ def run_pipeline(
     )
 
     logger.info("SPADL/VAEP pipeline complete -- scoring distributed across executors")
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -534,7 +535,7 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    filter_result = skip_guard.check(spark, args.catalog, args.schema)
+    filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
 
     logger.info("Starting SPADL/VAEP pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)

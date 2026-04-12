@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 
 from huggingface_hub import hf_hub_download
 
-from ingestion.guards import FilterResult
+from ingestion.guards import FilterResult, timed_check
 from shared.constants import IDENTIFIER_RE
 from workflows import workflow
 from workflows.exceptions import WorkflowSkippedError
@@ -82,7 +82,7 @@ def run_pipeline(
     *,
     filter_result: FilterResult,
     ctx: object = None,
-) -> None:
+) -> int:
     """Download PSxG predictions from HF Hub and write to bronze Delta table."""
     if filter_result.count == 0:
         raise WorkflowSkippedError("No new work")
@@ -146,6 +146,7 @@ def run_pipeline(
         logger.info("No predictions to import — skipping")
 
     logger.info("PSxG import complete")
+    return 0
 
 
 def main() -> None:
@@ -189,7 +190,7 @@ def main() -> None:
 
     bootstrap_hooks(spark, catalog, schema)
 
-    filter_result = skip_guard.check(spark, catalog, schema)
+    filter_result = timed_check(skip_guard, spark, catalog, schema)
 
     run_pipeline(spark, catalog, schema, volume_path, filter_result=filter_result)
 

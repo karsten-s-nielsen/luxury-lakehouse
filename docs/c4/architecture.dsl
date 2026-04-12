@@ -26,9 +26,9 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
         pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "36 workflow-card-registered compute pipelines with @workflow decorators, centralized bootstrap hooks, lifecycle tracking, three-tier cost tracking, YAML manifests, Evolve Engine for LLM-guided architecture search, and import-linter boundary enforcement" {
             workflowFramework = container "Workflow Framework" "Registry, @workflow decorator, WorkflowContext, lifecycle runner with on_start/on_complete/on_skip/on_error dispatch. Circular dependency broken via _set_runner injection" "Python, src/workflows/"
             workflowCards = container "Workflow Cards" "36 YAML manifests defining inputs, outputs, deps, execution config, cost estimates, academic provenance" "YAML, workflow-cards/" "Database"
-            costEstimateHook = container "CostEstimateHook" "Lifecycle hook writing run state, entity_count (input entities from guard), row_count (output rows), and cost estimates to workflow_cost_live Delta table via MERGE. Centralized registration via bootstrap_hooks()" "Python, PySpark, Delta, src/ingestion/cost_hook.py"
+            costEstimateHook = container "CostEstimateHook" "Lifecycle hook writing run state, entity_count (input entities from guard), row_count (output rows), guard_duration_seconds (from timed_check), and cost estimates to workflow_cost_live Delta table via MERGE. Enables three-way decomposition of total task time: env init + guard + pipeline work. Centralized registration via bootstrap_hooks()" "Python, PySpark, Delta, src/ingestion/cost_hook.py"
             hfCostRecorder = container "HFJobsCostRecorder" "Standalone cost recorder for HF Jobs scripts. Writes _workflow_cost.json (live status) and _cost_history/{job_id}.json (per-run history) to HF Hub repos. 90-day auto-pruning" "Python, huggingface_hub, src/ingestion/hf_jobs_cost.py"
-            guardRegistry = container "Guard Registry" "SkipGuard protocol + FilterResult dataclass + find_new_ids() (Spark LEFT ANTI JOIN). Guard-as-wrapper: each pipeline's main() calls skip_guard.check() directly at startup (no centralized gate). Mandatory injection: filter_result is a required parameter on all run_pipeline() functions (no default). Conformance tests enforce import isolation, mandatory params, no inline guards, direct guard call, early exit structure/behavior, exception propagation, count/ID consistency, cost/time capture, workflow ID consistency" "Python, src/ingestion/guards.py"
+            guardRegistry = container "Guard Registry" "SkipGuard protocol + FilterResult dataclass (with guard_duration_seconds field) + find_new_ids() (Spark LEFT ANTI JOIN) + timed_check() wrapper. Guard-as-wrapper: each pipeline's main() calls timed_check(skip_guard, ...) which records wall-clock duration via time.monotonic() and returns FilterResult. Mandatory injection: filter_result is a required parameter on all run_pipeline() functions (no default). Conformance tests enforce import isolation, mandatory params, no inline guards, direct guard call, early exit structure/behavior, exception propagation, count/ID consistency, cost/time capture, workflow ID consistency" "Python, src/ingestion/guards.py"
             ingestionPipelines = container "Compute Pipelines" "30 @workflow-decorated Databricks pipelines (all instrumented): 5 raw ingestors (StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner), 14 compute (xG, VAEP, DEFCON 360+tracking, pitch control, xT, OBSO/PAUSA, entity resolution, line-breaking 360+tracking, formations EFPI+shape graph, embeddings v1/v2, model validation), 1 HF sync (consolidates 7 former tasks: 3 imports + 3 exports + cost sync), elastic sync. Each runs its own SkipGuard at startup (guard-as-wrapper, D52). Centralized hook registration via bootstrap.py" "Python, PySpark, src/ingestion/"
             evolveEngine = container "Evolve Engine" "LLM-guided evolutionary architecture search (Level 1: config-only, Level 2: code evolution). CLI runner with --resume/--code-evolution, AST allowlist validator (ValidationProfile), evaluator bridge returning EvaluationResult with error artifacts (tracebacks fed back to LLM prompt), PriorityQueue-based BackendPool. Level 2: LLM generates custom_embed()/custom_layers() PyTorch functions, AST-validated then exec'd with restricted globals (__builtins__={}). Defense-in-depth per ADR-001. Pluggable backends: local CUDA, remote SSH, HF Jobs L40S" "Python, OpenEvolve, src/evolve/"
             analyticsLibrary = container "Analytics Library" "Pure-Python domain models (zero I/O). Pitch control (Spearman 2017), xG, xT, VAEP, OBSO, line-breaking, DEFCON, entity resolution, shape graph (construction + inference split), football2vec v2/360, ScoutGPT decoder (256d GPT-style causal, Hong et al. 2025), goalkeeper, coordinates. Split modules all under 800 lines" "Python, NumPy, SciPy, PyTorch, scikit-learn, src/analytics/"
@@ -36,7 +36,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
         }
 
         dbtProject = softwareSystem "dbt Project" "Medallion transformation: 66 models (27 staging, 6 intermediate incl. int_running_score for per-event game state, 33 marts with game_state/possession columns), normalize_coordinates macro, data classification meta tags, model contracts, liquid clustering" {
-            fctWorkflowCosts = container "fct_workflow_costs" "Gold-layer cost attribution from system.billing.usage × list_prices, proportional per-task by execution_duration. 90-day rolling window. Post-hook cleanup of warm-tier rows" "SQL, dbt" "Database"
+            fctWorkflowCosts = container "fct_workflow_costs" "Gold-layer cost attribution. Tasks-driven (lakeflow) with LEFT JOIN billing (~1 day lag). effective_cost_usd = COALESCE(actual, estimated). cold_start_seconds (total pre-pipeline = env + guard), guard_duration_seconds (guard only), entity_count, row_count from warm-tier via workflow_id + temporal window. UI derives environment_setup = cold_start - guard. 90-day rolling window" "SQL, dbt" "Database"
             goldModels = container "Gold Models" "29 fact tables + 4 dimension tables with enforced contracts, liquid clustering, auto-compaction" "SQL, dbt" "Database"
         }
 
@@ -44,7 +44,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
         unityCatalog = softwareSystem "Unity Catalog" "Governed Delta Lake storage: bronze (raw), gold (analytics), observability (platform metadata)" "External" {
             bronzeSchema = container "Bronze Schema" "Raw ingested data: events, tracking, SPADL actions, VAEP scores, compute results" "Delta Lake" "Database"
             goldSchema = container "Gold Schema" "Analytics-ready facts and dimensions: 29 fact tables, 4 dim tables, fct_workflow_costs" "Delta Lake" "Database"
-            observabilitySchema = container "Observability Schema" "Platform operational metadata: workflow_cost_live (state, duration, cost, entity_count, row_count)" "Delta Lake" "Database"
+            observabilitySchema = container "Observability Schema" "Platform operational metadata: workflow_cost_live (state, duration_seconds, guard_duration_seconds, cost, entity_count, row_count). Column-mapped Delta table — supports DROP COLUMN for dead-code cleanup" "Delta Lake" "Database"
         }
 
         lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL-compatible endpoint syncing 34 Delta Lake tables from Unity Catalog (56 btree/HNSW indexes: 50 btree + 6 HNSW vector: 4x128d + 2x144d)" "External"
@@ -92,7 +92,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
         ingestionPipelines -> bronzeSchema "Writes compute results to Delta tables" "PySpark/Delta"
         costEstimateHook -> observabilitySchema "MERGE run state + cost estimates to workflow_cost_live" "PySpark/Delta"
         databricksWorkflows -> ingestionPipelines "Executes 26 pipeline tasks (5 ingest as DAG roots)" "Databricks Jobs API"
-        ingestionPipelines -> guardRegistry "Each pipeline calls skip_guard.check() at startup (guard-as-wrapper)" ""
+        ingestionPipelines -> guardRegistry "Each pipeline calls timed_check(skip_guard, ...) at startup (guard-as-wrapper)" ""
 
         # Relationships - Evolve Engine
         developer -> evolveEngine "Runs 'uv run evolve --target scoutgpt'" "CLI"
@@ -223,7 +223,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
 
         dynamic pipelinePlatform "GuardAsWrapper" {
             databricksWorkflows -> ingestionPipelines "Job starts, 5 ingest tasks launch as DAG roots (no gate)"
-            ingestionPipelines -> guardRegistry "Each main() calls skip_guard.check() at startup"
+            ingestionPipelines -> guardRegistry "Each main() calls timed_check(skip_guard, ...) at startup"
             ingestionPipelines -> workflowFramework "WorkflowSkippedError caught by @workflow decorator"
             workflowFramework -> costEstimateHook "Dispatches on_skip to CostEstimateHook"
             costEstimateHook -> observabilitySchema "MERGE SKIPPED state + entity_count to workflow_cost_live"

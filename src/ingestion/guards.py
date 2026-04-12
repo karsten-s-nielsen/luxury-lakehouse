@@ -10,6 +10,7 @@ and raises ``WorkflowSkippedError`` when ``count == 0``.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -31,12 +32,34 @@ class FilterResult:
         metadata: Pass-through context for the pipeline — avoids
             re-computing what the guard already discovered (e.g.,
             ``need_global`` flag, competitions DataFrame).
+        guard_duration_seconds: Wall-clock time the guard check took.
+            Populated by :func:`timed_check`, ``None`` for legacy callers.
     """
 
     workflow_id: str
     count: int
     chunks: list[list[str]] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    guard_duration_seconds: int | None = None
+
+
+def timed_check(guard: SkipGuard, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+    """Run a guard's ``check()`` and record its wall-clock duration.
+
+    Returns a new :class:`FilterResult` with ``guard_duration_seconds``
+    populated.  All fields from the guard's result (including ``metadata``
+    with pre-computed IDs) are preserved unchanged.
+    """
+    start = time.monotonic()
+    result = guard.check(spark, catalog, schema)
+    elapsed = round(time.monotonic() - start)
+    return FilterResult(
+        workflow_id=result.workflow_id,
+        count=result.count,
+        chunks=result.chunks,
+        metadata=result.metadata,
+        guard_duration_seconds=elapsed,
+    )
 
 
 def ensure_table(spark: SparkSession, table_name: str, schema_ddl: str) -> None:

@@ -128,6 +128,14 @@ GLOSSARY: dict[str, str] = {
         "FAILED = last run errored. SKIPPED = last run was skipped."
     ),
     "Trigger": ("How a workflow is initiated. Scheduled = runs on a cron interval. Manual = triggered by a human."),
+    "Cold Start": (
+        "Serverless environment setup time before pipeline work begins. "
+        "Includes compute spin-up, wheel installation, and Python imports. Lower is better."
+    ),
+    "Entities": (
+        "Average number of input entities (e.g., matches, players) processed per run. "
+        "From the pipeline's skip guard, which determines what work is needed."
+    ),
     "Passes with Value": (
         "Passes where the off-ball scoring opportunity (actual OBSO) was greater than zero. "
         "Used as a quality proxy for 'successful' passes when pass outcome data is unavailable."
@@ -258,6 +266,8 @@ PAGE_TERMS: dict[str, list[str]] = {
         "Workflow Card",
         "Workflow Status",
         "Trigger",
+        "Cold Start",
+        "Entities",
     ],
     "Conversion-Funnel": ["A3 Entry", "Conversion Rate", "Possession"],
 }

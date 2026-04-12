@@ -13,7 +13,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ingestion.guards import FilterResult
+from ingestion.guards import FilterResult, timed_check
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
 from workflows import workflow
 from workflows.exceptions import WorkflowSkippedError
@@ -54,7 +54,7 @@ def _make_volume_op(module_path: str) -> Callable[..., None]:
 
     def _call(spark: SparkSession, catalog: str, schema: str, logger_arg: logging.Logger) -> None:
         mod = importlib.import_module(module_path)
-        filter_result = mod.skip_guard.check(spark, catalog, schema)
+        filter_result = timed_check(mod.skip_guard, spark, catalog, schema)
         volume_path = _VOLUME_PATHS[module_path]
         mod.run_pipeline(spark, catalog, schema, volume_path, filter_result=filter_result)
 
@@ -67,7 +67,7 @@ def _make_logger_op(module_path: str) -> Callable[..., None]:
 
     def _call(spark: SparkSession, catalog: str, schema: str, logger_arg: logging.Logger) -> None:
         mod = importlib.import_module(module_path)
-        filter_result = mod.skip_guard.check(spark, catalog, schema)
+        filter_result = timed_check(mod.skip_guard, spark, catalog, schema)
         mod.run_pipeline(spark, catalog, schema, logger_arg, filter_result=filter_result)
 
     _call.__qualname__ = f"_call[{module_path}]"
@@ -91,7 +91,7 @@ def _make_sync_costs_op() -> Callable[..., None]:
     def _call(spark: SparkSession, catalog: str, schema: str, logger_arg: logging.Logger) -> None:
         from ingestion.sync_hf_costs import run_pipeline, skip_guard
 
-        filter_result = skip_guard.check(spark, catalog, schema)
+        filter_result = timed_check(skip_guard, spark, catalog, schema)
         run_pipeline(catalog, _DEFAULT_CARDS_DIR, filter_result=filter_result)
 
     return _call
@@ -161,6 +161,6 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    filter_result = skip_guard.check(spark, args.catalog, args.schema)
+    filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
 
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)

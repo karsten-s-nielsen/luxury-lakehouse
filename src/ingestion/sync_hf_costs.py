@@ -24,7 +24,7 @@ import yaml
 from huggingface_hub import HfApi
 from huggingface_hub.hf_api import RepoFile
 
-from ingestion.guards import FilterResult
+from ingestion.guards import FilterResult, timed_check
 from shared.constants import COST_TABLE_NAME, DEFAULT_OBSERVABILITY_SCHEMA, IDENTIFIER_RE
 from workflows import workflow
 from workflows.exceptions import WorkflowSkippedError
@@ -157,7 +157,6 @@ def map_to_delta_schema(cost_data: dict[str, Any], task_key: str) -> dict[str, A
         "phase": cost_data.get("phase"),
         "run_id": f"hf-{hf_job_id}" if hf_job_id else None,
         "runtime": "hf_jobs",
-        "job_run_id": None,
         "task_key": task_key,
         "hf_job_id": hf_job_id,
         "state": cost_data.get("state"),
@@ -278,7 +277,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # No Spark available yet for guard check — create a standalone FilterResult
-    filter_result = skip_guard.check(None, args.catalog, "")  # type: ignore[arg-type]
+    filter_result = timed_check(skip_guard, None, args.catalog, "")  # type: ignore[arg-type]
 
     count = run_pipeline(args.catalog, args.cards_dir, filter_result=filter_result)
     logger.info("Done — %d records synced", count)

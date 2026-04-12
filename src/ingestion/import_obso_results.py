@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 
 from huggingface_hub import hf_hub_download
 
-from ingestion.guards import FilterResult
+from ingestion.guards import FilterResult, timed_check
 from shared.constants import IDENTIFIER_RE
 from workflows import workflow
 from workflows.exceptions import WorkflowSkippedError
@@ -122,7 +122,7 @@ def run_pipeline(
     *,
     filter_result: FilterResult,
     ctx: object = None,
-) -> None:
+) -> int:
     """Download OBSO results from HF Hub and write to bronze Delta tables."""
     if filter_result.count == 0:
         raise WorkflowSkippedError("No new work")
@@ -218,6 +218,7 @@ def run_pipeline(
         logger.warning("Unexpected error reading OBSO surfaces at %s — skipping", surfaces_path, exc_info=True)
 
     logger.info("OBSO import complete")
+    return 0
 
 
 def main() -> None:
@@ -266,7 +267,7 @@ def main() -> None:
 
     bootstrap_hooks(spark, catalog, schema)
 
-    filter_result = skip_guard.check(spark, catalog, schema)
+    filter_result = timed_check(skip_guard, spark, catalog, schema)
 
     run_pipeline(spark, catalog, schema, volume_path, hf_repo=args.hf_repo, filter_result=filter_result)
 

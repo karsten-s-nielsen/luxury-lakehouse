@@ -235,6 +235,8 @@ WF_TABLE_COLS = [
     "Status",
     "Last Run",
     "Last Duration",
+    "Cold Start",
+    "Entities",
     "Cost (30d)",
     "Avg/Run",
     "Freshness",
@@ -249,6 +251,7 @@ def build_table_data(
     runtime_filter: str | None = "All",
     freshness_filter: str | None = "All",
     hf_costs: dict[str, HFCostData] | None = None,
+    latest_run_metrics: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, list[str]]:
     """Build dashboard table DataFrame from cards + cost data.
 
@@ -256,21 +259,32 @@ def build_table_data(
     - cold_costs: DB cold-tier costs (workflow_id column)
     - job_runs: Databricks Jobs API (re-keyed to workflow_id)
     - hf_costs: HF Hub cost history (keyed by workflow_id)
+    - latest_run_metrics: most recent run per workflow (cold_start, entities)
 
     Returns (DataFrame, card_ids) where card_ids is parallel to rows
     for mapping row index to card ID.
     """
     card_ids: list[str] = []
     hf = hf_costs or {}
+    lrm = latest_run_metrics if latest_run_metrics is not None else pd.DataFrame()
 
     # Build cost lookups keyed by workflow_id
     cold_cost_lookup: dict[str, float] = {}
     cold_run_count_lookup: dict[str, int] = {}
     if not cold_costs.empty and "workflow_id" in cold_costs.columns:
-        cold_cost_lookup = (
-            cold_costs.set_index("workflow_id")["total_cost_usd"].apply(lambda x: float(x or 0)).to_dict()
-        )
-        cold_run_count_lookup = cold_costs.set_index("workflow_id")["run_count"].apply(lambda x: int(x or 0)).to_dict()
+        idx = cold_costs.set_index("workflow_id")
+        cold_cost_lookup = idx["total_cost_usd"].apply(lambda x: float(x or 0)).to_dict()
+        cold_run_count_lookup = idx["run_count"].apply(lambda x: int(x or 0)).to_dict()
+
+    # Build latest-run lookups keyed by workflow_id
+    cold_start_lookup: dict[str, int] = {}
+    entity_count_lookup: dict[str, int] = {}
+    if not lrm.empty and "workflow_id" in lrm.columns:
+        lrm_idx = lrm.set_index("workflow_id")
+        if "cold_start_seconds" in lrm_idx.columns:
+            cold_start_lookup = lrm_idx["cold_start_seconds"].dropna().apply(int).to_dict()
+        if "entity_count" in lrm_idx.columns:
+            entity_count_lookup = lrm_idx["entity_count"].dropna().apply(int).to_dict()
 
     rows = []
     for card_id, card in cards.items():
@@ -358,6 +372,16 @@ def build_table_data(
         # --- Status ---
         status_str = _resolve_status(hf_data, job_run, jobs_last_run_ts, hf_last_run_ts)
 
+        # --- Cold start + Entities (from enriched cold tier) ---
+        cs = cold_start_lookup.get(card_id)
+        cold_start_str = "\u2014"
+        if cs is not None:
+            cs_mins, cs_secs = divmod(int(cs), 60)
+            cold_start_str = f"{cs_mins}m {cs_secs}s" if cs_mins else f"{cs_secs}s"
+
+        ent = entity_count_lookup.get(card_id)
+        entity_str = f"{int(ent):,}" if ent is not None else "\u2014"
+
         rows.append(
             {
                 "Name": card.get("name", card_id),
@@ -367,6 +391,8 @@ def build_table_data(
                 "Status": status_str,
                 "Last Run": last_run_str,
                 "Last Duration": duration_str,
+                "Cold Start": cold_start_str,
+                "Entities": entity_str,
                 "Cost (30d)": cost_val,
                 "Avg/Run": avg_run_val,
                 "Freshness": freshness_str,
@@ -493,6 +519,7 @@ def compute_stats(
     jobs: dict[str, dict[str, Any]],
     visible_card_ids: set[str] | None = None,
     hf_costs: dict[str, HFCostData] | None = None,
+    latest_run_metrics: pd.DataFrame | None = None,
 ) -> None:
     """Compute stats bar metrics.
 
@@ -570,6 +597,12 @@ def compute_stats(
             state.wf_run_volume_detail = f"{total_running} running now"
         else:
             state.wf_run_volume_detail = ""
+
+    # Cold start: from latest run per workflow (not averaged across 30 days)
+    lrm = latest_run_metrics if latest_run_metrics is not None else pd.DataFrame()
+    if not lrm.empty and visible_card_ids is not None:
+        lrm = lrm[lrm["workflow_id"].isin(list(visible_card_ids))]
+    _compute_cold_start_stats(state, lrm)
 
 
 def _compute_hf_cost(
@@ -667,6 +700,38 @@ def _compute_freshness_stats(
     else:
         state.wf_freshness_summary = "No SLAs configured yet."
         state.wf_freshness_detail = RawHtml("")
+
+
+def _compute_cold_start_stats(state: Any, latest_run: pd.DataFrame) -> None:
+    """Compute cold start stat from latest-run-per-workflow metrics.
+
+    Uses median (robust to outliers) across workflows' most recent runs.
+    """
+    if latest_run.empty or "cold_start_seconds" not in latest_run.columns:
+        state.wf_avg_cold_start = "\u2014"
+        state.wf_cold_start_detail = ""
+        return
+
+    valid = latest_run[latest_run["cold_start_seconds"].notna()]
+    if valid.empty:
+        state.wf_avg_cold_start = "\u2014"
+        state.wf_cold_start_detail = "No enrichment data yet"
+        return
+
+    median_cs = float(valid["cold_start_seconds"].median())
+    max_cs = float(valid["cold_start_seconds"].max())
+    min_cs = float(valid["cold_start_seconds"].min())
+
+    mins, secs = divmod(int(median_cs), 60)
+    state.wf_avg_cold_start = f"{mins}m {secs}s" if mins else f"{secs}s"
+
+    # Detail: range across workflows
+    min_m, min_s = divmod(int(min_cs), 60)
+    max_m, max_s = divmod(int(max_cs), 60)
+    min_str = f"{min_m}m {min_s}s" if min_m else f"{min_s}s"
+    max_str = f"{max_m}m {max_s}s" if max_m else f"{max_s}s"
+
+    state.wf_cold_start_detail = f"range {min_str}\u2013{max_str}"
 
 
 __all__ = [

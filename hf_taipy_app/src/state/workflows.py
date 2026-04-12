@@ -18,7 +18,7 @@ from typing import Any
 
 import pandas as pd
 from cache import ttl_cache
-from queries.workflows import fetch_cold_costs, fetch_warm_costs
+from queries.workflows import fetch_cold_costs, fetch_latest_run_metrics, fetch_warm_costs
 
 from state.shared import register_page_refresher, register_page_teardown
 from state.workflows_dag import (
@@ -74,6 +74,8 @@ wf_total_cost_30d: str = "$0.00"
 wf_cost_detail: RawHtml = RawHtml("")
 wf_run_volume: str = "0"
 wf_run_volume_detail: str = ""
+wf_avg_cold_start: str = "\u2014"
+wf_cold_start_detail: str = ""
 
 wf_table_data: pd.DataFrame = pd.DataFrame(columns=pd.Index(WF_TABLE_COLS))
 
@@ -133,6 +135,8 @@ __all__ = [
     "wf_cost_detail",
     "wf_run_volume",
     "wf_run_volume_detail",
+    "wf_avg_cold_start",
+    "wf_cold_start_detail",
     "wf_table_data",
     "wf_type_filter",
     "wf_type_lov",
@@ -441,6 +445,7 @@ def _refresh_table(state: Any) -> None:
     global _wf_card_ids
 
     cold = fetch_cold_costs()
+    latest = fetch_latest_run_metrics()
     jobs = _fetch_job_runs()
     hf_costs = _fetch_hf_cost_history()
 
@@ -491,6 +496,7 @@ def _refresh_table(state: Any) -> None:
         state.wf_runtime_filter,
         state.wf_freshness_filter,
         hf_costs=hf_costs,
+        latest_run_metrics=latest,
     )
     state.wf_table_data = table_df
     _wf_card_ids = card_ids
@@ -505,6 +511,7 @@ def _refresh_table(state: Any) -> None:
         jobs,
         visible_card_ids=matched_ids if not all_filters_default else None,
         hf_costs=hf_costs,
+        latest_run_metrics=latest,
     )
 
 
@@ -550,6 +557,7 @@ def _wf_auto_refresh_tick(state: Any) -> None:
 
     logger.debug("Auto-refresh tick")
     cold = fetch_cold_costs()
+    latest = fetch_latest_run_metrics()
     warm = fetch_warm_costs()
     jobs = _fetch_job_runs()
     hf_costs = _fetch_hf_cost_history()
@@ -562,10 +570,11 @@ def _wf_auto_refresh_tick(state: Any) -> None:
         state.wf_runtime_filter,
         state.wf_freshness_filter,
         hf_costs=hf_costs,
+        latest_run_metrics=latest,
     )
     state.wf_table_data = table_df
     _wf_card_ids = card_ids
-    compute_stats(state, _cards, cold, warm, jobs, hf_costs=hf_costs)
+    compute_stats(state, _cards, cold, warm, jobs, hf_costs=hf_costs, latest_run_metrics=latest)
 
 
 # ---------------------------------------------------------------------------
@@ -608,6 +617,7 @@ def wf_refresh(state: Any) -> None:
 
     # Query costs + job runs (job_runs already re-keyed to workflow_id)
     cold = fetch_cold_costs()
+    latest = fetch_latest_run_metrics()
     warm = fetch_warm_costs()
     jobs = _fetch_job_runs()
 
@@ -629,12 +639,14 @@ def wf_refresh(state: Any) -> None:
     hf_costs = _fetch_hf_cost_history()
 
     # Build table
-    table_df, card_ids = build_table_data(_cards, cold, jobs, "All", "All", "All", hf_costs=hf_costs)
+    table_df, card_ids = build_table_data(
+        _cards, cold, jobs, "All", "All", "All", hf_costs=hf_costs, latest_run_metrics=latest
+    )
     state.wf_table_data = table_df
     _wf_card_ids = card_ids
 
     # Stats (uses jobs for freshness, cold for cost, hf_costs for HF data)
-    compute_stats(state, _cards, cold, warm, jobs, hf_costs=hf_costs)
+    compute_stats(state, _cards, cold, warm, jobs, hf_costs=hf_costs, latest_run_metrics=latest)
 
     # Clear detail state (dashboard mode)
     state.wf_selected_workflow = None

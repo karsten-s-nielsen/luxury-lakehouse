@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
-from ingestion.guards import FilterResult
+from ingestion.guards import FilterResult, timed_check
 from ingestion.utils import (
     configure_logging,
     get_spark_session,
@@ -685,12 +685,13 @@ def run_pipeline(
     *,
     filter_result: FilterResult,
     ctx: object = None,
-) -> None:
+) -> int:
     """Ingest all StatsBomb open data (competitions, matches, events, lineups, 360)."""
     if filter_result.count == 0:
         raise WorkflowSkippedError("No new work")
     competitions_pdf = ingest_competitions(spark, catalog, schema, logger)
     ingest_matches_and_details(spark, catalog, schema, competitions_pdf, logger)
+    return 0
 
 
 def main() -> None:
@@ -703,7 +704,7 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    filter_result = skip_guard.check(spark, args.catalog, args.schema)
+    filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
 
     logger.info("Starting StatsBomb ingestion into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)

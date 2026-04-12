@@ -2056,12 +2056,24 @@ models:
         description: >
           Proportional dollar cost for this task within the job run.
           Attributed by execution_duration_seconds ratio.
+      - name: execution_duration_seconds
+        data_type: bigint
+        description: >
+          Total wall-clock duration from Databricks system tables
+          (system.lakeflow.job_task_run_timeline). Includes cold start,
+          pipeline work, and teardown.
       - name: duration_seconds
         data_type: int
         description: >
-          Pipeline wall-clock duration in seconds from CostEstimateHook.
-          More accurate than execution_duration_seconds (excludes scheduling
-          overhead). NULL for runs predating hook deployment.
+          Actual pipeline work duration in seconds from CostEstimateHook.
+          Excludes cold start overhead (environment setup, wheel install,
+          imports). NULL for runs predating hook deployment.
+      - name: cold_start_seconds
+        data_type: int
+        description: >
+          Environment setup overhead in seconds (serverless spin-up, wheel
+          install, imports). Computed as warm-tier started_at minus cold-tier
+          task_started_at. NULL for runs predating hook deployment.
       - name: entity_count
         data_type: int
         description: >
@@ -2072,6 +2084,14 @@ models:
         description: >
           Number of rows the pipeline wrote. NULL for runs predating hook
           deployment, SKIPPED runs (always 0), or when hook failed.
+      - name: guard_duration_seconds
+        data_type: int
+        description: >
+          Wall-clock seconds the skip guard check took. Includes the first
+          Spark SQL query (which bears serverless executor spin-up cost)
+          plus the anti-join to find new IDs. NULL for runs predating
+          timed_check deployment. Use with cold_start_seconds to decompose:
+          environment_setup = cold_start - guard_duration.
       - name: pipeline_state
         data_type: string
         description: >
@@ -2083,6 +2103,12 @@ models:
           Hook's per-task cost estimate (rate_usd_per_hour * duration).
           Independent of billing attribution — useful for comparing hook
           estimates against actual attributed_cost_usd. NULL for older runs.
+      - name: effective_cost_usd
+        data_type: decimal(10,4)
+        description: >
+          Best available cost: COALESCE(attributed_cost_usd, estimated_cost_usd).
+          Shows actual billing cost when available (~1 day lag), falls back to
+          hook estimate for recent runs. NULL only for pre-hook runs.
 
   # ── Formation Detection ────────────────────────────────────────────────
 

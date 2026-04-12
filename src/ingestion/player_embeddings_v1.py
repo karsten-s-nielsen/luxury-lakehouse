@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, cast
 
 import pandas as pd
 
-from ingestion.guards import FilterResult
+from ingestion.guards import FilterResult, timed_check
 from ingestion.player_embeddings_common import (
     _PLAYERS_PER_BATCH,
     _TABLE_NAME,
@@ -410,6 +410,6 @@ def main_v1() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    filter_result = skip_guard.check(spark, args.catalog, args.schema)
+    filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
 
     run_pipeline_v1(spark, args.catalog, args.schema, logger, filter_result=filter_result)

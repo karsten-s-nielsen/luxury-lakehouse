@@ -134,7 +134,7 @@ module "workflows" {
   source = "../../modules/workflows"
 
   catalog_name             = module.workspace.catalog_name
-  wheel_path               = "${module.catalog.libs_volume_path}/luxury_lakehouse-0.3.0-py3-none-any.whl#sha256=64c37d638fefdc0a448e9babb0e7dc4851e5c0d04d48bd42638076e55b06df8d"
+  wheel_path               = "${module.catalog.libs_volume_path}/luxury_lakehouse-0.3.0-py3-none-any.whl"
   environment              = var.environment
   notification_emails      = var.notification_emails
   run_as_sp_application_id = module.service_principals.ingestion_sp_application_id
@@ -180,7 +180,7 @@ resource "databricks_job" "sync_hf_costs_daily" {
       client = "1"
 
       dependencies = [
-        "${module.catalog.libs_volume_path}/luxury_lakehouse-0.3.0-py3-none-any.whl#sha256=64c37d638fefdc0a448e9babb0e7dc4851e5c0d04d48bd42638076e55b06df8d",
+        "${module.catalog.libs_volume_path}/luxury_lakehouse-0.3.0-py3-none-any.whl",
         "huggingface_hub>=0.25.0",
         "pyyaml>=6.0"
       ]
@@ -234,6 +234,29 @@ resource "databricks_permissions" "sql_warehouse" {
   access_control {
     service_principal_name = module.service_principals.terraform_ci_sp_application_id
     permission_level       = "CAN_USE"
+  }
+}
+
+# ── Jobs API: Read-only access for Taipy app SP ──────────────────────────
+# The Workflows dashboard calls jobs.list_runs() to show Status, Last Run,
+# and Last Duration. CAN_VIEW is the minimum permission — it allows reading
+# run metadata but not triggering or modifying jobs.
+
+resource "databricks_permissions" "hf_app_view_ingestion_job" {
+  job_id = module.workflows.ingestion_job_id
+
+  access_control {
+    service_principal_name = module.service_principals.hf_app_sp_application_id
+    permission_level       = "CAN_VIEW"
+  }
+}
+
+resource "databricks_permissions" "hf_app_view_sync_hf_costs_job" {
+  job_id = databricks_job.sync_hf_costs_daily.id
+
+  access_control {
+    service_principal_name = module.service_principals.hf_app_sp_application_id
+    permission_level       = "CAN_VIEW"
   }
 }
 

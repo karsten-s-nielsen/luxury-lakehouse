@@ -137,7 +137,7 @@ def run_pipeline(
     volume_path: str,
     *,
     ctx: object = None,
-) -> None:
+) -> int:
     """Query on-target shots from gold layer, stage to UC Volume, upload to HF Hub."""
     # ------------------------------------------------------------------
     # 1. Query on-target shots from gold layer
@@ -178,6 +178,7 @@ def run_pipeline(
 
     logger.info("Pipeline complete. Dataset: %s", dataset_url)
     logger.info("Final stats: %d on-target shots exported", row_count)
+    return row_count
 
 
 def main() -> None:

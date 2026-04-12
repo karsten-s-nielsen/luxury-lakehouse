@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from ingestion.guards import FilterResult
+from ingestion.guards import FilterResult, timed_check
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
 from workflows import workflow
 from workflows.exceptions import WorkflowSkippedError
@@ -60,7 +60,7 @@ def run_pipeline(
     *,
     filter_result: FilterResult,
     ctx: object = None,
-) -> None:
+) -> int:
     """Backfill _raw_extra_json on existing StatsBomb events."""
     if filter_result.count == 0:
         raise WorkflowSkippedError("No events need _raw_extra_json backfill")
@@ -70,6 +70,7 @@ def run_pipeline(
     competitions_pdf = ingest_competitions(spark, catalog, schema, logger)
     guard_match_ids = filter_result.metadata.get("new_match_ids") if filter_result.metadata else None
     backfill_extra_json(spark, catalog, schema, competitions_pdf, logger, match_ids=guard_match_ids)
+    return 0
 
 
 def main() -> None:
@@ -82,7 +83,7 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    filter_result = skip_guard.check(spark, args.catalog, args.schema)
+    filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
 
     logger.info("Starting _raw_extra_json backfill into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)

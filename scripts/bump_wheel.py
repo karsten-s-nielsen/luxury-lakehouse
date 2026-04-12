@@ -33,10 +33,26 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Glob patterns for static consumer discovery
 # ---------------------------------------------------------------------------
+#
+# Two groups based on whether the consumer can validate a #sha256= fragment:
+#
+# HASH_CONSUMERS — HTTP/HTTPS URLs (PEP 723 scripts, deploy.sh):
+#     pip/uv validate the hash on download against the fetched bytes.
+#     Receives both the version bump AND the #sha256= fragment.
+#
+# VERSION_ONLY_CONSUMERS — local file paths (Terraform → Databricks serverless):
+#     Serverless pip rejects #sha256= on UC Volume paths (ERROR_INVALID_REQUIREMENT).
+#     Receives ONLY the version bump, never the hash fragment.
+#     Integrity for these wheels must be verified out-of-band (e.g., by
+#     comparing the uploaded wheel's SHA-256 against sha256sums.json before
+#     calling deploy_wheel.py).
 
-_CONSUMER_GLOBS: list[str] = [
+_HASH_CONSUMER_GLOBS: list[str] = [
     "scripts/*.py",
     "scripts/*.sh",
+]
+
+_VERSION_ONLY_CONSUMER_GLOBS: list[str] = [
     "terraform/**/*.tf",
 ]
 
@@ -49,14 +65,14 @@ _SELF_NAME = "bump_wheel.py"
 # ---------------------------------------------------------------------------
 
 
-def _discover_consumers(project_root: Path) -> list[Path]:
-    """Find all static consumer files containing a wheel URL reference.
+def _discover_consumers_for_globs(project_root: Path, globs: list[str]) -> list[Path]:
+    """Find static consumer files containing a wheel URL reference.
 
-    Scans files matching ``_CONSUMER_GLOBS`` and returns those whose content
+    Scans files matching the given globs and returns those whose content
     matches ``WHEEL_URL_RE``.  Excludes this script.
     """
     candidates: set[Path] = set()
-    for pattern in _CONSUMER_GLOBS:
+    for pattern in globs:
         candidates.update(project_root.glob(pattern))
 
     # Exclude self
@@ -73,6 +89,16 @@ def _discover_consumers(project_root: Path) -> list[Path]:
             consumers.append(path)
 
     return consumers
+
+
+def _discover_hash_consumers(project_root: Path) -> list[Path]:
+    """HTTP-URL consumers (PEP 723 scripts, deploy.sh) — receive ``#sha256=``."""
+    return _discover_consumers_for_globs(project_root, _HASH_CONSUMER_GLOBS)
+
+
+def _discover_version_only_consumers(project_root: Path) -> list[Path]:
+    """Local-path consumers (Terraform) — version only, no ``#sha256=``."""
+    return _discover_consumers_for_globs(project_root, _VERSION_ONLY_CONSUMER_GLOBS)
 
 
 # ---------------------------------------------------------------------------
@@ -103,18 +129,32 @@ def _sync(project_root: Path, *, dry_run: bool = False, sha256: str | None = Non
         else:
             logger.debug("Already current: %s", wheel_module.relative_to(project_root))
 
-    # 2. Update all discovered static consumers
-    consumers = _discover_consumers(project_root)
-    for path in consumers:
+    # 2. Update HTTP-URL consumers (PEP 723 scripts, deploy.sh) WITH hash
+    for path in _discover_hash_consumers(project_root):
         original = path.read_text(encoding="utf-8")
         updated = rewrite_wheel_url(original, version, sha256=sha256)
         if updated != original:
             changed += 1
             if dry_run:
-                logger.info("Would update: %s", path.relative_to(project_root))
+                logger.info("Would update (with hash): %s", path.relative_to(project_root))
             else:
                 path.write_text(updated, encoding="utf-8")
-                logger.info("Updated: %s", path.relative_to(project_root))
+                logger.info("Updated (with hash): %s", path.relative_to(project_root))
+        else:
+            logger.debug("Already current: %s", path.relative_to(project_root))
+
+    # 3. Update local-path consumers (Terraform) — VERSION ONLY, never hash
+    # Serverless pip rejects #sha256= on UC Volume paths.
+    for path in _discover_version_only_consumers(project_root):
+        original = path.read_text(encoding="utf-8")
+        updated = rewrite_wheel_url(original, version, sha256=None)
+        if updated != original:
+            changed += 1
+            if dry_run:
+                logger.info("Would update (version only): %s", path.relative_to(project_root))
+            else:
+                path.write_text(updated, encoding="utf-8")
+                logger.info("Updated (version only): %s", path.relative_to(project_root))
         else:
             logger.debug("Already current: %s", path.relative_to(project_root))
 
@@ -136,7 +176,10 @@ def _sync(project_root: Path, *, dry_run: bool = False, sha256: str | None = Non
 def _check(project_root: Path) -> int:
     """Verify that all consumer files reference the pyproject.toml version.
 
-    Returns 0 if consistent, 1 if any file is stale.
+    Also verifies that local-path consumers (Terraform) do NOT contain a
+    ``#sha256=`` fragment — serverless pip rejects it on UC Volume paths.
+
+    Returns 0 if consistent, 1 if any file is stale or has a forbidden hash.
     """
     version = read_pyproject_version(project_root)
     stale: list[str] = []
@@ -145,20 +188,37 @@ def _check(project_root: Path) -> int:
     if WHEEL_VERSION != version:
         stale.append(f"src/shared/wheel.py: WHEEL_VERSION={WHEEL_VERSION!r} (expected {version!r})")
 
-    # Check static consumers
     expected_filename = f"luxury_lakehouse-{version}-py3-none-any.whl"
-    consumers = _discover_consumers(project_root)
-    for path in consumers:
+
+    # Check HTTP-URL consumers — version match required, hash optional
+    for path in _discover_hash_consumers(project_root):
         text = path.read_text(encoding="utf-8")
-        # Check if ANY wheel reference in this file is NOT the expected version
         for match in WHEEL_URL_RE.finditer(text):
             if expected_filename not in match.group(0):
                 rel = path.relative_to(project_root)
                 stale.append(f"{rel}: found {match.group(0)!r}")
-                break  # one finding per file is enough
+                break
+
+    # Check local-path consumers (Terraform) — version match required,
+    # hash fragment FORBIDDEN
+    for path in _discover_version_only_consumers(project_root):
+        text = path.read_text(encoding="utf-8")
+        for match in WHEEL_URL_RE.finditer(text):
+            ref = match.group(0)
+            if expected_filename not in ref:
+                rel = path.relative_to(project_root)
+                stale.append(f"{rel}: found {ref!r}")
+                break
+            if "#sha256=" in ref:
+                rel = path.relative_to(project_root)
+                stale.append(
+                    f"{rel}: contains forbidden #sha256= fragment {ref!r} "
+                    "(serverless pip rejects it on UC Volume paths)"
+                )
+                break
 
     if stale:
-        logger.error("Version mismatch — expected %s in all consumers:", version)
+        logger.error("Wheel reference issues — expected %s:", version)
         for entry in stale:
             logger.error("  %s", entry)
         return 1
@@ -192,7 +252,9 @@ def main() -> None:
     parser.add_argument(
         "--pin-hash",
         metavar="SHA256",
-        help="SHA-256 hash to append to PEP 723 wheel URLs.",
+        help="SHA-256 hash to append to PEP 723 wheel URLs (HTTP only). "
+        "Terraform consumers (UC Volume paths) NEVER receive the hash — "
+        "serverless pip rejects #sha256= on local file paths.",
     )
     args = parser.parse_args()
 

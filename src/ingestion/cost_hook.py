@@ -68,15 +68,6 @@ class CostEstimateHook:
         self._rate_usd_per_hour = rate_usd_per_hour
         self._runtime = runtime
 
-        # Read Databricks job metadata from Spark conf (None in local/notebook mode)
-        self._job_run_id: str | None = None
-        self._task_key: str | None = None
-        try:
-            self._job_run_id = spark.conf.get("spark.databricks.job.runId", None)  # type: ignore[arg-type]
-            self._task_key = spark.conf.get("spark.databricks.task.key", None)  # type: ignore[arg-type]
-        except Exception:
-            logger.debug("Could not read Databricks job metadata from Spark conf")
-
     # ------------------------------------------------------------------
     # LifecycleHook protocol methods
     # ------------------------------------------------------------------
@@ -172,15 +163,14 @@ class CostEstimateHook:
         Uses ``DeltaTable.forName`` with ``whenMatchedUpdateAll`` /
         ``whenNotMatchedInsertAll`` keyed on ``run_id``.
 
-        An explicit schema is required because nullable columns (job_run_id,
-        task_key, ended_at, etc.) are often ``None`` and Spark Connect cannot
+        An explicit schema is required because nullable columns (ended_at,
+        duration_seconds, etc.) are often ``None`` and Spark Connect cannot
         infer types from null values alone (CANNOT_DETERMINE_TYPE).
         """
         from delta.tables import DeltaTable
         from pyspark.sql.types import (
             DecimalType,
             IntegerType,
-            LongType,
             StringType,
             StructField,
             StructType,
@@ -192,10 +182,9 @@ class CostEstimateHook:
             "phase": ctx.phase,
             "run_id": ctx.run_id,
             "runtime": self._runtime,
-            "job_run_id": int(self._job_run_id) if self._job_run_id and self._job_run_id.isdigit() else None,
-            "task_key": self._task_key,
-            "hf_job_id": None,  # Always None for Databricks runtime
+            "hf_job_id": None,  # Populated by sync_hf_costs.py for HF Jobs runs
             "entity_count": ctx.entity_count,
+            "guard_duration_seconds": ctx.guard_duration_seconds,
             "rate_usd_per_hour": Decimal(str(self._rate_usd_per_hour)),
         }
         row.update(fields)
@@ -206,8 +195,6 @@ class CostEstimateHook:
                 StructField("phase", StringType(), False),
                 StructField("run_id", StringType(), False),
                 StructField("runtime", StringType(), False),
-                StructField("job_run_id", LongType(), True),
-                StructField("task_key", StringType(), True),
                 StructField("hf_job_id", StringType(), True),
                 StructField("state", StringType(), False),
                 StructField("started_at", TimestampType(), False),
@@ -215,6 +202,7 @@ class CostEstimateHook:
                 StructField("duration_seconds", IntegerType(), True),
                 StructField("row_count", IntegerType(), True),
                 StructField("entity_count", IntegerType(), True),
+                StructField("guard_duration_seconds", IntegerType(), True),
                 StructField("rate_usd_per_hour", DecimalType(10, 6), True),
                 StructField("estimated_cost_usd", DecimalType(10, 4), True),
                 StructField("cost_source", StringType(), False),

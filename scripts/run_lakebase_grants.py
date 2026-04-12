@@ -87,6 +87,11 @@ def _run_grants(cur: psycopg2.extensions.cursor, sp_uuid: str) -> None:
             f"GRANT USAGE ON SCHEMA {schema} TO {sp_quoted}",
             f"GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO {sp_quoted}",
             f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT SELECT ON TABLES TO {sp_quoted}",
+            # Synced tables are created by databricks_superuser, not by the admin
+            # user running this script. Without FOR ROLE, dbt table rebuilds
+            # (drop + recreate) lose the SELECT grant.
+            f"ALTER DEFAULT PRIVILEGES FOR ROLE databricks_superuser "
+            f"IN SCHEMA {schema} GRANT SELECT ON TABLES TO {sp_quoted}",
         ]
         for g in grants:
             cur.execute(g)

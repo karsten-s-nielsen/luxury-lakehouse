@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from ingestion.guards import FilterResult
+from ingestion.guards import FilterResult, timed_check
 from ingestion.line_breaking_360 import _make_statsbomb_udf as _make_statsbomb_udf
 from ingestion.line_breaking_360 import _process_statsbomb_360
 from ingestion.line_breaking_common import _RESULT_COLUMNS as _RESULT_COLUMNS
@@ -111,7 +111,7 @@ def run_pipeline(
     *,
     filter_result: FilterResult,
     ctx=None,
-) -> None:
+) -> int:
     """Execute the line-breaking detection pipeline."""
     if filter_result.count == 0:
         raise WorkflowSkippedError("No new work")
@@ -130,6 +130,7 @@ def run_pipeline(
 
     total = path_a_rows + path_b_rows + path_c_rows
     logger.info("Line-breaking pipeline complete — %d total rows written", total)
+    return total
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +148,7 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    filter_result = skip_guard.check(spark, args.catalog, args.schema)
+    filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
 
     logger.info("Starting line-breaking pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
