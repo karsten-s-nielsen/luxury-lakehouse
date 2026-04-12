@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from ingestion.guards import FilterResult
+from ingestion.guards import FilterResult, timed_check
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
 from workflows import workflow
 from workflows.exceptions import WorkflowSkippedError
@@ -73,7 +73,7 @@ def run_pipeline(
     *,
     filter_result: FilterResult,
     ctx: object = None,
-) -> None:
+) -> int:
     """Backfill 360 freeze-frame data for matches already ingested."""
     if filter_result.count == 0:
         raise WorkflowSkippedError("No matches need 360 backfill")
@@ -83,6 +83,7 @@ def run_pipeline(
     competitions_pdf = ingest_competitions(spark, catalog, schema, logger)
     match_ids = filter_result.metadata.get("new_match_ids")
     backfill_360(spark, catalog, schema, competitions_pdf, logger, match_ids=match_ids)
+    return 0
 
 
 def main() -> None:
@@ -95,7 +96,7 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    filter_result = skip_guard.check(spark, args.catalog, args.schema)
+    filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
 
     logger.info("Starting 360 backfill into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)

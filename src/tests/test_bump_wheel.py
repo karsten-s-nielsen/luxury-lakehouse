@@ -61,36 +61,47 @@ def _setup_project(tmp_path: Path, *, version: str = "0.3.0", wheel_version: str
 
 
 class TestDiscoverConsumers:
-    """_discover_consumers finds files with wheel URL references."""
+    """Consumer discovery functions find files with wheel URL references."""
+
+    @staticmethod
+    def _all_consumers(project: Path) -> list[Path]:
+        """Combine hash + version-only consumers into one list."""
+        from bump_wheel import _discover_hash_consumers, _discover_version_only_consumers
+
+        return _discover_hash_consumers(project) + _discover_version_only_consumers(project)
 
     def test_finds_matching_scripts(self, tmp_path: Path) -> None:
-        from bump_wheel import _discover_consumers
-
         project = _setup_project(tmp_path)
-        consumers = _discover_consumers(project)
-        names = [p.name for p in consumers]
+        names = [p.name for p in self._all_consumers(project)]
 
         assert "train_hf.py" in names
         assert "deploy.sh" in names
         assert "main.tf" in names
 
     def test_excludes_self(self, tmp_path: Path) -> None:
-        from bump_wheel import _discover_consumers
-
         project = _setup_project(tmp_path)
-        consumers = _discover_consumers(project)
-        names = [p.name for p in consumers]
+        names = [p.name for p in self._all_consumers(project)]
 
         assert "bump_wheel.py" not in names
 
     def test_excludes_non_matching(self, tmp_path: Path) -> None:
-        from bump_wheel import _discover_consumers
-
         project = _setup_project(tmp_path)
-        consumers = _discover_consumers(project)
-        names = [p.name for p in consumers]
+        names = [p.name for p in self._all_consumers(project)]
 
         assert "unrelated.py" not in names
+
+    def test_terraform_in_version_only_group(self, tmp_path: Path) -> None:
+        """Terraform consumers must be in the version-only group, not the hash group."""
+        from bump_wheel import _discover_hash_consumers, _discover_version_only_consumers
+
+        project = _setup_project(tmp_path)
+        hash_names = [p.name for p in _discover_hash_consumers(project)]
+        version_only_names = [p.name for p in _discover_version_only_consumers(project)]
+
+        assert "main.tf" in version_only_names
+        assert "main.tf" not in hash_names
+        assert "train_hf.py" in hash_names
+        assert "train_hf.py" not in version_only_names
 
 
 class TestSync:

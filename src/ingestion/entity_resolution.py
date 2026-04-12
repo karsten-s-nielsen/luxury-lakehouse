@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from ingestion.guards import FilterResult
+from ingestion.guards import FilterResult, timed_check
 from ingestion.utils import (
     configure_logging,
     get_spark_session,
@@ -135,7 +135,7 @@ def run_pipeline(
     *,
     filter_result: FilterResult,
     ctx=None,
-) -> None:
+) -> int:
     """Execute cross-source player entity resolution pipeline."""
     if filter_result.count == 0:
         raise WorkflowSkippedError("No new work")
@@ -156,7 +156,7 @@ def run_pipeline(
 
     if xref.empty:
         logger.warning("No cross-source matches found")
-        return
+        return 0
 
     # Add source labels
     xref["source_a"] = "statsbomb"
@@ -181,6 +181,7 @@ def run_pipeline(
     )
 
     logger.info("Entity resolution complete: %d cross-source matches written", row_count)
+    return row_count
 
 
 def main() -> None:
@@ -193,7 +194,7 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    filter_result = skip_guard.check(spark, args.catalog, args.schema)
+    filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
 
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
 

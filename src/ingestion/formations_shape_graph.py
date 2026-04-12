@@ -42,7 +42,7 @@ from ingestion.formations_common import (
     derive_formation_label,
     prepare_tracking_data,
 )
-from ingestion.guards import FilterResult
+from ingestion.guards import FilterResult, timed_check
 from ingestion.utils import (
     configure_logging,
     get_spark_session,
@@ -448,7 +448,7 @@ def main_shape_graph() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    filter_result = skip_guard.check(spark, args.catalog, args.schema)
+    filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
 
     logger.info("Starting shape graph formation detection pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline_shape_graph(spark, args.catalog, args.schema, logger, filter_result=filter_result)

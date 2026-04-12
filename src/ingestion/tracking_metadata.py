@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from ingestion.guards import FilterResult
+from ingestion.guards import FilterResult, timed_check
 from shared.constants import IDENTIFIER_RE
 from workflows import workflow
 from workflows.exceptions import WorkflowSkippedError
@@ -307,7 +307,7 @@ def run_pipeline(
     *,
     filter_result: FilterResult,
     ctx: object = None,
-) -> None:
+) -> int:
     """Extract tracking metadata from all providers and write to bronze."""
     if filter_result.count == 0:
         raise WorkflowSkippedError("No new work")
@@ -332,7 +332,7 @@ def run_pipeline(
 
     if not all_rows:
         logger.info("No metadata extracted — skipping write")
-        return
+        return 0
 
     # ------------------------------------------------------------------
     # 2. Write to bronze Delta table (full overwrite — table is small)
@@ -356,6 +356,7 @@ def run_pipeline(
     )
     elapsed = time.time() - start
     logger.info("Wrote %d rows to %s in %.2fs", row_count, table, elapsed)
+    return row_count
 
 
 def main() -> None:
@@ -397,7 +398,7 @@ def main() -> None:
 
     bootstrap_hooks(spark, catalog, schema)
 
-    filter_result = skip_guard.check(spark, catalog, schema)
+    filter_result = timed_check(skip_guard, spark, catalog, schema)
 
     run_pipeline(spark, catalog, schema, data_dir, filter_result=filter_result)
 

@@ -36,7 +36,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
         }
 
         dbtProject = softwareSystem "dbt Project" "Medallion transformation: 66 models (27 staging, 6 intermediate incl. int_running_score for per-event game state, 33 marts with game_state/possession columns), normalize_coordinates macro, data classification meta tags, model contracts, liquid clustering" {
-            fctWorkflowCosts = container "fct_workflow_costs" "Gold-layer cost attribution from system.billing.usage × list_prices, proportional per-task by execution_duration. 90-day rolling window. Post-hook cleanup of warm-tier rows" "SQL, dbt" "Database"
+            fctWorkflowCosts = container "fct_workflow_costs" "Gold-layer cost attribution. Tasks-driven (lakeflow) with LEFT JOIN billing (~1 day lag). effective_cost_usd = COALESCE(actual, estimated). cold_start_seconds, entity_count, row_count from warm-tier via workflow_id + temporal window. 90-day rolling window" "SQL, dbt" "Database"
             goldModels = container "Gold Models" "29 fact tables + 4 dimension tables with enforced contracts, liquid clustering, auto-compaction" "SQL, dbt" "Database"
         }
 

@@ -193,35 +193,6 @@ class TestRuntimeMetadata:
         hook = CostEstimateHook(spark, catalog="cat", schema="sch", runtime="hf_jobs")
         assert hook._runtime == "hf_jobs"
 
-    def test_reads_job_run_id_from_spark_conf(self) -> None:
-        spark = _make_spark()
-        spark.conf.get.side_effect = lambda key, default=None: {
-            "spark.databricks.job.runId": "12345",
-            "spark.databricks.task.key": "ingest_statsbomb",
-        }.get(key, default)
-
-        hook = CostEstimateHook(spark, catalog="cat", schema="sch")
-        assert hook._job_run_id == "12345"
-        assert hook._task_key == "ingest_statsbomb"
-
-    def test_job_metadata_none_in_local_mode(self) -> None:
-        spark = _make_spark()
-        spark.conf.get.return_value = None
-
-        hook = CostEstimateHook(spark, catalog="cat", schema="sch")
-        assert hook._job_run_id is None
-        assert hook._task_key is None
-
-    def test_job_metadata_handles_conf_error(self) -> None:
-        """If spark.conf.get raises, the hook should handle gracefully."""
-        spark = _make_spark()
-        spark.conf.get.side_effect = Exception("conf not available")
-
-        # Should not raise
-        hook = CostEstimateHook(spark, catalog="cat", schema="sch")
-        assert hook._job_run_id is None
-        assert hook._task_key is None
-
 
 # ---------------------------------------------------------------------------
 # on_start
@@ -537,8 +508,6 @@ class TestColumnCompleteness:
         "phase",
         "run_id",
         "runtime",
-        "job_run_id",
-        "task_key",
         "hf_job_id",
         "state",
         "started_at",
@@ -546,6 +515,7 @@ class TestColumnCompleteness:
         "duration_seconds",
         "row_count",
         "entity_count",
+        "guard_duration_seconds",
         "rate_usd_per_hour",
         "estimated_cost_usd",
         "cost_source",

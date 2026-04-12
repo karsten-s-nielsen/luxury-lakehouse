@@ -22,7 +22,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from ingestion.guards import FilterResult
+from ingestion.guards import FilterResult, timed_check
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
 from shared.constants import DEFAULT_GOLD_SCHEMA
 from workflows import workflow
@@ -315,7 +315,7 @@ def run_pipeline(
     *,
     filter_result: FilterResult,
     ctx: object | None = None,
-) -> None:
+) -> int:
     """Execute the Football2Vec v2 training data export pipeline."""
     _ = ctx
     if filter_result.count == 0:
@@ -323,6 +323,7 @@ def run_pipeline(
     pipeline_logger.info("Starting Football2Vec v2 training data export for %s.%s", catalog, schema)
     row_count = _export_training_sequences(spark, catalog, schema, pipeline_logger)
     pipeline_logger.info("Exported %d player-match training sequences", row_count)
+    return row_count
 
 
 def main() -> None:
@@ -335,7 +336,7 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    filter_result = skip_guard.check(spark, args.catalog, args.schema)
+    filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
 
     run_pipeline(spark, args.catalog, args.schema, export_logger, filter_result=filter_result)
 

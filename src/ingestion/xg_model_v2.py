@@ -15,7 +15,7 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from ingestion.guards import FilterResult
+from ingestion.guards import FilterResult, timed_check
 from shared.constants import DEFAULT_GOLD_SCHEMA, mlflow_model_uri
 from workflows import workflow
 from workflows.exceptions import WorkflowSkippedError
@@ -259,7 +259,7 @@ def run_pipeline(
     *,
     filter_result: FilterResult,
     ctx: Any = None,
-) -> None:
+) -> int:
     """Score all shots with v2 set encoder xG model (Deep Sets + MC dropout).
 
     Pipeline steps:
@@ -280,7 +280,7 @@ def run_pipeline(
 
     if not new_comps:
         logger.info("All competitions already scored with v2 -- skipping")
-        return
+        return 0
 
     logger.info("Scoring %d new competitions with v2: %s", len(new_comps), sorted(new_comps))
 
@@ -300,7 +300,7 @@ def run_pipeline(
             logger.info("Loaded xG v2 weights from UC Volume (%d bytes)", len(v2_weights_bytes))
         except Exception:
             logger.warning("No xG v2 weights found -- cannot run v2 scoring pipeline")
-            return
+            return 0
 
     # 4. Load v1 XGBoost model (needed for tabular feature extraction)
     xgboost_result = _try_load_champion_xgboost(logger, catalog, DEFAULT_GOLD_SCHEMA)
@@ -346,6 +346,7 @@ def run_pipeline(
         spark.sql(f"DROP TABLE IF EXISTS {_temp_table}")
     except Exception:
         logger.debug("Could not drop temp table %s", _temp_table, exc_info=True)
+    return 0
 
 
 def main() -> None:
@@ -360,7 +361,7 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    filter_result = skip_guard.check(spark, args.catalog, args.schema)
+    filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
 
     logger.info("Starting xG v2 scoring pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)

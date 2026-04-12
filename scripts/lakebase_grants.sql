@@ -27,8 +27,15 @@ GRANT USAGE ON SCHEMA dev_gold TO :app_sp_uuid;
 -- Grant read access on all current tables in dev_gold
 GRANT SELECT ON ALL TABLES IN SCHEMA dev_gold TO :app_sp_uuid;
 
--- Grant read access on tables created in the future (by synced tables)
+-- Grant read access on tables created in the future by the current user
 ALTER DEFAULT PRIVILEGES IN SCHEMA dev_gold
+    GRANT SELECT ON TABLES TO :app_sp_uuid;
+
+-- Grant read access on tables created by databricks_superuser (synced tables).
+-- Synced tables are created by this system role, not by the admin user running
+-- this script. Without FOR ROLE, dbt table rebuilds (drop + recreate) lose the
+-- SELECT grant because the new table is owned by databricks_superuser.
+ALTER DEFAULT PRIVILEGES FOR ROLE databricks_superuser IN SCHEMA dev_gold
     GRANT SELECT ON TABLES TO :app_sp_uuid;
 
 -- ── Observability schema — workflow cost tracking ───────────────────────────
@@ -37,4 +44,6 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA dev_gold
 GRANT USAGE ON SCHEMA observability TO :app_sp_uuid;
 GRANT SELECT ON ALL TABLES IN SCHEMA observability TO :app_sp_uuid;
 ALTER DEFAULT PRIVILEGES IN SCHEMA observability
+    GRANT SELECT ON TABLES TO :app_sp_uuid;
+ALTER DEFAULT PRIVILEGES FOR ROLE databricks_superuser IN SCHEMA observability
     GRANT SELECT ON TABLES TO :app_sp_uuid;

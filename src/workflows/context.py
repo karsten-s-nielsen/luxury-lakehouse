@@ -29,6 +29,9 @@ class WorkflowContext:
     # Observability — how many input entities (matches, competitions) were requested
     entity_count: int | None = None
 
+    # Observability — wall-clock seconds the skip guard took (env init + query)
+    guard_duration_seconds: int | None = None
+
     # Runtime metadata — set at context creation, not mutated
     partition_key: str = ""
 

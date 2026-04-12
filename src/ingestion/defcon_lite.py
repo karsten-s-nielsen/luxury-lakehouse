@@ -58,7 +58,7 @@ def run_pipeline(
     filter_360: FilterResult,
     filter_tracking: FilterResult,
     ctx=None,
-) -> None:
+) -> int:
     """Execute the DEFCON-lite computation pipeline.
 
     Attempts to load a pre-trained DEFCON value estimator from MLflow @Champion.
@@ -86,6 +86,7 @@ def run_pipeline(
     logger.info("Tracking processing complete: %d rows", total_tracking)
 
     logger.info("DEFCON-lite pipeline complete — %d total rows written", total_360 + total_tracking)
+    return total_360 + total_tracking
 
 
 def main() -> None:

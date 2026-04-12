@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from ingestion.guards import FilterResult
+from ingestion.guards import FilterResult, timed_check
 from ingestion.player_embeddings_common import (
     _TABLE_NAME,
     _compute_stat_vectors,
@@ -225,7 +225,7 @@ def run_pipeline_v2(
     *,
     filter_result: FilterResult,
     ctx: object = None,
-) -> None:
+) -> int:
     """Import pre-computed v2 transformer embeddings from HF Hub.
 
     Decorated with ``wf-football2vec-v2`` for independent cost/runtime tracking.
@@ -241,6 +241,7 @@ def run_pipeline_v2(
         logger.info("v2 transformer embedding import complete")
     else:
         logger.info("v2 transformer embeddings not available — no action taken")
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -256,7 +257,7 @@ def run_pipeline(
     *,
     filter_result: FilterResult,
     ctx: object = None,
-) -> None:
+) -> int:
     """Execute the player embedding computation pipeline (convenience wrapper).
 
     Tries v2 (transformer) embeddings from HF Hub first.  If the v2 dataset
@@ -278,12 +279,13 @@ def run_pipeline(
     try:
         if _import_v2_embeddings(spark, catalog, schema, logger):
             logger.info("Player embedding pipeline complete (v2 path)")
-            return
+            return 0
     except Exception:
         logger.warning("v2 import failed — falling back to Doc2Vec v1", exc_info=True)
 
     logger.info("Proceeding with v1 Doc2Vec inference path")
     run_pipeline_v1(spark, catalog, schema, logger, filter_result=filter_result)
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -301,7 +303,7 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    filter_result = skip_guard.check(spark, args.catalog, args.schema)
+    filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
 
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
 
@@ -316,6 +318,6 @@ def main_v2() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    filter_result = skip_guard.check(spark, args.catalog, args.schema)
+    filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
 
     run_pipeline_v2(spark, args.catalog, args.schema, logger, filter_result=filter_result)

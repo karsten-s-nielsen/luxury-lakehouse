@@ -15,17 +15,28 @@ sources:
           after cold-tier capture. Not managed by dbt.
         loaded_at_field: updated_at
         columns:
-          - name: job_run_id
-            description: Databricks job run identifier. Join key to billing tables.
-          - name: task_key
-            description: Databricks task key. Join key to job_task_run_timeline.
+          - name: workflow_id
+            description: >
+              Workflow card identifier (e.g., wf-vaep). Primary join key to
+              cold tier via task_workflow_mapping seed + temporal window.
+          - name: started_at
+            description: >
+              UTC timestamp when CostEstimateHook.on_start fired. Used in
+              temporal join window with cold-tier task_started_at.
+          - name: run_id
+            description: UUID unique to each pipeline execution.
           - name: state
             description: "Pipeline outcome: RUNNING, COMPLETED, SKIPPED, or ERROR."
           - name: duration_seconds
-            description: Wall-clock pipeline duration (excludes scheduling overhead).
+            description: >
+              Actual pipeline work duration (excludes cold start overhead).
           - name: entity_count
             description: Number of entities the guard found for this run.
           - name: row_count
             description: Number of rows the pipeline output.
+          - name: guard_duration_seconds
+            description: >
+              Wall-clock seconds the skip guard check took. Populated by
+              timed_check(). NULL for runs predating this instrumentation.
           - name: estimated_cost_usd
             description: "Hook's per-task cost estimate (rate * duration)."

@@ -2,8 +2,17 @@
     materialized='table',
     liquid_clustered_by=['task_key', 'usage_date'],
     post_hook=[
-        "DELETE FROM {{ this.database }}.observability.workflow_cost_live WHERE state != 'RUNNING' AND ended_at IS NOT NULL AND ended_at < (SELECT COALESCE(MAX(usage_date), DATE '1970-01-01') + INTERVAL 1 DAY FROM {{ this }})",
-        "DELETE FROM {{ this.database }}.observability.workflow_cost_live WHERE state = 'RUNNING' AND started_at < CURRENT_TIMESTAMP - INTERVAL 24 HOURS"
+        "DELETE FROM {{ this.database }}.observability.workflow_cost_live
+         WHERE state != 'RUNNING'
+           AND ended_at IS NOT NULL
+           AND ended_at < (
+               SELECT COALESCE(MAX(usage_date), DATE '1970-01-01') + INTERVAL 1 DAY
+               FROM {{ this }}
+               WHERE attributed_cost_usd IS NOT NULL
+           )",
+        "DELETE FROM {{ this.database }}.observability.workflow_cost_live
+         WHERE state = 'RUNNING'
+           AND started_at < CURRENT_TIMESTAMP - INTERVAL 24 HOURS"
     ]
 ) }}
 -- fct_workflow_costs.sql
@@ -13,9 +22,17 @@
 -- proportionally by execution duration within each job run.
 -- 90-day rolling window refreshed daily.
 --
+-- Driving table: system.lakeflow.job_task_run_timeline (tasks CTE).
+-- Timing data (cold_start, duration, entity_count) is available immediately.
+-- Billing data (attributed_cost_usd, attributed_dbu) arrives with ~1 day lag
+-- via LEFT JOIN on system.billing.usage — NULL until billing catches up.
+-- effective_cost_usd = COALESCE(attributed_cost_usd, estimated_cost_usd)
+-- so the UI always has a cost value (actual when available, estimated until then).
+--
 -- Warm-tier enrichment: LEFT JOINs workflow_cost_live (written by
--- CostEstimateHook) to capture lifecycle fields (duration, entity_count,
--- row_count, state, estimated_cost_usd) before the post-hook prunes them.
+-- CostEstimateHook) via workflow_id + temporal window (serverless exposes
+-- no job_run_id or task_key — D55 investigation confirmed).
+-- cold_start_seconds = warm.started_at - cold.task_started_at.
 --
 -- Post-hook cleanup removes redundant warm-tier rows from workflow_cost_live.
 -- COALESCE sentinel: if table is empty (first build), threshold becomes
@@ -50,7 +67,8 @@ tasks AS (
     SELECT
         job_run_id,
         task_key,
-        SUM(execution_duration_seconds) AS execution_duration_seconds
+        SUM(execution_duration_seconds) AS execution_duration_seconds,
+        MIN(period_start_time) AS task_started_at
     FROM system.lakeflow.job_task_run_timeline
     WHERE
         result_state IS NOT NULL
@@ -63,29 +81,47 @@ workflow_ids AS (
     FROM {{ ref('task_workflow_mapping') }}
 ),
 
-warm_tier AS (
+warm_tier_raw AS (
     SELECT
-        job_run_id,
-        task_key,
+        workflow_id,
+        started_at,
         duration_seconds,
         entity_count,
         row_count,
+        guard_duration_seconds,
         state AS pipeline_state,
-        estimated_cost_usd
+        estimated_cost_usd,
+        run_id
     FROM {{ source('observability', 'workflow_cost_live') }}
     WHERE state != 'RUNNING'
+),
+
+-- Deduplicate: if multiple warm-tier rows match the same workflow_id window,
+-- pick the one with the latest run_id (most recent hook write). Prevents
+-- row multiplication when a workflow retries within the temporal window.
+warm_tier AS (
+    SELECT * FROM (
+        SELECT
+            wtr.*,
+            ROW_NUMBER() OVER (
+                PARTITION BY wtr.workflow_id, wtr.started_at
+                ORDER BY wtr.run_id DESC
+            ) AS _rn
+        FROM warm_tier_raw AS wtr
+    )
+    WHERE _rn = 1
 )
 
 SELECT
     tasks.task_key,
-    billing.usage_date,
-    CAST(billing.job_run_id AS BIGINT) AS job_run_id,
+    COALESCE(billing.usage_date, CAST(tasks.task_started_at AS DATE)) AS usage_date,
+    CAST(tasks.job_run_id AS BIGINT) AS job_run_id,
     wid.workflow_id,
     CAST(ROUND(
         billing.dbu * (
             tasks.execution_duration_seconds
             / NULLIF(SUM(tasks.execution_duration_seconds)
-                OVER (PARTITION BY billing.job_run_id), 0)
+                OVER (PARTITION BY tasks.job_run_id), 0)
         ),
         4
     ) AS DECIMAL(10, 4)) AS attributed_dbu,
@@ -93,19 +129,34 @@ SELECT
         billing.cost_usd * (
             tasks.execution_duration_seconds
             / NULLIF(SUM(tasks.execution_duration_seconds)
-                OVER (PARTITION BY billing.job_run_id), 0)
+                OVER (PARTITION BY tasks.job_run_id), 0)
         ),
         4
     ) AS DECIMAL(10, 4)) AS attributed_cost_usd,
+    tasks.execution_duration_seconds,
     wt.duration_seconds,
+    GREATEST(CAST(TIMESTAMPDIFF(SECOND, tasks.task_started_at, wt.started_at) AS INT), 0) AS cold_start_seconds,
     wt.entity_count,
     wt.row_count,
+    wt.guard_duration_seconds,
     wt.pipeline_state,
-    wt.estimated_cost_usd
-FROM billing
-INNER JOIN tasks ON billing.job_run_id = tasks.job_run_id
+    wt.estimated_cost_usd,
+    COALESCE(
+        CAST(ROUND(
+            billing.cost_usd * (
+                tasks.execution_duration_seconds
+                / NULLIF(SUM(tasks.execution_duration_seconds)
+                    OVER (PARTITION BY tasks.job_run_id), 0)
+            ),
+            4
+        ) AS DECIMAL(10, 4)),
+        wt.estimated_cost_usd
+    ) AS effective_cost_usd
+FROM tasks
+LEFT JOIN billing ON billing.job_run_id = tasks.job_run_id
 LEFT JOIN workflow_ids AS wid
     ON wid.task_key = tasks.task_key
 LEFT JOIN warm_tier AS wt
-    ON CAST(billing.job_run_id AS BIGINT) = wt.job_run_id
-    AND tasks.task_key = wt.task_key
+    ON wid.workflow_id = wt.workflow_id
+    AND wt.started_at BETWEEN tasks.task_started_at - INTERVAL 2 MINUTES
+        AND tasks.task_started_at + INTERVAL 5 MINUTES

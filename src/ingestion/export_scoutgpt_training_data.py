@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING
 
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
 from shared.constants import DEFAULT_GOLD_SCHEMA
+from workflows import workflow
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame, SparkSession
@@ -570,6 +571,7 @@ def _upload_to_hf_hub(
 # ---------------------------------------------------------------------------
 
 
+@workflow("wf-scoutgpt-export", phase="export")
 def run_pipeline(
     spark: SparkSession,
     catalog: str,
@@ -577,12 +579,13 @@ def run_pipeline(
     pipeline_logger: logging.Logger,
     *,
     ctx: object | None = None,
-) -> None:
+) -> int:
     """Execute the ScoutGPT training data export pipeline."""
     _ = ctx
     pipeline_logger.info("Starting ScoutGPT training data export for %s.%s", catalog, schema)
     row_count = _export_possession_episodes(spark, catalog, schema, pipeline_logger)
     pipeline_logger.info("Exported %d possession episode training sequences", row_count)
+    return row_count
 
 
 def main() -> None:

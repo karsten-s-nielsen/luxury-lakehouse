@@ -29,7 +29,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from ingestion.guards import FilterResult
+from ingestion.guards import FilterResult, timed_check
 from ingestion.metrica_events import ingest_events
 from ingestion.metrica_tracking import ingest_tracking
 from ingestion.utils import (
@@ -72,12 +72,13 @@ def run_pipeline(
     *,
     filter_result: FilterResult,
     ctx: object = None,
-) -> None:
+) -> int:
     """Ingest all Metrica Sports sample data (tracking + events)."""
     if filter_result.count == 0:
         raise WorkflowSkippedError("No new work")
     ingest_tracking(spark, catalog, schema, logger)
     ingest_events(spark, catalog, schema, logger)
+    return 0
 
 
 def main() -> None:
@@ -90,7 +91,7 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    filter_result = skip_guard.check(spark, args.catalog, args.schema)
+    filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
 
     logger.info("Starting Metrica ingestion into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)

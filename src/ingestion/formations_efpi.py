@@ -39,7 +39,7 @@ from ingestion.formations_common import (
     TABLE_NAME,
     prepare_tracking_data,
 )
-from ingestion.guards import FilterResult
+from ingestion.guards import FilterResult, timed_check
 from ingestion.utils import (
     configure_logging,
     get_spark_session,
@@ -270,7 +270,7 @@ def run_pipeline_efpi(
     *,
     filter_result: FilterResult,
     ctx: object = None,
-) -> None:
+) -> int:
     """Execute the EFPI formation detection pipeline."""
     if filter_result.count == 0:
         raise WorkflowSkippedError("No new work")
@@ -278,6 +278,7 @@ def run_pipeline_efpi(
     new_match_ids = filter_result.metadata.get("new_match_ids")
     total = _run_efpi(spark, catalog, schema, logger, new_match_ids=new_match_ids)
     logger.info("EFPI formation detection complete -- %d rows written", total)
+    return total
 
 
 def run_pipeline(
@@ -288,7 +289,7 @@ def run_pipeline(
     *,
     filter_result: FilterResult,
     ctx: object = None,
-) -> None:
+) -> int:
     """Execute both formation detection pipelines sequentially.
 
     Convenience function for local development and backward compatibility.
@@ -309,6 +310,7 @@ def run_pipeline(
         efpi_total,
         sg_total,
     )
+    return efpi_total + sg_total
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +328,7 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    filter_result = skip_guard.check(spark, args.catalog, args.schema)
+    filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
 
     logger.info("Starting formation detection pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
@@ -342,7 +344,7 @@ def main_efpi() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    filter_result = skip_guard.check(spark, args.catalog, args.schema)
+    filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
 
     logger.info("Starting EFPI formation detection pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline_efpi(spark, args.catalog, args.schema, logger, filter_result=filter_result)

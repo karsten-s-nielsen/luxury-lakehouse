@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from ingestion.guards import FilterResult
+from ingestion.guards import FilterResult, timed_check
 from ingestion.utils import (
     configure_logging,
     get_spark_session,
@@ -126,7 +126,7 @@ def run_pipeline(
     *,
     filter_result: FilterResult,
     ctx=None,
-) -> None:
+) -> int:
     """Compute per-competition and global xT grids, write to Delta."""
     if filter_result.count == 0:
         raise WorkflowSkippedError("No new work")
@@ -146,7 +146,7 @@ def run_pipeline(
 
     if not new_comps and not need_global:
         logger.info("All xT grids already computed (including global) — skipping")
-        return
+        return 0
 
     logger.info(
         "Need to compute %d new competition grids%s",
@@ -183,7 +183,7 @@ def run_pipeline(
 
     if actions_df.empty:
         logger.warning("No actions found — skipping xT computation")
-        return
+        return 0
 
     # ── Per-competition grids (only missing ones) ─────────────────────
     # Pre-build indexed lookup to avoid O(n*m) boolean mask (F-02 OPT-AUDIT-200)
@@ -233,6 +233,7 @@ def run_pipeline(
         competitions_written,
         " + global" if need_global else "",
     )
+    return 0
 
 
 def main() -> None:
@@ -245,6 +246,6 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    filter_result = skip_guard.check(spark, args.catalog, args.schema)
+    filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
 
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)

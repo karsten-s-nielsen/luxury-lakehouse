@@ -13,7 +13,7 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from ingestion.guards import FilterResult
+from ingestion.guards import FilterResult, timed_check
 from shared.constants import DEFAULT_GOLD_SCHEMA, mlflow_model_uri
 from workflows import workflow
 from workflows.exceptions import WorkflowSkippedError
@@ -170,7 +170,7 @@ def run_pipeline(
     *,
     filter_result: FilterResult,
     ctx=None,
-) -> None:
+) -> int:
     """Score all shots with v1 logistic + XGBoost xG models.
 
     Pipeline steps:
@@ -190,7 +190,7 @@ def run_pipeline(
 
     if not new_comps:
         logger.info("All competitions already scored -- skipping")
-        return
+        return 0
 
     logger.info("Scoring %d new competitions: %s", len(new_comps), sorted(new_comps))
 
@@ -245,6 +245,7 @@ def run_pipeline(
         spark.sql(f"DROP TABLE IF EXISTS {_temp_table}")
     except Exception:
         logger.debug("Could not drop temp table %s", _temp_table, exc_info=True)
+    return 0
 
 
 def main() -> None:
@@ -259,7 +260,7 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    filter_result = skip_guard.check(spark, args.catalog, args.schema)
+    filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
 
     logger.info("Starting xG scoring pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)

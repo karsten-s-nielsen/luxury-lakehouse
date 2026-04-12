@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from ingestion.guards import FilterResult
+from ingestion.guards import FilterResult, timed_check
 from ingestion.utils import (
     configure_logging,
     get_spark_session,
@@ -285,12 +285,13 @@ def run_pipeline(
     *,
     filter_result: FilterResult,
     ctx=None,
-) -> None:
+) -> int:
     """Execute the pitch control value computation pipeline."""
     if filter_result.count == 0:
         raise WorkflowSkippedError("No new work")
     total = _process_matches(spark, catalog, schema, logger, filter_result=filter_result)
     logger.info("Pitch control pipeline complete -- %d total rows written", total)
+    return total
 
 
 def main() -> None:
@@ -303,7 +304,7 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    filter_result = skip_guard.check(spark, args.catalog, args.schema)
+    filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
 
     logger.info("Starting pitch control batch pipeline into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)

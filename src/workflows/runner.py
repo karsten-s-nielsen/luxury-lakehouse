@@ -44,11 +44,14 @@ def run_workflow(entry: WorkflowEntry, *args: Any, **kwargs: Any) -> int | None:
     ``on_complete`` / ``on_error`` hooks, and returns the function's
     result.
     """
-    # Extract entity_count from filter_result(s) for observability
+    # Extract entity_count and guard_duration from filter_result(s) for observability
     entity_count: int | None = None
+    guard_duration_seconds: int | None = None
     fr = kwargs.get("filter_result")
     if fr is not None and hasattr(fr, "count"):
         entity_count = fr.count
+    if fr is not None and hasattr(fr, "guard_duration_seconds"):
+        guard_duration_seconds = fr.guard_duration_seconds
     # defcon_lite special case: sum of filter_360 + filter_tracking
     if entity_count is None:
         total = 0
@@ -67,6 +70,7 @@ def run_workflow(entry: WorkflowEntry, *args: Any, **kwargs: Any) -> int | None:
         workflow_name=entry.card.name if entry.card else entry.workflow_id,
         workflow_type=entry.card.type if entry.card else "",
         entity_count=entity_count,
+        guard_duration_seconds=guard_duration_seconds,
     )
 
     # Inject context into kwargs if the function accepts it

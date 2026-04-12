@@ -31,7 +31,7 @@ import sys
 import time
 from typing import TYPE_CHECKING
 
-from ingestion.guards import FilterResult
+from ingestion.guards import FilterResult, timed_check
 from shared.constants import IDENTIFIER_RE
 from workflows import workflow
 from workflows.exceptions import WorkflowSkippedError
@@ -469,7 +469,7 @@ def run_pipeline(
     *,
     filter_result: FilterResult,
     ctx: object = None,
-) -> None:
+) -> int:
     """Join 360 freeze frames with SPADL actions, stage to UC Volume, upload to HF Hub."""
     if filter_result.count == 0:
         raise WorkflowSkippedError("No new 360 training data work")
@@ -507,6 +507,7 @@ def run_pipeline(
         "Final stats: %d player-match sequences with 360 context exported",
         row_count,
     )
+    return row_count
 
 
 def main() -> None:
@@ -548,7 +549,7 @@ def main() -> None:
 
     bootstrap_hooks(spark, catalog, schema)
 
-    filter_result = skip_guard.check(spark, catalog, schema)
+    filter_result = timed_check(skip_guard, spark, catalog, schema)
 
     run_pipeline(spark, catalog, schema, volume_path, filter_result=filter_result)
 
