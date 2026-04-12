@@ -4,8 +4,9 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
         analyst = person "Soccer Analyst" "Coaches, scouts, and analysts exploring match and player data"
         developer = person "Developer" "Deploys application updates and triggers pipeline runs"
 
-        taipyApp = softwareSystem "Taipy Dashboard" "Interactive soccer analytics application with 16 pages: 15 analytics + AI/ML Workflows operations dashboard. Conversion Funnel page built but disabled pending performance validation (D57/D58)" {
+        taipyApp = softwareSystem "Taipy Dashboard" "Interactive soccer analytics application with 16 pages: 15 analytics + AI/ML Workflows operations dashboard. Conversion Funnel page built but disabled pending performance validation (D57/D58). Authenticated admin API (POST /api/cache/clear) for forced cache invalidation + on-demand synced table refresh, mounted on the underlying Flask layer via Gui(flask=...)" {
             guiLayer = container "Taipy GUI" "Root template with sidebar navigation, glossary panels, conditional footer (show_site_footer), and page routing" "Python, Taipy 4.1"
+            adminApi = container "Admin API" "Flask blueprint mounted on the Taipy GUI's underlying Flask app via Gui(flask=...). Endpoint: POST /api/cache/clear (with optional ?refresh_synced=1). Auth: validates HF user access token against huggingface.co/api/whoami-v2 per request, requires luxury-lakehouse org membership with admin/write role, never stores or logs the token. Optionally spawns isolated background subprocess to run python -m ingestion.refresh_synced_tables --wait. Used for forced cache invalidation during incident response and manual synced-table refresh from outside the daily Databricks job" "Python, Flask Blueprint, requests"
             templateEngine = container "Template Engine" "Three layout builders (standard, sub-view, dashboard) dispatched by build_page(). Dashboard layout: StatCard stats bar + ll-dashboard-scroll viewport container. Typed dataclasses: PageConfig, SubView, ContentBlock (table_cell_class_name for per-cell CSS), ContentRow, SidebarWidget, Metric, Citation, StatCard (detail_html for content-provider iframes)" "Python, frozen dataclasses"
             sidebarWidgets = container "Sidebar Widgets" "Centralized filter cascade with progressive disclosure, view-dependent visibility, change_delay debounce, and absolute-positioned help tooltips" "Python, Taipy Markdown"
             stateModules = container "State Modules" "Per-page state variables, callbacks, chart rendering (16 modules, SQL-free). Delegates all data fetching to Query Layer. Static charts via mplsoccer PNG. Interactive charts via Plotly. Conversion Funnel: horizontal mirror bars (Plotly), game state filter (winning/losing/drawing). Workflows split: workflows.py orchestrator + workflows_dag.py (Cytoscape.js DAG) + workflows_stats.py (card loading via WorkflowCard from wheel, cost computation). 2-min auto-refresh timer, WCAG shape markers, DISABLED task filtering" "Python, pandas, mplsoccer, Plotly, Cytoscape.js"
@@ -21,6 +22,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
             deployScript = container "manage_space.py" "CLI tool: full Space lifecycle -- create, deploy, status, rebuild, teardown. Pre-flight checks, upload_folder with ignore/delete patterns, secret management, polling." "Python, huggingface_hub"
             deployWheel = container "deploy_wheel.py" "Downloads wheel from HF Hub build-artifacts (WHEEL_FILENAME from shared.wheel), uploads to UC Volume /Volumes/{catalog}/bronze/libs/, post-upload size verification" "Python, huggingface_hub, databricks-sdk"
             bumpWheel = container "bump_wheel.py" "Syncs wheel version from pyproject.toml to all static consumers (PEP 723 scripts, deploy.sh, Terraform). Modes: --check (CI), --dry-run (preview), --pin-hash (SEC3 SHA-256). Discovers consumers via glob + regex matching" "Python, shared.wheel"
+            dbtBuildAndRefresh = container "dbt_build_and_refresh.py" "Canonical local dev flow: chains dbt build with python -m ingestion.refresh_synced_tables --wait. Fail-fast on dbt error (refresh skipped if dbt fails). Forwards extra args to dbt build" "Python, subprocess"
         }
 
         pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "36 workflow-card-registered compute pipelines with @workflow decorators, centralized bootstrap hooks, lifecycle tracking, three-tier cost tracking, YAML manifests, Evolve Engine for LLM-guided architecture search, and import-linter boundary enforcement" {
@@ -30,6 +32,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
             hfCostRecorder = container "HFJobsCostRecorder" "Standalone cost recorder for HF Jobs scripts. Writes _workflow_cost.json (live status) and _cost_history/{job_id}.json (per-run history) to HF Hub repos. 90-day auto-pruning" "Python, huggingface_hub, src/ingestion/hf_jobs_cost.py"
             guardRegistry = container "Guard Registry" "SkipGuard protocol + FilterResult dataclass (with guard_duration_seconds field) + find_new_ids() (Spark LEFT ANTI JOIN) + timed_check() wrapper. Guard-as-wrapper: each pipeline's main() calls timed_check(skip_guard, ...) which records wall-clock duration via time.monotonic() and returns FilterResult. Mandatory injection: filter_result is a required parameter on all run_pipeline() functions (no default). Conformance tests enforce import isolation, mandatory params, no inline guards, direct guard call, early exit structure/behavior, exception propagation, count/ID consistency, cost/time capture, workflow ID consistency" "Python, src/ingestion/guards.py"
             ingestionPipelines = container "Compute Pipelines" "30 @workflow-decorated Databricks pipelines (all instrumented): 5 raw ingestors (StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner), 14 compute (xG, VAEP, DEFCON 360+tracking, pitch control, xT, OBSO/PAUSA, entity resolution, line-breaking 360+tracking, formations EFPI+shape graph, embeddings v1/v2, model validation), 1 HF sync (consolidates 7 former tasks: 3 imports + 3 exports + cost sync), elastic sync. Each runs its own SkipGuard at startup (guard-as-wrapper, D52). Centralized hook registration via bootstrap.py" "Python, PySpark, src/ingestion/"
+            refreshSyncedTables = container "Synced Table Refresh" "Operational module that triggers SNAPSHOT refresh on all 34 Lakebase synced tables via Databricks REST API. Uses WorkspaceClient for env-agnostic credentials (PAT/OAuth M2M/CLI profile/runtime context). --catalog and --schema CLI flags validated against IDENTIFIER_RE per CLAUDE.md security rule. Invoked from three contexts: (1) final task in daily Databricks job after all 9 leaf compute tasks, (2) scripts/dbt_build_and_refresh.py wrapper, (3) background subprocess from Admin API. NOT @workflow-decorated (operational, not analytics)" "Python, requests, databricks-sdk, src/ingestion/refresh_synced_tables.py"
             evolveEngine = container "Evolve Engine" "LLM-guided evolutionary architecture search (Level 1: config-only, Level 2: code evolution). CLI runner with --resume/--code-evolution, AST allowlist validator (ValidationProfile), evaluator bridge returning EvaluationResult with error artifacts (tracebacks fed back to LLM prompt), PriorityQueue-based BackendPool. Level 2: LLM generates custom_embed()/custom_layers() PyTorch functions, AST-validated then exec'd with restricted globals (__builtins__={}). Defense-in-depth per ADR-001. Pluggable backends: local CUDA, remote SSH, HF Jobs L40S" "Python, OpenEvolve, src/evolve/"
             analyticsLibrary = container "Analytics Library" "Pure-Python domain models (zero I/O). Pitch control (Spearman 2017), xG, xT, VAEP, OBSO, line-breaking, DEFCON, entity resolution, shape graph (construction + inference split), football2vec v2/360, ScoutGPT decoder (256d GPT-style causal, Hong et al. 2025), goalkeeper, coordinates. Split modules all under 800 lines" "Python, NumPy, SciPy, PyTorch, scikit-learn, src/analytics/"
             sharedLibrary = container "Shared Library" "Cross-package constants: IDENTIFIER_RE, DEFAULT_GOLD_SCHEMA, mlflow_model_uri(). Wheel version management: WHEEL_VERSION, WHEEL_FILENAME, WHEEL_BASE_URL, rewrite utilities. Zero external deps. Imported by analytics, ingestion, evolve, deploy scripts, and Taipy Docker image" "Python, src/shared/"
@@ -48,8 +51,9 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
         }
 
         lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL-compatible endpoint syncing 34 Delta Lake tables from Unity Catalog (56 btree/HNSW indexes: 50 btree + 6 HNSW vector: 4x128d + 2x144d)" "External"
-        databricksApi = softwareSystem "Databricks REST API" "OAuth credential endpoint for Lakebase authentication" "External"
-        databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 26 tasks (5 ingest as DAG roots, 2 backfill, 14 compute, 1 HF sync, 2 360 pipeline, 1 entity resolution, 1 tracking metadata), each task runs its own skip guard at startup, performance-optimized mode (1-4s cold starts), daily 06:00 UTC" "External"
+        databricksApi = softwareSystem "Databricks REST API" "Workspace REST endpoints: OAuth credential issuance for Lakebase auth, synced table metadata (/api/2.0/database/synced_tables), pipeline update triggers (/api/2.0/pipelines/{id}/updates), and pipeline state polling" "External"
+        databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 27 tasks total (26 ingestion + final refresh_synced_tables): 5 ingest as DAG roots, 2 backfill, 14 compute, 1 HF sync, 2 360 pipeline, 1 entity resolution, 1 tracking metadata, plus final refresh task depending on all 9 leaves. Each pipeline task runs its own skip guard at startup, performance-optimized mode (1-4s cold starts), daily 06:00 UTC" "External"
+        hfIdentity = softwareSystem "HuggingFace Identity API" "User token validation via /api/whoami-v2. Returns user identity + org memberships with per-org roles (admin/write/read). Used by Admin API for per-request authorization — server-authoritative validation, immediate revocation by token owner, no shared secret persistence" "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds from Dockerfile, serves on port 7860" "External"
         hfHub = softwareSystem "HuggingFace Hub" "Hosts 7 models (incl. football2vec-v2, football2vec-360, PSxG), 18 datasets (incl. training data, ScoutGPT episodes, 360 embeddings), build-artifacts wheel, and _workflow_cost.json cost artifacts" "External"
         hfJobs = softwareSystem "HuggingFace Jobs" "L40S GPU compute: 12 PEP 723 UV scripts for training (xG v1/v2, VAEP, PSxG, Football2vec v2/360), batch analytics (xT, EPV, OBSO, Space Creation), dataset publishing (freeze frames, xG shots), and Evolve Engine candidate evaluation" "External"
@@ -60,6 +64,8 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
         developer -> deployScript "Runs manage_space.py {create|deploy|status|rebuild|teardown} staging" "CLI"
         developer -> deployWheel "Runs deploy_wheel.py to push wheel to UC Volume" "CLI"
         developer -> bumpWheel "Runs bump_wheel.py to sync version after pyproject.toml bump" "CLI"
+        developer -> dbtBuildAndRefresh "Runs dbt_build_and_refresh.py to rebuild gold + propagate to Lakebase atomically" "CLI"
+        developer -> adminApi "POST /api/cache/clear with HF user token for forced cache invalidation (incident response)" "HTTPS/Bearer"
 
         # Relationships - Taipy internal
         guiLayer -> templateEngine "Calls build_page() and build_nav() to generate Taipy Markdown" ""
@@ -81,6 +87,10 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
         stateModules -> workflowCards "Reads YAML manifests on first page load (cached in _cards module variable)" ""
         stateModules -> hfHub "Loads embeddings for similarity search; reads _workflow_cost.json (RUNNING detection) + _cost_history/ (30-day cost aggregation) via 60s TTL" "HTTPS"
 
+        # Relationships - Admin API
+        adminApi -> hfIdentity "Validates HF user token per request via /api/whoami-v2" "HTTPS/Bearer"
+        adminApi -> refreshSyncedTables "Spawns isolated background subprocess on ?refresh_synced=1 (subprocess, not in-process import)" "subprocess"
+
         # Relationships - pipeline platform
         ingestionPipelines -> workflowFramework "Decorated with @workflow, lifecycle hooks fire on start/complete/skip/error" ""
         workflowFramework -> workflowCards "Loads YAML cards, attaches metadata to registry entries" ""
@@ -92,7 +102,11 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
         ingestionPipelines -> bronzeSchema "Writes compute results to Delta tables" "PySpark/Delta"
         costEstimateHook -> observabilitySchema "MERGE run state + cost estimates to workflow_cost_live" "PySpark/Delta"
         databricksWorkflows -> ingestionPipelines "Executes 26 pipeline tasks (5 ingest as DAG roots)" "Databricks Jobs API"
+        databricksWorkflows -> refreshSyncedTables "Final task: refreshes all 34 synced tables after the 9 leaf compute tasks complete" "Databricks Jobs API / python_wheel_task"
         ingestionPipelines -> guardRegistry "Each pipeline calls timed_check(skip_guard, ...) at startup (guard-as-wrapper)" ""
+        refreshSyncedTables -> databricksApi "Triggers SNAPSHOT pipeline updates and polls pipeline state for 34 synced tables" "HTTPS/REST"
+        refreshSyncedTables -> sharedLibrary "Imports IDENTIFIER_RE for catalog/schema validation" ""
+        dbtBuildAndRefresh -> refreshSyncedTables "Subprocess invocation after successful dbt build: python -m ingestion.refresh_synced_tables --wait" "subprocess"
 
         # Relationships - Evolve Engine
         developer -> evolveEngine "Runs 'uv run evolve --target scoutgpt'" "CLI"
@@ -165,6 +179,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
             include databricksWorkflows
             include hfJobs
             include openRouter
+            include hfIdentity
             autoLayout
         }
 
@@ -185,6 +200,8 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 35 AI/ML wor
             include lakebase
             include databricksApi
             include hfHub
+            include hfIdentity
+            include refreshSyncedTables
             include analyticsLibrary
             include sharedLibrary
             autoLayout

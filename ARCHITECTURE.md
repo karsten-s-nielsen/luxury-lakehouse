@@ -217,7 +217,8 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 - **Autoscaling workaround (provider v1.110.0):** `databricks_database_synced_database_table` only supports `database_instance_name` (Provisioned). Synced tables targeting Autoscaling projects must be created via Databricks UI, then imported into Terraform. `lifecycle { ignore_changes = all }` prevents drift. This applies to any new synced table.
 - **Schema changes:** Must delete synced table, drop ghost PG table, recreate via API, re-import into Terraform.
 - **PG indexes:** 50 btree indexes across 23 tables + 6 HNSW vector indexes on embedding tables (128-dim/144-dim) = 56 total. Dropped on synced table recreation — re-run `scripts/create_indexes.py` alongside `scripts/lakebase_grants.sql`. Script now runs `ANALYZE` on all indexed tables to ensure the query planner uses indexes.
-- **SNAPSHOT refresh:** Synced tables with `scheduling_policy = "SNAPSHOT"` do not auto-refresh. Run `scripts/refresh_synced_tables.py` after upstream dbt rebuilds. Supports `--wait` (poll until IDLE) and `--tables` (comma-separated subset). The Terraform provider has no schedule/cron field — this is the operational workaround.
+- **SP refresh permissions:** The Lakebase database project + each backing pipeline must grant `CAN_USE` (project) + `CAN_RUN` (pipeline) to both the `hf_app_v2` SP (Taipy admin endpoint) and the `ingestion` SP (daily Databricks job's refresh task). Without these grants, calls to `GET /api/2.0/database/synced_tables/{name}` return 403. Apply via `scripts/grant_synced_table_permissions.py` (idempotent, integrated into `scripts/maintain_synced_tables.py` as Step 0). Re-run after any synced table recreation since pipeline_ids may change. Hard-verified empirically in dev: 70 grants total (2 project + 68 pipeline) → 34/34 staging refresh subprocess success.
+- **SNAPSHOT refresh:** Synced tables with `scheduling_policy = "SNAPSHOT"` do not auto-refresh. Run `python -m ingestion.refresh_synced_tables` (or the `refresh_synced_tables` console-script entry point) after upstream dbt rebuilds. Supports `--wait` (poll until IDLE) and `--tables` (comma-separated subset). Use `scripts/dbt_build_and_refresh.py` to chain `dbt build` + refresh atomically. The daily Databricks job auto-runs `refresh_synced_tables` as a final task. The Terraform provider has no schedule/cron field — this is the operational workaround.
 - **Credential API:** REST endpoint is `/api/2.0/postgres/credentials` (NOT `/api/2.0/database/credentials`).
 
 ### Taipy Application Pages
@@ -240,6 +241,8 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 | Tactical Positions | Average positions, position maps, role assignments from tracking | `fct_player_positions_synced`, `fct_position_maps_synced`, `fct_tracking_avg_positions_synced` |
 | Defensive Impact | DEFCON-lite attacker pressure rankings, breakdown, match timeline | `fct_defcon_pressure_synced`, `fct_defcon_actions_synced` |
 | AI/ML Workflows | DAG visualization, cost tracking, workflow cards, run status | `fct_workflow_costs_synced` |
+
+**Admin endpoints** (authenticated, not user-facing): `POST /api/cache/clear` (with optional `?refresh_synced=1`) is mounted on the Taipy app's Flask layer (`hf_taipy_app/src/admin_api.py`, injected via `Gui(flask=...)`). Caller must present a HuggingFace user access token in `Authorization: Bearer hf_xxx`; the endpoint validates against `https://huggingface.co/api/whoami-v2` and requires membership in the `luxury-lakehouse` org with role `admin` or `write`. The optional `?refresh_synced=1` query param spawns a background subprocess that runs `python -m ingestion.refresh_synced_tables --wait` (isolated process — no in-process state mutation). Used for forced cache invalidation during incident response and manual synced-table refresh from outside the daily Databricks job.
 
 ### Skip Guards (Guard-as-Wrapper)
 
@@ -746,6 +749,7 @@ luxury-lakehouse/
 | Concern | Implementation |
 |---------|---------------|
 | Secrets management | No hardcoded credentials; OAuth M2M for Terraform + CI (OIDC federation, zero secrets); PAT for app (OAuth M2M ready, pending secret rotation) |
+| Admin API auth | `POST /api/cache/clear` on the Taipy app validates an HF user access token against `whoami-v2` and requires `luxury-lakehouse` org membership with `admin`/`write` role. No shared secret stored — each call validates independently against HF, so revocation is immediate. See `hf_taipy_app/src/admin_api.py`. |
 | Network | TLS everywhere; HTTPS-only for all data fetches |
 | IAM | Least-privilege; separate service principals per workload |
 | Data classification | Open-source data only (no PII); Unity Catalog ACLs applied |

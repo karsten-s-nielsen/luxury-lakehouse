@@ -45,3 +45,8 @@ def ttl_cache(ttl: int = _DEFAULT_TTL) -> Callable:
 def clear_cache() -> None:
     """Clear all cached entries (e.g., on competition change)."""
     _cache.clear()
+
+
+def cache_size() -> int:
+    """Return the current number of cached entries."""
+    return len(_cache)

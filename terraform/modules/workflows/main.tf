@@ -717,6 +717,56 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "hf"
   }
 
+  # ── Task: Refresh Lakebase synced tables (final stage) ───────────────
+  # SNAPSHOT-mode synced tables do not auto-refresh. This task closes the
+  # propagation loop after the daily pipeline completes by refreshing all
+  # 34 synced tables. For 33 gold tables this is a no-op until the next
+  # dbt build, but it guarantees the warm-tier `workflow_cost_live_synced`
+  # observability table reflects the costs accumulated during this run.
+  # See `src/ingestion/refresh_synced_tables.py`.
+  task {
+    task_key        = "refresh_synced_tables"
+    timeout_seconds = 2400 # 30 min refresh window + overhead
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "refresh_synced_tables"
+      parameters   = ["--wait"]
+    }
+
+    # Depends on all 9 leaf compute tasks so refresh runs only after the
+    # full daily pipeline reaches its terminal state.
+    depends_on {
+      task_key = "run_model_validation"
+    }
+    depends_on {
+      task_key = "hf_sync"
+    }
+    depends_on {
+      task_key = "compute_formations_shape_graph"
+    }
+    depends_on {
+      task_key = "compute_embeddings_v1"
+    }
+    depends_on {
+      task_key = "compute_off_ball_xt"
+    }
+    depends_on {
+      task_key = "compute_line_breaking"
+    }
+    depends_on {
+      task_key = "compute_defcon_lite"
+    }
+    depends_on {
+      task_key = "compute_xg_model_v2"
+    }
+    depends_on {
+      task_key = "extract_tracking_metadata"
+    }
+
+    environment_key = "default"
+  }
+
   # ── Environment definition for serverless tasks ──────────────────────────
   environment {
     environment_key = "default"

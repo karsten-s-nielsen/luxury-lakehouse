@@ -6,6 +6,8 @@ import json
 import logging
 from datetime import datetime, timezone
 
+from admin_api import build_admin_blueprint
+from flask import Flask
 from page_template import PageEntry, build_nav
 from pages.action_values import page_config as action_values_config
 from pages.action_values import page_md as action_values_page
@@ -144,7 +146,10 @@ if __name__ == "__main__":
     validate_databricks_credentials()
     health_check.start()
 
-    gui = Gui(pages=pages, css_file="style_v2.css")
+    flask_app = Flask("luxury-lakehouse-taipy")
+    flask_app.register_blueprint(build_admin_blueprint())
+
+    gui = Gui(pages=pages, css_file="style_v2.css", flask=flask_app)
     gui.run(
         host="0.0.0.0",
         port=7860,

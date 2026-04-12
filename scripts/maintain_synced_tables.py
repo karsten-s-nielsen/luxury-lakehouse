@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
-"""Synced table maintenance: refresh → create indexes → verify.
+"""Synced table maintenance: grant permissions → refresh → create indexes → verify.
 
 Orchestrates the operational procedure for synced table maintenance
 as a single command, encoding what was previously a manual sequence.
 
+Steps:
+    0. Grant SP permissions (database-project CAN_USE + pipeline CAN_RUN)
+    1. Refresh synced tables (trigger SNAPSHOT updates)
+    2. Create indexes (PG btree + HNSW)
+    3. Verify indexes (EXPLAIN ANALYZE)
+
 Usage:
     python scripts/maintain_synced_tables.py --catalog soccer_analytics --schema dev_gold
-    python scripts/maintain_synced_tables.py --skip-refresh   # indexes only
-    python scripts/maintain_synced_tables.py --dry-run         # print commands
+    python scripts/maintain_synced_tables.py --skip-refresh   # grants + indexes only
+    python scripts/maintain_synced_tables.py --skip-grants    # skip step 0
+    python scripts/maintain_synced_tables.py --dry-run        # print commands
 """
 
 from __future__ import annotations
@@ -63,6 +70,7 @@ def main() -> int:
     parser.add_argument("--catalog", default="soccer_analytics", help="Unity Catalog catalog name")
     parser.add_argument("--schema", default="dev_gold", help="Target schema (default: dev_gold)")
     parser.add_argument("--dry-run", action="store_true", help="Print commands without executing")
+    parser.add_argument("--skip-grants", action="store_true", help="Skip Step 0 (grant SP permissions)")
     parser.add_argument("--skip-refresh", action="store_true", help="Skip Step 1 (refresh synced tables)")
     parser.add_argument("--skip-verify", action="store_true", help="Skip Step 3 (EXPLAIN ANALYZE verification)")
     args = parser.parse_args()
@@ -79,11 +87,29 @@ def main() -> int:
     base_args = ["--catalog", args.catalog, "--schema", args.schema]
     total_elapsed = 0.0
 
+    # ── Step 0: Grant SP permissions on database project + pipelines ─────────
+    # Idempotent. Required so the staging Taipy admin endpoint and the daily
+    # Databricks job task can call /api/2.0/database/synced_tables/{name} and
+    # /api/2.0/pipelines/{id}/updates as the hf_app_v2 / ingestion SPs. Must
+    # be re-run after any synced table recreation (pipeline_ids may change).
+    if not args.skip_grants:
+        ok, elapsed = _run_step(
+            name="grant_synced_table_permissions",
+            cmd=[sys.executable, "scripts/grant_synced_table_permissions.py"],
+            dry_run=args.dry_run,
+        )
+        total_elapsed += elapsed
+        if not ok:
+            _log("maintenance_aborted", reason="grants_failed", total_elapsed_s=round(total_elapsed, 2))
+            return 1
+    else:
+        _log("step_skipped", step="grant_synced_table_permissions")
+
     # ── Step 1: Refresh synced tables ────────────────────────────────────────
     if not args.skip_refresh:
         ok, elapsed = _run_step(
             name="refresh_synced_tables",
-            cmd=[sys.executable, "scripts/refresh_synced_tables.py", "--wait", *base_args],
+            cmd=[sys.executable, "-m", "ingestion.refresh_synced_tables", "--wait", *base_args],
             dry_run=args.dry_run,
         )
         total_elapsed += elapsed
