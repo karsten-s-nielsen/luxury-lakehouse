@@ -23,7 +23,6 @@ PAT, OAuth M2M, CLI profile, and Databricks runtime context all work.
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 import time
 
@@ -35,17 +34,37 @@ from shared.constants import IDENTIFIER_RE
 DEFAULT_CATALOG = "soccer_analytics"
 DEFAULT_SCHEMA = "dev_gold"
 
+_CACHED_HOST: str | None = None
+
 
 def _get_host() -> str:
-    """Resolve the Databricks workspace URL from env at runtime.
+    """Resolve the Databricks workspace URL at runtime via WorkspaceClient.
 
-    Reads ``DATABRICKS_HOST`` lazily (not at import time) so the module
-    can be imported in environments without the env var set — for example,
-    during pytest collection in CI. Functions that actually need the host
-    call this helper instead of accessing a module-level constant.
+    Uses ``WorkspaceClient().config.host`` which auto-resolves the workspace
+    URL from the SDK's unified auth context. Works in all environments:
+    - Local dev: reads DATABRICKS_HOST env var / CLI profile
+    - CI: reads DATABRICKS_HOST env var (set via GitHub Actions secrets)
+    - Taipy HF Space: reads DATABRICKS_HOST secret env var
+    - Databricks job: reads from runtime workspace context (env var NOT set)
+
+    A prior implementation read ``os.environ["DATABRICKS_HOST"]`` directly,
+    which raised KeyError in Databricks jobs where OAuth M2M auth still works
+    but the env var is not set in the task runtime. WorkspaceClient handles
+    all four cases consistently.
+
+    Cached per-process after first lookup to avoid creating a new
+    WorkspaceClient on every HTTP call during a refresh run (34 tables x
+    3 HTTP calls each = 102 calls).
     """
-    raw = os.environ["DATABRICKS_HOST"]
-    return f"https://{raw}" if not raw.startswith("https://") else raw
+    global _CACHED_HOST
+    if _CACHED_HOST is None:
+        ws = WorkspaceClient()
+        host = ws.config.host
+        if not host:
+            msg = "WorkspaceClient could not resolve a Databricks workspace host"
+            raise RuntimeError(msg)
+        _CACHED_HOST = host if host.startswith("https://") else f"https://{host}"
+    return _CACHED_HOST
 
 
 # Synced tables: (table_name, schema_override or None for DEFAULT_SCHEMA).
