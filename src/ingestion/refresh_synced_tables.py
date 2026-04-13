@@ -32,10 +32,21 @@ from databricks.sdk import WorkspaceClient
 
 from shared.constants import IDENTIFIER_RE
 
-_raw_host = os.environ["DATABRICKS_HOST"]  # Required — fail fast if missing
-DATABRICKS_HOST = f"https://{_raw_host}" if not _raw_host.startswith("https://") else _raw_host
 DEFAULT_CATALOG = "soccer_analytics"
 DEFAULT_SCHEMA = "dev_gold"
+
+
+def _get_host() -> str:
+    """Resolve the Databricks workspace URL from env at runtime.
+
+    Reads ``DATABRICKS_HOST`` lazily (not at import time) so the module
+    can be imported in environments without the env var set — for example,
+    during pytest collection in CI. Functions that actually need the host
+    call this helper instead of accessing a module-level constant.
+    """
+    raw = os.environ["DATABRICKS_HOST"]
+    return f"https://{raw}" if not raw.startswith("https://") else raw
+
 
 # Synced tables: (table_name, schema_override or None for DEFAULT_SCHEMA).
 # Tables in non-default schemas (e.g., observability) use the override.
@@ -104,7 +115,7 @@ def _get_pipeline_id(
     """
     full_name = f"{catalog}.{schema}.{table}"
     resp = requests.get(
-        f"{DATABRICKS_HOST}/api/2.0/database/synced_tables/{full_name}",
+        f"{_get_host()}/api/2.0/database/synced_tables/{full_name}",
         headers=headers,
         verify=True,
         timeout=(10, 30),
@@ -116,7 +127,7 @@ def _get_pipeline_id(
 def _trigger_refresh(pipeline_id: str, headers: dict[str, str]) -> tuple[str, bool]:
     """Trigger a pipeline update. Returns (update_id, already_running)."""
     resp = requests.post(
-        f"{DATABRICKS_HOST}/api/2.0/pipelines/{pipeline_id}/updates",
+        f"{_get_host()}/api/2.0/pipelines/{pipeline_id}/updates",
         headers=headers,
         json={},
         verify=True,
@@ -133,7 +144,7 @@ def _poll_pipeline(pipeline_id: str, headers: dict[str, str]) -> str:
     """Poll a pipeline until it reaches IDLE or fails. Returns final state."""
     for _ in range(MAX_POLL_ATTEMPTS):
         resp = requests.get(
-            f"{DATABRICKS_HOST}/api/2.0/pipelines/{pipeline_id}",
+            f"{_get_host()}/api/2.0/pipelines/{pipeline_id}",
             headers=headers,
             verify=True,
             timeout=(10, 30),
