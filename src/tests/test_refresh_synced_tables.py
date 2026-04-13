@@ -52,6 +52,57 @@ def test_synced_tables_list_has_34_entries() -> None:
     assert len(SYNCED_TABLES) == 34
 
 
+def test_get_host_uses_workspace_client_not_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_get_host must resolve via WorkspaceClient.config.host, not os.environ.
+
+    Regression test for: daily Databricks job failed with KeyError('DATABRICKS_HOST')
+    because the env var is not set in the job runtime even though OAuth M2M auth
+    works. WorkspaceClient.config.host handles that case via runtime context.
+    """
+    import ingestion.refresh_synced_tables as mod
+
+    mock_ws = MagicMock()
+    mock_ws.config.host = "https://test.databricks.com"
+    monkeypatch.setattr(mod, "WorkspaceClient", lambda: mock_ws)
+    monkeypatch.setattr(mod, "_CACHED_HOST", None)
+
+    assert mod._get_host() == "https://test.databricks.com"
+
+
+def test_get_host_adds_https_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_get_host must add https:// prefix when WorkspaceClient returns bare host."""
+    import ingestion.refresh_synced_tables as mod
+
+    mock_ws = MagicMock()
+    mock_ws.config.host = "test.databricks.com"
+    monkeypatch.setattr(mod, "WorkspaceClient", lambda: mock_ws)
+    monkeypatch.setattr(mod, "_CACHED_HOST", None)
+
+    assert mod._get_host() == "https://test.databricks.com"
+
+
+def test_get_host_caches_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_get_host must cache the result after first lookup (perf: 102 HTTP calls/run)."""
+    import ingestion.refresh_synced_tables as mod
+
+    call_count = [0]
+
+    def _counted() -> MagicMock:
+        call_count[0] += 1
+        m = MagicMock()
+        m.config.host = "https://cached.test"
+        return m
+
+    monkeypatch.setattr(mod, "WorkspaceClient", _counted)
+    monkeypatch.setattr(mod, "_CACHED_HOST", None)
+
+    mod._get_host()
+    mod._get_host()
+    mod._get_host()
+
+    assert call_count[0] == 1, "WorkspaceClient should be instantiated exactly once"
+
+
 def test_get_pipeline_id_uses_provided_catalog_and_schema(monkeypatch: pytest.MonkeyPatch) -> None:
     """_get_pipeline_id must build the URL from caller-provided catalog/schema, never module state."""
     captured: dict[str, str] = {}
