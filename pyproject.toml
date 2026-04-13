@@ -1,6 +1,6 @@
 [project]
 name = "luxury-lakehouse"
-version = "0.3.0"
+version = "0.3.1"
 description = "Serverless soccer analytics platform built on Databricks Lakebase"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -106,6 +106,7 @@ prepare_360_training_data = "ingestion.prepare_360_training_data:main"
 export_scoutgpt_training_data = "ingestion.export_scoutgpt_training_data:main"
 evolve = "evolve.runner:main"
 hf_sync = "ingestion.hf_sync:main"
+refresh_synced_tables = "ingestion.refresh_synced_tables:main"
 
 [tool.ruff]
 target-version = "py310"
@@ -128,6 +129,7 @@ select = [
 [tool.ruff.lint.per-file-ignores]
 "src/tests/**" = ["S101"]  # assert is standard in pytest
 "hf_taipy_app/**" = ["E501", "S104", "F405", "RUF022", "RUF005"]  # Taipy app: long help text, 0.0.0.0, star imports, unsorted __all__, list concat
+"hf_taipy_app/src/test_*.py" = ["E501", "S101", "S105", "S106"]  # Taipy app tests: long lines, asserts, fake tokens in test fixtures
 "src/evolve/targets/*/seed_programs/**" = ["F821"]  # Seed programs are exec'd with torch/math injected in globals
 
 [tool.ruff.lint.isort]
@@ -137,7 +139,38 @@ known-first-party = ["analytics", "evolve", "ingestion", "shared", "workflows"]
 pythonVersion = "3.10"
 typeCheckingMode = "basic"
 reportMissingImports = "warning"  # pyspark only available in Databricks runtime
-exclude = ["demo_space", "notebooks", "scripts", "src/evolve/targets/*/seed_programs"]
+exclude = [
+    "demo_space",
+    "notebooks",
+    # PEP 723 HF Jobs scripts (have `# /// script` headers; run on HF Jobs
+    # infrastructure with their own inline dependency resolution; pandas/numpy
+    # stub noise dominates and is not actionable here). Plus their *_helpers.py
+    # modules, which are bundled with the parent script at run time.
+    # Operational scripts (deploy_wheel.py, maintain_synced_tables.py,
+    # manage_space.py, setup_*, etc.) ARE type-checked.
+    # See TODO On Deck D60 for the 9 residual non-HF errors that this exposed.
+    "scripts/compute_epv_transition_hf.py",
+    "scripts/compute_epv_transition_hf_helpers.py",
+    "scripts/compute_obso_hf.py",
+    "scripts/compute_space_creation_hf.py",
+    "scripts/compute_space_creation_hf_helpers.py",
+    "scripts/compute_xt_grid_hf.py",
+    "scripts/export_embedding_atlas_data.py",
+    "scripts/publish_freeze_frame_hf.py",
+    "scripts/publish_spadl_vaep_hf.py",
+    "scripts/publish_xg_shots_hf.py",
+    "scripts/train_football2vec_360.py",
+    "scripts/train_football2vec_360_helpers.py",
+    "scripts/train_football2vec_v2.py",
+    "scripts/train_football2vec_v2_helpers.py",
+    "scripts/train_psxg_hf.py",
+    "scripts/train_scoutgpt_hf.py",
+    "scripts/train_vaep_model_hf.py",
+    "scripts/train_xg_model_hf.py",
+    "scripts/train_xg_v2_hf.py",
+    "scripts/train_xg_v2_hf_helpers.py",
+    "src/evolve/targets/*/seed_programs",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["src/tests"]

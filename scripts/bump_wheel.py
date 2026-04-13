@@ -22,7 +22,6 @@ from pathlib import Path
 
 from shared.wheel import (
     WHEEL_URL_RE,
-    WHEEL_VERSION,
     read_pyproject_version,
     rewrite_wheel_url,
     rewrite_wheel_version_constant,
@@ -184,9 +183,15 @@ def _check(project_root: Path) -> int:
     version = read_pyproject_version(project_root)
     stale: list[str] = []
 
-    # Check WHEEL_VERSION constant
-    if WHEEL_VERSION != version:
-        stale.append(f"src/shared/wheel.py: WHEEL_VERSION={WHEEL_VERSION!r} (expected {version!r})")
+    # Check WHEEL_VERSION constant — read from project_root's wheel.py file
+    # (NOT the imported constant) so the function works correctly with test
+    # fixtures that create a separate project tree.
+    wheel_module = project_root / "src" / "shared" / "wheel.py"
+    wheel_text = wheel_module.read_text(encoding="utf-8")
+    wheel_match = re.search(r'WHEEL_VERSION\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"', wheel_text)
+    actual_wheel_version = wheel_match.group(1) if wheel_match else "<not found>"
+    if actual_wheel_version != version:
+        stale.append(f"src/shared/wheel.py: WHEEL_VERSION={actual_wheel_version!r} (expected {version!r})")
 
     expected_filename = f"luxury_lakehouse-{version}-py3-none-any.whl"
 

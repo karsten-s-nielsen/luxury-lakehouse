@@ -1,39 +1,52 @@
-#!/usr/bin/env python3
 """Trigger SNAPSHOT refresh on Lakebase synced tables.
 
 Lakebase synced tables with ``scheduling_policy = "SNAPSHOT"`` do not
-auto-refresh.  This script triggers a pipeline update for each synced table
+auto-refresh.  This module triggers a pipeline update for each synced table
 via the Databricks REST API, optionally waiting for all pipelines to reach
 ``IDLE`` state before exiting.
 
-Run this script after any upstream dbt rebuild that materialises new data into
-Gold Delta tables.
+Run this after any upstream dbt rebuild that materialises new data into
+Gold Delta tables, OR as the final task in the daily Databricks job to
+propagate warm-tier observability data into Lakebase.
 
-Usage:
-    python scripts/refresh_synced_tables.py                     # Fire-and-forget (all 34)
-    python scripts/refresh_synced_tables.py --wait              # Wait until all syncs complete
-    python scripts/refresh_synced_tables.py --tables fct_shots_synced,dim_teams_synced
+Usage (local):
+    python -m ingestion.refresh_synced_tables                     # Fire-and-forget
+    python -m ingestion.refresh_synced_tables --wait              # Wait until all syncs complete
+    python -m ingestion.refresh_synced_tables --tables fct_shots_synced,dim_teams_synced
 
-Requires:
-    - ``databricks`` CLI configured with an OAUTH profile
-    - Network access to the Databricks workspace
+Console-script entry point: ``refresh_synced_tables`` (registered in pyproject.toml).
+
+Auth: uses ``WorkspaceClient`` for environment-agnostic credentials —
+PAT, OAuth M2M, CLI profile, and Databricks runtime context all work.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import os
-import subprocess
 import sys
 import time
 
 import requests
+from databricks.sdk import WorkspaceClient
 
-_raw_host = os.environ["DATABRICKS_HOST"]  # Required — fail fast if missing
-DATABRICKS_HOST = f"https://{_raw_host}" if not _raw_host.startswith("https://") else _raw_host
-CATALOG = "soccer_analytics"
+from shared.constants import IDENTIFIER_RE
+
+DEFAULT_CATALOG = "soccer_analytics"
 DEFAULT_SCHEMA = "dev_gold"
+
+
+def _get_host() -> str:
+    """Resolve the Databricks workspace URL from env at runtime.
+
+    Reads ``DATABRICKS_HOST`` lazily (not at import time) so the module
+    can be imported in environments without the env var set — for example,
+    during pytest collection in CI. Functions that actually need the host
+    call this helper instead of accessing a module-level constant.
+    """
+    raw = os.environ["DATABRICKS_HOST"]
+    return f"https://{raw}" if not raw.startswith("https://") else raw
+
 
 # Synced tables: (table_name, schema_override or None for DEFAULT_SCHEMA).
 # Tables in non-default schemas (e.g., observability) use the override.
@@ -78,22 +91,31 @@ POLL_INTERVAL_S = 30
 MAX_POLL_ATTEMPTS = 60  # 30 min max wait
 
 
-def _get_auth_token() -> str:
-    """Get a workspace token via Databricks CLI OAuth."""
-    result = subprocess.run(
-        ["databricks", "auth", "token", "--profile", "OAUTH"],  # noqa: S607
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return json.loads(result.stdout)["access_token"]
+def _get_auth_headers() -> dict[str, str]:
+    """Get Databricks auth headers via WorkspaceClient.
+
+    Auto-detects credentials in priority order:
+    PAT (DATABRICKS_TOKEN) → OAuth M2M (DATABRICKS_CLIENT_ID/SECRET) →
+    CLI profile → ambient runtime context (Databricks job).
+    """
+    ws = WorkspaceClient()
+    return ws.config.authenticate()
 
 
-def _get_pipeline_id(table: str, headers: dict[str, str], schema: str = DEFAULT_SCHEMA) -> str:
-    """Fetch the pipeline_id backing a synced table."""
-    full_name = f"{CATALOG}.{schema}.{table}"
+def _get_pipeline_id(
+    table: str,
+    headers: dict[str, str],
+    *,
+    catalog: str,
+    schema: str,
+) -> str:
+    """Fetch the pipeline_id backing a synced table.
+
+    catalog/schema are required keyword args — never reads module state.
+    """
+    full_name = f"{catalog}.{schema}.{table}"
     resp = requests.get(
-        f"{DATABRICKS_HOST}/api/2.0/database/synced_tables/{full_name}",
+        f"{_get_host()}/api/2.0/database/synced_tables/{full_name}",
         headers=headers,
         verify=True,
         timeout=(10, 30),
@@ -105,7 +127,7 @@ def _get_pipeline_id(table: str, headers: dict[str, str], schema: str = DEFAULT_
 def _trigger_refresh(pipeline_id: str, headers: dict[str, str]) -> tuple[str, bool]:
     """Trigger a pipeline update. Returns (update_id, already_running)."""
     resp = requests.post(
-        f"{DATABRICKS_HOST}/api/2.0/pipelines/{pipeline_id}/updates",
+        f"{_get_host()}/api/2.0/pipelines/{pipeline_id}/updates",
         headers=headers,
         json={},
         verify=True,
@@ -122,7 +144,7 @@ def _poll_pipeline(pipeline_id: str, headers: dict[str, str]) -> str:
     """Poll a pipeline until it reaches IDLE or fails. Returns final state."""
     for _ in range(MAX_POLL_ATTEMPTS):
         resp = requests.get(
-            f"{DATABRICKS_HOST}/api/2.0/pipelines/{pipeline_id}",
+            f"{_get_host()}/api/2.0/pipelines/{pipeline_id}",
             headers=headers,
             verify=True,
             timeout=(10, 30),
@@ -143,12 +165,43 @@ def main() -> None:
         "--tables",
         type=str,
         default="",
-        help="Comma-separated subset of table names (default: all 11)",
+        help="Comma-separated subset of table names (default: all 34)",
+    )
+    parser.add_argument(
+        "--catalog",
+        type=str,
+        default=DEFAULT_CATALOG,
+        help=f"Unity Catalog catalog name (default: {DEFAULT_CATALOG})",
+    )
+    parser.add_argument(
+        "--schema",
+        type=str,
+        default=DEFAULT_SCHEMA,
+        help=(
+            f"Default schema for synced tables that have no per-table override "
+            f"(default: {DEFAULT_SCHEMA}). Per-table overrides in SYNCED_TABLES "
+            f"(e.g., observability) still apply."
+        ),
     )
     args = parser.parse_args()
 
-    # Build lookup: table_name -> schema
-    table_schema_map: dict[str, str] = {name: (override or DEFAULT_SCHEMA) for name, override in SYNCED_TABLES}
+    # Validate identifiers per CLAUDE.md security rule (regex prevents SQL injection
+    # via the catalog.schema.table string interpolated into the synced-table URL).
+    if not IDENTIFIER_RE.match(args.catalog):
+        print(
+            f"ERROR: Invalid --catalog {args.catalog!r}. Must match {IDENTIFIER_RE.pattern}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    if not IDENTIFIER_RE.match(args.schema):
+        print(
+            f"ERROR: Invalid --schema {args.schema!r}. Must match {IDENTIFIER_RE.pattern}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    # Build lookup: table_name -> schema (per-table override beats CLI default)
+    table_schema_map: dict[str, str] = {name: (override or args.schema) for name, override in SYNCED_TABLES}
     all_table_names = list(table_schema_map.keys())
 
     if args.tables:
@@ -160,8 +213,8 @@ def main() -> None:
     else:
         selected = all_table_names
 
-    token = _get_auth_token()
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    headers = _get_auth_headers()
+    headers["Content-Type"] = "application/json"
 
     total = len(selected)
     errors = 0
@@ -170,7 +223,7 @@ def main() -> None:
     for i, table in enumerate(selected, 1):
         try:
             schema = table_schema_map[table]
-            pipeline_id = _get_pipeline_id(table, headers, schema=schema)
+            pipeline_id = _get_pipeline_id(table, headers, catalog=args.catalog, schema=schema)
             _, already_running = _trigger_refresh(pipeline_id, headers)
             if already_running:
                 print(f"[{i}/{total}] Already running: {table}")

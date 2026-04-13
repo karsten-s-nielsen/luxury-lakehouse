@@ -79,6 +79,7 @@ All actionable findings from the February 2026 audit have been resolved. The 3 a
 - `sslmode=require` on all PG connections (Autoscaling requirement)
 - Taipy server-side state management (no client-side session tokens requiring XSRF protection)
 - CORS disabled
+- **Admin API (`POST /api/cache/clear`)** validates an HF user access token against `https://huggingface.co/api/whoami-v2` per request — no shared secret stored, no token persistence, immediate revocation by the token owner. Requires `luxury-lakehouse` org membership with `admin`/`write` role. Logs the username on success but never the token. See `hf_taipy_app/src/admin_api.py`.
 
 ### Supply Chain — Strong
 
