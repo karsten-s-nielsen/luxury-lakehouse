@@ -64,6 +64,8 @@ def test_get_pipeline_id_uses_provided_catalog_and_schema(monkeypatch: pytest.Mo
         return resp
 
     monkeypatch.setattr("ingestion.refresh_synced_tables.requests.get", mock_get)
+    # _get_host() reads DATABRICKS_HOST at runtime; mock it to avoid env dependence in CI
+    monkeypatch.setattr("ingestion.refresh_synced_tables._get_host", lambda: "https://test.databricks.com")
 
     from ingestion.refresh_synced_tables import _get_pipeline_id
 
