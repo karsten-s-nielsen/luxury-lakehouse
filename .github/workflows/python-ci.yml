@@ -34,6 +34,22 @@ jobs:
       - name: Set up Python 3.10
         run: uv python install 3.10
 
+      # D59: the luxury-lakehouse wheel's hatchling force-include bundles
+      # dbt_project/dbt_packages/ which is gitignored, so it must be materialized
+      # BEFORE `uv sync` — because `uv sync` builds an editable install of the
+      # current project, which exercises the same force-include and fails with
+      # FileNotFoundError if dbt_packages/ is absent. We use `uvx --from` to run
+      # dbt-core from a fully isolated uv tool environment that never touches
+      # the luxury-lakehouse project (so the failing editable build is bypassed).
+      # Placeholder Databricks env vars satisfy profiles.yml env_var() rendering;
+      # `dbt deps` itself never contacts the warehouse.
+      - name: Install dbt packages (for wheel force-include, must precede uv sync)
+        env:
+          DATABRICKS_HOST: https://example.databricks.com
+          DATABRICKS_HTTP_PATH: /sql/1.0/warehouses/dummywarehouseid0
+          DATABRICKS_TOKEN: dummy
+        run: uvx --from "dbt-core>=1.10.0,<1.12.0" dbt deps --project-dir dbt_project --profiles-dir dbt_project
+
       - name: Install dependencies
         run: uv sync --frozen --extra analytics --extra embeddings --extra mlflow --extra jax
 
@@ -64,17 +80,6 @@ jobs:
             echo "::error::hf_taipy_app/requirements.txt is stale — run: uv pip compile pyproject.toml --extra taipy-app --python-version 3.10 --python-platform linux -o hf_taipy_app/requirements.txt"
             exit 1
           }
-
-      # D59: the wheel's force-include bundles dbt_project/dbt_packages/ which
-      # is gitignored, so it must be materialized before `uv build --wheel`.
-      # Placeholder Databricks env vars satisfy profiles.yml env_var() rendering
-      # during dbt deps — no warehouse connection is attempted by this command.
-      - name: Install dbt packages (for wheel force-include)
-        env:
-          DATABRICKS_HOST: https://example.databricks.com
-          DATABRICKS_HTTP_PATH: /sql/1.0/warehouses/dummywarehouseid0
-          DATABRICKS_TOKEN: dummy
-        run: uv run --with "dbt-core>=1.10.0,<1.12.0" dbt deps --project-dir dbt_project --profiles-dir dbt_project
 
       - name: Build wheel
         run: uv build --wheel
