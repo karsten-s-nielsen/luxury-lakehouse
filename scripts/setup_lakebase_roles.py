@@ -67,7 +67,7 @@ def verify_roles(ws: WorkspaceClient) -> None:
     existing_sp_roles: set[str] = set()
 
     for r in roles:
-        pg_role = r.status.postgres_role if r.status else "?"
+        pg_role = r.status.postgres_role if (r.status and r.status.postgres_role) else "?"
         auth = r.status.auth_method.value if r.status and r.status.auth_method else "?"
         identity = r.status.identity_type.value if r.status and r.status.identity_type else "?"
 
@@ -141,6 +141,9 @@ def cleanup_orphaned(ws: WorkspaceClient) -> int:
     for r in roles:
         if r.status and r.status.auth_method == RoleAuthMethod.NO_LOGIN:
             pg_role = r.status.postgres_role or "?"
+            if r.name is None:
+                print(f"  Skipping orphaned role with no name: {pg_role}")
+                continue
             print(f"  Deleting orphaned NO_LOGIN role: {pg_role} ({r.name})")
             try:
                 ws.postgres.delete_role(name=r.name)

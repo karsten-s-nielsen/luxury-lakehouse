@@ -40,7 +40,7 @@ def create_demo_bucket(api: HfApi) -> None:
 
 def upload_demo_data(api: HfApi, data_dir: Path) -> None:
     """Upload all demo parquet files to the bucket."""
-    add_list: list[tuple[str, str]] = []
+    add_list: list[tuple[str | Path | bytes, str]] = []
     for name in DEMO_FILES:
         path = data_dir / name
         if path.exists():
