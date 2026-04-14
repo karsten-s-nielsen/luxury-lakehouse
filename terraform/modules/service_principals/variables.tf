@@ -19,6 +19,19 @@ variable "deployer_user_names" {
   default     = []
 }
 
+variable "deployer_account_email" {
+  description = <<-EOT
+    Account-level email of the human deployer, used as the dbt-owners group's
+    user member and as the fallback principal for the ingestion SP user role.
+    MUST be set to a real account-level email — looking up via
+    data.databricks_current_user.me.user_name fails in CI because the TF CI SP's
+    user_name is its application_id (UUID), not an email, and account-level
+    databricks_user lookup by SP app_id returns 404.
+  EOT
+  type        = string
+  default     = "karstenskyt@gmail.com"
+}
+
 variable "github_repository" {
   description = "GitHub repository in org/repo format for OIDC federation"
   type        = string

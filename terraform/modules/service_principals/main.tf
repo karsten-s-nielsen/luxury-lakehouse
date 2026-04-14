@@ -18,14 +18,19 @@ resource "databricks_service_principal" "ingestion" {
 # ── Grant deploying user(s) the servicePrincipal.user role ───────────────────
 # Required so that deployers can set `run_as` on jobs to this SP.
 # L-9: Principals are configurable via var.deployer_user_names. Falls back
-# to the current Terraform user when no explicit list is provided.
-
-data "databricks_current_user" "me" {}
+# to var.deployer_account_email when no explicit list is provided.
+#
+# Why not data.databricks_current_user.me?  When Terraform runs as a service
+# principal (CI via OIDC federation), `databricks_current_user.me.user_name`
+# returns the SP's application_id (UUID), NOT an email. Downstream
+# data.databricks_user lookups by SP UUID return 404 because UUIDs aren't
+# user names. Using the explicit var.deployer_account_email instead makes
+# the lookup work identically for human-deployer (local) and SP-deployer (CI).
 
 locals {
   deployer_principals = length(var.deployer_user_names) > 0 ? [
     for u in var.deployer_user_names : "users/${u}"
-  ] : ["users/${data.databricks_current_user.me.user_name}"]
+  ] : ["users/${var.deployer_account_email}"]
 }
 
 resource "databricks_access_control_rule_set" "ingestion_sp_user_role" {
@@ -123,7 +128,7 @@ resource "databricks_group" "dbt_owners" {
 
 data "databricks_user" "deployer" {
   provider  = databricks.account
-  user_name = data.databricks_current_user.me.user_name
+  user_name = var.deployer_account_email
 }
 
 resource "databricks_group_member" "dbt_owners_deployer" {
