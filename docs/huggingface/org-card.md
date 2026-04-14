@@ -47,8 +47,13 @@ All public artifacts are hosted entirely within the HF ecosystem.
 | [xg-v2-model-set-encoder](https://huggingface.co/luxury-lakehouse/xg-v2-model-set-encoder) | Deep Sets (Zaheer et al. 2017) + MC dropout (Gal &amp; Ghahramani 2016) | ROC-AUC 0.915, trained on ~131K shots with 360 freeze frames |
 | [psxg-model](https://huggingface.co/luxury-lakehouse/psxg-model) | Logistic regression on goalmouth coordinates (Butcher et al. 2025) | Trained on ~15K on-target shots, JSON-serialised weights |
 | [football2vec-360](https://huggingface.co/luxury-lakehouse/football2vec-360) | Transformer encoder (128-dim) + Deep Sets 360 context (16-dim) = 144-dim | 323 StatsBomb 360 matches, adversarial team debiasing |
+| [pitch-control](https://huggingface.co/luxury-lakehouse/pitch-control) | Physics-based team-control probability surface (Spearman 2017) | Heuristic method card &mdash; no trained weights; substrate for OBSO / Off-Ball xT / Space Creation |
+| [defcon](https://huggingface.co/luxury-lakehouse/defcon) | XGBoost counterfactual value estimator (Kim et al. 2025 DEFCON-lite) | Inline-trained per run; per-defender credit assignment on open 360/tracking data |
+| [off-ball-xt](https://huggingface.co/luxury-lakehouse/off-ball-xt) | Heuristic xT &times; pitch-control attribution (Singh 2018, Spearman 2017) | Method card &mdash; attributes attacking threat to off-ball players |
+| [obso-pausa-method](https://huggingface.co/luxury-lakehouse/obso-pausa-method) | OBSO surface + PAUSA pass timing (Spearman 2018; Fern&aacute;ndez &amp; Bornn 2018; Lee et al. 2026) | Method card &mdash; pass-timing counterfactuals on GPU-accelerated OBSO |
+| [space-creation-method](https://huggingface.co/luxury-lakehouse/space-creation-method) | Counterfactual pitch control (Fern&aacute;ndez &amp; Bornn 2018) | Method card &mdash; per-player EPV-weighted space-creation value |
 
-All model serialization uses **JSON envelopes** &mdash; zero pickle files (banned by project security policy).
+All model serialization uses **JSON envelopes** &mdash; zero pickle files (banned by project security policy). Every model card above carries an **EU AI Act &mdash; Intended Use and Non-Use** stanza per the project's [`AI_GOVERNANCE.md`](https://github.com/karsten-s-nielsen/luxury-lakehouse/blob/main/AI_GOVERNANCE.md) gap analysis (SEC1, April 2026).
 
 ### Datasets
 
@@ -122,6 +127,7 @@ The platform maintains professional-grade engineering standards:
 - **Testing**: 1,118+ pytest unit tests (including performance benchmarks), 381+ dbt data quality tests
 - **CI/CD**: GitHub Actions with OIDC federation (zero-secret CI), ruff linting, import-linter boundary enforcement, pre-commit hooks
 - **UX discipline**: 71 of 78 findings resolved across two cognitive interface audits (CHI-AUDIT-180, CHI-AUDIT-190), grounded in 15 HCI frameworks including Norman, Sweller, Gergle, Kahneman, and Cleveland &amp; McGill. Every metric has a help tooltip, every page has academic citations, and every analytics term is defined in a context-sensitive glossary.
+- **AI governance**: The project is assessed against Regulation (EU) 2024/1689 (the EU AI Act). Under the current operating posture &mdash; a solo research project on public data, not sold or licensed to clubs, not used for employment decisions &mdash; none of the thirteen per-player evaluative ML systems is classified as high-risk. Every model card carries an explicit intended-use / non-use stanza; the full gap analysis, conformity-assessment mapping, and re-classification triggers live in [`AI_GOVERNANCE.md`](https://github.com/karsten-s-nielsen/luxury-lakehouse/blob/main/AI_GOVERNANCE.md). Enforcement is via [`src/tests/test_ai_governance_md.py`](https://github.com/karsten-s-nielsen/luxury-lakehouse/blob/main/src/tests/test_ai_governance_md.py), which fails CI if the document drifts from the workflow-card inventory or if the annual review date goes more than 30 days stale.
 
 ## Links
 

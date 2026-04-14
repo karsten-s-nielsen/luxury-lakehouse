@@ -13,6 +13,11 @@ tags:
   - action-valuation
   - gradient-boosting
 
+governance:
+  eu_ai_act: not-high-risk-under-current-posture
+  annex_iii_category: "4 (Employment) — conditional if deployed for employment decisions"
+  reference: AI_GOVERNANCE.md
+
 references:
   - citation: "Decroos, Bransen, Van Haaren & Davis (2019). Actions Speak Louder than Goals: Valuing Player Actions in Soccer. KDD."
     role: methodology

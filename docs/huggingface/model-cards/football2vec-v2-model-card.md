@@ -135,6 +135,14 @@ print(f"{vectors.shape[0]} players, {vectors.shape[1]}-dim embeddings")  # (8950
 - **Research**: Reproducible player embeddings for sports analytics, with adversarial debiasing removing confounding league effects
 - **Downstream features**: Input to GNN tactical pattern models, sequence models (ScoutGPT), or combined with tracking-based features
 
+## EU AI Act — Intended Use and Non-Use
+
+This model is published for **research and reproducibility** purposes on public, open-licensed match data. It is **not intended for, not validated for, and not supplied to** any use that would fall within Annex III §4 (Employment, workers management and access to self-employment) of Regulation (EU) 2024/1689 — including recruitment or selection of natural persons, decisions affecting work-related contractual relationships, promotion, termination, task allocation based on individual traits, or the monitoring and evaluation of performance and behaviour of workers for employment decisions. Player similarity search is a canonical scouting workflow, and any deployer is responsible for treating this model as decision-support at most, never as a decision system.
+
+Any deployer who wishes to use this model for such a purpose is responsible for performing their own conformity assessment under Article 43, for drawing up the technical documentation required by Article 11 and Annex IV, for implementing the human oversight measures required by Article 14, for declaring accuracy metrics under Article 15, and for ensuring the data governance obligations of Article 10 are met. Note specifically that the training data contains no protected attributes and therefore cannot support the group-fairness audits required by Article 10(2)(g) without ingesting additional personal data. The adversarial competition debiasing (Ganin et al. 2016) described above addresses a *confounding* effect (league-style leakage) and is not a substitute for an Article 10 protected-attribute audit.
+
+See the [`AI_GOVERNANCE.md`](https://github.com/karsten-s-nielsen/luxury-lakehouse/blob/main/AI_GOVERNANCE.md) gap analysis in the source repository for the project's full risk classification, re-classification triggers, and governance posture.
+
 ## Limitations
 
 - **Event-based only**: Captures on-ball actions. Off-ball movement, positioning, and pressing intensity are not represented.

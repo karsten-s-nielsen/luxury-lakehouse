@@ -121,12 +121,20 @@ print(gp.sort_values("goals_prevented", ascending=False).head())
 - **Research**: Transparent two-feature PSxG baseline for goalkeeper analytics research
 - **Downstream**: Input to the composite goalkeeper score (Lamberts 2025 framework)
 
+## EU AI Act — Intended Use and Non-Use
+
+This model is published for **research and reproducibility** purposes on public, open-licensed match data. It is **not intended for, not validated for, and not supplied to** any use that would fall within Annex III §4 (Employment, workers management and access to self-employment) of Regulation (EU) 2024/1689 — including recruitment or selection of natural persons, decisions affecting work-related contractual relationships, promotion, termination, task allocation based on individual traits, or the monitoring and evaluation of performance and behaviour of workers for employment decisions. In particular, "goals prevented" (PSxG − actual goals conceded) is not a fit-for-purpose metric for goalkeeper contract decisions without full Article 14 human oversight by the deploying organisation.
+
+Any deployer who wishes to use this model for such a purpose is responsible for performing their own conformity assessment under Article 43, for drawing up the technical documentation required by Article 11 and Annex IV, for implementing the human oversight measures required by Article 14, for declaring accuracy metrics under Article 15, and for ensuring the data governance obligations of Article 10 are met. Note specifically that the training data contains no protected attributes and therefore cannot support the group-fairness audits required by Article 10(2)(g) without ingesting additional personal data.
+
+See the [`AI_GOVERNANCE.md`](https://github.com/karsten-s-nielsen/luxury-lakehouse/blob/main/AI_GOVERNANCE.md) gap analysis in the source repository for the project's full risk classification, re-classification triggers, and governance posture.
+
 ## Limitations
 
 - **Two features only**: The model uses only goalmouth coordinates. Shot speed, trajectory, deflections, and defensive pressure are not captured.
 - **Open data only**: Trained on StatsBomb open data (~15K shots). Commercial datasets with larger coverage may yield different calibration.
 - **StatsBomb coordinate system**: `end_location_z` is available only in StatsBomb 360 data. Models trained on providers without z-coordinate data will require a 2D fallback.
-- **No freeze-frame context**: PSxG does not model the goalkeeper's starting position or movement. See the [xG v2 model](https://huggingface.co/luxury-lakehouse/xg-model-v2) for freeze-frame-conditioned expected goals.
+- **No freeze-frame context**: PSxG does not model the goalkeeper's starting position or movement. See the [xG v2 model](https://huggingface.co/luxury-lakehouse/xg-v2-model-set-encoder) for freeze-frame-conditioned expected goals.
 
 ## Model Files
 
@@ -168,7 +176,7 @@ Model parameters use **JSON serialization** &mdash; a text-only format with zero
 | [On-Target Shot Data](https://huggingface.co/datasets/luxury-lakehouse/statsbomb-shots-on-target) | Training data: ~15K StatsBomb on-target shots with goalmouth coordinates |
 | [PSxG Predictions](https://huggingface.co/datasets/luxury-lakehouse/psxg-predictions) | Per-shot PSxG predictions with player and match identifiers |
 | [xG Shot Data](https://huggingface.co/datasets/luxury-lakehouse/xg-shot-data) | Full shot dataset (pre-shot xG features, StatsBomb + Wyscout) |
-| [xG Model v2](https://huggingface.co/luxury-lakehouse/xg-model-v2) | Deep Sets xG with freeze-frame context and MC Dropout uncertainty |
+| [xG Model v2](https://huggingface.co/luxury-lakehouse/xg-v2-model-set-encoder) | Deep Sets xG with freeze-frame context and MC Dropout uncertainty |
 
 ## Demo
 
