@@ -69,8 +69,11 @@ def _make_runner_result(success: bool, node_count: int = 0) -> MagicMock:
     return mock_result
 
 
+@patch("ingestion.dbt_runner._ensure_databricks_env_vars")
 @patch("ingestion.dbt_runner.dbtRunner")
-def test_run_pipeline_invokes_dbt_build_with_serverless_target(mock_runner_cls: MagicMock) -> None:
+def test_run_pipeline_invokes_dbt_build_with_serverless_target(
+    mock_runner_cls: MagicMock, _mock_ensure: MagicMock
+) -> None:
     """run_pipeline must call dbtRunner.invoke(['build', '--project-dir', ...,
     '--profiles-dir', ..., '--target', 'serverless'])
     """
@@ -92,8 +95,9 @@ def test_run_pipeline_invokes_dbt_build_with_serverless_target(mock_runner_cls: 
     assert "serverless" in args
 
 
+@patch("ingestion.dbt_runner._ensure_databricks_env_vars")
 @patch("ingestion.dbt_runner.dbtRunner")
-def test_run_pipeline_resolves_bundled_dbt_project_path(mock_runner_cls: MagicMock) -> None:
+def test_run_pipeline_resolves_bundled_dbt_project_path(mock_runner_cls: MagicMock, _mock_ensure: MagicMock) -> None:
     """The project path must resolve via importlib.resources to the
     luxury_lakehouse_dbt_project package (wheel-bundled per Hatch force-include).
     """
@@ -114,8 +118,9 @@ def test_run_pipeline_resolves_bundled_dbt_project_path(mock_runner_cls: MagicMo
     )
 
 
+@patch("ingestion.dbt_runner._ensure_databricks_env_vars")
 @patch("ingestion.dbt_runner.dbtRunner")
-def test_run_pipeline_raises_on_dbt_failure(mock_runner_cls: MagicMock) -> None:
+def test_run_pipeline_raises_on_dbt_failure(mock_runner_cls: MagicMock, _mock_ensure: MagicMock) -> None:
     """When dbtRunnerResult.success is False, run_pipeline must raise RuntimeError."""
     mock_runner = MagicMock()
     mock_runner.invoke.return_value = _make_runner_result(success=False)
@@ -127,8 +132,9 @@ def test_run_pipeline_raises_on_dbt_failure(mock_runner_cls: MagicMock) -> None:
         run_pipeline()
 
 
+@patch("ingestion.dbt_runner._ensure_databricks_env_vars")
 @patch("ingestion.dbt_runner.dbtRunner")
-def test_main_returns_zero_on_success(mock_runner_cls: MagicMock) -> None:
+def test_main_returns_zero_on_success(mock_runner_cls: MagicMock, _mock_ensure: MagicMock) -> None:
     mock_runner = MagicMock()
     mock_runner.invoke.return_value = _make_runner_result(success=True, node_count=33)
     mock_runner_cls.return_value = mock_runner
@@ -138,8 +144,9 @@ def test_main_returns_zero_on_success(mock_runner_cls: MagicMock) -> None:
     assert main() == 0
 
 
+@patch("ingestion.dbt_runner._ensure_databricks_env_vars")
 @patch("ingestion.dbt_runner.dbtRunner")
-def test_main_raises_on_failure(mock_runner_cls: MagicMock) -> None:
+def test_main_raises_on_failure(mock_runner_cls: MagicMock, _mock_ensure: MagicMock) -> None:
     """main() must let RuntimeError propagate so Databricks marks the task failed.
 
     Returning a non-zero int from a python_wheel_task entry point is silently
