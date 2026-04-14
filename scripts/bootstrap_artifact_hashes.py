@@ -53,9 +53,9 @@ def download_artifact_bytes(run_id: str, artifact_path: str) -> bytes:
     Wraps ``mlflow.artifacts.download_artifacts`` (which returns a local
     path) with a file read.
     """
-    import mlflow
+    from mlflow.artifacts import download_artifacts
 
-    local_path = mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path=artifact_path)
+    local_path = download_artifacts(run_id=run_id, artifact_path=artifact_path)
     with open(local_path, "rb") as f:
         return f.read()
 
@@ -82,6 +82,9 @@ def bootstrap_mlflow_model(
         return 0
 
     run_id = version.run_id
+    if run_id is None:
+        logger.info("No run_id for %s @Champion — skipping", full_name)
+        return 0
     # Bootstrap ONLY the xg_model_v2-style flavor where the loader reads the raw
     # artifact file (model_weights.json) byte-for-byte. The sklearn and pyfunc
     # flavors used by xg_model v1, vaep_model, and defcon_model materialize the

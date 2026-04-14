@@ -18,8 +18,7 @@ import sys
 from pathlib import Path
 
 from databricks.sdk import WorkspaceClient
-from huggingface_hub import hf_hub_download
-from huggingface_hub.utils import get_token
+from huggingface_hub import get_token, hf_hub_download
 
 from shared.constants import IDENTIFIER_RE
 from shared.wheel import WHEEL_FILENAME, WHEEL_REPO

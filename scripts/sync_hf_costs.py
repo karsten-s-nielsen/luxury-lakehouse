@@ -216,13 +216,13 @@ def sync_costs(
         return 0
 
     # MERGE into workflow_cost_live via PySpark
-    from pyspark.sql import SparkSession
+    from pyspark.sql import SparkSession  # type: ignore[import-not-found]
 
     spark = SparkSession.builder.getOrCreate()
     target_table = f"{catalog}.{DEFAULT_OBSERVABILITY_SCHEMA}.{COST_TABLE_NAME}"
     source_df = spark.createDataFrame(rows)
 
-    from delta.tables import DeltaTable
+    from delta.tables import DeltaTable  # type: ignore[import-not-found]
 
     dt = DeltaTable.forName(spark, target_table)
     (

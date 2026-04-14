@@ -27,7 +27,7 @@ import sys
 import time
 from pathlib import Path
 
-from huggingface_hub import HfApi, SpaceHardware, get_token
+from huggingface_hub import HfApi, RepoFile, SpaceHardware, get_token
 
 from shared.wheel import WHEEL_FILENAME
 
@@ -405,7 +405,7 @@ def _dry_run(folder: Path, repo_id: str, api: HfApi) -> None:
         remote_files: set[str] = set()
         try:
             for item in api.list_repo_tree(repo_id, repo_type="space", recursive=True):
-                if hasattr(item, "size"):
+                if isinstance(item, RepoFile):
                     remote_files.add(item.rfilename)
         except Exception:
             logger.warning("Could not list remote files for %s", repo_id)
