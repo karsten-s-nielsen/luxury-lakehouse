@@ -42,6 +42,11 @@ These standards apply to ALL code in this repository. They are non-negotiable.
 - **Content validation**: Verify DataFrame schema and non-empty data before every Delta write.
 - **Least privilege**: Scripts write only to the specified `{catalog}.{schema}.*` — never to arbitrary paths.
 
+## AI Governance
+
+- **`AI_GOVERNANCE.md` is the living record of EU AI Act posture**: When adding, modifying, renaming, or removing a per-player evaluative ML system (any workflow card listed in `PER_PLAYER_EVALUATIVE_CARDS` in `src/tests/test_ai_governance_md.py`), update `AI_GOVERNANCE.md` §5 (Scope), create or update the matching HuggingFace model card under `docs/huggingface/model-cards/`, add the `governance:` YAML block to the workflow card, and re-run `uv run pytest src/tests/test_ai_governance_md.py -v` before merging. The test enforces: required sections present, workflow-card inventory parity, model-card inventory parity, `governance:` YAML block presence, `EU AI Act — Intended Use and Non-Use` stanza presence on every model card, `SEC-AUDIT-v1.12.0 REG-01` provenance tag, and a 30-day grace-period check on the **Next review** date. Non-negotiable.
+- **`ARCHITECTURE.md` Appendix D is the living record of academic references**: When introducing a new published methodology — new `Citation(...)` in a `PageConfig`, new `references:` entry in a workflow card, new methodology cited in `NOTICE` — add the author to `ARCHITECTURE.md` § 8 "D. Academic References" and extend the `expected_authors` list in `src/tests/test_architecture_md_appendix.py`. That test is the reason the appendix exists; it ran the D56 cycle and it still runs today. This rule was forgotten between March and April 2026 and caused the D56 academic-reference audit; the rule exists so that gap does not reopen.
+
 ## Type Safety
 
 - **Pyright basic mode**: All Python code must pass `pyright` in basic type checking mode.

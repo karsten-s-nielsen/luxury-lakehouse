@@ -1,7 +1,7 @@
 # Databricks Lakebase Architecture — Soccer Analytics Platform
 
-> **Status**: Cycle 5 Phase 3 (Cost enrichment, gate removal, OAuth M2M) — 16 Taipy pages, 34 synced tables, 56 PG indexes (50 btree + 6 HNSW at 128d/144d). Hugging Face Hub: 7 models + 18 datasets published, GPU training on HF Jobs L40S. PSxG model (Brier 0.129). ScoutGPT decoder + training pipeline (D32). Guard-as-wrapper: 33 skip guards with mandatory `FilterResult` injection, each pipeline runs its own guard at startup (centralized gate removed — D52). `fct_workflow_costs` enriched with warm-tier lifecycle data (D51). HF-app SP codified in Terraform with UC grants (TF-SP). M2 OAuth infrastructure complete.
-> **Last Updated**: 2026-04-09
+> **Status**: SEC1 cycle (EU AI Act gap analysis) — 16 Taipy pages, 34 synced tables, 56 PG indexes (50 btree + 6 HNSW at 128d/144d). Hugging Face Hub: 12 models + 18 datasets published, GPU training on HF Jobs L40S. Regulation (EU) 2024/1689 gap analysis in [`AI_GOVERNANCE.md`](AI_GOVERNANCE.md) covering 13 per-player evaluative ML systems; every model card carries an "EU AI Act — Intended Use and Non-Use" stanza, enforced by `src/tests/test_ai_governance_md.py`. Daily Job Hardening (D59/D56/SEC2): self-healing daily job with dbt_build python_wheel_task + SHA-256 artifact integrity verification on model loads. PSxG model (Brier 0.129). ScoutGPT decoder + training pipeline (D32). Guard-as-wrapper: 33 skip guards with mandatory `FilterResult` injection. `fct_workflow_costs` enriched with warm-tier lifecycle data (D51). HF-app SP codified in Terraform with UC grants (TF-SP). M2 OAuth infrastructure complete.
+> **Last Updated**: 2026-04-14
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready
 

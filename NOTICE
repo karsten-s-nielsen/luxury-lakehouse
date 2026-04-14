@@ -167,3 +167,24 @@ The "Power of Three" coaching framework and game state context layer
 (winning/losing/drawing) are standard constructs in applied performance
 analysis practice (Thomson, Sfeir, Gronnemark). These are practitioner
 methodologies, not peer-reviewed publications.
+
+AI Governance Framework
+-----------------------
+
+This project is assessed against Regulation (EU) 2024/1689 (the EU AI Act).
+The full gap analysis, risk classification, technical documentation mapping,
+human oversight posture, and fairness analysis for the project's thirteen
+per-player evaluative ML systems (xG v1, xG v2, VAEP, PSxG, Pitch Control,
+DEFCON, Off-Ball xT, OBSO/PAUSA, Space Creation, Football2Vec v1/v2/360,
+ScoutGPT) are maintained in AI_GOVERNANCE.md at the project root.
+
+No system in this project is classified as high-risk under the EU AI Act
+under the current operating posture. The document names the re-classification
+triggers that would require this determination to be revisited. Every
+HuggingFace Hub model card under docs/huggingface/model-cards/ carries an
+"EU AI Act — Intended Use and Non-Use" stanza stating that the model is not
+intended for, validated for, or supplied to any use that would fall within
+Annex III §4 (Employment, workers management and access to self-employment).
+Enforcement is via src/tests/test_ai_governance_md.py, which fails CI if the
+document drifts from the workflow-card inventory, if any model card loses the
+stanza, or if the annual review date goes more than 30 days stale.

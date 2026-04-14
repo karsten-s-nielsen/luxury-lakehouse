@@ -33,13 +33,13 @@ class TestDiscoverHfRepos:
         card = {
             "id": "wf-xg-v2",
             "execution": {"training": {"runtime": "hf-jobs", "script": "scripts/train_xg_v2_hf.py"}},
-            "outputs": {"models": [{"id": "luxury-lakehouse/xg-model-v2", "destination": "huggingface"}]},
+            "outputs": {"models": [{"id": "luxury-lakehouse/xg-v2-model-set-encoder", "destination": "huggingface"}]},
         }
         card_path = tmp_path / "wf-xg-v2.yaml"
         card_path.write_text(yaml.dump(card))
 
         repos = discover_hf_repos(tmp_path)
-        assert ("luxury-lakehouse/xg-model-v2", "model", "wf-xg-v2") in repos
+        assert ("luxury-lakehouse/xg-v2-model-set-encoder", "model", "wf-xg-v2") in repos
 
     def test_skips_non_hf_jobs_cards(self, tmp_path: Path) -> None:
         from scripts.sync_hf_costs import discover_hf_repos

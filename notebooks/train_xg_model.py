@@ -301,7 +301,7 @@ try:
     )
 
     # Upload model card as README.md
-    model_card_path = "/Workspace/Users/karstenskyt@gmail.com/luxury-lakehouse/docs/huggingface/xg-model-card.md"
+    model_card_path = "/Workspace/Users/karstenskyt@gmail.com/luxury-lakehouse/docs/huggingface/model-cards/xg-model-card.md"
     api.upload_file(
         path_or_fileobj=model_card_path,
         path_in_repo="README.md",
