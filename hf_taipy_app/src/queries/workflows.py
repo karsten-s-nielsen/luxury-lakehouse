@@ -29,6 +29,7 @@ _LATEST_RUN_COLS = [
     "workflow_id",
     "cold_start_seconds",
     "duration_seconds",
+    "guard_duration_seconds",
     "entity_count",
     "row_count",
     "pipeline_state",
@@ -68,18 +69,19 @@ def fetch_latest_run_metrics() -> pd.DataFrame:
     """Most recent run per workflow from fct_workflow_costs_synced.
 
     Returns one row per workflow with cold_start_seconds, duration_seconds,
-    entity_count, row_count, and pipeline_state from the latest run.
+    guard_duration_seconds, entity_count, row_count, and pipeline_state from
+    the latest run.
     """
     _empty = pd.DataFrame(columns=pd.Index(_LATEST_RUN_COLS))
     try:
         tbl = t("fct_workflow_costs_synced")
         return execute_query(
             f"SELECT workflow_id, cold_start_seconds, duration_seconds, "  # noqa: S608
-            f"  entity_count, row_count, pipeline_state "
+            f"  guard_duration_seconds, entity_count, row_count, pipeline_state "
             f"FROM ( "
             f"  SELECT COALESCE(workflow_id, task_key) AS workflow_id, "
-            f"    cold_start_seconds, duration_seconds, entity_count, "
-            f"    row_count, pipeline_state, "
+            f"    cold_start_seconds, duration_seconds, guard_duration_seconds, "
+            f"    entity_count, row_count, pipeline_state, "
             f"    ROW_NUMBER() OVER ("
             f"      PARTITION BY COALESCE(workflow_id, task_key) "
             f"      ORDER BY usage_date DESC, job_run_id DESC"

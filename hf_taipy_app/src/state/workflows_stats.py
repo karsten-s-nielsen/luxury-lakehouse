@@ -234,13 +234,22 @@ WF_TABLE_COLS = [
     "Trigger",
     "Status",
     "Last Run",
-    "Last Duration",
     "Cold Start",
+    "Guard Duration",
+    "Workflow Duration",
     "Entities",
     "Cost (30d)",
     "Avg/Run",
     "Freshness",
 ]
+
+
+def _format_seconds_short(value: int | None) -> str:
+    """Format a seconds count as 'Ns' or 'NmN s' or em-dash if None."""
+    if value is None:
+        return "\u2014"
+    mins, secs = divmod(int(value), 60)
+    return f"{mins}m {secs}s" if mins else f"{secs}s"
 
 
 def build_table_data(
@@ -279,12 +288,18 @@ def build_table_data(
     # Build latest-run lookups keyed by workflow_id
     cold_start_lookup: dict[str, int] = {}
     entity_count_lookup: dict[str, int] = {}
+    guard_duration_lookup: dict[str, int] = {}
+    workflow_duration_lookup: dict[str, int] = {}
     if not lrm.empty and "workflow_id" in lrm.columns:
         lrm_idx = lrm.set_index("workflow_id")
         if "cold_start_seconds" in lrm_idx.columns:
             cold_start_lookup = lrm_idx["cold_start_seconds"].dropna().apply(int).to_dict()
         if "entity_count" in lrm_idx.columns:
             entity_count_lookup = lrm_idx["entity_count"].dropna().apply(int).to_dict()
+        if "guard_duration_seconds" in lrm_idx.columns:
+            guard_duration_lookup = lrm_idx["guard_duration_seconds"].dropna().apply(int).to_dict()
+        if "duration_seconds" in lrm_idx.columns:
+            workflow_duration_lookup = lrm_idx["duration_seconds"].dropna().apply(int).to_dict()
 
     rows = []
     for card_id, card in cards.items():
@@ -335,18 +350,14 @@ def build_table_data(
                     pass
             hf_duration_secs = int(hf_data.latest_run.get("duration_seconds") or 0)
 
-        # Pick whichever is more recent
-        last_run_ts, duration_secs = _pick_latest_run(
-            jobs_last_run_ts, jobs_duration_secs, hf_last_run_ts, hf_duration_secs
-        )
+        # Pick whichever is more recent (duration from Jobs API is intentionally discarded —
+        # we now source Workflow Duration from latest_run_metrics below, which decomposes
+        # Jobs-API total time into cold start + guard + workflow)
+        last_run_ts, _ = _pick_latest_run(jobs_last_run_ts, jobs_duration_secs, hf_last_run_ts, hf_duration_secs)
 
         last_run_str = "\u2014"
-        duration_str = "\u2014"
         if last_run_ts is not None:
             last_run_str = last_run_ts.strftime("%Y-%m-%d %H:%M")
-            if duration_secs > 0:
-                mins, secs = divmod(duration_secs, 60)
-                duration_str = f"{mins}m {secs}s" if mins else f"{secs}s"
 
         # --- Cost display ---
         if total_cost > 0:
@@ -372,12 +383,10 @@ def build_table_data(
         # --- Status ---
         status_str = _resolve_status(hf_data, job_run, jobs_last_run_ts, hf_last_run_ts)
 
-        # --- Cold start + Entities (from enriched cold tier) ---
-        cs = cold_start_lookup.get(card_id)
-        cold_start_str = "\u2014"
-        if cs is not None:
-            cs_mins, cs_secs = divmod(int(cs), 60)
-            cold_start_str = f"{cs_mins}m {cs_secs}s" if cs_mins else f"{cs_secs}s"
+        # --- Cold start + Guard duration + Workflow duration (from enriched cold tier) ---
+        cold_start_str = _format_seconds_short(cold_start_lookup.get(card_id))
+        guard_duration_str = _format_seconds_short(guard_duration_lookup.get(card_id))
+        workflow_duration_str = _format_seconds_short(workflow_duration_lookup.get(card_id))
 
         ent = entity_count_lookup.get(card_id)
         entity_str = f"{int(ent):,}" if ent is not None else "\u2014"
@@ -390,8 +399,9 @@ def build_table_data(
                 "Trigger": trigger_str,
                 "Status": status_str,
                 "Last Run": last_run_str,
-                "Last Duration": duration_str,
                 "Cold Start": cold_start_str,
+                "Guard Duration": guard_duration_str,
+                "Workflow Duration": workflow_duration_str,
                 "Entities": entity_str,
                 "Cost (30d)": cost_val,
                 "Avg/Run": avg_run_val,

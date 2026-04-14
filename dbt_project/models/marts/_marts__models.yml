@@ -2073,7 +2073,11 @@ models:
         description: >
           Environment setup overhead in seconds (serverless spin-up, wheel
           install, imports). Computed as warm-tier started_at minus cold-tier
-          task_started_at. NULL for runs predating hook deployment.
+          task_started_at. NULL when no warm-tier row matches the task's
+          temporal join window — either runs predating hook deployment or
+          runs where the warm-tier write was not observed before the join
+          cutoff. GREATEST(..., 0) clamps small negative skews to 0 but
+          propagates NULL (intended semantic: unknown, not zero).
       - name: entity_count
         data_type: int
         description: >

@@ -27,3 +27,28 @@ databricks:
       http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"
       token: "{{ env_var('DATABRICKS_TOKEN') }}"
       threads: 1
+
+    # D59: serverless target for the daily Databricks job's dbt_build task.
+    # `token` is set at runtime by `ingestion.dbt_runner._ensure_databricks_env_vars()`
+    # which calls `WorkspaceClient.config.authenticate()` to resolve a short-lived
+    # OAuth M2M token from the runtime SP context. WITHOUT this, dbt-databricks falls
+    # through to `authenticate_with_external_browser` (when neither token nor
+    # client_secret is set) and hangs indefinitely waiting for browser interaction.
+    #
+    # `schema: dev` matches the local `dev` target convention — dbt composes
+    # the per-model schemas as `{target.schema}_{model.+schema}` → `dev_silver`,
+    # `dev_gold` (matching the Terraform-created schemas). Using `schema: dev_gold`
+    # would resolve to `dev_gold_silver` / `dev_gold_gold` which do not exist, and
+    # dbt would attempt CREATE SCHEMA which the ingestion SP cannot do (no
+    # CREATE_SCHEMA grant at catalog level).
+    #
+    # Requires CREATE_TABLE + MODIFY grants on dev_gold + dev_silver
+    # (terraform/modules/catalog).
+    serverless:
+      type: databricks
+      catalog: soccer_analytics
+      schema: dev
+      host: "{{ env_var('DATABRICKS_HOST') }}"
+      http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"
+      token: "{{ env_var('DATABRICKS_TOKEN') }}"
+      threads: 4

@@ -717,12 +717,40 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "hf"
   }
 
+  # ── Task: dbt build (gold layer materialization) ─────────────────────
+  # D59 (2026-04-13): runs `dbt build` against the SQL warehouse to materialize
+  # the 33 gold mart tables from bronze sources. Bundled dbt_project/ ships in
+  # the wheel via Hatch force-include; auth uses dbt-databricks 1.10+ runtime
+  # OAuth M2M identity discovery. See src/ingestion/dbt_runner.py.
+  task {
+    task_key        = "dbt_build"
+    timeout_seconds = 3600
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "dbt_build"
+    }
+
+    # Same 9 leaf compute tasks that refresh_synced_tables previously depended on.
+    depends_on { task_key = "run_model_validation" }
+    depends_on { task_key = "hf_sync" }
+    depends_on { task_key = "compute_formations_shape_graph" }
+    depends_on { task_key = "compute_embeddings_v1" }
+    depends_on { task_key = "compute_off_ball_xt" }
+    depends_on { task_key = "compute_line_breaking" }
+    depends_on { task_key = "compute_defcon_lite" }
+    depends_on { task_key = "compute_xg_model_v2" }
+    depends_on { task_key = "extract_tracking_metadata" }
+
+    environment_key = "dbt"
+  }
+
   # ── Task: Refresh Lakebase synced tables (final stage) ───────────────
   # SNAPSHOT-mode synced tables do not auto-refresh. This task closes the
-  # propagation loop after the daily pipeline completes by refreshing all
-  # 34 synced tables. For 33 gold tables this is a no-op until the next
-  # dbt build, but it guarantees the warm-tier `workflow_cost_live_synced`
-  # observability table reflects the costs accumulated during this run.
+  # propagation loop after dbt_build completes by refreshing all 34 synced
+  # tables, ensuring both gold and observability data reach Lakebase.
+  # D59 (2026-04-13): now depends solely on dbt_build (which itself depends
+  # on the 9 leaf compute tasks). Previous 9-way fan-in collapsed to 1 edge.
   # See `src/ingestion/refresh_synced_tables.py`.
   task {
     task_key        = "refresh_synced_tables"
@@ -734,34 +762,8 @@ resource "databricks_job" "data_ingestion" {
       parameters   = ["--wait"]
     }
 
-    # Depends on all 9 leaf compute tasks so refresh runs only after the
-    # full daily pipeline reaches its terminal state.
     depends_on {
-      task_key = "run_model_validation"
-    }
-    depends_on {
-      task_key = "hf_sync"
-    }
-    depends_on {
-      task_key = "compute_formations_shape_graph"
-    }
-    depends_on {
-      task_key = "compute_embeddings_v1"
-    }
-    depends_on {
-      task_key = "compute_off_ball_xt"
-    }
-    depends_on {
-      task_key = "compute_line_breaking"
-    }
-    depends_on {
-      task_key = "compute_defcon_lite"
-    }
-    depends_on {
-      task_key = "compute_xg_model_v2"
-    }
-    depends_on {
-      task_key = "extract_tracking_metadata"
+      task_key = "dbt_build"
     }
 
     environment_key = "default"
@@ -862,6 +864,24 @@ resource "databricks_job" "data_ingestion" {
       dependencies = [
         var.wheel_path,
         "huggingface_hub>=0.25.0"
+      ]
+    }
+  }
+
+  # ── Environment for dbt build task (D59) ──────────────────────────────
+  # dbt-databricks 1.10+ supports runtime OAuth M2M identity discovery via
+  # the databricks-sdk WorkspaceClient. No client_id/secret env vars needed —
+  # the daily job's run_as SP identity is auto-detected inside the runtime.
+  environment {
+    environment_key = "dbt"
+
+    spec {
+      client = "1"
+
+      dependencies = [
+        var.wheel_path,
+        "dbt-core>=1.10.0",
+        "dbt-databricks>=1.10.0",
       ]
     }
   }

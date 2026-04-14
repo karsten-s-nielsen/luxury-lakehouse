@@ -14,6 +14,11 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from ingestion.guards import FilterResult, timed_check
+from ingestion.utils import (
+    _load_mlflow_artifact_hash,
+    _load_volume_sidecar_hash,
+    verify_artifact_hash,
+)
 from shared.constants import DEFAULT_GOLD_SCHEMA, mlflow_model_uri
 from workflows import workflow
 from workflows.exceptions import WorkflowSkippedError
@@ -150,6 +155,21 @@ def _try_load_champion_xg(
         logistic_bytes = serialize_logistic_model(logistic_model)  # type: ignore[arg-type]
         xgboost_bytes = serialize_xgboost_model(champion_model)  # type: ignore[arg-type]
 
+        # SEC2: verify artifact integrity against recorded MLflow tag (if any)
+        expected_hash = _load_mlflow_artifact_hash(client, model_name, alias="Champion")
+        verify_artifact_hash(
+            data=logistic_bytes,
+            expected_sha256=expected_hash,
+            artifact_label=f"{model_name}_logistic",
+            logger=log,
+        )
+        verify_artifact_hash(
+            data=xgboost_bytes,
+            expected_sha256=expected_hash,
+            artifact_label=f"{model_name}_xgboost",
+            logger=log,
+        )
+
         log.info(
             "Loaded xG @Champion from MLflow (logistic=%d bytes, xgboost=%d bytes)",
             len(logistic_bytes),
@@ -209,6 +229,20 @@ def run_pipeline(
         model_dir = f"/Volumes/{catalog}/{DEFAULT_GOLD_SCHEMA}/model_weights/xg_model"
         logistic_bytes = spark.read.format("binaryFile").load(f"{model_dir}/logistic_model.json").first()["content"]
         xgboost_bytes = spark.read.format("binaryFile").load(f"{model_dir}/xgboost_model.json").first()["content"]
+
+        # SEC2: verify artifact integrity from UC Volume sidecar files
+        verify_artifact_hash(
+            data=logistic_bytes,
+            expected_sha256=_load_volume_sidecar_hash(f"{model_dir}/logistic_model.json"),
+            artifact_label="xg_model_logistic_volume",
+            logger=logger,
+        )
+        verify_artifact_hash(
+            data=xgboost_bytes,
+            expected_sha256=_load_volume_sidecar_hash(f"{model_dir}/xgboost_model.json"),
+            artifact_label="xg_model_xgboost_volume",
+            logger=logger,
+        )
 
     # 4. Build UDF and distribute scoring across executors
     scoring_udf = _make_scoring_udf(logistic_bytes, xgboost_bytes)

@@ -18,7 +18,7 @@ page_config = PageConfig(
     ),
     citations=[
         Citation("Ganin et al. (2016) — Gradient Reversal", "https://jmlr.org/papers/v17/15-239.html"),
-        Citation("Danesi (2025) — Football2Vec", "https://doi.org/10.1007/978-3-031-02044-5_2"),
+        Citation("Danesi (2025) — Football2Vec: Transformer-Based Player Embeddings"),
         Citation(
             "luxury-lakehouse/football2vec-v2",
             "https://huggingface.co/luxury-lakehouse/football2vec-v2",

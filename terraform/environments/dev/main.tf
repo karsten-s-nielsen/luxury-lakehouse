@@ -85,6 +85,7 @@ module "service_principals" {
   account_id        = var.databricks_account_id
   github_repository = "karsten-s-nielsen/luxury-lakehouse"
   databricks_host   = var.databricks_host
+  workspace_id      = var.databricks_workspace_id
 }
 
 # ── Module: Catalog (Medallion Schemas) ──────────────────────────────────────
@@ -102,6 +103,7 @@ module "catalog" {
   enable_app_sp_grants        = true
   silver_schema_override      = "${var.environment}_silver"
   gold_schema_override        = "${var.environment}_gold"
+  dbt_owners_group_name       = module.service_principals.dbt_owners_group_display_name
 }
 
 # ── Module: Lakebase ─────────────────────────────────────────────────────────
@@ -134,7 +136,7 @@ module "workflows" {
   source = "../../modules/workflows"
 
   catalog_name             = module.workspace.catalog_name
-  wheel_path               = "${module.catalog.libs_volume_path}/luxury_lakehouse-0.3.1-py3-none-any.whl"
+  wheel_path               = "${module.catalog.libs_volume_path}/luxury_lakehouse-0.3.2-py3-none-any.whl"
   environment              = var.environment
   notification_emails      = var.notification_emails
   run_as_sp_application_id = module.service_principals.ingestion_sp_application_id
@@ -180,7 +182,7 @@ resource "databricks_job" "sync_hf_costs_daily" {
       client = "1"
 
       dependencies = [
-        "${module.catalog.libs_volume_path}/luxury_lakehouse-0.3.1-py3-none-any.whl",
+        "${module.catalog.libs_volume_path}/luxury_lakehouse-0.3.2-py3-none-any.whl",
         "huggingface_hub>=0.25.0",
         "pyyaml>=6.0"
       ]

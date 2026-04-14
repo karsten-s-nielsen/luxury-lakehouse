@@ -32,9 +32,11 @@ from ingestion.spadl_conversion import (
     _read_existing_match_ids,
 )
 from ingestion.utils import (
+    _load_mlflow_artifact_hash,
     configure_logging,
     get_spark_session,
     parse_ingestion_args,
+    verify_artifact_hash,
     write_delta_table,
 )
 from shared.constants import DEFAULT_GOLD_SCHEMA, mlflow_model_uri
@@ -166,6 +168,7 @@ def _try_load_champion_vaep(
         import importlib
 
         mlflow_pyfunc = importlib.import_module("mlflow.pyfunc")
+        mlflow_tracking = importlib.import_module("mlflow.tracking")
     except (ImportError, ModuleNotFoundError):
         logger.info("mlflow not available -- will train VAEP models from scratch")
         return None
@@ -179,6 +182,25 @@ def _try_load_champion_vaep(
         unwrapped = champion.unwrap_python_model()  # type: ignore[union-attr]
         model_scores: XGBClassifier = unwrapped.scores_model  # type: ignore[union-attr]
         model_concedes: XGBClassifier = unwrapped.concedes_model  # type: ignore[union-attr]
+
+        # SEC2: verify artifact integrity against recorded MLflow tag (if any)
+        scores_raw = bytes(model_scores.get_booster().save_raw("json"))
+        concedes_raw = bytes(model_concedes.get_booster().save_raw("json"))
+        client = mlflow_tracking.MlflowClient()
+        expected_hash = _load_mlflow_artifact_hash(client, model_name, alias="Champion")
+        verify_artifact_hash(
+            data=scores_raw,
+            expected_sha256=expected_hash,
+            artifact_label=f"{model_name}_scores",
+            logger=logger,
+        )
+        verify_artifact_hash(
+            data=concedes_raw,
+            expected_sha256=expected_hash,
+            artifact_label=f"{model_name}_concedes",
+            logger=logger,
+        )
+
         logger.info("Loaded VAEP @Champion models from MLflow")
         return model_scores, model_concedes
     except Exception:

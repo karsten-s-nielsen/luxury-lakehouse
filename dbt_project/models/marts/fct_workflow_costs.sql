@@ -22,12 +22,19 @@
 -- proportionally by execution duration within each job run.
 -- 90-day rolling window refreshed daily.
 --
--- Driving table: system.lakeflow.job_task_run_timeline (tasks CTE).
+-- Driving table: system_lakeflow_job_task_run_timeline view (tasks CTE).
 -- Timing data (cold_start, duration, entity_count) is available immediately.
 -- Billing data (attributed_cost_usd, attributed_dbu) arrives with ~1 day lag
--- via LEFT JOIN on system.billing.usage — NULL until billing catches up.
+-- via LEFT JOIN on the system_billing_usage view — NULL until billing catches up.
 -- effective_cost_usd = COALESCE(attributed_cost_usd, estimated_cost_usd)
 -- so the UI always has a cost value (actual when available, estimated until then).
+--
+-- All three system.* references go through definer's-rights views in
+-- soccer_analytics.observability (see scripts/setup_system_billing_views.sql).
+-- The system catalog is metastore-managed and cannot be granted to SPs/groups
+-- via the standard UC API, so we interpose filtered views owned by an account
+-- admin. Filters (billing_origin_product = 'JOBS', 90-day window,
+-- result_state IS NOT NULL) are applied inside the views, not repeated here.
 --
 -- Warm-tier enrichment: LEFT JOINs workflow_cost_live (written by
 -- CostEstimateHook) via workflow_id + temporal window (serverless exposes
@@ -42,24 +49,18 @@
 
 WITH billing AS (
     SELECT
-        usage_metadata.job_run_id AS job_run_id,
-        usage_date,
-        SUM(usage_quantity) AS dbu,
-        SUM(
-            usage_quantity
-            * CAST(prices.pricing.effective_list.default AS DECIMAL(10, 4))
-        ) AS cost_usd
-    FROM system.billing.usage AS usage
-    INNER JOIN system.billing.list_prices AS prices
+        usage.job_run_id AS job_run_id,
+        usage.usage_date,
+        SUM(usage.usage_quantity) AS dbu,
+        SUM(usage.usage_quantity * prices.effective_list_default) AS cost_usd
+    FROM {{ source('observability', 'system_billing_usage') }} AS usage
+    INNER JOIN {{ source('observability', 'system_billing_list_prices') }} AS prices
         ON prices.sku_name = usage.sku_name
         AND usage.usage_end_time >= prices.price_start_time
         AND (
             prices.price_end_time IS NULL
             OR usage.usage_end_time < prices.price_end_time
         )
-    WHERE
-        usage.billing_origin_product = 'JOBS'
-        AND usage.usage_date >= CURRENT_DATE - INTERVAL 90 DAYS
     GROUP BY 1, 2
 ),
 
@@ -69,10 +70,7 @@ tasks AS (
         task_key,
         SUM(execution_duration_seconds) AS execution_duration_seconds,
         MIN(period_start_time) AS task_started_at
-    FROM system.lakeflow.job_task_run_timeline
-    WHERE
-        result_state IS NOT NULL
-        AND period_start_time >= CURRENT_DATE - INTERVAL 90 DAYS
+    FROM {{ source('observability', 'system_lakeflow_job_task_run_timeline') }}
     GROUP BY job_run_id, task_key
 ),
 

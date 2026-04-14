@@ -1,0 +1,97 @@
+---
+name: dbt build (gold layer)
+id: wf-dbt-build
+version: "1.0.0"
+status: production
+type: data-movement
+domain: soccer-analytics
+owners:
+  - karsten
+tags:
+  - dbt
+  - gold
+  - daily-job
+
+# No academic methodology — operational data transformation pipeline.
+# Runs `dbt build` against the SQL warehouse to materialize 33 gold mart
+# tables from bronze sources. dbt's own model lineage and tests cover
+# quality. See src/ingestion/dbt_runner.py.
+references: []
+
+inputs:
+  datasets:
+    - id: "{catalog}.bronze.statsbomb_events"
+      source: delta-table
+      description: "Bronze tables produced by the 9 leaf compute tasks"
+
+outputs:
+  tables:
+    - id: "{catalog}.dev_gold.fct_shots"
+      destination: delta-table
+
+execution:
+  ingestion:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: dbt_build
+    module: ingestion.dbt_runner
+    distribution: driver-bound
+    schedule: "daily 06:00 UTC"
+    timeout: "3600s"
+    environment: dbt
+
+depends_on:
+  - wf-vaep
+  - wf-xg-v1
+  - wf-xg-v2
+  - wf-defcon
+  - wf-off-ball-xt
+  - wf-line-breaking
+  - wf-formations
+  - wf-football2vec
+  - wf-model-validation
+
+idempotency:
+  strategy: full-overwrite
+  key: model
+  description: "dbt CREATE OR REPLACE TABLE semantics — idempotent per model."
+
+performance:
+  inference_timeout: "3600s"
+  memory_ceiling: "16 GB driver"
+
+cost:
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 5
+    typical_cost_usd: 0.35
+
+monitoring:
+  freshness_sla_hours: 24
+
+links:
+  source_code:
+    - "src/ingestion/dbt_runner.py"
+---
+
+## Overview
+
+D59: programmatic dbt invocation inside the daily Databricks ingestion job.
+After the 9 leaf compute tasks complete, this task runs ``dbt build`` against
+the SQL warehouse to materialize the 33 gold mart tables (29 fact + 4 dim)
+from the bronze layer. The wheel-bundled ``dbt_project/`` directory is
+resolved at runtime via ``importlib.resources``. Authentication:
+``ingestion.dbt_runner._ensure_databricks_env_vars()`` calls
+``WorkspaceClient.config.authenticate()`` to exchange the runtime SP identity
+for a short-lived OAuth M2M bearer token, writes it to ``DATABRICKS_TOKEN``,
+and the ``serverless`` profile consumes it via ``env_var('DATABRICKS_TOKEN')``.
+This explicit exchange is required because dbt-databricks otherwise falls
+through to ``authenticate_with_external_browser`` and hangs indefinitely on
+a headless serverless task.
+
+Replaces the previous flow where ``dbt build`` only ran from developer
+machines via ``scripts/dbt_build_and_refresh.py``. The next task in the daily
+DAG (``refresh_synced_tables``) now depends on this task instead of the 9
+leaf computes directly, so Lakebase synced tables propagate fresh gold data
+without manual intervention.

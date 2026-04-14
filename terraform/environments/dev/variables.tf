@@ -19,6 +19,12 @@ variable "databricks_host" {
   type        = string
 }
 
+variable "databricks_workspace_id" {
+  description = "Databricks workspace numeric ID — find via account console or `databricks workspaces list`. Required for D59 dbt-owners account-level group → workspace assignment."
+  type        = string
+  default     = "7474660814094441"
+}
+
 variable "databricks_account_id" {
   description = "Databricks account ID (UUID from accounts.cloud.databricks.com)"
   type        = string

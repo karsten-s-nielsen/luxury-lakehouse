@@ -16,3 +16,8 @@ output "hf_app_sp_application_id" {
   description = "Application (client) ID of the HF Spaces app service principal"
   value       = databricks_service_principal.hf_app.application_id
 }
+
+output "dbt_owners_group_display_name" {
+  description = "Display name of the dbt-owners group (D59 — shared dev_silver/dev_gold ownership)"
+  value       = databricks_group.dbt_owners.display_name
+}

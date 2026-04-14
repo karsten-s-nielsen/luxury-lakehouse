@@ -14,7 +14,9 @@ tags:
   - training-data
   - huggingface
 
-references: []
+references:
+  - citation: "StatsBomb Open Data (360 freeze frames). https://github.com/statsbomb/open-data"
+    role: dataset
 
 inputs:
   datasets:

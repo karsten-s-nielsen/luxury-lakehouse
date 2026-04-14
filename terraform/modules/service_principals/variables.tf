@@ -29,3 +29,8 @@ variable "databricks_host" {
   description = "Databricks workspace URL (e.g. https://<workspace>.cloud.databricks.com) — used as OIDC audience for workspace-level federation"
   type        = string
 }
+
+variable "workspace_id" {
+  description = "Databricks workspace numeric ID — required for account-level group → workspace permission assignment (D59 dbt-owners group)"
+  type        = string
+}

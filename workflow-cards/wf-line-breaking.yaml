@@ -12,7 +12,11 @@ tags:
   - defensive-lines
   - pass-classification
 
-references: []
+references:
+  - citation: "parmacalcio1913/line-breaking-passes (Apache License 2.0). https://github.com/parmacalcio1913/line-breaking-passes"
+    role: inspiration
+  - citation: "StatsBomb Open Data. https://github.com/statsbomb/open-data"
+    role: dataset
 
 inputs:
   datasets:

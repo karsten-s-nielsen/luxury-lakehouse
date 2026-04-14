@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from ingestion.utils import _load_mlflow_artifact_hash, verify_artifact_hash
 from shared.constants import mlflow_model_uri
 
 if TYPE_CHECKING:
@@ -48,6 +49,7 @@ def _try_load_champion_defcon(
         import importlib
 
         mlflow_pyfunc = importlib.import_module("mlflow.pyfunc")
+        mlflow_tracking = importlib.import_module("mlflow.tracking")
     except (ImportError, ModuleNotFoundError):
         logger.info("mlflow not available — will use per-match DEFCON training")
         return None
@@ -60,6 +62,16 @@ def _try_load_champion_defcon(
         unwrapped = champion.unwrap_python_model()  # type: ignore[union-attr]
         regressor = unwrapped.regressor  # type: ignore[union-attr]
         model_bytes = bytes(regressor.get_booster().save_raw("json"))
+
+        # SEC2: verify artifact integrity against recorded MLflow tag (if any)
+        client = mlflow_tracking.MlflowClient()
+        verify_artifact_hash(
+            data=model_bytes,
+            expected_sha256=_load_mlflow_artifact_hash(client, model_name, alias="Champion"),
+            artifact_label=f"{model_name}_regressor",
+            logger=logger,
+        )
+
         logger.info("Loaded DEFCON @Champion from MLflow (%d bytes)", len(model_bytes))
         return model_bytes
     except Exception:

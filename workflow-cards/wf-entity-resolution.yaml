@@ -12,6 +12,10 @@ tags:
   - player-matching
   - cross-source
 
+# No academic methodology — operational data plumbing.
+# Cross-source player identity matching via rapidfuzz (fuzzy string matching)
+# + sparse-dot-topn (TF-IDF cosine similarity). Both are established libraries
+# applied directly without novel methodology.
 references: []
 
 inputs:

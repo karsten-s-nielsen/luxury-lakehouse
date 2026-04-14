@@ -23,8 +23,17 @@ clean-targets:
 # Staging  → views in the silver schema (lightweight, always fresh)
 # Intermediate → ephemeral (CTEs inlined into downstream models)
 # Marts    → tables in the gold schema (query-optimized, materialized)
+#
+# Ownership: every newly-built object is transferred to the `dbt-owners`
+# group via `+post-hook`. This keeps ownership stable across runs so both
+# the developer (running `dbt build` locally as their account user) and the
+# ingestion SP (running the daily-job `dbt_build` task) can replace the same
+# objects without per-object owner drift. See `terraform/modules/service_principals/main.tf`
+# for the group definition and CLAUDE.md "## dbt Ownership Model".
 models:
   soccer_analytics:
+    +post-hook:
+      - "ALTER {{ 'VIEW' if config.materialized == 'view' else 'TABLE' }} {{ this }} OWNER TO `dbt-owners-{{ env_var('LUXURY_LAKEHOUSE_ENV', 'dev') }}`"
     staging:
       +materialized: view
       +schema: silver
@@ -48,6 +57,8 @@ models:
 seeds:
   soccer_analytics:
     +schema: silver
+    +post-hook:
+      - "ALTER TABLE {{ this }} OWNER TO `dbt-owners-{{ env_var('LUXURY_LAKEHOUSE_ENV', 'dev') }}`"
 
 vars:
   # UC grant principals — override with specific SPs for production

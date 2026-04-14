@@ -346,7 +346,13 @@ class TestTryLoadChampionXgboost:
         mock_sklearn = MagicMock()
         mock_sklearn.load_model.return_value = xgboost_model
 
-        with patch.dict("sys.modules", {"mlflow.sklearn": mock_sklearn}):
+        mock_tracking = MagicMock()
+        mock_tracking.MlflowClient.return_value.get_run.return_value.data.tags = {}
+
+        with patch.dict(
+            "sys.modules",
+            {"mlflow.sklearn": mock_sklearn, "mlflow.tracking": mock_tracking},
+        ):
             result = _try_load_champion_xgboost(logging.getLogger("test"), "soccer_analytics", "dev_gold")
 
         assert result is not None

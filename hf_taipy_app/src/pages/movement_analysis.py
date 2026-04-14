@@ -9,12 +9,16 @@ page_config = PageConfig(
     icon="directions_run",
     nav_section=NAV_ADVANCED,
     description=(
-        "Off-Ball xT combines pitch control (Spearman 2017) with Expected Threat zones "
-        "(Karun Singh 2018). Physical metrics from tracking data."
+        'Off-Ball xT combines pitch control (Spearman 2017, "Physics-Based Modeling of '
+        'Pass Probabilities in Soccer") with Expected Threat zones (Karun Singh 2018). '
+        "Physical metrics from tracking data."
     ),
     freshness_var="ma_data_freshness",
     citations=[
-        Citation("Spearman (2017)", "https://www.researchgate.net/publication/315166647_Beyond_Expected_Goals"),
+        Citation(
+            "Spearman (2017) — Physics-Based Modeling of Pass Probabilities in Soccer "
+            "(MIT Sloan Sports Analytics Conference)"
+        ),
         Citation("Karun Singh (2018)", "https://karun.in/blog/expected-threat.html"),
     ],
     empty_message="",

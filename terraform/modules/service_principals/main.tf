@@ -94,3 +94,64 @@ resource "databricks_service_principal" "hf_app" {
   display_name = "luxury-lakehouse-hf-app-v2-${var.environment}"
   active       = true
 }
+
+# ── dbt-owners group: shared write access for dev_silver + dev_gold ─────────
+# D59 (2026-04-13): dbt build needs to REPLACE existing tables/views in the
+# dbt-managed dev_silver + dev_gold schemas. Unity Catalog requires the caller
+# to be the object owner OR the schema owner. Without group ownership, the
+# ingestion SP and developer users would fight over per-table ownership on
+# every build (developer runs dbt locally → owns the table; SP runs daily-job
+# dbt → can't replace the developer-owned table).
+#
+# Solution: dbt-owners group with both the deploying user and the ingestion
+# SP as members. The dev_silver and dev_gold schemas (which are NOT Terraform-
+# managed — they are created at runtime by dbt with the dbt-config-driven
+# `{target.schema}_{model.+schema}` naming) are owned by this group via a
+# one-time SQL ALTER SCHEMA. All members of the group can replace any object
+# in the schema.
+#
+# A dbt `+post-hook` in `dbt_project.yml` transfers per-object ownership of
+# every newly-built model back to the group, keeping ownership stable across
+# runs and preventing per-object owner drift.
+#
+# See CLAUDE.md "## dbt Ownership Model" section for the operator runbook.
+
+resource "databricks_group" "dbt_owners" {
+  provider     = databricks.account
+  display_name = "dbt-owners-${var.environment}"
+}
+
+data "databricks_user" "deployer" {
+  provider  = databricks.account
+  user_name = data.databricks_current_user.me.user_name
+}
+
+resource "databricks_group_member" "dbt_owners_deployer" {
+  provider  = databricks.account
+  group_id  = databricks_group.dbt_owners.id
+  member_id = data.databricks_user.deployer.id
+}
+
+# The ingestion SP is a workspace-level resource; for account-level group
+# membership it needs an account-level principal lookup.
+data "databricks_service_principal" "ingestion_account" {
+  provider       = databricks.account
+  application_id = databricks_service_principal.ingestion.application_id
+}
+
+resource "databricks_group_member" "dbt_owners_ingestion_sp" {
+  provider  = databricks.account
+  group_id  = databricks_group.dbt_owners.id
+  member_id = data.databricks_service_principal.ingestion_account.id
+}
+
+# Assign the dbt-owners group to this workspace so UC ownership grants resolve.
+# Account-level groups must be explicitly granted access to a workspace via
+# `databricks_mws_permission_assignment` before they can be referenced in
+# workspace SQL (ALTER ... OWNER TO ...).
+resource "databricks_mws_permission_assignment" "dbt_owners_workspace" {
+  provider     = databricks.account
+  workspace_id = var.workspace_id
+  principal_id = databricks_group.dbt_owners.id
+  permissions  = ["USER"]
+}

@@ -13,6 +13,12 @@ tags:
   - huggingface
   - observability
 
+# No academic methodology — operational cost-telemetry bridge.
+# Reads HF Jobs _cost_history/*.json from HF Hub repos discovered via
+# workflow-cards parsing, MERGEs into observability.workflow_cost_live keyed
+# on run_id. Pure infrastructure plumbing (no published method, no third-party
+# dataset republished, no algorithm of academic origin).
+# See src/ingestion/sync_hf_costs.py.
 references: []
 
 inputs:
