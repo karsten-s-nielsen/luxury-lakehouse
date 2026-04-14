@@ -16,6 +16,11 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from ingestion.guards import FilterResult, timed_check
+from ingestion.utils import (
+    _load_mlflow_artifact_hash,
+    _load_volume_sidecar_hash,
+    verify_artifact_hash,
+)
 from shared.constants import DEFAULT_GOLD_SCHEMA, mlflow_model_uri
 from workflows import workflow
 from workflows.exceptions import WorkflowSkippedError
@@ -93,6 +98,14 @@ def _try_load_champion_xg_v2(
         with open(artifact_path, "rb") as f:
             weights_bytes = f.read()
 
+        # SEC2: verify artifact integrity against recorded MLflow tag (if any)
+        verify_artifact_hash(
+            data=weights_bytes,
+            expected_sha256=_load_mlflow_artifact_hash(client, model_name, alias="Champion"),
+            artifact_label=f"{model_name}_v2_weights",
+            logger=log,
+        )
+
         log.info("Loaded xG v2 @Champion from MLflow (%d bytes, run=%s)", len(weights_bytes), run_id)
         return weights_bytes
     except Exception:
@@ -126,6 +139,17 @@ def _try_load_champion_xgboost(
         from analytics.xg_model import serialize_xgboost_model
 
         xgboost_bytes = serialize_xgboost_model(champion_model)  # type: ignore[arg-type]
+
+        # SEC2: verify artifact integrity against recorded MLflow tag (if any)
+        mlflow_tracking = importlib.import_module("mlflow.tracking")
+        client = mlflow_tracking.MlflowClient()
+        verify_artifact_hash(
+            data=xgboost_bytes,
+            expected_sha256=_load_mlflow_artifact_hash(client, model_name, alias="Champion"),
+            artifact_label=f"{model_name}_xgboost_for_v2",
+            logger=log,
+        )
+
         log.info("Loaded XGBoost @Champion from MLflow (%d bytes)", len(xgboost_bytes))
         return xgboost_bytes
     except Exception:
@@ -297,6 +321,13 @@ def run_pipeline(
         v2_model_path = f"/Volumes/{catalog}/{DEFAULT_GOLD_SCHEMA}/model_weights/xg_model_v2/model_weights.json"
         try:
             v2_weights_bytes = spark.read.format("binaryFile").load(v2_model_path).first()["content"]
+            # SEC2: verify artifact integrity from UC Volume sidecar (if any)
+            verify_artifact_hash(
+                data=v2_weights_bytes,
+                expected_sha256=_load_volume_sidecar_hash(v2_model_path),
+                artifact_label="xg_model_v2_weights_volume",
+                logger=logger,
+            )
             logger.info("Loaded xG v2 weights from UC Volume (%d bytes)", len(v2_weights_bytes))
         except Exception:
             logger.warning("No xG v2 weights found -- cannot run v2 scoring pipeline")
@@ -309,6 +340,13 @@ def run_pipeline(
     else:
         model_dir = f"/Volumes/{catalog}/{DEFAULT_GOLD_SCHEMA}/model_weights/xg_model"
         xgboost_bytes = spark.read.format("binaryFile").load(f"{model_dir}/xgboost_model.json").first()["content"]
+        # SEC2: verify artifact integrity from UC Volume sidecar (if any)
+        verify_artifact_hash(
+            data=xgboost_bytes,
+            expected_sha256=_load_volume_sidecar_hash(f"{model_dir}/xgboost_model.json"),
+            artifact_label="xg_model_xgboost_volume_for_v2",
+            logger=logger,
+        )
 
     # 5. Build UDF and distribute scoring across executors
     scoring_udf = _make_v2_scoring_udf(v2_weights_bytes, xgboost_bytes)

@@ -635,6 +635,7 @@ class TestTryLoadChampionXg:
 
         mock_client_instance = MagicMock()
         mock_client_instance.get_model_version_by_alias.return_value = mock_alias_info
+        mock_client_instance.get_run.return_value.data.tags = {}
 
         mock_tracking = MagicMock()
         mock_tracking.MlflowClient.return_value = mock_client_instance

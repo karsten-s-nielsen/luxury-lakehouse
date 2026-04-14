@@ -888,6 +888,40 @@ Some Terraform provider gaps and data constraints require manual workarounds tha
 | DevOpsAgent IAM role | Active — `AWS_PROFILE=devops-agent` (account 454762693631) |
 | S3 state bucket | Active — `karstenskyt-terraform-state` with native S3 locking |
 
+### D. Academic References
+
+Consolidated list of academic citations referenced across UI pages and analytics modules. Each entry mirrors the canonical citation in the corresponding workflow card, NOTICE file, or implementation source-code docstring. When updating an entry here, update all three sources together to prevent drift (the D56 audit closed 7 such drifts on 2026-04-13 — see `docs/superpowers/specs/2026-04-13-daily-job-hardening-design.md` § Item 3).
+
+| Author / Year | Title | Used by (UI / module) |
+|---|---|---|
+| Anzer & Bauer (2022) | "A Goal Scoring Probability Model for Shots Based on Synchronized Positional and Event Data in Football and Floorball." *Machine Learning 111(6)*. DOI: 10.1007/s10994-021-06011-5 | Heat Map page |
+| Bekkers & Dabadghao (2025) | "Flow Motifs in Soccer: How Teams Play." *arXiv:2506.23843* | Team Shape page |
+| Bourbousson, Sève & McGarry (2010) | "Space-time coordination dynamics in basketball." *Journal of Sports Sciences 28(3)* | Team Shape page |
+| Butcher et al. (2025) | "An Expected Goals On Target (xGOT) Model." *MDPI* (DOI: 10.1515/jqas-2024-0091) | Goalkeeper Analytics, `wf-goalkeeper`, `wf-import-psxg`, `wf-export-shots` |
+| Danesi, P. (2025) | "Football2Vec: Transformer-Based Player Embeddings." | Player Similarity, `src/analytics/football2vec_transformer.py`, `wf-football2vec-v2` |
+| Decroos, Bransen, Van Haaren & Davis (2019) | "Actions Speak Louder than Goals: Valuing Player Actions in Soccer." *KDD* | Action Values, Player Radar, `wf-vaep` |
+| Donnelly (2024) | "Systematic Approach to Performance Analysis." (course materials) | Conversion Funnel page |
+| Frencken, Lemmink, Delleman & Visscher (2011) | "Oscillations of centroid position and surface area of soccer teams in small-sided games." *Journal of Sports Sciences 29(14)* | Team Shape page |
+| Ganin et al. (2016) | "Domain-Adversarial Training of Neural Networks." *JMLR 17* | Player Similarity (gradient reversal for adversarial debiasing) |
+| Kim, H.S. et al. (2025) — ELASTIC | "ELASTIC: Event-Tracking Data Synchronization in Soccer Without Annotated Event Locations." *ECML-PKDD MLSA* (arXiv:2508.09238) | Pass Timing page, `wf-elastic-sync` |
+| Kim, H.S. et al. (2025) — DEFCON | "Better Prevent than Tackle: Valuing Defense in Soccer Based on Graph Neural Networks." *arXiv:2512.10355* | Defensive Valuation page, `wf-defcon`, `src/analytics/defcon_lite.py` |
+| Lamberts (2025) | Goalkeeper Distribution Value Model. DOI: 10.1007/978-3-031-31772-9_19 | Goalkeeper Analytics |
+| Lee, Jo, Hong, Bauer & Ko (2026) | "Valuing La Pausa" (PAUSA). *MIT Sloan Sports Analytics Conference 2026* | Pass Timing page, `wf-obso-pausa` |
+| Pena & Touchette (2012) | "A network theory analysis of football strategies." *arXiv:1206.6904* | Pass Network page |
+| Robberechts & Davis (2020) | "How Data Availability Affects the Ability to Learn Good xG Models." | Match Summary, Shot Map, `wf-xg-v1` (replaced Rathke per D56 Option A, 2026-04-13) |
+| Singh, Karun (2018) | "Introducing Expected Threat (xT)." (blog: karun.in/blog/expected-threat.html) | Movement & Pressing, `wf-xt-grids`, `wf-off-ball-xt` |
+| Sotudeh, H. (2026) | "Identification of Team Tactical Formations and Player Positions in Association Football." *PhD thesis, ETH Zurich (DISS. ETH NO. 31732)*. Published: *npj Complexity*, DOI: 10.1038/s44260-025-00047-x | Tactical Positions, `src/analytics/shape_graph_construction.py`, `wf-shape-graphs` |
+| Spearman, W. (2017) | "Physics-Based Modeling of Pass Probabilities in Soccer." *MIT Sloan Sports Analytics Conference 2017* | Pitch Control, Movement & Pressing, `src/analytics/pitch_control.py`, `wf-pitch-control`, `wf-off-ball-xt` |
+| Spearman, W. (2018) | "Beyond Expected Goals." *MIT Sloan Sports Analytics Conference 2018* (builds on the 2017 framework; DO NOT CONFLATE with 2017) | Pass Timing, `src/analytics/obso.py`, `wf-obso-pausa`, `wf-import-obso`, `wf-space-creation`, `wf-epv-reachability` |
+| Suzuki et al. (2019) | "Team Tactics Estimation in Soccer Videos Based on a Deep Extreme Learning Machine and Characterized by Distance Matrices." DOI: 10.1515/jqas-2019-0060 | Pass Map page |
+| Trainor & Chassy (2021) | "Psychological and Physiological Impact of Soccer's Transition Periods." *Frontiers in Psychology 11*. DOI: 10.3389/fpsyg.2020.531688 | Match Summary page |
+
+**Notes on the D56 audit (2026-04-13):**
+
+- The 2017 and 2018 Spearman papers are distinct works, both cited in this codebase. 2017 = pitch control (time-to-intercept); 2018 = OBSO/EPV (scoring probability surface). Do not conflate. See `docs/superpowers/specs/2026-04-13-daily-job-hardening-design.md` Appendix C for the full disambiguation.
+- Rathke's xG paper is no longer cited (the implementation was never anchored to any specific Rathke paper; replaced with the project-canonical Robberechts & Davis 2020).
+- Sotudeh's PhD thesis is at ETH Zurich (DISS. ETH NO. 31732), not the University of Twente MSc thesis. The implementation references the PhD work.
+
 ---
 
 *This is a living document. Completed phase details are preserved in git history. See [ROADMAP.md](ROADMAP.md) for future research directions.*

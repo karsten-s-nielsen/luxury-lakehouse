@@ -13,7 +13,9 @@ tags:
   - goalkeeper
   - huggingface
 
-references: []
+references:
+  - citation: "Butcher et al. (2025). An Expected Goals On Target (xGOT) Model. MDPI."
+    role: methodology
 
 inputs:
   datasets:

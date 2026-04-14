@@ -111,8 +111,11 @@ resource "databricks_grant" "ingestion_sp_silver_schema" {
 
   schema = "${var.catalog_name}.${var.silver_schema_override}"
 
-  principal  = var.ingestion_sp_application_id
-  privileges = ["USE_SCHEMA", "SELECT"]
+  principal = var.ingestion_sp_application_id
+  # D59 (2026-04-13): expanded from USE_SCHEMA + SELECT to also include
+  # CREATE_TABLE and MODIFY so the daily-job dbt_build task can materialize
+  # the staging-layer models (views) and seeds in dev_silver.
+  privileges = ["USE_SCHEMA", "CREATE_TABLE", "MODIFY", "SELECT"]
 }
 
 resource "databricks_grant" "ingestion_sp_gold_schema" {
@@ -120,8 +123,12 @@ resource "databricks_grant" "ingestion_sp_gold_schema" {
 
   schema = "${var.catalog_name}.${var.gold_schema_override}"
 
-  principal  = var.ingestion_sp_application_id
-  privileges = ["USE_SCHEMA", "SELECT"]
+  principal = var.ingestion_sp_application_id
+  # D59 (2026-04-13): expanded from USE_SCHEMA + SELECT to also include
+  # CREATE_TABLE and MODIFY so the daily-job dbt_build task can materialize
+  # the 33 gold mart tables. Replaces the previous developer-machine-only
+  # dbt build flow. See spec § Item 1 D59 component 5.
+  privileges = ["USE_SCHEMA", "CREATE_TABLE", "MODIFY", "SELECT"]
 }
 
 resource "databricks_grant" "ingestion_sp_gold_model_weights_volume" {
@@ -165,6 +172,47 @@ resource "databricks_grant" "ingestion_sp_observability_schema" {
 
   principal  = var.ingestion_sp_application_id
   privileges = ["USE_SCHEMA", "CREATE_TABLE", "MODIFY", "SELECT"]
+}
+
+# ── dbt-owners group: catalog + schema read access (D59) ─────────────────
+# The dbt-owners-{env} group owns the dev_silver + dev_gold schemas and
+# all dbt-managed objects within them (via post-hook ownership transfer).
+# UC's chain-of-ownership authorization for views requires the view owner
+# to ALSO have read access to upstream sources. Without these grants, dbt
+# tests fail with "Insufficient privileges: User does not have USE CATALOG
+# on Catalog 'soccer_analytics'" because the test queries traverse from
+# the staging view (group-owned) to bronze sources (different ownership).
+
+resource "databricks_grant" "dbt_owners_use_catalog" {
+  count = var.dbt_owners_group_name != "" ? 1 : 0
+
+  catalog    = var.catalog_name
+  principal  = var.dbt_owners_group_name
+  privileges = ["USE_CATALOG", "BROWSE"]
+}
+
+resource "databricks_grant" "dbt_owners_bronze_select" {
+  count = var.dbt_owners_group_name != "" ? 1 : 0
+
+  schema     = "${var.catalog_name}.${databricks_schema.bronze.name}"
+  principal  = var.dbt_owners_group_name
+  privileges = ["USE_SCHEMA", "SELECT"]
+}
+
+resource "databricks_grant" "dbt_owners_silver_select" {
+  count = var.dbt_owners_group_name != "" && var.silver_schema_override != "" ? 1 : 0
+
+  schema     = "${var.catalog_name}.${var.silver_schema_override}"
+  principal  = var.dbt_owners_group_name
+  privileges = ["USE_SCHEMA", "SELECT"]
+}
+
+resource "databricks_grant" "dbt_owners_gold_select" {
+  count = var.dbt_owners_group_name != "" && var.gold_schema_override != "" ? 1 : 0
+
+  schema     = "${var.catalog_name}.${var.gold_schema_override}"
+  principal  = var.dbt_owners_group_name
+  privileges = ["USE_SCHEMA", "SELECT"]
 }
 
 resource "databricks_grant" "ingestion_sp_libs_volume" {

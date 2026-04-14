@@ -18,14 +18,19 @@ resource "databricks_service_principal" "ingestion" {
 # ── Grant deploying user(s) the servicePrincipal.user role ───────────────────
 # Required so that deployers can set `run_as` on jobs to this SP.
 # L-9: Principals are configurable via var.deployer_user_names. Falls back
-# to the current Terraform user when no explicit list is provided.
-
-data "databricks_current_user" "me" {}
+# to var.deployer_account_email when no explicit list is provided.
+#
+# Why not data.databricks_current_user.me?  When Terraform runs as a service
+# principal (CI via OIDC federation), `databricks_current_user.me.user_name`
+# returns the SP's application_id (UUID), NOT an email. Downstream
+# data.databricks_user lookups by SP UUID return 404 because UUIDs aren't
+# user names. Using the explicit var.deployer_account_email instead makes
+# the lookup work identically for human-deployer (local) and SP-deployer (CI).
 
 locals {
   deployer_principals = length(var.deployer_user_names) > 0 ? [
     for u in var.deployer_user_names : "users/${u}"
-  ] : ["users/${data.databricks_current_user.me.user_name}"]
+  ] : ["users/${var.deployer_account_email}"]
 }
 
 resource "databricks_access_control_rule_set" "ingestion_sp_user_role" {
@@ -93,4 +98,65 @@ resource "databricks_service_principal_federation_policy" "github_actions" {
 resource "databricks_service_principal" "hf_app" {
   display_name = "luxury-lakehouse-hf-app-v2-${var.environment}"
   active       = true
+}
+
+# ── dbt-owners group: shared write access for dev_silver + dev_gold ─────────
+# D59 (2026-04-13): dbt build needs to REPLACE existing tables/views in the
+# dbt-managed dev_silver + dev_gold schemas. Unity Catalog requires the caller
+# to be the object owner OR the schema owner. Without group ownership, the
+# ingestion SP and developer users would fight over per-table ownership on
+# every build (developer runs dbt locally → owns the table; SP runs daily-job
+# dbt → can't replace the developer-owned table).
+#
+# Solution: dbt-owners group with both the deploying user and the ingestion
+# SP as members. The dev_silver and dev_gold schemas (which are NOT Terraform-
+# managed — they are created at runtime by dbt with the dbt-config-driven
+# `{target.schema}_{model.+schema}` naming) are owned by this group via a
+# one-time SQL ALTER SCHEMA. All members of the group can replace any object
+# in the schema.
+#
+# A dbt `+post-hook` in `dbt_project.yml` transfers per-object ownership of
+# every newly-built model back to the group, keeping ownership stable across
+# runs and preventing per-object owner drift.
+#
+# See CLAUDE.md "## dbt Ownership Model" section for the operator runbook.
+
+resource "databricks_group" "dbt_owners" {
+  provider     = databricks.account
+  display_name = "dbt-owners-${var.environment}"
+}
+
+data "databricks_user" "deployer" {
+  provider  = databricks.account
+  user_name = var.deployer_account_email
+}
+
+resource "databricks_group_member" "dbt_owners_deployer" {
+  provider  = databricks.account
+  group_id  = databricks_group.dbt_owners.id
+  member_id = data.databricks_user.deployer.id
+}
+
+# The ingestion SP is a workspace-level resource; for account-level group
+# membership it needs an account-level principal lookup.
+data "databricks_service_principal" "ingestion_account" {
+  provider       = databricks.account
+  application_id = databricks_service_principal.ingestion.application_id
+}
+
+resource "databricks_group_member" "dbt_owners_ingestion_sp" {
+  provider  = databricks.account
+  group_id  = databricks_group.dbt_owners.id
+  member_id = data.databricks_service_principal.ingestion_account.id
+}
+
+# Assign the dbt-owners group to this workspace so UC ownership grants resolve.
+# Account-level groups must be explicitly granted access to a workspace via
+# `databricks_mws_permission_assignment` before they can be referenced in
+# workspace SQL (ALTER ... OWNER TO ...).
+resource "databricks_mws_permission_assignment" "dbt_owners_workspace" {
+  provider     = databricks.account
+  workspace_id = var.workspace_id
+  principal_id = databricks_group.dbt_owners.id
+  permissions  = ["USER"]
 }

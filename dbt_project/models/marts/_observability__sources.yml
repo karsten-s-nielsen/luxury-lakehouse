@@ -40,3 +40,54 @@ sources:
               timed_check(). NULL for runs predating this instrumentation.
           - name: estimated_cost_usd
             description: "Hook's per-task cost estimate (rate * duration)."
+
+      - name: system_billing_usage
+        description: >
+          Definer's-rights view over system.billing.usage filtered to JOBS
+          billing origin in the last 90 days. Created by
+          scripts/setup_system_billing_views.sql and owned by an account-admin
+          user — the ingestion SP and dbt-owners-dev group only have SELECT on
+          the view (not on system.*).
+        columns:
+          - name: job_run_id
+            description: Job run identifier flattened from usage_metadata struct.
+          - name: usage_date
+            description: Billing usage date.
+          - name: usage_quantity
+            description: DBU quantity consumed.
+          - name: sku_name
+            description: Databricks SKU identifier joined against list_prices.
+          - name: usage_end_time
+            description: End of the billing usage window, used for price lookup.
+
+      - name: system_billing_list_prices
+        description: >
+          Definer's-rights view over system.billing.list_prices with the
+          pricing struct flattened to the single effective_list.default DECIMAL
+          column we attribute against.
+        columns:
+          - name: sku_name
+            description: Databricks SKU identifier, join key to usage.
+          - name: effective_list_default
+            description: Flattened DECIMAL(10,4) list price for the SKU window.
+          - name: price_start_time
+            description: Inclusive start of the price window.
+          - name: price_end_time
+            description: Exclusive end of the price window (NULL for current).
+
+      - name: system_lakeflow_job_task_run_timeline
+        description: >
+          Definer's-rights view over system.lakeflow.job_task_run_timeline
+          filtered to completed tasks in the last 90 days. Used as the driving
+          table for workflow cost attribution.
+        columns:
+          - name: job_run_id
+            description: Parent job run identifier.
+          - name: task_key
+            description: Task identifier within the job run.
+          - name: execution_duration_seconds
+            description: Task execution duration in seconds.
+          - name: period_start_time
+            description: Start of the task run period.
+          - name: result_state
+            description: Terminal result state of the task run.

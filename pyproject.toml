@@ -1,6 +1,6 @@
 [project]
 name = "luxury-lakehouse"
-version = "0.3.1"
+version = "0.3.2"
 description = "Serverless soccer analytics platform built on Databricks Lakebase"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -107,6 +107,7 @@ export_scoutgpt_training_data = "ingestion.export_scoutgpt_training_data:main"
 evolve = "evolve.runner:main"
 hf_sync = "ingestion.hf_sync:main"
 refresh_synced_tables = "ingestion.refresh_synced_tables:main"
+dbt_build = "ingestion.dbt_runner:main"
 
 [tool.ruff]
 target-version = "py310"
@@ -179,6 +180,37 @@ pythonpath = ["."]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ingestion", "src/analytics", "src/shared", "src/workflows", "src/evolve"]
+
+# D59: bundle dbt_project into the wheel so the daily-job dbt_build task can
+# resolve it via importlib.resources("luxury_lakehouse_dbt_project").
+# Each subdirectory is mapped explicitly to avoid pulling transient artifacts
+# (target/, logs/) and local cache (.user.yml) that aren't needed at runtime.
+# dbt_packages/ IS needed at runtime for macro resolution and is bundled.
+[tool.hatch.build.targets.wheel.force-include]
+"dbt_project/dbt_project.yml" = "luxury_lakehouse_dbt_project/dbt_project.yml"
+"dbt_project/profiles.yml" = "luxury_lakehouse_dbt_project/profiles.yml"
+"dbt_project/packages.yml" = "luxury_lakehouse_dbt_project/packages.yml"
+"dbt_project/package-lock.yml" = "luxury_lakehouse_dbt_project/package-lock.yml"
+"dbt_project/models" = "luxury_lakehouse_dbt_project/models"
+"dbt_project/macros" = "luxury_lakehouse_dbt_project/macros"
+"dbt_project/seeds" = "luxury_lakehouse_dbt_project/seeds"
+"dbt_project/tests" = "luxury_lakehouse_dbt_project/tests"
+"dbt_project/dbt_packages" = "luxury_lakehouse_dbt_project/dbt_packages"
+
+# D59: force ``dbt_project/dbt_packages/`` into the sdist even though it is
+# gitignored. ``uv build`` (no flag) builds sdist then extracts it into a temp
+# dir and builds the wheel from that extracted tree. Without this entry the
+# sdist omits dbt_packages (gitignored → VCS-aware exclusion), the wheel's
+# force-include then fails with FileNotFoundError: Forced include not found,
+# and every caller of ``uv build`` breaks (CI, manage_space.py, deploy.sh).
+# Mapping path-to-path (same on both sides) preserves the layout so the
+# wheel's force-include finds it at the expected location during extraction.
+# Requires developers / CI to run ``dbt deps`` at least once before ``uv build``
+# so the directory exists locally; ``uv build --wheel`` on its own already
+# reads the source tree in place, but we keep this parallel config so plain
+# ``uv build`` also works.
+[tool.hatch.build.targets.sdist.force-include]
+"dbt_project/dbt_packages" = "dbt_project/dbt_packages"
 
 [build-system]
 requires = ["hatchling"]

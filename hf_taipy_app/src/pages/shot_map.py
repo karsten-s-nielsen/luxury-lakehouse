@@ -9,12 +9,15 @@ page_config = PageConfig(
     icon="target",
     nav_section=NAV_MATCH_ANALYSIS,
     description=(
-        "Shot locations sized by xG. xG methodology per Rathke (2017) "
-        '"An examination of expected goals and shot efficiency." '
+        "Shot locations sized by xG. xG methodology per Robberechts & Davis (2020) "
+        '"How Data Availability Affects the Ability to Learn Good xG Models." '
         "Custom model via XGBoost with isotonic calibration."
     ),
     citations=[
-        Citation("Rathke (2017)", "https://doi.org/10.1515/jqas-2019-0044"),
+        Citation(
+            "Robberechts & Davis (2020) — How Data Availability Affects the Ability to Learn Good xG Models",
+            "https://dtai.cs.kuleuven.be/sports/blog/how-data-availability-affects-the-ability-to-learn-good-xg-models",
+        ),
         Citation("XGBoost", "https://xgboost.readthedocs.io/"),
     ],
     content=[ContentRow([ContentBlock("image", "sm_pitch_image")])],

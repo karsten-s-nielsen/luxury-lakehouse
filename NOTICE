@@ -53,9 +53,10 @@ trigonometric formula, not a derivative of any source code.
 
 The physics-based pitch control model (src/analytics/pitch_control.py)
 implements the time-to-intercept and influence model described in:
-Spearman, W. (2017). "Beyond Expected Goals." MIT Sloan Sports
-Analytics Conference. The implementation is an independent Python
-translation of the published equations, not derived from any source code.
+Spearman, W. (2017). "Physics-Based Modeling of Pass Probabilities in
+Soccer." MIT Sloan Sports Analytics Conference. The implementation is
+an independent Python translation of the published equations, not
+derived from any source code.
 
 The VAEP action valuation pipeline (src/ingestion/spadl_vaep.py) uses the
 SPADL representation and VAEP framework described in: Decroos, T. et al.

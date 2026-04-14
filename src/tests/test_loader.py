@@ -110,7 +110,7 @@ def test_validate_cli_exit_0_all_valid(tmp_path: Path) -> None:
     (tmp_path / "card_b.yaml").write_text(SECOND_YAML, encoding="utf-8")
 
     result = subprocess.run(  # noqa: S603
-        [sys.executable, "-m", "workflows.loader", "--validate", str(tmp_path)],
+        [sys.executable, "-m", "workflows.loader", str(tmp_path)],
         capture_output=True,
         text=True,
         timeout=30,
@@ -129,7 +129,7 @@ def test_validate_cli_exit_1_invalid_card(tmp_path: Path) -> None:
     (tmp_path / "bad.yaml").write_text(INVALID_YAML, encoding="utf-8")
 
     result = subprocess.run(  # noqa: S603
-        [sys.executable, "-m", "workflows.loader", "--validate", str(tmp_path)],
+        [sys.executable, "-m", "workflows.loader", str(tmp_path)],
         capture_output=True,
         text=True,
         timeout=30,
@@ -158,7 +158,7 @@ def test_load_cards_accepts_str_path(tmp_path: Path) -> None:
 
 def test_validate_cli_empty_directory_exit_0(tmp_path: Path) -> None:
     result = subprocess.run(  # noqa: S603
-        [sys.executable, "-m", "workflows.loader", "--validate", str(tmp_path)],
+        [sys.executable, "-m", "workflows.loader", str(tmp_path)],
         capture_output=True,
         text=True,
         timeout=30,

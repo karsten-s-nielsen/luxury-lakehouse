@@ -16,7 +16,7 @@ tags:
 references:
   - citation: "Ganin et al. (2016). Domain-Adversarial Training of Neural Networks. JMLR."
     role: methodology
-  - citation: "Danesi (2025). The Imposter on the Pitch. HPI/Hudl."
+  - citation: "Danesi, P. (2025). Football2Vec: Transformer-Based Player Embeddings."
     role: inspiration
   - citation: "Le & Mikolov (2014). Distributed Representations of Sentences and Documents."
     role: algorithm

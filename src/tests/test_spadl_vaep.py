@@ -159,7 +159,17 @@ class TestTryLoadChampionVaep:
 
         mock_mlflow = MagicMock()
 
-        with patch.dict("sys.modules", {"mlflow": mock_mlflow, "mlflow.pyfunc": mock_pyfunc}):
+        mock_tracking = MagicMock()
+        mock_tracking.MlflowClient.return_value.get_run.return_value.data.tags = {}
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "mlflow": mock_mlflow,
+                "mlflow.pyfunc": mock_pyfunc,
+                "mlflow.tracking": mock_tracking,
+            },
+        ):
             result = _try_load_champion_vaep(logging.getLogger("test"), "soccer_analytics", "dev_gold")
 
         assert result is not None

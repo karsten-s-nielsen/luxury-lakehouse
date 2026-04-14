@@ -10,12 +10,16 @@ page_config = PageConfig(
     nav_section=NAV_ADVANCED,
     freshness_var="pc_data_freshness",
     description=(
-        'Physics-based pitch control model by Spearman (2017) "Beyond Expected Goals." '
+        'Physics-based pitch control model by Spearman (2017) "Physics-Based Modeling of '
+        'Pass Probabilities in Soccer." '
         "Voronoi baseline also available. "
         "Tracking data available for ~20 matches from Metrica, IDSSE, and SkillCorner."
     ),
     citations=[
-        Citation("Spearman (2017)", "https://www.researchgate.net/publication/315166647_Beyond_Expected_Goals"),
+        Citation(
+            "Spearman (2017) — Physics-Based Modeling of Pass Probabilities in Soccer "
+            "(MIT Sloan Sports Analytics Conference)"
+        ),
     ],
     content=[ContentRow([ContentBlock("image", "pc_pitch_image")])],
     empty_message="Select a tracking match and half to begin.",

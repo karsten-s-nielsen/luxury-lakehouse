@@ -21,13 +21,13 @@ page_config = PageConfig(
         "Where does each player actually play? Per-frame tactical role detection reveals "
         "positional structure, formation changes over time, and player versatility. "
         "Compares two formation detectors (EFPI template-matching vs Shape Graph geometry). "
-        "Sotudeh (2026)."
+        "Sotudeh (2026), ETH Zurich PhD thesis."
     ),
     freshness_var="tac_data_freshness",
     citations=[
         Citation(
-            "Sotudeh (2026) — Shape Graph Formation Detection",
-            "https://essay.utwente.nl/104491/",
+            "Sotudeh (2026) — Identification of Team Tactical Formations and Player Positions in Association Football, ETH Zurich (DISS. ETH NO. 31732)",
+            "https://doi.org/10.1038/s44260-025-00047-x",
         ),
     ],
     empty_message="",

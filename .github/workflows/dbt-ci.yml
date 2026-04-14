@@ -38,16 +38,21 @@ jobs:
       - name: Set up Python 3.12
         run: uv python install 3.12
 
+      # D59: --no-install-project skips the editable install of luxury-lakehouse
+      # itself. The wheel force-include bundles dbt_project/dbt_packages/ (gitignored)
+      # which fails at build time if absent. dbt-ci only needs dbt-core from the
+      # extra, not luxury-lakehouse's Python code, so skipping the project install
+      # sidesteps the force-include entirely.
       - name: Install dependencies
-        run: uv sync --frozen --extra dbt
+        run: uv sync --frozen --extra dbt --no-install-project
 
       - name: dbt deps
         working-directory: dbt_project
-        run: uv run dbt deps --profiles-dir .
+        run: uv run --no-sync dbt deps --profiles-dir .
 
       - name: dbt parse (validate SQL)
         working-directory: dbt_project
-        run: uv run dbt parse --profiles-dir .
+        run: uv run --no-sync dbt parse --profiles-dir .
 
       # Generate manifest from main branch for state comparison on PRs
       - name: Generate main branch manifest (PR only)
@@ -56,8 +61,8 @@ jobs:
         run: |
           git stash --include-untracked
           git checkout origin/main -- .
-          uv run dbt deps --profiles-dir .
-          uv run dbt parse --profiles-dir .
+          uv run --no-sync dbt deps --profiles-dir .
+          uv run --no-sync dbt parse --profiles-dir .
           mkdir -p target-main
           cp target/manifest.json target-main/manifest.json
           git checkout ${{ github.sha }} -- .

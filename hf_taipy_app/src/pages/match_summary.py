@@ -9,11 +9,14 @@ page_config = PageConfig(
     icon="scoreboard",
     nav_section=NAV_MATCH_ANALYSIS,
     description=(
-        "Match scorecard with Expected Goals (xG) per Rathke (2017). "
+        "Match scorecard with Expected Goals (xG) per Robberechts & Davis (2020). "
         "Pressing intensity via PPDA (Trainor & Chassy 2021)."
     ),
     citations=[
-        Citation("Rathke (2017)", "https://doi.org/10.1515/jqas-2019-0044"),
+        Citation(
+            "Robberechts & Davis (2020) — How Data Availability Affects the Ability to Learn Good xG Models",
+            "https://dtai.cs.kuleuven.be/sports/blog/how-data-availability-affects-the-ability-to-learn-good-xg-models",
+        ),
         Citation("Trainor & Chassy (2021)", "https://doi.org/10.3389/fpsyg.2020.531688"),
     ],
     content=[

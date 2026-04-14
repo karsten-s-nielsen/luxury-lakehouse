@@ -48,3 +48,9 @@ variable "gold_schema_override" {
   type        = string
   default     = ""
 }
+
+variable "dbt_owners_group_name" {
+  description = "Display name of the dbt-owners group (D59 — needs USE_CATALOG + USE_SCHEMA + SELECT on catalog/schemas to read views during dbt tests). Empty = skip grants."
+  type        = string
+  default     = ""
+}

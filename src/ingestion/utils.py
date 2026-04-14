@@ -8,9 +8,11 @@ and HuggingFace Hub token resolution for serverless Databricks tasks.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import os
+import re
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -650,3 +652,118 @@ def ensure_volume_directory(volume_path: str) -> None:
         _vol_logger.debug("Volume directory already exists: %s", volume_path)
     else:
         resp.raise_for_status()
+
+
+# ---------------------------------------------------------------------------
+# 9. Artifact Hash Verification (SEC2 — SEC-AUDIT-v1.12.0 ML-02 / CWE-345)
+# ---------------------------------------------------------------------------
+#
+# Defense-in-depth: verify SHA-256 of model artifacts loaded from MLflow or
+# UC Volume. Fail-open on missing hash (first observation / pre-bootstrap),
+# fail-closed on mismatch. Bootstrap script at
+# ``scripts/bootstrap_artifact_hashes.py`` records initial hashes.
+
+_SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+
+
+class ArtifactHashMismatchError(RuntimeError):
+    """Raised when a loaded model artifact's SHA-256 does not match the expected hash.
+
+    The error message includes both the expected and actual hashes plus the
+    artifact label so the user can diagnose without re-running the load.
+    """
+
+
+def verify_artifact_hash(
+    data: bytes,
+    expected_sha256: str | None,
+    artifact_label: str,
+    logger: logging.Logger,
+) -> None:
+    """Verify SHA-256 of an in-memory artifact (defense-in-depth, SEC-AUDIT ML-02).
+
+    Args:
+        data: The artifact bytes (already loaded into memory).
+        expected_sha256: Hex-encoded expected SHA-256, or ``None`` when no
+            hash has been recorded yet (the loader is operating before the
+            artifact-hash bootstrap has populated the tag / sidecar).
+        artifact_label: Human label for log / error messages
+            (e.g. ``"xg_model_logistic"``, ``"vaep_scores"``).
+        logger: For warning-on-missing-hash messages.
+
+    Raises:
+        ArtifactHashMismatchError: When ``expected_sha256`` is non-None and does
+            not match the SHA-256 of ``data``.
+        ValueError: When ``expected_sha256`` is non-None but is not a valid
+            64-character hex string.
+    """
+    if expected_sha256 is None:
+        logger.warning(
+            "Artifact %s loaded without recorded SHA-256 hash — verification skipped. "
+            "Run scripts/bootstrap_artifact_hashes.py to record hashes for verified loads.",
+            artifact_label,
+        )
+        return
+
+    if not _SHA256_RE.match(expected_sha256):
+        msg = f"Invalid expected_sha256 for {artifact_label}: must be 64 hex chars, got {expected_sha256!r}"
+        raise ValueError(msg)
+
+    actual = hashlib.sha256(data).hexdigest()
+    if actual.lower() != expected_sha256.lower():
+        msg = (
+            f"ArtifactHashMismatch for {artifact_label}: "
+            f"expected={expected_sha256.lower()}, actual={actual.lower()}. "
+            f"Artifact bytes do not match the recorded hash — possible tampering or corruption."
+        )
+        raise ArtifactHashMismatchError(msg)
+
+
+def _load_mlflow_artifact_hash(
+    client: Any,
+    model_name: str,
+    alias: str = "Champion",
+) -> str | None:
+    """Read the ``artifact_sha256`` MLflow tag from a model's ``@<alias>`` run.
+
+    Returns the hex string or ``None`` when the tag is absent (loader then
+    operates in fail-open mode via :func:`verify_artifact_hash`).
+
+    Defensive: any exception is swallowed and ``None`` returned, so a
+    transient MLflow API failure does not break the loader. The swallowed
+    exception is logged at WARNING level via this module's logger so that
+    operators can distinguish "hash not recorded yet" (common) from
+    "MLflow unreachable / authentication failure" (worth investigating).
+    """
+    try:
+        alias_info = client.get_model_version_by_alias(model_name, alias)
+        run_id = alias_info.run_id
+        run = client.get_run(run_id)
+        return run.data.tags.get("artifact_sha256")
+    except Exception:  # defensive: any failure → None
+        logging.getLogger(__name__).warning(
+            "MLflow artifact-hash lookup failed for %s@%s — treating as 'no hash'. "
+            "If this persists across runs it may indicate an MLflow outage or an "
+            "authentication problem rather than a missing tag.",
+            model_name,
+            alias,
+            exc_info=True,
+        )
+        return None
+
+
+def _load_volume_sidecar_hash(volume_path: str) -> str | None:
+    """Read ``<volume_path>.sha256`` if present.
+
+    Returns the stripped hex string or ``None`` when the sidecar is absent.
+    Defensive: any read failure returns ``None``.
+    """
+    try:
+        from pathlib import Path
+
+        sidecar = Path(volume_path + ".sha256")
+        if not sidecar.exists():
+            return None
+        return sidecar.read_text(encoding="utf-8").strip()
+    except Exception:  # defensive: any failure → None
+        return None

@@ -36,3 +36,4 @@ import_psxg_predictions,wf-import-psxg
 import_space_creation,wf-import-space-creation
 prepare_360_training_data,wf-prepare-360-data
 refresh_synced_tables,wf-refresh-synced-tables
+dbt_build,wf-dbt-build

@@ -13,7 +13,11 @@ tags:
   - psxg
   - huggingface
 
-references: []
+references:
+  - citation: "Butcher et al. (2025). An Expected Goals On Target (xGOT) Model. MDPI."
+    role: methodology
+  - citation: "StatsBomb Open Data. https://github.com/statsbomb/open-data"
+    role: dataset
 
 inputs:
   datasets:

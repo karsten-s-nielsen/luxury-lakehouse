@@ -4,7 +4,8 @@ Computes a continuous probability surface indicating which team controls each
 point on the pitch, accounting for player positions, velocities, and
 time-to-intercept kinematic equations.
 
-Reference: Spearman (2017) "Beyond Expected Goals"
+Reference: Spearman (2017) "Physics-Based Modeling of Pass Probabilities in Soccer"
+MIT Sloan Sports Analytics Conference.
 """
 
 from __future__ import annotations

@@ -13,7 +13,9 @@ tags:
   - credit-assignment
   - xgboost
 
-references: []
+references:
+  - citation: "Kim, H.S. et al. (2025). Better Prevent than Tackle: Valuing Defense in Soccer Based on Graph Neural Networks. arXiv:2512.10355."
+    role: methodology
 
 inputs:
   datasets:

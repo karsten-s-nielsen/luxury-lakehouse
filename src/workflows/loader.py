@@ -1,7 +1,13 @@
 """Directory-based workflow card loader and validation CLI.
 
 Provides ``load_cards()`` for programmatic discovery and ``validate_cli()``
-as a CLI entry point (``python -m workflows.loader --validate <dir>``).
+as a CLI entry point. Default directory is ``workflow-cards`` relative to
+the current working directory, overridable with a positional argument.
+
+Usage::
+
+    uv run validate_workflow_cards                 # validates ./workflow-cards/
+    uv run validate_workflow_cards <dir>           # validates <dir>
 """
 
 from __future__ import annotations
@@ -38,15 +44,22 @@ def validate_cli() -> None:
 
     Usage::
 
-        python -m workflows.loader --validate <dir>
+        uv run validate_workflow_cards                 # validates ./workflow-cards/
+        uv run validate_workflow_cards <dir>           # validates <dir>
 
     Exits with code 0 if every file is valid, code 1 if any file fails.
     """
     parser = argparse.ArgumentParser(description="Validate workflow card YAML files.")
-    parser.add_argument("--validate", required=True, metavar="DIR", help="Directory containing *.yaml workflow cards.")
+    parser.add_argument(
+        "directory",
+        nargs="?",
+        default="workflow-cards",
+        metavar="DIR",
+        help="Directory containing *.yaml workflow cards (default: ./workflow-cards/).",
+    )
     args = parser.parse_args()
 
-    directory = Path(args.validate)
+    directory = Path(args.directory)
     if not directory.is_dir():
         logger.error("%s is not a directory", directory)
         sys.exit(1)

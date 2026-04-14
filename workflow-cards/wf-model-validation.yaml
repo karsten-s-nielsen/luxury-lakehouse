@@ -13,6 +13,11 @@ tags:
   - data-quality
   - model-drift
 
+# Mixed textbook statistical-process-control methodology — no single canonical citation.
+# PSI (Population Stability Index — credit-scoring industry standard, no foundational paper),
+# Wasserstein distance (foundational measure-theory result),
+# CUSUM (Page 1954 "Continuous Inspection Schemes" — earliest reference but not the only one).
+# Citing only one would understate the others.
 references: []
 
 inputs:

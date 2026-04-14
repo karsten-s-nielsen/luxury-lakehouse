@@ -22,7 +22,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-WHEEL_NAME="luxury_lakehouse-0.3.1-py3-none-any.whl"
+WHEEL_NAME="luxury_lakehouse-0.3.2-py3-none-any.whl"
 WHEEL_PATH="$PROJECT_ROOT/dist/$WHEEL_NAME"
 VOLUME_PATH="/Volumes/soccer_analytics/bronze/libs"
 JOB_ID="${DATABRICKS_JOB_ID:?Set DATABRICKS_JOB_ID to the ingestion job ID}"
@@ -34,7 +34,10 @@ echo ""
 
 echo "Step 1: Building wheel..."
 cd "$PROJECT_ROOT"
-uv build
+# D59: use --wheel (not plain `uv build`) because the wheel's force-include
+# bundles dbt_project/dbt_packages/ which is gitignored. Plain `uv build`
+# would build an sdist that omits dbt_packages then fail the wheel step.
+uv build --wheel
 echo "  ✓ Built $WHEEL_NAME"
 echo ""
 
