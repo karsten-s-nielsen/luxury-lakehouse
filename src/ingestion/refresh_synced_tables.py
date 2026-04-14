@@ -159,8 +159,81 @@ def _trigger_refresh(pipeline_id: str, headers: dict[str, str]) -> tuple[str, bo
     return (resp.json().get("update_id", ""), False)
 
 
+# Update lifecycle states that mean "still in flight — keep polling".
+# Source: Databricks REST API /api/2.0/pipelines/{id} latest_updates[].state enum.
+_UPDATE_IN_FLIGHT_STATES: frozenset[str] = frozenset(
+    {
+        "RUNNING",
+        "CREATED",
+        "QUEUED",
+        "WAITING_FOR_RESOURCES",
+        "INITIALIZING",
+        "SETTING_UP_TABLES",
+        "RESETTING",
+        "RESYNCING",
+    }
+)
+
+
+def _classify_pipeline_poll_response(pipeline_json: dict[str, object]) -> str | None:
+    """Classify a single ``/api/2.0/pipelines/<id>`` response into a terminal poll state.
+
+    The top-level ``state`` field reports whether the pipeline is currently
+    executing (``RUNNING``) or not (``IDLE``/``FAILED``/``DELETED``). It does
+    NOT reflect the success or failure of the most recent update — that lives
+    in ``latest_updates[0].state``. A pipeline whose last update FAILED still
+    reports top-level ``IDLE`` once the failing update finishes.
+
+    Returns:
+        ``"IDLE"``    — most recent update reached ``COMPLETED`` (success).
+        ``"FAILED"``  — most recent update reached ``FAILED`` or ``CANCELED``.
+        ``"DELETED"`` — the pipeline itself has been deleted.
+        ``None``      — no terminal classification yet; caller should continue
+                        polling (update is still in flight, no updates exist
+                        yet, or the reported update state is unrecognised).
+    """
+    top_state = pipeline_json.get("state")
+    if top_state == "DELETED":
+        return "DELETED"
+
+    latest_updates = pipeline_json.get("latest_updates") or []
+    if not isinstance(latest_updates, list) or not latest_updates:
+        return None
+
+    first = latest_updates[0]
+    if not isinstance(first, dict):
+        return None
+    upd_state = first.get("state")
+    if upd_state == "COMPLETED":
+        return "IDLE"
+    if upd_state in ("FAILED", "CANCELED"):
+        return "FAILED"
+    if upd_state in _UPDATE_IN_FLIGHT_STATES:
+        return None
+    # Unknown update state — defensive: continue polling. If the state never
+    # transitions to a recognised value, the caller's MAX_POLL_ATTEMPTS
+    # ceiling will eventually surface the problem as a TIMEOUT error.
+    return None
+
+
 def _poll_pipeline(pipeline_id: str, headers: dict[str, str]) -> str:
-    """Poll a pipeline until it reaches IDLE or fails. Returns final state."""
+    """Poll a pipeline until its MOST RECENT UPDATE reaches a terminal state.
+
+    Returns one of:
+        ``"IDLE"``    — most recent update COMPLETED (success).
+        ``"FAILED"``  — most recent update FAILED or CANCELED.
+        ``"DELETED"`` — pipeline was deleted.
+        ``"TIMEOUT"`` — poll exhausted ``MAX_POLL_ATTEMPTS`` without a terminal state.
+
+    NOTE: We deliberately do NOT return when the top-level pipeline ``state``
+    reaches ``IDLE`` — that just means "not currently executing" and can
+    coexist with a FAILED most-recent-update. The previous version of this
+    function had that bug, producing silent-success reports on failed syncs.
+    The ``"IDLE"`` return value is retained for the success path so that
+    callers (see :func:`main`) can keep their existing equality check against
+    ``"IDLE"`` for "COMPLETE" — the semantics now mean "most recent update
+    COMPLETED", not "pipeline currently idle".
+    """
     for _ in range(MAX_POLL_ATTEMPTS):
         resp = requests.get(
             f"{_get_host()}/api/2.0/pipelines/{pipeline_id}",
@@ -169,9 +242,9 @@ def _poll_pipeline(pipeline_id: str, headers: dict[str, str]) -> str:
             timeout=(10, 30),
         )
         resp.raise_for_status()
-        state: str = resp.json().get("state", "UNKNOWN")
-        if state in ("IDLE", "FAILED", "DELETED"):
-            return state
+        classification = _classify_pipeline_poll_response(resp.json())
+        if classification is not None:
+            return classification
         time.sleep(POLL_INTERVAL_S)
     return "TIMEOUT"
 

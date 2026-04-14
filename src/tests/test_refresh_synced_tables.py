@@ -7,6 +7,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from ingestion.refresh_synced_tables import _classify_pipeline_poll_response
+
 
 def test_get_auth_headers_uses_workspace_client(monkeypatch: pytest.MonkeyPatch) -> None:
     """_get_auth_headers must obtain headers from WorkspaceClient.config.authenticate."""
@@ -153,3 +155,105 @@ def test_main_rejects_invalid_schema(monkeypatch: pytest.MonkeyPatch) -> None:
         main()
 
     assert exc_info.value.code == 2
+
+
+# ---------------------------------------------------------------------------
+# _classify_pipeline_poll_response — silent-success bug regression tests.
+#
+# Prior bug: `_poll_pipeline` returned on top-level ``state == "IDLE"``, but
+# Databricks pipelines report ``IDLE`` whenever they are not currently
+# executing — even after a FAILED update. 33 of 34 synced tables were
+# silently reporting SUCCESS in the daily job despite being broken for days.
+# The classifier below must consult ``latest_updates[0].state`` before
+# declaring a pipeline healthy.
+# ---------------------------------------------------------------------------
+
+
+def test_idle_top_state_with_completed_latest_update_returns_idle() -> None:
+    """The happy path: pipeline not currently running, last update succeeded."""
+    resp = {
+        "state": "IDLE",
+        "latest_updates": [{"state": "COMPLETED", "update_id": "abc"}],
+    }
+    assert _classify_pipeline_poll_response(resp) == "IDLE"
+
+
+def test_idle_top_state_with_failed_latest_update_returns_failed() -> None:
+    """The original silent-success bug: top state IDLE but last update FAILED."""
+    resp = {
+        "state": "IDLE",
+        "latest_updates": [{"state": "FAILED", "update_id": "abc"}],
+    }
+    assert _classify_pipeline_poll_response(resp) == "FAILED"
+
+
+def test_idle_top_state_with_canceled_latest_update_returns_failed() -> None:
+    resp = {
+        "state": "IDLE",
+        "latest_updates": [{"state": "CANCELED", "update_id": "abc"}],
+    }
+    assert _classify_pipeline_poll_response(resp) == "FAILED"
+
+
+def test_deleted_pipeline_returns_deleted_regardless_of_updates() -> None:
+    resp = {
+        "state": "DELETED",
+        "latest_updates": [{"state": "COMPLETED", "update_id": "abc"}],
+    }
+    assert _classify_pipeline_poll_response(resp) == "DELETED"
+
+
+def test_deleted_pipeline_with_no_updates_returns_deleted() -> None:
+    resp = {"state": "DELETED", "latest_updates": []}
+    assert _classify_pipeline_poll_response(resp) == "DELETED"
+
+
+def test_running_top_state_returns_none_for_continue_polling() -> None:
+    resp = {
+        "state": "RUNNING",
+        "latest_updates": [{"state": "RUNNING", "update_id": "abc"}],
+    }
+    assert _classify_pipeline_poll_response(resp) is None
+
+
+def test_in_flight_update_states_return_none() -> None:
+    for upd_state in (
+        "RUNNING",
+        "CREATED",
+        "QUEUED",
+        "WAITING_FOR_RESOURCES",
+        "INITIALIZING",
+        "SETTING_UP_TABLES",
+        "RESETTING",
+        "RESYNCING",
+    ):
+        resp = {"state": "IDLE", "latest_updates": [{"state": upd_state}]}
+        assert _classify_pipeline_poll_response(resp) is None, f"state {upd_state} should keep polling"
+
+
+def test_no_latest_updates_idle_top_state_returns_none() -> None:
+    """Brand new pipeline — no updates yet. Caller keeps polling until top state transitions."""
+    resp = {"state": "IDLE", "latest_updates": []}
+    assert _classify_pipeline_poll_response(resp) is None
+
+
+def test_no_latest_updates_key_at_all_returns_none() -> None:
+    resp = {"state": "IDLE"}
+    assert _classify_pipeline_poll_response(resp) is None
+
+
+def test_unknown_update_state_returns_none() -> None:
+    """Defensive: if Databricks adds a new update state we don't recognize, keep polling.
+
+    Timeout will eventually surface the problem as an error.
+    """
+    resp = {"state": "IDLE", "latest_updates": [{"state": "SOMETHING_NEW"}]}
+    assert _classify_pipeline_poll_response(resp) is None
+
+
+def test_failed_top_state_with_failed_latest_update_returns_failed() -> None:
+    resp = {
+        "state": "FAILED",
+        "latest_updates": [{"state": "FAILED"}],
+    }
+    assert _classify_pipeline_poll_response(resp) == "FAILED"
