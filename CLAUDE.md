@@ -47,6 +47,29 @@ These standards apply to ALL code in this repository. They are non-negotiable.
 - **`AI_GOVERNANCE.md` is the living record of EU AI Act posture**: When adding, modifying, renaming, or removing a per-player evaluative ML system (any workflow card listed in `PER_PLAYER_EVALUATIVE_CARDS` in `src/tests/test_ai_governance_md.py`), update `AI_GOVERNANCE.md` §5 (Scope), create or update the matching HuggingFace model card under `docs/huggingface/model-cards/`, add the `governance:` YAML block to the workflow card, and re-run `uv run pytest src/tests/test_ai_governance_md.py -v` before merging. The test enforces: required sections present, workflow-card inventory parity, model-card inventory parity, `governance:` YAML block presence, `EU AI Act — Intended Use and Non-Use` stanza presence on every model card, `SEC-AUDIT-v1.12.0 REG-01` provenance tag, and a 30-day grace-period check on the **Next review** date. Non-negotiable.
 - **`ARCHITECTURE.md` Appendix D is the living record of academic references**: When introducing a new published methodology — new `Citation(...)` in a `PageConfig`, new `references:` entry in a workflow card, new methodology cited in `NOTICE` — add the author to `ARCHITECTURE.md` § 8 "D. Academic References" and extend the `expected_authors` list in `src/tests/test_architecture_md_appendix.py`. That test is the reason the appendix exists; it ran the D56 cycle and it still runs today. This rule was forgotten between March and April 2026 and caused the D56 academic-reference audit; the rule exists so that gap does not reopen.
 
+## Architectural Decision Records (ADRs)
+
+Significant architectural decisions — ones future maintainers will reasonably ask "why?" about — are documented in `docs/superpowers/adrs/` using the Michael Nygard format captured in `docs/superpowers/adrs/ADR-TEMPLATE.md`. The `mad-scientist-skills:final-review` skill Phase 2.5 scans for decisions that warrant an ADR and prompts for one before commit.
+
+**When to write an ADR** — any of these patterns:
+
+- Introduces, removes, or replaces a cross-cutting dependency (e.g., swapping a library for another, dropping a framework)
+- Changes a schema ownership or grants model (e.g., `dbt-owners-{env}` group ownership; definer's-rights views for system-table access)
+- Hard-codes a workaround for a platform constraint (e.g., `DATABRICKS_HTTP_PATH` double-slash for Git Bash MSYS; Python 3.10 lock for Databricks serverless)
+- Introduces a naming, identifier, or path convention with downstream consumers (e.g., `frame_batch_id` synthetic keys for `applyInPandas` group sizing)
+- Reimplements an algorithm to avoid a dependency (e.g., EFPI algorithm reimplementation to avoid `unravelsports` Python 3.11+ requirement)
+- Introduces a defense-in-depth control or security boundary (e.g., evolve exec sandbox AST allowlist — ADR-001; SEC2 artifact hash verification)
+- Makes a structural trade-off in the pipeline (e.g., guard injection as a mandatory no-default parameter in `run_pipeline()`, enforced by `test_guard_conformance.py`)
+
+**When NOT to write an ADR:**
+
+- Routine feature work that follows established patterns
+- Bug fixes that do not change an architectural contract
+- Documentation-only changes
+- Refactoring that preserves behaviour and contracts
+
+**Existing ADRs:** `docs/superpowers/adrs/ADR-*.md`. **Template:** `docs/superpowers/adrs/ADR-TEMPLATE.md`.
+
 ## Type Safety
 
 - **Pyright basic mode**: All Python code must pass `pyright` in basic type checking mode.
@@ -146,6 +169,8 @@ The platform's architecture maps to classic EIP patterns (Hohpe & Woolf 2003). C
 - **Line-breaking detection**: ≤2ms per pass (benchmark baseline)
 - **Team shape computation**: ≤1ms per frame for 10 outfield players (benchmark baseline)
 - **Team shape frame (both teams)**: ≤2ms per frame for 22 players (benchmark baseline)
+
+**Before modifying any function listed above, any function with a `pytest-benchmark` wrapper, or any function flagged as a hot path in this document, invoke `mad-scientist-skills:measure-before-optimize`.** The skill captures a baseline, waits for the change, re-measures, and reports the delta against the budget and a configurable regression threshold (default 10%). Peer skill to `mad-scientist-skills:optimization-audit`: this one is pre-change, that one is retrospective. Do not optimise benchmarked code on vibes.
 
 ## App Performance
 
