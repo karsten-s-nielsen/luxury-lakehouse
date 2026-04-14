@@ -26,7 +26,18 @@ import sys
 from importlib import resources
 from pathlib import Path
 
-from dbt.cli.main import dbtRunner
+# dbt-core is an optional runtime dependency — only installed via the ``dbt``
+# extra (used by the Databricks daily job and local developer workflows).
+# Unit tests that mock ``dbtRunner`` via ``@patch("ingestion.dbt_runner.dbtRunner")``
+# work against ``dbtRunner = None`` because unittest.mock replaces the module
+# attribute regardless of its current value. CI's ``lint-and-test`` job
+# installs analytics/embeddings/mlflow/jax but not dbt, so this module must
+# import cleanly without dbt present so the helper tests
+# (TestExtractWarehouseIdFromHttpPath) can run.
+try:
+    from dbt.cli.main import dbtRunner
+except ImportError:  # pragma: no cover — CI lint-and-test path
+    dbtRunner = None  # type: ignore[assignment,misc]  # noqa: N816
 
 logger = logging.getLogger(__name__)
 
@@ -231,6 +242,9 @@ def run_pipeline(extra_args: list[str] | None = None) -> int:
         args.extend(extra_args)
 
     print(f"[dbt_runner] invoking dbt: {' '.join(args)}", file=sys.stderr, flush=True)
+    if dbtRunner is None:
+        msg = "dbt-core is not installed — install via the 'dbt' extra (e.g. `uv sync --extra dbt`)"
+        raise RuntimeError(msg)
     runner = dbtRunner()
     result = runner.invoke(args)
     print(f"[dbt_runner] dbt invoke complete, success={result.success}", file=sys.stderr, flush=True)
