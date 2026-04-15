@@ -139,7 +139,7 @@ def fetch_formation_labels(match_id: str, team: str) -> pd.DataFrame:
             f"LIMIT 500",
             (str(match_id), str(team)),
         )
-    except Exception:
+    except RuntimeError:
         logger.warning("fct_formation_labels_synced not available — formation labels will be empty")
         return pd.DataFrame()
 
@@ -162,6 +162,6 @@ def fetch_match_events(match_id: str) -> pd.DataFrame:
             f"LIMIT 1",
             (str(match_id),),
         )
-    except Exception:
+    except RuntimeError:
         logger.warning("Could not fetch match events for timeline annotations")
         return pd.DataFrame()

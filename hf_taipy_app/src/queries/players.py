@@ -86,14 +86,26 @@ def fetch_player_radar_stats(
 def fetch_player_percentiles_batch(
     player_ids: list[int],
     comp_id: int,
-) -> dict[int, pd.DataFrame]:
+) -> dict[int, pd.DataFrame] | None:
     """Fetch percentile ranks for multiple players in one query.
 
-    Returns a dict mapping player_id to a single-row DataFrame.
-    Empty dict if the synced table doesn't exist or no data found.
+    Returns one of three disambiguated results:
+      - ``dict[int, pd.DataFrame]`` (non-empty) — percentile rows keyed by
+        player_id.
+      - ``{}`` (empty dict) — query succeeded but no matching rows for the
+        requested (comp_id, player_ids) combination.
+      - ``None`` — the percentile feature is UNAVAILABLE for this app run:
+        either no player_ids were passed, or the upstream
+        ``fct_player_percentiles_synced`` table is missing / inaccessible.
+
+    Callers can use ``if result:`` (truthy check) or
+    ``bool(result) and len(result) == len(player_ids)`` for the "all
+    percentiles present" check — both work identically for ``None`` and
+    ``{}``. The ``None`` sentinel gives future callers the ability to
+    distinguish "feature off-line" from "no matching rows".
     """
     if not player_ids:
-        return {}
+        return None
     try:
         pctile_tbl = t("fct_player_percentiles_synced")
         placeholders = ", ".join(["%s"] * len(player_ids))
@@ -107,13 +119,21 @@ def fetch_player_percentiles_batch(
         result: dict[int, pd.DataFrame] = {}
         for pid in player_ids:
             mask = df["player_id"].astype(str) == str(pid)
-            player_df = df[mask]
+            player_df = df.loc[mask]
             if not player_df.empty:
-                result[pid] = player_df.head(1)
+                # Use `.iloc[[0]]` (double brackets) so the slice is always
+                # a DataFrame, not a Series. `.head(1)` can return Series
+                # under some pandas typings, breaking the dict[int, DataFrame]
+                # invariant.
+                result[pid] = player_df.iloc[[0]]
         return result
-    except Exception:
-        logger.debug("Percentile data unavailable (table may not be synced yet)")
-        return {}
+    except RuntimeError:
+        logger.warning(
+            "Player percentile data unavailable — feature unavailable for this request. "
+            "If this persists, check that fct_player_percentiles_synced is up-to-date.",
+            exc_info=True,
+        )
+        return None
 
 
 # ---------------------------------------------------------------------------

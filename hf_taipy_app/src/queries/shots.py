@@ -63,5 +63,5 @@ def fetch_xg_predictions(competition_id: int) -> pd.DataFrame:
             f"LIMIT 100000",
             (competition_id,),
         )
-    except Exception:
+    except RuntimeError:
         return pd.DataFrame()
