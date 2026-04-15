@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import tempfile
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
+import pytest
 from xgboost import XGBClassifier
 
 from ingestion.spadl_conversion import _read_existing_match_ids
@@ -175,3 +177,332 @@ class TestTryLoadChampionVaep:
         assert result is not None
         assert result[0] is mock_scores
         assert result[1] is mock_concedes
+
+
+# ---------------------------------------------------------------------------
+# Guard metadata union — regression guard for the 2026-04-14 staleness bug
+# ---------------------------------------------------------------------------
+
+
+class TestVaepGuardMetadata:
+    """Test ``_VaepGuard.check()`` includes match_ids Stage 1 is about to add.
+
+    Regression guard for the staleness bug discovered 2026-04-14. Stage 2 at
+    ``spadl_vaep.py:429`` reads ``filter_result.metadata["unscored_vaep_match_ids"]``
+    which is computed by the guard BEFORE Stage 1 runs. When Stage 1 repopulates
+    ``bronze.spadl_actions`` with new match_ids in the same run (e.g., after a
+    user DELETE), those match_ids are not in the guard's pre-Stage-1 ``unscored``
+    set, and Stage 2 skips them with the stale metadata.
+
+    Fix: union ``new_spadl`` (match_ids Stage 1 will add) with ``unscored``
+    (match_ids already in spadl but missing from vaep) in the metadata. The two
+    sets are disjoint by construction.
+    """
+
+    def test_regression_today_scenario_sb_new_nonempty_unscored_empty(self) -> None:
+        """Reproduces the 2026-04-14 16:22:09Z failure scenario.
+
+        User had wiped statsbomb from both ``bronze.spadl_actions`` (v638) and
+        ``bronze.vaep_action_values`` (v8). Guard computes:
+          sb_new=[3 statsbomb match_ids], ws_new=[], unscored=[].
+        Without the fix, unscored_vaep_match_ids=[] and Stage 2 exits at
+        the ``if not unscored_match_ids: return 0`` gate.
+        With the fix, unscored_vaep_match_ids=[3 statsbomb match_ids] — Stage 2
+        proceeds to score them.
+        """
+        from ingestion.spadl_vaep import _VaepGuard
+
+        mock_spark = MagicMock()
+
+        def find_new_ids_mock(spark: object, source_table: str, results_table: str, **kwargs: object) -> list[str]:
+            if "statsbomb_events" in source_table:
+                return ["3754348", "3754349", "3754350"]
+            if "wyscout_events" in source_table:
+                return []
+            # Stage 2 unscored call: spadl_table → vaep_table
+            return []
+
+        with (
+            patch("ingestion.guards.find_new_ids", side_effect=find_new_ids_mock),
+            patch("ingestion.guards.ensure_table"),
+        ):
+            result = _VaepGuard().check(mock_spark, "soccer_analytics", "dev_gold")
+
+        # count = len(new_spadl) + len(unscored) = 3 + 0
+        assert result.count == 3
+        assert result.metadata["new_spadl_match_ids"] == ["3754348", "3754349", "3754350"]
+        # THE FIX: union picks up the new_spadl match_ids even though pre-Stage-1 unscored was empty
+        assert result.metadata["unscored_vaep_match_ids"] == ["3754348", "3754349", "3754350"]
+
+    def test_disjoint_union_both_sources_contribute(self) -> None:
+        """Normal mixed case: new events from both providers plus existing unscored matches."""
+        from ingestion.spadl_vaep import _VaepGuard
+
+        mock_spark = MagicMock()
+
+        def find_new_ids_mock(spark: object, source_table: str, results_table: str, **kwargs: object) -> list[str]:
+            if "statsbomb_events" in source_table:
+                return ["sb1"]
+            if "wyscout_events" in source_table:
+                return ["ws1"]
+            return ["existing1", "existing2"]
+
+        with (
+            patch("ingestion.guards.find_new_ids", side_effect=find_new_ids_mock),
+            patch("ingestion.guards.ensure_table"),
+        ):
+            result = _VaepGuard().check(mock_spark, "cat", "sch")
+
+        # count = len(new_spadl) + len(unscored) = 2 + 2
+        assert result.count == 4
+        assert result.metadata["new_spadl_match_ids"] == ["sb1", "ws1"]
+        assert result.metadata["unscored_vaep_match_ids"] == ["existing1", "existing2", "sb1", "ws1"]
+
+    def test_unscored_only_no_new_events(self) -> None:
+        """Steady-state case: no new events, only previously-unscored spadl matches.
+
+        Under the fix, unscored_vaep_match_ids should equal the unscored set
+        (unchanged behavior from before the fix, since new_spadl is empty).
+        """
+        from ingestion.spadl_vaep import _VaepGuard
+
+        mock_spark = MagicMock()
+
+        def find_new_ids_mock(spark: object, source_table: str, results_table: str, **kwargs: object) -> list[str]:
+            if "events" in source_table:
+                return []
+            return ["leftover1", "leftover2"]
+
+        with (
+            patch("ingestion.guards.find_new_ids", side_effect=find_new_ids_mock),
+            patch("ingestion.guards.ensure_table"),
+        ):
+            result = _VaepGuard().check(mock_spark, "cat", "sch")
+
+        assert result.count == 2
+        assert result.metadata["new_spadl_match_ids"] == []
+        assert result.metadata["unscored_vaep_match_ids"] == ["leftover1", "leftover2"]
+
+    def test_skip_path_when_both_empty(self) -> None:
+        """No work: guard returns count=0 (triggers WorkflowSkippedError in run_pipeline).
+
+        Metadata is the default empty dict — not populated on the skip path.
+        """
+        from ingestion.spadl_vaep import _VaepGuard
+
+        mock_spark = MagicMock()
+
+        with (
+            patch("ingestion.guards.find_new_ids", return_value=[]),
+            patch("ingestion.guards.ensure_table"),
+        ):
+            result = _VaepGuard().check(mock_spark, "cat", "sch")
+
+        assert result.count == 0
+        assert result.metadata == {}
+
+
+# ---------------------------------------------------------------------------
+# Scoring UDF error propagation — regression guard for the silent exception swallow
+# ---------------------------------------------------------------------------
+
+
+class TestScoringUdfErrorPropagation:
+    """Test ``_make_scoring_udf`` propagates per-game failures with game_id context.
+
+    Regression guard for the silent exception swallow at
+    ``_make_scoring_udf`` lines 390-391 which was hiding any scoring failure
+    and leaving zero-row writes to ``bronze.vaep_action_values`` with no trace.
+    The daily job would report SUCCEEDED with missing data, making the failure
+    invisible until a manual audit discovered it.
+    """
+
+    def test_udf_raises_runtime_error_with_game_id_on_per_game_failure(self) -> None:
+        """A scoring-UDF exception must propagate as RuntimeError with game_id context."""
+        import silly_kicks.spadl
+        import silly_kicks.vaep.features
+
+        from ingestion.spadl_vaep import _make_scoring_udf
+
+        # Minimal pandas DataFrame: 2 rows so len(game_actions) >= 2 clears the
+        # skip gate at line 336-337. All belong to one game so game_ids = [54321]
+        # and the per-game loop body runs exactly once.
+        pdf = pd.DataFrame(
+            {
+                "game_id": [54321, 54321],
+                "match_id": [54321, 54321],
+                "original_event_id": ["evt1", "evt2"],
+                "period_id": [1, 1],
+                "time_seconds": [0.0, 1.0],
+                "team_id": [1, 1],
+                "player_id": [100, 100],
+                "start_x": [0.0, 0.0],
+                "start_y": [0.0, 0.0],
+                "end_x": [0.0, 0.0],
+                "end_y": [0.0, 0.0],
+                "type_id": [0, 0],
+                "result_id": [1, 1],
+                "bodypart_id": [0, 0],
+                "competition_id": [2, 2],
+                "season_id": [1, 1],
+                "data_source": ["statsbomb", "statsbomb"],
+            }
+        )
+
+        # Build the closure and pre-populate its model cache so the UDF skips
+        # the xgboost load path entirely. _model_cache is an attribute on the
+        # fresh closure returned by _make_scoring_udf (not module-level state),
+        # so setting it here does not leak across tests.
+        udf = _make_scoring_udf(b"scores_bytes", b"concedes_bytes")
+        udf._model_cache = {"scores": MagicMock(), "concedes": MagicMock()}  # type: ignore[attr-defined]
+
+        # Pass-through for add_names — preserves game_id so the downstream
+        # groupby + per-game loop can execute up to the point of failure,
+        # while adding the type_name/result_name/bodypart_name columns that
+        # the non-failing branch (not exercised here) would need.
+        def _passthrough_add_names(p: pd.DataFrame) -> pd.DataFrame:
+            return p.assign(type_name="", result_name="", bodypart_name="")
+
+        # Patch attributes on the real silly_kicks modules. The UDF does
+        # local imports inside its closure (``import silly_kicks.vaep.features``),
+        # which resolves to the real module objects — so patch.object on the
+        # real modules is visible to the UDF's attribute lookups at call time.
+        # Force gamestates to raise so the per-game try block at lines 338-391
+        # fires its except clause, which under the fix re-raises as RuntimeError
+        # with game_id context.
+        with (
+            patch.object(silly_kicks.spadl, "add_names", side_effect=_passthrough_add_names),
+            patch.object(silly_kicks.vaep.features, "gamestates", side_effect=KeyError("simulated feature failure")),
+            pytest.raises(RuntimeError, match="VAEP scoring failed for game_id=54321"),
+        ):
+            udf(pdf)  # type: ignore[operator]
+
+    def test_udf_empty_input_returns_empty_dataframe(self) -> None:
+        """Empty input should still return an empty DataFrame, not raise.
+
+        The empty-input short-circuit at lines 287-288 must not be affected by
+        the exception-propagation change.
+        """
+        from ingestion.spadl_vaep import _make_scoring_udf
+
+        empty_pdf = pd.DataFrame(
+            columns=pd.Index(
+                [
+                    "game_id",
+                    "match_id",
+                    "original_event_id",
+                    "period_id",
+                    "time_seconds",
+                    "team_id",
+                    "player_id",
+                    "start_x",
+                    "start_y",
+                    "end_x",
+                    "end_y",
+                    "type_id",
+                    "result_id",
+                    "bodypart_id",
+                    "competition_id",
+                    "season_id",
+                    "data_source",
+                ]
+            )
+        )
+
+        udf = _make_scoring_udf(b"scores_bytes", b"concedes_bytes")
+        result = udf(empty_pdf)  # type: ignore[operator]
+        assert isinstance(result, pd.DataFrame)
+        assert len(result) == 0
+
+
+# ---------------------------------------------------------------------------
+# VAEP training feature extraction — regression guard for the per-game
+# silent swallow (vaep_training.py:77-78) removed 2026-04-14.
+# ---------------------------------------------------------------------------
+
+
+class TestVaepTrainingFeatureExtractionErrorPropagation:
+    """`extract_features_for_games` must propagate per-game failures with game_id context.
+
+    The previous `except Exception: _log.exception(...)` pattern logged the
+    failure but did NOT raise, silently dropping the game from the training
+    data. Same anti-pattern class as the scoring-UDF silent swallow — fixed
+    in the same session.
+    """
+
+    def test_gamestates_failure_raises_runtime_error_with_game_id(self) -> None:
+        import silly_kicks.spadl
+        import silly_kicks.vaep.features
+
+        from ingestion.vaep_training import extract_features_for_games
+
+        # Minimal SPADL actions frame: 2 rows per game so `len(game_actions) >= 2`
+        # clears the skip gate. Two games — we'll trigger a failure on the first.
+        actions = pd.DataFrame(
+            {
+                "game_id": [100, 100, 200, 200],
+                "match_id": [100, 100, 200, 200],
+                "original_event_id": ["a", "b", "c", "d"],
+                "period_id": [1, 1, 1, 1],
+                "time_seconds": [0.0, 1.0, 0.0, 1.0],
+                "team_id": [1, 1, 2, 2],
+                "player_id": [10, 10, 20, 20],
+                "start_x": [0.0, 0.0, 0.0, 0.0],
+                "start_y": [0.0, 0.0, 0.0, 0.0],
+                "end_x": [0.0, 0.0, 0.0, 0.0],
+                "end_y": [0.0, 0.0, 0.0, 0.0],
+                "type_id": [0, 0, 0, 0],
+                "result_id": [1, 1, 1, 1],
+                "bodypart_id": [0, 0, 0, 0],
+            }
+        )
+
+        def _passthrough_add_names(df: pd.DataFrame) -> pd.DataFrame:
+            return df.assign(type_name="", result_name="", bodypart_name="")
+
+        with (
+            patch.object(silly_kicks.spadl, "add_names", side_effect=_passthrough_add_names),
+            patch.object(
+                silly_kicks.vaep.features,
+                "gamestates",
+                side_effect=KeyError("simulated feature failure"),
+            ),
+            pytest.raises(RuntimeError, match=r"VAEP feature extraction failed for game_id=100"),
+        ):
+            extract_features_for_games(actions, game_ids=[100, 200])
+
+    def test_happy_path_returns_empty_when_all_games_too_short(self) -> None:
+        """Games with <2 actions are skipped silently (not an error path)."""
+        import silly_kicks.spadl
+
+        from ingestion.vaep_training import extract_features_for_games
+
+        # Single-action game triggers the `len(game_actions) < 2` skip.
+        actions = pd.DataFrame(
+            {
+                "game_id": [100],
+                "match_id": [100],
+                "original_event_id": ["a"],
+                "period_id": [1],
+                "time_seconds": [0.0],
+                "team_id": [1],
+                "player_id": [10],
+                "start_x": [0.0],
+                "start_y": [0.0],
+                "end_x": [0.0],
+                "end_y": [0.0],
+                "type_id": [0],
+                "result_id": [1],
+                "bodypart_id": [0],
+            }
+        )
+
+        def _passthrough_add_names(df: pd.DataFrame) -> pd.DataFrame:
+            return df.assign(type_name="", result_name="", bodypart_name="")
+
+        with patch.object(silly_kicks.spadl, "add_names", side_effect=_passthrough_add_names):
+            x, y_scores, y_concedes = extract_features_for_games(actions, game_ids=[100])
+
+        assert x.empty
+        assert y_scores.empty
+        assert y_concedes.empty
