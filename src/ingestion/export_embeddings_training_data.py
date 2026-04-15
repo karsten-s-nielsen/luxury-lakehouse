@@ -42,21 +42,23 @@ class _Football2VecV2ExportGuard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check if upstream data has grown since last export."""
+        from ingestion.utils import tolerate_missing_table
+
         gold = DEFAULT_GOLD_SCHEMA
         output_path = _UC_VOLUME_PATH.format(catalog=catalog)
 
-        try:
+        upstream_count: int | None = None
+        with tolerate_missing_table(_guard_logger, f"Upstream fct_action_values missing in {catalog}.{gold}"):
             upstream_count = (
                 spark.table(f"{catalog}.{gold}.fct_action_values").select("player_id", "match_id").distinct().count()
             )
-        except Exception:
+
+        if upstream_count is None:
             return FilterResult(workflow_id=self.workflow_id, count=0)
 
         existing_count = 0
-        try:
+        with tolerate_missing_table(_guard_logger, f"No existing export at {output_path}"):
             existing_count = spark.read.parquet(output_path).count()
-        except Exception:
-            _guard_logger.debug("No existing export at %s", output_path)
 
         if existing_count >= upstream_count and existing_count > 0:
             return FilterResult(workflow_id=self.workflow_id, count=0)

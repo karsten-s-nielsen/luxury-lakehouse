@@ -43,14 +43,30 @@ class TestReadExistingMatchIds:
     """Test _read_existing_match_ids with mocked Spark."""
 
     def test_returns_empty_set_on_missing_table(self) -> None:
-        """When table doesn't exist, should return empty set without error."""
+        """When table doesn't exist, should return empty set without error.
+
+        Uses a realistic Spark error message (TABLE_OR_VIEW_NOT_FOUND) so
+        ``tolerate_missing_table`` suppresses it instead of propagating.
+        """
         import logging
         from unittest.mock import MagicMock
 
         mock_spark = MagicMock()
-        mock_spark.table.side_effect = Exception("Table not found")
+        mock_spark.table.side_effect = Exception("[TABLE_OR_VIEW_NOT_FOUND] Table `cat`.`sch`.`tbl` cannot be found.")
         result = _read_existing_match_ids(mock_spark, "cat", "sch", "tbl", logging.getLogger("test"))
         assert result == set()
+
+    def test_propagates_non_missing_table_errors(self) -> None:
+        """Regression guard: permission errors and schema corruption must NOT be suppressed."""
+        import logging
+        from unittest.mock import MagicMock
+
+        import pytest as _pytest
+
+        mock_spark = MagicMock()
+        mock_spark.table.side_effect = PermissionError("access denied on cat.sch.tbl")
+        with _pytest.raises(PermissionError, match="access denied"):
+            _read_existing_match_ids(mock_spark, "cat", "sch", "tbl", logging.getLogger("test"))
 
     def test_returns_match_ids_from_table(self) -> None:
         """When table exists, should return set of match_ids."""

@@ -55,15 +55,18 @@ class _WyscoutGuard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Skip if all Wyscout competitions are already ingested."""
+        import logging as _logging
+
+        from ingestion.utils import tolerate_missing_table
+
         expected = len(_COMPETITIONS)
-        try:
+        _guard_logger = _logging.getLogger(__name__)
+        with tolerate_missing_table(_guard_logger, "Wyscout tables missing — needs ingestion"):
             e_count = spark.table(f"{catalog}.{schema}.wyscout_events").select("competition_name").distinct().count()
             m_count = spark.table(f"{catalog}.{schema}.wyscout_matches").select("competition_name").distinct().count()
             p_exists = spark.table(f"{catalog}.{schema}.wyscout_players").limit(1).count() > 0
             if e_count >= expected and m_count >= expected and p_exists:
                 return FilterResult(workflow_id=self.workflow_id, count=0)
-        except Exception:  # noqa: S110
-            pass
         return FilterResult(workflow_id=self.workflow_id, count=1)
 
 
@@ -328,15 +331,15 @@ def ingest_events(
     Each competition is loaded, written, and released before the next to
     keep peak memory at ~1/7th of loading all competitions at once.
     """
+    from ingestion.utils import tolerate_missing_table
+
     # Incremental skip: detect competitions already in Delta
     existing_comps: set[str] = set()
-    try:
+    with tolerate_missing_table(logger, "No existing wyscout_events table — processing all competitions"):
         existing_rows = (
             spark.table(f"{catalog}.{schema}.wyscout_events").select("competition_name").distinct().collect()
         )
         existing_comps = {str(row["competition_name"]) for row in existing_rows}
-    except Exception:
-        logger.info("No existing wyscout_events table — processing all competitions")
 
     new_comps = [c for c in _COMPETITIONS if c not in existing_comps]
     logger.info(
@@ -398,15 +401,15 @@ def ingest_matches(
     logger: logging.Logger,
 ) -> None:
     """Load and write Wyscout match metadata one competition at a time."""
+    from ingestion.utils import tolerate_missing_table
+
     # Incremental skip: detect competitions already in Delta
     existing_comps: set[str] = set()
-    try:
+    with tolerate_missing_table(logger, "No existing wyscout_matches table — processing all competitions"):
         existing_rows = (
             spark.table(f"{catalog}.{schema}.wyscout_matches").select("competition_name").distinct().collect()
         )
         existing_comps = {str(row["competition_name"]) for row in existing_rows}
-    except Exception:
-        logger.info("No existing wyscout_matches table — processing all competitions")
 
     new_comps = [c for c in _COMPETITIONS if c not in existing_comps]
     logger.info(
@@ -494,14 +497,15 @@ def ingest_players(
     logger: logging.Logger,
 ) -> None:
     """Load and write Wyscout player metadata."""
-    # Incremental skip: if table already exists, skip entirely
+    # Incremental skip: if table already exists, skip entirely. `tableExists`
+    # returns False (not raises) when the table is missing, so no exception
+    # handling is needed for the normal case. Any exception here indicates a
+    # broken catalog/namespace and must propagate.
     full_table_name = f"{catalog}.{schema}.wyscout_players"
-    try:
-        if spark.catalog.tableExists(full_table_name):
-            logger.info("wyscout_players already populated — skipping")
-            return
-    except Exception:
-        logger.info("No existing wyscout_players table — will ingest")
+    if spark.catalog.tableExists(full_table_name):
+        logger.info("wyscout_players already populated — skipping")
+        return
+    logger.info("No existing wyscout_players table — will ingest")
 
     pdf = _load_players(data_dir, logger)
     pdf = _normalize_mixed_types(pdf)

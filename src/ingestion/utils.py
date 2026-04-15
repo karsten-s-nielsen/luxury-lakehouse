@@ -14,6 +14,8 @@ import logging
 import os
 import re
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
@@ -31,11 +33,58 @@ if TYPE_CHECKING:
 SparkAnalysisException: type[Exception] = type("SparkAnalysisException", (Exception,), {})
 try:
     from pyspark.errors import AnalysisException as SparkAnalysisException  # type: ignore[no-redef]  # noqa: F401
-except Exception:  # noqa: S110 — pyspark not installed in CI/test; fallback defined above
+except Exception:  # noqa: BLE001, S110 — pyspark not installed in CI/test; fallback defined above
     pass
 
 # HTTP status codes eligible for retry
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+
+# Error-message markers that indicate "the table does not exist yet" — the
+# only case `tolerate_missing_table` suppresses.  Everything else (permission
+# denied, schema corruption, MERGE resolve failure, connection error) must
+# propagate so the caller sees the real failure.
+_TABLE_NOT_FOUND_MARKERS: tuple[str, ...] = (
+    "TABLE_OR_VIEW_NOT_FOUND",  # Spark 3.4+ error class
+    "Table or view not found",  # Older Spark message
+    "Path does not exist",  # Delta table path not found
+    "DELTA_MISSING_DELTA_TABLE",  # Delta-specific
+    "DELTA_TABLE_NOT_FOUND",
+    "TableNotFoundException",  # Unity Catalog
+)
+
+
+@contextmanager
+def tolerate_missing_table(logger: logging.Logger, msg: str) -> Iterator[None]:
+    """Context manager that suppresses ONLY 'table does not exist' Spark errors.
+
+    Use in guard / bootstrap code that queries a results table which may not
+    exist on first run. Any other exception propagates — including the
+    schema-mismatch errors that bare ``except Exception:`` patterns were
+    hiding (e.g. the ``DELTA_MERGE_UNRESOLVED_EXPRESSION`` that caused the
+    2026-04-12 warm-tier blocker).
+
+    We catch ``Exception`` (not just ``AnalysisException``) because the
+    concrete exception class varies between classic PySpark, Spark Connect,
+    Delta Lake, and Unity Catalog. Then we check the error message against
+    ``_TABLE_NOT_FOUND_MARKERS`` and suppress only when it genuinely matches
+    a table-missing case. Non-matching exceptions re-raise with the original
+    traceback.
+
+    Example::
+
+        from ingestion.utils import tolerate_missing_table
+        existing: set[int] = set()
+        with tolerate_missing_table(logger, "No existing X table — starting fresh"):
+            existing = {row[0] for row in spark.read.table(table).collect()}
+        return existing
+    """
+    try:
+        yield
+    except Exception as exc:
+        if any(marker in str(exc) for marker in _TABLE_NOT_FOUND_MARKERS):
+            logger.info(msg)
+            return
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -276,14 +325,17 @@ def merge_delta_table(
     if row_count is None:
         row_count = int(df.count())
 
-    try:
-        from delta.tables import DeltaTable
+    from delta.tables import DeltaTable
 
+    target: DeltaTable | None = None
+    with tolerate_missing_table(
+        logger or logging.getLogger(__name__),
+        f"Table {full_table} does not exist yet — creating via overwrite",
+    ):
         target = DeltaTable.forName(df.sparkSession, full_table)
-    except Exception:
+
+    if target is None:
         # Table doesn't exist yet — fall back to initial write
-        if logger:
-            logger.info("Table %s does not exist yet — creating via overwrite", full_table)
         df.write.format("delta").option("mergeSchema", "true").mode("overwrite").saveAsTable(full_table)
         if logger:
             logger.info("Wrote %d rows to %s (initial create)", row_count, full_table)
@@ -482,7 +534,7 @@ def resolve_hf_token() -> str:
             token = base64.b64decode(encoded).decode()
             _hf_logger.info("HF token resolved from Databricks secret scope 'hf'")
             return token
-    except Exception:
+    except Exception:  # noqa: BLE001 — intentional multi-source fallback; next source is attempted below
         _hf_logger.debug("Databricks secrets unavailable — trying cached CLI login", exc_info=True)
 
     # 3. Cached CLI login
@@ -493,7 +545,7 @@ def resolve_hf_token() -> str:
         if token:
             _hf_logger.info("HF token resolved from cached CLI login")
             return token
-    except Exception:
+    except Exception:  # noqa: BLE001 — intentional multi-source fallback; final source is logged below
         _hf_logger.debug("huggingface_hub get_token unavailable", exc_info=True)
 
     _hf_logger.warning("No HF token found from any source")
@@ -740,7 +792,7 @@ def _load_mlflow_artifact_hash(
         run_id = alias_info.run_id
         run = client.get_run(run_id)
         return run.data.tags.get("artifact_sha256")
-    except Exception:  # defensive: any failure → None
+    except Exception:  # noqa: BLE001 — MLflow raises many exception types; typed None return is the documented contract
         logging.getLogger(__name__).warning(
             "MLflow artifact-hash lookup failed for %s@%s — treating as 'no hash'. "
             "If this persists across runs it may indicate an MLflow outage or an "
@@ -765,5 +817,5 @@ def _load_volume_sidecar_hash(volume_path: str) -> str | None:
         if not sidecar.exists():
             return None
         return sidecar.read_text(encoding="utf-8").strip()
-    except Exception:  # defensive: any failure → None
+    except Exception:  # noqa: BLE001 — UC Volume read can raise many IO classes; typed None return is the contract
         return None

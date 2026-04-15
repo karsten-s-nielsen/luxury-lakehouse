@@ -154,11 +154,16 @@ def assign_defensive_credits(
         dy = float(row["y"])
         dist = _euclidean_dist(dx, dy, action_x, action_y)
 
+        # Default to 0.5 (equal contest) if pitch-control is not available.
+        # When the function IS provided, its failure is a real bug, not a fallback:
+        # silently substituting 0.5 would corrupt every credit assignment for the
+        # match. Narrowed to specific expected errors (TypeError from arg mismatch,
+        # ValueError from pitch-control bounds) — anything else must propagate.
         pc_at_action = 0.5
         if pitch_control_fn is not None:
             try:
                 pc_at_action = float(pitch_control_fn(defenders, action_x, action_y))  # type: ignore[operator]
-            except Exception:
+            except (TypeError, ValueError):
                 pc_at_action = 0.5
 
         return {

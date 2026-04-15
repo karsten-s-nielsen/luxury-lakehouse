@@ -75,13 +75,14 @@ def _read_existing_match_ids(
     logger: logging.Logger,
 ) -> set[int]:
     """Return match_ids already present in a Delta table, or empty set if table doesn't exist."""
+    from ingestion.utils import tolerate_missing_table
+
     full_table = f"{catalog}.{schema}.{table}"
-    try:
+    result: set[int] = set()
+    with tolerate_missing_table(logger, f"Table {full_table} not found — starting fresh"):
         rows = spark.table(full_table).select("match_id").distinct().collect()
-        return {int(row["match_id"]) for row in rows}
-    except Exception:
-        logger.debug("Table %s not found — starting fresh", full_table, exc_info=True)
-        return set()
+        result = {int(row["match_id"]) for row in rows}
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -414,15 +415,19 @@ def _convert_wyscout_from_bronze(
 
     logger.info("Wyscout: converting %d new games (of %d total)", len(new_game_ids), len(all_game_ids))
 
-    # Load goalkeeper player IDs for keeper_claim reclassification
+    # Load goalkeeper player IDs for keeper_claim reclassification. If the
+    # wyscout_players table doesn't exist yet (first run) we fall back to empty
+    # set; any other failure is a real bug and must propagate.
+    from ingestion.utils import tolerate_missing_table as _tolerate_missing_table
+
     goalkeeper_ids: set[int] = set()
-    try:
-        players_table = f"{catalog}.{schema}.wyscout_players"
+    players_table = f"{catalog}.{schema}.wyscout_players"
+    with _tolerate_missing_table(
+        logger, "Wyscout wyscout_players table missing — keeper_claim reclassification disabled"
+    ):
         gk_rows = spark.table(players_table).filter("role:code2 = 'GK'").select("wyId").collect()
         goalkeeper_ids = {int(row["wyId"]) for row in gk_rows}
         logger.info("Wyscout: loaded %d goalkeeper IDs for keeper_claim routing", len(goalkeeper_ids))
-    except Exception:
-        logger.warning("Could not load wyscout_players — keeper_claim reclassification disabled", exc_info=True)
 
     # Build lookup DataFrame with home_team_id, competition_id, season_id per game
     # Derive competition_id and season_id from matches metadata

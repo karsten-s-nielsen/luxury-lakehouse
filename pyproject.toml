@@ -124,14 +124,28 @@ select = [
     "UP",  # pyupgrade
     "B",   # flake8-bugbear
     "S",   # flake8-bandit (security)
+    "BLE", # flake8-blind-except (silent-swallow anti-pattern)
     "RUF", # ruff-specific
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"src/tests/**" = ["S101"]  # assert is standard in pytest
+"src/tests/**" = ["S101", "BLE001"]  # assert is standard in pytest; tests may catch broadly to assert error flow
 "hf_taipy_app/**" = ["E501", "S104", "F405", "RUF022", "RUF005"]  # Taipy app: long help text, 0.0.0.0, star imports, unsorted __all__, list concat
 "hf_taipy_app/src/test_*.py" = ["E501", "S101", "S105", "S106"]  # Taipy app tests: long lines, asserts, fake tokens in test fixtures
 "src/evolve/targets/*/seed_programs/**" = ["F821"]  # Seed programs are exec'd with torch/math injected in globals
+# BLE001 per-file ignores below: each is a deliberate, justified catch of broad
+# Exception. Per-line `# noqa: BLE001` comments (with explanation) are preferred
+# when only a single call site needs the exemption inside a file; use these
+# file-level entries only when multiple sites in one module all share the same
+# architectural reason.
+"src/ingestion/hf_jobs_cost.py" = ["BLE001"]  # retry loop + best-effort cost history pruning
+"src/ingestion/refresh_synced_tables.py" = ["BLE001"]  # CLI error accumulator
+"src/ingestion/sync_hf_costs.py" = ["BLE001"]  # per-item HF parse loop (best-effort)
+"src/ingestion/statsbomb.py" = ["BLE001"]  # per-match fetch best-effort (logs with traceback, records failure)
+"src/ingestion/wyscout.py" = ["BLE001"]  # downloader best-effort + _raw_extra_json building (logs with traceback)
+"src/ingestion/tracking_metadata.py" = ["BLE001"]  # per-match XML/kloppy parse best-effort
+"src/ingestion/dbt_runner.py" = ["BLE001"]  # SDK token resolution (prints + re-raises)
+"src/evolve/**" = ["BLE001"]  # Typed error-return paths in evolve backends
 
 [tool.ruff.lint.isort]
 known-first-party = ["analytics", "evolve", "ingestion", "shared", "workflows"]

@@ -31,21 +31,31 @@ class _BackfillExtraGuard:
         backfilled (no type-specific data). Prevents infinite re-runs.
         """
         table = f"{catalog}.{schema}.statsbomb_events"
-        try:
+        import logging as _logging
+
+        from ingestion.utils import tolerate_missing_table
+
+        _guard_logger = _logging.getLogger(__name__)
+
+        match_ids: list[str] = []
+        table_present = False
+        with tolerate_missing_table(_guard_logger, f"Table {table} missing — assume work needed"):
             rows = spark.table(table).filter("_raw_extra_json IS NULL").select("match_id").distinct().collect()
             match_ids = sorted({str(row["match_id"]) for row in rows})
+            table_present = True
 
-            if not match_ids:
-                return FilterResult(workflow_id=self.workflow_id, count=0)
-
-            return FilterResult(
-                workflow_id=self.workflow_id,
-                count=len(match_ids),
-                metadata={"new_match_ids": match_ids},
-            )
-        except Exception:
-            # Table may not exist — assume work needed
+        if not table_present:
+            # Table may not exist on first run — assume work needed.
             return FilterResult(workflow_id=self.workflow_id, count=1)
+
+        if not match_ids:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        return FilterResult(
+            workflow_id=self.workflow_id,
+            count=len(match_ids),
+            metadata={"new_match_ids": match_ids},
+        )
 
 
 skip_guard = _BackfillExtraGuard()

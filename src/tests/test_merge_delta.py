@@ -63,15 +63,41 @@ class TestMergeDeltaTable:
         mock_audit: MagicMock,
         _mock_delta_module: MagicMock,
     ) -> None:
-        """Falls back to overwrite when target table doesn't exist."""
+        """Falls back to overwrite when target table doesn't exist.
+
+        Uses a realistic Spark error message so ``tolerate_missing_table``
+        suppresses it. Non-table-missing errors now propagate (regression
+        guard for the 2026-04-14 silent-swallow remediation).
+        """
         df = _mock_df(["event_id", "value"])
         mock_audit.return_value = df
-        _mock_delta_module.forName.side_effect = Exception("Table not found")
+        _mock_delta_module.forName.side_effect = Exception(
+            "[TABLE_OR_VIEW_NOT_FOUND] Table `cat`.`schema`.`test_table` not found"
+        )
 
         result = merge_delta_table(df, "cat", "schema", "test_table", merge_key="event_id")
 
         assert result == 5
         df.write.format.assert_called_once_with("delta")
+
+    @patch("ingestion.utils.add_audit_columns")
+    def test_propagates_non_missing_table_errors(
+        self,
+        mock_audit: MagicMock,
+        _mock_delta_module: MagicMock,
+    ) -> None:
+        """Permission errors and schema mismatches must NOT be suppressed.
+
+        Regression guard: the old bare ``except Exception:`` would have
+        treated a permission-denied error as "table missing" and then
+        attempted an overwrite, masking the real problem.
+        """
+        df = _mock_df(["event_id", "value"])
+        mock_audit.return_value = df
+        _mock_delta_module.forName.side_effect = PermissionError("access denied")
+
+        with pytest.raises(PermissionError, match="access denied"):
+            merge_delta_table(df, "cat", "schema", "test_table", merge_key="event_id")
 
     @patch("ingestion.utils.add_audit_columns")
     def test_merge_called_on_existing_table(
@@ -131,7 +157,7 @@ class TestMergeDeltaTable:
         """Return value matches the source DataFrame row count."""
         df = _mock_df(["event_id"], count=42)
         mock_audit.return_value = df
-        _mock_delta_module.forName.side_effect = Exception("no table")
+        _mock_delta_module.forName.side_effect = Exception("[TABLE_OR_VIEW_NOT_FOUND] no table")
 
         result = merge_delta_table(df, "cat", "schema", "tbl", merge_key="event_id")
 

@@ -165,13 +165,14 @@ def _read_existing_match_ids(
     logger: logging.Logger,
 ) -> set[int]:
     """Return match IDs already present in a Delta table, or empty set if table doesn't exist."""
+    from ingestion.utils import tolerate_missing_table
+
     full_table = f"{catalog}.{schema}.{table}"
-    try:
+    result: set[int] = set()
+    with tolerate_missing_table(logger, f"Table {full_table} not found — starting fresh"):
         existing = spark.read.table(full_table).select("match_id").distinct().collect()
-        return {row["match_id"] for row in existing}
-    except Exception:
-        logger.debug("Table %s not found or unreadable, starting fresh", full_table, exc_info=True)
-        return set()
+        result = {row["match_id"] for row in existing}
+    return result
 
 
 def _safe_fetch(
@@ -235,7 +236,9 @@ def ingest_matches_and_details(
 
     # Read existing (competition_id, season_id) combos to skip re-fetching matches
     existing_match_combos: set[tuple[int, int]] = set()
-    try:
+    from ingestion.utils import tolerate_missing_table
+
+    with tolerate_missing_table(logger, "No existing statsbomb_matches table — will fetch all combos"):
         combo_rows = (
             spark.table(f"{catalog}.{schema}.statsbomb_matches")
             .select("competition_id", "season_id")
@@ -244,8 +247,6 @@ def ingest_matches_and_details(
         )
         existing_match_combos = {(int(row["competition_id"]), int(row["season_id"])) for row in combo_rows}
         logger.info("Found %d existing competition/season combos in statsbomb_matches", len(existing_match_combos))
-    except Exception:
-        logger.info("No existing statsbomb_matches table — will fetch all combos")
 
     unique_combos = competitions_pdf[["competition_id", "season_id"]].drop_duplicates()
     total = len(unique_combos)

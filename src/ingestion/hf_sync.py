@@ -120,11 +120,19 @@ def _run_sub_workflow(
     schema: str,
     logger_arg: logging.Logger,
 ) -> None:
-    """Run a single sub-workflow, swallowing failures."""
+    """Run a single sub-workflow, logging failures at ERROR level and continuing.
+
+    This is an orchestration-level best-effort — the hf_sync workflow runs
+    several independent sub-workflows and should complete the remaining ones
+    even if one fails. Failures are logged at ERROR level so they surface in
+    standard error-log queries; previously-used WARNING level hid real bugs
+    (e.g. the 2026-04-12 cost-hook schema drift was a sub-workflow failure
+    that nobody saw for 62+ hours).
+    """
     try:
         op(spark, catalog, schema, logger_arg)
     except Exception:
-        logger_arg.warning(
+        logger_arg.error(
             "Sub-workflow %s failed — continuing with remaining operations",
             label,
             exc_info=True,
