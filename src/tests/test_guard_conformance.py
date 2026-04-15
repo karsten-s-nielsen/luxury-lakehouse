@@ -943,7 +943,7 @@ class TestStaticDatasetGuards:
         mod = importlib.import_module(module_path)
         guard = mod.skip_guard
         spark = MagicMock()
-        spark.table.side_effect = Exception("Table not found")
+        spark.table.side_effect = Exception("[TABLE_OR_VIEW_NOT_FOUND] Table not found")
         result = guard.check(spark, "soccer_analytics", "dev_gold")
         assert result.count > 0, f"{guard.workflow_id}: expected work but got count=0"
 
@@ -974,7 +974,7 @@ class TestStaticDatasetGuards:
         from ingestion.wyscout import skip_guard
 
         spark = MagicMock()
-        spark.table.side_effect = Exception("Table not found")
+        spark.table.side_effect = Exception("[TABLE_OR_VIEW_NOT_FOUND] Table not found")
         result = skip_guard.check(spark, "soccer_analytics", "dev_gold")
         assert result.count > 0, "wf-wyscout: expected work but got count=0"
 

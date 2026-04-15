@@ -294,14 +294,14 @@ def ingest_tracking(
         "gk_jersey_numbers",
     ]
 
+    from ingestion.utils import tolerate_missing_table
+
     # Incremental skip: check which matches already exist in the Delta table
     all_match_ids = list(_TRACKING_URLS.keys()) + list(_EPTS_URLS.keys())
     existing_ids: set[str] = set()
-    try:
+    with tolerate_missing_table(logger, "No existing metrica_tracking table — processing all matches"):
         existing_rows = spark.table(f"{catalog}.{schema}.metrica_tracking").select("match_id").distinct().collect()
         existing_ids = {str(row["match_id"]) for row in existing_rows}
-    except Exception:
-        logger.info("No existing metrica_tracking table — processing all matches")
 
     new_match_ids = [mid for mid in all_match_ids if mid not in existing_ids]
     logger.info(

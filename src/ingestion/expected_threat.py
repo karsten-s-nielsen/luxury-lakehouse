@@ -83,7 +83,7 @@ class _ExpectedThreatGuard:
                 .collect()
             }
             need_global = "global" not in existing
-        except Exception:
+        except Exception:  # noqa: BLE001 — first-run fallback: any table-read failure means rebuild global grid
             need_global = True
 
         total = len(new_comps) + (1 if need_global else 0)

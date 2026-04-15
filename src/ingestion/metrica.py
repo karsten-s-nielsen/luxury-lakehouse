@@ -50,13 +50,16 @@ class _MetricaGuard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Skip if all 3 Metrica sample games are already ingested."""
-        try:
+        import logging as _logging
+
+        from ingestion.utils import tolerate_missing_table
+
+        _guard_logger = _logging.getLogger(__name__)
+        with tolerate_missing_table(_guard_logger, "Metrica tables missing — needs ingestion"):
             t_count = spark.table(f"{catalog}.{schema}.metrica_tracking").select("match_id").distinct().count()
             e_count = spark.table(f"{catalog}.{schema}.metrica_events").select("match_id").distinct().count()
             if t_count >= self._EXPECTED_MATCH_COUNT and e_count >= self._EXPECTED_MATCH_COUNT:
                 return FilterResult(workflow_id=self.workflow_id, count=0)
-        except Exception:  # noqa: S110
-            pass  # Table missing — needs ingestion
         return FilterResult(workflow_id=self.workflow_id, count=1)
 
 

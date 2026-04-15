@@ -176,7 +176,7 @@ def _try_load_champion_xg(
             len(xgboost_bytes),
         )
         return logistic_bytes, xgboost_bytes
-    except Exception:
+    except Exception:  # noqa: BLE001 — MLflow registry raises many unrelated exception types on missing Champion
         log.info("xG @Champion not found in MLflow registry — will load from UC Volume", exc_info=True)
         return None
 
@@ -274,10 +274,13 @@ def run_pipeline(
         )
         logger.info("Wrote %d predictions for competition_id=%s", row_count, comp_id)
 
-    # Clean up temp table
+    # Clean up temp table. Use DROP TABLE IF EXISTS so missing-table is a no-op;
+    # any other exception (permission denied, session dead) is logged at debug
+    # since the temp table will be cleaned up by the workspace garbage collector
+    # on session termination anyway.
     try:
         spark.sql(f"DROP TABLE IF EXISTS {_temp_table}")
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort cleanup; session GC handles it if this fails
         logger.debug("Could not drop temp table %s", _temp_table, exc_info=True)
     return 0
 

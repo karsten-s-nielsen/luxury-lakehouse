@@ -71,7 +71,7 @@ def validate_cli() -> None:
         try:
             WorkflowCard.from_yaml_file(yaml_path)
             print(f"{yaml_path.name}: OK")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — CLI error accumulator: continues to next file so all errors surface in one run
             has_errors = True
             print(f"{yaml_path.name}: ERROR — {exc}")
 

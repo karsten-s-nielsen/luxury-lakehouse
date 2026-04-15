@@ -74,7 +74,7 @@ def _try_load_champion_defcon(
 
         logger.info("Loaded DEFCON @Champion from MLflow (%d bytes)", len(model_bytes))
         return model_bytes
-    except Exception:
+    except Exception:  # noqa: BLE001 — MLflow registry raises many unrelated exception types on missing Champion
         logger.info("DEFCON @Champion not found in MLflow registry — will use per-match training", exc_info=True)
         return None
 

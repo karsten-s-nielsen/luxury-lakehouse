@@ -107,9 +107,12 @@ class _Prepare360Guard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check if upstream data has grown since last export."""
+        from ingestion.utils import tolerate_missing_table
+
         volume_path = _DEFAULT_VOLUME_PATH
 
-        try:
+        upstream_count: int | None = None
+        with tolerate_missing_table(_guard_logger, f"Upstream fct_action_values missing in {catalog}.{schema}"):
             upstream_count = (
                 spark.table(f"{catalog}.{schema}.fct_action_values")
                 .filter("data_source = 'statsbomb'")
@@ -117,14 +120,13 @@ class _Prepare360Guard:
                 .distinct()
                 .count()
             )
-        except Exception:
+
+        if upstream_count is None:
             return FilterResult(workflow_id=self.workflow_id, count=0)
 
         existing_count = 0
-        try:
+        with tolerate_missing_table(_guard_logger, f"No existing export at {volume_path}"):
             existing_count = spark.read.parquet(volume_path).count()
-        except Exception:
-            _guard_logger.debug("No existing export at %s", volume_path)
 
         if existing_count >= upstream_count and existing_count > 0:
             return FilterResult(workflow_id=self.workflow_id, count=0)

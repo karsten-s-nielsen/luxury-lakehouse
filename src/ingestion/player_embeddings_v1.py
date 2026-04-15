@@ -55,7 +55,10 @@ class _Football2VecGuard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check if new source matches need embedding computation."""
+        import logging as _logging
+
         from ingestion.guards import ensure_table, find_new_ids
+        from ingestion.utils import tolerate_missing_table
 
         source_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_action_values"
         results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
@@ -63,10 +66,9 @@ class _Football2VecGuard:
 
         # Defensive fallback: if source returns empty but results exist,
         # skip rather than recomputing everything.
-        try:
+        has_results = False
+        with tolerate_missing_table(_logging.getLogger(__name__), f"No results table yet at {results_table}"):
             has_results = spark.table(results_table).limit(1).count() > 0
-        except Exception:
-            has_results = False
 
         new_match_ids = find_new_ids(
             spark,

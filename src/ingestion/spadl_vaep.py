@@ -111,12 +111,21 @@ class _VaepGuard:
         if total_new == 0:
             return FilterResult(workflow_id=self.workflow_id, count=0)
 
+        # Union new_spadl with unscored so Stage 2 sees the match_ids Stage 1
+        # is about to add to spadl_actions in the same run. The two sets are
+        # disjoint by construction (new_spadl = in_events ∧ ¬in_spadl,
+        # unscored = in_spadl ∧ ¬in_vaep — cannot satisfy both), so the union
+        # is lossless and total_new remains accurate. Without the union,
+        # Stage 2 reads filter_result.metadata["unscored_vaep_match_ids"]
+        # (pre-Stage-1 state) and skips any match_id Stage 1 is about to add,
+        # reporting SUCCEEDED with zero new rows written. Reproduced
+        # 2026-04-14 during the feat/gold-data-repair investigation.
         return FilterResult(
             workflow_id=self.workflow_id,
             count=total_new,
             metadata={
                 "new_spadl_match_ids": sorted(new_spadl),
-                "unscored_vaep_match_ids": sorted(unscored),
+                "unscored_vaep_match_ids": sorted(set(new_spadl) | set(unscored)),
             },
         )
 
@@ -203,7 +212,7 @@ def _try_load_champion_vaep(
 
         logger.info("Loaded VAEP @Champion models from MLflow")
         return model_scores, model_concedes
-    except Exception:
+    except Exception:  # noqa: BLE001 — MLflow registry raises many unrelated exception types on missing Champion
         logger.info("VAEP @Champion not found in MLflow registry -- will train from scratch", exc_info=True)
         return None
 
@@ -387,8 +396,16 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                 game_out["data_source"] = pdf["data_source"].iloc[0]
 
                 all_scored.append(game_out)
-            except Exception:  # noqa: S110
-                pass  # executor -- cannot log; skip failed games silently
+            except Exception as exc:
+                # Surface per-game failures with game_id context so Spark
+                # propagates them to the driver. The previous silent-swallow
+                # pattern hid scoring-UDF failures entirely — bronze.vaep_action_values
+                # would get zero rows for any failing game with no trace, and
+                # daily job runs reported SUCCEEDED regardless. This is
+                # load-bearing for detecting regressions in silly_kicks feature
+                # functions, VAEP model drift, and downstream schema changes.
+                msg = f"VAEP scoring failed for game_id={game_id}"
+                raise RuntimeError(msg) from exc
 
         if not all_scored:
             return _pd.DataFrame(columns=_output_cols)

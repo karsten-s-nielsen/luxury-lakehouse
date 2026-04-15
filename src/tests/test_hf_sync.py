@@ -23,7 +23,12 @@ class TestHfSync:
         assert mock_run.call_count == 7
 
     def test_run_sub_workflow_swallows_failure(self) -> None:
-        """_run_sub_workflow handles callable failures gracefully."""
+        """_run_sub_workflow logs failure at ERROR and continues (doesn't raise).
+
+        Error level (not warning) so failures surface in error-log queries —
+        changed 2026-04-15 after the warm-tier blocker showed warning-level
+        logs are invisible.
+        """
         from ingestion.hf_sync import _run_sub_workflow
 
         spark = MagicMock()
@@ -31,7 +36,8 @@ class TestHfSync:
         failing_op = MagicMock(side_effect=RuntimeError("boom"))
 
         _run_sub_workflow("test-op", failing_op, spark, "cat", "schema", logger_mock)
-        logger_mock.warning.assert_called_once()
+        logger_mock.error.assert_called_once()
+        logger_mock.warning.assert_not_called()
 
     def test_run_sub_workflow_calls_op(self) -> None:
         """_run_sub_workflow passes correct args to the callable."""

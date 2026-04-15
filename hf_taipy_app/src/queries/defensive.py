@@ -55,7 +55,7 @@ def fetch_vaep_rankings(comp_id: int, min_min: int) -> pd.DataFrame:
             f"LIMIT 500",
             (comp_id, min_min),
         )
-    except Exception:
+    except RuntimeError:
         logger.debug("Percentile join failed (table may not exist); falling back to base query")
         return execute_query(
             f"SELECT ps.player_id, p.player_display_name, p.position_group, "  # noqa: S608
@@ -383,14 +383,26 @@ def fetch_breakdown_player_ids(comp_id: int, team_id: int | None) -> set[int]:
 
 
 @ttl_cache(ttl=600)
-def fetch_defcon_percentiles(comp_id: int, player_ids: tuple[int, ...]) -> dict[int, float]:
+def fetch_defcon_percentiles(comp_id: int, player_ids: tuple[int, ...]) -> dict[int, float] | None:
     """Fetch defcon_per_90_pctile for a batch of players.
 
-    Returns {player_id: pctile_value} dict. Gracefully returns empty dict
-    if the percentile table doesn't exist yet.
+    Returns one of three disambiguated results:
+      - ``dict[int, float]`` (non-empty) — percentile values keyed by player_id.
+      - ``{}`` (empty dict) — query succeeded but no matching rows for the
+        requested (comp_id, player_ids) combination (e.g. players have NULL
+        percentiles or don't appear in the table).
+      - ``None`` — the percentile feature is UNAVAILABLE for this app run:
+        either no player_ids were passed, or the upstream
+        ``fct_player_percentiles_synced`` table is missing / inaccessible.
+
+    Callers can use ``if result:`` (truthy check) to branch "has data" vs
+    "fall back to non-percentile display", which works identically for both
+    ``None`` and ``{}``. The ``None`` sentinel gives future callers (e.g.
+    observability / operator dashboards) the ability to distinguish
+    "feature off-line" from "feature on-line but no rows for this query".
     """
     if not player_ids:
-        return {}
+        return None
     try:
         pctile_tbl = t("fct_player_percentiles_synced")
         placeholders = ", ".join(["%s"] * len(player_ids))
@@ -406,9 +418,13 @@ def fetch_defcon_percentiles(comp_id: int, player_ids: tuple[int, ...]) -> dict[
         if df.empty:
             return {}
         return {int(row["player_id"]): float(row["defcon_per_90_pctile"]) for _, row in df.iterrows()}
-    except Exception:
-        logger.debug("DEFCON percentile lookup failed (table may not exist)")
-        return {}
+    except RuntimeError:
+        logger.warning(
+            "DEFCON percentile lookup failed — feature unavailable for this request. "
+            "If this persists, check that fct_player_percentiles_synced is up-to-date.",
+            exc_info=True,
+        )
+        return None
 
 
 @ttl_cache()

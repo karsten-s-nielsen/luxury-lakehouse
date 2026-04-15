@@ -144,6 +144,7 @@ def test_bench_wf_refresh(benchmark: Any, mock_cards: dict[str, dict[str, Any]])
     cold = _make_cold_costs(mock_cards)
     warm = _make_warm_costs()
     jobs = _make_job_runs(mock_cards)
+    latest = pd.DataFrame(columns=pd.Index(["workflow_id", "cold_start_seconds"]))
 
     import state.workflows as wf_mod
 
@@ -157,7 +158,9 @@ def test_bench_wf_refresh(benchmark: Any, mock_cards: dict[str, dict[str, Any]])
             patch.object(wf_mod, "load_cards_from_yaml", return_value=mock_cards),
             patch.object(wf_mod, "fetch_cold_costs", return_value=cold),
             patch.object(wf_mod, "fetch_warm_costs", return_value=warm),
+            patch.object(wf_mod, "fetch_latest_run_metrics", return_value=latest),
             patch.object(wf_mod, "_fetch_job_runs", return_value=jobs),
+            patch.object(wf_mod, "_fetch_hf_cost_history", return_value={}),
         ):
             wf_mod.wf_refresh(state)
 
@@ -172,6 +175,7 @@ def test_bench_wf_filter_change(benchmark: Any, mock_cards: dict[str, dict[str, 
     cold = _make_cold_costs(mock_cards)
     warm = _make_warm_costs()
     jobs = _make_job_runs(mock_cards)
+    latest = pd.DataFrame(columns=pd.Index(["workflow_id", "cold_start_seconds"]))
 
     import state.workflows as wf_mod
 
@@ -188,7 +192,9 @@ def test_bench_wf_filter_change(benchmark: Any, mock_cards: dict[str, dict[str, 
         with (
             patch.object(wf_mod, "fetch_cold_costs", return_value=cold),
             patch.object(wf_mod, "fetch_warm_costs", return_value=warm),
+            patch.object(wf_mod, "fetch_latest_run_metrics", return_value=latest),
             patch.object(wf_mod, "_fetch_job_runs", return_value=jobs),
+            patch.object(wf_mod, "_fetch_hf_cost_history", return_value={}),
         ):
             wf_mod._refresh_table(state)
 

@@ -59,7 +59,7 @@ def fetch_cold_costs() -> pd.DataFrame:
             f"ORDER BY total_cost_usd DESC "
             f"LIMIT 100",
         )
-    except Exception:
+    except RuntimeError:
         logger.warning("Cold cost query failed — costs unavailable", exc_info=True)
         return _empty
 
@@ -91,7 +91,7 @@ def fetch_latest_run_metrics() -> pd.DataFrame:
             f") sub "
             f"WHERE rn = 1",
         )
-    except Exception:
+    except RuntimeError:
         logger.warning("Latest run metrics query failed", exc_info=True)
         return _empty
 
@@ -116,6 +116,6 @@ def fetch_warm_costs() -> pd.DataFrame:
             f"ORDER BY started_at DESC "
             f"LIMIT 500",
         )
-    except Exception:
+    except RuntimeError:
         logger.warning("Warm cost query failed — costs unavailable", exc_info=True)
         return pd.DataFrame()

@@ -215,7 +215,7 @@ def run_pipeline(
     except FileNotFoundError:
         logger.info("OBSO surfaces not found at %s — skipping (surfaces are optional)", surfaces_path)
     except Exception:
-        logger.warning("Unexpected error reading OBSO surfaces at %s — skipping", surfaces_path, exc_info=True)
+        logger.error("Unexpected error reading OBSO surfaces at %s — skipping", surfaces_path, exc_info=True)
 
     logger.info("OBSO import complete")
     return 0

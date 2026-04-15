@@ -74,23 +74,37 @@ def _load_scalar_baselines(
     Returns a dict keyed by (model_name, metric_name) with fields:
     reference_value, threshold_warn, threshold_alert.
     """
+    from ingestion.utils import tolerate_missing_table
+
     table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.model_baseline_scalars"
-    try:
+    baselines_df: pd.DataFrame | None = None
+    with tolerate_missing_table(logger, f"Cannot find {table} — returning empty baselines"):
         baselines_df = spark.table(table).toPandas()
-    except Exception:
-        logger.warning("Cannot read baselines from %s — returning empty", table)
+
+    if baselines_df is None:
         return {}
 
+    def _to_float(value: object) -> float:
+        """Convert a pandas cell value to float, returning 0.0 for NA / None."""
+        if value is None:
+            return 0.0
+        try:
+            if pd.isna(value):  # type: ignore[arg-type]
+                return 0.0
+        except (TypeError, ValueError):
+            # `pd.isna` can raise on non-scalar inputs we do not expect here.
+            return 0.0
+        return float(value)  # type: ignore[arg-type]
+
     result: dict[tuple[str, str], dict[str, float]] = {}
-    for _, row in baselines_df.iterrows():
-        key = (str(row["model_name"]), str(row["metric_name"]))
-        ref_val = float(row["reference_value"]) if pd.notna(row["reference_value"]) else 0.0
-        warn = float(row["threshold_warn"]) if pd.notna(row["threshold_warn"]) else 0.0
-        alert = float(row["threshold_alert"]) if pd.notna(row["threshold_alert"]) else 0.0
+    # Convert to list[dict] so pyright types each row cell as `Any` (not
+    # `Series | NDArray[bool_]`), which keeps `_to_float`'s guards safe.
+    for row_dict in baselines_df.to_dict(orient="records"):
+        key = (str(row_dict["model_name"]), str(row_dict["metric_name"]))
         result[key] = {
-            "reference_value": ref_val,
-            "threshold_warn": warn,
-            "threshold_alert": alert,
+            "reference_value": _to_float(row_dict.get("reference_value")),
+            "threshold_warn": _to_float(row_dict.get("threshold_warn")),
+            "threshold_alert": _to_float(row_dict.get("threshold_alert")),
         }
 
     logger.info("Loaded %d scalar baselines from %s", len(result), table)
@@ -110,18 +124,18 @@ def _validate_xg_predictions(
 ) -> list[ValidationResult]:
     """Validate xG model predictions: mean prediction PSI and metric thresholds."""
     from analytics.model_validation import ValidationResult, check_physical_bounds
+    from ingestion.utils import tolerate_missing_table
 
     results: list[ValidationResult] = []
     table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_xg_predictions"
 
-    try:
+    xg_df: pd.DataFrame | None = None
+    with tolerate_missing_table(logger, f"Cannot find {table} — skipping xG validation"):
         xg_df = spark.table(table).select("xg_prediction").limit(500_000).toPandas()
-    except Exception:
-        logger.warning("Cannot read %s — skipping xG validation", table)
-        return results
 
-    if xg_df.empty:
-        logger.info("No xG predictions to validate")
+    if xg_df is None or xg_df.empty:
+        if xg_df is not None:
+            logger.info("No xG predictions to validate")
         return results
 
     predictions = xg_df["xg_prediction"].dropna().to_numpy(dtype=np.float64)
@@ -167,18 +181,18 @@ def _validate_action_values(
 ) -> list[ValidationResult]:
     """Validate VAEP action values: negative fraction, distribution shape."""
     from analytics.model_validation import ValidationResult
+    from ingestion.utils import tolerate_missing_table
 
     results: list[ValidationResult] = []
     table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_action_values"
 
-    try:
+    vaep_df: pd.DataFrame | None = None
+    with tolerate_missing_table(logger, f"Cannot find {table} — skipping VAEP validation"):
         vaep_df = spark.table(table).select("vaep_value").limit(500_000).toPandas()
-    except Exception:
-        logger.warning("Cannot read %s — skipping VAEP validation", table)
-        return results
 
-    if vaep_df.empty:
-        logger.info("No VAEP values to validate")
+    if vaep_df is None or vaep_df.empty:
+        if vaep_df is not None:
+            logger.info("No VAEP values to validate")
         return results
 
     values = vaep_df["vaep_value"].dropna().to_numpy(dtype=np.float64)
@@ -218,11 +232,13 @@ def _validate_line_breaking(
 ) -> list[ValidationResult]:
     """Validate line-breaking detection rate via CUSUM."""
     from analytics.model_validation import ValidationResult, compute_cusum
+    from ingestion.utils import tolerate_missing_table
 
     results: list[ValidationResult] = []
     table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_passes"
 
-    try:
+    passes_df: pd.DataFrame | None = None
+    with tolerate_missing_table(logger, f"Cannot find {table} — skipping line-breaking validation"):
         passes_df = (
             spark.table(table)
             .select("match_id", "is_line_breaking")
@@ -230,11 +246,8 @@ def _validate_line_breaking(
             .agg({"is_line_breaking": "avg"})
             .toPandas()
         )
-    except Exception:
-        logger.warning("Cannot read %s — skipping line-breaking validation", table)
-        return results
 
-    if passes_df.empty:
+    if passes_df is None or passes_df.empty:
         return results
 
     rates = passes_df.iloc[:, 1].dropna().to_numpy(dtype=np.float64)
@@ -268,17 +281,16 @@ def _validate_physical_stats(
 ) -> list[ValidationResult]:
     """Validate physical stats: max speed within physics bounds."""
     from analytics.model_validation import check_physical_bounds
+    from ingestion.utils import tolerate_missing_table
 
     results: list[ValidationResult] = []
     table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_physical_stats"
 
-    try:
+    phys_df: pd.DataFrame | None = None
+    with tolerate_missing_table(logger, f"Cannot find {table} — skipping physical stats validation"):
         phys_df = spark.table(table).select("max_speed_ms").limit(500_000).toPandas()
-    except Exception:
-        logger.warning("Cannot read %s — skipping physical stats validation", table)
-        return results
 
-    if phys_df.empty:
+    if phys_df is None or phys_df.empty:
         return results
 
     speeds = phys_df["max_speed_ms"].dropna().to_numpy(dtype=np.float64)
@@ -301,17 +313,16 @@ def _validate_pausa(
 ) -> list[ValidationResult]:
     """Validate PAUSA scores: temporal/spatial within [0, 1]."""
     from analytics.model_validation import check_physical_bounds
+    from ingestion.utils import tolerate_missing_table
 
     results: list[ValidationResult] = []
     table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_pausa_values"
 
-    try:
+    pausa_df: pd.DataFrame | None = None
+    with tolerate_missing_table(logger, f"Cannot find {table} — skipping PAUSA validation"):
         pausa_df = spark.table(table).select("temporal_judgment", "spatial_selection").limit(500_000).toPandas()
-    except Exception:
-        logger.warning("Cannot read %s — skipping PAUSA validation", table)
-        return results
 
-    if pausa_df.empty:
+    if pausa_df is None or pausa_df.empty:
         return results
 
     temporal = pausa_df["temporal_judgment"].dropna().to_numpy(dtype=np.float64)

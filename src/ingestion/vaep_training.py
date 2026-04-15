@@ -74,8 +74,9 @@ def extract_features_for_games(
             all_x.append(x_game)
             all_y_scores.append(y_scores)
             all_y_concedes.append(y_concedes)
-        except Exception:
-            _log.exception("Failed feature extraction for game %s", game_id)
+        except Exception as exc:
+            msg = f"VAEP feature extraction failed for game_id={game_id}"
+            raise RuntimeError(msg) from exc
 
     if not all_x:
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()

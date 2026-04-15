@@ -215,7 +215,10 @@ def get_workflow_guards() -> dict[str, SkipGuard]:
             mod = importlib.import_module(module_path)
             guard = mod.skip_guard  # type: ignore[attr-defined]
             guards[guard.workflow_id] = guard
-        except Exception:
-            _logger.warning("Skipping guard from %s (import failed)", module_path, exc_info=True)
+        except (ImportError, ModuleNotFoundError, AttributeError):
+            # ImportError: guard module itself failed to import (missing dep).
+            # AttributeError: guard module exists but doesn't expose `skip_guard`.
+            # Both are legitimate "skip this guard" cases on first install.
+            _logger.error("Skipping guard from %s (import failed)", module_path, exc_info=True)
 
     return guards

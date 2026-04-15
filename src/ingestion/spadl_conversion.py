@@ -36,6 +36,32 @@ if TYPE_CHECKING:
 _SPADL_TABLE = "spadl_actions"
 
 
+def _make_statsbomb_replace_where(new_game_ids: list[int]) -> str:
+    """Build a replaceWhere predicate scoped to the specific StatsBomb matches being re-processed.
+
+    The predicate MUST NOT be broader than the match_ids actually present in the
+    UDF output — a broad ``data_source='statsbomb'`` predicate would wipe all
+    existing statsbomb rows on every incremental run.
+    """
+    if not new_game_ids:
+        msg = "replace_where predicate requires at least one match_id"
+        raise ValueError(msg)
+    ids_sql = ", ".join(str(int(mid)) for mid in sorted(new_game_ids))
+    return f"data_source = 'statsbomb' AND match_id IN ({ids_sql})"
+
+
+def _make_wyscout_replace_where(new_game_ids: list[int]) -> str:
+    """Build a replaceWhere predicate scoped to the specific Wyscout matches being re-processed.
+
+    See ``_make_statsbomb_replace_where`` for the rationale.
+    """
+    if not new_game_ids:
+        msg = "replace_where predicate requires at least one match_id"
+        raise ValueError(msg)
+    ids_sql = ", ".join(str(int(mid)) for mid in sorted(new_game_ids))
+    return f"data_source = 'wyscout' AND match_id IN ({ids_sql})"
+
+
 # ---------------------------------------------------------------------------
 # Incremental helpers
 # ---------------------------------------------------------------------------
@@ -49,13 +75,14 @@ def _read_existing_match_ids(
     logger: logging.Logger,
 ) -> set[int]:
     """Return match_ids already present in a Delta table, or empty set if table doesn't exist."""
+    from ingestion.utils import tolerate_missing_table
+
     full_table = f"{catalog}.{schema}.{table}"
-    try:
+    result: set[int] = set()
+    with tolerate_missing_table(logger, f"Table {full_table} not found — starting fresh"):
         rows = spark.table(full_table).select("match_id").distinct().collect()
-        return {int(row["match_id"]) for row in rows}
-    except Exception:
-        logger.debug("Table %s not found — starting fresh", full_table, exc_info=True)
-        return set()
+        result = {int(row["match_id"]) for row in rows}
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -115,8 +142,9 @@ def _make_sb_spadl_udf() -> object:
         try:
             adapted = _adapt(pdf, home_team_id)
             actions, _report = _spadl_sb.convert_to_actions(adapted, home_team_id)
-        except Exception:
-            return _pd.DataFrame(columns=_spadl_cols)
+        except Exception as exc:
+            msg = f"StatsBomb SPADL conversion failed for match_id={match_id}"
+            raise RuntimeError(msg) from exc
 
         actions["match_id"] = match_id
         actions["competition_id"] = competition_id
@@ -242,7 +270,7 @@ def _convert_statsbomb_from_bronze(
         catalog,
         schema,
         _SPADL_TABLE,
-        replace_where="data_source = 'statsbomb'",
+        replace_where=_make_statsbomb_replace_where(new_game_ids),
         logger=logger,
     )
 
@@ -314,8 +342,9 @@ def _make_ws_spadl_udf(goalkeeper_ids: set[int] | None = None) -> object:
         try:
             adapted = _adapt(pdf)
             actions, _report = _spadl_ws.convert_to_actions(adapted, home_team_id, goalkeeper_ids=_gk_ids)
-        except Exception:
-            return _pd.DataFrame(columns=_spadl_cols)
+        except Exception as exc:
+            msg = f"Wyscout SPADL conversion failed for match_id={match_id}"
+            raise RuntimeError(msg) from exc
 
         actions["match_id"] = match_id
         actions["competition_id"] = competition_id
@@ -386,15 +415,19 @@ def _convert_wyscout_from_bronze(
 
     logger.info("Wyscout: converting %d new games (of %d total)", len(new_game_ids), len(all_game_ids))
 
-    # Load goalkeeper player IDs for keeper_claim reclassification
+    # Load goalkeeper player IDs for keeper_claim reclassification. If the
+    # wyscout_players table doesn't exist yet (first run) we fall back to empty
+    # set; any other failure is a real bug and must propagate.
+    from ingestion.utils import tolerate_missing_table as _tolerate_missing_table
+
     goalkeeper_ids: set[int] = set()
-    try:
-        players_table = f"{catalog}.{schema}.wyscout_players"
+    players_table = f"{catalog}.{schema}.wyscout_players"
+    with _tolerate_missing_table(
+        logger, "Wyscout wyscout_players table missing — keeper_claim reclassification disabled"
+    ):
         gk_rows = spark.table(players_table).filter("role:code2 = 'GK'").select("wyId").collect()
         goalkeeper_ids = {int(row["wyId"]) for row in gk_rows}
         logger.info("Wyscout: loaded %d goalkeeper IDs for keeper_claim routing", len(goalkeeper_ids))
-    except Exception:
-        logger.warning("Could not load wyscout_players — keeper_claim reclassification disabled", exc_info=True)
 
     # Build lookup DataFrame with home_team_id, competition_id, season_id per game
     # Derive competition_id and season_id from matches metadata
@@ -460,7 +493,7 @@ def _convert_wyscout_from_bronze(
         catalog,
         schema,
         _SPADL_TABLE,
-        replace_where="data_source = 'wyscout'",
+        replace_where=_make_wyscout_replace_where(new_game_ids),
         logger=logger,
     )
 

@@ -124,11 +124,24 @@ def main() -> None:
         "velocity_y",
     ]
     dfs: list[pd.DataFrame] = []
+    # Required-columns subset that must be present even on the fallback path.
+    # Without this, a production schema migration that removes a column would
+    # be silently accepted and cascade into downstream KeyError at compute time.
+    _critical_cols = {"match_id", "frame_id", "player_id", "x", "y"}
     for fp in local_paths:
         try:
             dfs.append(pd.read_parquet(fp, columns=needed_cols))
-        except Exception:
+        except ValueError as col_err:
+            # pyarrow raises ValueError when a requested column isn't in the file.
             df = pd.read_parquet(fp)
+            missing_critical = _critical_cols - set(df.columns)
+            if missing_critical:
+                msg = (
+                    f"Parquet file {fp} is missing critical columns {sorted(missing_critical)} "
+                    f"— cannot compute space creation. Check upstream schema. "
+                    f"Original error: {col_err}"
+                )
+                raise RuntimeError(msg) from col_err
             dfs.append(df[[c for c in needed_cols if c in df.columns]])
     tracking_df = pd.concat(dfs, ignore_index=True)
     del dfs

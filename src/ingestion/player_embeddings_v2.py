@@ -141,7 +141,11 @@ def _import_v2_embeddings(
             v2_pdf["data_source"] = v2_pdf["match_id"].map(lambda mid: ds_map.get(mid, "unknown"))
             logger.info("Derived data_source for %d matches from fct_action_values", len(ds_map))
     except Exception:
-        logger.warning("Could not load match metadata — stat vectors will be None")
+        logger.error(
+            "Could not load match metadata from fct_action_values — "
+            "stat vectors will be None and data_source will be 'unknown'",
+            exc_info=True,
+        )
         match_competition_map = {}
         if needs_data_source:
             v2_pdf["data_source"] = "unknown"
@@ -281,7 +285,12 @@ def run_pipeline(
             logger.info("Player embedding pipeline complete (v2 path)")
             return 0
     except Exception:
-        logger.warning("v2 import failed — falling back to Doc2Vec v1", exc_info=True)
+        logger.error(
+            "v2 import failed — falling back to Doc2Vec v1. "
+            "The v1 fallback masks the v2 failure — investigate the ERROR trace "
+            "above to fix the root cause (e.g. HF Hub auth, dataset schema drift).",
+            exc_info=True,
+        )
 
     logger.info("Proceeding with v1 Doc2Vec inference path")
     run_pipeline_v1(spark, catalog, schema, logger, filter_result=filter_result)

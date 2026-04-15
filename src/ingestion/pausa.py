@@ -158,14 +158,21 @@ def _process_matches(
     from pyspark.sql import functions as F  # noqa: N812
     from pyspark.sql.types import DoubleType, IntegerType, StringType, StructField, StructType
 
+    from workflows.exceptions import WorkflowSkippedError
+
     raw_table = f"{catalog}.bronze.pausa_raw_scores"
 
-    # Read raw OBSO scalars
+    # Read raw OBSO scalars. If the upstream OBSO batch hasn't run yet the table
+    # doesn't exist — raise WorkflowSkippedError (not return 0) so the workflow
+    # runner records a SKIPPED state instead of a false-success completion.
     try:
         raw_df = spark.table(raw_table)
-    except Exception:
-        logger.warning("Cannot read table %s — run OBSO batch (D16) first", raw_table)
-        return 0
+    except Exception as exc:
+        msg = (
+            f"Cannot read table {raw_table} — upstream OBSO batch (wf-import-obso) "
+            "has not run yet. Waiting for upstream; skipping PAUSA computation."
+        )
+        raise WorkflowSkippedError(msg) from exc
 
     new_ids_str = filter_result.metadata["new_match_ids"]
     logger.info("%d matches to process", len(new_ids_str))

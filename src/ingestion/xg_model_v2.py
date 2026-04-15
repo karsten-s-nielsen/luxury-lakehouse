@@ -108,7 +108,7 @@ def _try_load_champion_xg_v2(
 
         log.info("Loaded xG v2 @Champion from MLflow (%d bytes, run=%s)", len(weights_bytes), run_id)
         return weights_bytes
-    except Exception:
+    except Exception:  # noqa: BLE001 — MLflow registry raises many unrelated exception types on missing Champion
         log.info("xG v2 @Champion not found in MLflow registry", exc_info=True)
         return None
 
@@ -152,7 +152,7 @@ def _try_load_champion_xgboost(
 
         log.info("Loaded XGBoost @Champion from MLflow (%d bytes)", len(xgboost_bytes))
         return xgboost_bytes
-    except Exception:
+    except Exception:  # noqa: BLE001 — MLflow registry raises many unrelated exception types on missing Champion
         log.info("XGBoost @Champion not found in MLflow registry — will load from UC Volume", exc_info=True)
         return None
 
@@ -321,17 +321,21 @@ def run_pipeline(
         v2_model_path = f"/Volumes/{catalog}/{DEFAULT_GOLD_SCHEMA}/model_weights/xg_model_v2/model_weights.json"
         try:
             v2_weights_bytes = spark.read.format("binaryFile").load(v2_model_path).first()["content"]
-            # SEC2: verify artifact integrity from UC Volume sidecar (if any)
-            verify_artifact_hash(
-                data=v2_weights_bytes,
-                expected_sha256=_load_volume_sidecar_hash(v2_model_path),
-                artifact_label="xg_model_v2_weights_volume",
-                logger=logger,
+        except Exception as exc:
+            msg = (
+                f"xG v2 weights not available at MLflow @Champion OR UC Volume {v2_model_path}. "
+                "Cannot run v2 scoring pipeline — weights must be present for inference. "
+                "Train and register a model via scripts/train_xg_v2_hf.py before running."
             )
-            logger.info("Loaded xG v2 weights from UC Volume (%d bytes)", len(v2_weights_bytes))
-        except Exception:
-            logger.warning("No xG v2 weights found -- cannot run v2 scoring pipeline")
-            return 0
+            raise RuntimeError(msg) from exc
+        # SEC2: verify artifact integrity from UC Volume sidecar (if any)
+        verify_artifact_hash(
+            data=v2_weights_bytes,
+            expected_sha256=_load_volume_sidecar_hash(v2_model_path),
+            artifact_label="xg_model_v2_weights_volume",
+            logger=logger,
+        )
+        logger.info("Loaded xG v2 weights from UC Volume (%d bytes)", len(v2_weights_bytes))
 
     # 4. Load v1 XGBoost model (needed for tabular feature extraction)
     xgboost_result = _try_load_champion_xgboost(logger, catalog, DEFAULT_GOLD_SCHEMA)
@@ -379,10 +383,13 @@ def run_pipeline(
         )
         logger.info("Wrote %d v2 predictions for competition_id=%s", row_count, comp_id)
 
-    # Clean up temp table
+    # Clean up temp table. Use DROP TABLE IF EXISTS so missing-table is a no-op;
+    # any other exception (permission denied, session dead) is logged at debug
+    # since the temp table will be cleaned up by the workspace garbage collector
+    # on session termination anyway.
     try:
         spark.sql(f"DROP TABLE IF EXISTS {_temp_table}")
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort cleanup; session GC handles it if this fails
         logger.debug("Could not drop temp table %s", _temp_table, exc_info=True)
     return 0
 

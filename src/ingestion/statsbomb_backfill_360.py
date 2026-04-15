@@ -30,35 +30,49 @@ class _Backfill360Guard:
         Compares distinct match_ids between statsbomb_events and
         statsbomb_360 — returns IDs of matches that need backfill.
         """
-        try:
+        import logging as _logging
+
+        from ingestion.utils import tolerate_missing_table
+
+        _guard_logger = _logging.getLogger(__name__)
+
+        event_ids: set[str] = set()
+        events_present = False
+        with tolerate_missing_table(_guard_logger, "statsbomb_events table missing — nothing to backfill"):
             event_ids = {
                 str(row["match_id"])
                 for row in spark.table(f"{catalog}.{schema}.statsbomb_events").select("match_id").distinct().collect()
             }
-            try:
-                three60_ids = {
-                    str(row["match_id"])
-                    for row in spark.table(f"{catalog}.{schema}.statsbomb_360").select("match_id").distinct().collect()
-                }
-            except Exception:
-                # 360 table doesn't exist — all event matches need backfill
-                return FilterResult(
-                    workflow_id=self.workflow_id,
-                    count=len(event_ids),
-                    metadata={"new_match_ids": sorted(event_ids)},
-                )
+            events_present = True
 
-            missing = sorted(event_ids - three60_ids)
-            if not missing:
-                return FilterResult(workflow_id=self.workflow_id, count=0)
+        if not events_present:
+            # Events table missing — truly nothing to backfill yet.
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        three60_ids: set[str] = set()
+        three60_present = False
+        with tolerate_missing_table(_guard_logger, "statsbomb_360 table missing — all event matches need backfill"):
+            three60_ids = {
+                str(row["match_id"])
+                for row in spark.table(f"{catalog}.{schema}.statsbomb_360").select("match_id").distinct().collect()
+            }
+            three60_present = True
+
+        if not three60_present:
             return FilterResult(
                 workflow_id=self.workflow_id,
-                count=len(missing),
-                metadata={"new_match_ids": missing},
+                count=len(event_ids),
+                metadata={"new_match_ids": sorted(event_ids)},
             )
-        except Exception:
-            # Events table doesn't exist — nothing to backfill
+
+        missing = sorted(event_ids - three60_ids)
+        if not missing:
             return FilterResult(workflow_id=self.workflow_id, count=0)
+        return FilterResult(
+            workflow_id=self.workflow_id,
+            count=len(missing),
+            metadata={"new_match_ids": missing},
+        )
 
 
 skip_guard = _Backfill360Guard()

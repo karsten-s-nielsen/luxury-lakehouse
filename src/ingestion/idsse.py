@@ -54,14 +54,17 @@ class _IdsseGuard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Skip if all IDSSE matches are already ingested."""
+        import logging as _logging
+
+        from ingestion.utils import tolerate_missing_table
+
         expected = len(IDSSE_MATCH_IDS)
-        try:
+        _guard_logger = _logging.getLogger(__name__)
+        with tolerate_missing_table(_guard_logger, "IDSSE tables missing — needs ingestion"):
             t_count = spark.table(f"{catalog}.{schema}.idsse_tracking").select("match_id").distinct().count()
             e_count = spark.table(f"{catalog}.{schema}.idsse_events").select("match_id").distinct().count()
             if t_count >= expected and e_count >= expected:
                 return FilterResult(workflow_id=self.workflow_id, count=0)
-        except Exception:  # noqa: S110
-            pass
         return FilterResult(workflow_id=self.workflow_id, count=1)
 
 
@@ -321,13 +324,13 @@ def ingest_idsse(
     ids_to_ingest = match_ids or IDSSE_MATCH_IDS
     required_cols = ["period", "frame", "timestamp", "player_id", "team", "x", "y", "match_id", "frame_rate"]
 
+    from ingestion.utils import tolerate_missing_table
+
     # Incremental skip: check which matches already exist in the Delta table
     existing_ids: set[str] = set()
-    try:
+    with tolerate_missing_table(logger, "No existing idsse_tracking table — processing all matches"):
         existing_rows = spark.table(f"{catalog}.{schema}.idsse_tracking").select("match_id").distinct().collect()
         existing_ids = {str(row["match_id"]) for row in existing_rows}
-    except Exception:
-        logger.info("No existing idsse_tracking table — processing all matches")
 
     new_match_ids = [mid for mid in ids_to_ingest if f"idsse_{mid}" not in existing_ids]
     logger.info(

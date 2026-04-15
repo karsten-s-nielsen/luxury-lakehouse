@@ -124,14 +124,56 @@ select = [
     "UP",  # pyupgrade
     "B",   # flake8-bugbear
     "S",   # flake8-bandit (security)
+    "BLE", # flake8-blind-except (silent-swallow anti-pattern)
     "RUF", # ruff-specific
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"src/tests/**" = ["S101"]  # assert is standard in pytest
+"src/tests/**" = ["S101", "BLE001"]  # assert is standard in pytest; tests may catch broadly to assert error flow
 "hf_taipy_app/**" = ["E501", "S104", "F405", "RUF022", "RUF005"]  # Taipy app: long help text, 0.0.0.0, star imports, unsorted __all__, list concat
 "hf_taipy_app/src/test_*.py" = ["E501", "S101", "S105", "S106"]  # Taipy app tests: long lines, asserts, fake tokens in test fixtures
 "src/evolve/targets/*/seed_programs/**" = ["F821"]  # Seed programs are exec'd with torch/math injected in globals
+# BLE001 per-file ignores below: each is a deliberate, justified catch of broad
+# Exception. Per-line `# noqa: BLE001` comments (with explanation) are preferred
+# when only a single call site needs the exemption inside a file; use these
+# file-level entries only when multiple sites in one module all share the same
+# architectural reason.
+"src/ingestion/hf_jobs_cost.py" = ["BLE001"]  # retry loop + best-effort cost history pruning
+"src/ingestion/refresh_synced_tables.py" = ["BLE001"]  # CLI error accumulator
+"src/ingestion/sync_hf_costs.py" = ["BLE001"]  # per-item HF parse loop (best-effort)
+"src/ingestion/statsbomb.py" = ["BLE001"]  # per-match fetch best-effort (logs with traceback, records failure)
+"src/ingestion/wyscout.py" = ["BLE001"]  # downloader best-effort + _raw_extra_json building (logs with traceback)
+"src/ingestion/tracking_metadata.py" = ["BLE001"]  # per-match XML/kloppy parse best-effort
+"src/ingestion/dbt_runner.py" = ["BLE001"]  # SDK token resolution (prints + re-raises)
+"src/evolve/**" = ["BLE001"]  # Typed error-return paths in evolve backends
+# Taipy UI app — event handlers, background daemons, filter init, and DB
+# pool teardown all use broad catches to prevent UI crashes. Each caught
+# exception is logged via `logger.exception()` so visibility is preserved.
+"hf_taipy_app/src/state/**" = ["BLE001"]  # Taipy state event handlers + page refreshers
+"hf_taipy_app/src/db.py" = ["BLE001"]  # connection pool teardown (best-effort close)
+"hf_taipy_app/src/filters.py" = ["BLE001"]  # filter init defensive fallbacks
+"hf_taipy_app/src/health_check.py" = ["BLE001"]  # background daemon — must not crash app
+"hf_taipy_app/src/admin_api.py" = ["BLE001"]  # background refresh thread — logs via logger.exception
+# Operational scripts — CLI tools, HF Jobs batch scripts, and defensive
+# bootstrap utilities where broad catches are architecturally acceptable
+# (each catch logs with traceback and either continues to the next item
+# or returns a typed fallback).
+"scripts/bootstrap_artifact_hashes.py" = ["BLE001"]  # MLflow @Champion / UC Volume bootstrap fallbacks
+"scripts/benchmark_hf_jobs.py" = ["BLE001"]  # per-flavor HF Jobs retry loop (logs + continues)
+"scripts/create_indexes.py" = ["BLE001"]  # index creation after specific psycopg2.OperationalError catches
+"scripts/delete_synced_table.py" = ["BLE001"]  # CLI cleanup tool (best-effort per-table delete)
+"scripts/fix_event_log_ownership.py" = ["BLE001"]  # SDK permission grant fallbacks
+"scripts/grant_synced_table_permissions.py" = ["BLE001"]  # SDK grant fallbacks
+"scripts/manage_space.py" = ["BLE001"]  # HF Space lifecycle CLI (poll + retry loops)
+"scripts/setup_lakebase_roles.py" = ["BLE001"]  # role creation best-effort
+"scripts/train_*.py" = ["BLE001"]  # HF Jobs training scripts (cost hook wrappers)
+"scripts/compute_*_hf.py" = ["BLE001"]  # HF Jobs compute scripts (per-file loops)
+"scripts/compute_epv_transition_hf_helpers.py" = ["BLE001"]
+"scripts/compute_space_creation_hf_helpers.py" = ["BLE001"]
+"scripts/train_xg_v2_hf_helpers.py" = ["BLE001"]
+"scripts/train_football2vec_v2_helpers.py" = ["BLE001"]
+"scripts/train_football2vec_360_helpers.py" = ["BLE001"]
+"scripts/publish_*_hf.py" = ["BLE001"]  # HF Hub publish scripts (per-artifact loops)
 
 [tool.ruff.lint.isort]
 known-first-party = ["analytics", "evolve", "ingestion", "shared", "workflows"]

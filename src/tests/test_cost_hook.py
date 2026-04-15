@@ -501,26 +501,16 @@ class TestMergeMechanics:
 
 
 class TestColumnCompleteness:
-    """Every MERGE row must contain all workflow_cost_live columns."""
+    """Every MERGE row must contain all workflow_cost_live columns.
 
-    REQUIRED_COLUMNS: ClassVar[set[str]] = {
-        "workflow_id",
-        "phase",
-        "run_id",
-        "runtime",
-        "hf_job_id",
-        "state",
-        "started_at",
-        "ended_at",
-        "duration_seconds",
-        "row_count",
-        "entity_count",
-        "guard_duration_seconds",
-        "rate_usd_per_hour",
-        "estimated_cost_usd",
-        "cost_source",
-        "updated_at",
-    }
+    REQUIRED_COLUMNS derives from ``_COST_LIVE_COLUMNS`` (the single source
+    of truth) so adding/removing a column in one place propagates to these
+    tests automatically.
+    """
+
+    from ingestion.cost_hook import _COST_LIVE_COLUMNS as _COLUMNS
+
+    REQUIRED_COLUMNS: ClassVar[set[str]] = {name for name, _t, _n in _COLUMNS}
 
     def _extract_row(self, spark: MagicMock) -> dict[str, object]:
         row_data = spark.createDataFrame.call_args[0][0]
@@ -571,3 +561,95 @@ class TestProtocolCompliance:
         spark = _make_spark()
         hook = CostEstimateHook(spark, catalog="cat", schema="sch")
         assert isinstance(hook, LifecycleHook)
+
+
+# ---------------------------------------------------------------------------
+# Schema-drift guard — regression guard for the 2026-04-12 warm-tier blocker.
+#
+# PR #115 removed task_key + job_run_id from scripts/create_cost_table.sql and
+# from cost_hook.py's row dict, but the live Delta table was only partially
+# migrated (job_run_id dropped at v2737; task_key never dropped). Delta's
+# whenMatchedUpdateAll() validates target columns at parse time, so every
+# hook MERGE call failed with DELTA_MERGE_UNRESOLVED_EXPRESSION. The failure
+# was hidden at WARNING level in a try/except for 62+ hours.
+#
+# This test parses the canonical SQL file and asserts the hook's declared
+# schema matches exactly. If someone adds a column to the SQL without adding
+# it to _COST_LIVE_COLUMNS (or vice versa), this test fails immediately.
+# ---------------------------------------------------------------------------
+
+
+class TestCostHookSchemaDriftGuard:
+    """`_COST_LIVE_COLUMNS` must match scripts/create_cost_table.sql exactly."""
+
+    def _parse_sql_columns(self) -> list[str]:
+        """Extract column names from the CREATE TABLE DDL in create_cost_table.sql."""
+        import re
+        from pathlib import Path
+
+        sql = Path("scripts/create_cost_table.sql").read_text()
+        match = re.search(
+            r"CREATE TABLE[^(]*\(\s*(.*?)\s*\)\s*USING",
+            sql,
+            re.DOTALL | re.IGNORECASE,
+        )
+        assert match, "Could not find CREATE TABLE block in create_cost_table.sql"
+        columns_block = match.group(1)
+
+        canonical: list[str] = []
+        for raw_line in columns_block.splitlines():
+            line = raw_line.strip().rstrip(",")
+            if not line or line.startswith("--"):
+                continue
+            # First token is the column name.
+            name = line.split()[0].strip()
+            canonical.append(name)
+        return canonical
+
+    def test_cost_live_columns_match_canonical_sql(self) -> None:
+        from ingestion.cost_hook import _COST_LIVE_COLUMNS
+
+        sql_cols = self._parse_sql_columns()
+        hook_cols = [name for name, _t, _n in _COST_LIVE_COLUMNS]
+
+        assert sorted(hook_cols) == sorted(sql_cols), (
+            f"Schema drift between create_cost_table.sql and cost_hook._COST_LIVE_COLUMNS.\n"
+            f"  SQL cols:  {sorted(sql_cols)}\n"
+            f"  Hook cols: {sorted(hook_cols)}\n"
+            f"  In SQL but not hook: {set(sql_cols) - set(hook_cols)}\n"
+            f"  In hook but not SQL: {set(hook_cols) - set(sql_cols)}"
+        )
+
+    def test_cost_live_column_order_matches_canonical_sql(self) -> None:
+        """Column order must match too — easier to scan diffs in review."""
+        from ingestion.cost_hook import _COST_LIVE_COLUMNS
+
+        sql_cols = self._parse_sql_columns()
+        hook_cols = [name for name, _t, _n in _COST_LIVE_COLUMNS]
+        assert hook_cols == sql_cols, (
+            f"Column ORDER drift between SQL and _COST_LIVE_COLUMNS:\n  SQL:  {sql_cols}\n  Hook: {hook_cols}"
+        )
+
+    def test_task_key_not_in_schema(self) -> None:
+        """Regression: task_key was the orphan column that caused the blocker."""
+        from ingestion.cost_hook import _COST_LIVE_COLUMNS
+
+        hook_cols = [name for name, _t, _n in _COST_LIVE_COLUMNS]
+        sql_cols = self._parse_sql_columns()
+        assert "task_key" not in hook_cols
+        assert "task_key" not in sql_cols
+
+    def test_job_run_id_not_in_schema(self) -> None:
+        """Regression: job_run_id was the OTHER orphan column."""
+        from ingestion.cost_hook import _COST_LIVE_COLUMNS
+
+        hook_cols = [name for name, _t, _n in _COST_LIVE_COLUMNS]
+        sql_cols = self._parse_sql_columns()
+        assert "job_run_id" not in hook_cols
+        assert "job_run_id" not in sql_cols
+
+
+# NOTE: an end-to-end integration test against a REAL Delta table lives in
+# ``test_cost_hook_integration.py`` — separate file so it isn't affected by
+# this module's autouse ``_mock_delta_tables`` fixture which stubs
+# ``delta.tables`` and ``pyspark.sql.types`` at module level.

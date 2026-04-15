@@ -103,14 +103,14 @@ def ingest_events(
     """Download and ingest event data per match to avoid OOM on batch concat."""
     required_cols = ["event_id", "type", "period", "start_frame", "end_frame", "team", "player", "match_id"]
 
+    from ingestion.utils import tolerate_missing_table
+
     # Incremental skip: check which matches already exist in the Delta table
     all_match_ids = list(_EVENT_URLS.keys()) + list(_EPTS_URLS.keys())
     existing_ids: set[str] = set()
-    try:
+    with tolerate_missing_table(logger, "No existing metrica_events table — processing all matches"):
         existing_rows = spark.table(f"{catalog}.{schema}.metrica_events").select("match_id").distinct().collect()
         existing_ids = {str(row["match_id"]) for row in existing_rows}
-    except Exception:
-        logger.info("No existing metrica_events table — processing all matches")
 
     new_match_ids = [mid for mid in all_match_ids if mid not in existing_ids]
     logger.info(

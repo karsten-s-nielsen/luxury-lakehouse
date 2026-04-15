@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from collections.abc import Mapping
 
 import requests
 from databricks.sdk import WorkspaceClient
@@ -34,7 +35,34 @@ from shared.constants import IDENTIFIER_RE
 DEFAULT_CATALOG = "soccer_analytics"
 DEFAULT_SCHEMA = "dev_gold"
 
+# Default expected owner of DLT pipeline event_log tables. Synced-table refresh
+# depends on the SP that invokes the refresh being able to read the event_log;
+# if the event_log drifts to a user principal (as happened 2026-04-02→2026-04-14
+# for 33 of 34 synced tables), the pipeline's most-recent-update will fail with
+# SYNCED_TABLE_ONLINE_PIPELINE_FAILED and the silent-success bug in the old
+# poll path would hide it for days. Group ownership via ``dbt-owners-{env}``
+# includes both the developer user and the ingestion SP, so both can ALTER the
+# event_log. See ``scripts/fix_event_log_ownership.py`` for the backfill tool.
+_DEFAULT_EXPECTED_EVENT_LOG_OWNER = "dbt-owners-dev"
+
 _CACHED_HOST: str | None = None
+
+
+def _get_workspace_client() -> WorkspaceClient:
+    """Return a Databricks ``WorkspaceClient`` instance.
+
+    Extracted as a single seam that tests can patch at module level
+    (via ``monkeypatch.setattr("ingestion.refresh_synced_tables.WorkspaceClient", ...)``
+    or via an autouse fixture) so unit tests never hit real credentials
+    resolution. CI has no ``DATABRICKS_HOST``/``DATABRICKS_TOKEN`` env
+    vars, and ``WorkspaceClient()`` otherwise fails with
+    ``default auth: cannot configure default credentials``.
+
+    Not cached here — ``_get_host`` caches the resolved host string so
+    the constructor is called at most once per process during normal
+    operation.
+    """
+    return WorkspaceClient()
 
 
 def _get_host() -> str:
@@ -58,7 +86,7 @@ def _get_host() -> str:
     """
     global _CACHED_HOST
     if _CACHED_HOST is None:
-        ws = WorkspaceClient()
+        ws = _get_workspace_client()
         host = ws.config.host
         if not host:
             msg = "WorkspaceClient could not resolve a Databricks workspace host"
@@ -117,7 +145,7 @@ def _get_auth_headers() -> dict[str, str]:
     PAT (DATABRICKS_TOKEN) → OAuth M2M (DATABRICKS_CLIENT_ID/SECRET) →
     CLI profile → ambient runtime context (Databricks job).
     """
-    ws = WorkspaceClient()
+    ws = _get_workspace_client()
     return ws.config.authenticate()
 
 
@@ -159,8 +187,142 @@ def _trigger_refresh(pipeline_id: str, headers: dict[str, str]) -> tuple[str, bo
     return (resp.json().get("update_id", ""), False)
 
 
+# Update lifecycle states that mean "still in flight — keep polling".
+# Source: Databricks REST API /api/2.0/pipelines/{id} latest_updates[].state enum.
+_UPDATE_IN_FLIGHT_STATES: frozenset[str] = frozenset(
+    {
+        "RUNNING",
+        "CREATED",
+        "QUEUED",
+        "WAITING_FOR_RESOURCES",
+        "INITIALIZING",
+        "SETTING_UP_TABLES",
+        "RESETTING",
+        "RESYNCING",
+    }
+)
+
+
+def _classify_pipeline_poll_response(pipeline_json: Mapping[str, object]) -> str | None:
+    """Classify a single ``/api/2.0/pipelines/<id>`` response into a terminal poll state.
+
+    The top-level ``state`` field reports whether the pipeline is currently
+    executing (``RUNNING``) or not (``IDLE``/``FAILED``/``DELETED``). It does
+    NOT reflect the success or failure of the most recent update — that lives
+    in ``latest_updates[0].state``. A pipeline whose last update FAILED still
+    reports top-level ``IDLE`` once the failing update finishes.
+
+    Returns:
+        ``"IDLE"``    — most recent update reached ``COMPLETED`` (success).
+        ``"FAILED"``  — most recent update reached ``FAILED`` or ``CANCELED``.
+        ``"DELETED"`` — the pipeline itself has been deleted.
+        ``None``      — no terminal classification yet; caller should continue
+                        polling (update is still in flight, no updates exist
+                        yet, or the reported update state is unrecognised).
+    """
+    top_state = pipeline_json.get("state")
+    if top_state == "DELETED":
+        return "DELETED"
+
+    latest_updates = pipeline_json.get("latest_updates") or []
+    if not isinstance(latest_updates, list) or not latest_updates:
+        return None
+
+    first = latest_updates[0]
+    if not isinstance(first, dict):
+        return None
+    upd_state = first.get("state")
+    if upd_state == "COMPLETED":
+        return "IDLE"
+    if upd_state in ("FAILED", "CANCELED"):
+        return "FAILED"
+    if upd_state in _UPDATE_IN_FLIGHT_STATES:
+        return None
+    # Unknown update state — defensive: continue polling. If the state never
+    # transitions to a recognised value, the caller's MAX_POLL_ATTEMPTS
+    # ceiling will eventually surface the problem as a TIMEOUT error.
+    return None
+
+
+def _event_log_fqn(*, catalog: str, schema: str, pipeline_id: str) -> str:
+    """Compute the fully-qualified name of a DLT pipeline's event_log table.
+
+    DLT creates an ``event_log_<pipeline_id_with_dashes_replaced>`` table in
+    the same schema as the synced table it backs. Keep in sync with
+    ``scripts/fix_event_log_ownership.py:_event_log_fqn`` — the backfill tool
+    uses the identical naming rule.
+    """
+    return f"{catalog}.{schema}.event_log_{pipeline_id.replace('-', '_')}"
+
+
+def _fetch_table_owner(fqn: str, headers: dict[str, str]) -> str | None:
+    """Fetch the owner principal of a Unity Catalog table via the tables API.
+
+    Returns:
+        The owner principal (e.g., ``"dbt-owners-dev"``, an SP application id,
+        or a user email), or ``None`` if the table does not exist (HTTP 404).
+
+    Raises:
+        ``requests.HTTPError`` for non-200/404 responses so the caller can
+        decide whether to abort the refresh run.
+    """
+    resp = requests.get(
+        f"{_get_host()}/api/2.1/unity-catalog/tables/{fqn}",
+        headers=headers,
+        verify=True,
+        timeout=(10, 30),
+    )
+    if resp.status_code == 404:
+        return None
+    resp.raise_for_status()
+    owner = resp.json().get("owner")
+    return owner if isinstance(owner, str) else None
+
+
+def _check_event_log_ownership(
+    pipeline_id: str,
+    headers: dict[str, str],
+    *,
+    catalog: str,
+    schema: str,
+    expected_owner: str,
+) -> tuple[bool, str, str | None]:
+    """Verify the DLT pipeline's event_log is owned by ``expected_owner``.
+
+    Returns:
+        ``(is_ok, fqn, actual_owner)``. ``is_ok`` is ``True`` when ownership
+        matches OR when the event_log does not yet exist (brand-new pipeline,
+        no drift possible). ``is_ok`` is ``False`` only when the event_log
+        exists but its owner differs from ``expected_owner`` — in that case
+        the caller MUST NOT trigger a refresh, because the DLT update will
+        fail on event_log write permission and the silent-success bug would
+        hide it until the next manual audit.
+    """
+    fqn = _event_log_fqn(catalog=catalog, schema=schema, pipeline_id=pipeline_id)
+    actual = _fetch_table_owner(fqn, headers)
+    if actual is None:
+        return (True, fqn, None)
+    return (actual == expected_owner, fqn, actual)
+
+
 def _poll_pipeline(pipeline_id: str, headers: dict[str, str]) -> str:
-    """Poll a pipeline until it reaches IDLE or fails. Returns final state."""
+    """Poll a pipeline until its MOST RECENT UPDATE reaches a terminal state.
+
+    Returns one of:
+        ``"IDLE"``    — most recent update COMPLETED (success).
+        ``"FAILED"``  — most recent update FAILED or CANCELED.
+        ``"DELETED"`` — pipeline was deleted.
+        ``"TIMEOUT"`` — poll exhausted ``MAX_POLL_ATTEMPTS`` without a terminal state.
+
+    NOTE: We deliberately do NOT return when the top-level pipeline ``state``
+    reaches ``IDLE`` — that just means "not currently executing" and can
+    coexist with a FAILED most-recent-update. The previous version of this
+    function had that bug, producing silent-success reports on failed syncs.
+    The ``"IDLE"`` return value is retained for the success path so that
+    callers (see :func:`main`) can keep their existing equality check against
+    ``"IDLE"`` for "COMPLETE" — the semantics now mean "most recent update
+    COMPLETED", not "pipeline currently idle".
+    """
     for _ in range(MAX_POLL_ATTEMPTS):
         resp = requests.get(
             f"{_get_host()}/api/2.0/pipelines/{pipeline_id}",
@@ -169,9 +331,9 @@ def _poll_pipeline(pipeline_id: str, headers: dict[str, str]) -> str:
             timeout=(10, 30),
         )
         resp.raise_for_status()
-        state: str = resp.json().get("state", "UNKNOWN")
-        if state in ("IDLE", "FAILED", "DELETED"):
-            return state
+        classification = _classify_pipeline_poll_response(resp.json())
+        if classification is not None:
+            return classification
         time.sleep(POLL_INTERVAL_S)
     return "TIMEOUT"
 
@@ -200,6 +362,24 @@ def main() -> None:
             f"Default schema for synced tables that have no per-table override "
             f"(default: {DEFAULT_SCHEMA}). Per-table overrides in SYNCED_TABLES "
             f"(e.g., observability) still apply."
+        ),
+    )
+    parser.add_argument(
+        "--expected-event-log-owner",
+        type=str,
+        default=_DEFAULT_EXPECTED_EVENT_LOG_OWNER,
+        help=(
+            f"Expected owner of DLT pipeline event_log tables. Each synced "
+            f"table is pre-checked before its refresh is triggered; drift "
+            f"here is a hard error. Default: {_DEFAULT_EXPECTED_EVENT_LOG_OWNER}."
+        ),
+    )
+    parser.add_argument(
+        "--skip-event-log-check",
+        action="store_true",
+        help=(
+            "Skip the event_log ownership pre-check. Emergency bypass only — "
+            "normal refresh runs should leave this off so drift fails loudly."
         ),
     )
     args = parser.parse_args()
@@ -243,6 +423,29 @@ def main() -> None:
         try:
             schema = table_schema_map[table]
             pipeline_id = _get_pipeline_id(table, headers, catalog=args.catalog, schema=schema)
+
+            # Pre-check event_log ownership — ownership drift here has already
+            # caused a multi-day outage once (2026-04-02→2026-04-14, 33 of 34
+            # synced tables). Fail fast with an actionable error rather than
+            # trigger the refresh and let the DLT update fail silently.
+            if not args.skip_event_log_check:
+                ok, fqn, actual = _check_event_log_ownership(
+                    pipeline_id,
+                    headers,
+                    catalog=args.catalog,
+                    schema=schema,
+                    expected_owner=args.expected_event_log_owner,
+                )
+                if not ok:
+                    print(
+                        f"[{i}/{total}] DRIFT: {table} event_log {fqn} owned by "
+                        f"{actual!r}, expected {args.expected_event_log_owner!r}. "
+                        f"Fix: python scripts/fix_event_log_ownership.py "
+                        f"--tables {table}"
+                    )
+                    errors += 1
+                    continue
+
             _, already_running = _trigger_refresh(pipeline_id, headers)
             if already_running:
                 print(f"[{i}/{total}] Already running: {table}")

@@ -157,6 +157,8 @@ def _export_possession_episodes(
     Returns:
         Number of possession episode rows exported.
     """
+    from ingestion.utils import tolerate_missing_table
+
     _ = schema  # reads from DEFAULT_GOLD_SCHEMA, not the pipeline schema
     gold = DEFAULT_GOLD_SCHEMA
 
@@ -164,46 +166,46 @@ def _export_possession_episodes(
     # 0. Skip guard — compare upstream action count vs existing episodes
     # ------------------------------------------------------------------
     output_path = _UC_VOLUME_PATH.format(catalog=catalog)
-    try:
+    upstream_count: int | None = None
+    with tolerate_missing_table(export_logger, f"Upstream fct_action_values missing in {catalog}.{gold}"):
         upstream_count = spark.table(f"{catalog}.{gold}.fct_action_values").count()
-    except Exception:
-        upstream_count = None
 
     if upstream_count is not None:
-        try:
+        existing_count = 0
+        with tolerate_missing_table(export_logger, f"No existing export at {output_path} — full export"):
             existing_count = spark.read.parquet(output_path).count()
-            if existing_count > 0:
-                export_logger.info(
-                    "ScoutGPT training data already exists at %s (%d episodes) — checking upstream",
-                    output_path,
-                    existing_count,
-                )
-                # Simple freshness heuristic: if action count hasn't changed,
-                # the segmented episodes won't change either.
-                export_logger.info(
-                    "Upstream fct_action_values has %d actions",
-                    upstream_count,
-                )
-                # Store upstream count as a metadata marker to detect changes.
-                # If no change in action count, skip re-export.
-                try:
-                    meta_df = spark.read.text(f"{output_path}/_upstream_count")
-                    stored_count = int(meta_df.collect()[0]["value"])
-                    if stored_count == upstream_count:
-                        export_logger.info(
-                            "Upstream action count unchanged (%d) — skipping re-export",
-                            upstream_count,
-                        )
-                        return existing_count
+
+        if existing_count > 0:
+            export_logger.info(
+                "ScoutGPT training data already exists at %s (%d episodes) — checking upstream",
+                output_path,
+                existing_count,
+            )
+            # Simple freshness heuristic: if action count hasn't changed,
+            # the segmented episodes won't change either.
+            export_logger.info(
+                "Upstream fct_action_values has %d actions",
+                upstream_count,
+            )
+            # Store upstream count as a metadata marker to detect changes.
+            # If no change in action count, skip re-export.
+            stored_count: int | None = None
+            with tolerate_missing_table(export_logger, "No upstream count marker found — re-exporting"):
+                meta_df = spark.read.text(f"{output_path}/_upstream_count")
+                stored_count = int(meta_df.collect()[0]["value"])
+
+            if stored_count is not None:
+                if stored_count == upstream_count:
                     export_logger.info(
-                        "Upstream action count changed (%d -> %d) — re-exporting",
-                        stored_count,
+                        "Upstream action count unchanged (%d) — skipping re-export",
                         upstream_count,
                     )
-                except Exception:
-                    export_logger.info("No upstream count marker found — re-exporting")
-        except Exception:
-            export_logger.info("No existing export at %s — full export", output_path)
+                    return existing_count
+                export_logger.info(
+                    "Upstream action count changed (%d -> %d) — re-exporting",
+                    stored_count,
+                    upstream_count,
+                )
 
     # ------------------------------------------------------------------
     # 1. Load actions joined to dim_players

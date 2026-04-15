@@ -46,13 +46,16 @@ class _SkillcornerGuard:
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Skip if all SkillCorner A-League matches are already ingested."""
+        import logging as _logging
+
+        from ingestion.utils import tolerate_missing_table
+
         expected = len(SKILLCORNER_MATCH_IDS)
-        try:
+        _guard_logger = _logging.getLogger(__name__)
+        with tolerate_missing_table(_guard_logger, "SkillCorner tracking table missing — needs ingestion"):
             t_count = spark.table(f"{catalog}.{schema}.skillcorner_tracking").select("match_id").distinct().count()
             if t_count >= expected:
                 return FilterResult(workflow_id=self.workflow_id, count=0)
-        except Exception:  # noqa: S110
-            pass
         return FilterResult(workflow_id=self.workflow_id, count=1)
 
 
@@ -194,13 +197,13 @@ def ingest_skillcorner(
     ids_to_ingest = match_ids or SKILLCORNER_MATCH_IDS
     required_cols = ["period", "frame", "timestamp", "player_id", "team", "x", "y", "match_id", "frame_rate"]
 
+    from ingestion.utils import tolerate_missing_table
+
     # Check which matches already have tracking data (incremental skip)
     existing_ids: set[str] = set()
-    try:
+    with tolerate_missing_table(logger, "No existing skillcorner_tracking table — processing all matches"):
         existing_rows = spark.table(f"{catalog}.{schema}.skillcorner_tracking").select("match_id").distinct().collect()
         existing_ids = {str(row["match_id"]) for row in existing_rows}
-    except Exception:
-        logger.info("No existing skillcorner_tracking table — processing all matches")
 
     new_match_ids = [mid for mid in ids_to_ingest if f"skillcorner_{mid}" not in existing_ids]
     logger.info(
