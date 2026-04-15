@@ -575,7 +575,7 @@ luxury-lakehouse/
 │   │       ├── prompts/              # L1 + L2 system messages
 │   │       └── seed_programs/        # 5 conditioning architectures (additive, cross_attention, film, gated, hybrid)
 │   │
-│   └── tests/                        # 66 test modules
+│   └── tests/                        # 86 test modules
 │       ├── conftest.py               # Shared fixtures
 │       ├── test_augmentation.py
 │       ├── test_benchmarks.py        # Performance benchmarks (pytest-benchmark)
@@ -679,7 +679,6 @@ luxury-lakehouse/
 │   ├── deploy_wheel.py               # Downloads wheel from HF Hub build-artifacts → UC Volume for inference
 │   ├── setup_hf_buckets.py           # Initialize HF Buckets (demo-data) with versioned Parquet uploads
 │   ├── setup_lakebase_roles.py       # Manage Lakebase PG roles for service principals (databricks-sdk 0.102+)
-│   ├── sync_hf_costs.py              # Sync HF Jobs cost artifacts (_workflow_cost.json) → Lakebase
 │   ├── create_indexes.py             # PG indexes on Lakebase synced tables (56 indexes, --verify + ANALYZE)
 │   ├── ensure_warehouse.py           # Verify SQL warehouse is RUNNING before dbt builds
 │   ├── maintain_synced_tables.py     # Synced table maintenance (refresh, health check)
@@ -800,7 +799,7 @@ All code must pass these gates before merge:
 
 | Level | What | How |
 |-------|------|-----|
-| Unit | Ingestion logic, utility functions, analytics models | pytest (66 test modules, incl. pytest-benchmark baselines) |
+| Unit | Ingestion logic, utility functions, analytics models | pytest (86 test modules, incl. pytest-benchmark baselines) |
 | Integration | dbt models compile and run | dbt slim CI (`state:modified+`, `--empty`, `--defer`) |
 | Data quality | Row counts, value ranges, referential integrity | dbt tests (~523) + dbt-expectations |
 | E2E | Taipy pages render with real data | Manual smoke test |
