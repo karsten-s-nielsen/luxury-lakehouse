@@ -15,6 +15,33 @@ from ingestion.refresh_synced_tables import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _stub_workspace_client_and_reset_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Autouse: stub WorkspaceClient + reset host cache so tests never hit real auth.
+
+    CI has no ``DATABRICKS_HOST``/``DATABRICKS_TOKEN``, so any test that
+    transitively reaches ``_get_host()`` or ``_get_auth_headers()`` would
+    otherwise fail with ``default auth: cannot configure default credentials``
+    the first time ``WorkspaceClient()`` is constructed. The stub returns a
+    benign MagicMock with a fake host; tests that need specific behaviour
+    (e.g. the ``_get_host_*`` regression tests) layer their own
+    ``monkeypatch.setattr`` on top — their patch wins inside the test body
+    because pytest's function-scoped monkeypatch applies setattr calls in
+    order and last-write-wins.
+
+    Also resets ``_CACHED_HOST`` so cache state from a prior test can't
+    leak forward.
+    """
+    import ingestion.refresh_synced_tables as mod
+
+    stub_client = MagicMock()
+    stub_client.config.host = "https://test.databricks.com"
+    stub_client.config.authenticate.return_value = {"Authorization": "Bearer test-token"}
+
+    monkeypatch.setattr(mod, "WorkspaceClient", lambda: stub_client)
+    monkeypatch.setattr(mod, "_CACHED_HOST", None)
+
+
 def test_get_auth_headers_uses_workspace_client(monkeypatch: pytest.MonkeyPatch) -> None:
     """_get_auth_headers must obtain headers from WorkspaceClient.config.authenticate."""
     mock_ws = MagicMock()

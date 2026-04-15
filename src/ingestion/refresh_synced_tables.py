@@ -48,6 +48,23 @@ _DEFAULT_EXPECTED_EVENT_LOG_OWNER = "dbt-owners-dev"
 _CACHED_HOST: str | None = None
 
 
+def _get_workspace_client() -> WorkspaceClient:
+    """Return a Databricks ``WorkspaceClient`` instance.
+
+    Extracted as a single seam that tests can patch at module level
+    (via ``monkeypatch.setattr("ingestion.refresh_synced_tables.WorkspaceClient", ...)``
+    or via an autouse fixture) so unit tests never hit real credentials
+    resolution. CI has no ``DATABRICKS_HOST``/``DATABRICKS_TOKEN`` env
+    vars, and ``WorkspaceClient()`` otherwise fails with
+    ``default auth: cannot configure default credentials``.
+
+    Not cached here — ``_get_host`` caches the resolved host string so
+    the constructor is called at most once per process during normal
+    operation.
+    """
+    return WorkspaceClient()
+
+
 def _get_host() -> str:
     """Resolve the Databricks workspace URL at runtime via WorkspaceClient.
 
@@ -69,7 +86,7 @@ def _get_host() -> str:
     """
     global _CACHED_HOST
     if _CACHED_HOST is None:
-        ws = WorkspaceClient()
+        ws = _get_workspace_client()
         host = ws.config.host
         if not host:
             msg = "WorkspaceClient could not resolve a Databricks workspace host"
@@ -128,7 +145,7 @@ def _get_auth_headers() -> dict[str, str]:
     PAT (DATABRICKS_TOKEN) → OAuth M2M (DATABRICKS_CLIENT_ID/SECRET) →
     CLI profile → ambient runtime context (Databricks job).
     """
-    ws = WorkspaceClient()
+    ws = _get_workspace_client()
     return ws.config.authenticate()
 
 
