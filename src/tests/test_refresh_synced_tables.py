@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import subprocess
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ingestion.refresh_synced_tables import _classify_pipeline_poll_response
+from ingestion.refresh_synced_tables import (
+    _check_event_log_ownership,
+    _classify_pipeline_poll_response,
+    _event_log_fqn,
+    _fetch_table_owner,
+)
 
 
 def test_get_auth_headers_uses_workspace_client(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -257,3 +262,139 @@ def test_failed_top_state_with_failed_latest_update_returns_failed() -> None:
         "latest_updates": [{"state": "FAILED"}],
     }
     assert _classify_pipeline_poll_response(resp) == "FAILED"
+
+
+# ---------------------------------------------------------------------------
+# Event_log ownership pre-check (Bug B 2c) — regression tests for drift
+# ---------------------------------------------------------------------------
+
+
+def test_event_log_fqn_converts_dashes_to_underscores() -> None:
+    fqn = _event_log_fqn(
+        catalog="soccer_analytics",
+        schema="dev_gold",
+        pipeline_id="4ea189db-aa43-4144-8825-da54cf965b7f",
+    )
+    assert fqn == "soccer_analytics.dev_gold.event_log_4ea189db_aa43_4144_8825_da54cf965b7f"
+
+
+def test_event_log_fqn_observability_schema() -> None:
+    fqn = _event_log_fqn(
+        catalog="soccer_analytics",
+        schema="observability",
+        pipeline_id="abc-def",
+    )
+    assert fqn == "soccer_analytics.observability.event_log_abc_def"
+
+
+def _stub_response(status_code: int, payload: object) -> MagicMock:
+    """Return a MagicMock that looks like a requests.Response with .json() and .raise_for_status()."""
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.json.return_value = payload
+
+    def _raise() -> None:
+        if status_code >= 400 and status_code != 404:
+            from requests import HTTPError
+
+            raise HTTPError(f"HTTP {status_code}")
+
+    resp.raise_for_status.side_effect = _raise
+    return resp
+
+
+def test_fetch_table_owner_returns_owner_string() -> None:
+    with patch(
+        "ingestion.refresh_synced_tables.requests.get",
+        return_value=_stub_response(200, {"owner": "dbt-owners-dev"}),
+    ):
+        owner = _fetch_table_owner("cat.sch.event_log_x", {"Authorization": "Bearer t"})
+    assert owner == "dbt-owners-dev"
+
+
+def test_fetch_table_owner_returns_none_on_404() -> None:
+    """A 404 means the event_log does not exist yet (brand-new pipeline) — not drift."""
+    with patch(
+        "ingestion.refresh_synced_tables.requests.get",
+        return_value=_stub_response(404, {"error_code": "TABLE_NOT_FOUND"}),
+    ):
+        owner = _fetch_table_owner("cat.sch.event_log_x", {"Authorization": "Bearer t"})
+    assert owner is None
+
+
+def test_fetch_table_owner_returns_none_when_owner_field_missing() -> None:
+    """Defensive: if the API stops returning the owner field, don't falsely match."""
+    with patch(
+        "ingestion.refresh_synced_tables.requests.get",
+        return_value=_stub_response(200, {"name": "event_log_x"}),
+    ):
+        owner = _fetch_table_owner("cat.sch.event_log_x", {"Authorization": "Bearer t"})
+    assert owner is None
+
+
+def test_check_event_log_ownership_ok_when_owner_matches() -> None:
+    with patch(
+        "ingestion.refresh_synced_tables.requests.get",
+        return_value=_stub_response(200, {"owner": "dbt-owners-dev"}),
+    ):
+        ok, fqn, actual = _check_event_log_ownership(
+            "4ea189db-aa43-4144-8825-da54cf965b7f",
+            {"Authorization": "Bearer t"},
+            catalog="soccer_analytics",
+            schema="dev_gold",
+            expected_owner="dbt-owners-dev",
+        )
+    assert ok is True
+    assert actual == "dbt-owners-dev"
+    assert fqn.endswith("event_log_4ea189db_aa43_4144_8825_da54cf965b7f")
+
+
+def test_check_event_log_ownership_drift_returns_false() -> None:
+    """The real-world 2026-04 regression: event_log owned by user, not the SP/group."""
+    with patch(
+        "ingestion.refresh_synced_tables.requests.get",
+        return_value=_stub_response(200, {"owner": "karstenskyt@gmail.com"}),
+    ):
+        ok, _fqn, actual = _check_event_log_ownership(
+            "0e9352e8-3d7e-4d92-a646-bcc2d6ce075c",
+            {"Authorization": "Bearer t"},
+            catalog="soccer_analytics",
+            schema="observability",
+            expected_owner="dbt-owners-dev",
+        )
+    assert ok is False
+    assert actual == "karstenskyt@gmail.com"
+
+
+def test_check_event_log_ownership_missing_event_log_is_ok() -> None:
+    """A brand-new pipeline whose event_log has not been created yet is not drift."""
+    with patch(
+        "ingestion.refresh_synced_tables.requests.get",
+        return_value=_stub_response(404, {"error_code": "TABLE_NOT_FOUND"}),
+    ):
+        ok, _fqn, actual = _check_event_log_ownership(
+            "abc-def",
+            {"Authorization": "Bearer t"},
+            catalog="soccer_analytics",
+            schema="dev_gold",
+            expected_owner="dbt-owners-dev",
+        )
+    assert ok is True
+    assert actual is None
+
+
+def test_check_event_log_ownership_prod_group() -> None:
+    """expected_owner is configurable — the default 'dbt-owners-dev' is environment-specific."""
+    with patch(
+        "ingestion.refresh_synced_tables.requests.get",
+        return_value=_stub_response(200, {"owner": "dbt-owners-prod"}),
+    ):
+        ok, _fqn, actual = _check_event_log_ownership(
+            "4ea189db-aa43-4144-8825-da54cf965b7f",
+            {"Authorization": "Bearer t"},
+            catalog="soccer_analytics",
+            schema="prod_gold",
+            expected_owner="dbt-owners-prod",
+        )
+    assert ok is True
+    assert actual == "dbt-owners-prod"

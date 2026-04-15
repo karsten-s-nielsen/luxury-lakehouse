@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from collections.abc import Mapping
 
 import requests
 from databricks.sdk import WorkspaceClient
@@ -33,6 +34,16 @@ from shared.constants import IDENTIFIER_RE
 
 DEFAULT_CATALOG = "soccer_analytics"
 DEFAULT_SCHEMA = "dev_gold"
+
+# Default expected owner of DLT pipeline event_log tables. Synced-table refresh
+# depends on the SP that invokes the refresh being able to read the event_log;
+# if the event_log drifts to a user principal (as happened 2026-04-02→2026-04-14
+# for 33 of 34 synced tables), the pipeline's most-recent-update will fail with
+# SYNCED_TABLE_ONLINE_PIPELINE_FAILED and the silent-success bug in the old
+# poll path would hide it for days. Group ownership via ``dbt-owners-{env}``
+# includes both the developer user and the ingestion SP, so both can ALTER the
+# event_log. See ``scripts/fix_event_log_ownership.py`` for the backfill tool.
+_DEFAULT_EXPECTED_EVENT_LOG_OWNER = "dbt-owners-dev"
 
 _CACHED_HOST: str | None = None
 
@@ -175,7 +186,7 @@ _UPDATE_IN_FLIGHT_STATES: frozenset[str] = frozenset(
 )
 
 
-def _classify_pipeline_poll_response(pipeline_json: dict[str, object]) -> str | None:
+def _classify_pipeline_poll_response(pipeline_json: Mapping[str, object]) -> str | None:
     """Classify a single ``/api/2.0/pipelines/<id>`` response into a terminal poll state.
 
     The top-level ``state`` field reports whether the pipeline is currently
@@ -214,6 +225,67 @@ def _classify_pipeline_poll_response(pipeline_json: dict[str, object]) -> str | 
     # transitions to a recognised value, the caller's MAX_POLL_ATTEMPTS
     # ceiling will eventually surface the problem as a TIMEOUT error.
     return None
+
+
+def _event_log_fqn(*, catalog: str, schema: str, pipeline_id: str) -> str:
+    """Compute the fully-qualified name of a DLT pipeline's event_log table.
+
+    DLT creates an ``event_log_<pipeline_id_with_dashes_replaced>`` table in
+    the same schema as the synced table it backs. Keep in sync with
+    ``scripts/fix_event_log_ownership.py:_event_log_fqn`` — the backfill tool
+    uses the identical naming rule.
+    """
+    return f"{catalog}.{schema}.event_log_{pipeline_id.replace('-', '_')}"
+
+
+def _fetch_table_owner(fqn: str, headers: dict[str, str]) -> str | None:
+    """Fetch the owner principal of a Unity Catalog table via the tables API.
+
+    Returns:
+        The owner principal (e.g., ``"dbt-owners-dev"``, an SP application id,
+        or a user email), or ``None`` if the table does not exist (HTTP 404).
+
+    Raises:
+        ``requests.HTTPError`` for non-200/404 responses so the caller can
+        decide whether to abort the refresh run.
+    """
+    resp = requests.get(
+        f"{_get_host()}/api/2.1/unity-catalog/tables/{fqn}",
+        headers=headers,
+        verify=True,
+        timeout=(10, 30),
+    )
+    if resp.status_code == 404:
+        return None
+    resp.raise_for_status()
+    owner = resp.json().get("owner")
+    return owner if isinstance(owner, str) else None
+
+
+def _check_event_log_ownership(
+    pipeline_id: str,
+    headers: dict[str, str],
+    *,
+    catalog: str,
+    schema: str,
+    expected_owner: str,
+) -> tuple[bool, str, str | None]:
+    """Verify the DLT pipeline's event_log is owned by ``expected_owner``.
+
+    Returns:
+        ``(is_ok, fqn, actual_owner)``. ``is_ok`` is ``True`` when ownership
+        matches OR when the event_log does not yet exist (brand-new pipeline,
+        no drift possible). ``is_ok`` is ``False`` only when the event_log
+        exists but its owner differs from ``expected_owner`` — in that case
+        the caller MUST NOT trigger a refresh, because the DLT update will
+        fail on event_log write permission and the silent-success bug would
+        hide it until the next manual audit.
+    """
+    fqn = _event_log_fqn(catalog=catalog, schema=schema, pipeline_id=pipeline_id)
+    actual = _fetch_table_owner(fqn, headers)
+    if actual is None:
+        return (True, fqn, None)
+    return (actual == expected_owner, fqn, actual)
 
 
 def _poll_pipeline(pipeline_id: str, headers: dict[str, str]) -> str:
@@ -275,6 +347,24 @@ def main() -> None:
             f"(e.g., observability) still apply."
         ),
     )
+    parser.add_argument(
+        "--expected-event-log-owner",
+        type=str,
+        default=_DEFAULT_EXPECTED_EVENT_LOG_OWNER,
+        help=(
+            f"Expected owner of DLT pipeline event_log tables. Each synced "
+            f"table is pre-checked before its refresh is triggered; drift "
+            f"here is a hard error. Default: {_DEFAULT_EXPECTED_EVENT_LOG_OWNER}."
+        ),
+    )
+    parser.add_argument(
+        "--skip-event-log-check",
+        action="store_true",
+        help=(
+            "Skip the event_log ownership pre-check. Emergency bypass only — "
+            "normal refresh runs should leave this off so drift fails loudly."
+        ),
+    )
     args = parser.parse_args()
 
     # Validate identifiers per CLAUDE.md security rule (regex prevents SQL injection
@@ -316,6 +406,29 @@ def main() -> None:
         try:
             schema = table_schema_map[table]
             pipeline_id = _get_pipeline_id(table, headers, catalog=args.catalog, schema=schema)
+
+            # Pre-check event_log ownership — ownership drift here has already
+            # caused a multi-day outage once (2026-04-02→2026-04-14, 33 of 34
+            # synced tables). Fail fast with an actionable error rather than
+            # trigger the refresh and let the DLT update fail silently.
+            if not args.skip_event_log_check:
+                ok, fqn, actual = _check_event_log_ownership(
+                    pipeline_id,
+                    headers,
+                    catalog=args.catalog,
+                    schema=schema,
+                    expected_owner=args.expected_event_log_owner,
+                )
+                if not ok:
+                    print(
+                        f"[{i}/{total}] DRIFT: {table} event_log {fqn} owned by "
+                        f"{actual!r}, expected {args.expected_event_log_owner!r}. "
+                        f"Fix: python scripts/fix_event_log_ownership.py "
+                        f"--tables {table}"
+                    )
+                    errors += 1
+                    continue
+
             _, already_running = _trigger_refresh(pipeline_id, headers)
             if already_running:
                 print(f"[{i}/{total}] Already running: {table}")
