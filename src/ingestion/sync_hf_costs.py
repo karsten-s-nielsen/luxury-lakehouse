@@ -8,7 +8,7 @@ Parses workflow-cards/*.yaml to discover HF Jobs repos. Designed to run as a
 Databricks scheduled task every 15 minutes.
 
 Usage:
-    python scripts/sync_hf_costs.py --catalog soccer_analytics [--cards-dir workflow-cards]
+    sync_hf_costs --catalog soccer_analytics [--cards-dir workflow-cards]
 """
 
 from __future__ import annotations
@@ -150,20 +150,34 @@ def fetch_cost_history(api: HfApi, repo_id: str, repo_type: str) -> list[dict[st
 
 
 def map_to_delta_schema(cost_data: dict[str, Any], task_key: str) -> dict[str, Any]:
-    """Map HF Jobs cost JSON to workflow_cost_live Delta schema."""
+    """Map HF Jobs cost JSON to the canonical ``workflow_cost_live`` schema.
+
+    ``task_key`` is accepted as a parameter for backward compatibility with
+    existing callers (workflow-card-driven resolution) but NOT written — the
+    canonical table schema does not contain a ``task_key`` column. HF Jobs
+    runs also do not have Databricks guard phases or entity counts, so those
+    two columns are explicitly ``None``.
+
+    The returned dict must contain exactly the 16 columns defined in
+    ``cost_hook._COST_LIVE_COLUMNS`` (enforced by the schema-drift guard
+    test). Any drift here fails the same MERGE code path that bit us on
+    2026-04-12.
+    """
+    _ = task_key  # Intentionally unused — kept for call-site compatibility.
     hf_job_id = cost_data.get("hf_job_id")
     return {
         "workflow_id": cost_data.get("workflow_id"),
         "phase": cost_data.get("phase"),
         "run_id": f"hf-{hf_job_id}" if hf_job_id else None,
         "runtime": "hf_jobs",
-        "task_key": task_key,
         "hf_job_id": hf_job_id,
         "state": cost_data.get("state"),
         "started_at": cost_data.get("started_at"),
         "ended_at": cost_data.get("ended_at"),
         "duration_seconds": cost_data.get("duration_seconds"),
         "row_count": cost_data.get("row_count"),
+        "entity_count": None,  # HF Jobs runs have no Databricks-side entity count
+        "guard_duration_seconds": None,  # HF Jobs runs have no guard phase
         "rate_usd_per_hour": cost_data.get("rate_usd_per_hour"),
         "estimated_cost_usd": cost_data.get("estimated_cost_usd"),
         "cost_source": "hf_hub_sync",

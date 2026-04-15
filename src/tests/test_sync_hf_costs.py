@@ -14,7 +14,7 @@ class TestDiscoverHfRepos:
     """Test workflow card parsing for HF Jobs repo discovery."""
 
     def test_finds_dataset_repos(self, tmp_path: Path) -> None:
-        from scripts.sync_hf_costs import discover_hf_repos
+        from ingestion.sync_hf_costs import discover_hf_repos
 
         card = {
             "id": "wf-xt-grids",
@@ -28,7 +28,7 @@ class TestDiscoverHfRepos:
         assert ("luxury-lakehouse/expected-threat-grids", "dataset", "wf-xt-grids") in repos
 
     def test_finds_model_repos(self, tmp_path: Path) -> None:
-        from scripts.sync_hf_costs import discover_hf_repos
+        from ingestion.sync_hf_costs import discover_hf_repos
 
         card = {
             "id": "wf-xg-v2",
@@ -42,7 +42,7 @@ class TestDiscoverHfRepos:
         assert ("luxury-lakehouse/xg-v2-model-set-encoder", "model", "wf-xg-v2") in repos
 
     def test_skips_non_hf_jobs_cards(self, tmp_path: Path) -> None:
-        from scripts.sync_hf_costs import discover_hf_repos
+        from ingestion.sync_hf_costs import discover_hf_repos
 
         card = {
             "id": "wf-line-breaking",
@@ -59,7 +59,7 @@ class TestFetchCostJson:
     """Test _workflow_cost.json download from HF Hub."""
 
     def test_returns_parsed_json_on_success(self, tmp_path: Path) -> None:
-        from scripts.sync_hf_costs import fetch_cost_json
+        from ingestion.sync_hf_costs import fetch_cost_json
 
         cost_data = {
             "workflow_id": "wf-xt-grids",
@@ -85,7 +85,7 @@ class TestFetchCostJson:
         assert result["state"] == "COMPLETED"
 
     def test_returns_none_on_missing_file(self) -> None:
-        from scripts.sync_hf_costs import fetch_cost_json
+        from ingestion.sync_hf_costs import fetch_cost_json
 
         api = MagicMock()
         from huggingface_hub.errors import EntryNotFoundError
@@ -96,7 +96,7 @@ class TestFetchCostJson:
         assert result is None
 
     def test_returns_none_on_network_error(self) -> None:
-        from scripts.sync_hf_costs import fetch_cost_json
+        from ingestion.sync_hf_costs import fetch_cost_json
 
         api = MagicMock()
         api.hf_hub_download.side_effect = ConnectionError("timeout")
@@ -109,7 +109,8 @@ class TestMapToDeltaSchema:
     """Test JSON -> Delta schema mapping."""
 
     def test_maps_completed_record(self) -> None:
-        from scripts.sync_hf_costs import map_to_delta_schema
+        from ingestion.cost_hook import _COST_LIVE_COLUMNS
+        from ingestion.sync_hf_costs import map_to_delta_schema
 
         cost_data = {
             "workflow_id": "wf-xt-grids",
@@ -129,13 +130,25 @@ class TestMapToDeltaSchema:
         assert row["workflow_id"] == "wf-xt-grids"
         assert row["runtime"] == "hf_jobs"
         assert row["cost_source"] == "hf_hub_sync"
-        assert row["task_key"] == "compute_xt_grid"
         assert row["run_id"] == "hf-job-abc123"
-        assert row["job_run_id"] is None
         assert row["hf_job_id"] == "job-abc123"
+        # Schema-drift guard: the row keys must EXACTLY match the canonical
+        # _COST_LIVE_COLUMNS list. task_key and job_run_id are orphaned and
+        # must NOT appear; entity_count + guard_duration_seconds must appear
+        # as None (HF Jobs have no Databricks guard phase / entity count).
+        canonical_cols = {name for name, _t, _n in _COST_LIVE_COLUMNS}
+        assert set(row.keys()) == canonical_cols, (
+            f"sync_hf_costs schema drifted from canonical:\n"
+            f"  only in row: {set(row.keys()) - canonical_cols}\n"
+            f"  only in canonical: {canonical_cols - set(row.keys())}"
+        )
+        assert "task_key" not in row
+        assert "job_run_id" not in row
+        assert row["entity_count"] is None
+        assert row["guard_duration_seconds"] is None
 
     def test_maps_running_record_with_nulls(self) -> None:
-        from scripts.sync_hf_costs import map_to_delta_schema
+        from ingestion.sync_hf_costs import map_to_delta_schema
 
         cost_data = {
             "workflow_id": "wf-vaep",
@@ -158,7 +171,7 @@ class TestFetchCostHistory:
     """Test reading _cost_history/ directory from HF Hub."""
 
     def test_reads_multiple_history_files(self, tmp_path: Path) -> None:
-        from scripts.sync_hf_costs import fetch_cost_history
+        from ingestion.sync_hf_costs import fetch_cost_history
 
         # Create two history files
         history_dir = tmp_path / "_cost_history"
@@ -191,7 +204,7 @@ class TestFetchCostHistory:
         assert {r["hf_job_id"] for r in records} == {"job-a", "job-b"}
 
     def test_returns_empty_on_missing_directory(self) -> None:
-        from scripts.sync_hf_costs import fetch_cost_history
+        from ingestion.sync_hf_costs import fetch_cost_history
 
         api = MagicMock()
         api.list_repo_tree.side_effect = Exception("not found")
@@ -201,7 +214,7 @@ class TestFetchCostHistory:
 
     def test_also_reads_legacy_workflow_cost_json(self, tmp_path: Path) -> None:
         """Falls back to _workflow_cost.json if _cost_history/ is empty."""
-        from scripts.sync_hf_costs import fetch_cost_history
+        from ingestion.sync_hf_costs import fetch_cost_history
 
         data = {
             "workflow_id": "wf-test",
@@ -223,7 +236,7 @@ class TestFetchCostHistory:
 
     def test_legacy_fallback_excludes_running_records(self, tmp_path: Path) -> None:
         """Legacy fallback only includes non-RUNNING records."""
-        from scripts.sync_hf_costs import fetch_cost_history
+        from ingestion.sync_hf_costs import fetch_cost_history
 
         data = {
             "workflow_id": "wf-test",
@@ -242,7 +255,7 @@ class TestFetchCostHistory:
 
     def test_skips_records_without_hf_job_id(self, tmp_path: Path) -> None:
         """Records missing hf_job_id are skipped."""
-        from scripts.sync_hf_costs import fetch_cost_history
+        from ingestion.sync_hf_costs import fetch_cost_history
 
         # Create a history file without hf_job_id
         history_dir = tmp_path / "_cost_history"
@@ -262,7 +275,7 @@ class TestFetchCostHistory:
 
     def test_skips_non_json_files_in_history(self) -> None:
         """Non-.json files in _cost_history/ are ignored."""
-        from scripts.sync_hf_costs import fetch_cost_history
+        from ingestion.sync_hf_costs import fetch_cost_history
 
         api = MagicMock()
         gitkeep = MagicMock(spec=RepoFile)

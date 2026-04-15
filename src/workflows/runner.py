@@ -23,12 +23,18 @@ def register_hook(hook: LifecycleHook) -> None:
 
 
 def _dispatch(hooks: list[LifecycleHook], method: str, *args: Any) -> None:
-    """Call a lifecycle method on all hooks, swallowing individual failures."""
+    """Call a lifecycle method on all hooks, swallowing individual failures.
+
+    Hook failures are logged at ERROR level (not warning) so they surface in
+    standard error-log queries. Still fire-and-forget to avoid crashing the
+    pipeline. Bumped from warning→error 2026-04-15 after the cost-hook
+    schema-drift blocker was hidden at warning level for 62+ hours.
+    """
     for hook in hooks:
         try:
             getattr(hook, method)(*args)
         except Exception:
-            _logger.warning(
+            _logger.error(
                 "Hook %s.%s failed — continuing pipeline execution",
                 type(hook).__name__,
                 method,
