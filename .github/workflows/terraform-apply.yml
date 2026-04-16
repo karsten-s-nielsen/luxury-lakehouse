@@ -1,0 +1,54 @@
+name: Terraform Apply
+
+# Auto-apply on push to main when terraform/ files change.
+# The plan was already reviewed during the PR (terraform-plan.yml);
+# this workflow executes the approved changes.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform-apply.yml"
+
+env:
+  TF_WORKING_DIR: terraform/environments/dev
+  AWS_REGION: us-east-1
+  TF_VAR_databricks_host: ${{ vars.DATABRICKS_HOST }}
+  TF_VAR_databricks_client_id: ${{ vars.DATABRICKS_CLIENT_ID }}
+  TF_VAR_databricks_account_id: ${{ vars.DATABRICKS_ACCOUNT_ID }}
+  DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+  DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+  DATABRICKS_AUTH_TYPE: github-oidc
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: terraform-apply
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@5e8dbf3c6d9deaf4193ca7a8fb23f2ac83bb6c85 # v4.0.0
+        with:
+          terraform_version: "~> 1.10"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+        with:
+          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform init
+
+      - name: Terraform Apply
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform apply -auto-approve -no-color
