@@ -1063,12 +1063,12 @@ models:
           - not_null
       - name: data_source
         data_type: string
-        description: Data provider (statsbomb, wyscout)
+        description: Data provider or model variant (statsbomb, wyscout, football2vec_360)
         data_tests:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb', 'wyscout']
+                values: ['statsbomb', 'wyscout', 'football2vec_360']
       - name: behavioral_vector
         data_type: array<double>
         description: >
