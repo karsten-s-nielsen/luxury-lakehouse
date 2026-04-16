@@ -17,6 +17,7 @@ env:
   TF_VAR_databricks_host: ${{ vars.DATABRICKS_HOST }}
   TF_VAR_databricks_client_id: ${{ vars.DATABRICKS_CLIENT_ID }}
   TF_VAR_databricks_account_id: ${{ vars.DATABRICKS_ACCOUNT_ID }}
+  TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
   # No TF_VAR_databricks_client_secret — empty default triggers OIDC fallback
   DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
   DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
