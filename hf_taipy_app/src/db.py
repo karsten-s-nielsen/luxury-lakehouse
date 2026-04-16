@@ -38,6 +38,14 @@ _pool_created_at: float = 0.0
 _RETRY_MAX_ATTEMPTS = 3
 _RETRY_DELAY_SECONDS = 3
 
+# Connection pool sizing.
+# With statement_timeout=30s a maxconn of 5 caps throughput at ~0.17 QPS
+# before PoolError, which is easily saturated by 2-3 concurrent users loading
+# heavier pages (Conversion Funnel, GK Passes). 15 gives ~7.5 QPS of headroom
+# while staying well under typical Lakebase endpoint connection limits.
+_POOL_MIN_CONN = 1
+_POOL_MAX_CONN = 15
+
 
 _EMAIL_RE = re.compile(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
 
@@ -161,8 +169,8 @@ def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
         pg_user: str = _token_cache["user"] or _extract_jwt_subject(token)
 
         _pool = psycopg2.pool.ThreadedConnectionPool(
-            minconn=1,
-            maxconn=5,
+            minconn=_POOL_MIN_CONN,
+            maxconn=_POOL_MAX_CONN,
             host=settings.lakebase_host,
             port=5432,
             database=settings.lakebase_database,
@@ -173,7 +181,12 @@ def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
             options="-c statement_timeout=30000",
         )
         _pool_created_at = now
-        logger.info("Created connection pool (min=1, max=5) for user=%s", pg_user)
+        logger.info(
+            "Created connection pool (min=%d, max=%d) for user=%s",
+            _POOL_MIN_CONN,
+            _POOL_MAX_CONN,
+            pg_user,
+        )
         return _pool
 
 

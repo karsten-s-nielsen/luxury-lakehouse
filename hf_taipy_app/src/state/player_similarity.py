@@ -334,7 +334,7 @@ def on_ps_selected_compare_change(state: Any, var_name: str, var_value: Any) -> 
     comp_id = _resolve_competition_id(state)
 
     try:
-        radar_data = fetch_similarity_radar_stats([player_id, compare_id], comp_id)
+        radar_data = fetch_similarity_radar_stats((player_id, compare_id), comp_id)
         if radar_data.empty:
             state.ps_radar_image = ""
             state.ps_spoke_caption = ""
