@@ -30,13 +30,17 @@ _ALLOWED_COUNT_COLUMNS: frozenset[str] = frozenset({"total_matches", "matches_in
 @ttl_cache()
 def fetch_player_radar_stats(
     comp_id: int,
-    player_ids: list[int],
+    player_ids: tuple[int, ...],
 ) -> pd.DataFrame:
     """Fetch per-90 stats for selected players, picking best season per player.
 
     Uses ROW_NUMBER() to select the season with most minutes, avoiding
     duplicates when a competition spans multiple seasons. LEFT JOINs
     physical stats averaged across tracking matches.
+
+    ``player_ids`` MUST be a tuple so the cache key is deterministic — a
+    mutable list argument would cache ``[1, 2]`` and ``[2, 1]`` as different
+    entries despite producing the same SQL.
 
     Expected columns: player_id, player_display_name, minutes_played,
     goals_per_90, xg_per_90, passes_per_90, progressive_passes_per_90,
@@ -83,11 +87,14 @@ def fetch_player_radar_stats(
     )
 
 
+@ttl_cache()
 def fetch_player_percentiles_batch(
-    player_ids: list[int],
+    player_ids: tuple[int, ...],
     comp_id: int,
 ) -> dict[int, pd.DataFrame] | None:
     """Fetch percentile ranks for multiple players in one query.
+
+    ``player_ids`` MUST be a tuple so the cache key is deterministic.
 
     Returns one of three disambiguated results:
       - ``dict[int, pd.DataFrame]`` (non-empty) — percentile rows keyed by
@@ -103,6 +110,11 @@ def fetch_player_percentiles_batch(
     percentiles present" check — both work identically for ``None`` and
     ``{}``. The ``None`` sentinel gives future callers the ability to
     distinguish "feature off-line" from "no matching rows".
+
+    Caching note: an error return (``None`` from the RuntimeError branch)
+    is cached for the TTL window.  This is intentional — it prevents
+    hammering a broken ``fct_player_percentiles_synced`` endpoint on every
+    radar render; the warning log still fires once per TTL window.
     """
     if not player_ids:
         return None
@@ -167,6 +179,7 @@ def fetch_player_embedding_vector(
     )
 
 
+@ttl_cache()
 def search_similar_players(
     table: str,
     vector_str: str,
@@ -179,6 +192,11 @@ def search_similar_players(
     competition_id: int | None,
 ) -> pd.DataFrame:
     """Run pgvector cosine distance query to find similar players.
+
+    All arguments are primitives (str / int / int | None), so the cache
+    key is deterministic without any normalization.  Caching avoids
+    re-running the cosine-distance scan for the same target player and
+    filter combination on every re-render.
 
     Expected columns: canonical_player_id, player_display_name,
     data_sources, <total_col>, distance.
@@ -215,10 +233,14 @@ def search_similar_players(
 
 @ttl_cache()
 def fetch_similarity_radar_stats(
-    canonical_player_ids: list[str],
+    canonical_player_ids: tuple[str, ...],
     competition_id: int | None,
 ) -> pd.DataFrame:
     """Load per-90 stats for radar comparison of two players.
+
+    ``canonical_player_ids`` MUST be a tuple so the cache key is
+    deterministic — a mutable list would cache ``["A", "B"]`` and
+    ``["B", "A"]`` separately despite producing the same result.
 
     Expected columns: canonical_player_id, player_display_name,
     minutes_played, goals_per_90, xg_per_90, passes_per_90,

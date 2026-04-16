@@ -35,6 +35,8 @@ botocore==1.34.162
     # via
     #   boto3
     #   s3transfer
+cachetools==7.0.5
+    # via luxury-lakehouse (pyproject.toml)
 cattrs==26.1.0
     # via requests-cache
 certifi==2026.2.25

@@ -1830,6 +1830,7 @@ sdk = [
     { name = "databricks-sdk", version = "0.102.0", source = { registry = "https://pypi.org/simple" } },
 ]
 taipy-app = [
+    { name = "cachetools" },
     { name = "databricks-sdk", version = "0.102.0", source = { registry = "https://pypi.org/simple" } },
     { name = "huggingface-hub" },
     { name = "mplsoccer" },
@@ -1869,6 +1870,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cachetools", marker = "extra == 'taipy-app'", specifier = ">=6.0.0" },
     { name = "databricks-sdk", marker = "extra == 'sdk'", specifier = ">=0.102.0" },
     { name = "databricks-sdk", marker = "extra == 'taipy-app'", specifier = ">=0.102.0" },
     { name = "dbt-core", marker = "extra == 'dbt'", specifier = ">=1.10.0" },

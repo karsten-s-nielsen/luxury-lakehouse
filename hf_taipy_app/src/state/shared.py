@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from cache import clear_cache
 from filters import (
     fetch_competitions,
     fetch_matches,
@@ -277,6 +278,13 @@ def on_competition_change(state: Any, var_name: str, var_value: Any) -> None:
     if comp_id is None:
         return
     logger.info("Competition: %r (id=%d)", var_value, comp_id)
+
+    # Drop cached query results for the previous competition.  The TTL cache
+    # is bounded but eviction is LRU; without an explicit clear, stale entries
+    # for the previous comp_id linger and push out entries that are still
+    # relevant for the new competition.  Also prevents cross-competition data
+    # contamination if any query key is accidentally comp-less.
+    clear_cache()
 
     # Reset dependents to "All" (clearable)
     state.selected_team = _ALL_LABEL

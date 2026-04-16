@@ -254,7 +254,7 @@ def pr_refresh(state: Any) -> None:
     # Limit to 3 players
     player_ids = player_ids[:3]
 
-    stats = fetch_player_radar_stats(comp_id, player_ids)
+    stats = fetch_player_radar_stats(comp_id, tuple(player_ids))
     if stats.empty:
         _clear_state(state)
         state.pr_comp_selected = True
@@ -307,7 +307,7 @@ def pr_refresh(state: Any) -> None:
 
     # Attempt to fetch percentile data for each player (graceful degradation)
     pctile_data: dict[int, pd.DataFrame] = {}
-    pctile_data = fetch_player_percentiles_batch(player_ids, comp_id)
+    pctile_data = fetch_player_percentiles_batch(tuple(player_ids), comp_id)
 
     # Use percentile-based scaling when ALL players have percentile data
     # and ALL selected metrics have a percentile column mapping.

@@ -18,9 +18,9 @@ def _reset_cache() -> object:
     """Each test starts and ends with an empty in-memory cache."""
     import cache
 
-    cache._cache.clear()
+    cache.clear_cache()
     yield
-    cache._cache.clear()
+    cache.clear_cache()
 
 
 # --- _validate_hf_admin: input shape ---
@@ -188,8 +188,12 @@ def test_endpoint_valid_auth_clears_cache(monkeypatch: pytest.MonkeyPatch) -> No
 
     monkeypatch.setattr("admin_api._validate_hf_admin", lambda _h: (True, 200, "karsten"))
 
-    cache._cache["k1"] = (1.0, "v1")
-    cache._cache["k2"] = (2.0, "v2")
+    @cache.ttl_cache()
+    def _seed(x: int) -> int:
+        return x * 2
+
+    _seed(1)
+    _seed(2)
     assert cache.cache_size() == 2
 
     app = Flask(__name__)
