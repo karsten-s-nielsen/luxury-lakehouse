@@ -19,7 +19,12 @@ with source as (
         stat_vector,
         _ingested_at,
         row_number() over (
-            partition by canonical_player_id, match_id
+            -- D62 2026-04-15: data_source is part of the dedup partition so
+            -- v2 rows (128d, data_source='statsbomb'/'wyscout') and 360 rows
+            -- (144d, data_source='football2vec_360') coexist for the same
+            -- (player, match) pair. Previously the dedup collapsed them,
+            -- silently losing one side of the collision.
+            partition by canonical_player_id, match_id, data_source
             order by _ingested_at desc
         ) as _row_num
     from {{ source('embeddings', 'player_embeddings_raw') }}

@@ -5,6 +5,7 @@ resolve_players,wf-entity-resolution
 compute_embeddings,wf-football2vec
 compute_embeddings_v2,wf-football2vec-v2
 compute_embeddings_v1,wf-football2vec
+compute_embeddings_360,wf-football2vec-360
 compute_formations,wf-formations
 compute_formations_efpi,wf-formations
 compute_formations_shape_graph,wf-shape-graphs

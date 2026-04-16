@@ -107,12 +107,14 @@ def fetch_warm_costs() -> pd.DataFrame:
     try:
         settings = get_settings()
         tbl = t("workflow_cost_live_synced", schema=settings.observability_schema)
+        # The warm tier is bounded to 7 days by fct_workflow_costs post-hook 1
+        # (D65 fix 2026-04-15) — see dbt_project/models/marts/fct_workflow_costs.sql.
+        # No date-range filter is needed here; LIMIT 500 caps the result set size.
         return execute_query(
             f"SELECT workflow_id, phase, state, task_key, "  # noqa: S608
             f"  duration_seconds, estimated_cost_usd, "
             f"  started_at, ended_at, rate_usd_per_hour "
             f"FROM {tbl} "
-            f"WHERE started_at >= NOW() - INTERVAL '30 days' "
             f"ORDER BY started_at DESC "
             f"LIMIT 500",
         )

@@ -5,11 +5,7 @@
         "DELETE FROM {{ this.database }}.observability.workflow_cost_live
          WHERE state != 'RUNNING'
            AND ended_at IS NOT NULL
-           AND ended_at < (
-               SELECT COALESCE(MAX(usage_date), DATE '1970-01-01') + INTERVAL 1 DAY
-               FROM {{ this }}
-               WHERE attributed_cost_usd IS NOT NULL
-           )",
+           AND ended_at < CURRENT_TIMESTAMP - INTERVAL 7 DAYS",
         "DELETE FROM {{ this.database }}.observability.workflow_cost_live
          WHERE state = 'RUNNING'
            AND started_at < CURRENT_TIMESTAMP - INTERVAL 24 HOURS"
@@ -41,10 +37,16 @@
 -- no job_run_id or task_key — D55 investigation confirmed).
 -- cold_start_seconds = warm.started_at - cold.task_started_at.
 --
--- Post-hook cleanup removes redundant warm-tier rows from workflow_cost_live.
--- COALESCE sentinel: if table is empty (first build), threshold becomes
--- 1970-01-02 — no legitimate workflow ended in 1970, so DELETE matches zero rows.
--- Secondary cleanup: orphaned RUNNING rows >24h. This window is aligned to the
+-- Post-hook 1 cleanup (D65 fix 2026-04-15): removes warm-tier rows older than
+-- 7 days. The 7-day window gives billing more than enough time to land while
+-- providing bounded warm-tier growth. A prior implementation used a date-based
+-- watermark (MAX usage_date WHERE billing IS NOT NULL, advanced by one day)
+-- which advanced monotonically as a SINGLE row landed with billing — pruning
+-- sibling 2026-04-14 rows whose billing had not yet arrived. Two attempts at
+-- EXISTS-correlated alternatives both surfaced edge cases (NULL workflow_id
+-- in `grant_event_log`, sibling pruning under correlation). Time-based
+-- retention is simpler, has no edge cases, and matches post-hook 2's pattern.
+-- Post-hook 2: orphaned RUNNING rows >24h. This window is aligned to the
 -- 2h compute task budget (CLAUDE.md) — a 24h-old RUNNING row is certainly orphaned.
 
 WITH billing AS (

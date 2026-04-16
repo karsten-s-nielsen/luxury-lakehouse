@@ -505,6 +505,7 @@ luxury-lakehouse/
 │   │   ├── export_embeddings_training_data.py # Export training data for football2vec v2 transformer
 │   │   ├── export_scoutgpt_training_data.py   # Export SPADL possession episodes for ScoutGPT training
 │   │   ├── export_shots_on_target.py # On-target shots export to HF Hub (D39 prerequisite)
+│   │   ├── football2vec_v2_training.py # Football2vec v2 training helpers (dataset, MLM masking, splits, LR schedule)
 │   │   ├── formations_common.py      # Shared formation detection constants
 │   │   ├── formations_efpi.py        # EFPI template-matching formation detection
 │   │   ├── formations_shape_graph.py # Shape graph geometric formation detection
@@ -575,7 +576,7 @@ luxury-lakehouse/
 │   │       ├── prompts/              # L1 + L2 system messages
 │   │       └── seed_programs/        # 5 conditioning architectures (additive, cross_attention, film, gated, hybrid)
 │   │
-│   └── tests/                        # 86 test modules
+│   └── tests/                        # 91 test modules
 │       ├── conftest.py               # Shared fixtures
 │       ├── test_augmentation.py
 │       ├── test_benchmarks.py        # Performance benchmarks (pytest-benchmark)
@@ -695,7 +696,6 @@ luxury-lakehouse/
 │   ├── train_xg_v2_hf_helpers.py     # xG v2 training helpers (dataset, evaluation)
 │   ├── train_vaep_model_hf.py        # HF Jobs CPU script: VAEP model training
 │   ├── train_football2vec_v2.py      # HF Jobs GPU script: football2vec v2 transformer + adversarial debiasing
-│   ├── train_football2vec_v2_helpers.py # Football2vec v2 training helpers (dataset, MLM masking)
 │   ├── train_football2vec_360.py     # HF Jobs GPU script: football2vec 360-enriched encoder training
 │   ├── train_football2vec_360_helpers.py # Football2vec 360 training helpers
 │   ├── train_psxg_hf.py              # HF Jobs CPU script: PSxG logistic model training
@@ -799,7 +799,7 @@ All code must pass these gates before merge:
 
 | Level | What | How |
 |-------|------|-----|
-| Unit | Ingestion logic, utility functions, analytics models | pytest (86 test modules, incl. pytest-benchmark baselines) |
+| Unit | Ingestion logic, utility functions, analytics models | pytest (91 test modules, incl. pytest-benchmark baselines) |
 | Integration | dbt models compile and run | dbt slim CI (`state:modified+`, `--empty`, `--defer`) |
 | Data quality | Row counts, value ranges, referential integrity | dbt tests (~523) + dbt-expectations |
 | E2E | Taipy pages render with real data | Manual smoke test |

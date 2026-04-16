@@ -83,6 +83,7 @@ resolve_players = "ingestion.entity_resolution:main"
 compute_embeddings = "ingestion.player_embeddings_v2:main"
 compute_embeddings_v2 = "ingestion.player_embeddings_v2:main_v2"
 compute_embeddings_v1 = "ingestion.player_embeddings_v1:main_v1"
+compute_embeddings_360 = "ingestion.player_embeddings_v2:main_360"
 compute_expected_threat = "ingestion.expected_threat:main"
 compute_formations = "ingestion.formations_efpi:main"
 compute_formations_efpi = "ingestion.formations_efpi:main_efpi"
@@ -171,7 +172,6 @@ select = [
 "scripts/compute_epv_transition_hf_helpers.py" = ["BLE001"]
 "scripts/compute_space_creation_hf_helpers.py" = ["BLE001"]
 "scripts/train_xg_v2_hf_helpers.py" = ["BLE001"]
-"scripts/train_football2vec_v2_helpers.py" = ["BLE001"]
 "scripts/train_football2vec_360_helpers.py" = ["BLE001"]
 "scripts/publish_*_hf.py" = ["BLE001"]  # HF Hub publish scripts (per-artifact loops)
 
@@ -205,7 +205,6 @@ exclude = [
     "scripts/train_football2vec_360.py",
     "scripts/train_football2vec_360_helpers.py",
     "scripts/train_football2vec_v2.py",
-    "scripts/train_football2vec_v2_helpers.py",
     "scripts/train_psxg_hf.py",
     "scripts/train_scoutgpt_hf.py",
     "scripts/train_vaep_model_hf.py",

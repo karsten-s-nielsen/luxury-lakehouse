@@ -58,7 +58,7 @@ execution:
     runtime: databricks-workflow
     entry_point: compute_embeddings_360
     module: ingestion.player_embeddings_v2
-    distribution: applyInPandas
+    distribution: driver-bound
     partition_key: batch_id
     schedule: "daily 06:00 UTC"
     timeout: "3600s"

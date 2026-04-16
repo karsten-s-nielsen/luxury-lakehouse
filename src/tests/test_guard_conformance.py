@@ -685,7 +685,19 @@ class TestWorkflowIdConsistency:
     _EXEMPT: ClassVar[set[str]] = _NO_OWN_PIPELINE  # No own run_pipeline / decorator to compare
 
     def test_guard_id_matches_decorator_id(self) -> None:
-        """guard.workflow_id must equal @workflow('wf-xxx') on run_pipeline."""
+        """guard.workflow_id must appear among the module's @workflow('wf-xxx') decorators.
+
+        Relaxed 2026-04-15 for D62: a module may legitimately own multiple
+        ``@workflow``-decorated pipelines (e.g. ``player_embeddings_v2`` owns
+        both ``run_pipeline_v2`` with ``wf-football2vec-v2`` AND
+        ``run_pipeline_360`` with ``wf-football2vec-360``). The invariant is
+        that the module's ``skip_guard.workflow_id`` must correspond to at
+        least one of its decorated pipelines — not that all decorators must
+        match the guard. This still catches the typo / copy-paste bugs the
+        test was designed to prevent (e.g. a guard that says ``wf-foo-v1``
+        in a module whose only pipeline is ``@workflow('wf-foo')``), while
+        tolerating multi-workflow modules.
+        """
         failures: list[str] = []
         for module_path in _GUARD_MODULES:
             if module_path in self._EXEMPT:
@@ -699,6 +711,7 @@ class TestWorkflowIdConsistency:
             source = Path(source_file).read_text(encoding="utf-8")
             tree = ast.parse(source)
 
+            decorator_ids: set[str] = set()
             for node in ast.iter_child_nodes(tree):
                 if not (isinstance(node, ast.FunctionDef) and node.name.startswith("run_pipeline")):
                     continue
@@ -710,11 +723,12 @@ class TestWorkflowIdConsistency:
                     if isinstance(dec, ast.Call) and dec.args:
                         first_arg = dec.args[0]
                         if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
-                            decorator_id = first_arg.value
-                            if guard_id != decorator_id:
-                                failures.append(
-                                    f"{module_path}: guard.workflow_id={guard_id!r} != @workflow({decorator_id!r})"
-                                )
+                            decorator_ids.add(first_arg.value)
+
+            if decorator_ids and guard_id not in decorator_ids:
+                failures.append(
+                    f"{module_path}: guard.workflow_id={guard_id!r} not in module decorators={sorted(decorator_ids)!r}"
+                )
 
         assert not failures, "Guard workflow_id must match @workflow decorator ID:\n" + "\n".join(sorted(failures))
 
@@ -850,7 +864,16 @@ class TestDirectGuardCall:
     }
 
     def test_main_calls_skip_guard_directly(self) -> None:
-        """main() must call skip_guard.check and must NOT call read_gate_result."""
+        """main() must call a ``*_guard`` directly and must NOT call read_gate_result.
+
+        Relaxed 2026-04-15 for D62: a module may legitimately own multiple
+        guards (e.g. ``player_embeddings_v2`` owns both ``skip_guard`` and a
+        private ``_football2vec_360_guard`` used by ``main_360()``). The
+        invariant is that each main() calls SOME ``*_guard`` symbol
+        directly — not that it calls the literal name ``skip_guard``. This
+        still catches the original intent (no gate indirection, no
+        ``read_gate_result`` calls) while tolerating per-workflow guards.
+        """
         failures: list[str] = []
         for module_path in _GUARD_MODULES:
             if module_path in self._EXEMPT:
@@ -869,11 +892,14 @@ class TestDirectGuardCall:
             ]
 
             for main_fn in main_fns:
-                has_guard = _ast_has_name_or_attr(main_fn, "skip_guard")
+                has_guard = _ast_main_references_any_guard(main_fn)
                 has_gate = _ast_has_name_or_attr(main_fn, "read_gate_result")
 
                 if not has_guard:
-                    failures.append(f"{module_path}.{main_fn.name}() does not call skip_guard.check()")
+                    failures.append(
+                        f"{module_path}.{main_fn.name}() does not reference any ``*_guard`` symbol "
+                        "(expected a direct call like ``skip_guard.check(...)`` or ``_foo_guard.check(...)``)"
+                    )
                 if has_gate:
                     failures.append(
                         f"{module_path}.{main_fn.name}() still references read_gate_result (removed in D52)"
@@ -888,6 +914,21 @@ def _ast_has_name_or_attr(node: ast.AST, name: str) -> bool:
         if isinstance(child, ast.Name) and child.id == name:
             return True
         if isinstance(child, ast.Attribute) and child.attr == name:
+            return True
+    return False
+
+
+def _ast_main_references_any_guard(node: ast.AST) -> bool:
+    """Check if an AST node tree references any Name/Attribute ending in ``_guard``.
+
+    Used by ``TestDirectGuardCall`` to accept either the canonical
+    ``skip_guard`` symbol or any per-workflow guard alias like
+    ``_football2vec_360_guard`` (D62 multi-workflow modules).
+    """
+    for child in ast.walk(node):
+        if isinstance(child, ast.Name) and (child.id == "skip_guard" or child.id.endswith("_guard")):
+            return True
+        if isinstance(child, ast.Attribute) and (child.attr == "skip_guard" or child.attr.endswith("_guard")):
             return True
     return False
 

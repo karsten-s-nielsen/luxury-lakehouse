@@ -46,7 +46,9 @@ import pandas as pd
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from train_football2vec_v2_helpers import (
+
+from analytics.football2vec_transformer import Football2VecConfig, Football2VecEncoder, TeamClassifierHead
+from ingestion.football2vec_v2_training import (
     ADVERSARIAL_LAMBDA_MAX,
     ADVERSARIAL_WARMUP_EPOCHS,
     VOCAB_SIZE,
@@ -58,8 +60,6 @@ from train_football2vec_v2_helpers import (
     parse_actions,
     stratified_split,
 )
-
-from analytics.football2vec_transformer import Football2VecConfig, Football2VecEncoder, TeamClassifierHead
 from ingestion.hf_jobs_cost import HF_RATE_A10G_LARGE, HFJobsCostRecorder
 from shared.constants import mlflow_model_uri
 from workflows import workflow
