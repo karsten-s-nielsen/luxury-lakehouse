@@ -70,8 +70,10 @@ resource "databricks_service_principal" "terraform_ci" {
 #    - databricks_service_principal_federation_policy.github_actions (below)
 #    - databricks_access_control_rule_set.ingestion_sp_user_role (above)
 #
-# A redundant catalog ALL_PRIVILEGES grant was removed in 2026-04-16
-# (zero functional change — workspace admin already covers all catalog ops).
+# A catalog ALL_PRIVILEGES grant was scoped down to USE_CATALOG in
+# 2026-04-16. Workspace admin does NOT cover Unity Catalog privileges
+# (only workspace-scoped objects) — USE_CATALOG is the minimum for
+# terraform plan to refresh catalog, schema, grant, and volume resources.
 
 data "databricks_group" "admins" {
   display_name = "admins"
