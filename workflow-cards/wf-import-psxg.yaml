@@ -30,7 +30,8 @@ outputs:
 
 execution:
   import:
-    trigger: manual
+    trigger: orchestrated
+    orchestrated_by: wf-hf-sync
     runtime: databricks-workflow
     entry_point: import_psxg_predictions
     module: ingestion.import_psxg_predictions

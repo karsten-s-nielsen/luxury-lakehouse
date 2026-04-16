@@ -461,3 +461,156 @@ def test_missing_required_field_id() -> None:
     """)
     with pytest.raises(ValidationError, match="id"):
         WorkflowCard.from_yaml_string(yaml_text)
+
+
+# ---------------------------------------------------------------------------
+# Orchestrated trigger + bidirectional cross-reference (Task 2A)
+# ---------------------------------------------------------------------------
+
+
+_ORCHESTRATED_CARD = textwrap.dedent("""\
+    ---
+    name: Import OBSO
+    id: wf-import-obso
+    version: "1.0.0"
+    status: production
+    type: data-movement
+    domain: soccer-analytics
+    owners:
+      - karsten
+    execution:
+      import:
+        trigger: orchestrated
+        orchestrated_by: wf-hf-sync
+        runtime: databricks-workflow
+        entry_point: import_obso_results
+        module: ingestion.import_obso_results
+        distribution: driver-bound
+        timeout: "900s"
+    ---
+""")
+
+
+_BAD_ORCHESTRATED_NO_PARENT = textwrap.dedent("""\
+    ---
+    name: Bad
+    id: wf-bad
+    version: "1.0.0"
+    status: production
+    type: data-movement
+    domain: soccer-analytics
+    owners:
+      - karsten
+    execution:
+      import:
+        trigger: orchestrated
+        runtime: databricks-workflow
+        entry_point: x
+        module: y.z
+        distribution: driver-bound
+        timeout: "900s"
+    ---
+""")
+
+
+_BAD_ORCHESTRATED_BY_WITHOUT_TRIGGER = textwrap.dedent("""\
+    ---
+    name: Bad
+    id: wf-bad
+    version: "1.0.0"
+    status: production
+    type: data-movement
+    domain: soccer-analytics
+    owners:
+      - karsten
+    execution:
+      import:
+        trigger: manual
+        orchestrated_by: wf-hf-sync
+        runtime: databricks-workflow
+        entry_point: x
+        module: y.z
+        distribution: driver-bound
+        timeout: "900s"
+    ---
+""")
+
+
+_ORCHESTRATION_SUPERTASK_CARD = textwrap.dedent("""\
+    ---
+    name: HF Sync Super-task
+    id: wf-hf-sync
+    version: "1.0.0"
+    status: production
+    type: data-movement
+    domain: soccer-analytics
+    owners:
+      - karsten
+    execution:
+      orchestration:
+        trigger: scheduled
+        runtime: databricks-workflow
+        entry_point: hf_sync
+        module: ingestion.hf_sync
+        distribution: driver-bound
+        timeout: "1800s"
+        sub_operations:
+          - wf-import-obso
+          - wf-sync-hf-costs
+    ---
+""")
+
+
+_BAD_ORCHESTRATION_EMPTY_SUB_OPS = textwrap.dedent("""\
+    ---
+    name: Bad
+    id: wf-bad
+    version: "1.0.0"
+    status: production
+    type: data-movement
+    domain: soccer-analytics
+    owners:
+      - karsten
+    execution:
+      orchestration:
+        trigger: scheduled
+        runtime: databricks-workflow
+        entry_point: hf_sync
+        module: ingestion.hf_sync
+        distribution: driver-bound
+        timeout: "1800s"
+        sub_operations: []
+    ---
+""")
+
+
+def test_trigger_literal_accepts_orchestrated() -> None:
+    card = WorkflowCard.from_yaml_string(_ORCHESTRATED_CARD)
+    assert card.execution is not None
+    # YAML `import:` key maps to Python attr `import_` via Pydantic alias.
+    assert card.execution.import_ is not None
+    assert card.execution.import_.trigger == "orchestrated"
+    assert card.execution.import_.orchestrated_by == "wf-hf-sync"
+
+
+def test_orchestrated_trigger_requires_orchestrated_by() -> None:
+    with pytest.raises(ValidationError, match="orchestrated_by"):
+        WorkflowCard.from_yaml_string(_BAD_ORCHESTRATED_NO_PARENT)
+
+
+def test_orchestrated_by_requires_orchestrated_trigger() -> None:
+    with pytest.raises(ValidationError, match="orchestrated"):
+        WorkflowCard.from_yaml_string(_BAD_ORCHESTRATED_BY_WITHOUT_TRIGGER)
+
+
+def test_orchestration_phase_exposes_sub_operations() -> None:
+    card = WorkflowCard.from_yaml_string(_ORCHESTRATION_SUPERTASK_CARD)
+    assert card.execution is not None
+    assert card.execution.orchestration is not None
+    assert card.execution.orchestration.sub_operations == ["wf-import-obso", "wf-sync-hf-costs"]
+    assert card.execution.orchestration.entry_point == "hf_sync"
+
+
+def test_orchestration_requires_non_empty_sub_operations() -> None:
+    with pytest.raises(ValidationError, match="sub_operations"):
+        WorkflowCard.from_yaml_string(_BAD_ORCHESTRATION_EMPTY_SUB_OPS)

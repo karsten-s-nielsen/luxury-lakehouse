@@ -1,0 +1,91 @@
+---
+name: HF Sync Super-task
+id: wf-hf-sync
+version: "1.0.0"
+status: production
+type: data-movement
+domain: soccer-analytics
+owners:
+  - karsten
+tags:
+  - orchestration
+  - huggingface
+  - daily-job
+
+# No academic methodology — operational orchestration layer that fans out
+# into 7 independent sub-operation workflows. See src/ingestion/hf_sync.py
+# for the _SUB_OPERATIONS list.
+references: []
+
+inputs:
+  datasets: []
+
+outputs:
+  tables: []
+
+execution:
+  orchestration:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: hf_sync
+    module: ingestion.hf_sync
+    distribution: driver-bound
+    timeout: "1800s"
+    environment: hf
+    sub_operations:
+      - wf-import-space-creation
+      - wf-import-obso
+      - wf-import-psxg
+      - wf-football2vec-v2-export
+      - wf-export-shots
+      - wf-prepare-360-data
+      - wf-sync-hf-costs
+
+depends_on:
+  - wf-vaep
+  - wf-entity-resolution
+  - wf-xg-v1
+  - wf-elastic-sync
+
+idempotency:
+  strategy: none
+  key: sub-operation-level
+  description: "Each sub-operation has its own idempotency strategy (skip-guard or upsert). This super-task does not itself track state — failures in one sub-operation are logged at ERROR and do not abort the parent."
+
+performance:
+  inference_timeout: "1800s"
+  memory_ceiling: "16 GB driver"
+
+cost:
+  inference:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 8
+    typical_cost_usd: 0.5
+
+monitoring:
+  freshness_sla_hours: 48
+
+links:
+  source_code:
+    - "src/ingestion/hf_sync.py"
+---
+
+## Overview
+
+The `hf_sync` task is the daily job's HF orchestration stage. It iterates
+through 7 sub-operations in order, each wrapped in a best-effort error
+boundary (failures logged at ERROR but do not abort the parent task):
+
+1. Import space creation data from HF Hub
+2. Import OBSO/PAUSA results from HF Hub
+3. Import PSXG predictions from HF Hub
+4. Export football2vec v2 training data to HF Hub
+5. Export shots-on-target to HF Hub
+6. Prepare 360 training data for HF Jobs
+7. Sync HF Jobs cost telemetry into Delta
+
+The parent task runs once daily via the `soccer-analytics-ingestion-dev`
+Databricks job (`terraform/modules/workflows/main.tf`); each sub-operation's
+own workflow card declares `trigger: orchestrated` and `orchestrated_by:
+wf-hf-sync`.

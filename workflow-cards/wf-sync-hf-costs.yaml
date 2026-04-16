@@ -34,12 +34,12 @@ outputs:
 
 execution:
   sync:
-    trigger: scheduled
+    trigger: orchestrated
+    orchestrated_by: wf-hf-sync
     runtime: databricks-workflow
     entry_point: sync_hf_costs
     module: ingestion.sync_hf_costs
     distribution: driver-bound
-    schedule: "every 15 minutes"
     timeout: "300s"
     environment: analytics
 

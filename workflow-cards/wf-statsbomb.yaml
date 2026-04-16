@@ -40,7 +40,7 @@ outputs:
 
 execution:
   ingestion:
-    trigger: manual
+    trigger: scheduled
     runtime: databricks-workflow
     entry_point: ingest_statsbomb
     module: ingestion.statsbomb
