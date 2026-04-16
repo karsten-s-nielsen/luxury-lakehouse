@@ -171,6 +171,22 @@ resource "databricks_group_member" "dbt_owners_ingestion_sp" {
   member_id = data.databricks_service_principal.ingestion_account.id
 }
 
+# The CI SP needs catalog ownership (via group) to issue GRANT/REVOKE on
+# UC objects during terraform apply. ALL_PRIVILEGES does not confer MANAGE
+# — only ownership does. Adding the CI SP to dbt-owners lets us transfer
+# catalog ownership to the group, giving both the deployer and CI SP the
+# ability to manage grants.
+data "databricks_service_principal" "terraform_ci_account" {
+  provider       = databricks.account
+  application_id = databricks_service_principal.terraform_ci.application_id
+}
+
+resource "databricks_group_member" "dbt_owners_terraform_ci_sp" {
+  provider  = databricks.account
+  group_id  = databricks_group.dbt_owners.id
+  member_id = data.databricks_service_principal.terraform_ci_account.id
+}
+
 # Assign the dbt-owners group to this workspace so UC ownership grants resolve.
 # Account-level groups must be explicitly granted access to a workspace via
 # `databricks_mws_permission_assignment` before they can be referenced in

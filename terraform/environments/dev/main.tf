@@ -232,14 +232,25 @@ resource "databricks_grant" "ci_sp_catalog" {
 resource "databricks_permissions" "sql_warehouse" {
   sql_endpoint_id = module.sql_warehouse.warehouse_id
 
+  # databricks_permissions is authoritative — it replaces the full ACL.
+  # The deployer must be listed explicitly or the apply will fail with
+  # "cannot remove management permissions for the current user".
+  access_control {
+    user_name        = module.service_principals.deployer_account_email
+    permission_level = "IS_OWNER"
+  }
+
   access_control {
     service_principal_name = module.service_principals.ingestion_sp_application_id
     permission_level       = "CAN_USE"
   }
 
+  # CAN_MANAGE (not CAN_USE): the CI SP runs terraform apply, which calls
+  # the permissions API. The Databricks safety guard blocks setting an ACL
+  # that would demote the caller below CAN_MANAGE.
   access_control {
     service_principal_name = module.service_principals.terraform_ci_sp_application_id
-    permission_level       = "CAN_USE"
+    permission_level       = "CAN_MANAGE"
   }
 }
 

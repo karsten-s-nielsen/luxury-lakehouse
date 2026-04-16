@@ -21,3 +21,8 @@ output "dbt_owners_group_display_name" {
   description = "Display name of the dbt-owners group (D59 — shared dev_silver/dev_gold ownership)"
   value       = databricks_group.dbt_owners.display_name
 }
+
+output "deployer_account_email" {
+  description = "Account email of the human deployer (warehouse IS_OWNER, dbt-owners member)"
+  value       = var.deployer_account_email
+}

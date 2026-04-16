@@ -29,7 +29,11 @@ resource "databricks_catalog" "soccer_analytics" {
   # Default Storage catalogs are created via SQL (CREATE CATALOG) and imported
   # into state. The storage_root is Databricks-managed and must not trigger
   # replacement — the Databricks API cannot recreate Default Storage catalogs.
+  #
+  # Owner is managed outside Terraform: transferred to dbt-owners-{env} group
+  # via one-time ALTER CATALOG so both the deployer and CI SP can issue
+  # GRANT/REVOKE (MANAGE privilege requires ownership, not ALL_PRIVILEGES).
   lifecycle {
-    ignore_changes = [storage_root]
+    ignore_changes = [storage_root, owner]
   }
 }
