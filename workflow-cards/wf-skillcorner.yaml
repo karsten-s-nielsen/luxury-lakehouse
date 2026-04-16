@@ -31,7 +31,7 @@ outputs:
 
 execution:
   ingestion:
-    trigger: manual
+    trigger: scheduled
     runtime: databricks-workflow
     entry_point: ingest_skillcorner
     module: ingestion.skillcorner

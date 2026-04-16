@@ -259,22 +259,54 @@ resource "databricks_permissions" "sql_warehouse" {
 # and Last Duration. CAN_VIEW is the minimum permission — it allows reading
 # run metadata but not triggering or modifying jobs.
 
-resource "databricks_permissions" "hf_app_view_ingestion_job" {
+# Authoritative ACL for the daily ingestion job. Every non-default grant on
+# this job is declared here; databricks_permissions is exclusive per target
+# object. Blocks are sorted alphabetically by service_principal_name to
+# preempt the Databricks provider's positional-block-matching drift.
+resource "databricks_permissions" "ingestion_job_acl" {
   job_id = module.workflows.ingestion_job_id
 
   access_control {
+    # hf_app_v2 SP — Taipy app reads job run history for the AI/ML Workflows page.
     service_principal_name = module.service_principals.hf_app_sp_application_id
     permission_level       = "CAN_VIEW"
+  }
+
+  access_control {
+    # CI SP — terraform apply modifies the job definition; IS_OWNER is the
+    # least-privilege grant that permits this without workspace admin.
+    # Precondition for SEC4 admins-group removal (deferred follow-up).
+    service_principal_name = module.service_principals.terraform_ci_sp_application_id
+    permission_level       = "IS_OWNER"
   }
 }
 
-resource "databricks_permissions" "hf_app_view_sync_hf_costs_job" {
+resource "databricks_permissions" "sync_hf_costs_job_acl" {
   job_id = databricks_job.sync_hf_costs_daily.id
 
   access_control {
+    # hf_app_v2 SP — Taipy app surfaces HF cost sync status.
     service_principal_name = module.service_principals.hf_app_sp_application_id
     permission_level       = "CAN_VIEW"
   }
+
+  access_control {
+    # CI SP — see ingestion_job_acl rationale.
+    service_principal_name = module.service_principals.terraform_ci_sp_application_id
+    permission_level       = "IS_OWNER"
+  }
+}
+
+# Rename hf_app_view_* -> *_acl via `moved` blocks — Terraform treats this as
+# a state-address migration, not destroy/create, so no ACL gap during apply.
+moved {
+  from = databricks_permissions.hf_app_view_ingestion_job
+  to   = databricks_permissions.ingestion_job_acl
+}
+
+moved {
+  from = databricks_permissions.hf_app_view_sync_hf_costs_job
+  to   = databricks_permissions.sync_hf_costs_job_acl
 }
 
 # ── Module: State KMS ──────────────────────────────────────────────────────

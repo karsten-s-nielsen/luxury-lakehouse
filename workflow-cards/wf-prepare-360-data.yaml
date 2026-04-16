@@ -38,7 +38,8 @@ outputs:
 
 execution:
   export:
-    trigger: manual
+    trigger: orchestrated
+    orchestrated_by: wf-hf-sync
     runtime: databricks-workflow
     entry_point: prepare_360_training_data
     module: ingestion.prepare_360_training_data

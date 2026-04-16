@@ -33,7 +33,8 @@ outputs:
 
 execution:
   export:
-    trigger: manual
+    trigger: orchestrated
+    orchestrated_by: wf-hf-sync
     runtime: databricks-workflow
     entry_point: export_shots_on_target
     module: ingestion.export_shots_on_target

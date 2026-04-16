@@ -29,6 +29,19 @@ from workflows.card import WorkflowCard
 
 logger = logging.getLogger(__name__)
 
+# Every phase key a WorkflowCard.execution may carry. Kept here (not imported
+# from workflows.card) because the Taipy app reads cards as raw YAML dicts, so
+# the Pydantic field names and YAML keys must be listed in YAML form.
+_EXECUTION_PHASE_KEYS: tuple[str, ...] = (
+    "training",
+    "inference",
+    "export",
+    "import",
+    "ingestion",
+    "sync",
+    "orchestration",
+)
+
 
 # ---------------------------------------------------------------------------
 # HF cost history data model
@@ -93,7 +106,7 @@ def classify_runtime(exec_cfg: dict[str, Any]) -> str:
     Returns human-readable label: 'DB', 'HF', 'DB + HF', or em-dash.
     """
     rts: list[str] = []
-    for phase in ("training", "inference", "export", "import", "ingestion", "sync"):
+    for phase in _EXECUTION_PHASE_KEYS:
         rt = ((exec_cfg.get(phase) or {}).get("runtime") or "").lower()
         if "hf" in rt:
             if "HF" not in rts:
@@ -216,7 +229,7 @@ def build_task_key_to_wf_id(cards: dict[str, dict[str, Any]]) -> dict[str, str]:
     mapping: dict[str, str] = {}
     for card_id, card in cards.items():
         exec_cfg = card.get("execution") or {}
-        for phase in ("training", "inference", "export", "import", "ingestion", "sync"):
+        for phase in _EXECUTION_PHASE_KEYS:
             ep = (exec_cfg.get(phase) or {}).get("entry_point", "")
             if ep:
                 mapping[ep] = card_id
@@ -313,7 +326,7 @@ def build_table_data(
         exec_cfg = card.get("execution") or {}
         runtime_str = classify_runtime(exec_cfg)
         trigger_str = "\u2014"
-        for phase in ("training", "inference", "export", "import", "ingestion", "sync"):
+        for phase in _EXECUTION_PHASE_KEYS:
             trigger_val = (exec_cfg.get(phase) or {}).get("trigger")
             if trigger_val:
                 trigger_str = trigger_val.capitalize()
