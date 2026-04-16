@@ -33,7 +33,7 @@ outputs:
 
 execution:
   inference:
-    trigger: manual
+    trigger: scheduled
     runtime: databricks-workflow
     entry_point: compute_elastic_sync
     module: ingestion.elastic_sync

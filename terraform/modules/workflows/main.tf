@@ -58,15 +58,22 @@ resource "databricks_job" "data_ingestion" {
     pause_status           = var.environment == "dev" ? "PAUSED" : "UNPAUSED"
   }
 
-  # ── Task: Ingest StatsBomb data ──────────────────────────────────────────
+  # ── Task: Backfill StatsBomb 360 freeze-frame data ──────────────────────
+  # The main ingestion skips already-ingested competition/seasons, so 360
+  # data added after the initial ingest is never fetched. This backfill
+  # targets matches that have events but no 360 data yet.
   task {
-    task_key        = "ingest_statsbomb"
-    timeout_seconds = 900
+    task_key        = "backfill_statsbomb_360"
+    timeout_seconds = 1800
     max_retries     = 1
+
+    depends_on {
+      task_key = "ingest_statsbomb"
+    }
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
-      entry_point  = "ingest_statsbomb"
+      entry_point  = "backfill_statsbomb_360"
 
       parameters = [
         "--catalog", var.catalog_name,
@@ -74,87 +81,8 @@ resource "databricks_job" "data_ingestion" {
       ]
     }
 
-    # Uses statsbomb environment (statsbombpy not in core deps)
+    # Needs statsbombpy to call sb.frames()
     environment_key = "statsbomb"
-  }
-
-  # ── Task: Ingest Metrica tracking data ───────────────────────────────────
-  task {
-    task_key        = "ingest_metrica"
-    timeout_seconds = 900
-    max_retries     = 1
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "ingest_metrica"
-
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze"
-      ]
-    }
-
-    environment_key = "default"
-  }
-
-  # ── Task: Ingest Wyscout data ────────────────────────────────────────────
-  task {
-    task_key        = "ingest_wyscout"
-    timeout_seconds = 900
-    max_retries     = 1
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "ingest_wyscout"
-
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze",
-        "--data-dir", "/Volumes/${var.catalog_name}/bronze/libs/wyscout"
-      ]
-    }
-
-    environment_key = "default"
-  }
-
-  # ── Task: Ingest IDSSE Bundesliga tracking data ─────────────────────────
-  # Uses stdlib XML parser — reads pre-downloaded DFL XML from UC Volume.
-  # No floodlight dependency needed (only pandas from default env).
-  task {
-    task_key        = "ingest_idsse"
-    timeout_seconds = 900
-    max_retries     = 1
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "ingest_idsse"
-
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze"
-      ]
-    }
-
-    environment_key = "default"
-  }
-
-  # ── Task: Ingest SkillCorner A-League tracking data ────────────────────
-  task {
-    task_key        = "ingest_skillcorner"
-    timeout_seconds = 900
-    max_retries     = 1
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "ingest_skillcorner"
-
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze"
-      ]
-    }
-
-    environment_key = "tracking"
   }
 
   # ── Task: Backfill StatsBomb _raw_extra_json ─────────────────────────────
@@ -184,22 +112,21 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "statsbomb"
   }
 
-  # ── Task: Compute SPADL actions and VAEP scores ─────────────────────────
+  # ── Task: Compute DEFCON-lite defensive valuation ──────────────────────
+  # Reads gold fct_action_values + bronze statsbomb_360, assigns defensive
+  # credits per-defender per-action, trains XGBoost value estimators.
   task {
-    task_key        = "compute_spadl_vaep"
+    task_key        = "compute_defcon_lite"
     timeout_seconds = 7200
     max_retries     = 1
 
     depends_on {
-      task_key = "backfill_statsbomb_extra"
-    }
-    depends_on {
-      task_key = "ingest_wyscout"
+      task_key = "compute_spadl_vaep"
     }
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
-      entry_point  = "compute_spadl_vaep"
+      entry_point  = "compute_defcon_lite"
 
       parameters = [
         "--catalog", var.catalog_name,
@@ -208,6 +135,108 @@ resource "databricks_job" "data_ingestion" {
     }
 
     environment_key = "analytics"
+  }
+
+  # ── Task: Compute ELASTIC event-tracking alignment ────────────────────
+  # Kim et al. (2025) ELASTIC sync: aligns discrete events with 25fps
+  # tracking frames via ball acceleration + player-ball distance features.
+  task {
+    task_key        = "compute_elastic_sync"
+    timeout_seconds = 3600
+    max_retries     = 1
+
+    depends_on {
+      task_key = "ingest_idsse_events"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_elastic_sync"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "default"
+  }
+
+  # ── Task: Compute player embeddings 360-enriched (Deep Sets + transformer) ───
+  # Football2vec 360: imports pre-trained 144d 360-enriched embeddings from
+  # HF Hub, writes to bronze.player_embeddings_raw with
+  # data_source='football2vec_360'. Depends on compute_embeddings_v2 running
+  # first (shared HF Hub auth + stat vector cache path).
+  task {
+    task_key        = "compute_embeddings_360"
+    timeout_seconds = 3600
+    max_retries     = 1
+
+    depends_on {
+      task_key = "compute_embeddings_v2"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_embeddings_360"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+      ]
+    }
+
+    environment_key = "embeddings"
+  }
+
+  # ── Task: Compute player embeddings v1 (Doc2Vec, deprecated) ────────
+  # Football2vec v1: Doc2Vec action sequences + statistical z-score vectors.
+  # Retained for comparison; superseded by v2 transformer embeddings.
+  task {
+    task_key        = "compute_embeddings_v1"
+    timeout_seconds = 3600
+    max_retries     = 1
+
+    depends_on {
+      task_key = "compute_embeddings_v2"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_embeddings_v1"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+      ]
+    }
+
+    environment_key = "embeddings"
+  }
+
+  # ── Task: Compute player embeddings v2 (transformer + adversarial) ───
+  # Football2vec v2: imports pre-trained 128d transformer embeddings from
+  # HF Hub, writes to bronze.player_embeddings_raw with model_version='v2'.
+  task {
+    task_key        = "compute_embeddings_v2"
+    timeout_seconds = 3600
+    max_retries     = 1
+
+    depends_on {
+      task_key = "resolve_players"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_embeddings_v2"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+      ]
+    }
+
+    environment_key = "embeddings"
   }
 
   # ── Task: Compute Expected Threat grids from SPADL actions ─────────
@@ -223,114 +252,6 @@ resource "databricks_job" "data_ingestion" {
     python_wheel_task {
       package_name = "luxury_lakehouse"
       entry_point  = "compute_expected_threat"
-
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze"
-      ]
-    }
-
-    environment_key = "default"
-  }
-
-  # ── Task: Score shots with custom xG models ─────────────────────────
-  task {
-    task_key        = "compute_xg_model"
-    timeout_seconds = 3600
-    max_retries     = 1
-
-    depends_on {
-      task_key = "compute_spadl_vaep"
-    }
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "compute_xg_model"
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze",
-      ]
-    }
-
-    environment_key = "analytics"
-  }
-
-  # ── Task: Score shots with xG v2 set encoder (Deep Sets + MC dropout) ──
-  task {
-    task_key        = "compute_xg_model_v2"
-    timeout_seconds = 3600
-    max_retries     = 1
-
-    depends_on {
-      task_key = "compute_spadl_vaep"
-    }
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "compute_xg_model_v2"
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze",
-      ]
-    }
-
-    environment_key = "analytics"
-  }
-
-  # ── Task: Compute Off-Ball xT from tracking data ───────────────────
-  # Depends on all three tracking providers + xT grid computation.
-  task {
-    task_key        = "compute_off_ball_xt"
-    timeout_seconds = 3600
-    max_retries     = 1
-
-    depends_on {
-      task_key = "ingest_metrica"
-    }
-    depends_on {
-      task_key = "ingest_idsse"
-    }
-    depends_on {
-      task_key = "ingest_skillcorner"
-    }
-    depends_on {
-      task_key = "compute_expected_threat"
-    }
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "compute_off_ball_xt"
-
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze"
-      ]
-    }
-
-    environment_key = "default"
-  }
-
-  # ── Task: Compute pitch control values for tracking data ───────────────
-  # Reads gold fct_tracking_frames, computes Spearman 2017 pitch control
-  # at each player's position, writes bronze.pitch_control_values.
-  task {
-    task_key        = "compute_pitch_control"
-    timeout_seconds = 7200
-    max_retries     = 1
-
-    depends_on {
-      task_key = "ingest_metrica"
-    }
-    depends_on {
-      task_key = "ingest_idsse"
-    }
-    depends_on {
-      task_key = "ingest_skillcorner"
-    }
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "compute_pitch_control"
 
       parameters = [
         "--catalog", var.catalog_name,
@@ -403,10 +324,10 @@ resource "databricks_job" "data_ingestion" {
     max_retries     = 1
 
     depends_on {
-      task_key = "ingest_statsbomb"
+      task_key = "ingest_metrica"
     }
     depends_on {
-      task_key = "ingest_metrica"
+      task_key = "ingest_statsbomb"
     }
 
     python_wheel_task {
@@ -422,176 +343,29 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
-  # ── Task: Compute DEFCON-lite defensive valuation ──────────────────────
-  # Reads gold fct_action_values + bronze statsbomb_360, assigns defensive
-  # credits per-defender per-action, trains XGBoost value estimators.
+  # ── Task: Compute Off-Ball xT from tracking data ───────────────────
+  # Depends on all three tracking providers + xT grid computation.
   task {
-    task_key        = "compute_defcon_lite"
-    timeout_seconds = 7200
-    max_retries     = 1
-
-    depends_on {
-      task_key = "compute_spadl_vaep"
-    }
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "compute_defcon_lite"
-
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze"
-      ]
-    }
-
-    environment_key = "analytics"
-  }
-
-  # ── Task: Resolve cross-source player identity ───────────────────────────
-  # Matches StatsBomb and Wyscout players via TF-IDF + rapidfuzz.
-  # Writes player_xref_raw bronze table for dbt int_player_xref → dim_players.
-  task {
-    task_key        = "resolve_players"
-    timeout_seconds = 900
-    max_retries     = 1
-
-    depends_on {
-      task_key = "ingest_statsbomb"
-    }
-    depends_on {
-      task_key = "ingest_wyscout"
-    }
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "resolve_players"
-
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze"
-      ]
-    }
-
-    environment_key = "analytics"
-  }
-
-  # ── Task: Compute player embeddings v2 (transformer + adversarial) ───
-  # Football2vec v2: imports pre-trained 128d transformer embeddings from
-  # HF Hub, writes to bronze.player_embeddings_raw with model_version='v2'.
-  task {
-    task_key        = "compute_embeddings_v2"
+    task_key        = "compute_off_ball_xt"
     timeout_seconds = 3600
     max_retries     = 1
 
     depends_on {
-      task_key = "resolve_players"
+      task_key = "compute_expected_threat"
     }
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "compute_embeddings_v2"
-
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze",
-      ]
-    }
-
-    environment_key = "embeddings"
-  }
-
-  # ── Task: Compute player embeddings v1 (Doc2Vec, deprecated) ────────
-  # Football2vec v1: Doc2Vec action sequences + statistical z-score vectors.
-  # Retained for comparison; superseded by v2 transformer embeddings.
-  task {
-    task_key        = "compute_embeddings_v1"
-    timeout_seconds = 3600
-    max_retries     = 1
-
-    depends_on {
-      task_key = "compute_embeddings_v2"
-    }
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "compute_embeddings_v1"
-
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze",
-      ]
-    }
-
-    environment_key = "embeddings"
-  }
-
-  # ── Task: Compute player embeddings 360-enriched (Deep Sets + transformer) ───
-  # Football2vec 360: imports pre-trained 144d 360-enriched embeddings from
-  # HF Hub, writes to bronze.player_embeddings_raw with
-  # data_source='football2vec_360'. Depends on compute_embeddings_v2 running
-  # first (shared HF Hub auth + stat vector cache path).
-  task {
-    task_key        = "compute_embeddings_360"
-    timeout_seconds = 3600
-    max_retries     = 1
-
-    depends_on {
-      task_key = "compute_embeddings_v2"
-    }
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "compute_embeddings_360"
-
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze",
-      ]
-    }
-
-    environment_key = "embeddings"
-  }
-
-  # ── Task: Ingest IDSSE event data (DFL event XML) ──────────────────────
-  # Parses DFL event XML from UC Volume for the same 7 Bundesliga matches.
-  # Separate from tracking ingestion — different XML schema.
-  task {
-    task_key        = "ingest_idsse_events"
-    timeout_seconds = 900
-    max_retries     = 1
-
     depends_on {
       task_key = "ingest_idsse"
     }
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "ingest_idsse_events"
-
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze"
-      ]
-    }
-
-    environment_key = "default"
-  }
-
-  # ── Task: Compute ELASTIC event-tracking alignment ────────────────────
-  # Kim et al. (2025) ELASTIC sync: aligns discrete events with 25fps
-  # tracking frames via ball acceleration + player-ball distance features.
-  task {
-    task_key        = "compute_elastic_sync"
-    timeout_seconds = 3600
-    max_retries     = 1
-
     depends_on {
-      task_key = "ingest_idsse_events"
+      task_key = "ingest_metrica"
+    }
+    depends_on {
+      task_key = "ingest_skillcorner"
     }
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
-      entry_point  = "compute_elastic_sync"
+      entry_point  = "compute_off_ball_xt"
 
       parameters = [
         "--catalog", var.catalog_name,
@@ -628,21 +402,27 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
-  # ── Task: Run model validation and drift detection ────────────────────
-  # PSI, Wasserstein, CUSUM, and hard bounds across all ML models.
-  # Runs post-dbt and post-PAUSA to validate all model outputs.
+  # ── Task: Compute pitch control values for tracking data ───────────────
+  # Reads gold fct_tracking_frames, computes Spearman 2017 pitch control
+  # at each player's position, writes bronze.pitch_control_values.
   task {
-    task_key        = "run_model_validation"
-    timeout_seconds = 900
+    task_key        = "compute_pitch_control"
+    timeout_seconds = 7200
     max_retries     = 1
 
     depends_on {
-      task_key = "compute_pausa"
+      task_key = "ingest_idsse"
+    }
+    depends_on {
+      task_key = "ingest_metrica"
+    }
+    depends_on {
+      task_key = "ingest_skillcorner"
     }
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
-      entry_point  = "run_model_validation"
+      entry_point  = "compute_pitch_control"
 
       parameters = [
         "--catalog", var.catalog_name,
@@ -651,6 +431,104 @@ resource "databricks_job" "data_ingestion" {
     }
 
     environment_key = "default"
+  }
+
+  # ── Task: Compute SPADL actions and VAEP scores ─────────────────────────
+  task {
+    task_key        = "compute_spadl_vaep"
+    timeout_seconds = 7200
+    max_retries     = 1
+
+    depends_on {
+      task_key = "backfill_statsbomb_extra"
+    }
+    depends_on {
+      task_key = "ingest_wyscout"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_spadl_vaep"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "analytics"
+  }
+
+  # ── Task: Score shots with custom xG models ─────────────────────────
+  task {
+    task_key        = "compute_xg_model"
+    timeout_seconds = 3600
+    max_retries     = 1
+
+    depends_on {
+      task_key = "compute_spadl_vaep"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_xg_model"
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+      ]
+    }
+
+    environment_key = "analytics"
+  }
+
+  # ── Task: Score shots with xG v2 set encoder (Deep Sets + MC dropout) ──
+  task {
+    task_key        = "compute_xg_model_v2"
+    timeout_seconds = 3600
+    max_retries     = 1
+
+    depends_on {
+      task_key = "compute_spadl_vaep"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_xg_model_v2"
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+      ]
+    }
+
+    environment_key = "analytics"
+  }
+
+  # ── Task: dbt build (gold layer materialization) ─────────────────────
+  # D59 (2026-04-13): runs `dbt build` against the SQL warehouse to materialize
+  # the 33 gold mart tables from bronze sources. Bundled dbt_project/ ships in
+  # the wheel via Hatch force-include; auth uses dbt-databricks 1.10+ runtime
+  # OAuth M2M identity discovery. See src/ingestion/dbt_runner.py.
+  task {
+    task_key        = "dbt_build"
+    timeout_seconds = 3600
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "dbt_build"
+    }
+
+    # Same 9 leaf compute tasks that refresh_synced_tables previously depended on.
+    depends_on { task_key = "compute_defcon_lite" }
+    depends_on { task_key = "compute_embeddings_v1" }
+    depends_on { task_key = "compute_formations_shape_graph" }
+    depends_on { task_key = "compute_line_breaking" }
+    depends_on { task_key = "compute_off_ball_xt" }
+    depends_on { task_key = "compute_xg_model_v2" }
+    depends_on { task_key = "extract_tracking_metadata" }
+    depends_on { task_key = "hf_sync" }
+    depends_on { task_key = "run_model_validation" }
+
+    environment_key = "dbt"
   }
 
   # ── Task: Extract tracking player metadata ─────────────────────────────
@@ -682,33 +560,6 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "tracking"
   }
 
-  # ── Task: Backfill StatsBomb 360 freeze-frame data ──────────────────────
-  # The main ingestion skips already-ingested competition/seasons, so 360
-  # data added after the initial ingest is never fetched. This backfill
-  # targets matches that have events but no 360 data yet.
-  task {
-    task_key        = "backfill_statsbomb_360"
-    timeout_seconds = 1800
-    max_retries     = 1
-
-    depends_on {
-      task_key = "ingest_statsbomb"
-    }
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "backfill_statsbomb_360"
-
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze"
-      ]
-    }
-
-    # Needs statsbombpy to call sb.frames()
-    environment_key = "statsbomb"
-  }
-
   # ── Task: HF Hub sync — combined imports + exports ───────────────────
   task {
     task_key        = "hf_sync"
@@ -726,50 +577,146 @@ resource "databricks_job" "data_ingestion" {
 
     # Depends on all compute tasks that produce data for exports
     depends_on {
-      task_key = "compute_spadl_vaep"
-    }
-    depends_on {
-      task_key = "resolve_players"
-    }
-    depends_on {
-      task_key = "compute_xg_model"
-    }
-    depends_on {
       task_key = "backfill_statsbomb_360"
     }
     depends_on {
       task_key = "compute_elastic_sync"
     }
+    depends_on {
+      task_key = "compute_spadl_vaep"
+    }
+    depends_on {
+      task_key = "compute_xg_model"
+    }
+    depends_on {
+      task_key = "resolve_players"
+    }
 
     environment_key = "hf"
   }
 
-  # ── Task: dbt build (gold layer materialization) ─────────────────────
-  # D59 (2026-04-13): runs `dbt build` against the SQL warehouse to materialize
-  # the 33 gold mart tables from bronze sources. Bundled dbt_project/ ships in
-  # the wheel via Hatch force-include; auth uses dbt-databricks 1.10+ runtime
-  # OAuth M2M identity discovery. See src/ingestion/dbt_runner.py.
+  # ── Task: Ingest IDSSE Bundesliga tracking data ─────────────────────────
+  # Uses stdlib XML parser — reads pre-downloaded DFL XML from UC Volume.
+  # No floodlight dependency needed (only pandas from default env).
   task {
-    task_key        = "dbt_build"
-    timeout_seconds = 3600
+    task_key        = "ingest_idsse"
+    timeout_seconds = 900
+    max_retries     = 1
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
-      entry_point  = "dbt_build"
+      entry_point  = "ingest_idsse"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
     }
 
-    # Same 9 leaf compute tasks that refresh_synced_tables previously depended on.
-    depends_on { task_key = "run_model_validation" }
-    depends_on { task_key = "hf_sync" }
-    depends_on { task_key = "compute_formations_shape_graph" }
-    depends_on { task_key = "compute_embeddings_v1" }
-    depends_on { task_key = "compute_off_ball_xt" }
-    depends_on { task_key = "compute_line_breaking" }
-    depends_on { task_key = "compute_defcon_lite" }
-    depends_on { task_key = "compute_xg_model_v2" }
-    depends_on { task_key = "extract_tracking_metadata" }
+    environment_key = "default"
+  }
 
-    environment_key = "dbt"
+  # ── Task: Ingest IDSSE event data (DFL event XML) ──────────────────────
+  # Parses DFL event XML from UC Volume for the same 7 Bundesliga matches.
+  # Separate from tracking ingestion — different XML schema.
+  task {
+    task_key        = "ingest_idsse_events"
+    timeout_seconds = 900
+    max_retries     = 1
+
+    depends_on {
+      task_key = "ingest_idsse"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "ingest_idsse_events"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "default"
+  }
+
+  # ── Task: Ingest Metrica tracking data ───────────────────────────────────
+  task {
+    task_key        = "ingest_metrica"
+    timeout_seconds = 900
+    max_retries     = 1
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "ingest_metrica"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "default"
+  }
+
+  # ── Task: Ingest SkillCorner A-League tracking data ────────────────────
+  task {
+    task_key        = "ingest_skillcorner"
+    timeout_seconds = 900
+    max_retries     = 1
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "ingest_skillcorner"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "tracking"
+  }
+
+  # ── Task: Ingest StatsBomb data ──────────────────────────────────────────
+  task {
+    task_key        = "ingest_statsbomb"
+    timeout_seconds = 900
+    max_retries     = 1
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "ingest_statsbomb"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    # Uses statsbomb environment (statsbombpy not in core deps)
+    environment_key = "statsbomb"
+  }
+
+  # ── Task: Ingest Wyscout data ────────────────────────────────────────────
+  task {
+    task_key        = "ingest_wyscout"
+    timeout_seconds = 900
+    max_retries     = 1
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "ingest_wyscout"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+        "--data-dir", "/Volumes/${var.catalog_name}/bronze/libs/wyscout"
+      ]
+    }
+
+    environment_key = "default"
   }
 
   # ── Task: Refresh Lakebase synced tables (final stage) ───────────────
@@ -796,31 +743,57 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
-  # ── Environment definition for serverless tasks ──────────────────────────
-  environment {
-    environment_key = "default"
+  # ── Task: Resolve cross-source player identity ───────────────────────────
+  # Matches StatsBomb and Wyscout players via TF-IDF + rapidfuzz.
+  # Writes player_xref_raw bronze table for dbt int_player_xref → dim_players.
+  task {
+    task_key        = "resolve_players"
+    timeout_seconds = 900
+    max_retries     = 1
 
-    spec {
-      client = "1"
+    depends_on {
+      task_key = "ingest_statsbomb"
+    }
+    depends_on {
+      task_key = "ingest_wyscout"
+    }
 
-      dependencies = [
-        var.wheel_path
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "resolve_players"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
       ]
     }
+
+    environment_key = "analytics"
   }
 
-  # ── Environment for StatsBomb ingestion (statsbombpy API client) ────────
-  environment {
-    environment_key = "statsbomb"
+  # ── Task: Run model validation and drift detection ────────────────────
+  # PSI, Wasserstein, CUSUM, and hard bounds across all ML models.
+  # Runs post-dbt and post-PAUSA to validate all model outputs.
+  task {
+    task_key        = "run_model_validation"
+    timeout_seconds = 900
+    max_retries     = 1
 
-    spec {
-      client = "1"
+    depends_on {
+      task_key = "compute_pausa"
+    }
 
-      dependencies = [
-        var.wheel_path,
-        "statsbombpy>=1.13.0"
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "run_model_validation"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
       ]
     }
+
+    environment_key = "default"
   }
 
   # ── Environment for SPADL/VAEP task (includes analytics extras) ─────────
@@ -847,16 +820,33 @@ resource "databricks_job" "data_ingestion" {
     }
   }
 
-  # ── Environment for SkillCorner tracking task (kloppy for open data download)
+  # ── Environment for dbt build task (D59) ──────────────────────────────
+  # dbt-databricks 1.10+ supports runtime OAuth M2M identity discovery via
+  # the databricks-sdk WorkspaceClient. No client_id/secret env vars needed —
+  # the daily job's run_as SP identity is auto-detected inside the runtime.
   environment {
-    environment_key = "tracking"
+    environment_key = "dbt"
 
     spec {
       client = "1"
 
       dependencies = [
         var.wheel_path,
-        "kloppy>=3.17.0,<4.0"
+        "dbt-core>=1.10.0",
+        "dbt-databricks>=1.10.0",
+      ]
+    }
+  }
+
+  # ── Environment definition for serverless tasks ──────────────────────────
+  environment {
+    environment_key = "default"
+
+    spec {
+      client = "1"
+
+      dependencies = [
+        var.wheel_path
       ]
     }
   }
@@ -895,20 +885,30 @@ resource "databricks_job" "data_ingestion" {
     }
   }
 
-  # ── Environment for dbt build task (D59) ──────────────────────────────
-  # dbt-databricks 1.10+ supports runtime OAuth M2M identity discovery via
-  # the databricks-sdk WorkspaceClient. No client_id/secret env vars needed —
-  # the daily job's run_as SP identity is auto-detected inside the runtime.
+  # ── Environment for StatsBomb ingestion (statsbombpy API client) ────────
   environment {
-    environment_key = "dbt"
+    environment_key = "statsbomb"
 
     spec {
       client = "1"
 
       dependencies = [
         var.wheel_path,
-        "dbt-core>=1.10.0",
-        "dbt-databricks>=1.10.0",
+        "statsbombpy>=1.13.0"
+      ]
+    }
+  }
+
+  # ── Environment for SkillCorner tracking task (kloppy for open data download)
+  environment {
+    environment_key = "tracking"
+
+    spec {
+      client = "1"
+
+      dependencies = [
+        var.wheel_path,
+        "kloppy>=3.17.0,<4.0"
       ]
     }
   }

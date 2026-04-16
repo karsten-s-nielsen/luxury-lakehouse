@@ -34,7 +34,7 @@ outputs:
 
 execution:
   inference:
-    trigger: manual
+    trigger: scheduled
     runtime: databricks-workflow
     entry_point: resolve_players
     module: ingestion.entity_resolution

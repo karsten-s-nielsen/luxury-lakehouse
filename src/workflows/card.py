@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 _logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ TypeLiteral = Literal[
     "validation",
 ]
 
-TriggerLiteral = Literal["manual", "scheduled", "event-driven"]
+TriggerLiteral = Literal["manual", "scheduled", "event-driven", "orchestrated"]
 
 RuntimeLiteral = Literal["hf-jobs", "databricks-notebook", "databricks-workflow"]
 
@@ -129,6 +129,46 @@ class InferenceExecution(BaseModel):
     schedule: str | None = None
     timeout: str
     environment: str | None = None
+    # trigger=orchestrated fans out via a super-task workflow; this field names
+    # the parent card (e.g. "wf-hf-sync") that invokes this sub-operation.
+    orchestrated_by: str | None = None
+
+    @model_validator(mode="after")
+    def _orchestrated_bidirectional(self) -> InferenceExecution:
+        if self.trigger == "orchestrated" and not self.orchestrated_by:
+            msg = "trigger='orchestrated' requires orchestrated_by to name the parent workflow"
+            raise ValueError(msg)
+        if self.trigger != "orchestrated" and self.orchestrated_by:
+            msg = "orchestrated_by is only valid when trigger='orchestrated'"
+            raise ValueError(msg)
+        return self
+
+
+class OrchestrationExecution(BaseModel):
+    """Super-task execution that fans out into declared sub-operation cards.
+
+    The `sub_operations` field is the canonical list of card ids invoked by
+    this super-task. Bidirectional consistency (each listed card declares
+    `orchestrated_by` pointing back here) is enforced by the card-parity test,
+    not by this Pydantic model.
+    """
+
+    trigger: TriggerLiteral
+    runtime: RuntimeLiteral
+    entry_point: str
+    module: str
+    distribution: DistributionLiteral
+    timeout: str
+    environment: str | None = None
+    schedule: str | None = None
+    sub_operations: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _sub_operations_non_empty(self) -> OrchestrationExecution:
+        if not self.sub_operations:
+            msg = "orchestration phase requires a non-empty sub_operations list"
+            raise ValueError(msg)
+        return self
 
 
 class Execution(BaseModel):
@@ -139,11 +179,13 @@ class Execution(BaseModel):
     export: InferenceExecution | None = None
     ingestion: InferenceExecution | None = None
     sync: InferenceExecution | None = None
+    orchestration: OrchestrationExecution | None = None
+    # `import` is a Python reserved word — use alias so YAML key "import" maps
+    # to Python attribute `import_`. populate_by_name lets existing code that
+    # accesses `.import_` still work after this change.
+    import_: InferenceExecution | None = Field(default=None, alias="import")
 
-    # PEP 681: pydantic aliases cannot use Python reserved words as field names.
-    # "import" is a reserved word, so we use model_config extra="allow" to
-    # capture it dynamically rather than as a typed field.
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
 
 
 class Idempotency(BaseModel):

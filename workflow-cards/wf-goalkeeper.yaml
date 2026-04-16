@@ -57,15 +57,11 @@ execution:
     flavor: l40sx1
     script: "scripts/train_psxg_hf.py"
     timeout: "300s"
-  inference:
-    trigger: scheduled
-    runtime: databricks-workflow
-    entry_point: n/a
-    module: dbt_project.models.marts.fct_goalkeeper_stats
-    distribution: none
-    schedule: "daily 06:00 UTC"
-    timeout: "3600s"
-    environment: analytics
+  # No standalone inference phase — `fct_goalkeeper_stats` is a dbt mart model
+  # rebuilt daily as part of the `dbt_build` task (see wf-dbt-build). The PSxG
+  # model trained above feeds the `fct_shots`/`fct_action_values` tables that
+  # dbt then aggregates into GK metrics. Declaring a fake Python entry_point
+  # here would misrepresent the actual execution path.
 
 depends_on:
   - wf-vaep
