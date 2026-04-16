@@ -16,8 +16,13 @@
 with player_best_dim as (
     -- For players with mixed-dimension vectors (32d v1 + 128d v2),
     -- keep only the highest-dimension embeddings per player.
+    -- D62 2026-04-15: explicitly exclude 360-enriched rows (144d) so they
+    -- do not promote over v2's 128d embeddings. The 360 aggregates live
+    -- in fct_player_embeddings_season_360 / _career_360 with their own
+    -- dimensionally-homogeneous aggregation.
     select canonical_player_id, max(size(behavioral_vector)) as best_dim
     from {{ ref('fct_player_embeddings') }}
+    where data_source != 'football2vec_360'
     group by canonical_player_id
 ),
 
@@ -37,6 +42,8 @@ embeddings_with_context as (
     inner join player_best_dim p
         on e.canonical_player_id = p.canonical_player_id
         and size(e.behavioral_vector) = p.best_dim
+    -- D62 2026-04-15: 360-enriched embeddings live in their own mart; exclude here.
+    where e.data_source != 'football2vec_360'
 
 ),
 

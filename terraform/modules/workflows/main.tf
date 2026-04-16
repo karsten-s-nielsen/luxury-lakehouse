@@ -525,6 +525,33 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "embeddings"
   }
 
+  # ── Task: Compute player embeddings 360-enriched (Deep Sets + transformer) ───
+  # Football2vec 360: imports pre-trained 144d 360-enriched embeddings from
+  # HF Hub, writes to bronze.player_embeddings_raw with
+  # data_source='football2vec_360'. Depends on compute_embeddings_v2 running
+  # first (shared HF Hub auth + stat vector cache path).
+  task {
+    task_key        = "compute_embeddings_360"
+    timeout_seconds = 3600
+    max_retries     = 1
+
+    depends_on {
+      task_key = "compute_embeddings_v2"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_embeddings_360"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+      ]
+    }
+
+    environment_key = "embeddings"
+  }
+
   # ── Task: Ingest IDSSE event data (DFL event XML) ──────────────────────
   # Parses DFL event XML from UC Volume for the same 7 Bundesliga matches.
   # Separate from tracking ingestion — different XML schema.
