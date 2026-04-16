@@ -25,14 +25,18 @@ before the fix the pipeline update was failing; after ``ALTER TABLE OWNER TO
 dbt-owners-dev`` the pipeline immediately went CREATED -> COMPLETED in ~45 s.
 
 **Authentication wrinkle** — ``ALTER TABLE OWNER TO`` can only be executed
-by a principal with MANAGE on the event_log, which is currently the ingestion
-SP. The workspace admin's PAT does NOT have MANAGE. Because there is no
-persistent OAuth secret for the ingestion SP (the daily job uses Databricks'
-``run_as`` directive which mints SP tokens at runtime), we use the same
-mechanism here: submit a one-shot notebook run with
-``run_as: {service_principal_name: <ingestion_sp>}`` via the Jobs API. The
-run executes as the SP in Databricks' managed runtime, inheriting its
-identity without any persistent credential.
+by a principal with MANAGE on the event_log. Two fix paths handle this:
+
+1. **SP-owned tables** (Phase B): The ingestion SP owns the event_log but has
+   no persistent OAuth secret. We submit a one-shot notebook run with
+   ``run_as: {service_principal_name: <ingestion_sp>}`` via the Jobs API.
+   The run executes as the SP in Databricks' managed runtime.
+
+2. **User-owned tables** (Phase B2): When synced tables are recreated via the
+   Databricks UI, the event_log may be owned by the human user who triggered
+   the initial sync. These tables are detected via ``WorkspaceClient.
+   current_user.me()`` and fixed directly via the Statement Execution API
+   (which runs as the caller's PAT identity). No SP notebook needed.
 
 Usage:
     # Dry run — discover state, report, do nothing
@@ -842,7 +846,31 @@ def main(argv: list[str] | None = None) -> int:
     )
     missing_fqns = [fqn for fqn in event_log_fqns.values() if fqn not in owner_map]
 
+    # Detect current user identity for the "direct fix" path — tables owned
+    # by the caller can be ALTERed via the Statement Execution API directly,
+    # without needing the SP run_as notebook.  Handles the case where synced
+    # tables were recreated via the Databricks UI (owner = the UI user).
+    current_user_name: str | None = None
+    try:
+        me = ws.current_user.me()
+        if me.user_name:
+            current_user_name = me.user_name
+            _log("current_user_detected", user_name=current_user_name)
+    except Exception as exc:
+        _log("current_user_detection_failed", error=str(exc)[:200])
+
+    # Split skip_wrong_owner into tables the current user can fix directly
+    # (via Statement Execution API) and tables that are truly unfixable.
+    fixable_by_self: list[str] = []
+    truly_skipped: list[str] = []
+    for fqn in skip_wrong_owner:
+        if current_user_name and fqn_to_owner.get(fqn) == current_user_name:
+            fixable_by_self.append(fqn)
+        else:
+            truly_skipped.append(fqn)
+
     # Per-table report
+    fixable_by_self_set = set(fixable_by_self)
     for table_name, fqn in event_log_fqns.items():
         current_owner = owner_map.get(fqn)
         if current_owner is None:
@@ -868,6 +896,15 @@ def main(argv: list[str] | None = None) -> int:
                 status="needs_fix",
                 current_owner=current_owner,
             )
+        elif fqn in fixable_by_self_set:
+            _log(
+                "table_state",
+                synced_table=table_name,
+                event_log=fqn,
+                status="fixable_by_self",
+                current_owner=current_owner,
+                note="owned by the current user — will fix via Statement Execution API",
+            )
         else:
             _log(
                 "table_state",
@@ -875,10 +912,7 @@ def main(argv: list[str] | None = None) -> int:
                 event_log=fqn,
                 status="skip_wrong_owner",
                 current_owner=current_owner,
-                note=(
-                    "current owner is neither target nor fixer SP; fixer lacks "
-                    "MANAGE and the pipeline may be functional as-is. Not touched."
-                ),
+                note=("current owner is neither target, fixer SP, nor current user; fixer lacks MANAGE. Not touched."),
             )
 
     _log(
@@ -888,16 +922,17 @@ def main(argv: list[str] | None = None) -> int:
         pipeline_id_lookup_errors=discovery_errors,
         already_correct=len(already_correct),
         needs_fix=len(needs_fix),
-        skip_wrong_owner=len(skip_wrong_owner),
+        fixable_by_self=len(fixable_by_self),
+        skip_wrong_owner=len(truly_skipped),
         missing=len(missing_fqns),
     )
 
-    if not needs_fix:
+    if not needs_fix and not fixable_by_self:
         _log(
             "complete",
             outcome="no_fix_needed",
             already_correct=len(already_correct),
-            skip_wrong_owner=len(skip_wrong_owner),
+            skip_wrong_owner=len(truly_skipped),
         )
         return 0 if discovery_errors == 0 else 1
 
@@ -905,59 +940,97 @@ def main(argv: list[str] | None = None) -> int:
     # Dry run — print the SQL that would be generated and exit
     # ------------------------------------------------------------------
     if args.dry_run:
-        notebook_source = _build_alter_owner_notebook_source(needs_fix, args.target_owner)
-        _log(
-            "dry_run_preview",
-            notebook_statement_count=len(needs_fix),
-            notebook_source=notebook_source,
-        )
+        if needs_fix:
+            notebook_source = _build_alter_owner_notebook_source(needs_fix, args.target_owner)
+            _log(
+                "dry_run_preview",
+                method="sp_notebook",
+                statement_count=len(needs_fix),
+                notebook_source=notebook_source,
+            )
+        if fixable_by_self:
+            direct_stmts = [f"ALTER TABLE {fqn} OWNER TO `{args.target_owner}`;" for fqn in fixable_by_self]
+            _log(
+                "dry_run_preview",
+                method="statement_execution_api",
+                statement_count=len(fixable_by_self),
+                statements=direct_stmts,
+            )
         return 0 if discovery_errors == 0 else 1
 
     # ------------------------------------------------------------------
-    # Phase B — submit run_as SP notebook
+    # Phase B — submit run_as SP notebook (for SP-owned tables)
     # ------------------------------------------------------------------
-    _log("phase", name="B_apply_fix")
+    if needs_fix:
+        _log("phase", name="B_apply_fix", count=len(needs_fix))
 
-    notebook_source = _build_alter_owner_notebook_source(needs_fix, args.target_owner)
-    # UUID-derived suffix avoids path collisions when two invocations fire within
-    # the same second (e.g., automated retries after a transient failure).
-    suffix = uuid.uuid4().hex[:12]
-    notebook_path = f"/Shared/fix_event_log_ownership_{suffix}"
+        notebook_source = _build_alter_owner_notebook_source(needs_fix, args.target_owner)
+        # UUID-derived suffix avoids path collisions when two invocations fire within
+        # the same second (e.g., automated retries after a transient failure).
+        suffix = uuid.uuid4().hex[:12]
+        notebook_path = f"/Shared/fix_event_log_ownership_{suffix}"
 
-    try:
-        _upload_notebook(host=host, headers=headers, path=notebook_path, source=notebook_source)
-        _log("notebook_uploaded", path=notebook_path, statements=len(needs_fix))
-    except Exception as exc:
-        _log("notebook_upload_failed", error=str(exc)[:200])
-        return 1
-
-    # Notebook now exists in /Shared/ — guarantee cleanup via try/finally even
-    # if a network flake escapes from _submit_run_as_sp / _poll_submit_run /
-    # _fetch_run_output. _delete_notebook is best-effort (swallows its own
-    # errors) so the finally block cannot itself raise.
-    try:
         try:
-            run_id = _submit_run_as_sp(
-                host=host,
-                headers=headers,
-                notebook_path=notebook_path,
-                sp_app_id=args.sp_application_id,
-                run_name=f"fix_event_log_ownership_{suffix}",
-            )
-            _log("run_submitted", run_id=run_id)
+            _upload_notebook(host=host, headers=headers, path=notebook_path, source=notebook_source)
+            _log("notebook_uploaded", path=notebook_path, statements=len(needs_fix))
         except Exception as exc:
-            _log("run_submit_failed", error=str(exc)[:200])
+            _log("notebook_upload_failed", error=str(exc)[:200])
             return 1
 
-        life, result_state = _poll_submit_run(ws=ws, run_id=run_id)
-        _log("run_terminal", run_id=run_id, life_cycle_state=life, result_state=result_state)
+        # Notebook now exists in /Shared/ — guarantee cleanup via try/finally even
+        # if a network flake escapes from _submit_run_as_sp / _poll_submit_run /
+        # _fetch_run_output. _delete_notebook is best-effort (swallows its own
+        # errors) so the finally block cannot itself raise.
+        try:
+            try:
+                run_id = _submit_run_as_sp(
+                    host=host,
+                    headers=headers,
+                    notebook_path=notebook_path,
+                    sp_app_id=args.sp_application_id,
+                    run_name=f"fix_event_log_ownership_{suffix}",
+                )
+                _log("run_submitted", run_id=run_id)
+            except Exception as exc:
+                _log("run_submit_failed", error=str(exc)[:200])
+                return 1
 
-        if life != "TERMINATED" or result_state != "SUCCESS":
-            error_snippet = _fetch_run_output(ws=ws, run_id=run_id)
-            _log("run_failed", run_id=run_id, error=error_snippet)
-            return 1
-    finally:
-        _delete_notebook(host=host, headers=headers, path=notebook_path)
+            life, result_state = _poll_submit_run(ws=ws, run_id=run_id)
+            _log("run_terminal", run_id=run_id, life_cycle_state=life, result_state=result_state)
+
+            if life != "TERMINATED" or result_state != "SUCCESS":
+                error_snippet = _fetch_run_output(ws=ws, run_id=run_id)
+                _log("run_failed", run_id=run_id, error=error_snippet)
+                return 1
+        finally:
+            _delete_notebook(host=host, headers=headers, path=notebook_path)
+
+    # ------------------------------------------------------------------
+    # Phase B2 — direct fix for tables owned by the current user
+    # ------------------------------------------------------------------
+    # Tables in skip_wrong_owner that are owned by the caller can be ALTERed
+    # directly via the Statement Execution API (which runs as the PAT/OAuth
+    # identity). No SP notebook needed — the current user IS the owner.
+    direct_fix_errors = 0
+    if fixable_by_self:
+        _log("phase", name="B2_direct_fix", count=len(fixable_by_self))
+        for fqn in fixable_by_self:
+            # Input safety: fqn is derived from validated catalog + schema +
+            # UUID-format pipeline_id (via _event_log_fqn); target_owner is
+            # validated by _validate_group_name. Same guarantees as the notebook.
+            sql = f"ALTER TABLE {fqn} OWNER TO `{args.target_owner}`;"
+            try:
+                _execute_sql(host=host, headers=headers, warehouse_id=warehouse_id, sql=sql)
+                _log("direct_fix_applied", event_log=fqn)
+            except Exception as exc:
+                _log("direct_fix_failed", event_log=fqn, error=str(exc)[:200])
+                direct_fix_errors += 1
+        if direct_fix_errors:
+            _log(
+                "direct_fix_partial",
+                applied=len(fixable_by_self) - direct_fix_errors,
+                failed=direct_fix_errors,
+            )
 
     # ------------------------------------------------------------------
     # Phase C — verify ownership was updated
@@ -976,8 +1049,10 @@ def main(argv: list[str] | None = None) -> int:
         _log("verify_query_failed", error=str(exc)[:200])
         return 1
 
+    # Verify all tables that had a fix attempted (both SP + direct paths)
+    all_to_verify = needs_fix + fixable_by_self
     still_broken: list[str] = []
-    for fqn in needs_fix:
+    for fqn in all_to_verify:
         new_owner = post_owner_map.get(fqn)
         if new_owner != args.target_owner:
             still_broken.append(fqn)
@@ -992,7 +1067,8 @@ def main(argv: list[str] | None = None) -> int:
         _log("verify_failed", count=len(still_broken))
         return 1
 
-    _log("verify_passed", fixed=len(needs_fix))
+    total_fixed = len(all_to_verify)
+    _log("verify_passed", fixed=total_fixed)
 
     # ------------------------------------------------------------------
     # Phase D — trigger pipeline refreshes on the fixed tables
@@ -1002,7 +1078,7 @@ def main(argv: list[str] | None = None) -> int:
             "complete",
             outcome="fixed_without_refresh",
             already_correct=len(already_correct),
-            fixed=len(needs_fix),
+            fixed=total_fixed,
         )
         return 0
 
@@ -1014,7 +1090,7 @@ def main(argv: list[str] | None = None) -> int:
     refresh_complete: list[str] = []
     refresh_failed: list[str] = []
 
-    for fqn in needs_fix:
+    for fqn in all_to_verify:
         table_name = fqn_to_table[fqn]
         pid = pipeline_ids[table_name]
         try:
@@ -1043,7 +1119,7 @@ def main(argv: list[str] | None = None) -> int:
         "complete",
         outcome="fixed_and_refreshed" if not refresh_failed else "fixed_with_refresh_errors",
         already_correct=len(already_correct),
-        fixed=len(needs_fix),
+        fixed=total_fixed,
         refresh_complete=len(refresh_complete),
         refresh_failed=len(refresh_failed),
     )

@@ -52,9 +52,30 @@ resource "databricks_service_principal" "terraform_ci" {
 }
 
 # ── CI SP Roles: Workspace Admin + Account Admin ──────────────────────────
-# terraform plan needs to refresh all managed resources.  Workspace admin
-# covers SCIM, SQL endpoints, and catalog reads.  Account admin covers
-# federation policies and access control rule sets.
+# These two roles are the verified minimum floor for terraform plan/apply.
+# Investigated 2026-04-13 (SEC4 / D59) — each was individually tested for
+# removal; both are mandatory for the resources they gate:
+#
+# 1. Workspace admin (admins group membership):
+#    Required by databricks_permissions on workspace-scoped objects —
+#    specifically sql_warehouse (environments/dev/main.tf) and job ACLs
+#    (hf_app_view_ingestion_job, hf_app_view_sync_hf_costs_job). Workspace
+#    admin is the only role granting MANAGE on workspace-level objects.
+#    Cannot be replaced without adding explicit databricks_permissions
+#    resources for every workspace object across all TF modules.
+#
+# 2. Account admin (databricks_service_principal_role):
+#    Required for two account-scoped resources that cannot be managed
+#    without account-level API access:
+#    - databricks_service_principal_federation_policy.github_actions (below)
+#    - databricks_access_control_rule_set.ingestion_sp_user_role (above)
+#
+# 3. Catalog ALL_PRIVILEGES (databricks_grant in environments/dev/main.tf):
+#    Workspace admin does NOT cover Unity Catalog privileges. The CI SP
+#    manages schemas, volumes, and grants via Terraform — it needs both
+#    read (plan) and write (apply) UC access across the catalog.
+#    Verified 2026-04-16: removing the grant broke terraform plan with
+#    "does not have USE CATALOG" / "USE SCHEMA" on 10+ resources.
 
 data "databricks_group" "admins" {
   display_name = "admins"

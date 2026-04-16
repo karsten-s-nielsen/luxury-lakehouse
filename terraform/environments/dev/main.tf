@@ -209,9 +209,13 @@ module "synced_tables" {
 # Lakebase auth uses PAT-based OAuth via HF Space secrets.
 
 # ── CI Service Principal: Catalog Access ───────────────────────────────────
-# The terraform_ci SP needs ALL_PRIVILEGES on the catalog so terraform plan
-# can read catalog, schema, and grant resources.  This is a composition-level
-# grant because the SP and catalog come from separate modules.
+# Workspace admin covers workspace-scoped objects (SQL warehouses, jobs,
+# SCIM) but does NOT cover Unity Catalog privileges (catalog, schema,
+# volume, model, grant). The CI SP manages 4 schemas, 2 volumes, and
+# 15+ grants via Terraform — it needs both read (terraform plan) and
+# write (terraform apply) UC privileges across the catalog.
+# ALL_PRIVILEGES is the pragmatic grant; per-schema scoping would require
+# a databricks_grant per schema/volume/model and break on every new resource.
 
 resource "databricks_grant" "ci_sp_catalog" {
   catalog    = module.workspace.catalog_name
