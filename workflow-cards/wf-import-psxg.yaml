@@ -42,9 +42,9 @@ depends_on:
   - wf-export-shots
 
 idempotency:
-  strategy: upsert
-  key: match_id
-  description: "replaceWhere on match_id for idempotent partition-level writes."
+  strategy: skip-guard
+  key: hf-commit-sha
+  description: "SHA-based freshness guard via HfApi.repo_info().sha — skips import when the HF Hub dataset has not changed since last successful import. Within a run, replaceWhere on match_id ensures idempotent partition-level writes."
 
 performance:
   inference_timeout: "900s"

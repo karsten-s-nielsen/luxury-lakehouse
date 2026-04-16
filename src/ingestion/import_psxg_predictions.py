@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 
 from huggingface_hub import hf_hub_download
 
-from ingestion.guards import FilterResult, timed_check
+from ingestion.guards import FilterResult, check_hf_dataset_freshness, record_import_sha, timed_check
 from shared.constants import IDENTIFIER_RE
 from workflows import workflow
 from workflows.exceptions import WorkflowSkippedError
@@ -30,7 +30,7 @@ class _ImportPsxgGuard:
     workflow_id = "wf-import-psxg"
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
-        return FilterResult(workflow_id=self.workflow_id, count=1)
+        return check_hf_dataset_freshness(spark, catalog, self.workflow_id, HF_REPO)
 
 
 skip_guard = _ImportPsxgGuard()
@@ -144,6 +144,8 @@ def run_pipeline(
             logger.warning("No match_ids found in predictions — skipping write")
     else:
         logger.info("No predictions to import — skipping")
+
+    record_import_sha(spark, catalog, "wf-import-psxg", HF_REPO, filter_result.metadata.get("commit_sha"))
 
     logger.info("PSxG import complete")
     return 0

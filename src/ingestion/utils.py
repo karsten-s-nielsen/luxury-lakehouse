@@ -564,6 +564,7 @@ def upload_volume_to_hf_hub(
     repo_type: str = "dataset",
     path_in_repo: str = "data",
     logger: logging.Logger | None = None,
+    delete_patterns: list[str] | None = None,
 ) -> str:
     """Upload Spark-written Parquet from a UC Volume to HuggingFace Hub.
 
@@ -578,6 +579,10 @@ def upload_volume_to_hf_hub(
         repo_type: Repository type (``dataset``, ``model``, etc.).
         path_in_repo: Target path within the repo (default ``data``).
         logger: Optional logger; falls back to module-level ``_hf_logger``.
+        delete_patterns: Optional glob patterns passed to
+            ``upload_folder(delete_patterns=...)`` to remove stale files
+            before uploading.  E.g. ``["data/*.parquet", "data/_*"]``
+            ensures each upload atomically replaces the data directory.
 
     Returns:
         URL of the published HF Hub repository.
@@ -633,14 +638,18 @@ def upload_volume_to_hf_hub(
 
         log.info("Staged %d Parquet files for HF Hub upload", part_count)
 
+        upload_kwargs: dict[str, object] = {
+            "folder_path": str(staging_dir),
+            "path_in_repo": path_in_repo,
+            "repo_id": repo_id,
+            "repo_type": repo_type,
+            "token": hf_token,
+        }
+        if delete_patterns is not None:
+            upload_kwargs["delete_patterns"] = delete_patterns
+
         start = time.time()
-        api.upload_folder(
-            folder_path=str(staging_dir),
-            path_in_repo=path_in_repo,
-            repo_id=repo_id,
-            repo_type=repo_type,
-            token=hf_token,
-        )
+        api.upload_folder(**upload_kwargs)  # type: ignore[arg-type]
         elapsed = time.time() - start
 
     url_prefix = {"dataset": "datasets/", "model": "", "space": "spaces/"}.get(repo_type, "")

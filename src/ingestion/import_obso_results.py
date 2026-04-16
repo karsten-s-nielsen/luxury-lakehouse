@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 
 from huggingface_hub import hf_hub_download
 
-from ingestion.guards import FilterResult, timed_check
+from ingestion.guards import FilterResult, check_hf_dataset_freshness, record_import_sha, timed_check
 from shared.constants import IDENTIFIER_RE
 from workflows import workflow
 from workflows.exceptions import WorkflowSkippedError
@@ -41,7 +41,7 @@ class _ImportObsoGuard:
     workflow_id = "wf-import-obso"
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
-        return FilterResult(workflow_id=self.workflow_id, count=1)
+        return check_hf_dataset_freshness(spark, catalog, self.workflow_id, HF_REPO)
 
 
 skip_guard = _ImportObsoGuard()
@@ -216,6 +216,8 @@ def run_pipeline(
         logger.info("OBSO surfaces not found at %s — skipping (surfaces are optional)", surfaces_path)
     except Exception:
         logger.error("Unexpected error reading OBSO surfaces at %s — skipping", surfaces_path, exc_info=True)
+
+    record_import_sha(spark, catalog, "wf-import-obso", hf_repo, filter_result.metadata.get("commit_sha"))
 
     logger.info("OBSO import complete")
     return 0

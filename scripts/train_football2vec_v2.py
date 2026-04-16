@@ -1,10 +1,11 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.2-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.3-py3-none-any.whl#sha256=290c1acc154f891339f938895b3fc9f6badd3647e34b95246e22d6795834a18e",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
+#     "datasets>=3.0",
 #     "torch>=2.0",
 #     "safetensors>=0.4.0",
 #     "huggingface-hub>=1.5.0",

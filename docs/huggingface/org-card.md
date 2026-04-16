@@ -40,7 +40,7 @@ All public artifacts are hosted entirely within the HF ecosystem.
 
 | Model | Architecture | Scale |
 |-------|-------------|-------|
-| [football2vec-v2](https://huggingface.co/luxury-lakehouse/football2vec-v2) | Transformer encoder (128-dim) + adversarial team debiasing (Ganin GRL) | 87K per-match vectors across 8,950 players, debiased for team identity |
+| [football2vec-v2](https://huggingface.co/luxury-lakehouse/football2vec-v2) | Transformer encoder (128-dim) + adversarial competition debiasing (Ganin GRL) | 114K per-match vectors across 22 competitions, debiased for competition identity |
 | [football2vec-statsbomb-wyscout](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) | Doc2Vec (PV-DM) 32-dim behavioral embeddings (v1 baseline) | 87K per-match vectors across 8,950 players from ~3,000 matches |
 | [xg-model-statsbomb-wyscout](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout) | Calibrated XGBoost + logistic baseline (13 features) | Trained on ~131K shots, ROC-AUC 0.979 on held-out test set |
 | [vaep-model-statsbomb-wyscout](https://huggingface.co/luxury-lakehouse/vaep-model-statsbomb-wyscout) | 2&times; XGBClassifier (P(scores) + P(concedes)) | Trained on ~2,388 matches from StatsBomb + Wyscout |
@@ -61,8 +61,8 @@ All model serialization uses **JSON envelopes** &mdash; zero pickle files (banne
 |---------|-------|-------------|
 | [spadl-vaep-action-values](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values) | ~9.5M actions | Per-action offensive/defensive VAEP valuations |
 | [line-breaking-passes](https://huggingface.co/datasets/luxury-lakehouse/line-breaking-passes) | ~5M passes | All passes with defensive line-breaking labels via Ward clustering on 360 freeze frames |
-| [football2vec-player-embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings) | 87K vectors | Pre-computed behavioral (128-d transformer) + statistical (13-d) player vectors |
-| [football2vec-training-data](https://huggingface.co/datasets/luxury-lakehouse/football2vec-training-data) | ~87K sequences | Tokenized SPADL action sequences for transformer training |
+| [football2vec-player-embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings) | 114K vectors | Pre-computed behavioral (128-d transformer) + statistical (13-d) player vectors |
+| [football2vec-training-data](https://huggingface.co/datasets/luxury-lakehouse/football2vec-training-data) | ~114K sequences | Tokenized SPADL action sequences for transformer training |
 | [pitch-control-tracking](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking) | 38M frames | Per-player per-frame Spearman (2017) physics-based pitch control |
 | [expected-threat-grids](https://huggingface.co/datasets/luxury-lakehouse/expected-threat-grids) | 12x8 grid | Data-driven Expected Threat values computed from 2.2M SPADL actions |
 | [obso-pausa-inputs](https://huggingface.co/datasets/luxury-lakehouse/obso-pausa-inputs) | 7 matches | ELASTIC-synced event-tracking inputs for OBSO/PAUSA computation |
@@ -74,7 +74,7 @@ All model serialization uses **JSON envelopes** &mdash; zero pickle files (banne
 | [statsbomb-shots-on-target](https://huggingface.co/datasets/luxury-lakehouse/statsbomb-shots-on-target) | ~15K shots | On-target shots with goalmouth coordinates for PSxG training |
 | [psxg-predictions](https://huggingface.co/datasets/luxury-lakehouse/psxg-predictions) | ~15K shots | Per-shot PSxG probabilities from logistic model |
 | [football2vec-360-training-data](https://huggingface.co/datasets/luxury-lakehouse/football2vec-360-training-data) | ~2M actions | SPADL action sequences with 360 freeze frame context |
-| [football2vec-statsbomb-wyscout](https://huggingface.co/datasets/luxury-lakehouse/football2vec-statsbomb-wyscout) | 87K vectors | Per-match v1 Doc2Vec (32-dim) + v2 transformer (128-dim) raw embeddings |
+| [football2vec-statsbomb-wyscout](https://huggingface.co/datasets/luxury-lakehouse/football2vec-statsbomb-wyscout) | 114K vectors | Per-match v2 transformer (128-dim) raw embeddings with adversarial competition debiasing |
 | [football2vec-360-embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-360-embeddings) | ~4K players | 144-dim player embeddings from 360-enriched model |
 | [scoutgpt-training-data](https://huggingface.co/datasets/luxury-lakehouse/scoutgpt-training-data) | 894K episodes | SPADL possession episodes with per-action player attribution (Hong et al. 2025) |
 

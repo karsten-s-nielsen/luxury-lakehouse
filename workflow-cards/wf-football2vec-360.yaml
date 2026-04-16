@@ -70,8 +70,8 @@ depends_on:
 
 idempotency:
   strategy: skip-guard
-  key: match_id
-  description: "Checks existing 360-enriched embeddings by match_id before processing. Uses replaceWhere per data_source for idempotent Delta writes."
+  key: hf-commit-sha
+  description: "SHA-based freshness guard via HfApi.repo_info().sha — skips import when the HF Hub 360 embeddings dataset has not changed since last successful import. Within a run, replaceWhere per data_source ensures idempotent Delta writes."
 
 cost:
   training:
