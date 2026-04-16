@@ -105,7 +105,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 36 AI/ML wor
         databricksWorkflows -> ingestionPipelines "Executes 26 pipeline tasks (5 ingest as DAG roots)" "Databricks Jobs API"
         databricksWorkflows -> dbtRunner "Invokes dbt_build python_wheel_task after 9 leaf computes" "Databricks Jobs API / python_wheel_task"
         databricksWorkflows -> refreshSyncedTables "Final task: single-edge dependency on dbt_build" "Databricks Jobs API / python_wheel_task"
-        dbtRunner -> dbtProject "Invokes dbtRunner().invoke(['build', '--project-dir', ..., '--target', 'serverless']) against the wheel-bundled dbt_project/" "dbt-core"
+        dbtRunner -> dbtProject "Invokes dbtRunner().invoke() with build args against wheel-bundled dbt_project/ (serverless target)" "dbt-core"
         dbtRunner -> databricksApi "Resolves warehouse, starts if STOPPED, exchanges runtime SP identity for OAuth M2M token" "HTTPS/REST"
         dbtRunner -> sharedLibrary "Imports IDENTIFIER_RE and module path conventions" ""
         ingestionPipelines -> analyticsLibrary "Also imports verify_artifact_hash() via ingestion.utils for SHA-256 integrity check of model loads (SEC2)" ""

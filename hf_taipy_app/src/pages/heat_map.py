@@ -18,9 +18,26 @@ page_config = PageConfig(
         Citation("Anzer & Bauer (2021)", "https://doi.org/10.1007/s10994-021-06011-5"),
         Citation("mplsoccer", "https://mplsoccer.readthedocs.io/"),
     ],
-    content=[ContentRow([ContentBlock("image", "hm_pitch_image")])],
+    content=[
+        ContentRow(
+            [
+                ContentBlock("image", "hm_pass_bubbles"),
+                ContentBlock("image", "hm_shot_bubbles"),
+            ],
+            columns=2,
+            condition="len(hm_pass_bubbles) > 0",
+        ),
+        ContentRow(
+            [
+                ContentBlock("image", "hm_pass_focus"),
+                ContentBlock("image", "hm_shot_focus"),
+            ],
+            columns=2,
+            condition="len(hm_pass_focus) > 0",
+        ),
+    ],
     empty_message="Select a competition to begin.",
-    empty_condition="len(hm_pitch_image) == 0 and len(competition_lov) > 0",
+    empty_condition="len(hm_pass_bubbles) == 0 and len(competition_lov) > 0",
     warning_var="hm_warning_text",
     scope_vars=["hm_scope_label"],
     freshness_var="hm_data_freshness",
@@ -32,7 +49,6 @@ page_config = PageConfig(
         ),
         Metric("Passes", "hm_passes", "Number of pass actions in the selected scope."),
         Metric("Shots", "hm_shots", "Number of shot actions in the selected scope."),
-        Metric("Most Active Zone", "hm_most_active_zone", "The pitch zone with the highest action density."),
     ],
 )
 page_md = build_page(page_config)
