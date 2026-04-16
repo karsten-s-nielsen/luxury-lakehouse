@@ -1,8 +1,19 @@
-"""Helper module for train_football2vec_v2.py.
+"""Football2Vec v2 training helpers — dataset, masking, splits, LR schedule.
 
-Contains data loading, parsing, dataset class, train/val/test splitting,
-learning rate scheduler. The main script handles training loops, evaluation,
-model I/O, MLflow logging, and pipeline orchestration.
+Contains data loading, parsing, PyTorch Dataset class, train/val/test
+splitting, and the cosine learning rate scheduler used by
+``scripts/train_football2vec_v2.py`` (HF Jobs L40S training entry point).
+
+Moved from ``scripts/train_football2vec_v2_helpers.py`` into the wheel so
+HF Jobs scripts can import it via ``ingestion.football2vec_v2_training``
+without sibling-file tricks, and so ``src/tests/test_benchmarks.py`` can
+reach ``Football2VecDataset`` without ``sys.path.insert`` on the scripts
+directory.
+
+This module is training-only — it is NEVER imported by production
+inference code (``player_embeddings_v1.py``, ``player_embeddings_v2.py``,
+etc.). Those paths use the frozen on-disk model and do not need the
+training dataset class.
 """
 
 from __future__ import annotations
@@ -62,7 +73,8 @@ def load_training_data(hf_token: str, training_dataset: str) -> tuple[pd.DataFra
     data = pd.concat(dfs, ignore_index=True)
     logger.info("Total player-match sequences: %d", len(data))
     dataset_info = api.repo_info(repo_id=training_dataset, repo_type="dataset")
-    return data, dataset_info.sha
+    commit_sha: str = dataset_info.sha or ""
+    return data, commit_sha
 
 
 def parse_actions(
@@ -188,7 +200,10 @@ def stratified_split(
 
     stratify_col = data["competition_id"].astype(str)
     counts = stratify_col.value_counts()
-    rare_mask = stratify_col.isin(counts[counts < 3].index)
+    # Build rare-label sets via dict comprehension — avoids the pandas boolean
+    # Index subscript path that pyright cannot resolve to a concrete type.
+    rare_labels = [label for label, cnt in counts.items() if cnt < 3]
+    rare_mask = stratify_col.isin(rare_labels)
     stratify_col = stratify_col.copy()
     stratify_col.loc[rare_mask] = "_other_"
 
@@ -203,7 +218,8 @@ def stratified_split(
     val_relative = val_frac / (train_frac + val_frac)
     stratify_trainval = stratify_col.iloc[train_val_idx]
     tv_counts = stratify_trainval.value_counts()
-    tv_rare = stratify_trainval.isin(tv_counts[tv_counts < 2].index)
+    tv_rare_labels = [label for label, cnt in tv_counts.items() if cnt < 2]
+    tv_rare = stratify_trainval.isin(tv_rare_labels)
     stratify_trainval = stratify_trainval.copy()
     stratify_trainval.loc[tv_rare] = "_other_"
 

@@ -372,10 +372,27 @@ def run_pipeline_v1(
     bronze_df = _build_bronze_dataframe(behavioral_vectors, merged_stats, source_map)
     logger.info("Built bronze DataFrame: %d rows", len(bronze_df))
 
-    # 8. Write per data source with replaceWhere for idempotency
+    # 8. Write per data source with match-id-scoped replaceWhere for idempotency.
+    # D45 fix 2026-04-15: previously replace_where was keyed on data_source
+    # alone, which replaced the entire statsbomb/wyscout partition in
+    # player_embeddings_raw — clobbering v2's 128d rows whenever v1 processed
+    # even a single new match. Scoping the predicate to the specific match_ids
+    # v1 just processed keeps v1 writes surgical and leaves v2 rows intact.
     for source in bronze_df["data_source"].unique():
         source_str = str(source)
         source_slice = bronze_df[bronze_df["data_source"] == source_str]
+
+        if source_slice.empty:
+            continue
+
+        # Build a SQL-safe IN list from the match_ids actually being written.
+        # match_id is stored as STRING in player_embeddings_raw (see _RESULTS_SCHEMA
+        # at module top), so quote each value. Escape single quotes defensively
+        # even though match_ids in practice are numeric-looking strings.
+        source_match_ids: list[str] = sorted({str(m) for m in source_slice["match_id"]})
+        escaped = [m.replace("'", "''") for m in source_match_ids]
+        in_list = ", ".join(f"'{m}'" for m in escaped)
+        predicate = f"data_source = '{source_str}' AND match_id IN ({in_list})"
 
         sdf = spark.createDataFrame(source_slice)
         row_count = validate_dataframe(
@@ -389,7 +406,7 @@ def run_pipeline_v1(
             catalog,
             schema,
             _TABLE_NAME,
-            replace_where=f"data_source = '{source_str}'",
+            replace_where=predicate,
             logger=logger,
             row_count=row_count,
         )

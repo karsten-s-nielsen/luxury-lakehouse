@@ -661,14 +661,8 @@ def test_bench_scoutgpt_forward(benchmark: Any) -> None:
 @pytest.fixture
 def f2v_dataset():  # type: ignore[no-untyped-def]
     """Small pre-tensorized Football2Vec v2 dataset for benchmarking."""
-    import sys
-    from pathlib import Path
-
     pytest.importorskip("pyarrow")
-    scripts_dir = str(Path(__file__).resolve().parents[2] / "scripts")
-    if scripts_dir not in sys.path:
-        sys.path.insert(0, scripts_dir)
-    from train_football2vec_v2_helpers import Football2VecDataset
+    from ingestion.football2vec_v2_training import Football2VecDataset
 
     n = 100
     lens = _rand_seq_lens(n, 10, 50, seed=50)
