@@ -10,6 +10,7 @@ and raises ``WorkflowSkippedError`` when ``count == 0``.
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
@@ -139,6 +140,163 @@ def find_new_ids(
     new_df = source_df.join(results_df, on=join_alias, how="left_anti")
     rows = new_df.collect()
     return [str(row[join_alias]) for row in rows]
+
+
+_logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# HF Hub dataset freshness — SHA-based skip guard for import pipelines
+# ---------------------------------------------------------------------------
+
+_IMPORT_CHECKSUMS_DDL = (
+    "workflow_id STRING NOT NULL, "
+    "source_repo STRING NOT NULL, "
+    "repo_type STRING NOT NULL, "
+    "last_imported_sha STRING NOT NULL, "
+    "imported_at TIMESTAMP NOT NULL"
+)
+_IMPORT_CHECKSUMS_TABLE = "workflow_import_checksums"
+
+
+def check_hf_dataset_freshness(
+    spark: SparkSession,
+    catalog: str,
+    workflow_id: str,
+    hf_repo: str,
+    repo_type: str = "dataset",
+) -> FilterResult:
+    """Compare the current HF Hub commit SHA against the last imported SHA.
+
+    Returns ``count=0`` (skip) when the stored SHA matches the live repo,
+    ``count=1`` (run) when they differ or no stored SHA exists.
+
+    Fails open: if HF Hub is unreachable, returns ``count=1`` so the
+    pipeline still runs (network issues should not silently skip work).
+
+    Args:
+        spark: Active SparkSession.
+        catalog: Unity Catalog name.
+        workflow_id: The ``wf-xxx`` identifier for this workflow.
+        hf_repo: HF Hub repo ID (e.g., ``luxury-lakehouse/obso-pausa-values``).
+        repo_type: HF Hub repo type (default ``"dataset"``).
+
+    Returns:
+        FilterResult with ``count=0`` (skip) or ``count=1`` (run).
+        When ``count=1``, ``metadata["commit_sha"]`` contains the live SHA
+        for downstream ``record_import_sha`` write-back.
+    """
+    # Import HfApi inside function body to avoid import-time dep on
+    # huggingface_hub — conformance test runner doesn't have it installed.
+    from huggingface_hub import HfApi
+
+    # 1. Fetch current commit SHA from HF Hub
+    try:
+        info = HfApi().repo_info(hf_repo, repo_type=repo_type)
+        current_sha = info.sha
+    except Exception:  # noqa: BLE001 — fail open on any HF Hub error (network, auth, 404)
+        _logger.warning(
+            "Could not reach HF Hub for %s — failing open (count=1)",
+            hf_repo,
+            exc_info=True,
+        )
+        return FilterResult(workflow_id=workflow_id, count=1)
+
+    if not current_sha:
+        _logger.warning("HF Hub returned empty SHA for %s — failing open", hf_repo)
+        return FilterResult(workflow_id=workflow_id, count=1)
+
+    # 2. Ensure the checksums table exists
+    table = f"{catalog}.observability.{_IMPORT_CHECKSUMS_TABLE}"
+    ensure_table(spark, table, _IMPORT_CHECKSUMS_DDL)
+
+    # 3. Look up the last imported SHA for this workflow
+    rows = spark.sql(
+        f"SELECT last_imported_sha FROM {table} "  # noqa: S608
+        f"WHERE workflow_id = '{workflow_id}'"
+    ).collect()
+
+    if rows:
+        stored_sha: str = rows[0]["last_imported_sha"]
+        if stored_sha == current_sha:
+            _logger.info(
+                "HF repo %s SHA unchanged (%s) — skipping %s",
+                hf_repo,
+                current_sha[:8],
+                workflow_id,
+            )
+            return FilterResult(workflow_id=workflow_id, count=0)
+        _logger.info(
+            "HF repo %s SHA changed (%s → %s) — running %s",
+            hf_repo,
+            stored_sha[:8],
+            current_sha[:8],
+            workflow_id,
+        )
+    else:
+        _logger.info(
+            "No stored SHA for %s (%s) — first run",
+            workflow_id,
+            hf_repo,
+        )
+
+    return FilterResult(
+        workflow_id=workflow_id,
+        count=1,
+        metadata={"commit_sha": current_sha},
+    )
+
+
+def record_import_sha(
+    spark: SparkSession,
+    catalog: str,
+    workflow_id: str,
+    source_repo: str,
+    commit_sha: str | None,
+    repo_type: str = "dataset",
+) -> None:
+    """Write back the imported commit SHA to the checksums table via MERGE.
+
+    Called after a successful pipeline write to record which HF Hub commit
+    was imported.  Subsequent guard runs compare against this stored SHA
+    to decide whether new work exists.
+
+    No-ops when ``commit_sha`` is ``None`` (e.g., when the guard failed
+    open and no SHA was available).
+
+    Args:
+        spark: Active SparkSession.
+        catalog: Unity Catalog name.
+        workflow_id: The ``wf-xxx`` identifier for this workflow.
+        source_repo: HF Hub repo ID that was imported.
+        commit_sha: The commit SHA to record, or ``None`` to skip.
+        repo_type: HF Hub repo type (default ``"dataset"``).
+    """
+    if commit_sha is None:
+        return
+
+    table = f"{catalog}.observability.{_IMPORT_CHECKSUMS_TABLE}"
+
+    spark.sql(
+        f"MERGE INTO {table} AS t "  # noqa: S608 — values are internal workflow constants, not user input
+        f"USING (SELECT '{workflow_id}' AS workflow_id) AS s "
+        f"ON t.workflow_id = s.workflow_id "
+        f"WHEN MATCHED THEN UPDATE SET "
+        f"  source_repo = '{source_repo}', "
+        f"  repo_type = '{repo_type}', "
+        f"  last_imported_sha = '{commit_sha}', "
+        f"  imported_at = current_timestamp() "
+        f"WHEN NOT MATCHED THEN INSERT "
+        f"  (workflow_id, source_repo, repo_type, last_imported_sha, imported_at) "
+        f"  VALUES ('{workflow_id}', '{source_repo}', '{repo_type}', "
+        f"  '{commit_sha}', current_timestamp())"
+    )
+
+    _logger.info(
+        "Recorded import SHA %s for %s (%s)",
+        commit_sha[:8],
+        workflow_id,
+        source_repo,
+    )
 
 
 class SkipGuard(Protocol):

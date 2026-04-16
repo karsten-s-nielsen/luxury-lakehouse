@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 from huggingface_hub import hf_hub_download, repo_exists
 
-from ingestion.guards import FilterResult, timed_check
+from ingestion.guards import FilterResult, check_hf_dataset_freshness, record_import_sha, timed_check
 from ingestion.player_embeddings_common import (
     _TABLE_NAME,
     _compute_stat_vectors,
@@ -38,11 +38,19 @@ if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 
+# ---------------------------------------------------------------------------
+# v2 import — pre-computed transformer embeddings from HF Hub
+# ---------------------------------------------------------------------------
+
+_HF_V2_DATASET = "luxury-lakehouse/football2vec-statsbomb-wyscout"
+_HF_360_DATASET = "luxury-lakehouse/football2vec-360-embeddings"  # pragma: allowlist secret
+
+
 class _Football2VecV2Guard:
     workflow_id = "wf-football2vec-v2"
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
-        return FilterResult(workflow_id=self.workflow_id, count=1)
+        return check_hf_dataset_freshness(spark, catalog, self.workflow_id, _HF_V2_DATASET)
 
 
 skip_guard = _Football2VecV2Guard()
@@ -52,22 +60,11 @@ class _Football2Vec360Guard:
     workflow_id = "wf-football2vec-360"
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
-        # Placeholder guard — always returns count=1 to trigger a run.
-        # A proper guard would check whether the HF dataset commit hash has
-        # changed since the last successful import (track in a sidecar file).
-        # Deferred to a follow-up cycle — matches the v2 placeholder pattern.
-        return FilterResult(workflow_id=self.workflow_id, count=1)
+        return check_hf_dataset_freshness(spark, catalog, self.workflow_id, _HF_360_DATASET)
 
 
 _football2vec_360_guard = _Football2Vec360Guard()
 
-
-# ---------------------------------------------------------------------------
-# v2 import — pre-computed transformer embeddings from HF Hub
-# ---------------------------------------------------------------------------
-
-_HF_V2_DATASET = "luxury-lakehouse/football2vec-statsbomb-wyscout"
-_HF_360_DATASET = "luxury-lakehouse/football2vec-360-embeddings"  # pragma: allowlist secret
 _V2_BEHAVIORAL_DIM = 128
 _V360_BEHAVIORAL_DIM = 144
 _FOOTBALL2VEC_360_DATA_SOURCE = "football2vec_360"
@@ -258,6 +255,9 @@ def run_pipeline_v2(
 
     success = _import_v2_embeddings(spark, catalog, schema, logger)
     if success:
+        record_import_sha(
+            spark, catalog, "wf-football2vec-v2", _HF_V2_DATASET, filter_result.metadata.get("commit_sha")
+        )
         logger.info("v2 transformer embedding import complete")
     else:
         logger.info("v2 transformer embeddings not available — no action taken")
@@ -453,6 +453,9 @@ def run_pipeline_360(
 
     row_count = _import_embeddings_360(spark, catalog, schema, logger)
     if row_count:
+        record_import_sha(
+            spark, catalog, "wf-football2vec-360", _HF_360_DATASET, filter_result.metadata.get("commit_sha")
+        )
         logger.info("360 transformer embedding import complete (%d rows)", row_count)
     else:
         logger.info("360 transformer embeddings not available — no action taken")

@@ -12,7 +12,6 @@ import math
 
 import numpy as np
 import pandas as pd
-import pyarrow.parquet as pq
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
@@ -44,28 +43,17 @@ DEFAULT_MASK_PROB = 0.15
 
 def load_training_data(hf_token: str, input_dataset: str) -> tuple[pd.DataFrame, str]:
     """Download 360-enriched training data from HF Hub and return DataFrame + commit hash."""
-    from huggingface_hub import HfApi, hf_hub_download
+    from datasets import load_dataset
+    from huggingface_hub import HfApi
+
+    ds = load_dataset(input_dataset, split="train", token=hf_token)
+    data = ds.to_pandas()
+    logger.info("Loaded %d player-match sequences from %s", len(data), input_dataset)
 
     api = HfApi(token=hf_token)
-    all_items = list(api.list_repo_tree(input_dataset, repo_type="dataset", recursive=True))
-    parquet_files = [f.path for f in all_items if hasattr(f, "size") and f.path.endswith(".parquet")]
-
-    if not parquet_files:
-        msg = f"No parquet files found in {input_dataset}"
-        raise RuntimeError(msg)
-
-    dfs: list[pd.DataFrame] = []
-    for pf in parquet_files:
-        local_path = hf_hub_download(input_dataset, pf, repo_type="dataset", token=hf_token)
-        table = pq.read_table(local_path)
-        df = table.to_pandas()
-        dfs.append(df)
-        logger.info("  %s: %d rows", pf, len(df))
-
-    data = pd.concat(dfs, ignore_index=True)
-    logger.info("Total player-match sequences: %d", len(data))
     dataset_info = api.repo_info(repo_id=input_dataset, repo_type="dataset")
-    return data, dataset_info.sha
+    commit_sha: str = dataset_info.sha or ""
+    return data, commit_sha
 
 
 def parse_actions(

@@ -67,8 +67,8 @@ depends_on:
 
 idempotency:
   strategy: skip-guard
-  key: match_id
-  description: "Checks existing embeddings by match_id before processing. v2 path imports pre-computed vectors from HF Hub with replaceWhere per data_source."
+  key: hf-commit-sha
+  description: "SHA-based freshness guard via HfApi.repo_info().sha — skips import when the HF Hub embeddings dataset has not changed since last successful import. Within a run, replaceWhere per data_source ensures idempotent Delta writes."
 
 cost:
   training:

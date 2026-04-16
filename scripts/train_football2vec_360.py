@@ -5,6 +5,7 @@
 #     "numpy>=1.26.0",
 #     "pandas>=2.0.0",
 #     "pyarrow>=14.0.0",
+#     "datasets>=3.0",
 #     "torch>=2.1.0",
 #     "safetensors>=0.4.0",
 #     "huggingface-hub>=1.5.0",

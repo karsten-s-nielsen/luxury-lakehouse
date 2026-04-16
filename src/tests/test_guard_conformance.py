@@ -30,13 +30,13 @@ _METADATA_EXEMPT = {
     "wf-idsse-events",  # Static dataset, count-based guard
     "wf-skillcorner",  # Static dataset, count-based guard
     "wf-wyscout",  # Static dataset, count-based guard
-    "wf-import-obso",  # HF Hub import, always-run
-    "wf-import-psxg",  # HF Hub import, always-run
-    "wf-import-space-creation",  # HF Hub import, always-run
+    "wf-import-obso",  # HF SHA guard — metadata is commit_sha string, not ID list
+    "wf-import-psxg",  # HF SHA guard — metadata is commit_sha string, not ID list
+    "wf-import-space-creation",  # HF SHA guard — metadata is commit_sha string, not ID list
     "wf-model-validation",  # Monitoring, always-run
     "wf-sync-hf-costs",  # Polling sync, always-run
     "wf-hf-sync",  # Orchestrator, always-run stub
-    "wf-football2vec-v2",  # HF Hub import, always-run stub
+    "wf-football2vec-v2",  # HF SHA guard — metadata is commit_sha string, not ID list
     "wf-football2vec-v2-export",  # Count-comparison guard
     "wf-prepare-360-data",  # Count-comparison guard
 }
@@ -127,6 +127,7 @@ def _make_permissive_spark_mock() -> MagicMock:
             "competition_id": "c1",
             "player_id": "p1",
             "_join_id": "m1",
+            "last_imported_sha": "mock_sha_1",
         },
         {
             "match_id": "m2",
@@ -135,6 +136,7 @@ def _make_permissive_spark_mock() -> MagicMock:
             "competition_id": "c2",
             "player_id": "p2",
             "_join_id": "m2",
+            "last_imported_sha": "mock_sha_2",
         },
     ]
 

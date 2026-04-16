@@ -454,7 +454,12 @@ def _upload_to_hf_hub(volume_path: str, spark: object) -> str:
 
     from ingestion.utils import upload_volume_to_hf_hub
 
-    return upload_volume_to_hf_hub(volume_path, DATASET_REPO, logger=logger)
+    return upload_volume_to_hf_hub(
+        volume_path,
+        DATASET_REPO,
+        logger=logger,
+        delete_patterns=["data/*.parquet", "data/_*"],
+    )
 
 
 # ---------------------------------------------------------------------------
