@@ -580,7 +580,7 @@ h2 .material-symbols-outlined {
 /* ── 7. Page header (title + reference, constrained to diagram width) ─ */
 
 .ll-page-header {
-    max-width: 75% !important;  /* matches 3fr of 3fr+1fr layout */
+    max-width: 80% !important;  /* matches 4fr of 4fr+1fr layout */
     margin-bottom: 0.5rem !important;
 }
 
@@ -610,12 +610,12 @@ h2 .material-symbols-outlined {
     margin: 1rem 0 0.5rem 0 !important;
 }
 
-/* ── 7c. Sub-view 3fr/1fr grid (workaround: Taipy <|layout|> loses columns
+/* ── 7c. Sub-view 4fr/1fr grid (workaround: Taipy <|layout|> loses columns
    inside <|part|render=...|>; use CSS grid on a part instead) ────────── */
 
 .ll-grid-3-1 {
     display: grid !important;
-    grid-template-columns: 3fr 1fr !important;
+    grid-template-columns: 4fr 1fr !important;
     gap: 1rem !important;
 }
 
@@ -1304,6 +1304,36 @@ nav[class*="taipy"],
 /* Hidden element (for JS callback workarounds) */
 .ll-hidden {
     display: none !important;
+}
+
+/* ── 10. Image lightbox — click any content image to expand ──────────── */
+
+/* Cursor hint on content images */
+.ll-content-row img {
+    cursor: zoom-in;
+}
+
+/* Full-viewport overlay */
+.ll-lightbox-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    cursor: zoom-out;
+}
+
+.ll-lightbox-overlay img {
+    max-width: 90vw;
+    max-height: 90vh;
+    border-radius: 8px;
+    box-shadow: 0 4px 40px rgba(0, 0, 0, 0.5);
+    cursor: zoom-out;
 }
 
 /* Content provider iframes — expand to show full HTML content.

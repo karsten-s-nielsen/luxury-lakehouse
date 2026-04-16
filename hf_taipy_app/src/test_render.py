@@ -180,13 +180,15 @@ pm_progressive = "--"
 pm_line_breaking = "--"
 
 # Heat Map state
-hm_pitch_image = ""
+hm_pass_bubbles = ""
+hm_shot_bubbles = ""
+hm_pass_focus = ""
+hm_shot_focus = ""
 hm_scope_label = ""
 hm_data_freshness = ""
 hm_total = "--"
 hm_passes = "--"
 hm_shots = "--"
-hm_most_active_zone = "--"
 
 # Pass Network state
 pn_chart_figure = None

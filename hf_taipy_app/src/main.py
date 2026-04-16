@@ -149,6 +149,34 @@ if __name__ == "__main__":
     flask_app = Flask("luxury-lakehouse-taipy")
     flask_app.register_blueprint(build_admin_blueprint())
 
+    # Lightbox — click any content image to expand in a full-viewport overlay.
+    # Injected via after_request because Taipy markdown strips <script> tags.
+    _LIGHTBOX_SCRIPT = """<script>
+(function(){
+  document.addEventListener('click', function(e) {
+    var img = e.target;
+    if (img.tagName !== 'IMG') return;
+    if (!img.closest('.ll-content-row')) return;
+    e.stopPropagation();
+    var overlay = document.createElement('div');
+    overlay.className = 'll-lightbox-overlay';
+    var clone = document.createElement('img');
+    clone.src = img.src;
+    overlay.appendChild(clone);
+    overlay.addEventListener('click', function() { overlay.remove(); });
+    document.body.appendChild(overlay);
+  });
+})();
+</script>"""
+
+    @flask_app.after_request
+    def _inject_lightbox(response):  # type: ignore[no-untyped-def]
+        if response.content_type and "text/html" in response.content_type:
+            html = response.get_data(as_text=True)
+            if "</body>" in html and "ll-lightbox-overlay" not in html:
+                response.set_data(html.replace("</body>", _LIGHTBOX_SCRIPT + "</body>"))
+        return response
+
     gui = Gui(pages=pages, css_file="style_v2.css", flask=flask_app)
     gui.run(
         host="0.0.0.0",

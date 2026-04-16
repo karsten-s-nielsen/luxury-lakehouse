@@ -711,7 +711,7 @@ def _build_dashboard_page(parts: list[str], cfg: PageConfig) -> None:
 
 def _build_standard_page(parts: list[str], cfg: PageConfig) -> None:
     """Append standard page layout: 3fr/1fr grid with content left, metrics right."""
-    parts.append("<|layout|columns=3fr 1fr|gap=1rem|")
+    parts.append("<|layout|columns=4fr 1fr|gap=1rem|")
     parts.append("")
 
     # Left column: scope, diagram, freshness

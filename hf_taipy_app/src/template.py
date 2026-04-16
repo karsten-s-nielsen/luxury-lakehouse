@@ -205,7 +205,7 @@ GLOSSARY: dict[str, str] = {
 PAGE_TERMS: dict[str, list[str]] = {
     "Shot-Map": ["xG (Expected Goals)", "Brier Score"],
     "Pass-Map": ["Line-Breaking Pass", "Progressive Pass"],
-    "Heat-Map": ["Most Active Zone"],
+    "Heat-Map": [],
     "Pass-Network": [],
     "Match-Summary": ["xG (Expected Goals)", "PPDA", "Progressive Pass", "Percentile Rank"],
     "Player-Impact": ["VAEP", "VAEP/90", "Off. VAEP/90", "Def. VAEP/90", "SPADL", "Percentile Rank"],
