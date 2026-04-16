@@ -208,17 +208,6 @@ module "synced_tables" {
 # The databricks_app resource and terraform/modules/app/ have been removed.
 # Lakebase auth uses PAT-based OAuth via HF Space secrets.
 
-# ── CI Service Principal: Catalog Access ───────────────────────────────────
-# The terraform_ci SP needs ALL_PRIVILEGES on the catalog so terraform plan
-# can read catalog, schema, and grant resources.  This is a composition-level
-# grant because the SP and catalog come from separate modules.
-
-resource "databricks_grant" "ci_sp_catalog" {
-  catalog    = module.workspace.catalog_name
-  principal  = module.service_principals.terraform_ci_sp_application_id
-  privileges = ["ALL_PRIVILEGES"]
-}
-
 # ── SQL Warehouse: Explicit ACL Grants ───────────────────────────────────
 # D40 (SEC-AUDIT): Warehouse had no grants — access relied on workspace
 # defaults.  Explicit grants scoped to least-privilege per principal.
