@@ -274,7 +274,7 @@ def _import_embeddings_360(
     catalog: str,
     schema: str,
     logger: logging.Logger,
-) -> bool:
+) -> int:
     """Import pre-computed 144-dim 360-enriched embeddings from HF Hub.
 
     Downloads the Parquet file from ``luxury-lakehouse/football2vec-360-embeddings``,
@@ -296,8 +296,8 @@ def _import_embeddings_360(
         logger: Logger instance.
 
     Returns:
-        True if 360 embeddings were successfully imported. False if the
-        HF Hub dataset does not exist (early exit, non-fatal).
+        Row count of imported embeddings (>0 on success), or 0 if the
+        HF Hub dataset does not exist or is empty (early exit, non-fatal).
 
     Raises:
         RuntimeError: If the downloaded parquet has vectors of the wrong
@@ -306,7 +306,7 @@ def _import_embeddings_360(
     """
     if not repo_exists(_HF_360_DATASET, repo_type="dataset"):
         logger.info("HF dataset %s not found — skipping 360 import", _HF_360_DATASET)
-        return False
+        return 0
 
     logger.info("Importing 360-enriched transformer embeddings from %s", _HF_360_DATASET)
 
@@ -321,7 +321,7 @@ def _import_embeddings_360(
 
     if pdf.empty:
         logger.warning("360 embeddings Parquet is empty — nothing to import")
-        return False
+        return 0
 
     required_cols = {"canonical_player_id", "match_id", "behavioral_vector"}
     if not required_cols.issubset(pdf.columns):
@@ -392,9 +392,7 @@ def _import_embeddings_360(
                 strict=True,
             )
         )
-    except Exception:
-        # Best-effort enrichment: 360 import continues without match metadata.
-        # stat vectors will be None for all rows if fct_action_values is unavailable.
+    except Exception:  # best-effort enrichment: 360 import continues without match metadata
         logger.error(
             "Could not load match metadata from fct_action_values — 360 stat vectors will be None for all rows",
             exc_info=True,
@@ -429,8 +427,9 @@ def _import_embeddings_360(
         row_count=row_count,
     )
 
-    logger.info("Successfully imported %d 360 embeddings from HF Hub", len(pdf))
-    return True
+    count = len(pdf)
+    logger.info("Successfully imported %d 360 embeddings from HF Hub", count)
+    return count
 
 
 @workflow("wf-football2vec-360", phase="inference")
@@ -452,12 +451,12 @@ def run_pipeline_360(
 
     logger.info("Starting 360 transformer embedding import for %s.%s", catalog, schema)
 
-    success = _import_embeddings_360(spark, catalog, schema, logger)
-    if success:
-        logger.info("360 transformer embedding import complete")
+    row_count = _import_embeddings_360(spark, catalog, schema, logger)
+    if row_count:
+        logger.info("360 transformer embedding import complete (%d rows)", row_count)
     else:
         logger.info("360 transformer embeddings not available — no action taken")
-    return 0
+    return row_count
 
 
 # ---------------------------------------------------------------------------

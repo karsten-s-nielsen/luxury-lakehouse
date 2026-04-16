@@ -70,7 +70,7 @@ def test_run_pipeline_360_writes_football2vec_360_data_source() -> None:
     ):
         result = mod._import_embeddings_360(spark, "soccer_analytics", "bronze", logger)
 
-    assert result is True
+    assert result == 3
     # Must have called write_delta_table exactly once with
     # replace_where="data_source = 'football2vec_360'"
     assert len(captured_writes) == 1, (

@@ -392,7 +392,8 @@ def run_pipeline_v1(
         source_match_ids: list[str] = sorted({str(m) for m in source_slice["match_id"]})
         escaped = [m.replace("'", "''") for m in source_match_ids]
         in_list = ", ".join(f"'{m}'" for m in escaped)
-        predicate = f"data_source = '{source_str}' AND match_id IN ({in_list})"
+        escaped_source = source_str.replace("'", "''")
+        predicate = f"data_source = '{escaped_source}' AND match_id IN ({in_list})"
 
         sdf = spark.createDataFrame(source_slice)
         row_count = validate_dataframe(
