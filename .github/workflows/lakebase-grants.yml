@@ -68,14 +68,23 @@ jobs:
       - name: Set up Python 3.10
         run: uv python install 3.10
 
-      - name: Install sdk dependencies (no project build)
-        # --no-install-project skips the editable wheel build that would fail
-        # with "Forced include not found: dbt_project/dbt_packages" (that dir
-        # is gitignored and we don't need dbt packages for grants application).
-        # The grants script pulls `ingestion.refresh_synced_tables` via
-        # `sys.path.insert(0, "src")`; its only external deps are databricks-sdk
-        # + psycopg2 + requests, all covered by the sdk extra.
-        run: uv sync --frozen --extra sdk --no-install-project
+      # The luxury-lakehouse wheel's hatchling force-include bundles
+      # dbt_project/dbt_packages/ which is gitignored. `uv sync` builds an
+      # editable install of the current project and fails with
+      # "Forced include not found" unless dbt_packages/ is materialized first.
+      # Same pattern as python-ci.yml — uvx runs dbt-core from an isolated
+      # environment that never touches this project. Placeholder Databricks
+      # env vars satisfy profiles.yml env_var() rendering; `dbt deps` itself
+      # never contacts the warehouse.
+      - name: Materialize dbt packages (required before uv sync)
+        env:
+          DATABRICKS_HOST: https://example.databricks.com
+          DATABRICKS_HTTP_PATH: /sql/1.0/warehouses/dummywarehouseid0
+          DATABRICKS_TOKEN: dummy  # pragma: allowlist secret
+        run: uvx --from "dbt-core>=1.10.0,<1.12.0" dbt deps --project-dir dbt_project --profiles-dir dbt_project
+
+      - name: Install sdk dependencies
+        run: uv sync --frozen --extra sdk
 
       - name: Apply Lakebase grants
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.verify_only != true }}
