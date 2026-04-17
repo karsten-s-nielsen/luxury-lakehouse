@@ -5,6 +5,13 @@ blocks sorted alphabetically by principal.
 Rename from `hf_app_view_ingestion_job` to `ingestion_job_acl` is done via
 a Terraform `moved` block for safe state migration.
 
+SEC4 cycle (2026-04-17) extensions:
+- Lakebase project ACL (databricks_permissions.lakebase_project_acl) —
+  precondition for admins-group removal. See
+  docs/superpowers/specs/2026-04-17-sec4-ci-sp-least-privilege-design.md.
+  Lakebase endpoints have no separate ACL surface (they inherit from the
+  parent project), so a single resource covers both.
+
 This test parses Terraform statically. Live plan verification happens in
 Step 4.6.
 """
@@ -15,9 +22,14 @@ import re
 from pathlib import Path
 
 _DEV = Path(__file__).resolve().parents[2] / "terraform" / "environments" / "dev" / "main.tf"
+_SERVICE_PRINCIPALS_MAIN = (
+    Path(__file__).resolve().parents[2] / "terraform" / "modules" / "service_principals" / "main.tf"
+)
+_TERRAFORM_DIR = Path(__file__).resolve().parents[2] / "terraform"
 
 _CI_SP_REF = "module.service_principals.terraform_ci_sp_application_id"
 _APP_SP_REF = "module.service_principals.hf_app_sp_application_id"
+_INGESTION_SP_REF = "module.service_principals.ingestion_sp_application_id"
 
 
 def _extract_resource_body(text: str, resource_type: str, resource_name: str) -> str | None:
@@ -112,3 +124,93 @@ def test_no_orphaned_old_resource_names() -> None:
     for old in ("hf_app_view_ingestion_job", "hf_app_view_sync_hf_costs_job"):
         pattern = re.compile(rf'^resource\s+"databricks_permissions"\s+"{old}"\s*\{{', re.MULTILINE)
         assert not pattern.search(text), f"old resource name {old!r} still declared — rename incomplete"
+
+
+def test_terraform_ci_admin_group_member_absent() -> None:
+    """SEC4: the CI SP must not be a member of the workspace `admins` group.
+
+    INF-01 (CWE-250) least privilege: the admins-group membership was
+    replaced in the SEC4 cycle with explicit per-resource ACLs on the
+    SQL warehouse, ingestion job, and Lakebase project. See SECURITY.md
+    audit log and ADR-006 for the account-admin decision.
+
+    Re-introducing either the membership resource OR the admins-group
+    data source is forbidden — the data source has no purpose once the
+    membership is gone and invites accidental re-addition.
+    """
+    text = _SERVICE_PRINCIPALS_MAIN.read_text(encoding="utf-8")
+    body = _extract_resource_body(text, "databricks_group_member", "terraform_ci_admin")
+    assert body is None, (
+        "databricks_group_member.terraform_ci_admin must not be declared — "
+        "SEC4 removed it to satisfy INF-01 least-privilege (CWE-250)."
+    )
+    pattern = re.compile(r'^data\s+"databricks_group"\s+"admins"\s*\{', re.MULTILINE)
+    assert not pattern.search(text), (
+        "data.databricks_group.admins is unused after terraform_ci_admin removal "
+        "and must be deleted — keeping it invites re-introduction of the "
+        "group_member resource."
+    )
+
+
+def test_admins_group_not_referenced_anywhere() -> None:
+    """SEC4: no Terraform file may reference `data.databricks_group.admins`.
+
+    Cross-file grep — prevents a future author from re-adding the data
+    source in a different module and silently re-establishing admins-group
+    membership for the CI SP (or any other SP).
+    """
+    offenders: list[str] = []
+    for tf_file in _TERRAFORM_DIR.rglob("*.tf"):
+        text = tf_file.read_text(encoding="utf-8")
+        if "data.databricks_group.admins" in text or re.search(r'data\s+"databricks_group"\s+"admins"', text):
+            offenders.append(str(tf_file.relative_to(_TERRAFORM_DIR.parent)))
+    assert not offenders, (
+        f"admins-group references found in: {offenders}. "
+        f"SEC4 removed all admins-group references; re-introduction is forbidden."
+    )
+
+
+def test_lakebase_project_acl_exists_and_is_correctly_shaped() -> None:
+    """SEC4: the Lakebase project ACL must grant the CI SP CAN_MANAGE plus
+    preserve the existing hf_app_v2 + ingestion SP CAN_USE grants.
+
+    The provider only supports {CAN_USE, CAN_MANAGE} for database_project_name
+    (no IS_OWNER), per
+    terraform-provider-databricks/permissions/permission_definitions.go:772-782.
+
+    Endpoints inherit from the parent project in Lakebase Autoscaling; no
+    separate endpoint ACL exists or is needed.
+    """
+    text = _DEV.read_text(encoding="utf-8")
+    body = _extract_resource_body(text, "databricks_permissions", "lakebase_project_acl")
+    assert body, "resource databricks_permissions.lakebase_project_acl not found"
+
+    # Must target the Lakebase project via the provider's canonical attribute.
+    assert re.search(r"database_project_name\s*=\s*module\.lakebase\.project_id", body), (
+        "lakebase_project_acl: must set database_project_name = module.lakebase.project_id"
+    )
+
+    principals = _access_control_principals_in_order(body)
+    perms = dict(principals)
+
+    assert _CI_SP_REF in perms, "lakebase_project_acl: CI SP access_control block missing"
+    assert perms[_CI_SP_REF] == "CAN_MANAGE", (
+        f"lakebase_project_acl: CI SP must be CAN_MANAGE, got {perms[_CI_SP_REF]!r}"
+    )
+    assert _APP_SP_REF in perms, "lakebase_project_acl: hf_app_v2 CAN_USE block missing"
+    assert perms[_APP_SP_REF] == "CAN_USE", (
+        f"lakebase_project_acl: hf_app_v2 must be CAN_USE, got {perms[_APP_SP_REF]!r}"
+    )
+    assert _INGESTION_SP_REF in perms, "lakebase_project_acl: ingestion SP CAN_USE block missing"
+    assert perms[_INGESTION_SP_REF] == "CAN_USE", (
+        f"lakebase_project_acl: ingestion SP must be CAN_USE, got {perms[_INGESTION_SP_REF]!r}"
+    )
+
+    # Alphabetical sort over SP entries only (user_name entries are ignored by
+    # the helper; that is intentional — the positional-matching drift only
+    # applies within principal-type classes in the provider's state storage).
+    principal_refs = [p for p, _ in principals]
+    assert principal_refs == sorted(principal_refs), (
+        f"lakebase_project_acl: access_control blocks must be sorted alphabetically by "
+        f"service_principal_name; got {principal_refs}"
+    )

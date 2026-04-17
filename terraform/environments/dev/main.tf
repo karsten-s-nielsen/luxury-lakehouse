@@ -244,6 +244,56 @@ moved {
   to   = databricks_permissions.ingestion_job_acl
 }
 
+# ── Lakebase: Explicit CI SP Access (SEC4, 2026-04-17) ──────────────────────
+# Before SEC4, the CI SP managed Lakebase resources transitively via the
+# workspace `admins` group. SEC4 removes that membership; the CI SP now
+# needs an explicit CAN_MANAGE grant so `terraform apply` can modify the
+# project. Endpoints inherit this grant from the parent project — no
+# separate endpoint ACL is needed (confirmed via empirical audit: Lakebase
+# Autoscaling has no `database-instances` ACL surface; endpoints authorize
+# through the parent project).
+#
+# databricks_permissions is authoritative per target object — every non-
+# inherited grant on this project must be declared here. Inherited permissions
+# at `/database-projects` (admins CAN_MANAGE, users CAN_CREATE) are unaffected.
+# Provider supports only {CAN_USE, CAN_MANAGE} for `database_project_name`
+# (no IS_OWNER), per
+# terraform-provider-databricks v1.113 permissions/permission_definitions.go:772-782.
+#
+# access_control blocks are sorted alphabetically by principal reference to
+# preempt positional-block-matching drift.
+#
+# See: docs/superpowers/specs/2026-04-17-sec4-ci-sp-least-privilege-design.md
+#      docs/superpowers/specs/2026-04-17-sec4-workspace-resource-inventory.md
+resource "databricks_permissions" "lakebase_project_acl" {
+  database_project_name = module.lakebase.project_id
+
+  access_control {
+    user_name        = module.service_principals.deployer_account_email
+    permission_level = "CAN_MANAGE"
+  }
+
+  access_control {
+    # hf_app_v2 SP — Taipy app reads synced tables via the Lakebase endpoint.
+    service_principal_name = module.service_principals.hf_app_sp_application_id
+    permission_level       = "CAN_USE"
+  }
+
+  access_control {
+    # Ingestion SP — `refresh_synced_tables` daily job uses the endpoint.
+    service_principal_name = module.service_principals.ingestion_sp_application_id
+    permission_level       = "CAN_USE"
+  }
+
+  access_control {
+    # CI SP — `terraform apply` modifies the project. CAN_MANAGE is the
+    # minimum level permitting modification; provider supports no IS_OWNER
+    # for database-projects. Precondition for SEC4 admins-group removal.
+    service_principal_name = module.service_principals.terraform_ci_sp_application_id
+    permission_level       = "CAN_MANAGE"
+  }
+}
+
 # ── Module: State KMS ──────────────────────────────────────────────────────
 # Customer Managed Key for Terraform state encryption in S3 (L-10).
 

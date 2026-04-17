@@ -752,7 +752,7 @@ luxury-lakehouse/
 | Secrets management | No hardcoded credentials; OAuth M2M for Terraform + CI (OIDC federation, zero secrets); PAT for app (OAuth M2M ready, pending secret rotation) |
 | Admin API auth | `POST /api/cache/clear` on the Taipy app validates an HF user access token against `whoami-v2` and requires `luxury-lakehouse` org membership with `admin`/`write` role. No shared secret stored — each call validates independently against HF, so revocation is immediate. See `hf_taipy_app/src/admin_api.py`. |
 | Network | TLS everywhere; HTTPS-only for all data fetches |
-| IAM | Least-privilege; separate service principals per workload |
+| IAM | Least-privilege; separate service principals per workload. Terraform CI SP no longer holds workspace-admins-group membership (SEC-AUDIT-v1.12.0 INF-01 closed 2026-04-17); explicit `databricks_permissions` on all workspace-scoped objects (SQL warehouse, ingestion job, Lakebase project). `account_admin` retained as the floor per [ADR-006](docs/superpowers/adrs/ADR-006-account-admin-floor.md). |
 | Data classification | Open-source data only (no PII); Unity Catalog ACLs applied |
 | Audit | Unity Catalog audit logs; Terraform state versioning |
 | Input validation | Regex on all user-supplied identifiers (`^[a-zA-Z_][a-zA-Z0-9_]*$`) |

@@ -176,3 +176,17 @@ The cloudpickle deserialization surface on the driver is accepted as a low risk 
 ## Audit History
 
 31 findings identified during the February 2026 security audit. 28 resolved across three hardening rounds plus IAM/KMS hardening (Phase 5.6). Resolution details preserved in git history — see commits from `2026-02-27` through `2026-03-02`.
+
+---
+
+## SEC-AUDIT v1.12.0 Follow-up
+
+A subsequent audit run (`SEC-AUDIT-v1.12.0`) surfaced additional findings not
+covered by the February 2026 inventory. Each is tracked as its own remediation
+cycle; entries below close the individual findings.
+
+| Finding | CWE | Area | Remediation | Status |
+|---|---|---|---|---|
+| `INF-01` | CWE-250 — Execution with Unnecessary Privileges | IAM | SEC4 cycle (2026-04-17). Removed `databricks_group_member.terraform_ci_admin` (workspace-admins-group membership for the Terraform CI SP). Replaced transitive-admin authorization on workspace-scoped resources with explicit `databricks_permissions`: SQL warehouse `CAN_MANAGE`, ingestion job `IS_OWNER`, Lakebase project `CAN_MANAGE`. `account_admin` retained as the floor per [ADR-006](docs/superpowers/adrs/ADR-006-account-admin-floor.md) (provider v1.113 supports no narrower account-scoped role for create-authority; empirical 403 responses on 4 representative operations captured in the ADR §Notes). Regression guards in `src/tests/test_sec4_ci_sp_job_owner.py`. Living inventory at `docs/superpowers/specs/2026-04-17-sec4-workspace-resource-inventory.md`. | **CLOSED** (2026-04-17) |
+| `ML-02` | CWE-345 — Insufficient Verification of Data Authenticity | ML / artifact integrity | SEC2 (PR #119, 2026-04-13). SHA-256 hash verification on every MLflow / UC Volume model load; fails closed on mismatch when an expected hash is recorded. | CLOSED (2026-04-13) |
+| `REG-01` | — | Regulatory / EU AI Act | `AI_GOVERNANCE.md` document + provenance tag enforced by `src/tests/test_ai_governance_md.py` (PR #121, 2026-04-14). | CLOSED (2026-04-14) |

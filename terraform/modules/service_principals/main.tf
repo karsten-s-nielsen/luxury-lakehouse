@@ -51,43 +51,52 @@ resource "databricks_service_principal" "terraform_ci" {
   active       = true
 }
 
-# ── CI SP Roles: Workspace Admin + Account Admin ──────────────────────────
-# These two roles are the verified minimum floor for terraform plan/apply.
-# Investigated 2026-04-13 (SEC4 / D59) — each was individually tested for
-# removal; both are mandatory for the resources they gate:
+# ── CI SP Roles: Minimum-Necessary Floor (post-SEC4, 2026-04-17) ───────────
+# After the SEC4 cycle, the CI SP holds ONLY the privileges strictly required
+# for terraform plan/apply in CI. Workspace-admins-group membership is
+# REMOVED; broad workspace-level privilege is replaced by per-resource
+# databricks_permissions ACLs.
 #
-# 1. Workspace admin (admins group membership):
-#    Required by databricks_permissions on workspace-scoped objects —
-#    specifically sql_warehouse (environments/dev/main.tf) and job ACLs
-#    (hf_app_view_ingestion_job, hf_app_view_sync_hf_costs_job). Workspace
-#    admin is the only role granting MANAGE on workspace-level objects.
-#    Cannot be replaced without adding explicit databricks_permissions
-#    resources for every workspace object across all TF modules.
+# Remaining floor:
 #
-# 2. Account admin (databricks_service_principal_role):
-#    Required for two account-scoped resources that cannot be managed
-#    without account-level API access:
-#    - databricks_service_principal_federation_policy.github_actions (below)
-#    - databricks_access_control_rule_set.ingestion_sp_user_role (above)
+# 1. Account admin (databricks_service_principal_role.terraform_ci_account_admin
+#    below):
+#    Required for the 11 account-scoped resources this module and the dev
+#    root manage — service principals, groups, group members, federation
+#    policy, access control rule sets, and workspace-permission assignment.
+#    Every Databricks account-level SCIM / workspace-assignment API returns
+#    HTTP 403 "This API is disabled for users without account admin status"
+#    when called without account_admin — verified empirically during the
+#    SEC4 spike (ReqIds 9345b222, 525df54e, 529f562d, 44b74a79 — see
+#    ADR-006 §Notes). Narrower named roles do not exist in the Databricks
+#    IAM model as of provider v1.113 / SDK v0.127; rule-set-based roles
+#    (roles/group.manager, roles/servicePrincipal.manager, etc.) delegate
+#    management of existing objects but cannot grant create authority on
+#    new account-level parents. See ADR-006 for the full decision record.
 #
-# 3. Catalog ALL_PRIVILEGES (databricks_grant in environments/dev/main.tf):
-#    Workspace admin does NOT cover Unity Catalog privileges. The CI SP
-#    manages schemas, volumes, and grants via Terraform — it needs both
-#    read (plan) and write (apply) UC access across the catalog.
-#    Verified 2026-04-16: removing the grant broke terraform plan with
-#    "does not have USE CATALOG" / "USE SCHEMA" on 10+ resources.
+# 2. Per-object databricks_permissions on workspace-scoped resources
+#    (declared in environments/dev/main.tf):
+#    - SQL warehouse — CAN_MANAGE
+#    - Daily ingestion job — IS_OWNER
+#    - Lakebase database project — CAN_MANAGE (added in SEC4; the
+#      corresponding Lakebase endpoint inherits from the parent project)
+#    These replace the historical admins-group transitive authorization
+#    and are the reason admins-group membership is no longer required.
+#
+# 3. Catalog ALL_PRIVILEGES (databricks_grant.ci_sp_catalog in
+#    environments/dev/main.tf) + MANAGE via dbt-owners-{env} group
+#    ownership (below, see "dbt-owners group" section).
+#    Workspace admin does NOT confer Unity Catalog privileges; the
+#    explicit grant + group ownership together give the CI SP read (plan)
+#    and write (apply) access across the catalog. Verified 2026-04-16:
+#    removing the grant broke terraform plan with "does not have
+#    USE CATALOG" / "USE SCHEMA" on 10+ resources.
+#
+# Regression guards: src/tests/test_sec4_ci_sp_job_owner.py asserts the
+# admins-group-member resource and data source are absent, and that no
+# other .tf file references them.
 
-data "databricks_group" "admins" {
-  display_name = "admins"
-}
-
-resource "databricks_group_member" "terraform_ci_admin" {
-  group_id  = data.databricks_group.admins.id
-  member_id = databricks_service_principal.terraform_ci.id
-}
-
-# Account admin — needed to read account-level resources (federation policies,
-# access control rule sets) during terraform plan.
+# Account admin — see item 1 above.
 resource "databricks_service_principal_role" "terraform_ci_account_admin" {
   provider             = databricks.account
   service_principal_id = databricks_service_principal.terraform_ci.id
