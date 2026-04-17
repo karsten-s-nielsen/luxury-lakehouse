@@ -13,7 +13,7 @@ tags:
   - daily-job
 
 # No academic methodology — operational data transformation pipeline.
-# Runs `dbt build` against the SQL warehouse to materialize 33 gold mart
+# Runs `dbt build` against the SQL warehouse to materialize 36 gold mart
 # tables from bronze sources. dbt's own model lineage and tests cover
 # quality. See src/ingestion/dbt_runner.py.
 references: []
@@ -55,9 +55,15 @@ outputs:
     - id: "{catalog}.dev_gold.fct_formation_labels"
       destination: delta-table
       dbt_model: fct_formation_labels
+    - id: "{catalog}.dev_gold.fct_gk_actions_detail"
+      destination: delta-table
+      dbt_model: fct_gk_actions_detail
     - id: "{catalog}.dev_gold.fct_goalkeeper_stats"
       destination: delta-table
       dbt_model: fct_goalkeeper_stats
+    - id: "{catalog}.dev_gold.fct_heatmap_agg"
+      destination: delta-table
+      dbt_model: fct_heatmap_agg
     - id: "{catalog}.dev_gold.fct_line_breaking_results"
       destination: delta-table
       dbt_model: fct_line_breaking_results
@@ -121,6 +127,9 @@ outputs:
     - id: "{catalog}.dev_gold.fct_tracking_shape_timeline"
       destination: delta-table
       dbt_model: fct_tracking_shape_timeline
+    - id: "{catalog}.dev_gold.fct_vaep_breakdown_agg"
+      destination: delta-table
+      dbt_model: fct_vaep_breakdown_agg
     - id: "{catalog}.dev_gold.fct_workflow_costs"
       destination: delta-table
       dbt_model: fct_workflow_costs
@@ -178,7 +187,7 @@ links:
 
 D59: programmatic dbt invocation inside the daily Databricks ingestion job.
 After the 9 leaf compute tasks complete, this task runs ``dbt build`` against
-the SQL warehouse to materialize the 33 gold mart tables (29 fact + 4 dim)
+the SQL warehouse to materialize the 36 gold mart tables (32 fact + 4 dim)
 from the bronze layer. The wheel-bundled ``dbt_project/`` directory is
 resolved at runtime via ``importlib.resources``. Authentication:
 ``ingestion.dbt_runner._ensure_databricks_env_vars()`` calls

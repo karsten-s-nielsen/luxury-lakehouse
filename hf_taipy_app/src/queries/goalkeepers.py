@@ -211,40 +211,34 @@ def fetch_gk_passes(
 ) -> pd.DataFrame:
     """Fetch GK distribution passes for pitch figure.
 
-    Uses fct_action_values filtered to GK distribution action types
-    (goalkick, pass) where the player is a Goalkeeper per dim_players.
+    Serves from the fct_gk_actions_detail_synced mart, which is a narrow
+    projection of fct_action_values pre-filtered to action_type IN
+    ('goalkick', 'pass') AND position_group = 'Goalkeeper' (~320K rows
+    estimated).  Eliminates the 13,247 ms Parallel Seq Scan measured
+    2026-04-16 on the 9.53M row fct_action_values_synced table when
+    querying comp-only with no player selected.
 
     Expected columns: match_id, player_id, start_x, start_y, end_x, end_y,
     action_result, action_type.
     """
-    where_parts = [
-        "a.action_type IN ('goalkick', 'pass')",
-        "dp.position_group = 'Goalkeeper'",
-    ]
+    where_parts: list[str] = []
     params: list[Any] = []
 
     if competition_id is not None:
-        where_parts.append("a.competition_id = %s")
+        where_parts.append("competition_id = %s")
         params.append(int(competition_id))
     if player_id is not None:
-        where_parts.append("a.player_id = %s")
+        where_parts.append("player_id = %s")
         params.append(int(player_id))
-    where = " AND ".join(where_parts)
+
+    where = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
     sql = (
         f"SELECT "  # noqa: S608
-        f"  a.match_id, "
-        f"  a.player_id, "
-        f"  a.start_x, "
-        f"  a.start_y, "
-        f"  a.end_x, "
-        f"  a.end_y, "
-        f"  a.action_result, "
-        f"  a.action_type "
-        f"FROM {t('fct_action_values_synced')} a "
-        f"JOIN {t('dim_players_synced')} dp ON a.player_id = dp.player_id "
-        f"WHERE {where} "
-        f"ORDER BY a.match_id, a.period, a.time_seconds "
+        f"  match_id, player_id, start_x, start_y, end_x, end_y, "
+        f"  action_result, action_type "
+        f"FROM {t('fct_gk_actions_detail_synced')}{where} "
+        f"ORDER BY match_id, period, time_seconds "
         f"LIMIT 5000"
     )
 

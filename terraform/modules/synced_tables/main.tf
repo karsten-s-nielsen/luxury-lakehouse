@@ -594,3 +594,57 @@ resource "databricks_database_synced_database_table" "dim_competitions" {
     ignore_changes = all
   }
 }
+
+# ── Pre-aggregated marts (2026-04-16 optimization audit) ───────────────────
+# Each mart below replaces a verified Taipy query bottleneck where a comp-only
+# filter on a >1M-row fact table triggered Parallel Seq Scan (3-13 s).  The
+# pre-aggregated grain serves the same filter combos in <10 ms.
+
+resource "databricks_database_synced_database_table" "fct_heatmap_agg" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_heatmap_agg_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    # Composite PK — every row is uniquely identified by this tuple
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_heatmap_agg"
+    primary_key_columns    = ["competition_id", "team_id", "action_type", "x_bin", "y_bin"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+resource "databricks_database_synced_database_table" "fct_vaep_breakdown_agg" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_vaep_breakdown_agg_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_vaep_breakdown_agg"
+    primary_key_columns    = ["competition_id", "team_id", "player_id", "action_type"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+resource "databricks_database_synced_database_table" "fct_gk_actions_detail" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_gk_actions_detail_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_gk_actions_detail"
+    primary_key_columns    = ["gk_action_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}

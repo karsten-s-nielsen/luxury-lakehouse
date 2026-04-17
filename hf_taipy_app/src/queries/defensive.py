@@ -81,11 +81,26 @@ def fetch_vaep_breakdown(
 ) -> pd.DataFrame:
     """Fetch VAEP breakdown by action type with dynamic filters.
 
+    Serves from the pre-aggregated fct_vaep_breakdown_agg_synced mart
+    (~65K rows). The mart is at (competition_id, team_id, player_id,
+    action_type) grain with pre-summed total_vaep / total_offensive /
+    total_defensive / action_count. For each filter combo we sum the
+    required subset of rows:
+
+      - comp-only:           aggregate across all teams x players
+      - comp+team:           aggregate across all players for that team
+      - comp+team+player:    direct row lookup (5ms measured)
+
+    Replaces a 2,800 ms Parallel Seq Scan on the 9.53M-row
+    fct_action_values_synced (measured 2026-04-16).  Expected <10 ms
+    for all three filter combos after index
+    idx_vaep_breakdown_agg_comp_team_player.
+
     Expected columns: action_type, total_vaep, total_offensive,
     total_defensive, action_count.
     """
     conditions = ["competition_id = %s"]
-    params: list[Any] = [comp_id]
+    params: list[Any] = [int(comp_id)]
 
     if team_id is not None:
         conditions.append("team_id = %s")
@@ -96,16 +111,16 @@ def fetch_vaep_breakdown(
         params.append(int(player_id))
 
     where = " AND ".join(conditions)
-    av_tbl = t("fct_action_values_synced")
+    mart_tbl = t("fct_vaep_breakdown_agg_synced")
     return execute_query(
         f"SELECT action_type, "  # noqa: S608
-        f"  sum(vaep_value) AS total_vaep, "
-        f"  sum(offensive_value) AS total_offensive, "
-        f"  sum(defensive_value) AS total_defensive, "
-        f"  count(*) AS action_count "
-        f"FROM {av_tbl} WHERE {where} "
+        f"  sum(total_vaep) AS total_vaep, "
+        f"  sum(total_offensive) AS total_offensive, "
+        f"  sum(total_defensive) AS total_defensive, "
+        f"  sum(action_count) AS action_count "
+        f"FROM {mart_tbl} WHERE {where} "
         f"GROUP BY action_type "
-        f"ORDER BY sum(vaep_value) DESC "
+        f"ORDER BY sum(total_vaep) DESC "
         f"LIMIT 50",
         tuple(params),
     )

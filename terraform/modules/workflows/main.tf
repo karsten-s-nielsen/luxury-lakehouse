@@ -505,7 +505,7 @@ resource "databricks_job" "data_ingestion" {
 
   # ── Task: dbt build (gold layer materialization) ─────────────────────
   # D59 (2026-04-13): runs `dbt build` against the SQL warehouse to materialize
-  # the 33 gold mart tables from bronze sources. Bundled dbt_project/ ships in
+  # the 36 gold mart tables from bronze sources. Bundled dbt_project/ ships in
   # the wheel via Hatch force-include; auth uses dbt-databricks 1.10+ runtime
   # OAuth M2M identity discovery. See src/ingestion/dbt_runner.py.
   task {
@@ -721,7 +721,7 @@ resource "databricks_job" "data_ingestion" {
 
   # ── Task: Refresh Lakebase synced tables (final stage) ───────────────
   # SNAPSHOT-mode synced tables do not auto-refresh. This task closes the
-  # propagation loop after dbt_build completes by refreshing all 34 synced
+  # propagation loop after dbt_build completes by refreshing all 37 synced
   # tables, ensuring both gold and observability data reach Lakebase.
   # D59 (2026-04-13): now depends solely on dbt_build (which itself depends
   # on the 9 leaf compute tasks). Previous 9-way fan-in collapsed to 1 edge.

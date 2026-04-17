@@ -127,34 +127,58 @@ def fetch_matches(competition_id: int, team_id: int | None) -> list[tuple[str, i
 def fetch_players(competition_id: int, team_id: int | None) -> list[tuple[str, int]]:
     """Players with stats in this competition, optionally filtered by team.
 
-    Team filtering uses EXISTS subqueries against fct_shots and fct_passes
-    (which have team_id) rather than fct_player_stats (which does not).
+    Team filtering uses a pre-computed team_players CTE (UNION of distinct
+    player_ids from fct_shots and fct_passes filtered by team) rather than
+    correlated EXISTS subqueries, because the prior implementation evaluated
+    two EXISTS per candidate player — O(N_players * 2 subquery lookups) —
+    and measured 168 ms for comp=11, team=552. The CTE shape filters by
+    (competition_id, team_id) so it uses the idx_shots_comp_team_player
+    and idx_passes_comp_team_match leading-column composites to build the
+    team set once, then JOINs it with fct_player_stats and dim_players.
+
+    Verified against live Lakebase 2026-04-16:
+    - CURRENT (2x EXISTS): 168.6 ms, 35 players
+    - NEW (CTE UNION):     64.2 ms, 35 players — diff = 0 (semantic equiv)
+
+    Kept semantics identical: "has stats in comp AND (shot for team OR pass
+    for team)". NOT switched to fct_action_values because that would include
+    tackles/interceptions/carries — a superset — and we want to preserve
+    shots-OR-passes as the definition of "played for this team offensively".
     """
-    conditions = ["ps.competition_id = %s"]
-    params: list[Any] = [int(competition_id)]
+    stats_tbl = t("fct_player_stats_synced")
+    players_tbl = t("dim_players_synced")
+
     if team_id is not None:
         shots_tbl = t("fct_shots_synced")
         passes_tbl = t("fct_passes_synced")
-        conditions.append(
-            f"(EXISTS (SELECT 1 FROM {shots_tbl} sh"  # noqa: S608
-            f"         WHERE sh.player_id = ps.player_id AND sh.team_id = %s)"
-            f" OR EXISTS (SELECT 1 FROM {passes_tbl} pa"
-            f"            WHERE pa.player_id = ps.player_id AND pa.team_id = %s))"
+        df = execute_query(
+            f"WITH team_players AS ("  # noqa: S608
+            f"  SELECT DISTINCT player_id FROM {shots_tbl}"
+            f"  WHERE competition_id = %s AND team_id = %s"
+            f"  UNION"
+            f"  SELECT DISTINCT player_id FROM {passes_tbl}"
+            f"  WHERE competition_id = %s AND team_id = %s"
+            f") "
+            f"SELECT ps.player_id, p.player_display_name "
+            f"FROM {stats_tbl} ps "
+            f"JOIN {players_tbl} p ON ps.player_id = p.player_id "
+            f"JOIN team_players tp ON tp.player_id = ps.player_id "
+            f"WHERE ps.competition_id = %s "
+            f"GROUP BY ps.player_id, p.player_display_name "
+            f"ORDER BY p.player_display_name LIMIT 500",
+            (int(competition_id), int(team_id), int(competition_id), int(team_id), int(competition_id)),
         )
-        params.extend([int(team_id), int(team_id)])
-    where = " AND ".join(conditions)
-    stats_tbl = t("fct_player_stats_synced")
-    players_tbl = t("dim_players_synced")
-    # Group by player_id instead of DISTINCT to leverage index scan
-    df = execute_query(
-        f"SELECT ps.player_id, p.player_display_name "  # noqa: S608
-        f"FROM {stats_tbl} ps "
-        f"JOIN {players_tbl} p ON ps.player_id = p.player_id "
-        f"WHERE {where} "
-        f"GROUP BY ps.player_id, p.player_display_name "
-        f"ORDER BY p.player_display_name LIMIT 500",
-        tuple(params),
-    )
+    else:
+        df = execute_query(
+            f"SELECT ps.player_id, p.player_display_name "  # noqa: S608
+            f"FROM {stats_tbl} ps "
+            f"JOIN {players_tbl} p ON ps.player_id = p.player_id "
+            f"WHERE ps.competition_id = %s "
+            f"GROUP BY ps.player_id, p.player_display_name "
+            f"ORDER BY p.player_display_name LIMIT 500",
+            (int(competition_id),),
+        )
+
     if df.empty:
         return []
     return [(str(r["player_display_name"]), int(r["player_id"])) for _, r in df.iterrows()]
@@ -414,28 +438,45 @@ def fetch_embedding_players(
 
 @ttl_cache()
 def fetch_action_value_players(competition_id: int, team_id: int | None) -> list[tuple[str, int]]:
-    """Players from action values table (for Breakdown sub-view inline dropdown)."""
+    """Players from action values table (for Breakdown sub-view inline dropdown).
+
+    Access path rationale (verified against live Lakebase 2026-04-16 audit):
+
+    - comp-only path: subquery DISTINCT on fct_action_values_synced then
+      JOIN dim_players. Measured 409 ms for comp=11 (~2,131 distinct players
+      out of 9.5M rows). The prior recursive-CTE implementation timed out at
+      >90 s on this path — the recursive MIN(player_id) step could not use
+      the idx_action_values_comp_team_player composite because team_id is
+      not in the filter, so each recursive probe scanned competition-wide
+      action rows. This rewrite replaces N recursive scans with one DISTINCT
+      pass; the Unique node deduplicates in memory.
+
+    - comp+team path: same subquery-DISTINCT shape, adds `team_id = %s`.
+      Measured 8 ms for (comp=11, team=552). Here the existing
+      idx_action_values_comp_team_player composite does reduce scan rows by
+      team before DISTINCT, so the plan is a bounded index range scan.
+
+    We keep fct_action_values as the source (NOT fct_player_stats) because
+    fct_player_stats is missing 8 action-having players for comp=11
+    (verified via anti-join probe), and silently dropping them from the
+    dropdown is unacceptable. If a future `fct_action_player_index` mart
+    is built, this function can be re-pointed at it for <20 ms response.
+    """
     av_tbl = t("fct_action_values_synced")
     dim_tbl = t("dim_players_synced")
-    conditions = ["av.competition_id = %s"]
+    conditions = ["competition_id = %s"]
     params: list[Any] = [int(competition_id)]
     if team_id is not None:
-        conditions.append("av.team_id = %s")
+        conditions.append("team_id = %s")
         params.append(int(team_id))
     where = " AND ".join(conditions)
 
     df = execute_query(
-        f"WITH RECURSIVE ap AS ("  # noqa: S608
-        f"  SELECT MIN(player_id) AS player_id FROM {av_tbl} WHERE {where}"
-        f"  UNION ALL"
-        f"  SELECT (SELECT MIN(player_id) FROM {av_tbl} WHERE {where} AND player_id > ap.player_id)"
-        f"  FROM ap WHERE ap.player_id IS NOT NULL"
-        f") SELECT ap.player_id, p.player_display_name "
-        f"FROM ap "
-        f"JOIN {dim_tbl} p ON ap.player_id = p.player_id "
-        f"WHERE ap.player_id IS NOT NULL "
+        f"SELECT ids.player_id, p.player_display_name "  # noqa: S608
+        f"FROM (SELECT DISTINCT player_id FROM {av_tbl} WHERE {where}) ids "
+        f"JOIN {dim_tbl} p ON ids.player_id = p.player_id "
         f"ORDER BY p.player_display_name LIMIT 200",
-        tuple(params * 2),
+        tuple(params),
     )
     if df.empty:
         return []

@@ -98,11 +98,43 @@ def fetch_heatmap_actions(
 ) -> pd.DataFrame:
     """Fetch server-side aggregated heat data.
 
-    Bins coordinates to 10x10 grid centers via round(x/10)*10+5, groups by
-    action_type. Returns ~96 rows (12x8 grid) instead of raw events.
+    Two access paths (split based on filter combo):
 
-    Expected columns: x, y, action_type, cnt.
+    1. **Aggregated mart** (fct_heatmap_agg_synced) — used when `player_id`
+       and `match_id` are both None. The mart is pre-aggregated at
+       (competition_id, team_id, action_type, x_bin, y_bin) grain by
+       dbt, so a comp-only filter becomes a ~60K-row scan (measured
+       <10 ms) instead of the 6,864 ms Parallel Seq Scan on the raw
+       5.05M-row fct_passes table. comp+team is a direct composite-index
+       lookup on (comp, team) in the mart.
+
+    2. **Direct fall-through** — used when `player_id` or `match_id` is
+       set, because those filters are not in the mart grain.  The
+       fct_passes and fct_shots tables have `idx_passes_comp_player`,
+       `idx_passes_comp_team_match`, `idx_shots_comp_team_player`
+       etc. which already make these paths fast (<100 ms).
+
+    Both paths return identical columns: x, y, action_type, cnt.
     """
+    # Path 1: aggregated mart — no player / match filter
+    if player_id is None and match_id is None:
+        heatmap_tbl = t("fct_heatmap_agg_synced")
+        conditions = ["competition_id = %s"]
+        params: list[Any] = [int(comp_id)]
+        if team_id is not None:
+            conditions.append("team_id = %s")
+            params.append(int(team_id))
+        where = " AND ".join(conditions)
+        return execute_query(
+            f"SELECT x_bin AS x, y_bin AS y, action_type, "  # noqa: S608
+            f"       sum(event_count) AS cnt "
+            f"FROM {heatmap_tbl} "
+            f"WHERE {where} "
+            f"GROUP BY x_bin, y_bin, action_type",
+            tuple(params),
+        )
+
+    # Path 2: direct fall-through for player/match filters (not in mart grain)
     passes_tbl = t("fct_passes_synced")
     shots_tbl = t("fct_shots_synced")
 

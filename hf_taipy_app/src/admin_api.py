@@ -88,7 +88,7 @@ def _validate_hf_admin(auth_header: str | None) -> tuple[bool, int, str]:
 
 
 def _trigger_synced_refresh_async() -> None:
-    """Spawn a background thread to refresh all 34 synced tables.
+    """Spawn a background thread to refresh all 37 synced tables.
 
     Uses subprocess (not in-process import) for two reasons: (1) refresh
     takes minutes and the HTTP caller should not wait, (2) running in an

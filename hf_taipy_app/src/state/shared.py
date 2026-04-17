@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from cache import clear_cache
 from filters import (
     fetch_competitions,
     fetch_matches,
@@ -279,12 +278,15 @@ def on_competition_change(state: Any, var_name: str, var_value: Any) -> None:
         return
     logger.info("Competition: %r (id=%d)", var_value, comp_id)
 
-    # Drop cached query results for the previous competition.  The TTL cache
-    # is bounded but eviction is LRU; without an explicit clear, stale entries
-    # for the previous comp_id linger and push out entries that are still
-    # relevant for the new competition.  Also prevents cross-competition data
-    # contamination if any query key is accidentally comp-less.
-    clear_cache()
+    # NOTE (2026-04-16 audit): we deliberately do NOT call clear_cache() here.
+    # The 2026-04-16 EXPLAIN-ANALYZE audit showed that wiping every per-function
+    # cache on comp switch was a net regression — 13 zero-arg cached functions
+    # (fetch_competitions, fetch_data_freshness, fetch_cold_costs, etc.) and
+    # ~25 match-keyed functions are all comp-independent, so clearing them on
+    # every comp change is pure cache waste.  The bounded TTLCache + LRU
+    # eviction in cache.py already handles the two concerns the clear was
+    # trying to address: (a) unbounded growth is bounded by maxsize=2000,
+    # (b) stale per-comp entries naturally evict under LRU pressure.
 
     # Reset dependents to "All" (clearable)
     state.selected_team = _ALL_LABEL

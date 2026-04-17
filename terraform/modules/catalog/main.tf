@@ -126,7 +126,7 @@ resource "databricks_grant" "ingestion_sp_gold_schema" {
   principal = var.ingestion_sp_application_id
   # D59 (2026-04-13): expanded from USE_SCHEMA + SELECT to also include
   # CREATE_TABLE and MODIFY so the daily-job dbt_build task can materialize
-  # the 33 gold mart tables. Replaces the previous developer-machine-only
+  # the 36 gold mart tables. Replaces the previous developer-machine-only
   # dbt build flow. See spec § Item 1 D59 component 5.
   privileges = ["USE_SCHEMA", "CREATE_TABLE", "MODIFY", "SELECT"]
 }
