@@ -367,8 +367,15 @@ def _create_space(repo_id: str, target: str, api: HfApi, *, force: bool, skip_se
 # ---------------------------------------------------------------------------
 
 
-def _preflight(folder: Path, repo_id: str, api: HfApi) -> None:
-    """Run pre-flight checks.  Raises ``SpaceError`` on failure."""
+def _preflight(folder: Path, repo_id: str, api: HfApi, *, skip_grants_check: bool = False) -> None:
+    """Run pre-flight checks.  Raises ``SpaceError`` on failure.
+
+    Lakebase grants gate (ADR-005): verifies the deployed Taipy SP has SELECT
+    on every synced table before upload. Prevents shipping a build that will
+    fail on staging with ``PERMISSION_DENIED``. Skipped with
+    ``--skip-grants-check`` for emergency deploys where DB creds aren't
+    available locally.
+    """
     if not folder.is_dir():
         msg = f"Folder {folder} does not exist"
         raise SpaceError(msg)
@@ -389,6 +396,59 @@ def _preflight(folder: Path, repo_id: str, api: HfApi) -> None:
     except Exception as exc:
         msg = f"Space {repo_id} not accessible: {exc}"
         raise SpaceError(msg) from exc
+
+    if skip_grants_check:
+        logger.warning("Skipping Lakebase grants gate (--skip-grants-check). ADR-005 gate disabled.")
+        return
+
+    _verify_lakebase_grants()
+
+
+def _verify_lakebase_grants() -> None:
+    """Invoke run_lakebase_grants.py --verify. Raises SpaceError on drift.
+
+    The gate exists because synced-table recreation drops SP grants (ADR-005),
+    and shipping a Taipy build against a Lakebase without grants produces
+    opaque "Something went wrong" errors at runtime — exactly the failure
+    mode that prompted PR #134's post-merge debugging cycle.
+
+    Env var gating: if DATABRICKS_HOST or DATABRICKS_TOKEN is missing, the
+    gate is skipped with a loud warning rather than failing. The grants
+    verifier fundamentally cannot run without Lakebase creds, and some
+    deploy contexts (e.g. a trusted CI runner with a separate grants-apply
+    step) won't have them. A warn-and-continue here is deliberate — the
+    daily Databricks job has its own grants-apply task as a second gate.
+    """
+    if not os.environ.get("DATABRICKS_HOST") or not os.environ.get("DATABRICKS_TOKEN"):
+        logger.warning(
+            "Lakebase grants gate skipped: DATABRICKS_HOST/TOKEN not set. "
+            "Recommend running `uv run python scripts/run_lakebase_grants.py --verify` "
+            "manually before deploy, or set env vars and re-run."
+        )
+        return
+
+    logger.info("Running Lakebase grants gate (ADR-005)...")
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "scripts/run_lakebase_grants.py", "--verify"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    if result.returncode != 0:
+        # Surface the verifier's diagnostic output to the deploy log so the
+        # user sees exactly which tables are missing SELECT.
+        for line in result.stdout.splitlines():
+            logger.error("  [grants-verify] %s", line)
+        for line in result.stderr.splitlines():
+            logger.error("  [grants-verify] %s", line)
+        msg = (
+            "Lakebase grants gate failed: Taipy SP is missing SELECT on one or more synced "
+            "tables. Fix with `uv run python scripts/run_lakebase_grants.py` and re-deploy. "
+            "(Bypass with --skip-grants-check only if you know what you are doing.)"
+        )
+        raise SpaceError(msg)
+    logger.info("Lakebase grants gate: OK")
 
 
 def _dry_run(folder: Path, repo_id: str, api: HfApi) -> None:
@@ -499,9 +559,18 @@ def _deploy(folder: Path, repo_id: str, api: HfApi, *, clean: bool, wait: bool) 
         _poll_until_running(repo_id, api)
 
 
-def _deploy_command(folder: Path, repo_id: str, api: HfApi, *, dry_run: bool, clean: bool, wait: bool) -> None:
+def _deploy_command(
+    folder: Path,
+    repo_id: str,
+    api: HfApi,
+    *,
+    dry_run: bool,
+    clean: bool,
+    wait: bool,
+    skip_grants_check: bool = False,
+) -> None:
     """Entry point for the deploy subcommand."""
-    _preflight(folder, repo_id, api)
+    _preflight(folder, repo_id, api, skip_grants_check=skip_grants_check)
     if dry_run:
         _dry_run(folder, repo_id, api)
     else:
@@ -607,6 +676,11 @@ def main() -> int:
     p_deploy.add_argument("--dry-run", action="store_true", help="Preview changes without uploading")
     p_deploy.add_argument("--no-clean", action="store_true", help="Skip deletion of stale remote files")
     p_deploy.add_argument("--no-wait", action="store_true", help="Upload but don't poll for RUNNING")
+    p_deploy.add_argument(
+        "--skip-grants-check",
+        action="store_true",
+        help="Skip Lakebase grants pre-flight gate (emergency escape hatch; see ADR-005)",
+    )
 
     # --- status ---
     p_status = subparsers.add_parser("status", help="Show current Space state")
@@ -637,7 +711,13 @@ def main() -> int:
             _create_space(repo_id, args.target, api, force=args.force, skip_secrets=args.skip_secrets)
         elif args.command == "deploy":
             _deploy_command(
-                FOLDER_PATH, repo_id, api, dry_run=args.dry_run, clean=not args.no_clean, wait=not args.no_wait
+                FOLDER_PATH,
+                repo_id,
+                api,
+                dry_run=args.dry_run,
+                clean=not args.no_clean,
+                wait=not args.no_wait,
+                skip_grants_check=args.skip_grants_check,
             )
         elif args.command == "status":
             _status(repo_id, api)

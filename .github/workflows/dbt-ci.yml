@@ -21,7 +21,9 @@ jobs:
       # Databricks connection for dbt — used by env_var() in profiles.yml.
       # Empty when secrets are unavailable (forks, external PRs); dbt parse
       # still works (no connection needed).
-      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      # Hostname is a public URL, not sensitive — lives in repo vars alongside
+      # other non-secret config. Previously duplicated as both secret and var.
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
       DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
       DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}  # pragma: allowlist secret
     steps:

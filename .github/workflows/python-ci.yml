@@ -133,7 +133,8 @@ jobs:
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          # Hostname is a public URL, not sensitive — repo var (see dbt-ci.yml note).
+          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}  # pragma: allowlist secret
         run: uv run python scripts/deploy_wheel.py
 
