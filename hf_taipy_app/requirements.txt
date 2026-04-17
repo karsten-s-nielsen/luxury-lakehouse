@@ -230,7 +230,7 @@ pydantic-settings==2.13.1
     # via luxury-lakehouse (pyproject.toml)
 pygments==2.20.0
     # via rich
-pymongo==4.7.2
+pymongo==4.16.0
     # via taipy-core
 pyparsing==3.3.2
     # via matplotlib
