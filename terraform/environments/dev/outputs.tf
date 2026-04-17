@@ -53,3 +53,8 @@ output "terraform_ci_sp_application_id" {
   description = "Application ID of the Terraform CI service principal"
   value       = module.service_principals.terraform_ci_sp_application_id
 }
+
+output "hf_app_sp_application_id" {
+  description = "Application ID of the HF Spaces Taipy app service principal (Lakebase SELECT consumer — see ADR-005)"
+  value       = module.service_principals.hf_app_sp_application_id
+}

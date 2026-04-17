@@ -1,0 +1,84 @@
+name: Lakebase Grants
+
+# Self-healing Lakebase synced-table grants for the Taipy app service
+# principal. See docs/superpowers/adrs/ADR-005-lakebase-synced-table-grants.md
+# for why auto-inherit via pg_default_acl is structurally unavailable and
+# this scheduled re-apply is the canonical compensating control.
+#
+# Triggers (all three by design — coverage before blame):
+#   1. schedule: daily 07:00 UTC — one hour after the 06:00 UTC
+#      `data_ingestion` job starts, giving its `dbt_build` + `refresh_synced_tables`
+#      tasks time to finish. Catches drift from dbt table-materialization drops.
+#   2. workflow_run: chained after "Terraform Apply" on main — any TF change
+#      touching the synced_tables module can recreate PG tables and drop
+#      their grants. Only runs when the upstream workflow succeeded.
+#   3. workflow_dispatch: manual trigger for incident response.
+#
+# Required repo configuration (one-time):
+#   - secrets.DATABRICKS_TOKEN        Admin PAT with Lakebase admin role
+#   - vars.DATABRICKS_HOST            Workspace hostname (with https://)
+#   - vars.HF_APP_SP_APPLICATION_ID   = terraform output -raw hf_app_sp_application_id
+#                                       (Taipy app SP UUID — single source of truth)
+
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_run:
+    workflows: ["Terraform Apply"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      verify_only:
+        description: "Verify drift without applying grants"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  apply_grants:
+    # Skip on failed upstream runs — if Terraform Apply failed, there may
+    # be no tables to grant against, and we shouldn't mask the upstream
+    # failure with grant-apply noise.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}  # pragma: allowlist secret
+      HF_APP_SP_APPLICATION_ID: ${{ vars.HF_APP_SP_APPLICATION_ID }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Validate required config
+        run: |
+          if [ -z "$DATABRICKS_HOST" ] || [ -z "$DATABRICKS_TOKEN" ]; then
+            echo "::error::DATABRICKS_HOST (var) and DATABRICKS_TOKEN (secret) are required"
+            exit 1
+          fi
+          if [ -z "$HF_APP_SP_APPLICATION_ID" ]; then
+            echo "::error::vars.HF_APP_SP_APPLICATION_ID is required — set it from \`terraform output -raw hf_app_sp_application_id\`"
+            exit 1
+          fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
+
+      - name: Set up Python 3.10
+        run: uv python install 3.10
+
+      - name: Install project (sdk extra)
+        run: uv sync --extra sdk
+
+      - name: Apply Lakebase grants
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.verify_only != true }}
+        run: |
+          uv run python scripts/run_lakebase_grants.py \
+              --sp-uuid "$HF_APP_SP_APPLICATION_ID"
+
+      - name: Verify coverage
+        run: |
+          uv run python scripts/run_lakebase_grants.py \
+              --verify \
+              --sp-uuid "$HF_APP_SP_APPLICATION_ID"

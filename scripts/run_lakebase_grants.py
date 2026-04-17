@@ -1,21 +1,38 @@
 #!/usr/bin/env python3
-"""Run Lakebase PostgreSQL grants for the Taipy app service principal.
+"""Apply (or verify) Lakebase PostgreSQL grants for the Taipy app SP.
 
-Automates the manual psql step documented in lakebase_grants.sql.
-Connects as the workspace admin (via PAT) and grants SELECT access
-to the app service principal on dev_gold and observability schemas.
+Lakebase synced tables are recreated whenever their source dbt mart is
+rebuilt with ``{{ config(materialized='table') }}`` (drop + create), or when
+Unity Catalog ownership changes, or when they're recreated via the
+Databricks UI. Grants on the previous PG table do NOT carry over — the
+new table is owned by an internal Lakebase role (``databricks_writer_*``)
+with zero SELECT grants to service principals.
+
+Historically this module claimed that ``ALTER DEFAULT PRIVILEGES FOR ROLE
+databricks_superuser`` would auto-grant future synced tables. That claim
+is structurally impossible: synced tables are owned by
+``databricks_writer_<instance_id>``, not by ``databricks_superuser``, so
+no default-privilege rule scoped to ``databricks_superuser`` ever fires.
+See ``docs/superpowers/adrs/ADR-005-lakebase-synced-table-grants.md``.
+
+This script is therefore the **canonical** mechanism for ensuring the
+Taipy app SP can read synced tables. It must be re-run after any
+synced-table recreation. The companion ``--verify`` mode is the drift
+detector used as a pre-deploy gate in ``manage_space.py deploy``.
 
 Usage:
+    # Apply grants (default SP UUID comes from terraform output):
     uv run python scripts/run_lakebase_grants.py
-    uv run python scripts/run_lakebase_grants.py --verify  # check grants only
+
+    # Apply with explicit SP UUID:
+    uv run python scripts/run_lakebase_grants.py --sp-uuid <uuid>
+
+    # Verify only — exits non-zero and prints a drift diff if anything's missing:
+    uv run python scripts/run_lakebase_grants.py --verify
 
 Environment:
-    DATABRICKS_HOST          Workspace hostname (no https://)
-    DATABRICKS_TOKEN         PAT for workspace admin
-    DATABRICKS_HTTP_PATH     SQL warehouse path (for endpoint discovery)
-
-Requires:
-    psycopg2-binary, requests, databricks-sdk (all project dependencies)
+    DATABRICKS_HOST        Workspace hostname (with or without https:// prefix)
+    DATABRICKS_TOKEN       Admin PAT (must have Lakebase admin privileges)
 """
 
 from __future__ import annotations
@@ -25,6 +42,7 @@ import base64
 import json
 import logging
 import os
+import subprocess
 import sys
 import uuid
 
@@ -34,21 +52,90 @@ import requests
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-5s  %(message)s")
 logger = logging.getLogger(__name__)
 
-# Service principal UUID for the Taipy app.
-# Find via: terraform output -raw hf_app_sp_application_id
-APP_SP_UUID = "1a1dbf08-df56-48de-b97a-276b2a4232d8"
-
-# Lakebase project and endpoint identifiers (from Terraform)
+# Lakebase endpoint path — matches terraform output ``lakebase_endpoint_name``.
 ENDPOINT_NAME = "projects/soccer-analytics-dev/branches/production/endpoints/primary"
 
-# Schemas to grant access to
+# Schemas the Taipy app reads from.
 SCHEMAS = ["dev_gold", "observability"]
+
+# Terraform env root — used to auto-discover the Taipy app SP UUID.
+TERRAFORM_ENV_DIR = "terraform/environments/dev"
+
+
+def _normalize_host(raw: str) -> str:
+    """Strip ``https://`` prefix and trailing slash from ``DATABRICKS_HOST``.
+
+    The Databricks CLI writes this env var with the prefix, but the REST
+    helpers below construct ``https://{host}/api/...`` themselves, which
+    double-prefixes if not normalized.
+    """
+    host = raw.strip()
+    if host.startswith("https://"):
+        host = host[len("https://") :]
+    elif host.startswith("http://"):
+        host = host[len("http://") :]
+    return host.rstrip("/")
+
+
+def _resolve_sp_uuid_from_terraform() -> str:
+    """Invoke ``terraform output -raw hf_app_sp_application_id``.
+
+    Single source of truth for the Taipy app SP. Fails with a clear error
+    if the output isn't wired up — refuses to fall back to a hardcoded
+    value, because drift between hardcoded and terraform-managed values
+    is exactly the class of bug this script exists to prevent.
+    """
+    # Terraform is expected on PATH for local-dev use; the FileNotFoundError
+    # handler below covers the case where it isn't. The input is a hardcoded
+    # literal — no user-controlled args flow into subprocess.
+    cmd = ["terraform", "output", "-raw", "hf_app_sp_application_id"]
+    try:
+        result = subprocess.run(  # noqa: S603
+            cmd,
+            cwd=TERRAFORM_ENV_DIR,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except FileNotFoundError:
+        logger.exception("terraform CLI not on PATH; pass --sp-uuid explicitly")
+        sys.exit(2)
+    except subprocess.CalledProcessError as exc:
+        logger.error("terraform output failed: %s", exc.stderr.strip())
+        logger.error(
+            'Ensure `output "hf_app_sp_application_id"` is defined in %s/outputs.tf '
+            "and `terraform apply` has been run.",
+            TERRAFORM_ENV_DIR,
+        )
+        sys.exit(2)
+    return result.stdout.strip()
+
+
+def _load_expected_synced_tables() -> list[tuple[str, str]]:
+    """Return the authoritative list of ``(schema, table)`` tuples.
+
+    Source: ``ingestion.refresh_synced_tables.SYNCED_TABLES`` — the same
+    inventory the daily Databricks job iterates over. Using this single
+    source guarantees the grants script and the refresh task agree about
+    what "all synced tables" means.
+    """
+    # Lazy import — avoids a heavy import chain when the script is invoked
+    # only for its CLI help.
+    sys.path.insert(0, "src")
+    from ingestion.refresh_synced_tables import SYNCED_TABLES
+
+    expected: list[tuple[str, str]] = []
+    for name, schema_override in SYNCED_TABLES:
+        schema = schema_override or "dev_gold"
+        expected.append((schema, name))
+    return expected
 
 
 def _get_lakebase_credential(host: str, token: str) -> tuple[str, str]:
     """Get a Lakebase PG credential via the REST API.
 
-    Returns (jwt_token, pg_username).
+    Returns ``(jwt_token, pg_username)``.
     """
     resp = requests.post(
         f"https://{host}/api/2.0/postgres/credentials",
@@ -65,8 +152,9 @@ def _get_lakebase_credential(host: str, token: str) -> tuple[str, str]:
 
 def _get_lakebase_dns(host: str, token: str) -> str:
     """Discover the Lakebase endpoint DNS from the API."""
+    project_path = ENDPOINT_NAME.rsplit("/endpoints/", 1)[0]
     resp = requests.get(
-        f"https://{host}/api/2.0/postgres/{ENDPOINT_NAME.rsplit('/endpoints/', 1)[0]}/endpoints",
+        f"https://{host}/api/2.0/postgres/{project_path}/endpoints",
         headers={"Authorization": f"Bearer {token}"},
         verify=True,
         timeout=(10, 30),
@@ -79,52 +167,89 @@ def _get_lakebase_dns(host: str, token: str) -> str:
     return endpoints[0]["status"]["hosts"]["host"]
 
 
-def _run_grants(cur: psycopg2.extensions.cursor, sp_uuid: str) -> None:
-    """Run GRANT statements for the service principal."""
+def _apply_schema_grants(cur: psycopg2.extensions.cursor, sp_uuid: str) -> None:
+    """Grant USAGE on schema and bulk SELECT on existing tables.
+
+    The bulk ``GRANT SELECT ON ALL TABLES IN SCHEMA`` covers tables that
+    existed at invocation time. For future tables we rely on re-running
+    this script after sync-recreation (see module docstring + ADR-005).
+    """
     sp_quoted = f'"{sp_uuid}"'
     for schema in SCHEMAS:
-        grants = [
+        for stmt in (
             f"GRANT USAGE ON SCHEMA {schema} TO {sp_quoted}",
             f"GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO {sp_quoted}",
+            # ALTER DEFAULT PRIVILEGES (without FOR ROLE) covers future tables
+            # created by the CURRENT user. It does NOT fire for synced-table
+            # recreations (those are owned by databricks_writer_<id>, which we
+            # cannot target without role membership). Kept as defence-in-depth
+            # for any ad-hoc tables a human admin might create in the schema.
             f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT SELECT ON TABLES TO {sp_quoted}",
-            # Synced tables are created by databricks_superuser, not by the admin
-            # user running this script. Without FOR ROLE, dbt table rebuilds
-            # (drop + recreate) lose the SELECT grant.
-            f"ALTER DEFAULT PRIVILEGES FOR ROLE databricks_superuser "
-            f"IN SCHEMA {schema} GRANT SELECT ON TABLES TO {sp_quoted}",
-        ]
-        for g in grants:
-            cur.execute(g)
-            logger.info("OK: %s", g[:80])
+        ):
+            cur.execute(stmt)
+            logger.info("  OK: %s", stmt[:100])
 
 
-def _verify_grants(cur: psycopg2.extensions.cursor, sp_uuid: str) -> int:
-    """Check existing grants for the service principal."""
+def _verify_coverage(
+    cur: psycopg2.extensions.cursor, sp_uuid: str, expected: list[tuple[str, str]]
+) -> list[tuple[str, str]]:
+    """Return the list of ``(schema, table)`` tuples missing SELECT for ``sp_uuid``.
+
+    Empty list means full coverage (i.e. the grants gate would pass).
+    """
     cur.execute(
-        "SELECT table_schema, COUNT(*) FROM information_schema.role_table_grants "
-        "WHERE grantee = %s GROUP BY table_schema ORDER BY 1",
-        (sp_uuid,),
+        """
+        SELECT table_schema, table_name
+        FROM information_schema.role_table_grants
+        WHERE grantee = %s AND privilege_type = 'SELECT'
+          AND table_schema = ANY(%s)
+        """,
+        (sp_uuid, SCHEMAS),
     )
-    rows = cur.fetchall()
-    total = 0
-    for schema, count in rows:
-        logger.info("  %s: %d table grants", schema, count)
-        total += count
-    return total
+    have: set[tuple[str, str]] = {(s, t) for s, t in cur.fetchall()}
+    return [(s, t) for s, t in expected if (s, t) not in have]
 
 
-def main() -> None:
-    """Run or verify Lakebase grants."""
-    parser = argparse.ArgumentParser(description="Run Lakebase PG grants for the Taipy app SP")
-    parser.add_argument("--verify", action="store_true", help="Check grants only, don't modify")
-    parser.add_argument("--sp-uuid", default=APP_SP_UUID, help=f"Service principal UUID (default: {APP_SP_UUID})")
+def _existing_synced_tables(cur: psycopg2.extensions.cursor) -> set[tuple[str, str]]:
+    """Return ``{(schema, table)}`` for every PG table/partitioned-table in SCHEMAS.
+
+    Lakebase synced tables show up as ``relkind='p'`` (partitioned table).
+    Regular tables (``'r'``) are included for defence-in-depth.
+    """
+    cur.execute(
+        """
+        SELECT n.nspname, c.relname
+        FROM pg_class c
+        JOIN pg_namespace n ON c.relnamespace = n.oid
+        WHERE n.nspname = ANY(%s) AND c.relkind IN ('r', 'p')
+        """,
+        (SCHEMAS,),
+    )
+    return {(s, t) for s, t in cur.fetchall()}
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Apply or verify Lakebase grants for the Taipy app SP")
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="Check coverage only; exit non-zero on drift. Pre-deploy gate mode.",
+    )
+    parser.add_argument(
+        "--sp-uuid",
+        help="Taipy app SP application ID. Defaults to `terraform output -raw hf_app_sp_application_id`.",
+    )
     args = parser.parse_args()
 
-    host = os.environ.get("DATABRICKS_HOST")
+    raw_host = os.environ.get("DATABRICKS_HOST")
     token = os.environ.get("DATABRICKS_TOKEN")
-    if not host or not token:
+    if not raw_host or not token:
         logger.error("DATABRICKS_HOST and DATABRICKS_TOKEN must be set")
-        sys.exit(1)
+        return 2
+    host = _normalize_host(raw_host)
+
+    sp_uuid = args.sp_uuid or _resolve_sp_uuid_from_terraform()
+    logger.info("Target SP UUID: %s", sp_uuid)
 
     logger.info("Discovering Lakebase endpoint DNS...")
     dns = _get_lakebase_dns(host, token)
@@ -146,22 +271,64 @@ def main() -> None:
     conn.autocommit = True
     cur = conn.cursor()
 
-    if args.verify:
-        logger.info("Verifying grants for SP %s:", args.sp_uuid)
-        total = _verify_grants(cur, args.sp_uuid)
-        if total == 0:
-            logger.warning("No grants found — run without --verify to apply")
-        else:
-            logger.info("Total: %d grants", total)
-    else:
-        logger.info("Applying grants for SP %s...", args.sp_uuid)
-        _run_grants(cur, args.sp_uuid)
-        logger.info("Verifying...")
-        total = _verify_grants(cur, args.sp_uuid)
-        logger.info("Done. %d grants verified.", total)
+    expected = _load_expected_synced_tables()
+    logger.info("Expected synced-table count: %d", len(expected))
 
-    conn.close()
+    try:
+        if args.verify:
+            existing = _existing_synced_tables(cur)
+            not_in_pg = [pair for pair in expected if pair not in existing]
+            if not_in_pg:
+                logger.warning(
+                    "Expected %d synced tables; %d are not yet present in Lakebase: %s",
+                    len(expected),
+                    len(not_in_pg),
+                    ", ".join(f"{s}.{t}" for s, t in not_in_pg),
+                )
+            verifiable = [pair for pair in expected if pair in existing]
+            missing = _verify_coverage(cur, sp_uuid, verifiable)
+            if missing:
+                logger.error("DRIFT: SP %s is missing SELECT on %d synced table(s):", sp_uuid, len(missing))
+                for schema, table in missing:
+                    logger.error("  - %s.%s", schema, table)
+                logger.error("Fix: run `uv run python scripts/run_lakebase_grants.py` (no --verify) and re-check.")
+                return 1
+            logger.info(
+                "OK: SP %s has SELECT on all %d synced tables present in Lakebase.",
+                sp_uuid,
+                len(verifiable),
+            )
+            if not_in_pg:
+                logger.warning(
+                    "NOTE: %d expected synced table(s) not yet materialized in Lakebase — "
+                    "re-run this verifier after the next refresh.",
+                    len(not_in_pg),
+                )
+            return 0
+
+        logger.info("Applying schema-level grants...")
+        _apply_schema_grants(cur, sp_uuid)
+        logger.info("Verifying per-table coverage...")
+        existing = _existing_synced_tables(cur)
+        verifiable = [pair for pair in expected if pair in existing]
+        missing = _verify_coverage(cur, sp_uuid, verifiable)
+        if missing:
+            logger.error("Post-apply drift: %d tables still missing SELECT:", len(missing))
+            for schema, table in missing:
+                logger.error("  - %s.%s", schema, table)
+            return 1
+        logger.info(
+            "Done. SP %s has SELECT on %d synced tables (of %d expected; %d not yet synced).",
+            sp_uuid,
+            len(verifiable),
+            len(expected),
+            len(expected) - len(verifiable),
+        )
+    finally:
+        conn.close()
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
