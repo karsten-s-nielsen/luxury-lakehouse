@@ -142,54 +142,6 @@ module "workflows" {
   run_as_sp_application_id = module.service_principals.ingestion_sp_application_id
 }
 
-# ── Daily HF Costs Sync (catch-all backup) ──────────────────────────────────
-# Reads _cost_history/*.json from HF Hub repos and MERGEs into
-# workflow_cost_live. Ensures HF Jobs costs reach the cold-tier dbt model
-# even if no dbt build runs that day. Primary display path is direct HF Hub
-# read from the Taipy app — this is the belt-and-suspenders backup.
-
-resource "databricks_job" "sync_hf_costs_daily" {
-  name                = "sync-hf-costs-daily-${var.environment}"
-  max_concurrent_runs = 1
-
-  schedule {
-    quartz_cron_expression = "0 0 6 * * ?"
-    timezone_id            = "UTC"
-    pause_status           = var.environment == "dev" ? "PAUSED" : "UNPAUSED"
-  }
-
-  task {
-    task_key        = "sync_hf_costs"
-    timeout_seconds = 600
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "sync_hf_costs"
-
-      parameters = [
-        "--catalog", module.workspace.catalog_name,
-        "--cards-dir", "/Workspace/Repos/luxury-lakehouse/workflow-cards"
-      ]
-    }
-
-    environment_key = "hf-sync"
-  }
-
-  environment {
-    environment_key = "hf-sync"
-
-    spec {
-      client = "1"
-
-      dependencies = [
-        "${module.catalog.libs_volume_path}/luxury_lakehouse-0.3.3-py3-none-any.whl",
-        "huggingface_hub>=0.25.0",
-        "pyyaml>=6.0"
-      ]
-    }
-  }
-}
-
 # ── Module: Synced Tables ────────────────────────────────────────────────────
 # Mirrors gold-layer Delta tables into Lakebase for low-latency app queries.
 
@@ -281,32 +233,15 @@ resource "databricks_permissions" "ingestion_job_acl" {
   }
 }
 
-resource "databricks_permissions" "sync_hf_costs_job_acl" {
-  job_id = databricks_job.sync_hf_costs_daily.id
-
-  access_control {
-    # hf_app_v2 SP — Taipy app surfaces HF cost sync status.
-    service_principal_name = module.service_principals.hf_app_sp_application_id
-    permission_level       = "CAN_VIEW"
-  }
-
-  access_control {
-    # CI SP — see ingestion_job_acl rationale.
-    service_principal_name = module.service_principals.terraform_ci_sp_application_id
-    permission_level       = "IS_OWNER"
-  }
-}
-
-# Rename hf_app_view_* -> *_acl via `moved` blocks — Terraform treats this as
+# Rename hf_app_view_* -> *_acl via `moved` block — Terraform treats this as
 # a state-address migration, not destroy/create, so no ACL gap during apply.
+# The sync_hf_costs_job_acl moved block + resource were removed alongside the
+# standalone sync_hf_costs_daily job — the sub-operation still runs daily via
+# the hf_sync super-task inside data_ingestion, so the standalone job was
+# redundant. Destroy on next apply.
 moved {
   from = databricks_permissions.hf_app_view_ingestion_job
   to   = databricks_permissions.ingestion_job_acl
-}
-
-moved {
-  from = databricks_permissions.hf_app_view_sync_hf_costs_job
-  to   = databricks_permissions.sync_hf_costs_job_acl
 }
 
 # ── Module: State KMS ──────────────────────────────────────────────────────

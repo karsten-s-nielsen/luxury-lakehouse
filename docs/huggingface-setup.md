@@ -136,10 +136,10 @@ print(f"Architecture: {config['hidden_dim']}-dim, {config['num_layers']} layers,
 3. **Run the embedding ingestion** via the registered entry point:
    ```bash
    # On Databricks (workflow task) — catalog/schema from job parameters
-   compute_embeddings --catalog soccer_analytics --schema dev_gold
+   compute_embeddings_v1 --catalog soccer_analytics --schema dev_gold
 
    # Local development — requires Databricks Connect or exported parquet
-   uv run compute_embeddings --catalog soccer_analytics --schema dev_gold
+   uv run compute_embeddings_v1 --catalog soccer_analytics --schema dev_gold
    ```
 
 **Verify:** Check the embedding table was populated:
@@ -197,7 +197,7 @@ V2 training runs on HF Jobs GPU (A10G-large) in two stages:
 
 4. **Run embedding inference** to populate Delta tables:
    ```bash
-   uv run compute_embeddings --catalog soccer_analytics --schema dev_gold
+   uv run compute_embeddings_v2 --catalog soccer_analytics --schema dev_gold
    ```
 
 The v2 training script logs to MLflow, registers the model as `football2vec_v2`, and publishes weights + embeddings to HF Hub. Typical training time: ~2 hours on A10G-large (~$3.00).
@@ -243,7 +243,7 @@ The training pipeline writes here automatically. The embedding ingestion task re
 
 ### Workflow Environment
 
-The `compute_embeddings` Databricks workflow task requires these packages in its environment:
+The `compute_embeddings_v1` Databricks workflow task requires these packages in its environment:
 
 ```
 gensim>=4.3

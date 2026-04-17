@@ -664,7 +664,7 @@ luxury-lakehouse/
 │   ├── macros/                       # distance_to_goal, shot_angle
 │   └── seeds/                        # 6 seeds: competition_metadata, position_mapping, player_xref_overrides, competition_id_mapping, model_baseline_scalars, task_workflow_mapping
 │
-├── workflow-cards/                    # 36 YAML workflow manifests (inputs, outputs, deps, cost, monitoring)
+├── workflow-cards/                    # 39 YAML workflow manifests (inputs, outputs, deps, cost, monitoring)
 │
 ├── notebooks/                        # Databricks notebooks (8 scripts)
 │   ├── train_football2vec.py         # Doc2Vec training + HF Hub publishing
