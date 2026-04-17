@@ -1,19 +1,33 @@
 #!/usr/bin/env python3
 """Grant Lakebase synced table refresh permissions to service principals.
 
-The Taipy app's `hf_app v2` SP and the ingestion job's `ingestion` SP both need
-two distinct grants to call the synced table refresh API:
+Three service principals need pipeline-level grants on the synced-table backing
+pipelines. Two of them ALSO need project-level grants; the third (CI SP) has
+its project ACL managed via Terraform (`databricks_permissions.lakebase_project_acl`
+in `terraform/environments/dev/main.tf`, SEC4 cycle 2026-04-17) and only needs
+a pipeline-level grant from this script.
 
-  1. CAN_USE on the Lakebase database project
-       (enables GET /api/2.0/database/synced_tables/{full_name})
-  2. CAN_RUN on each of the 34 backing pipelines
-       (enables POST /api/2.0/pipelines/{pipeline_id}/updates)
+  1. hf_app v2 SP (Taipy app admin endpoint):
+       - CAN_USE on the database project (enables synced-table GET)
+       - CAN_RUN on each pipeline (enables POST /updates for refresh)
+  2. ingestion SP (daily Databricks job's `refresh_synced_tables` task):
+       - CAN_USE on the database project
+       - CAN_RUN on each pipeline
+  3. terraform CI SP (GitHub Actions terraform plan/apply):
+       - NO project-level grant from this script (managed via TF)
+       - CAN_VIEW on each pipeline (enables `terraform plan` refresh Get() —
+         without this, SEC4's admins-group removal would break CI plan. See
+         ADR-006 / the SEC4 cycle inventory for why this wasn't transitive
+         anymore after admins-group membership was dropped.)
 
 These grants enable:
   - The daily Databricks job's `refresh_synced_tables` task (final stage,
     runs as the `ingestion` SP)
   - The Taipy admin endpoint POST /api/cache/clear?refresh_synced=1
     (the background subprocess runs as the `hf_app v2` SP)
+  - The `terraform-plan.yml` GitHub Actions workflow (runs as the CI SP via
+    OIDC) — `plan` calls Get() on each synced table which requires VIEW on
+    the backing pipeline.
 
 Run this script:
   - After any new synced table is added (one-time per table)
@@ -57,9 +71,11 @@ _LOG_SOURCE = "grant_synced_table_permissions"
 
 DATABASE_PROJECT_PERMISSION = PermissionLevel.CAN_USE
 PIPELINE_PERMISSION = PermissionLevel.CAN_RUN
+CI_SP_PIPELINE_PERMISSION = PermissionLevel.CAN_VIEW
 
 HF_APP_SP_NAME_PATTERN = "luxury-lakehouse-hf-app-v2-{env}"
 INGESTION_SP_NAME_PATTERN = "luxury-lakehouse-ingestion-{env}"
+TERRAFORM_CI_SP_NAME_PATTERN = "luxury-lakehouse-terraform-ci-{env}"
 
 _PROJECT_NAME_PREFIX = "projects/"
 
@@ -309,7 +325,73 @@ def main() -> int:
     total = _apply_grants(ws, project_name, pipelines, sp_targets, revoke=args.revoke, dry_run=args.dry_run)
     elapsed_s = round(time.monotonic() - t0, 2)
     _log("complete", total_grants=total, elapsed_s=elapsed_s, dry_run=args.dry_run)
+
+    # ── CI SP pipeline-only grants (SEC4, 2026-04-17) ─────────────────────────
+    # The Terraform CI SP needs CAN_VIEW on each pipeline so `terraform plan`
+    # can call Get() on each synced-table resource during refresh. Before SEC4
+    # the CI SP had this transitively via admins-group membership at
+    # /pipelines/ parent path. After SEC4 removed that membership, explicit
+    # per-pipeline grants are required. Project-level ACL is TF-managed
+    # (databricks_permissions.lakebase_project_acl) — do NOT grant it here or
+    # the TF-managed CAN_MANAGE gets downgraded to CAN_USE on next apply.
+    ci_sp_name = TERRAFORM_CI_SP_NAME_PATTERN.format(env=args.environment)
+    try:
+        ci_sp_app_id = _resolve_sp_app_id(ws, ci_sp_name)
+    except RuntimeError:
+        _log("ci_sp_not_found", name=ci_sp_name, action="skip")
+    else:
+        _log("ci_sp_resolved", ci_sp=ci_sp_app_id)
+        t1 = time.monotonic()
+        ci_total = _apply_ci_sp_pipeline_grants(
+            ws, pipelines, ci_sp_app_id, ci_sp_name, revoke=args.revoke, dry_run=args.dry_run
+        )
+        _log(
+            "ci_sp_complete",
+            ci_sp_grants=ci_total,
+            elapsed_s=round(time.monotonic() - t1, 2),
+            dry_run=args.dry_run,
+        )
     return 0
+
+
+def _apply_ci_sp_pipeline_grants(
+    ws: WorkspaceClient,
+    pipelines: list[tuple[str, str, str]],
+    ci_sp_app_id: str,
+    ci_sp_label: str,
+    *,
+    revoke: bool,
+    dry_run: bool,
+) -> int:
+    """Grant the Terraform CI SP CAN_VIEW on every backing pipeline.
+
+    Additive per-pipeline update — does NOT touch the project ACL
+    (that is TF-managed post-SEC4).
+
+    Returns number of grant operations.
+    """
+    level: PermissionLevel | None = None if revoke else CI_SP_PIPELINE_PERMISSION
+    total = 0
+    for table, _schema, pid in pipelines:
+        if dry_run:
+            _log(
+                "would_apply",
+                target="pipeline",
+                sp_label=ci_sp_label,
+                sp_app_id=ci_sp_app_id,
+                table=table,
+                permission=_level_label(level),
+            )
+        else:
+            _patch_acl(ws, "pipelines", pid, ci_sp_app_id, level)
+            _log(
+                "pipeline_grant",
+                sp_label=ci_sp_label,
+                table=table,
+                permission=_level_label(level),
+            )
+        total += 1
+    return total
 
 
 if __name__ == "__main__":
