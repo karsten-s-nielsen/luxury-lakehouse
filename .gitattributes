@@ -1,0 +1,13 @@
+# Normalise line endings: repo uses LF everywhere, on every platform.
+# Without this, Windows clients with core.autocrlf=true silently flip
+# line endings in the working copy and surface files as "modified" to
+# git status even when the content matches the index exactly (observed
+# on hf_taipy_app/requirements.txt during the session-45-leftovers
+# cleanup — it had been flagged modified for multiple cycles with no
+# actual content change).
+#
+# `text=auto` lets Git auto-detect binary vs text; `eol=lf` forces LF
+# for anything Git classifies as text in BOTH the index and the working
+# copy. Binary files are unaffected.
+
+* text=auto eol=lf

@@ -84,8 +84,24 @@ class RawHtml:
 
 
 # ---------------------------------------------------------------------------
-# Color + type constants (shared with workflows_stats via import)
+# Shared constants (imported by workflows_stats and the page entrypoints)
 # ---------------------------------------------------------------------------
+
+# Every phase key a WorkflowCard.execution may carry. Single source of truth;
+# workflows_stats.classify_runtime, the trigger lookup, the entry_point
+# lookup, and the detail-panel builders (build_exec_html, build_cost_html)
+# all iterate this tuple. YAML form (not Pydantic) because the Taipy app
+# loads cards as raw dicts. Render order is top-down as listed: training,
+# then inference, then the operational phases, then orchestration last.
+_EXECUTION_PHASE_KEYS: tuple[str, ...] = (
+    "training",
+    "inference",
+    "export",
+    "import",
+    "ingestion",
+    "sync",
+    "orchestration",
+)
 
 # Single source of truth for color-name -> hex mapping.
 # Used by DAG nodes, DAG legend, table cell styles, and stat card detail HTML.
@@ -506,19 +522,30 @@ def build_data_flow_html(card: dict[str, Any]) -> RawHtml:
 
 
 def build_exec_html(card: dict[str, Any]) -> RawHtml:
-    """Training/inference execution cards."""
+    """Per-phase execution cards for every phase the card declares."""
     exec_cfg = card.get("execution") or {}
     if not exec_cfg:
         return RawHtml("")
 
     cards_html: list[str] = []
-    for phase in ("training", "inference"):
+    for phase in _EXECUTION_PHASE_KEYS:
         phase_cfg = exec_cfg.get(phase)
         if not phase_cfg:
             continue
 
         rows: list[str] = []
-        for key in ("runtime", "trigger", "entry_point", "module", "distribution", "schedule", "timeout", "flavor"):
+        for key in (
+            "runtime",
+            "trigger",
+            "orchestrated_by",
+            "entry_point",
+            "script",
+            "module",
+            "distribution",
+            "schedule",
+            "timeout",
+            "flavor",
+        ):
             val = phase_cfg.get(key)
             if val:
                 label = key.replace("_", " ").title()
@@ -585,14 +612,20 @@ def build_cost_html(
     cold_costs: pd.DataFrame,
     warm_costs: pd.DataFrame,
 ) -> RawHtml:
-    """Cost transparency section — per-phase actual/estimated/projected."""
+    """Cost transparency section — per-phase actual/estimated/projected.
+
+    Iterates every execution phase the card declares. Actual-cost lookup
+    from the cold tier uses the phase's own entry_point (e.g. inference
+    for an AI/ML card, orchestration for the hf_sync super-task); this
+    keeps the actual/projected distinction accurate even when a card has
+    no inference phase.
+    """
     cost_cfg = card.get("cost") or {}
     exec_cfg = card.get("execution") or {}
-    entry_point = (exec_cfg.get("inference") or {}).get("entry_point", "")
 
     cards_html: list[str] = []
 
-    for phase in ("training", "inference"):
+    for phase in _EXECUTION_PHASE_KEYS:
         phase_cost = cost_cfg.get(phase)
         if not phase_cost:
             continue
@@ -601,12 +634,15 @@ def build_cost_html(
         typical = phase_cost.get("typical_cost_usd")
         typical_str = f"${float(typical):.2f}" if typical else "\u2014"
 
-        # Check for actual cost from cold tier
+        # Actual cost from cold tier: match the task key by this phase's
+        # own entry_point, not a hardcoded "inference". The cold tier
+        # keys rows by Databricks task_key which equals the entry_point.
+        phase_entry_point = (exec_cfg.get(phase) or {}).get("entry_point", "")
         actual_str = "\u2014"
         source_class = "ll-cost-projected"
         source_label = "Projected"
-        if phase == "inference" and entry_point and not cold_costs.empty:
-            match_rows = cold_costs[cold_costs["task_key"] == entry_point]
+        if phase_entry_point and not cold_costs.empty:
+            match_rows = cold_costs[cold_costs["task_key"] == phase_entry_point]
             if not match_rows.empty:
                 actual_val = float(match_rows.iloc[0]["total_cost_usd"] or 0)
                 if actual_val > 0:

@@ -83,12 +83,20 @@ class ModelRef(BaseModel):
 
 
 class TableRef(BaseModel):
-    """Reference to an output Delta table."""
+    """Reference to an output Delta table.
+
+    `dbt_model` is set when the table is produced by a dbt model rather than
+    by a Python execution phase on this card. The value is the dbt model
+    name (e.g. `fct_goalkeeper_stats`); the corresponding SQL file must exist
+    at `dbt_project/models/**/<dbt_model>.sql`. Enforced by
+    `test_card_dbt_model_field`.
+    """
 
     id: str
     destination: Literal["delta-table"] = "delta-table"
     mart: str | None = None
     synced: str | None = None
+    dbt_model: str | None = None
 
 
 class Inputs(BaseModel):
@@ -107,7 +115,14 @@ class Outputs(BaseModel):
 
 
 class TrainingExecution(BaseModel):
-    """Training phase execution configuration."""
+    """Training phase execution configuration.
+
+    Used for any phase that declares a `script:` (HF Jobs or similar) rather
+    than a wheel `entry_point:`. `orchestrated_by` mirrors the equivalent
+    field on `InferenceExecution` so that either shape can be a valid
+    orchestrated sub-operation (and so static typing works uniformly when
+    a phase is typed as the union `InferenceExecution | TrainingExecution`).
+    """
 
     trigger: TriggerLiteral
     runtime: RuntimeLiteral
@@ -115,6 +130,19 @@ class TrainingExecution(BaseModel):
     script: str
     timeout: str
     also_trainable_via: str | None = None
+    # Mirror of InferenceExecution.orchestrated_by — see the bidirectional
+    # validator below and the identical one on InferenceExecution.
+    orchestrated_by: str | None = None
+
+    @model_validator(mode="after")
+    def _orchestrated_bidirectional(self) -> TrainingExecution:
+        if self.trigger == "orchestrated" and not self.orchestrated_by:
+            msg = "trigger='orchestrated' requires orchestrated_by to name the parent workflow"
+            raise ValueError(msg)
+        if self.trigger != "orchestrated" and self.orchestrated_by:
+            msg = "orchestrated_by is only valid when trigger='orchestrated'"
+            raise ValueError(msg)
+        return self
 
 
 class InferenceExecution(BaseModel):
@@ -172,18 +200,26 @@ class OrchestrationExecution(BaseModel):
 
 
 class Execution(BaseModel):
-    """Combined execution specs across all phase types."""
+    """Combined execution specs across all phase types.
+
+    Export/ingestion/sync/import phases accept either the Inference shape
+    (Databricks entry_point + module + distribution) or the Training shape
+    (hf-jobs script + flavor), because the same logical phase can run on
+    either runtime depending on the card (e.g. the daily hf_sync
+    sub-operations use the Databricks shape; the manual publish scripts
+    like wf-publish-xg-shots use the hf-jobs shape).
+    """
 
     training: TrainingExecution | None = None
     inference: InferenceExecution | None = None
-    export: InferenceExecution | None = None
-    ingestion: InferenceExecution | None = None
-    sync: InferenceExecution | None = None
+    export: InferenceExecution | TrainingExecution | None = None
+    ingestion: InferenceExecution | TrainingExecution | None = None
+    sync: InferenceExecution | TrainingExecution | None = None
     orchestration: OrchestrationExecution | None = None
     # `import` is a Python reserved word — use alias so YAML key "import" maps
     # to Python attribute `import_`. populate_by_name lets existing code that
     # accesses `.import_` still work after this change.
-    import_: InferenceExecution | None = Field(default=None, alias="import")
+    import_: InferenceExecution | TrainingExecution | None = Field(default=None, alias="import")
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
@@ -224,10 +260,28 @@ class InferenceCost(BaseModel):
 
 
 class Cost(BaseModel):
-    """Combined training and inference cost estimates."""
+    """Per-execution-phase cost estimates.
+
+    Keys mirror the phase keys on `Execution`: every cost phase declared on
+    a card must match an execution phase declared on the same card (enforced
+    by `test_card_cost_phase_parity`). The union types let a phase carry
+    either an hf-jobs cost shape (flavor + rate_per_hour) or a Databricks
+    cost shape (sku + dbu) — some phases run on either runtime depending on
+    the card (e.g. `export` runs on databricks for the daily hf_sync
+    sub-operations but on hf-jobs for the manual publish cards).
+    """
 
     training: TrainingCost | None = None
     inference: InferenceCost | None = None
+    export: TrainingCost | InferenceCost | None = None
+    ingestion: TrainingCost | InferenceCost | None = None
+    sync: TrainingCost | InferenceCost | None = None
+    orchestration: TrainingCost | InferenceCost | None = None
+    # `import` is a Python reserved word — alias lets YAML use "import"
+    # while Python code accesses `.import_`.
+    import_: TrainingCost | InferenceCost | None = Field(default=None, alias="import")
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class MonitoringMetric(BaseModel):

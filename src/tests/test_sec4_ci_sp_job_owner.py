@@ -1,9 +1,9 @@
-"""SEC4: the two daily-job ACL resources must be authoritative, correctly
+"""SEC4: the daily-job ACL resource must be authoritative, correctly
 named, and carry both hf_app_v2 CAN_VIEW + CI SP IS_OWNER access_control
 blocks sorted alphabetically by principal.
 
-Rename from `hf_app_view_*` to `*_acl` is done via Terraform `moved` blocks
-for safe state migration.
+Rename from `hf_app_view_ingestion_job` to `ingestion_job_acl` is done via
+a Terraform `moved` block for safe state migration.
 
 This test parses Terraform statically. Live plan verification happens in
 Step 4.6.
@@ -82,30 +82,32 @@ def test_ingestion_job_acl_exists_and_is_correctly_shaped() -> None:
     _assert_acl_resource_correctly_shaped(body, "ingestion_job_acl")
 
 
-def test_sync_hf_costs_job_acl_exists_and_is_correctly_shaped() -> None:
+def test_sync_hf_costs_job_acl_resource_removed() -> None:
+    """The standalone sync_hf_costs_daily job + its ACL were removed — the
+    sub-operation already runs daily via hf_sync super-task. Guard against
+    accidental re-introduction."""
     text = _DEV.read_text(encoding="utf-8")
     body = _extract_resource_body(text, "databricks_permissions", "sync_hf_costs_job_acl")
-    assert body, "resource databricks_permissions.sync_hf_costs_job_acl not found"
-    _assert_acl_resource_correctly_shaped(body, "sync_hf_costs_job_acl")
+    assert body is None, "databricks_permissions.sync_hf_costs_job_acl must not be re-introduced"
+    job_body = _extract_resource_body(text, "databricks_job", "sync_hf_costs_daily")
+    assert job_body is None, "databricks_job.sync_hf_costs_daily must not be re-introduced"
 
 
 def test_old_resource_names_have_moved_blocks() -> None:
-    """Rename must be declared via Terraform `moved` blocks so apply is a
+    """Rename must be declared via Terraform `moved` block so apply is a
     rename rather than destroy/create — zero ACL gap."""
     text = _DEV.read_text(encoding="utf-8")
-    for old, new in [
-        ("databricks_permissions.hf_app_view_ingestion_job", "databricks_permissions.ingestion_job_acl"),
-        ("databricks_permissions.hf_app_view_sync_hf_costs_job", "databricks_permissions.sync_hf_costs_job_acl"),
-    ]:
-        pattern = re.compile(
-            rf"moved\s*\{{\s*from\s*=\s*{re.escape(old)}\s*to\s*=\s*{re.escape(new)}\s*\}}",
-            re.DOTALL,
-        )
-        assert pattern.search(text), f"missing moved block: from {old} to {new}"
+    old = "databricks_permissions.hf_app_view_ingestion_job"
+    new = "databricks_permissions.ingestion_job_acl"
+    pattern = re.compile(
+        rf"moved\s*\{{\s*from\s*=\s*{re.escape(old)}\s*to\s*=\s*{re.escape(new)}\s*\}}",
+        re.DOTALL,
+    )
+    assert pattern.search(text), f"missing moved block: from {old} to {new}"
 
 
 def test_no_orphaned_old_resource_names() -> None:
-    """After rename, the old resource names must not remain as resources."""
+    """After rename, the old resource name must not remain as a resource."""
     text = _DEV.read_text(encoding="utf-8")
     for old in ("hf_app_view_ingestion_job", "hf_app_view_sync_hf_costs_job"):
         pattern = re.compile(rf'^resource\s+"databricks_permissions"\s+"{old}"\s*\{{', re.MULTILINE)
