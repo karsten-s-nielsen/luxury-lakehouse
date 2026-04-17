@@ -1828,6 +1828,7 @@ mlflow = [
 ]
 sdk = [
     { name = "databricks-sdk", version = "0.102.0", source = { registry = "https://pypi.org/simple" } },
+    { name = "psycopg2-binary" },
 ]
 taipy-app = [
     { name = "cachetools" },
@@ -1890,6 +1891,7 @@ requires-dist = [
     { name = "pandas", marker = "extra == 'analytics'", specifier = ">=2.1.0" },
     { name = "pandas", marker = "extra == 'taipy-app'", specifier = "==2.2.3" },
     { name = "plotly", marker = "extra == 'taipy-app'", specifier = ">=6.7.0,<7" },
+    { name = "psycopg2-binary", marker = "extra == 'sdk'", specifier = "==2.9.11" },
     { name = "psycopg2-binary", marker = "extra == 'taipy-app'", specifier = "==2.9.11" },
     { name = "pyarrow", marker = "extra == 'training'", specifier = ">=14.0" },
     { name = "pydantic", specifier = ">=2.0" },

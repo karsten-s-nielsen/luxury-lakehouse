@@ -68,8 +68,14 @@ jobs:
       - name: Set up Python 3.10
         run: uv python install 3.10
 
-      - name: Install project (sdk extra)
-        run: uv sync --extra sdk
+      - name: Install sdk dependencies (no project build)
+        # --no-install-project skips the editable wheel build that would fail
+        # with "Forced include not found: dbt_project/dbt_packages" (that dir
+        # is gitignored and we don't need dbt packages for grants application).
+        # The grants script pulls `ingestion.refresh_synced_tables` via
+        # `sys.path.insert(0, "src")`; its only external deps are databricks-sdk
+        # + psycopg2 + requests, all covered by the sdk extra.
+        run: uv sync --frozen --extra sdk --no-install-project
 
       - name: Apply Lakebase grants
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.verify_only != true }}

@@ -38,6 +38,12 @@ dbt = [
 ]
 sdk = [
     "databricks-sdk>=0.102.0",
+    # psycopg2 lives here so the grants automation (GitHub Actions
+    # lakebase-grants.yml + scripts/run_lakebase_grants.py) can install a
+    # minimal dependency set without pulling the full taipy-app extra.
+    # Lakebase is a Databricks service — a PG client belongs with SDK
+    # clients thematically.
+    "psycopg2-binary==2.9.11",
 ]
 embeddings = [
     "gensim>=4.3.0",
