@@ -181,6 +181,18 @@ known-first-party = ["analytics", "evolve", "ingestion", "shared", "workflows"]
 pythonVersion = "3.10"
 typeCheckingMode = "basic"
 reportMissingImports = "warning"  # pyspark only available in Databricks runtime
+# Test files under src/tests/ insert scripts/ and hf_taipy_app/src/ onto
+# sys.path at runtime to import scripts + Taipy modules that are NOT part
+# of any installed Python package. Declaring those directories as extraPaths
+# lets pyright resolve the same imports statically; without this, every
+# such test file generates reportMissingImports warnings (160 warnings
+# across 10 test files pre-fix, empirically measured 2026-04-17). Session-45
+# memory flagged this as a deferred warning on `test_grant_synced_table_permissions.py`;
+# the fix generalises to every sys.path-insert test file at once.
+extraPaths = [
+    "scripts",
+    "hf_taipy_app/src",
+]
 exclude = [
     "demo_space",
     "notebooks",

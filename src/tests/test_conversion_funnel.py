@@ -199,6 +199,15 @@ except ImportError:
     _has_plotly = False
 
 
+# plotly 6.7.0 type stubs declare `Figure.data` as `Unknown | Figure` rather
+# than `tuple[BaseTraceType, ...]`, so pyright misreports every `fig.data[i].x`
+# and `fig.data[i].marker` access as an attribute error and `len(fig.data)` as
+# a bad argument to `len`. The test assertions are runtime-correct against
+# Plotly's documented public API; the `# pyright: ignore[...]` markers below
+# are a stub-quality workaround, not suppression of real bugs. The ignores
+# are only needed here because `[tool.pyright].extraPaths` now lets pyright
+# statically resolve `state.conversion_funnel` (before that it typed fig as
+# Unknown and the accesses went un-checked).
 @pytest.mark.skipif(not _has_plotly, reason="plotly not installed")
 class TestFunnelChart:
     """Verify mirror funnel chart rendering."""
@@ -209,7 +218,7 @@ class TestFunnelChart:
         home = {"possessions": 100, "a3_entries": 25, "shots": 5, "goals": 1}
         away = {"possessions": 90, "a3_entries": 20, "shots": 4, "goals": 0}
         fig = _build_mirror_chart(home, away, "Home FC", "Away FC")
-        assert len(fig.data) == 2
+        assert len(fig.data) == 2  # pyright: ignore[reportArgumentType]
 
     def test_chart_home_positive_away_negative(self) -> None:
         from state.conversion_funnel import _build_mirror_chart
@@ -217,8 +226,8 @@ class TestFunnelChart:
         home = {"possessions": 100, "a3_entries": 25, "shots": 5, "goals": 1}
         away = {"possessions": 90, "a3_entries": 20, "shots": 4, "goals": 0}
         fig = _build_mirror_chart(home, away, "Home FC", "Away FC")
-        assert all(v >= 0 for v in fig.data[0].x)
-        assert all(v <= 0 for v in fig.data[1].x)
+        assert all(v >= 0 for v in fig.data[0].x)  # pyright: ignore[reportAttributeAccessIssue]
+        assert all(v <= 0 for v in fig.data[1].x)  # pyright: ignore[reportAttributeAccessIssue]
 
     def test_chart_uses_canonical_colors(self) -> None:
         from state.conversion_funnel import _build_mirror_chart
@@ -226,5 +235,5 @@ class TestFunnelChart:
         home = {"possessions": 50, "a3_entries": 10, "shots": 2, "goals": 0}
         away = {"possessions": 50, "a3_entries": 10, "shots": 2, "goals": 0}
         fig = _build_mirror_chart(home, away, "H", "A")
-        assert fig.data[0].marker.color == "#e63946"
-        assert fig.data[1].marker.color == "#457b9d"
+        assert fig.data[0].marker.color == "#e63946"  # pyright: ignore[reportAttributeAccessIssue]
+        assert fig.data[1].marker.color == "#457b9d"  # pyright: ignore[reportAttributeAccessIssue]
