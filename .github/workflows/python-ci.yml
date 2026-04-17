@@ -60,7 +60,7 @@ jobs:
         run: uv run ruff format --check src/ scripts/
 
       - name: Type check with pyright
-        run: uv run pyright src/
+        run: uv run pyright src/ hf_taipy_app/src/
 
       - name: Import boundary check
         run: uv run lint-imports

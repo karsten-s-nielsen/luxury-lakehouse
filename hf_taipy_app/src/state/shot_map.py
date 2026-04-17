@@ -7,11 +7,13 @@ Registered as the Shot-Map page refresher via shared.register_page_refresher.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
 from filters import fetch_data_freshness, fetch_scope_label
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 from mplsoccer import VerticalPitch
 from queries.shots import fetch_shots, fetch_xg_predictions
 from render import AMBER, GRAY, PITCH_BG_COLOR, PITCH_LINE_COLOR, fmt_int, pitch_to_file
@@ -104,7 +106,9 @@ def _compute_brier_score(is_goal: pd.Series, xg_values: pd.Series) -> float | No
 def _render_pitch(shots: pd.DataFrame, xg_col: str, player_name: str | None = None) -> str:
     """Render shot map to temp PNG. Sized by xG, colored by goal/miss."""
     pitch = VerticalPitch(half=True, pitch_color=PITCH_BG_COLOR, line_color=PITCH_LINE_COLOR)
-    fig, ax = pitch.draw(figsize=(8, 10))
+    # mplsoccer's type stubs widen draw() to Optional[tuple] + NDArray axes;
+    # at runtime a single non-subplot Axes is always returned.
+    fig, ax = cast(tuple[Figure, Axes], pitch.draw(figsize=(8, 10)))
     title = f"Shot Map \u2014 {player_name}" if player_name else "Shot Map"
     ax.set_title(title, color=PITCH_LINE_COLOR, fontsize=14, pad=10)
 

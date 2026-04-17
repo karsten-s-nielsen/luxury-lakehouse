@@ -267,7 +267,11 @@ def pn_refresh(state: Any) -> None:
         receiver_name = nodes.loc[nodes["player_id"] == top_edge["receiver_id"], "player_display_name"].values
         p_name = passer_name[0] if len(passer_name) > 0 else "?"
         r_name = receiver_name[0] if len(receiver_name) > 0 else "?"
-        state.pn_top_pair_count = fmt_int(int(top_edge["pair_count"]))
+        # top_edge is a row Series; pair_count is a scalar at runtime, but
+        # pandas-stubs infers Series.__getitem__ as Unknown | Series. Force
+        # the scalar extraction explicitly before int().
+        pair_count_scalar = top_edge["pair_count"]
+        state.pn_top_pair_count = fmt_int(int(pair_count_scalar))  # type: ignore[arg-type]
         state.pn_top_pair_names = f"{p_name} \u2192 {r_name}"
     else:
         state.pn_top_pair_count = "0"

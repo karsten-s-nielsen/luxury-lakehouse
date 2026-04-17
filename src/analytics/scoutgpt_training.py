@@ -338,7 +338,9 @@ def stratified_split(
         stratify=stratify_col,
     )
     val_relative = val_frac / (train_frac + val_frac)
-    stratify_trainval = stratify_col.iloc[train_val_idx]
+    # train_test_split returns a generic list; cast to int ndarray so the
+    # pandas .iloc overload resolution picks the integer-array signature.
+    stratify_trainval = stratify_col.iloc[np.asarray(train_val_idx, dtype=np.int64)]
     tv_counts = stratify_trainval.value_counts()
     tv_rare = stratify_trainval.isin(tv_counts[tv_counts < 2].index)
     stratify_trainval = stratify_trainval.copy()

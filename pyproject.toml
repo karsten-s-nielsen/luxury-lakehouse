@@ -299,4 +299,5 @@ dev = [
     "pydantic-settings>=2.0.0",
     "psycopg2-binary>=2.9.9",
     "luxury-lakehouse[analytics,embeddings,training,evolve]",
+    "pandas-stubs>=2.2.3,<2.3",
 ]

@@ -10,13 +10,15 @@ Registered as the Player-Similarity page refresher via shared.register_page_refr
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import pandas as pd
 import plotly.graph_objects as go
 from filters import fetch_data_freshness, fetch_embedding_players
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 from mplsoccer import Radar
 from queries.players import fetch_player_embedding_vector, fetch_similarity_radar_stats, search_similar_players
 from render import PITCH_BG_COLOR, PITCH_LINE_COLOR, PLAYER_COLORS, chart_to_file
@@ -178,9 +180,9 @@ def _render_comparison_radar(
     high = [r[1] for r in ranges]
 
     radar = Radar(labels, low, high, round_int=[False] * len(labels), num_rings=4)
-    result = radar.setup_axis(figsize=(6, 6), facecolor=PITCH_BG_COLOR)
-    fig = result[0]
-    ax = result[1]
+    # mplsoccer's Radar.setup_axis is stubbed as Optional[tuple]; at runtime
+    # it always returns (Figure, Axes) when the mandatory figsize is given.
+    fig, ax = cast(tuple[Figure, Axes], radar.setup_axis(figsize=(6, 6), facecolor=PITCH_BG_COLOR))
     fig.set_facecolor(PITCH_BG_COLOR)
 
     radar.draw_circles(ax=ax, facecolor=PITCH_BG_COLOR, edgecolor="#333355")

@@ -163,7 +163,9 @@ def _make_behavioral_udf(model_path: str) -> object:
         match_meta: dict[str, tuple[str, str, str]] = {}
 
         for rec in sorted_pdf.to_dict("records"):
-            rec_dict: dict[str, _Any] = rec
+            # to_dict("records") returns dict[Hashable, Any] per pandas-stubs;
+            # at runtime the keys are always column names (str). Narrow via cast.
+            rec_dict: dict[str, _Any] = cast("dict[str, _Any]", rec)
             x_val = rec_dict.get("start_x")
             y_val = rec_dict.get("start_y")
             if x_val is None or y_val is None:

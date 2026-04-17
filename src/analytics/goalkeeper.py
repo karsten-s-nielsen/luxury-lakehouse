@@ -247,7 +247,7 @@ def compute_gk_action_summary(
         result = result.merge(save_df, on=merge_keys, how="outer")
 
     # Fill NaN for players who have some but not all stat categories.
-    fill_defaults: dict[str, object] = {
+    fill_defaults: dict[str, float] = {
         "total_xt_added": 0.0,
         "xt_per_pass": 0.0,
         "pass_count": 0,
