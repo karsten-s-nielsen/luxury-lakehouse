@@ -13,6 +13,10 @@ tags:
   - training-data
   - huggingface
 
+# No academic methodology — operational data-publishing script that
+# extracts shot records from fct_shots and publishes to HF Hub as the
+# xG v1/v2 training dataset. Provenance lives in wf-statsbomb/wf-wyscout
+# (sources) and wf-xg-v1/wf-xg-v2 (downstream models).
 references: []
 
 inputs:
