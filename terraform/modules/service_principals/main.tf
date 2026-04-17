@@ -51,15 +51,33 @@ resource "databricks_service_principal" "terraform_ci" {
   active       = true
 }
 
-# ── CI SP Roles: Minimum-Necessary Floor (post-SEC4, 2026-04-17) ───────────
-# After the SEC4 cycle, the CI SP holds ONLY the privileges strictly required
-# for terraform plan/apply in CI. Workspace-admins-group membership is
-# REMOVED; broad workspace-level privilege is replaced by per-resource
-# databricks_permissions ACLs.
+# ── CI SP Roles: Three-Privilege Floor (SEC4 partial closure, 2026-04-17) ──
+# The SEC4 cycle attempted to eliminate workspace-admins-group membership
+# but empirically found it irreducible in the current Terraform structure.
+# See ADR-007 (docs/superpowers/adrs/ADR-007-workspace-admin-floor.md) for
+# the evidence trail — plan-time TF graph pessimism cascades any SP update
+# into forced replacement of downstream `databricks_group_member` resources,
+# and workspace-SCIM reads of SPs are admin-gated so CI `terraform plan`
+# cannot run without workspace admin.
 #
-# Remaining floor:
+# SEC4 DID close three transitive paths: Lakebase project (explicit CAN_MANAGE
+# via databricks_permissions.lakebase_project_acl in environments/dev/main.tf),
+# Lakebase synced-table pipelines (CAN_VIEW via scripts/grant_synced_table_permissions.py),
+# and the orphan PG role be66af99-... cleanup. The SQL warehouse, ingestion
+# job, and UC catalog paths were already explicit pre-SEC4 (PR #126, #128).
 #
-# 1. Account admin (databricks_service_principal_role.terraform_ci_account_admin
+# Three floor privileges remain for the CI SP:
+#
+# 1. Workspace admin (admins-group membership, below):
+#    Required by workspace-SCIM reads on `databricks_service_principal`
+#    (Get() during plan refresh) and by downstream `databricks_group_member`
+#    stability (any SP update cascades to member_id "known after apply"
+#    forcing replacement, which breaks group ownership mid-apply). See
+#    ADR-007 for empirical evidence (4 workspace-SCIM 403 responses from
+#    the PR-#146 failed plan; subsequent `provider = databricks.account` /
+#    `api = "account"` experiments both triggered the cascade).
+#
+# 2. Account admin (databricks_service_principal_role.terraform_ci_account_admin
 #    below):
 #    Required for the 11 account-scoped resources this module and the dev
 #    root manage — service principals, groups, group members, federation
@@ -74,15 +92,6 @@ resource "databricks_service_principal" "terraform_ci" {
 #    management of existing objects but cannot grant create authority on
 #    new account-level parents. See ADR-006 for the full decision record.
 #
-# 2. Per-object databricks_permissions on workspace-scoped resources
-#    (declared in environments/dev/main.tf):
-#    - SQL warehouse — CAN_MANAGE
-#    - Daily ingestion job — IS_OWNER
-#    - Lakebase database project — CAN_MANAGE (added in SEC4; the
-#      corresponding Lakebase endpoint inherits from the parent project)
-#    These replace the historical admins-group transitive authorization
-#    and are the reason admins-group membership is no longer required.
-#
 # 3. Catalog ALL_PRIVILEGES (databricks_grant.ci_sp_catalog in
 #    environments/dev/main.tf) + MANAGE via dbt-owners-{env} group
 #    ownership (below, see "dbt-owners group" section).
@@ -91,12 +100,17 @@ resource "databricks_service_principal" "terraform_ci" {
 #    and write (apply) access across the catalog. Verified 2026-04-16:
 #    removing the grant broke terraform plan with "does not have
 #    USE CATALOG" / "USE SCHEMA" on 10+ resources.
-#
-# Regression guards: src/tests/test_sec4_ci_sp_job_owner.py asserts the
-# admins-group-member resource and data source are absent, and that no
-# other .tf file references them.
 
-# Account admin — see item 1 above.
+data "databricks_group" "admins" {
+  display_name = "admins"
+}
+
+resource "databricks_group_member" "terraform_ci_admin" {
+  group_id  = data.databricks_group.admins.id
+  member_id = databricks_service_principal.terraform_ci.id
+}
+
+# Account admin — see item 2 above.
 resource "databricks_service_principal_role" "terraform_ci_account_admin" {
   provider             = databricks.account
   service_principal_id = databricks_service_principal.terraform_ci.id

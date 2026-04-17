@@ -196,6 +196,40 @@ DATABRICKS_CONFIG_PROFILE=ACCOUNT \
 # → []
 ```
 
+## Admin-removal reverted (SEC4 outcome, 2026-04-17)
+
+The SEC4 cycle attempted to remove `databricks_group_member.terraform_ci_admin`
+(CI SP workspace-admins-group membership) as its primary reduction step.
+Phase 2 apply succeeded — admin membership was removed from both state and
+live infrastructure. The subsequent `terraform plan` in CI (PR #146)
+revealed two transitive-admin gaps not caught by local plan (which runs
+as my admin identity, not as the CI SP):
+
+1. **Lakebase pipeline VIEW** — Fixed by extending
+   `scripts/grant_synced_table_permissions.py` with a new
+   `_apply_ci_sp_pipeline_grants()` function granting CI SP `CAN_VIEW`
+   on all 37 synced-table backing pipelines. This fix remains.
+2. **Workspace SCIM reads on service principals** — 3 `databricks_service_principal`
+   resources need admin-gated workspace-SCIM Get() calls during plan.
+   Three attempts to reroute via account-SCIM (`api = "account"`,
+   `provider = databricks.account`, targeted apply) all failed on
+   TF-planner cascade: pending SP updates mark the SP's `id` as
+   "known after apply", propagating through `data.databricks_service_principal.*_account`
+   to `databricks_group_member.dbt_owners_*.member_id` (force-new),
+   forcing destructive replacement of 2 group members. Full evidence
+   in [ADR-007](../adrs/ADR-007-workspace-admin-floor.md) §Alternatives.
+
+**Recovery**: admin-group membership was restored via `terraform apply`
+(1 resource add, 0 changes, 0 destroys). The provider-lock was also
+reverted from 1.113 (attempted for the `api` field) back to 1.112 to
+clean up schema residue from the failed targeted apply. See ADR-007 §Notes
+for the state-corruption details.
+
+**Final SEC4 outcome (partial closure)**: the cycle closed 3 transitive paths
+(Lakebase project, 37 pipelines, orphan PG role) and documented 2 irreducible
+co-floors with empirical evidence (account_admin per ADR-006, workspace-admin
+per ADR-007). The Terraform CI SP retains workspace-admins-group membership.
+
 ## Surprises & deviations from starting-hypothesis
 
 1. **Lakebase `databricks_permissions` IS supported** — but via object type `database-projects`, not `postgres_project`. The provider/CLI uses the Databricks API's internal naming, which differs from the Terraform resource name (`databricks_postgres_project`). Confirmed via error message enumeration: `Expected one of {..., database-projects, database-instances, ...}`. This means item A's "primary path" (`databricks_permissions`) is viable — no fallback to `databricks_access_control_rule_set` needed.

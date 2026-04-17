@@ -22,10 +22,6 @@ import re
 from pathlib import Path
 
 _DEV = Path(__file__).resolve().parents[2] / "terraform" / "environments" / "dev" / "main.tf"
-_SERVICE_PRINCIPALS_MAIN = (
-    Path(__file__).resolve().parents[2] / "terraform" / "modules" / "service_principals" / "main.tf"
-)
-_TERRAFORM_DIR = Path(__file__).resolve().parents[2] / "terraform"
 
 _CI_SP_REF = "module.service_principals.terraform_ci_sp_application_id"
 _APP_SP_REF = "module.service_principals.hf_app_sp_application_id"
@@ -124,50 +120,6 @@ def test_no_orphaned_old_resource_names() -> None:
     for old in ("hf_app_view_ingestion_job", "hf_app_view_sync_hf_costs_job"):
         pattern = re.compile(rf'^resource\s+"databricks_permissions"\s+"{old}"\s*\{{', re.MULTILINE)
         assert not pattern.search(text), f"old resource name {old!r} still declared — rename incomplete"
-
-
-def test_terraform_ci_admin_group_member_absent() -> None:
-    """SEC4: the CI SP must not be a member of the workspace `admins` group.
-
-    INF-01 (CWE-250) least privilege: the admins-group membership was
-    replaced in the SEC4 cycle with explicit per-resource ACLs on the
-    SQL warehouse, ingestion job, and Lakebase project. See SECURITY.md
-    audit log and ADR-006 for the account-admin decision.
-
-    Re-introducing either the membership resource OR the admins-group
-    data source is forbidden — the data source has no purpose once the
-    membership is gone and invites accidental re-addition.
-    """
-    text = _SERVICE_PRINCIPALS_MAIN.read_text(encoding="utf-8")
-    body = _extract_resource_body(text, "databricks_group_member", "terraform_ci_admin")
-    assert body is None, (
-        "databricks_group_member.terraform_ci_admin must not be declared — "
-        "SEC4 removed it to satisfy INF-01 least-privilege (CWE-250)."
-    )
-    pattern = re.compile(r'^data\s+"databricks_group"\s+"admins"\s*\{', re.MULTILINE)
-    assert not pattern.search(text), (
-        "data.databricks_group.admins is unused after terraform_ci_admin removal "
-        "and must be deleted — keeping it invites re-introduction of the "
-        "group_member resource."
-    )
-
-
-def test_admins_group_not_referenced_anywhere() -> None:
-    """SEC4: no Terraform file may reference `data.databricks_group.admins`.
-
-    Cross-file grep — prevents a future author from re-adding the data
-    source in a different module and silently re-establishing admins-group
-    membership for the CI SP (or any other SP).
-    """
-    offenders: list[str] = []
-    for tf_file in _TERRAFORM_DIR.rglob("*.tf"):
-        text = tf_file.read_text(encoding="utf-8")
-        if "data.databricks_group.admins" in text or re.search(r'data\s+"databricks_group"\s+"admins"', text):
-            offenders.append(str(tf_file.relative_to(_TERRAFORM_DIR.parent)))
-    assert not offenders, (
-        f"admins-group references found in: {offenders}. "
-        f"SEC4 removed all admins-group references; re-introduction is forbidden."
-    )
 
 
 def test_lakebase_project_acl_exists_and_is_correctly_shaped() -> None:

@@ -45,15 +45,20 @@ operation was attempted as the CI SP via a short-lived OAuth M2M client secret.
 
 Accept `account_admin` as the floor for the Terraform CI service principal.
 
-`databricks_group_member.terraform_ci_admin` (workspace admins-group membership)
-IS removed in the SEC4 cycle. Explicit `databricks_permissions` on every
-workspace-scoped resource the CI SP manages (SQL warehouse, daily ingestion
-job, Lakebase project) replaces the historical transitive authorization.
-
 `databricks_service_principal_role.terraform_ci_account_admin` remains in place.
 A future reduction is feasible if Databricks introduces create-scope narrower
 account-level roles or if the repository refactors account-scoped resource
 creation out of Terraform (see Alternatives).
+
+**Scope note (added post-hoc, 2026-04-17):** the original text of this
+decision also said `databricks_group_member.terraform_ci_admin` (workspace
+admins-group membership) would be removed. That removal was attempted and
+reverted during the SEC4 cycle after CI plan failures exposed an additional
+TF-planner cascade. Workspace-admins-group membership is now accepted as a
+co-floor, documented separately in
+[ADR-007](ADR-007-workspace-admin-floor.md). This ADR's decision scope is
+therefore narrowed to the `account_admin` role only — it is not a claim
+about the CI SP's overall privilege floor.
 
 ## Alternatives considered
 
