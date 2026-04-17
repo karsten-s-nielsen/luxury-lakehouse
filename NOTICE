@@ -131,6 +131,19 @@ MIT Sloan Sports Analytics Conference 2026. Licensed under the
 Apache License, Version 2.0.
 See: https://github.com/leemingo/mitssac-pausa
 
+The goalkeeper shot-stopping pillar (src/analytics/goalkeeper.py, PSxG)
+references the methodology in: Butcher et al. (2025) — GK Shot Stopping,
+Journal of Quantitative Analysis in Sports. The implementation is an
+independent Python computation of post-shot expected goals and goals-prevented,
+not derived from any source code.
+See: https://doi.org/10.1515/jqas-2024-0091
+
+The goalkeeper distribution pillar (pass distance categorisation, xT
+progression, launch rate) references the taxonomy in: Lamberts (2025) —
+GK Distribution. The implementation is an independent SQL/Python translation,
+not derived from any source code.
+See: https://doi.org/10.1007/978-3-031-31772-9_19
+
 The OBSO (Off-Ball Scoring Opportunity) value surface concept combines
 pitch control, ball transition probability, and expected possession value
 as described in: Spearman, W. (2018). "Beyond Expected Goals." MIT Sloan
