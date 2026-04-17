@@ -5,6 +5,13 @@ blocks sorted alphabetically by principal.
 Rename from `hf_app_view_ingestion_job` to `ingestion_job_acl` is done via
 a Terraform `moved` block for safe state migration.
 
+SEC4 cycle (2026-04-17) extensions:
+- Lakebase project ACL (databricks_permissions.lakebase_project_acl) —
+  precondition for admins-group removal. See
+  docs/superpowers/specs/2026-04-17-sec4-ci-sp-least-privilege-design.md.
+  Lakebase endpoints have no separate ACL surface (they inherit from the
+  parent project), so a single resource covers both.
+
 This test parses Terraform statically. Live plan verification happens in
 Step 4.6.
 """
@@ -18,6 +25,7 @@ _DEV = Path(__file__).resolve().parents[2] / "terraform" / "environments" / "dev
 
 _CI_SP_REF = "module.service_principals.terraform_ci_sp_application_id"
 _APP_SP_REF = "module.service_principals.hf_app_sp_application_id"
+_INGESTION_SP_REF = "module.service_principals.ingestion_sp_application_id"
 
 
 def _extract_resource_body(text: str, resource_type: str, resource_name: str) -> str | None:
@@ -112,3 +120,49 @@ def test_no_orphaned_old_resource_names() -> None:
     for old in ("hf_app_view_ingestion_job", "hf_app_view_sync_hf_costs_job"):
         pattern = re.compile(rf'^resource\s+"databricks_permissions"\s+"{old}"\s*\{{', re.MULTILINE)
         assert not pattern.search(text), f"old resource name {old!r} still declared — rename incomplete"
+
+
+def test_lakebase_project_acl_exists_and_is_correctly_shaped() -> None:
+    """SEC4: the Lakebase project ACL must grant the CI SP CAN_MANAGE plus
+    preserve the existing hf_app_v2 + ingestion SP CAN_USE grants.
+
+    The provider only supports {CAN_USE, CAN_MANAGE} for database_project_name
+    (no IS_OWNER), per
+    terraform-provider-databricks/permissions/permission_definitions.go:772-782.
+
+    Endpoints inherit from the parent project in Lakebase Autoscaling; no
+    separate endpoint ACL exists or is needed.
+    """
+    text = _DEV.read_text(encoding="utf-8")
+    body = _extract_resource_body(text, "databricks_permissions", "lakebase_project_acl")
+    assert body, "resource databricks_permissions.lakebase_project_acl not found"
+
+    # Must target the Lakebase project via the provider's canonical attribute.
+    assert re.search(r"database_project_name\s*=\s*module\.lakebase\.project_id", body), (
+        "lakebase_project_acl: must set database_project_name = module.lakebase.project_id"
+    )
+
+    principals = _access_control_principals_in_order(body)
+    perms = dict(principals)
+
+    assert _CI_SP_REF in perms, "lakebase_project_acl: CI SP access_control block missing"
+    assert perms[_CI_SP_REF] == "CAN_MANAGE", (
+        f"lakebase_project_acl: CI SP must be CAN_MANAGE, got {perms[_CI_SP_REF]!r}"
+    )
+    assert _APP_SP_REF in perms, "lakebase_project_acl: hf_app_v2 CAN_USE block missing"
+    assert perms[_APP_SP_REF] == "CAN_USE", (
+        f"lakebase_project_acl: hf_app_v2 must be CAN_USE, got {perms[_APP_SP_REF]!r}"
+    )
+    assert _INGESTION_SP_REF in perms, "lakebase_project_acl: ingestion SP CAN_USE block missing"
+    assert perms[_INGESTION_SP_REF] == "CAN_USE", (
+        f"lakebase_project_acl: ingestion SP must be CAN_USE, got {perms[_INGESTION_SP_REF]!r}"
+    )
+
+    # Alphabetical sort over SP entries only (user_name entries are ignored by
+    # the helper; that is intentional — the positional-matching drift only
+    # applies within principal-type classes in the provider's state storage).
+    principal_refs = [p for p, _ in principals]
+    assert principal_refs == sorted(principal_refs), (
+        f"lakebase_project_acl: access_control blocks must be sorted alphabetically by "
+        f"service_principal_name; got {principal_refs}"
+    )

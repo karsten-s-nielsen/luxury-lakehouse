@@ -210,6 +210,42 @@ def _verify_coverage(
     return [(s, t) for s, t in expected if (s, t) not in have]
 
 
+def connect_as_superuser() -> psycopg2.extensions.connection:
+    """Open a psycopg2 connection to Lakebase as ``databricks_superuser``.
+
+    Uses ``DATABRICKS_HOST`` + ``DATABRICKS_TOKEN`` env vars to fetch a short-
+    lived admin JWT via the Lakebase credential API, then connects to the
+    primary endpoint with ``sslmode=require`` and ``autocommit=True``. Returns
+    the open connection; caller is responsible for closing it.
+
+    Raises:
+        RuntimeError: if ``DATABRICKS_HOST`` or ``DATABRICKS_TOKEN`` is unset.
+
+    This helper is exposed (non-underscore) specifically so tests and one-off
+    scripts can reuse the proven connection pattern without duplicating the
+    JWT-fetch logic. Not used by ``main()`` below, which keeps its
+    step-by-step logs for operator clarity.
+    """
+    raw_host = os.environ.get("DATABRICKS_HOST")
+    token = os.environ.get("DATABRICKS_TOKEN")
+    if not raw_host or not token:
+        raise RuntimeError("DATABRICKS_HOST and DATABRICKS_TOKEN must be set")
+    host = _normalize_host(raw_host)
+    dns = _get_lakebase_dns(host, token)
+    jwt, pg_user = _get_lakebase_credential(host, token)
+    conn = psycopg2.connect(
+        host=dns,
+        port=5432,
+        database="databricks_postgres",
+        user=pg_user,
+        password=jwt,
+        sslmode="require",
+        connect_timeout=10,
+    )
+    conn.autocommit = True
+    return conn
+
+
 def _existing_synced_tables(cur: psycopg2.extensions.cursor) -> set[tuple[str, str]]:
     """Return ``{(schema, table)}`` for every PG table/partitioned-table in SCHEMAS.
 
