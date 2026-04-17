@@ -60,6 +60,15 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 39 AI/ML wor
         hfJobs = softwareSystem "HuggingFace Jobs" "L40S GPU / cpu-basic compute: PEP 723 UV scripts for training (xG v1/v2, VAEP, PSxG, Football2vec v2/360), batch analytics (xT, EPV, OBSO, Space Creation), dataset publishing (freeze frames, xG shots, SPADL/VAEP action values — governed by wf-publish-xg-shots, wf-publish-spadl-vaep), and Evolve Engine candidate evaluation" "External"
         openRouter = softwareSystem "OpenRouter" "LLM API gateway: Claude Sonnet 4 (80%) and Haiku 4.5 (20%) for evolutionary code mutation via OpenAI-compatible endpoint" "External"
 
+        githubActions = softwareSystem "GitHub Actions CI/CD" "Automation surface for platform state, code validation, security scanning, and self-healing. Auth via AWS OIDC federation (for Terraform) and admin PAT stored in GitHub Secrets (for Databricks/Lakebase operations). Each workflow runs in ubuntu-latest with pinned-SHA action versions" {
+            terraformApply = container "Terraform Apply" "Auto-apply on push to main when terraform/ files change. Assumes the AWS OIDC role (vars.AWS_OIDC_ROLE_ARN) and uses DATABRICKS_AUTH_TYPE=github-oidc federation for Databricks provider auth. Concurrency-gated to prevent state-lock races" ".github/workflows/terraform-apply.yml"
+            terraformPlan = container "Terraform Plan" "Runs on pull_request touching terraform/. Same OIDC federation. Posts plan diff to the PR; human reviews before merge triggers Apply" ".github/workflows/terraform-plan.yml"
+            pythonCi = container "Python CI" "Runs on push/PR touching src/, scripts/, workflow-cards/, pyproject.toml, uv.lock, hf_taipy_app/ (added 2026-04-17 to catch requirements-compile drift). Stages: uvx dbt deps (materialize dbt_packages for hatch force-include), uv sync, ruff check, ruff format --check, pyright, pytest, detect-secrets, pip-audit. On main pushes: deploys the wheel to UC Volume via databricks-sdk Files API" ".github/workflows/python-ci.yml"
+            dbtCi = container "dbt CI" "Runs on push/PR touching dbt_project/. Uses uv sync --no-install-project + dbt deps. Validates dbt parse + slim CI (state:modified+ --empty) for contract verification without data movement" ".github/workflows/dbt-ci.yml"
+            semgrepCi = container "Semgrep SAST" "Runs on every push/PR. Third-party static analysis for common security anti-patterns (OWASP-aligned rulesets). nosemgrep inline exemptions require justification comment" ".github/workflows/semgrep.yml"
+            lakebaseGrantsWorkflow = container "Lakebase Grants" "Self-healing SELECT grants for the Taipy SP on Lakebase synced tables (ADR-005). Triggers: schedule cron 07:00 UTC daily (post-Databricks-daily-job), workflow_run chained after Terraform Apply on main, workflow_dispatch for incidents. Applies + verifies grants via scripts/run_lakebase_grants.py. Required config: secrets.DATABRICKS_TOKEN (admin PAT), vars.HF_APP_SP_APPLICATION_ID (from terraform output)" ".github/workflows/lakebase-grants.yml"
+        }
+
         # Relationships - users
         analyst -> guiLayer "Browses pages, selects filters, views interactive and static charts" "HTTPS"
         developer -> deployScript "Runs manage_space.py {create|deploy|status|rebuild|teardown} staging" "CLI"
@@ -145,6 +154,18 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 39 AI/ML wor
         hfSpaces -> taipyApp "Builds Docker image, runs Taipy GUI on port 7860" "Docker"
         analyst -> hfSpaces "Accesses luxury-lakehouse/soccer-analytics-app" "HTTPS"
 
+        # Relationships - GitHub Actions CI/CD
+        terraformApply -> databricksApi "Applies Databricks provider resources (workspace, catalog, workflows, synced_tables, SPs)" "HTTPS/github-oidc"
+        terraformPlan -> databricksApi "Reads state for diff rendering" "HTTPS/github-oidc"
+        pythonCi -> bronzeSchema "Deploys wheel to /Volumes/{catalog}/bronze/libs/ on main pushes (databricks-sdk Files API)" "HTTPS"
+        lakebaseGrantsWorkflow -> databricksApi "Obtains Lakebase PG credential via /api/2.0/postgres/credentials using admin PAT" "HTTPS/REST"
+        lakebaseGrantsWorkflow -> lakebase "GRANT SELECT on synced tables for Taipy SP; verifies coverage against SYNCED_TABLES inventory" "PostgreSQL/SSL"
+        terraformApply -> lakebaseGrantsWorkflow "workflow_run trigger: TF changes can recreate synced tables, grants workflow re-applies" "GitHub Actions event"
+        developer -> pythonCi "Opens PR / pushes to main" "git push"
+        developer -> dbtCi "Opens PR / pushes to main with dbt_project/** changes" "git push"
+        developer -> terraformPlan "Opens PR with terraform/** changes (plan posted to PR)" "git push"
+        developer -> terraformApply "Merges PR to main (auto-apply)" "git push"
+
         # Deployment environment
         production = deploymentEnvironment "Production" {
             deploymentNode "HuggingFace Infrastructure" "Managed container hosting" "Docker SDK" {
@@ -188,6 +209,16 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 39 AI/ML wor
             include hfJobs
             include openRouter
             include hfIdentity
+            include githubActions
+            autoLayout
+        }
+
+        container githubActions "CIContainers" {
+            include *
+            include databricksApi
+            include lakebase
+            include bronzeSchema
+            include developer
             autoLayout
         }
 

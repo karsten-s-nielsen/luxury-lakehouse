@@ -682,7 +682,7 @@ luxury-lakehouse/
 │   ├── deploy_wheel.py               # Downloads wheel from HF Hub build-artifacts → UC Volume for inference
 │   ├── setup_hf_buckets.py           # Initialize HF Buckets (demo-data) with versioned Parquet uploads
 │   ├── setup_lakebase_roles.py       # Manage Lakebase PG roles for service principals (databricks-sdk 0.102+)
-│   ├── create_indexes.py             # PG indexes on Lakebase synced tables (56 indexes, --verify + ANALYZE)
+│   ├── create_indexes.py             # PG indexes on Lakebase synced tables (63 indexes, --verify + ANALYZE)
 │   ├── ensure_warehouse.py           # Verify SQL warehouse is RUNNING before dbt builds
 │   ├── maintain_synced_tables.py     # Synced table maintenance (refresh, health check)
 │   ├── refresh_synced_tables.py      # Trigger SNAPSHOT refresh on synced tables (--wait, --tables)

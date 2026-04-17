@@ -299,7 +299,7 @@ _glossary_panels = _build_glossary_panels()
 
 # fmt: off
 _COMP_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary", "Player-Impact", "Player-Comparison", "Goalkeeper-Analytics", "Conversion-Funnel")
-_TEAM_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary", "Player-Impact", "Player-Comparison", "Goalkeeper-Analytics", "Conversion-Funnel")
+_TEAM_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary", "Player-Impact", "Player-Comparison", "Conversion-Funnel")
 _MATCH_PAGES = ("Pass-Map", "Pass-Network", "Match-Summary", "Player-Impact", "Conversion-Funnel")
 _PLAYER_PAGES = ("Shot-Map", "Heat-Map", "Player-Impact")
 _PLAYER_MULTI_PAGES = ("Player-Comparison",)
@@ -441,6 +441,24 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         slider_range_labels=("0", "2000"),
         depends_on="selected_competition",
         help="Minimum total minutes played to include a player in rankings. Filters low-sample entries.",
+    ),
+    # Goalkeeper Analytics — coverage-aware Team selector (replaces the shared
+    # Team dropdown on this page; only teams with GK stats for the selected
+    # competition appear, per fix/gk-team-coverage-filter).
+    SidebarWidget(
+        "dropdown",
+        "gk_selected_team",
+        "Team",
+        "gk_on_gk_team_change",
+        condition=f"current_page in {_GK_PAGES}",
+        lov="gk_team_lov",
+        depends_on="selected_competition",
+        help=(
+            "Only teams with StatsBomb GK event data for the selected competition "
+            "are listed. Coverage is uneven in the open dataset — e.g., the Premier "
+            "League shows Leicester City 2015/16 fully plus scattered matches from "
+            "other clubs, so Manchester United and Liverpool may not appear."
+        ),
     ),
     # Goalkeeper Analytics — GK-only player selector + min minutes
     SidebarWidget(

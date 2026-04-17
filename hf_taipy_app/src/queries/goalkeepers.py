@@ -116,6 +116,34 @@ def fetch_gk_rankings(
 
 
 @ttl_cache()
+def fetch_gk_teams_lov(competition_id: int) -> list[tuple[str, int]]:
+    """Fetch teams that have GK stats in this competition.
+
+    StatsBomb's open-data per-competition coverage is uneven — many teams
+    nominally in a competition (e.g. Manchester United and Liverpool in the
+    Premier League) have zero rows in ``fct_goalkeeper_stats`` because their
+    matches are not in the open dataset. Surfacing a generic team dropdown on
+    the GK page misleads users into picking a team and seeing an empty GK
+    list.  This LOV is the authoritative list for the GK page only.
+
+    Returns (team_name, team_id) tuples, ordered by team_name.
+    """
+    gk = t("fct_goalkeeper_stats_synced")
+    dt = t("dim_teams_synced")
+    df = execute_query(
+        f"SELECT DISTINCT t.team_id, t.team_name "  # noqa: S608
+        f"FROM {gk} gk "
+        f"JOIN {dt} t ON gk.team_id = t.team_id "
+        f"WHERE gk.competition_id = %s "
+        f"ORDER BY t.team_name",
+        (int(competition_id),),
+    )
+    if df.empty:
+        return []
+    return [(str(r["team_name"]), int(r["team_id"])) for _, r in df.iterrows()]
+
+
+@ttl_cache()
 def fetch_gk_player_lov(competition_id: int, team_id: int | None = None) -> list[tuple[str, int]]:
     """Fetch GK-only player list for the sidebar dropdown.
 

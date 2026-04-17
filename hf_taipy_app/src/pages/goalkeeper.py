@@ -20,7 +20,10 @@ page_config = PageConfig(
     description=(
         "Four-pillar GK evaluation: shot stopping (PSxG goals prevented), "
         "distribution (pass distance, xT progression), claiming, and sweeping. "
-        "Butcher et al. (2025) + Lamberts (2025)."
+        "Butcher et al. (2025) + Lamberts (2025). Team and goalkeeper dropdowns "
+        "are filtered to clubs with StatsBomb open-data GK coverage for the "
+        "selected competition — not every league team has event data in the "
+        "open dataset."
     ),
     freshness_var="gk_data_freshness",
     citations=[

@@ -25,12 +25,12 @@ from queries.goalkeepers import (
     fetch_gk_player_lov,
     fetch_gk_rankings,
     fetch_gk_shots,
+    fetch_gk_teams_lov,
 )
 from render import PITCH_BG_COLOR, PITCH_LINE_COLOR, pitch_to_file
 
 from state.shared import (
     get_comp_id,
-    get_team_id,
     register_page_refresher,
 )
 
@@ -103,11 +103,19 @@ gk_xt_total_val: str = "\u2014"
 gk_player_lov: list[str] = []
 gk_selected_player: str | None = None
 
+# GK-specific team selector — filtered to teams with GK data in the selected
+# competition. Replaces the shared Team dropdown on the GK page because the
+# generic shared team list includes teams with zero GK stats coverage and
+# caused dead-end dropdowns (fix/gk-team-coverage-filter).
+gk_team_lov: list[str] = []
+gk_selected_team: str | None = None
+
 # Freshness
 gk_data_freshness: str = ""
 
-# Internal map: display label -> player_id for GK selector
+# Internal maps: display label -> ID
 _gk_player_map: dict[str, int] = {}
+_gk_team_map: dict[str, int] = {}
 
 __all__ = [
     "GK_SUB_VIEW_LOV",
@@ -120,6 +128,7 @@ __all__ = [
     "gk_long_pct",
     "gk_medium_pct",
     "gk_on_gk_player_change",
+    "gk_on_gk_team_change",
     "gk_on_rankings_action",
     "gk_player_lov",
     "gk_psxg_faced",
@@ -128,11 +137,16 @@ __all__ = [
     "gk_save_pct_val",
     "gk_scope_label",
     "gk_selected_player",
+    "gk_selected_team",
     "gk_short_pct",
+    "gk_team_lov",
     "gk_warning_text",
     "gk_xt_per_distribution",
     "gk_xt_total_val",
 ]
+
+
+_ALL_LABEL = "All"
 
 
 def _get_gk_player_id(state: Any) -> int | None:
@@ -141,8 +155,27 @@ def _get_gk_player_id(state: Any) -> int | None:
     return _gk_player_map.get(label) if label else None
 
 
+def _get_gk_team_id(state: Any) -> int | None:
+    """Resolve GK-specific team selection to team_id. ``All``/empty → None."""
+    label = state.gk_selected_team
+    if not label or label == _ALL_LABEL:
+        return None
+    return _gk_team_map.get(label)
+
+
 def gk_on_gk_player_change(state: Any, var_name: str, var_value: Any) -> None:
     """GK player selector changed — refresh current sub-view."""
+    _dispatch_refresh(state)
+
+
+def gk_on_gk_team_change(state: Any, var_name: str, var_value: Any) -> None:
+    """GK team selector changed — repopulate GK player LOV, refresh sub-view."""
+    comp_id = get_comp_id(state.selected_competition)
+    if comp_id is None:
+        return
+    # Reset player selection — the current player may not be on the new team.
+    state.gk_selected_player = None
+    _populate_gk_player_lov(state, comp_id, _get_gk_team_id(state))
     _dispatch_refresh(state)
 
 
@@ -160,6 +193,32 @@ def _populate_gk_player_lov(state: Any, comp_id: int, team_id: int | None = None
         logger.exception("Failed to fetch GK player LOV")
         _gk_player_map = {}
         state.gk_player_lov = []
+
+
+def _populate_gk_team_lov(state: Any, comp_id: int) -> None:
+    """Populate GK-only team dropdown (coverage-aware).
+
+    Only teams that actually have rows in ``fct_goalkeeper_stats`` for this
+    competition appear. Prevents dead-end dropdowns where the user picks a
+    team with zero GK data (common with StatsBomb open-data coverage gaps —
+    e.g., most Premier League teams other than Leicester 2015/16).
+    """
+    global _gk_team_map
+    try:
+        teams = fetch_gk_teams_lov(comp_id)
+        _gk_team_map = {label: tid for label, tid in teams}
+        state.gk_team_lov = [_ALL_LABEL] + [label for label, _ in teams]
+        # Clear selection if no longer in LOV (or on first population)
+        if (
+            state.gk_selected_team
+            and state.gk_selected_team not in _gk_team_map
+            and state.gk_selected_team != _ALL_LABEL
+        ):
+            state.gk_selected_team = _ALL_LABEL
+    except Exception:
+        logger.exception("Failed to fetch GK team LOV")
+        _gk_team_map = {}
+        state.gk_team_lov = [_ALL_LABEL]
 
 
 # ---------------------------------------------------------------------------
@@ -448,7 +507,7 @@ def _refresh_rankings(state: Any) -> None:
         _cached_rankings = pd.DataFrame()
         return
 
-    team_id = get_team_id(state.selected_team)
+    team_id = _get_gk_team_id(state)
     state.gk_scope_label = fetch_scope_label(comp_id, team_id)
 
     min_min = int(state.min_minutes) if hasattr(state, "min_minutes") else 90
@@ -490,7 +549,7 @@ def _refresh_shot_stopping(state: Any) -> None:
         state.gk_warning_text = ""
         return
 
-    team_id = get_team_id(state.selected_team)
+    team_id = _get_gk_team_id(state)
     state.gk_scope_label = fetch_scope_label(comp_id, team_id)
 
     # Fetch shots faced (per-match team exclusion via GK stats join)
@@ -562,7 +621,7 @@ def _refresh_distribution(state: Any) -> None:
         state.gk_warning_text = ""
         return
 
-    team_id = get_team_id(state.selected_team)
+    team_id = _get_gk_team_id(state)
     state.gk_scope_label = fetch_scope_label(comp_id, team_id)
 
     try:
@@ -671,11 +730,14 @@ def gk_refresh(state: Any) -> None:
     if not state.selected_sub_view or state.selected_sub_view not in GK_SUB_VIEW_LOV:
         state.selected_sub_view = GK_SUB_VIEW_LOV[0]
 
-    # Populate GK-only player dropdown (filtered by team if selected)
+    # Populate GK-only team dropdown (coverage-aware), then GK player dropdown
+    # (filtered by GK team if selected). Team LOV must be populated before
+    # player LOV so the team_id used for player filtering reflects the
+    # refreshed team map.
     comp_id = get_comp_id(state.selected_competition)
-    team_id = get_team_id(state.selected_team)
     if comp_id is not None:
-        _populate_gk_player_lov(state, comp_id, team_id)
+        _populate_gk_team_lov(state, comp_id)
+        _populate_gk_player_lov(state, comp_id, _get_gk_team_id(state))
 
     _dispatch_refresh(state)
 
