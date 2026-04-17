@@ -102,7 +102,7 @@ gevent==24.11.1
     #   taipy-gui
 gevent-websocket==0.10.1
     # via taipy-gui
-gitignore-parser==0.1.11
+gitignore-parser==0.1.13
     # via taipy-gui
 google-auth==2.49.2
     # via databricks-sdk
