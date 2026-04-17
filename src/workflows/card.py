@@ -115,7 +115,14 @@ class Outputs(BaseModel):
 
 
 class TrainingExecution(BaseModel):
-    """Training phase execution configuration."""
+    """Training phase execution configuration.
+
+    Used for any phase that declares a `script:` (HF Jobs or similar) rather
+    than a wheel `entry_point:`. `orchestrated_by` mirrors the equivalent
+    field on `InferenceExecution` so that either shape can be a valid
+    orchestrated sub-operation (and so static typing works uniformly when
+    a phase is typed as the union `InferenceExecution | TrainingExecution`).
+    """
 
     trigger: TriggerLiteral
     runtime: RuntimeLiteral
@@ -123,6 +130,19 @@ class TrainingExecution(BaseModel):
     script: str
     timeout: str
     also_trainable_via: str | None = None
+    # Mirror of InferenceExecution.orchestrated_by — see the bidirectional
+    # validator below and the identical one on InferenceExecution.
+    orchestrated_by: str | None = None
+
+    @model_validator(mode="after")
+    def _orchestrated_bidirectional(self) -> TrainingExecution:
+        if self.trigger == "orchestrated" and not self.orchestrated_by:
+            msg = "trigger='orchestrated' requires orchestrated_by to name the parent workflow"
+            raise ValueError(msg)
+        if self.trigger != "orchestrated" and self.orchestrated_by:
+            msg = "orchestrated_by is only valid when trigger='orchestrated'"
+            raise ValueError(msg)
+        return self
 
 
 class InferenceExecution(BaseModel):
