@@ -1,0 +1,80 @@
+---
+name: Publish xG Shot Data to HF Hub
+id: wf-publish-xg-shots
+version: "1.0"
+status: production
+type: data-movement
+domain: expected-goals
+owners:
+  - karsten
+tags:
+  - xg
+  - shot-data
+  - training-data
+  - huggingface
+
+references: []
+
+inputs:
+  tables:
+    - id: "{catalog}.{schema}.fct_shots"
+      source: delta-table
+      description: "Gold-layer shot facts across StatsBomb and Wyscout sources"
+
+outputs:
+  datasets:
+    - id: "luxury-lakehouse/xg-shot-data"
+      destination: huggingface
+      description: "Parquet dataset partitioned by data_source — primary training input for xG v1 (XGBoost) and xG v2 (Deep Sets)"
+
+execution:
+  export:
+    trigger: manual
+    runtime: hf-jobs
+    script: "scripts/publish_xg_shots_hf.py"
+    flavor: cpu-basic
+    timeout: "1800s"
+
+depends_on:
+  - wf-statsbomb
+  - wf-wyscout
+
+idempotency:
+  strategy: full-overwrite
+  key: shot_id
+  description: "Re-publishes the full shot dataset each run; HF Hub dataset is replaced."
+
+cost:
+  export:
+    runtime: hf-jobs
+    flavor: cpu-basic
+    rate_usd_per_hour: 0.03
+    typical_duration_minutes: 10
+    typical_cost_usd: 0.01
+
+monitoring:
+  freshness_sla_hours: 720
+
+links:
+  source_code:
+    - "scripts/publish_xg_shots_hf.py"
+  hf_dataset: "https://huggingface.co/datasets/luxury-lakehouse/xg-shot-data"
+---
+
+## Overview
+
+Queries the Databricks SQL Statement Execution API to extract every shot record
+from the gold-layer `fct_shots` table, normalises dtypes, and publishes the
+resulting Parquet dataset (partitioned by `data_source`) to HF Hub as
+`luxury-lakehouse/xg-shot-data`.
+
+This dataset is the primary training input for two downstream workflow cards:
+
+- `wf-xg-v1` — XGBoost shot model (`scripts/train_xg_model_hf.py`)
+- `wf-xg-v2` — Deep Sets shot model (`scripts/train_xg_v2_hf.py`)
+
+## Trigger Policy
+
+Manual HF Jobs invocation — `hf jobs uv run scripts/publish_xg_shots_hf.py`.
+The daily `data_ingestion` job does not publish the dataset; republish on demand
+when upstream shot fact data has changed materially enough to retrain a model.

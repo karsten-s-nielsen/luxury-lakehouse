@@ -55,7 +55,7 @@ performance:
   memory_ceiling: "16 GB driver"
 
 cost:
-  inference:
+  export:
     runtime: databricks
     sku: "jobs_serverless_compute_run_dbus"
     typical_dbu: 10

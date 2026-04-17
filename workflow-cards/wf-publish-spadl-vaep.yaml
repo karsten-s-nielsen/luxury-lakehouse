@@ -1,0 +1,81 @@
+---
+name: Publish SPADL/VAEP Action Values to HF Hub
+id: wf-publish-spadl-vaep
+version: "1.0"
+status: production
+type: data-movement
+domain: action-value
+owners:
+  - karsten
+tags:
+  - spadl
+  - vaep
+  - training-data
+  - huggingface
+
+references:
+  - citation: "Decroos et al. (2019). Actions Speak Louder than Goals. KDD."
+    role: methodology
+
+inputs:
+  tables:
+    - id: "{catalog}.{schema}.fct_action_values"
+      source: delta-table
+      description: "Gold-layer per-action SPADL records with VAEP offensive/defensive value labels"
+
+outputs:
+  datasets:
+    - id: "luxury-lakehouse/spadl-vaep-action-values"
+      destination: huggingface
+      description: "Parquet dataset partitioned by data_source — primary training input for VAEP model retraining and downstream xT/EPV/OBSO analytics"
+
+execution:
+  export:
+    trigger: manual
+    runtime: hf-jobs
+    script: "scripts/publish_spadl_vaep_hf.py"
+    flavor: cpu-basic
+    timeout: "1800s"
+
+depends_on:
+  - wf-vaep
+
+idempotency:
+  strategy: full-overwrite
+  key: action_id
+  description: "Re-publishes the full action-value dataset each run; HF Hub dataset is replaced."
+
+cost:
+  export:
+    runtime: hf-jobs
+    flavor: cpu-basic
+    rate_usd_per_hour: 0.03
+    typical_duration_minutes: 15
+    typical_cost_usd: 0.01
+
+monitoring:
+  freshness_sla_hours: 720
+
+links:
+  source_code:
+    - "scripts/publish_spadl_vaep_hf.py"
+  hf_dataset: "https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values"
+---
+
+## Overview
+
+Queries the Databricks SQL Statement Execution API to extract every action-value
+record from the gold-layer `fct_action_values` table and publishes the Parquet
+dataset (partitioned by `data_source`) to HF Hub as
+`luxury-lakehouse/spadl-vaep-action-values`.
+
+This dataset is the primary input for VAEP model retraining (`train_vaep_model_hf.py`)
+and for downstream analytics scripts that need pre-computed action values
+(xT grid, EPV transition, OBSO).
+
+## Trigger Policy
+
+Manual HF Jobs invocation — `hf jobs uv run scripts/publish_spadl_vaep_hf.py`.
+The daily `data_ingestion` job does not publish the dataset; republish on demand
+when the action-value pipeline has been retrained or when a new data source has
+been added upstream.

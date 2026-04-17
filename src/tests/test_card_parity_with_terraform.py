@@ -117,16 +117,28 @@ def _parse_pyproject_entry_points() -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 # TF task_key -> expected card id. `None` = intentionally no owning card
-# (documented governance gap). Keep the right-hand side stable; update
-# when TF tasks are renamed.
+# (documented governance gap). Every `None` must carry a justification
+# comment explaining why CLAUDE.md:253 ("AI/ML workflows ... academic
+# provenance, cost estimates, monitoring thresholds") does not apply to
+# this entry point. Keep the right-hand side stable; update when TF
+# tasks are renamed.
 _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     "ingest_statsbomb": "wf-statsbomb",
     "ingest_metrica": "wf-metrica",
     "ingest_wyscout": "wf-wyscout",
     "ingest_idsse": "wf-idsse",
     "ingest_skillcorner": "wf-skillcorner",
+    # Separate XML schema (DFL_03_02 events) subordinate to the IDSSE source
+    # bundle already governed by wf-idsse. Pure data-relay helper with no
+    # ML methodology and no per-player evaluation — falls outside CLAUDE.md:253.
     "ingest_idsse_events": None,
+    # Idempotent repair helper that refills _raw_extra_json where upstream
+    # ingest left it NULL. Subordinate to wf-statsbomb; no independent
+    # methodology or output.
     "backfill_statsbomb_extra": None,
+    # Idempotent repair helper for StatsBomb 360 freeze-frame catchup after
+    # the 360 code path was added. Subordinate to wf-statsbomb; no
+    # independent methodology.
     "backfill_statsbomb_360": None,
     "compute_spadl_vaep": "wf-vaep",
     "compute_expected_threat": "wf-xt-grids",
@@ -145,11 +157,83 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     "compute_elastic_sync": "wf-elastic-sync",
     "compute_pausa": "wf-obso-pausa",
     "run_model_validation": "wf-model-validation",
+    # Metadata extraction plumbing — reads tracking player/team names from
+    # IDSSE DFL match info XMLs and SkillCorner kloppy metadata into a
+    # bronze Delta table for dbt resolution. No ML, no methodology.
     "extract_tracking_metadata": None,
     "hf_sync": "wf-hf-sync",
     "dbt_build": "wf-dbt-build",
+    # Infrastructure plumbing — triggers Lakebase SNAPSHOT refresh via the
+    # Databricks REST API. Not an AI/ML workflow under CLAUDE.md:253.
     "refresh_synced_tables": None,
 }
+
+
+# ---------------------------------------------------------------------------
+# HF Jobs publish scripts (not TF wheel tasks, not tracked by rules 1/3)
+# ---------------------------------------------------------------------------
+
+# Relative path under scripts/ -> expected card id. `None` = intentionally
+# no owning card. Justification required. HF Jobs scripts are invoked on
+# demand via `hf jobs uv run scripts/<name>` — they are not part of the
+# daily Databricks job, so they do not appear in TF task mappings.
+_HF_JOBS_SCRIPT_TO_CARD: dict[str, str | None] = {
+    "publish_xg_shots_hf.py": "wf-publish-xg-shots",
+    "publish_spadl_vaep_hf.py": "wf-publish-spadl-vaep",
+    # Freeze-frame positions are supporting context for the xG v2 Deep Sets
+    # encoder but do not themselves constitute a published methodology or a
+    # per-player evaluative output. The upstream source (StatsBomb freeze
+    # frames) is governed by wf-statsbomb; the downstream consumer model
+    # (xG v2) is governed by wf-xg-v2. No independent governance needed.
+    "publish_freeze_frame_hf.py": None,
+}
+
+
+def _known_hf_jobs_publish_scripts() -> set[str]:
+    """Return the set of `publish_*_hf.py` scripts present on disk."""
+    return {p.name for p in (_REPO / "scripts").glob("publish_*_hf.py")}
+
+
+def test_hf_jobs_script_mapping_matches_disk() -> None:
+    """The _HF_JOBS_SCRIPT_TO_CARD mapping must stay in sync with the
+    publish_*_hf.py scripts on disk. A new publish script must be either
+    added with its owning card id, or added with None plus a justification
+    comment — silent omission is not allowed."""
+    on_disk = _known_hf_jobs_publish_scripts()
+    mapped = set(_HF_JOBS_SCRIPT_TO_CARD)
+    unexpected = on_disk - mapped
+    missing = mapped - on_disk
+    assert not unexpected, (
+        f"HF Jobs publish script(s) present on disk but not in "
+        f"_HF_JOBS_SCRIPT_TO_CARD: {sorted(unexpected)}. Add them with a "
+        f"card id, or None + justification comment."
+    )
+    assert not missing, (
+        f"_HF_JOBS_SCRIPT_TO_CARD references scripts that no longer exist: "
+        f"{sorted(missing)}. Remove the entry or restore the script."
+    )
+
+
+def test_every_mapped_hf_jobs_script_has_card() -> None:
+    """Scripts mapped to a card id must have the card file on disk and
+    the card must declare the script in an execution phase."""
+    cards = {p.stem: _load_card(p) for p in _CARDS_DIR.glob("wf-*.yaml")}
+    errors: list[str] = []
+    for script_name, card_id in _HF_JOBS_SCRIPT_TO_CARD.items():
+        if card_id is None:
+            continue
+        if card_id not in cards:
+            errors.append(f"Mapping {script_name!r} -> {card_id!r} but card file is missing")
+            continue
+        phases = _card_phases(cards[card_id])
+        script_rel = f"scripts/{script_name}"
+        found = any(phase.get("script") == script_rel for phase in phases.values())
+        if not found:
+            errors.append(
+                f"{card_id}: no execution phase declares script={script_rel!r}; "
+                f"mapping expects the card to own this script"
+            )
+    assert not errors, "\n".join(errors)
 
 
 def test_mapping_matches_tf_task_list() -> None:

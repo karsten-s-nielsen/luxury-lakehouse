@@ -42,6 +42,7 @@ outputs:
   tables:
     - id: "{catalog}.{schema}.fct_goalkeeper_stats"
       destination: delta-table
+      dbt_model: fct_goalkeeper_stats
   models:
     - id: "luxury-lakehouse/psxg-model"
       destination: huggingface
@@ -80,11 +81,9 @@ cost:
     rate_usd_per_hour: 1.00
     typical_duration_minutes: 5
     typical_cost_usd: 0.08
-  inference:
-    runtime: databricks
-    sku: "jobs_serverless_compute_run_dbus"
-    typical_dbu: 50
-    typical_cost_usd: 3.50
+  # No inference-phase cost: the fct_goalkeeper_stats mart is built by
+  # wf-dbt-build's ingestion task, and wf-dbt-build owns the cost entry for
+  # that daily task. Adding a synthetic cost here would double-count.
 
 monitoring:
   metrics:

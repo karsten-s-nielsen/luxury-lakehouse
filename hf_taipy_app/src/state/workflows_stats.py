@@ -18,6 +18,7 @@ from typing import Any
 import pandas as pd
 
 from state.workflows_dag import (
+    _EXECUTION_PHASE_KEYS,
     COLOR_HEX,
     FRESHNESS_HEX,
     RUNTIME_HEX,
@@ -28,19 +29,6 @@ from state.workflows_dag import (
 from workflows.card import WorkflowCard
 
 logger = logging.getLogger(__name__)
-
-# Every phase key a WorkflowCard.execution may carry. Kept here (not imported
-# from workflows.card) because the Taipy app reads cards as raw YAML dicts, so
-# the Pydantic field names and YAML keys must be listed in YAML form.
-_EXECUTION_PHASE_KEYS: tuple[str, ...] = (
-    "training",
-    "inference",
-    "export",
-    "import",
-    "ingestion",
-    "sync",
-    "orchestration",
-)
 
 
 # ---------------------------------------------------------------------------
@@ -645,7 +633,7 @@ def _compute_hf_cost(
     hf_entry_points: set[str] = set()
     for card in cards_subset.values():
         cost_cfg = card.get("cost") or {}
-        for phase in ("training", "inference"):
+        for phase in _EXECUTION_PHASE_KEYS:
             phase_cost = cost_cfg.get(phase)
             if phase_cost and phase_cost.get("runtime", "").lower() in ("hf-jobs", "hf_jobs", "hf jobs"):
                 ep = ((card.get("execution") or {}).get(phase) or {}).get("entry_point", "")
@@ -663,7 +651,7 @@ def _compute_hf_cost(
     hf_cost = 0.0
     for card in cards_subset.values():
         cost_cfg = card.get("cost") or {}
-        for phase in ("training", "inference"):
+        for phase in _EXECUTION_PHASE_KEYS:
             phase_cost = cost_cfg.get(phase)
             if phase_cost and phase_cost.get("runtime", "").lower() in ("hf-jobs", "hf_jobs", "hf jobs"):
                 hf_cost += float(phase_cost.get("typical_cost_usd") or 0)

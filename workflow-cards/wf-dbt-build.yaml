@@ -26,8 +26,107 @@ inputs:
 
 outputs:
   tables:
+    # Every row here maps 1:1 to a .sql file under dbt_project/models/marts/.
+    # test_card_dbt_model_field enforces full coverage in both directions.
+    - id: "{catalog}.dev_gold.dim_competitions"
+      destination: delta-table
+      dbt_model: dim_competitions
+    - id: "{catalog}.dev_gold.dim_players"
+      destination: delta-table
+      dbt_model: dim_players
+    - id: "{catalog}.dev_gold.dim_teams"
+      destination: delta-table
+      dbt_model: dim_teams
+    - id: "{catalog}.dev_gold.dim_tracking_matches"
+      destination: delta-table
+      dbt_model: dim_tracking_matches
+    - id: "{catalog}.dev_gold.fct_action_values"
+      destination: delta-table
+      dbt_model: fct_action_values
+    - id: "{catalog}.dev_gold.fct_defcon_actions"
+      destination: delta-table
+      dbt_model: fct_defcon_actions
+    - id: "{catalog}.dev_gold.fct_defcon_pressure"
+      destination: delta-table
+      dbt_model: fct_defcon_pressure
+    - id: "{catalog}.dev_gold.fct_defensive_values"
+      destination: delta-table
+      dbt_model: fct_defensive_values
+    - id: "{catalog}.dev_gold.fct_formation_labels"
+      destination: delta-table
+      dbt_model: fct_formation_labels
+    - id: "{catalog}.dev_gold.fct_goalkeeper_stats"
+      destination: delta-table
+      dbt_model: fct_goalkeeper_stats
+    - id: "{catalog}.dev_gold.fct_line_breaking_results"
+      destination: delta-table
+      dbt_model: fct_line_breaking_results
+    - id: "{catalog}.dev_gold.fct_match_summary"
+      destination: delta-table
+      dbt_model: fct_match_summary
+    - id: "{catalog}.dev_gold.fct_off_ball_xt"
+      destination: delta-table
+      dbt_model: fct_off_ball_xt
+    - id: "{catalog}.dev_gold.fct_pass_timing"
+      destination: delta-table
+      dbt_model: fct_pass_timing
+    - id: "{catalog}.dev_gold.fct_passes"
+      destination: delta-table
+      dbt_model: fct_passes
+    - id: "{catalog}.dev_gold.fct_pausa_rankings"
+      destination: delta-table
+      dbt_model: fct_pausa_rankings
+    - id: "{catalog}.dev_gold.fct_physical_stats"
+      destination: delta-table
+      dbt_model: fct_physical_stats
+    - id: "{catalog}.dev_gold.fct_player_embeddings"
+      destination: delta-table
+      dbt_model: fct_player_embeddings
+    - id: "{catalog}.dev_gold.fct_player_embeddings_career"
+      destination: delta-table
+      dbt_model: fct_player_embeddings_career
+    - id: "{catalog}.dev_gold.fct_player_embeddings_career_360"
+      destination: delta-table
+      dbt_model: fct_player_embeddings_career_360
+    - id: "{catalog}.dev_gold.fct_player_embeddings_season"
+      destination: delta-table
+      dbt_model: fct_player_embeddings_season
+    - id: "{catalog}.dev_gold.fct_player_embeddings_season_360"
+      destination: delta-table
+      dbt_model: fct_player_embeddings_season_360
+    - id: "{catalog}.dev_gold.fct_player_percentiles"
+      destination: delta-table
+      dbt_model: fct_player_percentiles
+    - id: "{catalog}.dev_gold.fct_player_positions"
+      destination: delta-table
+      dbt_model: fct_player_positions
+    - id: "{catalog}.dev_gold.fct_player_stats"
+      destination: delta-table
+      dbt_model: fct_player_stats
+    - id: "{catalog}.dev_gold.fct_position_maps"
+      destination: delta-table
+      dbt_model: fct_position_maps
     - id: "{catalog}.dev_gold.fct_shots"
       destination: delta-table
+      dbt_model: fct_shots
+    - id: "{catalog}.dev_gold.fct_space_creation"
+      destination: delta-table
+      dbt_model: fct_space_creation
+    - id: "{catalog}.dev_gold.fct_tracking_avg_positions"
+      destination: delta-table
+      dbt_model: fct_tracking_avg_positions
+    - id: "{catalog}.dev_gold.fct_tracking_frames"
+      destination: delta-table
+      dbt_model: fct_tracking_frames
+    - id: "{catalog}.dev_gold.fct_tracking_shape_timeline"
+      destination: delta-table
+      dbt_model: fct_tracking_shape_timeline
+    - id: "{catalog}.dev_gold.fct_workflow_costs"
+      destination: delta-table
+      dbt_model: fct_workflow_costs
+    - id: "{catalog}.dev_gold.fct_xg_predictions"
+      destination: delta-table
+      dbt_model: fct_xg_predictions
 
 execution:
   ingestion:
@@ -61,7 +160,7 @@ performance:
   memory_ceiling: "16 GB driver"
 
 cost:
-  inference:
+  ingestion:
     runtime: databricks
     sku: "jobs_serverless_compute_run_dbus"
     typical_dbu: 5
