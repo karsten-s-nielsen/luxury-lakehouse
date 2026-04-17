@@ -1,11 +1,11 @@
 name: Terraform Plan
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "terraform/**"
-      - ".github/workflows/terraform-plan.yml"
+  # Plan is a PR-review tool only. On push-to-main, terraform-apply.yml runs
+  # and publishes its own plan inline, so a parallel Plan job adds no new
+  # signal AND races Apply for the S3 state lock (412 PreconditionFailed).
+  # See the merge of PR #131 where the post-merge Plan job failed with a
+  # state-lock error while Apply succeeded.
   pull_request:
     paths:
       - "terraform/**"
