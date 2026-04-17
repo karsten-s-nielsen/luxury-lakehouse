@@ -128,6 +128,10 @@ SYNCED_TABLES: list[tuple[str, str | None]] = [
     ("fct_pass_timing_synced", None),
     ("fct_tracking_avg_positions_synced", None),
     ("fct_tracking_shape_timeline_synced", None),
+    # Pre-aggregated marts added 2026-04-17 (perf/base-case-query-bottlenecks)
+    ("fct_heatmap_agg_synced", None),
+    ("fct_vaep_breakdown_agg_synced", None),
+    ("fct_gk_actions_detail_synced", None),
     ("workflow_cost_live_synced", "observability"),
     ("dim_players_synced", None),
     ("dim_teams_synced", None),

@@ -160,6 +160,22 @@ INDEXES: list[tuple[str, str, str]] = [
     ("idx_fct_space_creation_match", "fct_space_creation_synced", "match_id"),
     ("idx_fct_space_creation_player", "fct_space_creation_synced", "player_id"),
     ("idx_fct_space_creation_match_frame", "fct_space_creation_synced", "match_id, frame_id"),
+    # ── Pre-aggregated marts (2026-04-16 optimization audit) ─────────────
+    # fct_heatmap_agg: ~60-100K rows, served by comp-only or comp+team filter.
+    # comp-only rollup uses the (competition_id) leading-column index;
+    # comp+team lookup uses the composite.
+    ("idx_heatmap_agg_comp", "fct_heatmap_agg_synced", "competition_id"),
+    ("idx_heatmap_agg_comp_team", "fct_heatmap_agg_synced", "competition_id, team_id"),
+    # fct_vaep_breakdown_agg: ~65K rows. Filter combos: comp / comp+team /
+    # comp+team+player.  Composite (comp, team, player) leading-column
+    # index serves all three access paths.
+    ("idx_vaep_breakdown_agg_comp_team_player", "fct_vaep_breakdown_agg_synced", "competition_id, team_id, player_id"),
+    # fct_gk_actions_detail: ~320K rows. Filter combos: comp / comp+player /
+    # comp+team / match / match+player.
+    ("idx_gk_actions_detail_comp_team_player", "fct_gk_actions_detail_synced", "competition_id, team_id, player_id"),
+    ("idx_gk_actions_detail_comp_player", "fct_gk_actions_detail_synced", "competition_id, player_id"),
+    ("idx_gk_actions_detail_match", "fct_gk_actions_detail_synced", "match_id"),
+    ("idx_gk_actions_detail_match_player", "fct_gk_actions_detail_synced", "match_id, player_id"),
 ]
 
 # pgvector HNSW index definitions: (index_name, table, using_clause)

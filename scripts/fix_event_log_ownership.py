@@ -42,7 +42,7 @@ Usage:
     # Dry run — discover state, report, do nothing
     uv run python scripts/fix_event_log_ownership.py --dry-run
 
-    # Fix all 34 synced tables (default)
+    # Fix all 37 synced tables (default)
     uv run python scripts/fix_event_log_ownership.py
 
     # Subset

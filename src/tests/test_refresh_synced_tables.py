@@ -79,11 +79,16 @@ def test_get_auth_headers_does_not_call_subprocess(monkeypatch: pytest.MonkeyPat
     _get_auth_headers()  # must not raise
 
 
-def test_synced_tables_list_has_34_entries() -> None:
-    """SYNCED_TABLES drift guard — should match the 34 tables in Terraform."""
+def test_synced_tables_list_has_37_entries() -> None:
+    """SYNCED_TABLES drift guard — should match the 37 tables in Terraform.
+
+    34 baseline + 3 pre-aggregated marts added 2026-04-17
+    (fct_heatmap_agg, fct_vaep_breakdown_agg, fct_gk_actions_detail) to
+    eliminate comp-only Parallel Seq Scan bottlenecks on the Taipy app.
+    """
     from ingestion.refresh_synced_tables import SYNCED_TABLES
 
-    assert len(SYNCED_TABLES) == 34
+    assert len(SYNCED_TABLES) == 37
 
 
 def test_get_host_uses_workspace_client_not_env(monkeypatch: pytest.MonkeyPatch) -> None:

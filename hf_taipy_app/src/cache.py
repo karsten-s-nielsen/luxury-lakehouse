@@ -1,6 +1,6 @@
 """Bounded, thread-safe, stampede-protected TTL cache for database queries.
 
-Replaces the earlier hand-rolled dict cache that had three structural flaws
+Replaces the earlier hand-rolled dict cache that had two structural flaws
 caught by the 2026-04-16 post-VAEP-backfill optimization audit:
 
 1. Unbounded growth — per-frame queries on Pitch-Control / Team-Shape pages
@@ -8,8 +8,13 @@ caught by the 2026-04-16 post-VAEP-backfill optimization audit:
 2. No thread lock — check-then-write is two unsynchronized operations, which
    causes a thundering herd at TTL expiry under Taipy's threaded callback
    model (every concurrent request fires the same DB query).
-3. Key-space leak across competitions — clear_cache() was never called from
-   any user callback, so stale entries accumulated indefinitely.
+
+(The original docstring listed a third flaw — "stale entries accumulate
+because clear_cache() is never called." The 2026-04-16 second-pass audit
+showed that was a phantom problem: LRU eviction on a bounded cache handles
+it, and the earlier "call clear_cache on competition change" remediation
+was itself a regression that wiped 13 zero-arg comp-independent functions
+on every comp switch. clear_cache() is kept solely for the admin endpoint.)
 
 Implementation:
 
@@ -18,9 +23,10 @@ Implementation:
 - `threading.Lock` per entry (singleflight) so concurrent requests for the
    same expired key result in a single DB call; the rest wait and read the
    computed value.
-- `clear_cache()` kept as a public entry point for on_competition_change
-   and the /admin/cache/clear HTTP endpoint in admin_api.py.
-- `cache_size()` kept as a public entry point for /admin/cache/size.
+- `clear_cache()` kept as a public entry point for the /api/cache/clear
+   HTTP admin endpoint in admin_api.py. It is NOT used on competition
+   change — do not add that back; see audit note above.
+- `cache_size()` kept as a public entry point for /api/cache/size.
 
 Usage (unchanged from the old API):
     @ttl_cache()                # default 600s, 2000 max entries
@@ -129,7 +135,13 @@ def ttl_cache(ttl: int = _DEFAULT_TTL, maxsize: int = _DEFAULT_MAXSIZE) -> Calla
 
 
 def clear_cache() -> None:
-    """Clear every per-function cache (invoked on competition change and via /admin)."""
+    """Clear every per-function cache (admin endpoint /api/cache/clear only).
+
+    Do NOT invoke on competition change or any other user event — the
+    2026-04-16 audit showed this was a net regression that wiped 13
+    zero-arg comp-independent functions on every comp switch.  Bounded
+    maxsize + LRU eviction already handles the growth/staleness concerns.
+    """
     with _registry_lock:
         for c in _caches:
             c.clear()

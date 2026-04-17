@@ -2858,3 +2858,200 @@ models:
       - name: data_sources
         data_type: array<string>
         description: Array of distinct data providers contributing to this aggregation
+
+  # ── Pre-aggregated marts (2026-04-16 optimization audit) ────────────────
+  # Each mart below was added to solve a "comp-only query on multi-million-row
+  # fact table" bottleneck verified via EXPLAIN ANALYZE.  See the related
+  # .sql model for measurement details.
+
+  - name: fct_heatmap_agg
+    description: >
+      Pre-aggregated heatmap grid counts for Taipy Heat Map page.
+      Grain: (competition_id, team_id, action_type, x_bin, y_bin).
+      Source: fct_passes + fct_shots, binned to 12x8 grid via
+      round(x/10)*10+5. Replaces a 6,864 ms comp-only Parallel Seq Scan.
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    columns:
+      - name: competition_id
+        data_type: int
+        description: Foreign key to dim_competitions.
+        data_tests:
+          - not_null
+      - name: team_id
+        data_type: int
+        description: Foreign key to dim_teams.
+        data_tests:
+          - not_null
+      - name: action_type
+        data_type: string
+        description: "Either 'pass' or 'shot'."
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['pass', 'shot']
+      - name: x_bin
+        data_type: int
+        description: Grid bin centre X coordinate (5, 15, 25, ... 115).
+        data_tests:
+          - not_null
+      - name: y_bin
+        data_type: int
+        description: Grid bin centre Y coordinate (5, 15, 25, ... 75).
+        data_tests:
+          - not_null
+      - name: event_count
+        data_type: bigint
+        description: Number of events (passes or shots) in this bin.
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 1
+      - name: _loaded_at
+        data_type: timestamp
+        description: Audit timestamp.
+
+  - name: fct_vaep_breakdown_agg
+    description: >
+      Pre-aggregated VAEP breakdown by action_type for Taipy Action Values
+      and Defensive Impact pages.
+      Grain: (competition_id, team_id, player_id, action_type).
+      Source: fct_action_values summed. Replaces a 2,800 ms comp-only
+      Parallel Seq Scan on the 9.53M row fct_action_values table.
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    columns:
+      - name: competition_id
+        data_type: int
+        description: Foreign key to dim_competitions.
+        data_tests:
+          - not_null
+      - name: team_id
+        data_type: int
+        description: Foreign key to dim_teams.
+        data_tests:
+          - not_null
+      - name: player_id
+        data_type: int
+        description: Foreign key to dim_players.
+        data_tests:
+          - not_null
+      - name: action_type
+        data_type: string
+        description: SPADL action type (pass, dribble, shot, tackle, ...).
+        data_tests:
+          - not_null
+      - name: total_vaep
+        data_type: double
+        description: Sum of vaep_value across all actions of this (comp, team, player, type).
+      - name: total_offensive
+        data_type: double
+        description: Sum of offensive_value.
+      - name: total_defensive
+        data_type: double
+        description: Sum of defensive_value.
+      - name: action_count
+        data_type: bigint
+        description: Count of actions in this group.
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 1
+      - name: _loaded_at
+        data_type: timestamp
+        description: Audit timestamp.
+
+  - name: fct_gk_actions_detail
+    description: >
+      Pre-filtered goalkeeper pass and goalkick actions for Taipy Goalkeeper
+      Analytics "Distribution" sub-view.
+      Grain: one row per (match, GK, action) where action_type IN
+      ('goalkick', 'pass'). Pre-joined to dim_players on position_group =
+      'Goalkeeper'. Replaces a 13,247 ms comp-only Parallel Seq Scan on the
+      9.53M row fct_action_values table + dim_players join.
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    columns:
+      - name: gk_action_id
+        data_type: string
+        description: Unique action identifier (inherits fct_action_values.action_value_id).
+        data_tests:
+          - unique
+          - not_null
+      - name: match_id
+        data_type: bigint
+        description: Foreign key to fct_match_summary.
+        data_tests:
+          - not_null
+      - name: competition_id
+        data_type: int
+        description: Foreign key to dim_competitions.
+        data_tests:
+          - not_null
+      - name: season_id
+        data_type: int
+        description: Season identifier.
+      - name: team_id
+        data_type: int
+        description: Team the goalkeeper played for in this match.
+        data_tests:
+          - not_null
+      - name: player_id
+        data_type: int
+        description: Foreign key to dim_players (goalkeeper).
+        data_tests:
+          - not_null
+      - name: period
+        data_type: int
+        description: Half of the match (1 or 2).
+      - name: time_seconds
+        data_type: double
+        description: Seconds from kickoff.
+      - name: minute
+        data_type: int
+        description: Minute of the match.
+      - name: second
+        data_type: int
+        description: Seconds within minute.
+      - name: start_x
+        data_type: double
+        description: Origin X coordinate (SPADL 105m pitch).
+      - name: start_y
+        data_type: double
+        description: Origin Y coordinate (SPADL 68m pitch).
+      - name: end_x
+        data_type: double
+        description: Destination X coordinate.
+      - name: end_y
+        data_type: double
+        description: Destination Y coordinate.
+      - name: action_type
+        data_type: string
+        description: "Either 'goalkick' or 'pass'."
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['goalkick', 'pass']
+      - name: action_result
+        data_type: string
+        description: "SPADL action result: 'success' or 'fail'."
+      - name: data_source
+        data_type: string
+        description: Data provider (statsbomb, wyscout, etc.).
+      - name: _loaded_at
+        data_type: timestamp
+        description: Audit timestamp.
