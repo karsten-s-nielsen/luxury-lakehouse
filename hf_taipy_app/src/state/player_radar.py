@@ -7,12 +7,14 @@ Registered as the Player-Radar page refresher via shared.register_page_refresher
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import pandas as pd
 from filters import fetch_data_freshness, fetch_scope_label
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 from mplsoccer import Radar
 from queries.players import fetch_player_percentiles_batch, fetch_player_radar_stats
 from render import PITCH_BG_COLOR, PITCH_LINE_COLOR, PLAYER_COLORS, chart_to_file
@@ -136,9 +138,9 @@ def _render_radar(
     high = [r[1] for r in ranges]
 
     radar = Radar(labels, low, high, round_int=[False] * len(labels), num_rings=4)
-    result = radar.setup_axis(figsize=(6, 6), facecolor=PITCH_BG_COLOR)
-    fig = result[0]
-    ax = result[1]
+    # mplsoccer's Radar.setup_axis is stubbed as Optional[tuple]; at runtime
+    # it always returns (Figure, Axes) when the mandatory figsize is given.
+    fig, ax = cast(tuple[Figure, Axes], radar.setup_axis(figsize=(6, 6), facecolor=PITCH_BG_COLOR))
     fig.set_facecolor(PITCH_BG_COLOR)
 
     radar.draw_circles(ax=ax, facecolor=PITCH_BG_COLOR, edgecolor="#333355")
@@ -305,9 +307,12 @@ def pr_refresh(state: Any) -> None:
     labels = [m[1] for m in filtered_metrics]
     default_ranges = [m[2] for m in filtered_metrics]
 
-    # Attempt to fetch percentile data for each player (graceful degradation)
-    pctile_data: dict[int, pd.DataFrame] = {}
-    pctile_data = fetch_player_percentiles_batch(tuple(player_ids), comp_id)
+    # Attempt to fetch percentile data for each player (graceful degradation).
+    # fetch_player_percentiles_batch returns None when the feature is
+    # unavailable (e.g., fct_player_percentiles_synced missing / inaccessible).
+    # Treat None the same as "no percentiles available" downstream — the
+    # use_percentiles guard below handles falsy values correctly.
+    pctile_data: dict[int, pd.DataFrame] = fetch_player_percentiles_batch(tuple(player_ids), comp_id) or {}
 
     # Use percentile-based scaling when ALL players have percentile data
     # and ALL selected metrics have a percentile column mapping.

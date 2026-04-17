@@ -10,13 +10,15 @@ Three sub-views controlled by shared.selected_sub_view:
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 import matplotlib
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from filters import fetch_data_freshness, fetch_scope_label
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 from mplsoccer import VerticalPitch
 from queries.goalkeepers import (
     fetch_gk_passes,
@@ -357,7 +359,10 @@ def _compute_pass_distance(df: pd.DataFrame) -> pd.Series:  # type: ignore[type-
     """Compute Euclidean pass distance from start to end coordinates."""
     dx = df["end_x"] - df["start_x"]
     dy = df["end_y"] - df["start_y"]
-    return np.sqrt(dx**2 + dy**2)
+    # np.sqrt preserves the input type at runtime: dx/dy are Series, so the
+    # result is Series. pandas-stubs types it as NDArray in this overload
+    # resolution — wrap to restore Series typing for the declared return.
+    return pd.Series(np.sqrt(dx**2 + dy**2), index=df.index)
 
 
 def _categorise_distance(distance: pd.Series) -> pd.Series:  # type: ignore[type-arg]
@@ -378,7 +383,9 @@ def _render_distribution_pitch(passes: pd.DataFrame) -> str:
     Returns file path to the rendered PNG.
     """
     pitch = VerticalPitch(half=True, pitch_color=PITCH_BG_COLOR, line_color=PITCH_LINE_COLOR)
-    fig, ax = pitch.draw(figsize=(8, 10))
+    # mplsoccer widens draw() to Optional[tuple] + NDArray axes; at runtime a
+    # single non-subplot Axes is always returned.
+    fig, ax = cast(tuple[Figure, Axes], pitch.draw(figsize=(8, 10)))
     ax.set_title(
         "GK Distribution \u2014 Pass Origins and Destinations by Distance", color=PITCH_LINE_COLOR, fontsize=14, pad=10
     )
@@ -682,7 +689,7 @@ def gk_refresh(state: Any) -> None:
 
 def gk_on_rankings_action(state: Any, id: str, payload: dict[str, Any]) -> None:
     """Handle row click in GK rankings table — navigate to Player Similarity."""
-    from taipy.gui import navigate
+    from taipy.gui import navigate  # type: ignore[attr-defined]  # Taipy 4.1 stubs don't export `navigate`
 
     idx = payload.get("index")
     if idx is None:

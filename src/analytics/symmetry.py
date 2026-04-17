@@ -107,7 +107,11 @@ def swap_teams(df: pd.DataFrame, config: AugmentationConfig | None = None) -> pd
 
     if cfg.team_col in out.columns:
         mapping = {"home": "away", "away": "home"}
-        out[cfg.team_col] = out[cfg.team_col].map(lambda v: mapping.get(v, v))
+        # NA values pass through unchanged; mapping.get needs a str key so we
+        # check type before lookup (pandas-stubs types elements as Unknown | NAType).
+        out[cfg.team_col] = out[cfg.team_col].map(
+            lambda v: mapping.get(v, v) if isinstance(v, str) else v,
+        )
 
     return out
 

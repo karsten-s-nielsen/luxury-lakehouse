@@ -178,14 +178,15 @@ if __name__ == "__main__":
         return response
 
     gui = Gui(pages=pages, css_file="style_v2.css", flask=flask_app)
+    # Taipy 4.1 stubs miss on_init/on_navigate kwargs; both are valid at runtime.
     gui.run(
         host="0.0.0.0",
         port=7860,
         title="(Right! Luxury!) Lakehouse",
         dark_mode=True,
         use_reloader=False,
-        on_init=on_init,
-        on_navigate=on_navigate,
+        on_init=on_init,  # pyright: ignore[reportCallIssue]
+        on_navigate=on_navigate,  # pyright: ignore[reportCallIssue]
         stylekit={
             "color_primary": "#f59e0b",
             "color_secondary": "#d97706",

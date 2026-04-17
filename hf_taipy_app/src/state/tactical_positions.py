@@ -504,8 +504,9 @@ def _build_formation_comparison(df: pd.DataFrame) -> go.Figure | None:
     fig.update_yaxes(visible=False, row=1, col=1)
     fig.update_yaxes(visible=False, row=2, col=1)
 
-    # Style subplot titles
-    for annotation in fig.layout.annotations:
+    # Style subplot titles. plotly-stubs misses the `annotations` dynamic
+    # attribute on Figure.layout; it is populated at runtime by make_subplots.
+    for annotation in fig.layout.annotations:  # type: ignore[attr-defined]
         annotation.font = dict(color="white", size=12)
 
     return fig

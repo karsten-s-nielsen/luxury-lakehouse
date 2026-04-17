@@ -7,7 +7,7 @@ import os
 import tempfile
 import time
 
-import matplotlib
+import matplotlib.figure
 import matplotlib.pyplot as plt
 
 matplotlib.use("Agg")
