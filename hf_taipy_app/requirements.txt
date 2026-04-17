@@ -90,7 +90,7 @@ flask-cors==5.0.1
     # via taipy-gui
 flask-restful==0.3.10
     # via taipy-rest
-flask-socketio==5.4.1
+flask-socketio==5.6.1
     # via taipy-gui
 fonttools==4.62.1
     # via matplotlib
