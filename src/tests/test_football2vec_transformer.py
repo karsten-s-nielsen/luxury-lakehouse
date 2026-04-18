@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 pytest.importorskip("torch")
@@ -287,3 +289,142 @@ class TestTeamClassifierHead:
         """Custom lambda_val propagates to GRL."""
         head = TeamClassifierHead(hidden_dim=64, num_teams=20, lambda_val=0.7)
         assert head.grl.lambda_val == 0.7
+
+
+# ---------------------------------------------------------------------------
+# Architectural enum variants (EV1)
+# ---------------------------------------------------------------------------
+
+
+def _dummy_batch(batch_size: int = 2, seq_len: int = 16) -> dict[str, torch.Tensor]:
+    """Build a dummy batch for forward-pass testing."""
+    return {
+        "action_ids": torch.randint(0, 23, (batch_size, seq_len)),
+        "x_coords": torch.rand(batch_size, seq_len),
+        "y_coords": torch.rand(batch_size, seq_len),
+        "attention_mask": torch.ones(batch_size, seq_len, dtype=torch.bool),
+    }
+
+
+@pytest.mark.parametrize("pooling_type", ["mean", "attention", "cls"])
+def test_football2vec_encoder_pooling_variants(pooling_type: str) -> None:
+    """Encoder forward pass returns (batch, hidden_dim) for every pooling variant."""
+    cfg = Football2VecConfig(hidden_dim=32, num_layers=1, num_heads=4, max_seq_len=64, pooling_type=pooling_type)
+    model = Football2VecEncoder(cfg)
+    model.eval()
+    batch = _dummy_batch()
+    with torch.no_grad():
+        out = model(batch["action_ids"], batch["x_coords"], batch["y_coords"], batch["attention_mask"])
+    assert out.shape == (2, 32), f"pooling_type={pooling_type!r} produced shape {out.shape}"
+
+
+@pytest.mark.parametrize("spatial_injection", ["additive", "concat", "film"])
+def test_football2vec_encoder_spatial_variants(spatial_injection: str) -> None:
+    """Encoder forward pass works for every spatial_injection variant."""
+    cfg = Football2VecConfig(
+        hidden_dim=32,
+        num_layers=1,
+        num_heads=4,
+        max_seq_len=64,
+        spatial_mlp_dim=8,
+        spatial_injection=spatial_injection,
+    )
+    model = Football2VecEncoder(cfg)
+    model.eval()
+    batch = _dummy_batch()
+    with torch.no_grad():
+        out = model(batch["action_ids"], batch["x_coords"], batch["y_coords"], batch["attention_mask"])
+    assert out.shape == (2, 32), f"spatial_injection={spatial_injection!r} produced shape {out.shape}"
+
+
+def test_football2vec_encoder_concat_guard() -> None:
+    """concat injection rejects spatial_mlp_dim > hidden_dim/2 (memory guard)."""
+    cfg = Football2VecConfig(
+        hidden_dim=32,
+        num_layers=1,
+        num_heads=4,
+        max_seq_len=64,
+        spatial_mlp_dim=20,
+        spatial_injection="concat",
+    )
+    with pytest.raises(ValueError, match="spatial_mlp_dim"):
+        Football2VecEncoder(cfg)
+
+
+@pytest.mark.parametrize("position_embedding", ["learnable", "sinusoidal", "rope"])
+def test_football2vec_encoder_position_variants(position_embedding: str) -> None:
+    """Encoder forward pass works for every position_embedding variant."""
+    cfg = Football2VecConfig(
+        hidden_dim=32,
+        num_layers=1,
+        num_heads=4,
+        max_seq_len=64,
+        position_embedding=position_embedding,
+    )
+    model = Football2VecEncoder(cfg)
+    model.eval()
+    batch = _dummy_batch()
+    with torch.no_grad():
+        out = model(batch["action_ids"], batch["x_coords"], batch["y_coords"], batch["attention_mask"])
+    assert out.shape == (2, 32), f"position_embedding={position_embedding!r} produced shape {out.shape}"
+
+
+def test_football2vec_encoder_backward_compat() -> None:
+    """Default Football2VecConfig() produces the same module structure as before EV1."""
+    cfg = Football2VecConfig()
+    model = Football2VecEncoder(cfg)
+
+    assert cfg.pooling_type == "mean"
+    assert cfg.spatial_injection == "additive"
+    assert cfg.position_embedding == "learnable"
+
+    expected_modules = {
+        "token_embedding",
+        "spatial_x",
+        "spatial_y",
+        "position_embedding",
+        "embedding_dropout",
+        "encoder",
+        "mlm_head",
+    }
+    actual_modules = {name for name, _ in model.named_children()}
+    missing = expected_modules - actual_modules
+    assert not missing, f"backward-compat regression: missing modules {missing}"
+
+    forbidden_modules = {"pool_attn", "spatial_concat_proj", "film_scale", "film_shift", "cls_token"}
+    extra = forbidden_modules & actual_modules
+    assert not extra, f"backward-compat regression: unexpected modules {extra}"
+
+    # Also assert EV1-only buffers are absent (named_children excludes buffers).
+    buffer_names = {name for name, _ in model.named_buffers()}
+    forbidden_buffers = {"_sin_pos", "_rope_cos", "_rope_sin"}
+    extra_buffers = forbidden_buffers & buffer_names
+    assert not extra_buffers, f"backward-compat regression: unexpected buffers {extra_buffers}"
+
+    batch = _dummy_batch()
+    model.eval()
+    with torch.no_grad():
+        out = model(batch["action_ids"], batch["x_coords"], batch["y_coords"], batch["attention_mask"])
+    assert out.shape == (2, 128)
+
+
+@pytest.mark.parametrize(
+    ("field", "bad_value", "valid_values"),
+    [
+        ("pooling_type", "max", "mean|attention|cls"),
+        ("spatial_injection", "cross_attention", "additive|concat|film"),
+        ("position_embedding", "alibi", "learnable|sinusoidal|rope"),
+    ],
+)
+def test_football2vec_encoder_rejects_unknown_enum(field: str, bad_value: str, valid_values: str) -> None:
+    """Unknown enum values raise ValueError at construction with an actionable message."""
+    kwargs: dict[str, Any] = {
+        "hidden_dim": 32,
+        "num_layers": 1,
+        "num_heads": 4,
+        "max_seq_len": 64,
+        field: bad_value,
+    }
+    cfg = Football2VecConfig(**kwargs)
+    with pytest.raises(ValueError, match=valid_values):
+        Football2VecEncoder(cfg)

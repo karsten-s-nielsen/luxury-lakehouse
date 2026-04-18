@@ -1,0 +1,45 @@
+target: football2vec
+description: "Evolve Football2Vec v2 stage-1 hyperparameters + architectural enums to maximize MLM val_accuracy"
+
+fitness:
+  primary: val_accuracy
+  combined_weights:
+    val_accuracy: 1.0
+  minimize: false
+
+evaluation:
+  epochs: 5
+  dataset: "luxury-lakehouse/football2vec-training-data"
+  timeout_seconds: 1800
+  seed: 42
+
+backend:
+  type: "local_cuda,remote_ssh"
+  device: "cuda:0"
+  ssh_host: "192.168.68.73"
+  ssh_user: "karsten"
+  ssh_remote_dir: "/home/karsten/Development"
+  ssh_python_path: "/home/karsten/Development/evolve-env/bin/python"
+
+llm:
+  models:
+    - name: "anthropic/claude-sonnet-4"
+      weight: 0.8
+      api_base: "https://openrouter.ai/api/v1"
+      api_key_env: "OPENROUTER_API_KEY"
+    - name: "anthropic/claude-haiku-4.5"
+      weight: 0.2
+      api_base: "https://openrouter.ai/api/v1"
+      api_key_env: "OPENROUTER_API_KEY"
+  temperature: 0.7
+  max_tokens: 4096
+
+evolution:
+  iterations: 150
+  population_size: 200
+  num_islands: 3
+  migration_interval: 30
+  parallel_evaluations: 2
+  diff_based: true
+  early_stopping_patience: 40
+  checkpoint_interval: 5

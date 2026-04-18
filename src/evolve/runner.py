@@ -616,7 +616,8 @@ def main(argv: list[str] | None = None) -> None:
     best_code = best_result.best_code or ""
     if best_code:
         dest = results_dir / "best_program.py"
-        dest.write_text(best_code)
+        # Explicit utf-8 — LLM output may contain non-ASCII (em-dashes, curly quotes).
+        dest.write_text(best_code, encoding="utf-8")
         _log.info("Best program saved to %s", dest)
 
     best_metrics_out: dict[str, Any] = best_result.metrics or {}

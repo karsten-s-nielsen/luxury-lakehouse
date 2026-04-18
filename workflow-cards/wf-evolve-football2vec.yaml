@@ -1,0 +1,102 @@
+---
+name: "Evolve Football2Vec v2 Stage-1 Configuration"
+id: wf-evolve-football2vec
+version: "1.0.0"
+status: development
+type: training
+domain: player-embeddings
+owners:
+  - karsten
+tags:
+  - alphaevolve
+  - hyperparameter-search
+  - football2vec
+  - mlm
+
+references:
+  - citation: "Romera-Paredes et al. (2025). AlphaEvolve: A coding agent for scientific and algorithmic discovery. arXiv:2506.13131"
+    role: methodology
+  - citation: "Danesi, P. (2025). Football2Vec: Transformer-Based Player Embeddings."
+    role: inspiration
+  - citation: "Perez et al. (2018). FiLM: Visual Reasoning with a General Conditioning Layer. AAAI."
+    role: methodology
+
+inputs:
+  datasets:
+    - id: football2vec-training-data
+      source: huggingface
+      description: "114K player-match SPADL action sequences (StatsBomb + Wyscout)"
+
+outputs:
+  models:
+    - id: football2vec-evolved-config
+      destination: uc-volume
+      format: "python"
+      alias: "best_program"
+
+execution:
+  training:
+    trigger: manual
+    runtime: hf-jobs
+    flavor: "RTX 5070 Ti (16 GB) + DGX Spark GB10 (128 GB unified) — local pool"
+    script: "uv run evolve --target football2vec"
+    timeout: "24h"
+
+depends_on:
+  - wf-football2vec-v2
+
+idempotency:
+  strategy: full-overwrite
+  key: timestamp
+  description: "Each evolution run creates a new timestamped results directory under results/evolve/football2vec/"
+
+cost:
+  training:
+    runtime: hf-jobs
+    flavor: "local-gpu"
+    rate_usd_per_hour: 0.00
+    typical_duration_minutes: 300
+    typical_cost_usd: 0.00
+
+monitoring:
+  freshness_sla_hours: 168
+  metrics:
+    - name: "best_val_accuracy"
+      baseline: 0.569
+      warn_below: 0.50
+
+links:
+  source_code:
+    - "src/evolve/targets/football2vec/"
+    - "src/analytics/football2vec_transformer.py"
+    - "docs/superpowers/specs/2026-04-18-ev1-football2vec-l1-sweep-design.md"
+    - "docs/superpowers/specs/2026-04-04-evolve-engine-design.md"
+    - "docs/superpowers/specs/2026-04-05-multi-backend-dispatcher-design.md"
+---
+
+## Overview
+
+Evolve Football2Vec is an LLM-guided hyperparameter + architectural-enum search for the
+Football2Vec v2 stage-1 (MLM pre-training) model. It uses the same OpenEvolve loop as
+wf-evolve-scoutgpt but explores a different search space: 8 scalar hyperparameters
+(hidden_dim, num_layers, num_heads, dropout, mask_prob, spatial_mlp_dim, learning_rate,
+batch_size) plus 3 architectural enums (pooling_type, spatial_injection, position_embedding).
+Config-only — no code evolution (Level 1).
+
+## Architecture
+
+The engine consists of three layers: the search space (encoded as a Pydantic model in
+`src/evolve/targets/football2vec/search_space.py`), the evaluator bridge (which validates
+each candidate and delegates to the local backend pool), and the MAP-Elites population
+manager (which maintains a quality-diversity grid keyed on enum combinations and model size).
+LLM mutations are issued via OpenRouter against the seven seed programs, with each
+generation evaluated in parallel across the local pool (RTX 5070 Ti + DGX Spark GB10 over SSH).
+The best-performing program is written to `results/evolve/football2vec/{timestamp}/best_program.py`.
+
+## Evaluation
+
+Candidate fitness is the val_accuracy on the held-out validation split of the 114K-row
+Football2Vec training dataset (1-of-23 SPADL action prediction at masked positions, mask_prob
+per candidate). Training is 5 epochs with patience-3 early stopping (vs 15 epochs for the
+production retrain). A typical search run of 150 LLM iterations costs $0 in compute (all-local
+pool) and ~$2 in OpenRouter LLM API calls, completing in ~5 hours overnight.

@@ -10,14 +10,14 @@ combined fitness score from the weighted metrics.
 from __future__ import annotations
 
 import ast
+import importlib
 import logging
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from openevolve.evaluation_result import EvaluationResult
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, model_validator
 
 from evolve.backends.base import ComputeBackend, fail_metrics
 from evolve.code_validator import ValidationProfile, validate_program
@@ -26,92 +26,36 @@ from evolve.config import EvalConfig, FitnessConfig
 _log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Typed candidate config with search space validation
+# Per-target search-space dispatch
 # ---------------------------------------------------------------------------
 
-_BOUNDS: dict[str, tuple[float, float]] = {
-    "hidden_dim": (64, 512),
-    "num_layers": (2, 12),
-    "num_heads": (2, 16),
-    "dropout": (0.0, 0.5),
-    "learning_rate": (1e-5, 1e-2),
-    "vaep_loss_weight": (0.0, 1.0),
-    "player_prediction_weight": (0.0, 1.0),
-    "batch_size": (64, 512),
-}
 
+def validate_search_space(config: dict[str, Any], target: str = "scoutgpt") -> bool:
+    """Validate *config* against the per-target search-space schema.
 
-class CandidateConfig(BaseModel):
-    """Typed schema for candidate architecture configs.
+    Args:
+        config: Candidate config dict.
+        target: Target name; resolves to `evolve.targets.<target>.search_space:validate_candidate`.
 
-    Defines all known fields with defaults so that typos in key names
-    are surfaced: an unknown key like ``"hiddem_dim"`` goes into
-    ``__pydantic_extra__`` and triggers a logged warning, while
-    ``hidden_dim`` silently falls back to its default — the combination
-    makes typos visible.
-
-    Search space bounds and cross-field constraints (e.g. divisibility)
-    are validated in the model validator.
-    """
-
-    model_config = ConfigDict(extra="allow")
-
-    # Model architecture
-    conditioning_type: Literal["additive", "cross_attention", "film", "gated"] = "additive"
-    hidden_dim: int = 256
-    num_layers: int = 6
-    num_heads: int = 8
-    dropout: float = 0.1
-    max_seq_len: int = 128
-    num_players: int = 100
-    spatial_mlp_dim: int = 64
-    vaep_loss_weight: float = 0.1
-    player_prediction_weight: float = 0.0
-
-    # Training hyperparams
-    learning_rate: float = 1e-4
-    weight_decay: float = 0.01
-    batch_size: int = 256
-    dataset: str = "luxury-lakehouse/scoutgpt-training-data"
-
-    @field_validator("dataset")
-    @classmethod
-    def _validate_dataset_prefix(cls, v: str) -> str:
-        if not v.startswith("luxury-lakehouse/"):
-            msg = f"dataset must be a luxury-lakehouse/ HF repo, got '{v}'"
-            raise ValueError(msg)
-        return v
-
-    @model_validator(mode="after")
-    def _validate_search_space(self) -> CandidateConfig:
-        for key, (lo, hi) in _BOUNDS.items():
-            val = getattr(self, key, None)
-            if val is not None and not (lo <= val <= hi):
-                msg = f"{key}={val!r} not in [{lo}, {hi}]"
-                raise ValueError(msg)
-        if self.hidden_dim % self.num_heads != 0:
-            msg = f"hidden_dim={self.hidden_dim} not divisible by num_heads={self.num_heads}"
-            raise ValueError(msg)
-        if self.__pydantic_extra__:
-            _log.warning(
-                "Candidate config has unrecognised keys (possible typos?): %s",
-                sorted(self.__pydantic_extra__),
-            )
-        return self
-
-
-def validate_search_space(config: dict[str, Any]) -> bool:
-    """Validate *config* against the :class:`CandidateConfig` schema.
-
-    Returns ``True`` if the config is valid, ``False`` otherwise.
-    Invalid configs are logged at WARNING level with the rejection reason.
+    Returns:
+        ``True`` if the config is valid, ``False`` otherwise. Invalid configs are
+        logged at WARNING level by the per-target validator with the rejection reason.
+        A missing target module or missing ``validate_candidate`` symbol is logged at
+        ERROR and returns ``False`` (does not raise) so the evolve loop survives
+        target misconfiguration.
     """
     try:
-        CandidateConfig(**config)
-    except (ValidationError, ValueError) as exc:
-        _log.warning("Search space rejection: %s", exc)
+        target_module = importlib.import_module(f"evolve.targets.{target}.search_space")
+        return bool(target_module.validate_candidate(config))
+    except (ImportError, AttributeError):
+        # ImportError: `evolve.targets.<target>.search_space` module missing entirely.
+        # AttributeError: module exists but `validate_candidate` symbol is absent
+        # (e.g. a future target scaffolds search_space.py before implementing the
+        # validator). Both are target-misconfiguration bugs that must not crash
+        # the evolve loop mid-run — log loudly (ADR-002 no silent swallow) and
+        # fail the candidate so evolution continues.
+        _log.exception("No search_space.validate_candidate for target %r", target)
         return False
-    return True
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +95,9 @@ def _extract_config(tree: ast.Module, source: str, filename: str) -> dict[str, A
 
 def _load_program(program_path: str) -> Program:
     """Load an evolve program file, extracting config and detecting custom functions."""
-    source = Path(program_path).read_text()
+    # Explicit utf-8 to avoid cp1252 default on Windows (LLM-generated programs
+    # often contain non-ASCII characters like em-dashes, which cp1252 cannot decode).
+    source = Path(program_path).read_text(encoding="utf-8")
     tree = ast.parse(source, filename=program_path)
 
     # Extract config via AST (same as Level 1)
@@ -191,7 +137,7 @@ def _load_config_from_program(program_path: str) -> dict[str, Any]:
         ValueError: If the file has no ``config`` assignment, or the value
             is not a literal dict.
     """
-    source = Path(program_path).read_text()
+    source = Path(program_path).read_text(encoding="utf-8")
     tree = ast.parse(source, filename=program_path)
 
     for node in ast.walk(tree):
@@ -282,7 +228,7 @@ class EvolveEvaluator:
         if program.has_custom_embed and "conditioning_type" in config:
             config = {**config, "conditioning_type": "additive"}
 
-        if not validate_search_space(config):
+        if not validate_search_space(config, self._target):
             _log.warning("Program %s rejected: search space validation failed", program_path)
             filename = Path(program_path).name
             return EvaluationResult(
@@ -299,7 +245,7 @@ class EvolveEvaluator:
                     metrics={**fail_metrics(), **self._fail_score()},
                     artifacts={"error": "no_profile: Level 2 program but no ValidationProfile configured"},
                 )
-            source = Path(program_path).read_text()
+            source = Path(program_path).read_text(encoding="utf-8")
             valid, reason = validate_program(
                 source,
                 self._validation_profile,

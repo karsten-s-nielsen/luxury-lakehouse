@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import logging
 import sys
 import textwrap
 from pathlib import Path
@@ -626,3 +627,55 @@ class TestRemoteWorkerErrorCapture:
         assert result["error"] == 1.0
         assert "_error_text" in result
         assert "CUDA out of memory" in result["_error_text"]
+
+
+# ---------------------------------------------------------------------------
+# Per-target search-space dispatch (D1 — see EV1 spec)
+# ---------------------------------------------------------------------------
+
+
+class TestPerTargetDispatch:
+    """Regression guard for the target-aware validate_search_space dispatcher."""
+
+    def test_scoutgpt_dispatch(self) -> None:
+        """validate_search_space(cfg, target='scoutgpt') accepts a valid ScoutGPT config."""
+        assert validate_search_space(VALID_CONFIG, target="scoutgpt") is True
+
+    def test_default_target_is_scoutgpt(self) -> None:
+        """Backward-compat: validate_search_space(cfg) without target still validates as ScoutGPT."""
+        assert validate_search_space(VALID_CONFIG) is True
+
+    def test_unknown_target_returns_false(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Unknown target name is logged at ERROR and rejected (not raised)."""
+        with caplog.at_level(logging.ERROR, logger="evolve.evaluator"):
+            result = validate_search_space(VALID_CONFIG, target="nonexistent")
+        assert result is False
+        assert any("nonexistent" in rec.message and rec.levelname == "ERROR" for rec in caplog.records), (
+            f"Expected ERROR log mentioning 'nonexistent'; got: {[(r.levelname, r.message) for r in caplog.records]}"
+        )
+
+    def test_target_module_without_validate_candidate(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A target module missing `validate_candidate` is logged at ERROR and returns False."""
+        # Build a fake target package under a temp dir and put it on sys.path.
+        pkg = tmp_path / "evolve" / "targets" / "faulty"
+        pkg.mkdir(parents=True)
+        (tmp_path / "evolve" / "__init__.py").write_text("")
+        (tmp_path / "evolve" / "targets" / "__init__.py").write_text("")
+        (pkg / "__init__.py").write_text("")
+        # search_space module exists but has no `validate_candidate` attribute.
+        (pkg / "search_space.py").write_text("# intentionally empty\n")
+
+        monkeypatch.syspath_prepend(str(tmp_path))
+        # Drop any cached evolve.targets.faulty imports so the new path wins.
+        for mod in list(sys.modules):
+            if mod.startswith("evolve.targets.faulty"):
+                del sys.modules[mod]
+
+        with caplog.at_level(logging.ERROR, logger="evolve.evaluator"):
+            result = validate_search_space(VALID_CONFIG, target="faulty")
+        assert result is False
+        assert any("faulty" in rec.message and rec.levelname == "ERROR" for rec in caplog.records), (
+            f"Expected ERROR log mentioning 'faulty'; got: {[(r.levelname, r.message) for r in caplog.records]}"
+        )

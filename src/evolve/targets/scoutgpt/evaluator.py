@@ -113,7 +113,7 @@ def _apply_program(
         RatioGate,
     )
 
-    source = Path(program_path).read_text()
+    source = Path(program_path).read_text(encoding="utf-8")
     restricted_globals: dict[str, Any] = {
         "torch": torch,
         "math": __import__("math"),

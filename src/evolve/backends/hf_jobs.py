@@ -182,7 +182,7 @@ class HFJobsBackend:
 
         # Encode program source for Level 2 code evolution.
         if program_path is not None:
-            program_source = Path(program_path).read_text()
+            program_source = Path(program_path).read_text(encoding="utf-8")
             env["EVOLVE_PROGRAM"] = base64.b64encode(program_source.encode()).decode()
 
         # Submit the job.
