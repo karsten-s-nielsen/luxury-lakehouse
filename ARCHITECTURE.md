@@ -1,7 +1,7 @@
 # Databricks Lakebase Architecture — Soccer Analytics Platform
 
-> **Status**: SEC1 cycle (EU AI Act gap analysis) — 16 Taipy pages, 37 synced tables, 63 PG indexes (57 btree + 6 HNSW at 128d/144d). Hugging Face Hub: 12 models + 18 datasets published, GPU training on HF Jobs L40S. Regulation (EU) 2024/1689 gap analysis in [`AI_GOVERNANCE.md`](AI_GOVERNANCE.md) covering 13 per-player evaluative ML systems; every model card carries an "EU AI Act — Intended Use and Non-Use" stanza, enforced by `src/tests/test_ai_governance_md.py`. Daily Job Hardening (D59/D56/SEC2): self-healing daily job with dbt_build python_wheel_task + SHA-256 artifact integrity verification on model loads. PSxG model (Brier 0.129). ScoutGPT decoder + training pipeline (D32). Guard-as-wrapper: 33 skip guards with mandatory `FilterResult` injection. `fct_workflow_costs` enriched with warm-tier lifecycle data (D51). HF-app SP codified in Terraform with UC grants (TF-SP). M2 OAuth infrastructure complete.
-> **Last Updated**: 2026-04-14
+> **Status**: SEC1 cycle (EU AI Act gap analysis) — 16 Taipy pages, 38 synced tables, 67 PG indexes (61 btree + 6 HNSW at 128d/144d). Hugging Face Hub: 12 models + 18 datasets published, GPU training on HF Jobs L40S. Regulation (EU) 2024/1689 gap analysis in [`AI_GOVERNANCE.md`](AI_GOVERNANCE.md) covering 13 per-player evaluative ML systems; every model card carries an "EU AI Act — Intended Use and Non-Use" stanza, enforced by `src/tests/test_ai_governance_md.py`. Daily Job Hardening (D59/D56/SEC2): self-healing daily job with dbt_build python_wheel_task + SHA-256 artifact integrity verification on model loads. PSxG model (Brier 0.129). ScoutGPT decoder + training pipeline (D32). Guard-as-wrapper: 33 skip guards with mandatory `FilterResult` injection. `fct_workflow_costs` enriched with warm-tier lifecycle data (D51). HF-app SP codified in Terraform with UC grants (TF-SP). M2 OAuth infrastructure complete.
+> **Last Updated**: 2026-04-18
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready
 
@@ -217,7 +217,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 - `logical_database_name = "databricks_postgres"` — standard Lakebase database
 - **Autoscaling workaround (provider v1.110.0):** `databricks_database_synced_database_table` only supports `database_instance_name` (Provisioned). Synced tables targeting Autoscaling projects must be created via Databricks UI, then imported into Terraform. `lifecycle { ignore_changes = all }` prevents drift. This applies to any new synced table.
 - **Schema changes:** Must delete synced table, drop ghost PG table, recreate via API, re-import into Terraform.
-- **PG indexes:** 50 btree indexes across 23 tables + 6 HNSW vector indexes on embedding tables (128-dim/144-dim) = 56 total. Dropped on synced table recreation — re-run `scripts/create_indexes.py` alongside `scripts/lakebase_grants.sql`. Script now runs `ANALYZE` on all indexed tables to ensure the query planner uses indexes.
+- **PG indexes:** 61 btree indexes across 27 tables + 6 HNSW vector indexes on embedding tables (128-dim/144-dim) = 67 total. Dropped on synced table recreation — re-run `scripts/create_indexes.py` alongside `scripts/lakebase_grants.sql`. Script now runs `ANALYZE` on all indexed tables to ensure the query planner uses indexes.
 - **SP refresh permissions:** The Lakebase database project + each backing pipeline must grant `CAN_USE` (project) + `CAN_RUN` (pipeline) to both the `hf_app_v2` SP (Taipy admin endpoint) and the `ingestion` SP (daily Databricks job's refresh task). Without these grants, calls to `GET /api/2.0/database/synced_tables/{name}` return 403. Apply via `scripts/grant_synced_table_permissions.py` (idempotent, integrated into `scripts/maintain_synced_tables.py` as Step 0). Re-run after any synced table recreation since pipeline_ids may change. Hard-verified empirically in dev: 70 grants total (2 project + 68 pipeline) → 34/34 staging refresh subprocess success.
 - **SNAPSHOT refresh:** Synced tables with `scheduling_policy = "SNAPSHOT"` do not auto-refresh. Run `python -m ingestion.refresh_synced_tables` (or the `refresh_synced_tables` console-script entry point) after upstream dbt rebuilds. Supports `--wait` (poll until IDLE) and `--tables` (comma-separated subset). Use `scripts/dbt_build_and_refresh.py` to chain `dbt build` + refresh atomically. The daily Databricks job auto-runs `refresh_synced_tables` as a final task. The Terraform provider has no schedule/cron field — this is the operational workaround.
 - **Credential API:** REST endpoint is `/api/2.0/postgres/credentials` (NOT `/api/2.0/database/credentials`).
@@ -452,7 +452,7 @@ luxury-lakehouse/
 │   │   ├── lakebase/                 # Lakebase Autoscaling (PG 17)
 │   │   ├── sql_warehouse/            # Serverless SQL Warehouse
 │   │   ├── workflows/                # Ingestion job definitions
-│   │   ├── synced_tables/            # Gold → Lakebase sync (37 synced tables)
+│   │   ├── synced_tables/            # Gold → Lakebase sync (38 synced tables)
 │   │   ├── app/                      # (removed — Streamlit migrated to HF Spaces)
 │   │   ├── service_principals/       # Ingestion SP, App SP, CI SP + federation
 │   │   ├── github_oidc/              # AWS IAM OIDC provider + scoped role
@@ -682,7 +682,7 @@ luxury-lakehouse/
 │   ├── deploy_wheel.py               # Downloads wheel from HF Hub build-artifacts → UC Volume for inference
 │   ├── setup_hf_buckets.py           # Initialize HF Buckets (demo-data) with versioned Parquet uploads
 │   ├── setup_lakebase_roles.py       # Manage Lakebase PG roles for service principals (databricks-sdk 0.102+)
-│   ├── create_indexes.py             # PG indexes on Lakebase synced tables (63 indexes, --verify + ANALYZE)
+│   ├── create_indexes.py             # PG indexes on Lakebase synced tables (67 indexes, --verify + ANALYZE)
 │   ├── ensure_warehouse.py           # Verify SQL warehouse is RUNNING before dbt builds
 │   ├── maintain_synced_tables.py     # Synced table maintenance (refresh, health check)
 │   ├── refresh_synced_tables.py      # Trigger SNAPSHOT refresh on synced tables (--wait, --tables)
@@ -812,9 +812,9 @@ All code must pass these gates before merge:
 Lakebase and Databricks performance standards are codified in [CLAUDE.md § Database Performance](CLAUDE.md#database-performance). Key rules:
 
 - **Lakebase (PG):** Index every filtered column on fact tables >100K rows. No `ON ONLY` indexes (partitioned tables). Avoid `SELECT DISTINCT` on large tables — use recursive CTE. Re-run `scripts/create_indexes.py` after every synced table recreation.
-- **Databricks (Spark/dbt):** `validate_dataframe()` returns row count to `write_delta_table()` (no double `df.count()`), all writes use `replaceWhere` for idempotency, don't `.toPandas()` unbounded tables, extract repeated window functions into CTEs. 24 mart models use `liquid_clustered_by` for automatic data layout (replaced static Z-ordering). Predictive Optimization enabled at catalog level. Auto-compaction and `optimizeWrite` enabled via `+tblproperties` on all mart tables. 33 of 36 mart models enforce dbt model contracts (`contract: {enforced: true}`, `on_schema_change: fail`).
+- **Databricks (Spark/dbt):** `validate_dataframe()` returns row count to `write_delta_table()` (no double `df.count()`), all writes use `replaceWhere` for idempotency, don't `.toPandas()` unbounded tables, extract repeated window functions into CTEs. 24 mart models use `liquid_clustered_by` for automatic data layout (replaced static Z-ordering). Predictive Optimization enabled at catalog level. Auto-compaction and `optimizeWrite` enabled via `+tblproperties` on all mart tables. 34 of 37 mart models enforce dbt model contracts (`contract: {enforced: true}`, `on_schema_change: fail`).
 
-The platform has 50 btree indexes across 23 tables + 6 HNSW vector indexes on embedding tables at 128-dim/144-dim (56 total) covering all Taipy query patterns. Managed by `scripts/create_indexes.py` with `ANALYZE` for planner statistics and `--verify` for EXPLAIN ANALYZE validation.
+The platform has 61 btree indexes across 27 tables + 6 HNSW vector indexes on embedding tables at 128-dim/144-dim (67 total) covering all Taipy query patterns. Managed by `scripts/create_indexes.py` with `ANALYZE` for planner statistics and `--verify` for EXPLAIN ANALYZE validation.
 
 ### 6.7 — Architecture Documentation
 

@@ -648,3 +648,19 @@ resource "databricks_database_synced_database_table" "fct_gk_actions_detail" {
     ignore_changes = all
   }
 }
+
+resource "databricks_database_synced_database_table" "fct_funnel_stages_agg" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_funnel_stages_agg_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_funnel_stages_agg"
+    primary_key_columns    = ["match_id", "team_id", "game_state"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}

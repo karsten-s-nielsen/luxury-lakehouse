@@ -1,58 +1,104 @@
-"""Conversion rate funnel queries and aggregation logic."""
+"""Conversion rate funnel — mart-only Lakebase queries + app-side rollups.
+
+Replaces the earlier raw-event scan of fct_action_values (9.5 M rows → Parallel
+Seq Scan, 37.8 s with game-state filter, exceeding app statement_timeout) with
+a read of the pre-aggregated fct_funnel_stages_agg mart (~12,145 rows → composite
+index lookup, <100 ms).  Simultaneously closes a silent LIMIT 500000 truncation
+that under-reported A3 entries / shots / goals by >50 % for prolific teams.
+
+Straddler + Wyscout semantics are handled in rollup_stages() using the two
+possession-count columns (pos_in_gs, pos_in_match) plus the wy_match_flag —
+see fct_funnel_stages_agg.sql header for the mart-side derivation.
+"""
 
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd
 
-_A3_THRESHOLD = 70.0
-_SHOT_TYPES = ("shot", "shot_penalty", "shot_freekick")
+from queries.common import execute_query, t, ttl_cache
+
+_STAGE_KEYS = ("possessions", "a3_entries", "shots", "goals")
 
 
-def compute_funnel_stages(df: pd.DataFrame, team_id: int) -> dict[str, int]:
-    """Compute funnel stage counts from actions during a team's own possessions.
+@ttl_cache()
+def fetch_funnel_agg(
+    comp_id: int,
+    team_id: int,
+    match_id: int | None = None,
+    game_state: str | None = None,
+) -> pd.DataFrame:
+    """Pre-aggregated mart read — single path for single-match and season modes.
 
-    Scopes to ``possession_team_id == team_id`` when available.  Wyscout data
-    lacks possession metadata (``possession_team_id`` is NULL for ~36% of rows),
-    so NULL possession rows fall back to ``team_id`` — if the team performed
-    the action, it counts as their possession.
+    Single-match mode: WHERE match_id = %s (idx_funnel_agg_match).
+    Season mode:       WHERE competition_id = %s AND (team_id = %s OR opponent_team_id = %s)
+                       (BitmapOr of idx_funnel_agg_comp_team_gs + idx_funnel_agg_comp_opp_gs).
+    Game-state filter appends AND game_state = %s (lowercased).
 
-    Possession counting uses ``(match_id, possession_id)`` pairs to avoid
-    cross-match collisions (StatsBomb restarts numbering per match).  Wyscout
-    rows (NULL ``possession_id``) are counted as one synthetic possession per
-    match to avoid zero-possession artifacts.
+    No LIMIT clause — mart is bounded to ~12,145 rows total. Adding a LIMIT
+    would reintroduce the silent-truncation bug the mart was built to fix.
     """
-    team_actions = df[df["team_id"] == team_id]
-
-    # Scope to own-possession: use possession_team_id where available,
-    # fall back to team_id for NULL (Wyscout data)
-    poss_col = team_actions["possession_team_id"]
-    own_poss = team_actions[poss_col.isna() | (poss_col == team_id)]
-
-    # Possession count: StatsBomb rows have (match_id, possession_id),
-    # Wyscout rows have NULL possession_id — count those matches as 1 each
-    has_poss = own_poss[own_poss["possession_id"].notna()]
-    null_poss = own_poss[own_poss["possession_id"].isna()]
-
-    sb_possessions = (
-        int(has_poss[["match_id", "possession_id"]].drop_duplicates().shape[0]) if not has_poss.empty else 0
+    tbl = t("fct_funnel_stages_agg_synced")
+    cols = (
+        "match_id, competition_id, team_id, opponent_team_id, game_state,"
+        " pos_in_gs, pos_in_match, a3_entries, shots, goals, wy_match_flag"
     )
-    wy_matches = int(null_poss["match_id"].nunique()) if not null_poss.empty else 0
-    possessions = sb_possessions + wy_matches
+    where: list[str]
+    params: list[Any]
+    if match_id is not None:
+        where = ["match_id = %s"]
+        params = [int(match_id)]
+    else:
+        where = ["competition_id = %s", "(team_id = %s OR opponent_team_id = %s)"]
+        params = [int(comp_id), int(team_id), int(team_id)]
+    if game_state and game_state != "All":
+        where.append("game_state = %s")
+        params.append(game_state.lower())
+    return execute_query(
+        f"SELECT {cols} FROM {tbl} WHERE {' AND '.join(where)}",  # noqa: S608
+        tuple(params),
+    )
 
-    a3_mask = (own_poss["start_x"] <= _A3_THRESHOLD) & (own_poss["end_x"] > _A3_THRESHOLD)
-    a3_entries = int(a3_mask.sum())
 
-    shot_mask = own_poss["action_type"].isin(_SHOT_TYPES)
-    shots = int(shot_mask.sum())
+@ttl_cache()
+def fetch_match_meta(comp_id: int, match_id: int) -> pd.DataFrame:
+    """Single-match home/away name lookup — used only in single-match mode."""
+    ms_tbl = t("fct_match_summary_synced")
+    return execute_query(
+        f"SELECT match_id, home_team_id, away_team_id, home_team_name, away_team_name"  # noqa: S608
+        f" FROM {ms_tbl}"
+        f" WHERE competition_id = %s AND match_id = %s"
+        f" LIMIT 1",
+        (int(comp_id), int(match_id)),
+    )
 
-    goal_mask = shot_mask & (own_poss["action_result"] == "success")
-    goals = int(goal_mask.sum())
 
+def rollup_stages(rows: pd.DataFrame, *, gs_filtered: bool) -> dict[str, int]:
+    """Collapse mart rows into funnel totals, honoring V01 straddler semantics.
+
+    rows must be pre-filtered to a single side (selected team OR opponent — the
+    caller splits the mart df on team_id vs opponent_team_id).
+
+    gs_filtered = True  → use pos_in_gs (straddlers count once per gs they touched)
+    gs_filtered = False → dedup pos_in_match across (match_id, team_id) then sum
+                          (handles the per-match replication across gs rows)
+
+    wy_match_flag=1 matches are counted once per match and added as synthetic
+    possessions (Wyscout data has possession_id = NULL for 28.27 % of rows per V05).
+    """
+    if rows.empty:
+        return dict.fromkeys(_STAGE_KEYS, 0)
+    if gs_filtered:
+        sb_possessions = int(rows["pos_in_gs"].sum())
+    else:
+        sb_possessions = int(rows.groupby(["match_id", "team_id"])["pos_in_match"].first().sum())
+    wy_matches = int(rows.loc[rows["wy_match_flag"] == 1, "match_id"].nunique())
     return {
-        "possessions": possessions,
-        "a3_entries": a3_entries,
-        "shots": shots,
-        "goals": goals,
+        "possessions": sb_possessions + wy_matches,
+        "a3_entries": int(rows["a3_entries"].sum()),
+        "shots": int(rows["shots"].sum()),
+        "goals": int(rows["goals"].sum()),
     }
 
 
@@ -68,90 +114,3 @@ def compute_conversion_rates(stages: dict[str, int]) -> dict[str, float]:
         "shot_to_goal": _pct(stages["goals"], stages["shots"]),
         "end_to_end": _pct(stages["goals"], stages["possessions"]),
     }
-
-
-def _fetch_match_meta(
-    comp_id: int,
-    team_id: int,
-    match_id: int | None,
-) -> pd.DataFrame:
-    """Fetch match metadata (IDs + names) from the small dimension table."""
-    from queries.common import execute_query, t
-
-    ms_tbl = t("fct_match_summary_synced")
-    where = ["competition_id = %s"]
-    params: list[int | str] = [int(comp_id)]
-    where.append("(home_team_id = %s OR away_team_id = %s)")
-    params.extend([int(team_id), int(team_id)])
-    if match_id is not None:
-        where.append("match_id = %s")
-        params.append(int(match_id))
-    return execute_query(
-        f"SELECT match_id, home_team_id, away_team_id,"  # noqa: S608
-        f" home_team_name, away_team_name"
-        f" FROM {ms_tbl}"
-        f" WHERE {' AND '.join(where)}"
-        f" LIMIT 200",
-        tuple(params),
-    )
-
-
-def fetch_funnel_actions(
-    comp_id: int,
-    team_id: int,
-    match_id: int | None = None,
-    game_state: str | None = None,
-) -> pd.DataFrame:
-    """Fetch action data for funnel computation from Lakebase.
-
-    Single-match mode: ``WHERE match_id = %s`` — direct index seek (~33ms).
-
-    Season mode: ``WHERE competition_id = %s AND match_id IN (SELECT ...)``
-    — nested loop from the small match_summary table into index seeks on
-    fct_action_values_synced (~2s for 232K rows, verified via EXPLAIN ANALYZE).
-
-    Returns both teams' actions so ``compute_funnel_stages`` can build
-    the mirror chart.
-    """
-    from queries.common import execute_query, t
-
-    meta = _fetch_match_meta(comp_id, team_id, match_id)
-    if meta.empty:
-        return pd.DataFrame()
-
-    tbl = t("fct_action_values_synced")
-    ms_tbl = t("fct_match_summary_synced")
-    cols = "match_id, team_id, possession_id, possession_team_id, start_x, end_x, action_type, action_result"
-
-    if match_id is not None:
-        # Single match — direct index seek
-        where = ["match_id = %s"]
-        params: list[object] = [int(match_id)]
-    else:
-        # Season — IN-subquery drives nested loop from small table
-        where = [
-            "competition_id = %s",
-            f"match_id IN (SELECT match_id FROM {ms_tbl}"  # noqa: S608
-            f" WHERE competition_id = %s AND (home_team_id = %s OR away_team_id = %s))",
-        ]
-        params = [int(comp_id), int(comp_id), int(team_id), int(team_id)]
-
-    if game_state and game_state != "All":
-        where.append("game_state = %s")
-        params.append(game_state.lower())
-
-    actions = execute_query(
-        f"SELECT {cols}"  # noqa: S608
-        f" FROM {tbl}"
-        f" WHERE {' AND '.join(where)}"
-        f" LIMIT 500000",
-        tuple(params),
-    )
-    if actions.empty:
-        return actions
-
-    return actions.merge(
-        meta[["match_id", "home_team_id", "away_team_id", "home_team_name", "away_team_name"]],
-        on="match_id",
-        how="left",
-    )

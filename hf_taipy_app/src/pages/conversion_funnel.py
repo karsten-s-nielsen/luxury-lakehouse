@@ -77,6 +77,7 @@ page_config = PageConfig(
                     "cf_funnel_chart",
                     header="Conversion Funnel — Home vs Away",
                     chart_height="350px",
+                    condition="cf_funnel_chart is not None",
                 ),
             ],
         ),
