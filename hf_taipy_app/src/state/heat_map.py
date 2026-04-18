@@ -9,19 +9,18 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from filters import fetch_data_freshness, fetch_scope_label
+from filters import build_scope_label_plain, build_warning, fetch_data_freshness
 from matplotlib.colors import Normalize
 from mplsoccer import Pitch
 from queries.tracking import fetch_heatmap_actions
 from render import AMBER, PITCH_BG_COLOR, PITCH_LINE_COLOR, fmt_int, pitch_to_file
 
-from state.shared import get_comp_id, get_match_id, get_player_id, get_team_id, register_page_refresher
+# matplotlib.use("Agg") is handled by render.py at module load (imported above) — no redundant call needed here.
+from state.shared import _ALL_LABEL, get_comp_id, get_match_id, get_player_id, get_team_id, register_page_refresher
 
-matplotlib.use("Agg")
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -36,18 +35,33 @@ hm_pass_focus: str = ""
 hm_shot_focus: str = ""
 
 hm_warning_text: str = ""
-hm_scope_label: str = ""
+hm_scope_comp: str = ""
+hm_scope_team: str = ""
+hm_scope_player: str = ""
+hm_scope_coverage: str = ""
 hm_data_freshness: str = ""
+
+hm_pass_bubbles_alt: str = ""
+hm_shot_bubbles_alt: str = ""
+hm_pass_focus_alt: str = ""
+hm_shot_focus_alt: str = ""
 
 __all__ = [
     "hm_data_freshness",
     "hm_pass_bubbles",
+    "hm_pass_bubbles_alt",
     "hm_pass_focus",
+    "hm_pass_focus_alt",
     "hm_passes",
     "hm_refresh",
-    "hm_scope_label",
+    "hm_scope_comp",
+    "hm_scope_coverage",
+    "hm_scope_player",
+    "hm_scope_team",
     "hm_shot_bubbles",
+    "hm_shot_bubbles_alt",
     "hm_shot_focus",
+    "hm_shot_focus_alt",
     "hm_shots",
     "hm_total",
     "hm_warning_text",
@@ -61,7 +75,9 @@ __all__ = [
 _BIN_GRID = (12, 8)
 _MAX_BUBBLE_SIZE = 500  # max scatter area in pt²
 _FIGSIZE = (10, 7)
-_TOP_N_LABELS = 25  # show count labels on the N largest bins in distribution view
+_TOP_N_LABELS = (
+    12  # show count labels on the N largest bins. 12 ≤ 96-bin grid row count, avoids label collisions in dense areas.
+)
 
 
 def _compute_bin_grid(
@@ -256,7 +272,7 @@ def hm_refresh(state: Any) -> None:
     """
     comp_id = get_comp_id(state.selected_competition)
 
-    if comp_id is None:
+    def _clear_all() -> None:
         state.hm_total = "--"
         state.hm_passes = "--"
         state.hm_shots = "--"
@@ -265,16 +281,33 @@ def hm_refresh(state: Any) -> None:
         state.hm_pass_focus = ""
         state.hm_shot_focus = ""
         state.hm_warning_text = ""
-        state.hm_scope_label = ""
+        state.hm_scope_comp = ""
+        state.hm_scope_team = ""
+        state.hm_scope_player = ""
+        state.hm_scope_coverage = ""
         state.hm_data_freshness = ""
+        state.hm_pass_bubbles_alt = ""
+        state.hm_shot_bubbles_alt = ""
+        state.hm_pass_focus_alt = ""
+        state.hm_shot_focus_alt = ""
+
+    if comp_id is None:
+        _clear_all()
         return
 
     team_id = get_team_id(state.selected_team)
     player_id = get_player_id(state.selected_player)
     match_id = get_match_id(state.selected_match)
 
-    # Scope label
-    state.hm_scope_label = fetch_scope_label(comp_id, team_id)
+    # Resolve display labels for scope line (dimensions the page filters by)
+    comp_label = state.selected_competition or ""
+    team_label = state.selected_team if state.selected_team not in (None, _ALL_LABEL) else "All teams"
+    player_label = state.selected_player if state.selected_player not in (None, _ALL_LABEL) else "All players"
+
+    state.hm_scope_comp = comp_label
+    state.hm_scope_team = team_label
+    state.hm_scope_player = player_label
+    scope_plain = build_scope_label_plain([("Competition", comp_label), ("Team", team_label), ("Player", player_label)])
 
     try:
         actions = fetch_heatmap_actions(comp_id, team_id, player_id, match_id)
@@ -284,6 +317,7 @@ def hm_refresh(state: Any) -> None:
         state.hm_shot_bubbles = ""
         state.hm_pass_focus = ""
         state.hm_shot_focus = ""
+        state.hm_scope_coverage = ""
         state.hm_data_freshness = ""
         return
 
@@ -295,7 +329,11 @@ def hm_refresh(state: Any) -> None:
         state.hm_shot_bubbles = ""
         state.hm_pass_focus = ""
         state.hm_shot_focus = ""
-        state.hm_warning_text = "No actions found for this filter combination. Try broadening your selection."
+        state.hm_warning_text = build_warning(
+            domain="actions",
+            suggestions=["removing the team filter", "choosing a different player"],
+        )
+        state.hm_scope_coverage = ""
         state.hm_data_freshness = ""
         return
 
@@ -304,6 +342,18 @@ def hm_refresh(state: Any) -> None:
     state.hm_total = metrics["total"]
     state.hm_passes = metrics["passes"]
     state.hm_shots = metrics["shots"]
+
+    # Coverage context for EID — simple f-string
+    n_matches = int(actions["match_id"].nunique()) if "match_id" in actions.columns else 0
+    state.hm_scope_coverage = (
+        f"{metrics['total']} actions across {n_matches} match{'es' if n_matches != 1 else ''}" if n_matches > 0 else ""
+    )
+
+    # Alt strings (scope-aware) for each of the 4 images
+    state.hm_pass_bubbles_alt = f"Pass Distribution — {scope_plain}"
+    state.hm_shot_bubbles_alt = f"Shot Distribution — {scope_plain}"
+    state.hm_pass_focus_alt = f"Pass Hotspots (Top 5) — {scope_plain}"
+    state.hm_shot_focus_alt = f"Shot Hotspots (Top 5) — {scope_plain}"
 
     # Split by action type — query already returns action_type column
     pass_actions = actions.loc[actions["action_type"] == "pass"]

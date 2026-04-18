@@ -11,11 +11,11 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from filters import fetch_data_freshness, fetch_scope_label
+from filters import fetch_data_freshness
 from queries.passes import fetch_network_passes
 from render import fmt_int
 
-from state.shared import get_comp_id, get_match_id, get_team_id, register_page_refresher
+from state.shared import _ALL_LABEL, get_comp_id, get_match_id, get_team_id, register_page_refresher
 
 logger = logging.getLogger(__name__)
 
@@ -29,14 +29,18 @@ pn_top_pair_names: str = ""
 pn_chart_figure: go.Figure | None = None
 
 pn_warning_text: str = ""
-pn_scope_label: str = ""
+pn_scope_comp: str = ""
+pn_scope_team: str = ""
+pn_scope_match: str = ""
 pn_data_freshness: str = ""
 
 __all__ = [
     "pn_data_freshness",
     "pn_chart_figure",
     "pn_refresh",
-    "pn_scope_label",
+    "pn_scope_comp",
+    "pn_scope_match",
+    "pn_scope_team",
     "pn_top_pair_count",
     "pn_top_pair_names",
     "pn_total_passes",
@@ -221,12 +225,18 @@ def pn_refresh(state: Any) -> None:
         state.pn_top_pair_names = ""
         state.pn_chart_figure = None
         state.pn_warning_text = ""
-        state.pn_scope_label = ""
+        state.pn_scope_comp = ""
+        state.pn_scope_team = ""
+        state.pn_scope_match = ""
         state.pn_data_freshness = ""
         return
 
-    # Scope label
-    state.pn_scope_label = fetch_scope_label(comp_id, team_id)
+    # Scope dimensions (Competition, Team, Match).
+    # No image alt needed — Pass Network renders as a Plotly chart (screen readers
+    # consume the chart's own aria-label / hovertext rather than an image alt).
+    state.pn_scope_comp = state.selected_competition or ""
+    state.pn_scope_team = state.selected_team if state.selected_team not in (None, _ALL_LABEL) else "All teams"
+    state.pn_scope_match = state.selected_match if state.selected_match not in (None, _ALL_LABEL) else "—"
 
     try:
         passes = fetch_network_passes(comp_id, team_id, match_id)
@@ -246,6 +256,8 @@ def pn_refresh(state: Any) -> None:
         state.pn_top_pair_count = "0"
         state.pn_top_pair_names = "No data (Wyscout matches lack recipient data)"
         state.pn_chart_figure = None
+        # Pass Network is unavailable for Wyscout matches, so the warning calls that out specifically
+        # rather than using build_warning's generic shape.
         state.pn_warning_text = (
             "No completed passes for the selected filters. Wyscout matches do not include pass recipient data."
         )

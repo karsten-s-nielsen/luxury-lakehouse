@@ -15,6 +15,7 @@ from queries.funnel import (
 from render import AWAY_COLOR, HOME_COLOR, PITCH_BG_COLOR, TEXT_COLOR
 
 from state.shared import (
+    _ALL_LABEL,
     get_comp_id,
     get_match_id,
     get_team_id,
@@ -32,7 +33,10 @@ cf_shots_detail: str = ""
 cf_goals: str = ""
 cf_goals_detail: str = ""
 cf_funnel_chart: go.Figure | None = None
-cf_scope_label: str = ""
+cf_scope_comp: str = ""
+cf_scope_team: str = ""
+cf_scope_match: str = ""
+cf_scope_game_state: str = ""
 cf_data_freshness: str = ""
 cf_warning_text: str = ""
 
@@ -50,7 +54,10 @@ __all__ = [
     "cf_goals",
     "cf_goals_detail",
     "cf_funnel_chart",
-    "cf_scope_label",
+    "cf_scope_comp",
+    "cf_scope_team",
+    "cf_scope_match",
+    "cf_scope_game_state",
     "cf_data_freshness",
     "cf_warning_text",
     "cf_selected_game_state",
@@ -146,7 +153,10 @@ def _clear_state(state: Any) -> None:
     state.cf_goals = ""
     state.cf_goals_detail = ""
     state.cf_funnel_chart = None
-    state.cf_scope_label = ""
+    state.cf_scope_comp = ""
+    state.cf_scope_team = ""
+    state.cf_scope_match = ""
+    state.cf_scope_game_state = ""
     state.cf_warning_text = ""
 
 
@@ -215,14 +225,11 @@ def cf_refresh(state: Any) -> None:
     state.cf_goals = f"{show_stages['goals']:,}"
     state.cf_goals_detail = f"{show_rates['shot_to_goal']}% of shots"
 
-    scope_parts = [str(state.selected_competition)]
-    if state.selected_team:
-        scope_parts.append(str(state.selected_team))
-    if state.selected_match:
-        scope_parts.append(str(state.selected_match))
-    if gs_param:
-        scope_parts.append(f"Game State: {game_state}")
-    state.cf_scope_label = " · ".join(scope_parts)
+    # Canonical Tier A scope line — Competition, Team, Match, Game State.
+    state.cf_scope_comp = str(state.selected_competition)
+    state.cf_scope_team = state.selected_team if state.selected_team not in (None, _ALL_LABEL) else "All teams"
+    state.cf_scope_match = state.selected_match if state.selected_match not in (None, _ALL_LABEL) else "Full season"
+    state.cf_scope_game_state = game_state if gs_param else "All"
     state.cf_warning_text = ""
 
     logger.info("Funnel refreshed: stages=%s rates=%s", show_stages, show_rates)

@@ -153,21 +153,100 @@ if __name__ == "__main__":
 
     # Lightbox — click any content image to expand in a full-viewport overlay.
     # Injected via after_request because Taipy markdown strips <script> tags.
+    # Accessible: role=dialog, aria-modal, Escape closes, focus trap, figcaption
+    # cloned from the page scope marker (.ll-page-scope / [data-role=page-scope]).
     _LIGHTBOX_SCRIPT = """<script>
 (function(){
+  let _previouslyFocused = null;
+  let _overlay = null;
+
+  function trapFocus(e) {
+    if (!_overlay) return;
+    if (e.key === 'Escape') { e.preventDefault(); closeOverlay(); return; }
+    if (e.key !== 'Tab') return;
+    const focusables = _overlay.querySelectorAll('button, [tabindex="0"]');
+    if (!focusables.length) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+
+  function closeOverlay() {
+    if (!_overlay) return;
+    document.removeEventListener('keydown', trapFocus);
+    _overlay.remove();
+    _overlay = null;
+    if (_previouslyFocused) { _previouslyFocused.focus(); _previouslyFocused = null; }
+  }
+
+  function openOverlay(img) {
+    _previouslyFocused = document.activeElement;
+
+    const scopeEl = document.querySelector('.ll-page-scope, [data-role="page-scope"]');
+    const scopeHtml = scopeEl ? scopeEl.innerHTML : '';
+
+    _overlay = document.createElement('div');
+    _overlay.className = 'll-lightbox-overlay';
+    _overlay.setAttribute('role', 'dialog');
+    _overlay.setAttribute('aria-modal', 'true');
+    _overlay.setAttribute('aria-label', 'Enlarged chart view');
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'll-lightbox-close';
+    closeBtn.setAttribute('aria-label', 'Close (Escape)');
+    closeBtn.textContent = '\\u00d7';
+    closeBtn.addEventListener('click', closeOverlay);
+
+    const fig = document.createElement('figure');
+    const clone = document.createElement('img');
+    clone.src = img.src;
+    clone.alt = img.alt || '';
+    fig.appendChild(clone);
+
+    if (scopeHtml) {
+      const caption = document.createElement('figcaption');
+      caption.className = 'll-lightbox-caption';
+      caption.innerHTML = scopeHtml;
+      fig.appendChild(caption);
+    }
+
+    _overlay.appendChild(closeBtn);
+    _overlay.appendChild(fig);
+
+    _overlay.addEventListener('click', function(e) {
+      if (e.target === _overlay) closeOverlay();
+    });
+
+    document.body.appendChild(_overlay);
+    document.addEventListener('keydown', trapFocus);
+    closeBtn.focus();
+  }
+
   document.addEventListener('click', function(e) {
-    var img = e.target;
+    const img = e.target;
     if (img.tagName !== 'IMG') return;
     if (!img.closest('.ll-content-row')) return;
+    if (_overlay) return;
     e.stopPropagation();
-    var overlay = document.createElement('div');
-    overlay.className = 'll-lightbox-overlay';
-    var clone = document.createElement('img');
-    clone.src = img.src;
-    overlay.appendChild(clone);
-    overlay.addEventListener('click', function() { overlay.remove(); });
-    document.body.appendChild(overlay);
+    openOverlay(img);
   });
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key !== 'Enter') return;
+    const el = document.activeElement;
+    if (el && el.tagName === 'IMG' && el.closest('.ll-content-row')) {
+      e.preventDefault();
+      openOverlay(el);
+    }
+  });
+
+  const observer = new MutationObserver(function() {
+    document.querySelectorAll('.ll-content-row img:not([tabindex])').forEach(function(img) {
+      img.setAttribute('tabindex', '0');
+    });
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
 })();
 </script>"""
 

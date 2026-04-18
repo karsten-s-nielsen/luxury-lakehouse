@@ -35,6 +35,18 @@ Use **Glossary** for terms.
 """
 
 GLOSSARY: dict[str, str] = {
+    "Bubble Map": (
+        "Action density visualization where bubble area at each pitch zone represents "
+        "the number of actions. Spatial binning approach per Anzer & Bauer (2021)."
+    ),
+    "Hotspot": (
+        "A pitch zone with the highest action density. Heat Map highlights the top 5 zones "
+        "with gold rings in the 'Hotspots' view."
+    ),
+    "Action Type": (
+        "The kind of on-ball action — pass, shot, dribble, etc. Heat Map separates passes "
+        "and shots into distinct panels."
+    ),
     "xG (Expected Goals)": (
         "Probability of scoring from each shot's location and context. "
         "Higher = better chance. Sum over a match = team's expected output."
@@ -200,13 +212,25 @@ GLOSSARY: dict[str, str] = {
         "Algorithm that assigns formation labels (e.g., 4-3-3) to player positioning data. "
         "EFPI uses template matching; Shape Graph uses Delaunay triangulation."
     ),
+    "Passing Network": (
+        "Graph of passing connections between teammates. Node = player positioned at their "
+        "average x/y location during the match; edge = pass between two players; line thickness = pass frequency."
+    ),
+    "Average Position": (
+        "Mean (x, y) location of a player during the match — summarizes where they touched the ball. "
+        "Used as the node coordinate in the pass network."
+    ),
+    "Pass Connection": (
+        "An edge in the pass network between two teammates. Filtered to connections with "
+        "at least min_passes (default 3) to avoid clutter."
+    ),
 }
 
 PAGE_TERMS: dict[str, list[str]] = {
     "Shot-Map": ["xG (Expected Goals)", "Brier Score"],
     "Pass-Map": ["Line-Breaking Pass", "Progressive Pass"],
-    "Heat-Map": [],
-    "Pass-Network": [],
+    "Heat-Map": ["Bubble Map", "Hotspot", "Action Type"],
+    "Pass-Network": ["Passing Network", "Average Position", "Pass Connection"],
     "Match-Summary": ["xG (Expected Goals)", "PPDA", "Progressive Pass", "Percentile Rank"],
     "Player-Impact": ["VAEP", "VAEP/90", "Off. VAEP/90", "Def. VAEP/90", "SPADL", "Percentile Rank"],
     "Player-Comparison": [
@@ -367,6 +391,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         condition=f"current_page in {_TEAM_PAGES}",
         lov="team_lov",
         depends_on="selected_competition",
+        required=False,
         help="Filter to a specific team within the selected competition.",
     ),
     SidebarWidget(
@@ -376,8 +401,8 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         "on_match_change",
         condition=f"current_page in {_MATCH_PAGES}",
         lov="match_lov",
-        depends_on="selected_team",
-        help="Select a specific match. Shows date and opponent.",
+        depends_on="selected_competition",
+        help="Select a specific match. Shows date and opponent. Setting Team first narrows this list.",
     ),
     SidebarWidget(
         "dropdown",
@@ -386,17 +411,23 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         "on_cf_game_state_change",
         condition=f"current_page in {_CONVERSION_FUNNEL_PAGES}",
         lov="cf_game_state_lov",
+        required=False,
         help="Filter by game state at the time of each action: winning, losing, or drawing. Based on the cumulative scoreline.",
     ),
     SidebarWidget(
         "dropdown",
         "selected_player",
-        "Player (optional)",
+        "Player",
         "on_player_change",
         condition=f"current_page in {_PLAYER_PAGES}",
         lov="player_lov",
         depends_on="selected_competition",
-        help="Optional player filter. Leave blank to see all players in the competition.",
+        required=False,
+        searchable=True,
+        search_var="player_search_query",
+        on_search_change="on_player_search_change",
+        search_label="Search players",
+        help="Optional player filter. Type to search any player in scope; pick from the dropdown to filter the page.",
     ),
     SidebarWidget(
         "dropdown_multi",
@@ -453,6 +484,7 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         condition=f"current_page in {_GK_PAGES}",
         lov="gk_team_lov",
         depends_on="selected_competition",
+        required=False,
         help=(
             "Only teams with StatsBomb GK event data for the selected competition "
             "are listed. Coverage is uneven in the open dataset — e.g., the Premier "
@@ -469,6 +501,10 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         condition=f"current_page in {_GK_PAGES} and selected_sub_view != 'Rankings'",
         lov="gk_player_lov",
         depends_on="selected_competition",
+        searchable=True,
+        search_var="gk_player_search_query",
+        on_search_change="gk_on_gk_player_search_change",
+        search_label="Search goalkeepers",
         help="Select a goalkeeper to view their shot stopping and distribution. Only goalkeepers with GK stats are listed.",
     ),
     SidebarWidget(
@@ -573,21 +609,27 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
     SidebarWidget(
         "dropdown",
         "pt_selected_team",
-        "Team (optional)",
+        "Team",
         "pt_on_team_change",
         condition=f"current_page in {_PASS_TIMING_PAGES}",
         lov="pt_team_lov",
         depends_on="pt_selected_match",
+        required=False,
         help="Filter to a specific team's passes. Leave blank for all.",
     ),
     SidebarWidget(
         "dropdown",
         "pt_selected_player",
-        "Player (optional)",
+        "Player",
         "pt_on_player_change",
         condition=f"current_page in {_PASS_TIMING_PAGES}",
         lov="pt_player_lov",
         depends_on="pt_selected_match",
+        required=False,
+        searchable=True,
+        search_var="pt_player_search_query",
+        on_search_change="pt_on_player_search_change",
+        search_label="Search players",
         help="Filter to a specific player's passes. Leave blank for all.",
     ),
     SidebarWidget(
@@ -646,11 +688,12 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
     SidebarWidget(
         "dropdown",
         "dv_selected_team",
-        "Team (optional)",
+        "Team",
         "dv_on_team_change",
         condition=f"current_page in {_DEFCON_PAGES}",
         lov="dv_team_lov",
         depends_on="dv_selected_comp",
+        required=False,
         help="Filter rankings or breakdown to a specific team.",
     ),
     SidebarWidget(
@@ -663,6 +706,10 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         depends_on="dv_current_view",
         depends_value="Breakdown",
         depends_lov_populated=True,
+        searchable=True,
+        search_var="dv_breakdown_player_search_query",
+        on_search_change="dv_on_breakdown_player_search_change",
+        search_label="Search players",
         help="Select a player to see their DEFCON credit breakdown (Intercept, Concede, Disturb, Deter).",
     ),
     SidebarWidget(
@@ -675,6 +722,10 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         depends_on="dv_current_view",
         depends_value="Timeline",
         depends_lov_populated=True,
+        searchable=True,
+        search_var="dv_timeline_player_search_query",
+        on_search_change="dv_on_timeline_player_search_change",
+        search_label="Search players",
         help="Select a player to view their match-by-match pressure timeline.",
     ),
     SidebarWidget(
@@ -879,6 +930,10 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         condition='current_page == "Tactical-Positions" and selected_sub_view == "Position Maps"',
         lov="tac_player_lov",
         depends_on="tac_selected_team",
+        searchable=True,
+        search_var="tac_player_search_query",
+        on_search_change="tac_on_player_search_change",
+        search_label="Search players",
         help="Select a player to view their 5x5 position map heatmap.",
     ),
     SidebarWidget(
@@ -889,6 +944,10 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         condition='current_page == "Tactical-Positions" and selected_sub_view == "Position Maps"',
         lov="tac_compare_player_lov",
         depends_on="tac_selected_team",
+        searchable=True,
+        search_var="tac_compare_player_search_query",
+        on_search_change="tac_on_compare_player_search_change",
+        search_label="Search players",
         help="Select a second player to compare position maps side by side.",
     ),
 ]
@@ -908,7 +967,10 @@ _SEARCH_WIDGETS: list[SidebarWidget] = [
         "Player",
         "on_ps_selected_player_change",
         lov="ps_player_lov",
-        filterable=True,
+        searchable=True,
+        search_var="ps_player_search_query",
+        on_search_change="on_ps_player_search_change",
+        search_label="Search players",
         help="Type to search ~8,950 players. Select one to find similar players by embedding distance.",
     ),
     SidebarWidget(

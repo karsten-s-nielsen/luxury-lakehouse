@@ -355,6 +355,66 @@ h2 .material-symbols-outlined {
     background-color: rgba(255, 255, 255, 0.2) !important;
 }
 
+/* Server-driven autocomplete: search input above a dropdown.
+   The pair lives inside a single SidebarWidget wrapper so they share render
+   conditions and sit visually contiguous. Width matches the sibling selector
+   (Taipy's .taipy-selector stretches to parent by default; .taipy-input
+   inherits MUI's inline-flex content-sized default, so we override here). */
+.ll-search-input {
+    width: 100% !important;
+    max-width: unset !important;
+    display: flex !important;
+    margin: 0 0 6px 0 !important;
+    box-sizing: border-box !important;
+}
+
+.ll-search-input .MuiInputBase-root {
+    width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+.ll-search-input .MuiInputBase-input {
+    padding: 8.5px 12px !important;
+    font-size: 0.875rem !important;
+}
+
+.ll-search-input .MuiInputLabel-root {
+    font-size: 0.875rem !important;
+}
+
+/* Inline scrollable results list — live-updates as the user types, no click
+   required to see matches. Constrained height so the sidebar doesn't grow
+   to 50 items tall; scrollbar handles overflow. */
+.ll-search-results {
+    width: 100% !important;
+    max-height: 220px !important;
+    overflow-y: auto !important;
+    margin: 0 !important;
+    border: 1px solid rgba(255, 255, 255, 0.18) !important;
+    border-radius: 4px !important;
+    box-sizing: border-box !important;
+}
+
+/* Tighten row height so the 220px box fits ~8-10 items before scrolling */
+.ll-search-results .MuiListItemButton-root,
+.ll-search-results .MuiListItem-root,
+.ll-search-results li {
+    padding-top: 4px !important;
+    padding-bottom: 4px !important;
+    font-size: 0.875rem !important;
+    min-height: unset !important;
+}
+
+/* Selected row highlight — amber accent to match the app theme */
+.ll-search-results .Mui-selected,
+.ll-search-results .Mui-selected:hover {
+    background-color: rgba(245, 158, 11, 0.18) !important;
+}
+
+.ll-search-results .MuiListItemButton-root:hover {
+    background-color: rgba(255, 255, 255, 0.06) !important;
+}
+
 /* Reusable filter box — matches MUI outlined input style for toggles/sliders.
    Margin is zero here; spacing is handled by padding on the parent taipy-part
    wrapper to avoid CSS margin pass-through collapsing (see below). */
@@ -709,6 +769,13 @@ img {
 .ll-spin {
     animation: ll-spin 1s linear infinite;
     font-size: 1.5rem;
+}
+
+/* Respect prefers-reduced-motion — show the icon statically (WCAG 2.3.3) */
+@media (prefers-reduced-motion: reduce) {
+    .ll-spin {
+        animation: none;
+    }
 }
 
 /* ===== Table styling (rankings) ===== */
@@ -1358,4 +1425,165 @@ nav[class*="taipy"],
     width: 100% !important;
     min-height: 150px !important;
     border: none !important;
+}
+
+/* ── 11. Canonical scope line — per-dimension small-caps label + value ───
+   Rendered by page_template._build_standard_page from PageConfig.scope_dims.
+   Separators between dimensions come from a CSS pseudo-element on each
+   .ll-scope-dim-label except the first — no explicit separator markup.
+   Also reused by the lightbox figcaption (JS clones .ll-page-scope). */
+
+.ll-page-scope {
+    margin-bottom: 0.75rem;
+    font-size: 0.9rem;
+    color: rgba(255, 255, 255, 0.65);
+    line-height: 1.6;
+}
+
+.ll-scope-dim-label {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.35);
+    margin-right: 0.35em;
+    font-weight: 600;
+    font-style: normal;
+}
+
+/* Thin vertical divider before every dim-label except the first.
+   Replaces the retired U+00B7 middle dot. */
+.ll-page-scope .ll-scope-dim-label:not(:first-of-type)::before {
+    content: "";
+    display: inline-block;
+    width: 1px;
+    height: 0.9em;
+    background: rgba(255, 255, 255, 0.45);
+    margin: 0 0.75em 0 0.35em;
+    vertical-align: -1px;
+}
+
+.ll-scope-value {
+    font-style: italic;
+}
+
+/* Legacy .ll-sep — retained for any external reference; new code uses
+   the pseudo-element above. */
+.ll-sep {
+    display: inline-block;
+    width: 1px;
+    height: 0.9em;
+    background: rgba(255, 255, 255, 0.45);
+    margin: 0 0.75em;
+    vertical-align: -1px;
+}
+
+/* ── 12. Lightbox accessibility upgrade ──────────────────────────────── */
+
+.ll-lightbox-overlay {
+    outline: none;
+}
+
+.ll-lightbox-overlay figure {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    max-width: 90vw;
+    max-height: 90vh;
+}
+
+.ll-lightbox-overlay figure img {
+    max-width: 100%;
+    max-height: calc(90vh - 4rem);
+    border-radius: 8px;
+    box-shadow: 0 4px 40px rgba(0, 0, 0, 0.5);
+}
+
+.ll-lightbox-caption {
+    font-family: 'Source Sans Pro', -apple-system, sans-serif;
+    color: rgba(255, 255, 255, 0.85);
+    background: rgba(14, 17, 23, 0.85);
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    max-width: 90vw;
+    text-align: center;
+}
+
+.ll-lightbox-close {
+    position: fixed;
+    top: 1.25rem;
+    right: 1.5rem;
+    background: rgba(14, 17, 23, 0.85);
+    color: rgba(255, 255, 255, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    width: 2.5rem;
+    height: 2.5rem;
+    font-size: 1.25rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ll-lightbox-close:hover,
+.ll-lightbox-close:focus {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+    outline: none;
+}
+
+.ll-content-row img:focus {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}
+
+/* ── 13. Responsive layout — viewports narrower than 768px ─────────────
+   Taipy's taipy-layout emits inline grid-template-columns styles (e.g. "300px 1fr"
+   for the top-level sidebar+content layout, "4fr 1fr" for page content+metrics).
+   Inline styles beat class selectors, so the overrides below use !important and
+   target both .taipy-layout and our own .ll-grid-3-1 wrapper. */
+
+@media (max-width: 768px) {
+    /* Main app: stack sidebar over content */
+    .taipy-layout {
+        grid-template-columns: 1fr !important;
+        grid-template-rows: auto 1fr !important;
+    }
+
+    /* Page content + metrics column: stack vertically */
+    .ll-grid-3-1 {
+        grid-template-columns: 1fr !important;
+    }
+
+    /* Two-column content rows fold to one column */
+    .ll-content-cols-2 {
+        grid-template-columns: 1fr !important;
+    }
+
+    /* Sidebar — remove sticky positioning so it scrolls with content */
+    .sidebar {
+        position: static !important;
+        border-right: none !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+    }
+
+    /* Metrics column loses sticky positioning on narrow viewports */
+    .ll-metrics-column {
+        position: static !important;
+        max-height: none !important;
+    }
+
+    /* Dashboard pages: loosen the viewport-contained scroll */
+    .ll-dashboard-scroll {
+        max-height: none !important;
+    }
+
+    /* Page header max-width 80% becomes 100% */
+    .ll-page-header {
+        max-width: 100% !important;
+    }
 }

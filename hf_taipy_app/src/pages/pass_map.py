@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
-from page_template import NAV_MATCH_ANALYSIS, Citation, ContentBlock, ContentRow, Metric, PageConfig, build_page
+from page_template import (
+    NAV_MATCH_ANALYSIS,
+    Citation,
+    ContentBlock,
+    ContentRow,
+    Metric,
+    PageConfig,
+    ScopeDim,
+    build_page,
+)
 
 page_config = PageConfig(
     title="Pass Map",
@@ -17,11 +26,15 @@ page_config = PageConfig(
         Citation("Suzuki et al. (2019)", "https://doi.org/10.1515/jqas-2019-0060"),
         Citation("Parma Calcio 1913", "https://github.com/parmacalcio1913/line-breaking-passes"),
     ],
-    content=[ContentRow([ContentBlock("image", "pm_pitch_image")])],
+    content=[ContentRow([ContentBlock("image", "pm_pitch_image", alt_var="pm_pitch_image_alt")])],
     empty_message="Select a competition, team, and match to begin.",
     empty_condition='len(pm_pitch_image) == 0 and pm_total == "--"',
     warning_var="pm_warning_text",
-    scope_vars=["pm_scope_label"],
+    scope_dims=[
+        ScopeDim("Competition", "pm_scope_comp"),
+        ScopeDim("Team", "pm_scope_team"),
+        ScopeDim("Match", "pm_scope_match"),
+    ],
     freshness_var="pm_data_freshness",
     metrics=[
         Metric("Total Passes", "pm_total", "Number of passes attempted by the selected player or team."),

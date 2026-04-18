@@ -12,14 +12,14 @@ from typing import Any, cast
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import pandas as pd
-from filters import fetch_data_freshness, fetch_scope_label
+from filters import build_scope_label_plain, build_warning, fetch_data_freshness
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from mplsoccer import Radar
 from queries.players import fetch_player_percentiles_batch, fetch_player_radar_stats
 from render import PITCH_BG_COLOR, PITCH_LINE_COLOR, PLAYER_COLORS, chart_to_file
 
-from state.shared import _page_refreshers, get_comp_id, get_team_id, register_page_refresher
+from state.shared import _ALL_LABEL, _page_refreshers, get_comp_id, register_page_refresher
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +100,10 @@ _STATS_COLUMNS = ["Player", "Minutes"] + [
 pr_stats_table: pd.DataFrame = pd.DataFrame(columns=_STATS_COLUMNS)
 
 pr_metrics_hint: str = ""
-pr_scope_label: str = ""
+pr_scope_comp: str = ""
+pr_scope_team: str = ""
+pr_scope_players: str = ""
+pr_radar_image_alt: str = ""
 pr_warning_text: str = ""
 
 __all__ = [
@@ -112,7 +115,10 @@ __all__ = [
     "pr_metrics_hint",
     "pr_no_data_warning",
     "pr_no_physical_note",
-    "pr_scope_label",
+    "pr_radar_image_alt",
+    "pr_scope_comp",
+    "pr_scope_players",
+    "pr_scope_team",
     "pr_select_hint",
     "pr_player_count",
     "pr_radar_image",
@@ -213,6 +219,7 @@ def on_pr_metric_change(state: Any, var_name: str, var_value: Any) -> None:
 def _clear_state(state: Any) -> None:
     """Reset all pr_ state variables."""
     state.pr_radar_image = ""
+    state.pr_radar_image_alt = ""
     state.pr_player_count = 0
     state.pr_metrics_hint = ""
     state.pr_low_minute_warning = ""
@@ -220,7 +227,9 @@ def _clear_state(state: Any) -> None:
     state.pr_no_physical_note = ""
     state.pr_data_freshness = ""
     state.pr_stats_table = pd.DataFrame(columns=_STATS_COLUMNS)
-    state.pr_scope_label = ""
+    state.pr_scope_comp = ""
+    state.pr_scope_team = ""
+    state.pr_scope_players = ""
     state.pr_warning_text = ""
 
 
@@ -233,18 +242,30 @@ def pr_refresh(state: Any) -> None:
         return
 
     state.pr_comp_selected = True
-    team_id = get_team_id(state.selected_team)
-    state.pr_scope_label = fetch_scope_label(comp_id, team_id)
+    # Team filter is not used by fetch_player_radar_stats (player_ids drive the query);
+    # scope only needs the team LABEL for display, not the resolved team_id.
+
+    # Canonical Tier A scope — Competition, Team, Players
+    state.pr_scope_comp = state.selected_competition or ""
+    state.pr_scope_team = state.selected_team if state.selected_team not in (None, _ALL_LABEL) else "All teams"
 
     # Resolve player IDs from multiselect labels
     from state.shared import _player_map
 
     player_labels: list[str] = state.selected_players_multi or []
     if not player_labels:
+        state.pr_scope_players = "None selected"
         _clear_state(state)
         state.pr_comp_selected = True
+        state.pr_scope_comp = state.selected_competition or ""
+        state.pr_scope_team = state.selected_team if state.selected_team not in (None, _ALL_LABEL) else "All teams"
+        state.pr_scope_players = "None selected"
         state.pr_data_freshness = fetch_data_freshness()
         return
+
+    # Players scope — join up to 3 names; tail-truncate if more
+    visible_names = player_labels[:3]
+    state.pr_scope_players = ", ".join(visible_names)
 
     player_ids = [_player_map[label] for label in player_labels if label in _player_map]
     if not player_ids:
@@ -260,13 +281,15 @@ def pr_refresh(state: Any) -> None:
     if stats.empty:
         _clear_state(state)
         state.pr_comp_selected = True
-        state.pr_scope_label = fetch_scope_label(comp_id, team_id)
-        state.pr_no_data_warning = (
-            "No player stats for this filter combination. Try selecting a different competition, team, or position."
+        # Preserve scope after _clear_state
+        state.pr_scope_comp = state.selected_competition or ""
+        state.pr_scope_team = state.selected_team if state.selected_team not in (None, _ALL_LABEL) else "All teams"
+        state.pr_scope_players = ", ".join(player_labels[:3])
+        state.pr_no_data_warning = build_warning(
+            domain="player stats",
+            suggestions=["a different team", "different players"],
         )
-        state.pr_warning_text = (
-            "No player stats for this filter combination. Try selecting a different competition, team, or position."
-        )
+        state.pr_warning_text = state.pr_no_data_warning
         state.pr_data_freshness = fetch_data_freshness()
         return
 
@@ -380,6 +403,16 @@ def pr_refresh(state: Any) -> None:
         title,
         player_names,
     )
+
+    # Scope-aware alt text for accessibility
+    scope_plain = build_scope_label_plain(
+        [
+            ("Competition", state.pr_scope_comp),
+            ("Team", state.pr_scope_team),
+            ("Players", state.pr_scope_players),
+        ]
+    )
+    state.pr_radar_image_alt = f"Player Comparison Radar — {scope_plain}"
 
     # Data freshness
     state.pr_data_freshness = fetch_data_freshness()

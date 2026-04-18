@@ -10,11 +10,13 @@ import logging
 from typing import Any
 
 from filters import (
+    NO_MATCHES_SENTINEL,
     fetch_competitions,
     fetch_matches,
     fetch_players,
     fetch_teams,
     fetch_tracking_matches,
+    search_players,
 )
 
 logger = logging.getLogger(__name__)
@@ -30,6 +32,11 @@ selected_team: str | None = None
 selected_match: str | None = None
 selected_player: str | None = None
 selected_players_multi: list[str] = []
+
+# Server-driven autocomplete query — bound to the search <|input|> above the
+# Player dropdown. Empty string means "show top-50 alphabetical"; non-empty
+# fires a backend SQL substring search via filters.search_players.
+player_search_query: str = ""
 
 # Filter option lists (list of values for Taipy selectors)
 competition_lov: list[str] = []
@@ -76,6 +83,7 @@ __all__ = [
     "selected_match",
     "selected_player",
     "selected_players_multi",
+    "player_search_query",
     "competition_lov",
     "team_lov",
     "match_lov",
@@ -105,6 +113,7 @@ __all__ = [
     "on_team_change",
     "on_match_change",
     "on_player_change",
+    "on_player_search_change",
     "on_provider_change",
     "on_tracking_match_change",
     "on_xg_model_change",
@@ -293,6 +302,8 @@ def on_competition_change(state: Any, var_name: str, var_value: Any) -> None:
     state.selected_match = _ALL_LABEL
     state.selected_player = _ALL_LABEL
     state.selected_players_multi = []
+    # Reset the player-search input — competition change implies a fresh scope.
+    state.player_search_query = ""
 
     try:
         teams = fetch_teams(comp_id)
@@ -303,11 +314,18 @@ def on_competition_change(state: Any, var_name: str, var_value: Any) -> None:
         _match_map = {label: mid for label, mid in matches}
         state.match_lov = [_ALL_LABEL] + [label for label, _ in matches]
 
+        # Full player list still drives _player_map (so any search-result selection
+        # resolves to the right ID) and player_lov_multi (the dropdown_multi widget
+        # on Player Comparison still shows every player). The single-select
+        # player_lov shows only top-50 alphabetical to keep the dropdown payload
+        # bounded; user types in the search input to find anyone outside that set.
+        # NOTE: we slice fetch_players' result directly rather than firing a
+        # second search_players("") query — see TODO.md #30 for the shared-state
+        # race window this keeps from widening.
         players = fetch_players(comp_id, None)
         _player_map = {label: pid for label, pid in players}
-        player_labels = [label for label, _ in players]
-        state.player_lov = [_ALL_LABEL] + player_labels
-        state.player_lov_multi = player_labels  # no "All" for multi-select
+        state.player_lov_multi = [label for label, _ in players]
+        state.player_lov = [_ALL_LABEL] + [label for label, _ in players[:50]]
 
         _refresh_current_page(state)
     except Exception:
@@ -325,17 +343,22 @@ def on_team_change(state: Any, var_name: str, var_value: Any) -> None:
     state.selected_match = _ALL_LABEL
     state.selected_player = _ALL_LABEL
     state.selected_players_multi = []
+    # Reset the player-search input — team narrows scope, so any prior typed
+    # query may now match a different set; clearing keeps semantics predictable.
+    state.player_search_query = ""
 
     try:
         matches = fetch_matches(comp_id, team_id)
         _match_map = {label: mid for label, mid in matches}
         state.match_lov = [_ALL_LABEL] + [label for label, _ in matches]
 
+        # Full list -> _player_map + player_lov_multi (see on_competition_change comment).
+        # Single-select player_lov is the top-50 slice of the same full list —
+        # NOT a second search_players("") call, per TODO.md #30 race-window concern.
         players = fetch_players(comp_id, team_id)
         _player_map = {label: pid for label, pid in players}
-        player_labels = [label for label, _ in players]
-        state.player_lov = [_ALL_LABEL] + player_labels
-        state.player_lov_multi = player_labels
+        state.player_lov_multi = [label for label, _ in players]
+        state.player_lov = [_ALL_LABEL] + [label for label, _ in players[:50]]
 
         _refresh_current_page(state)
     except Exception:
@@ -355,6 +378,39 @@ def on_player_change(state: Any, var_name: str, var_value: Any) -> None:
     """
     logger.info("Player change: var_name=%s, var_value=%r", var_name, var_value)
     _refresh_current_page(state)
+
+
+def on_player_search_change(state: Any, var_name: str, var_value: Any) -> None:
+    """Server-driven autocomplete: refresh player_lov from a backend SQL substring search.
+
+    Fired by the <|input|> above the Player dropdown after a 300 ms debounce.
+    Empty query returns top-50 alphabetical (in scope); non-empty returns up to
+    500 substring matches. Scope is the current selected_competition + selected_team.
+    The shared _player_map already has every player from fetch_players, so any
+    selection from a search result resolves to the right ID even after the user
+    keeps typing and the original entry leaves the visible LOV.
+    """
+    global _player_map
+    comp_id = get_comp_id(state.selected_competition)
+    if comp_id is None:
+        return
+    team_id = get_team_id(state.selected_team)
+    query = var_value or ""
+    try:
+        results = search_players(query, comp_id, team_id, top_n_when_empty=50)
+    except Exception:
+        logger.exception("Player search failed for query=%r comp=%s team=%s", query, comp_id, team_id)
+        return
+    # Merge new ID mappings (results are a subset of fetch_players already, but
+    # cross-comp searches and search-only paths still benefit from the merge).
+    _player_map.update(dict(results))
+    if results:
+        state.player_lov = [_ALL_LABEL] + [label for label, _ in results]
+    else:
+        # Empty result: surface the sentinel so the dropdown visibly updates
+        # (a bare [] is treated as no-op by the Taipy state diff).
+        state.player_lov = [_ALL_LABEL, NO_MATCHES_SENTINEL]
+    logger.info("Player search: query=%r -> %d results", query, len(results))
 
 
 def on_provider_change(state: Any, var_name: str, var_value: Any) -> None:

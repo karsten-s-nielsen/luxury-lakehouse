@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
-from page_template import NAV_MATCH_ANALYSIS, Citation, ContentBlock, ContentRow, Metric, PageConfig, build_page
+from page_template import (
+    NAV_MATCH_ANALYSIS,
+    Citation,
+    ContentBlock,
+    ContentRow,
+    Metric,
+    PageConfig,
+    ScopeDim,
+    build_page,
+)
 
 page_config = PageConfig(
     title="Shot Map",
@@ -20,11 +29,16 @@ page_config = PageConfig(
         ),
         Citation("XGBoost", "https://xgboost.readthedocs.io/"),
     ],
-    content=[ContentRow([ContentBlock("image", "sm_pitch_image")])],
+    content=[ContentRow([ContentBlock("image", "sm_pitch_image", alt_var="sm_pitch_image_alt")])],
     empty_message="Select a competition to begin.",
     empty_condition="len(sm_pitch_image) == 0 and len(sm_empty_message) > 0",
     warning_var="sm_warning_text",
-    scope_vars=["sm_scope_label", "sm_data_scope_note", "sm_nan_fallback_note"],
+    scope_dims=[
+        ScopeDim("Competition", "sm_scope_comp"),
+        ScopeDim("Team", "sm_scope_team"),
+        ScopeDim("Player", "sm_scope_player"),
+    ],
+    scope_vars=["sm_data_scope_note", "sm_nan_fallback_note"],
     freshness_var="sm_data_freshness",
     metrics=[
         Metric("Total Shots", "sm_total_shots", "Total number of shots attempted."),

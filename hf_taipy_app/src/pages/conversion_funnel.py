@@ -8,6 +8,7 @@ from page_template import (
     ContentBlock,
     ContentRow,
     PageConfig,
+    ScopeDim,
     StatCard,
     build_page,
 )
@@ -32,7 +33,12 @@ page_config = PageConfig(
     ),
     empty_condition="len(cf_possessions) == 0",
     warning_var="cf_warning_text",
-    scope_vars=["cf_scope_label"],
+    scope_dims=[
+        ScopeDim("Competition", "cf_scope_comp"),
+        ScopeDim("Team", "cf_scope_team"),
+        ScopeDim("Match", "cf_scope_match"),
+        ScopeDim("Game State", "cf_scope_game_state"),
+    ],
     stats=[
         StatCard(
             label="Possessions",
