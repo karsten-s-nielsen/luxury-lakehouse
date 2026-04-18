@@ -2864,6 +2864,105 @@ models:
   # fact table" bottleneck verified via EXPLAIN ANALYZE.  See the related
   # .sql model for measurement details.
 
+  - name: fct_funnel_stages_agg
+    description: >
+      Pre-aggregated conversion funnel stages for Taipy Conversion Funnel page.
+      Grain: (match_id, team_id, game_state). Source: fct_action_values INNER
+      JOIN fct_match_summary. Replaces a 37,800 ms Parallel Seq Scan + Nested
+      Loop that exceeded the app's 30 s statement_timeout, AND closes a silent
+      LIMIT 500000 truncation that under-reported A3/shots/goals by >50 % for
+      prolific teams. See fct_funnel_stages_agg.sql header for straddler +
+      Wyscout handling.
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    columns:
+      - name: match_id
+        data_type: bigint
+        description: Foreign key to fct_match_summary.
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('fct_match_summary')
+              field: match_id
+      - name: competition_id
+        data_type: int
+        description: Denormalized for season-mode WHERE clauses (drives idx_funnel_agg_comp_*_gs).
+        data_tests:
+          - not_null
+      - name: team_id
+        data_type: int
+        description: Acting team.
+        data_tests:
+          - not_null
+      - name: opponent_team_id
+        data_type: int
+        description: The other team in the match (derived from fct_match_summary home/away).
+        data_tests:
+          - not_null
+      - name: game_state
+        data_type: string
+        description: "Score-state bucket — winning, losing, or drawing — at the time of the action."
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['winning', 'losing', 'drawing']
+      - name: pos_in_gs
+        data_type: bigint
+        description: >
+          COUNT(DISTINCT possession_id) within this (match, team, game_state).
+          Straddlers that cross gs boundaries are counted once per gs they touch.
+        data_tests:
+          - not_null
+      - name: pos_in_match
+        data_type: bigint
+        description: >
+          COUNT(DISTINCT possession_id) across the full (match, team). Replicated on
+          every gs row for that match+team so app-side dedup at gs=All is one
+          groupby().first().sum() call.
+        data_tests:
+          - not_null
+      - name: a3_entries
+        data_type: bigint
+        description: Actions with start_x ≤ 70 AND end_x > 70 (attacking-third entries).
+        data_tests:
+          - not_null
+      - name: shots
+        data_type: bigint
+        description: Actions where action_type is shot, shot_penalty, or shot_freekick.
+        data_tests:
+          - not_null
+      - name: goals
+        data_type: bigint
+        description: Shots where action_result = 'success'.
+        data_tests:
+          - not_null
+      - name: wy_match_flag
+        data_type: smallint
+        description: >
+          1 if the team had any NULL-possession_id row (Wyscout) during this
+          specific (match, team, game_state). Per-gs flag (NOT match-level):
+          a match with Wyscout rows only during 'drawing' has flag=1 on its
+          drawing row but flag=0 on its winning/losing rows. Used at the app
+          driver via COUNT(DISTINCT CASE WHEN wy_match_flag=1 THEN match_id END),
+          which correctly handles both gs-filtered and gs=All rollups.
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
+      - name: _loaded_at
+        data_type: timestamp
+        description: Audit timestamp.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - match_id
+            - team_id
+            - game_state
+
   - name: fct_heatmap_agg
     description: >
       Pre-aggregated heatmap grid counts for Taipy Heat Map page.

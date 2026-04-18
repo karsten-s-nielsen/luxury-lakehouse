@@ -176,6 +176,16 @@ INDEXES: list[tuple[str, str, str]] = [
     ("idx_gk_actions_detail_comp_player", "fct_gk_actions_detail_synced", "competition_id, player_id"),
     ("idx_gk_actions_detail_match", "fct_gk_actions_detail_synced", "match_id"),
     ("idx_gk_actions_detail_match_player", "fct_gk_actions_detail_synced", "match_id, player_id"),
+    # ── fct_funnel_stages_agg_synced — Conversion Funnel (D58, 2026-04-18) ─
+    # ~12,145 rows. 4 Taipy query shapes:
+    #   single-match ± gs:  WHERE match_id = %s [AND game_state = %s]
+    #   season       ± gs:  WHERE competition_id = %s AND (team_id = %s
+    #                         OR opponent_team_id = %s) [AND game_state = %s]
+    # Season-mode serves a BitmapOr of idx_funnel_agg_comp_team_gs +
+    # idx_funnel_agg_comp_opp_gs; single-match uses idx_funnel_agg_match.
+    ("idx_funnel_agg_match", "fct_funnel_stages_agg_synced", "match_id"),
+    ("idx_funnel_agg_comp_team_gs", "fct_funnel_stages_agg_synced", "competition_id, team_id, game_state"),
+    ("idx_funnel_agg_comp_opp_gs", "fct_funnel_stages_agg_synced", "competition_id, opponent_team_id, game_state"),
 ]
 
 # pgvector HNSW index definitions: (index_name, table, using_clause)
@@ -278,6 +288,20 @@ VERIFY_QUERIES: list[tuple[str, str]] = [
         f"SELECT canonical_player_id FROM {SCHEMA}.fct_player_embeddings_career_synced"  # noqa: S608
         " ORDER BY behavioral_vector::text::vector(128) <=> (SELECT behavioral_vector::text::vector(128)"
         f" FROM {SCHEMA}.fct_player_embeddings_career_synced LIMIT 1) LIMIT 5",
+    ),
+    (
+        "fct_funnel_stages_agg: single-match (idx_funnel_agg_match)",
+        f"SELECT * FROM {SCHEMA}.fct_funnel_stages_agg_synced WHERE match_id = 3888713 LIMIT 1",  # noqa: S608
+    ),
+    (
+        "fct_funnel_stages_agg: season selected-team (idx_funnel_agg_comp_team_gs)",
+        f"SELECT * FROM {SCHEMA}.fct_funnel_stages_agg_synced"  # noqa: S608
+        " WHERE competition_id = 11 AND team_id = 217 LIMIT 1",
+    ),
+    (
+        "fct_funnel_stages_agg: season opponent-side (idx_funnel_agg_comp_opp_gs)",
+        f"SELECT * FROM {SCHEMA}.fct_funnel_stages_agg_synced"  # noqa: S608
+        " WHERE competition_id = 11 AND opponent_team_id = 217 LIMIT 1",
     ),
 ]
 

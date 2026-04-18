@@ -11,6 +11,8 @@ from flask import Flask
 from page_template import PageEntry, build_nav
 from pages.action_values import page_config as action_values_config
 from pages.action_values import page_md as action_values_page
+from pages.conversion_funnel import page_config as funnel_config
+from pages.conversion_funnel import page_md as funnel_page
 from pages.defensive_valuation import page_config as defensive_impact_config
 from pages.defensive_valuation import page_md as defensive_impact_page
 from pages.goalkeeper import page_config as goalkeeper_config
@@ -103,7 +105,7 @@ Gui.register_content_provider(RawHtml, _raw_html_provider)
 # The on_navigate callback receives route keys as page_name.
 PAGE_REGISTRY: list[PageEntry] = [
     # Match Analysis (alphabetical)
-    # PageEntry("Conversion-Funnel", funnel_config, funnel_page),  # disabled — query perf not validated from HF Space
+    PageEntry("Conversion-Funnel", funnel_config, funnel_page),
     PageEntry("Heat-Map", heat_map_config, heat_map_page),
     PageEntry("Match-Summary", match_summary_config, match_summary_page),
     PageEntry("Pass-Map", pass_map_config, pass_map_page),

@@ -79,16 +79,18 @@ def test_get_auth_headers_does_not_call_subprocess(monkeypatch: pytest.MonkeyPat
     _get_auth_headers()  # must not raise
 
 
-def test_synced_tables_list_has_37_entries() -> None:
-    """SYNCED_TABLES drift guard — should match the 37 tables in Terraform.
+def test_synced_tables_list_has_38_entries() -> None:
+    """SYNCED_TABLES drift guard — should match the 38 tables in Terraform.
 
     34 baseline + 3 pre-aggregated marts added 2026-04-17
-    (fct_heatmap_agg, fct_vaep_breakdown_agg, fct_gk_actions_detail) to
-    eliminate comp-only Parallel Seq Scan bottlenecks on the Taipy app.
+    (fct_heatmap_agg, fct_vaep_breakdown_agg, fct_gk_actions_detail) + 1
+    pre-aggregated mart added 2026-04-18 (fct_funnel_stages_agg, D58) to
+    eliminate the season-mode Parallel Seq Scan + LIMIT 500000 truncation
+    on the Conversion Funnel page.
     """
     from ingestion.refresh_synced_tables import SYNCED_TABLES
 
-    assert len(SYNCED_TABLES) == 37
+    assert len(SYNCED_TABLES) == 38
 
 
 def test_get_host_uses_workspace_client_not_env(monkeypatch: pytest.MonkeyPatch) -> None:

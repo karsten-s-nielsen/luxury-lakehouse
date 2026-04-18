@@ -132,6 +132,8 @@ SYNCED_TABLES: list[tuple[str, str | None]] = [
     ("fct_heatmap_agg_synced", None),
     ("fct_vaep_breakdown_agg_synced", None),
     ("fct_gk_actions_detail_synced", None),
+    # Pre-aggregated mart added 2026-04-18 (perf/conversion-funnel, D58)
+    ("fct_funnel_stages_agg_synced", None),
     ("workflow_cost_live_synced", "observability"),
     ("dim_players_synced", None),
     ("dim_teams_synced", None),

@@ -47,13 +47,13 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 39 AI/ML wor
         # Data stores
         unityCatalog = softwareSystem "Unity Catalog" "Governed Delta Lake storage: bronze (raw), gold (analytics), observability (platform metadata)" "External" {
             bronzeSchema = container "Bronze Schema" "Raw ingested data: events, tracking, SPADL actions, VAEP scores, compute results" "Delta Lake" "Database"
-            goldSchema = container "Gold Schema" "Analytics-ready facts and dimensions: 32 fact tables, 4 dim tables, fct_workflow_costs" "Delta Lake" "Database"
+            goldSchema = container "Gold Schema" "Analytics-ready facts and dimensions: 33 fact tables, 4 dim tables, fct_workflow_costs" "Delta Lake" "Database"
             observabilitySchema = container "Observability Schema" "Platform operational metadata: workflow_cost_live (state, duration_seconds, guard_duration_seconds, cost, entity_count, row_count), workflow_import_checksums (HF Hub commit SHA tracking for 5 import guards). Column-mapped Delta table — supports DROP COLUMN for dead-code cleanup. Also hosts 3 definer's-rights views (system_billing_usage, system_billing_list_prices, system_lakeflow_job_task_run_timeline) owned by an account admin, exposing filtered system.* data to fct_workflow_costs via GRANT SELECT to dbt-owners-dev" "Delta Lake" "Database"
         }
 
-        lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL-compatible endpoint syncing 37 Delta Lake tables from Unity Catalog (63 btree/HNSW indexes: 57 btree + 6 HNSW vector: 4x128d + 2x144d)" "External"
+        lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL-compatible endpoint syncing 38 Delta Lake tables from Unity Catalog (67 btree/HNSW indexes: 61 btree + 6 HNSW vector: 4x128d + 2x144d)" "External"
         databricksApi = softwareSystem "Databricks REST API" "Workspace REST endpoints: OAuth credential issuance for Lakebase auth, synced table metadata (/api/2.0/database/synced_tables), pipeline update triggers (/api/2.0/pipelines/{id}/updates), and pipeline state polling" "External"
-        databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 28 tasks total: 5 ingest as DAG roots, 2 backfill, 14 compute, 1 HF sync, 2 360 pipeline, 1 entity resolution, 1 tracking metadata, dbt_build python_wheel_task (materializes 36 gold marts, depends on 9 leaves), and final refresh_synced_tables task (depends only on dbt_build — D59 collapsed 9-way fan-in to single edge). Each pipeline task runs its own skip guard at startup, performance-optimized mode (1-4s cold starts), daily 06:00 UTC" "External"
+        databricksWorkflows = softwareSystem "Databricks Workflows" "Scheduled DAG orchestration: 28 tasks total: 5 ingest as DAG roots, 2 backfill, 14 compute, 1 HF sync, 2 360 pipeline, 1 entity resolution, 1 tracking metadata, dbt_build python_wheel_task (materializes 37 gold marts, depends on 9 leaves), and final refresh_synced_tables task (depends only on dbt_build — D59 collapsed 9-way fan-in to single edge). Each pipeline task runs its own skip guard at startup, performance-optimized mode (1-4s cold starts), daily 06:00 UTC" "External"
         hfIdentity = softwareSystem "HuggingFace Identity API" "User token validation via /api/whoami-v2. Returns user identity + org memberships with per-org roles (admin/write/read). Used by Admin API for per-request authorization — server-authoritative validation, immediate revocation by token owner, no shared secret persistence" "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds from Dockerfile, serves on port 7860" "External"
         hfHub = softwareSystem "HuggingFace Hub" "Hosts 12 models (7 trained: xG v1/v2, VAEP, PSxG, Football2vec v1/v2/360; 5 doc-only method cards: Pitch Control, DEFCON, Off-Ball xT, OBSO+PAUSA, Space Creation), 18 datasets (incl. training data, ScoutGPT episodes, 360 embeddings), build-artifacts wheel, and _workflow_cost.json cost artifacts. Every model card carries an EU AI Act Intended-Use / Non-Use stanza per AI_GOVERNANCE.md (SEC1)" "External"
@@ -92,7 +92,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 39 AI/ML wor
         dbLayer -> configLayer "Reads Lakebase host and endpoint settings" ""
 
         # Relationships - external (Taipy)
-        dbLayer -> lakebase "Queries 37 synced tables via parameterized SQL" "PostgreSQL/SSL"
+        dbLayer -> lakebase "Queries 38 synced tables via parameterized SQL" "PostgreSQL/SSL"
         dbLayer -> databricksApi "Fetches OAuth tokens for Lakebase auth" "HTTPS/REST"
         stateModules -> workflowCards "Reads YAML manifests on first page load (cached in _cards module variable)" ""
         stateModules -> hfHub "Loads embeddings for similarity search; reads _workflow_cost.json (RUNNING detection) + _cost_history/ (30-day cost aggregation) via 60s TTL" "HTTPS"
@@ -121,7 +121,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform: 39 AI/ML wor
         ingestionPipelines -> guardRegistry "Each pipeline calls timed_check(skip_guard, ...) at startup (guard-as-wrapper)" ""
         guardRegistry -> hfHub "check_hf_dataset_freshness() fetches commit SHA via HfApi.repo_info() for 5 import guards" "HTTPS/HF API"
         guardRegistry -> observabilitySchema "Reads/writes workflow_import_checksums (SHA comparison + MERGE write-back)" "PySpark/Delta"
-        refreshSyncedTables -> databricksApi "Triggers SNAPSHOT pipeline updates and polls pipeline state for 37 synced tables" "HTTPS/REST"
+        refreshSyncedTables -> databricksApi "Triggers SNAPSHOT pipeline updates and polls pipeline state for 38 synced tables" "HTTPS/REST"
         refreshSyncedTables -> sharedLibrary "Imports IDENTIFIER_RE for catalog/schema validation" ""
         dbtBuildAndRefresh -> refreshSyncedTables "Subprocess invocation after successful dbt build: python -m ingestion.refresh_synced_tables --wait" "subprocess"
 

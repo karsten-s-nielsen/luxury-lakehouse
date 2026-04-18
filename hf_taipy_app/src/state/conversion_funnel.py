@@ -8,8 +8,9 @@ from typing import Any
 import plotly.graph_objects as go
 from queries.funnel import (
     compute_conversion_rates,
-    compute_funnel_stages,
-    fetch_funnel_actions,
+    fetch_funnel_agg,
+    fetch_match_meta,
+    rollup_stages,
 )
 from render import AWAY_COLOR, HOME_COLOR, PITCH_BG_COLOR, TEXT_COLOR
 
@@ -154,8 +155,9 @@ def cf_refresh(state: Any) -> None:
 
     Two aggregation modes:
     - **Single match**: Home vs Away mirror chart with team names from JOIN.
-    - **Season**: Selected Team vs Opponents (per-opponent stages summed to
-      avoid ``possession_id`` collisions across matches).
+    - **Season**: Selected Team vs Opponents — summed per side from the
+      pre-aggregated fct_funnel_stages_agg mart. Straddler + Wyscout
+      semantics are handled by rollup_stages() (see queries/funnel.py).
     """
     comp_id = get_comp_id(state.selected_competition)
     if not comp_id:
@@ -169,10 +171,10 @@ def cf_refresh(state: Any) -> None:
 
     match_id = get_match_id(state.selected_match)
     game_state = getattr(state, "cf_selected_game_state", "All")
-
     gs_param = game_state if game_state and game_state != "All" else None
-    df = fetch_funnel_actions(comp_id, team_id, match_id, gs_param)
+    gs_filtered = gs_param is not None
 
+    df = fetch_funnel_agg(comp_id, team_id, match_id, gs_param)
     if df.empty:
         _clear_state(state)
         state.cf_warning_text = (
@@ -180,33 +182,26 @@ def cf_refresh(state: Any) -> None:
         )
         return
 
+    # Mart invariant: team_id != opponent_team_id in every row (V09), so these
+    # two masks exactly partition df with no overlap or gap.
+    team_rows = df[df["team_id"] == team_id]
+    opp_rows = df[df["team_id"] != team_id]
+    primary_stages = rollup_stages(team_rows, gs_filtered=gs_filtered)
+    opp_stages = rollup_stages(opp_rows, gs_filtered=gs_filtered)
+    show_stages = primary_stages
+
     if match_id is not None:
-        # Single match: home vs away with team names from the JOIN
-        home_tid = int(df["home_team_id"].iloc[0])
-        away_tid = int(df["away_team_id"].iloc[0])
-
-        home_stages = compute_funnel_stages(df, home_tid)
-        away_stages = compute_funnel_stages(df, away_tid)
-
-        show_stages = home_stages if team_id == home_tid else away_stages
-
-        home_name = str(df["home_team_name"].iloc[0])
-        away_name = str(df["away_team_name"].iloc[0])
-
+        meta = fetch_match_meta(comp_id, match_id)
+        if meta.empty:
+            _clear_state(state)
+            state.cf_warning_text = "Match metadata not found. Try selecting a different match."
+            return
+        home_tid = int(meta["home_team_id"].iloc[0])
+        home_name = str(meta["home_team_name"].iloc[0])
+        away_name = str(meta["away_team_name"].iloc[0])
+        home_stages, away_stages = (primary_stages, opp_stages) if team_id == home_tid else (opp_stages, primary_stages)
         state.cf_funnel_chart = _build_mirror_chart(home_stages, away_stages, home_name, away_name)
     else:
-        # Season: selected team vs all opponents (aggregate per-opponent)
-        primary_stages = compute_funnel_stages(df, team_id)
-
-        opponent_ids = df.loc[df["team_id"] != team_id, "team_id"].unique()
-        opp_stages: dict[str, int] = {k: 0 for k in _STAGE_KEYS}
-        for oid in opponent_ids:
-            opp = compute_funnel_stages(df, int(oid))
-            for k in _STAGE_KEYS:
-                opp_stages[k] += opp[k]
-
-        show_stages = primary_stages
-
         state.cf_funnel_chart = _build_mirror_chart(primary_stages, opp_stages, str(state.selected_team), "Opponents")
 
     show_rates = compute_conversion_rates(show_stages)

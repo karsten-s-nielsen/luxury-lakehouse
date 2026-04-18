@@ -55,6 +55,9 @@ outputs:
     - id: "{catalog}.dev_gold.fct_formation_labels"
       destination: delta-table
       dbt_model: fct_formation_labels
+    - id: "{catalog}.dev_gold.fct_funnel_stages_agg"
+      destination: delta-table
+      dbt_model: fct_funnel_stages_agg
     - id: "{catalog}.dev_gold.fct_gk_actions_detail"
       destination: delta-table
       dbt_model: fct_gk_actions_detail
