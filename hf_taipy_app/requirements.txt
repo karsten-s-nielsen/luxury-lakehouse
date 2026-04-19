@@ -31,7 +31,7 @@ blinker==1.9.0
     # via flask
 boto3==1.34.113
     # via taipy-core
-botocore==1.34.162
+botocore==1.42.91
     # via
     #   boto3
     #   s3transfer
