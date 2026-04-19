@@ -24,7 +24,7 @@ page_config = PageConfig(
         "Rendered via mplsoccer."
     ),
     citations=[
-        Citation("Anzer & Bauer (2021)", "https://doi.org/10.1007/s10994-021-06011-5"),
+        Citation("Anzer & Bauer (2021)", "https://doi.org/10.3389/fspor.2021.624475"),
         Citation("mplsoccer", "https://mplsoccer.readthedocs.io/"),
     ],
     content=[
