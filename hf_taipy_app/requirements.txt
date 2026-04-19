@@ -96,7 +96,7 @@ fonttools==4.62.1
     # via matplotlib
 fsspec==2026.3.0
     # via huggingface-hub
-gevent==24.11.1
+gevent==26.4.0
     # via
     #   gevent-websocket
     #   taipy-gui
