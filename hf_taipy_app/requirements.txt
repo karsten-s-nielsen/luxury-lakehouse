@@ -208,7 +208,7 @@ platformdirs==4.9.6
     # via requests-cache
 plotly==6.7.0
     # via luxury-lakehouse (pyproject.toml)
-protobuf==6.33.6
+protobuf==7.34.1
     # via databricks-sdk
 psycopg2-binary==2.9.11
     # via luxury-lakehouse (pyproject.toml)
