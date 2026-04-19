@@ -65,15 +65,19 @@ class Football2VecConfig:
             nn.Embedding), "sinusoidal" (fixed table), or "rope" (rotary).
     """
 
+    # Defaults promoted to EV1 iter-15 on 2026-04-19 after HF Jobs L40S production
+    # validation reproduced the local val_acc_15ep=0.5865 number
+    # (reproduced=0.5850, +1.6 pp over the prior PR #124 baseline of 0.569).
+    # See docs/evolve/ev1-football2vec/SUMMARY.md.
     vocab_size: int = 23
-    hidden_dim: int = 128
+    hidden_dim: int = 192
     num_layers: int = 4
-    num_heads: int = 4
+    num_heads: int = 6
     dropout: float = 0.1
     max_seq_len: int = 512
-    mask_prob: float = 0.15
+    mask_prob: float = 0.22
     spatial_mlp_dim: int = 64
-    pooling_type: str = "mean"
+    pooling_type: str = "cls"
     spatial_injection: str = "additive"
     position_embedding: str = "learnable"
 

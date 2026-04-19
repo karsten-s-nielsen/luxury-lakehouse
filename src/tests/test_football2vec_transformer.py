@@ -52,13 +52,16 @@ class TestFootball2VecConfig:
     def test_default_config(self) -> None:
         cfg = Football2VecConfig()
         assert cfg.vocab_size == 23
-        assert cfg.hidden_dim == 128
+        assert cfg.hidden_dim == 192
         assert cfg.num_layers == 4
-        assert cfg.num_heads == 4
+        assert cfg.num_heads == 6
         assert cfg.dropout == 0.1
         assert cfg.max_seq_len == 512
-        assert cfg.mask_prob == 0.15
+        assert cfg.mask_prob == 0.22
         assert cfg.spatial_mlp_dim == 64
+        assert cfg.pooling_type == "cls"
+        assert cfg.spatial_injection == "additive"
+        assert cfg.position_embedding == "learnable"
 
     def test_custom_config(self) -> None:
         cfg = Football2VecConfig(
@@ -95,7 +98,7 @@ class TestFootball2VecEncoder:
     """Transformer encoder forward pass and MLM head shape validation."""
 
     def test_forward_pass_shape(self) -> None:
-        """forward() produces (batch=4, hidden_dim=128) via mean pooling."""
+        """forward() produces (batch=4, hidden_dim=192) via CLS pooling (iter-15 default)."""
         config = Football2VecConfig()
         model = Football2VecEncoder(config)
         model.eval()
@@ -104,7 +107,7 @@ class TestFootball2VecEncoder:
         with torch.no_grad():
             output = model(action_ids, x_coords, y_coords, attention_mask)
 
-        assert output.shape == (4, 128)
+        assert output.shape == (4, 192)
 
     def test_mlm_head_shape(self) -> None:
         """mlm_forward() produces (batch=4, seq_len=50, vocab_size=23) logits."""
@@ -156,7 +159,7 @@ class TestFootball2VecEncoder:
         with torch.no_grad():
             output = model(action_ids, x_coords, y_coords, attention_mask=None)
 
-        assert output.shape == (4, 128)
+        assert output.shape == (4, 192)
 
     def test_attention_mask_affects_output(self) -> None:
         """Masking out tokens changes the mean-pooled embedding."""
@@ -179,7 +182,7 @@ class TestFootball2VecEncoder:
     def test_default_config_when_none(self) -> None:
         """Passing config=None uses default Football2VecConfig."""
         model = Football2VecEncoder(config=None)
-        assert model.config.hidden_dim == 128
+        assert model.config.hidden_dim == 192
         assert model.config.vocab_size == 23
 
     def test_custom_config_dimensions(self) -> None:
@@ -395,14 +398,25 @@ def test_football2vec_encoder_rope_uses_proper_rotary_encoder() -> None:
     assert "_rope_sin" not in root_buffer_names
 
 
-def test_football2vec_encoder_backward_compat() -> None:
-    """Default Football2VecConfig() produces the same module structure as before EV1."""
+def test_football2vec_encoder_default_structure_is_iter15() -> None:
+    """Default Football2VecConfig() produces the EV1 iter-15 module structure.
+
+    Previously this test was ``test_football2vec_encoder_backward_compat`` and
+    asserted the pre-EV1 defaults (mean pool, hidden_dim=128, mask_prob=0.15).
+    The 2026-04-19 HF Jobs L40S validation of iter-15 reproduced the local
+    val_acc_15ep=0.5865 number (L40S=0.5850, +1.6 pp vs the pre-EV1 baseline of
+    0.569), and the defaults were promoted to iter-15 in the same cycle. This
+    test now guards the iter-15 structure instead.
+    """
     cfg = Football2VecConfig()
     model = Football2VecEncoder(cfg)
 
-    assert cfg.pooling_type == "mean"
+    assert cfg.pooling_type == "cls"
     assert cfg.spatial_injection == "additive"
     assert cfg.position_embedding == "learnable"
+    assert cfg.hidden_dim == 192
+    assert cfg.num_heads == 6
+    assert cfg.mask_prob == 0.22
 
     expected_modules = {
         "token_embedding",
@@ -415,23 +429,28 @@ def test_football2vec_encoder_backward_compat() -> None:
     }
     actual_modules = {name for name, _ in model.named_children()}
     missing = expected_modules - actual_modules
-    assert not missing, f"backward-compat regression: missing modules {missing}"
+    assert not missing, f"default-config regression: missing modules {missing}"
 
-    forbidden_modules = {"pool_attn", "spatial_concat_proj", "film_scale", "film_shift", "cls_token"}
+    # CLS pooling registers cls_token as an nn.Parameter (not an nn.Module),
+    # so it does NOT appear in named_children. Verify it's a registered
+    # parameter on the encoder root instead.
+    param_names = {name for name, _ in model.named_parameters(recurse=False)}
+    assert "cls_token" in param_names, "default config (cls pooling) must register cls_token parameter"
+
+    forbidden_modules = {"pool_attn", "spatial_concat_proj", "film_scale", "film_shift"}
     extra = forbidden_modules & actual_modules
-    assert not extra, f"backward-compat regression: unexpected modules {extra}"
+    assert not extra, f"default-config regression: unexpected enum-variant modules {extra}"
 
-    # Also assert EV1-only buffers are absent (named_children excludes buffers).
     buffer_names = {name for name, _ in model.named_buffers()}
     forbidden_buffers = {"_sin_pos", "_rope_cos", "_rope_sin"}
     extra_buffers = forbidden_buffers & buffer_names
-    assert not extra_buffers, f"backward-compat regression: unexpected buffers {extra_buffers}"
+    assert not extra_buffers, f"default-config regression: unexpected position-variant buffers {extra_buffers}"
 
     batch = _dummy_batch()
     model.eval()
     with torch.no_grad():
         out = model(batch["action_ids"], batch["x_coords"], batch["y_coords"], batch["attention_mask"])
-    assert out.shape == (2, 128)
+    assert out.shape == (2, 192)
 
 
 @pytest.mark.parametrize(
