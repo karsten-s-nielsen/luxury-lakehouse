@@ -81,7 +81,9 @@ MASK_TOKEN_ID = VOCAB_SIZE
 PAD_TOKEN_ID = VOCAB_SIZE + 1
 DEFAULT_EPOCHS = 30
 DEFAULT_BATCH_SIZE = 256
-DEFAULT_LR = 1e-4
+# 3e-4 after EV1 iter-15 promotion (HF Jobs L40S val_acc_15ep=0.5850, +1.6 pp
+# vs the prior 1e-4 baseline of 0.569). See docs/evolve/ev1-football2vec/SUMMARY.md.
+DEFAULT_LR = 3e-4
 DEFAULT_PATIENCE = 5
 
 CATALOG = "soccer_analytics"

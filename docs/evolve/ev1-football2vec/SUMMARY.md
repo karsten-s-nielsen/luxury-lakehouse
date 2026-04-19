@@ -3,6 +3,7 @@
 **Run timestamp:** 2026-04-18T23:26:28Z -> 2026-04-19T03:10Z (sweep, stopped manually)
 **Top-10 15-epoch validation:** 2026-04-19T04:23Z -> 08:30Z (local, overnight)
 **Rope-only re-validation (proper RoPE):** 2026-04-19T09:25Z -> 10:09Z (local, 44 min)
+**iter-15 HF Jobs production validation:** 2026-04-19T15:56Z -> 16:17Z (L40S, 21 min, $0.28). val_acc_15ep=**0.5850** (local=0.5865, delta=-0.15 pp — reproduced within noise).
 **Branch:** `evolve/football2vec-l1-sweep`
 **Spec:** `docs/superpowers/specs/2026-04-18-ev1-football2vec-l1-sweep-design.md`
 **Plan:** `docs/superpowers/plans/2026-04-18-ev1-football2vec-l1-sweep.md`
@@ -224,12 +225,13 @@ budget allows.
 
 ## Recommendation
 
-**Before promoting anything, run a downstream study on the rope variant.**
+### iter-15 (non-rope) — PROMOTED
 
-The non-rope winner (iter-15, 0.5865) is a safe +1.75 pp over baseline. It
-should reproduce on the production training path at small cost — one HF
-Jobs L40S run, ~13 min, $0.32 — and if it reproduces it is a drop-in
-improvement to the defaults.
+HF Jobs L40S validation reproduced the local number: val_acc_15ep=0.5850 (local=0.5865, delta=-0.15 pp, within noise). `Football2VecConfig` defaults flipped to iter-15 on the same PR that added this validation; `scripts/train_football2vec_v2.py:DEFAULT_LR` changed from 1e-4 to 3e-4 to match.
+
+### Rope — still deferred
+
+The +18-20 pp rope-vs-non-rope gap still lacks a mechanism; a downstream rope-embedding-quality probe is required before flipping `position_embedding="rope"` defaults. See the rope section above and follow-ups below.
 
 The rope variant (iter-1, ~0.75) is numerically dramatic but the nature of
 its gain is not yet characterised. Before swapping Football2Vec v2 to use
@@ -252,9 +254,10 @@ and that is the obvious next target.
   rope config: does the iter-1 rope model's 144-dim embedding cluster
   players by style as well as the iter-15 learnable model's? Same infra
   as the existing Football2Vec similarity demo.
-- **Full-fidelity production validation of iter-15** — `train_football2vec_v2.py --stage 1`
-  at 15 epochs with the iter-15 config on HF Jobs L40S; confirm the +1.75 pp
-  gain reproduces.
+- ~~**Full-fidelity production validation of iter-15**~~ — DONE 2026-04-19.
+  HF Jobs L40S run via `scripts/validate_ev1_iter15_hf.py` produced
+  val_acc_15ep=0.5850 (-0.15 pp vs local 0.5865, within noise). Defaults
+  flipped to iter-15 in the same PR.
 - **Investigate the mechanism of the rope vs learnable gap** — is it the
   spatial-context shortcut described above, or something else? Possible
   tests: zero x/y at all positions (not just masked); replace action IDs at
