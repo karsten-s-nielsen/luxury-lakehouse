@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from page_template import NAV_PLAYER_ANALYSIS, Citation, ContentBlock, ContentRow, PageConfig, build_page
+from page_template import NAV_PLAYER_ANALYSIS, Citation, ContentBlock, ContentRow, PageConfig, ScopeDim, build_page
 
 page_config = PageConfig(
     title="Player Comparison",
@@ -14,9 +14,13 @@ page_config = PageConfig(
     ),
     citations=[
         Citation("mplsoccer", "https://mplsoccer.readthedocs.io/"),
-        Citation("Decroos et al. (2019)", "https://doi.org/10.1007/s10994-021-05989-6"),
+        Citation("Decroos et al. (2019)", "https://doi.org/10.1145/3292500.3330758"),
     ],
-    scope_vars=["pr_scope_label"],
+    scope_dims=[
+        ScopeDim("Competition", "pr_scope_comp"),
+        ScopeDim("Team", "pr_scope_team"),
+        ScopeDim("Players", "pr_scope_players"),
+    ],
     warning_var="pr_warning_text",
     content=[
         ContentRow(
@@ -32,7 +36,7 @@ page_config = PageConfig(
         ContentRow([ContentBlock("text", "pr_no_physical_note")]),
         ContentRow([ContentBlock("text", "pr_low_minute_warning")]),
         ContentRow([ContentBlock("text", "pr_metrics_hint", condition="len(pr_metrics_hint) > 0")]),
-        ContentRow([ContentBlock("image", "pr_radar_image")]),
+        ContentRow([ContentBlock("image", "pr_radar_image", alt_var="pr_radar_image_alt")]),
         ContentRow([ContentBlock("expandable_table", "pr_stats_table", header="Full Stats", table_page_size=25)]),
     ],
     empty_message="Select a competition to begin.",

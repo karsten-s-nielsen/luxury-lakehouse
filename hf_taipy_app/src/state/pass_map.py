@@ -9,9 +9,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import matplotlib
 import pandas as pd
-from filters import fetch_data_freshness, fetch_scope_label
+from filters import build_scope_label_plain, build_warning, fetch_data_freshness
 from matplotlib.lines import Line2D
 from mplsoccer import Pitch
 from queries.passes import fetch_passes
@@ -22,9 +21,9 @@ from render import (
     pitch_to_file,
 )
 
-from state.shared import get_comp_id, get_match_id, get_team_id, register_page_refresher
+# matplotlib.use("Agg") is set by render.py at module load (imported above).
+from state.shared import _ALL_LABEL, get_comp_id, get_match_id, get_team_id, register_page_refresher
 
-matplotlib.use("Agg")
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -48,8 +47,11 @@ pm_show_progressive: bool = True
 pm_show_line_breaking: bool = True
 
 pm_warning_text: str = ""
-pm_scope_label: str = ""
+pm_scope_comp: str = ""
+pm_scope_team: str = ""
+pm_scope_match: str = ""
 pm_data_freshness: str = ""
+pm_pitch_image_alt: str = ""
 
 __all__ = [
     "on_pm_toggle_change",
@@ -58,9 +60,12 @@ __all__ = [
     "pm_data_freshness",
     "pm_line_breaking",
     "pm_pitch_image",
+    "pm_pitch_image_alt",
     "pm_progressive",
     "pm_refresh",
-    "pm_scope_label",
+    "pm_scope_comp",
+    "pm_scope_match",
+    "pm_scope_team",
     "pm_show_line_breaking",
     "pm_show_progressive",
     "pm_total",
@@ -238,14 +243,24 @@ def pm_refresh(state: Any) -> None:
         state.pm_line_breaking = "--"
         state.pm_completion_pct = "--"
         state.pm_pitch_image = ""
+        state.pm_pitch_image_alt = ""
         state.pm_warning_text = ""
-        state.pm_scope_label = ""
+        state.pm_scope_comp = ""
+        state.pm_scope_team = ""
+        state.pm_scope_match = ""
         state.pm_data_freshness = ""
         _cached_passes = pd.DataFrame()
         return
 
-    # Scope label
-    state.pm_scope_label = fetch_scope_label(comp_id, team_id)
+    # Scope dimensions (Competition, Team, Match) — canonical Tier A scope line
+    comp_label = state.selected_competition or ""
+    team_label = state.selected_team if state.selected_team not in (None, _ALL_LABEL) else "All teams"
+    match_label = state.selected_match if state.selected_match not in (None, _ALL_LABEL) else "—"
+    state.pm_scope_comp = comp_label
+    state.pm_scope_team = team_label
+    state.pm_scope_match = match_label
+    scope_plain = build_scope_label_plain([("Competition", comp_label), ("Team", team_label), ("Match", match_label)])
+    state.pm_pitch_image_alt = f"Pass Map — {scope_plain}"
 
     try:
         passes = fetch_passes(comp_id, team_id, match_id)
@@ -263,7 +278,10 @@ def pm_refresh(state: Any) -> None:
         state.pm_line_breaking = "0"
         state.pm_completion_pct = "0.0%"
         state.pm_pitch_image = ""
-        state.pm_warning_text = "No passes found for this filter combination. Try selecting a different match or team."
+        state.pm_warning_text = build_warning(
+            domain="passes",
+            suggestions=["choosing a different match", "a different team"],
+        )
         state.pm_data_freshness = ""
         return
 

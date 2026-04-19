@@ -11,14 +11,14 @@ from typing import Any, cast
 
 import numpy as np
 import pandas as pd
-from filters import fetch_data_freshness, fetch_scope_label
+from filters import build_scope_label_plain, build_warning, fetch_data_freshness
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from mplsoccer import VerticalPitch
 from queries.shots import fetch_shots, fetch_xg_predictions
 from render import AMBER, GRAY, PITCH_BG_COLOR, PITCH_LINE_COLOR, fmt_int, pitch_to_file
 
-from state.shared import get_comp_id, get_player_id, get_team_id, register_page_refresher
+from state.shared import _ALL_LABEL, get_comp_id, get_player_id, get_team_id, register_page_refresher
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +42,11 @@ sm_xg_per_delta: str = ""
 sm_brier_delta: str = ""
 
 sm_pitch_image: str = ""
+sm_pitch_image_alt: str = ""
 
-sm_scope_label: str = ""
+sm_scope_comp: str = ""
+sm_scope_team: str = ""
+sm_scope_player: str = ""
 sm_data_scope_note: str = ""
 sm_nan_fallback_note: str = ""
 sm_warning_text: str = ""
@@ -60,7 +63,10 @@ __all__ = [
     "sm_goals",
     "sm_nan_fallback_note",
     "sm_pitch_image",
-    "sm_scope_label",
+    "sm_pitch_image_alt",
+    "sm_scope_comp",
+    "sm_scope_player",
+    "sm_scope_team",
     "sm_total_shots",
     "sm_total_xg",
     "sm_warning_text",
@@ -174,7 +180,10 @@ def sm_refresh(state: Any) -> None:
         state.sm_xg_per_delta = ""
         state.sm_brier_delta = ""
         state.sm_pitch_image = ""
-        state.sm_scope_label = ""
+        state.sm_pitch_image_alt = ""
+        state.sm_scope_comp = ""
+        state.sm_scope_team = ""
+        state.sm_scope_player = ""
         state.sm_data_scope_note = ""
         state.sm_nan_fallback_note = ""
         state.sm_empty_message = "Select a competition to begin."
@@ -185,8 +194,15 @@ def sm_refresh(state: Any) -> None:
     team_id = get_team_id(state.selected_team)
     player_id = get_player_id(state.selected_player)
 
-    # Scope label (Gergle state visibility)
-    state.sm_scope_label = fetch_scope_label(comp_id, team_id)
+    # Scope dimensions (Competition, Team, Player) — canonical Tier A scope line
+    comp_label = state.selected_competition or ""
+    team_label = state.selected_team if state.selected_team not in (None, _ALL_LABEL) else "All teams"
+    player_label = state.selected_player if state.selected_player not in (None, _ALL_LABEL) else "All players"
+    state.sm_scope_comp = comp_label
+    state.sm_scope_team = team_label
+    state.sm_scope_player = player_label
+    scope_plain = build_scope_label_plain([("Competition", comp_label), ("Team", team_label), ("Player", player_label)])
+    state.sm_pitch_image_alt = f"Shot Map — {scope_plain}"
 
     # Fetch shots
     shots = fetch_shots(comp_id, team_id, player_id)
@@ -204,7 +220,10 @@ def sm_refresh(state: Any) -> None:
         state.sm_data_scope_note = ""
         state.sm_nan_fallback_note = ""
         state.sm_empty_message = ""
-        state.sm_warning_text = "No shots found for this filter combination. Try selecting a different match or player."
+        state.sm_warning_text = build_warning(
+            domain="shots",
+            suggestions=["removing the team filter", "choosing a different player"],
+        )
         state.sm_data_freshness = ""
         return
 

@@ -51,6 +51,17 @@ IGNORE_PATTERNS: list[str] = [
     "architecture.*",
     "src/test_render.py",
     "src/pages/widget_spacing_test.py",
+    # Taipy GUI extension front-end build artefacts — we ship the built
+    # `dist/library.js` bundle but not the node_modules, source maps, or
+    # the dotfile that encodes the local Taipy venv path.
+    "**/node_modules",
+    "**/node_modules/**",
+    "**/dist/*.map",
+    "**/.env",
+    "**/.env.*",
+    "**/package-lock.json",
+    "**/.benchmarks",
+    "**/.benchmarks/**",
 ]
 
 # Secrets to configure on the Space.  Each entry maps the HF secret name to the

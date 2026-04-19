@@ -16,7 +16,7 @@ from typing import Any
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from filters import fetch_data_freshness
+from filters import NO_MATCHES_SENTINEL, fetch_data_freshness
 from queries.defensive import (
     fetch_breakdown_player_ids,
     fetch_defcon_percentiles,
@@ -62,6 +62,11 @@ dv_rankings_data: pd.DataFrame = pd.DataFrame(columns=_DV_RANKINGS_COLS)
 # Breakdown view state
 dv_breakdown_player_lov: list[str] = []
 dv_selected_breakdown_player: str | None = None
+# Server-driven autocomplete query for the Breakdown player dropdown.
+# Filter is in-memory over _dv_breakdown_player_map (already loaded from
+# the rankings frame + breakdown_player_ids cross-reference) — no extra DB
+# query because the candidate set is already in the page's working memory.
+dv_breakdown_player_search_query: str = ""
 dv_intercept: str = "--"
 dv_concede: str = "--"
 dv_disturb: str = "--"
@@ -71,6 +76,9 @@ dv_breakdown_figure: go.Figure | None = None
 # Timeline view state
 dv_timeline_player_lov: list[str] = []
 dv_selected_timeline_player: str | None = None
+# Server-driven autocomplete query for the Timeline player dropdown — same
+# in-memory pattern as the Breakdown view.
+dv_timeline_player_search_query: str = ""
 dv_timeline_match_lov: list[str] = []
 dv_selected_timeline_match: str | None = None
 _DV_TIMELINE_COLS = [
@@ -103,6 +111,7 @@ __all__ = [
     "dv_rankings_data",
     # Breakdown
     "dv_breakdown_player_lov",
+    "dv_breakdown_player_search_query",
     "dv_selected_breakdown_player",
     "dv_intercept",
     "dv_concede",
@@ -112,6 +121,7 @@ __all__ = [
     "dv_breakdown_figure",
     # Timeline
     "dv_timeline_player_lov",
+    "dv_timeline_player_search_query",
     "dv_selected_timeline_player",
     "dv_timeline_match_lov",
     "dv_selected_timeline_match",
@@ -121,7 +131,9 @@ __all__ = [
     "dv_on_team_change",
     "dv_on_view_change",
     "dv_on_breakdown_player_change",
+    "dv_on_breakdown_player_search_change",
     "dv_on_timeline_player_change",
+    "dv_on_timeline_player_search_change",
     "dv_on_timeline_match_change",
     "dv_refresh",
     "dv_warning_text",
@@ -662,9 +674,37 @@ def dv_on_breakdown_player_change(state: Any, var_name: str, var_value: Any) -> 
     _load_breakdown_for_player(state)
 
 
+def dv_on_breakdown_player_search_change(state: Any, var_name: str, var_value: Any) -> None:
+    """Server-driven autocomplete for the Breakdown player dropdown.
+
+    In-memory substring filter over _dv_breakdown_player_map (already populated
+    when the Breakdown view loads). No DB round-trip; the candidate set never
+    leaves the server. Empty query restores the full list (top-50 if larger).
+    """
+    full = list(_dv_breakdown_player_map.keys())
+    q = (var_value or "").strip().lower()
+    matches = [p for p in full if q in p.lower()][:500] if q else full[:50]
+    state.dv_breakdown_player_lov = matches if matches else [NO_MATCHES_SENTINEL]
+    logger.info("DV breakdown search: query=%r -> %d results", q, len(matches))
+
+
 def dv_on_timeline_player_change(state: Any, var_name: str, var_value: Any) -> None:
     """Timeline player changed — reload matches for this player."""
     _load_timeline_matches(state)
+
+
+def dv_on_timeline_player_search_change(state: Any, var_name: str, var_value: Any) -> None:
+    """Server-driven autocomplete for the Timeline player dropdown.
+
+    In-memory substring filter over _dv_timeline_player_map (mirrors the
+    Breakdown variant). The map only has rows for players with timeline data
+    in the (comp, team) scope, so search results are pre-narrowed to valid picks.
+    """
+    full = list(_dv_timeline_player_map.keys())
+    q = (var_value or "").strip().lower()
+    matches = [p for p in full if q in p.lower()][:500] if q else full[:50]
+    state.dv_timeline_player_lov = matches if matches else [NO_MATCHES_SENTINEL]
+    logger.info("DV timeline search: query=%r -> %d results", q, len(matches))
 
 
 def dv_on_timeline_match_change(state: Any, var_name: str, var_value: Any) -> None:

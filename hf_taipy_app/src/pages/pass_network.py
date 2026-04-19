@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
-from page_template import NAV_MATCH_ANALYSIS, Citation, ContentBlock, ContentRow, Metric, PageConfig, build_page
+from page_template import (
+    NAV_MATCH_ANALYSIS,
+    Citation,
+    ContentBlock,
+    ContentRow,
+    Metric,
+    PageConfig,
+    ScopeDim,
+    build_page,
+)
 
 page_config = PageConfig(
     title="Pass Network",
@@ -24,7 +33,11 @@ page_config = PageConfig(
     empty_message="Select a competition, team, and match to begin.",
     empty_condition="selected_competition is None or selected_team is None or selected_match is None",
     warning_var="pn_warning_text",
-    scope_vars=["pn_scope_label"],
+    scope_dims=[
+        ScopeDim("Competition", "pn_scope_comp"),
+        ScopeDim("Team", "pn_scope_team"),
+        ScopeDim("Match", "pn_scope_match"),
+    ],
     freshness_var="pn_data_freshness",
     metrics=[
         Metric("Completed Passes", "pn_total_passes", "Number of passes that reached the intended recipient."),

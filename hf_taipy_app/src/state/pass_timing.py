@@ -16,7 +16,14 @@ from typing import Any
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from filters import fetch_data_freshness, fetch_pausa_matches, fetch_pausa_players, fetch_pausa_teams
+from filters import (
+    NO_MATCHES_SENTINEL,
+    fetch_data_freshness,
+    fetch_pausa_matches,
+    fetch_pausa_players,
+    fetch_pausa_teams,
+    search_pausa_players,
+)
 from queries.passes import (
     fetch_pass_timing_rankings,
     fetch_pausa_aggregate_rankings,
@@ -34,6 +41,8 @@ logger = logging.getLogger(__name__)
 pt_selected_match: str | None = None
 pt_selected_team: str | None = None
 pt_selected_player: str | None = None
+# Server-driven autocomplete query for the PAUSA player dropdown.
+pt_player_search_query: str = ""
 
 pt_match_lov: list[str] = []
 pt_team_lov: list[str] = []
@@ -98,10 +107,12 @@ __all__ = [
     "pt_on_min_passes_change",
     "pt_on_per_match_min_passes_change",
     "pt_on_player_change",
+    "pt_on_player_search_change",
     "pt_on_team_change",
     "pt_pass_count",
     "pt_per_match_min_passes",
     "pt_player_lov",
+    "pt_player_search_query",
     "pt_rankings_data",
     "pt_scatter_figure",
     "pt_selected_match",
@@ -273,6 +284,32 @@ def pt_on_team_change(state: Any, var_name: str, var_value: Any) -> None:
 def pt_on_player_change(state: Any, var_name: str, var_value: Any) -> None:
     """PAUSA player changed — refresh data."""
     _refresh_data(state)
+
+
+def pt_on_player_search_change(state: Any, var_name: str, var_value: Any) -> None:
+    """Server-driven autocomplete for the PAUSA player dropdown.
+
+    PAUSA player IDs are DFL-OBJ-xxxxx tokens; this callback substring-matches
+    on the display label (which falls back to the raw ID when dim_players has
+    no match — IDSSE tracking data omits player names by default).
+    """
+    global _pt_player_map
+    match_id = _get_pt_match_id(state.pt_selected_match)
+    if match_id is None:
+        return
+    team = _get_pt_team(state.pt_selected_team)
+    query = var_value or ""
+    try:
+        results = search_pausa_players(query, match_id, team, top_n_when_empty=50)
+    except Exception:
+        logger.exception("PAUSA search failed for query=%r match=%s team=%s", query, match_id, team)
+        return
+    _pt_player_map.update(dict(results))
+    if results:
+        state.pt_player_lov = ["All players", *(label for label, _ in results)]
+    else:
+        state.pt_player_lov = ["All players", NO_MATCHES_SENTINEL]
+    logger.info("PAUSA search: query=%r -> %d results", query, len(results))
 
 
 def pt_on_min_passes_change(state: Any, var_name: str, var_value: Any) -> None:

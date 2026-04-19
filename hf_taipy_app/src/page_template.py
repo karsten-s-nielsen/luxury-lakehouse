@@ -24,7 +24,7 @@ class SidebarWidget:
     and when to show it. Zero styling information.
     """
 
-    kind: Literal["dropdown", "dropdown_multi", "slider", "toggle"]
+    kind: Literal["dropdown", "dropdown_multi", "combobox", "slider", "toggle"]
     var: str  # state variable name
     label: str  # human-readable label
     on_change: str  # callback function name
@@ -51,7 +51,16 @@ class SidebarWidget:
     # moving for this duration. Prevents expensive re-renders during drag.
     change_delay: int = 0
     help: str = ""  # tooltip help text (rendered as info icon next to widget)
-    filterable: bool = False  # dropdown only: enable type-to-filter (Taipy |filter| flag)
+    filterable: bool = False  # dropdown only: enable type-to-filter (Taipy |filter| flag — client-side)
+    required: bool = True  # False -> " (optional)" auto-appended to label (dropdowns only)
+    # Combobox-specific: the `combobox` kind (ll_ext.combobox custom element)
+    # uses these for WAI-ARIA APG combobox-with-list-autocomplete behaviour
+    # over unbounded LOVs (>500 candidates). See
+    # hf_taipy_app/src/extensions/ll_ext/.
+    search_var: str = ""  # state var holding the current search query string (str, default "")
+    on_search_change: str = ""  # callback fired after debounce when the search input changes
+    search_label: str = "Type to search\u2026"  # placeholder for the search input
+    search_change_delay: int = 300  # debounce in ms
 
 
 @dataclass(frozen=True)
@@ -124,11 +133,32 @@ def _build_sidebar_widget(w: SidebarWidget, f: bool) -> str:
     else:
         parts.append("<|part|")
 
+    effective_label = w.label if w.required else f"{w.label} (optional)"
+
     if w.kind in ("dropdown", "dropdown_multi"):
         multi = "|multiple" if w.kind == "dropdown_multi" else ""
         filter_attr = "|filter" if getattr(w, "filterable", False) else ""
         parts.append(
-            f"<|{lb}{w.var}{rb}|selector|lov={lb}{w.lov}{rb}{multi}{filter_attr}|dropdown|label={w.label}|on_change={w.on_change}|>"
+            f"<|{lb}{w.var}{rb}|selector|lov={lb}{w.lov}{rb}{multi}{filter_attr}|dropdown|label={effective_label}|on_change={w.on_change}|>"
+        )
+
+    elif w.kind == "combobox":
+        # WAI-ARIA APG combobox-with-list-autocomplete, implemented as a
+        # Taipy GUI extension (see src/extensions/ll_ext/). Drives unbounded
+        # LOVs (>500 candidates) through a debounced backend search that
+        # repopulates `lov`. The listbox is hidden when the input is empty
+        # and not focused — matching standard combobox expectations.
+        placeholder = w.search_label or "Type to search\u2026"
+        parts.append(
+            f"<|{lb}{w.var}{rb}|ll_ext.combobox"
+            f"|lov={lb}{w.lov}{rb}"
+            f"|label={effective_label}"
+            f"|placeholder={placeholder}"
+            f"|search={lb}{w.search_var}{rb}"
+            f"|on_change={w.on_change}"
+            f"|on_search={w.on_search_change}"
+            f"|debounce_ms={w.search_change_delay}"
+            f"|class_name=ll-combobox|>"
         )
 
     elif w.kind == "slider":
@@ -275,6 +305,7 @@ class ContentBlock:
     height_var: str = ""  # html kind: dynamic height state variable
     container_class: str = ""  # html kind: override wrapper CSS class (default: "ll-html-content")
     table_cell_class_name: dict[str, str] | None = None  # table kind: {column: callback_name} for cell styling
+    alt_var: str = ""  # image kind: state variable for alt text; falls back to label=page_title
 
 
 @dataclass(frozen=True)
@@ -329,6 +360,26 @@ class Citation:
 
 
 @dataclass(frozen=True)
+class ScopeDim:
+    """One dimension in the canonical scope line.
+
+    label: Static dimension name (e.g., 'Competition'). Rendered as small-caps.
+    value_var: Name of the state variable holding the resolved value (e.g., 'hm_scope_comp').
+
+    Separators between dimensions are rendered via a CSS pseudo-element rule,
+    so the template emits no explicit separator markup between dims.
+
+    Why this dataclass instead of emitting raw HTML via `|text|raw|`:
+    Taipy's `|text|raw|` escapes HTML — `<span>` tags render as literal text.
+    Using per-dimension state vars + static Taipy markdown keeps everything
+    Taipy-native and avoids the escape problem.
+    """
+
+    label: str
+    value_var: str
+
+
+@dataclass(frozen=True)
 class PageConfig:
     """Everything unique to a page. The template handles the rest.
 
@@ -345,8 +396,11 @@ class PageConfig:
     empty_condition: str = ""  # Taipy render condition for empty state
     metrics: list[Metric] = field(default_factory=list)
     content: list[ContentRow] = field(default_factory=list)
-    # Optional: scope/status variables shown above the image
+    # Optional: scope/status variables shown above the image (secondary plain-text lines)
     scope_vars: list[str] = field(default_factory=list)
+    # Optional: canonical scope dimensions (small-caps label + value pairs).
+    # Renders above scope_vars. Page lists only the dimensions it filters by.
+    scope_dims: list[ScopeDim] = field(default_factory=list)
     # Optional: data freshness variable shown below the image
     freshness_var: str = ""
     warning_var: str = ""  # state variable for "no data" warnings (ll-warning-box)
@@ -487,7 +541,10 @@ def _build_content_block(block: ContentBlock, page_title: str) -> str:
 
     # Content by kind
     if block.kind == "image":
-        parts.append(f"<|{{{block.var}}}|image|label={page_title}|width=100%|>")
+        if block.alt_var:
+            parts.append(f"<|{{{block.var}}}|image|label={{{block.alt_var}}}|width=100%|>")
+        else:
+            parts.append(f"<|{{{block.var}}}|image|label={page_title}|width=100%|>")
     elif block.kind == "table":
         parts.append(f"<|{{{block.var}}}|table|page_size={block.table_page_size}{action_attr}{ccn_attr}|>")
     elif block.kind == "text":
@@ -669,8 +726,45 @@ def build_header_from_config(cfg: PageConfig) -> str:
     )
 
 
+def _build_scope_section(cfg: PageConfig) -> str:
+    """Render the canonical scope line (scope_dims) + secondary plain-text scope_vars.
+
+    Emits nothing when both are empty. Shared by standard, sub-view, and dashboard
+    page layouts so the Tier A canon applies regardless of layout type.
+    """
+    parts: list[str] = []
+
+    # Canonical scope line — per-dimension small-caps label + value pairs.
+    if cfg.scope_dims:
+        render_expr = " or ".join(f"len({d.value_var}) > 0" for d in cfg.scope_dims)
+        parts.append(f"<|part|class_name=ll-page-scope|render={{{render_expr}}}|")
+        for dim in cfg.scope_dims:
+            parts.append(f"<|{{'{dim.label}'}}|text|class_name=ll-scope-dim-label|raw|>")
+            parts.append(f"<|{{{dim.value_var}}}|text|class_name=ll-scope-value|>")
+        parts.append("|>")
+        parts.append("")
+
+    # Secondary plain-text scope lines (e.g., Match Summary league averages).
+    for sv in cfg.scope_vars:
+        parts.append(f"<|part|render={{len({sv}) > 0}}|")
+        parts.append(f"<|{{{sv}}}|text|>")
+        parts.append("|>")
+        parts.append("")
+
+    return "\n".join(parts)
+
+
 def _build_sub_view_page(parts: list[str], cfg: PageConfig) -> None:
-    """Append multi-view page layout: conditional sub-view blocks."""
+    """Append multi-view page layout: conditional sub-view blocks.
+
+    Scope line (if any) renders once at page level above all sub-views — all
+    sub-views share the same scope so rendering per-sub-view would be pure
+    duplication.
+    """
+    scope = _build_scope_section(cfg)
+    if scope:
+        parts.append(scope)
+        parts.append("")
     for sv in cfg.sub_views:
         parts.append(_build_sub_view(sv, cfg.title))
         parts.append("")
@@ -682,6 +776,15 @@ def _build_dashboard_page(parts: list[str], cfg: PageConfig) -> None:
     # get a scrollbar instead of clipping the DAG / table.
     parts.append("<|part|class_name=ll-dashboard-scroll|")
     parts.append("")
+
+    # Scope line renders ABOVE the stats bar — the tiles summarise data that
+    # is scoped by the competition / team / player filters, so the scope
+    # acts as the caption for those tiles.
+    scope = _build_scope_section(cfg)
+    if scope:
+        parts.append(scope)
+        parts.append("")
+
     parts.append(_build_stats_bar(cfg.stats))
     parts.append("")
 
@@ -717,12 +820,10 @@ def _build_standard_page(parts: list[str], cfg: PageConfig) -> None:
     # Left column: scope, diagram, freshness
     parts.append("<|part|")
 
-    # Scope variables
-    for sv in cfg.scope_vars:
-        parts.append(f"<|part|render={{len({sv}) > 0}}|")
-        parts.append(f"<|{{{sv}}}|text|>")
-        parts.append("|>")
-        parts.append("")
+    # Canonical scope line (scope_dims) + secondary plain-text scope_vars.
+    scope = _build_scope_section(cfg)
+    if scope:
+        parts.append(scope)
 
     # Content rows
     for row in cfg.content:

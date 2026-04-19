@@ -9,6 +9,7 @@ from page_template import (
     ContentRow,
     Metric,
     PageConfig,
+    ScopeDim,
     SubView,
     build_page,
 )
@@ -32,6 +33,11 @@ page_config = PageConfig(
     ],
     empty_message="",
     empty_condition="",
+    scope_dims=[
+        ScopeDim("Competition", "gk_scope_comp"),
+        ScopeDim("Team", "gk_scope_team"),
+        ScopeDim("Goalkeeper", "gk_scope_player"),
+    ],
     sub_views=[
         SubView(
             condition='selected_sub_view == "Rankings"',
@@ -47,7 +53,6 @@ page_config = PageConfig(
                     ]
                 ),
             ],
-            scope_vars=["gk_scope_label"],
             warning_var="gk_warning_text",
             empty_message="Select a competition to see GK rankings.",
             empty_condition="len(gk_rankings_df) == 0 and selected_competition is None",
@@ -95,7 +100,6 @@ page_config = PageConfig(
                     "Percentage of on-target shots saved. Typical elite GK range: 65-75%.",
                 ),
             ],
-            scope_vars=["gk_scope_label"],
             warning_var="gk_warning_text",
             empty_message="Select a competition to see shot stopping data.",
             empty_condition="gk_goalmouth_figure is None and selected_competition is None",
@@ -105,7 +109,12 @@ page_config = PageConfig(
             content=[
                 ContentRow(
                     [
-                        ContentBlock("image", "gk_distribution_image", header="Pass Distribution"),
+                        ContentBlock(
+                            "image",
+                            "gk_distribution_image",
+                            alt_var="gk_distribution_image_alt",
+                            header="Pass Distribution",
+                        ),
                     ]
                 ),
             ],
@@ -143,7 +152,6 @@ page_config = PageConfig(
                     "Higher = greater total contribution to attacking progression.",
                 ),
             ],
-            scope_vars=["gk_scope_label"],
             warning_var="gk_warning_text",
             empty_message="Select a competition to see distribution data.",
             empty_condition="len(gk_distribution_image) == 0 and selected_competition is None",

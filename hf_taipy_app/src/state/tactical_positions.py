@@ -17,7 +17,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from filters import fetch_data_freshness
+from filters import NO_MATCHES_SENTINEL, fetch_data_freshness
 from plotly.subplots import make_subplots
 from queries.tactical_positions import (
     fetch_formation_labels_dual,
@@ -130,6 +130,17 @@ tac_player_lov: list[str] = []
 tac_selected_player: str | None = None
 tac_compare_player_lov: list[str] = []
 tac_selected_compare_player: str | None = None
+# Server-driven autocomplete queries — same shape as the comparable dropdowns
+# elsewhere in the app. Tracking matches contain ~22 players, so search is
+# in-memory over a stashed _tac_full_player_names list (set when Position Maps
+# loads).
+tac_player_search_query: str = ""
+tac_compare_player_search_query: str = ""
+
+# Module-level stash of the full player-name list for the active match/team —
+# populated by _refresh_position_maps so the search callbacks can filter without
+# re-querying. Reset to [] when no team is selected.
+_tac_full_player_names: list[str] = []
 
 # General
 tac_data_freshness: str = ""
@@ -150,10 +161,14 @@ __all__ = [
     "tac_formation_comparison_figure",
     "tac_formation_stability",
     "tac_most_common_formation",
+    "tac_compare_player_search_query",
     "tac_on_compare_player_change",
+    "tac_on_compare_player_search_change",
     "tac_on_player_change",
+    "tac_on_player_search_change",
     "tac_on_team_change",
     "tac_player_lov",
+    "tac_player_search_query",
     "tac_position_map_compare_figure",
     "tac_position_map_figure",
     "tac_position_plot_figure",
@@ -762,7 +777,9 @@ def _refresh_position_maps(state: Any) -> None:
         state.tac_warning_text = "No position map data for this match and team. Try selecting a different team."
         return
 
+    global _tac_full_player_names
     player_names = players_df["player_display_name"].tolist()
+    _tac_full_player_names = list(player_names)
     state.tac_player_lov = player_names
     state.tac_compare_player_lov = player_names
 
@@ -849,10 +866,30 @@ def tac_on_player_change(state: Any, var_name: str, var_value: Any) -> None:
         _refresh_position_maps(state)
 
 
+def tac_on_player_search_change(state: Any, var_name: str, var_value: Any) -> None:
+    """Server-driven autocomplete for the Position Maps player dropdown.
+
+    In-memory substring filter over _tac_full_player_names (~22 entries per
+    match), so no DB round-trip. Empty query restores the full list.
+    """
+    q = (var_value or "").strip().lower()
+    matches = [p for p in _tac_full_player_names if q in p.lower()][:500] if q else list(_tac_full_player_names)
+    state.tac_player_lov = matches if matches else [NO_MATCHES_SENTINEL]
+    logger.info("TAC player search: query=%r -> %d results", q, len(matches))
+
+
 def tac_on_compare_player_change(state: Any, var_name: str, var_value: Any) -> None:
     """Compare player selector changed — re-render position maps."""
     if state.selected_sub_view == "Position Maps":
         _refresh_position_maps(state)
+
+
+def tac_on_compare_player_search_change(state: Any, var_name: str, var_value: Any) -> None:
+    """Server-driven autocomplete for the Position Maps "Compare with" dropdown."""
+    q = (var_value or "").strip().lower()
+    matches = [p for p in _tac_full_player_names if q in p.lower()][:500] if q else list(_tac_full_player_names)
+    state.tac_compare_player_lov = matches if matches else [NO_MATCHES_SENTINEL]
+    logger.info("TAC compare search: query=%r -> %d results", q, len(matches))
 
 
 # ---------------------------------------------------------------------------

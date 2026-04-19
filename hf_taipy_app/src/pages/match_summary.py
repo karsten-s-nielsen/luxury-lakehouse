@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
-from page_template import NAV_MATCH_ANALYSIS, Citation, ContentBlock, ContentRow, Metric, PageConfig, build_page
+from page_template import (
+    NAV_MATCH_ANALYSIS,
+    Citation,
+    ContentBlock,
+    ContentRow,
+    Metric,
+    PageConfig,
+    ScopeDim,
+    build_page,
+)
 
 page_config = PageConfig(
     title="Match Summary",
@@ -22,18 +31,19 @@ page_config = PageConfig(
     content=[
         ContentRow(
             [
-                ContentBlock("image", "ms_shooting_chart"),
-                ContentBlock("image", "ms_passing_chart"),
+                ContentBlock("image", "ms_shooting_chart", alt_var="ms_shooting_chart_alt"),
+                ContentBlock("image", "ms_passing_chart", alt_var="ms_passing_chart_alt"),
             ],
             columns=2,
             condition="len(ms_home_name) > 0",
         ),
         ContentRow(
             [
-                ContentBlock("image", "ms_possession_chart"),
+                ContentBlock("image", "ms_possession_chart", alt_var="ms_possession_chart_alt"),
                 ContentBlock(
                     "image",
                     "ms_ppda_chart",
+                    alt_var="ms_ppda_chart_alt",
                     caption="PPDA: Passes Per Defensive Action. Under 10 = aggressive pressing, over 15 = passive.",
                 ),
             ],
@@ -44,7 +54,12 @@ page_config = PageConfig(
     empty_message="Select a competition and match to begin.",
     empty_condition="len(ms_home_name) == 0",
     warning_var="ms_warning_text",
-    scope_vars=["ms_scope_label", "ms_league_averages"],
+    scope_dims=[
+        ScopeDim("Competition", "ms_scope_comp"),
+        ScopeDim("Team", "ms_scope_team"),
+        ScopeDim("Match", "ms_scope_match"),
+    ],
+    scope_vars=["ms_league_averages"],
     freshness_var="ms_data_freshness",
     metrics=[
         Metric("Home Score", "ms_home_score", "Match score."),
