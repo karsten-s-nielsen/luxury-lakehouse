@@ -212,7 +212,7 @@ protobuf==6.33.6
     # via databricks-sdk
 psycopg2-binary==2.9.11
     # via luxury-lakehouse (pyproject.toml)
-pyarrow==18.1.0
+pyarrow==23.0.1
     # via taipy-core
 pyasn1==0.6.3
     # via pyasn1-modules
