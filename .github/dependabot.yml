@@ -1,9 +1,18 @@
 version: 2
 updates:
+  # Python: only propose bumps for dependencies listed directly in pyproject.toml.
+  # The compiled lockfile at hf_taipy_app/requirements.txt contains transitive pins
+  # (pyarrow, pymongo, openpyxl, flask-socketio, gitignore-parser, etc.) whose
+  # versions are determined by upstream constraint trees — bumping them in the
+  # lockfile without a matching pyproject.toml change is rejected by our CI's
+  # "requirements.txt is stale" check. Restricting to direct dependencies avoids
+  # the false-positive PR class (see closed #138, #140, #141, #142, #143).
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: "weekly"
+    allow:
+      - dependency-type: "direct"
 
   - package-ecosystem: "github-actions"
     directory: "/"
