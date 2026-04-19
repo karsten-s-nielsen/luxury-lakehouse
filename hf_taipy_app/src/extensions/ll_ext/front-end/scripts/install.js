@@ -20,9 +20,18 @@ const { execSync } = require("child_process");
 const { existsSync, writeFileSync, appendFileSync, readFileSync } = require("fs");
 const { sep } = require("path");
 
+// `pkg` below is always a hardcoded literal from this same file (see
+// fetchTaipyDir: "taipy-gui" or "taipy"). The template-literal interpolation
+// therefore has zero attacker surface. spawnSync with array args was tried
+// but Node 22+ rejects `spawnSync("npm.cmd", ...)` on Windows with EINVAL,
+// so execSync is kept here for cross-platform parity. The nosemgrep
+// pragma is the sanctioned bypass for CI (see CLAUDE.md memory on Semgrep
+// patterns).
+
 function locatePackage(pkg) {
   let out = null;
   try {
+    // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
     out = execSync(`pip show ${pkg}`, { stdio: ["ignore", "pipe", "ignore"] });
   } catch {
     return null;
@@ -72,8 +81,11 @@ console.log(`Taipy-GUI webapp resolved to ${webapp}.`);
 
 // Install the taipy-gui SDK from the local Taipy venv. --no-save keeps the
 // absolute path out of package.json (machine-specific, not commit-safe).
-// Runtime resolution is still provided via webpack externals.
+// Runtime resolution is still provided via webpack externals. `webapp` is
+// derived from `pip show taipy-gui` output above, which is a trusted local
+// venv — not attacker input. Quoted to handle paths with spaces.
 try {
+  // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
   execSync(`npm i --no-save "${webapp}"`, { stdio: "inherit" });
   console.log("Local taipy-gui SDK installed into node_modules/.");
 } catch (err) {
