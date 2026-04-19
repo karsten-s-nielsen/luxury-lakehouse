@@ -12,15 +12,16 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import matplotlib
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import pandas as pd
-from filters import fetch_data_freshness, fetch_scope_label
+from filters import build_scope_label_plain, build_warning, fetch_data_freshness
 from queries.defensive import fetch_vaep_breakdown, fetch_vaep_rankings, fetch_vaep_timeline
 from render import PITCH_BG_COLOR, TEXT_COLOR, chart_to_file, fmt_int
 
+# matplotlib.use("Agg") is set by render.py at module load (imported above).
 from state.shared import (
+    _ALL_LABEL,
     get_comp_id,
     get_match_id,
     get_player_id,
@@ -28,7 +29,6 @@ from state.shared import (
     register_page_refresher,
 )
 
-matplotlib.use("Agg")
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -72,11 +72,17 @@ av_timeline_data: pd.DataFrame = pd.DataFrame(
 )
 
 av_data_freshness: str = ""
-av_scope_label: str = ""
+av_scope_comp: str = ""
+av_scope_team: str = ""
+av_scope_match: str = ""
+av_scope_player: str = ""
+av_breakdown_image_alt: str = ""
+av_timeline_image_alt: str = ""
 av_warning_text: str = ""
 
 __all__ = [
     "av_breakdown_image",
+    "av_breakdown_image_alt",
     "av_data_freshness",
     "av_most_valuable",
     "av_negative",
@@ -85,9 +91,13 @@ __all__ = [
     "av_rankings_data",
     "av_rankings_empty_msg",
     "av_refresh",
-    "av_scope_label",
+    "av_scope_comp",
+    "av_scope_match",
+    "av_scope_player",
+    "av_scope_team",
     "av_timeline_data",
     "av_timeline_image",
+    "av_timeline_image_alt",
     "av_top_action",
     "av_total_actions",
     "av_total_vaep",
@@ -254,6 +264,39 @@ def _format_rankings_table(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# Scope helper — shared across all 3 sub-views. Player-Impact exposes 4 filter
+# dimensions in the sidebar, so the canonical scope line always shows all 4.
+# ---------------------------------------------------------------------------
+
+
+def _set_scope(state: Any) -> str:
+    """Populate av_scope_{comp,team,match,player} from current filter state; return plain text."""
+    comp_label = state.selected_competition or ""
+    team_label = state.selected_team if state.selected_team not in (None, _ALL_LABEL) else "All teams"
+    match_label = state.selected_match if state.selected_match not in (None, _ALL_LABEL) else "All matches"
+    player_label = state.selected_player if state.selected_player not in (None, _ALL_LABEL) else "All players"
+    state.av_scope_comp = comp_label
+    state.av_scope_team = team_label
+    state.av_scope_match = match_label
+    state.av_scope_player = player_label
+    return build_scope_label_plain(
+        [
+            ("Competition", comp_label),
+            ("Team", team_label),
+            ("Match", match_label),
+            ("Player", player_label),
+        ]
+    )
+
+
+def _clear_scope(state: Any) -> None:
+    state.av_scope_comp = ""
+    state.av_scope_team = ""
+    state.av_scope_match = ""
+    state.av_scope_player = ""
+
+
+# ---------------------------------------------------------------------------
 # Sub-view refresh functions
 # ---------------------------------------------------------------------------
 
@@ -264,12 +307,11 @@ def _refresh_rankings(state: Any) -> None:
     if comp_id is None:
         state.av_rankings_data = pd.DataFrame(columns=_AV_RANKINGS_COLS)
         state.av_rankings_empty_msg = "Select a competition to see VAEP rankings."
-        state.av_scope_label = ""
+        _clear_scope(state)
         state.av_warning_text = ""
         return
 
-    team_id = get_team_id(state.selected_team)
-    state.av_scope_label = fetch_scope_label(comp_id, team_id)
+    _set_scope(state)
 
     min_min = int(state.min_minutes) if hasattr(state, "min_minutes") else 90
 
@@ -284,16 +326,12 @@ def _refresh_rankings(state: Any) -> None:
 
     table = _format_rankings_table(rankings)
     state.av_rankings_data = table
-    state.av_rankings_empty_msg = (
-        ""
-        if not table.empty
-        else "No VAEP data for this filter combination. Try selecting a different competition or removing player filters."
+    no_data_msg = build_warning(
+        domain="VAEP data",
+        suggestions=["a different competition", "removing player filters"],
     )
-    state.av_warning_text = (
-        ""
-        if not table.empty
-        else "No VAEP data for this filter combination. Try selecting a different competition or removing player filters."
-    )
+    state.av_rankings_empty_msg = "" if not table.empty else no_data_msg
+    state.av_warning_text = "" if not table.empty else no_data_msg
 
 
 def _refresh_breakdown(state: Any) -> None:
@@ -304,13 +342,15 @@ def _refresh_breakdown(state: Any) -> None:
         state.av_total_actions = "--"
         state.av_top_action = "--"
         state.av_breakdown_image = ""
-        state.av_scope_label = ""
+        state.av_breakdown_image_alt = ""
+        _clear_scope(state)
         state.av_warning_text = ""
         return
 
     team_id = get_team_id(state.selected_team)
     player_id = get_player_id(state.selected_player)
-    state.av_scope_label = fetch_scope_label(comp_id, team_id)
+    scope_plain = _set_scope(state)
+    state.av_breakdown_image_alt = f"VAEP breakdown by action type — {scope_plain}"
 
     try:
         breakdown = fetch_vaep_breakdown(comp_id, team_id, player_id)
@@ -328,8 +368,9 @@ def _refresh_breakdown(state: Any) -> None:
         state.av_total_actions = "0"
         state.av_top_action = "N/A"
         state.av_breakdown_image = ""
-        state.av_warning_text = (
-            "No VAEP data for this filter combination. Try selecting a different competition or match."
+        state.av_warning_text = build_warning(
+            domain="VAEP data",
+            suggestions=["a different competition", "a different match"],
         )
         return
 
@@ -358,17 +399,19 @@ def _refresh_timeline(state: Any) -> None:
         state.av_net_vaep = "--"
         state.av_most_valuable = "--"
         state.av_timeline_image = ""
+        state.av_timeline_image_alt = ""
         state.av_timeline_data = pd.DataFrame(
             columns=["Action", "Minute", "Second", "Period", "Result", "VAEP Value", "Offensive", "Defensive"]
         )
-        state.av_scope_label = ""
+        _clear_scope(state)
         state.av_warning_text = ""
         return
 
     comp_id = get_comp_id(state.selected_competition)
     team_id = get_team_id(state.selected_team)
     if comp_id is not None:
-        state.av_scope_label = fetch_scope_label(comp_id, team_id)
+        scope_plain = _set_scope(state)
+        state.av_timeline_image_alt = f"Match VAEP timeline — {scope_plain}"
 
     try:
         actions = fetch_vaep_timeline(match_id, team_id)
@@ -394,7 +437,10 @@ def _refresh_timeline(state: Any) -> None:
         state.av_timeline_data = pd.DataFrame(
             columns=["Action", "Minute", "Second", "Period", "Result", "VAEP Value", "Offensive", "Defensive"]
         )
-        state.av_warning_text = "No VAEP data for this match. Try selecting a different match."
+        state.av_warning_text = build_warning(
+            domain="VAEP data",
+            suggestions=["a different match"],
+        )
         return
 
     state.av_warning_text = ""

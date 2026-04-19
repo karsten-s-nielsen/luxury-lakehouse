@@ -3,7 +3,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.egg-info/
-dist/
+# Ignore top-level `dist/` (Python wheel build output) but keep webpack-
+# built bundles under Taipy GUI extensions — those are the deployed
+# artefact and must ship with the repo (see ADR-009).
+/dist/
+!hf_taipy_app/src/extensions/**/dist/
 build/
 .eggs/
 *.egg
@@ -25,6 +29,10 @@ ENV/
 *.swp
 *.swo
 *~
+
+# Local scratch directory for mocks, previews, and throwaway experiments.
+# Contents are intentionally untracked — nothing here ships.
+tmp/
 
 # OS
 .DS_Store

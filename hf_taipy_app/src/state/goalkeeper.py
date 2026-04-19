@@ -12,11 +12,16 @@ from __future__ import annotations
 import logging
 from typing import Any, cast
 
-import matplotlib
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from filters import fetch_data_freshness, fetch_scope_label
+from filters import (
+    NO_MATCHES_SENTINEL,
+    build_scope_label_plain,
+    build_warning,
+    fetch_data_freshness,
+    search_goalkeepers,
+)
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from mplsoccer import VerticalPitch
@@ -29,12 +34,12 @@ from queries.goalkeepers import (
 )
 from render import PITCH_BG_COLOR, PITCH_LINE_COLOR, pitch_to_file
 
+# matplotlib.use("Agg") is set by render.py at module load (imported above).
 from state.shared import (
     get_comp_id,
     register_page_refresher,
 )
 
-matplotlib.use("Agg")
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -80,7 +85,10 @@ _GK_RANKINGS_COLS = [
 ]
 
 gk_rankings_df: pd.DataFrame = pd.DataFrame(columns=_GK_RANKINGS_COLS)
-gk_scope_label: str = ""
+gk_scope_comp: str = ""
+gk_scope_team: str = ""
+gk_scope_player: str = ""
+gk_distribution_image_alt: str = ""
 gk_warning_text: str = ""
 
 # Shot Stopping sub-view
@@ -102,6 +110,8 @@ gk_xt_total_val: str = "\u2014"
 # GK-specific player selector (only goalkeepers, not all players)
 gk_player_lov: list[str] = []
 gk_selected_player: str | None = None
+# Server-driven autocomplete query bound to the search input above the GK dropdown.
+gk_player_search_query: str = ""
 
 # GK-specific team selector — filtered to teams with GK data in the selected
 # competition. Replaces the shared Team dropdown on the GK page because the
@@ -121,6 +131,7 @@ __all__ = [
     "GK_SUB_VIEW_LOV",
     "gk_data_freshness",
     "gk_distribution_image",
+    "gk_distribution_image_alt",
     "gk_goals_prevented_figure",
     "gk_goals_prevented_val",
     "gk_goalmouth_figure",
@@ -128,14 +139,18 @@ __all__ = [
     "gk_long_pct",
     "gk_medium_pct",
     "gk_on_gk_player_change",
+    "gk_on_gk_player_search_change",
     "gk_on_gk_team_change",
     "gk_on_rankings_action",
     "gk_player_lov",
+    "gk_player_search_query",
     "gk_psxg_faced",
     "gk_rankings_df",
     "gk_refresh",
     "gk_save_pct_val",
-    "gk_scope_label",
+    "gk_scope_comp",
+    "gk_scope_player",
+    "gk_scope_team",
     "gk_selected_player",
     "gk_selected_team",
     "gk_short_pct",
@@ -163,9 +178,50 @@ def _get_gk_team_id(state: Any) -> int | None:
     return _gk_team_map.get(label)
 
 
+def _set_scope(state: Any) -> str:
+    """Populate gk_scope_{comp,team,player} and return plain-text scope for alt text."""
+    comp_label = state.selected_competition or ""
+    team_label = state.gk_selected_team if state.gk_selected_team not in (None, _ALL_LABEL) else "All teams"
+    player_label = state.gk_selected_player if state.gk_selected_player not in (None, _ALL_LABEL) else "All goalkeepers"
+    state.gk_scope_comp = comp_label
+    state.gk_scope_team = team_label
+    state.gk_scope_player = player_label
+    return build_scope_label_plain([("Competition", comp_label), ("Team", team_label), ("Goalkeeper", player_label)])
+
+
+def _clear_scope(state: Any) -> None:
+    state.gk_scope_comp = ""
+    state.gk_scope_team = ""
+    state.gk_scope_player = ""
+
+
 def gk_on_gk_player_change(state: Any, var_name: str, var_value: Any) -> None:
     """GK player selector changed — refresh current sub-view."""
     _dispatch_refresh(state)
+
+
+def gk_on_gk_player_search_change(state: Any, var_name: str, var_value: Any) -> None:
+    """Server-driven autocomplete for GK player dropdown.
+
+    Fires from the debounced <|input|> above the GK selector. Empty query returns
+    top-50 alphabetical goalkeepers in the current (competition, team) scope;
+    non-empty returns up to 500 substring matches. Scope is shared with the
+    page's existing team selection.
+    """
+    global _gk_player_map
+    comp_id = get_comp_id(state.selected_competition)
+    if comp_id is None:
+        return
+    team_id = _get_gk_team_id(state)
+    query = var_value or ""
+    try:
+        results = search_goalkeepers(query, comp_id, team_id, top_n_when_empty=50)
+    except Exception:
+        logger.exception("GK search failed for query=%r comp=%s team=%s", query, comp_id, team_id)
+        return
+    _gk_player_map.update(dict(results))
+    state.gk_player_lov = [label for label, _ in results] if results else [NO_MATCHES_SENTINEL]
+    logger.info("GK search: query=%r -> %d results", query, len(results))
 
 
 def gk_on_gk_team_change(state: Any, var_name: str, var_value: Any) -> None:
@@ -502,13 +558,13 @@ def _refresh_rankings(state: Any) -> None:
     comp_id = get_comp_id(state.selected_competition)
     if comp_id is None:
         state.gk_rankings_df = pd.DataFrame(columns=_GK_RANKINGS_COLS)
-        state.gk_scope_label = ""
+        _clear_scope(state)
         state.gk_warning_text = ""
         _cached_rankings = pd.DataFrame()
         return
 
     team_id = _get_gk_team_id(state)
-    state.gk_scope_label = fetch_scope_label(comp_id, team_id)
+    _set_scope(state)
 
     min_min = int(state.min_minutes) if hasattr(state, "min_minutes") else 90
 
@@ -527,7 +583,7 @@ def _refresh_rankings(state: Any) -> None:
     state.gk_warning_text = (
         ""
         if not table.empty
-        else "No GK data for this filter combination. Try selecting a different competition or team."
+        else build_warning(domain="GK data", suggestions=["a different competition", "a different team"])
     )
 
     logger.info("GK rankings: %d rows", len(table))
@@ -546,11 +602,12 @@ def _refresh_shot_stopping(state: Any) -> None:
         state.gk_psxg_faced = "\u2014"
         state.gk_goals_prevented_val = "\u2014"
         state.gk_save_pct_val = "\u2014"
+        _clear_scope(state)
         state.gk_warning_text = ""
         return
 
     team_id = _get_gk_team_id(state)
-    state.gk_scope_label = fetch_scope_label(comp_id, team_id)
+    _set_scope(state)
 
     # Fetch shots faced (per-match team exclusion via GK stats join)
     try:
@@ -612,17 +669,20 @@ def _refresh_distribution(state: Any) -> None:
 
     if comp_id is None:
         state.gk_distribution_image = ""
+        state.gk_distribution_image_alt = ""
         state.gk_short_pct = "\u2014"
         state.gk_medium_pct = "\u2014"
         state.gk_long_pct = "\u2014"
         state.gk_launch_rate_val = "\u2014"
         state.gk_xt_per_distribution = "\u2014"
         state.gk_xt_total_val = "\u2014"
+        _clear_scope(state)
         state.gk_warning_text = ""
         return
 
-    team_id = _get_gk_team_id(state)
-    state.gk_scope_label = fetch_scope_label(comp_id, team_id)
+    team_id = _get_gk_team_id(state)  # used by fetch_gk_rankings fallback further down
+    scope_plain = _set_scope(state)
+    state.gk_distribution_image_alt = f"GK pass distribution — {scope_plain}"
 
     try:
         passes = fetch_gk_passes(comp_id, player_id)
@@ -640,7 +700,10 @@ def _refresh_distribution(state: Any) -> None:
         state.gk_launch_rate_val = "\u2014"
         state.gk_xt_per_distribution = "\u2014"
         state.gk_xt_total_val = "\u2014"
-        state.gk_warning_text = "No GK distribution passes found. Try selecting a different match or GK."
+        state.gk_warning_text = build_warning(
+            domain="GK distribution passes",
+            suggestions=["a different match", "a different goalkeeper"],
+        )
         return
 
     state.gk_warning_text = ""

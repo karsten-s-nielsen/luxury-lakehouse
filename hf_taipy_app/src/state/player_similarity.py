@@ -16,7 +16,7 @@ import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import pandas as pd
 import plotly.graph_objects as go
-from filters import fetch_data_freshness, fetch_embedding_players
+from filters import NO_MATCHES_SENTINEL, fetch_data_freshness, fetch_embedding_players, search_embedding_players
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from mplsoccer import Radar
@@ -75,6 +75,10 @@ ps_selected_competition: str | None = None
 ps_min_matches: int = 5
 ps_player_lov: list[str] = []
 ps_selected_player: str | None = None
+# Server-driven autocomplete query for the cross-competition player search.
+# This dropdown's previous client-side filter loaded ~9000 players into the
+# browser; the search input replaces it with a backend SQL substring lookup.
+ps_player_search_query: str = ""
 ps_result_count: int = 10
 ps_result_count_lov: list[str] = ["5", "10", "20"]
 
@@ -97,6 +101,7 @@ __all__ = [
     "on_ps_filter_by_competition_change",
     "on_ps_min_matches_change",
     "on_ps_result_count_change",
+    "on_ps_player_search_change",
     "on_ps_search_mode_change",
     "on_ps_selected_compare_change",
     "on_ps_selected_competition_change",
@@ -108,6 +113,7 @@ __all__ = [
     "ps_min_matches",
     "ps_neighborhood_chart",
     "ps_player_lov",
+    "ps_player_search_query",
     "ps_radar_image",
     "ps_result_count",
     "ps_spoke_caption",
@@ -282,6 +288,35 @@ def on_ps_search_mode_change(state: Any, var_name: str, var_value: Any) -> None:
     _clear_results(state)
     if state.ps_selected_player:
         _run_similarity_search(state)
+
+
+def on_ps_player_search_change(state: Any, var_name: str, var_value: Any) -> None:
+    """Server-driven autocomplete for the cross-competition player dropdown.
+
+    Replaces the previous behavior where ~9000 players were shipped to the
+    browser for client-side filtering. Query routes through search_embedding_players
+    (substring match on player_display_name, scoped to the chosen embedding
+    table + min_matches threshold + optional competition).
+    """
+    global _ps_player_map
+    comp_id = _resolve_competition_id(state)
+    raw_table, count_col = _get_table_and_columns(comp_id)
+    min_matches = int(state.ps_min_matches)
+    query = var_value or ""
+    try:
+        results = search_embedding_players(query, comp_id, min_matches, raw_table, count_col, top_n_when_empty=50)
+    except Exception:
+        logger.exception(
+            "PS search failed for query=%r comp=%s table=%s min_matches=%s",
+            query,
+            comp_id,
+            raw_table,
+            min_matches,
+        )
+        return
+    _ps_player_map.update(dict(results))
+    state.ps_player_lov = [label for label, _ in results] if results else [NO_MATCHES_SENTINEL]
+    logger.info("PS search: query=%r -> %d results", query, len(results))
 
 
 def on_ps_filter_by_competition_change(state: Any, var_name: str, var_value: Any) -> None:

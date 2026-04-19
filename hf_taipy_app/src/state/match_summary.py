@@ -11,11 +11,11 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
-from filters import fetch_data_freshness, fetch_scope_label
+from filters import build_scope_label_plain, build_warning, fetch_data_freshness
 from queries.match import fetch_league_averages, fetch_match_summary
 from render import AWAY_COLOR, HOME_COLOR, PITCH_BG_COLOR, TEXT_COLOR, chart_to_file, fmt_int
 
-from state.shared import get_comp_id, get_match_id, register_page_refresher
+from state.shared import _ALL_LABEL, get_comp_id, get_match_id, register_page_refresher
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +35,16 @@ ms_possession_chart: str = ""
 ms_ppda_chart: str = ""
 
 ms_warning_text: str = ""
-ms_scope_label: str = ""
+ms_scope_comp: str = ""
+ms_scope_team: str = ""
+ms_scope_match: str = ""
 ms_data_freshness: str = ""
 ms_league_averages: str = ""
+
+ms_shooting_chart_alt: str = ""
+ms_passing_chart_alt: str = ""
+ms_possession_chart_alt: str = ""
+ms_ppda_chart_alt: str = ""
 
 __all__ = [
     "ms_away_name",
@@ -51,10 +58,16 @@ __all__ = [
     "ms_home_xg_delta",
     "ms_league_averages",
     "ms_passing_chart",
+    "ms_passing_chart_alt",
     "ms_possession_chart",
+    "ms_possession_chart_alt",
     "ms_ppda_chart",
-    "ms_scope_label",
+    "ms_ppda_chart_alt",
+    "ms_scope_comp",
+    "ms_scope_match",
+    "ms_scope_team",
     "ms_shooting_chart",
+    "ms_shooting_chart_alt",
     "ms_warning_text",
 ]
 
@@ -117,17 +130,26 @@ def ms_refresh(state: Any) -> None:
         state.ms_passing_chart = ""
         state.ms_possession_chart = ""
         state.ms_ppda_chart = ""
+        state.ms_shooting_chart_alt = ""
+        state.ms_passing_chart_alt = ""
+        state.ms_possession_chart_alt = ""
+        state.ms_ppda_chart_alt = ""
         state.ms_warning_text = ""
-        state.ms_scope_label = ""
+        state.ms_scope_comp = ""
+        state.ms_scope_team = ""
+        state.ms_scope_match = ""
         state.ms_data_freshness = ""
         state.ms_league_averages = ""
         return
 
-    # Scope label
-    if comp_id is not None:
-        state.ms_scope_label = fetch_scope_label(comp_id, None)
-    else:
-        state.ms_scope_label = ""
+    # Scope line — 3 dimensions Match Summary filters by
+    comp_label = state.selected_competition or ""
+    team_label = state.selected_team if state.selected_team not in (None, _ALL_LABEL) else "All teams"
+    match_label = state.selected_match if state.selected_match not in (None, _ALL_LABEL) else "—"
+    state.ms_scope_comp = comp_label
+    state.ms_scope_team = team_label
+    state.ms_scope_match = match_label
+    scope_plain = build_scope_label_plain([("Competition", comp_label), ("Team", team_label), ("Match", match_label)])
 
     match_data = fetch_match_summary(match_id)
     if match_data.empty:
@@ -143,7 +165,14 @@ def ms_refresh(state: Any) -> None:
         state.ms_passing_chart = ""
         state.ms_possession_chart = ""
         state.ms_ppda_chart = ""
-        state.ms_warning_text = "No match data for this selection. Try choosing a different competition or match."
+        state.ms_shooting_chart_alt = ""
+        state.ms_passing_chart_alt = ""
+        state.ms_possession_chart_alt = ""
+        state.ms_ppda_chart_alt = ""
+        state.ms_warning_text = build_warning(
+            domain="match data",
+            suggestions=["choosing a different match"],
+        )
         state.ms_data_freshness = ""
         state.ms_league_averages = ""
         return
@@ -151,13 +180,21 @@ def ms_refresh(state: Any) -> None:
     m = match_data.iloc[0]
     state.ms_warning_text = ""
 
+    # Alt strings for each of the 4 charts
+    state.ms_shooting_chart_alt = f"Shooting — {scope_plain}"
+    state.ms_passing_chart_alt = f"Passing — {scope_plain}"
+    state.ms_possession_chart_alt = f"Possession — {scope_plain}"
+    state.ms_ppda_chart_alt = f"Pressing (PPDA) — {scope_plain}"
+
     # --- Scorecard metrics ---
-    home_name = str(m.get("home_team_name", "Home"))
-    away_name = str(m.get("away_team_name", "Away"))
-    home_score = int(m.get("home_score", 0) or 0)
-    away_score = int(m.get("away_score", 0) or 0)
-    home_xg = float(m.get("home_xg", 0) or 0)
-    away_xg = float(m.get("away_xg", 0) or 0)
+    # fct_match_summary_synced has NOT NULL contracts on these columns (dbt-enforced).
+    # Direct column access; the `or 0` guards residual NULL xG values (dbt contract allows NULL for unfitted xG).
+    home_name = str(m["home_team_name"])
+    away_name = str(m["away_team_name"])
+    home_score = int(m["home_score"] or 0)
+    away_score = int(m["away_score"] or 0)
+    home_xg = float(m["home_xg"] or 0)
+    away_xg = float(m["away_xg"] or 0)
 
     state.ms_home_name = home_name
     state.ms_away_name = away_name
@@ -247,7 +284,10 @@ def ms_refresh(state: Any) -> None:
             else:
                 state.ms_league_averages = ""
         except Exception:
-            logger.debug("League averages unavailable")
+            # ADR-002: ERROR-level log with traceback. fetch_league_averages should only
+            # fail on DB / schema issues (empty rows are handled via `not avg_df.empty` above),
+            # so a failure here is a real error condition worth surfacing in logs.
+            logger.exception("Failed to fetch league averages for comp_id=%s", comp_id)
             state.ms_league_averages = ""
     else:
         state.ms_league_averages = ""

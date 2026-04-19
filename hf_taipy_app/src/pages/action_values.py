@@ -9,6 +9,7 @@ from page_template import (
     ContentRow,
     Metric,
     PageConfig,
+    ScopeDim,
     SubView,
     build_page,
 )
@@ -27,6 +28,12 @@ page_config = PageConfig(
     ],
     empty_message="",
     empty_condition="",
+    scope_dims=[
+        ScopeDim("Competition", "av_scope_comp"),
+        ScopeDim("Team", "av_scope_team"),
+        ScopeDim("Match", "av_scope_match"),
+        ScopeDim("Player", "av_scope_player"),
+    ],
     sub_views=[
         SubView(
             condition='selected_sub_view == "Rankings"',
@@ -37,15 +44,13 @@ page_config = PageConfig(
             ],
             empty_message="Select a competition to begin.",
             empty_condition="len(av_rankings_data) == 0 and selected_competition is None",
-            scope_vars=["av_scope_label"],
             warning_var="av_warning_text",
         ),
         SubView(
             condition='selected_sub_view == "Breakdown"',
-            content=[ContentRow([ContentBlock("image", "av_breakdown_image")])],
+            content=[ContentRow([ContentBlock("image", "av_breakdown_image", alt_var="av_breakdown_image_alt")])],
             empty_message="Select a competition to see action breakdown.",
             empty_condition="len(av_breakdown_image) == 0 and selected_competition is None",
-            scope_vars=["av_scope_label"],
             warning_var="av_warning_text",
             metrics=[
                 Metric(
@@ -68,12 +73,11 @@ page_config = PageConfig(
         SubView(
             condition='selected_sub_view == "Timeline"',
             content=[
-                ContentRow([ContentBlock("image", "av_timeline_image")]),
+                ContentRow([ContentBlock("image", "av_timeline_image", alt_var="av_timeline_image_alt")]),
                 ContentRow([ContentBlock("expandable_table", "av_timeline_data", header="Action Details")]),
             ],
             empty_message="Select a match to see action timeline.",
             empty_condition="len(av_timeline_image) == 0 and selected_match is None",
-            scope_vars=["av_scope_label"],
             warning_var="av_warning_text",
             metrics=[
                 Metric(
