@@ -24,7 +24,7 @@ class SidebarWidget:
     and when to show it. Zero styling information.
     """
 
-    kind: Literal["dropdown", "dropdown_multi", "slider", "toggle"]
+    kind: Literal["dropdown", "dropdown_multi", "combobox", "slider", "toggle"]
     var: str  # state variable name
     label: str  # human-readable label
     on_change: str  # callback function name
@@ -53,15 +53,14 @@ class SidebarWidget:
     help: str = ""  # tooltip help text (rendered as info icon next to widget)
     filterable: bool = False  # dropdown only: enable type-to-filter (Taipy |filter| flag — client-side)
     required: bool = True  # False -> " (optional)" auto-appended to label (dropdowns only)
-    # Server-driven autocomplete: when True the dropdown is preceded by a
-    # debounced <|input|> whose on_change fires a backend SQL query that
-    # repopulates `lov`. Use for unbounded LOVs (>500 candidates) where
-    # client-side filter would mean shipping the whole list to the browser.
-    searchable: bool = False
+    # Combobox-specific: the `combobox` kind (ll_ext.combobox custom element)
+    # uses these for WAI-ARIA APG combobox-with-list-autocomplete behaviour
+    # over unbounded LOVs (>500 candidates). See
+    # hf_taipy_app/src/extensions/ll_ext/.
     search_var: str = ""  # state var holding the current search query string (str, default "")
     on_search_change: str = ""  # callback fired after debounce when the search input changes
-    search_label: str = "Type to search\u2026"  # label/placeholder for the search input
-    search_change_delay: int = 300  # debounce in ms; 300 matches Taipy's default for input
+    search_label: str = "Type to search\u2026"  # placeholder for the search input
+    search_change_delay: int = 300  # debounce in ms
 
 
 @dataclass(frozen=True)
@@ -138,29 +137,29 @@ def _build_sidebar_widget(w: SidebarWidget, f: bool) -> str:
 
     if w.kind in ("dropdown", "dropdown_multi"):
         multi = "|multiple" if w.kind == "dropdown_multi" else ""
-        if w.searchable:
-            # Server-driven autocomplete: debounced search input above an
-            # always-visible inline scrollable selector list. Critically we
-            # do NOT pass |dropdown| to the selector — a plain selector
-            # renders as a live list of items, so typed-search results
-            # become visible without requiring a click. The list is height-
-            # constrained via the .ll-search-results CSS class.
-            parts.append(
-                f"<|{lb}{w.search_var}{rb}|input"
-                f"|on_change={w.on_search_change}"
-                f"|change_delay={w.search_change_delay}"
-                f"|label={w.search_label}"
-                f"|class_name=ll-search-input|>"
-            )
-            parts.append(
-                f"<|{lb}{w.var}{rb}|selector|lov={lb}{w.lov}{rb}{multi}"
-                f"|on_change={w.on_change}|class_name=ll-search-results|>"
-            )
-        else:
-            filter_attr = "|filter" if getattr(w, "filterable", False) else ""
-            parts.append(
-                f"<|{lb}{w.var}{rb}|selector|lov={lb}{w.lov}{rb}{multi}{filter_attr}|dropdown|label={effective_label}|on_change={w.on_change}|>"
-            )
+        filter_attr = "|filter" if getattr(w, "filterable", False) else ""
+        parts.append(
+            f"<|{lb}{w.var}{rb}|selector|lov={lb}{w.lov}{rb}{multi}{filter_attr}|dropdown|label={effective_label}|on_change={w.on_change}|>"
+        )
+
+    elif w.kind == "combobox":
+        # WAI-ARIA APG combobox-with-list-autocomplete, implemented as a
+        # Taipy GUI extension (see src/extensions/ll_ext/). Drives unbounded
+        # LOVs (>500 candidates) through a debounced backend search that
+        # repopulates `lov`. The listbox is hidden when the input is empty
+        # and not focused — matching standard combobox expectations.
+        placeholder = w.search_label or "Type to search\u2026"
+        parts.append(
+            f"<|{lb}{w.var}{rb}|ll_ext.combobox"
+            f"|lov={lb}{w.lov}{rb}"
+            f"|label={effective_label}"
+            f"|placeholder={placeholder}"
+            f"|search={lb}{w.search_var}{rb}"
+            f"|on_change={w.on_change}"
+            f"|on_search={w.on_search_change}"
+            f"|debounce_ms={w.search_change_delay}"
+            f"|class_name=ll-combobox|>"
+        )
 
     elif w.kind == "slider":
         box_label = w.filter_box_label or w.label
@@ -777,14 +776,17 @@ def _build_dashboard_page(parts: list[str], cfg: PageConfig) -> None:
     # get a scrollbar instead of clipping the DAG / table.
     parts.append("<|part|class_name=ll-dashboard-scroll|")
     parts.append("")
-    parts.append(_build_stats_bar(cfg.stats))
-    parts.append("")
 
-    # Scope line below the stats bar, above the content.
+    # Scope line renders ABOVE the stats bar — the tiles summarise data that
+    # is scoped by the competition / team / player filters, so the scope
+    # acts as the caption for those tiles.
     scope = _build_scope_section(cfg)
     if scope:
         parts.append(scope)
         parts.append("")
+
+    parts.append(_build_stats_bar(cfg.stats))
+    parts.append("")
 
     for row in cfg.content:
         parts.append(_build_content_row(row, cfg.title))

@@ -1,0 +1,28 @@
+{
+  "name": "luxury-lakehouse-ll-ext",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Luxury Lakehouse — custom Taipy GUI visual elements (ll_ext).",
+  "license": "UNLICENSED",
+  "scripts": {
+    "postinstall": "node scripts/install.js",
+    "build:dev": "webpack --mode development",
+    "build": "webpack --mode production"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@emotion/react": "^11.10.0",
+    "@emotion/styled": "^11.10.0",
+    "@mui/material": "^6.0.1",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "dotenv": "^16.4.5",
+    "ts-loader": "^9.5.0",
+    "typescript": "^5.5.0",
+    "webpack": "^5.89.0",
+    "webpack-cli": "^5.1.4"
+  }
+}

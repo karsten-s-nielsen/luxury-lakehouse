@@ -1433,37 +1433,48 @@ nav[class*="taipy"],
    .ll-scope-dim-label except the first — no explicit separator markup.
    Also reused by the lightbox figcaption (JS clones .ll-page-scope). */
 
+/* Accent-bar treatment on the canonical scope line. Applies on the main
+   page AND (via the same span classes cloned into the lightbox figcaption)
+   inside the overlay, so the scope vocabulary is consistent across both
+   surfaces. Dim labels in uppercase orange, values in bold white, dot
+   separators between dimensions. */
 .ll-page-scope {
-    margin-bottom: 0.75rem;
-    font-size: 0.9rem;
-    color: rgba(255, 255, 255, 0.65);
-    line-height: 1.6;
+    margin: 0.5rem 0 1rem 0;
+    padding: 0.7rem 1rem;
+    background: rgba(26, 29, 35, 0.75);
+    border-left: 3px solid var(--color-primary);
+    border-radius: 4px;
+    font-size: 1rem;
+    line-height: 1.7;
+    color: #f3f4f6;
 }
 
 .ll-scope-dim-label {
-    font-size: 0.65rem;
+    font-size: 0.72rem;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.35);
-    margin-right: 0.35em;
+    color: rgba(245, 158, 11, 0.9);
     font-weight: 600;
     font-style: normal;
+    margin-right: 0.4em;
 }
 
-/* Thin vertical divider before every dim-label except the first.
-   Replaces the retired U+00B7 middle dot. */
-.ll-page-scope .ll-scope-dim-label:not(:first-of-type)::before {
-    content: "";
-    display: inline-block;
-    width: 1px;
-    height: 0.9em;
-    background: rgba(255, 255, 255, 0.45);
-    margin: 0 0.75em 0 0.35em;
-    vertical-align: -1px;
+/* Dot separator before every dim-label except the first. Applies anywhere
+   the scope spans are rendered (main page + lightbox figcaption). */
+.ll-scope-dim-label:not(:first-of-type)::before {
+    content: "·";
+    color: rgba(245, 158, 11, 0.4);
+    font-weight: 700;
+    margin-right: 0.5em;
+    margin-left: 0;
 }
 
 .ll-scope-value {
-    font-style: italic;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #f3f4f6;
+    font-style: normal;
+    margin-right: 0.3em;
 }
 
 /* Legacy .ll-sep — retained for any external reference; new code uses
@@ -1488,7 +1499,7 @@ nav[class*="taipy"],
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0;
     max-width: 90vw;
     max-height: 90vh;
 }
@@ -1496,19 +1507,66 @@ nav[class*="taipy"],
 .ll-lightbox-overlay figure img {
     max-width: 100%;
     max-height: calc(90vh - 4rem);
-    border-radius: 8px;
+    /* Flat top so the image visually meets the scope caption above with
+       no gap — the pair reads as a single panel. */
+    border-radius: 0 0 8px 8px;
     box-shadow: 0 4px 40px rgba(0, 0, 0, 0.5);
 }
 
+/* Prominent scope caption rendered ABOVE the image inside the lightbox.
+   The figcaption is inserted first in DOM order by the lightbox JS; the
+   flex-column figure naturally stacks it above the img. Label/value/
+   separator styling is inherited from `.ll-scope-dim-label` /
+   `.ll-scope-value` defined above (same vocabulary as the main page);
+   this rule only handles overlay-specific wrapper geometry and the solid
+   dark backdrop so the caption reads cleanly against any chart behind it. */
 .ll-lightbox-caption {
+    align-self: stretch;
     font-family: 'Source Sans Pro', -apple-system, sans-serif;
-    color: rgba(255, 255, 255, 0.85);
-    background: rgba(14, 17, 23, 0.85);
-    padding: 0.5rem 1rem;
-    border-radius: 6px;
-    font-size: 0.9rem;
+    padding: 0.8rem 1rem;
+    padding-right: 4rem;
+    background: rgba(10, 13, 18, 0.96);
+    border: 1px solid rgba(245, 158, 11, 0.25);
+    border-bottom: none;
+    border-left: 3px solid var(--color-primary);
+    /* Flat bottom so the caption meets the chart image directly with
+       no visible gap. */
+    border-radius: 8px 8px 0 0;
     max-width: 90vw;
-    text-align: center;
+    text-align: left;
+    font-size: 1rem;
+    line-height: 1.7;
+}
+
+/* Gallery navigation buttons rendered at the left/right edges of the
+   viewport when the overlay contains more than one chart. Fixed-position
+   so they stay anchored while the figure repositions per image. */
+.ll-lightbox-nav {
+    position: fixed;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(14, 17, 23, 0.85);
+    color: rgba(255, 255, 255, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    width: 2.6rem;
+    height: 2.6rem;
+    font-size: 1.5rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ll-lightbox-nav-prev { left: 1rem; }
+.ll-lightbox-nav-next { right: 1rem; }
+
+.ll-lightbox-nav:hover,
+.ll-lightbox-nav:focus {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+    outline: none;
 }
 
 .ll-lightbox-close {
