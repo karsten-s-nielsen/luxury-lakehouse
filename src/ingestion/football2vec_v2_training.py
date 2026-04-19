@@ -51,11 +51,21 @@ DEFAULT_MASK_PROB = 0.15
 
 def load_training_data(hf_token: str, training_dataset: str) -> tuple[pd.DataFrame, str]:
     """Download training data from HF Hub and return DataFrame + commit hash."""
-    from datasets import load_dataset
+    from datasets import Dataset, load_dataset
     from huggingface_hub import HfApi
 
+    # load_dataset is typed to return DatasetDict | IterableDatasetDict | Dataset | IterableDataset;
+    # with split="train" explicitly specified it always returns Dataset, but the type stubs do not
+    # narrow. Assert-narrow so downstream .to_pandas() + len() are type-safe, and so any future
+    # upstream change that drops the narrow-on-split guarantee is caught at the boundary.
     ds = load_dataset(training_dataset, split="train", token=hf_token)
+    if not isinstance(ds, Dataset):
+        msg = f"expected Dataset from load_dataset(..., split='train'); got {type(ds).__name__}"
+        raise TypeError(msg)
     data = ds.to_pandas()
+    if not isinstance(data, pd.DataFrame):
+        msg = f"expected DataFrame from Dataset.to_pandas(); got {type(data).__name__}"
+        raise TypeError(msg)
     logger.info("Loaded %d player-match sequences from %s", len(data), training_dataset)
 
     api = HfApi(token=hf_token)
