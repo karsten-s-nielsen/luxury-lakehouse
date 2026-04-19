@@ -156,7 +156,7 @@ markupsafe==3.0.3
     #   flask
     #   jinja2
     #   werkzeug
-marshmallow==3.21.2
+marshmallow==4.3.0
     # via taipy-rest
 matplotlib==3.10.8
     # via
