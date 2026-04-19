@@ -27,12 +27,15 @@ References:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import cast
 
 import torch
 import torch.nn as nn
 from torch.autograd import Function
+
+from analytics.rotary_attention import RotaryTransformerEncoder
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -52,6 +55,14 @@ class Football2VecConfig:
         max_seq_len: Maximum sequence length for positional embedding.
         mask_prob: MLM mask probability.
         spatial_mlp_dim: Intermediate dimension for spatial coordinate MLPs.
+        pooling_type: How to reduce per-token embeddings to a sequence embedding.
+            "mean" (default — current behaviour), "attention" (learned attention pool),
+            or "cls" (prepended CLS token).
+        spatial_injection: How spatial coordinates are injected into the token stream.
+            "additive" (default — tok + spatial_x + spatial_y + pos), "concat" (concat
+            then project back), or "film" (per-channel scale + shift).
+        position_embedding: Position encoding scheme. "learnable" (default —
+            nn.Embedding), "sinusoidal" (fixed table), or "rope" (rotary).
     """
 
     vocab_size: int = 23
@@ -62,6 +73,9 @@ class Football2VecConfig:
     max_seq_len: int = 512
     mask_prob: float = 0.15
     spatial_mlp_dim: int = 64
+    pooling_type: str = "mean"
+    spatial_injection: str = "additive"
+    position_embedding: str = "learnable"
 
 
 # ---------------------------------------------------------------------------
@@ -129,22 +143,80 @@ class Football2VecEncoder(nn.Module):
         self.spatial_x = SpatialMLP(cfg.hidden_dim, cfg.spatial_mlp_dim)
         self.spatial_y = SpatialMLP(cfg.hidden_dim, cfg.spatial_mlp_dim)
 
-        # Positional encoding: learnable
-        self.position_embedding = nn.Embedding(cfg.max_seq_len, cfg.hidden_dim)
+        # Position embedding variants (EV1). RoPE is applied inside attention
+        # (see encoder construction below), so no additive position signal is
+        # registered for the rope variant.
+        if cfg.position_embedding == "learnable":
+            self.position_embedding = nn.Embedding(cfg.max_seq_len, cfg.hidden_dim)
+        elif cfg.position_embedding == "sinusoidal":
+            # Fixed sinusoidal table; not a parameter.
+            pe = torch.zeros(cfg.max_seq_len, cfg.hidden_dim)
+            position = torch.arange(0, cfg.max_seq_len, dtype=torch.float).unsqueeze(1)
+            div_term = torch.exp(
+                torch.arange(0, cfg.hidden_dim, 2, dtype=torch.float) * (-math.log(10000.0) / cfg.hidden_dim)
+            )
+            pe[:, 0::2] = torch.sin(position * div_term)
+            pe[:, 1::2] = torch.cos(position * div_term)
+            self.register_buffer("_sin_pos", pe.unsqueeze(0))  # (1, max_seq_len, hidden_dim)
+        elif cfg.position_embedding != "rope":
+            msg = f"unknown position_embedding {cfg.position_embedding!r}; expected learnable|sinusoidal|rope"
+            raise ValueError(msg)
 
         # Dropout after embedding sum
         self.embedding_dropout = nn.Dropout(cfg.dropout)
 
-        # Transformer encoder
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=cfg.hidden_dim,
-            nhead=cfg.num_heads,
-            dim_feedforward=cfg.hidden_dim * 4,
-            dropout=cfg.dropout,
-            activation="gelu",
-            batch_first=True,
-        )
-        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=cfg.num_layers)
+        # Spatial injection variants (EV1)
+        if cfg.spatial_injection == "concat":
+            if cfg.spatial_mlp_dim > cfg.hidden_dim // 2:
+                msg = (
+                    f"spatial_mlp_dim={cfg.spatial_mlp_dim} too large for concat "
+                    f"injection (must be <= hidden_dim/2 = {cfg.hidden_dim // 2})"
+                )
+                raise ValueError(msg)
+            self.spatial_concat_proj = nn.Linear(3 * cfg.hidden_dim, cfg.hidden_dim)
+        elif cfg.spatial_injection == "film":
+            self.film_scale = nn.Linear(2 * cfg.hidden_dim, cfg.hidden_dim)
+            self.film_shift = nn.Linear(2 * cfg.hidden_dim, cfg.hidden_dim)
+        elif cfg.spatial_injection != "additive":
+            msg = f"unknown spatial_injection {cfg.spatial_injection!r}; expected additive|concat|film"
+            raise ValueError(msg)
+
+        # Transformer encoder. For the rope variant the encoder owns its own
+        # RotaryEmbedding and applies rotation to Q/K inside scaled dot-product
+        # attention — there is no additive position signal on the input tokens.
+        self.encoder: nn.Module
+        if cfg.position_embedding == "rope":
+            # +1 so the rope tables cover the CLS-prepended sequence length.
+            rope_max_seq_len = cfg.max_seq_len + (1 if cfg.pooling_type == "cls" else 0)
+            self.encoder = RotaryTransformerEncoder(
+                d_model=cfg.hidden_dim,
+                nhead=cfg.num_heads,
+                dim_feedforward=cfg.hidden_dim * 4,
+                dropout=cfg.dropout,
+                activation="gelu",
+                num_layers=cfg.num_layers,
+                max_seq_len=rope_max_seq_len,
+            )
+        else:
+            encoder_layer = nn.TransformerEncoderLayer(
+                d_model=cfg.hidden_dim,
+                nhead=cfg.num_heads,
+                dim_feedforward=cfg.hidden_dim * 4,
+                dropout=cfg.dropout,
+                activation="gelu",
+                batch_first=True,
+            )
+            self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=cfg.num_layers)
+
+        # Pooling variants (EV1)
+        if cfg.pooling_type == "attention":
+            self.pool_attn = nn.Linear(cfg.hidden_dim, 1)
+        elif cfg.pooling_type == "cls":
+            self.cls_token = nn.Parameter(torch.zeros(1, 1, cfg.hidden_dim))
+            nn.init.normal_(self.cls_token, std=0.02)
+        elif cfg.pooling_type != "mean":
+            msg = f"unknown pooling_type {cfg.pooling_type!r}; expected mean|attention|cls"
+            raise ValueError(msg)
 
         # MLM head: Linear → GELU → LayerNorm → Linear(hidden_dim, vocab_size)
         self.mlm_head = nn.Sequential(
@@ -179,30 +251,38 @@ class Football2VecEncoder(nn.Module):
         x_coords: torch.Tensor,
         y_coords: torch.Tensor,
     ) -> torch.Tensor:
-        """Compute combined embedding: token + spatial_x + spatial_y + position.
-
-        Args:
-            action_ids: (batch, seq_len) long tensor of SPADL action type indices.
-            x_coords: (batch, seq_len) float tensor of normalized x coordinates.
-            y_coords: (batch, seq_len) float tensor of normalized y coordinates.
-
-        Returns:
-            (batch, seq_len, hidden_dim) combined embedding tensor.
-        """
+        """Compute combined embedding per the configured spatial_injection + position_embedding strategy."""
         seq_len = action_ids.size(1)
 
-        # Token embeddings
         tok_emb = self.token_embedding(action_ids)
-
-        # Spatial encodings
         x_emb = self.spatial_x(x_coords)
         y_emb = self.spatial_y(y_coords)
 
-        # Positional embeddings (pre-computed buffer, sliced to seq_len)
-        pos_emb = self.position_embedding(self._pos_ids[:, :seq_len])  # type: ignore[index]
+        # Position embedding (variant-dependent). For rope, no additive signal is
+        # added here — rotation is applied to Q/K inside RotaryTransformerEncoder.
+        pos_emb: torch.Tensor | None
+        if self.config.position_embedding == "learnable":
+            pos_emb = self.position_embedding(self._pos_ids[:, :seq_len])  # type: ignore[index]
+        elif self.config.position_embedding == "sinusoidal":
+            pos_emb = self._sin_pos[:, :seq_len, :]  # type: ignore[index]
+        else:  # rope
+            pos_emb = None
 
-        # Sum all embedding components
-        combined = tok_emb + x_emb + y_emb + pos_emb
+        # Spatial injection (variant-dependent)
+        if self.config.spatial_injection == "concat":
+            stacked = torch.cat([tok_emb, x_emb, y_emb], dim=-1)
+            combined = self.spatial_concat_proj(stacked)
+        elif self.config.spatial_injection == "film":
+            spatial = torch.cat([x_emb, y_emb], dim=-1)
+            scale = self.film_scale(spatial)
+            shift = self.film_shift(spatial)
+            combined = tok_emb * (1.0 + scale) + shift
+        else:  # additive — default
+            combined = tok_emb + x_emb + y_emb
+
+        if pos_emb is not None:
+            combined = combined + pos_emb
+
         return self.embedding_dropout(combined)
 
     def _encode(
@@ -212,24 +292,21 @@ class Football2VecEncoder(nn.Module):
         y_coords: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Run the transformer encoder on embedded inputs.
-
-        Args:
-            action_ids: (batch, seq_len) long tensor of SPADL action type indices.
-            x_coords: (batch, seq_len) float tensor of normalized x coordinates.
-            y_coords: (batch, seq_len) float tensor of normalized y coordinates.
-            attention_mask: (batch, seq_len) bool tensor. True = valid token,
-                False = padding. Converted to src_key_padding_mask (True = ignore).
-
-        Returns:
-            (batch, seq_len, hidden_dim) encoder output tensor.
-        """
+        """Run the transformer encoder on embedded inputs."""
         embedded = self._embed(action_ids, x_coords, y_coords)
 
-        # TransformerEncoder expects src_key_padding_mask where True = ignore
+        # Prepend CLS token for cls pooling variant
+        if self.config.pooling_type == "cls":
+            batch_size = embedded.size(0)
+            cls = self.cls_token.expand(batch_size, -1, -1)  # (batch, 1, hidden_dim)
+            embedded = torch.cat([cls, embedded], dim=1)
+            if attention_mask is not None:
+                cls_mask = torch.ones(batch_size, 1, dtype=torch.bool, device=attention_mask.device)
+                attention_mask = torch.cat([cls_mask, attention_mask], dim=1)
+
         src_key_padding_mask: torch.Tensor | None = None
         if attention_mask is not None:
-            src_key_padding_mask = ~attention_mask  # invert: True → ignore
+            src_key_padding_mask = ~attention_mask
 
         return self.encoder(embedded, src_key_padding_mask=src_key_padding_mask)
 
@@ -240,30 +317,40 @@ class Football2VecEncoder(nn.Module):
         y_coords: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Compute sequence-level embedding via mean pooling over valid tokens.
-
-        Args:
-            action_ids: (batch, seq_len) long tensor of SPADL action type indices.
-            x_coords: (batch, seq_len) float tensor of normalized x coordinates.
-            y_coords: (batch, seq_len) float tensor of normalized y coordinates.
-            attention_mask: (batch, seq_len) bool tensor. True = valid token.
-                If None, all tokens are treated as valid.
-
-        Returns:
-            (batch, hidden_dim) sequence embedding tensor (mean-pooled).
-        """
+        """Compute sequence-level embedding via the configured pooling strategy."""
         encoded = self._encode(action_ids, x_coords, y_coords, attention_mask)
 
-        # Mean pooling over valid tokens
-        if attention_mask is not None:
-            # Expand mask for broadcasting: (batch, seq_len, 1)
-            mask_expanded = attention_mask.unsqueeze(-1).float()
-            # Zero out padding positions and compute mean over valid tokens
+        # The mask inside _encode was extended for cls prepending; reconstruct the
+        # pooling mask here to match encoded's shape.
+        pooling_mask = attention_mask
+        if self.config.pooling_type == "cls" and attention_mask is not None:
+            batch_size = attention_mask.size(0)
+            cls_mask = torch.ones(batch_size, 1, dtype=torch.bool, device=attention_mask.device)
+            pooling_mask = torch.cat([cls_mask, attention_mask], dim=1)
+
+        if self.config.pooling_type == "cls":
+            return encoded[:, 0, :]
+
+        if self.config.pooling_type == "attention":
+            scores = self.pool_attn(encoded).squeeze(-1)  # (batch, seq_len)
+            if pooling_mask is not None:
+                # Guard: a row with zero valid tokens would softmax (-inf, ..., -inf) → NaN.
+                # Replace the scores row with zeros so softmax yields uniform weights;
+                # the upstream training loader should filter empty sequences, but we
+                # refuse to propagate NaN if one slips through.
+                any_valid = pooling_mask.any(dim=1, keepdim=True)  # (batch, 1)
+                scores = scores.masked_fill(~pooling_mask, float("-inf"))
+                scores = torch.where(any_valid, scores, torch.zeros_like(scores))
+            weights = torch.softmax(scores, dim=1).unsqueeze(-1)  # (batch, seq_len, 1)
+            return (encoded * weights).sum(dim=1)
+
+        # Default: mean pooling
+        if pooling_mask is not None:
+            mask_expanded = pooling_mask.unsqueeze(-1).float()
             summed = (encoded * mask_expanded).sum(dim=1)
-            lengths = mask_expanded.sum(dim=1).clamp(min=1)  # avoid division by zero
+            lengths = mask_expanded.sum(dim=1).clamp(min=1)
             return summed / lengths
-        else:
-            return encoded.mean(dim=1)
+        return encoded.mean(dim=1)
 
     def mlm_forward(
         self,
@@ -272,18 +359,11 @@ class Football2VecEncoder(nn.Module):
         y_coords: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Compute per-token MLM logits for masked language modeling.
-
-        Args:
-            action_ids: (batch, seq_len) long tensor of SPADL action type indices.
-            x_coords: (batch, seq_len) float tensor of normalized x coordinates.
-            y_coords: (batch, seq_len) float tensor of normalized y coordinates.
-            attention_mask: (batch, seq_len) bool tensor. True = valid token.
-
-        Returns:
-            (batch, seq_len, vocab_size) logits for masked token prediction.
-        """
+        """Compute per-token MLM logits for masked language modeling."""
         encoded = self._encode(action_ids, x_coords, y_coords, attention_mask)
+        # For CLS variant: drop the prepended CLS position so logits align with input action_ids.
+        if self.config.pooling_type == "cls":
+            encoded = encoded[:, 1:, :]
         return self.mlm_head(encoded)
 
 

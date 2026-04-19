@@ -1,0 +1,15 @@
+{
+  "val_accuracy": 0.5865,
+  "val_loss": 1.0042,
+  "param_count": 1949847.0,
+  "epochs_trained": 15.0,
+  "training_time_seconds": 1656.3,
+  "combined_score": 0.5865,
+  "iteration_found": 15,
+  "program_id": "b45afdc2-23fa-4a4a-878e-85089742742a",
+  "parent_id": "b447fc25-b38a-479b-aeaa-844157f5d402",
+  "generation": 4,
+  "fidelity": "15-epoch validation of top-10 EV1 candidates",
+  "run_stopped_at_iteration": 29,
+  "run_stopped_reason": "manual stop after 18 consecutive non-improvements confirmed plateau"
+}
