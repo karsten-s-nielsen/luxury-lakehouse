@@ -16,6 +16,7 @@ from analytics.football2vec_transformer import (
     GradientReversalLayer,
     TeamClassifierHead,
 )
+from analytics.rotary_attention import RotaryTransformerEncoder
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -367,6 +368,31 @@ def test_football2vec_encoder_position_variants(position_embedding: str) -> None
     with torch.no_grad():
         out = model(batch["action_ids"], batch["x_coords"], batch["y_coords"], batch["attention_mask"])
     assert out.shape == (2, 32), f"position_embedding={position_embedding!r} produced shape {out.shape}"
+
+
+def test_football2vec_encoder_rope_uses_proper_rotary_encoder() -> None:
+    """position_embedding='rope' wires up the real RotaryTransformerEncoder.
+
+    Guards against regression to the earlier "rotary-flavoured additive signal"
+    approximation, which added a tiled sine pattern at embed time (not RoPE).
+    The proper primitive rotates Q/K inside attention — the encoder stack must
+    be the RoPE-aware type.
+    """
+    cfg = Football2VecConfig(
+        hidden_dim=32,
+        num_layers=2,
+        num_heads=4,
+        max_seq_len=64,
+        position_embedding="rope",
+    )
+    model = Football2VecEncoder(cfg)
+    assert isinstance(model.encoder, RotaryTransformerEncoder)
+    # The broken approximation registered _rope_cos / _rope_sin buffers directly on
+    # the encoder at embed time. The proper primitive keeps them inside the
+    # RotaryEmbedding submodule (persistent=False, not on the encoder root).
+    root_buffer_names = {name for name, _ in model.named_buffers(recurse=False)}
+    assert "_rope_cos" not in root_buffer_names
+    assert "_rope_sin" not in root_buffer_names
 
 
 def test_football2vec_encoder_backward_compat() -> None:

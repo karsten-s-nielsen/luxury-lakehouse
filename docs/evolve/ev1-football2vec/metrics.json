@@ -1,13 +1,15 @@
 {
-  "val_accuracy": 0.5693125929314881,
-  "val_loss": 1.0888774130079482,
-  "param_count": 1295255.0,
-  "epochs_trained": 5.0,
-  "training_time_seconds": 686.937,
-  "combined_score": 0.5693125929314881,
-  "iteration_found": 11,
-  "program_id": "d7f0076e-060b-41c3-8d67-ccc1dde0e4de",
-  "parent_id": "93032b6f-956b-43f3-a049-10380d15d325",
+  "val_accuracy": 0.5865,
+  "val_loss": 1.0042,
+  "param_count": 1949847.0,
+  "epochs_trained": 15.0,
+  "training_time_seconds": 1656.3,
+  "combined_score": 0.5865,
+  "iteration_found": 15,
+  "program_id": "b45afdc2-23fa-4a4a-878e-85089742742a",
+  "parent_id": "b447fc25-b38a-479b-aeaa-844157f5d402",
+  "generation": 4,
+  "fidelity": "15-epoch validation of top-10 EV1 candidates",
   "run_stopped_at_iteration": 29,
-  "run_stopped_reason": "manual stop after 18 consecutive non-improvements confirmed plateau; saved overnight GPU time"
+  "run_stopped_reason": "manual stop after 18 consecutive non-improvements confirmed plateau"
 }

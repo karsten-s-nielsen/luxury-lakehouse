@@ -35,6 +35,8 @@ import torch
 import torch.nn as nn
 from torch.autograd import Function
 
+from analytics.rotary_attention import RotaryTransformerEncoder
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -141,7 +143,9 @@ class Football2VecEncoder(nn.Module):
         self.spatial_x = SpatialMLP(cfg.hidden_dim, cfg.spatial_mlp_dim)
         self.spatial_y = SpatialMLP(cfg.hidden_dim, cfg.spatial_mlp_dim)
 
-        # Position embedding variants (EV1)
+        # Position embedding variants (EV1). RoPE is applied inside attention
+        # (see encoder construction below), so no additive position signal is
+        # registered for the rope variant.
         if cfg.position_embedding == "learnable":
             self.position_embedding = nn.Embedding(cfg.max_seq_len, cfg.hidden_dim)
         elif cfg.position_embedding == "sinusoidal":
@@ -154,18 +158,7 @@ class Football2VecEncoder(nn.Module):
             pe[:, 0::2] = torch.sin(position * div_term)
             pe[:, 1::2] = torch.cos(position * div_term)
             self.register_buffer("_sin_pos", pe.unsqueeze(0))  # (1, max_seq_len, hidden_dim)
-        elif cfg.position_embedding == "rope":
-            # NOTE: full RoPE requires modifying attention's q/k computation.
-            # For EV1 we use a rotary-flavoured additive signal as a positional cue
-            # without monkey-patching nn.MultiheadAttention. If RoPE wins the sweep,
-            # promote to a proper implementation in a follow-up cycle.
-            half = max(1, cfg.hidden_dim // cfg.num_heads // 2)
-            inv_freq = 1.0 / (10000.0 ** (torch.arange(0, half, dtype=torch.float) / half))
-            t = torch.arange(cfg.max_seq_len, dtype=torch.float)
-            freqs = torch.einsum("i,j->ij", t, inv_freq)  # (max_seq_len, half)
-            self.register_buffer("_rope_cos", freqs.cos())
-            self.register_buffer("_rope_sin", freqs.sin())
-        else:
+        elif cfg.position_embedding != "rope":
             msg = f"unknown position_embedding {cfg.position_embedding!r}; expected learnable|sinusoidal|rope"
             raise ValueError(msg)
 
@@ -188,16 +181,32 @@ class Football2VecEncoder(nn.Module):
             msg = f"unknown spatial_injection {cfg.spatial_injection!r}; expected additive|concat|film"
             raise ValueError(msg)
 
-        # Transformer encoder
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=cfg.hidden_dim,
-            nhead=cfg.num_heads,
-            dim_feedforward=cfg.hidden_dim * 4,
-            dropout=cfg.dropout,
-            activation="gelu",
-            batch_first=True,
-        )
-        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=cfg.num_layers)
+        # Transformer encoder. For the rope variant the encoder owns its own
+        # RotaryEmbedding and applies rotation to Q/K inside scaled dot-product
+        # attention — there is no additive position signal on the input tokens.
+        self.encoder: nn.Module
+        if cfg.position_embedding == "rope":
+            # +1 so the rope tables cover the CLS-prepended sequence length.
+            rope_max_seq_len = cfg.max_seq_len + (1 if cfg.pooling_type == "cls" else 0)
+            self.encoder = RotaryTransformerEncoder(
+                d_model=cfg.hidden_dim,
+                nhead=cfg.num_heads,
+                dim_feedforward=cfg.hidden_dim * 4,
+                dropout=cfg.dropout,
+                activation="gelu",
+                num_layers=cfg.num_layers,
+                max_seq_len=rope_max_seq_len,
+            )
+        else:
+            encoder_layer = nn.TransformerEncoderLayer(
+                d_model=cfg.hidden_dim,
+                nhead=cfg.num_heads,
+                dim_feedforward=cfg.hidden_dim * 4,
+                dropout=cfg.dropout,
+                activation="gelu",
+                batch_first=True,
+            )
+            self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=cfg.num_layers)
 
         # Pooling variants (EV1)
         if cfg.pooling_type == "attention":
@@ -249,31 +258,30 @@ class Football2VecEncoder(nn.Module):
         x_emb = self.spatial_x(x_coords)
         y_emb = self.spatial_y(y_coords)
 
-        # Position embedding (variant-dependent)
+        # Position embedding (variant-dependent). For rope, no additive signal is
+        # added here — rotation is applied to Q/K inside RotaryTransformerEncoder.
+        pos_emb: torch.Tensor | None
         if self.config.position_embedding == "learnable":
             pos_emb = self.position_embedding(self._pos_ids[:, :seq_len])  # type: ignore[index]
         elif self.config.position_embedding == "sinusoidal":
             pos_emb = self._sin_pos[:, :seq_len, :]  # type: ignore[index]
-        else:  # rope — apply rotary modulation as an additive positional signal
-            sin_part = self._rope_sin[:seq_len, :]  # type: ignore[index] — (seq_len, half)
-            # Tile to hidden_dim: repeat_interleave to pair adjacent dims, then tile across heads.
-            per_head = sin_part.repeat_interleave(2, dim=-1)  # (seq_len, 2*half) = per-head width
-            # Broadcast the per-head pattern across all heads and pad/slice to exact hidden_dim.
-            tiled = per_head.repeat(1, (self.config.hidden_dim + per_head.size(-1) - 1) // per_head.size(-1))
-            sin_full = tiled[:, : self.config.hidden_dim].unsqueeze(0)
-            pos_emb = sin_full.expand(tok_emb.size(0), -1, -1)
+        else:  # rope
+            pos_emb = None
 
         # Spatial injection (variant-dependent)
         if self.config.spatial_injection == "concat":
             stacked = torch.cat([tok_emb, x_emb, y_emb], dim=-1)
-            combined = self.spatial_concat_proj(stacked) + pos_emb
+            combined = self.spatial_concat_proj(stacked)
         elif self.config.spatial_injection == "film":
             spatial = torch.cat([x_emb, y_emb], dim=-1)
             scale = self.film_scale(spatial)
             shift = self.film_shift(spatial)
-            combined = tok_emb * (1.0 + scale) + shift + pos_emb
+            combined = tok_emb * (1.0 + scale) + shift
         else:  # additive — default
-            combined = tok_emb + x_emb + y_emb + pos_emb
+            combined = tok_emb + x_emb + y_emb
+
+        if pos_emb is not None:
+            combined = combined + pos_emb
 
         return self.embedding_dropout(combined)
 
