@@ -23,7 +23,7 @@ page_config = PageConfig(
     ),
     freshness_var="av_data_freshness",
     citations=[
-        Citation("Decroos et al. (2019)", "https://doi.org/10.1007/s10994-021-05989-6"),
+        Citation("Decroos et al. (2019)", "https://doi.org/10.1145/3292500.3330758"),
         Citation("silly-kicks", "https://github.com/karsten-s-nielsen/silly-kicks"),
     ],
     empty_message="",
