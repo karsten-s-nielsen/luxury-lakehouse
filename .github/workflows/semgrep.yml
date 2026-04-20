@@ -18,6 +18,11 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded runs on the same PR when a new commit is pushed.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   semgrep:
     runs-on: ubuntu-latest

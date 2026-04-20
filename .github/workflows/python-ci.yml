@@ -24,6 +24,13 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded runs on the same PR when a new commit is pushed. Main-branch
+# pushes keep running to completion so the wheel upload + Databricks deploy
+# steps don't get cut off mid-run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
