@@ -65,7 +65,7 @@ cryptography==46.0.7
     # via google-auth
 cycler==0.12.1
     # via matplotlib
-databricks-sdk==0.102.0
+databricks-sdk==0.103.0
     # via luxury-lakehouse (pyproject.toml)
 deepdiff==7.0.1
     # via taipy-common
