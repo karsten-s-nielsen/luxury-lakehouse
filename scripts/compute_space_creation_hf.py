@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.3-py3-none-any.whl#sha256=290c1acc154f891339f938895b3fc9f6badd3647e34b95246e22d6795834a18e",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.4-py3-none-any.whl#sha256=e2c152613de4495ab6bc89636c139c81ef66c2e7dc70f72ab01777c8bf8f6a35",
 #     "jax[cuda12]>=0.4.35",
 #     "numpy>=1.26.0",
 #     "pandas>=2.0.0",

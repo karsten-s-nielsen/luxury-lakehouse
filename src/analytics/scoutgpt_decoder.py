@@ -15,6 +15,7 @@ import torch
 import torch.nn as nn
 
 from analytics.football2vec_transformer import SpatialMLP
+from analytics.rotary_attention import RotaryTransformerEncoder
 
 # Special tokens - action vocab is 0-22 (23 types)
 PAD_TOKEN_ID = 23
@@ -36,6 +37,7 @@ class ScoutGPTConfig:
     spatial_mlp_dim: int = 64
     vaep_loss_weight: float = 0.1
     conditioning_type: str = "additive"
+    position_embedding: str = "learnable"
 
 
 class ScoutGPTDecoder(nn.Module):
@@ -55,6 +57,10 @@ class ScoutGPTDecoder(nn.Module):
         self.config = config or ScoutGPTConfig()
         c = self.config
         hd = c.hidden_dim
+
+        if c.position_embedding not in ("learnable", "rope"):
+            msg = f"unknown position_embedding {c.position_embedding!r}; expected learnable|rope"
+            raise ValueError(msg)
 
         # Token and player embeddings
         self.token_embedding = nn.Embedding(EXPANDED_VOCAB_SIZE, hd)
@@ -86,31 +92,48 @@ class ScoutGPTDecoder(nn.Module):
         # Result embedding (binary: 0=fail, 1=success)
         self.result_embedding = nn.Embedding(2, hd)
 
-        # Positional embedding
-        self.position_embedding = nn.Embedding(c.max_seq_len, hd)
+        # Positional embedding (variant-dependent; skipped for rope — rotation applied in attention)
+        if c.position_embedding == "learnable":
+            self.position_embedding = nn.Embedding(c.max_seq_len, hd)
 
         self.embedding_dropout = nn.Dropout(c.dropout)
 
-        # Causal transformer (nn.TransformerEncoder + is_causal = GPT pattern)
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=hd,
-            nhead=c.num_heads,
-            dim_feedforward=hd * 4,
-            dropout=c.dropout,
-            activation="gelu",
-            batch_first=True,
-        )
-        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=c.num_layers)
+        # Causal transformer. For rope, RotaryTransformerEncoder rotates Q/K inside
+        # scaled dot-product attention and takes is_causal=True at forward time;
+        # for learnable, the stdlib encoder stack + explicit triu causal mask.
+        self.transformer: nn.Module
+        if c.position_embedding == "rope":
+            self.transformer = RotaryTransformerEncoder(
+                d_model=hd,
+                nhead=c.num_heads,
+                dim_feedforward=hd * 4,
+                dropout=c.dropout,
+                activation="gelu",
+                num_layers=c.num_layers,
+                max_seq_len=c.max_seq_len,
+            )
+        else:
+            encoder_layer = nn.TransformerEncoderLayer(
+                d_model=hd,
+                nhead=c.num_heads,
+                dim_feedforward=hd * 4,
+                dropout=c.dropout,
+                activation="gelu",
+                batch_first=True,
+            )
+            self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=c.num_layers)
 
         # Prediction heads
         self.action_head = nn.Linear(hd, c.vocab_size)
         self.vaep_head = nn.Linear(hd, 1)
 
-        # Pre-computed buffers (avoids per-forward-pass GPU allocation)
-        self.register_buffer(
-            "_causal_mask", torch.triu(torch.ones(c.max_seq_len, c.max_seq_len, dtype=torch.bool), diagonal=1)
-        )
-        self.register_buffer("_pos_ids", torch.arange(c.max_seq_len).unsqueeze(0))
+        # Pre-computed buffers (learnable only — rope uses is_causal=True in SDPA
+        # and does not index a learned position table, so neither buffer applies).
+        if c.position_embedding == "learnable":
+            self.register_buffer(
+                "_causal_mask", torch.triu(torch.ones(c.max_seq_len, c.max_seq_len, dtype=torch.bool), diagonal=1)
+            )
+            self.register_buffer("_pos_ids", torch.arange(c.max_seq_len).unsqueeze(0))
 
         self.apply(self._init_weights)
 
@@ -153,7 +176,8 @@ class ScoutGPTDecoder(nn.Module):
         # Player embedding computed separately for conditioning
         player_emb = self.player_embedding(player_ids)
 
-        # Action embedding: all components EXCEPT player
+        # Action embedding: all components EXCEPT player. For rope, position is
+        # applied inside attention (rotation on Q/K), not as an additive term here.
         action_emb = (
             self.token_embedding(action_ids)
             + self.start_x_mlp(start_x)
@@ -162,8 +186,9 @@ class ScoutGPTDecoder(nn.Module):
             + self.end_y_mlp(end_y)
             + self.result_embedding(result)
             + self.time_delta_mlp(time_delta)
-            + self.position_embedding(self._pos_ids[:, :seq_len])  # type: ignore[index]
         )
+        if self.config.position_embedding == "learnable":
+            action_emb = action_emb + self.position_embedding(self._pos_ids[:, :seq_len])  # type: ignore[index]
 
         # Apply conditioning
         if self._conditioning_type == "additive":
@@ -198,16 +223,18 @@ class ScoutGPTDecoder(nn.Module):
     ) -> torch.Tensor:
         """Run causal transformer. Returns (batch, seq_len, hidden_dim)."""
         emb = self._embed(action_ids, start_x, start_y, end_x, end_y, result, time_delta, player_ids)
-        seq_len = emb.size(1)
-
-        # Pre-computed causal mask (register_buffer), sliced to seq_len
-        causal_mask = self._causal_mask[:seq_len, :seq_len]  # type: ignore[index]
 
         # Padding mask: TransformerEncoder uses True = ignore
         src_key_padding_mask: torch.Tensor | None = None
         if attention_mask is not None:
             src_key_padding_mask = ~attention_mask
 
+        if self.config.position_embedding == "rope":
+            return self.transformer(emb, src_key_padding_mask=src_key_padding_mask, is_causal=True)
+
+        # Learnable path: explicit triu causal mask sliced to seq_len.
+        seq_len = emb.size(1)
+        causal_mask = self._causal_mask[:seq_len, :seq_len]  # type: ignore[index]
         return self.transformer(emb, mask=causal_mask, src_key_padding_mask=src_key_padding_mask)
 
     def forward(

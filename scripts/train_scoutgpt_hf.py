@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.3-py3-none-any.whl#sha256=290c1acc154f891339f938895b3fc9f6badd3647e34b95246e22d6795834a18e",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.4-py3-none-any.whl#sha256=e2c152613de4495ab6bc89636c139c81ef66c2e7dc70f72ab01777c8bf8f6a35",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -25,11 +25,13 @@ References:
 
 Usage (HF Jobs CLI):
     hf jobs uv run scripts/train_scoutgpt_hf.py \\
-        --flavor l40sx1 --timeout 120m \\
+        --flavor l40sx1 --timeout 180m \\
         --secrets HF_TOKEN=$HF_TOKEN \\
         --env MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI \\
         --env DATABRICKS_HOST=$DATABRICKS_HOST \\
-        --env DATABRICKS_TOKEN=$DATABRICKS_TOKEN
+        --env DATABRICKS_TOKEN=$DATABRICKS_TOKEN \\
+        --env DATASET_PINNED_SHA=$DATASET_SHA \\
+        -- --variant=rope --output-repo-suffix=-variant-rope
 """
 
 from __future__ import annotations
@@ -74,7 +76,6 @@ logger = logging.getLogger(__name__)
 
 HF_ORG = "luxury-lakehouse"
 TRAINING_DATASET = f"{HF_ORG}/scoutgpt-training-data"
-MODEL_REPO = f"{HF_ORG}/scoutgpt"
 
 CATALOG = "soccer_analytics"
 SCHEMA = "dev_gold"
@@ -91,6 +92,7 @@ def _save_checkpoint(
     config: ScoutGPTConfig,
     hf_token: str,
     metrics: dict[str, Any],
+    model_repo: str,
 ) -> None:
     """Save model weights, config, and metrics to HF Hub.
 
@@ -103,7 +105,7 @@ def _save_checkpoint(
     from safetensors.torch import save_file as _save
 
     api = HfApi(token=hf_token)
-    api.create_repo(MODEL_REPO, exist_ok=True, repo_type="model", token=hf_token)
+    api.create_repo(model_repo, exist_ok=True, repo_type="model", token=hf_token)
 
     with tempfile.TemporaryDirectory() as td:
         model_path = os.path.join(td, "model.safetensors")
@@ -118,20 +120,20 @@ def _save_checkpoint(
             api.upload_file(
                 path_or_fileobj=path,
                 path_in_repo=f"stage1/{name}",
-                repo_id=MODEL_REPO,
+                repo_id=model_repo,
                 repo_type="model",
                 token=hf_token,
             )
-        logger.info("Checkpoint uploaded to %s/stage1/", MODEL_REPO)
+        logger.info("Checkpoint uploaded to %s/stage1/", model_repo)
 
     api.upload_file(
         path_or_fileobj=json.dumps(metrics, indent=2, default=str).encode("utf-8"),
         path_in_repo="metrics.json",
-        repo_id=MODEL_REPO,
+        repo_id=model_repo,
         repo_type="model",
         token=hf_token,
     )
-    logger.info("metrics.json uploaded to %s", MODEL_REPO)
+    logger.info("metrics.json uploaded to %s", model_repo)
 
 
 # ---------------------------------------------------------------------------
@@ -226,19 +228,44 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     parser.add_argument("--lr", type=float, default=DEFAULT_LR)
     parser.add_argument("--patience", type=int, default=DEFAULT_PATIENCE)
+    parser.add_argument(
+        "--variant",
+        type=str,
+        required=True,
+        choices=("learnable", "rope"),
+        help="ScoutGPTConfig.position_embedding value — which A/B variant to train.",
+    )
+    parser.add_argument(
+        "--output-repo-suffix",
+        type=str,
+        default="",
+        help=(
+            "Suffix for output HF repo name. Destination = "
+            "luxury-lakehouse/scoutgpt{suffix}. Empty writes to canonical production repo; "
+            "use e.g. '-variant-rope' for sibling-repo A/B runs."
+        ),
+    )
     args = parser.parse_args()
 
-    from huggingface_hub import get_token
+    model_repo = f"{HF_ORG}/scoutgpt{args.output_repo_suffix}"
+    dataset_revision = os.environ.get("DATASET_PINNED_SHA") or None
+
+    from huggingface_hub import HfApi, get_token
 
     hf_token = os.environ.get("HF_TOKEN", "") or (get_token() or "")
     if not hf_token:
         raise RuntimeError("HF_TOKEN required")
 
+    # Pre-create the output model repo so HFJobsCostRecorder can write cost
+    # telemetry from t=0. Without this, the recorder hits 404 until
+    # _save_checkpoint runs at end-of-training and creates the repo itself.
+    HfApi(token=hf_token).create_repo(model_repo, exist_ok=True, repo_type="model", token=hf_token)
+
     recorder = HFJobsCostRecorder(
         workflow_id="wf-scoutgpt",
         phase="training",
         rate_usd_per_hour=HF_RATE_A10G_LARGE,
-        repo_id=MODEL_REPO,
+        repo_id=model_repo,
         repo_type="model",
     )
     recorder.start()
@@ -247,7 +274,10 @@ def main() -> None:
     t0 = time.time()
 
     try:
-        data, _player_id_map, dataset_commit = load_training_data(hf_token, TRAINING_DATASET)
+        # DATASET_PINNED_SHA env var (optional) pins the dataset to a specific
+        # revision so concurrent A/B runs read byte-identical data even if the
+        # dataset repo is updated mid-run.
+        data, _player_id_map, dataset_commit = load_training_data(hf_token, TRAINING_DATASET, revision=dataset_revision)
         logger.info("Loaded %d episodes (commit=%s)", len(data), dataset_commit)
 
         parsed = build_datasets(data)
@@ -259,7 +289,7 @@ def main() -> None:
         tei = test_df.index.tolist()
         logger.info("Split: train=%d val=%d test=%d", len(ti), len(vi), len(tei))
 
-        config = ScoutGPTConfig()
+        config = ScoutGPTConfig(position_embedding=args.variant)
 
         train_ds = ScoutGPTDataset(
             [all_atypes[i] for i in ti],
@@ -331,7 +361,7 @@ def main() -> None:
             **eval_metrics,
         }
         metrics = recorder.complete(metrics, row_count=len(data))
-        _save_checkpoint(model, config, hf_token, metrics)
+        _save_checkpoint(model, config, hf_token, metrics, model_repo)
         _log_mlflow(
             config,
             history,
