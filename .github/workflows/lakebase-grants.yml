@@ -1,9 +1,15 @@
-name: Lakebase Grants
+name: Lakebase Grants & Indexes
 
-# Self-healing Lakebase synced-table grants for the Taipy app service
-# principal. See docs/superpowers/adrs/ADR-005-lakebase-synced-table-grants.md
-# for why auto-inherit via pg_default_acl is structurally unavailable and
-# this scheduled re-apply is the canonical compensating control.
+# Self-healing Lakebase synced-table maintenance for the Taipy app service
+# principal. Runs two idempotent passes in sequence:
+#   1. `run_lakebase_grants.py` — re-applies SELECT grants. See
+#      docs/superpowers/adrs/ADR-005-lakebase-synced-table-grants.md for why
+#      auto-inherit via pg_default_acl is structurally unavailable and this
+#      scheduled re-apply is the canonical compensating control.
+#   2. `create_indexes.py --verify` — re-applies PG indexes (IF NOT EXISTS)
+#      and EXPLAIN-ANALYZE-verifies Index Scan plans. Same self-healing
+#      pattern: synced-table recreation drops custom indexes, so a daily
+#      rebuild restores them before the first dashboard query hits Seq Scan.
 #
 # Triggers (all three by design — coverage before blame):
 #   1. schedule: daily 07:00 UTC — one hour after the 06:00 UTC
@@ -11,7 +17,7 @@ name: Lakebase Grants
 #      tasks time to finish. Catches drift from dbt table-materialization drops.
 #   2. workflow_run: chained after "Terraform Apply" on main — any TF change
 #      touching the synced_tables module can recreate PG tables and drop
-#      their grants. Only runs when the upstream workflow succeeded.
+#      their grants + indexes. Only runs when the upstream workflow succeeded.
 #   3. workflow_dispatch: manual trigger for incident response.
 #
 # Required repo configuration (one-time):
@@ -92,8 +98,23 @@ jobs:
           uv run python scripts/run_lakebase_grants.py \
               --sp-uuid "$HF_APP_SP_APPLICATION_ID"
 
-      - name: Verify coverage
+      - name: Verify grant coverage
         run: |
           uv run python scripts/run_lakebase_grants.py \
               --verify \
               --sp-uuid "$HF_APP_SP_APPLICATION_ID"
+
+      # Index maintenance runs idempotently: `CREATE INDEX IF NOT EXISTS` on
+      # every entry in scripts/create_indexes.py:INDEXES. --verify runs
+      # EXPLAIN ANALYZE on a representative query per table and reports
+      # drift (Seq Scan where an Index Scan is expected). Like grants, this
+      # self-heals after synced-table recreation drops the custom indexes.
+      - name: Apply Lakebase indexes
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.verify_only != true }}
+        run: |
+          uv run python scripts/create_indexes.py --verify
+
+      - name: Verify index coverage (verify_only mode)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.verify_only == true }}
+        run: |
+          uv run python scripts/create_indexes.py --verify

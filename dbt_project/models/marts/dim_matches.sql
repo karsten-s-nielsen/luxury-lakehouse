@@ -1,7 +1,3 @@
-{{ config(
-    materialized='table',
-    liquid_clustered_by=['provider']
-) }}
 -- dim_matches.sql
 -- Conformed match dimension unifying StatsBomb, Wyscout, IDSSE, and Metrica.
 --
