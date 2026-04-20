@@ -119,9 +119,10 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • stg_idsse__events, stg_idsse__elastic_sync                  │    │
 │  │  • stg_pausa__values                                           │    │
 │  │                                                                  │    │
-│  │  GOLD (business logic, analytics-ready — 29 fact + 4 dim):       │    │
+│  │  GOLD (business logic, analytics-ready — 30 fact + 4 dim):       │    │
 │  │  • fct_shots, fct_passes, fct_player_stats, fct_match_summary    │    │
 │  │  • fct_xg_predictions, fct_tracking_frames, fct_action_values    │    │
+│  │  • fct_discipline_events (red/yellow card events)                │    │
 │  │  • fct_player_embeddings, fct_physical_stats                     │    │
 │  │  • fct_defensive_values, fct_defcon_actions, fct_defcon_pressure │    │
 │  │  • fct_player_embeddings_season/career                           │    │
@@ -182,6 +183,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 | `dev_gold.fct_match_summary` | `fct_match_summary_synced` | `match_id` | 3,464 |
 | `dev_gold.fct_tracking_frames` | `fct_tracking_frames_synced` | `tracking_id` | 38,118,607 |
 | `dev_gold.fct_action_values` | `fct_action_values_synced` | `action_value_id` | ~9,500,000 |
+| `dev_gold.fct_discipline_events` | `fct_discipline_events_synced` | `event_id` | ~14,000 |
 | `dev_gold.fct_physical_stats` | `fct_physical_stats_synced` | `physical_stats_id` | 616 |
 | `dev_gold.fct_defensive_values` | `fct_defensive_values_synced` | `defensive_value_id` | 829,377 |
 | `dev_gold.fct_defcon_actions` | `fct_defcon_actions_synced` | `defcon_action_id` | 829,377 |
@@ -227,7 +229,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 | Page | Visualization | Data Source |
 |------|--------------|-------------|
 | Heat Map | Action density per player/team/match | `fct_passes_synced`, `fct_shots_synced` |
-| Match Summary | Scorecard + xG metrics + horizontal bar chart | `fct_match_summary_synced` |
+| Match Summary | Dashboard: Final/xG/Verdict tiles + Big Story VAEP cards + Plotly xG race + ranked delta table | `fct_match_summary_synced`, `fct_action_values_synced`, `fct_shots_synced`, `fct_discipline_events_synced` |
 | Pass Map | Full pitch arrows, progressive pass highlighting | `fct_passes_synced` |
 | Pass Network | Interactive Plotly graph with hover tooltips | `fct_passes_synced` |
 | Shot Map | Half-pitch shots sized by xG, colored by outcome, custom xG overlay | `fct_shots_synced`, `fct_xg_predictions_synced` |
@@ -900,7 +902,7 @@ Consolidated list of academic citations referenced across UI pages and analytics
 | Bourbousson, Sève & McGarry (2010) | "Space-time coordination dynamics in basketball." *Journal of Sports Sciences 28(3)* | Team Shape page |
 | Butcher et al. (2025) | "An Expected Goals On Target (xGOT) Model." *MDPI* (DOI: 10.1515/jqas-2024-0091) | Goalkeeper Analytics, `wf-goalkeeper`, `wf-import-psxg`, `wf-export-shots` |
 | Danesi, P. (2025) | "Football2Vec: Transformer-Based Player Embeddings." | Player Similarity, `src/analytics/football2vec_transformer.py`, `wf-football2vec-v2` |
-| Decroos, Bransen, Van Haaren & Davis (2019) | "Actions Speak Louder than Goals: Valuing Player Actions in Soccer." *KDD* | Action Values, Player Radar, `wf-vaep` |
+| Decroos, Bransen, Van Haaren & Davis (2019) | "Actions Speak Louder than Goals: Valuing Player Actions in Soccer." *KDD* | Action Values, Player Radar, Match Summary (Big Story VAEP ranking), `wf-vaep` |
 | Donnelly (2024) | "Systematic Approach to Performance Analysis." (course materials) | Conversion Funnel page |
 | Frencken, Lemmink, Delleman & Visscher (2011) | "Oscillations of centroid position and surface area of soccer teams in small-sided games." *Journal of Sports Sciences 29(14)* | Team Shape page |
 | Ganin et al. (2016) | "Domain-Adversarial Training of Neural Networks." *JMLR 17* | Player Similarity (gradient reversal for adversarial debiasing) |

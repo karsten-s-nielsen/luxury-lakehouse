@@ -1645,3 +1645,136 @@ nav[class*="taipy"],
         max-width: 100% !important;
     }
 }
+
+/* ===============================================================================
+   Match Summary redesign (2026-04-19) — Row 1 Big Story, Row 3 delta table.
+   Platform-level: @media ≤768px stacks the ll-stats-bar's 4-tile row to a 2×2 grid,
+   which affects Conversion Funnel + Workflows dashboards too (verified non-regressing
+   at desktop sizes).
+   =============================================================================== */
+
+/* Row 1 Big Story container */
+.ll-match-moments-wrap { padding: 0 8px; }
+.ll-match-moments { display: grid; gap: 10px; }
+.ll-big-story-label {
+    color: #d9a300;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 4px;
+}
+.ll-moment-card {
+    background: rgba(255, 255, 255, 0.04);
+    border-left: 2px solid #d9a300;
+    border-radius: 4px;
+    padding: 10px 14px;
+    display: grid;
+    grid-template-columns: 50px 1fr auto;
+    gap: 12px;
+    align-items: center;
+}
+.ll-big-story-hero {
+    background: rgba(255, 215, 0, 0.08);
+    border: 1px solid rgba(255, 215, 0, 0.25);
+    border-left: 3px solid #d9a300;
+    padding: 14px 18px;
+}
+.ll-moments-secondary {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+.ll-moment-card-secondary {
+    padding: 8px 12px;
+    font-size: 12px;
+}
+.ll-moment-card-red-card {
+    border-left-color: #c84444;
+    background: rgba(200, 68, 68, 0.08);
+}
+.ll-moment-minute {
+    color: #d9a300;
+    font-weight: 600;
+    font-size: 13px;
+}
+.ll-moment-card-red-card .ll-moment-minute { color: #e77; }
+.ll-moment-team { color: #9aa; font-size: 11px; }
+.ll-moment-vaep {
+    font-family: monospace;
+    color: #9bb;
+    font-size: 11px;
+}
+.ll-moments-caveat {
+    color: #888;
+    font-size: 10px;
+    font-style: italic;
+    margin-top: 6px;
+    padding: 0 8px;
+}
+
+/* Row 3 delta table */
+.ll-delta-table-wrap { padding: 0 8px; }
+.ll-delta-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+.ll-delta-table th,
+.ll-delta-table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid #2a2a2a;
+    text-align: left;
+}
+.ll-delta-table th {
+    color: #888;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 500;
+}
+.ll-delta-table td.ll-delta-home,
+.ll-delta-table th.ll-delta-home { color: #5a9; }
+.ll-delta-table td.ll-delta-away,
+.ll-delta-table th.ll-delta-away { color: #a55; }
+.ll-delta-table td.ll-delta-delta {
+    font-family: monospace;
+    font-weight: 600;
+}
+.ll-delta-table td.ll-delta-direction {
+    color: #ccc;
+    font-size: 11px;
+}
+.ll-delta-star { background: rgba(255, 215, 0, 0.04); }
+.ll-delta-star td:first-child {
+    color: #d9a300;
+    font-weight: 600;
+}
+.ll-delta-avg {
+    color: #666;
+    font-size: 10px;
+    margin-left: 4px;
+}
+
+/* Mobile responsive — Match Summary redesign. Platform-level rule for
+   ll-stats-bar (affects all dashboard pages) + page-specific tightening for
+   Big Story + delta table. */
+@media (max-width: 768px) {
+    /* Stats bar: 4-tile row → 2×2 grid on narrow viewports. */
+    .ll-stats-bar {
+        flex-wrap: wrap !important;
+        gap: 8px !important;
+    }
+    .ll-stats-bar > * { flex: 1 1 calc(50% - 4px) !important; min-width: 0 !important; }
+
+    .ll-big-story-hero { padding: 10px 12px; }
+    .ll-moments-secondary { grid-template-columns: 1fr; }
+    .ll-moment-card {
+        grid-template-columns: 40px 1fr auto;
+        padding: 8px 10px;
+    }
+    .ll-moment-card-secondary { font-size: 11px; }
+
+    .ll-delta-table th,
+    .ll-delta-table td { padding: 5px 7px; }
+    .ll-delta-table td.ll-delta-direction { font-size: 10px; }
+}

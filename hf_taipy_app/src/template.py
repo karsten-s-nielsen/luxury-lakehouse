@@ -118,6 +118,24 @@ GLOSSARY: dict[str, str] = {
     "xG Over-performance": (
         "Goals minus xG. Positive = scored more than expected (clinical finishing). Negative = underperformed chances."
     ),
+    "Our Verdict": (
+        "Editorial interpretation of whether the scoreline reflected the run of play, "
+        "derived from xG margin. Closed set of five phrases mapped to xG-delta thresholds."
+    ),
+    "Big Story": (
+        "The single most decisive action of the match by VAEP impact \u2014 highlighted as "
+        "the hero card of the Match Summary decisive-moments row."
+    ),
+    "Fully merited": ("A win where the winner's xG exceeded the loser's by at least 0.5 \u2014 clear xG dominance."),
+    "Fair result": ("A match where the two teams' xG were within 0.3 \u2014 no clear xG advantage either way."),
+    "Fortunate": ("A win where the winner's xG was below the loser's but the gap was narrow (< 1.5)."),
+    "Smash & grab": (
+        "A win where the loser's xG was significantly higher (gap \u2265 1.5) \u2014 result against the run of play."
+    ),
+    "Flattered by scoreline": (
+        "A win where the winner's xG was at least twice their goals scored \u2014 "
+        "xG suggests the scoreline underrepresents their dominance."
+    ),
     "DEFCON/90": (
         "Defensive pressure received per 90 minutes (DEFCON framework). Higher = more defensive attention attracted."
     ),
@@ -231,7 +249,19 @@ PAGE_TERMS: dict[str, list[str]] = {
     "Pass-Map": ["Line-Breaking Pass", "Progressive Pass"],
     "Heat-Map": ["Bubble Map", "Hotspot", "Action Type"],
     "Pass-Network": ["Passing Network", "Average Position", "Pass Connection"],
-    "Match-Summary": ["xG (Expected Goals)", "PPDA", "Progressive Pass", "Percentile Rank"],
+    "Match-Summary": [
+        "xG (Expected Goals)",
+        "PPDA",
+        "VAEP",
+        "Progressive Pass",
+        "Our Verdict",
+        "Big Story",
+        "Fully merited",
+        "Fair result",
+        "Fortunate",
+        "Smash & grab",
+        "Flattered by scoreline",
+    ],
     "Player-Impact": ["VAEP", "VAEP/90", "Off. VAEP/90", "Def. VAEP/90", "SPADL", "Percentile Rank"],
     "Player-Comparison": [
         "Goals/90",

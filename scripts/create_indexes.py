@@ -186,6 +186,12 @@ INDEXES: list[tuple[str, str, str]] = [
     ("idx_funnel_agg_match", "fct_funnel_stages_agg_synced", "match_id"),
     ("idx_funnel_agg_comp_team_gs", "fct_funnel_stages_agg_synced", "competition_id, team_id, game_state"),
     ("idx_funnel_agg_comp_opp_gs", "fct_funnel_stages_agg_synced", "competition_id, opponent_team_id, game_state"),
+    # ── fct_discipline_events_synced — Match Summary redesign (2026-04-19) ──
+    # ~14K rows total (~700 red + second-yellow rows for the match-changing subset).
+    # Single access pattern: `WHERE match_id = %s [AND card_name IN (...)]` from
+    # fetch_discipline_events(). Tiny table; single-column match_id composite
+    # index gives sub-10ms Index Scan on PG.
+    ("idx_discipline_events_match", "fct_discipline_events_synced", "match_id"),
 ]
 
 # pgvector HNSW index definitions: (index_name, table, using_clause)

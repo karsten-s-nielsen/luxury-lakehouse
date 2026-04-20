@@ -3162,3 +3162,87 @@ models:
       - name: _loaded_at
         data_type: timestamp
         description: Audit timestamp.
+
+  - name: fct_discipline_events
+    description: >
+      Per-event discipline mart — one row per card issued on a StatsBomb
+      'Bad Behaviour' or 'Foul Committed' event. Used by the Match Summary
+      redesign for Row 1 red-card auto-inclusion and Row 2 xG-race red-card
+      markers. Filter `card_name IN ('Red Card', 'Second Yellow')` for the
+      match-changing subset; keep all three values (including 'Yellow Card')
+      in the mart so downstream pages can surface yellow-card narrative if
+      needed.
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    columns:
+      - name: event_id
+        data_type: string
+        description: Unique event identifier (inherits stg_statsbomb__events.event_id).
+        data_tests:
+          - unique
+          - not_null
+      - name: match_id
+        data_type: bigint
+        description: Foreign key to fct_match_summary.
+        data_tests:
+          - not_null
+      - name: competition_id
+        data_type: int
+        description: Foreign key to dim_competitions.
+        data_tests:
+          - not_null
+      - name: season_id
+        data_type: int
+        description: Season identifier.
+      - name: period
+        data_type: int
+        description: Half of the match (1, 2, or 3+ for extra time).
+        data_tests:
+          - not_null
+      - name: minute
+        data_type: int
+        description: Minute of the match.
+        data_tests:
+          - not_null
+      - name: second
+        data_type: int
+        description: Seconds within minute.
+      - name: player_id
+        data_type: int
+        description: Foreign key to dim_players (the carded player).
+      - name: team_id
+        data_type: int
+        description: Team the carded player played for.
+        data_tests:
+          - not_null
+      - name: event_type
+        data_type: string
+        description: StatsBomb event type that carried the card ('Bad Behaviour' or 'Foul Committed').
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Bad Behaviour', 'Foul Committed']
+      - name: card_name
+        data_type: string
+        description: Card issued ('Yellow Card', 'Red Card', or 'Second Yellow').
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Yellow Card', 'Red Card', 'Second Yellow']
+      - name: data_source
+        data_type: string
+        description: Data provider. Hard-coded to 'statsbomb' until Wyscout discipline lands.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['statsbomb']
+      - name: _loaded_at
+        data_type: timestamp
+        description: Audit timestamp.

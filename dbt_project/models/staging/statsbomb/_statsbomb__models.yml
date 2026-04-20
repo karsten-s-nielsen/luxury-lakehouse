@@ -134,6 +134,17 @@ models:
         description: Name of the intended pass recipient (NULL for non-pass events)
       - name: substitution_replacement_id
         description: Player ID of the substitution replacement (pass-through for int_minutes_played)
+      - name: card_name
+        description: >
+          Card issued on this event, extracted from `_raw_extra_json` (which
+          statsbombpy does NOT flatten). NULL unless `event_type` is
+          'Bad Behaviour' or 'Foul Committed' AND a card was shown.
+          Observed values: 'Yellow Card', 'Red Card', 'Second Yellow'.
+          Downstream mart `fct_discipline_events` filters on this column.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Yellow Card', 'Red Card', 'Second Yellow']
 
   - name: stg_statsbomb__shots
     config:

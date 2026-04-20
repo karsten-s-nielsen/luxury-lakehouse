@@ -1,7 +1,12 @@
-"""Match Summary state module — all variables prefixed with ms_.
+"""Match Summary state module — dashboard layout per 2026-04-19 redesign spec.
 
-Loads match data, computes scorecard metrics, renders 4 stat bar charts.
-Registered as the Match-Summary page refresher via shared.register_page_refresher.
+Orchestrates the refresh pipeline: fetch match summary, compute verdict, fetch
+VAEP decisive actions + shots timeline + discipline events, then render Row 1
+HTML, Row 2 Plotly figure, Row 3 HTML.
+
+All state variables prefixed with ``ms_``. Registered as the Match-Summary
+dashboard-page refresher (is_dashboard=True → hides site-wide footer, wraps
+content in the ll-dashboard-scroll viewport container).
 """
 
 from __future__ import annotations
@@ -9,302 +14,290 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import matplotlib.pyplot as plt
-import numpy as np
+import pandas as pd
 from filters import build_scope_label_plain, build_warning, fetch_data_freshness
-from queries.match import fetch_league_averages, fetch_match_summary
-from render import AWAY_COLOR, HOME_COLOR, PITCH_BG_COLOR, TEXT_COLOR, chart_to_file, fmt_int
+from queries.match import (
+    fetch_discipline_events,
+    fetch_league_averages,
+    fetch_match_summary,
+    fetch_shots_timeline,
+    fetch_vaep_decisive_actions,
+)
+from render import AWAY_COLOR, HOME_COLOR
 
+from state.match_summary_render import (
+    build_xg_race_figure,
+    render_delta_table_html,
+    render_moments_html,
+)
+from state.match_summary_verdict import derive_verdict
 from state.shared import _ALL_LABEL, get_comp_id, get_match_id, register_page_refresher
+from state.workflows_dag import RawHtml
 
 logger = logging.getLogger(__name__)
 
+
 # ── Exported state variables (all ms_ prefixed) ─────────────────────────────
+# Tile strip
 ms_home_name: str = ""
 ms_away_name: str = ""
-ms_home_score: str = "--"
-ms_away_score: str = "--"
+ms_final_score: str = "--"
 ms_home_xg: str = "--"
 ms_away_xg: str = "--"
 ms_home_xg_delta: str = ""
 ms_away_xg_delta: str = ""
+ms_verdict_phrase: str = ""
+ms_verdict_detail: str = ""
 
-ms_shooting_chart: str = ""
-ms_passing_chart: str = ""
-ms_possession_chart: str = ""
-ms_ppda_chart: str = ""
+# Row 1 — Big Story decisive actions. MUST be a RawHtml instance (not plain str)
+# so Taipy's registered content provider renders it as actual HTML in the
+# `<|part|content={var}|>` block. Plain str produces "No valid provider for
+# type str" — see state/workflows_dag.py::RawHtml + main.py::_raw_html_provider.
+ms_moments_html: RawHtml = RawHtml("")
+ms_moments_height: str = "280px"
 
-ms_warning_text: str = ""
+# Row 2 — Plotly xG race figure
+ms_xg_race_fig: Any = None
+ms_xg_race_alt: str = ""
+
+# Row 3 — ranked delta table (same RawHtml contract as Row 1).
+ms_delta_table_html: RawHtml = RawHtml("")
+ms_delta_table_height: str = "260px"
+
+# Shared scope + meta
 ms_scope_comp: str = ""
 ms_scope_team: str = ""
 ms_scope_match: str = ""
+ms_warning_text: str = ""
 ms_data_freshness: str = ""
-ms_league_averages: str = ""
 
-ms_shooting_chart_alt: str = ""
-ms_passing_chart_alt: str = ""
-ms_possession_chart_alt: str = ""
-ms_ppda_chart_alt: str = ""
 
 __all__ = [
     "ms_away_name",
-    "ms_away_score",
     "ms_away_xg",
     "ms_away_xg_delta",
     "ms_data_freshness",
+    "ms_delta_table_height",
+    "ms_delta_table_html",
+    "ms_final_score",
     "ms_home_name",
-    "ms_home_score",
     "ms_home_xg",
     "ms_home_xg_delta",
-    "ms_league_averages",
-    "ms_passing_chart",
-    "ms_passing_chart_alt",
-    "ms_possession_chart",
-    "ms_possession_chart_alt",
-    "ms_ppda_chart",
-    "ms_ppda_chart_alt",
+    "ms_moments_height",
+    "ms_moments_html",
     "ms_scope_comp",
     "ms_scope_match",
     "ms_scope_team",
-    "ms_shooting_chart",
-    "ms_shooting_chart_alt",
+    "ms_verdict_detail",
+    "ms_verdict_phrase",
     "ms_warning_text",
+    "ms_xg_race_alt",
+    "ms_xg_race_fig",
 ]
 
 
-# ── Rendering — stat comparison bar charts ───────────────────────────────────
+# ── Helper: state reset ─────────────────────────────────────────────────────
+
+_CLEAR_VALUES: list[tuple[str, Any]] = [
+    ("ms_home_name", ""),
+    ("ms_away_name", ""),
+    ("ms_final_score", "--"),
+    ("ms_home_xg", "--"),
+    ("ms_away_xg", "--"),
+    ("ms_home_xg_delta", ""),
+    ("ms_away_xg_delta", ""),
+    ("ms_verdict_phrase", ""),
+    ("ms_verdict_detail", ""),
+    ("ms_moments_html", RawHtml("")),
+    ("ms_xg_race_fig", None),
+    ("ms_xg_race_alt", ""),
+    ("ms_delta_table_html", RawHtml("")),
+    ("ms_scope_comp", ""),
+    ("ms_scope_team", ""),
+    ("ms_scope_match", ""),
+    ("ms_warning_text", ""),
+    ("ms_data_freshness", ""),
+]
 
 
-def _render_stat_bars(
-    home_vals: list[float],
-    away_vals: list[float],
-    labels: list[str],
-    home_name: str,
-    away_name: str,
-    title: str,
-    file_name: str,
-    *,
-    primary: bool = False,
-) -> str:
-    """Render a grouped horizontal bar chart to temp PNG, return file path."""
-    width = 7 if primary else 6
-    fig, ax = plt.subplots(figsize=(width, max(2.5, len(labels) * 0.8)), facecolor=PITCH_BG_COLOR)
-    ax.set_facecolor(PITCH_BG_COLOR)
-
-    y = np.arange(len(labels))
-    bar_h = 0.35
-    ax.barh(y - bar_h / 2, home_vals, bar_h, label=home_name, color=HOME_COLOR, alpha=0.85)
-    ax.barh(y + bar_h / 2, away_vals, bar_h, label=away_name, color=AWAY_COLOR, alpha=0.85, hatch="///")
-
-    ax.set_yticks(y)
-    ax.set_yticklabels(labels, color=TEXT_COLOR, fontsize=10)
-    ax.set_title(title, color=TEXT_COLOR, fontsize=12, pad=10)
-    ax.tick_params(axis="x", colors=TEXT_COLOR)
-    ax.legend(loc="lower right", fontsize=8, facecolor=PITCH_BG_COLOR, edgecolor="#444", labelcolor=TEXT_COLOR)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.spines["bottom"].set_color("#444")
-    ax.spines["left"].set_color("#444")
-
-    return chart_to_file(fig, file_name)
+def _clear_all(state: Any) -> None:
+    for attr, default in _CLEAR_VALUES:
+        setattr(state, attr, default)
 
 
-# ── Refresh callback ─────────────────────────────────────────────────────────
+# ── Refresh callback ────────────────────────────────────────────────────────
 
 
 def ms_refresh(state: Any) -> None:
-    """Reload match summary data, compute scorecard, render 4 stat bar charts."""
+    """Reload match data and render the redesigned Match Summary dashboard."""
     comp_id = get_comp_id(state.selected_competition)
     match_id = get_match_id(state.selected_match)
+
     if match_id is None:
-        # Clear all state when no match selected
-        state.ms_home_name = ""
-        state.ms_away_name = ""
-        state.ms_home_score = "--"
-        state.ms_away_score = "--"
-        state.ms_home_xg = "--"
-        state.ms_away_xg = "--"
-        state.ms_home_xg_delta = ""
-        state.ms_away_xg_delta = ""
-        state.ms_shooting_chart = ""
-        state.ms_passing_chart = ""
-        state.ms_possession_chart = ""
-        state.ms_ppda_chart = ""
-        state.ms_shooting_chart_alt = ""
-        state.ms_passing_chart_alt = ""
-        state.ms_possession_chart_alt = ""
-        state.ms_ppda_chart_alt = ""
-        state.ms_warning_text = ""
-        state.ms_scope_comp = ""
-        state.ms_scope_team = ""
-        state.ms_scope_match = ""
-        state.ms_data_freshness = ""
-        state.ms_league_averages = ""
+        _clear_all(state)
         return
 
-    # Scope line — 3 dimensions Match Summary filters by
     comp_label = state.selected_competition or ""
     team_label = state.selected_team if state.selected_team not in (None, _ALL_LABEL) else "All teams"
-    match_label = state.selected_match if state.selected_match not in (None, _ALL_LABEL) else "—"
+    match_label = state.selected_match if state.selected_match not in (None, _ALL_LABEL) else "\u2014"
     state.ms_scope_comp = comp_label
     state.ms_scope_team = team_label
     state.ms_scope_match = match_label
-    scope_plain = build_scope_label_plain([("Competition", comp_label), ("Team", team_label), ("Match", match_label)])
+    scope_plain = build_scope_label_plain(
+        [("Competition", comp_label), ("Team", team_label), ("Match", match_label)],
+    )
 
     match_data = fetch_match_summary(match_id)
     if match_data.empty:
-        state.ms_home_name = ""
-        state.ms_away_name = ""
-        state.ms_home_score = "--"
-        state.ms_away_score = "--"
-        state.ms_home_xg = "--"
-        state.ms_away_xg = "--"
-        state.ms_home_xg_delta = ""
-        state.ms_away_xg_delta = ""
-        state.ms_shooting_chart = ""
-        state.ms_passing_chart = ""
-        state.ms_possession_chart = ""
-        state.ms_ppda_chart = ""
-        state.ms_shooting_chart_alt = ""
-        state.ms_passing_chart_alt = ""
-        state.ms_possession_chart_alt = ""
-        state.ms_ppda_chart_alt = ""
+        _clear_all(state)
         state.ms_warning_text = build_warning(
             domain="match data",
             suggestions=["choosing a different match"],
         )
-        state.ms_data_freshness = ""
-        state.ms_league_averages = ""
         return
 
     m = match_data.iloc[0]
     state.ms_warning_text = ""
 
-    # Alt strings for each of the 4 charts
-    state.ms_shooting_chart_alt = f"Shooting — {scope_plain}"
-    state.ms_passing_chart_alt = f"Passing — {scope_plain}"
-    state.ms_possession_chart_alt = f"Possession — {scope_plain}"
-    state.ms_ppda_chart_alt = f"Pressing (PPDA) — {scope_plain}"
-
-    # --- Scorecard metrics ---
-    # fct_match_summary_synced has NOT NULL contracts on these columns (dbt-enforced).
-    # Direct column access; the `or 0` guards residual NULL xG values (dbt contract allows NULL for unfitted xG).
     home_name = str(m["home_team_name"])
     away_name = str(m["away_team_name"])
     home_score = int(m["home_score"] or 0)
     away_score = int(m["away_score"] or 0)
     home_xg = float(m["home_xg"] or 0)
     away_xg = float(m["away_xg"] or 0)
+    home_team_id_raw = m.get("home_team_id")
+    away_team_id_raw = m.get("away_team_id")
 
     state.ms_home_name = home_name
     state.ms_away_name = away_name
-    state.ms_home_score = fmt_int(home_score)
-    state.ms_away_score = fmt_int(away_score)
+    state.ms_final_score = f"{home_score} \u2014 {away_score}"
     state.ms_home_xg = f"{home_xg:.2f}"
     state.ms_away_xg = f"{away_xg:.2f}"
     state.ms_home_xg_delta = f"{home_score - home_xg:+.2f} vs actual"
     state.ms_away_xg_delta = f"{away_score - away_xg:+.2f} vs actual"
 
-    # --- Shooting chart ---
-    state.ms_shooting_chart = _render_stat_bars(
-        home_vals=[float(m.get("home_shots", 0) or 0), float(m.get("home_shots_on_target", 0) or 0), home_xg],
-        away_vals=[float(m.get("away_shots", 0) or 0), float(m.get("away_shots_on_target", 0) or 0), away_xg],
-        labels=["Shots", "On Target", "xG"],
-        home_name=home_name,
-        away_name=away_name,
-        title="Shooting",
-        file_name="ms_bars_shooting",
-        primary=True,
-    )
+    phrase, detail = derive_verdict(home_xg, away_xg, home_score, away_score)
+    state.ms_verdict_phrase = phrase
+    state.ms_verdict_detail = detail
 
-    # --- Passing chart ---
-    state.ms_passing_chart = _render_stat_bars(
-        home_vals=[
-            float(m.get("home_total_passes", 0) or 0),
-            float(m.get("home_completed_passes", 0) or 0),
-            float(m.get("home_progressive_passes", 0) or 0),
-        ],
-        away_vals=[
-            float(m.get("away_total_passes", 0) or 0),
-            float(m.get("away_completed_passes", 0) or 0),
-            float(m.get("away_progressive_passes", 0) or 0),
-        ],
-        labels=["Total", "Completed", "Progressive"],
-        home_name=home_name,
-        away_name=away_name,
-        title="Passing",
-        file_name="ms_bars_passing",
-    )
+    try:
+        decisive = fetch_vaep_decisive_actions(int(match_id), n=3)
+        shots = fetch_shots_timeline(int(match_id))
+    except Exception:
+        # ADR-002: ERROR-level so it surfaces in observability; user sees the warning.
+        # Both queries are required — without them there is no Row 1 / Row 2.
+        logger.exception("Match Summary data fetch failed for match_id=%s", match_id)
+        _clear_all(state)
+        state.ms_warning_text = build_warning(
+            domain="match data",
+            suggestions=["choosing a different match", "retrying"],
+        )
+        return
 
-    # --- Possession chart ---
+    # Discipline events are OPTIONAL — a missing sync or empty rowset should render
+    # the page without red cards, not fail it. Log at WARNING here because a missing
+    # fct_discipline_events_synced table on staging means the mart/sync hasn't been
+    # wired yet (expected during rollout), not a real outage.
+    try:
+        discipline = fetch_discipline_events(int(match_id))
+    except Exception:
+        logger.warning(
+            "Discipline events unavailable for match_id=%s; rendering without red cards",
+            match_id,
+            exc_info=True,
+        )
+        discipline = pd.DataFrame(
+            columns=[
+                "match_id",
+                "minute",
+                "second",
+                "period",
+                "player_id",
+                "team_id",
+                "card_name",
+                "player_name",
+                "team_name",
+            ],
+        )
+
+    state.ms_moments_html = RawHtml(render_moments_html(decisive, discipline, scope_plain=scope_plain))
+
+    if home_team_id_raw is not None and away_team_id_raw is not None:
+        state.ms_xg_race_fig = build_xg_race_figure(
+            shots=shots,
+            decisive=decisive,
+            red_cards=discipline,
+            home_team_id=int(home_team_id_raw),
+            home_team_name=home_name,
+            away_team_id=int(away_team_id_raw),
+            away_team_name=away_name,
+            home_color=HOME_COLOR,
+            away_color=AWAY_COLOR,
+        )
+        state.ms_xg_race_alt = f"xG race and decisive moments \u2014 {scope_plain}"
+    else:
+        state.ms_xg_race_fig = None
+        state.ms_xg_race_alt = ""
+
+    home_stats = {
+        "xG": home_xg,
+        "Progressive passes": float(m.get("home_progressive_passes", 0) or 0),
+        "Shots": float(m.get("home_shots", 0) or 0),
+        "PPDA (lower = more press)": float(m.get("home_ppda", 0) or 0),
+        "Possession %": float(m.get("home_possession_pct", 50) or 50),
+        "Pass completion %": float(m.get("home_pass_completion_pct", 0) or 0),
+    }
     home_poss = float(m.get("home_possession_pct", 50) or 50)
-    state.ms_possession_chart = _render_stat_bars(
-        home_vals=[
-            float(m.get("home_pass_completion_pct", 0) or 0),
-            home_poss,
-        ],
-        away_vals=[
-            float(m.get("away_pass_completion_pct", 0) or 0),
-            100.0 - home_poss,
-        ],
-        labels=["Pass %", "Possession %"],
-        home_name=home_name,
-        away_name=away_name,
-        title="Possession",
-        file_name="ms_bars_possession",
-    )
+    away_stats = {
+        "xG": away_xg,
+        "Progressive passes": float(m.get("away_progressive_passes", 0) or 0),
+        "Shots": float(m.get("away_shots", 0) or 0),
+        "PPDA (lower = more press)": float(m.get("away_ppda", 0) or 0),
+        "Possession %": 100.0 - home_poss,
+        "Pass completion %": float(m.get("away_pass_completion_pct", 0) or 0),
+    }
 
-    # --- PPDA chart ---
-    home_ppda = float(m.get("home_ppda", 0) or 0)
-    away_ppda = float(m.get("away_ppda", 0) or 0)
-    state.ms_ppda_chart = _render_stat_bars(
-        home_vals=[home_ppda],
-        away_vals=[away_ppda],
-        labels=["PPDA"],
-        home_name=home_name,
-        away_name=away_name,
-        title="Pressing (lower = more aggressive)",
-        file_name="ms_bars_ppda",
-    )
-
-    # League averages reference text
+    # League averages are rendered per-row in Row 3 only (spec §5.5). The
+    # standalone "League avg: ..." scope line was removed 2026-04-19 after a
+    # post-deploy UX review flagged it as visually detached — the per-row
+    # annotations next to each metric serve the same purpose better.
+    league_avgs: dict[str, float] = {}
     if comp_id is not None:
         try:
             avg_df = fetch_league_averages(comp_id)
             if not avg_df.empty:
                 avg = avg_df.iloc[0]
-                avg_xg = float(avg.get("avg_xg_per_team", 0) or 0)
-                avg_poss = float(avg.get("avg_possession", 50) or 50)
-                avg_pass = float(avg.get("avg_pass_completion", 0) or 0)
-                state.ms_league_averages = (
-                    f"League avg: {avg_xg:.2f} xG/team \u00b7 "
-                    f"{avg_poss:.0f}% possession \u00b7 "
-                    f"{avg_pass:.0f}% pass completion"
-                )
-            else:
-                state.ms_league_averages = ""
+                league_avgs = {
+                    "xG": float(avg.get("avg_xg_per_team", 0) or 0),
+                    "Possession %": float(avg.get("avg_possession", 50) or 50),
+                    "Pass completion %": float(avg.get("avg_pass_completion", 0) or 0),
+                }
         except Exception:
-            # ADR-002: ERROR-level log with traceback. fetch_league_averages should only
-            # fail on DB / schema issues (empty rows are handled via `not avg_df.empty` above),
-            # so a failure here is a real error condition worth surfacing in logs.
             logger.exception("Failed to fetch league averages for comp_id=%s", comp_id)
-            state.ms_league_averages = ""
-    else:
-        state.ms_league_averages = ""
 
-    # Data freshness
+    state.ms_delta_table_html = RawHtml(
+        render_delta_table_html(
+            home_stats=home_stats,
+            away_stats=away_stats,
+            home_name=home_name,
+            away_name=away_name,
+            league_avgs=league_avgs,
+        ),
+    )
+
     state.ms_data_freshness = fetch_data_freshness()
 
     logger.info(
-        "Match summary refreshed: %s %d-%d %s (xG: %.2f-%.2f)",
+        "Match summary refreshed: %s %d-%d %s (xG %.2f-%.2f, verdict: %s)",
         home_name,
         home_score,
         away_score,
         away_name,
         home_xg,
         away_xg,
+        phrase,
     )
 
 
-# ── Registration ─────────────────────────────────────────────────────────────
-register_page_refresher("Match-Summary", ms_refresh)
+# ── Registration ────────────────────────────────────────────────────────────
+register_page_refresher("Match-Summary", ms_refresh, is_dashboard=True)

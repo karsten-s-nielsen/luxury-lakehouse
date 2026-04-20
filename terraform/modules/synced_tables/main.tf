@@ -157,6 +157,28 @@ resource "databricks_database_synced_database_table" "fct_player_embeddings_seas
   }
 }
 
+# fct_discipline_events_synced — Match Summary redesign (2026-04-19).
+# Per-event discipline mart used for Row 1 red-card auto-inclusion and
+# Row 2 red-card markers on the xG race chart. Per ADR-005 Path A: create
+# in the Databricks UI first, then `terraform import`:
+#   terraform import 'module.synced_tables.databricks_database_synced_database_table.fct_discipline_events' \
+#     'soccer_analytics.dev_gold.fct_discipline_events_synced'
+resource "databricks_database_synced_database_table" "fct_discipline_events" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_discipline_events_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_discipline_events"
+    primary_key_columns    = ["event_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
 resource "databricks_database_synced_database_table" "fct_player_embeddings_career" {
   name                   = "${var.catalog_name}.${var.gold_schema}.fct_player_embeddings_career_synced"
   database_instance_name = var.database_instance_name

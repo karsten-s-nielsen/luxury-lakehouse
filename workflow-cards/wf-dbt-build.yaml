@@ -52,6 +52,9 @@ outputs:
     - id: "{catalog}.dev_gold.fct_defensive_values"
       destination: delta-table
       dbt_model: fct_defensive_values
+    - id: "{catalog}.dev_gold.fct_discipline_events"
+      destination: delta-table
+      dbt_model: fct_discipline_events
     - id: "{catalog}.dev_gold.fct_formation_labels"
       destination: delta-table
       dbt_model: fct_formation_labels
