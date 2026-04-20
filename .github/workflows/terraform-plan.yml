@@ -28,6 +28,12 @@ permissions:
   id-token: write
   pull-requests: write
 
+# Cancel superseded PR runs. This workflow is PR-only, so no main-branch
+# carve-out is needed.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   plan:
     runs-on: ubuntu-latest
