@@ -6,6 +6,22 @@
 --   - Origin (0,0) is bottom-left
 --   - All actions normalized to attack left-to-right by silly-kicks
 --
+-- Time convention (2026-04-19): minute is MATCH-ABSOLUTE across all periods,
+-- NOT period-local. SPADL's bronze `time_seconds` is period-local per the
+-- academic convention (seconds since kickoff of the current period), so
+-- we add a period offset before deriving minute:
+--   period 1 → 0      (first half)
+--   period 2 → +2700  (45 * 60, second half)
+--   period 3 → +5400  (90 * 60, ET first half)
+--   period 4 → +6300  (105 * 60, ET second half)
+--   period 5 → +7200  (120 * 60, penalties placeholder)
+-- This aligns fct_action_values.minute with fct_shots.minute (match-absolute)
+-- and with bronze statsbomb_events.minute, eliminating the cross-mart
+-- discrepancy that surfaced in the Match Summary redesign (Big Story card
+-- at 8' while xG race chart at 53' for the same goal event).
+-- `second` is unchanged — period offsets are all divisible by 60 so the
+-- modulo-60 derivation is numerically stable.
+--
 -- Dedup: ROW_NUMBER partitioned by natural key, latest _ingested_at wins.
 
 with source as (
@@ -46,10 +62,25 @@ cleaned as (
         cast(team_id as int)                            as team_id,
         original_event_id,
 
-        -- Temporal
+        -- Temporal — minute is match-absolute (see header comment)
         cast(period_id as int)                          as period,
         time_seconds,
-        cast(floor(time_seconds / 60) as int)           as minute,
+        cast(
+            floor(
+                (
+                    case cast(period_id as int)
+                        when 1 then 0
+                        when 2 then 2700
+                        when 3 then 5400
+                        when 4 then 6300
+                        when 5 then 7200
+                        else 0
+                    end
+                    + time_seconds
+                ) / 60
+            )
+            as int
+        )                                               as minute,
         cast(floor(time_seconds % 60) as int)           as second,
 
         -- SPADL coordinates (105x68 meters)
