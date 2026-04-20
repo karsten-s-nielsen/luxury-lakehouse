@@ -88,7 +88,24 @@ flattened as (
         pass_recipient                                  as pass_recipient_name,
 
         -- Substitution fields
-        substitution_replacement_id
+        substitution_replacement_id,
+
+        -- Discipline fields (extracted from _raw_extra_json, which statsbombpy
+        -- does NOT flatten). Cards are issued on two event types:
+        --   * Bad Behaviour  — direct misconduct (e.g. dissent, violent conduct)
+        --   * Foul Committed — card issued as consequence of a foul
+        -- Values observed in bronze: 'Yellow Card', 'Red Card', 'Second Yellow'.
+        -- Downstream marts (e.g. fct_discipline_events) filter on card_name.
+        case
+            when type = 'Bad Behaviour' then
+                from_json(_raw_extra_json,
+                          'STRUCT<bad_behaviour: STRUCT<card: STRUCT<name: STRING>>>'
+                         ).bad_behaviour.card.name
+            when type = 'Foul Committed' then
+                from_json(_raw_extra_json,
+                          'STRUCT<foul_committed: STRUCT<card: STRUCT<name: STRING>>>'
+                         ).foul_committed.card.name
+        end                                             as card_name
 
     from source
 
