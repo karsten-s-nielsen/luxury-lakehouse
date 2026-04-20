@@ -35,6 +35,13 @@ outputs:
   models:
     - id: "luxury-lakehouse/scoutgpt"
       destination: huggingface
+      description: "Canonical production model. Written by explicit promotion runs only."
+    - id: "luxury-lakehouse/scoutgpt-variant-learnable"
+      destination: huggingface
+      description: "A/B variant artefact (position_embedding=learnable). Written by scripts/run_rope_scoutgpt_ab.py."
+    - id: "luxury-lakehouse/scoutgpt-variant-rope"
+      destination: huggingface
+      description: "A/B variant artefact (position_embedding=rope). Written by scripts/run_rope_scoutgpt_ab.py."
 
 execution:
   training:

@@ -61,8 +61,16 @@ _EVAL_NUM_WORKERS = 0 if sys.platform == "win32" else 2
 def load_training_data(
     hf_token: str,
     dataset_repo: str,
+    revision: str | None = None,
 ) -> tuple[pd.DataFrame, dict[str, int], str]:
     """Load episodes and player ID map from HF Hub.
+
+    Args:
+        hf_token: HuggingFace Hub auth token.
+        dataset_repo: Repo id (e.g. ``luxury-lakehouse/scoutgpt-training-data``).
+        revision: Optional git SHA / branch / tag to pin the read to. When
+            provided, every list_repo_tree / hf_hub_download / repo_info call
+            is pinned to the same revision so A/B runs see byte-identical data.
 
     Returns:
         Tuple of (episodes DataFrame, player_id_map dict, dataset SHA).
@@ -71,7 +79,7 @@ def load_training_data(
     from huggingface_hub import HfApi, hf_hub_download
 
     api = HfApi(token=hf_token)
-    all_items = list(api.list_repo_tree(dataset_repo, repo_type="dataset", recursive=True))
+    all_items = list(api.list_repo_tree(dataset_repo, repo_type="dataset", recursive=True, revision=revision))
     parquet_files = [f.path for f in all_items if hasattr(f, "size") and f.path.endswith(".parquet")]
 
     if not parquet_files:
@@ -80,7 +88,7 @@ def load_training_data(
 
     dfs: list[pd.DataFrame] = []
     for pf in parquet_files:
-        local_path = hf_hub_download(dataset_repo, pf, repo_type="dataset", token=hf_token)
+        local_path = hf_hub_download(dataset_repo, pf, repo_type="dataset", token=hf_token, revision=revision)
         table = pq.read_table(local_path)
         dfs.append(table.to_pandas())
         logger.info("  %s: %d rows", pf, len(dfs[-1]))
@@ -98,15 +106,15 @@ def load_training_data(
         if not text_files:
             msg = "No player_id_map found in dataset"
             raise RuntimeError(msg)
-        map_path = hf_hub_download(dataset_repo, text_files[0], repo_type="dataset", token=hf_token)
+        map_path = hf_hub_download(dataset_repo, text_files[0], repo_type="dataset", token=hf_token, revision=revision)
     else:
-        map_path = hf_hub_download(dataset_repo, map_files[0], repo_type="dataset", token=hf_token)
+        map_path = hf_hub_download(dataset_repo, map_files[0], repo_type="dataset", token=hf_token, revision=revision)
 
     with open(map_path, encoding="utf-8") as f:
         player_id_map: dict[str, int] = json.load(f)
     logger.info("Player ID map: %d players", len(player_id_map))
 
-    dataset_info = api.repo_info(repo_id=dataset_repo, repo_type="dataset")
+    dataset_info = api.repo_info(repo_id=dataset_repo, repo_type="dataset", revision=revision)
     return data, player_id_map, dataset_info.sha or ""
 
 
