@@ -166,7 +166,7 @@ mdurl==0.1.2
     # via markdown-it-py
 mplsoccer==1.6.1
     # via luxury-lakehouse (pyproject.toml)
-narwhals==2.19.0
+narwhals==2.20.0
     # via plotly
 networkx==3.3
     # via taipy-core
