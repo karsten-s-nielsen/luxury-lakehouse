@@ -576,13 +576,19 @@ models:
                 row_condition: "period is not null"
       - name: time_seconds
         data_type: double
-        description: Seconds from period start
+        description: Seconds from period start (SPADL academic convention — period-local).
       - name: minute
         data_type: int
-        description: Match minute derived from time_seconds
+        description: >
+          Match-absolute minute (period 1 = time_seconds / 60; period 2 = 45 +
+          time_seconds / 60; period 3 = 90 + time_seconds / 60; period 4 = 105 +
+          time_seconds / 60; period 5 = 120 + time_seconds / 60). Aligned with
+          fct_shots.minute and bronze statsbomb_events.minute so displays in
+          Taipy show the same value regardless of which mart the event came
+          from. Guarded by tests/assert_fct_action_values_minute_match_absolute.sql.
       - name: second
         data_type: int
-        description: Match second derived from time_seconds
+        description: Second within the current minute (match-absolute minute, but modulo-60 so 0..59).
       - name: start_x
         data_type: double
         description: Action start X coordinate (0-105 meters)
@@ -3119,13 +3125,15 @@ models:
         description: Half of the match (1 or 2).
       - name: time_seconds
         data_type: double
-        description: Seconds from kickoff.
+        description: Seconds from period start (SPADL academic convention — period-local).
       - name: minute
         data_type: int
-        description: Minute of the match.
+        description: >
+          Match-absolute minute — inherits the convention from fct_action_values
+          (period 1 = 0 offset; period 2 = +45; period 3 = +90; period 4 = +105).
       - name: second
         data_type: int
-        description: Seconds within minute.
+        description: Second within the current minute.
       - name: start_x
         data_type: double
         description: Origin X coordinate (SPADL 105m pitch).
