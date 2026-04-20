@@ -24,6 +24,11 @@ sources:
           to [0, 1] range (pitch proportion) — must be scaled to
           StatsBomb-compatible 120x80 for cross-source analysis.
         columns:
+          - name: match_id
+            description: >
+              Metrica sample-data match identifier — string like
+              'Sample_Game_1', 'Sample_Game_2', 'Sample_Game_3'. Set at
+              ingestion in src/ingestion/metrica_tracking.py.
           - name: period
             description: Match half (1 or 2)
           - name: frame
@@ -51,6 +56,11 @@ sources:
           is a match event (pass, shot, etc.) with start/end frames
           that link to the tracking data.
         columns:
+          - name: match_id
+            description: >
+              Metrica sample-data match identifier — string like
+              'Sample_Game_1', 'Sample_Game_2', 'Sample_Game_3'. Set at
+              ingestion in src/ingestion/metrica_events.py.
           - name: event_id
             description: Unique event identifier
           - name: type

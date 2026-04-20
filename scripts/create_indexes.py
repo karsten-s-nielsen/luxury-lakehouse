@@ -192,6 +192,13 @@ INDEXES: list[tuple[str, str, str]] = [
     # fetch_discipline_events(). Tiny table; single-column match_id composite
     # index gives sub-10ms Index Scan on PG.
     ("idx_discipline_events_match", "fct_discipline_events_synced", "match_id"),
+    # ── dim_matches_synced — Kimball conformed match dimension (ADR-011, PR 1) ──
+    # ~5,410 rows (statsbomb + wyscout + 7 idsse + 3 metrica). Primary access
+    # pattern during PR 2-8 migration: join fct_*.match_key = dim_matches.match_key.
+    # Secondary pattern: debug path `WHERE provider = %s AND native_match_id = %s`
+    # for mapping a surrogate back to the source-system native ID.
+    ("idx_dim_matches_match_key", "dim_matches_synced", "match_key"),
+    ("idx_dim_matches_provider_native", "dim_matches_synced", "provider, native_match_id"),
 ]
 
 # pgvector HNSW index definitions: (index_name, table, using_clause)

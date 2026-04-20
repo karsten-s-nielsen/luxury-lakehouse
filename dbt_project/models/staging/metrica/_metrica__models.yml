@@ -176,3 +176,32 @@ models:
         description: Team performing the event
       - name: player_id
         description: Player identifier
+
+  - name: stg_metrica__matches
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      One row per Metrica sample-data match (3 matches: Sample_Game_1,
+      Sample_Game_2, Sample_Game_3). Match metadata is intentionally sparse —
+      Metrica open-data is anonymized with no competition_id, no match_date,
+      and generic 'Home'/'Away' team labels. Used as a conformance feed into
+      `dim_matches` (provider='metrica').
+    columns:
+      - name: native_match_id
+        description: Metrica match identifier (e.g., 'Sample_Game_1').
+        data_tests:
+          - unique
+          - not_null
+      - name: provider
+        description: Constant 'metrica' for rows from this staging model.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['metrica']
+      - name: home_team_name
+        description: Constant 'Home' — Metrica open-data is anonymized.
+      - name: away_team_name
+        description: Constant 'Away' — Metrica open-data is anonymized.

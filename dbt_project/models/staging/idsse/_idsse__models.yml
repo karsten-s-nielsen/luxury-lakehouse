@@ -220,3 +220,40 @@ models:
           - accepted_values:
               arguments:
                 values: ['idsse']
+
+  - name: stg_idsse__matches
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      One row per IDSSE Bundesliga match (7 matches). Combines distinct
+      match_ids from bronze.idsse_tracking with hardcoded DFL competition
+      mappings from src/ingestion/idsse.py and team names from
+      stg_tracking__player_metadata (pivoted home/away). Used as a
+      conformance feed into `dim_matches` (provider='idsse').
+    columns:
+      - name: native_match_id
+        description: >
+          Native IDSSE match identifier with the 'idsse_' prefix stripped
+          (e.g., 'J03WMX'). Use with provider='idsse' for uniqueness.
+        data_tests:
+          - unique
+          - not_null
+      - name: provider
+        description: Constant 'idsse' for rows from this staging model.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['idsse']
+      - name: competition_id
+        description: DFL competition identifier (e.g., 'DFL-COM-000001').
+        data_tests:
+          - not_null
+      - name: home_team_name
+        description: Home team display name from stg_tracking__player_metadata.
+      - name: away_team_name
+        description: Away team display name from stg_tracking__player_metadata.
+      - name: bronze_match_id
+        description: Original bronze match_id with the 'idsse_' prefix (for lineage).
