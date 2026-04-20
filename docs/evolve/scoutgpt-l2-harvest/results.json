@@ -1,0 +1,86 @@
+{
+  "dataset": "luxury-lakehouse/scoutgpt-training-data",
+  "shared_config": {
+    "hidden_dim": 192,
+    "num_layers": 3,
+    "num_heads": 6,
+    "dropout": 0.15,
+    "max_seq_len": 128,
+    "spatial_mlp_dim": 64,
+    "vaep_loss_weight": 0.32,
+    "learning_rate": 0.0002,
+    "weight_decay": 0.01,
+    "batch_size": 384,
+    "dataset": "luxury-lakehouse/scoutgpt-training-data"
+  },
+  "epochs": 15,
+  "seed": 42,
+  "fitness_formula": "0.7 * spearman_rho + 0.3 * top1_accuracy",
+  "variants": [
+    {
+      "spearman_rho": 0.37985189743825926,
+      "rho_std": 0.35892654841255067,
+      "top1_accuracy": 0.8292847318283169,
+      "val_loss": 0.4222742031316389,
+      "param_count": 3918744.0,
+      "training_time_seconds": 1878.5800554080001,
+      "epochs_trained": 15.0,
+      "variant": "fourier_cross_attention",
+      "program_path": "fourier_cross_attention.py",
+      "fitness": 0.5146817477552765,
+      "wall_clock_seconds": 1879.0811344319998
+    },
+    {
+      "spearman_rho": 0.040895919185670045,
+      "rho_std": 0.39128310419275786,
+      "top1_accuracy": 0.8159319881970759,
+      "val_loss": 0.4620801505868527,
+      "param_count": 3904984.0,
+      "training_time_seconds": 1747.1825134149994,
+      "epochs_trained": 15.0,
+      "variant": "swiglu_conditioning",
+      "program_path": "swiglu_conditioning.py",
+      "fitness": 0.2734067398890918,
+      "wall_clock_seconds": 1747.6740325869996
+    },
+    {
+      "spearman_rho": -0.017879866889658903,
+      "rho_std": 0.3530944774259108,
+      "top1_accuracy": 0.8152658205030742,
+      "val_loss": 0.46680274887146356,
+      "param_count": 3720280.0,
+      "training_time_seconds": 1706.844273687,
+      "epochs_trained": 15.0,
+      "variant": "additive",
+      "program_path": "<none>",
+      "fitness": 0.232063839328161,
+      "wall_clock_seconds": 1709.67473036
+    },
+    {
+      "spearman_rho": -0.06883561940177847,
+      "rho_std": 0.5300014959712231,
+      "top1_accuracy": 0.8419164468966382,
+      "val_loss": 0.3925431181432863,
+      "param_count": 3942808.0,
+      "training_time_seconds": 2035.985056165,
+      "epochs_trained": 15.0,
+      "variant": "orthogonal_cross_attention",
+      "program_path": "orthogonal_cross_attention.py",
+      "fitness": 0.20439000048774653,
+      "wall_clock_seconds": 2036.48098631
+    },
+    {
+      "spearman_rho": -0.07114593443233755,
+      "rho_std": 0.4749225401355151,
+      "top1_accuracy": 0.8416744712783758,
+      "val_loss": 0.3938708855358828,
+      "param_count": 3887560.0,
+      "training_time_seconds": 1989.8778404020004,
+      "epochs_trained": 15.0,
+      "variant": "hybrid_gated_attention",
+      "program_path": "hybrid_gated_attention.py",
+      "fitness": 0.20270018728087646,
+      "wall_clock_seconds": 1990.3701148200003
+    }
+  ]
+}
