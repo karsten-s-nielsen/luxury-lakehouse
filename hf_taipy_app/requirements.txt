@@ -35,7 +35,7 @@ botocore==1.34.162
     # via
     #   boto3
     #   s3transfer
-cachetools==7.0.5
+cachetools==7.0.6
     # via luxury-lakehouse (pyproject.toml)
 cattrs==26.1.0
     # via requests-cache
@@ -220,13 +220,13 @@ pyasn1-modules==0.4.2
     # via google-auth
 pycparser==3.0
     # via cffi
-pydantic==2.13.2
+pydantic==2.13.3
     # via
     #   luxury-lakehouse (pyproject.toml)
     #   pydantic-settings
-pydantic-core==2.46.2
+pydantic-core==2.46.3
     # via pydantic
-pydantic-settings==2.13.1
+pydantic-settings==2.14.0
     # via luxury-lakehouse (pyproject.toml)
 pygments==2.20.0
     # via rich
