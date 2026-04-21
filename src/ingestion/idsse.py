@@ -300,12 +300,26 @@ def _parse_positions_xml(
 ) -> dict[int, list[dict[str, object]]]:
     """Parse DFL position XML into narrow-format row dicts, split by period.
 
-    Uses single-pass iterative XML parsing to avoid loading the entire ~400MB
-    file into memory at once. Each FrameSet contains frames for one person in
-    one half. Ball FrameSets appear before player FrameSets in the DFL XML
-    format, so ball coordinates are available for lookup when player frames are
-    processed. If a ball coordinate is not yet available for a given frame, the
-    lookup returns None — graceful degradation identical to missing ball data.
+    Uses TWO-PASS iterative XML parsing:
+
+    1. **First pass (ball-only)**: Scans for ball FrameSets (``TeamId="BALL"``)
+       and populates ``ball_coords`` keyed on ``(period, frame_n)`` plus
+       ``period_first_frame`` used for period-relative timestamp computation.
+    2. **Second pass (players-only)**: Emits player tracking rows with ball
+       lookup from ``ball_coords``.
+
+    **Why two-pass (PR 1.7):** real DFL position XMLs have ball FrameSets
+    AFTER all player and referee FrameSets in the file — the ball FrameSet
+    for a match is typically around position #26 (3 referees + 22 players
+    + 1 ball per period). A single-pass parser that processes FrameSets in
+    XML order would emit player rows BEFORE ball_coords was populated,
+    producing 100% NULL ball coordinates in bronze. This was a pre-existing
+    bug masked for years because line-breaking ran with the wrong event
+    filter (fixed in PR 1.5); once the filter worked, every event lost its
+    ball-position lookup in the tracking UDF.
+
+    Trade-off: doubles XML parsing cost (~2x wall-clock per match) but
+    correctly handles any FrameSet ordering in the source XML.
 
     Returns rows grouped by period so callers can process and release each
     half independently, halving peak DataFrame memory.
@@ -324,7 +338,7 @@ def _parse_positions_xml(
     rows_by_period: dict[int, list[dict[str, object]]] = {1: [], 2: []}
     prefixed_match_id = f"idsse_{match_id}"
 
-    # Ball frames per (period, frame_n) for lookup — populated as ball FrameSets are encountered
+    # Ball frames per (period, frame_n) for lookup. Populated in pass 1.
     ball_coords: dict[tuple[int, int], tuple[float, float]] = {}
     ball_miss_count = 0  # Track player frames where ball lookup returned None
 
@@ -335,22 +349,18 @@ def _parse_positions_xml(
     # period-relative `timestamp_seconds`. Subtracting the period's first
     # frame gives period-relative seconds, matching Metrica's convention
     # and unblocking timestamp-based event↔tracking joins (fct_line_breaking,
-    # compute_pitch_control, compute_elastic_sync). Ball FrameSets are
-    # processed before player FrameSets in DFL XML ordering, so this map is
-    # populated from ball frames first, then reused for player frames in the
-    # same period. Per-PR-1.6 fix.
+    # compute_pitch_control, compute_elastic_sync). Period_first_frame is
+    # set from ball FrameSets during pass 1, so player rows in pass 2 see
+    # it as already populated. Per-PR-1.6 fix.
     period_first_frame: dict[int, int] = {}
 
-    # Single pass: ball FrameSets populate ball_coords, player FrameSets emit rows
+    # ── PASS 1: ball FrameSets → populate ball_coords + period_first_frame ──
     for _event, elem in ET.iterparse(pos_path, events=("end",)):  # noqa: S314
         if elem.tag != "FrameSet":
             continue
 
-        team_id = elem.get("TeamId", "")
-        team_id_lower = team_id.lower()
-
-        # Skip referee FrameSets
-        if team_id_lower == "referee":
+        team_id_lower = elem.get("TeamId", "").lower()
+        if team_id_lower != "ball":
             elem.clear()
             continue
 
@@ -360,89 +370,105 @@ def _parse_positions_xml(
             elem.clear()
             continue
 
-        if team_id_lower == "ball":
-            # Collect ball coordinates + record the period's first frame.
-            for frame_el in elem.iter("Frame"):
-                n = int(frame_el.get("N", "0"))
-                x_str = frame_el.get("X", "")
-                y_str = frame_el.get("Y", "")
-                if x_str and y_str:
-                    bx = float(x_str)
-                    by = float(y_str)
-                    if not (math.isnan(bx) or math.isnan(by)):
-                        ball_coords[(period, n)] = (round(bx, 4), round(by, 4))
-                # Track minimum observed frame per period. Works even when
-                # the ball row has no x/y (referee stoppages emit frames
-                # with empty coords but valid N).
-                cur = period_first_frame.get(period)
-                if cur is None or n < cur:
-                    period_first_frame[period] = n
-        else:
-            # Player FrameSet — emit tracking rows.
-            person_id = elem.get("PersonId", "")
-            team_label = player_team_map.get(person_id, "unknown")
-            period_rows = rows_by_period[period]
+        for frame_el in elem.iter("Frame"):
+            n = int(frame_el.get("N", "0"))
+            x_str = frame_el.get("X", "")
+            y_str = frame_el.get("Y", "")
+            if x_str and y_str:
+                bx = float(x_str)
+                by = float(y_str)
+                if not (math.isnan(bx) or math.isnan(by)):
+                    ball_coords[(period, n)] = (round(bx, 4), round(by, 4))
+            # Track minimum observed frame per period. Works even when the
+            # ball row has empty coords (ball out of play, stoppages) since
+            # the frame number N is still valid.
+            cur = period_first_frame.get(period)
+            if cur is None or n < cur:
+                period_first_frame[period] = n
+        elem.clear()
 
-            # Defensive fallback: if no ball FrameSet has been processed yet
-            # for this period (violates DFL ordering assumption), use the
-            # first player-frame we see as the period origin. This also
-            # handles matches where the XML is malformed.
-            for frame_el in elem.iter("Frame"):
-                n = int(frame_el.get("N", "0"))
-                x_str = frame_el.get("X", "")
-                y_str = frame_el.get("Y", "")
+    # ── PASS 2: player FrameSets → emit tracking rows with ball lookup ──
+    for _event, elem in ET.iterparse(pos_path, events=("end",)):  # noqa: S314
+        if elem.tag != "FrameSet":
+            continue
 
-                if not x_str or not y_str:
-                    continue
+        team_id_lower = elem.get("TeamId", "").lower()
+        # Pass 2 skips ball (already handled) and referee (not tracked).
+        if team_id_lower in ("ball", "referee"):
+            elem.clear()
+            continue
 
-                px = float(x_str)
-                py = float(y_str)
+        section = elem.get("GameSection", "")
+        period = _SECTION_TO_PERIOD.get(section)
+        if period is None:
+            elem.clear()
+            continue
 
-                if math.isnan(px) or math.isnan(py):
-                    continue
+        person_id = elem.get("PersonId", "")
+        team_label = player_team_map.get(person_id, "unknown")
+        period_rows = rows_by_period[period]
 
-                # Ensure period_first_frame is set for this period. Ball
-                # FrameSets should have populated it; defensive fallback to
-                # the first player frame we see otherwise.
-                cur = period_first_frame.get(period)
-                if cur is None or n < cur:
-                    period_first_frame[period] = n
-                period_start = period_first_frame[period]
-                timestamp = (n - period_start) / _FRAME_RATE
-                ball = ball_coords.get((period, n))
-                if ball is None:
-                    ball_miss_count += 1
-                ball_x = ball[0] if ball else None
-                ball_y = ball[1] if ball else None
+        for frame_el in elem.iter("Frame"):
+            n = int(frame_el.get("N", "0"))
+            x_str = frame_el.get("X", "")
+            y_str = frame_el.get("Y", "")
 
-                row: dict[str, object] = {
-                    "period": period,
-                    "frame": n,
-                    "timestamp": round(timestamp, 4),
-                    "player_id": person_id,
-                    "team": team_label,
-                    "x": round(px, 4),
-                    "y": round(py, 4),
-                    "ball_x": ball_x,
-                    "ball_y": ball_y,
-                    "match_id": prefixed_match_id,
-                    "frame_rate": _FRAME_RATE,
-                }
-                if gk_player_ids is not None:
-                    row["is_goalkeeper"] = person_id in gk_player_ids
-                period_rows.append(row)
+            if not x_str or not y_str:
+                continue
+
+            px = float(x_str)
+            py = float(y_str)
+
+            if math.isnan(px) or math.isnan(py):
+                continue
+
+            # Defensive fallback: if no ball FrameSet existed for this period
+            # (malformed XML), use the first player frame as the period origin.
+            cur = period_first_frame.get(period)
+            if cur is None or n < cur:
+                period_first_frame[period] = n
+            period_start = period_first_frame[period]
+            timestamp = (n - period_start) / _FRAME_RATE
+            ball = ball_coords.get((period, n))
+            if ball is None:
+                ball_miss_count += 1
+            ball_x = ball[0] if ball else None
+            ball_y = ball[1] if ball else None
+
+            row: dict[str, object] = {
+                "period": period,
+                "frame": n,
+                "timestamp": round(timestamp, 4),
+                "player_id": person_id,
+                "team": team_label,
+                "x": round(px, 4),
+                "y": round(py, 4),
+                "ball_x": ball_x,
+                "ball_y": ball_y,
+                "match_id": prefixed_match_id,
+                "frame_rate": _FRAME_RATE,
+            }
+            if gk_player_ids is not None:
+                row["is_goalkeeper"] = person_id in gk_player_ids
+            period_rows.append(row)
 
         elem.clear()
 
     logger.info("Parsed %d ball frames for match %s", len(ball_coords), match_id)
+    # After PR 1.7's two-pass rewrite, ball_miss_count > 0 no longer signals
+    # FrameSet ordering — it now signals genuinely missing ball frames (e.g.,
+    # tracking system lost the ball at specific frames). Threshold-tune the
+    # warning so it doesn't fire on expected low-miss situations.
     if ball_miss_count > 0 and len(ball_coords) > 0:
         total_player_frames = sum(len(rows) for rows in rows_by_period.values())
-        logger.warning(
-            "Ball coordinate lookup missed %d of %d player frames for match %s — "
-            "possible ball-after-player FrameSet ordering in XML",
+        miss_pct = 100.0 * ball_miss_count / max(total_player_frames, 1)
+        log_fn = logger.warning if miss_pct > 5.0 else logger.info
+        log_fn(
+            "Ball coordinate lookup missed %d of %d player frames for match %s (%.1f%%)",
             ball_miss_count,
             total_player_frames,
             match_id,
+            miss_pct,
         )
 
     return rows_by_period
