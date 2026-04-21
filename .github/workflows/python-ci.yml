@@ -149,10 +149,12 @@ jobs:
         run: uv run pip install detect-secrets && uv run detect-secrets scan --baseline .secrets.baseline
 
       - name: Audit dependencies
-        run: uv run pip-audit --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-0545 --ignore-vuln CVE-2026-33866  # pygments, mlflow — no upstream fix yet
+        # CVE-2026-4539 (pygments), CVE-2026-0545 (mlflow), CVE-2026-33866 (?)  — no upstream fix yet.
+        # CVE-2026-28684 (python-dotenv 1.0.1): taipy-gui>=4.1 pins python-dotenv>=1.0.0,<=1.0.1; cannot upgrade to 1.2.2 without breaking taipy-app. Track upstream; revisit when taipy-gui 4.2+ lands with a relaxed pin.
+        run: uv run pip-audit --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-0545 --ignore-vuln CVE-2026-33866 --ignore-vuln CVE-2026-28684
 
       - name: Generate SBOM (CycloneDX)
-        run: uv run pip-audit --format cyclonedx-json --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-0545 --ignore-vuln CVE-2026-33866 -o sbom.json
+        run: uv run pip-audit --format cyclonedx-json --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-0545 --ignore-vuln CVE-2026-33866 --ignore-vuln CVE-2026-28684 -o sbom.json
 
       - name: Upload SBOM artifact
         if: always()

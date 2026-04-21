@@ -290,40 +290,59 @@ class TestParsePositionsXML:
         assert non_gk_pids == {"H002", "A002"}
 
 
-class TestBallOrderingAssumption:
-    """Tests for TD#26 — ball-before-player XML ordering assumption."""
+class TestBallFrameSetOrdering:
+    """PR 1.7: two-pass parser tolerates any FrameSet ordering.
 
-    def test_ball_after_players_produces_null_ball_coords(self) -> None:
-        """When ball FrameSet appears after player FrameSet, ball_x/ball_y are None."""
+    Before PR 1.7, a single-pass parser assumed ball FrameSets appeared
+    BEFORE player FrameSets in the XML — wrong for real DFL data, where
+    ball FrameSets come AFTER referees + all 22 players (typically at
+    FrameSet position #26 per period). Single-pass under real ordering
+    produced 100% NULL ball_x/ball_y in bronze, silently breaking the
+    line-breaking UDF's ball-end-location estimation.
+
+    The two-pass fix: pass 1 collects ball_coords, pass 2 emits player
+    rows with lookup. Works for any FrameSet ordering.
+    """
+
+    def test_ball_after_players_now_populates_ball_coords(self) -> None:
+        """Ball FrameSet AFTER player FrameSets — ball coords MUST populate.
+
+        Inverted semantic from the pre-PR-1.7 test: we now expect ball
+        coords to be present regardless of XML FrameSet ordering.
+        """
         info_path = _write_temp_xml(_MATCH_INFO_XML)
         pos_path = _write_temp_xml(_POSITIONS_XML_BALL_LAST)
         try:
             _h, _a, ptm, _gk = _parse_teams(info_path)
             rows_by_period = _parse_positions_xml(pos_path, ptm, "J03WMX", _logger)
             rows = rows_by_period[1]
-            # H001 was parsed before the ball FrameSet — ball coords should be None
             assert len(rows) == 2
-            assert rows[0]["ball_x"] is None
-            assert rows[0]["ball_y"] is None
+            # Ball coords SHOULD be present even though ball FrameSet came later.
+            assert rows[0]["ball_x"] == 0.5, f"expected 0.5 (from ball frame N=0), got {rows[0]['ball_x']!r}"
+            assert rows[0]["ball_y"] == 1.0
+            assert rows[1]["ball_x"] == 1.5
+            assert rows[1]["ball_y"] == 2.0
         finally:
             os.unlink(info_path)
             os.unlink(pos_path)
 
-    def test_ball_after_players_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Runtime warning fires when ball lookup misses player frames."""
+    def test_ball_after_players_does_not_log_ordering_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """With two-pass parsing, the ball-ordering warning must NOT fire."""
         info_path = _write_temp_xml(_MATCH_INFO_XML)
         pos_path = _write_temp_xml(_POSITIONS_XML_BALL_LAST)
         try:
             _h, _a, ptm, _gk = _parse_teams(info_path)
             with caplog.at_level(logging.WARNING):
                 _parse_positions_xml(pos_path, ptm, "J03WMX", _logger)
-            assert "Ball coordinate lookup missed" in caplog.text
+            # Previous single-pass parser logged this warning when ball came last.
+            # Two-pass eliminates the condition.
+            assert "Ball coordinate lookup missed" not in caplog.text
         finally:
             os.unlink(info_path)
             os.unlink(pos_path)
 
     def test_normal_order_has_ball_coords(self) -> None:
-        """Confirm the normal (ball-first) fixture still produces valid ball coords."""
+        """Sanity check: ball-first ordering (the pre-PR-1.7 happy path) still works."""
         info_path = _write_temp_xml(_MATCH_INFO_XML)
         pos_path = _write_temp_xml(_POSITIONS_XML)
         try:
@@ -333,6 +352,62 @@ class TestBallOrderingAssumption:
             period1_f0 = [r for r in rows if r["period"] == 1 and r["frame"] == 0]
             assert all(r["ball_x"] is not None for r in period1_f0)
             assert all(r["ball_y"] is not None for r in period1_f0)
+        finally:
+            os.unlink(info_path)
+            os.unlink(pos_path)
+
+    def test_real_dfl_ordering_with_referees_first(self) -> None:
+        """Real-DFL-shaped ordering: referees → players → ball. Ball coords must populate.
+
+        Mirrors the real J03WMX.xml structure observed 2026-04-21:
+        FrameSets 0-2 are referees, 3-24 are 22 players (2 teams x 11 positions),
+        25 is the ball. Under the pre-PR-1.7 single-pass parser, this produced
+        100% NULL ball coords in bronze.
+        """
+        real_order_xml = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<PutDataRequest>
+<Positions>
+<FrameSet GameSection="firstHalf" MatchId="DFL-MAT-J03WMX" TeamId="referee" PersonId="REF001">
+<Frame N="10000" X="0" Y="0"/>
+<Frame N="10001" X="0" Y="0"/>
+</FrameSet>
+<FrameSet GameSection="firstHalf" MatchId="DFL-MAT-J03WMX" TeamId="DFL-CLU-000008" PersonId="H001">
+<Frame N="10000" X="-10" Y="5"/>
+<Frame N="10001" X="-10" Y="5"/>
+</FrameSet>
+<FrameSet GameSection="firstHalf" MatchId="DFL-MAT-J03WMX" TeamId="DFL-CLU-00000G" PersonId="A001">
+<Frame N="10000" X="30" Y="10"/>
+<Frame N="10001" X="30" Y="10"/>
+</FrameSet>
+<FrameSet GameSection="firstHalf" MatchId="DFL-MAT-J03WMX" TeamId="BALL" PersonId="DFL-OBJ-0000XT">
+<Frame N="10000" X="0.5" Y="1.0"/>
+<Frame N="10001" X="1.5" Y="2.0"/>
+</FrameSet>
+</Positions>
+</PutDataRequest>
+"""
+        info_path = _write_temp_xml(_MATCH_INFO_XML)
+        pos_path = _write_temp_xml(real_order_xml)
+        try:
+            _h, _a, ptm, _gk = _parse_teams(info_path)
+            rows_by_period = _parse_positions_xml(pos_path, ptm, "J03WMX", _logger)
+            rows = rows_by_period[1]
+            # 2 players x 2 frames = 4 rows; referee FrameSet skipped; ball FrameSet
+            # processed in pass 1 (coords stored) + skipped in pass 2 (not emitted).
+            assert len(rows) == 4
+            for r in rows:
+                assert r["ball_x"] is not None, (
+                    f"Row with frame={r['frame']}, player={r['player_id']} has NULL ball_x — "
+                    "ball-after-players ordering regressed"
+                )
+                assert r["ball_y"] is not None
+            # Period-relative timestamp invariant (PR 1.6): frame 10000 → 0.0.
+            assert all(r["frame"] in (10000, 10001) for r in rows)
+            frame_10000 = [r for r in rows if r["frame"] == 10000]
+            frame_10001 = [r for r in rows if r["frame"] == 10001]
+            assert all(r["timestamp"] == 0.0 for r in frame_10000)
+            assert all(r["timestamp"] == round(1 / 25, 4) for r in frame_10001)
         finally:
             os.unlink(info_path)
             os.unlink(pos_path)
