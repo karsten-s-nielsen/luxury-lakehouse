@@ -14,6 +14,7 @@ test (`test_dbt_dim_matches.py`) verifies determinism against live Databricks.
 
 from __future__ import annotations
 
+import importlib.util
 import subprocess
 from pathlib import Path
 
@@ -21,6 +22,15 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DBT_PROJECT_DIR = REPO_ROOT / "dbt_project"
+
+# dbt-core is in the [dbt] optional-dep extra, not the main install. The
+# Python CI `lint-and-test` job only installs `analytics|embeddings|mlflow|jax`
+# extras (see .github/workflows/python-ci.yml) — dbt is tested separately in
+# the dbt-CI workflow. Skip these macro-compile tests when dbt is unimportable.
+pytestmark = pytest.mark.skipif(
+    importlib.util.find_spec("dbt") is None,
+    reason="dbt-core not installed in this env (Python CI lint-and-test)",
+)
 
 
 def _compile_inline(inline_model: str) -> str:
