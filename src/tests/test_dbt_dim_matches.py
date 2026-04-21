@@ -12,8 +12,12 @@ from collections.abc import Iterator
 
 import pytest
 
-pytest.importorskip("databricks")
-from databricks import sql
+# The `databricks` namespace is present in CI via the `databricks-sdk`
+# package, but the `.sql` submodule only ships in `databricks-sql-connector`,
+# which is a local-dev-only dependency. Use `pytest.importorskip` with the
+# fully-qualified submodule path so the test is skipped cleanly in CI and
+# pyright never tries to statically resolve `databricks.sql` at module load.
+databricks_sql = pytest.importorskip("databricks.sql")
 
 requires_databricks = pytest.mark.skipif(
     not all(os.environ.get(var) for var in ("DATABRICKS_HOST", "DATABRICKS_HTTP_PATH", "DATABRICKS_TOKEN")),
@@ -24,7 +28,7 @@ requires_databricks = pytest.mark.skipif(
 @pytest.fixture(scope="module")
 def conn() -> Iterator[object]:
     host = os.environ["DATABRICKS_HOST"].replace("https://", "").rstrip("/")
-    connection = sql.connect(
+    connection = databricks_sql.connect(
         server_hostname=host,
         http_path=os.environ["DATABRICKS_HTTP_PATH"],
         access_token=os.environ["DATABRICKS_TOKEN"],
