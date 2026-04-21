@@ -199,6 +199,33 @@ resource "databricks_grant" "dbt_owners_bronze_select" {
   privileges = ["USE_SCHEMA", "SELECT"]
 }
 
+# ── Unity Catalog Grants: lakehouse-operators group (PR 1.5) ─────────────────
+# Human operators need MODIFY + SELECT on bronze for ad-hoc operations:
+#
+#   - DELETE FROM bronze.* to force re-ingestion after a parser schema change.
+#     Example: PR 1.5 (2026-04-21) rewrote the IDSSE parser to emit ~200
+#     bronze cols (was 9); the existing rows had to be DELETEd before
+#     re-ingestion could populate the new schema. Without MODIFY, the
+#     operator gets "PERMISSION_DENIED: User does not have MODIFY on Table".
+#   - Manual data repair (bad row from a source that doesn't re-serve it).
+#   - Emergency backfill overrides.
+#
+# UC does NOT auto-grant MODIFY to the schema owner — ownership gives GRANT
+# authority but not MODIFY itself. This grant codifies what would otherwise
+# be a manual `GRANT MODIFY ON SCHEMA bronze TO <user>` step after every
+# fresh deploy.
+#
+# Scope is bronze only. Silver + gold are dbt-managed; ad-hoc human DML
+# against dbt-built marts is discouraged (drifts from dbt model contracts).
+
+resource "databricks_grant" "lakehouse_operators_bronze_modify" {
+  count = var.lakehouse_operators_group_name != "" ? 1 : 0
+
+  schema     = "${var.catalog_name}.${databricks_schema.bronze.name}"
+  principal  = var.lakehouse_operators_group_name
+  privileges = ["USE_SCHEMA", "SELECT", "MODIFY"]
+}
+
 resource "databricks_grant" "dbt_owners_silver_select" {
   count = var.dbt_owners_group_name != "" && var.silver_schema_override != "" ? 1 : 0
 

@@ -54,3 +54,9 @@ variable "dbt_owners_group_name" {
   type        = string
   default     = ""
 }
+
+variable "lakehouse_operators_group_name" {
+  description = "Display name of the lakehouse-operators group (PR 1.5 — human ad-hoc MODIFY on bronze). Empty = skip grants. UC decouples schema OWNERSHIP from data MODIFY; this group codifies the self-grant so operators don't have to manually GRANT MODIFY after deploy."
+  type        = string
+  default     = ""
+}

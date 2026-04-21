@@ -87,8 +87,61 @@ flattened as (
         cast(pass_recipient_id as int)                  as pass_recipient_id,
         pass_recipient                                  as pass_recipient_name,
 
+        -- Pass attribute flags (already flat booleans in bronze — PR 1.5 expansion).
+        pass_technique,
+        pass_aerial_won,
+        pass_goal_assist,
+        pass_shot_assist,
+        pass_cut_back,
+        pass_deflected,
+        pass_inswinging,
+        pass_outswinging,
+        pass_miscommunication,
+        pass_backheel,
+
+        -- Shot attribute flags (PR 1.5 expansion — previously only pass-through core).
+        shot_aerial_won,
+        shot_open_goal,
+        shot_redirect,
+        shot_follows_dribble,
+        shot_saved_off_target,
+        shot_saved_to_post,
+        shot_kick_off,
+
+        -- Dribble outcome flags (PR 1.5 expansion).
+        dribble_overrun,
+        dribble_no_touch,
+        dribble_nutmeg,
+
+        -- Player positional role for this event (e.g. 'Right Wing', 'Center Forward').
+        -- Matches the player's `positions` entry in the lineup for the event time.
+        position                                        as player_position,
+
         -- Substitution fields
         substitution_replacement_id,
+
+        -- Tactics JSON (only non-null on 'Starting XI' / 'Tactical Shift' events).
+        -- Structure: { formation: int, lineup: [{ player: {id, name}, position: {id, name}, jersey_number: int }...] }.
+        -- PR 1.5: extract formation as a scalar col; lineup JSON pass-through
+        -- (downstream can LATERAL VIEW EXPLODE it into per-player-position rows).
+        from_json(tactics, 'STRUCT<formation: BIGINT>').formation as tactics_formation,
+        tactics                                         as tactics_json,
+
+        -- 50/50 duel JSON (present only on '50/50' event type). bronze col name
+        -- is quoted because `50_50` isn't a valid SQL identifier without backticks.
+        -- Structure: { outcome: {id, name}, counterpress: bool }.
+        from_json(`50_50`, 'STRUCT<outcome: STRUCT<name: STRING>, counterpress: BOOLEAN>').outcome.name
+                                                         as fifty_fifty_outcome,
+        from_json(`50_50`, 'STRUCT<counterpress: BOOLEAN>').counterpress
+                                                         as fifty_fifty_counterpress,
+
+        -- Generic counterpress flag (from statsbombpy — distinct from the 50/50-specific counterpress above).
+        counterpress                                    as is_counterpress,
+
+        -- under_pressure / off_camera / out — already flat booleans in bronze.
+        under_pressure,
+        off_camera,
+        out                                             as is_out_of_play,
 
         -- Discipline fields (extracted from _raw_extra_json, which statsbombpy
         -- does NOT flatten). Cards are issued on two event types:

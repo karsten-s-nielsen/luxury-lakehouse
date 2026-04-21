@@ -49,6 +49,25 @@ sources:
               Keys are player IDs, values are {x, y} coordinate objects.
           - name: frame_rate
             description: Frame rate in fps (always 25 for Metrica)
+          - name: gk_jersey_numbers
+            description: >
+              JSON-stringified list of goalkeeper shirt numbers observed in
+              this match. Identification: EPTS PlayingPosition in ('GK','TW')
+              takes precedence; falls back to shirt-number-1 heuristic when
+              position is missing. CSV-path games use the jersey-1
+              heuristic only.
+          - name: pitch_length_m
+            description: >
+              Pitch length in meters, read from the EPTS <FieldSize> element
+              (Game 3). NaN for CSV-source games (Games 1-2) — CSV header
+              does not carry pitch dimensions. Denormalized onto every
+              tracking row so consumers can scale [0,1] normalized
+              coordinates to real-world distance without a metadata join.
+          - name: pitch_width_m
+            description: >
+              Pitch width in meters, read from the EPTS <FieldSize> element
+              (Game 3). NaN for CSV-source games (Games 1-2). See
+              pitch_length_m for rationale.
 
       - name: metrica_events
         description: >
@@ -66,13 +85,27 @@ sources:
           - name: type
             description: Event type (PASS, SHOT, BALL LOST, etc.)
           - name: subtype
-            description: Event subtype (HEAD-Loss, GOAL-Loss, etc.)
+            description: >
+              Event subtype (HEAD-Loss, GOAL-Loss, etc.). For multi-subtype
+              events this is the first listed name — the full list is in
+              subtypes_all_json.
+          - name: subtypes_all_json
+            description: >
+              JSON-stringified list of all subtype names for multi-subtype
+              events (e.g. INTERCEPTION+GOAL). NULL when the event has at
+              most one subtype. Always NULL in CSV-source games
+              (Games 1-2) — only the EPTS JSON (Game 3) exposes
+              multi-subtype arrays.
           - name: period
             description: Match half
           - name: start_frame
             description: Frame number when event started
           - name: end_frame
             description: Frame number when event ended
+          - name: start_time_s
+            description: Event start time in seconds from period start.
+          - name: end_time_s
+            description: Event end time in seconds from period start.
           - name: start_x
             description: Starting x-coordinate (0-1 normalized)
           - name: start_y
@@ -84,4 +117,25 @@ sources:
           - name: team
             description: Team performing the event (Home or Away)
           - name: player
-            description: Player identifier (e.g. Player1, Player11)
+            description: >
+              Player identifier of the primary actor (e.g. Player1,
+              Player11). Derived from the 'From' column (CSV) or
+              event.from.name (EPTS).
+          - name: to
+            description: >
+              Recipient player identifier for applicable event types
+              (passes, carries, etc.). Derived from the 'To' column (CSV)
+              or event.to.name (EPTS). NULL for non-applicable events.
+              CSV-path 'To' column maps to 'to' via column-name sanitize;
+              EPTS path was fixed 2026-04-20 (previously always NULL).
+          - name: pitch_length_m
+            description: >
+              Pitch length in meters, read from the EPTS <FieldSize>
+              element (Game 3). NaN for CSV-source games (Games 1-2) —
+              CSV header does not carry pitch dimensions. Denormalized
+              onto every event row.
+          - name: pitch_width_m
+            description: >
+              Pitch width in meters, read from the EPTS <FieldSize>
+              element (Game 3). NaN for CSV-source games. See
+              pitch_length_m for rationale.

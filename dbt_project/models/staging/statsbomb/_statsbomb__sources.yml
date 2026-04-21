@@ -3,9 +3,13 @@ version: 2
 sources:
   - name: statsbomb
     description: >
-      StatsBomb open data ingested into the bronze layer. Contains detailed
-      event-level soccer data including shots, passes, carries, pressures,
-      and 360 freeze-frame data with player positions at the moment of each event.
+      StatsBomb open data ingested into the bronze layer via statsbombpy.
+      Contains detailed event-level soccer data including shots, passes, carries,
+      pressures, and 360 freeze-frame data with player positions at the moment
+      of each event. Column documentation auto-generated from
+      `DESCRIBE TABLE soccer_analytics.bronze.statsbomb_*` (see
+      src/tests/fixtures/statsbomb_bronze_schema_snapshot.json — refresh when
+      statsbombpy surfaces new fields or the ingestion code adds derived cols).
     database: soccer_analytics
     schema: bronze
     loader: aws_lambda
@@ -16,70 +20,17 @@ sources:
         error_after: {count: 72, period: hour}
 
     tables:
-      - name: statsbomb_events
-        description: >
-          Raw event stream for each match. Each row is a single on-ball or
-          off-ball event (pass, shot, carry, duel, etc.) with deeply nested
-          JSON containing event-specific attributes, location arrays, and
-          related events.
-        columns:
-          - name: id
-            description: Unique event UUID assigned by StatsBomb
-          - name: match_id
-            description: Foreign key to statsbomb_matches
-          - name: type
-            description: JSON object with id and name of event type (e.g. Shot, Pass)
-          - name: location
-            description: Array of [x, y] pitch coordinates (120x80 system)
-          - name: timestamp
-            description: Match clock timestamp (HH:MM:SS.sss)
-
-      - name: statsbomb_matches
-        description: >
-          Match metadata including competition, season, teams, managers,
-          referees, and match dates. One row per match.
-        columns:
-          - name: match_id
-            description: Primary key — unique match identifier
-          - name: competition
-            description: JSON object with competition_id and competition_name
-          - name: season
-            description: JSON object with season_id and season_name
-          - name: home_team
-            description: JSON object with team id, name, and country
-          - name: away_team
-            description: JSON object with team id, name, and country
-
-      - name: statsbomb_lineups
-        description: >
-          Squad lineups for each match. Each row contains a team's full lineup
-          with nested player arrays including positions, jersey numbers, and
-          substitution information.
-        columns:
-          - name: match_id
-            description: Foreign key to statsbomb_matches
-          - name: team_id
-            description: StatsBomb team identifier
-          - name: team_name
-            description: Team display name
-          - name: lineup
-            description: JSON array of player objects with positions and cards
-
       - name: statsbomb_360
         description: >
-          StatsBomb 360 freeze-frame data. statsbombpy returns already-exploded
-          rows — one row per player per event in 360-enabled matches. Contains
-          positional snapshots of all visible players at the moment of each event.
-          Enables pitch control and spatial analysis.
+          StatsBomb 360 freeze-frame data. statsbombpy returns already-exploded rows — one row per player per event in 360-enabled matches. Enables pitch control and spatial analysis.
         columns:
           - name: id
             description: Event UUID linking this row to the parent event in statsbomb_events
+          - name: visible_area
+            description: >
+              JSON string — flat array of alternating x, y coordinates forming a polygon that represents the camera's visible area on the pitch
           - name: match_id
             description: Foreign key to statsbomb_matches
-          - name: competition_id
-            description: Competition identifier (partition key)
-          - name: season_id
-            description: Season identifier (partition key)
           - name: teammate
             description: Whether this player is on the same team as the event actor
           - name: actor
@@ -88,9 +39,546 @@ sources:
             description: Whether this player is the goalkeeper
           - name: location
             description: >
-              JSON string — [x, y] coordinate array for this player's position
-              on the pitch (StatsBomb 120x80 coordinate system)
-          - name: visible_area
+              JSON string — [x, y] coordinate array for this player's position on the pitch (StatsBomb 120x80 coordinate system)
+          - name: competition_id
+            description: Competition identifier (partition key)
+          - name: season_id
+            description: Season identifier (partition key)
+          - name: _ingested_at
+            description: UTC timestamp when the row was written to bronze (audit col).
+
+      - name: statsbomb_competitions
+        description: >
+          Competition + season catalog. Lists every competition/season with 360 availability flags.
+        columns:
+          - name: competition_id
             description: >
-              JSON string — flat array of alternating x, y coordinates forming
-              a polygon that represents the camera's visible area on the pitch
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: season_id
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: country_name
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: competition_name
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: competition_gender
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: competition_youth
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: competition_international
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: season_name
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: match_updated
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: match_updated_360
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: match_available_360
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: match_available
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: _ingested_at
+            description: UTC timestamp when the row was written to bronze (audit col).
+
+      - name: statsbomb_events
+        description: >
+          Raw event stream for each match. Each row is a single on-ball or off-ball event (pass, shot, carry, duel, etc.). statsbombpy already flattens most nested fields into scalar columns; the remaining JSON strings (location, shot_freeze_frame, tactics, 50_50) are parsed by downstream staging models.
+        columns:
+          - name: "50_50"
+            description: >
+              string — JSON blob for 50/50 duel events. Parsed in
+              stg_statsbomb__events into fifty_fifty_outcome + fifty_fifty_counterpress.
+              Col name is YAML-quoted because unquoted "50_50" parses as integer 5050.
+          - name: bad_behaviour_card
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: ball_receipt_outcome
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: ball_recovery_recovery_failure
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: block_deflection
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: block_save_block
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: carry_end_location
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: clearance_aerial_won
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: clearance_body_part
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: clearance_head
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: clearance_left_foot
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: clearance_right_foot
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: counterpress
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: dribble_nutmeg
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: dribble_outcome
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: duel_outcome
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: duel_type
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: duration
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: foul_committed_advantage
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: foul_committed_card
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: foul_committed_penalty
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: foul_won_advantage
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: foul_won_defensive
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: foul_won_penalty
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: goalkeeper_body_part
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: goalkeeper_end_location
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: goalkeeper_outcome
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: goalkeeper_position
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: goalkeeper_technique
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: goalkeeper_type
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: id
+            description: Unique event UUID assigned by StatsBomb
+          - name: index
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: injury_stoppage_in_chain
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: interception_outcome
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: location
+            description: Array of [x, y] pitch coordinates (120x80 system)
+          - name: match_id
+            description: Foreign key to statsbomb_matches
+          - name: minute
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: off_camera
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: out
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: pass_aerial_won
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: pass_angle
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: pass_assisted_shot_id
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: pass_body_part
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: pass_cross
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: pass_cut_back
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: pass_deflected
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: pass_end_location
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: pass_goal_assist
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: pass_height
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: pass_inswinging
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: pass_length
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: pass_outcome
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: pass_outswinging
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: pass_recipient
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: pass_recipient_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: pass_shot_assist
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: pass_switch
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: pass_technique
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: pass_through_ball
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: pass_type
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: period
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: play_pattern
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: player
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: player_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: position
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: possession
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: possession_team
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: possession_team_id
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: related_events
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: second
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: shot_aerial_won
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: shot_body_part
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: shot_end_location
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: shot_first_time
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: shot_freeze_frame
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: shot_key_pass_id
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: shot_one_on_one
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: shot_outcome
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: shot_statsbomb_xg
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: shot_technique
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: shot_type
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: substitution_outcome
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: substitution_outcome_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: substitution_replacement
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: substitution_replacement_id
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: tactics
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: team
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: team_id
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: timestamp
+            description: >
+              Match clock timestamp (HH:MM:SS.sss)
+          - name: type
+            description: JSON object with id and name of event type (e.g. Shot, Pass)
+          - name: under_pressure
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: competition_id
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: season_id
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: ball_recovery_offensive
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: block_offensive
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: dribble_overrun
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: foul_committed_type
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: miscontrol_aerial_won
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: foul_committed_offensive
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: shot_deflected
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: pass_miscommunication
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: pass_no_touch
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: goalkeeper_punched_out
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: pass_straight
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: shot_open_goal
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: dribble_no_touch
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: goalkeeper_shot_saved_off_target
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: shot_saved_off_target
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: goalkeeper_shot_saved_to_post
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: shot_saved_to_post
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: clearance_other
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: goalkeeper_success_out
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: goalkeeper_success_in_play
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: _ingested_at
+            description: UTC timestamp when the row was written to bronze (audit col).
+          - name: shot_redirect
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: goalkeeper_lost_out
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: shot_follows_dribble
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: half_start_late_video_start
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: player_off_permanent
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: pass_backheel
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: goalkeeper_lost_in_play
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: half_end_early_video_end
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: goalkeeper_penalty_saved_to_post
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: goalkeeper_saved_to_post
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: shot_kick_off
+            description: >
+              boolean — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: _raw_extra_json
+            description: >
+              Raw JSON of type-specific event attrs not flattened by statsbombpy (used by SPADL adapter).
+
+      - name: statsbomb_lineups
+        description: >
+          Squad lineups for each match. Each row is one player entry; nested player arrays (positions, cards) remain as JSON strings.
+        columns:
+          - name: player_id
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: player_name
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: player_nickname
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: jersey_number
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: country
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: cards
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: positions
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: match_id
+            description: Foreign key to statsbomb_matches
+          - name: team_name
+            description: Team display name
+          - name: competition_id
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: season_id
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: _ingested_at
+            description: UTC timestamp when the row was written to bronze (audit col).
+
+      - name: statsbomb_matches
+        description: >
+          Match metadata including competition, season, teams, managers, referees, and match dates. One row per match.
+        columns:
+          - name: match_id
+            description: Primary key — unique match identifier
+          - name: match_date
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: kick_off
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: competition
+            description: JSON object with competition_id and competition_name
+          - name: season
+            description: JSON object with season_id and season_name
+          - name: home_team
+            description: JSON object with team id, name, and country
+          - name: away_team
+            description: JSON object with team id, name, and country
+          - name: home_score
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: away_score
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: match_status
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: match_status_360
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: last_updated
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: last_updated_360
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: match_week
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: competition_stage
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: stadium
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: referee
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: home_managers
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: away_managers
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: data_version
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: shot_fidelity_version
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: xy_fidelity_version
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: competition_id
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: season_id
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: _ingested_at
+            description: UTC timestamp when the row was written to bronze (audit col).
+

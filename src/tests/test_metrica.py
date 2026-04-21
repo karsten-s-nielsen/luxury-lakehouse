@@ -88,6 +88,8 @@ class TestReshapeTrackingToNarrow:
             "match_id",
             "frame_rate",
             "gk_jersey_numbers",
+            "pitch_length_m",
+            "pitch_width_m",
         }
         assert expected_cols == set(result.columns)
 
@@ -380,6 +382,8 @@ class TestParseEPTSTracking:
             "match_id",
             "frame_rate",
             "gk_jersey_numbers",
+            "pitch_length_m",
+            "pitch_width_m",
         }
         assert set(rows[0].keys()) == expected_keys
 

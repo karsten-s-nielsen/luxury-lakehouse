@@ -1,0 +1,604 @@
+{
+  "schema_version": "dfl_2026_04_21_2level",
+  "snapshot_source": "enumerated 2026-04-21 from 7 Bundesliga IDSSE match event XMLs in /Volumes/soccer_analytics/bronze/libs/idsse_data via 2-level XML walk (Event -> first-child -> nested-child -> great-grand-child attrs). Replaces the 1-level snapshot at /tmp/dfl_enum_full.txt.",
+  "notes": [
+    "event_level_attrs live on the <Event> element itself.",
+    "first_child_types: tag names of <Event>'s first child element; exactly one per Event. `attrs` is the union of XML attributes observed across all 7 matches.",
+    "nested_children: attrs on nested elements inside a first-child. 2-level enum captures SuccessfulShot/SavedShot/ShotWide/ShotWoodWork/BlockedShot/OtherShot attrs (ShotAtGoal nested) and FaultExecution/FairPlay/Play attrs (ThrowIn nested).",
+    "A tag may have multiple parents (e.g. Play is nested under CornerKick/FreeKick/GoalKick/KickOff/ThrowIn AND exists as a top-level first-child). The parser handles this via _NESTED_PREFIX_MAP \u2014 Play's nested attrs reuse the `play_*` prefix."
+  ],
+  "event_level_attrs": [
+    "CalculatedFrame",
+    "CalculatedTimestamp",
+    "EndFrame",
+    "EventId",
+    "EventTime",
+    "MatchId",
+    "StartFrame",
+    "X-Position",
+    "X-PositionFromTracking",
+    "X-Source-Position",
+    "Y-Position",
+    "Y-PositionFromTracking",
+    "Y-Source-Position"
+  ],
+  "first_child_types": {
+    "BallClaiming": {
+      "attrs": [
+        "BallPossessionPhase",
+        "Player",
+        "Team",
+        "Type"
+      ]
+    },
+    "BallDeflection": {
+      "attrs": [
+        "Player",
+        "Team",
+        "Type"
+      ]
+    },
+    "Caution": {
+      "attrs": [
+        "CardColor",
+        "CardRating",
+        "OtherReason",
+        "Player",
+        "Reason",
+        "RefDecisionEvaluation",
+        "Team"
+      ]
+    },
+    "CautionTeamofficial": {
+      "attrs": [
+        "CardColor",
+        "PersonSentOff",
+        "Team"
+      ]
+    },
+    "ChanceWithoutShot": {
+      "attrs": [
+        "AssistAction",
+        "ChanceAssist",
+        "ChanceAssistType",
+        "CounterAttack",
+        "Player",
+        "PreventionGoalkeeper",
+        "SetupOrigin",
+        "Sitter",
+        "Situation",
+        "TakerSetup",
+        "Team"
+      ]
+    },
+    "CornerKick": {
+      "attrs": [
+        "DecisionTimestamp",
+        "Placing",
+        "PostMarking",
+        "Rotation",
+        "Side",
+        "TargetArea",
+        "Team"
+      ]
+    },
+    "Delete": {
+      "attrs": [
+        "Reason"
+      ]
+    },
+    "FairPlay": {
+      "attrs": [
+        "BallPossessionPhase",
+        "Player",
+        "Team"
+      ]
+    },
+    "FinalWhistle": {
+      "attrs": [
+        "BreakingOff",
+        "FinalResult",
+        "GameSection"
+      ]
+    },
+    "Foul": {
+      "attrs": [
+        "CommittingPlayerAction",
+        "FoulType",
+        "Fouled",
+        "Fouler",
+        "TeamFouled",
+        "TeamFouler"
+      ]
+    },
+    "FreeKick": {
+      "attrs": [
+        "DecisionTimestamp",
+        "ExecutionMode",
+        "Team"
+      ]
+    },
+    "GoalDisallowed": {
+      "attrs": [
+        "Player",
+        "Reason",
+        "RefDecisionEvaluation",
+        "Team"
+      ]
+    },
+    "GoalKick": {
+      "attrs": [
+        "DecisionTimestamp",
+        "Team"
+      ]
+    },
+    "KickOff": {
+      "attrs": [
+        "GameSection",
+        "TeamLeft",
+        "TeamRight"
+      ]
+    },
+    "Nutmeg": {
+      "attrs": [
+        "AffectedPlayer",
+        "AffectedTeam",
+        "Player",
+        "Team"
+      ]
+    },
+    "Offside": {
+      "attrs": [
+        "Player",
+        "Team"
+      ]
+    },
+    "OtherBallAction": {
+      "attrs": [
+        "BallPossessionPhase",
+        "DefensiveClearance",
+        "Player",
+        "Team"
+      ]
+    },
+    "OtherPlayerAction": {
+      "attrs": [
+        "ChangeContingentExhausted",
+        "ChangeOfCaptain",
+        "Player",
+        "PlayerBecomesGoalkeeper",
+        "Team"
+      ]
+    },
+    "Penalty": {
+      "attrs": [
+        "CausingPlayer",
+        "DecisionTimestamp",
+        "FouledPlayer",
+        "GoalkeeperBehaviour",
+        "GoalkeeperMovement",
+        "PlayersInBox",
+        "ProspectiveTaker",
+        "RefDecisionEvaluation",
+        "RetakenPenalty",
+        "Team"
+      ]
+    },
+    "PenaltyNotAwarded": {
+      "attrs": [
+        "CausingPlayer",
+        "PlayerToBeAwarded",
+        "Reason",
+        "RefDecisionEvaluation",
+        "Team"
+      ]
+    },
+    "Play": {
+      "attrs": [
+        "BallPossessionPhase",
+        "Distance",
+        "Evaluation",
+        "FlatCross",
+        "FromOpenPlay",
+        "GoalKeeperAction",
+        "Height",
+        "PenaltyBox",
+        "PlayAngle",
+        "PlayOrigin",
+        "Player",
+        "Recipient",
+        "Rotation",
+        "SemiField",
+        "Team"
+      ]
+    },
+    "PlayerNotSentOff": {
+      "attrs": [
+        "Player",
+        "Reason",
+        "RefDecisionEvaluation",
+        "Team",
+        "Type"
+      ]
+    },
+    "PossessionLossBeforeGoal": {
+      "attrs": [
+        "Player",
+        "PossessionLossOrigin",
+        "Team",
+        "TypeOfPossessionLoss"
+      ]
+    },
+    "RefereeBall": {
+      "attrs": []
+    },
+    "Run": {
+      "attrs": [
+        "Player",
+        "Team"
+      ]
+    },
+    "ShotAtGoal": {
+      "attrs": [
+        "AfterFreeKick",
+        "AmountOfDefenders",
+        "AngleToGoal",
+        "AssistAction",
+        "AssistShotAtGoal",
+        "AssistTypeShotAtGoal",
+        "BallPossessionPhase",
+        "BuildUp",
+        "ChanceEvaluation",
+        "CounterAttack",
+        "DirectFreeKickIntention",
+        "DistanceToGoal",
+        "ExtendedTypeOfShot",
+        "GoalDistanceGoalkeeper",
+        "InsideBox",
+        "PenaltyDirection",
+        "PenaltyExecution",
+        "Player",
+        "PlayerSpeed",
+        "Pressure",
+        "Rotation",
+        "SetupOrigin",
+        "ShotAssistFouledPlayer",
+        "ShotCondition",
+        "ShotContribution",
+        "ShotOrigin",
+        "SignificanceEvaluation",
+        "SitterContribution",
+        "TakerBallControl",
+        "TakerSetup",
+        "Team",
+        "TypeOfShot",
+        "xG"
+      ]
+    },
+    "SitterPrevented": {
+      "attrs": [
+        "Player",
+        "Reason",
+        "RefDecisionEvaluation",
+        "Team"
+      ]
+    },
+    "SpectacularPlay": {
+      "attrs": [
+        "Player",
+        "Team",
+        "Type"
+      ]
+    },
+    "Substitution": {
+      "attrs": [
+        "PlayerIn",
+        "PlayerOut",
+        "PlayingPosition",
+        "Team"
+      ]
+    },
+    "TacklingGame": {
+      "attrs": [
+        "BallPossessionPhase",
+        "DribbleEvaluation",
+        "DribblingSide",
+        "DribblingType",
+        "GoalKeeperInvolved",
+        "Loser",
+        "LoserRole",
+        "LoserTeam",
+        "PossessionChange",
+        "Type",
+        "Winner",
+        "WinnerAction",
+        "WinnerResult",
+        "WinnerRole",
+        "WinnerTeam"
+      ]
+    },
+    "ThrowIn": {
+      "attrs": [
+        "DecisionTimestamp",
+        "Side",
+        "Team"
+      ]
+    },
+    "VideoAssistantAction": {
+      "attrs": [
+        "FinalDecision",
+        "Linesman1",
+        "Linesman2",
+        "OpponentTeam",
+        "ProofedEvent",
+        "RefDecision",
+        "RefDecisionEvaluation",
+        "Referee",
+        "RefereeinRRA",
+        "TeamChallenged",
+        "TimestampEndAction",
+        "TimestampStartAction",
+        "VideoAssistant"
+      ]
+    }
+  },
+  "nested_children": {
+    "CornerKick": {
+      "Play": {
+        "attrs": [
+          "BallPossessionPhase",
+          "Distance",
+          "Evaluation",
+          "FlatCross",
+          "FromOpenPlay",
+          "GoalKeeperAction",
+          "Height",
+          "PenaltyBox",
+          "PlayAngle",
+          "PlayOrigin",
+          "Player",
+          "Recipient",
+          "Rotation",
+          "SemiField",
+          "Team"
+        ]
+      }
+    },
+    "FreeKick": {
+      "Play": {
+        "attrs": [
+          "BallPossessionPhase",
+          "Distance",
+          "Evaluation",
+          "FlatCross",
+          "FromOpenPlay",
+          "GoalKeeperAction",
+          "Height",
+          "PenaltyBox",
+          "PlayAngle",
+          "PlayOrigin",
+          "Player",
+          "Recipient",
+          "Rotation",
+          "SemiField",
+          "Team"
+        ]
+      },
+      "ShotAtGoal": {
+        "attrs": [
+          "AfterFreeKick",
+          "AmountOfDefenders",
+          "AngleToGoal",
+          "AssistAction",
+          "AssistShotAtGoal",
+          "AssistTypeShotAtGoal",
+          "BallPossessionPhase",
+          "BuildUp",
+          "ChanceEvaluation",
+          "CounterAttack",
+          "DirectFreeKickIntention",
+          "DistanceToGoal",
+          "ExtendedTypeOfShot",
+          "GoalDistanceGoalkeeper",
+          "InsideBox",
+          "PenaltyDirection",
+          "PenaltyExecution",
+          "Player",
+          "PlayerSpeed",
+          "Pressure",
+          "Rotation",
+          "SetupOrigin",
+          "ShotAssistFouledPlayer",
+          "ShotCondition",
+          "ShotContribution",
+          "ShotOrigin",
+          "SignificanceEvaluation",
+          "SitterContribution",
+          "TakerBallControl",
+          "TakerSetup",
+          "Team",
+          "TypeOfShot",
+          "xG"
+        ]
+      }
+    },
+    "GoalKick": {
+      "Play": {
+        "attrs": [
+          "BallPossessionPhase",
+          "Distance",
+          "Evaluation",
+          "FlatCross",
+          "FromOpenPlay",
+          "GoalKeeperAction",
+          "Height",
+          "PenaltyBox",
+          "PlayAngle",
+          "PlayOrigin",
+          "Player",
+          "Recipient",
+          "Rotation",
+          "SemiField",
+          "Team"
+        ]
+      }
+    },
+    "KickOff": {
+      "Play": {
+        "attrs": [
+          "BallPossessionPhase",
+          "Distance",
+          "Evaluation",
+          "FlatCross",
+          "FromOpenPlay",
+          "GoalKeeperAction",
+          "Height",
+          "PenaltyBox",
+          "PlayAngle",
+          "PlayOrigin",
+          "Player",
+          "Recipient",
+          "Rotation",
+          "SemiField",
+          "Team"
+        ]
+      }
+    },
+    "Penalty": {
+      "ShotAtGoal": {
+        "attrs": [
+          "AfterFreeKick",
+          "AmountOfDefenders",
+          "AngleToGoal",
+          "AssistAction",
+          "AssistShotAtGoal",
+          "AssistTypeShotAtGoal",
+          "BallPossessionPhase",
+          "BuildUp",
+          "ChanceEvaluation",
+          "CounterAttack",
+          "DirectFreeKickIntention",
+          "DistanceToGoal",
+          "ExtendedTypeOfShot",
+          "GoalDistanceGoalkeeper",
+          "InsideBox",
+          "PenaltyDirection",
+          "PenaltyExecution",
+          "Player",
+          "PlayerSpeed",
+          "Pressure",
+          "Rotation",
+          "SetupOrigin",
+          "ShotAssistFouledPlayer",
+          "ShotCondition",
+          "ShotContribution",
+          "ShotOrigin",
+          "SignificanceEvaluation",
+          "SitterContribution",
+          "TakerBallControl",
+          "TakerSetup",
+          "Team",
+          "TypeOfShot",
+          "xG"
+        ]
+      }
+    },
+    "Play": {
+      "Cross": {
+        "attrs": [
+          "GoalKeeper",
+          "GoalKeeperInterference",
+          "Side"
+        ]
+      },
+      "Pass": {
+        "attrs": [
+          "Direction",
+          "FreeKickLayup",
+          "OneTwo"
+        ]
+      }
+    },
+    "ShotAtGoal": {
+      "BlockedShot": {
+        "attrs": [
+          "BlockedByOwnTeam",
+          "GoalPrevented",
+          "Player"
+        ]
+      },
+      "OtherShot": {
+        "attrs": []
+      },
+      "SavedShot": {
+        "attrs": [
+          "GoalKeeper",
+          "SaveEvaluation",
+          "SaveResult",
+          "SaveType"
+        ]
+      },
+      "ShotWide": {
+        "attrs": [
+          "PitchMarking",
+          "Placing"
+        ]
+      },
+      "ShotWoodWork": {
+        "attrs": [
+          "Location"
+        ]
+      },
+      "SuccessfulShot": {
+        "attrs": [
+          "Assist",
+          "AssistContribution",
+          "AssistFouledPlayer",
+          "AssistType",
+          "CurrentResult",
+          "DeflectionKeeper",
+          "DeflectionPlayer",
+          "Error",
+          "GoalZone",
+          "RefDecisionEvaluation",
+          "Solo"
+        ]
+      }
+    },
+    "ThrowIn": {
+      "FairPlay": {
+        "attrs": [
+          "BallPossessionPhase",
+          "Player",
+          "Team"
+        ]
+      },
+      "FaultExecution": {
+        "attrs": [
+          "BallPossessionPhase",
+          "Player",
+          "Team"
+        ]
+      },
+      "Play": {
+        "attrs": [
+          "BallPossessionPhase",
+          "Distance",
+          "Evaluation",
+          "FlatCross",
+          "FromOpenPlay",
+          "GoalKeeperAction",
+          "Height",
+          "PenaltyBox",
+          "PlayAngle",
+          "PlayOrigin",
+          "Player",
+          "Recipient",
+          "Rotation",
+          "SemiField",
+          "Team"
+        ]
+      }
+    }
+  }
+}

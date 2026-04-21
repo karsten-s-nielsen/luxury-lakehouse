@@ -1,0 +1,100 @@
+{
+  "schema_version": "metrica_2026_04",
+  "snapshot_source": "Metrica Sports sample data: Games 1-2 CSV (RawEventsData, RawTrackingData), Game 3 FIFA EPTS (metadata.xml + tracking.txt + events.json). Enumeration of fields consumed by ingestion.metrica_{common,events,tracking} as of 2026-04-20.",
+  "notes": [
+    "Tracking bronze schema is unified across CSV + EPTS paths: both paths emit the same 12 columns. Pitch-dim cols are NaN for CSV-source games (Games 1-2) since the CSV header doesn't carry <FieldSize>.",
+    "Events bronze schema is unified across CSV + EPTS paths: both paths emit 19 columns. subtypes_all_json + pitch-dim cols are NULL/NaN for CSV-source games.",
+    "Player x/y coordinates are bundled into the home_players / away_players JSON columns (one JSON dict per frame mapping jersey→{x,y}) rather than separate per-player columns — this is a compression, not a drop: every player's position is reachable via JSON path.",
+    "When Metrica releases new sample games or changes the EPTS schema, update this fixture + parser in the same PR."
+  ],
+  "tracking": {
+    "expected_bronze_cols": [
+      "period",
+      "frame",
+      "timestamp",
+      "ball_x",
+      "ball_y",
+      "home_players",
+      "away_players",
+      "match_id",
+      "frame_rate",
+      "gk_jersey_numbers",
+      "pitch_length_m",
+      "pitch_width_m"
+    ],
+    "source_to_bronze": {
+      "csv_header_Period": "period",
+      "csv_header_Frame": "frame",
+      "csv_header_Time_s": "timestamp",
+      "csv_Home_jersey_x_y": "home_players (JSON bundle)",
+      "csv_Away_jersey_x_y": "away_players (JSON bundle)",
+      "csv_Ball_x": "ball_x",
+      "csv_Ball_y": "ball_y",
+      "epts_frame_number": "frame",
+      "epts_player_x_y_per_frame": "home_players / away_players (JSON bundle, split by team_id)",
+      "epts_ball_x_y_per_frame": "ball_x / ball_y",
+      "epts_metadata_first_half_second_half": "period (derived from frame boundaries)",
+      "epts_metadata_frame_rate": "frame_rate",
+      "epts_metadata_FieldSize_Length": "pitch_length_m",
+      "epts_metadata_FieldSize_Width": "pitch_width_m",
+      "epts_metadata_Player_PlayingPosition": "gk_jersey_numbers (derived via TW/GK filter)",
+      "ingestion_match_id": "match_id"
+    }
+  },
+  "events": {
+    "expected_bronze_cols": [
+      "match_id",
+      "event_id",
+      "type",
+      "subtype",
+      "subtypes_all_json",
+      "period",
+      "start_frame",
+      "start_time_s",
+      "start_x",
+      "start_y",
+      "end_frame",
+      "end_time_s",
+      "end_x",
+      "end_y",
+      "team",
+      "player",
+      "to",
+      "pitch_length_m",
+      "pitch_width_m"
+    ],
+    "source_to_bronze": {
+      "csv_Team": "team",
+      "csv_Type_or_Event_Name": "type",
+      "csv_Subtype_or_Sub_Event": "subtype",
+      "csv_Period": "period",
+      "csv_Start_Frame": "start_frame",
+      "csv_End_Frame": "end_frame",
+      "csv_Start_Time_s": "start_time_s",
+      "csv_End_Time_s": "end_time_s",
+      "csv_From": "player",
+      "csv_To": "to",
+      "csv_Start_X": "start_x",
+      "csv_Start_Y": "start_y",
+      "csv_End_X": "end_x",
+      "csv_End_Y": "end_y",
+      "csv_inferred_event_id": "event_id",
+      "epts_event_index": "event_id",
+      "epts_event_type_name": "type",
+      "epts_event_subtypes_dict_or_list": "subtype (scalar) + subtypes_all_json (JSON list)",
+      "epts_event_team_name_via_A_B_map": "team",
+      "epts_event_from_name": "player",
+      "epts_event_to_name": "to",
+      "epts_event_start_frame_time_x_y": "start_frame / start_time_s / start_x / start_y",
+      "epts_event_end_frame_time_x_y": "end_frame / end_time_s / end_x / end_y",
+      "epts_event_period": "period",
+      "epts_metadata_FieldSize": "pitch_length_m / pitch_width_m",
+      "ingestion_match_id": "match_id"
+    }
+  },
+  "excluded_source_fields": {
+    "epts_metadata_Player_ShirtName": "Jersey name / display string; not useful for analysis — downstream uses numeric shirt number.",
+    "epts_metadata_Team_Name": "Team display name; not independently captured (team_id already identifies). Potential follow-up if display-name joins are needed.",
+    "csv_file_raw_column_order": "CSV column order is provider-specific; bronze schema is normalised to a fixed column set."
+  }
+}

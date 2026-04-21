@@ -9,6 +9,7 @@ Contains:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import re
@@ -53,6 +54,17 @@ class _EPTSMetadata(NamedTuple):
     player_id_to_side: dict[str, str]
     # Goalkeeper player IDs (immutable; checked via PlayingPosition, fallback jersey #1)
     gk_player_ids: frozenset[str]
+    # Pitch dimensions in meters, from the EPTS <FieldSize> element.
+    # None when the metadata doesn't carry the element (shouldn't happen for
+    # conforming EPTS files but kept as None for graceful fallback).
+    pitch_length_m: float | None
+    pitch_width_m: float | None
+    # Per-player attributes from the metadata <Player> elements.
+    # Captured beyond the GK flag so bronze carries every source field per the
+    # bronze-completeness principle (see memory `feedback_bronze_completeness_principle`).
+    # Keyed on player_id (DFL-style or EPTS-native IDs).
+    player_id_to_position: dict[str, str]  # raw PlayingPosition string ("", "TW", "GK", "CB", etc.)
+    player_id_to_jersey: dict[str, str]  # same as `player_id_to_shirt` but exported for downstream use
 
 
 def _parse_epts_metadata(xml_text: str) -> _EPTSMetadata:
@@ -103,6 +115,7 @@ def _parse_epts_metadata(xml_text: str) -> _EPTSMetadata:
     logger = logging.getLogger("metrica")
     player_id_to_shirt: dict[str, str] = {}
     player_id_to_side: dict[str, str] = {}
+    player_id_to_position: dict[str, str] = {}
     gk_ids: set[str] = set()
     for player_el in metadata.findall(".//Player"):
         pid = player_el.get("id", "")
@@ -111,6 +124,7 @@ def _parse_epts_metadata(xml_text: str) -> _EPTSMetadata:
         position = player_el.get("PlayingPosition", "")
         player_id_to_shirt[pid] = shirt
         player_id_to_side[pid] = team_id_to_side.get(team_id, "unknown")
+        player_id_to_position[pid] = position  # Retain raw string for bronze (CB / LB / RM / TW / etc.)
         if position in ("TW", "GK"):
             gk_ids.add(pid)
         elif shirt == "1" and not position:
@@ -119,6 +133,24 @@ def _parse_epts_metadata(xml_text: str) -> _EPTSMetadata:
                 "GK heuristic: assuming player %s (shirt #1) is GK (no PlayingPosition in EPTS XML)",
                 pid,
             )
+
+    # --- Pitch dimensions: from <FieldSize> element ---
+    # EPTS source typically exposes `Width` + `Length` attributes in meters.
+    # Captured here because pitch dims are required to scale Metrica's [0, 1]
+    # normalised coords to real-world distance, and previously this section
+    # of the metadata was never read — see bronze-gap audit 2026-04-20.
+    pitch_length_m: float | None = None
+    pitch_width_m: float | None = None
+    field_size_el = metadata.find(".//FieldSize")
+    if field_size_el is not None:
+        length_val = field_size_el.get("Length") or field_size_el.findtext("Length")
+        width_val = field_size_el.get("Width") or field_size_el.findtext("Width")
+        with contextlib.suppress(TypeError, ValueError):
+            if length_val is not None:
+                pitch_length_m = float(length_val)
+        with contextlib.suppress(TypeError, ValueError):
+            if width_val is not None:
+                pitch_width_m = float(width_val)
 
     # --- PlayerChannels: map channel prefix -> player_id ---
     # Channels come in pairs (player1_x, player1_y) -- extract the prefix
@@ -168,6 +200,10 @@ def _parse_epts_metadata(xml_text: str) -> _EPTSMetadata:
         player_id_to_shirt=player_id_to_shirt,
         player_id_to_side=player_id_to_side,
         gk_player_ids=frozenset(gk_ids),
+        pitch_length_m=pitch_length_m,
+        pitch_width_m=pitch_width_m,
+        player_id_to_position=player_id_to_position,
+        player_id_to_jersey=dict(player_id_to_shirt),
     )
 
 
@@ -190,6 +226,15 @@ def _parse_epts_tracking(
         metadata.player_id_to_shirt[pid] for pid in metadata.gk_player_ids if pid in metadata.player_id_to_shirt
     )
     gk_json = json.dumps(gk_shirts)
+
+    # Denormalize match-level pitch dims onto every row so a single consumer
+    # query can access them without joining to a separate metadata table.
+    # Coerce None → NaN so the emitted column is dense float64 — otherwise
+    # Spark would infer NullType on the first all-None column and collide
+    # with the CSV-path Games-1-2 writes that use float NaN. See
+    # `metrica_tracking._reshape_tracking_to_narrow` for the mirror.
+    pitch_length_m_val: float = float("nan") if metadata.pitch_length_m is None else metadata.pitch_length_m
+    pitch_width_m_val: float = float("nan") if metadata.pitch_width_m is None else metadata.pitch_width_m
 
     for line in tracking_text.splitlines():
         line = line.strip()
@@ -265,6 +310,8 @@ def _parse_epts_tracking(
                 "match_id": match_id,
                 "frame_rate": 25,
                 "gk_jersey_numbers": gk_json,
+                "pitch_length_m": pitch_length_m_val,
+                "pitch_width_m": pitch_width_m_val,
             }
         )
 
@@ -274,13 +321,29 @@ def _parse_epts_tracking(
 def _parse_epts_events(
     events_data: list[dict[str, object]],
     match_id: str,
+    metadata: _EPTSMetadata | None = None,
 ) -> pd.DataFrame:
     """Flatten EPTS JSON events to match Games 1-2 bronze schema.
 
     Input is the ``data`` array from the events JSON file. Each event has
     nested objects for team, type, subtypes, start/end, from/to.
+
+    When ``metadata`` is provided, event rows carry the match-level pitch
+    dimensions (``pitch_length_m`` / ``pitch_width_m``) for schema parity
+    with Games 1-2 CSV events (which emit NaN). Pass ``None`` when metadata
+    is unavailable — pitch dim columns are then NaN on every row.
     """
     _team_map = {"Team A": "Home", "Team B": "Away"}
+    # Pre-compute match-level pitch dims once (constant across events).
+    # Coerce None → NaN so the emitted column is dense float64 even when
+    # metadata is missing or lacks a <FieldSize> element — otherwise Spark
+    # would infer NullType and collide with the CSV-path Float64 column.
+    pitch_length_m_val: float = (
+        float("nan") if metadata is None or metadata.pitch_length_m is None else metadata.pitch_length_m
+    )
+    pitch_width_m_val: float = (
+        float("nan") if metadata is None or metadata.pitch_width_m is None else metadata.pitch_width_m
+    )
     rows: list[dict[str, object]] = []
 
     for event in events_data:
@@ -288,19 +351,36 @@ def _parse_epts_events(
         event_subtypes = event.get("subtypes")
         event_team = event.get("team") or {}
         event_from = event.get("from") or {}
+        event_to = event.get("to") or {}  # Bronze gap fix (2026-04-20): EPTS path was never reading `to`.
         event_start = event.get("start") or {}
         event_end = event.get("end") or {}
 
         team_name: str = event_team.get("name", "") if isinstance(event_team, dict) else ""  # type: ignore[union-attr]
         type_name: str = event_type.get("name", "") if isinstance(event_type, dict) else ""  # type: ignore[union-attr]
 
+        # Subtypes may be either a dict (single subtype) or a list of dicts
+        # (multi-subtype events like INTERCEPTION+GOAL). Previously only the
+        # dict case was handled; list-case events silently lost all but the
+        # first. Now we canonicalize to a JSON-stringified list and keep the
+        # first name as the scalar `subtype` for back-compat.
         subtype_name: str | None = None
+        subtypes_all_json: str | None = None
         if isinstance(event_subtypes, dict):
             subtype_name = event_subtypes.get("name")  # type: ignore[assignment]
+            if subtype_name:
+                subtypes_all_json = json.dumps([subtype_name])
+        elif isinstance(event_subtypes, list):
+            names = [s.get("name") for s in event_subtypes if isinstance(s, dict) and s.get("name")]
+            if names:
+                subtype_name = names[0]
+                subtypes_all_json = json.dumps(names)
 
         from_id: str | None = None
         if isinstance(event_from, dict):
             from_id = event_from.get("name")  # type: ignore[assignment]
+        to_id: str | None = None
+        if isinstance(event_to, dict):
+            to_id = event_to.get("name")  # type: ignore[assignment]
 
         start_dict = event_start if isinstance(event_start, dict) else {}
         end_dict = event_end if isinstance(event_end, dict) else {}
@@ -310,6 +390,7 @@ def _parse_epts_events(
                 "event_id": event.get("index"),
                 "type": type_name,
                 "subtype": subtype_name,
+                "subtypes_all_json": subtypes_all_json,
                 "period": event.get("period"),
                 "start_frame": start_dict.get("frame"),
                 "start_time_s": start_dict.get("time"),
@@ -321,7 +402,10 @@ def _parse_epts_events(
                 "end_y": end_dict.get("y"),
                 "team": _team_map.get(team_name, team_name),
                 "player": from_id,
+                "to": to_id,
                 "match_id": match_id,
+                "pitch_length_m": pitch_length_m_val,
+                "pitch_width_m": pitch_width_m_val,
             }
         )
 

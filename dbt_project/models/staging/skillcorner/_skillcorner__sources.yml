@@ -32,7 +32,15 @@ sources:
           - name: player_id
             description: Player identifier from SkillCorner
           - name: team
-            description: Team affiliation (home or away)
+            description: Team affiliation ('home' / 'away' / 'unknown')
+          - name: home_team_id
+            description: >
+              SkillCorner team_id for the home team, denormalized onto every
+              row so a bronze-only query doesn't need a metadata join. Stable
+              across all frames of a match.
+          - name: away_team_id
+            description: >
+              SkillCorner team_id for the away team. See home_team_id.
           - name: x
             description: Player x-coordinate in center-origin meters (-52.5 to 52.5)
           - name: y
@@ -41,7 +49,40 @@ sources:
             description: Ball x-coordinate in center-origin meters
           - name: ball_y
             description: Ball y-coordinate in center-origin meters
+          - name: ball_z
+            description: >
+              Ball height in meters. NULL for broadcast-source SkillCorner
+              data (most frames); carried in schema for parity with optical
+              providers that emit 3D ball coordinates. Float64 nullable.
+          - name: ball_state
+            description: >
+              kloppy BallState value — 'alive' (ball in play) or 'dead'
+              (stoppage, foul, substitution, etc.). Derived from
+              frame.ball_state.value. NULL when kloppy's SkillCorner mapping
+              cannot determine the state for a frame.
+          - name: ball_owning_team_id
+            description: >
+              team_id of the team currently in possession when kloppy can
+              determine it (frame.ball_owning_team.team_id). NULL when
+              possession is contested or unknown.
           - name: match_id
             description: Match identifier prefixed with 'skillcorner_'
           - name: frame_rate
             description: Frame rate in fps (always 10 for SkillCorner)
+          - name: is_goalkeeper
+            description: >
+              True when the player is identified as a goalkeeper. Uses
+              kloppy starting_position.name == 'Goalkeeper' when available;
+              falls back to jersey_no == 1 when position is unknown.
+          - name: position_name
+            description: >
+              Raw kloppy starting_position.name string (e.g. 'Goalkeeper',
+              'Defender', 'Midfielder', 'Attacker', 'Unknown'). NULL when
+              kloppy does not expose a starting position for the player.
+              Downstream models re-derive finer position roles.
+          - name: is_visible
+            description: >
+              True when the player is visible in the broadcast frame. NULL
+              when kloppy doesn't expose visibility for the provider
+              (SkillCorner open data currently does not). Carried for
+              parity with providers that do expose it.

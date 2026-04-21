@@ -20,6 +20,7 @@ from ingestion.metrica_common import (
     _COLUMN_CLEAN_RE,
     _EPTS_URLS,
     _parse_epts_events,
+    _parse_epts_metadata,
 )
 from ingestion.utils import (
     fetch_url,
@@ -85,6 +86,15 @@ def _download_and_parse_events(
 
     df["match_id"] = match_id
 
+    # Bronze-completeness: CSV-path events must carry the same schema as
+    # EPTS-path events (Game 3) so both write into metrica_events without
+    # schema drift. CSV source has no pitch dims or multi-subtype info.
+    # float NaN yields dtype float64; pd.array(string) yields StringDtype —
+    # both avoid Spark NullType inference that would collide with EPTS writes.
+    df["pitch_length_m"] = float("nan")
+    df["pitch_width_m"] = float("nan")
+    df["subtypes_all_json"] = pd.array([None] * len(df), dtype="string")
+
     logger.info("Parsed %d events for %s", len(df), match_id)
     return df
 
@@ -146,11 +156,15 @@ def ingest_events(
         if match_id in existing_ids:
             logger.info("Events for %s already ingested — skipping", match_id)
             continue
+        # Load metadata first so events carry pitch dims (schema parity with CSV).
+        logger.info("Downloading EPTS metadata for %s", match_id)
+        metadata_resp = fetch_url(urls["metadata"])
+        metadata = _parse_epts_metadata(metadata_resp.text)
         logger.info("Downloading EPTS events for %s", match_id)
         resp = fetch_url(urls["events"])
         events_json = resp.json()
         events_data: list[dict[str, object]] = events_json.get("data", events_json)
-        events_df = _parse_epts_events(events_data, match_id)
+        events_df = _parse_epts_events(events_data, match_id, metadata)
         logger.info("Parsed %d EPTS events for %s", len(events_df), match_id)
         sdf = spark.createDataFrame(events_df)
         row_count = validate_dataframe(sdf, required_cols, "metrica_events", logger)

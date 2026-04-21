@@ -440,10 +440,14 @@ class TestParseEventsXML:
             os.unlink(event_path)
 
     def test_produces_rows(self) -> None:
-        """Events with X-Position/Y-Position are extracted; those without are skipped."""
+        """All 6 events land in bronze — the position-less OtherBallAction included.
+
+        After the 2026-04-20 rewrite for bronze-completeness, events without
+        X-Position/Y-Position are no longer skipped: they emit with
+        ``x = y = None``. Downstream staging may filter on ``x IS NOT NULL``.
+        """
         rows = self._get_rows()
-        # Event 18226500000099 has no position attrs → skipped → 5 events
-        assert len(rows) == 5
+        assert len(rows) == 6
 
     def test_match_id_prefixed(self) -> None:
         rows = self._get_rows()
@@ -533,16 +537,27 @@ class TestParseEventsXML:
         evt_tackle = [r for r in rows if r["event_id"] == "18226500000009"]
         assert evt_tackle[0]["team"] == "away"
 
-    def test_events_without_position_skipped(self) -> None:
-        """Events missing X-Position/Y-Position attributes are not included."""
+    def test_events_without_position_included_with_null_coords(self) -> None:
+        """Events without position attrs ARE captured in bronze (x = y = None).
+
+        Bronze-completeness: non-positional events (Substitution, Caution,
+        FinalWhistle, OtherBallAction without position, etc.) land in
+        bronze with NULL coordinates rather than being dropped.
+        """
         rows = self._get_rows()
         event_ids = {r["event_id"] for r in rows}
-        # Event 18226500000099 has no position attributes
-        assert "18226500000099" not in event_ids
+        assert "18226500000099" in event_ids
+        no_pos = next(r for r in rows if r["event_id"] == "18226500000099")
+        assert no_pos["x"] is None
+        assert no_pos["y"] is None
 
-    def test_expected_columns(self) -> None:
+    def test_core_event_level_columns_present(self) -> None:
+        """Core event-level columns must be on every row (bronze-completeness
+        parser emits many more cols; full coverage is asserted by
+        test_idsse_bronze_coverage.py — this test only guards the core nine).
+        """
         rows = self._get_rows()
-        expected = {
+        core = {
             "match_id",
             "event_id",
             "event_type",
@@ -553,4 +568,6 @@ class TestParseEventsXML:
             "x",
             "y",
         }
-        assert set(rows[0].keys()) == expected
+        for row in rows:
+            missing = core - set(row.keys())
+            assert not missing, f"row {row.get('event_id')} missing core cols: {sorted(missing)}"

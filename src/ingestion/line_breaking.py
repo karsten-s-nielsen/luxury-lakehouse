@@ -74,8 +74,15 @@ class _LineBreakingGuard:
         idsse_ids = find_new_ids(
             spark,
             f"{catalog}.bronze.idsse_events",
+            # After the 2026-04-20 IDSSE bronze rewrite, event_type is the raw
+            # DFL first-child tag ('Play', 'ShotAtGoal', 'TacklingGame', ...).
+            # 'Play' covers both Pass-nested and Cross-nested events; both can
+            # break defensive lines, so line-breaking detection takes all of them.
+            # play_evaluation values are 'successfullyCompleted' / 'unsuccessful'
+            # — we intentionally DON'T filter on evaluation: unsuccessful passes
+            # can still attempt a line-break, and we want to count the attempt.
             results_table,
-            source_filter="event_type IN ('successfulPassEvent', 'failedPassEvent')",
+            source_filter="event_type = 'Play'",
             results_filter="data_source = 'idsse_tracking'",
         )
 

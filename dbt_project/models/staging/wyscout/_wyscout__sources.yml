@@ -3,9 +3,13 @@ version: 2
 sources:
   - name: wyscout
     description: >
-      Wyscout public event data ingested into the bronze layer. Contains
-      match events from five major European leagues (2017/18 season) with
-      event coordinates on a percentage-based pitch system (0-100).
+      Wyscout v3 open data ingested into the bronze layer. Contains event-level
+      soccer data, match metadata, and player/team reference data. Most event
+      semantics are encoded in the `tags` JSON array (numeric tag IDs requiring
+      lookup); downstream staging decodes common tag IDs into boolean columns.
+      Column documentation auto-generated from
+      `DESCRIBE TABLE soccer_analytics.bronze.wyscout_*` (see
+      src/tests/fixtures/wyscout_bronze_schema_snapshot.json).
     database: soccer_analytics
     schema: bronze
     loader: aws_lambda
@@ -18,62 +22,139 @@ sources:
     tables:
       - name: wyscout_events
         description: >
-          Raw Wyscout event data. Each row is a match event with nested
-          tags (outcome indicators), positions (start/end coordinates),
-          and player/team references. Coordinates use a 0-100 percentage
-          system that must be scaled to 120x80 for cross-source analysis.
+          Raw event stream from Wyscout v3 open data. Each row is a single event; most attributes live in the `tags` JSON array (numeric IDs) or the `positions` array (start/end coords).
         columns:
           - name: eventId
             description: Unique event identifier
+          - name: subEventName
+            description: Sub-event type (Simple pass, Head shot, etc.)
+          - name: tags
+            description: >
+              JSON array of tag objects with id field. Tag IDs encode event outcomes (e.g. 101=Goal, 1801=Accurate).
+          - name: playerId
+            description: Player performing the event
+          - name: positions
+            description: >
+              JSON array with start and end positions. Each position has x (0-100) and y (0-100) as percentages.
           - name: matchId
             description: Foreign key to wyscout_matches
           - name: eventName
             description: Event type name (Pass, Shot, Duel, Free Kick, etc.)
-          - name: subEventName
-            description: Sub-event type (Simple pass, Head shot, etc.)
-          - name: playerId
-            description: Player performing the event
           - name: teamId
             description: Team performing the event
           - name: matchPeriod
             description: Match period (1H, 2H, E1, E2, P)
           - name: eventSec
             description: Event timestamp in seconds from period start
-          - name: positions
+          - name: subEventId
             description: >
-              JSON array with start and end positions.
-              Each position has x (0-100) and y (0-100) as percentages.
-          - name: tags
+              double — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: id
             description: >
-              JSON array of tag objects with id field.
-              Tag IDs encode event outcomes (e.g. 101=Goal, 1801=Accurate).
-
-      - name: wyscout_players
-        description: >
-          Wyscout player metadata from Figshare (3,603 players across
-          7 competitions, 2017/18 season). Includes names, birth date,
-          position role, nationality, and physical attributes.
-        columns:
-          - name: wyId
-            description: Wyscout player identifier
-            data_tests:
-              - not_null
-              - unique
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: competition_name
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: _ingested_at
+            description: UTC timestamp when the row was written to bronze (audit col).
 
       - name: wyscout_matches
         description: >
-          Wyscout match metadata. One row per match with competition,
-          season, team, and basic match info.
+          Match metadata from Wyscout v3. Nested `teamsData` JSON contains team-level formation + score + lineup per match.
         columns:
-          - name: matchId
-            description: Primary key — unique match identifier
-          - name: competitionId
-            description: Competition identifier
+          - name: status
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: roundId
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: gameweek
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: teamsData
+            description: >
+              JSON object with home/away team data including formation, score, and team identifiers.
           - name: seasonId
             description: Season identifier
           - name: dateutc
             description: Match date in UTC
-          - name: teamsData
+          - name: winner
             description: >
-              JSON object with home/away team data including
-              formation, score, and team identifiers.
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: venue
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: wyId
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: label
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: date
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: referees
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: duration
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: competitionId
+            description: Competition identifier
+          - name: competition_name
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: groupName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: _ingested_at
+            description: UTC timestamp when the row was written to bronze (audit col).
+
+      - name: wyscout_players
+        description: >
+          Player reference data from Wyscout v3 open data. One row per player.
+        columns:
+          - name: passportArea
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: weight
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: firstName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: middleName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: lastName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: currentTeamId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: birthDate
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: height
+            description: >
+              bigint — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: role
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: birthArea
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: wyId
+            description: Wyscout player identifier
+          - name: foot
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: shortName
+            description: >
+              string — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: currentNationalTeamId
+            description: >
+              double — auto-documented from DESCRIBE TABLE; refine description when staging model first reads this col.
+          - name: _ingested_at
+            description: UTC timestamp when the row was written to bronze (audit col).
+

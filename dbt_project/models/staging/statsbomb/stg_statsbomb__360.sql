@@ -61,7 +61,13 @@ final as (
         get(parsed_location, 1)                              as location_y,
 
         -- Visible area vertex count (flat array of alternating x,y — divide by 2)
-        cast(size(parsed_visible_area) / 2 as int)           as visible_area_vertices
+        cast(size(parsed_visible_area) / 2 as int)           as visible_area_vertices,
+
+        -- Full visible-area polygon as a flat array of alternating x,y coords
+        -- (StatsBomb's on-wire format). Downstream spatial analysis (observed-
+        -- player mask, off-camera handling) reads the full polygon rather than
+        -- just the vertex count. PR 1.5 expansion.
+        parsed_visible_area                                  as visible_area_polygon
 
     from deduped
     where _row_num = 1
