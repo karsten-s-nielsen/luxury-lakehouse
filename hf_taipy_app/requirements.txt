@@ -124,7 +124,7 @@ huggingface-hub==1.11.0
     # via luxury-lakehouse (pyproject.toml)
 hyperlink==21.0.0
     # via twisted
-idna==3.11
+idna==3.12
     # via
     #   anyio
     #   httpx
