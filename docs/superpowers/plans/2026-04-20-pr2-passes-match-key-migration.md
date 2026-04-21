@@ -1,5 +1,16 @@
 # PR 2 — Passes Conformed Fact + LB-IDSSE/LB-METRICA Surfacing Implementation Plan
 
+> **DEFERRED 2026-04-21.** This plan presumed bronze source-completeness for
+> IDSSE/Metrica/SkillCorner, which live-Delta DESCRIBE showed was not true
+> (IDSSE events 10 cols vs. parser's 241; IDSSE tracking 13 cols; Metrica
+> 11/17; SkillCorner 13/19). A separate branch
+> (`feat/bronze-source-complete`) now extends all non-StatsBomb bronze
+> parsers and adds a shared ``finalize_bronze_df`` helper plus live-DESCRIBE
+> tests to prevent recurrence. Resume this plan after bronze re-ingest with
+> the new wheel lands and the 5 live-DESCRIBE tests turn green. Do NOT run
+> the tasks below until then — Task 1 (``stg_idsse__passes``) depends on
+> bronze fields that currently exist only in the parser, not in Delta.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Migrate `fct_passes`, `fct_line_breaking_results`, and `fct_match_summary` from native-ID `match_id BIGINT` to the Kimball surrogate `match_key BIGINT` FK (ADR-011) while simultaneously adding IDSSE and Metrica arms to `int_unified_passes` and `fct_match_summary`. This delivers the original LB-IDSSE + LB-METRICA functional goal (IDSSE + Metrica matches appear in the Pass Map cascade with line-breaking overlays) on top of PR 1's conformed dim.

@@ -24,6 +24,7 @@ from ingestion.metrica_common import (
 )
 from ingestion.utils import (
     fetch_url,
+    finalize_bronze_df,
     validate_dataframe,
     write_delta_table,
 )
@@ -104,6 +105,49 @@ def _download_and_parse_events(
 # ---------------------------------------------------------------------------
 
 
+_METRICA_EVENTS_BRONZE_COLS: frozenset[str] = frozenset(
+    {
+        "event_id",
+        "type",
+        "subtype",
+        "subtypes_all_json",
+        "period",
+        "start_frame",
+        "end_frame",
+        "start_time_s",
+        "end_time_s",
+        "start_x",
+        "start_y",
+        "end_x",
+        "end_y",
+        "team",
+        "player",
+        "to",
+        "match_id",
+        "pitch_length_m",
+        "pitch_width_m",
+    },
+)
+"""Bronze-completeness contract for bronze.metrica_events. Union of CSV-path
+(Games 1-2) and EPTS-path (Game 3) columns. `subtypes_all_json` carries
+multi-subtype events that CSV lacks; `pitch_*_m` carries EPTS metadata."""
+
+_METRICA_EVENTS_DTYPE_OVERRIDES: dict[str, str] = {
+    "event_id": "Int64",
+    "period": "Int64",
+    "start_frame": "Int64",
+    "end_frame": "Int64",
+    "start_time_s": "Float64",
+    "end_time_s": "Float64",
+    "start_x": "Float64",
+    "start_y": "Float64",
+    "end_x": "Float64",
+    "end_y": "Float64",
+    "pitch_length_m": "Float64",
+    "pitch_width_m": "Float64",
+}
+
+
 def ingest_events(
     spark: SparkSession,
     catalog: str,
@@ -139,6 +183,11 @@ def ingest_events(
             logger.info("Events for %s already ingested — skipping", match_id)
             continue
         events_df = _download_and_parse_events(url, match_id, logger)
+        events_df = finalize_bronze_df(
+            events_df,
+            expected_cols=_METRICA_EVENTS_BRONZE_COLS,
+            dtype_overrides=_METRICA_EVENTS_DTYPE_OVERRIDES,
+        )
         sdf = spark.createDataFrame(events_df)
         row_count = validate_dataframe(sdf, required_cols, "metrica_events", logger)
         write_delta_table(
@@ -165,6 +214,11 @@ def ingest_events(
         events_json = resp.json()
         events_data: list[dict[str, object]] = events_json.get("data", events_json)
         events_df = _parse_epts_events(events_data, match_id, metadata)
+        events_df = finalize_bronze_df(
+            events_df,
+            expected_cols=_METRICA_EVENTS_BRONZE_COLS,
+            dtype_overrides=_METRICA_EVENTS_DTYPE_OVERRIDES,
+        )
         logger.info("Parsed %d EPTS events for %s", len(events_df), match_id)
         sdf = spark.createDataFrame(events_df)
         row_count = validate_dataframe(sdf, required_cols, "metrica_events", logger)
