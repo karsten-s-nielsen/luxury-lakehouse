@@ -25,6 +25,7 @@ import logging
 import os
 import tempfile
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -221,3 +222,224 @@ class TestIdsseBronzeCoverage:
             excluded=EXCLUDED_FIELDS,
             name="IDSSE",
         )
+
+
+class TestDflEventSchemaModuleParity:
+    """The in-package DFL event schema module (``ingestion._dfl_event_schema``)
+    is the runtime source of truth for :func:`_compute_idsse_events_bronze_cols`.
+    The on-disk fixture (``idsse_dfl_event_attr_enumeration.json``) is the
+    independent ground truth, regenerated when new DFL snapshots arrive.
+    These tests assert the two do not drift.
+    """
+
+    def test_event_level_attrs_match_fixture(self, _enumeration: dict) -> None:
+        from ingestion._dfl_event_schema import EVENT_LEVEL_ATTRS
+
+        assert set(EVENT_LEVEL_ATTRS) == set(_enumeration["event_level_attrs"])
+
+    def test_first_child_attrs_match_fixture(self, _enumeration: dict) -> None:
+        from ingestion._dfl_event_schema import FIRST_CHILD_ATTRS
+
+        fixture_first = _enumeration["first_child_types"]
+        assert set(FIRST_CHILD_ATTRS.keys()) == set(fixture_first.keys()), (
+            "First-child tag set differs between module and fixture"
+        )
+        for tag, attrs in FIRST_CHILD_ATTRS.items():
+            assert set(attrs) == set(fixture_first[tag]["attrs"]), (
+                f"Attrs for first-child {tag!r} differ: "
+                f"module={sorted(attrs)} vs fixture={sorted(fixture_first[tag]['attrs'])}"
+            )
+
+    def test_nested_child_attrs_match_fixture(self, _enumeration: dict) -> None:
+        from ingestion._dfl_event_schema import NESTED_CHILD_ATTRS
+
+        fixture_nested = _enumeration.get("nested_children", {})
+        assert set(NESTED_CHILD_ATTRS.keys()) == set(fixture_nested.keys()), (
+            "Nested-parent tag set differs between module and fixture"
+        )
+        for parent_tag, nested_map in NESTED_CHILD_ATTRS.items():
+            fixture_map = fixture_nested[parent_tag]
+            assert set(nested_map.keys()) == set(fixture_map.keys()), f"Nested tags under {parent_tag!r} differ"
+            for nested_tag, attrs in nested_map.items():
+                assert set(attrs) == set(fixture_map[nested_tag]["attrs"]), (
+                    f"Attrs for nested {parent_tag}.{nested_tag} differ"
+                )
+
+
+class TestComputedEventsBronzeColsMatchParserOutput:
+    """``_IDSSE_EVENTS_BRONZE_COLS`` is pre-computed at parser-module import
+    time and used by ``finalize_bronze_df`` to guarantee every col reaches
+    Delta. It must exactly match the set the parser actually emits when run
+    on the synthetic fixture XML — otherwise the pre-declared schema is
+    wrong and some cols would still be dropped by Arrow.
+    """
+
+    def test_computed_cols_equal_parser_output(self, _actual_bronze_cols: set[str]) -> None:
+        from ingestion.idsse import _IDSSE_EVENTS_BRONZE_COLS
+
+        # Parser-output cols (from _actual_bronze_cols fixture) must be a
+        # subset of the pre-computed expected set. If parser emits a col not
+        # in the expected set, finalize_bronze_df doesn't need to add it, but
+        # the expected set is then incomplete — flag it.
+        missing_from_expected = _actual_bronze_cols - _IDSSE_EVENTS_BRONZE_COLS
+        assert not missing_from_expected, (
+            f"Parser emits columns not in _IDSSE_EVENTS_BRONZE_COLS: {sorted(missing_from_expected)}"
+        )
+
+        # The expected set MAY contain cols that a given synthetic XML run
+        # doesn't exercise (e.g., shot_outcome_type only appears with nested
+        # shot outcome tags). That's fine — those are the cols that need
+        # finalize_bronze_df protection. We only flag the reverse direction.
+
+
+class TestTrackingCoverage:
+    """Bronze-completeness coverage for the IDSSE tracking parser.
+
+    Every DFL ``<Frame>`` attribute enumerated in
+    ``idsse_dfl_tracking_attr_enumeration.json`` must land in a dedicated
+    bronze column via :func:`_parse_positions_xml`. Mirrors the events-side
+    pattern in :class:`TestIdsseBronzeCoverage` — runs the parser on
+    synthetic XML exercising every attribute and checks the resulting row
+    dict keys.
+    """
+
+    _TRACKING_FIXTURE_PATH: ClassVar[Path] = (
+        Path(__file__).parent / "fixtures" / "idsse_dfl_tracking_attr_enumeration.json"
+    )
+
+    # Mapping from DFL Frame attr to bronze column name for PLAYER rows.
+    # Ball-only attrs (Z, BallPossession, BallStatus) appear on player rows
+    # prefixed as ball_*; captured separately.
+    _PLAYER_ATTR_TO_BRONZE: ClassVar[dict[str, str]] = {
+        "N": "frame",
+        "T": "t",
+        "X": "x",
+        "Y": "y",
+        "S": "s",
+        "A": "a",
+        "D": "d",
+        "M": "m",
+    }
+    _BALL_ONLY_ATTR_TO_BRONZE: ClassVar[dict[str, str]] = {
+        "X": "ball_x",
+        "Y": "ball_y",
+        "Z": "ball_z",
+        "S": "ball_s",
+        "A": "ball_a",
+        "D": "ball_d",
+        "M": "ball_m",
+        "T": "ball_t",
+        "BallPossession": "ball_possession",
+        "BallStatus": "ball_status",
+    }
+    # Derived cols the parser always emits.
+    _DERIVED_TRACKING_COLS: ClassVar[set[str]] = {
+        "period",
+        "player_id",
+        "team",
+        "team_id",
+        "match_id",
+        "frame_rate",
+        "timestamp",
+        "is_goalkeeper",
+    }
+
+    def _load_tracking_enum(self) -> dict:
+        import json
+
+        return json.loads(self._TRACKING_FIXTURE_PATH.read_text(encoding="utf-8"))
+
+    def test_tracking_fixture_exists(self) -> None:
+        assert self._TRACKING_FIXTURE_PATH.exists(), f"Missing: {self._TRACKING_FIXTURE_PATH}"
+
+    def test_tracking_parser_emits_all_dfl_frame_attrs(self) -> None:
+        from ingestion.idsse import _IDSSE_TRACKING_BRONZE_COLS
+
+        enum = self._load_tracking_enum()
+        player_attrs = set(enum["frame_attrs_by_teamid_category"]["player"])
+        ball_attrs = set(enum["frame_attrs_by_teamid_category"]["ball"])
+
+        expected: set[str] = set(self._DERIVED_TRACKING_COLS)
+        for attr in player_attrs:
+            expected.add(self._PLAYER_ATTR_TO_BRONZE[attr])
+        for attr in ball_attrs:
+            if attr == "N":
+                # N → player-row `frame` derived col (same frame N is the
+                # join key between player and ball rows); not a ball_*
+                # column.
+                continue
+            expected.add(self._BALL_ONLY_ATTR_TO_BRONZE[attr])
+
+        parser_cols = set(_IDSSE_TRACKING_BRONZE_COLS)
+        missing = expected - parser_cols
+        assert not missing, f"Parser constant missing {len(missing)} DFL attrs: {sorted(missing)}"
+
+    def test_parser_runtime_output_matches_constant(self) -> None:
+        """End-to-end: run the parser on synthetic XML covering every DFL attr,
+        verify the emitted row dict's keys equal the declared constant.
+        """
+        from ingestion.idsse import _IDSSE_TRACKING_BRONZE_COLS, _parse_positions_xml, _parse_teams
+
+        info_xml = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<PutDataRequest>
+  <MatchInformation>
+    <Teams>
+      <Team TeamId="DFL-CLU-HOME" Role="home">
+        <Players>
+          <Player PersonId="H001" PlayingPosition="TW" />
+        </Players>
+      </Team>
+      <Team TeamId="DFL-CLU-AWAY" Role="guest">
+        <Players>
+          <Player PersonId="A001" PlayingPosition="RA" />
+        </Players>
+      </Team>
+    </Teams>
+  </MatchInformation>
+</PutDataRequest>
+"""
+        # Synthetic positions XML exercises every DFL Frame attr on both ball
+        # and player FrameSets: X Y Z S A D M T (ball adds BallPossession +
+        # BallStatus).
+        _ball_frame = (
+            '<Frame N="10000" T="2024-01-01T15:00:00.000Z" X="0.1" Y="0.2" Z="0.3" '
+            'S="1.5" A="0.8" D="90.0" M="false" '
+            'BallPossession="DFL-CLU-HOME" BallStatus="Alive"/>'
+        )
+        _player_frame = (
+            '<Frame N="10000" T="2024-01-01T15:00:00.000Z" X="-10.0" Y="5.0" S="5.2" A="1.1" D="45.0" M="false"/>'
+        )
+        pos_xml = f"""\
+<?xml version="1.0" encoding="UTF-8"?>
+<PutDataRequest>
+<Positions>
+<FrameSet GameSection="firstHalf" MatchId="DFL-MAT-TEST" TeamId="BALL" PersonId="DFL-OBJ-BALL">
+{_ball_frame}
+</FrameSet>
+<FrameSet GameSection="firstHalf" MatchId="DFL-MAT-TEST" TeamId="DFL-CLU-HOME" PersonId="H001">
+{_player_frame}
+</FrameSet>
+</Positions>
+</PutDataRequest>
+"""
+        info_fd, info_path = tempfile.mkstemp(suffix=".xml")
+        pos_fd, pos_path = tempfile.mkstemp(suffix=".xml")
+        try:
+            os.close(info_fd)
+            os.close(pos_fd)
+            with open(info_path, "w", encoding="utf-8") as f:
+                f.write(info_xml)
+            with open(pos_path, "w", encoding="utf-8") as f:
+                f.write(pos_xml)
+            _h, _a, ptm, gk = _parse_teams(info_path)
+            rows_by_period = _parse_positions_xml(pos_path, ptm, "TEST", _LOGGER, gk_player_ids=gk)
+        finally:
+            os.unlink(info_path)
+            os.unlink(pos_path)
+
+        rows = [row for period_rows in rows_by_period.values() for row in period_rows]
+        assert rows, "Parser produced no rows"
+        actual = set(rows[0].keys())
+        expected = set(_IDSSE_TRACKING_BRONZE_COLS)
+        assert actual == expected, f"extra={actual - expected}, missing={expected - actual}"

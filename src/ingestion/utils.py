@@ -14,7 +14,7 @@ import logging
 import os
 import re
 import time
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
@@ -493,6 +493,69 @@ def validate_dataframe(
         )
 
     return row_count
+
+
+# ---------------------------------------------------------------------------
+# 6b. Pandas-to-Spark NullType Guard
+# ---------------------------------------------------------------------------
+
+
+def finalize_bronze_df(
+    df: pd.DataFrame,
+    expected_cols: Iterable[str],
+    dtype_overrides: dict[str, str] | None = None,
+) -> pd.DataFrame:
+    """Protect parser output from pandas→Arrow→Spark NullType column drops.
+
+    The pandas → Arrow → Spark conversion (``spark.createDataFrame(pandas_df)``)
+    infers pandas ``object`` columns with 100% None values as Arrow
+    ``NullType``. Delta Lake rejects NullType columns — they get silently
+    dropped during write. This produces thin bronze tables that don't reflect
+    the parser's emitted schema, especially for providers using per-match
+    ``replaceWhere`` writes where each batch exercises only a subset of event
+    types (e.g. DFL IDSSE events: ``Nutmeg`` rarely occurs so every
+    ``nutmeg_*`` column is all-None for most matches and gets dropped).
+
+    This helper guards against the drop by:
+
+    1. Adding any column listed in ``expected_cols`` but missing from ``df``
+       as an all-NA column with an explicit nullable pandas dtype.
+    2. For every existing column with ``object`` dtype and 100% null values,
+       casting it to an explicit nullable dtype so Arrow infers a concrete
+       Spark type rather than ``NullType``.
+
+    Call this in every bronze parser immediately before
+    ``spark.createDataFrame(df)``.
+
+    Args:
+        df: Pandas DataFrame emitted by the parser. Modified in place.
+        expected_cols: The complete set of columns the parser emits across
+            all possible inputs — not just the current batch. For per-match
+            ingestion, include every column from every possible event type
+            so matches with sparse event coverage still produce the full
+            schema.
+        dtype_overrides: Optional per-column dtype names for the nullable
+            cast. Valid pandas nullable dtypes: ``"string"``, ``"Int64"``,
+            ``"Float64"``, ``"boolean"``. Columns not in this map default
+            to ``"string"``.
+
+    Returns:
+        The finalized DataFrame (modified in place and also returned).
+    """
+    overrides = dtype_overrides or {}
+    n_rows = len(df)
+
+    for col in expected_cols:
+        if col not in df.columns:
+            target = overrides.get(col, "string")
+            df[col] = pd.array([None] * n_rows, dtype=target)
+
+    for col in list(df.columns):
+        if df[col].dtype == object and df[col].isna().all():
+            target = overrides.get(col, "string")
+            df[col] = df[col].astype(target)  # type: ignore[call-overload]
+
+    return df
 
 
 # ---------------------------------------------------------------------------

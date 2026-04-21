@@ -29,6 +29,7 @@ import pandas as pd
 from ingestion.guards import FilterResult, timed_check
 from ingestion.utils import (
     configure_logging,
+    finalize_bronze_df,
     get_spark_session,
     parse_ingestion_args,
     validate_dataframe,
@@ -77,6 +78,46 @@ SKILLCORNER_MATCH_IDS: list[str] = [
 
 # SkillCorner broadcast tracking is 10fps
 _FRAME_RATE = 10
+
+_SKILLCORNER_TRACKING_BRONZE_COLS: frozenset[str] = frozenset(
+    {
+        "period",
+        "frame",
+        "timestamp",
+        "player_id",
+        "team",
+        "home_team_id",
+        "away_team_id",
+        "x",
+        "y",
+        "ball_x",
+        "ball_y",
+        "ball_z",
+        "ball_state",
+        "ball_owning_team_id",
+        "match_id",
+        "frame_rate",
+        "is_goalkeeper",
+        "position_name",
+        "is_visible",
+    },
+)
+"""Bronze-completeness contract for bronze.skillcorner_tracking.
+Every kloppy-exposed SkillCorner field lands in a dedicated bronze column."""
+
+_SKILLCORNER_DTYPE_OVERRIDES: dict[str, str] = {
+    "period": "Int64",
+    "frame": "Int64",
+    "timestamp": "Float64",
+    "frame_rate": "Int64",
+    "x": "Float64",
+    "y": "Float64",
+    "ball_x": "Float64",
+    "ball_y": "Float64",
+    "ball_z": "Float64",
+    "is_goalkeeper": "boolean",
+    "is_visible": "boolean",
+}
 
 
 def _smooth_tracking(df: pd.DataFrame) -> pd.DataFrame:
@@ -286,21 +327,15 @@ def ingest_skillcorner(
         if rows:
             df = pd.DataFrame(rows)
             df = _smooth_tracking(df)
-            # Force nullable pandas dtypes on the new bronze-completeness columns
-            # so Spark doesn't infer NullType when kloppy leaves a field unset
-            # for all frames of a match (e.g., ball_z / is_visible on
-            # broadcast-source SkillCorner data). Dense typed columns keep
-            # the Delta schema stable across match-level writes.
-            df = df.astype(
-                {
-                    "ball_z": "Float64",
-                    "is_visible": "boolean",
-                    "ball_state": "string",
-                    "ball_owning_team_id": "string",
-                    "position_name": "string",
-                    "home_team_id": "string",
-                    "away_team_id": "string",
-                }
+            # Systemic guard against NullType column drop: every expected
+            # bronze col gets an explicit nullable dtype regardless of which
+            # fields kloppy populates for this match. Replaces the previous
+            # per-field astype with the shared helper so all bronze parsers
+            # follow one convention.
+            df = finalize_bronze_df(
+                df,
+                expected_cols=_SKILLCORNER_TRACKING_BRONZE_COLS,
+                dtype_overrides=_SKILLCORNER_DTYPE_OVERRIDES,
             )
             sdf = spark.createDataFrame(df)
             row_count = validate_dataframe(sdf, required_cols, "skillcorner_tracking", logger)

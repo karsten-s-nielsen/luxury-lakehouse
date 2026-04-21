@@ -262,20 +262,44 @@ class TestParsePositionsXML:
         assert frame1[0]["timestamp"] == round(1 / 25, 4)
 
     def test_expected_columns(self) -> None:
+        """Tracking rows carry the full bronze-completeness DFL schema.
+
+        Pre-PR-1.8 (2026-04-21) this was 12 cols; now 25 cols — every DFL
+        ``<Frame>`` attribute on player rows plus every ball-frame attribute
+        (including ``ball_z`` for aerial duels and ``ball_possession`` /
+        ``ball_status`` for live-play detection).
+        """
         rows = self._get_rows()
         expected = {
+            # Derived / join keys
             "period",
             "frame",
             "timestamp",
             "player_id",
             "team",
-            "x",
-            "y",
-            "ball_x",
-            "ball_y",
+            "team_id",
             "match_id",
             "frame_rate",
             "is_goalkeeper",
+            # DFL per-player Frame attrs
+            "x",
+            "y",
+            "t",
+            "s",
+            "a",
+            "d",
+            "m",
+            # Ball-joined DFL Frame attrs
+            "ball_x",
+            "ball_y",
+            "ball_z",
+            "ball_s",
+            "ball_a",
+            "ball_d",
+            "ball_m",
+            "ball_t",
+            "ball_possession",
+            "ball_status",
         }
         assert set(rows[0].keys()) == expected
 

@@ -1,0 +1,98 @@
+{
+  "schema_version": "dfl_tracking_2026_04_21",
+  "snapshot_source": "enumerated 2026-04-21 from /Volumes/soccer_analytics/bronze/libs/idsse_data/DFL_04_03_positions_raw_observed_DFL-COM-000001_DFL-MAT-J03WMX.xml (single-match structural enumeration; DFL schema shared across all 7 matches)",
+  "match_id": "J03WMX",
+  "union_tag_attrs": {
+    "Frame": [
+      "A",
+      "BallPossession",
+      "BallStatus",
+      "D",
+      "M",
+      "N",
+      "S",
+      "T",
+      "X",
+      "Y",
+      "Z"
+    ],
+    "FrameSet": [
+      "GameSection",
+      "MatchId",
+      "PersonId",
+      "TeamId"
+    ],
+    "MetaData": [
+      "MatchId",
+      "Type"
+    ],
+    "PitchSize": [
+      "X",
+      "Y"
+    ],
+    "Positions": [
+      "EventTime"
+    ],
+    "PutDataRequest": [
+      "MessageTime",
+      "RequestId",
+      "TransmissionComplete",
+      "TransmissionSuspended"
+    ]
+  },
+  "frameset_attrs_by_teamid_category": {
+    "ball": [
+      "GameSection",
+      "MatchId",
+      "PersonId",
+      "TeamId"
+    ],
+    "player": [
+      "GameSection",
+      "MatchId",
+      "PersonId",
+      "TeamId"
+    ],
+    "referee": [
+      "GameSection",
+      "MatchId",
+      "PersonId",
+      "TeamId"
+    ]
+  },
+  "frame_attrs_by_teamid_category": {
+    "ball": [
+      "A",
+      "BallPossession",
+      "BallStatus",
+      "D",
+      "M",
+      "N",
+      "S",
+      "T",
+      "X",
+      "Y",
+      "Z"
+    ],
+    "player": [
+      "A",
+      "D",
+      "M",
+      "N",
+      "S",
+      "T",
+      "X",
+      "Y"
+    ],
+    "referee": [
+      "A",
+      "D",
+      "M",
+      "N",
+      "S",
+      "T",
+      "X",
+      "Y"
+    ]
+  }
+}

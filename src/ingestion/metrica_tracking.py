@@ -28,6 +28,7 @@ from ingestion.metrica_common import (
 )
 from ingestion.utils import (
     fetch_url,
+    finalize_bronze_df,
     validate_dataframe,
     write_delta_table,
 )
@@ -279,6 +280,39 @@ def _download_and_parse_tracking(
 # ---------------------------------------------------------------------------
 
 
+_METRICA_TRACKING_BRONZE_COLS: frozenset[str] = frozenset(
+    {
+        "period",
+        "frame",
+        "timestamp",
+        "ball_x",
+        "ball_y",
+        "home_players",
+        "away_players",
+        "match_id",
+        "frame_rate",
+        "gk_jersey_numbers",
+        "pitch_length_m",
+        "pitch_width_m",
+    },
+)
+"""Bronze-completeness contract for bronze.metrica_tracking. Covers both the
+CSV path (Games 1-2) and the EPTS path (Game 3). ``pitch_length_m`` and
+``pitch_width_m`` are sourced from the EPTS ``<FieldSize>`` element;
+emitted as NaN on the CSV path for schema parity."""
+
+_METRICA_TRACKING_DTYPE_OVERRIDES: dict[str, str] = {
+    "period": "Int64",
+    "frame": "Int64",
+    "timestamp": "Float64",
+    "ball_x": "Float64",
+    "ball_y": "Float64",
+    "frame_rate": "Int64",
+    "pitch_length_m": "Float64",
+    "pitch_width_m": "Float64",
+}
+
+
 def ingest_tracking(
     spark: SparkSession,
     catalog: str,
@@ -325,6 +359,11 @@ def ingest_tracking(
             logger.info("Tracking for %s already ingested — skipping", match_id)
             continue
         tracking_df = _download_and_parse_tracking(urls["home"], urls["away"], match_id, logger)
+        tracking_df = finalize_bronze_df(
+            tracking_df,
+            expected_cols=_METRICA_TRACKING_BRONZE_COLS,
+            dtype_overrides=_METRICA_TRACKING_DTYPE_OVERRIDES,
+        )
         sdf = spark.createDataFrame(tracking_df)
         row_count = validate_dataframe(sdf, required_cols, "metrica_tracking", logger)
         write_delta_table(
@@ -351,6 +390,11 @@ def ingest_tracking(
         rows = _parse_epts_tracking(tracking_resp.text, metadata, match_id)
 
         tracking_df = pd.DataFrame(rows)
+        tracking_df = finalize_bronze_df(
+            tracking_df,
+            expected_cols=_METRICA_TRACKING_BRONZE_COLS,
+            dtype_overrides=_METRICA_TRACKING_DTYPE_OVERRIDES,
+        )
         logger.info("Parsed %d EPTS tracking frames for %s", len(tracking_df), match_id)
         sdf = spark.createDataFrame(tracking_df)
         row_count = validate_dataframe(sdf, required_cols, "metrica_tracking", logger)
