@@ -28,6 +28,9 @@ ENV/
 .claude/
 *.swp
 *.swo
+
+# Local A/B cycle artefacts (per-arm checkpoints, metrics, dispatch manifests)
+artifacts/
 *~
 
 # Local scratch directory for mocks, previews, and throwaway experiments.

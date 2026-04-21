@@ -157,3 +157,81 @@ class TestScoutGPTDecoder:
             logits, vaep = model.predict(action_ids, sx, sy, ex, ey, result, td, pids)
         assert logits.shape == (4, 30, 23)
         assert vaep.shape == (4, 30, 1)
+
+
+ALL_CONDITIONING_TYPES = [
+    "additive",
+    "cross_attention",
+    "film",
+    "gated",
+    "fourier_cross_attention",
+    "swiglu",
+]
+
+
+@pytest.mark.parametrize("conditioning_type", ALL_CONDITIONING_TYPES)
+def test_forward_shape_all_conditioning_types(conditioning_type: str) -> None:
+    """Every conditioning_type variant must produce (batch, hidden_dim) outputs."""
+    cfg = ScoutGPTConfig(
+        num_players=100,
+        hidden_dim=128,
+        num_layers=2,
+        num_heads=4,
+        conditioning_type=conditioning_type,
+    )
+    model = ScoutGPTDecoder(cfg)
+    model.eval()
+    action_ids, sx, sy, ex, ey, result, td, pids, mask = _make_batch(num_players=100)
+    with torch.no_grad():
+        out = model(action_ids, sx, sy, ex, ey, result, td, pids, mask)
+    assert out.shape == (4, 128)
+    assert not torch.isnan(out).any()
+    assert not torch.isinf(out).any()
+
+
+@pytest.mark.parametrize("conditioning_type", ALL_CONDITIONING_TYPES)
+def test_backward_gradient_flow_all_conditioning_types(conditioning_type: str) -> None:
+    """Gradient must flow to the player_embedding for every conditioning type."""
+    cfg = ScoutGPTConfig(
+        num_players=100,
+        hidden_dim=128,
+        num_layers=2,
+        num_heads=4,
+        conditioning_type=conditioning_type,
+    )
+    model = ScoutGPTDecoder(cfg)
+    model.train()
+    action_ids, sx, sy, ex, ey, result, td, pids, mask = _make_batch(num_players=100)
+    out = model(action_ids, sx, sy, ex, ey, result, td, pids, mask)
+    loss = out.sum()
+    loss.backward()
+    assert model.player_embedding.weight.grad is not None
+    assert not torch.isnan(model.player_embedding.weight.grad).any()
+
+
+@pytest.mark.parametrize("conditioning_type", ALL_CONDITIONING_TYPES)
+def test_state_dict_round_trip_all_conditioning_types(conditioning_type: str) -> None:
+    """Saving + reloading state_dict must produce byte-identical forward outputs."""
+    cfg = ScoutGPTConfig(
+        num_players=100,
+        hidden_dim=128,
+        num_layers=2,
+        num_heads=4,
+        conditioning_type=conditioning_type,
+    )
+    model_a = ScoutGPTDecoder(cfg)
+    model_a.eval()
+    model_b = ScoutGPTDecoder(cfg)
+    model_b.load_state_dict(model_a.state_dict())
+    model_b.eval()
+
+    action_ids, sx, sy, ex, ey, result, td, pids, mask = _make_batch(num_players=100)
+    with torch.no_grad():
+        out_a = model_a(action_ids, sx, sy, ex, ey, result, td, pids, mask)
+        out_b = model_b(action_ids, sx, sy, ex, ey, result, td, pids, mask)
+    assert torch.allclose(out_a, out_b, atol=1e-6)
+
+
+def test_invalid_conditioning_type_raises() -> None:
+    with pytest.raises(ValueError, match="Unknown conditioning_type"):
+        ScoutGPTDecoder(ScoutGPTConfig(conditioning_type="not_a_real_type"))

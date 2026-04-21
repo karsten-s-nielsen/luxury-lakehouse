@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.4-py3-none-any.whl#sha256=e2c152613de4495ab6bc89636c139c81ef66c2e7dc70f72ab01777c8bf8f6a35",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.5-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -43,6 +43,7 @@ import os
 import tempfile
 import time
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -136,6 +137,29 @@ def _save_checkpoint(
     logger.info("metrics.json uploaded to %s", model_repo)
 
 
+def _save_checkpoint_local(
+    model: ScoutGPTDecoder,
+    config: ScoutGPTConfig,
+    metrics: dict[str, Any],
+    local_output_dir: Path,
+) -> None:
+    """Save model weights, config, and metrics to a local directory.
+
+    Writes:
+    - ``{local_output_dir}/stage1/model.pt`` (torch.save — avoids the safetensors
+      runtime dep which is only in the HF Jobs PEP 723 header, not the project venv)
+    - ``{local_output_dir}/stage1/config.json``
+    - ``{local_output_dir}/metrics.json``
+    """
+    stage1_dir = local_output_dir / "stage1"
+    stage1_dir.mkdir(parents=True, exist_ok=True)
+
+    torch.save(model.state_dict(), str(stage1_dir / "model.pt"))
+    (stage1_dir / "config.json").write_text(json.dumps(asdict(config), indent=2), encoding="utf-8")
+    (local_output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2, default=str), encoding="utf-8")
+    logger.info("Checkpoint + metrics written locally to %s", local_output_dir)
+
+
 # ---------------------------------------------------------------------------
 # MLflow logging
 # ---------------------------------------------------------------------------
@@ -220,10 +244,9 @@ def _log_mlflow(
 # ---------------------------------------------------------------------------
 
 
-@workflow("wf-scoutgpt", phase="training")
-def main() -> None:
-    """Train ScoutGPT: player-conditioned autoregressive decoder over SPADL episodes."""
-    parser = argparse.ArgumentParser(description="Train ScoutGPT on HF Jobs A10G GPU")
+def _build_arg_parser() -> argparse.ArgumentParser:
+    """Build the shared argparse parser used by both HF Jobs and local entry points."""
+    parser = argparse.ArgumentParser(description="Train ScoutGPT on HF Jobs GPU or local hardware")
     parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS)
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     parser.add_argument("--lr", type=float, default=DEFAULT_LR)
@@ -242,13 +265,252 @@ def main() -> None:
         help=(
             "Suffix for output HF repo name. Destination = "
             "luxury-lakehouse/scoutgpt{suffix}. Empty writes to canonical production repo; "
-            "use e.g. '-variant-rope' for sibling-repo A/B runs."
+            "use e.g. '-variant-rope' for sibling-repo A/B runs. Ignored in --local-mode."
         ),
     )
-    args = parser.parse_args()
+    # ScoutGPTConfig overrides (optional). None -> use config default.
+    parser.add_argument(
+        "--conditioning-type",
+        type=str,
+        default=None,
+        choices=[
+            "additive",
+            "cross_attention",
+            "film",
+            "gated",
+            "fourier_cross_attention",
+            "swiglu",
+        ],
+        help="ScoutGPTConfig.conditioning_type override. None -> use config default (additive).",
+    )
+    parser.add_argument(
+        "--hidden-dim",
+        type=int,
+        default=None,
+        help="ScoutGPTConfig.hidden_dim override. None -> use config default (256).",
+    )
+    parser.add_argument(
+        "--num-layers",
+        type=int,
+        default=None,
+        help="ScoutGPTConfig.num_layers override. None -> use config default (6).",
+    )
+    parser.add_argument(
+        "--num-heads",
+        type=int,
+        default=None,
+        help="ScoutGPTConfig.num_heads override. None -> use config default (8).",
+    )
+    # Local-mode knobs
+    parser.add_argument(
+        "--local-mode",
+        action="store_true",
+        help=(
+            "Skip HFJobsCostRecorder, MLflow logging, and HF Hub upload. "
+            "Write checkpoint + metrics to --local-output-dir instead. "
+            "Used by scripts/run_fourier_scoutgpt_ab.py for local hardware runs."
+        ),
+    )
+    parser.add_argument(
+        "--local-output-dir",
+        type=str,
+        default=None,
+        help="Required when --local-mode is set: directory for checkpoint + metrics.json.",
+    )
+    parser.add_argument(
+        "--max-episodes",
+        type=int,
+        default=None,
+        help=(
+            "Truncate the loaded dataset to the first N episodes BEFORE stratified_split. "
+            "Used for smoke tests (e.g. --max-episodes 1000). None -> full dataset."
+        ),
+    )
+    return parser
+
+
+def _build_scoutgpt_config(args: argparse.Namespace) -> ScoutGPTConfig:
+    """Build a ScoutGPTConfig from CLI overrides, with None → config default semantics."""
+    cfg_overrides: dict[str, Any] = {"position_embedding": args.variant}
+    if args.conditioning_type is not None:
+        cfg_overrides["conditioning_type"] = args.conditioning_type
+    if args.hidden_dim is not None:
+        cfg_overrides["hidden_dim"] = args.hidden_dim
+    if args.num_layers is not None:
+        cfg_overrides["num_layers"] = args.num_layers
+    if args.num_heads is not None:
+        cfg_overrides["num_heads"] = args.num_heads
+    return ScoutGPTConfig(**cfg_overrides)
+
+
+def _run_training_core(
+    args: argparse.Namespace,
+    hf_token: str,
+    device: torch.device,
+) -> tuple[
+    ScoutGPTDecoder,
+    ScoutGPTConfig,
+    dict[str, list[float]],
+    dict[str, Any],
+    dict[str, Any],
+    str,
+    int,
+    int,
+    int,
+    int,
+]:
+    """Shared training + evaluation pipeline used by both HF Jobs and local entry points.
+
+    Returns (model, config, history, eval_metrics, metrics_core, dataset_commit, n_train, n_val, n_test, row_count).
+    `metrics_core` is the pre-recorder-complete dict (no cost telemetry yet).
+    """
+    dataset_revision = os.environ.get("DATASET_PINNED_SHA") or None
+
+    data, _player_id_map, dataset_commit = load_training_data(hf_token, TRAINING_DATASET, revision=dataset_revision)
+    logger.info("Loaded %d episodes (commit=%s)", len(data), dataset_commit)
+
+    if args.max_episodes is not None and args.max_episodes < len(data):
+        data = data.head(args.max_episodes).reset_index(drop=True)
+        logger.info("Truncated to %d episodes for smoke/subset run", len(data))
+
+    parsed = build_datasets(data)
+    (all_atypes, all_sxs, all_sys, all_exs, all_eys, all_res, all_vaeps, all_tds, all_pidxs, all_comp_ids) = parsed
+
+    train_df, val_df, test_df = stratified_split(data)
+    ti = train_df.index.tolist()
+    vi = val_df.index.tolist()
+    tei = test_df.index.tolist()
+    logger.info("Split: train=%d val=%d test=%d", len(ti), len(vi), len(tei))
+
+    config = _build_scoutgpt_config(args)
+    logger.info("Config: %s", config)
+
+    train_ds = ScoutGPTDataset(
+        [all_atypes[i] for i in ti],
+        [all_sxs[i] for i in ti],
+        [all_sys[i] for i in ti],
+        [all_exs[i] for i in ti],
+        [all_eys[i] for i in ti],
+        [all_res[i] for i in ti],
+        [all_vaeps[i] for i in ti],
+        [all_tds[i] for i in ti],
+        [all_pidxs[i] for i in ti],
+        competition_ids=[all_comp_ids[i] for i in ti],
+    )
+    val_ds = ScoutGPTDataset(
+        [all_atypes[i] for i in vi],
+        [all_sxs[i] for i in vi],
+        [all_sys[i] for i in vi],
+        [all_exs[i] for i in vi],
+        [all_eys[i] for i in vi],
+        [all_res[i] for i in vi],
+        [all_vaeps[i] for i in vi],
+        [all_tds[i] for i in vi],
+        [all_pidxs[i] for i in vi],
+        competition_ids=[all_comp_ids[i] for i in vi],
+    )
+    test_ds = ScoutGPTDataset(
+        [all_atypes[i] for i in tei],
+        [all_sxs[i] for i in tei],
+        [all_sys[i] for i in tei],
+        [all_exs[i] for i in tei],
+        [all_eys[i] for i in tei],
+        [all_res[i] for i in tei],
+        [all_vaeps[i] for i in tei],
+        [all_tds[i] for i in tei],
+        [all_pidxs[i] for i in tei],
+        competition_ids=[all_comp_ids[i] for i in tei],
+    )
+
+    model, history = train_loop(
+        train_ds,
+        val_ds,
+        config,
+        device,
+        args.epochs,
+        args.batch_size,
+        args.lr,
+        args.patience,
+    )
+
+    test_data = data.iloc[tei].reset_index(drop=True)
+    train_data = data.iloc[ti].reset_index(drop=True)
+    eval_metrics = evaluate_and_report(
+        model,
+        test_ds,
+        train_data,
+        test_data,
+        device,
+        history,
+        config,
+        args.batch_size,
+    )
+
+    metrics_core: dict[str, Any] = {
+        "dataset_commit": dataset_commit,
+        "n_train": len(ti),
+        "n_val": len(vi),
+        "n_test": len(tei),
+        "config": asdict(config),
+        **eval_metrics,
+    }
+
+    return model, config, history, eval_metrics, metrics_core, dataset_commit, len(ti), len(vi), len(tei), len(data)
+
+
+def main_local() -> None:
+    """Local-mode entry point — NOT decorated with @workflow.
+
+    Bypasses HFJobsCostRecorder, MLflow, HF Hub upload, and (critically) the
+    @workflow decorator's observability hooks that would otherwise try to
+    write to Databricks Delta tables from a non-Databricks environment.
+    """
+    args = _build_arg_parser().parse_args()
+    if not args.local_mode:
+        msg = "main_local() invoked without --local-mode"
+        raise RuntimeError(msg)
+    if args.local_output_dir is None:
+        msg = "--local-output-dir is required when --local-mode is set"
+        raise ValueError(msg)
+    local_output_dir = Path(args.local_output_dir)
+
+    from huggingface_hub import get_token
+
+    hf_token = os.environ.get("HF_TOKEN", "") or (get_token() or "")
+    if not hf_token:
+        msg = "HF_TOKEN required for dataset streaming even in local mode"
+        raise RuntimeError(msg)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logger.info("Local mode: device=%s output_dir=%s", device, local_output_dir)
+    t0 = time.time()
+
+    model, config, _history, _eval_metrics, metrics_core, *_ = _run_training_core(args, hf_token, device)
+
+    wall_clock_seconds = time.time() - t0
+    metrics = {
+        **metrics_core,
+        "local_mode": True,
+        "wall_clock_seconds": wall_clock_seconds,
+        "wall_clock_minutes": wall_clock_seconds / 60.0,
+    }
+    _save_checkpoint_local(model, config, metrics, local_output_dir)
+    logger.info("Local ScoutGPT training complete in %.1fs", wall_clock_seconds)
+
+
+@workflow("wf-scoutgpt", phase="training")
+def main() -> None:
+    """Train ScoutGPT (HF Jobs path): player-conditioned autoregressive decoder over SPADL episodes."""
+    args = _build_arg_parser().parse_args()
+
+    if args.local_mode:
+        msg = (
+            "main() is the HF Jobs entry point and does not support --local-mode. "
+            "Invoke main_local() via the __main__ dispatch instead."
+        )
+        raise RuntimeError(msg)
 
     model_repo = f"{HF_ORG}/scoutgpt{args.output_repo_suffix}"
-    dataset_revision = os.environ.get("DATASET_PINNED_SHA") or None
 
     from huggingface_hub import HfApi, get_token
 
@@ -274,93 +536,11 @@ def main() -> None:
     t0 = time.time()
 
     try:
-        # DATASET_PINNED_SHA env var (optional) pins the dataset to a specific
-        # revision so concurrent A/B runs read byte-identical data even if the
-        # dataset repo is updated mid-run.
-        data, _player_id_map, dataset_commit = load_training_data(hf_token, TRAINING_DATASET, revision=dataset_revision)
-        logger.info("Loaded %d episodes (commit=%s)", len(data), dataset_commit)
-
-        parsed = build_datasets(data)
-        (all_atypes, all_sxs, all_sys, all_exs, all_eys, all_res, all_vaeps, all_tds, all_pidxs, all_comp_ids) = parsed
-
-        train_df, val_df, test_df = stratified_split(data)
-        ti = train_df.index.tolist()
-        vi = val_df.index.tolist()
-        tei = test_df.index.tolist()
-        logger.info("Split: train=%d val=%d test=%d", len(ti), len(vi), len(tei))
-
-        config = ScoutGPTConfig(position_embedding=args.variant)
-
-        train_ds = ScoutGPTDataset(
-            [all_atypes[i] for i in ti],
-            [all_sxs[i] for i in ti],
-            [all_sys[i] for i in ti],
-            [all_exs[i] for i in ti],
-            [all_eys[i] for i in ti],
-            [all_res[i] for i in ti],
-            [all_vaeps[i] for i in ti],
-            [all_tds[i] for i in ti],
-            [all_pidxs[i] for i in ti],
-            competition_ids=[all_comp_ids[i] for i in ti],
-        )
-        val_ds = ScoutGPTDataset(
-            [all_atypes[i] for i in vi],
-            [all_sxs[i] for i in vi],
-            [all_sys[i] for i in vi],
-            [all_exs[i] for i in vi],
-            [all_eys[i] for i in vi],
-            [all_res[i] for i in vi],
-            [all_vaeps[i] for i in vi],
-            [all_tds[i] for i in vi],
-            [all_pidxs[i] for i in vi],
-            competition_ids=[all_comp_ids[i] for i in vi],
-        )
-        test_ds = ScoutGPTDataset(
-            [all_atypes[i] for i in tei],
-            [all_sxs[i] for i in tei],
-            [all_sys[i] for i in tei],
-            [all_exs[i] for i in tei],
-            [all_eys[i] for i in tei],
-            [all_res[i] for i in tei],
-            [all_vaeps[i] for i in tei],
-            [all_tds[i] for i in tei],
-            [all_pidxs[i] for i in tei],
-            competition_ids=[all_comp_ids[i] for i in tei],
+        model, config, history, eval_metrics, metrics_core, dataset_commit, n_train, n_val, n_test, row_count = (
+            _run_training_core(args, hf_token, device)
         )
 
-        model, history = train_loop(
-            train_ds,
-            val_ds,
-            config,
-            device,
-            args.epochs,
-            args.batch_size,
-            args.lr,
-            args.patience,
-        )
-
-        test_data = data.iloc[tei].reset_index(drop=True)
-        train_data = data.iloc[ti].reset_index(drop=True)
-        eval_metrics = evaluate_and_report(
-            model,
-            test_ds,
-            train_data,
-            test_data,
-            device,
-            history,
-            config,
-            args.batch_size,
-        )
-
-        metrics: dict[str, Any] = {
-            "dataset_commit": dataset_commit,
-            "n_train": len(ti),
-            "n_val": len(vi),
-            "n_test": len(tei),
-            "config": asdict(config),
-            **eval_metrics,
-        }
-        metrics = recorder.complete(metrics, row_count=len(data))
+        metrics = recorder.complete(metrics_core, row_count=row_count)
         _save_checkpoint(model, config, hf_token, metrics, model_repo)
         _log_mlflow(
             config,
@@ -369,9 +549,9 @@ def main() -> None:
             model,
             args,
             dataset_commit,
-            len(ti),
-            len(vi),
-            len(tei),
+            n_train,
+            n_val,
+            n_test,
         )
 
     except Exception as exc:
@@ -382,4 +562,11 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    # Dispatch between HF Jobs entry (main(), decorated with @workflow) and
+    # local-mode entry (main_local(), undecorated) based on --local-mode.
+    import sys
+
+    if "--local-mode" in sys.argv:
+        main_local()
+    else:
+        main()
