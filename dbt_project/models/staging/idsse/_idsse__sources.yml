@@ -48,28 +48,447 @@ sources:
 
       - name: idsse_events
         description: >
-          DFL event data (DFL_03_02 series) with position information.
-          One row per event. Coordinates use center-origin meters:
-          x ∈ (-52.5, 52.5), y ∈ (-34, 34). Staging transforms to 120×80.
+          DFL event data (DFL_03_02 series) in wide flat bronze schema —
+          every XML attribute on <Event> + first-child + nested-child
+          elements lands as a typed column (bronze-completeness, 2026-04-20
+          rewrite). 32 distinct first-child tags; exactly one per row.
+          Coordinates are DFL pitch-origin meters: x ∈ (0, 105),
+          y ∈ (0, 68). Staging transforms to the shared 120×80 system.
+          Column prefix convention: ``{event_type_short}_{snake_attr}`` for
+          first-child attrs (e.g. ``play_play_angle``, ``shot_x_g``);
+          ``{nested_short}_{snake_attr}`` for nested-child attrs (e.g.
+          ``pass_direction``, ``shot_outcome_type``). Event-type prefix
+          map lives in ``ingestion.idsse._EVENT_TYPE_PREFIX``. See
+          ``src/tests/test_idsse_bronze_coverage.py`` for the enforced
+          source→bronze contract.
         columns:
           - name: match_id
-            description: Match identifier prefixed with 'idsse_'
-          - name: event_id
-            description: Unique event identifier within match
+            description: Match identifier prefixed with 'idsse_' — derived from ingestion context (distinct from match_id_raw which carries the DFL-MAT-* XML attr).
           - name: event_type
-            description: DFL event type taxonomy (e.g. pass, shot, tackle)
-          - name: timestamp_seconds
-            description: Timestamp in seconds from period start
+            description: First-child XML tag name — one of 32 DFL event types (Play, ShotAtGoal, TacklingGame, Caution, etc.). Determines which {prefix}_* columns are populated on a given row.
           - name: period
-            description: Match half (1 or 2)
+            description: Match half (1 or 2). Tracked across events; updated when a <KickOff GameSection='firstHalf|secondHalf'> element is encountered.
+          - name: timestamp_seconds
+            description: Period-relative seconds from the first event of the current period.
           - name: player_id
-            description: DFL PersonId of the acting player
+            description: Primary actor — DFL PersonId. Resolved via _PLAYER_ATTR_ORDER (e.g. Winner for TacklingGame, Player otherwise). Empty string for events with no primary-actor attr.
           - name: team
-            description: Team affiliation (home or away)
+            description: home / away / unknown — resolved via player_team_map based on player_id.
+          - name: calculated_frame
+            description: CalculatedFrame attribute — the canonical frame for the event (usually mid-event).
+          - name: calculated_timestamp
+            description: CalculatedTimestamp attribute — ISO 8601 timestamp for CalculatedFrame.
+          - name: end_frame
+            description: EndFrame attribute — tracking frame number when the event ended.
+          - name: event_id
+            description: DFL EventId attribute — unique event identifier within the match.
+          - name: event_time
+            description: Raw EventTime attribute — ISO 8601 timestamp with timezone.
+          - name: match_id_raw
+            description: Raw DFL-MAT-* MatchId attribute from <Event> element. Distinct from match_id (idsse_*) — both carried for bronze-completeness.
+          - name: start_frame
+            description: StartFrame attribute — tracking frame number when the event began.
           - name: x
-            description: Event x-coordinate in center-origin meters (-52.5 to 52.5)
+            description: X-Position attribute cast to float — DFL pitch-origin meters (0-105), rounded to 4 decimals. NULL when not present on the XML element.
+          - name: x_position_from_tracking
+            description: X-PositionFromTracking attribute — position re-projected from tracking data.
+          - name: x_source_position
+            description: X-Source-Position attribute — pre-correction x coordinate (before any normalization).
           - name: y
-            description: Event y-coordinate in center-origin meters (-34 to 34)
+            description: Y-Position attribute cast to float — DFL pitch-origin meters (0-68). NULL when absent.
+          - name: y_position_from_tracking
+            description: Y-PositionFromTracking attribute — y-coordinate re-projected from tracking data.
+          - name: y_source_position
+            description: Y-Source-Position attribute — pre-correction y coordinate.
+          - name: claim_ball_possession_phase
+            description: Raw 'BallPossessionPhase' attribute from <BallClaiming> first-child element. Populated on rows with event_type='BallClaiming'; NULL on other rows.
+          - name: claim_player
+            description: Raw 'Player' attribute from <BallClaiming> first-child element. Populated on rows with event_type='BallClaiming'; NULL on other rows.
+          - name: claim_team
+            description: Raw 'Team' attribute from <BallClaiming> first-child element. Populated on rows with event_type='BallClaiming'; NULL on other rows.
+          - name: claim_type
+            description: Raw 'Type' attribute from <BallClaiming> first-child element. Populated on rows with event_type='BallClaiming'; NULL on other rows.
+          - name: deflection_player
+            description: Raw 'Player' attribute from <BallDeflection> first-child element. Populated on rows with event_type='BallDeflection'; NULL on other rows.
+          - name: deflection_team
+            description: Raw 'Team' attribute from <BallDeflection> first-child element. Populated on rows with event_type='BallDeflection'; NULL on other rows.
+          - name: deflection_type
+            description: Raw 'Type' attribute from <BallDeflection> first-child element. Populated on rows with event_type='BallDeflection'; NULL on other rows.
+          - name: caution_card_color
+            description: Raw 'CardColor' attribute from <Caution> first-child element. Populated on rows with event_type='Caution'; NULL on other rows.
+          - name: caution_card_rating
+            description: Raw 'CardRating' attribute from <Caution> first-child element. Populated on rows with event_type='Caution'; NULL on other rows.
+          - name: caution_other_reason
+            description: Raw 'OtherReason' attribute from <Caution> first-child element. Populated on rows with event_type='Caution'; NULL on other rows.
+          - name: caution_player
+            description: Raw 'Player' attribute from <Caution> first-child element. Populated on rows with event_type='Caution'; NULL on other rows.
+          - name: caution_reason
+            description: Raw 'Reason' attribute from <Caution> first-child element. Populated on rows with event_type='Caution'; NULL on other rows.
+          - name: caution_ref_decision_evaluation
+            description: Raw 'RefDecisionEvaluation' attribute from <Caution> first-child element. Populated on rows with event_type='Caution'; NULL on other rows.
+          - name: caution_team
+            description: Raw 'Team' attribute from <Caution> first-child element. Populated on rows with event_type='Caution'; NULL on other rows.
+          - name: caution_official_card_color
+            description: Raw 'CardColor' attribute from <CautionTeamofficial> first-child element. Populated on rows with event_type='CautionTeamofficial'; NULL on other rows.
+          - name: caution_official_person_sent_off
+            description: Raw 'PersonSentOff' attribute from <CautionTeamofficial> first-child element. Populated on rows with event_type='CautionTeamofficial'; NULL on other rows.
+          - name: caution_official_team
+            description: Raw 'Team' attribute from <CautionTeamofficial> first-child element. Populated on rows with event_type='CautionTeamofficial'; NULL on other rows.
+          - name: chance_assist_action
+            description: Raw 'AssistAction' attribute from <ChanceWithoutShot> first-child element. Populated on rows with event_type='ChanceWithoutShot'; NULL on other rows.
+          - name: chance_chance_assist
+            description: Raw 'ChanceAssist' attribute from <ChanceWithoutShot> first-child element. Populated on rows with event_type='ChanceWithoutShot'; NULL on other rows.
+          - name: chance_chance_assist_type
+            description: Raw 'ChanceAssistType' attribute from <ChanceWithoutShot> first-child element. Populated on rows with event_type='ChanceWithoutShot'; NULL on other rows.
+          - name: chance_counter_attack
+            description: Raw 'CounterAttack' attribute from <ChanceWithoutShot> first-child element. Populated on rows with event_type='ChanceWithoutShot'; NULL on other rows.
+          - name: chance_player
+            description: Raw 'Player' attribute from <ChanceWithoutShot> first-child element. Populated on rows with event_type='ChanceWithoutShot'; NULL on other rows.
+          - name: chance_prevention_goalkeeper
+            description: Raw 'PreventionGoalkeeper' attribute from <ChanceWithoutShot> first-child element. Populated on rows with event_type='ChanceWithoutShot'; NULL on other rows.
+          - name: chance_setup_origin
+            description: Raw 'SetupOrigin' attribute from <ChanceWithoutShot> first-child element. Populated on rows with event_type='ChanceWithoutShot'; NULL on other rows.
+          - name: chance_sitter
+            description: Raw 'Sitter' attribute from <ChanceWithoutShot> first-child element. Populated on rows with event_type='ChanceWithoutShot'; NULL on other rows.
+          - name: chance_situation
+            description: Raw 'Situation' attribute from <ChanceWithoutShot> first-child element. Populated on rows with event_type='ChanceWithoutShot'; NULL on other rows.
+          - name: chance_taker_setup
+            description: Raw 'TakerSetup' attribute from <ChanceWithoutShot> first-child element. Populated on rows with event_type='ChanceWithoutShot'; NULL on other rows.
+          - name: chance_team
+            description: Raw 'Team' attribute from <ChanceWithoutShot> first-child element. Populated on rows with event_type='ChanceWithoutShot'; NULL on other rows.
+          - name: corner_decision_timestamp
+            description: Raw 'DecisionTimestamp' attribute from <CornerKick> first-child element. Populated on rows with event_type='CornerKick'; NULL on other rows.
+          - name: corner_placing
+            description: Raw 'Placing' attribute from <CornerKick> first-child element. Populated on rows with event_type='CornerKick'; NULL on other rows.
+          - name: corner_post_marking
+            description: Raw 'PostMarking' attribute from <CornerKick> first-child element. Populated on rows with event_type='CornerKick'; NULL on other rows.
+          - name: corner_rotation
+            description: Raw 'Rotation' attribute from <CornerKick> first-child element. Populated on rows with event_type='CornerKick'; NULL on other rows.
+          - name: corner_side
+            description: Raw 'Side' attribute from <CornerKick> first-child element. Populated on rows with event_type='CornerKick'; NULL on other rows.
+          - name: corner_target_area
+            description: Raw 'TargetArea' attribute from <CornerKick> first-child element. Populated on rows with event_type='CornerKick'; NULL on other rows.
+          - name: corner_team
+            description: Raw 'Team' attribute from <CornerKick> first-child element. Populated on rows with event_type='CornerKick'; NULL on other rows.
+          - name: delete_reason
+            description: Raw 'Reason' attribute from <Delete> first-child element. Populated on rows with event_type='Delete'; NULL on other rows.
+          - name: fairplay_ball_possession_phase
+            description: Raw 'BallPossessionPhase' attribute from <FairPlay> first-child element. Populated on rows with event_type='FairPlay'; NULL on other rows.
+          - name: fairplay_player
+            description: Raw 'Player' attribute from <FairPlay> first-child element. Populated on rows with event_type='FairPlay'; NULL on other rows.
+          - name: fairplay_team
+            description: Raw 'Team' attribute from <FairPlay> first-child element. Populated on rows with event_type='FairPlay'; NULL on other rows.
+          - name: whistle_breaking_off
+            description: Raw 'BreakingOff' attribute from <FinalWhistle> first-child element. Populated on rows with event_type='FinalWhistle'; NULL on other rows.
+          - name: whistle_final_result
+            description: Raw 'FinalResult' attribute from <FinalWhistle> first-child element. Populated on rows with event_type='FinalWhistle'; NULL on other rows.
+          - name: whistle_game_section
+            description: Raw 'GameSection' attribute from <FinalWhistle> first-child element. Populated on rows with event_type='FinalWhistle'; NULL on other rows.
+          - name: foul_committing_player_action
+            description: Raw 'CommittingPlayerAction' attribute from <Foul> first-child element. Populated on rows with event_type='Foul'; NULL on other rows.
+          - name: foul_foul_type
+            description: Raw 'FoulType' attribute from <Foul> first-child element. Populated on rows with event_type='Foul'; NULL on other rows.
+          - name: foul_fouled
+            description: Raw 'Fouled' attribute from <Foul> first-child element. Populated on rows with event_type='Foul'; NULL on other rows.
+          - name: foul_fouler
+            description: Raw 'Fouler' attribute from <Foul> first-child element. Populated on rows with event_type='Foul'; NULL on other rows.
+          - name: foul_team_fouled
+            description: Raw 'TeamFouled' attribute from <Foul> first-child element. Populated on rows with event_type='Foul'; NULL on other rows.
+          - name: foul_team_fouler
+            description: Raw 'TeamFouler' attribute from <Foul> first-child element. Populated on rows with event_type='Foul'; NULL on other rows.
+          - name: freekick_decision_timestamp
+            description: Raw 'DecisionTimestamp' attribute from <FreeKick> first-child element. Populated on rows with event_type='FreeKick'; NULL on other rows.
+          - name: freekick_execution_mode
+            description: Raw 'ExecutionMode' attribute from <FreeKick> first-child element. Populated on rows with event_type='FreeKick'; NULL on other rows.
+          - name: freekick_team
+            description: Raw 'Team' attribute from <FreeKick> first-child element. Populated on rows with event_type='FreeKick'; NULL on other rows.
+          - name: goaldis_player
+            description: Raw 'Player' attribute from <GoalDisallowed> first-child element. Populated on rows with event_type='GoalDisallowed'; NULL on other rows.
+          - name: goaldis_reason
+            description: Raw 'Reason' attribute from <GoalDisallowed> first-child element. Populated on rows with event_type='GoalDisallowed'; NULL on other rows.
+          - name: goaldis_ref_decision_evaluation
+            description: Raw 'RefDecisionEvaluation' attribute from <GoalDisallowed> first-child element. Populated on rows with event_type='GoalDisallowed'; NULL on other rows.
+          - name: goaldis_team
+            description: Raw 'Team' attribute from <GoalDisallowed> first-child element. Populated on rows with event_type='GoalDisallowed'; NULL on other rows.
+          - name: goalkick_decision_timestamp
+            description: Raw 'DecisionTimestamp' attribute from <GoalKick> first-child element. Populated on rows with event_type='GoalKick'; NULL on other rows.
+          - name: goalkick_team
+            description: Raw 'Team' attribute from <GoalKick> first-child element. Populated on rows with event_type='GoalKick'; NULL on other rows.
+          - name: kickoff_game_section
+            description: Raw 'GameSection' attribute from <KickOff> first-child element. Populated on rows with event_type='KickOff'; NULL on other rows.
+          - name: kickoff_team_left
+            description: Raw 'TeamLeft' attribute from <KickOff> first-child element. Populated on rows with event_type='KickOff'; NULL on other rows.
+          - name: kickoff_team_right
+            description: Raw 'TeamRight' attribute from <KickOff> first-child element. Populated on rows with event_type='KickOff'; NULL on other rows.
+          - name: nutmeg_affected_player
+            description: Raw 'AffectedPlayer' attribute from <Nutmeg> first-child element. Populated on rows with event_type='Nutmeg'; NULL on other rows.
+          - name: nutmeg_affected_team
+            description: Raw 'AffectedTeam' attribute from <Nutmeg> first-child element. Populated on rows with event_type='Nutmeg'; NULL on other rows.
+          - name: nutmeg_player
+            description: Raw 'Player' attribute from <Nutmeg> first-child element. Populated on rows with event_type='Nutmeg'; NULL on other rows.
+          - name: nutmeg_team
+            description: Raw 'Team' attribute from <Nutmeg> first-child element. Populated on rows with event_type='Nutmeg'; NULL on other rows.
+          - name: offside_player
+            description: Raw 'Player' attribute from <Offside> first-child element. Populated on rows with event_type='Offside'; NULL on other rows.
+          - name: offside_team
+            description: Raw 'Team' attribute from <Offside> first-child element. Populated on rows with event_type='Offside'; NULL on other rows.
+          - name: otherball_ball_possession_phase
+            description: Raw 'BallPossessionPhase' attribute from <OtherBallAction> first-child element. Populated on rows with event_type='OtherBallAction'; NULL on other rows.
+          - name: otherball_defensive_clearance
+            description: Raw 'DefensiveClearance' attribute from <OtherBallAction> first-child element. Populated on rows with event_type='OtherBallAction'; NULL on other rows.
+          - name: otherball_player
+            description: Raw 'Player' attribute from <OtherBallAction> first-child element. Populated on rows with event_type='OtherBallAction'; NULL on other rows.
+          - name: otherball_team
+            description: Raw 'Team' attribute from <OtherBallAction> first-child element. Populated on rows with event_type='OtherBallAction'; NULL on other rows.
+          - name: other_action_change_contingent_exhausted
+            description: Raw 'ChangeContingentExhausted' attribute from <OtherPlayerAction> first-child element. Populated on rows with event_type='OtherPlayerAction'; NULL on other rows.
+          - name: other_action_change_of_captain
+            description: Raw 'ChangeOfCaptain' attribute from <OtherPlayerAction> first-child element. Populated on rows with event_type='OtherPlayerAction'; NULL on other rows.
+          - name: other_action_player
+            description: Raw 'Player' attribute from <OtherPlayerAction> first-child element. Populated on rows with event_type='OtherPlayerAction'; NULL on other rows.
+          - name: other_action_player_becomes_goalkeeper
+            description: Raw 'PlayerBecomesGoalkeeper' attribute from <OtherPlayerAction> first-child element. Populated on rows with event_type='OtherPlayerAction'; NULL on other rows.
+          - name: other_action_team
+            description: Raw 'Team' attribute from <OtherPlayerAction> first-child element. Populated on rows with event_type='OtherPlayerAction'; NULL on other rows.
+          - name: penalty_causing_player
+            description: Raw 'CausingPlayer' attribute from <Penalty> first-child element. Populated on rows with event_type='Penalty'; NULL on other rows.
+          - name: penalty_decision_timestamp
+            description: Raw 'DecisionTimestamp' attribute from <Penalty> first-child element. Populated on rows with event_type='Penalty'; NULL on other rows.
+          - name: penalty_fouled_player
+            description: Raw 'FouledPlayer' attribute from <Penalty> first-child element. Populated on rows with event_type='Penalty'; NULL on other rows.
+          - name: penalty_goalkeeper_behaviour
+            description: Raw 'GoalkeeperBehaviour' attribute from <Penalty> first-child element. Populated on rows with event_type='Penalty'; NULL on other rows.
+          - name: penalty_goalkeeper_movement
+            description: Raw 'GoalkeeperMovement' attribute from <Penalty> first-child element. Populated on rows with event_type='Penalty'; NULL on other rows.
+          - name: penalty_players_in_box
+            description: Raw 'PlayersInBox' attribute from <Penalty> first-child element. Populated on rows with event_type='Penalty'; NULL on other rows.
+          - name: penalty_prospective_taker
+            description: Raw 'ProspectiveTaker' attribute from <Penalty> first-child element. Populated on rows with event_type='Penalty'; NULL on other rows.
+          - name: penalty_ref_decision_evaluation
+            description: Raw 'RefDecisionEvaluation' attribute from <Penalty> first-child element. Populated on rows with event_type='Penalty'; NULL on other rows.
+          - name: penalty_retaken_penalty
+            description: Raw 'RetakenPenalty' attribute from <Penalty> first-child element. Populated on rows with event_type='Penalty'; NULL on other rows.
+          - name: penalty_team
+            description: Raw 'Team' attribute from <Penalty> first-child element. Populated on rows with event_type='Penalty'; NULL on other rows.
+          - name: penalty_not_causing_player
+            description: Raw 'CausingPlayer' attribute from <PenaltyNotAwarded> first-child element. Populated on rows with event_type='PenaltyNotAwarded'; NULL on other rows.
+          - name: penalty_not_player_to_be_awarded
+            description: Raw 'PlayerToBeAwarded' attribute from <PenaltyNotAwarded> first-child element. Populated on rows with event_type='PenaltyNotAwarded'; NULL on other rows.
+          - name: penalty_not_reason
+            description: Raw 'Reason' attribute from <PenaltyNotAwarded> first-child element. Populated on rows with event_type='PenaltyNotAwarded'; NULL on other rows.
+          - name: penalty_not_ref_decision_evaluation
+            description: Raw 'RefDecisionEvaluation' attribute from <PenaltyNotAwarded> first-child element. Populated on rows with event_type='PenaltyNotAwarded'; NULL on other rows.
+          - name: penalty_not_team
+            description: Raw 'Team' attribute from <PenaltyNotAwarded> first-child element. Populated on rows with event_type='PenaltyNotAwarded'; NULL on other rows.
+          - name: play_ball_possession_phase
+            description: Raw 'BallPossessionPhase' attribute from <Play> first-child element. Populated on rows with event_type='Play'; NULL on other rows.
+          - name: play_distance
+            description: Raw 'Distance' attribute from <Play> first-child element. Populated on rows with event_type='Play'; NULL on other rows.
+          - name: play_evaluation
+            description: Raw 'Evaluation' attribute from <Play> first-child element. Populated on rows with event_type='Play'; NULL on other rows.
+          - name: play_flat_cross
+            description: Raw 'FlatCross' attribute from <Play> first-child element. Populated on rows with event_type='Play'; NULL on other rows.
+          - name: play_from_open_play
+            description: Raw 'FromOpenPlay' attribute from <Play> first-child element. Populated on rows with event_type='Play'; NULL on other rows.
+          - name: play_goal_keeper_action
+            description: Raw 'GoalKeeperAction' attribute from <Play> first-child element. Populated on rows with event_type='Play'; NULL on other rows.
+          - name: play_height
+            description: Raw 'Height' attribute from <Play> first-child element. Populated on rows with event_type='Play'; NULL on other rows.
+          - name: play_penalty_box
+            description: Raw 'PenaltyBox' attribute from <Play> first-child element. Populated on rows with event_type='Play'; NULL on other rows.
+          - name: play_play_angle
+            description: Raw 'PlayAngle' attribute from <Play> first-child element. Populated on rows with event_type='Play'; NULL on other rows.
+          - name: play_play_origin
+            description: Raw 'PlayOrigin' attribute from <Play> first-child element. Populated on rows with event_type='Play'; NULL on other rows.
+          - name: play_player
+            description: Raw 'Player' attribute from <Play> first-child element. Populated on rows with event_type='Play'; NULL on other rows.
+          - name: play_recipient
+            description: Raw 'Recipient' attribute from <Play> first-child element. Populated on rows with event_type='Play'; NULL on other rows.
+          - name: play_rotation
+            description: Raw 'Rotation' attribute from <Play> first-child element. Populated on rows with event_type='Play'; NULL on other rows.
+          - name: play_semi_field
+            description: Raw 'SemiField' attribute from <Play> first-child element. Populated on rows with event_type='Play'; NULL on other rows.
+          - name: play_team
+            description: Raw 'Team' attribute from <Play> first-child element. Populated on rows with event_type='Play'; NULL on other rows.
+          - name: not_sent_off_player
+            description: Raw 'Player' attribute from <PlayerNotSentOff> first-child element. Populated on rows with event_type='PlayerNotSentOff'; NULL on other rows.
+          - name: not_sent_off_reason
+            description: Raw 'Reason' attribute from <PlayerNotSentOff> first-child element. Populated on rows with event_type='PlayerNotSentOff'; NULL on other rows.
+          - name: not_sent_off_ref_decision_evaluation
+            description: Raw 'RefDecisionEvaluation' attribute from <PlayerNotSentOff> first-child element. Populated on rows with event_type='PlayerNotSentOff'; NULL on other rows.
+          - name: not_sent_off_team
+            description: Raw 'Team' attribute from <PlayerNotSentOff> first-child element. Populated on rows with event_type='PlayerNotSentOff'; NULL on other rows.
+          - name: not_sent_off_type
+            description: Raw 'Type' attribute from <PlayerNotSentOff> first-child element. Populated on rows with event_type='PlayerNotSentOff'; NULL on other rows.
+          - name: possloss_player
+            description: Raw 'Player' attribute from <PossessionLossBeforeGoal> first-child element. Populated on rows with event_type='PossessionLossBeforeGoal'; NULL on other rows.
+          - name: possloss_possession_loss_origin
+            description: Raw 'PossessionLossOrigin' attribute from <PossessionLossBeforeGoal> first-child element. Populated on rows with event_type='PossessionLossBeforeGoal'; NULL on other rows.
+          - name: possloss_team
+            description: Raw 'Team' attribute from <PossessionLossBeforeGoal> first-child element. Populated on rows with event_type='PossessionLossBeforeGoal'; NULL on other rows.
+          - name: possloss_type_of_possession_loss
+            description: Raw 'TypeOfPossessionLoss' attribute from <PossessionLossBeforeGoal> first-child element. Populated on rows with event_type='PossessionLossBeforeGoal'; NULL on other rows.
+          - name: run_player
+            description: Raw 'Player' attribute from <Run> first-child element. Populated on rows with event_type='Run'; NULL on other rows.
+          - name: run_team
+            description: Raw 'Team' attribute from <Run> first-child element. Populated on rows with event_type='Run'; NULL on other rows.
+          - name: shot_after_free_kick
+            description: Raw 'AfterFreeKick' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_amount_of_defenders
+            description: Raw 'AmountOfDefenders' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_angle_to_goal
+            description: Raw 'AngleToGoal' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_assist_action
+            description: Raw 'AssistAction' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_assist_shot_at_goal
+            description: Raw 'AssistShotAtGoal' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_assist_type_shot_at_goal
+            description: Raw 'AssistTypeShotAtGoal' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_ball_possession_phase
+            description: Raw 'BallPossessionPhase' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_build_up
+            description: Raw 'BuildUp' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_chance_evaluation
+            description: Raw 'ChanceEvaluation' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_counter_attack
+            description: Raw 'CounterAttack' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_distance_to_goal
+            description: Raw 'DistanceToGoal' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_extended_type_of_shot
+            description: Raw 'ExtendedTypeOfShot' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_goal_distance_goalkeeper
+            description: Raw 'GoalDistanceGoalkeeper' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_inside_box
+            description: Raw 'InsideBox' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_player
+            description: Raw 'Player' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_player_speed
+            description: Raw 'PlayerSpeed' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_pressure
+            description: Raw 'Pressure' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_setup_origin
+            description: Raw 'SetupOrigin' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_shot_condition
+            description: Raw 'ShotCondition' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_shot_contribution
+            description: Raw 'ShotContribution' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_shot_origin
+            description: Raw 'ShotOrigin' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_significance_evaluation
+            description: Raw 'SignificanceEvaluation' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_sitter_contribution
+            description: Raw 'SitterContribution' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_taker_ball_control
+            description: Raw 'TakerBallControl' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_taker_setup
+            description: Raw 'TakerSetup' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_team
+            description: Raw 'Team' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_type_of_shot
+            description: Raw 'TypeOfShot' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: shot_x_g
+            description: Raw 'xG' attribute from <ShotAtGoal> first-child element. Populated on rows with event_type='ShotAtGoal'; NULL on other rows.
+          - name: sitter_prev_player
+            description: Raw 'Player' attribute from <SitterPrevented> first-child element. Populated on rows with event_type='SitterPrevented'; NULL on other rows.
+          - name: sitter_prev_reason
+            description: Raw 'Reason' attribute from <SitterPrevented> first-child element. Populated on rows with event_type='SitterPrevented'; NULL on other rows.
+          - name: sitter_prev_ref_decision_evaluation
+            description: Raw 'RefDecisionEvaluation' attribute from <SitterPrevented> first-child element. Populated on rows with event_type='SitterPrevented'; NULL on other rows.
+          - name: sitter_prev_team
+            description: Raw 'Team' attribute from <SitterPrevented> first-child element. Populated on rows with event_type='SitterPrevented'; NULL on other rows.
+          - name: spectacular_player
+            description: Raw 'Player' attribute from <SpectacularPlay> first-child element. Populated on rows with event_type='SpectacularPlay'; NULL on other rows.
+          - name: spectacular_team
+            description: Raw 'Team' attribute from <SpectacularPlay> first-child element. Populated on rows with event_type='SpectacularPlay'; NULL on other rows.
+          - name: spectacular_type
+            description: Raw 'Type' attribute from <SpectacularPlay> first-child element. Populated on rows with event_type='SpectacularPlay'; NULL on other rows.
+          - name: sub_player_in
+            description: Raw 'PlayerIn' attribute from <Substitution> first-child element. Populated on rows with event_type='Substitution'; NULL on other rows.
+          - name: sub_player_out
+            description: Raw 'PlayerOut' attribute from <Substitution> first-child element. Populated on rows with event_type='Substitution'; NULL on other rows.
+          - name: sub_playing_position
+            description: Raw 'PlayingPosition' attribute from <Substitution> first-child element. Populated on rows with event_type='Substitution'; NULL on other rows.
+          - name: sub_team
+            description: Raw 'Team' attribute from <Substitution> first-child element. Populated on rows with event_type='Substitution'; NULL on other rows.
+          - name: tackle_ball_possession_phase
+            description: Raw 'BallPossessionPhase' attribute from <TacklingGame> first-child element. Populated on rows with event_type='TacklingGame'; NULL on other rows.
+          - name: tackle_dribble_evaluation
+            description: Raw 'DribbleEvaluation' attribute from <TacklingGame> first-child element. Populated on rows with event_type='TacklingGame'; NULL on other rows.
+          - name: tackle_dribbling_side
+            description: Raw 'DribblingSide' attribute from <TacklingGame> first-child element. Populated on rows with event_type='TacklingGame'; NULL on other rows.
+          - name: tackle_dribbling_type
+            description: Raw 'DribblingType' attribute from <TacklingGame> first-child element. Populated on rows with event_type='TacklingGame'; NULL on other rows.
+          - name: tackle_goal_keeper_involved
+            description: Raw 'GoalKeeperInvolved' attribute from <TacklingGame> first-child element. Populated on rows with event_type='TacklingGame'; NULL on other rows.
+          - name: tackle_loser
+            description: Raw 'Loser' attribute from <TacklingGame> first-child element. Populated on rows with event_type='TacklingGame'; NULL on other rows.
+          - name: tackle_loser_role
+            description: Raw 'LoserRole' attribute from <TacklingGame> first-child element. Populated on rows with event_type='TacklingGame'; NULL on other rows.
+          - name: tackle_loser_team
+            description: Raw 'LoserTeam' attribute from <TacklingGame> first-child element. Populated on rows with event_type='TacklingGame'; NULL on other rows.
+          - name: tackle_possession_change
+            description: Raw 'PossessionChange' attribute from <TacklingGame> first-child element. Populated on rows with event_type='TacklingGame'; NULL on other rows.
+          - name: tackle_type
+            description: Raw 'Type' attribute from <TacklingGame> first-child element. Populated on rows with event_type='TacklingGame'; NULL on other rows.
+          - name: tackle_winner
+            description: Raw 'Winner' attribute from <TacklingGame> first-child element. Populated on rows with event_type='TacklingGame'; NULL on other rows.
+          - name: tackle_winner_action
+            description: Raw 'WinnerAction' attribute from <TacklingGame> first-child element. Populated on rows with event_type='TacklingGame'; NULL on other rows.
+          - name: tackle_winner_result
+            description: Raw 'WinnerResult' attribute from <TacklingGame> first-child element. Populated on rows with event_type='TacklingGame'; NULL on other rows.
+          - name: tackle_winner_role
+            description: Raw 'WinnerRole' attribute from <TacklingGame> first-child element. Populated on rows with event_type='TacklingGame'; NULL on other rows.
+          - name: tackle_winner_team
+            description: Raw 'WinnerTeam' attribute from <TacklingGame> first-child element. Populated on rows with event_type='TacklingGame'; NULL on other rows.
+          - name: throwin_decision_timestamp
+            description: Raw 'DecisionTimestamp' attribute from <ThrowIn> first-child element. Populated on rows with event_type='ThrowIn'; NULL on other rows.
+          - name: throwin_side
+            description: Raw 'Side' attribute from <ThrowIn> first-child element. Populated on rows with event_type='ThrowIn'; NULL on other rows.
+          - name: throwin_team
+            description: Raw 'Team' attribute from <ThrowIn> first-child element. Populated on rows with event_type='ThrowIn'; NULL on other rows.
+          - name: var_final_decision
+            description: Raw 'FinalDecision' attribute from <VideoAssistantAction> first-child element. Populated on rows with event_type='VideoAssistantAction'; NULL on other rows.
+          - name: var_linesman1
+            description: Raw 'Linesman1' attribute from <VideoAssistantAction> first-child element. Populated on rows with event_type='VideoAssistantAction'; NULL on other rows.
+          - name: var_linesman2
+            description: Raw 'Linesman2' attribute from <VideoAssistantAction> first-child element. Populated on rows with event_type='VideoAssistantAction'; NULL on other rows.
+          - name: var_opponent_team
+            description: Raw 'OpponentTeam' attribute from <VideoAssistantAction> first-child element. Populated on rows with event_type='VideoAssistantAction'; NULL on other rows.
+          - name: var_proofed_event
+            description: Raw 'ProofedEvent' attribute from <VideoAssistantAction> first-child element. Populated on rows with event_type='VideoAssistantAction'; NULL on other rows.
+          - name: var_ref_decision
+            description: Raw 'RefDecision' attribute from <VideoAssistantAction> first-child element. Populated on rows with event_type='VideoAssistantAction'; NULL on other rows.
+          - name: var_ref_decision_evaluation
+            description: Raw 'RefDecisionEvaluation' attribute from <VideoAssistantAction> first-child element. Populated on rows with event_type='VideoAssistantAction'; NULL on other rows.
+          - name: var_referee
+            description: Raw 'Referee' attribute from <VideoAssistantAction> first-child element. Populated on rows with event_type='VideoAssistantAction'; NULL on other rows.
+          - name: var_refereein_rra
+            description: Raw 'RefereeinRRA' attribute from <VideoAssistantAction> first-child element. Populated on rows with event_type='VideoAssistantAction'; NULL on other rows.
+          - name: var_team_challenged
+            description: Raw 'TeamChallenged' attribute from <VideoAssistantAction> first-child element. Populated on rows with event_type='VideoAssistantAction'; NULL on other rows.
+          - name: var_timestamp_end_action
+            description: Raw 'TimestampEndAction' attribute from <VideoAssistantAction> first-child element. Populated on rows with event_type='VideoAssistantAction'; NULL on other rows.
+          - name: var_timestamp_start_action
+            description: Raw 'TimestampStartAction' attribute from <VideoAssistantAction> first-child element. Populated on rows with event_type='VideoAssistantAction'; NULL on other rows.
+          - name: var_video_assistant
+            description: Raw 'VideoAssistant' attribute from <VideoAssistantAction> first-child element. Populated on rows with event_type='VideoAssistantAction'; NULL on other rows.
+          - name: cross_goal_keeper
+            description: Raw 'GoalKeeper' attribute from nested <Cross> inside <Play> first-child. Populated on rows with event_type='Play' and a nested <Cross>; NULL otherwise.
+          - name: cross_goal_keeper_interference
+            description: Raw 'GoalKeeperInterference' attribute from nested <Cross> inside <Play> first-child. Populated on rows with event_type='Play' and a nested <Cross>; NULL otherwise.
+          - name: cross_side
+            description: Raw 'Side' attribute from nested <Cross> inside <Play> first-child. Populated on rows with event_type='Play' and a nested <Cross>; NULL otherwise.
+          - name: pass_direction
+            description: Raw 'Direction' attribute from nested <Pass> inside <Play> first-child. Populated on rows with event_type='Play' and a nested <Pass>; NULL otherwise.
+          - name: pass_free_kick_layup
+            description: Raw 'FreeKickLayup' attribute from nested <Pass> inside <Play> first-child. Populated on rows with event_type='Play' and a nested <Pass>; NULL otherwise.
+          - name: pass_one_two
+            description: Raw 'OneTwo' attribute from nested <Pass> inside <Play> first-child. Populated on rows with event_type='Play' and a nested <Pass>; NULL otherwise.
+          - name: shot_outcome_type
+            description: >
+              Disambiguator for ShotAtGoal's six mutually-exclusive outcome
+              tags — 'successful', 'saved', 'wide', 'woodwork', 'blocked',
+              'other'. NULL when event_type != 'ShotAtGoal'.
 
       - name: elastic_sync_results
         description: >

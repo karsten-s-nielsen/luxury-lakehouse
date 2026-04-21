@@ -1,0 +1,196 @@
+{
+  "schema_version": "wyscout_bronze_2026_04",
+  "snapshot_source": "DESCRIBE TABLE soccer_analytics.bronze.wyscout_* on 2026-04-21. Refresh when wyscout ingestion adds cols.",
+  "tables": {
+    "wyscout_matches": [
+      {
+        "name": "status",
+        "type": "string"
+      },
+      {
+        "name": "roundId",
+        "type": "bigint"
+      },
+      {
+        "name": "gameweek",
+        "type": "bigint"
+      },
+      {
+        "name": "teamsData",
+        "type": "string"
+      },
+      {
+        "name": "seasonId",
+        "type": "bigint"
+      },
+      {
+        "name": "dateutc",
+        "type": "string"
+      },
+      {
+        "name": "winner",
+        "type": "bigint"
+      },
+      {
+        "name": "venue",
+        "type": "string"
+      },
+      {
+        "name": "wyId",
+        "type": "bigint"
+      },
+      {
+        "name": "label",
+        "type": "string"
+      },
+      {
+        "name": "date",
+        "type": "string"
+      },
+      {
+        "name": "referees",
+        "type": "string"
+      },
+      {
+        "name": "duration",
+        "type": "string"
+      },
+      {
+        "name": "competitionId",
+        "type": "bigint"
+      },
+      {
+        "name": "competition_name",
+        "type": "string"
+      },
+      {
+        "name": "groupName",
+        "type": "string"
+      },
+      {
+        "name": "_ingested_at",
+        "type": "timestamp"
+      }
+    ],
+    "wyscout_events": [
+      {
+        "name": "eventId",
+        "type": "bigint"
+      },
+      {
+        "name": "subEventName",
+        "type": "string"
+      },
+      {
+        "name": "tags",
+        "type": "string"
+      },
+      {
+        "name": "playerId",
+        "type": "bigint"
+      },
+      {
+        "name": "positions",
+        "type": "string"
+      },
+      {
+        "name": "matchId",
+        "type": "bigint"
+      },
+      {
+        "name": "eventName",
+        "type": "string"
+      },
+      {
+        "name": "teamId",
+        "type": "bigint"
+      },
+      {
+        "name": "matchPeriod",
+        "type": "string"
+      },
+      {
+        "name": "eventSec",
+        "type": "double"
+      },
+      {
+        "name": "subEventId",
+        "type": "double"
+      },
+      {
+        "name": "id",
+        "type": "bigint"
+      },
+      {
+        "name": "competition_name",
+        "type": "string"
+      },
+      {
+        "name": "_ingested_at",
+        "type": "timestamp"
+      }
+    ],
+    "wyscout_players": [
+      {
+        "name": "passportArea",
+        "type": "string"
+      },
+      {
+        "name": "weight",
+        "type": "bigint"
+      },
+      {
+        "name": "firstName",
+        "type": "string"
+      },
+      {
+        "name": "middleName",
+        "type": "string"
+      },
+      {
+        "name": "lastName",
+        "type": "string"
+      },
+      {
+        "name": "currentTeamId",
+        "type": "double"
+      },
+      {
+        "name": "birthDate",
+        "type": "string"
+      },
+      {
+        "name": "height",
+        "type": "bigint"
+      },
+      {
+        "name": "role",
+        "type": "string"
+      },
+      {
+        "name": "birthArea",
+        "type": "string"
+      },
+      {
+        "name": "wyId",
+        "type": "bigint"
+      },
+      {
+        "name": "foot",
+        "type": "string"
+      },
+      {
+        "name": "shortName",
+        "type": "string"
+      },
+      {
+        "name": "currentNationalTeamId",
+        "type": "double"
+      },
+      {
+        "name": "_ingested_at",
+        "type": "timestamp"
+      }
+    ]
+  }
+}

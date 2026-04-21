@@ -99,6 +99,16 @@ def _dataset_to_rows(
     Iterates all frames and player coordinates to produce one row per
     player per frame with center-origin meter coordinates.
 
+    Per the bronze-completeness principle every kloppy-exposed SkillCorner
+    field lands in bronze: ball_state (kloppy BallState enum), ball_z
+    (broadcast rarely emits z but schema carries it), ball_owning_team_id,
+    per-player position_name (raw kloppy role string) and is_visible,
+    plus home/away team IDs denormalized onto every row.
+
+    All optional kloppy fields go through ``isinstance`` guards so unit
+    tests using ``MagicMock`` cleanly emit None instead of a mock's auto-
+    generated attribute — keeping schema stable across real + test runs.
+
     Args:
         dataset: kloppy ``TrackingDataset`` returned by ``load_open_data()``.
         match_id: Match identifier to embed in each row.
@@ -114,21 +124,52 @@ def _dataset_to_rows(
     home_team = teams[0]
     away_team = teams[1]
 
+    # Team IDs are match-level constants; denormalize onto every row so a
+    # bronze-only query doesn't need a join to metadata.
+    htid = getattr(home_team, "team_id", None)
+    atid = getattr(away_team, "team_id", None)
+    home_team_id: str | None = str(htid) if isinstance(htid, (str, int)) else None
+    away_team_id: str | None = str(atid) if isinstance(atid, (str, int)) else None
+
     for frame in dataset:  # type: ignore[union-attr]
         frame_id: int = frame.frame_id
         period: int = frame.period.id
         timestamp: float = frame.timestamp.total_seconds() if frame.timestamp else 0.0
 
-        # Ball coordinates
+        # Ball state: kloppy BallState enum (e.g. ALIVE / DEAD). None-safe —
+        # some providers leave this unset; bronze still emits the column.
+        bs_enum = getattr(frame, "ball_state", None)
+        ball_state: str | None = None
+        if bs_enum is not None:
+            bs_val = getattr(bs_enum, "value", None)
+            if isinstance(bs_val, str):
+                ball_state = bs_val
+
+        # Ball-owning team: Team object or None. Stored as team_id string.
+        bot = getattr(frame, "ball_owning_team", None)
+        ball_owning_team_id: str | None = None
+        if bot is not None:
+            bot_id = getattr(bot, "team_id", None)
+            if isinstance(bot_id, (str, int)):
+                ball_owning_team_id = str(bot_id)
+
+        # Ball coordinates (x, y; z when the provider emits 3D — broadcast
+        # tracking rarely does, but the column is carried for parity with
+        # optical providers that would).
         ball_x: float | None = None
         ball_y: float | None = None
+        ball_z: float | None = None
         if frame.ball_coordinates is not None:
             bx = frame.ball_coordinates.x
             by = frame.ball_coordinates.y
+            bz = getattr(frame.ball_coordinates, "z", None)
             if bx is not None and not (isinstance(bx, float) and math.isnan(bx)):
                 ball_x = round(float(bx), 4)
             if by is not None and not (isinstance(by, float) and math.isnan(by)):
                 ball_y = round(float(by), 4)
+            # isinstance-int-or-float guard rejects MagicMock cleanly in tests.
+            if isinstance(bz, (int, float)) and not math.isnan(float(bz)):
+                ball_z = round(float(bz), 4)
 
         # Player coordinates
         if frame.players_coordinates is None:
@@ -152,9 +193,16 @@ def _dataset_to_rows(
             # SkillCorner's kloppy mapping (role ID 1 → Unknown) does not expose
             # Goalkeeper, so we also fall back to jersey_no == 1 as heuristic.
             sp = getattr(player, "starting_position", None)
-            sp_name = getattr(sp, "name", None) if sp is not None else None
+            sp_name_raw = getattr(sp, "name", None) if sp is not None else None
+            sp_name: str | None = sp_name_raw if isinstance(sp_name_raw, str) else None
             jersey = getattr(player, "jersey_no", None)
             is_gk = sp_name == "Goalkeeper" or (sp_name in (None, "Unknown") and jersey == 1)
+
+            # is_visible: kloppy Point may carry per-player visibility on
+            # some providers. None when kloppy doesn't expose it
+            # (SkillCorner open data currently) — bronze-completeness.
+            iv = getattr(point, "is_visible", None)
+            is_visible: bool | None = iv if isinstance(iv, bool) else None
 
             rows.append(
                 {
@@ -163,13 +211,20 @@ def _dataset_to_rows(
                     "timestamp": round(timestamp, 4),
                     "player_id": str(player.player_id),
                     "team": team_str,
+                    "home_team_id": home_team_id,
+                    "away_team_id": away_team_id,
                     "x": round(float(px), 4),
                     "y": round(float(py), 4),
                     "ball_x": ball_x,
                     "ball_y": ball_y,
+                    "ball_z": ball_z,
+                    "ball_state": ball_state,
+                    "ball_owning_team_id": ball_owning_team_id,
                     "match_id": prefixed_match_id,
                     "frame_rate": _FRAME_RATE,
                     "is_goalkeeper": is_gk,
+                    "position_name": sp_name,
+                    "is_visible": is_visible,
                 }
             )
 
@@ -231,6 +286,22 @@ def ingest_skillcorner(
         if rows:
             df = pd.DataFrame(rows)
             df = _smooth_tracking(df)
+            # Force nullable pandas dtypes on the new bronze-completeness columns
+            # so Spark doesn't infer NullType when kloppy leaves a field unset
+            # for all frames of a match (e.g., ball_z / is_visible on
+            # broadcast-source SkillCorner data). Dense typed columns keep
+            # the Delta schema stable across match-level writes.
+            df = df.astype(
+                {
+                    "ball_z": "Float64",
+                    "is_visible": "boolean",
+                    "ball_state": "string",
+                    "ball_owning_team_id": "string",
+                    "position_name": "string",
+                    "home_team_id": "string",
+                    "away_team_id": "string",
+                }
+            )
             sdf = spark.createDataFrame(df)
             row_count = validate_dataframe(sdf, required_cols, "skillcorner_tracking", logger)
             replace_expr = f"match_id = 'skillcorner_{mid}'"

@@ -37,6 +37,15 @@ shots as (
         shot_first_time                                    as is_first_time,
         shot_one_on_one                                    as is_one_on_one,
 
+        -- Shot attribute flags (PR 1.5 expansion — previously dropped).
+        shot_aerial_won,
+        shot_open_goal,
+        shot_redirect,
+        shot_follows_dribble,
+        shot_saved_off_target,
+        shot_saved_to_post,
+        shot_kick_off,
+
         -- Play pattern (e.g., Regular Play, From Corner)
         play_pattern,
 
@@ -63,7 +72,16 @@ shots as (
                 f -> f.teammate = true
             )),
             0
-        )                                                   as teammates_in_frame
+        )                                                   as teammates_in_frame,
+
+        -- Full freeze-frame polygon as a typed struct array. Each element is
+        -- {location: [x,y], teammate, actor, keeper, position_name}. Downstream
+        -- spatial analysis (pitch control, open-space metrics) reads the full
+        -- polygon rather than just the count. PR 1.5 expansion.
+        from_json(
+            shot_freeze_frame,
+            'ARRAY<STRUCT<location: ARRAY<DOUBLE>, teammate: BOOLEAN, actor: BOOLEAN, keeper: BOOLEAN, position: STRUCT<id: BIGINT, name: STRING>, player: STRUCT<id: BIGINT, name: STRING>>>'
+        )                                                   as shot_freeze_frame_parsed
 
     from events
     where event_type = 'Shot'

@@ -214,6 +214,9 @@ def _reshape_tracking_to_narrow(
     gk_jerseys = sorted(pid for pid in all_pids if pid == "1")
     gk_json = json.dumps(gk_jerseys)
 
+    # CSV path has no pitch-dim source (EPTS <FieldSize>); emit NaN for schema
+    # parity with Game 3. Dense float64 NaN column prevents Spark from
+    # inferring NullType, which would collide with EPTS's DoubleType on write.
     return pd.DataFrame(
         {
             "period": period_list,
@@ -226,6 +229,8 @@ def _reshape_tracking_to_narrow(
             "match_id": match_id,
             "frame_rate": 25,
             "gk_jersey_numbers": gk_json,
+            "pitch_length_m": np.full(n_rows, np.nan, dtype=np.float64),
+            "pitch_width_m": np.full(n_rows, np.nan, dtype=np.float64),
         }
     )
 

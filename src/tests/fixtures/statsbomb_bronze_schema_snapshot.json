@@ -1,0 +1,760 @@
+{
+  "schema_version": "statsbomb_bronze_2026_04",
+  "snapshot_source": "DESCRIBE TABLE soccer_analytics.bronze.statsbomb_* on 2026-04-21. Refresh when statsbomb ingestion adds cols (statsbombpy surfaces new event attrs or ingestion.statsbomb.py adds derived cols).",
+  "tables": {
+    "statsbomb_competitions": [
+      {
+        "name": "competition_id",
+        "type": "bigint"
+      },
+      {
+        "name": "season_id",
+        "type": "bigint"
+      },
+      {
+        "name": "country_name",
+        "type": "string"
+      },
+      {
+        "name": "competition_name",
+        "type": "string"
+      },
+      {
+        "name": "competition_gender",
+        "type": "string"
+      },
+      {
+        "name": "competition_youth",
+        "type": "boolean"
+      },
+      {
+        "name": "competition_international",
+        "type": "boolean"
+      },
+      {
+        "name": "season_name",
+        "type": "string"
+      },
+      {
+        "name": "match_updated",
+        "type": "string"
+      },
+      {
+        "name": "match_updated_360",
+        "type": "string"
+      },
+      {
+        "name": "match_available_360",
+        "type": "string"
+      },
+      {
+        "name": "match_available",
+        "type": "string"
+      },
+      {
+        "name": "_ingested_at",
+        "type": "timestamp"
+      }
+    ],
+    "statsbomb_matches": [
+      {
+        "name": "match_id",
+        "type": "bigint"
+      },
+      {
+        "name": "match_date",
+        "type": "string"
+      },
+      {
+        "name": "kick_off",
+        "type": "string"
+      },
+      {
+        "name": "competition",
+        "type": "string"
+      },
+      {
+        "name": "season",
+        "type": "string"
+      },
+      {
+        "name": "home_team",
+        "type": "string"
+      },
+      {
+        "name": "away_team",
+        "type": "string"
+      },
+      {
+        "name": "home_score",
+        "type": "bigint"
+      },
+      {
+        "name": "away_score",
+        "type": "bigint"
+      },
+      {
+        "name": "match_status",
+        "type": "string"
+      },
+      {
+        "name": "match_status_360",
+        "type": "string"
+      },
+      {
+        "name": "last_updated",
+        "type": "string"
+      },
+      {
+        "name": "last_updated_360",
+        "type": "string"
+      },
+      {
+        "name": "match_week",
+        "type": "bigint"
+      },
+      {
+        "name": "competition_stage",
+        "type": "string"
+      },
+      {
+        "name": "stadium",
+        "type": "string"
+      },
+      {
+        "name": "referee",
+        "type": "string"
+      },
+      {
+        "name": "home_managers",
+        "type": "string"
+      },
+      {
+        "name": "away_managers",
+        "type": "string"
+      },
+      {
+        "name": "data_version",
+        "type": "string"
+      },
+      {
+        "name": "shot_fidelity_version",
+        "type": "string"
+      },
+      {
+        "name": "xy_fidelity_version",
+        "type": "string"
+      },
+      {
+        "name": "competition_id",
+        "type": "bigint"
+      },
+      {
+        "name": "season_id",
+        "type": "bigint"
+      },
+      {
+        "name": "_ingested_at",
+        "type": "timestamp"
+      }
+    ],
+    "statsbomb_events": [
+      {
+        "name": "50_50",
+        "type": "string"
+      },
+      {
+        "name": "bad_behaviour_card",
+        "type": "string"
+      },
+      {
+        "name": "ball_receipt_outcome",
+        "type": "string"
+      },
+      {
+        "name": "ball_recovery_recovery_failure",
+        "type": "boolean"
+      },
+      {
+        "name": "block_deflection",
+        "type": "boolean"
+      },
+      {
+        "name": "block_save_block",
+        "type": "boolean"
+      },
+      {
+        "name": "carry_end_location",
+        "type": "string"
+      },
+      {
+        "name": "clearance_aerial_won",
+        "type": "boolean"
+      },
+      {
+        "name": "clearance_body_part",
+        "type": "string"
+      },
+      {
+        "name": "clearance_head",
+        "type": "boolean"
+      },
+      {
+        "name": "clearance_left_foot",
+        "type": "boolean"
+      },
+      {
+        "name": "clearance_right_foot",
+        "type": "boolean"
+      },
+      {
+        "name": "counterpress",
+        "type": "boolean"
+      },
+      {
+        "name": "dribble_nutmeg",
+        "type": "boolean"
+      },
+      {
+        "name": "dribble_outcome",
+        "type": "string"
+      },
+      {
+        "name": "duel_outcome",
+        "type": "string"
+      },
+      {
+        "name": "duel_type",
+        "type": "string"
+      },
+      {
+        "name": "duration",
+        "type": "double"
+      },
+      {
+        "name": "foul_committed_advantage",
+        "type": "boolean"
+      },
+      {
+        "name": "foul_committed_card",
+        "type": "string"
+      },
+      {
+        "name": "foul_committed_penalty",
+        "type": "boolean"
+      },
+      {
+        "name": "foul_won_advantage",
+        "type": "boolean"
+      },
+      {
+        "name": "foul_won_defensive",
+        "type": "boolean"
+      },
+      {
+        "name": "foul_won_penalty",
+        "type": "boolean"
+      },
+      {
+        "name": "goalkeeper_body_part",
+        "type": "string"
+      },
+      {
+        "name": "goalkeeper_end_location",
+        "type": "string"
+      },
+      {
+        "name": "goalkeeper_outcome",
+        "type": "string"
+      },
+      {
+        "name": "goalkeeper_position",
+        "type": "string"
+      },
+      {
+        "name": "goalkeeper_technique",
+        "type": "string"
+      },
+      {
+        "name": "goalkeeper_type",
+        "type": "string"
+      },
+      {
+        "name": "id",
+        "type": "string"
+      },
+      {
+        "name": "index",
+        "type": "bigint"
+      },
+      {
+        "name": "injury_stoppage_in_chain",
+        "type": "boolean"
+      },
+      {
+        "name": "interception_outcome",
+        "type": "string"
+      },
+      {
+        "name": "location",
+        "type": "string"
+      },
+      {
+        "name": "match_id",
+        "type": "bigint"
+      },
+      {
+        "name": "minute",
+        "type": "bigint"
+      },
+      {
+        "name": "off_camera",
+        "type": "boolean"
+      },
+      {
+        "name": "out",
+        "type": "boolean"
+      },
+      {
+        "name": "pass_aerial_won",
+        "type": "boolean"
+      },
+      {
+        "name": "pass_angle",
+        "type": "double"
+      },
+      {
+        "name": "pass_assisted_shot_id",
+        "type": "string"
+      },
+      {
+        "name": "pass_body_part",
+        "type": "string"
+      },
+      {
+        "name": "pass_cross",
+        "type": "boolean"
+      },
+      {
+        "name": "pass_cut_back",
+        "type": "boolean"
+      },
+      {
+        "name": "pass_deflected",
+        "type": "boolean"
+      },
+      {
+        "name": "pass_end_location",
+        "type": "string"
+      },
+      {
+        "name": "pass_goal_assist",
+        "type": "boolean"
+      },
+      {
+        "name": "pass_height",
+        "type": "string"
+      },
+      {
+        "name": "pass_inswinging",
+        "type": "boolean"
+      },
+      {
+        "name": "pass_length",
+        "type": "double"
+      },
+      {
+        "name": "pass_outcome",
+        "type": "string"
+      },
+      {
+        "name": "pass_outswinging",
+        "type": "boolean"
+      },
+      {
+        "name": "pass_recipient",
+        "type": "string"
+      },
+      {
+        "name": "pass_recipient_id",
+        "type": "double"
+      },
+      {
+        "name": "pass_shot_assist",
+        "type": "boolean"
+      },
+      {
+        "name": "pass_switch",
+        "type": "boolean"
+      },
+      {
+        "name": "pass_technique",
+        "type": "string"
+      },
+      {
+        "name": "pass_through_ball",
+        "type": "boolean"
+      },
+      {
+        "name": "pass_type",
+        "type": "string"
+      },
+      {
+        "name": "period",
+        "type": "bigint"
+      },
+      {
+        "name": "play_pattern",
+        "type": "string"
+      },
+      {
+        "name": "player",
+        "type": "string"
+      },
+      {
+        "name": "player_id",
+        "type": "double"
+      },
+      {
+        "name": "position",
+        "type": "string"
+      },
+      {
+        "name": "possession",
+        "type": "bigint"
+      },
+      {
+        "name": "possession_team",
+        "type": "string"
+      },
+      {
+        "name": "possession_team_id",
+        "type": "bigint"
+      },
+      {
+        "name": "related_events",
+        "type": "string"
+      },
+      {
+        "name": "second",
+        "type": "bigint"
+      },
+      {
+        "name": "shot_aerial_won",
+        "type": "boolean"
+      },
+      {
+        "name": "shot_body_part",
+        "type": "string"
+      },
+      {
+        "name": "shot_end_location",
+        "type": "string"
+      },
+      {
+        "name": "shot_first_time",
+        "type": "boolean"
+      },
+      {
+        "name": "shot_freeze_frame",
+        "type": "string"
+      },
+      {
+        "name": "shot_key_pass_id",
+        "type": "string"
+      },
+      {
+        "name": "shot_one_on_one",
+        "type": "boolean"
+      },
+      {
+        "name": "shot_outcome",
+        "type": "string"
+      },
+      {
+        "name": "shot_statsbomb_xg",
+        "type": "double"
+      },
+      {
+        "name": "shot_technique",
+        "type": "string"
+      },
+      {
+        "name": "shot_type",
+        "type": "string"
+      },
+      {
+        "name": "substitution_outcome",
+        "type": "string"
+      },
+      {
+        "name": "substitution_outcome_id",
+        "type": "double"
+      },
+      {
+        "name": "substitution_replacement",
+        "type": "string"
+      },
+      {
+        "name": "substitution_replacement_id",
+        "type": "double"
+      },
+      {
+        "name": "tactics",
+        "type": "string"
+      },
+      {
+        "name": "team",
+        "type": "string"
+      },
+      {
+        "name": "team_id",
+        "type": "bigint"
+      },
+      {
+        "name": "timestamp",
+        "type": "string"
+      },
+      {
+        "name": "type",
+        "type": "string"
+      },
+      {
+        "name": "under_pressure",
+        "type": "boolean"
+      },
+      {
+        "name": "competition_id",
+        "type": "bigint"
+      },
+      {
+        "name": "season_id",
+        "type": "bigint"
+      },
+      {
+        "name": "ball_recovery_offensive",
+        "type": "boolean"
+      },
+      {
+        "name": "block_offensive",
+        "type": "boolean"
+      },
+      {
+        "name": "dribble_overrun",
+        "type": "boolean"
+      },
+      {
+        "name": "foul_committed_type",
+        "type": "string"
+      },
+      {
+        "name": "miscontrol_aerial_won",
+        "type": "boolean"
+      },
+      {
+        "name": "foul_committed_offensive",
+        "type": "boolean"
+      },
+      {
+        "name": "shot_deflected",
+        "type": "boolean"
+      },
+      {
+        "name": "pass_miscommunication",
+        "type": "boolean"
+      },
+      {
+        "name": "pass_no_touch",
+        "type": "boolean"
+      },
+      {
+        "name": "goalkeeper_punched_out",
+        "type": "boolean"
+      },
+      {
+        "name": "pass_straight",
+        "type": "boolean"
+      },
+      {
+        "name": "shot_open_goal",
+        "type": "boolean"
+      },
+      {
+        "name": "dribble_no_touch",
+        "type": "boolean"
+      },
+      {
+        "name": "goalkeeper_shot_saved_off_target",
+        "type": "boolean"
+      },
+      {
+        "name": "shot_saved_off_target",
+        "type": "boolean"
+      },
+      {
+        "name": "goalkeeper_shot_saved_to_post",
+        "type": "boolean"
+      },
+      {
+        "name": "shot_saved_to_post",
+        "type": "boolean"
+      },
+      {
+        "name": "clearance_other",
+        "type": "boolean"
+      },
+      {
+        "name": "goalkeeper_success_out",
+        "type": "boolean"
+      },
+      {
+        "name": "goalkeeper_success_in_play",
+        "type": "boolean"
+      },
+      {
+        "name": "_ingested_at",
+        "type": "timestamp"
+      },
+      {
+        "name": "shot_redirect",
+        "type": "boolean"
+      },
+      {
+        "name": "goalkeeper_lost_out",
+        "type": "boolean"
+      },
+      {
+        "name": "shot_follows_dribble",
+        "type": "boolean"
+      },
+      {
+        "name": "half_start_late_video_start",
+        "type": "boolean"
+      },
+      {
+        "name": "player_off_permanent",
+        "type": "boolean"
+      },
+      {
+        "name": "pass_backheel",
+        "type": "boolean"
+      },
+      {
+        "name": "goalkeeper_lost_in_play",
+        "type": "boolean"
+      },
+      {
+        "name": "half_end_early_video_end",
+        "type": "boolean"
+      },
+      {
+        "name": "goalkeeper_penalty_saved_to_post",
+        "type": "boolean"
+      },
+      {
+        "name": "goalkeeper_saved_to_post",
+        "type": "boolean"
+      },
+      {
+        "name": "shot_kick_off",
+        "type": "boolean"
+      },
+      {
+        "name": "_raw_extra_json",
+        "type": "string"
+      }
+    ],
+    "statsbomb_lineups": [
+      {
+        "name": "player_id",
+        "type": "bigint"
+      },
+      {
+        "name": "player_name",
+        "type": "string"
+      },
+      {
+        "name": "player_nickname",
+        "type": "string"
+      },
+      {
+        "name": "jersey_number",
+        "type": "bigint"
+      },
+      {
+        "name": "country",
+        "type": "string"
+      },
+      {
+        "name": "cards",
+        "type": "string"
+      },
+      {
+        "name": "positions",
+        "type": "string"
+      },
+      {
+        "name": "match_id",
+        "type": "bigint"
+      },
+      {
+        "name": "team_name",
+        "type": "string"
+      },
+      {
+        "name": "competition_id",
+        "type": "bigint"
+      },
+      {
+        "name": "season_id",
+        "type": "bigint"
+      },
+      {
+        "name": "_ingested_at",
+        "type": "timestamp"
+      }
+    ],
+    "statsbomb_360": [
+      {
+        "name": "id",
+        "type": "string"
+      },
+      {
+        "name": "visible_area",
+        "type": "string"
+      },
+      {
+        "name": "match_id",
+        "type": "bigint"
+      },
+      {
+        "name": "teammate",
+        "type": "boolean"
+      },
+      {
+        "name": "actor",
+        "type": "boolean"
+      },
+      {
+        "name": "keeper",
+        "type": "boolean"
+      },
+      {
+        "name": "location",
+        "type": "string"
+      },
+      {
+        "name": "competition_id",
+        "type": "bigint"
+      },
+      {
+        "name": "season_id",
+        "type": "bigint"
+      },
+      {
+        "name": "_ingested_at",
+        "type": "timestamp"
+      }
+    ]
+  }
+}

@@ -220,3 +220,43 @@ resource "databricks_mws_permission_assignment" "dbt_owners_workspace" {
   principal_id = databricks_group.dbt_owners.id
   permissions  = ["USER"]
 }
+
+# ── lakehouse-operators group: human ad-hoc MODIFY access on bronze ─────────
+# PR 1.5 (2026-04-21): Unity Catalog decouples schema OWNERSHIP from data
+# MODIFY — the schema owner can GRANT MODIFY but does not automatically
+# HOLD MODIFY. Operators who need to do ad-hoc bronze operations (e.g.
+# `DELETE FROM bronze.* ` to force re-ingestion after a schema-change) hit
+# `PERMISSION_DENIED: User does not have MODIFY on Table` until they
+# self-grant. This group codifies the self-grant so the first operator
+# to deploy doesn't have to rediscover the UC quirk, and adding a second
+# operator becomes a one-line `databricks_group_member` change instead of
+# a manual `GRANT MODIFY ON SCHEMA` step per operator.
+#
+# Scope is intentionally narrow: MODIFY + SELECT on BRONZE only. Silver
+# and gold are dbt-managed — the `dbt-owners-{env}` group handles their
+# ownership-chain semantics, and ad-hoc human DML against dbt-built marts
+# is discouraged (it would drift from dbt's model contracts).
+#
+# Members: the deploying user (always) + any future operators via
+# explicit `databricks_group_member` additions. The ingestion SP is NOT
+# a member — it already has MODIFY via per-schema grants and doesn't
+# need group-based inheritance.
+
+resource "databricks_group" "lakehouse_operators" {
+  provider     = databricks.account
+  display_name = "lakehouse-operators-${var.environment}"
+}
+
+resource "databricks_group_member" "lakehouse_operators_deployer" {
+  provider  = databricks.account
+  group_id  = databricks_group.lakehouse_operators.id
+  member_id = data.databricks_user.deployer.id
+}
+
+# Assign the group to the workspace so UC grants resolve.
+resource "databricks_mws_permission_assignment" "lakehouse_operators_workspace" {
+  provider     = databricks.account
+  workspace_id = var.workspace_id
+  principal_id = databricks_group.lakehouse_operators.id
+  permissions  = ["USER"]
+}

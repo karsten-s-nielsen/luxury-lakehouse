@@ -174,13 +174,20 @@ class TestDatasetToRows:
             "timestamp",
             "player_id",
             "team",
+            "home_team_id",
+            "away_team_id",
             "x",
             "y",
             "ball_x",
             "ball_y",
+            "ball_z",
+            "ball_state",
+            "ball_owning_team_id",
             "match_id",
             "frame_rate",
             "is_goalkeeper",
+            "position_name",
+            "is_visible",
         }
         assert set(rows[0].keys()) == expected_keys
 

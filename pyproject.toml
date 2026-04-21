@@ -1,6 +1,6 @@
 [project]
 name = "luxury-lakehouse"
-version = "0.3.5"
+version = "0.3.6"
 description = "Serverless soccer analytics platform built on Databricks Lakebase"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -198,6 +198,13 @@ reportMissingImports = "warning"  # pyspark only available in Databricks runtime
 extraPaths = [
     "scripts",
     "hf_taipy_app/src",
+    # src/tests is a pytest package (has __init__.py); intra-test helper
+    # imports use the short name (``from coverage_utils import ...``) which
+    # pytest resolves because the package root is inserted onto sys.path
+    # automatically at collection time. Listing it here lets pyright
+    # resolve the same imports statically; otherwise every test that uses
+    # a shared helper under src/tests/ emits reportMissingImports.
+    "src/tests",
 ]
 exclude = [
     "demo_space",

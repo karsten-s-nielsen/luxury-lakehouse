@@ -22,6 +22,11 @@ output "dbt_owners_group_display_name" {
   value       = databricks_group.dbt_owners.display_name
 }
 
+output "lakehouse_operators_group_display_name" {
+  description = "Display name of the lakehouse-operators group (PR 1.5 — human ad-hoc MODIFY on bronze)"
+  value       = databricks_group.lakehouse_operators.display_name
+}
+
 output "deployer_account_email" {
   description = "Account email of the human deployer (warehouse IS_OWNER, dbt-owners member)"
   value       = var.deployer_account_email

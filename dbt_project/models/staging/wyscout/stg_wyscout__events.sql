@@ -36,6 +36,7 @@ cleaned as (
         -- (eventId is an event TYPE code, not unique)
         cast(id as string)                                  as event_sk,
         eventId                                             as event_id,
+        cast(subEventId as int)                             as sub_event_id,
         matchId                                             as match_id,
 
         -- Event classification
@@ -64,12 +65,33 @@ cleaned as (
         {{ normalize_x('get(parsed_positions, 1).x', 'pct') }} as end_x,
         {{ normalize_y('get(parsed_positions, 1).y', 'pct') }} as end_y,
 
-        -- Tag-derived boolean flags
+        -- Tag-derived boolean flags. Tag IDs come from the Wyscout v3 spec;
+        -- PR 1.5 expanded from 5 to 21 decoders per bronze-completeness.
         exists(parsed_tags, t -> t.id = 101)                as is_goal,
         exists(parsed_tags, t -> t.id = 102)                as is_own_goal,
         exists(parsed_tags, t -> t.id = 301)                as is_assist,
         exists(parsed_tags, t -> t.id = 401)                as is_key_pass,
         exists(parsed_tags, t -> t.id = 1801)               as is_accurate,
+        exists(parsed_tags, t -> t.id = 1802)               as is_not_accurate,
+        exists(parsed_tags, t -> t.id = 702)                as is_head,
+        exists(parsed_tags, t -> t.id = 703)                as is_right_foot,
+        exists(parsed_tags, t -> t.id = 704)                as is_left_foot,
+        exists(parsed_tags, t -> t.id = 1601)               as is_counter_attack,
+        exists(parsed_tags, t -> t.id = 503)                as under_pressure,
+        exists(parsed_tags, t -> t.id = 1702)               as is_blocked,
+        exists(parsed_tags, t -> t.id = 1401)               as is_red_card,
+        exists(parsed_tags, t -> t.id = 1402)               as is_yellow_card,
+        exists(parsed_tags, t -> t.id = 601)                as is_sliding_tackle,
+        exists(parsed_tags, t -> t.id = 201)                as is_opportunity,
+        exists(parsed_tags, t -> t.id = 1701)               as is_dangerous_ball_lost,
+        exists(parsed_tags, t -> t.id = 501)                as is_free_space_right,
+        exists(parsed_tags, t -> t.id = 502)                as is_free_space_left,
+        exists(parsed_tags, t -> t.id = 801)                as is_high,
+        exists(parsed_tags, t -> t.id = 802)                as is_low,
+
+        -- Full parsed tag array pass-through for downstream consumers that
+        -- need raw tag IDs not covered by the boolean decoders above.
+        parsed_tags                                         as tags_parsed,
 
         -- Data provenance
         'wyscout'                                           as data_source
