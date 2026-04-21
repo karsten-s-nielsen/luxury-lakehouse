@@ -31,6 +31,9 @@ outputs:
     - id: "{catalog}.dev_gold.dim_competitions"
       destination: delta-table
       dbt_model: dim_competitions
+    - id: "{catalog}.dev_gold.dim_matches"
+      destination: delta-table
+      dbt_model: dim_matches
     - id: "{catalog}.dev_gold.dim_players"
       destination: delta-table
       dbt_model: dim_players
