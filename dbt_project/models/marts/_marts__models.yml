@@ -3246,3 +3246,79 @@ models:
       - name: _loaded_at
         data_type: timestamp
         description: Audit timestamp.
+
+  # ── Kimball Conformed Match Dimension (ADR-011) ───────────────────────
+  - name: dim_matches
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Conformed match dimension unifying all four providers (StatsBomb,
+      Wyscout, IDSSE, Metrica). Primary key is `match_key` — a deterministic
+      BIGINT surrogate generated via `generate_match_key(provider, native_match_id)`.
+      Natural keys are preserved as attributes for lineage.
+
+      PR 1 establishes this dim as the Kimball conformed dimension; no fact
+      tables reference it yet. PR 2 through PR 8 migrate existing facts
+      from their native-ID `match_id` columns to `match_key` FKs against
+      this dim. See ADR-011.
+    columns:
+      - name: match_key
+        data_type: bigint
+        description: >
+          Kimball surrogate primary key. Deterministic BIGINT hash of
+          (provider, native_match_id). Future facts reference this as FK.
+        data_tests:
+          - unique
+          - not_null
+      - name: provider
+        data_type: string
+        description: >
+          Data source that produced this match. One of: statsbomb, wyscout,
+          idsse, metrica.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica']
+      - name: native_match_id
+        data_type: string
+        description: >
+          Source-system-native match identifier, stringified (StatsBomb and
+          Wyscout stringify their BIGINT IDs; IDSSE and Metrica are natively
+          string). Together with `provider`, uniquely identifies a match.
+        data_tests:
+          - not_null
+      - name: competition_id
+        data_type: string
+        description: >
+          Provider-native competition ID. NULL for Metrica (anonymized). For
+          StatsBomb/Wyscout the BIGINT competition_id is stringified for uniform
+          typing across providers.
+      - name: season_id
+        data_type: string
+        description: >
+          Provider-native season ID, stringified. NULL for IDSSE/Metrica.
+      - name: match_date
+        data_type: date
+        description: Match calendar date. NULL for IDSSE/Metrica.
+      - name: home_team_name
+        data_type: string
+        description: >
+          Home team display name. Populated for StatsBomb and IDSSE.
+          NULL for Wyscout (staging doesn't expose names). Constant 'Home'
+          for Metrica (anonymised open-data).
+      - name: away_team_name
+        data_type: string
+        description: >
+          Away team display name. Populated for StatsBomb and IDSSE.
+          NULL for Wyscout (staging doesn't expose names). Constant 'Away'
+          for Metrica (anonymised open-data).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - provider
+            - native_match_id

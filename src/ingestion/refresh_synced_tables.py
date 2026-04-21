@@ -140,6 +140,8 @@ SYNCED_TABLES: list[tuple[str, str | None]] = [
     ("dim_players_synced", None),
     ("dim_teams_synced", None),
     ("dim_competitions_synced", None),
+    # Kimball conformed match dimension added 2026-04-20 (ADR-011)
+    ("dim_matches_synced", None),
 ]
 
 POLL_INTERVAL_S = 30

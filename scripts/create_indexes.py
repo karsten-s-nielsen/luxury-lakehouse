@@ -33,7 +33,10 @@ import psycopg2
 import requests
 
 DATABRICKS_HOST = os.environ["DATABRICKS_HOST"]  # Required — fail fast if missing
-LAKEBASE_HOST = os.environ["LAKEBASE_HOST"]  # Required — fail fast if missing
+# LAKEBASE_HOST is auto-discovered via _get_lakebase_dns() when not set.
+# Kept as an escape hatch for local development behind network proxies
+# that need an explicit hostname override.
+LAKEBASE_HOST_OVERRIDE = os.environ.get("LAKEBASE_HOST")
 ENDPOINT_NAME = os.environ.get(
     "LAKEBASE_ENDPOINT_NAME", "projects/soccer-analytics-dev/branches/production/endpoints/primary"
 )
@@ -192,6 +195,13 @@ INDEXES: list[tuple[str, str, str]] = [
     # fetch_discipline_events(). Tiny table; single-column match_id composite
     # index gives sub-10ms Index Scan on PG.
     ("idx_discipline_events_match", "fct_discipline_events_synced", "match_id"),
+    # ── dim_matches_synced — Kimball conformed match dimension (ADR-011, PR 1) ──
+    # ~5,410 rows (statsbomb + wyscout + 7 idsse + 3 metrica). Primary access
+    # pattern during PR 2-8 migration: join fct_*.match_key = dim_matches.match_key.
+    # Secondary pattern: debug path `WHERE provider = %s AND native_match_id = %s`
+    # for mapping a surrogate back to the source-system native ID.
+    ("idx_dim_matches_match_key", "dim_matches_synced", "match_key"),
+    ("idx_dim_matches_provider_native", "dim_matches_synced", "provider, native_match_id"),
 ]
 
 # pgvector HNSW index definitions: (index_name, table, using_clause)
@@ -308,6 +318,18 @@ VERIFY_QUERIES: list[tuple[str, str]] = [
         "fct_funnel_stages_agg: season opponent-side (idx_funnel_agg_comp_opp_gs)",
         f"SELECT * FROM {SCHEMA}.fct_funnel_stages_agg_synced"  # noqa: S608
         " WHERE competition_id = 11 AND opponent_team_id = 217 LIMIT 1",
+    ),
+    (
+        "dim_matches: surrogate PK lookup (idx_dim_matches_match_key)",
+        # Example match_key for ('idsse', 'J03WMX') — deterministic xxhash64
+        # output. If the macro implementation changes the key will change.
+        f"SELECT * FROM {SCHEMA}.dim_matches_synced"  # noqa: S608
+        " WHERE match_key = 4203055498971744044 LIMIT 1",
+    ),
+    (
+        "dim_matches: (provider, native_match_id) debug lookup (idx_dim_matches_provider_native)",
+        f"SELECT * FROM {SCHEMA}.dim_matches_synced"  # noqa: S608
+        " WHERE provider = 'idsse' AND native_match_id = 'J03WMX' LIMIT 1",
     ),
 ]
 
@@ -504,6 +526,72 @@ def _verify_indexes(conn: psycopg2.extensions.connection) -> int:
     return error_count
 
 
+def _get_lakebase_dns() -> str:
+    """Discover the Lakebase endpoint DNS via the Databricks REST API.
+
+    Matches the pattern in ``scripts/run_lakebase_grants.py`` so both
+    scripts agree on the single source of truth (``terraform output``
+    via the endpoint name) and neither requires a hand-set
+    ``LAKEBASE_HOST`` env var in CI. Honours the ``LAKEBASE_HOST``
+    override when set for local-dev scenarios.
+    """
+    if LAKEBASE_HOST_OVERRIDE:
+        return LAKEBASE_HOST_OVERRIDE
+
+    try:
+        from databricks.sdk import WorkspaceClient
+
+        ws = WorkspaceClient()
+        host = (ws.config.host or "").rstrip("/")
+        auth_headers: dict[str, str] = ws.config.authenticate()  # type: ignore[assignment]
+    except Exception:
+        # Fall back to PAT directly from env var
+        host = DATABRICKS_HOST.rstrip("/")
+        auth_headers = {"Authorization": f"Bearer {os.environ['DATABRICKS_TOKEN']}"}
+
+    project_path = ENDPOINT_NAME.rsplit("/endpoints/", 1)[0]
+    resp = requests.get(
+        f"{host}/api/2.0/postgres/{project_path}/endpoints",
+        headers=auth_headers,
+        verify=True,
+        timeout=(10, 30),
+    )
+    resp.raise_for_status()
+    endpoints = resp.json().get("endpoints", [])
+    if not endpoints:
+        raise RuntimeError(f"No endpoints found under {project_path}")
+
+    def _ep_dns(ep: dict[str, object]) -> str | None:
+        # Shape per the `/api/2.0/postgres/.../endpoints` response:
+        #   endpoint.status.hosts.host = "ep-<name>.database.<region>.cloud.databricks.com"
+        status = ep.get("status")
+        if isinstance(status, dict):
+            hosts = status.get("hosts")
+            if isinstance(hosts, dict):
+                val = hosts.get("host")
+                if isinstance(val, str) and val:
+                    return val
+        return None
+
+    # Common case — single endpoint per project in this setup; just use it.
+    if len(endpoints) == 1:
+        dns = _ep_dns(endpoints[0])
+        if dns:
+            return dns
+
+    # Multi-endpoint case — match by the suffix of ENDPOINT_NAME.
+    endpoint_suffix = ENDPOINT_NAME.rsplit("/endpoints/", 1)[1]
+    for ep in endpoints:
+        name = ep.get("name", "")
+        if isinstance(name, str) and (name.endswith(f"/endpoints/{endpoint_suffix}") or name == endpoint_suffix):
+            dns = _ep_dns(ep)
+            if dns:
+                return dns
+    raise RuntimeError(
+        f"Endpoint suffix '{endpoint_suffix}' not found in {len(endpoints)} endpoints returned under {project_path}"
+    )
+
+
 def main() -> None:
     """Create all indexes idempotently, with optional EXPLAIN verification."""
     parser = argparse.ArgumentParser(description="Create PG indexes on Lakebase synced tables.")
@@ -513,8 +601,11 @@ def main() -> None:
     pg_token, username = _get_pg_credential()
     print(f"PG user: {username}")
 
+    lakebase_dns = _get_lakebase_dns()
+    print(f"Lakebase DNS: {lakebase_dns}")
+
     conn = psycopg2.connect(
-        host=LAKEBASE_HOST,
+        host=lakebase_dns,
         port=5432,
         dbname=PG_DATABASE,
         user=username,
