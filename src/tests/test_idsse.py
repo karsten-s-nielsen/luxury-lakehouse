@@ -92,6 +92,39 @@ _POSITIONS_XML_BALL_LAST = """\
 """
 
 
+# PR 1.6 regression fixture: DFL position XML with NON-ZERO period-start frame
+# numbers. Real DFL data starts period 1 at frame ~10000 and period 2 at
+# ~100000 (frame numbers are absolute across the match, not reset per period).
+# Under the old absolute-timestamp logic (timestamp = n / 25), frame 10000
+# → 400.0s, which never matches the event side's period-relative 0s timestamp.
+# Under the fixed period-relative logic, frame 10000 → 0.0s.
+_POSITIONS_XML_ABSOLUTE_FRAMES = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<PutDataRequest>
+<Positions>
+<FrameSet GameSection="firstHalf" MatchId="DFL-MAT-J03WMX" TeamId="BALL" PersonId="DFL-OBJ-0000XT">
+<Frame N="10000" X="0.5" Y="1.0"/>
+<Frame N="10001" X="1.5" Y="2.0"/>
+<Frame N="10002" X="2.5" Y="3.0"/>
+</FrameSet>
+<FrameSet GameSection="firstHalf" MatchId="DFL-MAT-J03WMX" TeamId="DFL-CLU-000008" PersonId="H001">
+<Frame N="10000" X="-10.5" Y="5.2"/>
+<Frame N="10001" X="-10.0" Y="5.5"/>
+<Frame N="10002" X="-9.5" Y="5.8"/>
+</FrameSet>
+<FrameSet GameSection="secondHalf" MatchId="DFL-MAT-J03WMX" TeamId="BALL" PersonId="DFL-OBJ-0000XT">
+<Frame N="100000" X="0.0" Y="0.0"/>
+<Frame N="100001" X="0.1" Y="0.1"/>
+</FrameSet>
+<FrameSet GameSection="secondHalf" MatchId="DFL-MAT-J03WMX" TeamId="DFL-CLU-000008" PersonId="H001">
+<Frame N="100000" X="-5.0" Y="0.0"/>
+<Frame N="100001" X="-5.5" Y="0.5"/>
+</FrameSet>
+</Positions>
+</PutDataRequest>
+"""
+
+
 def _write_temp_xml(content: str) -> str:
     """Write XML content to a temporary file and return the path."""
     fd, path = tempfile.mkstemp(suffix=".xml")
@@ -303,6 +336,85 @@ class TestBallOrderingAssumption:
         finally:
             os.unlink(info_path)
             os.unlink(pos_path)
+
+
+class TestPeriodRelativeTimestamps:
+    """PR 1.6 regression: tracking timestamps must be period-relative, not absolute.
+
+    Pre-PR-1.6, ``_parse_positions_xml`` computed ``timestamp = frame_n / 25``,
+    which produced absolute-frame-seconds (e.g. 400s for frame 10000) that never
+    aligned with events' period-relative ``timestamp_seconds`` (0-2820s range).
+    The temporal join in ``line_breaking_tracking._process_idsse_tracking``
+    consequently produced zero rows for the idsse_tracking data source — a
+    silent failure exposed only when PR 1.5 fixed the upstream event_type
+    filter. These tests use a fixture with DFL-realistic non-zero starting
+    frames (period 1 @ 10000, period 2 @ 100000) and would FAIL under the
+    old absolute-timestamp logic.
+    """
+
+    def _get_rows(self) -> dict[int, list[dict[str, object]]]:
+        info_path = _write_temp_xml(_MATCH_INFO_XML)
+        pos_path = _write_temp_xml(_POSITIONS_XML_ABSOLUTE_FRAMES)
+        try:
+            _h, _a, ptm, _gk = _parse_teams(info_path)
+            return _parse_positions_xml(pos_path, ptm, "J03WMX", _logger)
+        finally:
+            os.unlink(info_path)
+            os.unlink(pos_path)
+
+    def test_period_1_first_frame_is_timestamp_zero(self) -> None:
+        """Frame 10000 (period 1's first frame) must emit timestamp = 0.0, not 400.0."""
+        rows = self._get_rows()[1]
+        first_frame = [r for r in rows if r["frame"] == 10000]
+        assert len(first_frame) > 0
+        assert first_frame[0]["timestamp"] == 0.0, (
+            f"Expected period-relative timestamp 0.0 for period 1's first frame, "
+            f"got {first_frame[0]['timestamp']!r}. If this is 400.0, the absolute-"
+            f"frame-second bug from PR 1.5 regressed."
+        )
+
+    def test_period_1_subsequent_frames_are_period_relative(self) -> None:
+        """Frames 10001, 10002 must emit 0.04s, 0.08s (step of 1/25 per frame)."""
+        rows = self._get_rows()[1]
+        by_frame = {r["frame"]: r["timestamp"] for r in rows}
+        assert by_frame[10000] == 0.0
+        assert by_frame[10001] == round(1 / 25, 4)  # 0.04
+        assert by_frame[10002] == round(2 / 25, 4)  # 0.08
+
+    def test_period_2_first_frame_is_timestamp_zero(self) -> None:
+        """Period 2's first frame (100000) must emit timestamp = 0.0, not 4000.0.
+
+        Period 2's period_first_frame tracking is independent from period 1 —
+        both periods reset to timestamp 0.0 at their respective first frames.
+        """
+        rows = self._get_rows()[2]
+        first_frame = [r for r in rows if r["frame"] == 100000]
+        assert len(first_frame) > 0
+        assert first_frame[0]["timestamp"] == 0.0
+
+    def test_period_2_subsequent_frames_are_period_relative(self) -> None:
+        """Period 2 frame 100001 must emit timestamp = 0.04 (1/25), not 4000.04."""
+        rows = self._get_rows()[2]
+        by_frame = {r["frame"]: r["timestamp"] for r in rows}
+        assert by_frame[100000] == 0.0
+        assert by_frame[100001] == round(1 / 25, 4)
+
+    def test_absolute_frame_number_preserved_in_frame_column(self) -> None:
+        """The ``frame`` column still carries the ABSOLUTE DFL frame number.
+
+        Bronze-completeness: the period-relative timestamp is a derived
+        convenience; the absolute frame number remains the truth.
+        Downstream consumers can always recover absolute time via ``frame / 25``.
+        """
+        rows_p1 = self._get_rows()[1]
+        frames_p1 = {r["frame"] for r in rows_p1}
+        assert 10000 in frames_p1
+        assert 10001 in frames_p1
+        assert 10002 in frames_p1
+        rows_p2 = self._get_rows()[2]
+        frames_p2 = {r["frame"] for r in rows_p2}
+        assert 100000 in frames_p2
+        assert 100001 in frames_p2
 
 
 class TestSmoothTracking:
