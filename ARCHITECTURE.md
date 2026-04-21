@@ -912,11 +912,13 @@ Consolidated list of academic citations referenced across UI pages and analytics
 | Lee, Jo, Hong, Bauer & Ko (2026) | "Valuing La Pausa" (PAUSA). *MIT Sloan Sports Analytics Conference 2026* | Pass Timing page, `wf-obso-pausa` |
 | Pena & Touchette (2012) | "A network theory analysis of football strategies." *arXiv:1206.6904* | Pass Network page |
 | Robberechts & Davis (2020) | "How Data Availability Affects the Ability to Learn Good xG Models." | Match Summary, Shot Map, `wf-xg-v1` (replaced Rathke per D56 Option A, 2026-04-13) |
+| Shazeer, N. (2020) | "GLU Variants Improve Transformer." *arXiv:2002.05202* | `src/analytics/scoutgpt_decoder.py` (swiglu branch), `wf-scoutgpt` |
 | Singh, Karun (2018) | "Introducing Expected Threat (xT)." (blog: karun.in/blog/expected-threat.html) | Movement & Pressing, `wf-xt-grids`, `wf-off-ball-xt` |
 | Sotudeh, H. (2026) | "Identification of Team Tactical Formations and Player Positions in Association Football." *PhD thesis, ETH Zurich (DISS. ETH NO. 31732)*. Published: *npj Complexity*, DOI: 10.1038/s44260-025-00047-x | Tactical Positions, `src/analytics/shape_graph_construction.py`, `wf-shape-graphs` |
 | Spearman, W. (2017) | "Physics-Based Modeling of Pass Probabilities in Soccer." *MIT Sloan Sports Analytics Conference 2017* | Pitch Control, Movement & Pressing, `src/analytics/pitch_control.py`, `wf-pitch-control`, `wf-off-ball-xt` |
 | Spearman, W. (2018) | "Beyond Expected Goals." *MIT Sloan Sports Analytics Conference 2018* (builds on the 2017 framework; DO NOT CONFLATE with 2017) | Pass Timing, `src/analytics/obso.py`, `wf-obso-pausa`, `wf-import-obso`, `wf-space-creation`, `wf-epv-reachability` |
 | Suzuki et al. (2019) | "Team Tactics Estimation in Soccer Videos Based on a Deep Extreme Learning Machine and Characterized by Distance Matrices." DOI: 10.1515/jqas-2019-0060 | Pass Map page |
+| Tancik, M. et al. (2020) | "Fourier Features Let Networks Learn High Frequency Functions in Low Dimensional Domains." *arXiv:2006.10739* | `src/analytics/scoutgpt_decoder.py` (fourier_cross_attention branch), `wf-scoutgpt` |
 | Trainor & Chassy (2021) | "Psychological and Physiological Impact of Soccer's Transition Periods." *Frontiers in Psychology 11*. DOI: 10.3389/fpsyg.2020.531688 | Match Summary page |
 
 **Notes on the D56 audit (2026-04-13):**

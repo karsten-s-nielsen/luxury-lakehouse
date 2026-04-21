@@ -78,6 +78,23 @@ class ScoutGPTDecoder(nn.Module):
             self.film_shift = nn.Linear(hd, hd)
         elif c.conditioning_type == "gated":
             self.player_gate = nn.Sequential(nn.Linear(hd, hd), nn.Sigmoid())
+        elif c.conditioning_type == "fourier_cross_attention":
+            # NOTE: fourier_cross_attention bundles two architectural changes:
+            # (1) RFF spatial encoding (replaces the 4 SpatialMLPs), and
+            # (2) cross-attention conditioning (replaces additive conditioning).
+            # Future work: decompose into spatial_encoding x conditioning_type
+            # axes with a loader shim for backward compat. See
+            # docs/superpowers/specs/2026-04-20-scoutgpt-fourier-cross-attention-promote-design.md
+            n_freqs = 32  # Matches the harvest seed. Not configurable (untested hyperparameter).
+            self.fourier_B = nn.Linear(4, n_freqs * 4, bias=False)
+            self.fourier_proj = nn.Linear(n_freqs * 4 * 2, hd)
+            self.fourier_cross_attn = nn.MultiheadAttention(hd, c.num_heads, dropout=c.dropout, batch_first=True)
+            self.fourier_cross_norm = nn.LayerNorm(hd)
+        elif c.conditioning_type == "swiglu":
+            self.swiglu_w1 = nn.Linear(hd * 2, hd, bias=False)
+            self.swiglu_w2 = nn.Linear(hd * 2, hd, bias=False)
+            self.swiglu_proj = nn.Linear(hd, hd, bias=False)
+            self.swiglu_norm = nn.LayerNorm(hd)
         else:
             msg = f"Unknown conditioning_type: {c.conditioning_type!r}"
             raise ValueError(msg)
@@ -170,6 +187,12 @@ class ScoutGPTDecoder(nn.Module):
           - cross_attention: action attends to player embedding via multi-head attention
           - film: Feature-wise Linear Modulation — player controls scale and shift
           - gated: learned sigmoid gate weights the action signal, plus player residual
+          - fourier_cross_attention: RFF spatial encoding (Tancik 2020) replaces
+            the four SpatialMLPs, plus cross-attention conditioning. Bundles two
+            mechanisms — future refactor may split into spatial_encoding x
+            conditioning_type axes.
+          - swiglu: SwiGLU conditioning (Shazeer 2020) — concat player+action,
+            Swish-gated split and Hadamard fuse.
         """
         seq_len = action_ids.size(1)
 
@@ -203,6 +226,49 @@ class ScoutGPTDecoder(nn.Module):
         elif self._conditioning_type == "gated":
             gate = self.player_gate(player_emb)
             emb = gate * action_emb + player_emb
+        elif self._conditioning_type == "fourier_cross_attention":
+            # Replace MLP spatial path with Random Fourier Features (Tancik 2020).
+            # The action_emb computed above (including position embedding for
+            # "learnable" variants) is DISCARDED in this branch — the Fourier
+            # path rebuilds it from scratch without a position term to preserve
+            # byte-identical parity with the harvest seed's custom_embed.
+            # NOTE: this means fourier_cross_attention runs WITHOUT position
+            # embedding. If a future cycle wants position + fourier, that is a
+            # separate mechanism that was not evaluated by the L2 harvest.
+            spatial = torch.stack([start_x, start_y, end_x, end_y], dim=-1)  # (B, S, 4)
+            projected = self.fourier_B(spatial)  # (B, S, 128)
+            fourier_feats = torch.cat([torch.sin(projected), torch.cos(projected)], dim=-1)  # (B, S, 256)
+            spatial_emb = self.fourier_proj(fourier_feats)  # (B, S, hd)
+            action_emb_f = (
+                self.token_embedding(action_ids)
+                + spatial_emb
+                + self.result_embedding(result)
+                + self.time_delta_mlp(time_delta)
+            )
+            attn_out, _ = self.fourier_cross_attn(query=action_emb_f, key=player_emb, value=player_emb)
+            emb = self.fourier_cross_norm(action_emb_f + attn_out)
+        elif self._conditioning_type == "swiglu":
+            # SwiGLU conditioning (Shazeer 2020): concat player+action, split
+            # into data path and Swish-gated control path, Hadamard fuse,
+            # project back with residual + norm.
+            # NOTE: the harvest seed's custom_embed rebuilds action_emb WITHOUT
+            # position embedding. To preserve byte-identical parity we rebuild
+            # here too. If a future cycle wants position + swiglu, that is a
+            # separate mechanism that was not evaluated by the L2 harvest.
+            action_emb_s = (
+                self.token_embedding(action_ids)
+                + self.start_x_mlp(start_x)
+                + self.start_y_mlp(start_y)
+                + self.end_x_mlp(end_x)
+                + self.end_y_mlp(end_y)
+                + self.result_embedding(result)
+                + self.time_delta_mlp(time_delta)
+            )
+            combined = torch.cat([action_emb_s, player_emb], dim=-1)  # (B, S, 2*hd)
+            data_path = self.swiglu_w1(combined)  # (B, S, hd)
+            gate_path = nn.functional.silu(self.swiglu_w2(combined))  # (B, S, hd)
+            fused = data_path * gate_path  # (B, S, hd) — Hadamard product
+            emb = self.swiglu_norm(action_emb_s + self.swiglu_proj(fused))
         else:
             msg = f"Unknown conditioning_type: {self._conditioning_type!r}"
             raise ValueError(msg)

@@ -24,6 +24,10 @@ references:
     role: methodology
   - citation: "Decroos et al. (2019). Actions Speak Louder than Goals. KDD."
     role: algorithm
+  - citation: "Tancik et al. (2020). Fourier Features Let Networks Learn High Frequency Functions in Low Dimensional Domains. arXiv:2006.10739."
+    role: methodology
+  - citation: "Shazeer, N. (2020). GLU Variants Improve Transformer. arXiv:2002.05202."
+    role: methodology
 
 inputs:
   datasets:
