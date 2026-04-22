@@ -20,10 +20,7 @@ import pytest
 databricks_sql = pytest.importorskip("databricks.sql")
 
 requires_databricks = pytest.mark.skipif(
-    not all(
-        os.environ.get(var)
-        for var in ("DATABRICKS_HOST", "DATABRICKS_HTTP_PATH", "DATABRICKS_TOKEN")
-    ),
+    not all(os.environ.get(var) for var in ("DATABRICKS_HOST", "DATABRICKS_HTTP_PATH", "DATABRICKS_TOKEN")),
     reason="Databricks SQL env vars not set",
 )
 
@@ -50,9 +47,7 @@ def conn() -> Iterator[object]:
 @requires_databricks
 def test_int_unified_passes_has_four_providers(conn: object) -> None:
     cur = conn.cursor()  # type: ignore[attr-defined]
-    cur.execute(
-        "SELECT DISTINCT data_source FROM soccer_analytics.dev_silver.int_unified_passes"
-    )
+    cur.execute("SELECT DISTINCT data_source FROM soccer_analytics.dev_silver.int_unified_passes")
     providers = {row[0] for row in cur.fetchall()}
     assert providers == {"statsbomb", "wyscout", "idsse", "metrica"}, providers
 
@@ -60,10 +55,7 @@ def test_int_unified_passes_has_four_providers(conn: object) -> None:
 @requires_databricks
 def test_int_unified_passes_match_key_not_null(conn: object) -> None:
     cur = conn.cursor()  # type: ignore[attr-defined]
-    cur.execute(
-        "SELECT count(*) FROM soccer_analytics.dev_silver.int_unified_passes "
-        "WHERE match_key IS NULL"
-    )
+    cur.execute("SELECT count(*) FROM soccer_analytics.dev_silver.int_unified_passes WHERE match_key IS NULL")
     assert cur.fetchone()[0] == 0, "int_unified_passes has NULL match_keys — dim join broken"
 
 
@@ -93,9 +85,7 @@ def test_fct_passes_match_key_joins_to_dim(conn: object) -> None:
         WHERE dm.match_key IS NULL
         """
     )
-    assert (
-        cur.fetchone()[0] == 0
-    ), "fct_passes has match_keys not in dim_matches — referential integrity violation"
+    assert cur.fetchone()[0] == 0, "fct_passes has match_keys not in dim_matches — referential integrity violation"
 
 
 @requires_databricks
@@ -182,8 +172,7 @@ def test_fct_line_breaking_results_baselines_preserved(conn: object) -> None:
     """Post-migration rowcounts per data_source must match preflight baselines."""
     cur = conn.cursor()  # type: ignore[attr-defined]
     cur.execute(
-        "SELECT data_source, count(*) FROM soccer_analytics.dev_gold.fct_line_breaking_results "
-        "GROUP BY data_source"
+        "SELECT data_source, count(*) FROM soccer_analytics.dev_gold.fct_line_breaking_results GROUP BY data_source"
     )
     counts = {row[0]: row[1] for row in cur.fetchall()}
     assert counts.get("statsbomb_360") == 275_884, counts
