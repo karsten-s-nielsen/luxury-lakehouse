@@ -186,7 +186,8 @@ def ms_refresh(state: Any) -> None:
 
     try:
         decisive = fetch_vaep_decisive_actions(int(match_id), n=3)
-        shots = fetch_shots_timeline(int(match_id))
+        # PR 3 (ADR-011): fetch_shots_timeline now keys on match_key (fct_shots migrated).
+        shots = fetch_shots_timeline(int(match_key))
     except Exception:
         # ADR-002: ERROR-level so it surfaces in observability; user sees the warning.
         # Both queries are required — without them there is no Row 1 / Row 2.

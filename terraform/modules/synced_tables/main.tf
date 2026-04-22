@@ -77,6 +77,28 @@ resource "databricks_database_synced_database_table" "fct_xg_predictions" {
   }
 }
 
+# fct_xg_predictions_v2_synced — PR 3 / ADR-013 (2026-04-22).
+# First mart under ADR-013 ("ML inference outputs flow Python → bronze → dbt
+# staging → gold mart with contract enforced"). Deep Sets + MC dropout xG.
+# Per ADR-005 Path A: create in the Databricks UI first, then `terraform import`:
+#   terraform import 'module.synced_tables.databricks_database_synced_database_table.fct_xg_predictions_v2' \
+#     'soccer_analytics.dev_gold.fct_xg_predictions_v2_synced'
+resource "databricks_database_synced_database_table" "fct_xg_predictions_v2" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_xg_predictions_v2_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_xg_predictions_v2"
+    primary_key_columns    = ["shot_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
 resource "databricks_database_synced_database_table" "fct_passes" {
   name                   = "${var.catalog_name}.${var.gold_schema}.fct_passes_synced"
   database_instance_name = var.database_instance_name

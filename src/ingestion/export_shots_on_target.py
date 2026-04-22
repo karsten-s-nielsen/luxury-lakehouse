@@ -9,7 +9,8 @@ for PSxG (Post-Shot Expected Goals) model training on HF Jobs.
 
 Columns exported:
     event_id         - shot surrogate key (aliased from shot_id)
-    match_id         - string match identifier
+    match_key        - Kimball surrogate BIGINT FK to dim_matches (ADR-011; primary match id as of 2026-04-22)
+    match_id         - string match identifier (DEPRECATED 2026-04-22; removed on or after 2026-07-22 per ADR-013)
     player_id        - player identifier
     end_location_y   - shot destination y (vertical position on goal face)
     end_location_z   - shot destination z (height on goal face)
@@ -100,15 +101,18 @@ def _build_query(catalog: str, schema: str) -> str:
     # catalog and schema are validated by _validate_identifier before this call
     return f"""\
 SELECT
-    shot_id                                                AS event_id,
-    CAST(match_id AS STRING)                              AS match_id,
-    player_id,
-    end_location_y,
-    end_location_z,
-    shot_outcome,
-    CASE WHEN shot_outcome = 'Goal' THEN 1 ELSE 0 END     AS is_goal
-FROM {catalog}.{schema}.fct_shots
-WHERE end_location_z IS NOT NULL
+    s.shot_id                                              AS event_id,
+    s.match_key,
+    CAST(dm.native_match_id AS STRING)                     AS match_id,
+    s.player_id,
+    s.end_location_y,
+    s.end_location_z,
+    s.shot_outcome,
+    CASE WHEN s.shot_outcome = 'Goal' THEN 1 ELSE 0 END    AS is_goal
+FROM {catalog}.{schema}.fct_shots s
+LEFT JOIN {catalog}.{schema}.dim_matches dm
+    ON s.match_key = dm.match_key
+WHERE s.end_location_z IS NOT NULL
 """  # noqa: S608
 
 

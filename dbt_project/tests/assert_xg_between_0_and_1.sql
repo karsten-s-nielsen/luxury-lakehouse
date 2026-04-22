@@ -11,7 +11,7 @@
 
 select
     shot_id,
-    match_id,
+    match_key,
     player_id,
     statsbomb_xg,
     data_source

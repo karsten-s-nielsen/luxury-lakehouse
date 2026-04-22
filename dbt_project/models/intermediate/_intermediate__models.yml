@@ -81,21 +81,26 @@ models:
         data_sensitivity: public
         contains_pii: false
     description: >
-      Unified shot data from StatsBomb and Wyscout sources. Contains all
-      shots with standardized schema, geometry features, and outcome
-      classification. Materialized as ephemeral (CTE).
+      Unified shot events from StatsBomb and Wyscout sources. Each per-source
+      CTE emits an identical schema; the final `keyed` CTE joins `dim_matches`
+      to assign `match_key` (Kimball surrogate BIGINT FK per ADR-011). Native
+      `match_id` / `provider` / `native_match_id` are not present in the
+      output — recover via JOIN dim_matches ON match_key. Materialized as
+      view (upgraded from ephemeral in PR 3, mirroring PR 2's int_unified_passes
+      upgrade).
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           combination_of_columns:
+            - match_key
             - event_id
             - data_source
     columns:
       - name: event_id
-        description: Unique event identifier from source
+        description: Source event identifier (globally unique for StatsBomb/Wyscout).
         data_tests:
           - not_null
-      - name: match_id
-        description: Match identifier
+      - name: match_key
+        description: Kimball surrogate FK to dim_matches.match_key (bigint, ADR-011).
         data_tests:
           - not_null
       - name: location_x
@@ -143,6 +148,8 @@ models:
         description: StatsBomb xG value (NULL for Wyscout)
       - name: is_first_time
         description: Whether the shot was first-time (NULL for Wyscout)
+      - name: play_pattern
+        description: Play-pattern context for the shot (NULL for Wyscout — not emitted by the source).
 
   - name: int_player_xref
     config:

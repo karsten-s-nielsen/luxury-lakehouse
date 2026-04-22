@@ -11,10 +11,13 @@ models:
         data_sensitivity: public
         contains_pii: false
     description: >
-      Gold-layer shot fact table with xG features. Contains every shot from
-      all data sources with computed geometry features (distance to goal,
-      shot angle), StatsBomb xG where available, and categorical features
-      for ML model training. One row per shot.
+      Gold-layer shot fact keyed on match_key (Kimball surrogate per ADR-011,
+      PR 3). Contains every shot from StatsBomb + Wyscout sources with computed
+      geometry features (distance to goal, shot angle), StatsBomb xG where
+      available, and categorical features for ML model training. Legacy
+      competition_id INT retained nullable for bronze back-compat and
+      non-Taipy consumers; scheduled for removal in PR 8 sweep. One row
+      per shot.
     columns:
       - name: shot_id
         data_type: string
@@ -22,11 +25,14 @@ models:
         data_tests:
           - unique
           - not_null
-      - name: match_id
+      - name: match_key
         data_type: bigint
-        description: Foreign key to fct_match_summary
+        description: Kimball surrogate FK to dim_matches.match_key (ADR-011, PR 3). Native match_id recoverable via JOIN dim_matches.
         data_tests:
           - not_null
+      - name: competition_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_competitions.competition_key (ADR-011, PR 2). fct_shots always populates this (source set is SB+WS only; both providers have competition_id populated).
       - name: player_id
         data_type: int
         description: Foreign key to dim_players
@@ -122,7 +128,7 @@ models:
                 values: ['statsbomb', 'wyscout']
       - name: competition_id
         data_type: int
-        description: Foreign key to dim_competitions
+        description: Legacy INT competition id, nullable. Retained for bronze back-compat and non-Taipy consumers; scheduled for removal in PR 8 sweep (replaced by competition_key per ADR-011).
       - name: season_id
         data_type: int
         description: Season identifier
@@ -1627,9 +1633,11 @@ models:
         data_sensitivity: public
         contains_pii: false
     description: >
-      Custom xG model predictions per shot. Contains logistic regression
-      baseline and calibrated XGBoost xG values. INNER JOIN to fct_shots
-      ensures referential integrity. One row per scored shot.
+      Gold-layer v1 xG predictions (logistic regression baseline + calibrated
+      XGBoost). Kimball keys (match_key, competition_key) inherited from
+      fct_shots via INNER JOIN on shot_id per ADR-013 (PR 3). One row per
+      scored shot. Legacy competition_id INT retained nullable until PR 8
+      sweep.
     columns:
       - name: shot_id
         data_type: string
@@ -1637,14 +1645,17 @@ models:
         data_tests:
           - unique
           - not_null
-      - name: match_id
+      - name: match_key
         data_type: bigint
-        description: FK to fct_match_summary
+        description: Kimball surrogate FK to dim_matches (inherited from fct_shots via INNER JOIN on shot_id).
         data_tests:
           - not_null
+      - name: competition_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_competitions (inherited from fct_shots). Always populated — v1 scores only SB+WS shots, both providers have competition keys.
       - name: competition_id
         data_type: int
-        description: FK to dim_competitions
+        description: Legacy INT competition id, nullable (inherited from fct_shots). Scheduled for removal in PR 8 sweep; replaced by competition_key per ADR-011.
       - name: xg_logistic
         data_type: double
         description: Logistic regression baseline xG (distance + angle only)
@@ -1663,6 +1674,74 @@ models:
               arguments:
                 min_value: 0
                 max_value: 1
+              config:
+                severity: warn
+
+  - name: fct_xg_predictions_v2
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Gold-layer v2 xG predictions (Deep Sets set encoder with MC dropout
+      confidence intervals). Kimball keys (match_key, competition_key)
+      inherited from fct_shots via INNER JOIN on shot_id per ADR-013 —
+      first mart applying the ML-inference-outputs pattern (consumer-side
+      counterpart to ADR-012 producer-side weight delivery). Enabled via
+      var 'xg_v2_enabled' (default false; flipped on in Databricks job
+      config). Legacy competition_id INT retained nullable for consumers
+      that still filter on native id; removed in PR 8 sweep.
+    columns:
+      - name: shot_id
+        data_type: string
+        description: md5(event_id || '-' || data_source). FK to fct_shots.shot_id.
+        data_tests:
+          - not_null
+          - unique
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches (inherited from fct_shots via INNER JOIN on shot_id).
+        data_tests:
+          - not_null
+      - name: competition_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_competitions (inherited from fct_shots). Always populated — v2 scores only SB+WS shots.
+      - name: competition_id
+        data_type: int
+        description: Legacy INT competition id, nullable (inherited from fct_shots). Scheduled for removal in PR 8 sweep per ADR-011.
+      - name: xg_set_encoder
+        data_type: double
+        description: v2 Deep Sets + MC dropout mean xG prediction.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+                row_condition: "xg_set_encoder is not null"
+              config:
+                severity: warn
+      - name: xg_ci_lower
+        data_type: double
+        description: v2 xG 95% CI lower bound.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+                row_condition: "xg_ci_lower is not null"
+              config:
+                severity: warn
+      - name: xg_ci_upper
+        data_type: double
+        description: v2 xG 95% CI upper bound.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+                row_condition: "xg_ci_upper is not null"
               config:
                 severity: warn
 

@@ -142,6 +142,9 @@ outputs:
     - id: "{catalog}.dev_gold.fct_xg_predictions"
       destination: delta-table
       dbt_model: fct_xg_predictions
+    - id: "{catalog}.dev_gold.fct_xg_predictions_v2"
+      destination: delta-table
+      dbt_model: fct_xg_predictions_v2
 
 execution:
   ingestion:

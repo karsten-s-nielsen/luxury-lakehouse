@@ -94,8 +94,13 @@ match_teams_keyed as (
 
 goals as (
 
+    -- int_unified_shots emits match_key (not match_id) since PR 3. We pull
+    -- match_key here and recover match_id downstream via the match_teams_keyed
+    -- join so int_running_score's output schema stays backward compatible
+    -- (fct_action_values and fct_shots both consume it; fct_shots uses
+    -- match_key post-PR 3, fct_action_values still uses match_id until PR 4).
     select
-        s.match_id,
+        s.match_key,
         s.team_id    as scoring_team_id,
         s.period,
         s.minute,
@@ -108,25 +113,25 @@ goals as (
 goals_with_scores as (
 
     select
-        g.match_id,
-        mt.match_key,
+        mt.match_id,          -- recovered from match_teams_keyed; legacy consumer FK
+        g.match_key,
         mt.home_team_id,
         mt.away_team_id,
         g.period,
         g.minute,
         g.second,
         sum(case when g.scoring_team_id = mt.home_team_id then 1 else 0 end)
-            over (partition by g.match_id
+            over (partition by g.match_key
                   order by g.period, g.minute, g.second
                   rows between unbounded preceding and current row)
             as home_score_after,
         sum(case when g.scoring_team_id = mt.away_team_id then 1 else 0 end)
-            over (partition by g.match_id
+            over (partition by g.match_key
                   order by g.period, g.minute, g.second
                   rows between unbounded preceding and current row)
             as away_score_after
     from goals g
-    inner join match_teams_keyed mt on g.match_id = mt.match_id
+    inner join match_teams_keyed mt on g.match_key = mt.match_key
 
 ),
 

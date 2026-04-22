@@ -1,51 +1,36 @@
 {{ config(
     materialized='incremental',
     unique_key='shot_id',
-    liquid_clustered_by=['match_id'],
+    liquid_clustered_by=['match_key'],
     incremental_strategy='merge'
 ) }}
 -- fct_shots.sql
 -- Gold-layer shot fact table with xG features for ML model training.
+-- Keyed on match_key (Kimball surrogate per ADR-011, PR 3). Each row
+-- represents a single shot with all features needed for expected-goals
+-- prediction: distance/angle geometry, body part, shot type, StatsBomb xG
+-- benchmark, is_goal target, and game-state context. Legacy competition_id
+-- INT retained nullable for bronze back-compat and non-Taipy consumers;
+-- scheduled for removal in PR 8 sweep.
 --
--- This table is the primary input for the xG model. Each row represents
--- a single shot with all features needed for expected goals prediction.
---
--- xG Feature Engineering (from Soccermatics Chapter 02):
---   - distance_to_goal: Euclidean distance from shot location to goal center
---   - shot_angle: Angle subtended by the goal posts from the shot location
---   - body_part: Categorical — Right Foot, Left Foot, Head (one-hot in ML)
---   - situation: Shot type — Open Play, Set Piece, Free Kick, Penalty, Corner
---   - statsbomb_xg: StatsBomb's proprietary xG value (benchmark comparison)
---   - is_first_time: Whether the shot was taken first-time (no control)
---   - defenders_in_frame: Number of defenders between shooter and goal
---   - distance_to_nearest_defender: Spatial pressure metric
---
--- Downstream consumers:
---   - xG model training pipeline (Python/MLflow)
---   - fct_player_stats (aggregated xG per player)
---   - fct_match_summary (aggregated xG per match/team)
---   - Dashboard visualizations (shot maps, xG timelines)
+-- Source set: StatsBomb + Wyscout (2 providers). Downstream consumers:
+-- fct_xg_predictions (v1), fct_xg_predictions_v2, fct_player_stats,
+-- fct_match_summary, Shot-Map dashboard, xG training pipelines.
 
 with unified_shots as (
 
     select * from {{ ref('int_unified_shots') }}
-    {% if is_incremental() %}
-    where match_id not in (select distinct match_id from {{ this }})
-    {% endif %}
 
 ),
 
-sb_matches as (
+match_attrs as (
 
-    select match_id, competition_id, season_id
-    from {{ ref('stg_statsbomb__matches') }}
-
-),
-
-ws_matches as (
-
-    select match_id, competition_id, season_id
-    from {{ ref('stg_wyscout__matches') }}
+    select
+        match_key,
+        competition_key,
+        competition_id,
+        season_id
+    from {{ ref('dim_matches') }}
 
 ),
 
@@ -61,14 +46,17 @@ shots_with_score as (
         -- Surrogate key
         {{ dbt_utils.generate_surrogate_key(['unified_shots.event_id', 'unified_shots.data_source']) }} as shot_id,
 
-        -- Foreign keys
-        unified_shots.match_id,
+        -- Kimball keys (from dim_matches join)
+        unified_shots.match_key,
+        match_attrs.competition_key,
+
+        -- Legacy INT keys (nullable; retained for back-compat)
+        cast(match_attrs.competition_id as int) as competition_id,
+        cast(match_attrs.season_id as int)      as season_id,
+
+        -- Entity FKs
         unified_shots.player_id,
         unified_shots.team_id,
-
-        -- Match context (StatsBomb first, Wyscout fallback)
-        cast(coalesce(sb_matches.competition_id, ws_matches.competition_id) as int) as competition_id,
-        cast(coalesce(sb_matches.season_id, ws_matches.season_id) as int)           as season_id,
 
         -- Temporal context
         unified_shots.period,
@@ -88,7 +76,7 @@ shots_with_score as (
         unified_shots.shot_technique,
         unified_shots.shot_type,
 
-        -- Binary outcome for ML target variable
+        -- Binary outcome for ML target
         case
             when unified_shots.shot_outcome = 'Goal' then 1
             else 0
@@ -121,12 +109,10 @@ shots_with_score as (
         ) as _score_rn
 
     from unified_shots
-    left join sb_matches
-        on unified_shots.match_id = sb_matches.match_id
-    left join ws_matches
-        on unified_shots.match_id = ws_matches.match_id
+    left join match_attrs
+        on unified_shots.match_key = match_attrs.match_key
     left join running_score rs
-        on unified_shots.match_id = rs.match_id
+        on unified_shots.match_key = rs.match_key
         and (
             rs.period < unified_shots.period
             or (rs.period = unified_shots.period
@@ -140,9 +126,10 @@ final as (
 
     select
         shot_id,
-        match_id,
+        match_key,
         player_id,
         team_id,
+        competition_key,
         competition_id,
         season_id,
         period,

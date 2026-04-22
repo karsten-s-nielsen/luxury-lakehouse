@@ -83,8 +83,10 @@ No CLAUDE.md amendment. This ADR establishes a new pattern that complements exis
 | PR 4 | Action values + VAEP migration | Planned |
 | PR 5 | Player stats + embeddings migration | Planned |
 | PR 6 | Defensive + goalkeeper + pitch control migration | Planned |
-| PR 7 | Tracking + formations + pausa + tail facts migration | Planned |
+| PR 7 | Tracking + formations + pausa + tail facts migration (**`fct_pausa_values` also promoted Python→dbt mart under ADR-013 as part of this PR**) | Planned |
 | PR 8 | Scripts + final cleanup + doc sweep | Planned |
+
+> **ADR-013 applications:** PR 3 is the first application of [ADR-013](ADR-013-ml-inference-outputs-dbt-mart.md) (xG v2 promotion to `fct_xg_predictions_v2`); PR 7 is the second (`fct_pausa_values` promotion to a dbt mart under the same pattern).
 
 After PR 8 merges, the warehouse contains zero smart-keyed `match_id` columns. Legacy bronze tables retain their native match_ids (provenance layer).
 
