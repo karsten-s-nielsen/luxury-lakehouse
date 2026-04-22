@@ -32,6 +32,12 @@ models:
           - not_null
       - name: timestamp_seconds
         description: Timestamp in seconds from period start
+      - name: timestamp
+        description: >
+          Bronze passthrough — `timestamp` from idsse_tracking (period-relative
+          seconds since the first frame of the current period). Kept alongside
+          the renamed `timestamp_seconds` so the bronze-completeness coverage
+          test sees every source col surfaced under its bronze name.
       - name: frame_rate
         description: Frame rate in fps (always 25 for IDSSE)
         data_tests:
@@ -152,6 +158,490 @@ models:
                 min_value: -10
                 max_value: 90
 
+      # ------------------------------------------------------------------
+      # Bronze passthrough — PR 2 bronze-completeness sweep (2026-04-21).
+      # Every remaining bronze col (first-child prefixed attrs, nested-child
+      # prefixed attrs, tracking-context attrs, audit attrs) is surfaced
+      # verbatim. Rich per-col descriptions live in _idsse__sources.yml;
+      # staging yml uses a consistent template referring callers back there.
+      # ------------------------------------------------------------------
+
+      # Event-level tracking-context + audit attrs
+      - name: calculated_frame
+        description: Bronze passthrough — calculated_frame from idsse_events (see _idsse__sources.yml).
+      - name: calculated_timestamp
+        description: Bronze passthrough — calculated_timestamp from idsse_events (see _idsse__sources.yml).
+      - name: end_frame
+        description: Bronze passthrough — end_frame from idsse_events (see _idsse__sources.yml).
+      - name: event_time
+        description: Bronze passthrough — event_time from idsse_events (see _idsse__sources.yml).
+      - name: match_id_raw
+        description: Bronze passthrough — match_id_raw from idsse_events (see _idsse__sources.yml).
+      - name: start_frame
+        description: Bronze passthrough — start_frame from idsse_events (see _idsse__sources.yml).
+      - name: x_position_from_tracking
+        description: Bronze passthrough — x_position_from_tracking from idsse_events (see _idsse__sources.yml).
+      - name: x_source_position
+        description: Bronze passthrough — x_source_position from idsse_events (see _idsse__sources.yml).
+      - name: y_position_from_tracking
+        description: Bronze passthrough — y_position_from_tracking from idsse_events (see _idsse__sources.yml).
+      - name: y_source_position
+        description: Bronze passthrough — y_source_position from idsse_events (see _idsse__sources.yml).
+
+      # BallClaiming first-child attrs
+      - name: claim_ball_possession_phase
+        description: Bronze passthrough — claim_ball_possession_phase from idsse_events (see _idsse__sources.yml).
+      - name: claim_player
+        description: Bronze passthrough — claim_player from idsse_events (see _idsse__sources.yml).
+      - name: claim_team
+        description: Bronze passthrough — claim_team from idsse_events (see _idsse__sources.yml).
+      - name: claim_type
+        description: Bronze passthrough — claim_type from idsse_events (see _idsse__sources.yml).
+
+      # BallDeflection first-child attrs
+      - name: deflection_player
+        description: Bronze passthrough — deflection_player from idsse_events (see _idsse__sources.yml).
+      - name: deflection_team
+        description: Bronze passthrough — deflection_team from idsse_events (see _idsse__sources.yml).
+      - name: deflection_type
+        description: Bronze passthrough — deflection_type from idsse_events (see _idsse__sources.yml).
+
+      # Caution first-child attrs
+      - name: caution_card_color
+        description: Bronze passthrough — caution_card_color from idsse_events (see _idsse__sources.yml).
+      - name: caution_card_rating
+        description: Bronze passthrough — caution_card_rating from idsse_events (see _idsse__sources.yml).
+      - name: caution_other_reason
+        description: Bronze passthrough — caution_other_reason from idsse_events (see _idsse__sources.yml).
+      - name: caution_player
+        description: Bronze passthrough — caution_player from idsse_events (see _idsse__sources.yml).
+      - name: caution_reason
+        description: Bronze passthrough — caution_reason from idsse_events (see _idsse__sources.yml).
+      - name: caution_ref_decision_evaluation
+        description: Bronze passthrough — caution_ref_decision_evaluation from idsse_events (see _idsse__sources.yml).
+      - name: caution_team
+        description: Bronze passthrough — caution_team from idsse_events (see _idsse__sources.yml).
+
+      # CautionTeamofficial first-child attrs
+      - name: caution_official_card_color
+        description: Bronze passthrough — caution_official_card_color from idsse_events (see _idsse__sources.yml).
+      - name: caution_official_person_sent_off
+        description: Bronze passthrough — caution_official_person_sent_off from idsse_events (see _idsse__sources.yml).
+      - name: caution_official_team
+        description: Bronze passthrough — caution_official_team from idsse_events (see _idsse__sources.yml).
+
+      # ChanceWithoutShot first-child attrs
+      - name: chance_assist_action
+        description: Bronze passthrough — chance_assist_action from idsse_events (see _idsse__sources.yml).
+      - name: chance_chance_assist
+        description: Bronze passthrough — chance_chance_assist from idsse_events (see _idsse__sources.yml).
+      - name: chance_chance_assist_type
+        description: Bronze passthrough — chance_chance_assist_type from idsse_events (see _idsse__sources.yml).
+      - name: chance_counter_attack
+        description: Bronze passthrough — chance_counter_attack from idsse_events (see _idsse__sources.yml).
+      - name: chance_player
+        description: Bronze passthrough — chance_player from idsse_events (see _idsse__sources.yml).
+      - name: chance_prevention_goalkeeper
+        description: Bronze passthrough — chance_prevention_goalkeeper from idsse_events (see _idsse__sources.yml).
+      - name: chance_setup_origin
+        description: Bronze passthrough — chance_setup_origin from idsse_events (see _idsse__sources.yml).
+      - name: chance_sitter
+        description: Bronze passthrough — chance_sitter from idsse_events (see _idsse__sources.yml).
+      - name: chance_situation
+        description: Bronze passthrough — chance_situation from idsse_events (see _idsse__sources.yml).
+      - name: chance_taker_setup
+        description: Bronze passthrough — chance_taker_setup from idsse_events (see _idsse__sources.yml).
+      - name: chance_team
+        description: Bronze passthrough — chance_team from idsse_events (see _idsse__sources.yml).
+
+      # CornerKick first-child attrs
+      - name: corner_decision_timestamp
+        description: Bronze passthrough — corner_decision_timestamp from idsse_events (see _idsse__sources.yml).
+      - name: corner_placing
+        description: Bronze passthrough — corner_placing from idsse_events (see _idsse__sources.yml).
+      - name: corner_post_marking
+        description: Bronze passthrough — corner_post_marking from idsse_events (see _idsse__sources.yml).
+      - name: corner_rotation
+        description: Bronze passthrough — corner_rotation from idsse_events (see _idsse__sources.yml).
+      - name: corner_side
+        description: Bronze passthrough — corner_side from idsse_events (see _idsse__sources.yml).
+      - name: corner_target_area
+        description: Bronze passthrough — corner_target_area from idsse_events (see _idsse__sources.yml).
+      - name: corner_team
+        description: Bronze passthrough — corner_team from idsse_events (see _idsse__sources.yml).
+
+      # Delete first-child attrs
+      - name: delete_reason
+        description: Bronze passthrough — delete_reason from idsse_events (see _idsse__sources.yml).
+
+      # FairPlay first-child attrs
+      - name: fairplay_ball_possession_phase
+        description: Bronze passthrough — fairplay_ball_possession_phase from idsse_events (see _idsse__sources.yml).
+      - name: fairplay_player
+        description: Bronze passthrough — fairplay_player from idsse_events (see _idsse__sources.yml).
+      - name: fairplay_team
+        description: Bronze passthrough — fairplay_team from idsse_events (see _idsse__sources.yml).
+
+      # FinalWhistle first-child attrs
+      - name: whistle_breaking_off
+        description: Bronze passthrough — whistle_breaking_off from idsse_events (see _idsse__sources.yml).
+      - name: whistle_final_result
+        description: Bronze passthrough — whistle_final_result from idsse_events (see _idsse__sources.yml).
+      - name: whistle_game_section
+        description: Bronze passthrough — whistle_game_section from idsse_events (see _idsse__sources.yml).
+
+      # Foul first-child attrs
+      - name: foul_committing_player_action
+        description: Bronze passthrough — foul_committing_player_action from idsse_events (see _idsse__sources.yml).
+      - name: foul_foul_type
+        description: Bronze passthrough — foul_foul_type from idsse_events (see _idsse__sources.yml).
+      - name: foul_fouled
+        description: Bronze passthrough — foul_fouled from idsse_events (see _idsse__sources.yml).
+      - name: foul_fouler
+        description: Bronze passthrough — foul_fouler from idsse_events (see _idsse__sources.yml).
+      - name: foul_team_fouled
+        description: Bronze passthrough — foul_team_fouled from idsse_events (see _idsse__sources.yml).
+      - name: foul_team_fouler
+        description: Bronze passthrough — foul_team_fouler from idsse_events (see _idsse__sources.yml).
+
+      # FreeKick first-child attrs
+      - name: freekick_decision_timestamp
+        description: Bronze passthrough — freekick_decision_timestamp from idsse_events (see _idsse__sources.yml).
+      - name: freekick_execution_mode
+        description: Bronze passthrough — freekick_execution_mode from idsse_events (see _idsse__sources.yml).
+      - name: freekick_team
+        description: Bronze passthrough — freekick_team from idsse_events (see _idsse__sources.yml).
+
+      # GoalDisallowed first-child attrs
+      - name: goaldis_player
+        description: Bronze passthrough — goaldis_player from idsse_events (see _idsse__sources.yml).
+      - name: goaldis_reason
+        description: Bronze passthrough — goaldis_reason from idsse_events (see _idsse__sources.yml).
+      - name: goaldis_ref_decision_evaluation
+        description: Bronze passthrough — goaldis_ref_decision_evaluation from idsse_events (see _idsse__sources.yml).
+      - name: goaldis_team
+        description: Bronze passthrough — goaldis_team from idsse_events (see _idsse__sources.yml).
+
+      # GoalKick first-child attrs
+      - name: goalkick_decision_timestamp
+        description: Bronze passthrough — goalkick_decision_timestamp from idsse_events (see _idsse__sources.yml).
+      - name: goalkick_team
+        description: Bronze passthrough — goalkick_team from idsse_events (see _idsse__sources.yml).
+
+      # KickOff first-child attrs
+      - name: kickoff_game_section
+        description: Bronze passthrough — kickoff_game_section from idsse_events (see _idsse__sources.yml).
+      - name: kickoff_team_left
+        description: Bronze passthrough — kickoff_team_left from idsse_events (see _idsse__sources.yml).
+      - name: kickoff_team_right
+        description: Bronze passthrough — kickoff_team_right from idsse_events (see _idsse__sources.yml).
+
+      # Nutmeg first-child attrs
+      - name: nutmeg_affected_player
+        description: Bronze passthrough — nutmeg_affected_player from idsse_events (see _idsse__sources.yml).
+      - name: nutmeg_affected_team
+        description: Bronze passthrough — nutmeg_affected_team from idsse_events (see _idsse__sources.yml).
+      - name: nutmeg_player
+        description: Bronze passthrough — nutmeg_player from idsse_events (see _idsse__sources.yml).
+      - name: nutmeg_team
+        description: Bronze passthrough — nutmeg_team from idsse_events (see _idsse__sources.yml).
+
+      # Offside first-child attrs
+      - name: offside_player
+        description: Bronze passthrough — offside_player from idsse_events (see _idsse__sources.yml).
+      - name: offside_team
+        description: Bronze passthrough — offside_team from idsse_events (see _idsse__sources.yml).
+
+      # OtherBallAction first-child attrs
+      - name: otherball_ball_possession_phase
+        description: Bronze passthrough — otherball_ball_possession_phase from idsse_events (see _idsse__sources.yml).
+      - name: otherball_defensive_clearance
+        description: Bronze passthrough — otherball_defensive_clearance from idsse_events (see _idsse__sources.yml).
+      - name: otherball_player
+        description: Bronze passthrough — otherball_player from idsse_events (see _idsse__sources.yml).
+      - name: otherball_team
+        description: Bronze passthrough — otherball_team from idsse_events (see _idsse__sources.yml).
+
+      # OtherPlayerAction first-child attrs
+      - name: other_action_change_contingent_exhausted
+        description: Bronze passthrough — other_action_change_contingent_exhausted from idsse_events (see _idsse__sources.yml).
+      - name: other_action_change_of_captain
+        description: Bronze passthrough — other_action_change_of_captain from idsse_events (see _idsse__sources.yml).
+      - name: other_action_player
+        description: Bronze passthrough — other_action_player from idsse_events (see _idsse__sources.yml).
+      - name: other_action_player_becomes_goalkeeper
+        description: Bronze passthrough — other_action_player_becomes_goalkeeper from idsse_events (see _idsse__sources.yml).
+      - name: other_action_team
+        description: Bronze passthrough — other_action_team from idsse_events (see _idsse__sources.yml).
+
+      # Penalty first-child attrs
+      - name: penalty_causing_player
+        description: Bronze passthrough — penalty_causing_player from idsse_events (see _idsse__sources.yml).
+      - name: penalty_decision_timestamp
+        description: Bronze passthrough — penalty_decision_timestamp from idsse_events (see _idsse__sources.yml).
+      - name: penalty_fouled_player
+        description: Bronze passthrough — penalty_fouled_player from idsse_events (see _idsse__sources.yml).
+      - name: penalty_goalkeeper_behaviour
+        description: Bronze passthrough — penalty_goalkeeper_behaviour from idsse_events (see _idsse__sources.yml).
+      - name: penalty_goalkeeper_movement
+        description: Bronze passthrough — penalty_goalkeeper_movement from idsse_events (see _idsse__sources.yml).
+      - name: penalty_players_in_box
+        description: Bronze passthrough — penalty_players_in_box from idsse_events (see _idsse__sources.yml).
+      - name: penalty_prospective_taker
+        description: Bronze passthrough — penalty_prospective_taker from idsse_events (see _idsse__sources.yml).
+      - name: penalty_ref_decision_evaluation
+        description: Bronze passthrough — penalty_ref_decision_evaluation from idsse_events (see _idsse__sources.yml).
+      - name: penalty_retaken_penalty
+        description: Bronze passthrough — penalty_retaken_penalty from idsse_events (see _idsse__sources.yml).
+      - name: penalty_team
+        description: Bronze passthrough — penalty_team from idsse_events (see _idsse__sources.yml).
+
+      # PenaltyNotAwarded first-child attrs
+      - name: penalty_not_causing_player
+        description: Bronze passthrough — penalty_not_causing_player from idsse_events (see _idsse__sources.yml).
+      - name: penalty_not_player_to_be_awarded
+        description: Bronze passthrough — penalty_not_player_to_be_awarded from idsse_events (see _idsse__sources.yml).
+      - name: penalty_not_reason
+        description: Bronze passthrough — penalty_not_reason from idsse_events (see _idsse__sources.yml).
+      - name: penalty_not_ref_decision_evaluation
+        description: Bronze passthrough — penalty_not_ref_decision_evaluation from idsse_events (see _idsse__sources.yml).
+      - name: penalty_not_team
+        description: Bronze passthrough — penalty_not_team from idsse_events (see _idsse__sources.yml).
+
+      # Play first-child attrs
+      - name: play_ball_possession_phase
+        description: Bronze passthrough — play_ball_possession_phase from idsse_events (see _idsse__sources.yml).
+      - name: play_distance
+        description: Bronze passthrough — play_distance from idsse_events (see _idsse__sources.yml).
+      - name: play_evaluation
+        description: Bronze passthrough — play_evaluation from idsse_events (see _idsse__sources.yml).
+      - name: play_flat_cross
+        description: Bronze passthrough — play_flat_cross from idsse_events (see _idsse__sources.yml).
+      - name: play_from_open_play
+        description: Bronze passthrough — play_from_open_play from idsse_events (see _idsse__sources.yml).
+      - name: play_goal_keeper_action
+        description: Bronze passthrough — play_goal_keeper_action from idsse_events (see _idsse__sources.yml).
+      - name: play_height
+        description: Bronze passthrough — play_height from idsse_events (see _idsse__sources.yml).
+      - name: play_penalty_box
+        description: Bronze passthrough — play_penalty_box from idsse_events (see _idsse__sources.yml).
+      - name: play_play_angle
+        description: Bronze passthrough — play_play_angle from idsse_events (see _idsse__sources.yml).
+      - name: play_play_origin
+        description: Bronze passthrough — play_play_origin from idsse_events (see _idsse__sources.yml).
+      - name: play_player
+        description: Bronze passthrough — play_player from idsse_events (see _idsse__sources.yml).
+      - name: play_recipient
+        description: Bronze passthrough — play_recipient from idsse_events (see _idsse__sources.yml).
+      - name: play_rotation
+        description: Bronze passthrough — play_rotation from idsse_events (see _idsse__sources.yml).
+      - name: play_semi_field
+        description: Bronze passthrough — play_semi_field from idsse_events (see _idsse__sources.yml).
+      - name: play_team
+        description: Bronze passthrough — play_team from idsse_events (see _idsse__sources.yml).
+
+      # PlayerNotSentOff first-child attrs
+      - name: not_sent_off_player
+        description: Bronze passthrough — not_sent_off_player from idsse_events (see _idsse__sources.yml).
+      - name: not_sent_off_reason
+        description: Bronze passthrough — not_sent_off_reason from idsse_events (see _idsse__sources.yml).
+      - name: not_sent_off_ref_decision_evaluation
+        description: Bronze passthrough — not_sent_off_ref_decision_evaluation from idsse_events (see _idsse__sources.yml).
+      - name: not_sent_off_team
+        description: Bronze passthrough — not_sent_off_team from idsse_events (see _idsse__sources.yml).
+      - name: not_sent_off_type
+        description: Bronze passthrough — not_sent_off_type from idsse_events (see _idsse__sources.yml).
+
+      # PossessionLossBeforeGoal first-child attrs
+      - name: possloss_player
+        description: Bronze passthrough — possloss_player from idsse_events (see _idsse__sources.yml).
+      - name: possloss_possession_loss_origin
+        description: Bronze passthrough — possloss_possession_loss_origin from idsse_events (see _idsse__sources.yml).
+      - name: possloss_team
+        description: Bronze passthrough — possloss_team from idsse_events (see _idsse__sources.yml).
+      - name: possloss_type_of_possession_loss
+        description: Bronze passthrough — possloss_type_of_possession_loss from idsse_events (see _idsse__sources.yml).
+
+      # Run first-child attrs
+      - name: run_player
+        description: Bronze passthrough — run_player from idsse_events (see _idsse__sources.yml).
+      - name: run_team
+        description: Bronze passthrough — run_team from idsse_events (see _idsse__sources.yml).
+
+      # ShotAtGoal first-child attrs
+      - name: shot_after_free_kick
+        description: Bronze passthrough — shot_after_free_kick from idsse_events (see _idsse__sources.yml).
+      - name: shot_amount_of_defenders
+        description: Bronze passthrough — shot_amount_of_defenders from idsse_events (see _idsse__sources.yml).
+      - name: shot_angle_to_goal
+        description: Bronze passthrough — shot_angle_to_goal from idsse_events (see _idsse__sources.yml).
+      - name: shot_assist_action
+        description: Bronze passthrough — shot_assist_action from idsse_events (see _idsse__sources.yml).
+      - name: shot_assist_shot_at_goal
+        description: Bronze passthrough — shot_assist_shot_at_goal from idsse_events (see _idsse__sources.yml).
+      - name: shot_assist_type_shot_at_goal
+        description: Bronze passthrough — shot_assist_type_shot_at_goal from idsse_events (see _idsse__sources.yml).
+      - name: shot_ball_possession_phase
+        description: Bronze passthrough — shot_ball_possession_phase from idsse_events (see _idsse__sources.yml).
+      - name: shot_build_up
+        description: Bronze passthrough — shot_build_up from idsse_events (see _idsse__sources.yml).
+      - name: shot_chance_evaluation
+        description: Bronze passthrough — shot_chance_evaluation from idsse_events (see _idsse__sources.yml).
+      - name: shot_counter_attack
+        description: Bronze passthrough — shot_counter_attack from idsse_events (see _idsse__sources.yml).
+      - name: shot_distance_to_goal
+        description: Bronze passthrough — shot_distance_to_goal from idsse_events (see _idsse__sources.yml).
+      - name: shot_extended_type_of_shot
+        description: Bronze passthrough — shot_extended_type_of_shot from idsse_events (see _idsse__sources.yml).
+      - name: shot_goal_distance_goalkeeper
+        description: Bronze passthrough — shot_goal_distance_goalkeeper from idsse_events (see _idsse__sources.yml).
+      - name: shot_inside_box
+        description: Bronze passthrough — shot_inside_box from idsse_events (see _idsse__sources.yml).
+      - name: shot_player
+        description: Bronze passthrough — shot_player from idsse_events (see _idsse__sources.yml).
+      - name: shot_player_speed
+        description: Bronze passthrough — shot_player_speed from idsse_events (see _idsse__sources.yml).
+      - name: shot_pressure
+        description: Bronze passthrough — shot_pressure from idsse_events (see _idsse__sources.yml).
+      - name: shot_setup_origin
+        description: Bronze passthrough — shot_setup_origin from idsse_events (see _idsse__sources.yml).
+      - name: shot_shot_condition
+        description: Bronze passthrough — shot_shot_condition from idsse_events (see _idsse__sources.yml).
+      - name: shot_shot_contribution
+        description: Bronze passthrough — shot_shot_contribution from idsse_events (see _idsse__sources.yml).
+      - name: shot_shot_origin
+        description: Bronze passthrough — shot_shot_origin from idsse_events (see _idsse__sources.yml).
+      - name: shot_significance_evaluation
+        description: Bronze passthrough — shot_significance_evaluation from idsse_events (see _idsse__sources.yml).
+      - name: shot_sitter_contribution
+        description: Bronze passthrough — shot_sitter_contribution from idsse_events (see _idsse__sources.yml).
+      - name: shot_taker_ball_control
+        description: Bronze passthrough — shot_taker_ball_control from idsse_events (see _idsse__sources.yml).
+      - name: shot_taker_setup
+        description: Bronze passthrough — shot_taker_setup from idsse_events (see _idsse__sources.yml).
+      - name: shot_team
+        description: Bronze passthrough — shot_team from idsse_events (see _idsse__sources.yml).
+      - name: shot_type_of_shot
+        description: Bronze passthrough — shot_type_of_shot from idsse_events (see _idsse__sources.yml).
+      - name: shot_x_g
+        description: Bronze passthrough — shot_x_g from idsse_events (see _idsse__sources.yml).
+
+      # SitterPrevented first-child attrs
+      - name: sitter_prev_player
+        description: Bronze passthrough — sitter_prev_player from idsse_events (see _idsse__sources.yml).
+      - name: sitter_prev_reason
+        description: Bronze passthrough — sitter_prev_reason from idsse_events (see _idsse__sources.yml).
+      - name: sitter_prev_ref_decision_evaluation
+        description: Bronze passthrough — sitter_prev_ref_decision_evaluation from idsse_events (see _idsse__sources.yml).
+      - name: sitter_prev_team
+        description: Bronze passthrough — sitter_prev_team from idsse_events (see _idsse__sources.yml).
+
+      # SpectacularPlay first-child attrs
+      - name: spectacular_player
+        description: Bronze passthrough — spectacular_player from idsse_events (see _idsse__sources.yml).
+      - name: spectacular_team
+        description: Bronze passthrough — spectacular_team from idsse_events (see _idsse__sources.yml).
+      - name: spectacular_type
+        description: Bronze passthrough — spectacular_type from idsse_events (see _idsse__sources.yml).
+
+      # Substitution first-child attrs
+      - name: sub_player_in
+        description: Bronze passthrough — sub_player_in from idsse_events (see _idsse__sources.yml).
+      - name: sub_player_out
+        description: Bronze passthrough — sub_player_out from idsse_events (see _idsse__sources.yml).
+      - name: sub_playing_position
+        description: Bronze passthrough — sub_playing_position from idsse_events (see _idsse__sources.yml).
+      - name: sub_team
+        description: Bronze passthrough — sub_team from idsse_events (see _idsse__sources.yml).
+
+      # TacklingGame first-child attrs
+      - name: tackle_ball_possession_phase
+        description: Bronze passthrough — tackle_ball_possession_phase from idsse_events (see _idsse__sources.yml).
+      - name: tackle_dribble_evaluation
+        description: Bronze passthrough — tackle_dribble_evaluation from idsse_events (see _idsse__sources.yml).
+      - name: tackle_dribbling_side
+        description: Bronze passthrough — tackle_dribbling_side from idsse_events (see _idsse__sources.yml).
+      - name: tackle_dribbling_type
+        description: Bronze passthrough — tackle_dribbling_type from idsse_events (see _idsse__sources.yml).
+      - name: tackle_goal_keeper_involved
+        description: Bronze passthrough — tackle_goal_keeper_involved from idsse_events (see _idsse__sources.yml).
+      - name: tackle_loser
+        description: Bronze passthrough — tackle_loser from idsse_events (see _idsse__sources.yml).
+      - name: tackle_loser_role
+        description: Bronze passthrough — tackle_loser_role from idsse_events (see _idsse__sources.yml).
+      - name: tackle_loser_team
+        description: Bronze passthrough — tackle_loser_team from idsse_events (see _idsse__sources.yml).
+      - name: tackle_possession_change
+        description: Bronze passthrough — tackle_possession_change from idsse_events (see _idsse__sources.yml).
+      - name: tackle_type
+        description: Bronze passthrough — tackle_type from idsse_events (see _idsse__sources.yml).
+      - name: tackle_winner
+        description: Bronze passthrough — tackle_winner from idsse_events (see _idsse__sources.yml).
+      - name: tackle_winner_action
+        description: Bronze passthrough — tackle_winner_action from idsse_events (see _idsse__sources.yml).
+      - name: tackle_winner_result
+        description: Bronze passthrough — tackle_winner_result from idsse_events (see _idsse__sources.yml).
+      - name: tackle_winner_role
+        description: Bronze passthrough — tackle_winner_role from idsse_events (see _idsse__sources.yml).
+      - name: tackle_winner_team
+        description: Bronze passthrough — tackle_winner_team from idsse_events (see _idsse__sources.yml).
+
+      # ThrowIn first-child attrs
+      - name: throwin_decision_timestamp
+        description: Bronze passthrough — throwin_decision_timestamp from idsse_events (see _idsse__sources.yml).
+      - name: throwin_side
+        description: Bronze passthrough — throwin_side from idsse_events (see _idsse__sources.yml).
+      - name: throwin_team
+        description: Bronze passthrough — throwin_team from idsse_events (see _idsse__sources.yml).
+
+      # VideoAssistantAction first-child attrs
+      - name: var_final_decision
+        description: Bronze passthrough — var_final_decision from idsse_events (see _idsse__sources.yml).
+      - name: var_linesman1
+        description: Bronze passthrough — var_linesman1 from idsse_events (see _idsse__sources.yml).
+      - name: var_linesman2
+        description: Bronze passthrough — var_linesman2 from idsse_events (see _idsse__sources.yml).
+      - name: var_opponent_team
+        description: Bronze passthrough — var_opponent_team from idsse_events (see _idsse__sources.yml).
+      - name: var_proofed_event
+        description: Bronze passthrough — var_proofed_event from idsse_events (see _idsse__sources.yml).
+      - name: var_ref_decision
+        description: Bronze passthrough — var_ref_decision from idsse_events (see _idsse__sources.yml).
+      - name: var_ref_decision_evaluation
+        description: Bronze passthrough — var_ref_decision_evaluation from idsse_events (see _idsse__sources.yml).
+      - name: var_referee
+        description: Bronze passthrough — var_referee from idsse_events (see _idsse__sources.yml).
+      - name: var_refereein_rra
+        description: Bronze passthrough — var_refereein_rra from idsse_events (see _idsse__sources.yml).
+      - name: var_team_challenged
+        description: Bronze passthrough — var_team_challenged from idsse_events (see _idsse__sources.yml).
+      - name: var_timestamp_end_action
+        description: Bronze passthrough — var_timestamp_end_action from idsse_events (see _idsse__sources.yml).
+      - name: var_timestamp_start_action
+        description: Bronze passthrough — var_timestamp_start_action from idsse_events (see _idsse__sources.yml).
+      - name: var_video_assistant
+        description: Bronze passthrough — var_video_assistant from idsse_events (see _idsse__sources.yml).
+
+      # Cross nested-child attrs (nested inside Play)
+      - name: cross_goal_keeper
+        description: Bronze passthrough — cross_goal_keeper from idsse_events (see _idsse__sources.yml).
+      - name: cross_goal_keeper_interference
+        description: Bronze passthrough — cross_goal_keeper_interference from idsse_events (see _idsse__sources.yml).
+      - name: cross_side
+        description: Bronze passthrough — cross_side from idsse_events (see _idsse__sources.yml).
+
+      # Pass nested-child attrs (nested inside Play)
+      - name: pass_direction
+        description: Bronze passthrough — pass_direction from idsse_events (see _idsse__sources.yml).
+      - name: pass_free_kick_layup
+        description: Bronze passthrough — pass_free_kick_layup from idsse_events (see _idsse__sources.yml).
+      - name: pass_one_two
+        description: Bronze passthrough — pass_one_two from idsse_events (see _idsse__sources.yml).
+
+      # ShotAtGoal outcome disambiguator (synthetic)
+      - name: shot_outcome_type
+        description: Bronze passthrough — shot_outcome_type from idsse_events (see _idsse__sources.yml).
+
   - name: stg_idsse__elastic_sync
     config:
       enabled: "{{ var('pausa_enabled', false) }}"
@@ -257,3 +747,42 @@ models:
         description: Away team display name from stg_tracking__player_metadata.
       - name: bronze_match_id
         description: Original bronze match_id with the 'idsse_' prefix (for lineage).
+
+  - name: stg_idsse__passes
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      IDSSE Bundesliga pass events in SPADL-like shape, ready to union
+      into `int_unified_passes`. Filters `bronze.idsse_events` on
+      `event_type='Play'` (the DFL XML container for passing actions)
+      and derives `pass_outcome` from `play_evaluation`. Coordinates are
+      scaled from DFL pitch-origin metres to the shared 120x80 system.
+      End coordinates, team_id, player_id, and pass_recipient_id are
+      NULL for IDSSE — the DFL <Play> row carries a start location only
+      and DFL team/player IDs are strings (fct_passes contract types
+      these as INT). Cross-provider reconciliation is deferred to a
+      later PR (dim_teams / dim_players surrogate keys).
+    columns:
+      - name: event_id
+        description: IDSSE event_id (unique within match).
+        data_tests:
+          - not_null
+      - name: match_id
+        description: Native DFL MatchId with the 'idsse_' prefix stripped.
+        data_tests:
+          - not_null
+      - name: pass_outcome
+        description: "'Complete' when play_evaluation in ['successfullyCompleted','successful']; 'Incomplete' when 'unsuccessful'; 'Unknown' otherwise."
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Complete', 'Incomplete', 'Unknown']
+      - name: data_source
+        description: Constant 'idsse' for rows from this model.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['idsse']

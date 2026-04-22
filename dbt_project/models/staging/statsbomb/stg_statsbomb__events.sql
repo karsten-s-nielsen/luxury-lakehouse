@@ -158,7 +158,82 @@ flattened as (
                 from_json(_raw_extra_json,
                           'STRUCT<foul_committed: STRUCT<card: STRUCT<name: STRING>>>'
                          ).foul_committed.card.name
-        end                                             as card_name
+        end                                             as card_name,
+
+        -- Bronze pass-through cols (PR 2 — Kimball migration, ADR-011).
+        -- Surface remaining bronze cols with their bronze names so downstream
+        -- models and analysts can reach them without re-reading bronze. The
+        -- type casts and renames above remain the preferred consumption path;
+        -- these are the raw source-of-truth view for provenance + ad hoc
+        -- exploration. See src/tests/test_staging_coverage.py
+        -- INITIAL_BRONZE_STAGING_GAPS for the enforcement contract.
+        `50_50`                                         as `50_50`,
+        _ingested_at,
+        _raw_extra_json,
+        bad_behaviour_card,
+        ball_receipt_outcome,
+        ball_recovery_offensive,
+        ball_recovery_recovery_failure,
+        block_deflection,
+        block_offensive,
+        block_save_block,
+        carry_end_location,
+        clearance_aerial_won,
+        clearance_body_part,
+        clearance_head,
+        clearance_left_foot,
+        clearance_other,
+        clearance_right_foot,
+        counterpress,
+        dribble_outcome,
+        duel_outcome,
+        duel_type,
+        foul_committed_advantage,
+        foul_committed_card,
+        foul_committed_offensive,
+        foul_committed_penalty,
+        foul_committed_type,
+        foul_won_advantage,
+        foul_won_defensive,
+        foul_won_penalty,
+        goalkeeper_body_part,
+        goalkeeper_end_location,
+        goalkeeper_lost_in_play,
+        goalkeeper_lost_out,
+        goalkeeper_outcome,
+        goalkeeper_penalty_saved_to_post,
+        goalkeeper_position,
+        goalkeeper_punched_out,
+        goalkeeper_saved_to_post,
+        goalkeeper_shot_saved_off_target,
+        goalkeeper_shot_saved_to_post,
+        goalkeeper_success_in_play,
+        goalkeeper_success_out,
+        goalkeeper_technique,
+        goalkeeper_type,
+        half_end_early_video_end,
+        half_start_late_video_start,
+        injury_stoppage_in_chain,
+        interception_outcome,
+        location,
+        miscontrol_aerial_won,
+        out,
+        pass_assisted_shot_id,
+        pass_no_touch,
+        pass_recipient,
+        pass_straight,
+        player,
+        player_off_permanent,
+        position,
+        possession_team,
+        related_events,
+        shot_deflected,
+        shot_key_pass_id,
+        substitution_outcome,
+        substitution_outcome_id,
+        substitution_replacement,
+        tactics,
+        team
 
     from source
 

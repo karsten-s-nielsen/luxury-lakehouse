@@ -25,6 +25,7 @@ home_players_exploded as (
         period,
         frame,
         timestamp                                       as timestamp_seconds,
+        timestamp,
         frame_rate,
         'home'                                          as team,
         player_key                                      as player_id,
@@ -32,7 +33,11 @@ home_players_exploded as (
         player_value.y                                  as raw_y,
         ball_x                                          as raw_ball_x,
         ball_y                                          as raw_ball_y,
-        gk_jersey_numbers
+        gk_jersey_numbers,
+        home_players,
+        away_players,
+        pitch_length_m,
+        pitch_width_m
     from source
     lateral view explode(
         from_json(home_players, 'MAP<STRING, STRUCT<x:DOUBLE, y:DOUBLE>>')
@@ -47,6 +52,7 @@ away_players_exploded as (
         period,
         frame,
         timestamp                                       as timestamp_seconds,
+        timestamp,
         frame_rate,
         'away'                                          as team,
         player_key                                      as player_id,
@@ -54,7 +60,11 @@ away_players_exploded as (
         player_value.y                                  as raw_y,
         ball_x                                          as raw_ball_x,
         ball_y                                          as raw_ball_y,
-        gk_jersey_numbers
+        gk_jersey_numbers,
+        home_players,
+        away_players,
+        pitch_length_m,
+        pitch_width_m
     from source
     lateral view explode(
         from_json(away_players, 'MAP<STRING, STRUCT<x:DOUBLE, y:DOUBLE>>')
@@ -85,6 +95,9 @@ normalized as (
         timestamp_seconds,
         frame_rate,
 
+        -- Bronze passthrough — raw timestamp (seconds from period start)
+        timestamp,
+
         -- Player identity
         player_id,
         team,
@@ -97,6 +110,17 @@ normalized as (
             from_json(gk_jersey_numbers, 'ARRAY<STRING>'),
             player_id
         )                                               as is_goalkeeper,
+
+        -- Bronze passthrough — raw goalkeeper jersey number JSON array
+        gk_jersey_numbers,
+
+        -- Bronze passthrough — raw per-frame player tracking JSON objects
+        home_players,
+        away_players,
+
+        -- Bronze passthrough — pitch dimensions (meters) denormalized per row
+        pitch_length_m,
+        pitch_width_m,
 
         -- Scaled player coordinates (120x80)
         {{ normalize_x('raw_x', 'metrica') }} as x,

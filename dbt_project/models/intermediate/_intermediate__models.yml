@@ -7,25 +7,28 @@ models:
         data_sensitivity: public
         contains_pii: false
     description: >
-      Unified pass data from StatsBomb and Wyscout sources. Contains all
-      passes with standardized schema, progressive pass identification,
-      and pass type flags. Materialized as ephemeral (CTE).
+      Unified pass data from StatsBomb, Wyscout, IDSSE, and Metrica
+      sources. Contains all passes with standardized schema, progressive
+      pass identification, and pass type flags. Keyed by `match_key`
+      (Kimball surrogate FK to dim_matches per ADR-011). Materialized
+      as view (upgraded from ephemeral in PR 2).
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           combination_of_columns:
+            - match_key
             - event_id
             - data_source
     columns:
       - name: event_id
-        description: Unique event identifier from source
+        description: Source event identifier (globally unique for StatsBomb/Wyscout; match-local for IDSSE/Metrica — use with match_key for global uniqueness).
         data_tests:
           - not_null
-      - name: match_id
-        description: Match identifier
+      - name: match_key
+        description: Kimball surrogate FK to dim_matches.match_key (bigint, ADR-011).
         data_tests:
           - not_null
       - name: player_id
-        description: Player performing the pass
+        description: Player performing the pass (NULL for IDSSE/Metrica — see source staging docs).
       - name: team_id
         description: Team performing the pass
       - name: start_x
@@ -39,12 +42,12 @@ models:
       - name: is_progressive
         description: Whether the pass moved the ball >=25% closer to goal
       - name: data_source
-        description: Data provider (statsbomb, wyscout)
+        description: Data provider (statsbomb, wyscout, idsse, metrica)
         data_tests:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb', 'wyscout']
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica']
       - name: period
         description: Match period (1=first half, 2=second half, etc.)
       - name: minute
@@ -238,7 +241,11 @@ models:
       by mart models to derive per-action game state.
     columns:
       - name: match_id
-        description: Match identifier
+        description: Native match identifier (BIGINT, StatsBomb/Wyscout only). Retained for pre-migration consumers (fct_shots, fct_action_values).
+        data_tests:
+          - not_null
+      - name: match_key
+        description: Kimball surrogate FK to dim_matches.match_key (bigint, added in PR 2 for match_key-migrated consumers).
         data_tests:
           - not_null
       - name: home_team_id

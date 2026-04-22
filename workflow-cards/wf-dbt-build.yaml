@@ -40,9 +40,6 @@ outputs:
     - id: "{catalog}.dev_gold.dim_teams"
       destination: delta-table
       dbt_model: dim_teams
-    - id: "{catalog}.dev_gold.dim_tracking_matches"
-      destination: delta-table
-      dbt_model: dim_tracking_matches
     - id: "{catalog}.dev_gold.fct_action_values"
       destination: delta-table
       dbt_model: fct_action_values

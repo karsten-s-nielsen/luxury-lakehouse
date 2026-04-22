@@ -77,8 +77,8 @@ No CLAUDE.md amendment. This ADR establishes a new pattern that complements exis
 
 | PR | Scope | Status |
 |---|---|---|
-| PR 1 | Foundation: `generate_match_key` macro + `dim_matches` + ADR-011 | Active |
-| PR 2 | Passes conformed + LB-IDSSE + LB-METRICA functional surfacing | Planned |
+| PR 1 | Foundation: `generate_match_key` macro + `dim_matches` + ADR-011 | Shipped (2026-04-21, #165) |
+| PR 2 | Passes conformed + LB-IDSSE + LB-METRICA functional surfacing + bronze→staging completeness sweep | Shipped (2026-04-22) |
 | PR 3 | Shots + xG migration | Planned |
 | PR 4 | Action values + VAEP migration | Planned |
 | PR 5 | Player stats + embeddings migration | Planned |

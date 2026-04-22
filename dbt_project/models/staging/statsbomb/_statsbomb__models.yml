@@ -146,6 +146,191 @@ models:
               arguments:
                 values: ['Yellow Card', 'Red Card', 'Second Yellow']
 
+      # --- Bronze pass-through cols (PR 2 — Kimball migration, ADR-011) ---
+      # These mirror the bronze schema 1:1 so analysts can reach every
+      # statsbombpy field without re-reading bronze. The cast/rename cols
+      # above remain the preferred consumption path; these are documented for
+      # provenance + ad hoc exploration. See src/tests/test_staging_coverage.py
+      # INITIAL_BRONZE_STAGING_GAPS for the enforcement contract.
+      - name: "50_50"
+        description: Bronze passthrough — raw JSON blob for 50/50 duel events from statsbomb_events.
+      - name: _ingested_at
+        description: Bronze passthrough — UTC timestamp when the row was written to bronze (audit col).
+      - name: _raw_extra_json
+        description: Bronze passthrough — raw JSON of type-specific event attrs not flattened by statsbombpy (used by SPADL adapter).
+      - name: bad_behaviour_card
+        description: Bronze passthrough — bad_behaviour_card from statsbomb_events.
+      - name: ball_receipt_outcome
+        description: Bronze passthrough — ball_receipt_outcome from statsbomb_events.
+      - name: ball_recovery_offensive
+        description: Bronze passthrough — ball_recovery_offensive from statsbomb_events.
+      - name: ball_recovery_recovery_failure
+        description: Bronze passthrough — ball_recovery_recovery_failure from statsbomb_events.
+      - name: block_deflection
+        description: Bronze passthrough — block_deflection from statsbomb_events.
+      - name: block_offensive
+        description: Bronze passthrough — block_offensive from statsbomb_events.
+      - name: block_save_block
+        description: Bronze passthrough — block_save_block from statsbomb_events.
+      - name: carry_end_location
+        description: Bronze passthrough — carry_end_location from statsbomb_events.
+      - name: clearance_aerial_won
+        description: Bronze passthrough — clearance_aerial_won from statsbomb_events.
+      - name: clearance_body_part
+        description: Bronze passthrough — clearance_body_part from statsbomb_events.
+      - name: clearance_head
+        description: Bronze passthrough — clearance_head from statsbomb_events.
+      - name: clearance_left_foot
+        description: Bronze passthrough — clearance_left_foot from statsbomb_events.
+      - name: clearance_other
+        description: Bronze passthrough — clearance_other from statsbomb_events.
+      - name: clearance_right_foot
+        description: Bronze passthrough — clearance_right_foot from statsbomb_events.
+      - name: counterpress
+        description: Bronze passthrough — counterpress from statsbomb_events (raw bronze col; also surfaced as renamed `is_counterpress`).
+      - name: dribble_no_touch
+        description: Bronze passthrough — dribble_no_touch from statsbomb_events.
+      - name: dribble_nutmeg
+        description: Bronze passthrough — dribble_nutmeg from statsbomb_events.
+      - name: dribble_outcome
+        description: Bronze passthrough — dribble_outcome from statsbomb_events.
+      - name: dribble_overrun
+        description: Bronze passthrough — dribble_overrun from statsbomb_events.
+      - name: duel_outcome
+        description: Bronze passthrough — duel_outcome from statsbomb_events.
+      - name: duel_type
+        description: Bronze passthrough — duel_type from statsbomb_events.
+      - name: foul_committed_advantage
+        description: Bronze passthrough — foul_committed_advantage from statsbomb_events.
+      - name: foul_committed_card
+        description: Bronze passthrough — foul_committed_card from statsbomb_events.
+      - name: foul_committed_offensive
+        description: Bronze passthrough — foul_committed_offensive from statsbomb_events.
+      - name: foul_committed_penalty
+        description: Bronze passthrough — foul_committed_penalty from statsbomb_events.
+      - name: foul_committed_type
+        description: Bronze passthrough — foul_committed_type from statsbomb_events.
+      - name: foul_won_advantage
+        description: Bronze passthrough — foul_won_advantage from statsbomb_events.
+      - name: foul_won_defensive
+        description: Bronze passthrough — foul_won_defensive from statsbomb_events.
+      - name: foul_won_penalty
+        description: Bronze passthrough — foul_won_penalty from statsbomb_events.
+      - name: goalkeeper_body_part
+        description: Bronze passthrough — goalkeeper_body_part from statsbomb_events.
+      - name: goalkeeper_end_location
+        description: Bronze passthrough — goalkeeper_end_location from statsbomb_events.
+      - name: goalkeeper_lost_in_play
+        description: Bronze passthrough — goalkeeper_lost_in_play from statsbomb_events.
+      - name: goalkeeper_lost_out
+        description: Bronze passthrough — goalkeeper_lost_out from statsbomb_events.
+      - name: goalkeeper_outcome
+        description: Bronze passthrough — goalkeeper_outcome from statsbomb_events.
+      - name: goalkeeper_penalty_saved_to_post
+        description: Bronze passthrough — goalkeeper_penalty_saved_to_post from statsbomb_events.
+      - name: goalkeeper_position
+        description: Bronze passthrough — goalkeeper_position from statsbomb_events.
+      - name: goalkeeper_punched_out
+        description: Bronze passthrough — goalkeeper_punched_out from statsbomb_events.
+      - name: goalkeeper_saved_to_post
+        description: Bronze passthrough — goalkeeper_saved_to_post from statsbomb_events.
+      - name: goalkeeper_shot_saved_off_target
+        description: Bronze passthrough — goalkeeper_shot_saved_off_target from statsbomb_events.
+      - name: goalkeeper_shot_saved_to_post
+        description: Bronze passthrough — goalkeeper_shot_saved_to_post from statsbomb_events.
+      - name: goalkeeper_success_in_play
+        description: Bronze passthrough — goalkeeper_success_in_play from statsbomb_events.
+      - name: goalkeeper_success_out
+        description: Bronze passthrough — goalkeeper_success_out from statsbomb_events.
+      - name: goalkeeper_technique
+        description: Bronze passthrough — goalkeeper_technique from statsbomb_events.
+      - name: goalkeeper_type
+        description: Bronze passthrough — goalkeeper_type from statsbomb_events.
+      - name: half_end_early_video_end
+        description: Bronze passthrough — half_end_early_video_end from statsbomb_events.
+      - name: half_start_late_video_start
+        description: Bronze passthrough — half_start_late_video_start from statsbomb_events.
+      - name: injury_stoppage_in_chain
+        description: Bronze passthrough — injury_stoppage_in_chain from statsbomb_events.
+      - name: interception_outcome
+        description: Bronze passthrough — interception_outcome from statsbomb_events.
+      - name: location
+        description: Bronze passthrough — raw JSON [x,y] array from statsbomb_events (also surfaced parsed as `location_x` / `location_y`).
+      - name: miscontrol_aerial_won
+        description: Bronze passthrough — miscontrol_aerial_won from statsbomb_events.
+      - name: off_camera
+        description: Bronze passthrough — off_camera from statsbomb_events.
+      - name: out
+        description: Bronze passthrough — raw `out` boolean from statsbomb_events (also surfaced as renamed `is_out_of_play`).
+      - name: pass_aerial_won
+        description: Bronze passthrough — pass_aerial_won from statsbomb_events.
+      - name: pass_assisted_shot_id
+        description: Bronze passthrough — pass_assisted_shot_id from statsbomb_events.
+      - name: pass_backheel
+        description: Bronze passthrough — pass_backheel from statsbomb_events.
+      - name: pass_cut_back
+        description: Bronze passthrough — pass_cut_back from statsbomb_events.
+      - name: pass_deflected
+        description: Bronze passthrough — pass_deflected from statsbomb_events.
+      - name: pass_goal_assist
+        description: Bronze passthrough — pass_goal_assist from statsbomb_events.
+      - name: pass_inswinging
+        description: Bronze passthrough — pass_inswinging from statsbomb_events.
+      - name: pass_miscommunication
+        description: Bronze passthrough — pass_miscommunication from statsbomb_events.
+      - name: pass_no_touch
+        description: Bronze passthrough — pass_no_touch from statsbomb_events.
+      - name: pass_outswinging
+        description: Bronze passthrough — pass_outswinging from statsbomb_events.
+      - name: pass_recipient
+        description: Bronze passthrough — raw pass_recipient name string from statsbomb_events (also surfaced as `pass_recipient_name`).
+      - name: pass_shot_assist
+        description: Bronze passthrough — pass_shot_assist from statsbomb_events.
+      - name: pass_straight
+        description: Bronze passthrough — pass_straight from statsbomb_events.
+      - name: pass_technique
+        description: Bronze passthrough — pass_technique from statsbomb_events.
+      - name: player
+        description: Bronze passthrough — raw `player` display-name string from statsbomb_events (also surfaced as `player_name`).
+      - name: player_off_permanent
+        description: Bronze passthrough — player_off_permanent from statsbomb_events.
+      - name: position
+        description: Bronze passthrough — raw `position` string from statsbomb_events (also surfaced as `player_position`).
+      - name: possession_team
+        description: Bronze passthrough — possession_team display-name string from statsbomb_events.
+      - name: related_events
+        description: Bronze passthrough — related_events JSON array from statsbomb_events.
+      - name: shot_aerial_won
+        description: Bronze passthrough — shot_aerial_won from statsbomb_events.
+      - name: shot_deflected
+        description: Bronze passthrough — shot_deflected from statsbomb_events.
+      - name: shot_follows_dribble
+        description: Bronze passthrough — shot_follows_dribble from statsbomb_events.
+      - name: shot_key_pass_id
+        description: Bronze passthrough — shot_key_pass_id from statsbomb_events.
+      - name: shot_kick_off
+        description: Bronze passthrough — shot_kick_off from statsbomb_events.
+      - name: shot_open_goal
+        description: Bronze passthrough — shot_open_goal from statsbomb_events.
+      - name: shot_redirect
+        description: Bronze passthrough — shot_redirect from statsbomb_events.
+      - name: shot_saved_off_target
+        description: Bronze passthrough — shot_saved_off_target from statsbomb_events.
+      - name: shot_saved_to_post
+        description: Bronze passthrough — shot_saved_to_post from statsbomb_events.
+      - name: substitution_outcome
+        description: Bronze passthrough — substitution_outcome from statsbomb_events.
+      - name: substitution_outcome_id
+        description: Bronze passthrough — substitution_outcome_id from statsbomb_events.
+      - name: substitution_replacement
+        description: Bronze passthrough — substitution_replacement display-name string from statsbomb_events.
+      - name: tactics
+        description: Bronze passthrough — raw tactics JSON string from statsbomb_events (also surfaced parsed as `tactics_formation` / `tactics_json`).
+      - name: team
+        description: Bronze passthrough — raw `team` display-name string from statsbomb_events (also surfaced as `team_name`).
+      - name: under_pressure
+        description: Bronze passthrough — under_pressure from statsbomb_events.
+
   - name: stg_statsbomb__shots
     config:
       meta:
@@ -334,6 +519,41 @@ models:
       - name: data_version
         description: StatsBomb data version identifier
 
+      # --- Bronze pass-through cols (PR 2 — Kimball migration, ADR-011) ---
+      # Mirror the bronze schema 1:1 for provenance + ad hoc exploration. The
+      # cast/rename cols above remain the preferred consumption path. See
+      # src/tests/test_staging_coverage.py INITIAL_BRONZE_STAGING_GAPS.
+      - name: _ingested_at
+        description: Bronze passthrough — UTC timestamp when the row was written to bronze (audit col).
+      - name: away_managers
+        description: Bronze passthrough — raw away_managers string from statsbomb_matches (also surfaced as `away_manager`).
+      - name: away_team
+        description: Bronze passthrough — raw away_team display-name string from statsbomb_matches (also surfaced as `away_team_name`).
+      - name: competition
+        description: Bronze passthrough — raw competition display-name string from statsbomb_matches (also surfaced as `competition_name`).
+      - name: home_managers
+        description: Bronze passthrough — raw home_managers string from statsbomb_matches (also surfaced as `home_manager`).
+      - name: home_team
+        description: Bronze passthrough — raw home_team display-name string from statsbomb_matches (also surfaced as `home_team_name`).
+      - name: kick_off
+        description: Bronze passthrough — match kick-off time string from statsbomb_matches.
+      - name: last_updated
+        description: Bronze passthrough — last_updated timestamp string from statsbomb_matches.
+      - name: last_updated_360
+        description: Bronze passthrough — last_updated_360 timestamp string from statsbomb_matches.
+      - name: match_status_360
+        description: Bronze passthrough — match_status_360 from statsbomb_matches.
+      - name: referee
+        description: Bronze passthrough — raw referee name string from statsbomb_matches (also surfaced as `referee_name`).
+      - name: season
+        description: Bronze passthrough — raw season display-name string from statsbomb_matches (also surfaced as `season_name`).
+      - name: shot_fidelity_version
+        description: Bronze passthrough — shot_fidelity_version from statsbomb_matches.
+      - name: stadium
+        description: Bronze passthrough — raw stadium name string from statsbomb_matches (also surfaced as `stadium_name`).
+      - name: xy_fidelity_version
+        description: Bronze passthrough — xy_fidelity_version from statsbomb_matches.
+
   - name: stg_statsbomb__lineups
     config:
       meta:
@@ -381,6 +601,19 @@ models:
         description: Number of yellow cards received in the match
       - name: red_cards
         description: Number of red cards received in the match (including second yellow)
+
+      # --- Bronze pass-through cols (PR 2 — Kimball migration, ADR-011) ---
+      # Mirror the bronze schema 1:1 for provenance + ad hoc exploration. The
+      # typed cols above remain the preferred consumption path. See
+      # src/tests/test_staging_coverage.py INITIAL_BRONZE_STAGING_GAPS.
+      - name: _ingested_at
+        description: Bronze passthrough — UTC timestamp when the row was written to bronze (audit col).
+      - name: cards
+        description: Bronze passthrough — raw cards JSON array from statsbomb_lineups (also surfaced as counts `yellow_cards` / `red_cards`).
+      - name: country
+        description: Bronze passthrough — player country-of-birth display-name string from statsbomb_lineups.
+      - name: positions
+        description: Bronze passthrough — raw positions JSON array from statsbomb_lineups (also surfaced as `position_id` / `position_name`).
 
   - name: stg_statsbomb__360
     config:
@@ -466,3 +699,20 @@ models:
         description: Season identifier (from match metadata)
       - name: visible_area_vertices
         description: Number of vertices in the visible area polygon (typically 4-12)
+
+      # --- Bronze pass-through cols (PR 2 — Kimball migration, ADR-011) ---
+      # Mirror the bronze schema 1:1 for provenance + ad hoc exploration. The
+      # parsed cols above remain the preferred consumption path. See
+      # src/tests/test_staging_coverage.py INITIAL_BRONZE_STAGING_GAPS.
+      - name: _ingested_at
+        description: Bronze passthrough — UTC timestamp when the row was written to bronze (audit col).
+      - name: actor
+        description: Bronze passthrough — raw `actor` boolean from statsbomb_360 (also surfaced as renamed `is_actor`).
+      - name: keeper
+        description: Bronze passthrough — raw `keeper` boolean from statsbomb_360 (also surfaced as renamed `is_keeper`).
+      - name: location
+        description: Bronze passthrough — raw JSON [x,y] array from statsbomb_360 (also surfaced parsed as `location_x` / `location_y`).
+      - name: teammate
+        description: Bronze passthrough — raw `teammate` boolean from statsbomb_360 (also surfaced as renamed `is_teammate`).
+      - name: visible_area
+        description: Bronze passthrough — raw visible_area JSON polygon from statsbomb_360 (also surfaced as parsed `visible_area_polygon` / `visible_area_vertices`).

@@ -55,7 +55,18 @@ flattened as (
         coalesce(
             size(filter(parsed_cards, c -> c.card_type IN ('Red Card', 'Second Yellow'))),
             0
-        )                                                   as red_cards
+        )                                                   as red_cards,
+
+        -- Bronze pass-through cols (PR 2 — Kimball migration, ADR-011).
+        -- Surface remaining bronze cols with their bronze names so downstream
+        -- models and analysts can reach them without re-reading bronze. The
+        -- counts + casts above remain the preferred consumption path; these
+        -- are the raw source-of-truth view. See
+        -- src/tests/test_staging_coverage.py INITIAL_BRONZE_STAGING_GAPS.
+        _ingested_at,
+        cards,
+        country,
+        positions
 
     from parsed
 

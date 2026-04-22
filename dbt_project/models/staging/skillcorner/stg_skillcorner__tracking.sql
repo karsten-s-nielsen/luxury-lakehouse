@@ -47,7 +47,16 @@ normalized as (
 
         -- Ball coordinates scaled to 120×80
         {{ normalize_x('ball_x', 'center_m') }} as ball_x,
-        {{ normalize_y('ball_y', 'center_m') }} as ball_y
+        {{ normalize_y('ball_y', 'center_m') }} as ball_y,
+
+        -- Bronze passthroughs (PR 2 completeness sweep)
+        home_team_id,
+        away_team_id,
+        ball_owning_team_id,
+        ball_state,
+        ball_z,
+        is_visible,
+        position_name
 
     from source
     where x is not null

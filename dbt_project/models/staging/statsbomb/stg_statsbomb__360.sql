@@ -67,7 +67,20 @@ final as (
         -- (StatsBomb's on-wire format). Downstream spatial analysis (observed-
         -- player mask, off-camera handling) reads the full polygon rather than
         -- just the vertex count. PR 1.5 expansion.
-        parsed_visible_area                                  as visible_area_polygon
+        parsed_visible_area                                  as visible_area_polygon,
+
+        -- Bronze pass-through cols (PR 2 — Kimball migration, ADR-011).
+        -- Surface remaining bronze cols with their bronze names so downstream
+        -- models and analysts can reach them without re-reading bronze. The
+        -- parsed cols above remain the preferred consumption path; these are
+        -- the raw source-of-truth view. See
+        -- src/tests/test_staging_coverage.py INITIAL_BRONZE_STAGING_GAPS.
+        _ingested_at,
+        actor,
+        keeper,
+        location,
+        teammate,
+        visible_area
 
     from deduped
     where _row_num = 1

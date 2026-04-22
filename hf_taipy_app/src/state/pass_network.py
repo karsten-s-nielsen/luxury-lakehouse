@@ -15,7 +15,7 @@ from filters import fetch_data_freshness
 from queries.passes import fetch_network_passes
 from render import fmt_int
 
-from state.shared import _ALL_LABEL, get_comp_id, get_match_id, get_team_id, register_page_refresher
+from state.shared import _ALL_LABEL, get_competition_key, get_match_key, get_team_id, register_page_refresher
 
 logger = logging.getLogger(__name__)
 
@@ -214,11 +214,11 @@ def _build_network_figure(nodes: pd.DataFrame, edges: pd.DataFrame) -> go.Figure
 
 def pn_refresh(state: Any) -> None:
     """Refresh pass network data and visualization for current filter selection."""
-    comp_id = get_comp_id(state.selected_competition)
+    comp_key = get_competition_key(state.selected_competition)
     team_id = get_team_id(state.selected_team)
-    match_id = get_match_id(state.selected_match)
+    match_key = get_match_key(state.selected_match)
 
-    if comp_id is None or team_id is None or match_id is None:
+    if comp_key is None or team_id is None or match_key is None:
         state.pn_total_passes = "--"
         state.pn_unique_connections = "--"
         state.pn_top_pair_count = "--"
@@ -239,7 +239,7 @@ def pn_refresh(state: Any) -> None:
     state.pn_scope_match = state.selected_match if state.selected_match not in (None, _ALL_LABEL) else "—"
 
     try:
-        passes = fetch_network_passes(comp_id, team_id, match_id)
+        passes = fetch_network_passes(comp_key, team_id, match_key)
     except Exception:
         logger.exception("Failed to fetch pass network data")
         state.pn_total_passes = "\u2013"

@@ -181,21 +181,24 @@ models:
     columns:
       - name: pass_id
         data_type: string
-        description: Unique pass identifier (surrogate key)
+        description: Unique pass identifier (surrogate of match_key + event_id + data_source).
         data_tests:
           - unique
           - not_null
-      - name: match_id
+      - name: match_key
         data_type: bigint
-        description: Foreign key to fct_match_summary
+        description: Kimball surrogate FK to dim_matches.match_key (ADR-011). Native match_id is recoverable via JOIN dim_matches ON match_key.
         data_tests:
           - not_null
+      - name: competition_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_competitions.competition_key (ADR-011, PR 2). NULL for Metrica (no competition metadata).
       - name: player_id
         data_type: int
-        description: Foreign key to dim_players
+        description: Foreign key to dim_players (NULL for IDSSE/Metrica — see stg_*__passes).
       - name: team_id
         data_type: int
-        description: Foreign key to dim_teams
+        description: Foreign key to dim_teams (NULL for IDSSE/Metrica — see stg_*__passes).
       - name: start_x
         data_type: double
         description: Starting X coordinate (120-yard scale). May slightly exceed bounds.
@@ -257,15 +260,18 @@ models:
                 row_condition: "period is not null"
       - name: data_source
         data_type: string
-        description: Data provider (statsbomb, wyscout)
+        description: Data provider (statsbomb, wyscout, idsse, metrica)
         data_tests:
           - not_null
+          - accepted_values:
+              arguments:
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica']
       - name: competition_id
         data_type: int
-        description: Foreign key to dim_competitions
+        description: Foreign key to dim_competitions (NULL for Wyscout and tracking providers — resolved via dim_matches at PR 2).
       - name: season_id
         data_type: int
-        description: Season identifier
+        description: Season identifier (NULL for Wyscout and tracking providers).
       - name: minute
         data_type: bigint
         description: Match minute of the pass
@@ -744,27 +750,30 @@ models:
       team-level statistics including xG, possession percentage, pass
       completion rate, shot counts, and other summary metrics.
     columns:
-      - name: match_id
+      - name: match_key
         data_type: bigint
-        description: Primary key — unique match identifier
+        description: Kimball surrogate primary key — FK to dim_matches.match_key (ADR-011).
         data_tests:
           - unique
           - not_null
+      - name: competition_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_competitions.competition_key (ADR-011, PR 2). NULL for Metrica (no competition metadata).
       - name: competition_id
         data_type: int
-        description: Foreign key to dim_competitions
+        description: Legacy native INT competition identifier. NULL for IDSSE/Metrica (non-numeric / absent). Retained for backward compat; use competition_key for new consumers.
       - name: season_id
         data_type: int
-        description: Season identifier
+        description: Season identifier (NULL for IDSSE/Metrica).
       - name: home_team_id
         data_type: int
-        description: Foreign key to dim_teams
+        description: Foreign key to dim_teams (NULL for non-StatsBomb rows in PR 2).
       - name: away_team_id
         data_type: int
-        description: Foreign key to dim_teams
+        description: Foreign key to dim_teams (NULL for non-StatsBomb rows in PR 2).
       - name: match_date
         data_type: date
-        description: Date the match was played
+        description: Date the match was played (NULL for IDSSE/Metrica).
       - name: home_xg
         data_type: double
         description: Total home team expected goals
@@ -1773,31 +1782,72 @@ models:
         data_sensitivity: public
         contains_pii: false
     description: >
-      Competition dimension table. Combines competition metadata from
-      StatsBomb and Wyscout sources with seed data enrichment.
-      One row per unique competition.
+      Conformed competition dimension unifying StatsBomb + Wyscout + IDSSE
+      competitions. Metrica is intentionally absent (anonymised open-data
+      has no competition metadata). PR 2 of the Kimball migration
+      (ADR-011) added `competition_key` as the surrogate primary key,
+      extending the same pattern as `dim_matches.match_key` from matches
+      to competitions.
+
+      Grain: one row per (provider, native_competition_id). StatsBomb
+      and Wyscout use separate integer competition-id spaces for the
+      same leagues (e.g. La Liga is 11 in StatsBomb, 795 in Wyscout);
+      both spaces are preserved as independent rows with different
+      competition_keys. IDSSE uses DFL-COM-XXXXXX strings.
     columns:
-      - name: competition_id
-        data_type: int
-        description: Primary key — canonical competition identifier
+      - name: competition_key
+        data_type: bigint
+        description: >
+          Kimball surrogate primary key. Deterministic BIGINT hash of
+          (provider, native_competition_id) via `generate_competition_key`.
+          Used by migrated fact tables (PR 2+) as the competition FK.
         data_tests:
           - unique
           - not_null
+      - name: provider
+        data_type: string
+        description: Data source that produced this competition (statsbomb, wyscout, idsse).
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['statsbomb', 'wyscout', 'idsse']
+      - name: native_competition_id
+        data_type: string
+        description: >
+          Source-system-native competition identifier, stringified.
+          StatsBomb + Wyscout stringify their BIGINT IDs; IDSSE is
+          natively string ('DFL-COM-XXXXXX'). Together with `provider`
+          forms the natural key.
+        data_tests:
+          - not_null
+      - name: competition_id
+        data_type: int
+        description: >
+          Legacy native INT competition identifier (StatsBomb/Wyscout
+          only). NULL for IDSSE (non-numeric native IDs). Retained for
+          backward compatibility with unmigrated fact tables; will be
+          dropped in PR 8 once all consumers switch to competition_key.
       - name: competition_name
         data_type: string
-        description: Competition display name
+        description: Competition display name.
         data_tests:
           - not_null
       - name: country
         data_type: string
-        description: Country where the competition is held
+        description: Country where the competition is held.
       - name: gender
         data_type: string
-        description: Gender category (male, female)
+        description: Gender category (male, female).
         data_tests:
           - accepted_values:
               arguments:
                 values: ['male', 'female']
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - provider
+            - native_competition_id
 
   # ── PAUSA Tables ──────────────────────────────────────────────────────
 
@@ -2527,18 +2577,18 @@ models:
     columns:
       - name: line_breaking_id
         data_type: string
-        description: Surrogate key (event_id)
+        description: Surrogate key derived from event_id.
         data_tests:
           - unique
           - not_null
       - name: event_id
         data_type: string
-        description: Source event identifier from the pass event
+        description: Source event identifier from the pass event.
         data_tests:
           - not_null
-      - name: match_id
-        data_type: string
-        description: Match identifier
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches.match_key (ADR-011).
         data_tests:
           - not_null
       - name: is_line_breaking
@@ -2562,9 +2612,12 @@ models:
         description: "Type of line break (e.g., between, through). NULL if not line-breaking."
       - name: data_source
         data_type: string
-        description: Data provider that supplied the source event data
+        description: Source data pipeline (statsbomb_360, metrica_tracking, idsse_tracking).
         data_tests:
           - not_null
+          - accepted_values:
+              arguments:
+                values: ['statsbomb_360', 'metrica_tracking', 'idsse_tracking']
 
   # ── Off-Ball xT ─────────────────────────────────────────────────────
 
@@ -2888,12 +2941,9 @@ models:
     columns:
       - name: match_id
         data_type: bigint
-        description: Foreign key to fct_match_summary.
+        description: Native match identifier. Relationship test to fct_match_summary is suspended during the Kimball migration (ADR-011) — fct_match_summary migrated to match_key in PR 2 while fct_funnel_stages_agg still uses native match_id; relationship restored when funnel_stages migrates.
         data_tests:
           - not_null
-          - relationships:
-              to: ref('fct_match_summary')
-              field: match_id
       - name: competition_id
         data_type: int
         description: Denormalized for season-mode WHERE clauses (drives idx_funnel_agg_comp_*_gs).
@@ -3274,6 +3324,11 @@ models:
         data_tests:
           - unique
           - not_null
+      - name: competition_key
+        data_type: bigint
+        description: >
+          Kimball surrogate FK to dim_competitions.competition_key
+          (ADR-011, added PR 2). NULL for Metrica (no competition metadata).
       - name: provider
         data_type: string
         description: >

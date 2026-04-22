@@ -30,6 +30,27 @@ final as (
         cast(weight as int)                                  as weight_kg,
         passportArea:name::string                            as nationality,
         passportArea:alpha3code::string                      as nationality_code,
+
+        -- Bronze passthroughs surfaced for Kimball completeness. Wyscout's
+        -- raw Figshare payload carries identity + biography fields verbatim;
+        -- surfacing them preserves full lineage from bronze to staging. Names
+        -- intentionally retain the bronze camelCase so consumers can cross-
+        -- reference the Figshare CSV schema without additional mapping.
+        cast(wyId as bigint)                                 as wyId,
+        firstName                                            as firstName,
+        lastName                                             as lastName,
+        middleName                                           as middleName,
+        shortName                                            as shortName,
+        birthDate                                            as birthDate,
+        cast(height as bigint)                               as height,
+        cast(weight as bigint)                               as weight,
+        cast(currentTeamId as double)                        as currentTeamId,
+        cast(currentNationalTeamId as double)                as currentNationalTeamId,
+        role                                                 as role,
+        passportArea                                         as passportArea,
+        birthArea                                            as birthArea,
+        _ingested_at                                         as _ingested_at,
+
         'wyscout'                                            as data_source
 
     from source

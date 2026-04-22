@@ -91,3 +91,19 @@ models:
                 min_value: -10
                 max_value: 90
                 row_condition: "ball_y is not null"
+      - name: is_goalkeeper
+        description: Bronze passthrough — is_goalkeeper from skillcorner_tracking
+      - name: home_team_id
+        description: Bronze passthrough — home_team_id from skillcorner_tracking
+      - name: away_team_id
+        description: Bronze passthrough — away_team_id from skillcorner_tracking
+      - name: ball_owning_team_id
+        description: Bronze passthrough — ball_owning_team_id from skillcorner_tracking
+      - name: ball_state
+        description: Bronze passthrough — ball_state from skillcorner_tracking
+      - name: ball_z
+        description: Bronze passthrough — ball_z from skillcorner_tracking
+      - name: is_visible
+        description: Bronze passthrough — is_visible from skillcorner_tracking
+      - name: position_name
+        description: Bronze passthrough — position_name from skillcorner_tracking

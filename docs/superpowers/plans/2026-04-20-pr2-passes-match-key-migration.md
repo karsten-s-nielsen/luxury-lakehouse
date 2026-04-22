@@ -1,16 +1,5 @@
 # PR 2 — Passes Conformed Fact + LB-IDSSE/LB-METRICA Surfacing Implementation Plan
 
-> **DEFERRED 2026-04-21.** This plan presumed bronze source-completeness for
-> IDSSE/Metrica/SkillCorner, which live-Delta DESCRIBE showed was not true
-> (IDSSE events 10 cols vs. parser's 241; IDSSE tracking 13 cols; Metrica
-> 11/17; SkillCorner 13/19). A separate branch
-> (`feat/bronze-source-complete`) now extends all non-StatsBomb bronze
-> parsers and adds a shared ``finalize_bronze_df`` helper plus live-DESCRIBE
-> tests to prevent recurrence. Resume this plan after bronze re-ingest with
-> the new wheel lands and the 5 live-DESCRIBE tests turn green. Do NOT run
-> the tasks below until then — Task 1 (``stg_idsse__passes``) depends on
-> bronze fields that currently exist only in the parser, not in Delta.
-
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Migrate `fct_passes`, `fct_line_breaking_results`, and `fct_match_summary` from native-ID `match_id BIGINT` to the Kimball surrogate `match_key BIGINT` FK (ADR-011) while simultaneously adding IDSSE and Metrica arms to `int_unified_passes` and `fct_match_summary`. This delivers the original LB-IDSSE + LB-METRICA functional goal (IDSSE + Metrica matches appear in the Pass Map cascade with line-breaking overlays) on top of PR 1's conformed dim.
@@ -21,7 +10,16 @@
 
 **Commit discipline:** ONE commit at the end per the repo's single-commit-per-branch rule. No commits between tasks. Per the user's rule set, push and PR-creation require separate explicit approval at plan end.
 
-**Stacked PR:** This branch (`feat/passes-match-key-migration`) is stacked on `feat/tracking-passes-idsse-metrica` (PR #165, still open). PR 2 uses `--base feat/tracking-passes-idsse-metrica` at PR creation. When PR 1 merges, PR 2 rebases onto `main` automatically via GitHub's base-branch auto-update.
+**Branch:** `feat/passes-kimball-match-key` off `main`. PR 1 (feat/tracking-passes-idsse-metrica → #165) merged 2026-04-21 (commit af1153e); PRs 1.5/1.6/1.7/1.8 also merged. No stacking needed.
+
+**Best-practice revisions (2026-04-21 pre-execution):**
+- **Task 4a NEW** — `int_running_score` migrates to `match_key` as a first-class change, not a Task 4 footnote. It is an ephemeral model so there is no DDL migration; the rewrite happens in the SQL only.
+- **Staging stays pure** — `stg_idsse__passes` / `stg_metrica__passes` emit raw `team` string (not `team_id`). Team-id resolution happens inside `int_unified_passes` per-source CTE, joining `dim_matches`.
+- **Task 5 root-cause fix** — `stg_line_breaking__results` (or `compute_line_breaking`) is updated to emit UNPREFIXED native match_ids. `fct_line_breaking_results` then joins `dim_matches` on `(provider, native_match_id)` cleanly. No `regexp_replace` workaround at the mart.
+- **Task 6 — 4-provider parity** — `fct_match_summary` today is StatsBomb-only. PR 2 adds Wyscout + IDSSE + Metrica arms; tracking-provider metric columns NULL.
+- **Macro correction** — `normalize_coordinates(x, y, 'idsse')` does not exist. Use `{{ normalize_x('x', 'center_m') }}` + `{{ normalize_y('y', 'center_m') }}` (IDSSE / SkillCorner are `center_m`).
+- **`fct_passes` incremental predicate** — Drop `where match_key not in (select distinct match_key from this)` — let merge on `pass_id` handle updates. Correctness > incremental speed for a gold mart.
+- **Extended preflight** — P.1–P.6. Adds P.4 (capture per-provider baseline rowcounts for regression check), P.5 (`idsse_` blast-radius grep), P.6 (DESCRIBE live schemas).
 
 ---
 
@@ -86,14 +84,13 @@
 
 ## Pre-flight verification
 
-- [ ] **Step P.1:** Confirm branch + PR 1 CI status.
+- [ ] **Step P.1:** Confirm branch.
 
 ```bash
 git rev-parse --abbrev-ref HEAD
-gh pr view 165 --json statusCheckRollup --jq '.statusCheckRollup[] | "\(.workflowName) — \(.conclusion)"'
 ```
 
-Expected branch: `feat/passes-match-key-migration`. Expected PR 1 CI state: all three (Python CI, Semgrep, dbt CI) show `SUCCESS`. If any are `FAILURE`, STOP and fix PR 1 first — PR 2 stacks on that work.
+Expected branch: `feat/passes-kimball-match-key`. PR 1 (#165) merged 2026-04-21; its CI is not a blocker.
 
 - [ ] **Step P.2:** Confirm `dim_matches` is queryable and populated.
 

@@ -22,7 +22,7 @@ from render import (
 )
 
 # matplotlib.use("Agg") is set by render.py at module load (imported above).
-from state.shared import _ALL_LABEL, get_comp_id, get_match_id, get_team_id, register_page_refresher
+from state.shared import _ALL_LABEL, get_competition_key, get_match_key, get_team_id, register_page_refresher
 
 logger = logging.getLogger(__name__)
 
@@ -232,11 +232,13 @@ def pm_refresh(state: Any) -> None:
     """
     global _cached_passes
 
-    comp_id = get_comp_id(state.selected_competition)
-    team_id = get_team_id(state.selected_team)
-    match_id = get_match_id(state.selected_match)
+    comp_key = get_competition_key(state.selected_competition)
+    team_id = get_team_id(state.selected_team)  # None if Team=All (allowed)
+    match_key = get_match_key(state.selected_match)
 
-    if comp_id is None or team_id is None or match_id is None:
+    # Team=All is allowed — shows both teams' passes. Required for IDSSE/Metrica
+    # matches where team_id is NULL (no integer DFL/Metrica team IDs in source).
+    if comp_key is None or match_key is None:
         state.pm_total = "--"
         state.pm_completed = "--"
         state.pm_progressive = "--"
@@ -263,10 +265,10 @@ def pm_refresh(state: Any) -> None:
     state.pm_pitch_image_alt = f"Pass Map — {scope_plain}"
 
     try:
-        passes = fetch_passes(comp_id, team_id, match_id)
+        passes = fetch_passes(comp_key, team_id, match_key)
         _cached_passes = passes
     except Exception:
-        logger.exception("Failed to fetch passes for comp=%d team=%d match=%d", comp_id, team_id, match_id)
+        logger.exception("Failed to fetch passes for comp_key=%d team=%r match_key=%d", comp_key, team_id, match_key)
         state.pm_pitch_image = ""
         state.pm_data_freshness = ""
         return

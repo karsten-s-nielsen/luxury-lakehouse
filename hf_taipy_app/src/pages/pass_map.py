@@ -19,8 +19,8 @@ page_config = PageConfig(
     nav_section=NAV_MATCH_ANALYSIS,
     description=(
         "Progressive passes and line-breaking detection via Ward clustering "
-        "on StatsBomb 360 freeze-frame positions. "
-        "Line-breaking detection requires StatsBomb 360 data (~323 of 380+ matches)."
+        "on StatsBomb 360, Metrica tracking, and IDSSE Bundesliga tracking "
+        "freeze-frame positions."
     ),
     citations=[
         Citation("Suzuki et al. (2019)", "https://doi.org/10.1515/jqas-2019-0060"),

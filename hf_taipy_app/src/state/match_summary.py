@@ -31,7 +31,7 @@ from state.match_summary_render import (
     render_moments_html,
 )
 from state.match_summary_verdict import derive_verdict
-from state.shared import _ALL_LABEL, get_comp_id, get_match_id, register_page_refresher
+from state.shared import _ALL_LABEL, get_comp_id, get_match_id, get_match_key, register_page_refresher
 from state.workflows_dag import RawHtml
 
 logger = logging.getLogger(__name__)
@@ -132,8 +132,12 @@ def ms_refresh(state: Any) -> None:
     """Reload match data and render the redesigned Match Summary dashboard."""
     comp_id = get_comp_id(state.selected_competition)
     match_id = get_match_id(state.selected_match)
+    # Post-PR 2 (ADR-011): fct_match_summary is keyed on match_key; all
+    # other per-match fetchers (fct_action_values, fct_shots, fct_discipline)
+    # still use native match_id until their own migration PRs.
+    match_key = get_match_key(state.selected_match)
 
-    if match_id is None:
+    if match_id is None or match_key is None:
         _clear_all(state)
         return
 
@@ -147,7 +151,7 @@ def ms_refresh(state: Any) -> None:
         [("Competition", comp_label), ("Team", team_label), ("Match", match_label)],
     )
 
-    match_data = fetch_match_summary(match_id)
+    match_data = fetch_match_summary(match_key)
     if match_data.empty:
         _clear_all(state)
         state.ms_warning_text = build_warning(
@@ -161,10 +165,10 @@ def ms_refresh(state: Any) -> None:
 
     home_name = str(m["home_team_name"])
     away_name = str(m["away_team_name"])
-    home_score = int(m["home_score"] or 0)
-    away_score = int(m["away_score"] or 0)
-    home_xg = float(m["home_xg"] or 0)
-    away_xg = float(m["away_xg"] or 0)
+    home_score = int(m["home_score"]) if pd.notna(m.get("home_score")) else 0
+    away_score = int(m["away_score"]) if pd.notna(m.get("away_score")) else 0
+    home_xg = float(m["home_xg"]) if pd.notna(m.get("home_xg")) else 0.0
+    away_xg = float(m["away_xg"]) if pd.notna(m.get("away_xg")) else 0.0
     home_team_id_raw = m.get("home_team_id")
     away_team_id_raw = m.get("away_team_id")
 

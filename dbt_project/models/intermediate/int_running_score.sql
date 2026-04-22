@@ -6,20 +6,21 @@
 -- Used by fct_action_values, fct_shots, fct_passes to derive per-action
 -- game_state (winning/losing/drawing from the acting team's perspective).
 --
--- Known limitation: own goals are not tracked. An own goal does not appear
--- in int_unified_shots with shot_outcome = 'Goal', so the running score
--- may be inaccurate in matches with own goals (~3-5% of all goals).
+-- PR 2 (ADR-011) adds the `match_key` column (BIGINT surrogate FK to
+-- dim_matches). Native `match_id` is retained for consumers still on the
+-- native ID (fct_shots, fct_action_values) until their own migration PRs.
 --
--- Team ID resolution: StatsBomb matches have team names but no IDs.
--- We resolve home/away team IDs via the same events-based lookup used
--- by fct_match_summary (join team_name from events to home_team_name
--- from matches). Wyscout matches lack team names entirely, so Wyscout
--- team resolution uses the shot's own team_id matched against teams
--- appearing in fct_match_summary.
+-- Known limitation: own goals are not tracked. An own goal does not appear
+-- in int_unified_shots with shot_outcome='Goal', so the running score may
+-- be inaccurate in matches with own goals (~3-5% of all goals).
+--
+-- Team ID resolution: StatsBomb matches have team names but no IDs; we
+-- resolve via a team_name→team_id lookup from events. Wyscout matches
+-- lack team names entirely; we assign the lower team_id as "home"
+-- (arbitrary but deterministic).
 
 with sb_match_team_ids as (
 
-    -- Resolve team name → team_id from StatsBomb events (same pattern as fct_match_summary)
     select distinct
         match_id,
         team_id,
@@ -33,6 +34,7 @@ sb_matches as (
 
     select
         m.match_id,
+        'statsbomb'    as provider,
         htm.team_id    as home_team_id,
         atm.team_id    as away_team_id
     from {{ ref('stg_statsbomb__matches') }} m
@@ -47,7 +49,6 @@ sb_matches as (
 
 ws_match_team_ids as (
 
-    -- Wyscout: get the two distinct team_ids per match from events
     select distinct
         match_id,
         team_id
@@ -58,10 +59,9 @@ ws_match_team_ids as (
 
 ws_matches as (
 
-    -- Wyscout has no home/away designation in open data.
-    -- Assign the lower team_id as "home" (arbitrary but deterministic).
     select
         match_id,
+        'wyscout'    as provider,
         min(team_id) as home_team_id,
         max(team_id) as away_team_id
     from ws_match_team_ids
@@ -72,9 +72,23 @@ ws_matches as (
 
 match_teams as (
 
-    select match_id, home_team_id, away_team_id from sb_matches
+    select match_id, provider, home_team_id, away_team_id from sb_matches
     union all
-    select match_id, home_team_id, away_team_id from ws_matches
+    select match_id, provider, home_team_id, away_team_id from ws_matches
+
+),
+
+match_teams_keyed as (
+
+    select
+        mt.match_id,
+        dm.match_key,
+        mt.home_team_id,
+        mt.away_team_id
+    from match_teams mt
+    inner join {{ ref('dim_matches') }} dm
+        on dm.provider = mt.provider
+       and dm.native_match_id = cast(mt.match_id as string)
 
 ),
 
@@ -95,6 +109,7 @@ goals_with_scores as (
 
     select
         g.match_id,
+        mt.match_key,
         mt.home_team_id,
         mt.away_team_id,
         g.period,
@@ -111,7 +126,7 @@ goals_with_scores as (
                   rows between unbounded preceding and current row)
             as away_score_after
     from goals g
-    inner join match_teams mt on g.match_id = mt.match_id
+    inner join match_teams_keyed mt on g.match_id = mt.match_id
 
 ),
 
@@ -119,6 +134,7 @@ kickoffs as (
 
     select
         match_id,
+        match_key,
         home_team_id,
         away_team_id,
         1    as period,
@@ -126,7 +142,7 @@ kickoffs as (
         0    as second,
         0    as home_score_after,
         0    as away_score_after
-    from match_teams
+    from match_teams_keyed
 
 )
 

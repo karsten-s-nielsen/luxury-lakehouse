@@ -31,10 +31,19 @@ cleaned as (
         type                                            as event_type,
         subtype                                         as event_subtype,
 
+        -- Bronze passthrough — raw event classification columns
+        type,
+        subtype,
+        subtypes_all_json,
+
         -- Temporal context
         period,
         start_frame,
         end_frame,
+
+        -- Bronze passthrough — event timing in seconds from period start
+        start_time_s,
+        end_time_s,
 
         -- Scaled start location (120x80)
         {{ normalize_x('start_x', 'metrica') }} as start_x,
@@ -46,7 +55,15 @@ cleaned as (
 
         -- Team and player
         team,
-        player                                          as player_id
+        player                                          as player_id,
+
+        -- Bronze passthrough — raw actor and recipient identifiers
+        player,
+        `to`,
+
+        -- Bronze passthrough — pitch dimensions denormalized onto every row
+        pitch_length_m,
+        pitch_width_m
 
     from source
 

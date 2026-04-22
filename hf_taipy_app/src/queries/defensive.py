@@ -194,6 +194,10 @@ def fetch_pressure_teams(comp_id: int) -> pd.DataFrame:
     dp = t("fct_defcon_pressure_synced")
     ms = t("fct_match_summary_synced")
     dim_t = t("dim_teams_synced")
+    dim_m = t("dim_matches_synced")
+    # Post-PR 2 (ADR-011): fct_match_summary_synced is keyed on match_key;
+    # fct_defcon_pressure is not yet Kimball-migrated and still uses
+    # native match_id. Route the JOIN via dim_matches to connect both.
     return execute_query(
         f"WITH RECURSIVE pressure_matches AS ("  # noqa: S608
         f"  SELECT MIN(match_id)::bigint AS match_id FROM {dp} WHERE competition_id = %s"
@@ -206,7 +210,8 @@ def fetch_pressure_teams(comp_id: int) -> pd.DataFrame:
         f"FROM {dim_t} dt "
         f"JOIN {ms} ms"
         f"  ON ms.home_team_id = dt.team_id OR ms.away_team_id = dt.team_id "
-        f"JOIN pressure_matches pm ON pm.match_id = ms.match_id "
+        f"JOIN {dim_m} dm ON dm.match_key = ms.match_key "
+        f"JOIN pressure_matches pm ON pm.match_id::text = dm.native_match_id "
         f"ORDER BY dt.team_name",
         (comp_id, comp_id),
     )
@@ -284,6 +289,9 @@ def fetch_pressure_breakdown(pid: int, comp_id: int, team_id: int | None) -> pd.
     """
     dp = t("fct_defcon_pressure_synced")
     ms = t("fct_match_summary_synced")
+    dim_m = t("dim_matches_synced")
+    # Post-PR 2 (ADR-011): fct_match_summary keyed on match_key. Route
+    # via dim_matches because fct_defcon_pressure is still native match_id.
 
     conditions = ["dp.player_id = %s", "dp.competition_id = %s"]
     params: list[Any] = [pid, comp_id]
@@ -300,7 +308,8 @@ def fetch_pressure_breakdown(pid: int, comp_id: int, team_id: int | None) -> pd.
         f"  dp.disturb_pressure, dp.deter_pressure, "
         f"  dp.total_pressure, dp.total_defensive_actions "
         f"FROM {dp} dp "
-        f"LEFT JOIN {ms} ms ON dp.match_id::bigint = ms.match_id "
+        f"LEFT JOIN {dim_m} dm ON dm.native_match_id = dp.match_id::text "
+        f"LEFT JOIN {ms} ms ON ms.match_key = dm.match_key "
         f"WHERE {where} "
         f"ORDER BY dp.match_id "
         f"LIMIT 200",
@@ -325,6 +334,7 @@ def fetch_player_defcon_matches(pid: int, comp_id: int, team_id: int | None) -> 
         conditions.append("(ms.home_team_id = %s OR ms.away_team_id = %s)")
         params.extend([team_id, team_id])
 
+    dim_m = t("dim_matches_synced")
     where = " AND ".join(conditions)
     return execute_query(
         f"SELECT dp.match_id, "  # noqa: S608
@@ -334,7 +344,8 @@ def fetch_player_defcon_matches(pid: int, comp_id: int, team_id: int | None) -> 
         f"  MAX(ms.home_score) as home_score, "
         f"  MAX(ms.away_score) as away_score "
         f"FROM {dp} dp "
-        f"LEFT JOIN {ms} ms ON dp.match_id::bigint = ms.match_id "
+        f"LEFT JOIN {dim_m} dm ON dm.native_match_id = dp.match_id::text "
+        f"LEFT JOIN {ms} ms ON ms.match_key = dm.match_key "
         f"WHERE {where} "
         f"GROUP BY dp.match_id "
         f"ORDER BY MAX(ms.match_date) DESC "
@@ -370,11 +381,13 @@ def fetch_breakdown_player_ids(comp_id: int, team_id: int | None) -> set[int]:
     dp = t("fct_defcon_pressure_synced")
     ms = t("fct_match_summary_synced")
 
+    dim_m = t("dim_matches_synced")
     if team_id is not None:
         result = execute_query(
             f"SELECT dp.player_id "  # noqa: S608
             f"FROM {dp} dp "
-            f"JOIN {ms} ms ON dp.match_id::bigint = ms.match_id "
+            f"JOIN {dim_m} dm ON dm.native_match_id = dp.match_id::text "
+            f"JOIN {ms} ms ON ms.match_key = dm.match_key "
             f"WHERE dp.competition_id = %s "
             f"AND (ms.home_team_id = %s OR ms.away_team_id = %s) "
             f"GROUP BY dp.player_id",
@@ -448,11 +461,13 @@ def fetch_timeline_player_ids(comp_id: int, team_id: int | None) -> set[int]:
     da = t("fct_defcon_actions_synced")
     ms = t("fct_match_summary_synced")
 
+    dim_m = t("dim_matches_synced")
     if team_id is not None:
         result = execute_query(
             f"SELECT da.action_player_id as player_id "  # noqa: S608
             f"FROM {da} da "
-            f"JOIN {ms} ms ON da.match_id::bigint = ms.match_id "
+            f"JOIN {dim_m} dm ON dm.native_match_id = da.match_id::text "
+            f"JOIN {ms} ms ON ms.match_key = dm.match_key "
             f"WHERE da.competition_id = %s "
             f"AND (ms.home_team_id = %s OR ms.away_team_id = %s) "
             f"GROUP BY da.action_player_id",

@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import pandas as pd
 from cache import ttl_cache
 from db import execute_query, t
 
@@ -339,86 +340,140 @@ def search_embedding_players(
 
 
 @ttl_cache()
-def fetch_competitions() -> list[tuple[str, int]]:
+def fetch_competitions() -> list[tuple[str, int, int]]:
     """Competitions with human-readable 'country -- name' labels.
 
-    Uses recursive CTE loose index scan to avoid SELECT DISTINCT sequential scan.
+    Post-PR 2 (ADR-011): dim_competitions_synced is keyed on
+    `competition_key` (BIGINT surrogate). We also surface the legacy
+    INT `competition_id` so callers can route to the right fact table —
+    `competition_key` for Kimball-migrated facts (fct_passes,
+    fct_match_summary), legacy `competition_id` for still-legacy facts
+    (fct_shots, fct_action_values, fct_defcon_*) until their own
+    migration PRs. For IDSSE rows the legacy `competition_id` is 0
+    (sentinel — non-numeric native IDs); IDSSE competitions don't
+    appear in legacy fact tables anyway, so the 0 sentinel is safe.
+
+    Returns: list of (label, competition_key, competition_id_legacy_int).
     """
     tbl = t("dim_competitions_synced")
     df = execute_query(
         f"WITH RECURSIVE dc AS ("  # noqa: S608
-        f"  SELECT MIN(competition_id) AS competition_id FROM {tbl}"
+        f"  SELECT MIN(competition_key) AS competition_key FROM {tbl}"
         f"  UNION ALL"
-        f"  SELECT (SELECT MIN(competition_id) FROM {tbl}"
-        f"          WHERE competition_id > dc.competition_id)"
-        f"  FROM dc WHERE dc.competition_id IS NOT NULL"
-        f") SELECT dc.competition_id, c.competition_name, c.country "
+        f"  SELECT (SELECT MIN(competition_key) FROM {tbl}"
+        f"          WHERE competition_key > dc.competition_key)"
+        f"  FROM dc WHERE dc.competition_key IS NOT NULL"
+        f") SELECT dc.competition_key, c.competition_id, c.competition_name, c.country "
         f"FROM dc "
-        f"JOIN {tbl} c ON dc.competition_id = c.competition_id "
-        f"WHERE dc.competition_id IS NOT NULL "
-        f"ORDER BY c.country, c.competition_name LIMIT 50",
+        f"JOIN {tbl} c ON dc.competition_key = c.competition_key "
+        f"WHERE dc.competition_key IS NOT NULL "
+        f"ORDER BY c.country, c.competition_name LIMIT 100",
     )
     if df.empty:
         return []
     return [
         (
             f"{r['country']} \u2014 {r['competition_name']}" if r.get("country") else str(r["competition_name"]),
-            int(r["competition_id"]),
+            int(r["competition_key"]),
+            int(r["competition_id"]) if pd.notna(r.get("competition_id")) else 0,
         )
         for _, r in df.iterrows()
     ]
 
 
 @ttl_cache()
-def fetch_teams(competition_id: int) -> list[tuple[str, int]]:
+def fetch_teams(competition_key: int) -> list[tuple[str, int]]:
     """Teams that appear in matches for this competition.
 
-    UNION (not UNION ALL) already deduplicates team_ids, and dim_teams has
-    unique team_id, so no DISTINCT needed on the outer query.
+    Post-PR 2 (ADR-011): filters on fct_match_summary_synced.competition_key.
+    IDSSE rows in fct_match_summary have NULL team_id (DFL team IDs are
+    strings, not covered by dim_teams yet) so IDSSE competitions return
+    empty team lists — Pass Map's Team=All selector still works to show
+    all passes in those matches.
     """
     df = execute_query(
         f"SELECT t.team_id, t.team_name "  # noqa: S608
         f"FROM {t('dim_teams_synced')} t "
         f"WHERE t.team_id IN ("
-        f"  SELECT m.home_team_id FROM {t('fct_match_summary_synced')} m WHERE m.competition_id = %s "
+        f"  SELECT m.home_team_id FROM {t('fct_match_summary_synced')} m WHERE m.competition_key = %s "
         f"  UNION "
-        f"  SELECT m.away_team_id FROM {t('fct_match_summary_synced')} m WHERE m.competition_id = %s"
+        f"  SELECT m.away_team_id FROM {t('fct_match_summary_synced')} m WHERE m.competition_key = %s"
         f") ORDER BY t.team_name",
-        (int(competition_id), int(competition_id)),
+        (int(competition_key), int(competition_key)),
     )
     if df.empty:
         return []
     return [(str(r["team_name"]), int(r["team_id"])) for _, r in df.iterrows()]
 
 
+def _format_match_label(r: Any) -> str:
+    """Build a match dropdown label, suppressing NULL date and NULL scores.
+
+    StatsBomb/Wyscout rows have all fields populated. IDSSE rows come from
+    DFL open data, which ships position XML but not scoreboard data, so
+    match_date / home_score / away_score are NULL. Rather than surface
+    "None — Team 0-0 Team" (which misleadingly implies a 0-0 result),
+    the label gracefully degrades to "Team vs Team" for score-less rows
+    and prepends the date only when it exists.
+    """
+    home = r["home_team_name"]
+    away = r["away_team_name"]
+    has_date = pd.notna(r.get("match_date"))
+    has_score = pd.notna(r.get("home_score")) and pd.notna(r.get("away_score"))
+    date_prefix = f"{r['match_date']} \u2014 " if has_date else ""
+    if has_score:
+        hs = int(r["home_score"])
+        as_ = int(r["away_score"])
+        return f"{date_prefix}{home} {hs}-{as_} {away}"
+    return f"{date_prefix}{home} vs {away}"
+
+
 @ttl_cache()
-def fetch_matches(competition_id: int, team_id: int | None) -> list[tuple[str, int]]:
+def fetch_matches(competition_key: int, team_id: int | None) -> list[tuple[str, int, int]]:
     """Matches for a competition, optionally filtered by team.
 
-    When team_id is None, returns all matches (supports Heat Map allow_all mode).
+    Post-PR 2 (ADR-011): fct_match_summary_synced is keyed on `match_key`
+    (Kimball surrogate BIGINT). We also surface the native `match_id`
+    (INT, via dim_matches JOIN) so callers can route to the right
+    fact table — `match_key` for Kimball-migrated facts (fct_passes,
+    fct_match_summary, fct_line_breaking_results), native `match_id`
+    for still-legacy facts (fct_shots, fct_action_values,
+    fct_funnel_stages_agg, etc.) until their own migration PRs.
+
+    Returns `list[tuple[str, int, int]]` — (label, match_key, match_id).
+    For IDSSE/Metrica rows (native match_id is non-numeric), match_id
+    is 0; those matches do not appear in legacy match_id-keyed facts
+    so the 0 sentinel is safe.
+
+    When team_id is None, returns all matches (Heat Map allow_all mode).
     """
-    conditions = ["competition_id = %s"]
-    params: list[Any] = [int(competition_id)]
+    conditions = ["ms.competition_key = %s"]
+    params: list[Any] = [int(competition_key)]
     if team_id is not None:
-        conditions.append("(home_team_id = %s OR away_team_id = %s)")
+        conditions.append("(ms.home_team_id = %s OR ms.away_team_id = %s)")
         params.extend([int(team_id), int(team_id)])
     where = " AND ".join(conditions)
-    tbl = t("fct_match_summary_synced")
+    ms_tbl = t("fct_match_summary_synced")
+    dm_tbl = t("dim_matches_synced")
     df = execute_query(
-        f"SELECT match_id, match_date, home_team_name, away_team_name, "  # noqa: S608
-        f"  home_score, away_score "
-        f"FROM {tbl} WHERE {where} "
-        f"ORDER BY match_date DESC LIMIT 200",
+        f"SELECT ms.match_key, "  # noqa: S608
+        f"  CASE WHEN dm.native_match_id ~ '^[0-9]+$' "
+        f"    THEN CAST(dm.native_match_id AS BIGINT) ELSE 0 END AS native_match_id_int, "
+        f"  ms.match_date, ms.home_team_name, ms.away_team_name, "
+        f"  ms.home_score, ms.away_score "
+        f"FROM {ms_tbl} ms "
+        f"LEFT JOIN {dm_tbl} dm ON ms.match_key = dm.match_key "
+        f"WHERE {where} "
+        f"ORDER BY ms.match_date DESC LIMIT 200",
         tuple(params),
     )
     if df.empty:
         return []
     return [
         (
-            f"{r.get('match_date', '')} \u2014 {r['home_team_name']} "
-            f"{int(r.get('home_score', 0) or 0)}-{int(r.get('away_score', 0) or 0)} "
-            f"{r['away_team_name']}",
-            int(r["match_id"]),
+            _format_match_label(r),
+            int(r["match_key"]),
+            int(r["native_match_id_int"]) if pd.notna(r.get("native_match_id_int")) else 0,
         )
         for _, r in df.iterrows()
     ]
@@ -497,18 +552,27 @@ def fetch_players(competition_id: int, team_id: int | None) -> list[tuple[str, i
 
 @ttl_cache()
 def fetch_tracking_matches(provider: str | None) -> list[tuple[str, str]]:
-    """Tracking matches with labels from match summary or tracking metadata.
+    """Tracking matches with human-readable labels.
 
-    Resolution order for match labels:
-    1. fct_match_summary (StatsBomb matches with date + team names)
-    2. dim_tracking_matches (IDSSE/SkillCorner team names from metadata)
-    3. Fallback: 'Match {match_id}'
+    Post-PR 2 (ADR-011): labels sourced from dim_matches_synced (team
+    names populated for IDSSE/Metrica/StatsBomb). The legacy
+    dim_tracking_matches table was deleted in PR 2; its data is
+    subsumed by dim_matches.
+
+    Returns match_ids from fct_tracking_frames_synced (still the native
+    identifier; fct_tracking_frames is not yet Kimball-migrated, so
+    IDSSE match_ids remain prefixed with 'idsse_' here). Consumers
+    (pitch_control / team_shape / tactical_positions) accept the
+    prefixed form and query fct_tracking_frames_synced directly.
+
+    dim_matches.native_match_id is unprefixed for IDSSE, so the JOIN
+    strips the 'idsse_' prefix before matching.
 
     provider: 'metrica', 'idsse', 'skillcorner', or None for all.
     """
     tracking_tbl = t("fct_tracking_frames_synced")
     match_tbl = t("fct_match_summary_synced")
-    tracking_meta = t("dim_tracking_matches_synced")
+    dim_tbl = t("dim_matches_synced")
     provider_clause = ""
     params: tuple[Any, ...] = ()
     if provider and provider != "All":
@@ -527,12 +591,13 @@ def fetch_tracking_matches(provider: str | None) -> list[tuple[str, str]]:
         f") SELECT dm.match_id, "
         f"  COALESCE("
         f"    ms.match_date || ' \u2014 ' || ms.home_team_name || ' v ' || ms.away_team_name, "
-        f"    tm.home_team_name || ' v ' || tm.away_team_name, "
+        f"    dim_m.home_team_name || ' v ' || dim_m.away_team_name, "
         f"    'Match ' || dm.match_id"
         f"  ) AS match_label "
         f"FROM dm "
-        f"LEFT JOIN {match_tbl} ms ON dm.match_id::text = ms.match_id::text "
-        f"LEFT JOIN {tracking_meta} tm ON dm.match_id::text = tm.match_id::text "
+        f"LEFT JOIN {dim_tbl} dim_m "
+        f"  ON dim_m.native_match_id = regexp_replace(dm.match_id::text, '^idsse_', '') "
+        f"LEFT JOIN {match_tbl} ms ON dim_m.match_key = ms.match_key "
         f"WHERE dm.match_id IS NOT NULL "
         f"ORDER BY match_label LIMIT 100",
         params * 2 if params else (),

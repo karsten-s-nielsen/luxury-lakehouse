@@ -91,6 +91,18 @@ models:
                 min_value: -10
                 max_value: 90
                 row_condition: "ball_y is not null"
+      - name: timestamp
+        description: Bronze passthrough — timestamp from metrica_tracking (seconds from period start).
+      - name: home_players
+        description: Bronze passthrough — home_players from metrica_tracking (per-frame JSON of player tracking data).
+      - name: away_players
+        description: Bronze passthrough — away_players from metrica_tracking (per-frame JSON of player tracking data).
+      - name: gk_jersey_numbers
+        description: Bronze passthrough — gk_jersey_numbers from metrica_tracking (JSON array of goalkeeper shirt numbers).
+      - name: pitch_length_m
+        description: Bronze passthrough — pitch_length_m from metrica_tracking (meters, NaN for CSV-path games).
+      - name: pitch_width_m
+        description: Bronze passthrough — pitch_width_m from metrica_tracking (meters, NaN for CSV-path games).
 
   - name: stg_metrica__events
     config:
@@ -176,6 +188,24 @@ models:
         description: Team performing the event
       - name: player_id
         description: Player identifier
+      - name: type
+        description: Bronze passthrough — type from metrica_events (raw event type, pre-normalization).
+      - name: subtype
+        description: Bronze passthrough — subtype from metrica_events (raw event subtype, pre-normalization).
+      - name: subtypes_all_json
+        description: Bronze passthrough — subtypes_all_json from metrica_events (JSON list of all subtypes for multi-subtype events; NULL otherwise).
+      - name: start_time_s
+        description: Bronze passthrough — start_time_s from metrica_events (event start in seconds from period start).
+      - name: end_time_s
+        description: Bronze passthrough — end_time_s from metrica_events (event end in seconds from period start).
+      - name: player
+        description: Bronze passthrough — player from metrica_events (raw actor identifier, e.g. 'Player1').
+      - name: to
+        description: Bronze passthrough — to from metrica_events (recipient player identifier for passes/carries; NULL for non-applicable events).
+      - name: pitch_length_m
+        description: Bronze passthrough — pitch_length_m from metrica_events (meters, NaN for CSV-path games).
+      - name: pitch_width_m
+        description: Bronze passthrough — pitch_width_m from metrica_events (meters, NaN for CSV-path games).
 
   - name: stg_metrica__matches
     config:
@@ -205,3 +235,41 @@ models:
         description: Constant 'Home' — Metrica open-data is anonymized.
       - name: away_team_name
         description: Constant 'Away' — Metrica open-data is anonymized.
+
+  - name: stg_metrica__passes
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Metrica sample-data pass events in SPADL-like shape, ready to union
+      into `int_unified_passes`. Filters `bronze.metrica_events` for
+      `type='PASS'`. Metrica open-data is anonymised — team, player, and
+      recipient identifiers are string labels so fct_passes.{team_id,
+      player_id, pass_recipient_id} stay NULL. Coordinates are scaled
+      from [0,1] normalised to the shared 120x80 via the `metrica`
+      normalisation (y-axis flipped). Pass completion is heuristic —
+      events subtyped with 'loss' or 'intercep' are Incomplete; the
+      rest are Complete.
+    columns:
+      - name: event_id
+        description: Metrica event_id stringified (unique within a match).
+        data_tests:
+          - not_null
+      - name: match_id
+        description: Metrica native match_id (e.g. 'Sample_Game_1').
+        data_tests:
+          - not_null
+      - name: pass_outcome
+        description: "'Complete' (subtype NULL or non-loss/intercep) or 'Incomplete'."
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Complete', 'Incomplete']
+      - name: data_source
+        description: Constant 'metrica' for rows from this model.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['metrica']
