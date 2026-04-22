@@ -559,6 +559,90 @@ def finalize_bronze_df(
 
 
 # ---------------------------------------------------------------------------
+# Bronze schema snapshot loading (G1 — PR #173 drop-safety sweep)
+#
+# StatsBomb + Wyscout writers load their expected-col + dtype-override
+# constants from JSON schema snapshots at import time, rather than
+# hardcoding them like IDSSE / Metrica / SkillCorner. These helpers are
+# the shared plumbing — provider modules supply only the fixture filename
+# and the snapshot table names they care about.
+# ---------------------------------------------------------------------------
+
+
+# Audit columns added post-parser by ``write_delta_table.add_audit_columns``.
+# Excluded from expected-col + dtype-override constants so the writer-side
+# ``finalize_bronze_df`` doesn't try to pre-create them before the writer
+# adds them, and so live-schema tests compare apples-to-apples.
+BRONZE_AUDIT_ONLY_COLS: frozenset[str] = frozenset({"_ingested_at"})
+
+
+# Spark → pandas nullable dtype mapping. Columns whose snapshot type is
+# not in this map default to ``"string"`` in ``finalize_bronze_df``.
+_PANDAS_NULLABLE_DTYPE: dict[str, str] = {
+    "bigint": "Int64",
+    "int": "Int64",
+    "double": "Float64",
+    "float": "Float64",
+    "boolean": "boolean",
+}
+
+
+def load_bronze_snapshot(fixture_name: str) -> dict[str, list[dict[str, str]]] | None:
+    """Load a bronze schema snapshot from ``src/tests/fixtures/<fixture_name>``.
+
+    Snapshot layout::
+
+        {
+            "schema_version": "<provider>_bronze_<YYYY_MM>",
+            "snapshot_source": "DESCRIBE TABLE ...",
+            "tables": {"<table_name>": [{"name": "...", "type": "..."}, ...]}
+        }
+
+    Returns the ``tables`` mapping, or ``None`` when the fixture is not
+    present (wheel runtime — the fixture ships with the source tree, not
+    the wheel). Callers degrade gracefully to empty expected-col tuples
+    and empty dtype-override dicts.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+
+    fixture = _Path(__file__).resolve().parent.parent / "tests" / "fixtures" / fixture_name
+    try:
+        payload = _json.loads(fixture.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    return payload.get("tables", {})
+
+
+def expected_cols_from_snapshot(
+    tables: dict[str, list[dict[str, str]]] | None,
+    table_name: str,
+) -> tuple[str, ...]:
+    """Return a tuple of column names for ``table_name`` with audit cols dropped."""
+    if tables is None:
+        return ()
+    return tuple(entry["name"] for entry in tables.get(table_name, []) if entry["name"] not in BRONZE_AUDIT_ONLY_COLS)
+
+
+def dtype_overrides_from_snapshot(
+    tables: dict[str, list[dict[str, str]]] | None,
+    table_name: str,
+) -> dict[str, str]:
+    """Return a pandas-nullable dtype override map for ``table_name``.
+
+    Only non-string columns appear in the returned map; string columns
+    default to ``"string"`` via ``finalize_bronze_df``'s built-in default.
+    """
+    if tables is None:
+        return {}
+    return {
+        entry["name"]: _PANDAS_NULLABLE_DTYPE[entry["type"]]
+        for entry in tables.get(table_name, [])
+        if entry["type"] in _PANDAS_NULLABLE_DTYPE and entry["name"] not in BRONZE_AUDIT_ONLY_COLS
+    }
+
+
+# ---------------------------------------------------------------------------
 # 7. HuggingFace Hub Token Resolution
 # ---------------------------------------------------------------------------
 

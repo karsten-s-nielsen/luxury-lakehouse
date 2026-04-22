@@ -1,0 +1,82 @@
+name: Bronze Live Schema + Parity
+
+# Runs the live-DB tests (`test_bronze_live_schema.py` + `test_staging_rowcount_vs_bronze.py`)
+# that the main python-ci.yml skips because:
+#   (a) `databricks-sql-connector` is not in any pyproject extra, so
+#       `pytest.importorskip("databricks.sql")` skips the modules; and
+#   (b) DATABRICKS_{HOST,HTTP_PATH,TOKEN} are scoped to the `dbt deps` step
+#       in main CI, not the `Run tests` step.
+#
+# This workflow installs the SQL connector ad-hoc and injects real secrets
+# so the tests actually run. It is the only gate that catches Mode 1
+# (writer-side drop → NullType column drop) and Mode 4 (filter drop →
+# row-parity violation) on live bronze. Part of G6 from the PR #173
+# drop-safety audit.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/ingestion/**"
+      - "dbt_project/models/staging/**"
+      - "dbt_project/models/sources/**"
+      - "src/tests/test_bronze_live_schema.py"
+      - "src/tests/test_staging_rowcount_vs_bronze.py"
+      - "src/tests/coverage_utils.py"
+      - ".github/workflows/bronze-live-schema.yml"
+  schedule:
+    # Daily at 08:00 UTC — after lakebase-grants.yml runs at 07:00 UTC so
+    # any index / grant drift is self-healed before the parity check runs.
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bronze-live-schema
+  cancel-in-progress: false
+
+jobs:
+  live-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
+
+      - name: Set up Python 3.10
+        run: uv python install 3.10
+
+      # Minimal install — live tests only need pandas / pyyaml / pyspark
+      # indirectly (via the parser modules they import). `--extra analytics`
+      # covers that without pulling the heavier ML extras.
+      - name: Install dependencies
+        run: uv sync --frozen --extra analytics
+
+      # databricks-sql-connector is deliberately NOT in pyproject extras
+      # (it's a test-only dep; every other Databricks interaction uses the
+      # Thrift path via pyspark or the REST Files API). Install ad-hoc so
+      # `pytest.importorskip("databricks.sql")` in the live tests passes.
+      - name: Install databricks-sql-connector (ad-hoc, not in pyproject)
+        run: uv pip install databricks-sql-connector
+
+      - name: Run bronze live-schema + parity tests
+        env:
+          # Hostname is a public URL, not sensitive — repo var (see dbt-ci.yml note).
+          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+          DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}  # pragma: allowlist secret
+          BRONZE_SCHEMA: soccer_analytics.bronze
+          STAGING_SCHEMA: soccer_analytics.dev_silver
+        run: |
+          uv run pytest \
+            src/tests/test_bronze_live_schema.py \
+            src/tests/test_staging_rowcount_vs_bronze.py \
+            -v --tb=short --no-header
+
+      - name: Report
+        if: always()
+        run: echo "::notice::bronze live-schema + parity workflow completed. Check pytest output above for mode-1/mode-4 violations."
