@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.11-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.12-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -9,6 +9,7 @@
 #     "xgboost>=2.0",
 #     "huggingface-hub>=1.5.0",
 #     "mlflow>=2.17.0",
+#     "databricks-sdk>=0.102.0",
 # ]
 # ///
 """Train xG model on HuggingFace Jobs (CPU).
@@ -23,12 +24,25 @@ Reference: Custom xG model — logistic baseline + calibrated XGBoost with
 isotonic calibration.
 
 Usage (HF Jobs CLI):
-    hf jobs uv run scripts/train_xg_model_hf.py \
-        --flavor cpu-basic --timeout 30m \
-        --secrets HF_TOKEN=$HF_TOKEN \
-        --env MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI \
-        --env DATABRICKS_HOST=$DATABRICKS_HOST \
-        --env DATABRICKS_TOKEN=$DATABRICKS_TOKEN
+    hf jobs uv run scripts/train_xg_model_hf.py \\
+        --flavor cpu-basic --timeout 30m \\
+        --secrets HF_TOKEN=$HF_TOKEN \\
+        --secrets DATABRICKS_TOKEN=$DATABRICKS_TOKEN \\
+        --env MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI \\
+        --env DATABRICKS_HOST=$DATABRICKS_HOST
+
+    All four env vars are REQUIRED. The script fails fast (ADR-002) if
+    MLFLOW_TRACKING_URI, DATABRICKS_HOST, or DATABRICKS_TOKEN is missing.
+
+    Secrets vs env: ``HF_TOKEN`` and ``DATABRICKS_TOKEN`` MUST be passed
+    via ``--secrets`` — ``--env`` stores the value as a plain job
+    environment variable visible via ``hf jobs inspect <job_id>``.
+
+Artifacts produced (all three mandatory on success):
+  - HF Hub model repo ``luxury-lakehouse/xg-model-statsbomb-wyscout`` (weights + metrics)
+  - MLflow UC Registry ``soccer_analytics.dev_gold.xg_model@Champion``
+  - UC Volume ``/Volumes/soccer_analytics/dev_gold/model_weights/xg_model/``
+    (``logistic_model.json`` + ``xgboost_model.json`` + ``.sha256`` sidecars each)
 """
 
 from __future__ import annotations
@@ -45,6 +59,11 @@ from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
 
+from ingestion.artifact_deploy import (
+    require_mlflow_env,
+    set_and_verify_mlflow_champion,
+    upload_weights_to_uc_volume,
+)
 from ingestion.hf_jobs_cost import HF_RATE_CPU_BASIC, HFJobsCostRecorder
 from shared.constants import mlflow_model_uri
 from workflows import workflow
@@ -55,6 +74,10 @@ from workflows import workflow
 HF_ORG = "luxury-lakehouse"
 SHOTS_DATASET = f"{HF_ORG}/xg-shot-data"
 MODEL_REPO = f"{HF_ORG}/xg-model-statsbomb-wyscout"
+
+CATALOG = "soccer_analytics"
+SCHEMA = "dev_gold"
+MODEL_NAME = "xg_model"
 
 _CATEGORICAL_FEATURES = ["shot_body_part", "shot_technique", "shot_type", "play_pattern"]
 _NUMERIC_FEATURES = [
@@ -203,6 +226,10 @@ def main() -> None:
     )
     recorder.start()
 
+    # Pre-flight: fail loud if MLflow registration env vars are missing
+    # (ADR-002: no silent-skip of the registry step).
+    require_mlflow_env()
+
     # ------------------------------------------------------------------
     # 1. Load shot data from HF Hub
     # ------------------------------------------------------------------
@@ -289,47 +316,50 @@ def main() -> None:
     print("  Logistic:", {k: f"{v:.4f}" for k, v in lr_metrics.items()})
 
     # ------------------------------------------------------------------
-    # 5. Log to MLflow (remote tracking URI)
+    # 5. Log to MLflow (always runs — require_mlflow_env() enforced on entry)
     # ------------------------------------------------------------------
-    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "")
-    if tracking_uri:
-        import mlflow
+    tracking_uri = os.environ["MLFLOW_TRACKING_URI"]
+    import mlflow
 
-        print(f"\n=== Logging to MLflow ({tracking_uri}) ===")
-        mlflow.set_tracking_uri(tracking_uri)
-        mlflow.set_experiment("/soccer_analytics/xg_model")
+    print(f"\n=== Logging to MLflow ({tracking_uri}) ===")
+    mlflow.set_tracking_uri(tracking_uri)
+    mlflow.set_experiment("/soccer_analytics/xg_model")
 
-        with mlflow.start_run(run_name="xg_model_hf_jobs"):
-            mlflow.log_params(
-                {
-                    "n_estimators": N_ESTIMATORS,
-                    "max_depth": MAX_DEPTH,
-                    "learning_rate": LEARNING_RATE,
-                    "calibration_method": CALIBRATION_METHOD,
-                    "n_train": len(x_train),
-                    "n_test": len(x_test),
-                    "n_features": len(x_train.columns),
-                    "training_env": "hf_jobs_cpu",
-                }
-            )
-            mlflow.log_param("xg_shot_data_commit", _dataset_commit)
-            for name, value in xgb_metrics.items():
-                mlflow.log_metric(f"xgboost_{name}", value)
-            for name, value in lr_metrics.items():
-                mlflow.log_metric(f"logistic_{name}", value)
+    mlflow_fqn = mlflow_model_uri(CATALOG, SCHEMA, MODEL_NAME)
+    with mlflow.start_run(run_name="xg_model_hf_jobs") as active_run:
+        run_id = active_run.info.run_id
+        mlflow.log_params(
+            {
+                "n_estimators": N_ESTIMATORS,
+                "max_depth": MAX_DEPTH,
+                "learning_rate": LEARNING_RATE,
+                "calibration_method": CALIBRATION_METHOD,
+                "n_train": len(x_train),
+                "n_test": len(x_test),
+                "n_features": len(x_train.columns),
+                "training_env": "hf_jobs_cpu",
+            }
+        )
+        mlflow.log_param("xg_shot_data_commit", _dataset_commit)
+        for name, value in xgb_metrics.items():
+            mlflow.log_metric(f"xgboost_{name}", value)
+        for name, value in lr_metrics.items():
+            mlflow.log_metric(f"logistic_{name}", value)
 
-            mlflow.sklearn.log_model(
-                sk_model=xgboost_model,
-                artifact_path="xgboost_model",
-                registered_model_name=mlflow_model_uri("soccer_analytics", "dev_gold", "xg_model"),
-            )
-            mlflow.sklearn.log_model(
-                sk_model=logistic_model,
-                artifact_path="logistic_model",
-            )
-        print("  MLflow logging complete")
-    else:
-        print("\n=== MLflow skipped (MLFLOW_TRACKING_URI not set) ===")
+        mlflow.sklearn.log_model(
+            sk_model=xgboost_model,
+            artifact_path="xgboost_model",
+            registered_model_name=mlflow_fqn,
+        )
+        mlflow.sklearn.log_model(
+            sk_model=logistic_model,
+            artifact_path="logistic_model",
+        )
+
+    # Set + verify @Champion alias (zombie-alias guard, ADR-002 alignment)
+    client = mlflow.tracking.MlflowClient()
+    set_and_verify_mlflow_champion(client, mlflow_fqn=mlflow_fqn, run_id=run_id)
+    print("  MLflow logging complete")
 
     # ------------------------------------------------------------------
     # 6. Serialize and publish to HF Hub
@@ -376,6 +406,29 @@ def main() -> None:
     )
 
     print(f"\n  Published: https://huggingface.co/{MODEL_REPO}")
+
+    # Upload to UC Volume (second leg of the delivery chain)
+    from databricks.sdk import WorkspaceClient
+
+    workspace_client = WorkspaceClient()
+    logistic_volume = upload_weights_to_uc_volume(
+        workspace_client,
+        catalog=CATALOG,
+        schema=SCHEMA,
+        model_name=MODEL_NAME,
+        filename="logistic_model.json",
+        weights_bytes=logistic_bytes,
+    )
+    xgboost_volume = upload_weights_to_uc_volume(
+        workspace_client,
+        catalog=CATALOG,
+        schema=SCHEMA,
+        model_name=MODEL_NAME,
+        filename="xgboost_model.json",
+        weights_bytes=xgboost_bytes,
+    )
+    print(f"  UC Volume logistic: {logistic_volume['path']}")
+    print(f"  UC Volume xgboost:  {xgboost_volume['path']}")
     print(f"  Logistic: {len(logistic_bytes):,} bytes")
     print(f"  XGBoost:  {len(xgboost_bytes):,} bytes")
     print("xG model training complete!")

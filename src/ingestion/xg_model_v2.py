@@ -221,16 +221,32 @@ def _make_v2_scoring_udf(
             _udf._model_cache = {}  # type: ignore[attr-defined]
         cache: dict[str, Any] = _udf._model_cache  # type: ignore[attr-defined]
         if "v2_weights" not in cache:
+            import json as _json
+
             cache["v2_weights"] = deserialize_set_encoder_weights(v2_weights_bytes)
             cache["xgboost"] = deserialize_xgboost_model(xgboost_bytes)
-            # Extract training-time feature names from XGBoost booster
+            # Extract v1 training-time feature names from the XGBoost booster
+            # (used as a fallback for legacy v2 envelopes that don't carry
+            # feature_names of their own; see below).
             cc = next(iter(cache["xgboost"].calibrated_classifiers_))
             xgb_estimator = cc.estimator  # type: ignore[union-attr]
             cache["xgb_features"] = list(xgb_estimator.get_booster().feature_names)
+            # Prefer v2's own feature list embedded in the weights envelope.
+            # Post-2026-04-22 training writes ``envelope["feature_names"]`` so
+            # inference aligns tabular input to v2's tabular_dim directly,
+            # without coupling to whatever v1 XGBoost happens to be on disk.
+            # Legacy envelopes (pre-2026-04-22) lack this field — fall through
+            # to ``xgb_features`` to preserve backward compatibility until a
+            # fresh v2 training run replaces the weights.
+            v2_envelope = _json.loads(v2_weights_bytes.decode("utf-8"))
+            v2_features = v2_envelope.get("feature_names")
+            cache["v2_features"] = list(v2_features) if v2_features else cache["xgb_features"]
 
-        # Build tabular features (same as v1) for the set encoder's tabular input
+        # Build tabular features for the set encoder's tabular input. Use v2's
+        # embedded feature list when present; otherwise fall back to the v1
+        # XGBoost feature list (legacy envelope).
         config = XGModelConfig()
-        x, _ = build_features(pdf, config, expected_features=cache.get("xgb_features"))
+        x, _ = build_features(pdf, config, expected_features=cache.get("v2_features"))
 
         v2_weights = cache["v2_weights"]
         n_rows = len(pdf)
@@ -315,8 +331,15 @@ def run_pipeline(
     filter_expr = f"CAST(competition_id AS STRING) IN ({new_comp_list})"
     shots_filtered = shots_df.filter(filter_expr)
 
-    # 3. Load v2 set encoder weights from MLflow @Champion or UC Volume
-    v2_weights_bytes = _try_load_champion_xg_v2(logger, catalog, schema)
+    # 3. Load v2 set encoder weights from MLflow @Champion or UC Volume.
+    # MLflow UC model registry lives in the gold schema (DEFAULT_GOLD_SCHEMA="dev_gold"),
+    # NOT the pipeline's `schema` arg (which is "bronze" for xg_predictions_v2
+    # output). Passing `schema` here hits `{catalog}.bronze.xg_model_v2`, which
+    # does not exist, forcing every inference run to fall back to UC Volume.
+    # Pre-2026-04-22 that was invisible because training never registered a
+    # Champion; post-hardening (train_xg_v2_hf.py) it registers on every run,
+    # so we must point at the right namespace to actually find it.
+    v2_weights_bytes = _try_load_champion_xg_v2(logger, catalog, DEFAULT_GOLD_SCHEMA)
     if v2_weights_bytes is None:
         v2_model_path = f"/Volumes/{catalog}/{DEFAULT_GOLD_SCHEMA}/model_weights/xg_model_v2/model_weights.json"
         try:

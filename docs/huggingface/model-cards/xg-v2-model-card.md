@@ -257,9 +257,23 @@ See the [`AI_GOVERNANCE.md`](https://github.com/karsten-s-nielsen/luxury-lakehou
 
 ## Model Files
 
-```
-xg_v2_weights.json       -- set encoder weights (JSON + base64, ~100 KB)
-```
+The model is published to three destinations, all in sync:
+
+1. **HF Hub**: [`luxury-lakehouse/xg-v2-model-set-encoder`](https://huggingface.co/luxury-lakehouse/xg-v2-model-set-encoder)
+   - `model_weights.json` — set encoder weights (JSON + base64, ~100 KB)
+   - `metrics.json` — training metrics + dataset commit SHAs
+2. **MLflow UC Registry**: `soccer_analytics.dev_gold.xg_model_v2@Champion`
+   - Logged via `mlflow.pyfunc.log_model`; the `@Champion` alias points at
+     the latest version. The raw weights are also logged as an artifact
+     (`model_weights.json`) so the consumer can download them byte-for-byte.
+3. **Databricks UC Volume**: `/Volumes/soccer_analytics/dev_gold/model_weights/xg_model_v2/`
+   - `model_weights.json` — identical bytes to the HF Hub copy
+   - `model_weights.json.sha256` — hex SHA-256 sidecar for SEC2 integrity verification
+
+The Databricks serverless inference pipeline `ingestion.xg_model_v2` tries
+MLflow `@Champion` first, then falls back to the UC Volume copy; the sidecar
+lets the consumer detect tampering without trusting the MLflow registry
+metadata alone.
 
 ## Citation
 

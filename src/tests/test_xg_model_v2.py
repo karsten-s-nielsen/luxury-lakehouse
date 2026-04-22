@@ -442,3 +442,123 @@ class TestSkipGuard:
                 logger,
                 filter_result=FilterResult(workflow_id="wf-xg-v2", count=0),
             )
+
+
+# ---------------------------------------------------------------------------
+# Regression: MLflow lookups use DEFAULT_GOLD_SCHEMA, not pipeline's write schema
+# ---------------------------------------------------------------------------
+
+
+class TestV2EnvelopeFeatureNames:
+    """Regression: v2 weights envelope carries its own ``feature_names``
+    field so inference can align tabular input without depending on v1
+    XGBoost's feature list.
+
+    Pre-2026-04-22: the inference UDF reindexed tabular features to v1
+    XGBoost's feature_names, silently coupling v2's tabular_dim to
+    whatever v1 one-hot cardinality happened to be on disk. When v1 got
+    retrained with extra categorical levels, the v2 UDF would matmul
+    v2-weights against v1-sized tabular input and blow up with
+    ``matmul: size X is different from Y``. This test locks in the
+    replacement contract: v2 carries its own feature list; v1 becomes a
+    legacy fallback only.
+    """
+
+    def test_udf_uses_envelope_feature_names_when_present(self) -> None:
+        """When v2 envelope has feature_names, UDF caches + uses them (not xgb_features)."""
+        import json
+
+        xgboost_bytes = _train_xgboost_and_serialize()
+        tabular_dim = _get_tabular_dim()
+        v2_bytes = _make_dummy_v2_weights(tabular_dim)
+
+        # Inject feature_names into the envelope. Use a marker list we can
+        # distinguish from xgb_features: same length (so the weights still
+        # matmul) but a reordered/relabeled set. The behavior under test is
+        # that the UDF RESPECTS this field — not that the model math works
+        # when feature lists genuinely differ in length.
+        envelope = json.loads(v2_bytes.decode("utf-8"))
+        envelope["feature_names"] = [f"synthetic_feat_{i}" for i in range(tabular_dim)]
+        v2_bytes_with_features = json.dumps(envelope).encode("utf-8")
+
+        from ingestion.xg_model_v2 import _make_v2_scoring_udf
+
+        udf = _make_v2_scoring_udf(v2_bytes_with_features, xgboost_bytes)
+
+        # Call the UDF once to trigger cache population. Use no freeze frames
+        # so we exercise the cache path but don't depend on the matmul
+        # succeeding (the dummy weights were built for xgb_features shape).
+        shots = _make_synthetic_shots(3)
+        shots["shot_id"] = [f"s_{i}" for i in range(3)]
+        shots["match_id"] = 1
+        shots["competition_id"] = 1
+        shots["shot_freeze_frame"] = None
+        udf(shots)
+
+        cached_v2_features = udf._model_cache["v2_features"]  # type: ignore[attr-defined]
+        assert cached_v2_features == envelope["feature_names"], (
+            f"UDF cached v2_features={cached_v2_features!r}; expected envelope's injected list"
+        )
+        # xgb_features still cached as the fallback
+        assert udf._model_cache["xgb_features"] != envelope["feature_names"], (  # type: ignore[attr-defined]
+            "xgb_features should differ from envelope feature_names — sanity check the test setup"
+        )
+
+    def test_udf_falls_back_to_xgb_features_for_legacy_envelope(self) -> None:
+        """When v2 envelope lacks feature_names (legacy), UDF falls back to xgb_features."""
+        xgboost_bytes = _train_xgboost_and_serialize()
+        tabular_dim = _get_tabular_dim()
+        v2_bytes = _make_dummy_v2_weights(tabular_dim)
+
+        from ingestion.xg_model_v2 import _make_v2_scoring_udf
+
+        udf = _make_v2_scoring_udf(v2_bytes, xgboost_bytes)
+
+        shots = _make_synthetic_shots(3)
+        shots["shot_id"] = [f"s_{i}" for i in range(3)]
+        shots["match_id"] = 1
+        shots["competition_id"] = 1
+        shots["shot_freeze_frame"] = None
+        udf(shots)
+
+        # Legacy envelope has no feature_names → v2_features identical to xgb_features
+        assert udf._model_cache["v2_features"] == udf._model_cache["xgb_features"], (  # type: ignore[attr-defined]
+            "Legacy envelope (no feature_names) must fall back to xgb_features for backward compat"
+        )
+
+
+class TestMlflowLookupsUseGoldSchema:
+    """Regression: both v1 XGBoost and v2 set-encoder MLflow @Champion lookups
+    must resolve against DEFAULT_GOLD_SCHEMA (where model registry lives),
+    NOT the pipeline's ``schema`` arg (which is "bronze" for the output table).
+
+    Before 2026-04-22 the v2 call passed ``schema`` (="bronze"), so every
+    MLflow lookup hit ``{catalog}.bronze.xg_model_v2`` — a path that never
+    exists — forcing a silent fallback to UC Volume every time. This test
+    locks in the post-fix contract at the source-inspection level so a
+    future refactor can't silently regress.
+    """
+
+    def test_v2_champion_lookup_uses_default_gold_schema(self) -> None:
+        from pathlib import Path
+
+        source = (Path(__file__).resolve().parents[1] / "ingestion" / "xg_model_v2.py").read_text(encoding="utf-8")
+        assert "_try_load_champion_xg_v2(logger, catalog, DEFAULT_GOLD_SCHEMA)" in source, (
+            "xg_model_v2.run_pipeline must call _try_load_champion_xg_v2 with "
+            "DEFAULT_GOLD_SCHEMA (where the UC model registry lives), not the "
+            "pipeline's `schema` arg (which is 'bronze' for xg_predictions_v2). "
+            "See src/ingestion/xg_model_v2.py:319 comment."
+        )
+        assert "_try_load_champion_xg_v2(logger, catalog, schema)" not in source, (
+            "Found the pre-2026-04-22 bug pattern `_try_load_champion_xg_v2"
+            "(logger, catalog, schema)`. Use DEFAULT_GOLD_SCHEMA instead."
+        )
+
+    def test_v1_xgboost_champion_lookup_uses_default_gold_schema(self) -> None:
+        """The v1 XGBoost lookup was already correct — lock it in."""
+        from pathlib import Path
+
+        source = (Path(__file__).resolve().parents[1] / "ingestion" / "xg_model_v2.py").read_text(encoding="utf-8")
+        assert "_try_load_champion_xgboost(logger, catalog, DEFAULT_GOLD_SCHEMA)" in source, (
+            "xg_model_v2.run_pipeline must call _try_load_champion_xgboost with DEFAULT_GOLD_SCHEMA, not `schema`."
+        )
