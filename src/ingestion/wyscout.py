@@ -36,8 +36,12 @@ import pandas as pd
 from ingestion.guards import FilterResult, timed_check
 from ingestion.utils import (
     configure_logging,
+    dtype_overrides_from_snapshot,
+    expected_cols_from_snapshot,
     fetch_url,
+    finalize_bronze_df,
     get_spark_session,
+    load_bronze_snapshot,
     parse_ingestion_args,
     serialize_json_columns,
     validate_dataframe,
@@ -48,6 +52,29 @@ from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
+
+
+# Expected bronze schema (G1 — PR #173 drop-safety sweep). Loaded from the
+# test-fixture snapshot at import time via shared helpers in
+# ``ingestion.utils``; wheel runtime falls back to empty constants.
+_WYSCOUT_SNAPSHOT_TABLES = load_bronze_snapshot("wyscout_bronze_schema_snapshot.json")
+
+_WYSCOUT_EVENTS_EXPECTED_COLS: tuple[str, ...] = expected_cols_from_snapshot(_WYSCOUT_SNAPSHOT_TABLES, "wyscout_events")
+_WYSCOUT_EVENTS_DTYPE_OVERRIDES: dict[str, str] = dtype_overrides_from_snapshot(
+    _WYSCOUT_SNAPSHOT_TABLES, "wyscout_events"
+)
+_WYSCOUT_MATCHES_EXPECTED_COLS: tuple[str, ...] = expected_cols_from_snapshot(
+    _WYSCOUT_SNAPSHOT_TABLES, "wyscout_matches"
+)
+_WYSCOUT_MATCHES_DTYPE_OVERRIDES: dict[str, str] = dtype_overrides_from_snapshot(
+    _WYSCOUT_SNAPSHOT_TABLES, "wyscout_matches"
+)
+_WYSCOUT_PLAYERS_EXPECTED_COLS: tuple[str, ...] = expected_cols_from_snapshot(
+    _WYSCOUT_SNAPSHOT_TABLES, "wyscout_players"
+)
+_WYSCOUT_PLAYERS_DTYPE_OVERRIDES: dict[str, str] = dtype_overrides_from_snapshot(
+    _WYSCOUT_SNAPSHOT_TABLES, "wyscout_players"
+)
 
 
 class _WyscoutGuard:
@@ -112,13 +139,24 @@ def _decode_unicode_escapes(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _normalize_mixed_types(df: pd.DataFrame) -> pd.DataFrame:
+def _normalize_mixed_types(
+    df: pd.DataFrame,
+    logger: logging.Logger | None = None,
+) -> pd.DataFrame:
     """Normalize mixed-type object columns so PyArrow/Spark can convert them.
 
     After pd.concat across competitions, some columns end up as ``object``
-    dtype with a mix of int/float/NaN or date/string values.  PyArrow cannot
-    infer a single Arrow type from these heterogeneous Series.  We coerce
+    dtype with a mix of int/float/NaN or date/string values. PyArrow cannot
+    infer a single Arrow type from these heterogeneous Series. We coerce
     numeric-looking columns to numeric and cast the rest to strings.
+
+    When ``logger`` is provided, every column where
+    ``pd.to_numeric(..., errors="coerce")`` silently converts a non-null
+    value to NaN is reported at ERROR level. This is Mode 3 (unguarded
+    cast) instrumentation from the PR #173 drop-safety audit (G2):
+    callers treat ERROR logs as blocking — ADR-002 forbids warning-level
+    silent swallows in operational telemetry. When ``logger`` is None
+    the audit is silent (legacy behaviour preserved).
     """
     for col in df.columns:
         if df[col].dtype != object:
@@ -128,7 +166,22 @@ def _normalize_mixed_types(df: pd.DataFrame) -> pd.DataFrame:
             continue
         first = sample.iloc[0]
         if isinstance(first, int | float):
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+            if logger is not None:
+                non_null_before = int(df[col].notna().sum())
+                coerced = pd.to_numeric(df[col], errors="coerce")
+                non_null_after = int(coerced.notna().sum())
+                lost = non_null_before - non_null_after
+                if lost > 0:
+                    logger.error(
+                        "coerce-loss: column %r lost %d non-null value(s) to NaN "
+                        "during pd.to_numeric(errors='coerce'). Mode 3 (unguarded "
+                        "cast) violation — inspect source for non-numeric strings.",
+                        col,
+                        lost,
+                    )
+                df[col] = coerced
+            else:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
         elif isinstance(first, dict | list):
             pass  # already handled by serialize_json_columns
         else:
@@ -251,7 +304,12 @@ def _write_events_competition(
         return 0
     df["competition_name"] = competition
     df = serialize_json_columns(df, ["positions", "tags"])
-    df = _normalize_mixed_types(df)
+    df = _normalize_mixed_types(df, logger=logger)  # G2 audit
+    df = finalize_bronze_df(
+        df,
+        expected_cols=_WYSCOUT_EVENTS_EXPECTED_COLS,
+        dtype_overrides=_WYSCOUT_EVENTS_DTYPE_OVERRIDES,
+    )  # G1
     sdf = spark.createDataFrame(df)
     row_count = validate_dataframe(
         sdf,
@@ -289,12 +347,17 @@ def _write_matches_competition(
         if not sample.empty and isinstance(sample.iloc[0], dict | list):
             json_cols.append(str(c))
     df = serialize_json_columns(df, json_cols)
-    df = _normalize_mixed_types(df)
+    df = _normalize_mixed_types(df, logger=logger)  # G2 audit
     # Cast datetime columns to string to prevent Delta schema merge conflicts
     # across competitions (e.g. league 'date' may infer as DateType while
     # tournament 'date' infers as StringType).
     for c in df.select_dtypes(include=["datetime64", "datetimetz"]).columns:
         df[c] = df[c].astype(str)
+    df = finalize_bronze_df(
+        df,
+        expected_cols=_WYSCOUT_MATCHES_EXPECTED_COLS,
+        dtype_overrides=_WYSCOUT_MATCHES_DTYPE_OVERRIDES,
+    )  # G1
     sdf = spark.createDataFrame(df)
     row_count = validate_dataframe(
         sdf,
@@ -508,7 +571,12 @@ def ingest_players(
     logger.info("No existing wyscout_players table — will ingest")
 
     pdf = _load_players(data_dir, logger)
-    pdf = _normalize_mixed_types(pdf)
+    pdf = _normalize_mixed_types(pdf, logger=logger)  # G2 audit
+    pdf = finalize_bronze_df(
+        pdf,
+        expected_cols=_WYSCOUT_PLAYERS_EXPECTED_COLS,
+        dtype_overrides=_WYSCOUT_PLAYERS_DTYPE_OVERRIDES,
+    )  # G1
 
     sdf = spark.createDataFrame(pdf)
     row_count = validate_dataframe(

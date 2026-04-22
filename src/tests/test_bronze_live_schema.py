@@ -27,15 +27,20 @@ Root-cause of the coverage gap this test closes (2026-04-21):
 Test scope — bronze tables for 5 providers:
 
   - ``bronze.idsse_events``       (IDSSE DFL event XML)
-  - ``bronze.idsse_tracking``     (IDSSE DFL position XML)
-  - ``bronze.metrica_events``     (Metrica sample-data CSV + EPTS)
-  - ``bronze.metrica_tracking``   (Metrica sample-data CSV + EPTS)
-  - ``bronze.wyscout_events``     (Wyscout Figshare JSON)
+  - ``bronze.idsse_tracking``       (IDSSE DFL position XML)
+  - ``bronze.metrica_events``       (Metrica sample-data CSV + EPTS)
+  - ``bronze.metrica_tracking``     (Metrica sample-data CSV + EPTS)
+  - ``bronze.wyscout_events``       (Wyscout Figshare JSON)
   - ``bronze.skillcorner_tracking`` (SkillCorner broadcast-tracking JSON)
+  - ``bronze.statsbomb_competitions`` / ``.statsbomb_matches`` /
+    ``.statsbomb_events``           (StatsBomb open-data via statsbombpy)
 
-  StatsBomb is deliberately excluded — its bronze is already wide (126 cols)
-  because its bulk-per-competition ingestion avoids the per-match all-None
-  drop pattern.
+  StatsBomb + Wyscout were previously excluded because their bulk-per-
+  competition ingestion is unlikely to trigger the all-None NullType drop
+  pattern — every competition typically exercises every event field at
+  least once. G1 of the PR #173 drop-safety sweep still wires
+  finalize_bronze_df into both writers so a future per-competition
+  regression would not silently reintroduce the gap.
 
 Requires live Databricks SQL warehouse. Skipped when the
 ``DATABRICKS_{HOST,HTTP_PATH,TOKEN}`` env vars are unset.
@@ -222,16 +227,80 @@ def test_metrica_events_live_schema_covers_parser(conn: object) -> None:
 
 
 @requires_databricks
-@pytest.mark.skip(
-    reason=(
-        "Wyscout events bronze is already source-complete per the existing "
-        "test_wyscout_bronze_coverage snapshot-vs-sources.yml test. "
-        "Per-competition writes don't exhibit the NullType drop pattern "
-        "because every competition exercises every event field at least once."
-    )
-)
 def test_wyscout_events_live_schema_covers_parser(conn: object) -> None:
-    pass
+    """Every column the Wyscout events parser emits must exist in live Delta.
+
+    Un-skipped by G1 of the PR #173 drop-safety sweep — now that
+    ``finalize_bronze_df`` is wired into ``wyscout._write_events_competition``,
+    the expected-cols contract is machine-enforceable against live bronze.
+    """
+    sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
+    from ingestion.wyscout import _WYSCOUT_EVENTS_EXPECTED_COLS
+
+    expected = set(_WYSCOUT_EVENTS_EXPECTED_COLS)
+    actual = _live_bronze_cols(conn, "wyscout_events") - _AUDIT_COLS
+    missing = expected - actual
+    if missing:
+        msg = (
+            f"\n[Wyscout events] Live bronze.wyscout_events is missing "
+            f"{len(missing)} column(s): {sorted(missing)}\n"
+            f"Fix: re-ingest with wheel containing finalize_bronze_df guard."
+        )
+        raise AssertionError(msg)
+
+
+@requires_databricks
+def test_statsbomb_competitions_live_schema_covers_parser(conn: object) -> None:
+    """Every StatsBomb competitions parser column must land in live Delta."""
+    sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
+    from ingestion.statsbomb import _STATSBOMB_COMPETITIONS_EXPECTED_COLS
+
+    expected = set(_STATSBOMB_COMPETITIONS_EXPECTED_COLS)
+    actual = _live_bronze_cols(conn, "statsbomb_competitions") - _AUDIT_COLS
+    missing = expected - actual
+    if missing:
+        msg = (
+            f"\n[StatsBomb competitions] Live bronze.statsbomb_competitions is "
+            f"missing {len(missing)} column(s): {sorted(missing)}\n"
+            f"Fix: re-ingest with wheel containing finalize_bronze_df guard."
+        )
+        raise AssertionError(msg)
+
+
+@requires_databricks
+def test_statsbomb_matches_live_schema_covers_parser(conn: object) -> None:
+    """Every StatsBomb matches parser column must land in live Delta."""
+    sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
+    from ingestion.statsbomb import _STATSBOMB_MATCHES_EXPECTED_COLS
+
+    expected = set(_STATSBOMB_MATCHES_EXPECTED_COLS)
+    actual = _live_bronze_cols(conn, "statsbomb_matches") - _AUDIT_COLS
+    missing = expected - actual
+    if missing:
+        msg = (
+            f"\n[StatsBomb matches] Live bronze.statsbomb_matches is missing "
+            f"{len(missing)} column(s): {sorted(missing)}\n"
+            f"Fix: re-ingest with wheel containing finalize_bronze_df guard."
+        )
+        raise AssertionError(msg)
+
+
+@requires_databricks
+def test_statsbomb_events_live_schema_covers_parser(conn: object) -> None:
+    """Every StatsBomb events parser column must land in live Delta (126 cols)."""
+    sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
+    from ingestion.statsbomb import _STATSBOMB_EVENTS_EXPECTED_COLS
+
+    expected = set(_STATSBOMB_EVENTS_EXPECTED_COLS)
+    actual = _live_bronze_cols(conn, "statsbomb_events") - _AUDIT_COLS
+    missing = expected - actual
+    if missing:
+        msg = (
+            f"\n[StatsBomb events] Live bronze.statsbomb_events is missing "
+            f"{len(missing)} column(s): {sorted(missing)}\n"
+            f"Fix: re-ingest with wheel containing finalize_bronze_df guard."
+        )
+        raise AssertionError(msg)
 
 
 @requires_databricks

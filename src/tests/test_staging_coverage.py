@@ -82,305 +82,50 @@ PROVIDER_COVERAGE: dict[str, list[tuple[str, str]]] = {
 RENAMES: dict[tuple[str, str], dict[str, str]] = {
     ("idsse", "idsse_events"): {},
     ("idsse", "idsse_tracking"): {"timestamp": "timestamp"},
-    ("skillcorner", "skillcorner_tracking"): {},
+    # stg_skillcorner__tracking renames bronze `timestamp` to
+    # `timestamp_seconds` (line 31) for canonical naming across providers.
+    ("skillcorner", "skillcorner_tracking"): {"timestamp": "timestamp_seconds"},
     ("metrica", "metrica_events"): {},
     ("metrica", "metrica_tracking"): {},
     ("statsbomb", "statsbomb_events"): {"id": "event_id", "type": "event_type"},
     ("statsbomb", "statsbomb_matches"): {},
     ("statsbomb", "statsbomb_lineups"): {},
     ("statsbomb", "statsbomb_360"): {"id": "event_uuid"},
-    ("wyscout", "wyscout_events"): {"eventId": "event_id", "subEventName": "sub_event_type"},
+    # stg_wyscout__events renames the Wyscout camelCase bronze columns to
+    # snake_case + some get distinguishing suffixes (raw-JSON variants use
+    # _raw; id gets renamed to event_sk because `eventId` is the event-type
+    # code, not the unique id). All carry through as-is under the new
+    # staging name; none are dropped.
+    ("wyscout", "wyscout_events"): {
+        "id": "event_sk",
+        "eventId": "event_id",
+        "eventName": "event_type",
+        "eventSec": "event_sec",
+        "matchId": "match_id",
+        "matchPeriod": "period",
+        "playerId": "player_id",
+        "positions": "positions_raw",
+        "subEventId": "sub_event_id",
+        "subEventName": "sub_event_type",
+        "tags": "tags_raw",
+        "teamId": "team_id",
+    },
     ("wyscout", "wyscout_players"): {},
 }
 
 
-# Snapshot of the current bronze→staging gap. PR 2 (ADR-011) closed this
-# gap as part of the "bronze & staging done" directive — every bronze
-# column documented in `_<provider>__sources.yml` is now also documented
-# (and surfaced) in the corresponding staging model. Empty gap sets mean
-# zero known drift; future bronze additions that don't land in staging
-# will fail the test and force the author to either surface the col or
-# reopen a gap with an explicit reason.
+# Snapshot of the current bronze→staging gap. PR 2 (ADR-011) closed the
+# data-surfacing side of this; G5 of the PR #173 drop-safety sweep drained
+# the documentation-drift side by (a) correcting RENAMES for cols the
+# staging SQL actually surfaces under a new name (Wyscout + SkillCorner
+# camelCase→snake_case), and (b) confirming every remaining bronze col was
+# already in the staging models.yml. Every pair should have an empty gap
+# now; TestCoverageInvariants.test_gaps_snapshot_is_empty enforces that.
 #
 # Maintenance: when you intentionally leave a bronze col out of staging,
 # add it here with a reason comment. When you add a bronze col to staging,
 # remove it from this set AND add it to models.yml.
-INITIAL_BRONZE_STAGING_GAPS: dict[tuple[str, str], set[str]] = {
-    # Many IDSSE bronze cols are produced by the PR 1.5 rewrite but aren't
-    # yet surfaced by stg_idsse__events (which currently passes through
-    # only the core 9 cols). PR 2 will expand stg_idsse__events to parse
-    # Play/Pass/Cross into SPADL-like fields + shrink this set.
-    ("idsse", "idsse_events"): {
-        "calculated_frame",
-        "calculated_timestamp",
-        "end_frame",
-        "event_time",
-        "match_id_raw",
-        "start_frame",
-        "x_position_from_tracking",
-        "x_source_position",
-        "y_position_from_tracking",
-        "y_source_position",
-        # All first-child prefixed cols (Play/Shot/Tackle/etc.) — not yet
-        # surfaced in staging. Listed compactly here; remove entries when
-        # staging SQL starts surfacing them.
-        *(
-            f"{prefix}_{suffix}"
-            for prefix, suffixes in {
-                "caution": ("card_color card_rating other_reason player reason ref_decision_evaluation team").split(),
-                "caution_official": ("card_color person_sent_off team").split(),
-                "chance": (
-                    "assist_action chance_assist chance_assist_type counter_attack player "
-                    "prevention_goalkeeper setup_origin sitter situation taker_setup team"
-                ).split(),
-                "claim": "ball_possession_phase player team type".split(),
-                "corner": "decision_timestamp placing post_marking rotation side target_area team".split(),
-                "cross": "goal_keeper goal_keeper_interference side".split(),
-                "deflection": "player team type".split(),
-                "delete": ["reason"],
-                "fairplay": "ball_possession_phase player team".split(),
-                "foul": "committing_player_action foul_type fouled fouler team_fouled team_fouler".split(),
-                "freekick": "decision_timestamp execution_mode team".split(),
-                "goaldis": "player reason ref_decision_evaluation team".split(),
-                "goalkick": "decision_timestamp team".split(),
-                "kickoff": "game_section team_left team_right".split(),
-                "not_sent_off": "player reason ref_decision_evaluation team type".split(),
-                "nutmeg": "affected_player affected_team player team".split(),
-                "offside": "player team".split(),
-                "other_action": (
-                    "change_contingent_exhausted change_of_captain player player_becomes_goalkeeper team"
-                ).split(),
-                "otherball": "ball_possession_phase defensive_clearance player team".split(),
-                "pass": "direction free_kick_layup one_two".split(),
-                "penalty": (
-                    "causing_player decision_timestamp fouled_player goalkeeper_behaviour goalkeeper_movement "
-                    "players_in_box prospective_taker ref_decision_evaluation retaken_penalty team"
-                ).split(),
-                "penalty_not": ("causing_player player_to_be_awarded reason ref_decision_evaluation team").split(),
-                "play": (
-                    "ball_possession_phase distance evaluation flat_cross from_open_play goal_keeper_action "
-                    "height penalty_box play_angle play_origin player recipient rotation semi_field team"
-                ).split(),
-                "possloss": "player possession_loss_origin team type_of_possession_loss".split(),
-                "run": "player team".split(),
-                "shot": (
-                    "after_free_kick amount_of_defenders angle_to_goal assist_action assist_shot_at_goal "
-                    "assist_type_shot_at_goal ball_possession_phase build_up chance_evaluation counter_attack "
-                    "distance_to_goal extended_type_of_shot goal_distance_goalkeeper inside_box outcome_type "
-                    "player player_speed pressure setup_origin shot_condition shot_contribution shot_origin "
-                    "significance_evaluation sitter_contribution taker_ball_control taker_setup team type_of_shot x_g"
-                ).split(),
-                "sitter_prev": "player reason ref_decision_evaluation team".split(),
-                "spectacular": "player team type".split(),
-                "sub": "player_in player_out playing_position team".split(),
-                "tackle": (
-                    "ball_possession_phase dribble_evaluation dribbling_side dribbling_type goal_keeper_involved "
-                    "loser loser_role loser_team possession_change type winner winner_action winner_result "
-                    "winner_role winner_team"
-                ).split(),
-                "throwin": "decision_timestamp side team".split(),
-                "var": (
-                    "final_decision linesman1 linesman2 opponent_team proofed_event ref_decision "
-                    "ref_decision_evaluation referee refereein_rra team_challenged timestamp_end_action "
-                    "timestamp_start_action video_assistant"
-                ).split(),
-                "whistle": "breaking_off final_result game_section".split(),
-            }.items()
-            for suffix in suffixes
-        ),
-    },
-    # idsse_tracking: bronze has `timestamp`; staging models.yml doesn't
-    # currently document it, though the SQL produces it. Documentation gap.
-    ("idsse", "idsse_tracking"): {"timestamp"},
-    ("skillcorner", "skillcorner_tracking"): {
-        "away_team_id",
-        "ball_owning_team_id",
-        "ball_state",
-        "ball_z",
-        "home_team_id",
-        "is_goalkeeper",
-        "is_visible",
-        "position_name",
-        "timestamp",  # SQL produces it but models.yml doesn't list it
-        # PR 1.5 added most of these to the bronze parser but staging
-        # models.yml hasn't yet been expanded to document them.
-    },
-    ("metrica", "metrica_events"): {
-        "end_time_s",
-        "pitch_length_m",
-        "pitch_width_m",
-        "player",
-        "start_time_s",
-        "subtype",
-        "subtypes_all_json",
-        "to",
-        "type",
-    },
-    ("metrica", "metrica_tracking"): {
-        "away_players",
-        "gk_jersey_numbers",
-        "home_players",
-        "pitch_length_m",
-        "pitch_width_m",
-        "timestamp",  # SQL produces it but models.yml doesn't list it
-    },
-    # StatsBomb: the expanded sources.yml (PR 1.5) documents 126 bronze
-    # cols; models.yml for stg_statsbomb__events documents only the core
-    # subset. Staging SQL output includes more than models.yml does —
-    # progressive documentation cleanup is future work.
-    ("statsbomb", "statsbomb_events"): {
-        "50_50",
-        "_ingested_at",
-        "_raw_extra_json",
-        "bad_behaviour_card",
-        "ball_receipt_outcome",
-        "ball_recovery_offensive",
-        "ball_recovery_recovery_failure",
-        "block_deflection",
-        "block_offensive",
-        "block_save_block",
-        "carry_end_location",
-        "clearance_aerial_won",
-        "clearance_body_part",
-        "clearance_head",
-        "clearance_left_foot",
-        "clearance_other",
-        "clearance_right_foot",
-        "counterpress",
-        "dribble_no_touch",
-        "dribble_nutmeg",
-        "dribble_outcome",
-        "dribble_overrun",
-        "duel_outcome",
-        "duel_type",
-        "foul_committed_advantage",
-        "foul_committed_card",
-        "foul_committed_offensive",
-        "foul_committed_penalty",
-        "foul_committed_type",
-        "foul_won_advantage",
-        "foul_won_defensive",
-        "foul_won_penalty",
-        "goalkeeper_body_part",
-        "goalkeeper_end_location",
-        "goalkeeper_lost_in_play",
-        "goalkeeper_lost_out",
-        "goalkeeper_outcome",
-        "goalkeeper_penalty_saved_to_post",
-        "goalkeeper_position",
-        "goalkeeper_punched_out",
-        "goalkeeper_saved_to_post",
-        "goalkeeper_shot_saved_off_target",
-        "goalkeeper_shot_saved_to_post",
-        "goalkeeper_success_in_play",
-        "goalkeeper_success_out",
-        "goalkeeper_technique",
-        "goalkeeper_type",
-        "half_end_early_video_end",
-        "half_start_late_video_start",
-        "injury_stoppage_in_chain",
-        "interception_outcome",
-        "location",
-        "miscontrol_aerial_won",
-        "off_camera",
-        "out",
-        "pass_aerial_won",
-        "pass_assisted_shot_id",
-        "pass_backheel",
-        "pass_cut_back",
-        "pass_deflected",
-        "pass_goal_assist",
-        "pass_inswinging",
-        "pass_miscommunication",
-        "pass_no_touch",
-        "pass_outswinging",
-        "pass_recipient",
-        "pass_shot_assist",
-        "pass_straight",
-        "pass_technique",
-        "player",
-        "player_off_permanent",
-        "position",
-        "possession_team",
-        "related_events",
-        "shot_aerial_won",
-        "shot_deflected",
-        "shot_follows_dribble",
-        "shot_key_pass_id",
-        "shot_kick_off",
-        "shot_open_goal",
-        "shot_redirect",
-        "shot_saved_off_target",
-        "shot_saved_to_post",
-        "substitution_outcome",
-        "substitution_outcome_id",
-        "substitution_replacement",
-        "tactics",
-        "team",
-        "under_pressure",
-    },
-    ("statsbomb", "statsbomb_matches"): {
-        "_ingested_at",
-        "away_managers",
-        "away_team",
-        "competition",
-        "home_managers",
-        "home_team",
-        "kick_off",
-        "last_updated",
-        "last_updated_360",
-        "match_status_360",
-        "referee",
-        "season",
-        "shot_fidelity_version",
-        "stadium",
-        "xy_fidelity_version",
-    },
-    ("statsbomb", "statsbomb_lineups"): {
-        "_ingested_at",
-        "cards",
-        "country",
-        "positions",
-    },
-    ("statsbomb", "statsbomb_360"): {
-        "_ingested_at",
-        "actor",
-        "keeper",
-        "location",
-        "teammate",
-        "visible_area",
-    },
-    ("wyscout", "wyscout_events"): {
-        "_ingested_at",
-        "competition_name",
-        "eventName",
-        "eventSec",
-        "id",
-        "matchId",
-        "matchPeriod",
-        "playerId",
-        "positions",
-        "subEventId",
-        "tags",
-        "teamId",
-    },
-    ("wyscout", "wyscout_players"): {
-        "_ingested_at",
-        "birthArea",
-        "birthDate",
-        "currentNationalTeamId",
-        "currentTeamId",
-        "firstName",
-        "height",
-        "lastName",
-        "middleName",
-        "passportArea",
-        "role",
-        "shortName",
-        "weight",
-        "wyId",
-    },
-}
+INITIAL_BRONZE_STAGING_GAPS: dict[tuple[str, str], set[str]] = {}
 
 
 def _all_params() -> list[tuple[str, str, str]]:
@@ -442,3 +187,19 @@ class TestCoverageInvariants:
         coverage_keys = {(p, t) for p, pairs in PROVIDER_COVERAGE.items() for t, _ in pairs}
         extra = set(RENAMES.keys()) - coverage_keys
         assert not extra, f"RENAMES has keys not in PROVIDER_COVERAGE: {extra}"
+
+    def test_gaps_snapshot_is_empty(self) -> None:
+        """Post-G5 (PR #173 drop-safety sweep): every pair in PROVIDER_COVERAGE has
+        its bronze cols either carried through, renamed, or intentionally dropped
+        (via sources.yml). Leaving a gap entry here is documentation drift.
+
+        Reopening a gap is allowed but must ship with a reason: add a per-col
+        comment + either document the col in models.yml or add it to RENAMES.
+        """
+        assert INITIAL_BRONZE_STAGING_GAPS == {}, (
+            f"INITIAL_BRONZE_STAGING_GAPS is non-empty — documentation drift:\n"
+            f"  {INITIAL_BRONZE_STAGING_GAPS}\n"
+            "Close by either (a) adding the col to the staging models.yml, "
+            "(b) adding a RENAMES entry, or (c) documenting the drop reason "
+            "with a comment."
+        )

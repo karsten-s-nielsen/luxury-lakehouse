@@ -85,7 +85,11 @@ final as (
             else 'Unknown'
         end                                                     as pass_outcome,
 
-        coalesce(play_flat_cross, 'false') = 'true'             as is_cross,
+        case
+            when play_flat_cross is null then null
+            when play_flat_cross = 'true' then true
+            else false
+        end                                                     as is_cross,
         cast(null as boolean)                                   as is_switch,
         pass_direction = 'throughBall'                          as is_through_ball,
         false                                                   as is_progressive,

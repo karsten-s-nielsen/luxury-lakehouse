@@ -27,7 +27,11 @@ import pandas as pd
 from ingestion.guards import FilterResult, timed_check
 from ingestion.utils import (
     configure_logging,
+    dtype_overrides_from_snapshot,
+    expected_cols_from_snapshot,
+    finalize_bronze_df,
     get_spark_session,
+    load_bronze_snapshot,
     parse_ingestion_args,
     serialize_json_columns,
     validate_dataframe,
@@ -40,6 +44,40 @@ if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 from ingestion.utils import SparkAnalysisException as _SparkAnalysisException
+
+# Expected bronze schema (G1 — PR #173 drop-safety sweep). Loaded from the
+# test-fixture snapshot at import time via shared helpers in
+# ``ingestion.utils``; wheel runtime falls back to empty constants.
+_STATSBOMB_SNAPSHOT_TABLES = load_bronze_snapshot("statsbomb_bronze_schema_snapshot.json")
+
+_STATSBOMB_COMPETITIONS_EXPECTED_COLS: tuple[str, ...] = expected_cols_from_snapshot(
+    _STATSBOMB_SNAPSHOT_TABLES, "statsbomb_competitions"
+)
+_STATSBOMB_COMPETITIONS_DTYPE_OVERRIDES: dict[str, str] = dtype_overrides_from_snapshot(
+    _STATSBOMB_SNAPSHOT_TABLES, "statsbomb_competitions"
+)
+_STATSBOMB_MATCHES_EXPECTED_COLS: tuple[str, ...] = expected_cols_from_snapshot(
+    _STATSBOMB_SNAPSHOT_TABLES, "statsbomb_matches"
+)
+_STATSBOMB_MATCHES_DTYPE_OVERRIDES: dict[str, str] = dtype_overrides_from_snapshot(
+    _STATSBOMB_SNAPSHOT_TABLES, "statsbomb_matches"
+)
+_STATSBOMB_EVENTS_EXPECTED_COLS: tuple[str, ...] = expected_cols_from_snapshot(
+    _STATSBOMB_SNAPSHOT_TABLES, "statsbomb_events"
+)
+_STATSBOMB_EVENTS_DTYPE_OVERRIDES: dict[str, str] = dtype_overrides_from_snapshot(
+    _STATSBOMB_SNAPSHOT_TABLES, "statsbomb_events"
+)
+_STATSBOMB_LINEUPS_EXPECTED_COLS: tuple[str, ...] = expected_cols_from_snapshot(
+    _STATSBOMB_SNAPSHOT_TABLES, "statsbomb_lineups"
+)
+_STATSBOMB_LINEUPS_DTYPE_OVERRIDES: dict[str, str] = dtype_overrides_from_snapshot(
+    _STATSBOMB_SNAPSHOT_TABLES, "statsbomb_lineups"
+)
+_STATSBOMB_360_EXPECTED_COLS: tuple[str, ...] = expected_cols_from_snapshot(_STATSBOMB_SNAPSHOT_TABLES, "statsbomb_360")
+_STATSBOMB_360_DTYPE_OVERRIDES: dict[str, str] = dtype_overrides_from_snapshot(
+    _STATSBOMB_SNAPSHOT_TABLES, "statsbomb_360"
+)
 
 
 class _StatsbombGuard:
@@ -136,6 +174,11 @@ def ingest_competitions(
     raw = _get_sb().competitions()
     competitions_pdf: pd.DataFrame = pd.DataFrame(raw) if not isinstance(raw, pd.DataFrame) else raw
     competitions_pdf = serialize_json_columns(competitions_pdf)
+    competitions_pdf = finalize_bronze_df(
+        competitions_pdf,
+        expected_cols=_STATSBOMB_COMPETITIONS_EXPECTED_COLS,
+        dtype_overrides=_STATSBOMB_COMPETITIONS_DTYPE_OVERRIDES,
+    )
 
     sdf = spark.createDataFrame(competitions_pdf)
     row_count = validate_dataframe(sdf, ["competition_id", "season_id"], "statsbomb_competitions", logger)
@@ -288,6 +331,11 @@ def ingest_matches_and_details(
             matches_pdf["season_id"] = season_id
 
         matches_pdf = serialize_json_columns(matches_pdf)
+        matches_pdf = finalize_bronze_df(
+            matches_pdf,
+            expected_cols=_STATSBOMB_MATCHES_EXPECTED_COLS,
+            dtype_overrides=_STATSBOMB_MATCHES_DTYPE_OVERRIDES,
+        )
         matches_sdf = spark.createDataFrame(matches_pdf)
         row_count = validate_dataframe(
             matches_sdf,
@@ -369,6 +417,8 @@ def ingest_matches_and_details(
             replace_expr,
             logger,
             required_columns=["id", "match_id", "type"],
+            expected_cols=_STATSBOMB_EVENTS_EXPECTED_COLS,
+            dtype_overrides=_STATSBOMB_EVENTS_DTYPE_OVERRIDES,
         )
         _write_batch(
             spark,
@@ -379,6 +429,8 @@ def ingest_matches_and_details(
             replace_expr,
             logger,
             required_columns=["match_id", "team_name", "player_name"],
+            expected_cols=_STATSBOMB_LINEUPS_EXPECTED_COLS,
+            dtype_overrides=_STATSBOMB_LINEUPS_DTYPE_OVERRIDES,
         )
         _write_batch(
             spark,
@@ -389,6 +441,8 @@ def ingest_matches_and_details(
             replace_expr,
             logger,
             required_columns=["id", "match_id"],
+            expected_cols=_STATSBOMB_360_EXPECTED_COLS,
+            dtype_overrides=_STATSBOMB_360_DTYPE_OVERRIDES,
         )
 
 
@@ -424,14 +478,24 @@ def _write_batch(
     replace_where: str,
     logger: logging.Logger,
     required_columns: list[str],
+    expected_cols: tuple[str, ...] = (),
+    dtype_overrides: dict[str, str] | None = None,
 ) -> None:
-    """Concatenate a list of pandas DataFrames, serialize JSON columns, and write to Delta."""
+    """Concatenate a list of pandas DataFrames, serialize JSON columns, finalize
+    against the expected bronze schema (guards against NullType drops when
+    ``expected_cols`` is provided), and write to Delta."""
     if not batch:
         logger.info("No data for %s in this partition", table_name)
         return
 
     combined = pd.concat(batch, ignore_index=True)
     combined = serialize_json_columns(combined)
+    if expected_cols:
+        combined = finalize_bronze_df(
+            combined,
+            expected_cols=expected_cols,
+            dtype_overrides=dtype_overrides or {},
+        )
     sdf = spark.createDataFrame(combined)
     row_count = validate_dataframe(sdf, required_columns, table_name, logger)
     write_delta_table(sdf, catalog, schema, table_name, replace_where=replace_where, logger=logger, row_count=row_count)
@@ -530,6 +594,8 @@ def backfill_360(
             replace_expr,
             logger,
             required_columns=["id", "match_id"],
+            expected_cols=_STATSBOMB_360_EXPECTED_COLS,
+            dtype_overrides=_STATSBOMB_360_DTYPE_OVERRIDES,
         )
 
 
