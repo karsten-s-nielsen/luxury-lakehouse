@@ -37,6 +37,10 @@ outputs:
       format: json-base64
     - id: "xg_model_v2@Champion"
       destination: mlflow-registry
+    - id: "/Volumes/{catalog}/dev_gold/model_weights/xg_model_v2/model_weights.json"
+      destination: uc-volume
+      format: json-base64
+      notes: "SHA-256 sidecar .sha256 written by train_xg_v2_hf.py for SEC2 integrity verification"
   tables:
     - id: "{catalog}.bronze.xg_predictions_v2"
       destination: delta-table
