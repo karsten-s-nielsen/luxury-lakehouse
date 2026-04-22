@@ -578,7 +578,7 @@ luxury-lakehouse/
 │   │       ├── evaluator.py          # Fitness function (cross-entropy loss)
 │   │       ├── validation.py         # Solution validation
 │   │       ├── prompts/              # L1 + L2 system messages
-│   │       └── seed_programs/        # 5 conditioning architectures (additive, cross_attention, film, gated, hybrid)
+│   │       └── seed_programs/        # 8 conditioning architectures (additive, cross_attention, film, fourier_cross_attention, gated, hybrid_gated_attention, orthogonal_cross_attention, swiglu_conditioning)
 │   │
 │   └── tests/                        # 91 test modules
 │       ├── conftest.py               # Shared fixtures

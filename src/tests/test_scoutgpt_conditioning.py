@@ -89,11 +89,16 @@ def test_player_swap_changes_output(conditioning_type: str) -> None:
     assert not torch.allclose(logits_a, logits_b, atol=1e-5)
 
 
-def test_additive_is_default() -> None:
+def test_cross_attention_is_default() -> None:
+    """Default conditioning_type flipped from additive to cross_attention in wheel 0.3.10.
+
+    See docs/evolve/cross-attention-promote/SUMMARY.md for the A/B cycle that drove
+    the promotion decision.
+    """
     from analytics.scoutgpt_decoder import ScoutGPTConfig
 
     config = ScoutGPTConfig()
-    assert config.conditioning_type == "additive"
+    assert config.conditioning_type == "cross_attention"
 
 
 def test_unknown_conditioning_type_raises() -> None:

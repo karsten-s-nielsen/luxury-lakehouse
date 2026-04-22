@@ -8,7 +8,9 @@ import torch
 from analytics.rotary_attention import RotaryTransformerEncoder
 from analytics.scoutgpt_decoder import ScoutGPTConfig, ScoutGPTDecoder
 
-# Captured from ScoutGPTDecoder() state_dict on 2026-04-19 (pre-RoPE).
+# Captured from ScoutGPTDecoder() state_dict on 2026-04-22 (post cross_attention default flip).
+# The player_cross_attn.* + player_cross_norm.* keys were added in wheel 0.3.10 when the default
+# conditioning_type flipped from "additive" to "cross_attention". See docs/evolve/cross-attention-promote/SUMMARY.md.
 # Regression guard: any parameter rename by accident breaks this set.
 EXPECTED_KEYS_LEARNABLE_DEFAULT: frozenset[str] = frozenset(
     {
@@ -24,6 +26,12 @@ EXPECTED_KEYS_LEARNABLE_DEFAULT: frozenset[str] = frozenset(
         "end_y_mlp.net.0.weight",
         "end_y_mlp.net.2.bias",
         "end_y_mlp.net.2.weight",
+        "player_cross_attn.in_proj_bias",
+        "player_cross_attn.in_proj_weight",
+        "player_cross_attn.out_proj.bias",
+        "player_cross_attn.out_proj.weight",
+        "player_cross_norm.bias",
+        "player_cross_norm.weight",
         "player_embedding.weight",
         "position_embedding.weight",
         "result_embedding.weight",
@@ -119,7 +127,16 @@ EXPECTED_KEYS_LEARNABLE_DEFAULT: frozenset[str] = frozenset(
 
 
 def _small_config(position_embedding: str = "learnable") -> ScoutGPTConfig:
-    """Tiny config — fast construction, runs on CPU."""
+    """Tiny config — fast construction, runs on CPU.
+
+    Explicitly pins ``conditioning_type="additive"`` (not the cross_attention default from
+    wheel 0.3.10) because these tests validate RoPE's position-embedding invariants, which
+    are orthogonal to player conditioning. cross_attention conditioning does not currently
+    receive ``attention_mask``, so padding leaks through the K/V over player_emb — that is
+    a known limitation of cross_attention conditioning, filed as a follow-up after the
+    default flip cycle (2026-04-22). Isolating these tests to additive conditioning keeps
+    the RoPE assertion clean and unconfounded.
+    """
     return ScoutGPTConfig(
         vocab_size=23,
         hidden_dim=32,
@@ -130,6 +147,7 @@ def _small_config(position_embedding: str = "learnable") -> ScoutGPTConfig:
         num_players=50,
         spatial_mlp_dim=8,
         position_embedding=position_embedding,
+        conditioning_type="additive",
     )
 
 
