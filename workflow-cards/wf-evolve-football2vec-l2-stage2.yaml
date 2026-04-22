@@ -1,0 +1,128 @@
+---
+name: "Evolve Football2Vec v2 Stage-2 Adversarial Architecture (EV2)"
+id: wf-evolve-football2vec-l2-stage2
+version: "1.0.0"
+status: development
+type: training
+domain: player-embeddings
+owners:
+  - karsten
+tags:
+  - alphaevolve
+  - code-evolution
+  - football2vec
+  - adversarial-debiasing
+  - stage2
+
+references:
+  - citation: "Ganin, Y. et al. (2016). Domain-Adversarial Training of Neural Networks. JMLR 17(1), pp. 1-35."
+    role: methodology
+  - citation: "Romera-Paredes et al. (2025). AlphaEvolve: A coding agent for scientific and algorithmic discovery. arXiv:2506.13131"
+    role: methodology
+  - citation: "Carion, N. et al. (2020). End-to-End Object Detection with Transformers. ECCV."
+    role: inspiration
+  - citation: "Lee, J. et al. (2019). Set Transformer: A Framework for Attention-based Permutation-Invariant Neural Networks. ICML."
+    role: inspiration
+
+inputs:
+  datasets:
+    - id: football2vec-training-data
+      source: huggingface
+      description: "114K player-match SPADL action sequences (StatsBomb + Wyscout)"
+  models:
+    - id: football2vec-v2
+      source: huggingface
+      description: "Frozen Football2Vec v2 stage-1 encoder loaded at pinned commit SHA"
+
+outputs:
+  models:
+    - id: football2vec-adversary-evolved
+      destination: uc-volume
+      format: "python"
+      alias: "best_program"
+
+execution:
+  training:
+    trigger: manual
+    runtime: hf-jobs
+    flavor: "RTX 5070 Ti (16 GB) + Media-PC RTX 5070 Ti + DGX Spark GB10 (128 GB unified) — local pool"
+    script: "scripts/evaluate_football2vec_l2_adversary_seeds.py"
+    timeout: "6h"
+
+depends_on:
+  - wf-football2vec-v2
+  - wf-evolve-football2vec
+
+idempotency:
+  strategy: full-overwrite
+  key: timestamp
+  description: "Each harvest run creates a new timestamped results directory under results/evolve/football2vec_stage2/ and uploads metrics.json to luxury-lakehouse/football2vec-l2-harvest on HF Hub."
+
+cost:
+  training:
+    runtime: hf-jobs
+    flavor: "local-gpu"
+    rate_usd_per_hour: 0.00
+    typical_duration_minutes: 240
+    typical_cost_usd: 0.00
+
+monitoring:
+  freshness_sla_hours: 720
+  metrics:
+    - name: "val_mlm_loss"
+      baseline: 1.5
+      warn_above: 3.0
+    - name: "val_adv_accuracy"
+      baseline: 0.25
+      warn_above: 0.50
+
+links:
+  source_code:
+    - "src/analytics/football2vec_adversary.py"
+    - "src/evolve/targets/football2vec/seed_programs_stage2/"
+    - "src/evolve/targets/football2vec/validation.py"
+    - "src/evolve/targets/football2vec/evaluator.py"
+    - "src/evolve/targets/football2vec_stage2/"
+    - "scripts/evaluate_football2vec_l2_adversary_seeds.py"
+    - "docs/superpowers/specs/2026-04-23-ev2-football2vec-l2-adversarial-design.md"
+    - "docs/superpowers/plans/2026-04-23-ev2-football2vec-l2-adversarial.md"
+    - "docs/superpowers/specs/2026-04-07-evolve-level2-code-evolution-design.md"
+---
+
+## Overview
+
+Evolve Football2Vec L2 Stage-2 is a Level-2 (code-evolution) search over the Football2Vec v2
+stage-2 adversary head architecture + Level-1 search over the gradient-reversal lambda schedule
+shape, peak, and warmup. The cycle runs in two phases:
+
+- **Phase 1 harvest**: 6 hand-written seed programs (deep_mlp_2layer, deep_mlp_3layer,
+  cross_attention_adversary, attention_pool_head, residual_mlp, dual_head_ensemble) plus a
+  linear baseline are evaluated at 30-epoch production fidelity against the pinned stage-1
+  encoder and dataset. Disposition (WINNER / ARCHIVE / PRUNE) applies pre-registered thresholds.
+- **Phase 2 sweep (conditional)**: if Phase 1 yields at least one WINNER, an OpenEvolve LLM-guided
+  sweep seeded by the WINNERs runs for 20-30 iterations at the same fidelity. Disposition rules
+  produce a single PROMOTE candidate (if any) plus RETAIN alternatives.
+
+## Architecture
+
+Each seed defines the ScoutGPT two-function pattern:
+`custom_layers(hidden_dim, num_competitions) -> dict[str, nn.Module]` and
+`custom_embed(self, encoder_output, attention_mask) -> (B, num_competitions)` logits. The
+evaluator (`src/evolve/targets/football2vec/evaluator.py::_apply_program_adversary`) validates
+each seed against `FOOTBALL2VEC_ADVERSARY_PROFILE` (AST allowlist per ADR-001), exec's the
+source under restricted globals (`__builtins__: {}` + whitelisted building-block classes), and
+wraps the layers + forward into a dynamic adversary `nn.Module` whose forward delegates to
+the seed's `custom_embed`. The stage-2 training loop in `scripts/train_football2vec_v2.py`
+accepts the injected adversary plus a lambda schedule function; defaults preserve the
+pre-refactor production behavior byte-equivalent (asserted by
+`test_stage2_loop_injection_backcompat`).
+
+## Evaluation
+
+Fitness is pre-registered as `0.4 * mlm_score + 0.6 * debias_score`, where `mlm_score` is
+`min(1, L_0 / val_mlm_loss)` (L_0 = baseline val_mlm_loss, captured at Phase 1 baseline run)
+and `debias_score` is `1 - max(0, (val_adv_acc - chance) / (1 - chance))` with
+`chance = 1/num_competitions`. Phase 1 disposition: WINNER if fitness beats baseline by ≥+0.02
+AND mlm_score ≥ 0.70; PRUNE if mlm_score < 0.70; else ARCHIVE. Phase 2 promotion rule requires
+the same fitness delta at a clean solo re-run on a single local machine. A typical harvest run
+costs $0 (all-local pool) with ~60 min expected wall clock at 3-way parallel, ~3 h sequential.

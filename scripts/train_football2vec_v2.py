@@ -39,6 +39,7 @@ import logging
 import os
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import asdict
 from typing import Any
 
@@ -48,7 +49,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from analytics.football2vec_transformer import Football2VecConfig, Football2VecEncoder, TeamClassifierHead
+from analytics.football2vec_transformer import Football2VecConfig, Football2VecEncoder
 from ingestion.football2vec_v2_training import (
     ADVERSARIAL_LAMBDA_MAX,
     ADVERSARIAL_WARMUP_EPOCHS,
@@ -218,6 +219,25 @@ def _eval_mlm(
     return total_loss / max(nb, 1), correct / max(masked, 1)
 
 
+def _extend_mask_for_cls(attention_mask: torch.Tensor, pooling_type: str) -> torch.Tensor:
+    """Extend attention_mask with a True column at position 0 for CLS pooling.
+
+    The encoder prepends a CLS token inside _encode when pooling_type="cls", which
+    expands sequence length by 1. The adversary receives the full encoder output
+    (B, S+1, hidden_dim) and must receive a mask of matching shape (B, S+1).
+    """
+    if pooling_type != "cls":
+        return attention_mask
+    cls_col = torch.ones(attention_mask.size(0), 1, dtype=torch.bool, device=attention_mask.device)
+    return torch.cat([cls_col, attention_mask], dim=1)
+
+
+def _default_lambda_schedule(epoch: int, total_epochs: int) -> float:
+    """Production linear ramp schedule — unchanged from pre-refactor behavior."""
+    del total_epochs
+    return ADVERSARIAL_LAMBDA_MAX * min(epoch / ADVERSARIAL_WARMUP_EPOCHS, 1.0)
+
+
 def _train_stage2_loop(
     model: Football2VecEncoder,
     train_ds: Football2VecDataset,
@@ -229,9 +249,37 @@ def _train_stage2_loop(
     batch_size: int,
     lr: float,
     patience: int,
-) -> tuple[Football2VecEncoder, TeamClassifierHead, dict[str, list[float]]]:
+    adversary_module: nn.Module | None = None,
+    lambda_schedule_fn: Callable[[int, int], float] | None = None,
+) -> tuple[Football2VecEncoder, nn.Module, dict[str, list[float]]]:
+    """Stage-2 adversarial fine-tuning loop.
+
+    Args:
+        model: Pre-trained Football2VecEncoder from stage-1.
+        train_ds, val_ds: MLM datasets with competition_ids populated.
+        num_comp: Number of competition classes.
+        config: Football2VecConfig for hidden_dim / vocab_size lookups.
+        device: Target device.
+        epochs, batch_size, lr, patience: Standard training hyperparameters.
+        adversary_module: Optional injected adversary. If None, defaults to
+            ``LinearAdversaryHead(hidden_dim, num_comp)`` which is byte-equivalent
+            to the pre-refactor ``TeamClassifierHead`` under the CLS-pool convention.
+            Must accept ``(encoder_output, attention_mask)`` and expose ``.grl.lambda_val``.
+        lambda_schedule_fn: Optional injected schedule of signature
+            ``(epoch, total_epochs) -> float``. If None, reproduces the linear ramp
+            from 0 to ADVERSARIAL_LAMBDA_MAX over ADVERSARIAL_WARMUP_EPOCHS epochs.
+    """
+    from analytics.football2vec_adversary import LinearAdversaryHead
+
     model = model.to(device)
-    adversary = TeamClassifierHead(hidden_dim=config.hidden_dim, num_teams=num_comp, lambda_val=0.0).to(device)
+    if adversary_module is None:
+        adversary: nn.Module = LinearAdversaryHead(config.hidden_dim, num_comp).to(device)
+    else:
+        adversary = adversary_module.to(device)
+    schedule_fn: Callable[[int, int], float] = (
+        lambda_schedule_fn if lambda_schedule_fn is not None else _default_lambda_schedule
+    )
+
     tl = DataLoader(
         train_ds,
         batch_size=batch_size,
@@ -270,8 +318,8 @@ def _train_stage2_loop(
 
     for epoch in range(epochs):
         t0 = time.time()
-        lam = ADVERSARIAL_LAMBDA_MAX * min(epoch / ADVERSARIAL_WARMUP_EPOCHS, 1.0)
-        adversary.grl.lambda_val = lam
+        lam = schedule_fn(epoch, epochs)
+        adversary.grl.lambda_val = lam  # type: ignore[attr-defined]
         model.train()
         adversary.train()
         t_mlm = 0.0
@@ -286,7 +334,11 @@ def _train_stage2_loop(
             mlm_loss = mlm_crit(
                 model.mlm_forward(aids, xs, ys, am).view(-1, config.vocab_size), b["labels"].to(device).view(-1)
             )
-            adv_loss = adv_crit(adversary(model(aids, xs, ys, am)), b["competition_id"].to(device))
+            # Second forward pass through _encode — byte-equivalent RNG to pre-refactor
+            # (which had an equivalent _encode call inside model.forward / model()).
+            encoded = model._encode(aids, xs, ys, am)
+            extended_mask = _extend_mask_for_cls(am, model.config.pooling_type)
+            adv_loss = adv_crit(adversary(encoded, extended_mask), b["competition_id"].to(device))
             (mlm_loss + lam * adv_loss).backward()
             torch.nn.utils.clip_grad_norm_(all_p, max_norm=1.0)
             optimizer.step()
@@ -335,7 +387,7 @@ def _train_stage2_loop(
 
 def _eval_stage2(
     model: Football2VecEncoder,
-    adv: TeamClassifierHead,
+    adv: nn.Module,
     vl: DataLoader[dict[str, torch.Tensor]],
     crit: nn.CrossEntropyLoss,
     config: Football2VecConfig,
@@ -357,7 +409,9 @@ def _eval_stage2(
                 model.mlm_forward(aids, xs, ys, am).view(-1, config.vocab_size), b["labels"].to(device).view(-1)
             ).item()
             comp = b["competition_id"].to(device)
-            correct += (adv(model(aids, xs, ys, am)).argmax(dim=-1) == comp).sum().item()
+            encoded = model._encode(aids, xs, ys, am)
+            extended_mask = _extend_mask_for_cls(am, model.config.pooling_type)
+            correct += (adv(encoded, extended_mask).argmax(dim=-1) == comp).sum().item()
             total += comp.size(0)
             nb += 1
     return t_mlm / max(nb, 1), correct / max(total, 1)
