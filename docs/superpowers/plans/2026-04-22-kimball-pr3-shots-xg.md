@@ -1673,7 +1673,7 @@ outputs:
       destination: delta-table
       description: "Raw v2 xG predictions written by the scoring pipeline."
     - id: "{catalog}.{gold_schema}.fct_xg_predictions_v2"
-      destination: dbt-mart
+      destination: delta-table
       dbt_model: "fct_xg_predictions_v2"
       description: "Contract-enforced gold mart; Kimball keys resolved via JOIN fct_shots per ADR-013."
   models:
