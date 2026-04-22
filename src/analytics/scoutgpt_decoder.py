@@ -36,7 +36,10 @@ class ScoutGPTConfig:
     num_players: int = 11_918
     spatial_mlp_dim: int = 64
     vaep_loss_weight: float = 0.1
-    conditioning_type: str = "additive"
+    # Default was flipped from "additive" to "cross_attention" in wheel 0.3.10 based on the
+    # 2026-04-21 A/B cycle (Arm 5 beat Arm 1 by +0.2469 rho, +0.0263 top1; pre-registered
+    # rule fired PROMOTE). See docs/evolve/cross-attention-promote/SUMMARY.md.
+    conditioning_type: str = "cross_attention"
     position_embedding: str = "learnable"
 
 

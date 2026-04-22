@@ -18,6 +18,12 @@ from typing import Literal
 RHO_PROMOTE_THRESHOLD: float = 0.10
 TOP1_REGRESSION_FLOOR: float = -0.005
 
+# Retention-rule threshold — pre-registered. See
+# docs/superpowers/specs/2026-04-21-scoutgpt-cross-attention-promote-design.md section A.3
+# for calibration rationale: half the promotion threshold because removing an existing
+# mechanism requires positive evidence of a better alternative, not absence of evidence.
+RETENTION_DEPRECATE_RHO_THRESHOLD: float = 0.05
+
 
 def apply_decision_rule(
     rho_ctrl: float,
@@ -45,3 +51,38 @@ def apply_decision_rule(
     if rho_ok and top1_ok:
         return "PROMOTE"
     return "ARCHIVE"
+
+
+def apply_retention_rule(
+    rho_incumbent: float,
+    rho_challenger: float,
+    top1_incumbent: float,
+    top1_challenger: float,
+) -> Literal["KEEP", "DEPRECATE"]:
+    """Return DEPRECATE iff challenger beats incumbent by >= +0.05 rho without top1 regression.
+
+    Asymmetric with apply_decision_rule by design: removing an existing mechanism requires
+    positive evidence of a better alternative, not absence of evidence. The +0.05 rho
+    threshold is the natural "parity threshold" at which two arms are considered within
+    noise of each other; +0.10 (the promotion threshold) would effectively retain any
+    incumbent under almost any challenger.
+
+    Args:
+        rho_incumbent: Existing mechanism's mean Spearman rho (counterfactual ranking).
+        rho_challenger: New mechanism's mean Spearman rho.
+        top1_incumbent: Existing mechanism's top-1 next-action accuracy on test set.
+        top1_challenger: New mechanism's top-1 next-action accuracy.
+
+    Returns:
+        "DEPRECATE" if the challenger clearly wins on rho without top1 regression,
+        otherwise "KEEP".
+    """
+    rho_delta = rho_challenger - rho_incumbent
+    top1_delta = top1_challenger - top1_incumbent
+
+    rho_ok = rho_delta >= RETENTION_DEPRECATE_RHO_THRESHOLD
+    top1_ok = top1_delta >= TOP1_REGRESSION_FLOOR
+
+    if rho_ok and top1_ok:
+        return "DEPRECATE"
+    return "KEEP"

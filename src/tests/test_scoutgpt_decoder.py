@@ -41,6 +41,20 @@ class TestScoutGPTConfig:
         assert cfg.num_players == 11_918
         assert cfg.spatial_mlp_dim == 64
         assert cfg.vaep_loss_weight == 0.1
+        assert cfg.conditioning_type == "cross_attention"
+        assert cfg.position_embedding == "learnable"
+
+    def test_default_conditioning_type_is_cross_attention(self) -> None:
+        """Default conditioning_type is cross_attention as of wheel 0.3.10.
+
+        Promotion decision from the 2026-04-21 A/B cycle:
+          - Arm 5 (cross_attention) vs Arm 1 (additive): rho delta +0.2469, top1 delta +0.0263
+          - Pre-registered rule (src/analytics/promotion_rules.py::apply_decision_rule) fired PROMOTE.
+        See docs/evolve/cross-attention-promote/SUMMARY.md for the full rationale and
+        docs/superpowers/specs/2026-04-21-scoutgpt-cross-attention-promote-design.md for the spec.
+        """
+        cfg = ScoutGPTConfig()
+        assert cfg.conditioning_type == "cross_attention"
 
     def test_custom_config(self) -> None:
         cfg = ScoutGPTConfig(
