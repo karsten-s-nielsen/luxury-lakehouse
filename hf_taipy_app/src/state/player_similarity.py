@@ -592,8 +592,11 @@ def ps_refresh(state: Any) -> None:
 
     try:
         comps = fetch_competitions()
-        _ps_comp_map = {label: cid for label, cid in comps}
-        state.ps_competition_lov = [label for label, _ in comps]
+        # Post-PR 2 (ADR-011): fetch_competitions returns (label, competition_key, competition_id_legacy_int).
+        # fct_player_stats_synced is still keyed on legacy INT competition_id (pre-migration;
+        # will be rewired to competition_key in PR 5). Use the legacy int here.
+        _ps_comp_map = {label: cid_legacy for label, _ck, cid_legacy in comps}
+        state.ps_competition_lov = [label for label, _ck, _cid in comps]
     except Exception:
         logger.exception("Failed to load competitions for similarity page")
 
