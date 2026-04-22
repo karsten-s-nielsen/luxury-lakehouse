@@ -131,7 +131,7 @@ class TestMakeV2ScoringUdf:
         assert callable(udf)
 
     def test_udf_output_columns(self) -> None:
-        """Output should have exactly shot_id, match_id, competition_id, xg_set_encoder, xg_ci_lower, xg_ci_upper."""
+        """Output should have exactly shot_id, competition_id, xg_set_encoder, xg_ci_lower, xg_ci_upper."""
         xgboost_bytes = _train_xgboost_and_serialize()
         tabular_dim = _get_tabular_dim()
         v2_bytes = _make_dummy_v2_weights(tabular_dim)
@@ -142,7 +142,6 @@ class TestMakeV2ScoringUdf:
 
         shots = _make_synthetic_shots(10)
         shots["shot_id"] = [f"shot_{i}" for i in range(len(shots))]
-        shots["match_id"] = 12345
         shots["competition_id"] = 1
         ff = json.dumps(
             [
@@ -153,7 +152,7 @@ class TestMakeV2ScoringUdf:
         shots["shot_freeze_frame"] = ff
 
         result = udf(shots)
-        expected_columns = {"shot_id", "match_id", "competition_id", "xg_set_encoder", "xg_ci_lower", "xg_ci_upper"}
+        expected_columns = {"shot_id", "competition_id", "xg_set_encoder", "xg_ci_lower", "xg_ci_upper"}
         assert set(result.columns) == expected_columns
         assert len(result) == len(shots)
 
@@ -169,7 +168,6 @@ class TestMakeV2ScoringUdf:
 
         shots = _make_synthetic_shots(10)
         shots["shot_id"] = [f"shot_{i}" for i in range(len(shots))]
-        shots["match_id"] = 12345
         shots["competition_id"] = 1
         ff = json.dumps(
             [
@@ -205,7 +203,6 @@ class TestMakeV2ScoringUdf:
 
         shots = _make_synthetic_shots(10)
         shots["shot_id"] = [f"shot_{i}" for i in range(len(shots))]
-        shots["match_id"] = 12345
         shots["competition_id"] = 1
         shots["shot_freeze_frame"] = None
 
@@ -226,7 +223,6 @@ class TestMakeV2ScoringUdf:
 
         shots = _make_synthetic_shots(5)
         shots["shot_id"] = [f"shot_{i}" for i in range(len(shots))]
-        shots["match_id"] = 12345
         shots["competition_id"] = 1
         shots["shot_freeze_frame"] = float("nan")
 
@@ -247,7 +243,6 @@ class TestMakeV2ScoringUdf:
 
         shots = _make_synthetic_shots(6)
         shots["shot_id"] = [f"shot_{i}" for i in range(len(shots))]
-        shots["match_id"] = 12345
         shots["competition_id"] = 1
         ff = json.dumps([{"location": [100, 40], "teammate": False, "keeper": True}])
         shots["shot_freeze_frame"] = [ff, None, ff, None, ff, None]
@@ -490,7 +485,6 @@ class TestV2EnvelopeFeatureNames:
         # succeeding (the dummy weights were built for xgb_features shape).
         shots = _make_synthetic_shots(3)
         shots["shot_id"] = [f"s_{i}" for i in range(3)]
-        shots["match_id"] = 1
         shots["competition_id"] = 1
         shots["shot_freeze_frame"] = None
         udf(shots)
@@ -516,7 +510,6 @@ class TestV2EnvelopeFeatureNames:
 
         shots = _make_synthetic_shots(3)
         shots["shot_id"] = [f"s_{i}" for i in range(3)]
-        shots["match_id"] = 1
         shots["competition_id"] = 1
         shots["shot_freeze_frame"] = None
         udf(shots)

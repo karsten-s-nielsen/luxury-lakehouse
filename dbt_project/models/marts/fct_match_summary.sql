@@ -52,7 +52,15 @@ match_team_ids as (
 
 shots as (
 
-    select * from {{ ref('fct_shots') }}
+    -- PR 3 (ADR-011): fct_shots was migrated from match_id to match_key.
+    -- Downstream CTEs here still group/join on native match_id (shared with
+    -- stg_statsbomb__events which retains it). Recover match_id via
+    -- dim_matches JOIN to preserve existing semantics.
+    select
+        s.*,
+        try_cast(dm.native_match_id as bigint) as match_id
+    from {{ ref('fct_shots') }} s
+    left join {{ ref('dim_matches') }} dm on s.match_key = dm.match_key
 
 ),
 

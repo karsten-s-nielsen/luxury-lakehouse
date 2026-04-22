@@ -1,22 +1,25 @@
 -- fct_xg_predictions.sql
--- Custom xG model predictions joined to fct_shots for referential integrity.
+-- Gold-layer v1 xG predictions (logistic + calibrated XGBoost). Keys
+-- inherited via INNER JOIN to fct_shots on shot_id per ADR-013. One row
+-- per scored shot.
 --
--- Contains logistic regression baseline and calibrated XGBoost xG values.
--- INNER JOIN to fct_shots ensures only valid shots are included.
--- One row per scored shot.
+-- Disabled by default (var xg_model_enabled=false); flipped on per-run
+-- in the Databricks workflow config when the v1 scoring pipeline is
+-- scheduled. See workflow-cards/wf-xg.yaml.
 
 {{ config(
     materialized='table',
     enabled=var('xg_model_enabled', false),
-    liquid_clustered_by=['match_id'],
+    liquid_clustered_by=['match_key'],
     on_schema_change='fail',
     contract={'enforced': true}
 ) }}
 
 select
     p.shot_id,
-    p.match_id,
-    p.competition_id,
+    s.match_key,
+    s.competition_key,
+    s.competition_id,
     p.xg_logistic,
     p.xg_gradient_boosted
 

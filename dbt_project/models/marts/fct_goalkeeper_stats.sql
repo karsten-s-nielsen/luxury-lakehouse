@@ -267,7 +267,15 @@ shot_save_stats as (
         gm.match_id,
         cast(count(*) as bigint)                                        as saves
 
-    from {{ ref('fct_shots') }} s
+    -- PR 3 (ADR-011): fct_shots was migrated from match_id to match_key.
+    -- gk_matches is sourced from stg_statsbomb__events which still carries
+    -- native match_id, so we recover it on fct_shots via dim_matches JOIN
+    -- rather than migrating gk_matches (deferred to PR 6).
+    from (
+        select s.*, try_cast(dm.native_match_id as bigint) as match_id
+        from {{ ref('fct_shots') }} s
+        left join {{ ref('dim_matches') }} dm on s.match_key = dm.match_key
+    ) s
     inner join gk_matches gm
         on s.match_id = gm.match_id
         and s.team_id != gm.team_id
@@ -323,7 +331,12 @@ psxg_shots as (
         shots.team_id    as shooter_team_id,
         shots.shot_outcome
     from {{ ref('stg_psxg__predictions') }} psxg
-    inner join {{ ref('fct_shots') }} shots
+    inner join (
+        -- PR 3 (ADR-011): recover native match_id via dim_matches JOIN.
+        select s.*, try_cast(dm.native_match_id as bigint) as match_id
+        from {{ ref('fct_shots') }} s
+        left join {{ ref('dim_matches') }} dm on s.match_key = dm.match_key
+    ) shots
         on shots.shot_id = psxg.event_id
         and cast(shots.match_id as string) = psxg.match_id
 

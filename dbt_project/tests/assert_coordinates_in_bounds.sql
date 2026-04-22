@@ -14,7 +14,7 @@
 
 select
     shot_id,
-    match_id,
+    match_key,
     player_id,
     location_x,
     location_y,

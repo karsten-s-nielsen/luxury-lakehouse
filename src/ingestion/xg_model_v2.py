@@ -30,8 +30,20 @@ if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 _TABLE_NAME = "xg_predictions_v2"
+# Bronze column contract (Python-side mirror of the post-PR-3 Delta schema).
+# Used by src/tests/test_bronze_live_schema.py to assert writer/live parity.
+# _ingested_at is added by write_delta_table, not emitted by this module.
+# match_id was historically emitted; PR 3 Phase 5 drops it from _RESULTS_SCHEMA
+# and a post-merge ALTER TABLE removes it from bronze.
+_XG_V2_BRONZE_COLS: tuple[str, ...] = (
+    "shot_id",
+    "competition_id",
+    "xg_set_encoder",
+    "xg_ci_lower",
+    "xg_ci_upper",
+)
 _RESULTS_SCHEMA = (
-    "shot_id STRING, match_id BIGINT, competition_id INT, "
+    "shot_id STRING, competition_id INT, "
     "xg_set_encoder DOUBLE, xg_ci_lower DOUBLE, xg_ci_upper DOUBLE, _ingested_at TIMESTAMP"
 )
 _guard_logger = logging.getLogger(f"{__name__}.guard")
@@ -168,7 +180,7 @@ def _load_shots_with_context(
     Non-StatsBomb shots get NULL freeze frames (gracefully handled by v2 UDF).
     """
     query = f"""
-        SELECT s.shot_id, s.match_id, s.competition_id, s.player_id, s.team_id,
+        SELECT s.shot_id, s.competition_id, s.player_id, s.team_id,
                s.location_x, s.location_y, s.end_location_x, s.end_location_y,
                s.distance_to_goal, s.shot_angle, s.shot_body_part, s.shot_technique,
                s.shot_type, s.play_pattern, s.is_first_time, s.period, s.minute,
@@ -279,7 +291,6 @@ def _make_v2_scoring_udf(
         return _pd.DataFrame(
             {
                 "shot_id": pdf["shot_id"],
-                "match_id": pdf["match_id"],
                 "competition_id": pdf["competition_id"],
                 "xg_set_encoder": xg_set_encoder,
                 "xg_ci_lower": xg_ci_lower,
@@ -378,10 +389,7 @@ def run_pipeline(
     # 5. Build UDF and distribute scoring across executors
     scoring_udf = _make_v2_scoring_udf(v2_weights_bytes, xgboost_bytes)
 
-    output_schema = (
-        "shot_id STRING, match_id BIGINT, competition_id INT,"
-        " xg_set_encoder DOUBLE, xg_ci_lower DOUBLE, xg_ci_upper DOUBLE"
-    )
+    output_schema = "shot_id STRING, competition_id INT, xg_set_encoder DOUBLE, xg_ci_lower DOUBLE, xg_ci_upper DOUBLE"
     scored_df = shots_filtered.groupBy("competition_id").applyInPandas(
         scoring_udf,  # type: ignore[arg-type]
         schema=output_schema,

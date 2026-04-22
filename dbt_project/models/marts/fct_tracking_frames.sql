@@ -35,17 +35,36 @@ existing_matches as (
 
 tracking as (
 
-    select * from {{ ref('stg_metrica__tracking') }}
+    -- Post PR #174 drop-safety sweep, the three tracking staging views have
+    -- diverged in column count (metrica=20, idsse=15, skillcorner=21) because
+    -- each now surfaces provider-specific metadata (metrica: formation lineups,
+    -- pitch dimensions; skillcorner: ball state, team ids, z-coordinate). The
+    -- fct_tracking_frames `final` CTE only consumes the 14 shared columns, so
+    -- we project each staging view to that common schema before UNION ALL.
+    -- Revisit if any provider-specific column starts driving downstream logic.
+    select
+        tracking_id, match_id, period, frame, timestamp_seconds,
+        frame_rate, player_id, team, source_provider, is_goalkeeper,
+        x, y, ball_x, ball_y
+    from {{ ref('stg_metrica__tracking') }}
     {% if is_incremental() %}
     where match_id not in (select match_id from existing_matches)
     {% endif %}
     union all
-    select * from {{ ref('stg_idsse__tracking') }}
+    select
+        tracking_id, match_id, period, frame, timestamp_seconds,
+        frame_rate, player_id, team, source_provider, is_goalkeeper,
+        x, y, ball_x, ball_y
+    from {{ ref('stg_idsse__tracking') }}
     {% if is_incremental() %}
     where match_id not in (select match_id from existing_matches)
     {% endif %}
     union all
-    select * from {{ ref('stg_skillcorner__tracking') }}
+    select
+        tracking_id, match_id, period, frame, timestamp_seconds,
+        frame_rate, player_id, team, source_provider, is_goalkeeper,
+        x, y, ball_x, ball_y
+    from {{ ref('stg_skillcorner__tracking') }}
     {% if is_incremental() %}
     where match_id not in (select match_id from existing_matches)
     {% endif %}

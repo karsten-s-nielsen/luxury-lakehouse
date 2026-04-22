@@ -214,8 +214,21 @@ def run_pipeline(
 
     logger.info("Scoring %d new competitions: %s", len(new_comps), sorted(new_comps))
 
-    # 2. Load fct_shots from gold mart, filtered to new competitions only
-    shots_df = spark.table(f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_shots").filter("competition_id IS NOT NULL")
+    # 2. Load fct_shots from gold mart, filtered to new competitions only.
+    # JOIN dim_matches to recover native match_id for bronze write-back —
+    # PR 3 (ADR-011) migrated fct_shots from match_id (native BIGINT) to
+    # match_key (Kimball surrogate BIGINT). Bronze.xg_predictions v1 schema
+    # is preserved for back-compat (Chesterton's Fence per PR 3 spec §5.10),
+    # so we recover native match_id here via the Kimball dim.
+    shots_df = spark.sql(
+        f"""
+        SELECT s.*, cast(dm.native_match_id as bigint) AS match_id
+        FROM {catalog}.{DEFAULT_GOLD_SCHEMA}.fct_shots s
+        LEFT JOIN {catalog}.{DEFAULT_GOLD_SCHEMA}.dim_matches dm
+          ON s.match_key = dm.match_key
+        WHERE s.competition_id IS NOT NULL
+        """  # noqa: S608
+    )
 
     new_comp_list = ", ".join(f"'{c}'" for c in new_comps)
     filter_expr = f"CAST(competition_id AS STRING) IN ({new_comp_list})"

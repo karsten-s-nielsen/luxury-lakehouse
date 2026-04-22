@@ -67,6 +67,12 @@ def _warehouse_id() -> str:
 
 def _api_url(warehouse_id: str, suffix: str = "") -> str:
     host = _env("DATABRICKS_HOST").rstrip("/")
+    # Accept DATABRICKS_HOST with or without scheme. The Databricks CLI (and
+    # `databricks configure`) writes the scheme-included form ("https://dbc-.."),
+    # while CI configs may omit it. Normalize before prepending https:// to
+    # avoid producing "https://https://dbc-..." which urllib3 parses as
+    # host='https', causing getaddrinfo failures.
+    host = host.removeprefix("https://").removeprefix("http://")
     return f"https://{host}/api/2.0/sql/warehouses/{warehouse_id}{suffix}"
 
 

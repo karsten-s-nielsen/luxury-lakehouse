@@ -13,6 +13,7 @@ These standards apply to ALL code in this repository. They are non-negotiable.
 - **Separation of Concerns**: Ingestion, transformation (dbt), workflow orchestration (`src/workflows/`), shared constants (`src/shared/`), and presentation (Taipy) are fully isolated layers. `src/workflows/` has zero Spark/Taipy imports — only stdlib + PyYAML + Pydantic. `src/shared/` has zero external dependencies — stdlib only. Dependency direction enforced by `import-linter` in CI.
 - **Idempotent Operations**: Every ingestion task can be re-run safely. Use partition-level overwrites, not full table drops.
 - **Structured Logging**: JSON-line logs to stdout. No print statements. Include source name, row counts, and timing.
+- **ML inference outputs follow [ADR-013](docs/superpowers/adrs/ADR-013-ml-inference-outputs-dbt-mart.md)**: Python writer → bronze raw → dbt staging view → gold mart with `contract: enforced: true`. Surrogate keys resolve in the mart via `INNER JOIN fct_shots ON shot_id` (or equivalent identity fact). Python writers emit only native identifiers + predictions. First applied in PR 3 (xG v2 promotion); PR 7 extends to `fct_pausa_values`.
 
 ## Failure Investigation Protocol
 

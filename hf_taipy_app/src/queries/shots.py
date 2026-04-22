@@ -1,6 +1,10 @@
 """Shot-related queries — extracted from state/shot_map.py.
 
 All functions return pd.DataFrame. SQL uses %s parameterized placeholders.
+
+Post-PR 3 (ADR-011): competition filter switched from legacy INT
+``competition_id`` to Kimball surrogate BIGINT ``competition_key``. Taipy
+state resolves the key via ``state.shared.get_competition_key(label)``.
 """
 
 from __future__ import annotations
@@ -14,18 +18,20 @@ from queries.common import execute_query, t, ttl_cache
 
 @ttl_cache()
 def fetch_shots(
-    competition_id: int,
+    competition_key: int,
     team_id: int | None,
     player_id: int | None,
 ) -> pd.DataFrame:
     """Fetch shots with player names, filtered by competition/team/player.
 
+    Post-PR 3 (ADR-011): scopes on competition_key (Kimball surrogate).
+
     Expected columns: shot_id, location_x, location_y, statsbomb_xg, is_goal,
     shot_outcome, shot_body_part, distance_to_goal, shot_angle, minute,
     player_display_name.
     """
-    conditions = ["s.competition_id = %s"]
-    params: list[Any] = [int(competition_id)]
+    conditions = ["s.competition_key = %s"]
+    params: list[Any] = [int(competition_key)]
 
     if team_id is not None:
         conditions.append("s.team_id = %s")
@@ -50,8 +56,10 @@ def fetch_shots(
 
 
 @ttl_cache()
-def fetch_xg_predictions(competition_id: int) -> pd.DataFrame:
-    """Fetch custom xG predictions. Returns empty DataFrame if table unavailable.
+def fetch_xg_predictions(competition_key: int) -> pd.DataFrame:
+    """Fetch custom v1 xG predictions. Returns empty DataFrame if table unavailable.
+
+    Post-PR 3 (ADR-011): scopes on competition_key (Kimball surrogate).
 
     Expected columns: shot_id, xg_logistic, xg_gradient_boosted.
     """
@@ -59,9 +67,9 @@ def fetch_xg_predictions(competition_id: int) -> pd.DataFrame:
         return execute_query(
             f"SELECT shot_id, xg_logistic, xg_gradient_boosted "  # noqa: S608
             f"FROM {t('fct_xg_predictions_synced')} "
-            f"WHERE competition_id = %s "
+            f"WHERE competition_key = %s "
             f"LIMIT 100000",
-            (competition_id,),
+            (competition_key,),
         )
     except RuntimeError:
         return pd.DataFrame()

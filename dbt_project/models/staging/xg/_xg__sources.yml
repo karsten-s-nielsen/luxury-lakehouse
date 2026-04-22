@@ -18,14 +18,14 @@ sources:
     tables:
       - name: xg_predictions
         description: >
-          Custom xG model predictions for all shots. Each row is one shot with
-          logistic regression baseline and calibrated XGBoost xG values.
+          Custom v1 xG model predictions for all shots. Each row is one shot
+          with logistic regression baseline and calibrated XGBoost xG values.
           Written by the compute_xg_model pipeline.
         columns:
           - name: shot_id
             description: FK to fct_shots (surrogate key)
           - name: match_id
-            description: FK to fct_match_summary
+            description: FK to fct_match_summary (legacy; kept for bronze back-compat)
           - name: competition_id
             description: FK to dim_competitions
           - name: xg_logistic
@@ -34,3 +34,25 @@ sources:
             description: Calibrated XGBoost xG (all 13 features)
           - name: _ingested_at
             description: UTC timestamp when the row was written
+
+      - name: xg_predictions_v2
+        description: >
+          v2 xG predictions (Deep Sets set encoder + MC dropout CIs) written by
+          compute_xg_model_v2. Post-PR 3 (ADR-013), this bronze emits only native
+          identifiers + predictions; Kimball keys are resolved at the mart layer
+          via fct_xg_predictions_v2's INNER JOIN to fct_shots on shot_id.
+          match_id was historically emitted by the v2 writer; Phase 5.0 of PR 3
+          drops it via `ALTER TABLE ... DROP COLUMN match_id` post-merge deploy.
+        columns:
+          - name: shot_id
+            description: FK to fct_shots (surrogate key).
+          - name: competition_id
+            description: Native INT competition identifier (replaceWhere partition key).
+          - name: xg_set_encoder
+            description: v2 Deep Sets + MC dropout mean xG prediction.
+          - name: xg_ci_lower
+            description: v2 xG 95% CI lower bound.
+          - name: xg_ci_upper
+            description: v2 xG 95% CI upper bound.
+          - name: _ingested_at
+            description: UTC timestamp when the row was written.
