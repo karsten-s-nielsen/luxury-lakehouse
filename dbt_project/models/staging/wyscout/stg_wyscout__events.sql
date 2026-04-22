@@ -93,6 +93,18 @@ cleaned as (
         -- need raw tag IDs not covered by the boolean decoders above.
         parsed_tags                                         as tags_parsed,
 
+        -- Raw JSON pass-through for lineage / unparsed consumers. Bronze stores
+        -- the original Wyscout v3 payload as JSON strings; these cols preserve
+        -- them verbatim so downstream can re-parse if the struct evolves.
+        positions                                           as positions_raw,
+        tags                                                as tags_raw,
+
+        -- Bronze passthroughs surfaced for Kimball completeness. The source
+        -- bronze table is authoritative for competition context + audit time;
+        -- surfacing them in staging keeps the lineage explicit.
+        competition_name                                    as competition_name,
+        _ingested_at                                        as _ingested_at,
+
         -- Data provenance
         'wyscout'                                           as data_source
 

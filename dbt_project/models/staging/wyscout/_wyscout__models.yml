@@ -50,6 +50,34 @@ models:
           - accepted_values:
               arguments:
                 values: ['wyscout']
+      - name: wyId
+        description: Bronze passthrough — wyId from wyscout_players (original Figshare player identifier, same value as player_id).
+      - name: firstName
+        description: Bronze passthrough — firstName from wyscout_players (camelCase lineage for cross-reference with Figshare CSV).
+      - name: lastName
+        description: Bronze passthrough — lastName from wyscout_players.
+      - name: middleName
+        description: Bronze passthrough — middleName from wyscout_players.
+      - name: shortName
+        description: Bronze passthrough — shortName from wyscout_players.
+      - name: birthDate
+        description: Bronze passthrough — birthDate from wyscout_players (ISO YYYY-MM-DD).
+      - name: height
+        description: Bronze passthrough — height from wyscout_players (bigint cm).
+      - name: weight
+        description: Bronze passthrough — weight from wyscout_players (bigint kg).
+      - name: currentTeamId
+        description: Bronze passthrough — currentTeamId from wyscout_players (double, nullable).
+      - name: currentNationalTeamId
+        description: Bronze passthrough — currentNationalTeamId from wyscout_players (double, nullable).
+      - name: role
+        description: Bronze passthrough — raw `role` JSON string from wyscout_players (used upstream of position_name/position_code extraction).
+      - name: passportArea
+        description: Bronze passthrough — raw `passportArea` JSON string from wyscout_players (used upstream of nationality/nationality_code extraction).
+      - name: birthArea
+        description: Bronze passthrough — raw `birthArea` JSON string from wyscout_players (country-of-birth area struct; distinct from passportArea).
+      - name: _ingested_at
+        description: Bronze passthrough — _ingested_at UTC audit timestamp from wyscout_players.
 
   - name: stg_wyscout__events
     config:
@@ -161,3 +189,50 @@ models:
         description: Whether the event was an assist (from tag 301)
       - name: is_key_pass
         description: Whether the event was a key pass (from tag 401)
+      - name: sub_event_id
+        description: Bronze passthrough — subEventId from wyscout_events (numeric sub-event code).
+      - name: is_not_accurate
+        description: Whether the event was unsuccessful (from tag 1802).
+      - name: is_head
+        description: Whether the event used the head (from tag 702).
+      - name: is_right_foot
+        description: Whether the event used the right foot (from tag 703).
+      - name: is_left_foot
+        description: Whether the event used the left foot (from tag 704).
+      - name: is_counter_attack
+        description: Whether the event occurred during a counter-attack (from tag 1601).
+      - name: under_pressure
+        description: Whether the player was under pressure during the event (from tag 503).
+      - name: is_blocked
+        description: Whether the shot was blocked (from tag 1702).
+      - name: is_red_card
+        description: Whether the event produced a red card (from tag 1401).
+      - name: is_yellow_card
+        description: Whether the event produced a yellow card (from tag 1402).
+      - name: is_sliding_tackle
+        description: Whether the event was a sliding tackle (from tag 601).
+      - name: is_opportunity
+        description: Whether the event created a scoring opportunity (from tag 201).
+      - name: is_dangerous_ball_lost
+        description: Whether the event was a dangerous ball loss (from tag 1701).
+      - name: is_free_space_right
+        description: Whether the event occurred in free space on the right (from tag 501).
+      - name: is_free_space_left
+        description: Whether the event occurred in free space on the left (from tag 502).
+      - name: is_high
+        description: Whether the pass/shot trajectory was high (from tag 801).
+      - name: is_low
+        description: Whether the pass/shot trajectory was low (from tag 802).
+      - name: tags_parsed
+        description: >
+          Bronze passthrough — parsed array<struct<id:int>> of the raw `tags` JSON
+          from wyscout_events. Use when a downstream consumer needs a tag ID not
+          covered by the boolean decoder columns above.
+      - name: positions_raw
+        description: Bronze passthrough — raw `positions` JSON string from wyscout_events (pre-parse lineage).
+      - name: tags_raw
+        description: Bronze passthrough — raw `tags` JSON string from wyscout_events (pre-parse lineage).
+      - name: competition_name
+        description: Bronze passthrough — competition_name from wyscout_events.
+      - name: _ingested_at
+        description: Bronze passthrough — _ingested_at UTC audit timestamp from wyscout_events.

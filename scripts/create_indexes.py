@@ -59,7 +59,8 @@ INDEXES: list[tuple[str, str, str]] = [
     ("idx_xg_predictions_comp", "fct_xg_predictions_synced", "competition_id"),
     # ── fct_passes_synced — 3.17M+ rows ─────────────────────────────────
     # P-1, PN-1: pass_map + pass_network (comp + team + match exact)
-    ("idx_passes_comp_team_match", "fct_passes_synced", "competition_id, team_id, match_id"),
+    # PR 2 (ADR-011): fct_passes_synced migrated from match_id to match_key.
+    ("idx_passes_comp_team_match", "fct_passes_synced", "competition_id, team_id, match_key"),
     # H-1: heat_map player filter (comp + player, no team)
     ("idx_passes_comp_player", "fct_passes_synced", "competition_id, player_id"),
     # F-3: player filter EXISTS subquery (player_id + team_id)
@@ -93,8 +94,9 @@ INDEXES: list[tuple[str, str, str]] = [
     ("idx_match_summary_comp_id", "fct_match_summary_synced", "competition_id"),
     # ── fct_match_summary_synced — Match lookups ────────────────────────
     # MS-1: competition + PPDA filter (already above as idx_match_summary_comp_id)
-    # MS-2: match_id join for DEFCON team filter
-    ("idx_match_summary_match_id", "fct_match_summary_synced", "match_id"),
+    # MS-2: match_key PK lookup + join (fct_match_summary primary key).
+    # PR 2 (ADR-011): migrated from match_id to match_key.
+    ("idx_match_summary_match_key", "fct_match_summary_synced", "match_key"),
     # ── fct_defensive_values_synced — Rankings + Breakdown ─────────────
     # DV-1: rankings by competition
     ("idx_defcon_values_comp_id", "fct_defensive_values_synced", "competition_id"),
@@ -252,7 +254,7 @@ VERIFY_QUERIES: list[tuple[str, str]] = [
     (
         "fct_passes: comp+team+match (idx_passes_comp_team_match)",
         f"SELECT * FROM {SCHEMA}.fct_passes_synced"  # noqa: S608
-        " WHERE competition_id = 11 AND team_id = 217 AND match_id = 3788741 LIMIT 1",
+        " WHERE competition_id = 11 AND team_id = 217 AND match_key = 0 LIMIT 1",
     ),
     (
         "fct_passes: player+team EXISTS (idx_passes_player_team)",

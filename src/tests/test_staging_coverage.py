@@ -94,18 +94,17 @@ RENAMES: dict[tuple[str, str], dict[str, str]] = {
 }
 
 
-# Snapshot of the current bronze→staging gap (computed 2026-04-21 during PR 1.5).
-# These cols are in bronze but not yet surfaced in the staging model's
-# ``models.yml`` columns. Future PRs progressively move cols OUT of this set
-# (by documenting them in models.yml after adding to staging SQL).
+# Snapshot of the current bronze→staging gap. PR 2 (ADR-011) closed this
+# gap as part of the "bronze & staging done" directive — every bronze
+# column documented in `_<provider>__sources.yml` is now also documented
+# (and surfaced) in the corresponding staging model. Empty gap sets mean
+# zero known drift; future bronze additions that don't land in staging
+# will fail the test and force the author to either surface the col or
+# reopen a gap with an explicit reason.
 #
 # Maintenance: when you intentionally leave a bronze col out of staging,
 # add it here with a reason comment. When you add a bronze col to staging,
 # remove it from this set AND add it to models.yml.
-#
-# NOTE: This set is large because many existing staging models.yml entries
-# document only a subset of actual staging-SQL output cols. Progressive
-# cleanup is the direction of travel.
 INITIAL_BRONZE_STAGING_GAPS: dict[tuple[str, str], set[str]] = {
     # Many IDSSE bronze cols are produced by the PR 1.5 rewrite but aren't
     # yet surfaced by stg_idsse__events (which currently passes through

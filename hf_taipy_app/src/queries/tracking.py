@@ -71,11 +71,20 @@ def fetch_pc_frame_data(match_id: str, frame: int) -> pd.DataFrame:
 
 @ttl_cache()
 def fetch_pc_match_label(match_id: str) -> str:
-    """Resolve match_id to human-readable label."""
+    """Resolve tracking match_id to human-readable label.
+
+    Post-PR 2 (ADR-011): fct_match_summary_synced is keyed on match_key,
+    so we route via dim_matches_synced (which carries native_match_id).
+    The 'idsse_' prefix is stripped before matching because
+    dim_matches.native_match_id is unprefixed for IDSSE.
+    """
     match_tbl = t("fct_match_summary_synced")
+    dim_tbl = t("dim_matches_synced")
     df = execute_query(
-        f"SELECT match_date, home_team_name, away_team_name "  # noqa: S608
-        f"FROM {match_tbl} WHERE match_id::text = %s LIMIT 1",
+        f"SELECT ms.match_date, ms.home_team_name, ms.away_team_name "  # noqa: S608
+        f"FROM {dim_tbl} dm "
+        f"LEFT JOIN {match_tbl} ms ON dm.match_key = ms.match_key "
+        f"WHERE dm.native_match_id = regexp_replace(%s, '^idsse_', '') LIMIT 1",
         (str(match_id),),
     )
     if df.empty:

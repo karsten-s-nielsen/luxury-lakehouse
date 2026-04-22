@@ -116,9 +116,9 @@ def fetch_ts_frame_range(match_id: str, period: int) -> tuple[int, int, int]:
         return (0, 0, 25)
     row = df.iloc[0]
     return (
-        int(row["min_frame"] or 0),
-        int(row["max_frame"] or 0),
-        int(row["fps"] or 25),
+        int(row["min_frame"]) if pd.notna(row.get("min_frame")) else 0,
+        int(row["max_frame"]) if pd.notna(row.get("max_frame")) else 0,
+        int(row["fps"]) if pd.notna(row.get("fps")) else 25,
     )
 
 

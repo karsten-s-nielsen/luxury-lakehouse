@@ -26,6 +26,10 @@ normalized as (
         cast(period as int)                             as period,
         cast(frame as int)                              as frame,
         timestamp                                       as timestamp_seconds,
+        -- Bronze passthrough of the original `timestamp` col — kept alongside
+        -- the renamed `timestamp_seconds` so the bronze-completeness coverage
+        -- test sees every source col surfaced under its bronze name.
+        timestamp                                       as timestamp,
         frame_rate,
 
         -- Player identity

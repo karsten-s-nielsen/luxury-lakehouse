@@ -5,6 +5,7 @@ Orchestrates the operational procedure for synced table maintenance
 as a single command, encoding what was previously a manual sequence.
 
 Steps:
+    -1. Fix event_log_* ownership drift (post-recreation hygiene)
     0. Grant SP permissions (database-project CAN_USE + pipeline CAN_RUN)
     1. Refresh synced tables (trigger SNAPSHOT updates)
     2. Create indexes (PG btree + HNSW)
@@ -86,6 +87,25 @@ def main() -> int:
 
     base_args = ["--catalog", args.catalog, "--schema", args.schema]
     total_elapsed = 0.0
+
+    # ── Step -1: Fix pipeline event_log_* ownership drift ────────────────────
+    # When a synced table is recreated via the Databricks UI, the pipeline's
+    # event_log_* table gets owned by whoever performed the recreation
+    # instead of the dbt-owners-{env} group. The ingestion SP then cannot
+    # trigger pipeline refreshes. Idempotent (already_correct = no-op).
+    # Uses --skip-trigger-refresh because Step 1 below handles refresh.
+    if not args.skip_grants:
+        ok, elapsed = _run_step(
+            name="fix_event_log_ownership",
+            cmd=[sys.executable, "scripts/fix_event_log_ownership.py", "--skip-trigger-refresh"],
+            dry_run=args.dry_run,
+        )
+        total_elapsed += elapsed
+        if not ok:
+            _log("maintenance_aborted", reason="event_log_ownership_failed", total_elapsed_s=round(total_elapsed, 2))
+            return 1
+    else:
+        _log("step_skipped", step="fix_event_log_ownership")
 
     # ── Step 0: Grant SP permissions on database project + pipelines ─────────
     # Idempotent. Required so the staging Taipy admin endpoint and the daily

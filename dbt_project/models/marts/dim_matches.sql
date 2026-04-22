@@ -93,6 +93,9 @@ final as (
 
     select
         {{ generate_match_key('provider', 'native_match_id') }} as match_key,
+        -- Kimball surrogate FK to dim_competitions (added PR 2, ADR-011).
+        -- NULL for Metrica (no competition metadata in open-data).
+        {{ generate_competition_key('provider', 'competition_id') }} as competition_key,
         provider,
         native_match_id,
         competition_id,

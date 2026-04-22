@@ -1,21 +1,34 @@
 -- dim_competitions.sql
--- Competition dimension table enriched with seed data.
+-- Conformed competition dimension. Unifies StatsBomb + Wyscout + IDSSE
+-- competitions. Metrica is intentionally absent — its open-data is
+-- anonymised and carries no competition metadata.
 --
--- Combines competition information from StatsBomb match metadata and
--- Wyscout match metadata with the competition_metadata seed for
--- additional attributes (country, gender).
+-- PRIMARY KEY: competition_key (BIGINT surrogate, deterministic hash of
+-- (provider, native_competition_id) via `generate_competition_key` macro).
+-- Added in PR 2 of the Kimball migration (ADR-011) following the
+-- same pattern as `dim_matches.match_key`.
 --
--- StatsBomb and Wyscout use separate competition ID spaces for the same
--- leagues (e.g., La Liga is 11 in StatsBomb, 795 in Wyscout). Both ID
--- spaces are included as independent rows so downstream fact tables from
--- either source can JOIN without NULL competition names.
+-- Grain: one row per (provider, native_competition_id).
 --
--- Grain: one row per unique competition_id (across all sources).
+-- StatsBomb and Wyscout use SEPARATE integer competition-id spaces
+-- for the same leagues (e.g. La Liga is 11 in StatsBomb, 795 in
+-- Wyscout). Both spaces are preserved as independent rows with
+-- different competition_keys so fact tables from either source can
+-- JOIN without NULL competition names. IDSSE uses DFL-COM-XXXXXX
+-- strings; no collision with SB/WS numeric space.
+--
+-- Legacy `competition_id` column (INT) is retained for backward
+-- compatibility with unmigrated fact tables (fct_action_values,
+-- fct_shots, fct_defcon_*, etc.). NULL for IDSSE rows (native IDs
+-- are non-numeric). Will be dropped in PR 8 once all consumers
+-- migrate to competition_key.
 
 with statsbomb_competitions as (
 
     select distinct
-        competition_id,
+        'statsbomb'                        as provider,
+        cast(competition_id as string)     as native_competition_id,
+        competition_id                     as competition_id_legacy,
         competition_name
 
     from {{ ref('stg_statsbomb__matches') }}
@@ -26,7 +39,9 @@ with statsbomb_competitions as (
 wyscout_competitions as (
 
     select distinct
-        competition_id,
+        'wyscout'                          as provider,
+        cast(competition_id as string)     as native_competition_id,
+        competition_id                     as competition_id_legacy,
         competition_name
 
     from {{ ref('stg_wyscout__matches') }}
@@ -34,42 +49,66 @@ wyscout_competitions as (
 
 ),
 
--- Union with StatsBomb priority: when both sources map to the same
--- competition_id (e.g., La Liga = 11), keep the StatsBomb row which
--- has the richer competition_name (e.g., "Spain - La Liga" vs "Spain").
-all_competitions as (
+idsse_competitions as (
 
-    select
-        competition_id,
-        competition_name,
-        row_number() over (
-            partition by competition_id
-            order by case when source = 'statsbomb' then 0 else 1 end
-        ) as _rn
-    from (
-        select competition_id, competition_name, 'statsbomb' as source
-        from statsbomb_competitions
-        union all
-        select competition_id, competition_name, 'wyscout' as source
-        from wyscout_competitions
-    )
+    -- DFL competitions from stg_idsse__matches. As of the current IDSSE
+    -- Bundesliga open-data cut, two competitions ship:
+    --   'DFL-COM-000001' -> 1. Bundesliga
+    --   'DFL-COM-000002' -> 2. Bundesliga
+    -- The mapping is stable for the published dataset; future IDSSE
+    -- cuts may introduce more competitions.
+    select distinct
+        'idsse'                            as provider,
+        competition_id                     as native_competition_id,
+        cast(null as int)                  as competition_id_legacy,
+        case competition_id
+            when 'DFL-COM-000001' then '1. Bundesliga (DFL)'
+            when 'DFL-COM-000002' then '2. Bundesliga (DFL)'
+            else competition_id
+        end                                as competition_name
+
+    from {{ ref('stg_idsse__matches') }}
+    where competition_id is not null
 
 ),
 
-deduped_competitions as (
+all_competitions as (
 
-    select competition_id, competition_name
-    from all_competitions
+    select * from statsbomb_competitions
+    union all
+    select * from wyscout_competitions
+    union all
+    select * from idsse_competitions
+
+),
+
+deduped as (
+
+    -- When the same (provider, native_competition_id) appears twice
+    -- (shouldn't, but be defensive), keep the first row arbitrarily.
+    -- StatsBomb vs Wyscout collisions on competition_id_legacy alone
+    -- are NOT filtered here because their provider differs, so the
+    -- grain key (provider, native_competition_id) is already unique.
+    select *
+    from (
+        select
+            all_competitions.*,
+            row_number() over (
+                partition by provider, native_competition_id
+                order by competition_name
+            ) as _rn
+        from all_competitions
+    )
     where _rn = 1
 
 ),
 
--- Seed data with enrichment attributes
+-- Seed data with enrichment attributes (INT-keyed; covers SB + WS only)
 seed_metadata as (
 
     select
         competition_id,
-        competition_name                                as seed_competition_name,
+        competition_name                    as seed_competition_name,
         country,
         gender
 
@@ -80,15 +119,23 @@ seed_metadata as (
 final as (
 
     select
-        c.competition_id,
-        -- Prefer curated seed name, fall back to source data
-        coalesce(s.seed_competition_name, c.competition_name) as competition_name,
-        s.country,
-        s.gender
+        {{ generate_competition_key('d.provider', 'd.native_competition_id') }} as competition_key,
+        d.provider,
+        d.native_competition_id,
+        d.competition_id_legacy                 as competition_id,
+        coalesce(s.seed_competition_name, d.competition_name) as competition_name,
+        coalesce(
+            s.country,
+            case when d.provider = 'idsse' then 'Germany' end
+        ) as country,
+        coalesce(
+            s.gender,
+            case when d.provider = 'idsse' then 'male' end
+        ) as gender
 
-    from deduped_competitions c
+    from deduped d
     left join seed_metadata s
-        on c.competition_id = s.competition_id
+        on d.competition_id_legacy = s.competition_id
 
 )
 

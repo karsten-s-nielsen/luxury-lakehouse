@@ -125,9 +125,24 @@ __all__ = [
 # ---------------------------------------------------------------------------
 # Internal lookup maps (NOT exported — not bound to UI)
 # ---------------------------------------------------------------------------
-_comp_map: dict[str, int] = {}
+# Post-PR 2 (ADR-011): maps competition label → (competition_key, competition_id_legacy_int).
+# competition_key is the Kimball surrogate FK used by migrated facts
+# (fct_passes, fct_match_summary, fct_line_breaking_results). competition_id
+# is the legacy INT identifier for unmigrated facts (fct_shots,
+# fct_action_values, fct_defcon_*, etc.). For IDSSE rows competition_id is
+# 0 (sentinel — non-numeric DFL IDs); IDSSE doesn't appear in legacy facts
+# so the 0 is safe.
+_comp_map: dict[str, tuple[int, int]] = {}
 _team_map: dict[str, int] = {}
-_match_map: dict[str, int] = {}
+# Post-PR 2 (ADR-011): maps match label → (match_key, native_match_id_int).
+# match_key is the Kimball surrogate FK to dim_matches (used by fct_passes,
+# fct_match_summary, fct_line_breaking_results). native_match_id_int is
+# the legacy BIGINT match_id (used by fct_shots, fct_action_values, and
+# other not-yet-migrated facts). IDSSE/Metrica matches have native_match_id=0
+# (their native IDs are non-numeric strings); consumers querying legacy
+# facts with that 0 get no hits, which is correct because those facts
+# don't cover the tracking-only providers.
+_match_map: dict[str, tuple[int, int]] = {}
 _player_map: dict[str, int] = {}
 _tracking_match_map: dict[str, str] = {}
 
@@ -212,8 +227,29 @@ def _refresh_current_page(state: Any) -> None:
 
 
 def get_comp_id(label: str | None) -> int | None:
-    """Resolve competition label to ID."""
-    return _comp_map.get(label) if label else None  # type: ignore[arg-type]
+    """Resolve competition label to legacy native INT competition_id.
+
+    Returns 0 for IDSSE rows (sentinel — their native ID is non-numeric);
+    those competitions don't appear in legacy-ID-keyed facts so the 0 is
+    safe. Use `get_competition_key` for Kimball-migrated facts.
+    """
+    if not label:
+        return None
+    entry = _comp_map.get(label)
+    return entry[1] if entry else None
+
+
+def get_competition_key(label: str | None) -> int | None:
+    """Resolve competition label to Kimball surrogate competition_key
+    (post-PR 2, ADR-011).
+
+    Use this for queries against fct_passes_synced, fct_match_summary_synced
+    (any fact migrated to the surrogate competition_key).
+    """
+    if not label:
+        return None
+    entry = _comp_map.get(label)
+    return entry[0] if entry else None
 
 
 _ALL_LABEL = "All"
@@ -227,10 +263,34 @@ def get_team_id(label: str | None) -> int | None:
 
 
 def get_match_id(label: str | None) -> int | None:
-    """Resolve match label to ID. Returns None for 'All' or empty."""
+    """Resolve match label to native BIGINT match_id.
+
+    Returns None for 'All' or empty. Returns 0 for IDSSE/Metrica matches
+    whose native match_id is non-numeric — those rows don't appear in
+    legacy match_id-keyed facts (fct_shots, fct_action_values, ...) so
+    the 0 sentinel is safe for filter clauses.
+
+    Post-PR 2: use `get_match_key` for Kimball-migrated facts
+    (fct_passes, fct_match_summary, fct_line_breaking_results).
+    """
     if not label or label == _ALL_LABEL:
         return None
-    return _match_map.get(label)  # type: ignore[arg-type]
+    entry = _match_map.get(label)
+    return entry[1] if entry else None
+
+
+def get_match_key(label: str | None) -> int | None:
+    """Resolve match label to Kimball surrogate match_key (post-PR 2, ADR-011).
+
+    Returns None for 'All' or empty. Always non-zero for matches present
+    in the cascade (match_key is deterministic across all providers).
+    Use this for queries against fct_passes_synced, fct_match_summary_synced,
+    or fct_line_breaking_results_synced.
+    """
+    if not label or label == _ALL_LABEL:
+        return None
+    entry = _match_map.get(label)
+    return entry[0] if entry else None
 
 
 def get_player_id(label: str | None) -> int | None:
@@ -255,8 +315,8 @@ def on_init(state: Any) -> None:
     global _comp_map, _tracking_match_map
     try:
         comps = fetch_competitions()
-        _comp_map = {label: cid for label, cid in comps}
-        state.competition_lov = [label for label, _ in comps]
+        _comp_map = {label: (ck, cid) for label, ck, cid in comps}
+        state.competition_lov = [label for label, _ck, _cid in comps]
         logger.info("Loaded %d competitions", len(comps))
     except Exception:
         logger.exception("Failed to load competitions")
@@ -280,12 +340,18 @@ def on_navigate(state: Any, page_name: str, *_args: Any) -> None:
 
 
 def on_competition_change(state: Any, var_name: str, var_value: Any) -> None:
-    """Competition changed — reload dependents, reset selections."""
+    """Competition changed — reload dependents, reset selections.
+
+    Post-PR 2 (ADR-011): uses `competition_key` (Kimball surrogate) for
+    fetch_teams + fetch_matches (both migrated). Legacy `competition_id`
+    INT is still used for fetch_players (fct_player_stats not yet migrated).
+    """
     global _team_map, _match_map, _player_map
     comp_id = get_comp_id(var_value)
-    if comp_id is None:
+    comp_key = get_competition_key(var_value)
+    if comp_id is None or comp_key is None:
         return
-    logger.info("Competition: %r (id=%d)", var_value, comp_id)
+    logger.info("Competition: %r (key=%d, legacy_id=%d)", var_value, comp_key, comp_id)
 
     # NOTE (2026-04-16 audit): we deliberately do NOT call clear_cache() here.
     # The 2026-04-16 EXPLAIN-ANALYZE audit showed that wiping every per-function
@@ -306,13 +372,13 @@ def on_competition_change(state: Any, var_name: str, var_value: Any) -> None:
     state.player_search_query = ""
 
     try:
-        teams = fetch_teams(comp_id)
+        teams = fetch_teams(comp_key)
         _team_map = {label: tid for label, tid in teams}
         state.team_lov = [_ALL_LABEL] + [label for label, _ in teams]
 
-        matches = fetch_matches(comp_id, None)
-        _match_map = {label: mid for label, mid in matches}
-        state.match_lov = [_ALL_LABEL] + [label for label, _ in matches]
+        matches = fetch_matches(comp_key, None)
+        _match_map = {label: (mk, mid) for label, mk, mid in matches}
+        state.match_lov = [_ALL_LABEL] + [label for label, _mk, _mid in matches]
 
         # Full player list still drives _player_map (so any search-result selection
         # resolves to the right ID) and player_lov_multi (the dropdown_multi widget
@@ -333,11 +399,16 @@ def on_competition_change(state: Any, var_name: str, var_value: Any) -> None:
 
 
 def on_team_change(state: Any, var_name: str, var_value: Any) -> None:
-    """Team changed — reload matches and players for this team."""
+    """Team changed — reload matches and players for this team.
+
+    Uses competition_key (ADR-011) for fetch_matches; legacy competition_id
+    for fetch_players (fct_player_stats not yet migrated).
+    """
     global _match_map, _player_map
     comp_id = get_comp_id(state.selected_competition)
+    comp_key = get_competition_key(state.selected_competition)
     team_id = get_team_id(var_value)
-    if comp_id is None:
+    if comp_id is None or comp_key is None:
         return
 
     state.selected_match = _ALL_LABEL
@@ -348,9 +419,9 @@ def on_team_change(state: Any, var_name: str, var_value: Any) -> None:
     state.player_search_query = ""
 
     try:
-        matches = fetch_matches(comp_id, team_id)
-        _match_map = {label: mid for label, mid in matches}
-        state.match_lov = [_ALL_LABEL] + [label for label, _ in matches]
+        matches = fetch_matches(comp_key, team_id)
+        _match_map = {label: (mk, mid) for label, mk, mid in matches}
+        state.match_lov = [_ALL_LABEL] + [label for label, _mk, _mid in matches]
 
         # Full list -> _player_map + player_lov_multi (see on_competition_change comment).
         # Single-select player_lov is the top-50 slice of the same full list —

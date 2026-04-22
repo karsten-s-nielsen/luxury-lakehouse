@@ -18,18 +18,27 @@ from queries.common import execute_query, t, ttl_cache
 
 @ttl_cache()
 def fetch_passes(
-    comp_id: int,
-    team_id: int,
-    match_id: int,
+    comp_key: int,
+    team_id: int | None,
+    match_key: int,
 ) -> pd.DataFrame:
-    """Fetch passes for a specific team in a specific match.
+    """Fetch passes for a specific team (optional) in a specific match.
+
+    Post-PR 2 (ADR-011): fct_passes_synced is keyed on match_key and
+    competition_key (both Kimball surrogate BIGINT FKs to dim_matches /
+    dim_competitions). IDSSE + Metrica passes have NULL team_id (no
+    integer team IDs in source); passing team_id=None here means
+    "all teams" so those rows render too.
 
     Expected columns: start_x, start_y, end_x, end_y, is_complete,
     is_progressive, is_line_breaking, minute, second.
     """
     tbl = t("fct_passes_synced")
-    conditions = ["competition_id = %s", "team_id = %s", "match_id = %s"]
-    params: list[Any] = [int(comp_id), int(team_id), int(match_id)]
+    conditions = ["competition_key = %s", "match_key = %s"]
+    params: list[Any] = [int(comp_key), int(match_key)]
+    if team_id is not None:
+        conditions.append("team_id = %s")
+        params.append(int(team_id))
 
     where = " AND ".join(conditions)
     return execute_query(
@@ -48,8 +57,12 @@ def fetch_passes(
 
 
 @ttl_cache()
-def fetch_network_passes(comp_id: int, team_id: int, match_id: int) -> pd.DataFrame:
+def fetch_network_passes(comp_key: int, team_id: int, match_key: int) -> pd.DataFrame:
     """Fetch completed passes with passer/receiver names for network construction.
+
+    Post-PR 2 (ADR-011): fct_passes_synced is keyed on match_key +
+    competition_key. Requires a concrete team_id (network graph is
+    per-team by construction).
 
     Expected columns: player_id, pass_recipient_id, start_x, start_y,
     end_x, end_y, is_complete, passer_name, receiver_name.
@@ -64,10 +77,10 @@ def fetch_network_passes(comp_id: int, team_id: int, match_id: int) -> pd.DataFr
         f"FROM {passes_tbl} p "
         f"JOIN {players_tbl} passer ON p.player_id = passer.player_id "
         f"LEFT JOIN {players_tbl} receiver ON p.pass_recipient_id = receiver.player_id "
-        f"WHERE p.competition_id = %s AND p.team_id = %s AND p.match_id = %s "
+        f"WHERE p.competition_key = %s AND p.team_id = %s AND p.match_key = %s "
         f"  AND p.is_complete = true AND p.pass_recipient_id IS NOT NULL "
         f"ORDER BY p.minute, p.second LIMIT 2000",
-        (comp_id, team_id, match_id),
+        (comp_key, team_id, match_key),
     )
 
 
@@ -149,6 +162,10 @@ def fetch_pass_timing_rankings() -> pd.DataFrame:
     """
     timing_tbl = t("fct_pass_timing_synced")
     match_tbl = t("fct_match_summary_synced")
+    dim_tbl = t("dim_matches_synced")
+    # Post-PR 2 (ADR-011): fct_pass_timing.match_id is still native (not
+    # migrated); fct_match_summary is keyed on match_key. Route the
+    # label JOIN via dim_matches so both halves find each other.
     return execute_query(
         f"SELECT COALESCE(pt.player_display_name, pt.player_id) AS player_display_name, "  # noqa: S608
         f"  COALESCE(ms.match_date || ' \u2014 ' || ms.home_team_name || ' v ' || ms.away_team_name, "
@@ -157,7 +174,9 @@ def fetch_pass_timing_rankings() -> pd.DataFrame:
         f"  pt.avg_pausa, pt.avg_temporal_judgment, pt.avg_spatial_selection, "
         f"  pt.median_pausa, pt.passes_above_median_pausa "
         f"FROM {timing_tbl} pt "
-        f"LEFT JOIN {match_tbl} ms ON pt.match_id::text = ms.match_id::text "
+        f"LEFT JOIN {dim_tbl} dm "
+        f"  ON dm.native_match_id = regexp_replace(pt.match_id::text, '^idsse_', '') "
+        f"LEFT JOIN {match_tbl} ms ON ms.match_key = dm.match_key "
         f"ORDER BY pt.avg_pausa DESC "
         f"LIMIT 500",
     )

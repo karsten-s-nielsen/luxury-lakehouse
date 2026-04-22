@@ -1,15 +1,26 @@
-name: Lakebase Grants & Indexes
+name: Lakebase Maintenance (Ownership + Grants + Indexes)
 
-# Self-healing Lakebase synced-table maintenance for the Taipy app service
-# principal. Runs two idempotent passes in sequence:
-#   1. `run_lakebase_grants.py` — re-applies SELECT grants. See
+# Self-healing Lakebase synced-table maintenance. Runs THREE idempotent
+# passes in sequence — all three are the canonical hooks for any synced
+# table added to `ingestion.refresh_synced_tables.SYNCED_TABLES`:
+#
+#   1. `fix_event_log_ownership.py --skip-trigger-refresh` — re-sets
+#      pipeline `event_log_*` table ownership to `dbt-owners-{env}` after
+#      a UI recreation transfers it to whoever performed the recreate.
+#      Without this, the ingestion SP cannot trigger pipeline refreshes.
+#      Idempotent (already_correct entries are no-op).
+#   2. `run_lakebase_grants.py` — re-applies SELECT grants. See
 #      docs/superpowers/adrs/ADR-005-lakebase-synced-table-grants.md for why
 #      auto-inherit via pg_default_acl is structurally unavailable and this
 #      scheduled re-apply is the canonical compensating control.
-#   2. `create_indexes.py --verify` — re-applies PG indexes (IF NOT EXISTS)
-#      and EXPLAIN-ANALYZE-verifies Index Scan plans. Same self-healing
-#      pattern: synced-table recreation drops custom indexes, so a daily
-#      rebuild restores them before the first dashboard query hits Seq Scan.
+#   3. `create_indexes.py --verify` — re-applies PG indexes (IF NOT EXISTS)
+#      and EXPLAIN-ANALYZE-verifies Index Scan plans. Synced-table
+#      recreation drops custom indexes; a daily rebuild restores them
+#      before the first dashboard query hits Seq Scan.
+#
+# Coverage invariant: any new synced table added to
+# `ingestion.refresh_synced_tables.SYNCED_TABLES` is auto-covered by all
+# three steps on the next daily run — no hand-wiring required.
 #
 # Triggers (all three by design — coverage before blame):
 #   1. schedule: daily 07:00 UTC — one hour after the 06:00 UTC
@@ -91,6 +102,20 @@ jobs:
 
       - name: Install sdk dependencies
         run: uv sync --frozen --extra sdk
+
+      # Step 1: Fix event_log_* pipeline-metadata ownership drift. When a
+      # synced table is recreated via the Databricks UI, the pipeline's
+      # `event_log_*` table gets owned by the user who recreated it
+      # instead of the `dbt-owners-{env}` group. The ingestion SP then
+      # cannot trigger refreshes. Idempotent — already_correct = no-op.
+      # `--skip-trigger-refresh` because refresh is handled by the daily
+      # Databricks ingestion job (starts 06:00 UTC, finishes well before
+      # this 07:00 UTC cron).
+      - name: Fix event log ownership
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.verify_only != true }}
+        run: |
+          uv run python scripts/fix_event_log_ownership.py \
+              --skip-trigger-refresh
 
       - name: Apply Lakebase grants
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.verify_only != true }}

@@ -1,47 +1,52 @@
 {{ config(
     materialized='incremental',
     unique_key='pass_id',
-    liquid_clustered_by=['match_id'],
+    liquid_clustered_by=['match_key'],
     incremental_strategy='merge'
 ) }}
 -- fct_passes.sql
--- Gold-layer pass fact table with progressive and line-breaking pass metrics.
+-- Gold-layer pass fact table — every pass from all four providers
+-- (StatsBomb, Wyscout, IDSSE, Metrica) keyed by `match_key` (Kimball
+-- surrogate FK to `dim_matches` per ADR-011). Native `match_id` is
+-- deliberately NOT present on this mart; recover via
+-- `JOIN dim_matches ON match_key` when the provider-native ID is needed.
 --
--- Contains every pass from all data sources with:
---   - Pass success/failure classification
---   - Progressive pass identification (25% closer to goal)
---   - Line-breaking pass detection (Ward clustering + straddle test)
---   - Pass direction and distance metrics
---   - Pass type categorization
+-- Incremental strategy is merge-on-pass_id; a previous match_id-based
+-- "skip already-ingested matches" predicate was dropped in PR 2 because
+-- merge already guarantees idempotency per primary key and correctness
+-- trumps incremental-build speed for a gold mart.
 --
--- Progressive pass definition:
---   A pass moves the ball at least 25% closer to the opponent's goal center.
---   Formally: distance_to_goal(end) < 0.75 * distance_to_goal(start)
---   This metric (popularized by @Ssjocke) captures passes that advance play.
+-- Progressive pass: end point is >=25% closer to the opponent's goal
+-- centre than the start point (by Euclidean distance).
 --
--- Line-breaking pass definition:
---   A pass whose trajectory intersects at least one opponent defensive line,
---   detected via Ward hierarchical clustering of opponent positions into 3
---   lines and a cross-product straddle test. Available for StatsBomb 360
---   matches and Metrica tracking matches only.
+-- Line-breaking: computed externally (Ward hierarchical clustering on
+-- tracking frames), persisted to bronze.line_breaking_results, joined
+-- here on event_id via stg_line_breaking__results.
 --
--- Downstream consumers:
---   - fct_player_stats (pass aggregations per player)
---   - Pass network analysis (graph construction)
---   - Dashboard visualizations (pass maps, progressive pass heatmaps)
+-- Known gaps for IDSSE/Metrica rows (see stg_idsse__passes.sql /
+-- stg_metrica__passes.sql for rationale):
+--   * team_id / player_id / pass_recipient_id are NULL (source IDs
+--     are strings; cross-provider surrogate keys are a later PR).
+--   * end_x / end_y NULL for IDSSE (DFL <Play> row carries start only).
+--   * home_score_after / away_score_after NULL — int_running_score is
+--     SB+WS only; game_state defaults to 'drawing' for IDSSE/Metrica.
 
 with unified_passes as (
 
     select * from {{ ref('int_unified_passes') }}
-    {% if is_incremental() %}
-    where match_id not in (select distinct match_id from {{ this }})
-    {% endif %}
 
 ),
 
-matches as (
+match_attrs as (
 
-    select * from {{ ref('stg_statsbomb__matches') }}
+    select
+        match_key,
+        -- PR 2 (ADR-011) Kimball surrogate FK for competition.
+        -- NULL for Metrica (no competition metadata).
+        competition_key,
+        try_cast(competition_id as int)                 as competition_id,
+        try_cast(season_id as int)                      as season_id
+    from {{ ref('dim_matches') }}
 
 ),
 
@@ -60,31 +65,30 @@ running_score as (
 passes_with_score as (
 
     select
-        -- Surrogate key
-        {{ dbt_utils.generate_surrogate_key(['unified_passes.event_id', 'unified_passes.data_source']) }} as pass_id,
+        {{ dbt_utils.generate_surrogate_key([
+            'unified_passes.match_key',
+            'unified_passes.event_id',
+            'unified_passes.data_source',
+        ]) }}                                           as pass_id,
 
-        -- Foreign keys
-        unified_passes.match_id,
+        unified_passes.match_key,
         unified_passes.player_id,
         unified_passes.team_id,
         unified_passes.pass_recipient_id,
 
-        -- Match context
-        matches.competition_id,
-        matches.season_id,
+        match_attrs.competition_key,
+        match_attrs.competition_id,
+        match_attrs.season_id,
 
-        -- Temporal context
         unified_passes.period,
         unified_passes.minute,
         unified_passes.second,
 
-        -- Pass locations
         unified_passes.start_x,
         unified_passes.start_y,
         unified_passes.end_x,
         unified_passes.end_y,
 
-        -- Pass attributes
         unified_passes.pass_type,
         unified_passes.pass_height,
         unified_passes.body_part,
@@ -95,18 +99,15 @@ passes_with_score as (
         unified_passes.is_switch,
         unified_passes.is_through_ball,
 
-        -- Derived: pass success
         case
             when unified_passes.pass_outcome = 'Complete'
-                 or unified_passes.pass_outcome is null  -- StatsBomb: null = complete
+                 or unified_passes.pass_outcome is null
             then true
             else false
         end                                             as is_complete,
 
-        -- Progressive pass flag
         unified_passes.is_progressive,
 
-        -- Pass direction (categorical, 5-yard threshold)
         case
             when unified_passes.end_x is null or unified_passes.start_x is null then null
             when unified_passes.end_x > unified_passes.start_x + {{ var('pass_direction_threshold') }} then 'forward'
@@ -114,31 +115,30 @@ passes_with_score as (
             else 'lateral'
         end                                             as pass_direction,
 
-        -- Line-breaking pass detection
-        coalesce(lb.is_line_breaking, false)             as is_line_breaking,
-        coalesce(lb.lines_broken, 0)                     as lines_broken,
+        coalesce(lb.is_line_breaking, false)            as is_line_breaking,
+        coalesce(lb.lines_broken, 0)                    as lines_broken,
         lb.line_breaking_type,
 
-        -- Data provenance
         unified_passes.data_source,
 
-        -- Running score columns for game state derivation
         rs.home_score_after,
         rs.away_score_after,
         rs.home_team_id as _rs_home_team_id,
 
         row_number() over (
-            partition by unified_passes.event_id, unified_passes.data_source
+            partition by unified_passes.match_key,
+                         unified_passes.event_id,
+                         unified_passes.data_source
             order by rs.period desc, rs.minute desc, rs.second desc
         ) as _score_rn
 
     from unified_passes
-    left join matches
-        on unified_passes.match_id = matches.match_id
+    left join match_attrs
+        on unified_passes.match_key = match_attrs.match_key
     left join line_breaking lb
         on unified_passes.event_id = lb.event_id
     left join running_score rs
-        on unified_passes.match_id = rs.match_id
+        on unified_passes.match_key = rs.match_key
         and (
             rs.period < unified_passes.period
             or (rs.period = unified_passes.period
@@ -152,10 +152,11 @@ final as (
 
     select
         pass_id,
-        match_id,
+        match_key,
         player_id,
         team_id,
         pass_recipient_id,
+        competition_key,
         competition_id,
         season_id,
         period,

@@ -48,7 +48,29 @@ cleaned as (
         competition_stage,
 
         -- Data provenance (already a top-level column)
-        data_version
+        data_version,
+
+        -- Bronze pass-through cols (PR 2 — Kimball migration, ADR-011).
+        -- Surface remaining bronze cols with their bronze names so downstream
+        -- models and analysts can reach them without re-reading bronze. The
+        -- casts and renames above remain the preferred consumption path;
+        -- these are the raw source-of-truth view. See
+        -- src/tests/test_staging_coverage.py INITIAL_BRONZE_STAGING_GAPS.
+        _ingested_at,
+        away_managers,
+        away_team,
+        competition,
+        home_managers,
+        home_team,
+        kick_off,
+        last_updated,
+        last_updated_360,
+        match_status_360,
+        referee,
+        season,
+        shot_fidelity_version,
+        stadium,
+        xy_fidelity_version
 
     from source
 
