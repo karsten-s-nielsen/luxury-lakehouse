@@ -1,0 +1,182 @@
+name: dbt live CI
+
+# Live dbt build via a Databricks one-shot Job. Complements dbt-ci.yml (parse-only).
+# Closes the gap where runtime SQL errors merged to main undetected in PR 3.
+# See docs/superpowers/plans/2026-04-23-kimball-pr4-live-ci.md for design.
+
+on:
+  pull_request:
+    paths:
+      - "dbt_project/**"
+      - "src/ingestion/**"          # Python-side producers that feed dbt sources
+      - ".github/workflows/dbt-live-ci.yml"
+
+permissions:
+  contents: read
+  id-token: write                   # GitHub OIDC -> Databricks SP token exchange
+  pull-requests: write              # post failure-summary comment
+
+# Supersede older runs on the same PR ref when a new commit arrives.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  live-build:
+    runs-on: ubuntu-latest
+    # Workflow-level ceiling. trigger_dbt_job.py enforces its own 30-minute poll
+    # budget (120 * 15s); the extra 10 minutes covers checkout, uv sync, tarball
+    # packaging, OIDC exchange, and the failure-comment path.
+    timeout-minutes: 40
+    env:
+      # Non-secret public workspace host lives in repo vars; OIDC client id too.
+      # Same pattern as terraform-apply.yml.
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_AUTH_TYPE: github-oidc
+      # Required by dbt-databricks profiles.yml env_var() calls at parse time.
+      # Values may be empty on forks; dbt parse still works (no real connection).
+      # The Databricks trigger step uses OIDC (via DATABRICKS_AUTH_TYPE), so the
+      # static token here is only consumed by dbt parse on the runner.
+      DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}  # pragma: allowlist secret
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0            # full history for dbt state diff vs main
+
+      - name: Fetch main for state comparison
+        run: git fetch origin main:refs/remotes/origin/main
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      # The `dbt` extra already pulls databricks-sdk>=0.102.0 (see pyproject.toml),
+      # so no separate SDK install is required. --no-install-project skips the
+      # editable install of luxury-lakehouse itself, matching dbt-ci.yml.
+      - name: Install dependencies
+        run: uv sync --frozen --extra dbt --no-install-project
+
+      - name: Generate PR-branch manifest
+        working-directory: dbt_project
+        run: |
+          uv run --no-sync dbt deps --profiles-dir .
+          uv run --no-sync dbt parse --profiles-dir .
+
+      # Checkout main into the working tree, re-parse, copy manifest to repo root.
+      # Pattern mirrored from dbt-ci.yml:65-76 — stash keeps PR-branch changes
+      # safe, then we restore them with `git checkout <sha> -- .` + `stash pop`.
+      - name: Generate main-branch manifest
+        working-directory: dbt_project
+        run: |
+          git stash --include-untracked
+          git checkout origin/main -- .
+          uv run --no-sync dbt deps --profiles-dir .
+          uv run --no-sync dbt parse --profiles-dir .
+          mkdir -p ../target-main
+          cp target/manifest.json ../target-main/manifest.json
+          git checkout ${{ github.sha }} -- .
+          git stash pop || true
+
+      # state:modified+ catches model changes plus downstream dependents. If any
+      # project-wide config changed (dbt_project.yml, packages.yml, profiles.yml),
+      # a plain state diff is insufficient and we must rebuild the whole graph.
+      - name: Compute --select argument
+        id: select
+        run: |
+          set -euo pipefail
+          config_diff=0
+          for f in dbt_project/dbt_project.yml dbt_project/packages.yml dbt_project/profiles.yml; do
+            if ! git diff --quiet origin/main -- "$f"; then
+              config_diff=1
+              break
+            fi
+          done
+          if [ "$config_diff" = "1" ]; then
+            echo "select_arg=+all" >> "$GITHUB_OUTPUT"
+            echo "Config diff detected — running full build (+all)"
+          else
+            echo "select_arg=state:modified+" >> "$GITHUB_OUTPUT"
+            echo "No config diff — running state:modified+"
+          fi
+
+      # target/, target-main/, and dbt_packages/ are regenerated inside the
+      # Databricks shim; excluding them keeps the tarball small.
+      - name: Package dbt_project
+        run: |
+          tar -czf /tmp/dbt_project.tar.gz \
+            --exclude='dbt_project/target' \
+            --exclude='dbt_project/target-main' \
+            --exclude='dbt_project/dbt_packages' \
+            dbt_project/
+          ls -la /tmp/dbt_project.tar.gz
+
+      # GitHub OIDC -> Databricks SP short-lived bearer token. The SDK's
+      # github-oidc auth type talks to the Databricks OIDC endpoint; we extract
+      # the Authorization header value so downstream REST calls in
+      # trigger_dbt_job.py can reuse it. Masked immediately.
+      - name: Acquire Databricks token via OIDC
+        id: databricks_token
+        run: |
+          set -euo pipefail
+          TOKEN=$(uv run --no-sync python -c "
+          import os
+          from databricks.sdk import WorkspaceClient
+          ws = WorkspaceClient(
+              host=os.environ['DATABRICKS_HOST'],
+              client_id=os.environ['DATABRICKS_CLIENT_ID'],
+              auth_type='github-oidc',
+          )
+          auth = ws.config.authenticate()
+          print(auth['Authorization'].replace('Bearer ', ''))
+          ")
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      # Exit code of this step drives the workflow's success/failure (and thus
+      # the required-check status on the PR). SHORT_SHA extracted from the PR
+      # head so scratch/fork runs see the same id the PR description shows.
+      - name: Trigger Databricks dbt run
+        id: trigger
+        env:
+          SHORT_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          uv run --no-sync python scripts/trigger_dbt_job.py \
+            --pr-number "${{ github.event.pull_request.number }}" \
+            --commit-sha "${SHORT_SHA:0:7}" \
+            --tarball /tmp/dbt_project.tar.gz \
+            --manifest target-main/manifest.json \
+            --select-arg "${{ steps.select.outputs.select_arg }}" \
+            --host "${{ vars.DATABRICKS_HOST }}" \
+            --token "${{ steps.databricks_token.outputs.token }}" \
+            --volume-prefix "/Volumes/soccer_analytics/dev_gold/ci_dbt/${{ github.event.pull_request.number }}-${SHORT_SHA:0:7}" \
+            > /tmp/trigger_result.json
+          cat /tmp/trigger_result.json
+
+      # Post a PR comment only when the trigger itself reported FAILED / CANCELED
+      # / INTERNAL_ERROR / TIMEOUT. We read the JSON straight from disk (via
+      # system python3, present on ubuntu-latest) instead of round-tripping
+      # through $GITHUB_OUTPUT — avoids shell-quote fragility if a field ever
+      # contains a single quote, and sidesteps an extra `uv run` startup cost.
+      - name: Post PR comment on failure
+        if: failure() && steps.trigger.outcome == 'failure'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ ! -s /tmp/trigger_result.json ]; then
+            echo "trigger_result.json missing or empty; cannot post failure comment"
+            exit 0
+          fi
+          RUN_PAGE_URL=$(python3 -c "import json; print(json.load(open('/tmp/trigger_result.json')).get('run_page_url',''))")
+          OUTPUT_PATH=$(python3 -c "import json; print(json.load(open('/tmp/trigger_result.json')).get('output_volume_path',''))")
+          uv run --no-sync python scripts/post_dbt_failure_comment.py \
+            --repo "${{ github.repository }}" \
+            --pr-number "${{ github.event.pull_request.number }}" \
+            --run-page-url "$RUN_PAGE_URL" \
+            --run-output-volume-path "$OUTPUT_PATH" \
+            --github-token "$GITHUB_TOKEN"

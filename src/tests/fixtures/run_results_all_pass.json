@@ -1,0 +1,9 @@
+{
+  "metadata": {
+    "invocation_id": "def",
+    "dbt_schema_version": "https://schemas.getdbt.com/dbt/run-results/v5.json"
+  },
+  "results": [
+    {"status": "success", "unique_id": "model.luxury_lakehouse.fct_shots", "execution_time": 10.0, "message": "OK"}
+  ]
+}
