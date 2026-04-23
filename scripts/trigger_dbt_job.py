@@ -39,7 +39,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-_SHIM_VOLUME_PATH = "/Volumes/soccer_analytics/dev_gold/ci_dbt/_shim/run_dbt_in_databricks.py"
+_SHIM_VOLUME_PATH = "/Workspace/Shared/luxury-lakehouse-ci/run_dbt_in_databricks.py"
 _POLL_INTERVAL_S = 15
 _MAX_POLL_ATTEMPTS = 120  # 30 min total at 15s cadence
 _IN_FLIGHT = frozenset({"PENDING", "RUNNING", "TERMINATING", "QUEUED"})

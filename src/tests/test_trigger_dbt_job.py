@@ -28,7 +28,7 @@ class TestBuildRunsSubmitPayload:
         assert task["environment_key"] == "Default"
         assert task["performance_target"] == "PERFORMANCE_OPTIMIZED"
         assert task["spark_python_task"]["python_file"] == (
-            "/Volumes/soccer_analytics/dev_gold/ci_dbt/_shim/run_dbt_in_databricks.py"
+            "/Workspace/Shared/luxury-lakehouse-ci/run_dbt_in_databricks.py"
         )
         params = task["spark_python_task"]["parameters"]
         assert "--select-arg" in params
