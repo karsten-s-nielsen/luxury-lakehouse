@@ -235,4 +235,10 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # Databricks serverless job tasks wrap __main__ in an IPython context that
+    # treats SystemExit as abnormal — even SystemExit(0) shows up as
+    # "error: SystemExit: 0" in runs/get-output. Return-normally on success,
+    # raise on non-zero so the task state reflects dbt's actual outcome.
+    _rc = main()
+    if _rc != 0:
+        raise RuntimeError(f"dbt exited with code {_rc}")
