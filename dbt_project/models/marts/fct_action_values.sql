@@ -56,7 +56,7 @@ actions_with_score as (
         ]) }}                                       as action_value_id,
 
         av.match_id,
-        av.player_id, av.THIS_COLUMN_DOES_NOT_EXIST,
+        av.player_id,
         av.team_id,
         av.competition_id,
         av.season_id,
@@ -94,7 +94,7 @@ actions_with_score as (
         row_number() over (
             partition by
                 av.match_id, av.period, av.time_seconds,
-                av.player_id, av.THIS_COLUMN_DOES_NOT_EXIST, av.type_id, av.data_source
+                av.player_id, av.type_id, av.data_source
             order by rs.period desc, rs.minute desc, rs.second desc
         )                                           as _score_rn,
 
