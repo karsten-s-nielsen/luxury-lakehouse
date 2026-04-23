@@ -25,6 +25,8 @@ class TestBuildRunsSubmitPayload:
         assert len(payload["tasks"]) == 1
         task = payload["tasks"][0]
         assert task["task_key"] == "dbt_build"
+        assert task["environment_key"] == "Default"
+        assert task["performance_target"] == "PERFORMANCE_OPTIMIZED"
         assert task["spark_python_task"]["python_file"] == (
             "/Volumes/soccer_analytics/dev_gold/ci_dbt/_shim/run_dbt_in_databricks.py"
         )
@@ -33,6 +35,10 @@ class TestBuildRunsSubmitPayload:
         assert "state:modified+" in params
         assert "--tarball-path" in params
         assert "/Volumes/x/y/z/p.tar.gz" in params
+        # Serverless: environments[] block present, no new_cluster.
+        assert "new_cluster" not in task
+        assert len(payload["environments"]) == 1
+        assert payload["environments"][0]["environment_key"] == "Default"
 
 
 class TestSubmitRun:

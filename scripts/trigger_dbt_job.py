@@ -73,13 +73,29 @@ def build_runs_submit_payload(
     select_arg: str,
     output_volume_path: str,
 ) -> dict[str, Any]:
-    """Build the /api/2.0/jobs/runs/submit payload."""
+    """Build the /api/2.0/jobs/runs/submit payload.
+
+    Uses serverless jobs compute with PERFORMANCE_OPTIMIZED target — the
+    workspace rejects classic clusters ("Only serverless compute is supported").
+    PERFORMANCE_OPTIMIZED keeps warm pools, so per-PR cold-start is near-zero.
+    """
     return {
         "run_name": f"dbt-live-ci (PR #{pr_number}, {commit_sha})",
         "timeout_seconds": 1800,
+        "environments": [
+            {
+                "environment_key": "Default",
+                "spec": {
+                    "client": "2",
+                    "environment_version": "2",
+                },
+            }
+        ],
         "tasks": [
             {
                 "task_key": "dbt_build",
+                "environment_key": "Default",
+                "performance_target": "PERFORMANCE_OPTIMIZED",
                 "spark_python_task": {
                     "python_file": _SHIM_VOLUME_PATH,
                     "parameters": [
@@ -92,19 +108,6 @@ def build_runs_submit_payload(
                         "--output-path",
                         output_volume_path,
                     ],
-                },
-                # Single-node classic cluster. Serverless jobs for Python were not
-                # available on this workspace at PR 4a E2E time (2026-04-23);
-                # revisit when serverless-Python becomes available.
-                "new_cluster": {
-                    "spark_version": "14.3.x-scala2.12",
-                    "num_workers": 0,
-                    "node_type_id": "i3.xlarge",
-                    "spark_conf": {
-                        "spark.databricks.cluster.profile": "singleNode",
-                        "spark.master": "local[*]",
-                    },
-                    "custom_tags": {"ResourceClass": "SingleNode"},
                 },
             }
         ],
