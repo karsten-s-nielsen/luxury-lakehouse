@@ -158,10 +158,13 @@ def stage_dbt_workspace(extract_dir: Path, manifest_main: Path) -> tuple[Path, P
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv if argv is not None else sys.argv[1:])
 
-    workdir = Path("/tmp/dbt_live_ci")  # noqa: S108 — Databricks Job cluster local FS; isolated per-run
-    if workdir.exists():
-        shutil.rmtree(workdir)
-    workdir.mkdir(parents=True)
+    # Unique per-invocation workdir — serverless job containers can be recycled
+    # across runs and leave prior /tmp state with permissions that the new
+    # invocation can't clean up. tempfile.mkdtemp guarantees no cross-run
+    # conflicts.
+    import tempfile
+
+    workdir = Path(tempfile.mkdtemp(prefix="dbt_live_ci_"))
 
     tarball = workdir / "dbt_project.tar.gz"
     manifest_main = workdir / "manifest_main.json"
