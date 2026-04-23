@@ -93,10 +93,19 @@ def build_runs_submit_payload(
                         output_volume_path,
                     ],
                 },
-                # D2 default: use workspace serverless job compute (no cluster spec).
-                # If the workspace doesn't have serverless jobs enabled, add:
-                #   "new_cluster": {"spark_version": "14.3.x-scala2.12",
-                #                   "num_workers": 0, "node_type_id": "i3.xlarge"}
+                # Single-node classic cluster. Serverless jobs for Python were not
+                # available on this workspace at PR 4a E2E time (2026-04-23);
+                # revisit when serverless-Python becomes available.
+                "new_cluster": {
+                    "spark_version": "14.3.x-scala2.12",
+                    "num_workers": 0,
+                    "node_type_id": "i3.xlarge",
+                    "spark_conf": {
+                        "spark.databricks.cluster.profile": "singleNode",
+                        "spark.master": "local[*]",
+                    },
+                    "custom_tags": {"ResourceClass": "SingleNode"},
+                },
             }
         ],
     }
@@ -120,6 +129,8 @@ def submit_run(*, host: str, token: str, payload: dict[str, Any]) -> int:
         timeout=(10, 60),
         verify=True,
     )
+    if resp.status_code >= 400:
+        logger.error("runs/submit %d response body: %s", resp.status_code, resp.text[:1000])
     resp.raise_for_status()
     run_id = int(resp.json()["run_id"])
     logger.info("Submitted run_id=%d", run_id)

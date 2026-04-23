@@ -52,6 +52,8 @@ class TestSubmitRun:
     @patch("scripts.trigger_dbt_job.requests.post")
     def test_submit_propagates_http_error(self, mock_post: MagicMock) -> None:
         err = requests.HTTPError("429 Too Many Requests")
+        mock_post.return_value.status_code = 429
+        mock_post.return_value.text = "Rate limited"
         mock_post.return_value.raise_for_status = MagicMock(side_effect=err)
         with pytest.raises(requests.HTTPError):
             trigger.submit_run(
