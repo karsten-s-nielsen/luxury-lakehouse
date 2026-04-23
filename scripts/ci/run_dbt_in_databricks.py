@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -28,6 +29,8 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from databricks.sdk import WorkspaceClient
+
+_PROJECT_WAREHOUSE_NAME_PREFIX = "soccer-analytics-warehouse"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -86,6 +89,45 @@ def extract_tarball(tarball: Path, extract_dir: Path) -> None:
     logger.info("Extracting %s to %s", tarball, extract_dir)
     with tarfile.open(tarball, "r:gz") as tf:
         tf.extractall(extract_dir, filter="data")
+
+
+def ensure_dbt_env_vars() -> None:
+    """Populate DATABRICKS_HOST / DATABRICKS_TOKEN / DATABRICKS_HTTP_PATH.
+
+    dbt profiles.yml references these via env_var(). On a serverless job, they
+    are not auto-injected, so we resolve them via WorkspaceClient (mirrors
+    src/ingestion/dbt_runner._ensure_databricks_env_vars).
+    """
+    ws = _workspace_client()
+
+    if not os.environ.get("DATABRICKS_HOST"):
+        host = ws.config.host
+        if not host:
+            raise RuntimeError("Cannot resolve DATABRICKS_HOST: WorkspaceClient.config.host is empty")
+        os.environ["DATABRICKS_HOST"] = host
+        logger.info("Resolved DATABRICKS_HOST: %s", host)
+
+    if not os.environ.get("DATABRICKS_TOKEN"):
+        headers = ws.config.authenticate()
+        auth_header = headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            raise RuntimeError(f"SDK auth header is not Bearer: {auth_header[:30]}...")
+        os.environ["DATABRICKS_TOKEN"] = auth_header[len("Bearer ") :]
+        logger.info("Resolved DATABRICKS_TOKEN from SDK auth provider")
+
+    if not os.environ.get("DATABRICKS_HTTP_PATH"):
+        warehouses = list(ws.warehouses.list())
+        project_wh = next(
+            (wh for wh in warehouses if wh.name and wh.name.startswith(_PROJECT_WAREHOUSE_NAME_PREFIX)),
+            None,
+        )
+        if project_wh is None or not project_wh.id:
+            raise RuntimeError(
+                f"No SQL warehouse with name starting with {_PROJECT_WAREHOUSE_NAME_PREFIX!r}"
+            )
+        http_path = f"/sql/1.0/warehouses/{project_wh.id}"
+        os.environ["DATABRICKS_HTTP_PATH"] = http_path
+        logger.info("Resolved DATABRICKS_HTTP_PATH: %s (warehouse %s)", http_path, project_wh.name)
 
 
 def install_dbt() -> None:
@@ -177,6 +219,7 @@ def main(argv: list[str] | None = None) -> int:
     project_dir, target_main = stage_dbt_workspace(extract_dir, manifest_main)
 
     install_dbt()
+    ensure_dbt_env_vars()
     exit_code = run_dbt(project_dir, args.select_arg, target_main)
 
     run_results = project_dir / "target" / "run_results.json"
