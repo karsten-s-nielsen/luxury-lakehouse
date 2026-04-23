@@ -7,6 +7,7 @@ as a single command, encoding what was previously a manual sequence.
 Steps:
     -1. Fix event_log_* ownership drift (post-recreation hygiene)
     0. Grant SP permissions (database-project CAN_USE + pipeline CAN_RUN)
+    0.5. Grant Taipy SP PG SELECT on synced tables (ADR-005; run_lakebase_grants)
     1. Refresh synced tables (trigger SNAPSHOT updates)
     2. Create indexes (PG btree + HNSW)
     3. Verify indexes (EXPLAIN ANALYZE)
@@ -124,6 +125,32 @@ def main() -> int:
             return 1
     else:
         _log("step_skipped", step="grant_synced_table_permissions")
+
+    # ── Step 0.5: Grant Taipy SP PG SELECT on synced tables (ADR-005) ────────
+    # Separate from Step 0: Step 0 grants Databricks-level CAN_USE on the
+    # database project + CAN_RUN on pipelines (used by the staging admin
+    # endpoint and the ingestion SP for trigger-refresh). Step 0.5 grants
+    # PG-level SELECT inside Lakebase so the Taipy app SP (hf_app_v2) can
+    # read the synced tables via JDBC. Both are required after any synced
+    # table recreation; without Step 0.5, the Taipy deploy gate (ADR-005)
+    # fails with `DRIFT: SP ... is missing SELECT on N synced table(s)`.
+    # run_lakebase_grants.py auto-discovers Lakebase DNS — no env wiring.
+    if not args.skip_grants:
+        ok, elapsed = _run_step(
+            name="lakebase_grants_taipy_sp",
+            cmd=[sys.executable, "scripts/run_lakebase_grants.py"],
+            dry_run=args.dry_run,
+        )
+        total_elapsed += elapsed
+        if not ok:
+            _log(
+                "maintenance_aborted",
+                reason="lakebase_grants_failed",
+                total_elapsed_s=round(total_elapsed, 2),
+            )
+            return 1
+    else:
+        _log("step_skipped", step="lakebase_grants_taipy_sp")
 
     # ── Step 1: Refresh synced tables ────────────────────────────────────────
     if not args.skip_refresh:
