@@ -118,9 +118,7 @@ def test_fct_action_values_match_key_not_null(conn: object) -> None:
     in stg_spadl__action_values that aren't in dim_matches.
     """
     cur = conn.cursor()  # type: ignore[attr-defined]
-    cur.execute(
-        "SELECT count(*) FROM soccer_analytics.dev_gold.fct_action_values WHERE match_key IS NULL"
-    )
+    cur.execute("SELECT count(*) FROM soccer_analytics.dev_gold.fct_action_values WHERE match_key IS NULL")
     row = cur.fetchone()
     null_count = int(row[0]) if row else 0
     assert null_count == 0, (
