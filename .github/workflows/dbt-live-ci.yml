@@ -34,6 +34,12 @@ jobs:
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
       DATABRICKS_AUTH_TYPE: github-oidc
+      # Required by dbt-databricks profiles.yml env_var() calls at parse time.
+      # Values may be empty on forks; dbt parse still works (no real connection).
+      # The Databricks trigger step uses OIDC (via DATABRICKS_AUTH_TYPE), so the
+      # static token here is only consumed by dbt parse on the runner.
+      DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}  # pragma: allowlist secret
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
