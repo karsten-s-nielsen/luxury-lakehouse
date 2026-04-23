@@ -133,6 +133,7 @@ class TestUploadOutput:
 class TestMainEndToEnd:
     @patch("scripts.ci.run_dbt_in_databricks.upload_output")
     @patch("scripts.ci.run_dbt_in_databricks.run_dbt")
+    @patch("scripts.ci.run_dbt_in_databricks.ensure_dbt_env_vars")
     @patch("scripts.ci.run_dbt_in_databricks.install_dbt")
     @patch("scripts.ci.run_dbt_in_databricks.stage_dbt_workspace")
     @patch("scripts.ci.run_dbt_in_databricks.extract_tarball")
@@ -143,6 +144,7 @@ class TestMainEndToEnd:
         mock_ex: MagicMock,
         mock_stage: MagicMock,
         mock_install: MagicMock,
+        mock_env: MagicMock,
         mock_run: MagicMock,
         mock_up: MagicMock,
     ) -> None:
