@@ -125,8 +125,8 @@ def upload_tarball(local_path: Path, volume_path: str) -> None:
 def submit_run(*, host: str, token: str, payload: dict[str, Any]) -> int:
     """POST to /api/2.0/jobs/runs/submit and return the new run_id."""
     host = host.rstrip("/").removeprefix("https://").removeprefix("http://")
-    # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
     resp = requests.post(
+        # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
         f"https://{host}/api/2.0/jobs/runs/submit",
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
         json=payload,
@@ -152,8 +152,8 @@ def poll_run(
     """Poll /api/2.0/jobs/runs/get until terminal state or max_attempts."""
     host = host.rstrip("/").removeprefix("https://").removeprefix("http://")
     for attempt in range(max_attempts):
-        # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
         resp = requests.get(
+            # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
             f"https://{host}/api/2.0/jobs/runs/get?run_id={run_id}",
             headers={"Authorization": f"Bearer {token}"},
             timeout=(10, 30),
