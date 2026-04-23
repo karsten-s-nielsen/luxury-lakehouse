@@ -556,9 +556,20 @@ models:
         data_tests:
           - unique
           - not_null
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches.match_key (ADR-011, PR 4b). Primary match identifier.
+        data_tests:
+          - not_null
+      - name: competition_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_competitions.competition_key (ADR-011, PR 4b). Nullable.
       - name: match_id
         data_type: bigint
-        description: Match identifier
+        description: >
+          LEGACY native match identifier (BIGINT). Retained for the 90-day
+          dual-column window (sunset 2026-07-22 per ADR-011 policy). Use
+          match_key for new consumer code.
         data_tests:
           - not_null
       - name: player_id
@@ -573,7 +584,9 @@ models:
           - not_null
       - name: competition_id
         data_type: int
-        description: Foreign key to dim_competitions
+        description: >
+          LEGACY native competition identifier. Retained for the 90-day
+          dual-column window (sunset 2026-07-22). Use competition_key.
       - name: season_id
         data_type: int
         description: Season identifier

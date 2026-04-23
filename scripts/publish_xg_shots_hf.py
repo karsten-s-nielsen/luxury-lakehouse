@@ -96,7 +96,10 @@ _SHOTS_SQL = """\
 SELECT
     s.shot_id,
     s.match_key,
-    CAST(dm.native_match_id AS BIGINT)                     AS match_id,
+    -- try_cast (not plain CAST) avoids Spark cast-pushdown failures on non-BIGINT
+    -- native IDs (IDSSE 'J03WOY', Metrica). fct_shots is SB+WS today so this
+    -- is dormant; the guard exists for ADR-011's cross-provider direction.
+    try_cast(dm.native_match_id as bigint)                 as match_id,
     s.competition_id,
     s.season_id,
     s.player_id,

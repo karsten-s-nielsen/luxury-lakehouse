@@ -437,3 +437,90 @@ def test_check_event_log_ownership_prod_group() -> None:
         )
     assert ok is True
     assert actual == "dbt-owners-prod"
+
+
+# ---------------------------------------------------------------------------
+# wait_until_online (PR 4b G1 helper)
+# ---------------------------------------------------------------------------
+
+
+class TestWaitUntilOnline:
+    """Tests for ingestion.refresh_synced_tables.wait_until_online (PR 4b G1)."""
+
+    @patch("ingestion.refresh_synced_tables.time.sleep", new=MagicMock())
+    @patch("ingestion.refresh_synced_tables.requests.get")
+    def test_returns_on_online_state(self, mock_get: MagicMock) -> None:
+        from ingestion import refresh_synced_tables as refresh
+
+        mock_get.side_effect = [
+            _stub_response(200, {"status": {"detailed_state": "SYNCED_TABLE_PENDING"}}),
+            _stub_response(200, {"status": {"detailed_state": "SYNCED_TABLE_ONLINE_NO_PENDING_UPDATE"}}),
+        ]
+        refresh.wait_until_online(
+            "soccer_analytics.dev_gold.fct_action_values_synced",
+            timeout_s=60,
+            poll_interval_s=1,
+        )
+        assert mock_get.call_count == 2
+
+    @patch("ingestion.refresh_synced_tables.time.sleep", new=MagicMock())
+    @patch("ingestion.refresh_synced_tables.time.monotonic")
+    @patch("ingestion.refresh_synced_tables.requests.get")
+    def test_timeout_raises_with_context(
+        self,
+        mock_get: MagicMock,
+        mock_mono: MagicMock,
+    ) -> None:
+        from ingestion import refresh_synced_tables as refresh
+
+        # monotonic called: start, after-poll #1, after-poll #2, ...
+        mock_mono.side_effect = [0.0, 10.0, 700.0]
+        mock_get.return_value = _stub_response(200, {"status": {"detailed_state": "SYNCED_TABLE_PENDING"}})
+
+        with pytest.raises(TimeoutError) as excinfo:
+            refresh.wait_until_online(
+                "soccer_analytics.dev_gold.fct_action_values_synced",
+                timeout_s=600,
+                poll_interval_s=1,
+            )
+        msg = str(excinfo.value)
+        assert "fct_action_values_synced" in msg
+        assert "SYNCED_TABLE_PENDING" in msg
+
+    @patch("ingestion.refresh_synced_tables.time.sleep", new=MagicMock())
+    @patch("ingestion.refresh_synced_tables.requests.get")
+    def test_terminal_failure_raises(self, mock_get: MagicMock) -> None:
+        from ingestion import refresh_synced_tables as refresh
+
+        mock_get.return_value = _stub_response(200, {"status": {"detailed_state": "SYNCED_TABLE_OFFLINE_FAILED"}})
+        with pytest.raises(RuntimeError) as excinfo:
+            refresh.wait_until_online(
+                "soccer_analytics.dev_gold.fct_action_values_synced",
+                timeout_s=60,
+                poll_interval_s=1,
+            )
+        assert "SYNCED_TABLE_OFFLINE_FAILED" in str(excinfo.value)
+
+    @patch("ingestion.refresh_synced_tables.time.sleep", new=MagicMock())
+    @patch("ingestion.refresh_synced_tables.requests.get")
+    def test_http_404_propagates(self, mock_get: MagicMock) -> None:
+        import requests as req
+
+        from ingestion import refresh_synced_tables as refresh
+
+        resp = _stub_response(404, {"error_code": "NOT_FOUND"})
+        resp.raise_for_status.side_effect = req.HTTPError("404")  # type: ignore[attr-defined]
+        mock_get.return_value = resp
+
+        with pytest.raises(req.HTTPError):
+            refresh.wait_until_online(
+                "soccer_analytics.dev_gold.does_not_exist_synced",
+                timeout_s=60,
+                poll_interval_s=1,
+            )
+
+    def test_invalid_table_fqn_last_segment_rejected(self) -> None:
+        from ingestion import refresh_synced_tables as refresh
+
+        with pytest.raises(ValueError, match="Invalid table_fqn"):
+            refresh.wait_until_online("soccer_analytics.dev_gold.has space")
