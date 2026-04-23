@@ -1,0 +1,27 @@
+{
+  "metadata": {
+    "invocation_id": "abc",
+    "dbt_schema_version": "https://schemas.getdbt.com/dbt/run-results/v5.json"
+  },
+  "results": [
+    {
+      "status": "success",
+      "unique_id": "model.luxury_lakehouse.fct_shots",
+      "execution_time": 12.3,
+      "message": "OK"
+    },
+    {
+      "status": "error",
+      "unique_id": "model.luxury_lakehouse.fct_action_values",
+      "execution_time": 0.5,
+      "message": "Runtime Error in model fct_action_values (models/marts/fct_action_values.sql)\n  [TABLE_OR_VIEW_NOT_FOUND] The table or view `dim_matches` cannot be found.\n  Compiled Code: ...\n  at line 42 column 15"
+    },
+    {
+      "status": "fail",
+      "unique_id": "test.luxury_lakehouse.not_null_fct_action_values_match_key.abcd1234",
+      "execution_time": 1.2,
+      "failures": 15,
+      "message": "Got 15 results, configured to fail if != 0"
+    }
+  ]
+}
