@@ -17,7 +17,7 @@
 
 with action_values as (
 
-    select * from {{ ref('stg_spadl__action_values') }}
+    select * from {{ ref('stg_spadl__action_values_MISSING') }}
     {% if is_incremental() %}
     where match_id not in (select distinct match_id from {{ this }})
     {% endif %}
