@@ -98,24 +98,25 @@ def fetch_vaep_decisive_actions(match_id: int, n: int = 3) -> pd.DataFrame:
 
 
 @ttl_cache()
-def fetch_shots_timeline(match_id: int) -> pd.DataFrame:
+def fetch_shots_timeline(match_key: int) -> pd.DataFrame:
     """All shots for a match ordered chronologically.
 
+    Post-PR 3 (ADR-011): keyed on match_key (Kimball surrogate BIGINT).
     Used by Match Summary Row 2 (xG race chart). Returns per-shot ``xg``
     (aliased from ``statsbomb_xg`` for the render module's convention),
     ``is_goal`` flag, and the team display name for per-trace coloring.
 
-    Expected columns: match_id, minute, second, period, team_id, team_name,
+    Expected columns: match_key, minute, second, period, team_id, team_name,
     xg, is_goal, player_id, player_name.
     """
-    if not isinstance(match_id, int):
-        raise TypeError(f"match_id must be int, got {type(match_id).__name__}")
+    if not isinstance(match_key, int):
+        raise TypeError(f"match_key must be int, got {type(match_key).__name__}")
 
     fs = t("fct_shots_synced")
     dp = t("dim_players_synced")
     dt = t("dim_teams_synced")
     return execute_query(
-        f"SELECT s.match_id, s.minute, s.second, s.period, "  # noqa: S608
+        f"SELECT s.match_key, s.minute, s.second, s.period, "  # noqa: S608
         f"  s.team_id, s.player_id, "
         f"  s.statsbomb_xg AS xg, s.is_goal, "
         f"  p.player_display_name AS player_name, "
@@ -123,10 +124,10 @@ def fetch_shots_timeline(match_id: int) -> pd.DataFrame:
         f"FROM {fs} s "
         f"LEFT JOIN {dp} p ON s.player_id = p.player_id "
         f"LEFT JOIN {dt} tm ON s.team_id = tm.team_id "
-        f"WHERE s.match_id = %s "
+        f"WHERE s.match_key = %s "
         f"ORDER BY s.period, s.minute, s.second "
         f"LIMIT 200",
-        (int(match_id),),
+        (int(match_key),),
     )
 
 

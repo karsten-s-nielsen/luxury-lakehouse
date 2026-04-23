@@ -87,7 +87,7 @@ def test_fetch_shots_timeline_uses_statsbomb_xg_alias(mock_exec, mock_t) -> None
 
     mock_exec.return_value = pd.DataFrame(
         {
-            "match_id": [1, 1],
+            "match_key": [1, 1],
             "minute": [5, 23],
             "second": [10, 12],
             "period": [1, 1],
@@ -98,13 +98,14 @@ def test_fetch_shots_timeline_uses_statsbomb_xg_alias(mock_exec, mock_t) -> None
             "team_name": ["Chelsea", "Chelsea"],
         }
     )
-    df = fetch_shots_timeline.__wrapped__(match_id=1)
+    df = fetch_shots_timeline.__wrapped__(match_key=1)
     assert "xg" in df.columns
     args, _ = mock_exec.call_args
     sql, params = args
     assert "statsbomb_xg AS xg" in sql
     assert "fct_shots_synced" in sql
     assert "ORDER BY s.period, s.minute, s.second" in sql
+    assert "WHERE s.match_key = %s" in sql
     assert params == (1,)
 
 
@@ -113,7 +114,7 @@ def test_fetch_shots_timeline_validates_type(mock_exec) -> None:
     from queries.match import fetch_shots_timeline
 
     with pytest.raises(TypeError):
-        fetch_shots_timeline.__wrapped__(match_id="bad")  # type: ignore[arg-type]
+        fetch_shots_timeline.__wrapped__(match_key="bad")  # type: ignore[arg-type]
     mock_exec.assert_not_called()
 
 

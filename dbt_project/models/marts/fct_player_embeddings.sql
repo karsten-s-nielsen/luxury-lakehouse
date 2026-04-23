@@ -18,8 +18,14 @@
     incremental_strategy='merge'
 ) }}
 
+-- D62 (2026-04-15) introduced a 360-embeddings variant alongside the
+-- original Doc2Vec (v2) embeddings, so stg_player_embeddings now partitions
+-- dedup by (canonical_player_id, match_id, data_source) — both can coexist
+-- for the same (player, match). This mart's surrogate must include
+-- data_source too; otherwise two source rows collapse to one embedding_id
+-- and the incremental MERGE aborts with DELTA_MULTIPLE_SOURCE_ROW_MATCHING.
 select
-    {{ dbt_utils.generate_surrogate_key(['canonical_player_id', 'match_id']) }} as embedding_id,
+    {{ dbt_utils.generate_surrogate_key(['canonical_player_id', 'match_id', 'data_source']) }} as embedding_id,
     canonical_player_id,
     match_id,
     data_source,

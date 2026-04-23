@@ -18,7 +18,7 @@ from mplsoccer import VerticalPitch
 from queries.shots import fetch_shots, fetch_xg_predictions
 from render import AMBER, GRAY, PITCH_BG_COLOR, PITCH_LINE_COLOR, fmt_int, pitch_to_file
 
-from state.shared import _ALL_LABEL, get_comp_id, get_player_id, get_team_id, register_page_refresher
+from state.shared import _ALL_LABEL, get_competition_key, get_player_id, get_team_id, register_page_refresher
 
 logger = logging.getLogger(__name__)
 
@@ -79,12 +79,12 @@ __all__ = [
 # ── Computation ──────────────────────────────────────────────────────────────
 
 
-def _join_xg_predictions(shots: pd.DataFrame, competition_id: int) -> tuple[pd.DataFrame, bool]:
+def _join_xg_predictions(shots: pd.DataFrame, competition_key: int) -> tuple[pd.DataFrame, bool]:
     """LEFT JOIN xG predictions onto shots. Returns (merged_df, has_custom_xg)."""
     if shots.empty or "shot_id" not in shots.columns:
         return shots, False
 
-    xg_preds = fetch_xg_predictions(competition_id)
+    xg_preds = fetch_xg_predictions(competition_key)
     if xg_preds.empty:
         return shots, False
 
@@ -167,8 +167,8 @@ def _render_pitch(shots: pd.DataFrame, xg_col: str, player_name: str | None = No
 
 def sm_refresh(state: Any) -> None:
     """Reload shot data, compute metrics, and render pitch for current filters."""
-    comp_id = get_comp_id(state.selected_competition)
-    if comp_id is None:
+    comp_key = get_competition_key(state.selected_competition)
+    if comp_key is None:
         # Clear all state when no competition selected
         state.sm_total_shots = "--"
         state.sm_goals = "--"
@@ -205,7 +205,7 @@ def sm_refresh(state: Any) -> None:
     state.sm_pitch_image_alt = f"Shot Map — {scope_plain}"
 
     # Fetch shots
-    shots = fetch_shots(comp_id, team_id, player_id)
+    shots = fetch_shots(comp_key, team_id, player_id)
     if shots.empty:
         state.sm_total_shots = "0"
         state.sm_goals = "0"
@@ -232,7 +232,7 @@ def sm_refresh(state: Any) -> None:
     state.sm_warning_text = ""
 
     # Join custom xG predictions (graceful degradation)
-    shots, has_custom_xg = _join_xg_predictions(shots, comp_id)
+    shots, has_custom_xg = _join_xg_predictions(shots, comp_key)
 
     # Data scope note when custom xG not available
     if not has_custom_xg:

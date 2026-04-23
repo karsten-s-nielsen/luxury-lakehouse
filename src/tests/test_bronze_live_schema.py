@@ -318,3 +318,33 @@ def test_skillcorner_tracking_live_schema_covers_parser(conn: object) -> None:
             f"Fix: re-ingest with wheel containing finalize_bronze_df guard."
         )
         raise AssertionError(msg)
+
+
+# ---------------------------------------------------------------------------
+# xG v2 predictions — added in PR 3 (ADR-013)
+# ---------------------------------------------------------------------------
+
+
+@requires_databricks
+def test_xg_predictions_v2_live_schema_covers_writer(conn: object) -> None:
+    """Every column the v2 xG writer emits must exist in live bronze.xg_predictions_v2.
+
+    Follows the file's permissive convention (``missing = expected - actual``):
+    live may have EXTRA columns (e.g. legacy ``match_id`` pre-Phase-5.0-ALTER
+    post-merge deploy). Test fails only if a writer-expected column is MISSING.
+    """
+    sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
+    from ingestion.xg_model_v2 import _XG_V2_BRONZE_COLS
+
+    expected = set(_XG_V2_BRONZE_COLS)
+    actual = _live_bronze_cols(conn, "xg_predictions_v2") - _AUDIT_COLS
+    missing = expected - actual
+    if missing:
+        msg = (
+            f"\n[xG v2] Live bronze.xg_predictions_v2 is missing "
+            f"{len(missing)} column(s) the writer emits: {sorted(missing)}\n"
+            f"Expected (per ingestion.xg_model_v2._XG_V2_BRONZE_COLS): {sorted(expected)}\n"
+            f"Actual (live, minus audit cols): {sorted(actual)}\n"
+            "Fix: re-run compute_xg_model_v2 with the current writer code."
+        )
+        raise AssertionError(msg)

@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.12-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.13-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -22,7 +22,8 @@ script (``train_xg_model_hf.py``) and the v2 Deep Sets xG training script
 Columns published:
     shot_id          - surrogate key (links to freeze-frame dataset for v2 training)
     shot_id          - surrogate key (dbt_utils.generate_surrogate_key)
-    match_id         - integer match identifier
+    match_key        - Kimball surrogate BIGINT FK to dim_matches (ADR-011; primary match id as of 2026-04-22)
+    match_id         - integer match identifier (DEPRECATED 2026-04-22; removed >= 2026-07-22 per ADR-013)
     competition_id   - NULL for Wyscout shots (no StatsBomb match join)
     season_id        - NULL for Wyscout shots
     player_id        - player identifier
@@ -93,31 +94,34 @@ DATASET_REPO = f"{HF_ORG}/xg-shot-data"
 # ensure perfect alignment with the dbt gold contract.
 _SHOTS_SQL = """\
 SELECT
-    shot_id,
-    match_id,
-    competition_id,
-    season_id,
-    player_id,
-    team_id,
-    period,
-    minute,
-    second,
-    location_x,
-    location_y,
-    end_location_x,
-    end_location_y,
-    shot_outcome,
-    shot_body_part,
-    shot_technique,
-    shot_type,
-    is_goal,
-    distance_to_goal,
-    shot_angle,
-    is_first_time,
-    play_pattern,
-    statsbomb_xg,
-    data_source
-FROM soccer_analytics.dev_gold.fct_shots
+    s.shot_id,
+    s.match_key,
+    CAST(dm.native_match_id AS BIGINT)                     AS match_id,
+    s.competition_id,
+    s.season_id,
+    s.player_id,
+    s.team_id,
+    s.period,
+    s.minute,
+    s.second,
+    s.location_x,
+    s.location_y,
+    s.end_location_x,
+    s.end_location_y,
+    s.shot_outcome,
+    s.shot_body_part,
+    s.shot_technique,
+    s.shot_type,
+    s.is_goal,
+    s.distance_to_goal,
+    s.shot_angle,
+    s.is_first_time,
+    s.play_pattern,
+    s.statsbomb_xg,
+    s.data_source
+FROM soccer_analytics.dev_gold.fct_shots s
+LEFT JOIN soccer_analytics.dev_gold.dim_matches dm
+    ON s.match_key = dm.match_key
 """
 
 # Databricks SQL Statement Execution API polling interval (seconds)
@@ -258,8 +262,10 @@ def normalize_dtypes(df: pd.DataFrame) -> pd.DataFrame:
         if col in df.columns:
             df[col] = df[col].astype(str)
 
-    # Nullable integer columns (competition_id/season_id are NULL for Wyscout)
-    for col in ("match_id", "player_id", "team_id", "period", "minute", "second"):
+    # Nullable integer columns (competition_id/season_id are NULL for Wyscout).
+    # match_key (Kimball surrogate BIGINT) added 2026-04-22; match_id kept for
+    # 90-day deprecation window per ADR-013 dual-column policy.
+    for col in ("match_key", "match_id", "player_id", "team_id", "period", "minute", "second"):
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
 

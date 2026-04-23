@@ -52,11 +52,14 @@ INDEXES: list[tuple[str, str, str]] = [
     ("idx_tracking_provider_match", "fct_tracking_frames_synced", "source_provider, match_id"),
     ("idx_tracking_match_frame", "fct_tracking_frames_synced", "match_id, frame"),
     ("idx_tracking_match_period_frame", "fct_tracking_frames_synced", "match_id, period, frame"),
-    # ── fct_xg_predictions_synced — ~88K rows (Shot Map xG overlay) ─────
-    # XG-1: match_id for match-level filtering
-    ("idx_xg_predictions_match", "fct_xg_predictions_synced", "match_id"),
-    # XG-2: competition_id for competition-level queries
-    ("idx_xg_predictions_comp", "fct_xg_predictions_synced", "competition_id"),
+    # ── fct_xg_predictions_synced — v1 mart (PR 3 migrated to Kimball keys) ─
+    # XG-1: match_key for match-level filtering (per-shot xG overlay)
+    ("idx_xg_predictions_match", "fct_xg_predictions_synced", "match_key"),
+    # XG-2: competition_key for competition-level queries
+    ("idx_xg_predictions_comp", "fct_xg_predictions_synced", "competition_key"),
+    # ── fct_xg_predictions_v2_synced — v2 Deep Sets + MC dropout (PR 3, ADR-013) ──
+    # V2-1: competition_key for Shot Map v2 overlay queries (PK shot_id auto)
+    ("idx_xg_predictions_v2_comp", "fct_xg_predictions_v2_synced", "competition_key"),
     # ── fct_passes_synced — 3.17M+ rows ─────────────────────────────────
     # P-1, PN-1: pass_map + pass_network (comp + team + match exact)
     # PR 2 (ADR-011): fct_passes_synced migrated from match_id to match_key.
@@ -65,10 +68,10 @@ INDEXES: list[tuple[str, str, str]] = [
     ("idx_passes_comp_player", "fct_passes_synced", "competition_id, player_id"),
     # F-3: player filter EXISTS subquery (player_id + team_id)
     ("idx_passes_player_team", "fct_passes_synced", "player_id, team_id"),
-    # ── fct_shots_synced — 100K+ rows ───────────────────────────────────
+    # ── fct_shots_synced — 100K+ rows (PR 3 migrated to Kimball keys) ────
     # S-1, H-1: shot_map + heat_map (comp + optional team + optional player)
-    ("idx_shots_comp_team_player", "fct_shots_synced", "competition_id, team_id, player_id"),
-    # F-3: player filter EXISTS subquery (player_id + team_id)
+    ("idx_shots_comp_team_player", "fct_shots_synced", "competition_key, team_id, player_id"),
+    # F-3: player filter EXISTS subquery (player_id + team_id) — not migrated
     ("idx_shots_player_team", "fct_shots_synced", "player_id, team_id"),
     # ── fct_action_values_synced — 2M+ rows ─────────────────────────────
     # AV-2, AV-3: action breakdown + player options (comp + team + player prefix)
