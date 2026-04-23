@@ -122,9 +122,7 @@ def ensure_dbt_env_vars() -> None:
             None,
         )
         if project_wh is None or not project_wh.id:
-            raise RuntimeError(
-                f"No SQL warehouse with name starting with {_PROJECT_WAREHOUSE_NAME_PREFIX!r}"
-            )
+            raise RuntimeError(f"No SQL warehouse with name starting with {_PROJECT_WAREHOUSE_NAME_PREFIX!r}")
         http_path = f"/sql/1.0/warehouses/{project_wh.id}"
         os.environ["DATABRICKS_HTTP_PATH"] = http_path
         logger.info("Resolved DATABRICKS_HTTP_PATH: %s (warehouse %s)", http_path, project_wh.name)
