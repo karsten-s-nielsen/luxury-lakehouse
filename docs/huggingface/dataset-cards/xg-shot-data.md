@@ -27,6 +27,16 @@ configs:
 
 Part of the (Right! Luxury!) Lakehouse soccer analytics platform.
 
+## ⚠️ Schema change (cut-over 2026-07-22)
+
+This dataset emits both legacy and canonical Kimball key columns side-by-side. The legacy `match_id` column will be removed on **2026-07-22** (90-day dual-column window opened at the PR 3 ship on 2026-04-22, per [ADR-011](https://github.com/karsten-s-nielsen/luxury-lakehouse/blob/main/docs/superpowers/adrs/ADR-011-unified-kimball-match-dimension.md)):
+
+| Legacy column | Canonical replacement | Notes |
+|---|---|---|
+| `match_id` | `match_key` | BIGINT Kimball surrogate; collision-free across providers |
+
+Both columns are populated during the window. Update consumer code to read `match_key` before the cut-over date; after cut-over the legacy `match_id` column is removed.
+
 ## Quick Start
 
 ```python
@@ -55,7 +65,8 @@ This dataset contains every shot from the StatsBomb and Wyscout open data collec
 | Column | Type | Description |
 |--------|------|-------------|
 | `shot_id` | `string` | Surrogate key (deterministic hash via `dbt_utils.generate_surrogate_key`) |
-| `match_id` | `Int64` | Match identifier |
+| `match_key` | `Int64` | **Canonical Kimball match FK** (ADR-011). BIGINT surrogate, collision-free across providers. |
+| `match_id` | `Int64` | LEGACY provider-native match identifier; sunset 2026-07-22 (see top-of-card). |
 | `competition_id` | `Int64` | Competition identifier (NULL for Wyscout) |
 | `season_id` | `Int64` | Season identifier (NULL for Wyscout) |
 | `player_id` | `Int64` | Player identifier |
@@ -172,7 +183,7 @@ If you use this dataset, please cite the data providers:
 ```bibtex
 @software{nielsen2026xgshotdata,
   title={xG Shot Data: StatsBomb + Wyscout Open Data Shot Features},
-  author={Nielsen, Karsten Skytt},
+  author={Nielsen, Karsten Skyt},
   year={2026},
   url={https://github.com/karsten-s-nielsen/luxury-lakehouse}
 }

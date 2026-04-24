@@ -548,6 +548,7 @@ def _upload_to_hf_hub(
     upload_logger.info("Published training dataset Parquet to %s", url)
 
     # Upload player_id_map.json as a separate file.
+    from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
     from ingestion.utils import resolve_hf_token
 
     hf_token = resolve_hf_token()
@@ -566,6 +567,18 @@ def _upload_to_hf_hub(
         token=hf_token,
     )
     upload_logger.info("Uploaded player_id_map.json to %s", url)
+
+    # Upload README alongside data (PR 4c).
+    readme_result = upload_hf_readme(
+        repo_id=_HF_DATASET_REPO,
+        readme_path=get_hf_card_path("scoutgpt-training-data.md", kind="dataset"),
+        hf_token=hf_token,
+    )
+    upload_logger.info(
+        "Uploaded README: %s (sha256=%s)",
+        readme_result["commit_url"],
+        readme_result["sha256"][:8],
+    )
 
 
 # ---------------------------------------------------------------------------

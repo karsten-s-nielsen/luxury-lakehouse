@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.13-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.14-py3-none-any.whl",
 #     "jax[cuda12]>=0.4.35",
 #     "numpy>=1.26.0",
 #     "pandas>=2.0.0",
@@ -406,22 +406,20 @@ def main() -> None:
         metadata = recorder.complete(metadata, row_count=n_rows)
         with open(str(Path(tmpdir) / "metadata.json"), "w") as f:
             json.dump(metadata, f, indent=2)
-        card = f"""---
-license: mit
-tags: [soccer, football, space-creation, pitch-control, obso, analytics]
-size_categories: [100K-1M]
----
-# Space Creation Values
-Per-player per-frame space creation metrics. **{n_rows:,} rows** across **{len(match_ids)} IDSSE matches**.
+        # Data + README uploaded separately (PR 4c shared-helper pattern):
+        # data payload via upload_folder; README from in-repo source of
+        # truth via upload_hf_readme. Per-run stats (n_rows, match count)
+        # live in metadata.json, which is still part of the data payload.
+        from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 
-## References
-- Fernandez & Bornn (2018). "Wide Open Spaces." MIT Sloan.
-- Spearman (2018). "Beyond Expected Goals." MIT Sloan.
-"""
-        with open(str(Path(tmpdir) / "README.md"), "w", encoding="utf-8") as f:
-            f.write(card)
         api.create_repo(OUTPUT_DATASET, repo_type="dataset", exist_ok=True, token=hf_token)
         api.upload_folder(folder_path=tmpdir, repo_id=OUTPUT_DATASET, repo_type="dataset", token=hf_token)
+        readme_result = upload_hf_readme(
+            repo_id=OUTPUT_DATASET,
+            readme_path=get_hf_card_path("space-creation-values.md", kind="dataset"),
+            hf_token=hf_token,
+        )
+        print(f"  Uploaded README: {readme_result['commit_url']} (sha256={readme_result['sha256'][:8]})")
     print(f"\n  Published: https://huggingface.co/datasets/{OUTPUT_DATASET}")
 
 

@@ -135,7 +135,7 @@ Outputs are published as the Delta table `{catalog}.dev_gold.fct_pausa_values` a
 ```bibtex
 @software{nielsen2026obsopausa,
   title={OBSO + PAUSA: Off-Ball Scoring Opportunity and Pass Timing on Open Tracking Data},
-  author={Nielsen, Karsten Skytt},
+  author={Nielsen, Karsten Skyt},
   year={2026},
   url={https://github.com/karsten-s-nielsen/luxury-lakehouse}
 }

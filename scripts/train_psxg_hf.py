@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.13-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.14-py3-none-any.whl",
 #     "numpy>=1.26.0",
 #     "pandas>=2.0.0",
 #     "pyarrow>=14.0.0",
@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -41,6 +42,7 @@ from sklearn.model_selection import train_test_split
 
 from analytics.goalkeeper import PSxGModel, predict_psxg, train_psxg_model
 from ingestion.hf_jobs_cost import HF_RATE_A10G_LARGE, HFJobsCostRecorder
+from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 
 logging.basicConfig(
     level=logging.INFO,
@@ -187,6 +189,21 @@ def publish_model(model: PSxGModel, metrics: dict[str, float | int]) -> None:
     )
     logger.info("Published model weights to https://huggingface.co/%s", OUTPUT_MODEL)
 
+    # PR 4c: upload model card alongside weights.
+    hf_token = os.environ.get("HF_TOKEN") or ""
+    if hf_token:
+        readme_result = upload_hf_readme(
+            repo_id=OUTPUT_MODEL,
+            readme_path=get_hf_card_path("psxg-model.md", kind="model"),
+            hf_token=hf_token,
+            repo_type="model",
+        )
+        logger.info(
+            "Uploaded model card: %s (sha256=%s)",
+            readme_result["commit_url"],
+            readme_result["sha256"][:8],
+        )
+
 
 def publish_predictions(shots_df: pd.DataFrame, model: PSxGModel) -> None:
     """Generate PSxG for all shots and publish predictions to HF Hub.
@@ -216,6 +233,20 @@ def publish_predictions(shots_df: pd.DataFrame, model: PSxGModel) -> None:
             repo_type="dataset",
         )
     logger.info("Published %d predictions to https://huggingface.co/datasets/%s", len(predictions), OUTPUT_PREDICTIONS)
+
+    # PR 4c: upload dataset card alongside predictions.
+    hf_token = os.environ.get("HF_TOKEN") or ""
+    if hf_token:
+        readme_result = upload_hf_readme(
+            repo_id=OUTPUT_PREDICTIONS,
+            readme_path=get_hf_card_path("psxg-predictions.md", kind="dataset"),
+            hf_token=hf_token,
+        )
+        logger.info(
+            "Uploaded dataset card: %s (sha256=%s)",
+            readme_result["commit_url"],
+            readme_result["sha256"][:8],
+        )
 
 
 # ---------------------------------------------------------------------------

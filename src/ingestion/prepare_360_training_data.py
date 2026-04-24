@@ -32,6 +32,8 @@ import time
 from typing import TYPE_CHECKING
 
 from ingestion.guards import FilterResult, timed_check
+from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
+from ingestion.utils import resolve_hf_token
 from shared.constants import IDENTIFIER_RE
 from workflows import workflow
 from workflows.exceptions import WorkflowSkippedError
@@ -508,6 +510,23 @@ def run_pipeline(
     # ------------------------------------------------------------------
     logger.info("Uploading training data to HF Hub dataset: %s", DATASET_REPO)
     dataset_url = _upload_to_hf_hub(volume_path, spark)
+
+    # ------------------------------------------------------------------
+    # 5. Upload README alongside data (PR 4c).
+    # ------------------------------------------------------------------
+    if not dataset_url.startswith("file://"):
+        hf_token = resolve_hf_token()
+        if hf_token:
+            readme_result = upload_hf_readme(
+                repo_id=DATASET_REPO,
+                readme_path=get_hf_card_path("football2vec-360-training-data.md", kind="dataset"),
+                hf_token=hf_token,
+            )
+            logger.info(
+                "Uploaded README: %s (sha256=%s)",
+                readme_result["commit_url"],
+                readme_result["sha256"][:8],
+            )
 
     logger.info("Pipeline complete. Dataset: %s", dataset_url)
     logger.info(

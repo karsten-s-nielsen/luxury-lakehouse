@@ -220,7 +220,7 @@ Model weights use the **safetensors** format &mdash; a tensor-only serialization
 ```bibtex
 @software{nielsen2026football2vec_360,
   title={Football2Vec 360-Enriched: Transformer + Deep Sets Player Embeddings},
-  author={Nielsen, Karsten Skytt},
+  author={Nielsen, Karsten Skyt},
   year={2026},
   url={https://github.com/karsten-s-nielsen/luxury-lakehouse}
 }

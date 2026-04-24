@@ -113,112 +113,16 @@ except Exception as e:
 
 # COMMAND ----------
 
-# Write dataset card README.md
-card = """\
----
-language: [en]
-license: mit
-task_categories: [tabular-regression]
-tags:
-  - sports-analytics
-  - soccer
-  - football
-  - obso
-  - pausa
-  - elastic-sync
-  - event-data
-  - idsse
-  - bundesliga
-size_categories:
-  - 1K-10K
-configs:
-  - config_name: events
-    data_files:
-      - split: train
-        path: "data/events/**/*.parquet"
-  - config_name: elastic_sync
-    data_files:
-      - split: train
-        path: "data/elastic_sync/**/*.parquet"
----
-
-# OBSO/PAUSA Input Data (IDSSE Events + ELASTIC Sync)
-
-Prerequisite datasets for computing OBSO value surfaces and PAUSA pass timing
-scores. Contains IDSSE Bundesliga event data and ELASTIC event-tracking
-synchronization results for 7 matches.
-
-Part of the [(Right! Luxury!) Lakehouse](https://huggingface.co/luxury-lakehouse)
-soccer analytics platform.
-
-## Datasets
-
-### Events (`data/events/`)
-
-DFL event data from 7 IDSSE Bundesliga matches. One row per event with position
-data. Coordinates are in DFL pitch-origin meters (x: 0-105, y: 0-68).
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `match_id` | string | Match identifier (`idsse_J03...`) |
-| `event_id` | string | Unique event identifier within match |
-| `event_type` | string | DFL event type (`Play`, `KickOff`, `TacklingGame`, etc.) |
-| `timestamp_seconds` | double | Seconds from period start |
-| `period` | int | Match half (1 or 2) |
-| `player_id` | string | DFL PersonId of acting player |
-| `team` | string | Team affiliation (`home` or `away`) |
-| `x` | double | Event x-coordinate (DFL pitch-origin meters, 0-105) |
-| `y` | double | Event y-coordinate (DFL pitch-origin meters, 0-68) |
-
-### ELASTIC Sync Results (`data/elastic_sync/`)
-
-Event-to-frame alignments produced by the ELASTIC algorithm (Kim et al. 2025).
-Maps each event to its best-matching tracking frame via ball acceleration and
-player-ball proximity features.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `match_id` | string | Match identifier (`idsse_J03...`) |
-| `event_id` | string | Event identifier (joins to events) |
-| `frame_id` | int | Best-matching tracking frame number |
-| `alignment_confidence` | double | Confidence score (0 to 1) |
-| `alignment_error_seconds` | double | Time error between event and aligned frame |
-
-## Coordinate Systems
-
-- **Events**: DFL pitch-origin meters (x: 0-105, y: 0-68). Transform to StatsBomb
-  120x80: `x_sb = x / 105.0 * 120.0`, `y_sb = y / 68.0 * 80.0`.
-- **Tracking** (separate dataset): Already in StatsBomb 120x80 at
-  `luxury-lakehouse/pitch-control-tracking` (IDSSE partition).
-- **Frame mapping**: `elastic_sync.frame_id` maps to tracking `frame` column.
-
-## Usage with OBSO Pipeline
-
-```python
-from datasets import load_dataset
-
-events = load_dataset("luxury-lakehouse/obso-pausa-inputs", "events")["train"]
-sync = load_dataset("luxury-lakehouse/obso-pausa-inputs", "elastic_sync")["train"]
-tracking = load_dataset("luxury-lakehouse/pitch-control-tracking",
-                        data_files="data/source_provider=idsse/**/*.parquet")["train"]
-```
-
-## References
-
-- Bassek et al. (2025). "An integrated dataset of spatiotemporal and event data
-  in elite soccer." Scientific Data, Nature. CC-BY 4.0.
-- Kim, H.S. et al. (2025). "ELASTIC: Event-Tracking Data Synchronization in Soccer
-  Without Annotated Event Locations." ECML-PKDD MLSA 2025. arXiv:2508.09238.
-
-## License
-
-MIT — computed from IDSSE open data (CC-BY 4.0).
-"""
-
-card_path = Path(events_vol) / "README.md"
-with open(str(card_path), "w", encoding="utf-8") as f:
-    f.write(card)
-print("  Dataset card written")
+# PR 4c: dataset card published via the shared helper from the in-repo
+# source of truth at docs/huggingface/dataset-cards/obso-pausa-inputs.md,
+# which lives at CARD_BASE below (Workspace path mirroring the lakehouse
+# repo). The prior inline-string card was deleted to eliminate drift
+# between this notebook and the in-repo markdown.
+CARD_BASE = "/Workspace/Users/karstenskyt@gmail.com/luxury-lakehouse/docs/huggingface/dataset-cards"
+card_src = Path(CARD_BASE) / "obso-pausa-inputs.md"
+card_dst = Path(events_vol) / "README.md"
+shutil.copy2(str(card_src), str(card_dst))
+print(f"  Dataset card copied from {card_src}")
 
 # Upload to HF Hub
 api.create_repo(repo_id=REPO_ID, repo_type="dataset", exist_ok=True, token=hf_token)

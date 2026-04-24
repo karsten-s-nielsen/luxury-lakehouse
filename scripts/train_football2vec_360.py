@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.13-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.14-py3-none-any.whl",
 #     "numpy>=1.26.0",
 #     "pandas>=2.0.0",
 #     "pyarrow>=14.0.0",
@@ -60,6 +60,7 @@ from train_football2vec_360_helpers import (
 from analytics.football2vec_360 import Football2Vec360Config, Football2Vec360Encoder
 from analytics.football2vec_transformer import TeamClassifierHead
 from ingestion.hf_jobs_cost import HF_RATE_A10G_LARGE, HFJobsCostRecorder
+from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 from shared.constants import mlflow_model_uri
 from workflows import workflow
 
@@ -520,6 +521,19 @@ def _save_checkpoint(
             repo_type="model",
             token=hf_token,
         )
+
+    # PR 4c: upload model card alongside weights.
+    readme_result = upload_hf_readme(
+        repo_id=OUTPUT_MODEL,
+        readme_path=get_hf_card_path("football2vec-360-model-card.md", kind="model"),
+        hf_token=hf_token,
+        repo_type="model",
+    )
+    logger.info(
+        "Uploaded model card: %s (sha256=%s)",
+        readme_result["commit_url"],
+        readme_result["sha256"][:8],
+    )
     logger.info("Saved checkpoint to %s/%s/", OUTPUT_MODEL, stage)
 
 
@@ -555,6 +569,18 @@ def _publish_embeddings(embeddings_df: pd.DataFrame, hf_token: str, stage: str) 
             token=hf_token,
             commit_message=f"Update 360 embeddings ({stage})",
         )
+
+    # PR 4c: upload dataset card alongside embeddings.
+    readme_result = upload_hf_readme(
+        repo_id=OUTPUT_EMBEDDINGS,
+        readme_path=get_hf_card_path("football2vec-360-embeddings.md", kind="dataset"),
+        hf_token=hf_token,
+    )
+    logger.info(
+        "Uploaded embeddings card: %s (sha256=%s)",
+        readme_result["commit_url"],
+        readme_result["sha256"][:8],
+    )
     logger.info("Published %d embeddings to %s", len(embeddings_df), OUTPUT_EMBEDDINGS)
 
 

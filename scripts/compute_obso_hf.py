@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.13-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.14-py3-none-any.whl",
 #     "jax[cuda12]>=0.4.35",
 #     "numpy>=1.26.0",
 #     "pandas>=2.0.0",
@@ -684,94 +684,19 @@ def main() -> None:
         with open(str(Path(tmpdir) / "metadata.json"), "w") as f:
             json.dump(metadata, f, indent=2)
 
-        # Dataset card
-        card = f"""---
-license: mit
-tags:
-  - soccer
-  - football
-  - obso
-  - pausa
-  - pitch-control
-  - analytics
-  - idsse
-  - bundesliga
-size_categories:
-  - 1K-10K
----
-
-# OBSO & PAUSA Value Surfaces
-
-Off-Ball Scoring Opportunity (OBSO) surfaces and PAUSA raw scores computed via
-JAX-accelerated pitch control on A10G GPU from **{n_passes:,} passes** across
-**{len(match_ids)} IDSSE Bundesliga matches**.
-
-## Method
-
-- **OBSO**: PPCF x Transition(ball->cell) x EPV(cell) per Spearman (2018) and Fernandez & Bornn (2018)
-- **PAUSA**: Temporal judgment x Spatial selection per Lee et al. (MIT Sloan 2026)
-- **Ghost trajectories**: Constant-velocity extrapolation, {WINDOW_BEFORE_S}s before to {WINDOW_AFTER_S}s after event
-- **Event-frame alignment**: ELASTIC algorithm (Kim et al. 2025) via `obso-pausa-inputs` dataset
-- **Grid resolution**: {GRID_NX} x {GRID_NY} cells on StatsBomb 120x80 coordinate system
-
-## Contents
-
-- `data/pausa_raw_scores.parquet` -- Per-pass scalar metrics ({n_passes:,} rows)
-- `metadata.json` -- Computation parameters, timing, and data provenance
-
-## Data Fields
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `match_id` | string | Match identifier (`idsse_J03...`) |
-| `pass_id` | string | Composite key: `match_id` + `event_id` |
-| `event_id` | string | DFL event identifier |
-| `player_id` | string | Passer's DFL PersonId |
-| `team` | string | Passer's team (`home` / `away`) |
-| `period` | int | Match half (1 or 2) |
-| `timestamp_seconds` | double | Event time from period start |
-| `frame_id` | int | Aligned tracking frame (via ELASTIC) |
-| `ball_x` | double | Ball x at release (StatsBomb 120-yard scale) |
-| `ball_y` | double | Ball y at release (StatsBomb 80-yard scale) |
-| `receiver_x` | double | Optimal receiver x position |
-| `receiver_y` | double | Optimal receiver y position |
-| `actual_obso` | double | OBSO at ball release moment and position |
-| `peak_obso` | double | Max OBSO across ghost trajectory window |
-| `optimal_obso` | double | Max OBSO across all off-ball teammates |
-| `temporal_judgment` | double | actual / peak (timing quality, 0-1) |
-| `spatial_selection` | double | actual / optimal (target quality, 0-1) |
-| `alignment_confidence` | double | ELASTIC alignment confidence (0-1) |
-
-## Input Data
-
-- **Tracking**: [`luxury-lakehouse/pitch-control-tracking`](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking)
-  (IDSSE partition)
-- **Events + ELASTIC sync**: [`luxury-lakehouse/obso-pausa-inputs`](https://huggingface.co/datasets/luxury-lakehouse/obso-pausa-inputs)
-
-## References
-
-- Spearman (2018). "Beyond Expected Goals." MIT Sloan.
-- Fernandez & Bornn (2018). "Wide Open Spaces." MIT Sloan.
-- Lee, Jo, Hong, Bauer & Ko (2026). "Valuing La Pausa." MIT Sloan 2026.
-- Kim et al. (2025). "ELASTIC." ECML-PKDD MLSA 2025. arXiv:2508.09238.
-- Bassek et al. (2025). "An integrated dataset of spatiotemporal and event data
-  in elite soccer." Scientific Data, Nature.
-
-## License
-
-MIT -- computed from IDSSE open data (CC-BY 4.0).
-"""
-        with open(str(Path(tmpdir) / "README.md"), "w", encoding="utf-8") as f:
-            f.write(card)
+        # Per-run stats (n_passes, match count) live in metadata.json; the
+        # README is the static schema doc published from the in-repo source
+        # of truth at docs/huggingface/dataset-cards/obso-pausa-values.md via
+        # the PR 4c shared helper.
+        from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 
         api.create_repo(OUTPUT_DATASET, repo_type="dataset", exist_ok=True, token=hf_token)
-        # Upload individual files — upload_folder fails on xet storage backend
-        # in HF Jobs. upload_file is reliable (proven by CostEstimateHook and
-        # all training scripts in this repo).
+        # Upload data files individually (upload_folder fails on xet storage
+        # backend in HF Jobs; upload_file is reliable — proven by
+        # CostEstimateHook and all training scripts in this repo).
         for local_path, repo_path in [
             (str(data_dir / "pausa_raw_scores.parquet"), "data/pausa_raw_scores.parquet"),
             (str(Path(tmpdir) / "metadata.json"), "metadata.json"),
-            (str(Path(tmpdir) / "README.md"), "README.md"),
         ]:
             api.upload_file(
                 path_or_fileobj=local_path,
@@ -780,6 +705,12 @@ MIT -- computed from IDSSE open data (CC-BY 4.0).
                 repo_type="dataset",
                 token=hf_token,
             )
+        readme_result = upload_hf_readme(
+            repo_id=OUTPUT_DATASET,
+            readme_path=get_hf_card_path("obso-pausa-values.md", kind="dataset"),
+            hf_token=hf_token,
+        )
+        print(f"  Uploaded README: {readme_result['commit_url']} (sha256={readme_result['sha256'][:8]})")
 
     print(f"\n  Published: https://huggingface.co/datasets/{OUTPUT_DATASET}")
     print(f"  Passes processed: {n_passes}")

@@ -307,6 +307,23 @@ def _upload_to_hf_hub(
         return
     upload_logger.info("Published training dataset to %s", url)
 
+    # Upload README alongside data (PR 4c).
+    from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
+    from ingestion.utils import resolve_hf_token
+
+    hf_token = resolve_hf_token()
+    if hf_token:
+        readme_result = upload_hf_readme(
+            repo_id=_HF_DATASET_REPO,
+            readme_path=get_hf_card_path("football2vec-training-data.md", kind="dataset"),
+            hf_token=hf_token,
+        )
+        upload_logger.info(
+            "Uploaded README: %s (sha256=%s)",
+            readme_result["commit_url"],
+            readme_result["sha256"][:8],
+        )
+
 
 # ---------------------------------------------------------------------------
 # Entry point

@@ -127,7 +127,7 @@ publish_dataset(
         FROM {CATALOG}.{GOLD_SCHEMA}.fct_action_values
     """,  # noqa: S608
     repo_name="spadl-vaep-action-values",
-    card_path=f"{CARD_BASE}/spadl-vaep.md",
+    card_path=f"{CARD_BASE}/spadl-vaep-action-values.md",
     partition_cols=["data_source"],
 )
 
@@ -152,7 +152,7 @@ publish_dataset(
         FROM {CATALOG}.{GOLD_SCHEMA}.fct_passes
     """,  # noqa: S608
     repo_name="line-breaking-passes",
-    card_path=f"{CARD_BASE}/line-breaking.md",
+    card_path=f"{CARD_BASE}/line-breaking-passes.md",
     partition_cols=["data_source"],
 )
 
@@ -166,7 +166,7 @@ publish_dataset(
 print("Publishing Player Embeddings ...")
 
 _emb_repo = f"{HF_ORG}/football2vec-player-embeddings"
-_emb_card = f"{CARD_BASE}/player-embeddings.md"
+_emb_card = f"{CARD_BASE}/football2vec-player-embeddings.md"
 _emb_vol = f"{_VOLUME_STAGE}/football2vec-player-embeddings"
 
 try:
@@ -249,7 +249,7 @@ publish_dataset(
           ON t.tracking_id = pc.tracking_id
     """,  # noqa: S608
     repo_name="pitch-control-tracking",
-    card_path=f"{CARD_BASE}/pitch-control.md",
+    card_path=f"{CARD_BASE}/pitch-control-tracking.md",
     partition_cols=["source_provider"],
 )
 
@@ -284,7 +284,7 @@ publish_dataset(
           AND e.shot_freeze_frame IS NOT NULL
     """,  # noqa: S608
     repo_name="xg-freeze-frame-data",
-    card_path=f"{CARD_BASE}/xg-freeze-frame.md",
+    card_path=f"{CARD_BASE}/xg-freeze-frame-data.md",
     partition_cols=["competition_id"],
 )
 
@@ -301,7 +301,7 @@ from pathlib import Path as _Path  # noqa: E402
 
 _WORKSPACE_ROOT = "/Workspace/Users/karstenskyt@gmail.com/luxury-lakehouse"
 
-_model_card_src = _Path(f"{_WORKSPACE_ROOT}/docs/huggingface/model-card.md")
+_model_card_src = _Path(f"{_WORKSPACE_ROOT}/docs/huggingface/model-cards/football2vec-statsbomb-wyscout.md")
 _model_repo = f"{HF_ORG}/football2vec-statsbomb-wyscout"
 _model_tmp = _tempfile.mkdtemp(prefix="hf_model_card_", dir=_LOCAL_TMP)
 try:

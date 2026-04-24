@@ -126,7 +126,7 @@ If you use this dataset, please cite the SPADL framework and the Football2Vec v2
 ```bibtex
 @software{nielsen2026football2vec_v2,
   title={Football2Vec v2: Transformer Player Embeddings with Adversarial Team Debiasing},
-  author={Nielsen, Karsten Skytt},
+  author={Nielsen, Karsten Skyt},
   year={2026},
   url={https://github.com/karsten-s-nielsen/luxury-lakehouse}
 }
