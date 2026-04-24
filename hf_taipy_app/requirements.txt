@@ -158,7 +158,7 @@ markupsafe==3.0.3
     #   werkzeug
 marshmallow==3.21.2
     # via taipy-rest
-matplotlib==3.10.8
+matplotlib==3.10.9
     # via
     #   mplsoccer
     #   seaborn
