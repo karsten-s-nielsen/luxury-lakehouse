@@ -61,7 +61,11 @@ with base as (
         ms.home_team_id,
         ms.away_team_id
     from {{ ref('fct_action_values') }} av
-    inner join {{ ref('fct_match_summary') }} ms using (match_id)
+    -- fct_match_summary was migrated to match_key in PR 2 (ADR-011) and no
+    -- longer has match_id. fct_action_values gained match_key in PR 4b; join
+    -- on the Kimball surrogate. Downstream CTEs still grain on match_id,
+    -- which remains on the base rows via av.match_id (selected above).
+    inner join {{ ref('fct_match_summary') }} ms using (match_key)
     where av.team_id is not null
       and av.game_state is not null
 

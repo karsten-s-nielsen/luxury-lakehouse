@@ -57,7 +57,7 @@ Cycle started 2026-04-20. Architectural basis: [ADR-011](docs/superpowers/adrs/A
 |----|-------|--------|
 | 3 | Shots + xG migration — `int_unified_shots`, `fct_shots`, `fct_xg_predictions`, Taipy shot readers | Planned |
 | 4 | Action values + VAEP migration — `int_running_score`, `fct_action_values`, SPADL/VAEP ingestion guard updates | Planned |
-| 5 | Player stats + embeddings migration | Planned |
+| 5 | Player stats + embeddings migration + **Kimball-conformed `dim_teams` / `dim_players`** (`team_key` + `player_key` BIGINT surrogates keyed on `(provider, native_team_id)` / `(provider, native_player_id)`; parse Wyscout `teams_data_parsed` into silver; surface IDSSE DFL team refs; synthesize Metrica team identity; migrate every `team_id` / `player_id` fct_* column via dim joins; 90-day dual-column window like PR 2/3/4). **Unblocks the suppressed `fct_funnel_stages_agg.opponent_team_id` not_null test** from PR 4b (currently warn-severity for Wyscout's 7,587 NULL opponents). | Planned |
 | 6 | Defensive + goalkeeper + pitch control migration | Planned |
 | 7 | Tracking + formations + pausa + tail facts migration | Planned |
 | 8 | Scripts + final cleanup + doc sweep (remove any transitional compat shims, close out migration in ARCHITECTURE.md) | Planned |
