@@ -2,6 +2,24 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+## Amendment — 2026-04-24 scope expansion
+
+During Phase 0 pre-flight verification the plan's assumptions about the starting state were shown to be materially wrong, and the user chose the best-practice path over the narrower four-card scope. What actually shipped:
+
+- **`docs/huggingface/dataset-cards/` was not empty** — it already held 16 cards from PR #35 (2026-04-03 "Phase 18 HF Hub Expansion") and PR #95 (2026-04-07 silly-kicks migration). Two needed renames to match HF repo basenames: `spadl-vaep.md` → `spadl-vaep-action-values.md`, `xg-freeze-frame.md` → `xg-freeze-frame-data.md`. Three more renames came from the expanded scope: `line-breaking.md` → `line-breaking-passes.md`, `pitch-control.md` → `pitch-control-tracking.md`, `player-embeddings.md` → `football2vec-player-embeddings.md`. Legacy `docs/huggingface/model-card.md` was removed and the duplicate `model-cards/football2vec-v1.md` was renamed to `model-cards/football2vec-statsbomb-wyscout.md` (matching the HF repo).
+- **`scripts/publish_hf_org_card.py` did not exist.** The plan described a refactor; what actually landed is a new `scripts/publish_hf_cards.py` (with `--org`, `--orphans`, and `--name --kind` modes) since the org-card push was previously a manual web-UI paste step.
+- **Scope expanded from 4 cards / 4 publishers to 17 dataset cards + 17 model cards + org card.** Seven missing cards were authored (3 dataset: `scoutgpt-training-data.md`, `pining-for-the-data.md`, `football2vec-statsbomb-wyscout.md`; 4 model: `scoutgpt-variant-rope.md`, `scoutgpt-variant-learnable.md`, `scoutgpt-l2-harvest.md`, `football2vec-l2-harvest.md`). The helper's `repo_type` literal was widened from `{"dataset", "space"}` to `{"dataset", "model", "space"}` to support model cards.
+- **Helper surface widened.** `get_hf_card_path(name, *, kind=Literal["dataset","model"])` replaces the dataset-only resolver. The wheel force-include bundles `docs/huggingface/dataset-cards/`, `docs/huggingface/model-cards/`, and `docs/huggingface/org-card.md` (path-preserving, sibling of `ingestion/` in site-packages).
+- **All publishers wired.** 3 PEP 723 dataset publishers + 4 workflow-task dataset publishers (`upload_volume_to_hf_hub` callers) + 4 PEP 723 compute scripts (previously had inline README strings — removed as drift sources) + 7 training scripts (models) + 2 notebook-based publishers (`publish_datasets.py` already copied in-repo cards; `publish_obso_data.py` had its inline card replaced with a `shutil.copy2` from the in-repo source).
+- **Parity test landed**: `src/tests/test_hf_publish_parity.py` queries HF Hub and asserts every luxury-lakehouse dataset / model has a matching in-repo card (and vice versa). Skips offline.
+- **3 dual-column datasets documented with 2026-07-22 sunset blocks**: `spadl-vaep-action-values`, `statsbomb-shots-on-target`, and `xg-shot-data` (the latter was missed by the original plan's assumption that it was a "uniform rename").
+- **Wheel bumped 0.3.13 → 0.3.14**; `bump_wheel.py` synced 19 consumers.
+- **Single squash-merge commit** per user preference (original plan's D3 proposed two commits).
+
+The original plan text below is retained for historical reference. Where it conflicts with this amendment (e.g., "4 dataset cards", "refactor publish_hf_org_card.py"), this amendment takes precedence.
+
+---
+
 **Goal:** Add an in-repo source of truth for HuggingFace dataset READMEs under `docs/huggingface/dataset-cards/`, a shared `src/ingestion/hf_publish.py` helper that uploads any README (dataset OR org Space) to HF Hub, and wire the helper into all four existing publish scripts (`publish_spadl_vaep_hf.py`, `publish_xg_shots_hf.py`, `publish_freeze_frame_hf.py`, `publish_hf_org_card.py`). Closes the PR 3 deferral where per-dataset READMEs drift between in-repo content and what's live on HF Hub.
 
 **Architecture:** A single `upload_hf_readme(repo_id, readme_path, hf_token, repo_type)` function in `src/ingestion/hf_publish.py` handles both `repo_type="dataset"` and `repo_type="space"`. Each `publish_*_hf.py` script calls it at the end of `main()` after the data upload completes — so if data upload fails, README doesn't land either (atomic publish discipline). `scripts/publish_hf_org_card.py` refactors from its current ad-hoc `HfApi.upload_file` call to use the shared helper, unifying the four HF-publish code paths. Dataset cards live under `docs/huggingface/dataset-cards/<repo-name>.md` with the same YAML frontmatter convention used by `docs/huggingface/model-cards/` (already established in the repo).

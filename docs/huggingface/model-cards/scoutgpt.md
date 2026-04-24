@@ -140,7 +140,7 @@ No files published yet. On release:
 ```bibtex
 @software{nielsen2026scoutgpt,
   title={ScoutGPT: Player-Conditioned Causal Decoder on Open Event Data (Development)},
-  author={Nielsen, Karsten Skytt},
+  author={Nielsen, Karsten Skyt},
   year={2026},
   url={https://github.com/karsten-s-nielsen/luxury-lakehouse}
 }

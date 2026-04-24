@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.13-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.14-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -54,6 +54,7 @@ from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
 
 from ingestion.hf_jobs_cost import HF_RATE_CPU_BASIC, HFJobsCostRecorder
+from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 from shared.constants import mlflow_model_uri
 from workflows import workflow
 
@@ -550,6 +551,19 @@ def main() -> None:
         path_in_repo="metrics.json",
         repo_id=MODEL_REPO,
         token=hf_token,
+    )
+
+    # PR 4c: upload model card alongside weights.
+    readme_result = upload_hf_readme(
+        repo_id=MODEL_REPO,
+        readme_path=get_hf_card_path("vaep-model.md", kind="model"),
+        hf_token=hf_token,
+        repo_type="model",
+    )
+    logger.info(
+        "Uploaded model card: %s (sha256=%s)",
+        readme_result["commit_url"],
+        readme_result["sha256"][:8],
     )
 
     logger.info("Published: https://huggingface.co/%s", MODEL_REPO)

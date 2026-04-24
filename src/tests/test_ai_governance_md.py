@@ -55,7 +55,7 @@ WORKFLOW_TO_MODEL_CARD: dict[str, str] = {
     "wf-off-ball-xt": "off-ball-xt.md",
     "wf-obso-pausa": "obso-pausa.md",
     "wf-space-creation": "space-creation.md",
-    "wf-football2vec": "football2vec-v1.md",
+    "wf-football2vec": "football2vec-statsbomb-wyscout.md",
     "wf-football2vec-v2": "football2vec-v2-model-card.md",
     "wf-football2vec-360": "football2vec-360-model-card.md",
     "wf-scoutgpt": "scoutgpt.md",

@@ -94,7 +94,7 @@ See the [`AI_GOVERNANCE.md`](https://github.com/karsten-s-nielsen/luxury-lakehou
 ```bibtex
 @software{nielsen2026football2vec_v1,
   title={Football2Vec v1: Doc2Vec Player Embeddings on StatsBomb and Wyscout Open Data (DEPRECATED)},
-  author={Nielsen, Karsten Skytt},
+  author={Nielsen, Karsten Skyt},
   year={2026},
   url={https://github.com/karsten-s-nielsen/luxury-lakehouse}
 }

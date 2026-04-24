@@ -163,7 +163,7 @@ Model parameters use **JSON serialization** &mdash; a text-only format with zero
 ```bibtex
 @software{nielsen2026psxg,
   title={PSxG Model: Post-Shot Expected Goals for Goalkeeper Evaluation},
-  author={Nielsen, Karsten Skytt},
+  author={Nielsen, Karsten Skyt},
   year={2026},
   url={https://github.com/karsten-s-nielsen/luxury-lakehouse}
 }

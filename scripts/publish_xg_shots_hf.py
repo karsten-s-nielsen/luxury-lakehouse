@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.13-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.14-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -67,6 +67,8 @@ from pathlib import Path
 
 import pandas as pd
 import requests
+
+from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 
 # ---------------------------------------------------------------------------
 # Structured logging
@@ -458,6 +460,20 @@ def main() -> None:
     # ------------------------------------------------------------------
     logger.info("Publishing shot data to HF Hub: %s", DATASET_REPO)
     dataset_url = publish_to_hf_hub(shots_df, hf_token)
+
+    # ------------------------------------------------------------------
+    # 5. Publish README alongside data (PR 4c)
+    # ------------------------------------------------------------------
+    readme_result = upload_hf_readme(
+        repo_id=DATASET_REPO,
+        readme_path=get_hf_card_path("xg-shot-data.md", kind="dataset"),
+        hf_token=hf_token,
+    )
+    logger.info(
+        "Uploaded README: %s (sha256=%s)",
+        readme_result["commit_url"],
+        readme_result["sha256"][:8],
+    )
 
     logger.info("Pipeline complete. Dataset: %s", dataset_url)
     logger.info(

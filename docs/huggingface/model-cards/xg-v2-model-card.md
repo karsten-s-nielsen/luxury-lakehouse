@@ -305,7 +305,7 @@ If you use this model, please cite the Deep Sets architecture and the MC Dropout
 ```bibtex
 @software{nielsen2026xgv2,
   title={xG v2: Context-Aware Expected Goals with Freeze-Frame Set Encoding},
-  author={Nielsen, Karsten Skytt},
+  author={Nielsen, Karsten Skyt},
   year={2026},
   url={https://github.com/karsten-s-nielsen/luxury-lakehouse}
 }

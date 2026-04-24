@@ -52,6 +52,11 @@ All public artifacts are hosted entirely within the HF ecosystem.
 | [off-ball-xt](https://huggingface.co/luxury-lakehouse/off-ball-xt) | Heuristic xT &times; pitch-control attribution (Singh 2018, Spearman 2017) | Method card &mdash; attributes attacking threat to off-ball players |
 | [obso-pausa-method](https://huggingface.co/luxury-lakehouse/obso-pausa-method) | OBSO surface + PAUSA pass timing (Spearman 2018; Fern&aacute;ndez &amp; Bornn 2018; Lee et al. 2026) | Method card &mdash; pass-timing counterfactuals on GPU-accelerated OBSO |
 | [space-creation-method](https://huggingface.co/luxury-lakehouse/space-creation-method) | Counterfactual pitch control (Fern&aacute;ndez &amp; Bornn 2018) | Method card &mdash; per-player EPV-weighted space-creation value |
+| [scoutgpt](https://huggingface.co/luxury-lakehouse/scoutgpt) | Transformer decoder with per-action player conditioning (Hong et al. 2025) | Sequence-aware player embedding model &mdash; captures tempo + build-up patterns |
+| [scoutgpt-variant-rope](https://huggingface.co/luxury-lakehouse/scoutgpt-variant-rope) | ScoutGPT ablation: RoPE position encoding (Su et al. 2021) | Research artefact &mdash; rope-scoutgpt A/B cycle 2026-04-22 |
+| [scoutgpt-variant-learnable](https://huggingface.co/luxury-lakehouse/scoutgpt-variant-learnable) | ScoutGPT ablation: learnable absolute positions (Vaswani et al. 2017 baseline) | Research artefact &mdash; A/B comparison baseline |
+| [scoutgpt-l2-harvest](https://huggingface.co/luxury-lakehouse/scoutgpt-l2-harvest) | OpenEvolve L2 seed-program evaluations (metrics.json per seed) | Research artefact &mdash; evolve-engine audit trail |
+| [football2vec-l2-harvest](https://huggingface.co/luxury-lakehouse/football2vec-l2-harvest) | OpenEvolve L2 seed-program evaluations for Football2Vec v2 | Research artefact &mdash; evolve-engine audit trail |
 
 All model serialization uses **JSON envelopes** &mdash; zero pickle files (banned by project security policy). Every model card above carries an **EU AI Act &mdash; Intended Use and Non-Use** stanza per the project's [`AI_GOVERNANCE.md`](https://github.com/karsten-s-nielsen/luxury-lakehouse/blob/main/AI_GOVERNANCE.md) gap analysis (SEC1, April 2026).
 
@@ -59,7 +64,7 @@ All model serialization uses **JSON envelopes** &mdash; zero pickle files (banne
 
 | Dataset | Scale | Description |
 |---------|-------|-------------|
-| [spadl-vaep-action-values](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values) | ~9.5M actions | Per-action offensive/defensive VAEP valuations |
+| [spadl-vaep-action-values](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values) | ~9.5M actions | Per-action offensive/defensive VAEP valuations. **Dual-column schema through 2026-07-22** &mdash; `match_id` / `competition_id` sunset then; migrate consumers to `match_key` / `competition_key` per [ADR-011](https://github.com/karsten-s-nielsen/luxury-lakehouse/blob/main/docs/superpowers/adrs/ADR-011-unified-kimball-match-dimension.md). |
 | [line-breaking-passes](https://huggingface.co/datasets/luxury-lakehouse/line-breaking-passes) | ~5M passes | All passes with defensive line-breaking labels via Ward clustering on 360 freeze frames |
 | [football2vec-player-embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings) | 114K vectors | Pre-computed behavioral (128-d transformer) + statistical (13-d) player vectors |
 | [football2vec-training-data](https://huggingface.co/datasets/luxury-lakehouse/football2vec-training-data) | ~114K sequences | Tokenized SPADL action sequences for transformer training |
@@ -69,14 +74,15 @@ All model serialization uses **JSON envelopes** &mdash; zero pickle files (banne
 | [obso-pausa-values](https://huggingface.co/datasets/luxury-lakehouse/obso-pausa-values) | ~3,500 passes | PAUSA pass timing scores with OBSO temporal/spatial decomposition |
 | [obso-trained-grids](https://huggingface.co/datasets/luxury-lakehouse/obso-trained-grids) | 8 competitions + global | Data-driven ball reachability (100&times;64) + EPV (50&times;32) grids for OBSO |
 | [xg-freeze-frame-data](https://huggingface.co/datasets/luxury-lakehouse/xg-freeze-frame-data) | 137K player rows | StatsBomb 360 freeze-frame player positions for xG v2 set encoder |
-| [xg-shot-data](https://huggingface.co/datasets/luxury-lakehouse/xg-shot-data) | 131K shots | Tabular shot features from StatsBomb + Wyscout for xG model training |
+| [xg-shot-data](https://huggingface.co/datasets/luxury-lakehouse/xg-shot-data) | 131K shots | Tabular shot features from StatsBomb + Wyscout for xG model training. **Dual-column schema through 2026-07-22** &mdash; legacy `match_id` sunset then; migrate to `match_key`. |
 | [space-creation-values](https://huggingface.co/datasets/luxury-lakehouse/space-creation-values) | 875K player-frames | Per-player space creation/destruction via differential OBSO (Fernandez &amp; Bornn 2018) |
-| [statsbomb-shots-on-target](https://huggingface.co/datasets/luxury-lakehouse/statsbomb-shots-on-target) | ~15K shots | On-target shots with goalmouth coordinates for PSxG training |
+| [statsbomb-shots-on-target](https://huggingface.co/datasets/luxury-lakehouse/statsbomb-shots-on-target) | ~15K shots | On-target shots with goalmouth coordinates for PSxG training. **Dual-column schema through 2026-07-22** &mdash; legacy `match_id` sunset then; migrate to `match_key`. |
 | [psxg-predictions](https://huggingface.co/datasets/luxury-lakehouse/psxg-predictions) | ~15K shots | Per-shot PSxG probabilities from logistic model |
 | [football2vec-360-training-data](https://huggingface.co/datasets/luxury-lakehouse/football2vec-360-training-data) | ~2M actions | SPADL action sequences with 360 freeze frame context |
 | [football2vec-statsbomb-wyscout](https://huggingface.co/datasets/luxury-lakehouse/football2vec-statsbomb-wyscout) | 114K vectors | Per-match v2 transformer (128-dim) raw embeddings with adversarial competition debiasing |
 | [football2vec-360-embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-360-embeddings) | ~4K players | 144-dim player embeddings from 360-enriched model |
 | [scoutgpt-training-data](https://huggingface.co/datasets/luxury-lakehouse/scoutgpt-training-data) | 894K episodes | SPADL possession episodes with per-action player attribution (Hong et al. 2025) |
+| [pining-for-the-data](https://huggingface.co/datasets/luxury-lakehouse/pining-for-the-data) | 10 matches | SkillCorner open tracking data (V3 format) redistributed under MIT |
 
 ### Interactive Spaces
 

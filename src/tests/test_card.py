@@ -137,7 +137,7 @@ FULL_CARD = textwrap.dedent("""\
       freshness_sla_hours: 168
 
     links:
-      model_card: docs/huggingface/model-card.md
+      model_card: docs/huggingface/model-cards/football2vec-statsbomb-wyscout.md
       dataset_cards:
         - docs/huggingface/statsbomb-spadl-card.md
       source_code:
@@ -262,7 +262,7 @@ def test_full_card_monitoring() -> None:
 def test_full_card_links() -> None:
     card = WorkflowCard.from_yaml_string(FULL_CARD)
     assert card.links is not None
-    assert card.links.model_card == "docs/huggingface/model-card.md"
+    assert card.links.model_card == "docs/huggingface/model-cards/football2vec-statsbomb-wyscout.md"
     assert len(card.links.source_code) == 2
     assert card.links.hf_model == "https://huggingface.co/luxury-lakehouse/xg-model"
 

@@ -4,7 +4,7 @@
 
 This guide covers how to use the pre-trained football2vec models (v1 Doc2Vec and v2 transformer), retrain on your own data, and set up your own Hugging Face org for publishing.
 
-> **See also:** [v2 Model card](huggingface/model-cards/football2vec-v2-model-card.md) (source of truth for the [HF v2 model page](https://huggingface.co/luxury-lakehouse/football2vec-v2)), [v1 Model card](huggingface/model-card.md) (source of truth for the [HF v1 model page](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout)), and [Org card](huggingface/org-card.md) (source of truth for the [HF org page](https://huggingface.co/luxury-lakehouse)).
+> **See also:** [v2 Model card](huggingface/model-cards/football2vec-v2-model-card.md) (source of truth for the [HF v2 model page](https://huggingface.co/luxury-lakehouse/football2vec-v2)), [v1 Model card](huggingface/model-cards/football2vec-statsbomb-wyscout.md) (source of truth for the [HF v1 model page](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout)), and [Org card](huggingface/org-card.md) (source of truth for the [HF org page](https://huggingface.co/luxury-lakehouse)).
 
 ---
 

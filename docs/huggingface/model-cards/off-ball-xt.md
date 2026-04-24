@@ -120,7 +120,7 @@ Outputs are persisted as the Delta table `{catalog}.bronze.off_ball_xt_results`.
 ```bibtex
 @software{nielsen2026offballxt,
   title={Off-Ball Expected Threat: Attribution via Pitch Control and xT on Open Tracking Data},
-  author={Nielsen, Karsten Skytt},
+  author={Nielsen, Karsten Skyt},
   year={2026},
   url={https://github.com/karsten-s-nielsen/luxury-lakehouse}
 }

@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.13-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.14-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -46,6 +46,8 @@ from typing import Any
 
 import torch
 from huggingface_hub import HfApi
+
+from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 
 logging.basicConfig(
     format='{"time":"%(asctime)s","level":"%(levelname)s","module":"%(module)s","message":"%(message)s"}',
@@ -202,6 +204,19 @@ def main() -> None:
         "variants": results_sorted,
     }
     _upload_json(api, hf_token, combined, "results.json")
+
+    # PR 4c: upload model card alongside harvest results.
+    readme_result = upload_hf_readme(
+        repo_id=RESULTS_REPO,
+        readme_path=get_hf_card_path("scoutgpt-l2-harvest.md", kind="model"),
+        hf_token=hf_token,
+        repo_type="model",
+    )
+    logger.info(
+        "Uploaded harvest card: %s (sha256=%s)",
+        readme_result["commit_url"],
+        readme_result["sha256"][:8],
+    )
 
     logger.info("Harvest complete. Variants evaluated: %d", len(results))
     for r in results_sorted:

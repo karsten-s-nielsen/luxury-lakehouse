@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.13-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.14-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -365,60 +365,14 @@ def main() -> None:
         with open(str(Path(tmpdir) / "metadata.json"), "w") as f:
             json.dump(metadata, f, indent=2)
 
-        # Dataset card
-        card = """---
-license: mit
-tags:
-  - soccer
-  - football
-  - expected-threat
-  - xT
-  - analytics
-size_categories:
-  - n<1K
----
-
-# Expected Threat (xT) Grids
-
-Data-driven xT grids computed via Markov chain value iteration from SPADL action data.
-
-## Method
-
-Karun Singh (2018) "Introducing Expected Threat (xT)" — 12x8 grid, SPADL 105x68m coordinates.
-Value iteration converges to the probability that possession starting in each zone leads to a goal.
-
-## Contents
-
-- `data/grids.parquet` — All grids (per-competition + global) in long format
-- `data/xt_grid_global.csv` — Global grid CSV (dbt seed format)
-- `metadata.json` — Computation parameters and statistics
-
-## Columns (grids.parquet)
-
-| Column | Type | Description |
-|--------|------|-------------|
-| zone_x | int | X zone index (0-11, attacking direction) |
-| zone_y | int | Y zone index (0-7, pitch width) |
-| xt_value | float | Expected threat value |
-| competition_id | string | Competition ID or "global" |
-
-## Usage
-
-```python
-import pandas as pd
-from huggingface_hub import hf_hub_download
-
-path = hf_hub_download("luxury-lakehouse/expected-threat-grids", "data/grids.parquet", repo_type="dataset")
-grids = pd.read_parquet(path)
-global_grid = grids[grids["competition_id"] == "global"]
-```
-
-## License
-
-MIT — derived from StatsBomb and Wyscout open data via SPADL.
-"""
-        with open(str(Path(tmpdir) / "README.md"), "w", encoding="utf-8") as f:
-            f.write(card)
+        # Dataset card and data are published via two separate calls:
+        # (1) upload_folder for the data payload (parquet + metadata.json),
+        # (2) upload_hf_readme for the README from the in-repo source of
+        #     truth at ``docs/huggingface/dataset-cards/expected-threat-grids.md``.
+        # The shared helper (PR 4c) eliminated the inline-README pattern that
+        # previously caused drift between this script's string literal and
+        # the in-repo markdown.
+        from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 
         api.create_repo(OUTPUT_DATASET, repo_type="dataset", exist_ok=True, token=hf_token)
         api.upload_folder(
@@ -427,6 +381,12 @@ MIT — derived from StatsBomb and Wyscout open data via SPADL.
             repo_type="dataset",
             token=hf_token,
         )
+        readme_result = upload_hf_readme(
+            repo_id=OUTPUT_DATASET,
+            readme_path=get_hf_card_path("expected-threat-grids.md", kind="dataset"),
+            hf_token=hf_token,
+        )
+        print(f"  Uploaded README: {readme_result['commit_url']} (sha256={readme_result['sha256'][:8]})")
 
     print(f"\n  Published: https://huggingface.co/datasets/{OUTPUT_DATASET}")
     print(f"  Competitions: {len(all_grids) - 1}")
