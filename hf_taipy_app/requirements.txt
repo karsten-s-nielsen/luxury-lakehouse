@@ -240,7 +240,7 @@ python-dateutil==2.9.0.post0
     #   botocore
     #   matplotlib
     #   pandas
-python-dotenv==1.0.1
+python-dotenv==1.2.2
     # via
     #   pydantic-settings
     #   taipy-gui
