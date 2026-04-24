@@ -150,6 +150,17 @@ SYNCED_TABLES: list[tuple[str, str | None]] = [
 POLL_INTERVAL_S = 30
 MAX_POLL_ATTEMPTS = 60  # 30 min max wait
 
+SYNCED_TABLE_ONLINE_STATE = "SYNCED_TABLE_ONLINE_NO_PENDING_UPDATE"
+
+# detailed_state values that mean the synced table has failed permanently;
+# distinguished from in-flight states by the fact that further polling is pointless.
+_SYNCED_TABLE_TERMINAL_FAILURE_STATES: frozenset[str] = frozenset(
+    {
+        "SYNCED_TABLE_OFFLINE",
+        "SYNCED_TABLE_OFFLINE_FAILED",
+    }
+)
+
 
 def _get_auth_headers() -> dict[str, str]:
     """Get Databricks auth headers via WorkspaceClient.
@@ -349,6 +360,66 @@ def _poll_pipeline(pipeline_id: str, headers: dict[str, str]) -> str:
             return classification
         time.sleep(POLL_INTERVAL_S)
     return "TIMEOUT"
+
+
+def wait_until_online(
+    table_fqn: str,
+    *,
+    timeout_s: int = 600,
+    poll_interval_s: int = 15,
+) -> None:
+    """Poll a Lakebase synced table until detailed_state == SYNCED_TABLE_ONLINE_NO_PENDING_UPDATE.
+
+    Introduced in PR 4b (2026-04-23) as G1 of the SDK-synced-table-path
+    hardening. Not called anywhere in PR 4b itself — ships ready for the
+    future PR that switches synced-table creation to
+    ``w.postgres.synced_tables.*`` SDK path. See On-Deck entry "SDK
+    synced-table path hardening (G2 + G3 from Kimball PR 4)" in TODO.md.
+
+    Args:
+        table_fqn: Fully-qualified Unity Catalog name of the synced table,
+            e.g. ``"soccer_analytics.dev_gold.fct_action_values_synced"``.
+        timeout_s: Maximum total wait time. Default 600s (10 min).
+        poll_interval_s: Seconds between status polls. Default 15s.
+
+    Raises:
+        TimeoutError: if the table does not reach ``SYNCED_TABLE_ONLINE_NO_PENDING_UPDATE``
+            within ``timeout_s``; message includes table FQN + last-seen detailed_state
+            + elapsed seconds.
+        RuntimeError: if the table hits a terminal failure state
+            (``SYNCED_TABLE_OFFLINE``, ``SYNCED_TABLE_OFFLINE_FAILED``).
+        requests.HTTPError: propagated on 4xx/5xx from the status endpoint
+            (including HTTP 404 when the table does not exist).
+    """
+    if not IDENTIFIER_RE.match(table_fqn.split(".")[-1]):
+        raise ValueError(f"Invalid table_fqn last-segment: {table_fqn!r}")
+
+    headers = _get_auth_headers()
+    url = f"{_get_host()}/api/2.0/database/synced_tables/{table_fqn}"
+
+    start = time.monotonic()
+    last_state: str | None = None
+    while True:
+        resp = requests.get(url, headers=headers, verify=True, timeout=(10, 30))
+        resp.raise_for_status()
+        body = resp.json()
+        detailed_state = body.get("status", {}).get("detailed_state")
+        last_state = detailed_state
+
+        if detailed_state == SYNCED_TABLE_ONLINE_STATE:
+            return
+
+        if detailed_state in _SYNCED_TABLE_TERMINAL_FAILURE_STATES:
+            raise RuntimeError(f"Synced table {table_fqn} reached terminal failure state {detailed_state!r}")
+
+        elapsed = time.monotonic() - start
+        if elapsed > timeout_s:
+            raise TimeoutError(
+                f"Synced table {table_fqn} did not reach {SYNCED_TABLE_ONLINE_STATE} "
+                f"within {timeout_s}s (last detailed_state: {last_state!r}, elapsed: {elapsed:.1f}s)"
+            )
+
+        time.sleep(poll_interval_s)
 
 
 def main() -> None:

@@ -63,8 +63,14 @@ physical_by_comp as (
         avg(ps.distance_per_minute_m)  as avg_distance_per_minute,
         avg(ps.max_speed_ms)           as avg_max_speed
     from {{ ref('fct_physical_stats') }} ps
+    -- fct_match_summary was migrated to match_key in PR 2 (ADR-011) and no
+    -- longer has match_id. fct_physical_stats is still native-keyed
+    -- (Kimball migration in PR 7); route the join through dim_matches to
+    -- bridge the two until PR 7 migrates fct_physical_stats.
+    inner join {{ ref('dim_matches') }} dm
+        on cast(ps.match_id as string) = dm.native_match_id
     inner join {{ ref('fct_match_summary') }} ms
-        on cast(ps.match_id as string) = cast(ms.match_id as string)
+        on dm.match_key = ms.match_key
     group by cast(ps.player_id as string), ms.competition_id, ms.season_id
 
 ),

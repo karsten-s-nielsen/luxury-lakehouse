@@ -58,13 +58,20 @@ DATASET_REPO = f"{HF_ORG}/spadl-vaep-action-values"
 
 # SQL to extract action values from the gold-layer fact table.
 # Excludes _loaded_at (internal audit column) — all other columns are published.
+#
+# fct_action_values is Kimball-conformed post-PR 4b: emits match_key + competition_key
+# (new canonical Kimball surrogates) AND legacy match_id + competition_id (90-day
+# dual-column window, sunset 2026-07-22 per ADR-011). Consumers migrate to match_key /
+# competition_key at their own pace; the HF dataset README documents the window.
 _ACTION_VALUES_SQL = """\
 SELECT
     action_value_id,
-    match_id,
+    match_key,                   -- new: Kimball surrogate (ADR-011)
+    competition_key,             -- new: Kimball surrogate
+    match_id,                    -- LEGACY: sunset 2026-07-22
+    competition_id,              -- LEGACY: sunset 2026-07-22
     player_id,
     team_id,
-    competition_id,
     season_id,
     period,
     time_seconds,
@@ -215,8 +222,19 @@ def normalize_dtypes(df: pd.DataFrame) -> pd.DataFrame:
         if col in df.columns:
             df[col] = df[col].astype(str)
 
-    # Integer columns
-    for col in ("match_id", "player_id", "team_id", "competition_id", "season_id", "period", "minute", "second"):
+    # Integer columns (Kimball surrogates + legacy + other IDs)
+    for col in (
+        "match_key",
+        "competition_key",
+        "match_id",
+        "competition_id",
+        "player_id",
+        "team_id",
+        "season_id",
+        "period",
+        "minute",
+        "second",
+    ):
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
 
@@ -386,7 +404,8 @@ def main() -> None:
 
     logger.info("Pipeline complete. Dataset: %s", dataset_url)
     logger.info(
-        "Final stats: %s actions, %s matches, sources: %s",
+        "Final stats: %s actions, %s matches, sources: %s. "
+        "Dual-column schema (match_id/competition_id sunset 2026-07-22).",
         f"{len(actions_df):,}",
         f"{n_matches:,}",
         source_counts,
