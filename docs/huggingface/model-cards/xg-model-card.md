@@ -211,7 +211,7 @@ If you use this model, please cite the XGBoost method and this repository:
 ```bibtex
 @software{nielsen2026xgmodel,
   title={Custom xG Model: Logistic Baseline + Calibrated XGBoost on StatsBomb and Wyscout Open Data},
-  author={Nielsen, Karsten Skytt},
+  author={Nielsen, Karsten Skyt},
   year={2026},
   url={https://github.com/karsten-s-nielsen/luxury-lakehouse}
 }

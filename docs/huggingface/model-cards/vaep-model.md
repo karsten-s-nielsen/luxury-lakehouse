@@ -241,7 +241,7 @@ And the silly-kicks library:
 ```bibtex
 @software{nielsen2026vaep,
   title={VAEP Model: Action Valuation on StatsBomb and Wyscout Open Data},
-  author={Nielsen, Karsten Skytt},
+  author={Nielsen, Karsten Skyt},
   year={2026},
   url={https://github.com/karsten-s-nielsen/luxury-lakehouse}
 }

@@ -107,7 +107,7 @@ Outputs are published as the Delta table `{catalog}.bronze.pitch_control_values`
 ```bibtex
 @software{nielsen2026pitchcontrol,
   title={Pitch Control: Physics-Based Team-Control Probability Surface on Open Tracking Data},
-  author={Nielsen, Karsten Skytt},
+  author={Nielsen, Karsten Skyt},
   year={2026},
   url={https://github.com/karsten-s-nielsen/luxury-lakehouse}
 }

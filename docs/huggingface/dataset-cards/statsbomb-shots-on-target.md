@@ -28,6 +28,16 @@ configs:
 
 Part of the (Right! Luxury!) Lakehouse soccer analytics platform.
 
+## ⚠️ Schema change (cut-over 2026-07-22)
+
+This dataset emits both legacy and canonical Kimball key columns side-by-side. The legacy `match_id` column will be removed on **2026-07-22** (90-day dual-column window opened at the PR 3 ship on 2026-04-22, per [ADR-011](https://github.com/karsten-s-nielsen/luxury-lakehouse/blob/main/docs/superpowers/adrs/ADR-011-unified-kimball-match-dimension.md)):
+
+| Legacy column | Canonical replacement | Notes |
+|---|---|---|
+| `match_id` | `match_key` | BIGINT Kimball surrogate; collision-free across providers |
+
+Both columns are populated during the window. Update consumer code to read `match_key` before the cut-over date; after cut-over the legacy `match_id` column is removed.
+
 ## Quick Start
 
 ```python
@@ -57,7 +67,8 @@ Only shots with `shot_outcome` in `{Saved, Goal, Post}` are included. Blocked sh
 | Column | Type | Description |
 |--------|------|-------------|
 | `event_id` | `string` | Unique StatsBomb event identifier |
-| `match_id` | `Int64` | Match identifier |
+| `match_key` | `Int64` | **Canonical Kimball match FK** (ADR-011). BIGINT surrogate, collision-free across providers. |
+| `match_id` | `Int64` | LEGACY provider-native match identifier; sunset 2026-07-22 (see top-of-card). |
 | `player_id` | `Int64` | Shooter player identifier |
 | `end_location_y` | `float64` | Normalized horizontal goalmouth position [0, 1] (0 = left post, 1 = right post) |
 | `end_location_z` | `float64` | Normalized vertical goalmouth position [0, 1] (0 = ground level, 1 = crossbar) |
@@ -127,7 +138,7 @@ If you use this dataset, please cite:
 ```bibtex
 @software{nielsen2026psxg,
   title={PSxG Model: Post-Shot Expected Goals for Goalkeeper Evaluation},
-  author={Nielsen, Karsten Skytt},
+  author={Nielsen, Karsten Skyt},
   year={2026},
   url={https://github.com/karsten-s-nielsen/luxury-lakehouse}
 }

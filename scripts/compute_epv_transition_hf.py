@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.13-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.14-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -261,36 +261,28 @@ def main() -> None:
         with open(str(Path(tmpdir) / "metadata.json"), "w") as f:
             json.dump(metadata, f, indent=2)
 
-        # Dataset card
-        rs = f"{params.transition_zones_y} x {params.transition_zones_x}"
-        rr = f"[{global_reach.min():.4f}, {global_reach.max():.4f}]"
-        es = f"{params.epv_zones_y} x {params.epv_zones_x}"
-        er = f"[{global_epv.min():.5f}, {global_epv.max():.5f}]"
-        card = f"""---
-license: mit
-tags: [soccer, football, obso, epv, transition, reachability, analytics]
-size_categories: [10K<n<100K]
----
-# OBSO Trained Grids (EPV + Ball Reachability)
-
-Data-driven EPV and ball reachability grids for the OBSO pipeline.
-
-## Grid Statistics
-- **Reachability**: {rs}, range {rr}
-- **EPV**: {es}, range {er}
-- **Competitions**: {n_comps}
-- **Total SPADL actions**: {len(all_actions):,}
-
-## References
-- Karun Singh (2018). "Introducing Expected Threat (xT)."
-- Spearman (2018). "Beyond Expected Goals." MIT Sloan.
-- Fernandez & Bornn (2018). "Wide Open Spaces." MIT Sloan.
-"""
-        with open(str(Path(tmpdir) / "README.md"), "w", encoding="utf-8") as f:
-            f.write(card)
+        # Data and README are published via two separate calls:
+        # (1) upload_folder for the data payload (parquet + metadata.json with
+        #     per-run grid statistics — grid sizes, value ranges, competition
+        #     count, total SPADL actions),
+        # (2) upload_hf_readme for the static README from the in-repo source
+        #     of truth at docs/huggingface/dataset-cards/obso-trained-grids.md.
+        # The shared helper (PR 4c) replaced the prior inline-README pattern
+        # that mixed schema documentation with run-specific stats.
+        from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 
         api.create_repo(OUTPUT_DATASET, repo_type="dataset", exist_ok=True, token=hf_token)
         api.upload_folder(folder_path=tmpdir, repo_id=OUTPUT_DATASET, repo_type="dataset", token=hf_token)
+        readme_result = upload_hf_readme(
+            repo_id=OUTPUT_DATASET,
+            readme_path=get_hf_card_path("obso-trained-grids.md", kind="dataset"),
+            hf_token=hf_token,
+        )
+        logger.info(
+            "Uploaded README: %s (sha256=%s)",
+            readme_result["commit_url"],
+            readme_result["sha256"][:8],
+        )
 
     logger.info("Published: https://huggingface.co/datasets/%s", OUTPUT_DATASET)
     logger.info("OBSO grid training complete!")

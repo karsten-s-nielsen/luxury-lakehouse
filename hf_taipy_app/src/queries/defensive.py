@@ -127,14 +127,17 @@ def fetch_vaep_breakdown(
 
 
 @ttl_cache()
-def fetch_vaep_timeline(match_id: int, team_id: int | None) -> pd.DataFrame:
+def fetch_vaep_timeline(match_key: int, team_id: int | None) -> pd.DataFrame:
     """Fetch action values for a specific match.
+
+    PR 4b (ADR-011): migrated to match_key (Kimball surrogate). Legacy
+    match_id column still in fct_action_values_synced through 2026-07-22.
 
     Expected columns: time_seconds, period, minute, second, action_type,
     action_result, vaep_value, offensive_value, defensive_value, player_id.
     """
-    conditions = ["match_id = %s"]
-    params: list[Any] = [match_id]
+    conditions = ["match_key = %s"]
+    params: list[Any] = [match_key]
 
     if team_id is not None:
         conditions.append("team_id = %s")

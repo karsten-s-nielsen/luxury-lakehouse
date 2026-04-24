@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.13-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.14-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -65,6 +65,7 @@ from analytics.scoutgpt_training import (
     train_loop,
 )
 from ingestion.hf_jobs_cost import HF_RATE_A10G_LARGE, HFJobsCostRecorder
+from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 from shared.constants import mlflow_model_uri
 from workflows import workflow
 
@@ -135,6 +136,23 @@ def _save_checkpoint(
         token=hf_token,
     )
     logger.info("metrics.json uploaded to %s", model_repo)
+
+    # PR 4c: upload model card alongside weights. The card filename matches
+    # the HF repo basename (the helper's convention), so canonical runs push
+    # ``scoutgpt.md`` and variant runs (e.g. ``scoutgpt-variant-rope``) push
+    # the matching in-repo variant card.
+    card_basename = model_repo.rsplit("/", 1)[-1] + ".md"
+    readme_result = upload_hf_readme(
+        repo_id=model_repo,
+        readme_path=get_hf_card_path(card_basename, kind="model"),
+        hf_token=hf_token,
+        repo_type="model",
+    )
+    logger.info(
+        "Uploaded model card: %s (sha256=%s)",
+        readme_result["commit_url"],
+        readme_result["sha256"][:8],
+    )
 
 
 def _save_checkpoint_local(

@@ -17,6 +17,17 @@ Every on-ball action from **~9.5 million** professional soccer events, converted
 
 Part of the (Right! Luxury!) Lakehouse soccer analytics platform.
 
+## ⚠️ Schema change (cut-over 2026-07-22)
+
+This dataset now emits both legacy and canonical Kimball key columns side-by-side. The legacy columns will be removed on **2026-07-22** (90-day dual-column window opened at the PR 4b ship on 2026-04-24, per [ADR-011](https://github.com/karsten-s-nielsen/luxury-lakehouse/blob/main/docs/superpowers/adrs/ADR-011-unified-kimball-match-dimension.md)):
+
+| Legacy column | Canonical replacement | Notes |
+|---|---|---|
+| `match_id` | `match_key` | BIGINT Kimball surrogate; collision-free across providers |
+| `competition_id` | `competition_key` | BIGINT Kimball surrogate |
+
+Both columns are populated during the window. Update consumer code to read the canonical `match_key` / `competition_key` columns before the cut-over date; after cut-over the legacy columns are removed.
+
 ## Quick Start
 
 ```python
@@ -44,11 +55,13 @@ top_players = df.groupby("player_id")["vaep_value"].sum().nlargest(10)
 | Column | Type | Description |
 |--------|------|-------------|
 | `action_value_id` | `string` | Surrogate key (deterministic hash of match_id + period + time_seconds + player_id + type_id + data_source) |
-| `match_id` | `string` | Unique match identifier |
-| `player_id` | `string` | Player identifier (source-native) |
-| `team_id` | `string` | Team identifier |
-| `competition_id` | `string` | Competition identifier |
-| `season_id` | `string` | Season identifier |
+| `match_key` | `bigint` | **Canonical Kimball match FK** (ADR-011). BIGINT surrogate, collision-free across providers. |
+| `competition_key` | `bigint` | **Canonical Kimball competition FK**. BIGINT surrogate. |
+| `match_id` | `bigint` | LEGACY provider-native match identifier; sunset 2026-07-22 (see top-of-card). |
+| `player_id` | `bigint` | Player identifier (source-native) |
+| `team_id` | `bigint` | Team identifier |
+| `competition_id` | `bigint` | LEGACY provider-native competition identifier; sunset 2026-07-22 (see top-of-card). |
+| `season_id` | `bigint` | Season identifier |
 | `period` | `int` | Match period (1 = first half, 2 = second half, 3+ = extra time) |
 | `time_seconds` | `double` | Elapsed time within the period in seconds |
 | `minute` | `int` | Match minute |

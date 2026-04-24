@@ -108,7 +108,7 @@ Outputs are published as the HF Hub dataset [`luxury-lakehouse/space-creation-va
 ```bibtex
 @software{nielsen2026spacecreation,
   title={Space Creation: Per-Player Counterfactual Space-Creation Value on Open Tracking Data},
-  author={Nielsen, Karsten Skytt},
+  author={Nielsen, Karsten Skyt},
   year={2026},
   url={https://github.com/karsten-s-nielsen/luxury-lakehouse}
 }

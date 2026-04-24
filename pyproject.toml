@@ -1,6 +1,6 @@
 [project]
 name = "luxury-lakehouse"
-version = "0.3.13"
+version = "0.3.14"
 description = "Serverless soccer analytics platform built on Databricks Lakebase"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -263,6 +263,14 @@ packages = ["src/ingestion", "src/analytics", "src/shared", "src/workflows", "sr
 "dbt_project/seeds" = "luxury_lakehouse_dbt_project/seeds"
 "dbt_project/tests" = "luxury_lakehouse_dbt_project/tests"
 "dbt_project/dbt_packages" = "luxury_lakehouse_dbt_project/dbt_packages"
+# PR 4c: HuggingFace card markdown so ``ingestion.hf_publish.get_hf_card_path``
+# resolves to a wheel-install-tree sibling of the ``ingestion`` package when
+# called from a Databricks workflow task. Path is preserved (``docs/huggingface/...``)
+# to match the dev-tree layout so the resolver uses the same path shape in
+# both environments.
+"docs/huggingface/dataset-cards" = "docs/huggingface/dataset-cards"
+"docs/huggingface/model-cards" = "docs/huggingface/model-cards"
+"docs/huggingface/org-card.md" = "docs/huggingface/org-card.md"
 
 # D59: force ``dbt_project/dbt_packages/`` into the sdist even though it is
 # gitignored. ``uv build`` (no flag) builds sdist then extracts it into a temp

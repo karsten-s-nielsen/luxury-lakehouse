@@ -32,6 +32,8 @@ import sys
 import time
 from typing import TYPE_CHECKING
 
+from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
+from ingestion.utils import resolve_hf_token
 from shared.constants import IDENTIFIER_RE
 from workflows import workflow
 
@@ -179,6 +181,24 @@ def run_pipeline(
     # ------------------------------------------------------------------
     logger.info("Uploading to HF Hub dataset: %s", DATASET_REPO)
     dataset_url = _upload_to_hf_hub(parquet_path)
+
+    # ------------------------------------------------------------------
+    # 4. Upload README alongside data (PR 4c).
+    # ------------------------------------------------------------------
+    # ``upload_volume_to_hf_hub`` writes a file:// URL when no HF token is
+    # available; skip README in that case to match the data-side behaviour.
+    if not dataset_url.startswith("file://"):
+        hf_token = resolve_hf_token()
+        readme_result = upload_hf_readme(
+            repo_id=DATASET_REPO,
+            readme_path=get_hf_card_path("statsbomb-shots-on-target.md", kind="dataset"),
+            hf_token=hf_token,
+        )
+        logger.info(
+            "Uploaded README: %s (sha256=%s)",
+            readme_result["commit_url"],
+            readme_result["sha256"][:8],
+        )
 
     logger.info("Pipeline complete. Dataset: %s", dataset_url)
     logger.info("Final stats: %d on-target shots exported", row_count)

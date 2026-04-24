@@ -1,7 +1,7 @@
 {{ config(
     materialized='incremental',
     unique_key='action_value_id',
-    liquid_clustered_by=['match_id'],
+    liquid_clustered_by=['match_key'],
     incremental_strategy='merge'
 ) }}
 -- fct_action_values.sql
@@ -12,6 +12,12 @@
 -- SPADL unified format, scored with offensive, defensive, and net VAEP
 -- values. Enables player ranking by total contribution beyond goals/assists.
 --
+-- PR 4b (2026-04-23): Kimball-conformed per ADR-011. Emits `match_key` +
+-- `competition_key` (BIGINT Kimball surrogates, resolved via LEFT JOIN
+-- dim_matches on (native_match_id, provider)). Retains legacy `match_id`
+-- and `competition_id` (both BIGINT nullable) for the 90-day dual-column
+-- window — removed on or after 2026-07-22 per ADR-011 policy.
+--
 -- Coordinate system: 105x68 meters (SPADL academic standard).
 -- One row per action.
 
@@ -19,7 +25,7 @@ with action_values as (
 
     select * from {{ ref('stg_spadl__action_values') }}
     {% if is_incremental() %}
-    where match_id not in (select distinct match_id from {{ this }})
+    where match_id not in (select distinct match_id from {{ this }} where match_id is not null)
     {% endif %}
 
 ),
@@ -40,6 +46,20 @@ running_score as (
 
 ),
 
+-- Resolve Kimball surrogates via dim_matches. dim_matches is keyed on
+-- (provider, native_match_id); our source column is (data_source, match_id),
+-- which is the same concept under different names.
+match_attrs as (
+
+    select
+        match_key,
+        competition_key,
+        provider,
+        native_match_id
+    from {{ ref('dim_matches') }}
+
+),
+
 -- Join each action to its most recent score milestone.
 -- The kickoff row (period=1, minute=0, second=0) ensures every action
 -- in period >= 1 has at least one matching score row.
@@ -55,10 +75,18 @@ actions_with_score as (
             'av.data_source'
         ]) }}                                       as action_value_id,
 
+        -- Kimball surrogates (new canonical)
+        ma.match_key,
+        ma.competition_key,
+
+        -- Legacy columns for 90-day dual-column window (sunset 2026-07-22).
+        -- av.match_id is already BIGINT on the source; retain as-is.
+        -- av.competition_id is already typed; retain as-is.
         av.match_id,
+        av.competition_id,
+
         av.player_id,
         av.team_id,
-        av.competition_id,
         av.season_id,
         av.period,
         av.time_seconds,
@@ -103,6 +131,9 @@ actions_with_score as (
         av.original_event_id
 
     from action_values av
+    left join match_attrs ma
+        on cast(av.match_id as string) = ma.native_match_id
+        and av.data_source = ma.provider
     left join sb_events sbe
         on av.original_event_id = sbe.event_id
         and av.data_source = 'statsbomb'
@@ -120,10 +151,12 @@ final as (
 
     select
         action_value_id,
+        match_key,
+        competition_key,
         match_id,
+        competition_id,
         player_id,
         team_id,
-        competition_id,
         season_id,
         period,
         time_seconds,

@@ -23,7 +23,7 @@ from render import PITCH_BG_COLOR, TEXT_COLOR, chart_to_file, fmt_int
 from state.shared import (
     _ALL_LABEL,
     get_comp_id,
-    get_match_id,
+    get_match_key,
     get_player_id,
     get_team_id,
     register_page_refresher,
@@ -392,8 +392,8 @@ def _refresh_breakdown(state: Any) -> None:
 
 def _refresh_timeline(state: Any) -> None:
     """Refresh the Timeline sub-view."""
-    match_id = get_match_id(state.selected_match)
-    if match_id is None:
+    match_key = get_match_key(state.selected_match)
+    if match_key is None:
         state.av_positive = "--"
         state.av_negative = "--"
         state.av_net_vaep = "--"
@@ -414,7 +414,7 @@ def _refresh_timeline(state: Any) -> None:
         state.av_timeline_image_alt = f"Match VAEP timeline — {scope_plain}"
 
     try:
-        actions = fetch_vaep_timeline(match_id, team_id)
+        actions = fetch_vaep_timeline(match_key, team_id)
     except Exception:
         logger.exception("Failed to fetch match timeline")
         state.av_positive = "\u2013"

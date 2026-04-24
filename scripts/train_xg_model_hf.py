@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.13-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.14-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -65,6 +65,7 @@ from ingestion.artifact_deploy import (
     upload_weights_to_uc_volume,
 )
 from ingestion.hf_jobs_cost import HF_RATE_CPU_BASIC, HFJobsCostRecorder
+from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 from shared.constants import mlflow_model_uri
 from workflows import workflow
 
@@ -404,6 +405,15 @@ def main() -> None:
         repo_id=MODEL_REPO,
         token=hf_token,
     )
+
+    # PR 4c: upload model card alongside weights.
+    readme_result = upload_hf_readme(
+        repo_id=MODEL_REPO,
+        readme_path=get_hf_card_path("xg-model-card.md", kind="model"),
+        hf_token=hf_token,
+        repo_type="model",
+    )
+    print(f"  Uploaded model card: {readme_result['commit_url']} (sha256={readme_result['sha256'][:8]})")
 
     print(f"\n  Published: https://huggingface.co/{MODEL_REPO}")
 

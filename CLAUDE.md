@@ -188,6 +188,7 @@ Full catalogue with enforcement-test references and script interfaces in `docs/e
 - **Partition overwrite**: Use `replaceWhere` for incremental loads, not full table overwrites.
 - **Pre-compile regex at module level**: Never use `re.compile()`, `re.sub()`, or `re.match()` with raw pattern strings inside function bodies or loops. Compile patterns as module-level constants.
 - **HuggingFace Hub**: Org is `luxury-lakehouse`. Model artifacts cached in UC Volume `/Volumes/soccer_analytics/dev_gold/model_weights/`. Set `HF_HOME` env var for local cache location. Use `huggingface_hub` for model publish/download (no torch dependency).
+- **HF READMEs ride with payload via `ingestion.hf_publish`** ([ADR-014](docs/superpowers/adrs/ADR-014-hf-card-inventory-parity.md)): every publisher that creates or refreshes a HF dataset / model / Space repo MUST call `ingestion.hf_publish.upload_hf_readme(...)` after the data/weight upload, passing a card resolved via `get_hf_card_path(name, kind=...)`. In-repo card filename must equal the HF repo basename (filename == repo basename invariant). Missing cards + orphan cards are caught by `src/tests/test_hf_publish_parity.py`. Orphan-only push paths (org Space, method-model cards) go through `scripts/publish_hf_cards.py --org` / `--orphans` / `--name --kind`. Never re-implement the README push inline in a publisher — the helper is the only path.
 
 **Consult `docs/engineering/conventions.md` before touching these areas:**
 

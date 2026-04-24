@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.13-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.14-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -63,6 +63,7 @@ from ingestion.football2vec_v2_training import (
     stratified_split,
 )
 from ingestion.hf_jobs_cost import HF_RATE_A10G_LARGE, HFJobsCostRecorder
+from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 from shared.constants import mlflow_model_uri
 from workflows import workflow
 
@@ -497,6 +498,15 @@ def _save_ckpt(
             token=hf_token,
         )
 
+    # PR 4c: upload model card alongside weights (idempotent per-stage call).
+    readme_result = upload_hf_readme(
+        repo_id=MODEL_REPO,
+        readme_path=get_hf_card_path("football2vec-v2-model-card.md", kind="model"),
+        hf_token=hf_token,
+        repo_type="model",
+    )
+    print(f"  Uploaded model card: {readme_result['commit_url']} (sha256={readme_result['sha256'][:8]})")
+
 
 def _load_stage1(config: Football2VecConfig, device: torch.device, hf_token: str) -> Football2VecEncoder:
     from huggingface_hub import hf_hub_download
@@ -528,6 +538,14 @@ def _publish_emb(df: pd.DataFrame, hf_token: str, stage: str) -> None:
             token=hf_token,
             commit_message=f"Update v2 embeddings ({stage})",
         )
+
+    # PR 4c: upload dataset card alongside embeddings.
+    readme_result = upload_hf_readme(
+        repo_id=EMBEDDINGS_DATASET,
+        readme_path=get_hf_card_path("football2vec-statsbomb-wyscout.md", kind="dataset"),
+        hf_token=hf_token,
+    )
+    print(f"  Uploaded embeddings card: {readme_result['commit_url']} (sha256={readme_result['sha256'][:8]})")
 
 
 def _log_mlflow(

@@ -105,7 +105,7 @@ Per-run XGBoost boosters live transiently in `_model_cache` on executors. Output
 ```bibtex
 @software{nielsen2026defcon,
   title={DEFCON-lite: Defensive Credit Assignment on Open Event Data},
-  author={Nielsen, Karsten Skytt},
+  author={Nielsen, Karsten Skyt},
   year={2026},
   url={https://github.com/karsten-s-nielsen/luxury-lakehouse}
 }
