@@ -72,7 +72,14 @@ jobs:
       - name: Generate main-branch manifest
         working-directory: dbt_project
         run: |
+          # Switch to main's content for a baseline parse. `git checkout
+          # origin/main -- .` only restores files that exist in main, so
+          # PR-added files (new staging models, new source YAML entries)
+          # remain in the working tree and cause parse failures when they
+          # reference sources/refs that main doesn't have yet. Explicitly
+          # remove the PR-added files before parse.
           git stash --include-untracked
+          git diff --name-only --diff-filter=A origin/main..HEAD -- . | xargs -r rm -f
           git checkout origin/main -- .
           uv run --no-sync dbt deps --profiles-dir .
           uv run --no-sync dbt parse --profiles-dir .
