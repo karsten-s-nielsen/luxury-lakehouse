@@ -221,6 +221,13 @@ non_sb_summary as (
 
     -- Wyscout, IDSSE, Metrica rows: minimum metadata from dim_matches.
     -- All metric columns NULL (see file-level header for rationale).
+    --
+    -- PR 5a (ADR-011): Wyscout home/away team_id populated via new
+    -- stg_wyscout__home_away_teams bridge (parses teams_data_parsed MAP).
+    -- Previously NULL for ~36% of rows; feeds fct_funnel_stages_agg.
+    -- opponent_team_id warn→error flip. IDSSE + Metrica stay NULL in the
+    -- legacy INT column; their native team IDs are STRING (resolved via
+    -- team_key at the dim_teams layer when facts migrate).
     select
         dm.match_key,
         dm.competition_key,
@@ -229,8 +236,8 @@ non_sb_summary as (
         dm.match_date,
         dm.home_team_name,
         dm.away_team_name,
-        cast(null as int)                               as home_team_id,
-        cast(null as int)                               as away_team_id,
+        case when dm.provider = 'wyscout' then hab.team_id end as home_team_id,
+        case when dm.provider = 'wyscout' then aab.team_id end as away_team_id,
         cast(null as int)                               as home_score,
         cast(null as int)                               as away_score,
         cast(null as bigint)                            as home_shots,
@@ -255,6 +262,14 @@ non_sb_summary as (
         cast(null as decimal(25,2))                     as away_ppda,
         cast(null as string)                            as match_result
     from dim dm
+    left join {{ ref('stg_wyscout__home_away_teams') }} hab
+        on  dm.provider = 'wyscout'
+       and try_cast(dm.native_match_id as bigint) = hab.match_id
+       and hab.side = 'home'
+    left join {{ ref('stg_wyscout__home_away_teams') }} aab
+        on  dm.provider = 'wyscout'
+       and try_cast(dm.native_match_id as bigint) = aab.match_id
+       and aab.side = 'away'
     where dm.provider != 'statsbomb'
 
 )

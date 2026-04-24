@@ -991,7 +991,14 @@ class TestStaticDatasetGuards:
         assert result.count > 0, f"{guard.workflow_id}: expected work but got count=0"
 
     def test_wyscout_guard_skips_when_complete(self) -> None:
-        """Wyscout guard: 3 tables (events, matches by competition_name; players by existence)."""
+        """Wyscout guard: 4 tables (events, matches by competition_name; players + teams by existence).
+
+        PR 5a (ADR-011) extended the guard to require bronze.wyscout_teams
+        alongside the pre-existing 3 tables — teams.json ingestion closed a
+        pre-existing gap identified at the spec phase. This test's mock was
+        extended in lockstep so the skip-complete scenario reflects the new
+        bronze reality (4-table completeness, not 3).
+        """
         from ingestion.wyscout import skip_guard
 
         spark = MagicMock()
@@ -1003,6 +1010,8 @@ class TestStaticDatasetGuards:
             elif "wyscout_matches" in name:
                 mock_df.select.return_value.distinct.return_value.count.return_value = 7
             elif "wyscout_players" in name:
+                mock_df.limit.return_value.count.return_value = 1
+            elif "wyscout_teams" in name:
                 mock_df.limit.return_value.count.return_value = 1
             else:
                 mock_df.select.return_value.distinct.return_value.count.return_value = 0

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
+from typing import ClassVar
 
 import pandas as pd
 import pytest
@@ -110,23 +111,37 @@ class TestMetricaBronzeCoverage:
         assert "events" in _enumeration
         assert "excluded_source_fields" in _enumeration
 
+    # PR 5a: is_anonymized is set at ingestion.metrica_tracking.ingest_tracking()
+    # AFTER the parser functions return (`tracking_df["is_anonymized"] = True`
+    # before finalize_bronze_df). The bronze table has the column; the parser
+    # layer tested by these fixtures doesn't emit it because the flag is an
+    # ingestion-path attribution (sample-CSV vs future subscription-API),
+    # not a parsed source field.
+    _TRACKING_EXCLUDED_FROM_PARSER: ClassVar[dict[str, str]] = {
+        "is_anonymized": (
+            "Set at ingestion.metrica_tracking.ingest_tracking() pre-finalize, "
+            "not in _reshape_tracking_to_narrow / _parse_epts_tracking parsers. "
+            "Bronze table has the column; parser layer doesn't."
+        ),
+    }
+
     def test_tracking_csv_covers_expected_cols(self, _enumeration: dict, _tracking_csv_cols: set[str]) -> None:
-        """CSV tracking path must emit all 12 unified bronze cols."""
+        """CSV tracking path must emit all unified bronze parser cols."""
         expected = set(_enumeration["tracking"]["expected_bronze_cols"])
         assert_source_covered_by_bronze(
             expected_bronze_cols=expected,
             actual_bronze_cols=_tracking_csv_cols,
-            excluded={},
+            excluded=self._TRACKING_EXCLUDED_FROM_PARSER,
             name="Metrica tracking (CSV path)",
         )
 
     def test_tracking_epts_covers_expected_cols(self, _enumeration: dict, _tracking_epts_cols: set[str]) -> None:
-        """EPTS tracking path must emit all 12 unified bronze cols."""
+        """EPTS tracking path must emit all unified bronze parser cols."""
         expected = set(_enumeration["tracking"]["expected_bronze_cols"])
         assert_source_covered_by_bronze(
             expected_bronze_cols=expected,
             actual_bronze_cols=_tracking_epts_cols,
-            excluded={},
+            excluded=self._TRACKING_EXCLUDED_FROM_PARSER,
             name="Metrica tracking (EPTS path)",
         )
 

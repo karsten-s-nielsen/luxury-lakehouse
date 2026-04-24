@@ -37,7 +37,8 @@ home_players_exploded as (
         home_players,
         away_players,
         pitch_length_m,
-        pitch_width_m
+        pitch_width_m,
+        is_anonymized
     from source
     lateral view explode(
         from_json(home_players, 'MAP<STRING, STRUCT<x:DOUBLE, y:DOUBLE>>')
@@ -64,7 +65,8 @@ away_players_exploded as (
         home_players,
         away_players,
         pitch_length_m,
-        pitch_width_m
+        pitch_width_m,
+        is_anonymized
     from source
     lateral view explode(
         from_json(away_players, 'MAP<STRING, STRUCT<x:DOUBLE, y:DOUBLE>>')
@@ -121,6 +123,14 @@ normalized as (
         -- Bronze passthrough — pitch dimensions (meters) denormalized per row
         pitch_length_m,
         pitch_width_m,
+
+        -- Bronze passthrough — PR 5a (ADR-011) sample-vs-subscription flag.
+        -- True for anonymised Metrica sample CSV matches (current); False
+        -- when future subscription-API ingestion lands with real identities.
+        -- Downstream dim_teams / dim_players branch on this flag to select
+        -- synthesised-identity vs real-identity paths. Ref:
+        -- docs/superpowers/specs/2026-04-24-kimball-pr5-design.md §4.
+        is_anonymized,
 
         -- Scaled player coordinates (120x80)
         {{ normalize_x('raw_x', 'metrica') }} as x,

@@ -103,6 +103,19 @@ models:
         description: Bronze passthrough — pitch_length_m from metrica_tracking (meters, NaN for CSV-path games).
       - name: pitch_width_m
         description: Bronze passthrough — pitch_width_m from metrica_tracking (meters, NaN for CSV-path games).
+      - name: is_anonymized
+        description: >
+          Bronze passthrough — sample-vs-subscription flag added in PR 5a (ADR-011).
+          True for anonymised Metrica sample CSV matches (current data); False when
+          future Metrica subscription-API ingestion lands with real identities.
+          Downstream dim_teams / dim_players branch on this flag to select
+          synthesised-identity vs real-identity paths. See
+          docs/superpowers/specs/2026-04-24-kimball-pr5-design.md §4.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [true, false]
 
   - name: stg_metrica__events
     config:
@@ -231,10 +244,62 @@ models:
           - accepted_values:
               arguments:
                 values: ['metrica']
+      - name: competition_id
+        description: >
+          Constant 'metrica-sample' sentinel (PR 5a, TODO #32). Matching
+          dim_competitions pseudo-row carries provider='metrica',
+          native_competition_id='metrica-sample'. This surfaces Metrica
+          passes in the Pass Map competition cascade (previously NULL →
+          hidden).
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['metrica-sample']
       - name: home_team_name
         description: Constant 'Home' — Metrica open-data is anonymized.
       - name: away_team_name
         description: Constant 'Away' — Metrica open-data is anonymized.
+
+  - name: stg_metrica__team_players
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Per-match team + player identity for Metrica. Synthesises IDs for
+      anonymised sample data; real-identity branch ready for future
+      subscription data (driven by bronze is_anonymized flag per PR 5a).
+    columns:
+      - name: match_id
+        data_type: string
+        data_tests:
+          - not_null
+      - name: side
+        data_type: string
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['home', 'away']
+      - name: is_anonymized
+        data_type: boolean
+      - name: player_key_in_map
+        data_type: string
+        data_tests:
+          - not_null
+      - name: native_team_id
+        data_type: string
+      - name: native_player_id
+        data_type: string
+      - name: is_synthesized
+        data_type: boolean
+      - name: synthesis_reason
+        data_type: string
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [match_id, side, player_key_in_map]
 
   - name: stg_metrica__passes
     config:
