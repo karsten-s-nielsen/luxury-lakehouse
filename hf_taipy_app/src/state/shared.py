@@ -106,6 +106,8 @@ __all__ = [
     "loading_text",
     "toggle_getting_started",
     "toggle_glossary",
+    # PR 5b (ADR-011): forward-compat helper for the dual-column window
+    "resolve_player_identity",
     # Callbacks (must be in main.py namespace for Taipy template resolution)
     "on_init",
     "on_navigate",
@@ -144,6 +146,12 @@ _team_map: dict[str, int] = {}
 # don't cover the tracking-only providers.
 _match_map: dict[str, tuple[int, int]] = {}
 _player_map: dict[str, int] = {}
+# PR 5b (ADR-011): player_key Kimball surrogate plumbing for the 2026-07-22
+# dual-column window. _player_identity_map maps player label →
+# (canonical_player_id, player_key). Populated lazily per player on first
+# resolve_player_identity() call to avoid the up-front 15K-row dim_players
+# scan that on_competition_change would otherwise need.
+_player_identity_map: dict[str, tuple[str, int]] = {}
 _tracking_match_map: dict[str, str] = {}
 
 # Page refresh registry — pages register their refresh functions here
@@ -300,6 +308,44 @@ def get_player_id(label: str | None) -> int | None:
     return _player_map.get(label)  # type: ignore[arg-type]
 
 
+def resolve_player_identity(label: str | None) -> tuple[str, int] | None:
+    """Resolve player label to (canonical_player_id, player_key) for the
+    2026-07-22 dual-column window (PR 5b, ADR-011).
+
+    Forward-compat plumbing: callers that already know the legacy player_id
+    INT can still use ``get_player_id``; this resolver exists so the same
+    label can yield BOTH canonical_player_id (legacy) and player_key
+    (Kimball BIGINT) without a second cascade roundtrip after PR 8 drops
+    canonical_player_id from dataset payloads.
+
+    Returns None for 'All', empty, or unknown labels. Cached per-process
+    in ``_player_identity_map`` after first lookup.
+    """
+    if not label or label == _ALL_LABEL:
+        return None
+    cached = _player_identity_map.get(label)
+    if cached is not None:
+        return cached
+    pid = _player_map.get(label)
+    if pid is None:
+        return None
+    # Lazy single-row lookup — keeps on_competition_change cheap.
+    from queries.common import execute_query, t
+
+    dim_tbl = t("dim_players_synced")
+    df = execute_query(
+        f"SELECT canonical_player_id, player_key "  # noqa: S608
+        f"FROM {dim_tbl} WHERE player_id = %s LIMIT 1",
+        (int(pid),),
+    )
+    if df.empty:
+        return None
+    canonical = str(df.iloc[0]["canonical_player_id"])
+    pkey = int(df.iloc[0]["player_key"])
+    _player_identity_map[label] = (canonical, pkey)
+    return (canonical, pkey)
+
+
 def get_tracking_match_id(label: str | None) -> str | None:
     """Resolve tracking match label to ID."""
     return _tracking_match_map.get(label) if label else None  # type: ignore[arg-type]
@@ -346,7 +392,7 @@ def on_competition_change(state: Any, var_name: str, var_value: Any) -> None:
     fetch_teams + fetch_matches (both migrated). Legacy `competition_id`
     INT is still used for fetch_players (fct_player_stats not yet migrated).
     """
-    global _team_map, _match_map, _player_map
+    global _team_map, _match_map, _player_map, _player_identity_map
     comp_id = get_comp_id(var_value)
     comp_key = get_competition_key(var_value)
     if comp_id is None or comp_key is None:
@@ -370,6 +416,9 @@ def on_competition_change(state: Any, var_name: str, var_value: Any) -> None:
     state.selected_players_multi = []
     # Reset the player-search input — competition change implies a fresh scope.
     state.player_search_query = ""
+    # PR 5b: clear cached player identities; new comp scope may bring in
+    # different players whose labels could collide with cached entries.
+    _player_identity_map = {}
 
     try:
         teams = fetch_teams(comp_key)
@@ -404,7 +453,7 @@ def on_team_change(state: Any, var_name: str, var_value: Any) -> None:
     Uses competition_key (ADR-011) for fetch_matches; legacy competition_id
     for fetch_players (fct_player_stats not yet migrated).
     """
-    global _match_map, _player_map
+    global _match_map, _player_map, _player_identity_map
     comp_id = get_comp_id(state.selected_competition)
     comp_key = get_competition_key(state.selected_competition)
     team_id = get_team_id(var_value)
@@ -417,6 +466,9 @@ def on_team_change(state: Any, var_name: str, var_value: Any) -> None:
     # Reset the player-search input — team narrows scope, so any prior typed
     # query may now match a different set; clearing keeps semantics predictable.
     state.player_search_query = ""
+    # PR 5b: clear cached player identities; team-narrowed scope changes
+    # which player labels are valid resolutions.
+    _player_identity_map = {}
 
     try:
         matches = fetch_matches(comp_key, team_id)

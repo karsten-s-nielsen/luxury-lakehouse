@@ -25,6 +25,11 @@ player_stats as (
 
     select
         cast(ps.player_id as string) as player_id,
+        -- PR 5b (ADR-011): pull player_key through from fct_player_stats
+        -- (which carries it via INNER JOIN to dim_players from PR 5a) so
+        -- fct_player_percentiles can expose the Kimball surrogate without
+        -- a second dim_players lookup.
+        ps.player_key,
         ps.competition_id,
         ps.season_id,
         pn.player_display_name,
@@ -87,6 +92,7 @@ enriched as (
 
     select
         s.player_id,
+        s.player_key,
         s.competition_id,
         s.season_id,
         s.player_display_name,
@@ -132,6 +138,7 @@ percentiled as (
 
     select
         player_id,
+        player_key,
         competition_id,
         season_id,
         player_display_name,
@@ -160,6 +167,7 @@ percentiled as (
 
 select
     cast(player_id as string)          as player_id,
+    cast(player_key as bigint)         as player_key,
     cast(competition_id as int)        as competition_id,
     cast(season_id as int)             as season_id,
     cast(player_display_name as string) as player_display_name,

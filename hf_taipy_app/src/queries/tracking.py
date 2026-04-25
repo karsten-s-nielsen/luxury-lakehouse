@@ -207,6 +207,9 @@ def fetch_physical_stats(match_id: str) -> pd.DataFrame:
     distance_per_minute_m, avg_speed_ms, max_speed_ms, total_off_ball_xt,
     avg_off_ball_xt.
     """
+    # PR 5b note (ADR-011): this query joins dim_players_synced on
+    # canonical_player_id already; player_key adoption here happens in PR 7
+    # alongside the fct_physical_stats Kimball migration.
     tbl = t("fct_physical_stats_synced")
     dim = t("dim_players_synced")
     return execute_query(

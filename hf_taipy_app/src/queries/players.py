@@ -158,13 +158,33 @@ def fetch_player_embedding_vector(
     table: str,
     player_id: str,
     competition_id: int | None,
+    player_key: int | None = None,
 ) -> pd.DataFrame:
     """Fetch the target player's embedding vectors.
+
+    PR 5b dual-read (ADR-011): when ``player_key`` is provided, filter on
+    the Kimball BIGINT surrogate; otherwise fall back to
+    ``canonical_player_id`` (the legacy path preserved through the
+    2026-07-22 dual-column window). Default None preserves existing
+    behaviour.
 
     Expected columns: behavioral_vector, stat_vector.
     """
     validate_param_id(player_id)
     tbl = t(table)
+    if player_key is not None:
+        if competition_id is not None:
+            return execute_query(
+                f"SELECT behavioral_vector, stat_vector "  # noqa: S608
+                f"FROM {tbl} WHERE player_key = %s "
+                f"AND competition_id = %s",
+                (int(player_key), competition_id),
+            )
+        return execute_query(
+            f"SELECT behavioral_vector, stat_vector "  # noqa: S608
+            f"FROM {tbl} WHERE player_key = %s",
+            (int(player_key),),
+        )
     if competition_id is not None:
         return execute_query(
             f"SELECT behavioral_vector, stat_vector "  # noqa: S608
@@ -190,6 +210,7 @@ def search_similar_players(
     min_matches: int,
     limit: int,
     competition_id: int | None,
+    player_key: int | None = None,
 ) -> pd.DataFrame:
     """Run pgvector cosine distance query to find similar players.
 
@@ -197,6 +218,11 @@ def search_similar_players(
     key is deterministic without any normalization.  Caching avoids
     re-running the cosine-distance scan for the same target player and
     filter combination on every re-render.
+
+    PR 5b dual-read (ADR-011): when ``player_key`` is provided, the
+    self-exclusion clause uses ``e.player_key != %s``; otherwise falls
+    back to ``e.canonical_player_id != %s`` (legacy path). Default None
+    preserves existing behaviour.
 
     Expected columns: canonical_player_id, player_display_name,
     data_sources, <total_col>, distance.
@@ -212,10 +238,13 @@ def search_similar_players(
     dim_players_tbl = t("dim_players_synced")
 
     comp_filter = ""
-    params: list[Any] = [vector_str, min_matches, player_id, limit]
+    excl_clause = "AND e.player_key != %s " if player_key is not None else "AND e.canonical_player_id != %s "
+    excl_value: Any = int(player_key) if player_key is not None else player_id
+
+    params: list[Any] = [vector_str, min_matches, excl_value, limit]
     if competition_id is not None:
         comp_filter = "AND e.competition_id = %s "
-        params = [vector_str, min_matches, competition_id, player_id, limit]
+        params = [vector_str, min_matches, competition_id, excl_value, limit]
 
     return execute_query(
         f"SELECT e.canonical_player_id, p.player_display_name, "  # noqa: S608
@@ -225,8 +254,7 @@ def search_similar_players(
         f"FROM {tbl} e "
         f"JOIN {dim_players_tbl} p "
         f"  ON e.canonical_player_id = p.canonical_player_id "
-        f"WHERE e.{total_col} >= %s " + comp_filter + "  AND e.canonical_player_id != %s "
-        "ORDER BY distance LIMIT %s",
+        f"WHERE e.{total_col} >= %s " + comp_filter + excl_clause + "ORDER BY distance LIMIT %s",
         tuple(params),
     )
 

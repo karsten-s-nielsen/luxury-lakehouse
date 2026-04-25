@@ -3,9 +3,12 @@
     enabled=var('embeddings_enabled', false)
 ) }}
 
+-- PR 5b (ADR-011): added player_key passthrough.
+
 with grouped as (
     select
         canonical_player_id,
+        any_value(player_key) as player_key,
         collect_list(behavioral_vector) as behavioral_vectors,
         count(*) as total_matches,
         collect_set(data_source) as data_sources
@@ -17,6 +20,7 @@ with grouped as (
 select
     {{ dbt_utils.generate_surrogate_key(['canonical_player_id']) }} as embedding_career_360_id,
     canonical_player_id,
+    player_key,
     transform(
         sequence(0, 143),
         i -> aggregate(

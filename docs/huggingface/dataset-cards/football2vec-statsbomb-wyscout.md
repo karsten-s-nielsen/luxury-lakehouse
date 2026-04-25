@@ -54,6 +54,18 @@ print(f"{len(df):,} players, dim={len(df.loc[0, 'embedding'])}")
 | `total_matches` | `Int64` | Number of matches the player appeared in across both sources |
 | `data_sources` | `list<string>` | Sources where the player has appearances (`statsbomb`, `wyscout`) |
 
+## Schema Migration &mdash; Dual-Column Window (2026-04-25 &rarr; 2026-07-22)
+
+PR 5b of the lakehouse Kimball migration (ADR-011) adds the BIGINT surrogate `player_key` to the underlying lakehouse marts that consume embeddings produced by this model. **This dataset's payload is unchanged in PR 5b** &mdash; the parquet files continue to ship `canonical_player_id` only. PR 8 (planned 2026-07-22) will add `player_key` to the payload in a backwards-compatible way and announce a sunset for `canonical_player_id`.
+
+Recommended consumer behaviour during this window:
+
+- **No change required.** Continue to read `canonical_player_id` from this dataset.
+- If you maintain your own join to a `dim_players` clone, you may pre-compute `player_key = xxhash64(provider || '|' || cast(player_id as string))` to align with the lakehouse Kimball convention ahead of the payload change.
+- After 2026-07-22 the dataset will carry both columns for at least one HF dataset version, then `canonical_player_id` will be deprecated. Migrate at your convenience inside that window.
+
+If you depend on this dataset and need extra notice before the column drop, open an issue on the [lakehouse repo](https://github.com/karsten-s-nielsen/luxury-lakehouse).
+
 ## Training Provenance
 
 - **Producer model**: [`luxury-lakehouse/football2vec-v2`](https://huggingface.co/luxury-lakehouse/football2vec-v2)

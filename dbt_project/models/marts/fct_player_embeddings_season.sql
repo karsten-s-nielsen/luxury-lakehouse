@@ -7,6 +7,10 @@
 -- from the stat mean.
 --
 -- Grain: one row per player per competition per season.
+--
+-- PR 5b (ADR-011): retired the dim_matches bridge that PR 5a's CI-triage
+-- added; fct_player_embeddings now carries match_key directly. Added
+-- player_key passthrough.
 
 {{ config(
     materialized='table',
@@ -30,23 +34,17 @@ embeddings_with_context as (
 
     select
         e.canonical_player_id,
+        e.player_key,
         e.match_id,
+        e.match_key,
         e.data_source,
         e.behavioral_vector,
         e.stat_vector,
         m.competition_id,
         m.season_id
     from {{ ref('fct_player_embeddings') }} e
-    -- PR 2 (ADR-011) migrated fct_match_summary from match_id to match_key;
-    -- fct_player_embeddings still keyed on native StatsBomb match_id (PR 5b
-    -- migrates the embedding marts to player_key + match_key). Bridge via
-    -- dim_matches until PR 5b: cast SB native match_id string to bigint to
-    -- join the embedding's int match_id.
-    inner join {{ ref('dim_matches') }} dm
-        on dm.provider = 'statsbomb'
-       and try_cast(dm.native_match_id as bigint) = e.match_id
     inner join {{ ref('fct_match_summary') }} m
-        on m.match_key = dm.match_key
+        on m.match_key = e.match_key
     inner join player_best_dim p
         on e.canonical_player_id = p.canonical_player_id
         and size(e.behavioral_vector) = p.best_dim
@@ -59,6 +57,7 @@ grouped as (
 
     select
         canonical_player_id,
+        any_value(player_key)                                 as player_key,
         competition_id,
         season_id,
         collect_list(behavioral_vector)                       as behavioral_vectors,
@@ -74,6 +73,7 @@ select
     {{ dbt_utils.generate_surrogate_key(['canonical_player_id', 'competition_id', 'season_id']) }}
         as embedding_season_id,
     canonical_player_id,
+    player_key,
     competition_id,
     season_id,
     -- Element-wise mean of behavioral vectors (dimension derived from data)
