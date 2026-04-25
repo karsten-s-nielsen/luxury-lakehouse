@@ -76,7 +76,9 @@ _BIN_GRID = (12, 8)
 _MAX_BUBBLE_SIZE = 500  # max scatter area in pt²
 _FIGSIZE = (10, 7)
 _TOP_N_LABELS = (
-    12  # show count labels on the N largest bins. 12 ≤ 96-bin grid row count, avoids label collisions in dense areas.
+    25  # show count labels on the N largest bins. User-confirmed value; do not
+    # reduce without explicit approval (the 12 → 25 restore happened 2026-04-24
+    # after an unapproved regression).
 )
 
 

@@ -6,13 +6,33 @@ updates:
   # versions are determined by upstream constraint trees — bumping them in the
   # lockfile without a matching pyproject.toml change is rejected by our CI's
   # "requirements.txt is stale" check. Restricting to direct dependencies avoids
-  # the false-positive PR class (see closed #138, #140, #141, #142, #143).
+  # the false-positive PR class (see closed #138, #140, #141, #142, #143,
+  # #186 apispec, #187 deepdiff, #189 pyarrow — all 2026-04-24).
+  #
+  # The `allow: dependency-type: direct` filter below is insufficient on its
+  # own because dependabot-pip treats every pin in requirements.txt as "direct"
+  # (requirements.txt has no transitive/direct distinction). The explicit
+  # `ignore:` block below is the actual enforcement — any transitive pin that
+  # has already generated a false-positive PR is listed here so it stops
+  # re-opening. When uv promotes one of these to a direct pyproject.toml
+  # dependency, remove it from the ignore list in the same PR.
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: "weekly"
     allow:
       - dependency-type: "direct"
+    ignore:
+      # Transitive pins in hf_taipy_app/requirements.txt — managed by uv.lock,
+      # not by dependabot. Use `uv lock --upgrade-package <name>` on a feature
+      # branch to actually bump any of these.
+      - dependency-name: "apispec"
+      - dependency-name: "deepdiff"
+      - dependency-name: "pyarrow"
+      - dependency-name: "pymongo"
+      - dependency-name: "openpyxl"
+      - dependency-name: "flask-socketio"
+      - dependency-name: "gitignore-parser"
 
   - package-ecosystem: "github-actions"
     directory: "/"
