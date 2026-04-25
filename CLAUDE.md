@@ -176,6 +176,18 @@ These rules prevent cognitive interface debt from accumulating. Derived from CHI
 - **Computed metrics must show scale and direction**: Any displayed score on a 0–1 or non-obvious scale (PAUSA, OBSO, cosine distance, xT, VAEP) must include the range and direction in at least one of: axis label, chart title, tooltip, or adjacent caption. "0.347" alone is never acceptable — "0.347 (0–1, higher = better)" is.
 - **HF artifact link completeness**: When publishing a new HF dataset or model, update ALL locations that reference the artifact list: HF Space header, HF Space footer, `docs/huggingface/org-card.md`, and `README.md`. A checklist in the PR description prevents drift.
 
+## Orchestration Discipline
+
+Short-form rules for multi-backend training orchestration (`scripts/evaluate_*`, `src/evolve/backends/`). Full rationale, failure-mode catalog, and smoke-test reference implementation in `docs/engineering/orchestration.md`. Partially enforced by `src/tests/test_evolve_football2vec_l2.py`.
+
+- **HF tokens via `huggingface_hub.get_token()`**, never `os.environ.get("HF_TOKEN", "")` — non-interactive SSH often has HF_TOKEN unset; empty default triggers `httpx.LocalProtocolError` on `Bearer ` header.
+- **Smoke tests must exercise `HfApi().whoami()` auth**, not just imports — unauthenticated remotes pass import checks then silently burn every dispatched variant.
+- **Post-deploy entrypoint verify is mandatory** — re-run the exact import chain the worker will execute (`from evolve.evaluator import EvolveEvaluator; from evolve.remote_worker import main`) after `_deploy_to_remote`.
+- **Per-backend timeout = measured per-epoch × max epochs × 2** — global 900s default kills slow backends (GB10 at ~0.5× RTX 5070 Ti) mid-Epoch-1 with elapsed ≈ 904s.
+- **Evaluator `except Exception`**, not a narrow tuple — narrow tuples miss `httpx.HTTPError`, `HfHubHTTPError`, `OSError`, and any class added by library bumps.
+- **Remote shell probes: double quotes inside, ASCII only** — single quotes close the outer `python -c '<probe>'` wrapper; em-dashes get mangled by mismatched remote locale.
+- **Silent-inf metrics are always a bug**, never "variant failed" — investigate via `_error_text` in uploaded `metrics.json` before re-firing.
+
 ## Project Conventions
 
 Full catalogue with enforcement-test references and script interfaces in `docs/engineering/conventions.md`. Short-form rules below are the ones most likely to trip day-to-day work.

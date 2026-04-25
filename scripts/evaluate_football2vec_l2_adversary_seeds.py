@@ -119,16 +119,24 @@ _VARIANTS: list[tuple[str, str | None]] = [
 # environment (Media-PC: torch 2.12 nightly cu128 for Blackwell sm_120; DGX Spark:
 # torch 2.11 cu130 for GB10). Remote workspaces are dedicated to EV2 and do not
 # collide with any EV1 / ScoutGPT workspace on the same machine.
-_REMOTE_HOSTS: dict[str, dict[str, str]] = {
+#
+# ``timeout_seconds`` is the per-variant training budget for that backend, tuned
+# to the machine's measured epoch speed times the expected 16-epoch early-stop
+# cap, with a 2x safety factor. Phase 1b hit the global 900s default on DGX
+# Spark (904s elapsed before kill) — per-backend tuning prevents that class of
+# false-positive kill while still failing fast on true hangs.
+_REMOTE_HOSTS: dict[str, dict[str, Any]] = {
     "media": {
         "host": "super@192.168.68.70",
         "remote_dir": "/home/super/evolve-workspace",
         "venv_python": "/home/super/venv-fourier/bin/python",
+        "timeout_seconds": 10800,  # 3h: 5070 Ti at ~5.5 min/epoch x 16 = 88 min x 2 safety
     },
     "spark": {
         "host": "karsten@192.168.68.73",
         "remote_dir": "/home/karsten/evolve-workspace",
         "venv_python": "/home/karsten/Development/evolve-env/bin/python",
+        "timeout_seconds": 21600,  # 6h: GB10 at ~11 min/epoch x 16 = 176 min x 2 safety
     },
 }
 
@@ -198,18 +206,54 @@ _REMOTE_REQUIRED_IMPORTS: tuple[str, ...] = (
     "pyarrow",
     "sklearn.model_selection",
     "scipy",
+    # evolve.evaluator imports openevolve.evaluation_result at module load —
+    # a venv without openevolve passes the original smoke test but crashes
+    # ~2s into dispatch with ModuleNotFoundError. Phase 1b Media-PC lost 3
+    # variants to this; guarding pre-dispatch saves ~6 seconds of dispatch
+    # per missing-module failure and produces a precise install hint.
+    "openevolve",
 )
 
 
 def _smoke_test_remote(host: str, venv_python: str) -> tuple[bool, str]:
-    """Verify the remote venv has torch+CUDA AND every module the stage-2
-    evaluator imports. Returns (ok, detail). On failure, detail names the
-    first missing module (or CUDA unavailability) so the caller can log a
-    precise reason and the operator can pip-install exactly what's missing.
+    """Verify the remote venv has torch+CUDA, every module the stage-2
+    evaluator imports, AND a working HF Hub auth credential. Returns
+    (ok, detail). On failure, detail names the first failing check
+    (missing module / CUDA / HF auth) so the caller can log a precise
+    reason and the operator can fix exactly what's broken.
     """
     import_probe = "; ".join(f"import {m}" for m in _REMOTE_REQUIRED_IMPORTS)
-    # CUDA availability is checked last so a missing module is reported first.
-    probe = f"{import_probe}; import torch; assert torch.cuda.is_available(), 'cuda unavailable'"
+    # HF Hub auth check. Phase 1c (2026-04-23) uncovered that a remote venv
+    # can pass every import check yet crash at dispatch the moment the
+    # evaluator tries to download Stage-1 weights, because non-interactive
+    # SSH sessions inherit a different environment than interactive ones and
+    # HF_TOKEN may be absent or expired. huggingface_hub then passes an empty
+    # (or stale) token to httpx, which rejects "Bearer " as an illegal header
+    # value or returns 401. whoami() exercises the exact token-resolution path
+    # (env var -> ~/.cache/huggingface/token -> ~/.huggingface/token) that the
+    # evaluator hits, and returns a user name on success. An empty name means
+    # auth failed.
+    #
+    # IMPORTANT: all Python string literals below use DOUBLE quotes, never
+    # single quotes. The full probe is wrapped in SINGLE quotes on the remote
+    # bash side (``python -c '<probe>'``); any ' inside the probe would close
+    # the outer quote prematurely and break shell parsing. Phase 1d (2026-04-23)
+    # verified this: single quotes inside the probe made both Media-PC and DGX
+    # Spark skip at smoke test with a "bash: -c: line 1: ..." parse error.
+    # Double quotes inside the probe pass through literally by the outer
+    # single-quote bash parse and Python accepts them as string delimiters.
+    # Non-ASCII characters (em-dash etc.) are also avoided for locale safety.
+    hf_auth_probe = (
+        "from huggingface_hub import HfApi; "
+        '_name = HfApi().whoami().get("name", ""); '
+        'assert _name, "hf_auth: HfApi().whoami() returned no user name or invalid token"'
+    )
+    # Check order: imports -> CUDA -> HF auth. Missing modules are reported first
+    # because they are the cheapest to fix (pip install); CUDA second because
+    # it indicates hardware misconfig; HF auth last because it requires token
+    # provisioning. The CUDA assert message uses double quotes for the same
+    # quoting reason as hf_auth_probe above.
+    probe = f'{import_probe}; import torch; assert torch.cuda.is_available(), "cuda unavailable"; {hf_auth_probe}'
     cmd = [
         "ssh",
         "-o",
@@ -225,6 +269,34 @@ def _smoke_test_remote(host: str, venv_python: str) -> tuple[bool, str]:
         stderr = (result.stderr or result.stdout).strip()
         # Extract the first ModuleNotFoundError / AssertionError message if present.
         first_issue = stderr.split("\n")[-1][:200]
+        return False, first_issue
+    return True, "ok"
+
+
+def _verify_remote_entrypoint(host: str, venv_python: str, remote_dir: str) -> tuple[bool, str]:
+    """Post-deploy check that exercises the exact import chain the dispatched
+    worker runs: ``evolve.evaluator`` + ``evolve.remote_worker`` with
+    ``PYTHONPATH=./src``. Catches problems the venv-only smoke test misses —
+    stale ``evolve/__init__.py`` referencing a removed module, source-vs-wheel
+    conflicts, or new transitive deps in the deployed branch that the remote
+    venv does not carry yet. Must run AFTER ``_deploy_to_remote`` so ``./src``
+    is populated on the remote.
+    """
+    probe = "from evolve.evaluator import EvolveEvaluator; from evolve.remote_worker import main"
+    cmd = [
+        "ssh",
+        "-o",
+        "ConnectTimeout=10",
+        host,
+        f"cd {remote_dir} && env PYTHONPATH=./src {venv_python} -c '{probe}' 2>&1",
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)  # noqa: S603
+    except subprocess.TimeoutExpired:
+        return False, "entrypoint verification timed out (SSH or Python unresponsive)"
+    if result.returncode != 0:
+        stderr = (result.stderr or result.stdout).strip()
+        first_issue = stderr.split("\n")[-1][:300]
         return False, first_issue
     return True, "ok"
 
@@ -251,6 +323,7 @@ def _build_pool(selected_hosts: set[str]) -> Any:
         host = cfg["host"]
         venv_python = cfg["venv_python"]
         remote_dir = cfg["remote_dir"]
+        timeout_seconds = int(cfg["timeout_seconds"])
         ok, detail = _smoke_test_remote(host, venv_python)
         if not ok:
             logger.warning(
@@ -266,6 +339,21 @@ def _build_pool(selected_hosts: set[str]) -> Any:
             continue
         # Deploy source before the backend is allowed into the pool.
         _deploy_to_remote(host, remote_dir)
+        # Post-deploy entrypoint verification — catches issues the venv-only smoke
+        # test cannot (e.g. a sibling module referenced by evolve.__init__ that
+        # was renamed in a recent commit, or a new openevolve-version API change).
+        ok, detail = _verify_remote_entrypoint(host, venv_python, remote_dir)
+        if not ok:
+            logger.warning(
+                "Skipping %s (%s) — entrypoint verification failed post-deploy: %s. "
+                "This is a branch-specific failure (smoke test passed but deployed "
+                "source cannot import). Inspect src/evolve/__init__.py and its "
+                "transitive imports for new deps not in the remote venv.",
+                alias,
+                host,
+                detail,
+            )
+            continue
         # PYTHONPATH=./src ensures the deployed branch source takes precedence over
         # any installed wheel. We MUST prefix with `env` because RemoteSSHBackend
         # wraps python_path with `stdbuf -oL -eL` which execs its first argument
@@ -283,9 +371,10 @@ def _build_pool(selected_hosts: set[str]) -> Any:
                 remote_dir=remote_dir,
                 python_path=wrapped_python,
                 device="cuda:0",
+                timeout=timeout_seconds,
             )
         )
-        logger.info("Pool: adding RemoteSSHBackend(%s)", host)
+        logger.info("Pool: adding RemoteSSHBackend(%s, timeout=%ds)", host, timeout_seconds)
 
     if not backends:
         msg = "no healthy backends — aborting dispatch"

@@ -258,7 +258,17 @@ def train_and_evaluate(
     config_obj = Football2VecConfig(**model_kwargs)
 
     # Load dataset (cached across candidates)
-    hf_token = os.environ.get("HF_TOKEN", "")
+    # Resolve token via huggingface_hub's standard chain: HF_TOKEN env ->
+    # ~/.cache/huggingface/token file -> None. Phase 1c (2026-04-23) debug:
+    # non-interactive SSH can have HF_TOKEN unset even when the remote has
+    # a valid file token. A bare ``os.environ.get(..., "")`` returns "" and
+    # downstream passes it as ``token=""`` to hf_hub_download, which builds
+    # an illegal ``Bearer `` header and httpx rejects with
+    # LocalProtocolError. get_token() resolves from the file cache
+    # transparently, matching HfApi()'s default behaviour.
+    from huggingface_hub import get_token
+
+    hf_token = get_token() or ""
     dataset_repo: str = candidate_config.get("dataset", "luxury-lakehouse/football2vec-training-data")
     cached = _load_or_cache(dataset_repo, hf_token)
 
@@ -521,7 +531,11 @@ def train_and_evaluate_stage2(
     model_kwargs = {k: v for k, v in candidate_config.items() if k in config_keys}
     config_obj = Football2VecConfig(**model_kwargs)
 
-    hf_token = os.environ.get("HF_TOKEN", "")
+    # Use huggingface_hub's env -> file -> None resolution (see _load_or_cache
+    # for the Phase 1c debug rationale).
+    from huggingface_hub import get_token
+
+    hf_token = get_token() or ""
     dataset_repo: str = candidate_config.get("dataset", "luxury-lakehouse/football2vec-training-data")
     data, _commit = load_training_data(hf_token, dataset_repo)
     aids_all, xs_all, ys_all = parse_actions(data["actions"])
@@ -633,7 +647,13 @@ def train_and_evaluate_stage2(
             leakage,
             elapsed,
         )
-    except (torch.cuda.OutOfMemoryError, RuntimeError, ValueError) as exc:
+    # Broadened from (OutOfMemoryError, RuntimeError, ValueError) after
+    # Phase 1c/1d (2026-04-23) silent failures: httpx.LocalProtocolError
+    # from empty HF_TOKEN fell outside the original tuple, the exception
+    # escaped, remote_worker silently exited non-zero, and the orchestrator
+    # logged fail_metrics with NO _error_text. Catching Exception guarantees
+    # the full traceback lands in _error_text for post-mortem debugging.
+    except Exception as exc:
         _log.warning("Stage-2 candidate failed: %s", exc)
         metrics = {
             "val_mlm_loss": float("inf"),

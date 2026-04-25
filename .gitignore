@@ -33,6 +33,14 @@ ENV/
 artifacts/
 *~
 
+# Per-cycle dispatch logs and PIDs at repo root — session droppings only.
+# Cycle artefacts worth preserving live alongside the cycle's docs at
+# docs/evolve/<cycle>/, not at root (see EV2 cycle for the pattern).
+/phase*.log
+/phase*.pid
+/stage*_retrain.log
+/stage*_retrain.pid
+
 # Local scratch directory for mocks, previews, and throwaway experiments.
 # Contents are intentionally untracked — nothing here ships.
 tmp/

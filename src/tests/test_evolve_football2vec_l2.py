@@ -338,10 +338,22 @@ def test_orchestrator_script_imports_and_has_main():
         assert entry["host"].count("@") == 1
         assert entry["remote_dir"].startswith("/")
         assert entry["venv_python"].startswith("/")
+        # Per-backend training timeout is required. Phase 1b (2026-04-23) hit
+        # the global 900s default on DGX Spark: the worker was killed at 904s,
+        # before it could complete Epoch 1. timeout_seconds must be set per
+        # backend to the machine's measured epoch speed * 16 * safety factor.
+        assert isinstance(entry["timeout_seconds"], int), f"{alias} missing int timeout_seconds"
+        assert entry["timeout_seconds"] > 0, f"{alias} timeout_seconds must be positive"
     # Public helper surface exists.
     assert callable(module._build_pool)
     assert callable(module._deploy_to_remote)
     assert callable(module._smoke_test_remote)
+    # Phase 1b post-mortem: the venv smoke test passed on Media-PC but the actual
+    # dispatch crashed on a missing module (openevolve). A post-deploy entrypoint
+    # test that exercises the exact evolve.remote_worker import chain with
+    # PYTHONPATH=./src is required to catch branch-specific issues the venv
+    # smoke test cannot see.
+    assert callable(module._verify_remote_entrypoint)
 
     # Smoke test verifies the full stage-2 evaluator dep surface (not just torch).
     # This list must cover every top-level import the evaluator transitively triggers
@@ -356,6 +368,11 @@ def test_orchestrator_script_imports_and_has_main():
         "numpy",
         "sklearn.model_selection",
         "scipy",
+        # Phase 1b (2026-04-23): a venv without openevolve passes simple import
+        # checks then crashes ~2s into dispatch because evolve.evaluator imports
+        # openevolve.evaluation_result at module load. Pinned in this list so
+        # any future smoke-test rewrite can't silently drop it.
+        "openevolve",
     )
     for mod in required_mods:
         assert mod in required, f"smoke test missing required module: {mod}"
