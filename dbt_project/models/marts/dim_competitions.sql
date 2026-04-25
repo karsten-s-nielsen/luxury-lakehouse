@@ -72,6 +72,24 @@ idsse_competitions as (
 
 ),
 
+metrica_competitions as (
+
+    -- PR 5a pseudo-competition: Metrica sample data has no competition
+    -- metadata. Synthesise 'metrica-sample' so fct_passes.competition_key
+    -- resolves non-NULL for Metrica rows and the Pass Map competition
+    -- filter cascade shows "Metrica Sample Dataset".
+    -- Ref: TODO #32, docs/superpowers/specs/2026-04-24-kimball-pr5-design.md §2.
+    select distinct
+        'metrica'                          as provider,
+        'metrica-sample'                   as native_competition_id,
+        cast(null as int)                  as competition_id_legacy,
+        'Metrica Sample Dataset'           as competition_name
+
+    from {{ ref('stg_metrica__matches') }}
+    where native_match_id is not null
+
+),
+
 all_competitions as (
 
     select * from statsbomb_competitions
@@ -79,6 +97,8 @@ all_competitions as (
     select * from wyscout_competitions
     union all
     select * from idsse_competitions
+    union all
+    select * from metrica_competitions
 
 ),
 
@@ -126,11 +146,17 @@ final as (
         coalesce(s.seed_competition_name, d.competition_name) as competition_name,
         coalesce(
             s.country,
-            case when d.provider = 'idsse' then 'Germany' end
+            case
+                when d.provider = 'idsse' then 'Germany'
+                when d.provider = 'metrica' then cast(null as string)  -- Anonymised; no real country
+            end
         ) as country,
         coalesce(
             s.gender,
-            case when d.provider = 'idsse' then 'male' end
+            case
+                when d.provider = 'idsse' then 'male'
+                when d.provider = 'metrica' then cast(null as string)  -- Anonymised; no real gender
+            end
         ) as gender
 
     from deduped d

@@ -37,8 +37,16 @@ embeddings_with_context as (
         m.competition_id,
         m.season_id
     from {{ ref('fct_player_embeddings') }} e
+    -- PR 2 (ADR-011) migrated fct_match_summary from match_id to match_key;
+    -- fct_player_embeddings still keyed on native StatsBomb match_id (PR 5b
+    -- migrates the embedding marts to player_key + match_key). Bridge via
+    -- dim_matches until PR 5b: cast SB native match_id string to bigint to
+    -- join the embedding's int match_id.
+    inner join {{ ref('dim_matches') }} dm
+        on dm.provider = 'statsbomb'
+       and try_cast(dm.native_match_id as bigint) = e.match_id
     inner join {{ ref('fct_match_summary') }} m
-        on e.match_id = m.match_id
+        on m.match_key = dm.match_key
     inner join player_best_dim p
         on e.canonical_player_id = p.canonical_player_id
         and size(e.behavioral_vector) = p.best_dim

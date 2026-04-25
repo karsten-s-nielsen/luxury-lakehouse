@@ -157,43 +157,105 @@ models:
         data_sensitivity: public
         contains_pii: false
     description: >
-      Cross-source player identity mapping combining automated entity resolution
-      results with manual overrides. Automated matches come from the TF-IDF +
-      rapidfuzz + bidirectional pipeline; overrides allow force_match and
-      force_reject corrections. Materialized as ephemeral (CTE).
+      Cross-provider player identity mapping (ADR-011 PR 5a).
+      Grain: (source_a, player_id_a, source_b, player_id_b).
+      Convention: source_a < source_b lexicographically — each unordered
+      pair appears once. Automated matches come from
+      scripts/generate_entity_xref.py (rapidfuzz token_sort_ratio); manual
+      overrides via seeds/player_xref_overrides.csv support force_match
+      and force_reject. Materialized as view (was ephemeral pre-PR-5a).
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           combination_of_columns:
-            - statsbomb_player_id
-            - wyscout_player_id
+            - source_a
+            - player_id_a
+            - source_b
+            - player_id_b
     columns:
-      - name: statsbomb_player_id
-        description: StatsBomb player identifier
+      - name: source_a
+        description: Provider label for side A (statsbomb/wyscout/idsse/metrica).
         data_tests:
           - not_null
-      - name: wyscout_player_id
-        description: Wyscout player identifier (wyId)
+      - name: player_id_a
+        description: Native player identifier on side A (stringified).
+        data_tests:
+          - not_null
+      - name: source_b
+        description: Provider label for side B.
+        data_tests:
+          - not_null
+      - name: player_id_b
+        description: Native player identifier on side B (stringified).
         data_tests:
           - not_null
       - name: confidence
-        description: Match confidence score (0-100)
+        description: Match confidence score (70-100; below-70 discarded at generator).
         data_tests:
           - not_null
           - dbt_expectations.expect_column_values_to_be_between:
               arguments:
-                min_value: 0
+                min_value: 70
                 max_value: 100
       - name: match_layer
         description: >
-          Resolution layer (0=manual override, 1=strict name+DOB+jersey+team,
-          2=standard name+DOB, 3=relaxed name+position)
+          Resolution tier (0=manual override, 1+=automated tiers).
+        data_tests:
+          - not_null
+      - name: resolution_type
+        description: How the match was produced.
         data_tests:
           - not_null
           - accepted_values:
               arguments:
-                values: [0, 1, 2, 3]
+                values: ['automated', 'manual_override']
+
+  - name: int_team_xref
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Cross-provider team identity mapping (ADR-011 PR 5a).
+      Mirror of int_player_xref for teams. Grain:
+      (source_a, team_id_a, source_b, team_id_b).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - source_a
+            - team_id_a
+            - source_b
+            - team_id_b
+    columns:
+      - name: source_a
+        description: Provider label for side A.
+        data_tests:
+          - not_null
+      - name: team_id_a
+        description: Native team identifier on side A (stringified).
+        data_tests:
+          - not_null
+      - name: source_b
+        description: Provider label for side B.
+        data_tests:
+          - not_null
+      - name: team_id_b
+        description: Native team identifier on side B (stringified).
+        data_tests:
+          - not_null
+      - name: confidence
+        description: Match confidence 70-100.
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 70
+                max_value: 100
+      - name: match_layer
+        description: 0=manual override, 1+=automated tiers.
       - name: resolution_type
-        description: How the match was produced (automated or manual_override)
+        description: >
+          Value is 'automated' for rapidfuzz-generator rows or
+          'manual_override' for seeded force_match / force_reject rows.
         data_tests:
           - not_null
           - accepted_values:

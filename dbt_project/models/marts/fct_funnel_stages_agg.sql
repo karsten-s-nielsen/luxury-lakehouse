@@ -18,6 +18,16 @@
 --   — dbt_utils.unique_combination_of_columns asserts this.
 --   — opponent_team_id is derivable from match_summary home/away.
 --
+-- PR 5a (ADR-011): Kimball surrogate keys added.
+--   - match_key BIGINT: propagated from fct_match_summary via the existing
+--     JOIN (using match_key).
+--   - team_key BIGINT: resolved via dim_teams on (provider, native_team_id).
+--     StatsBomb + Wyscout providers only (funnel is SB+WS sourced).
+--   - opponent_team_key BIGINT: same resolution on opponent_team_id.
+--   Wyscout home/away team_ids now populate via stg_wyscout__home_away_teams
+--   (fct_match_summary patched in PR 5a); the opponent_team_id warn-suppression
+--   flips to error severity.
+--
 -- Straddler handling (V01 Phase 0 verification):
 --   168,298 (match_id, possession_id) pairs span >1 game_state within a match.
 --   pos_in_gs  — COUNT(DISTINCT possession_id) within this (match, team, gs);
@@ -48,6 +58,7 @@
 with base as (
 
     select
+        ms.match_key,
         av.match_id,
         av.competition_id,
         av.team_id,
@@ -58,6 +69,7 @@ with base as (
         av.end_x,
         av.action_type,
         av.action_result,
+        av.data_source,
         ms.home_team_id,
         ms.away_team_id
     from {{ ref('fct_action_values') }} av
@@ -87,10 +99,12 @@ own_possession as (
 per_gs as (
 
     select
+        match_key,
         match_id,
         competition_id,
         team_id,
         opponent_team_id,
+        data_source,
         game_state,
         count(distinct case when possession_id is not null then possession_id end)      as pos_in_gs,
         max(case when possession_id is null then 1 else 0 end)                           as wy_match_flag,
@@ -102,7 +116,7 @@ per_gs as (
                 then 1 else 0
             end)                                                                         as goals
     from own_possession
-    group by match_id, competition_id, team_id, opponent_team_id, game_state
+    group by match_key, match_id, competition_id, team_id, opponent_team_id, data_source, game_state
 
 ),
 
@@ -120,20 +134,30 @@ per_match as (
 final as (
 
     select
-        cast(g.match_id as bigint)             as match_id,
-        cast(g.competition_id as int)          as competition_id,
-        cast(g.team_id as int)                 as team_id,
-        cast(g.opponent_team_id as int)        as opponent_team_id,
-        cast(g.game_state as string)           as game_state,
-        cast(g.pos_in_gs as bigint)            as pos_in_gs,
-        cast(m.pos_in_match as bigint)         as pos_in_match,
-        cast(g.a3_entries as bigint)           as a3_entries,
-        cast(g.shots as bigint)                as shots,
-        cast(g.goals as bigint)                as goals,
-        cast(g.wy_match_flag as smallint)      as wy_match_flag,
-        current_timestamp()                    as _loaded_at
+        g.match_key                                     as match_key,
+        cast(g.match_id as bigint)                      as match_id,
+        cast(g.competition_id as int)                   as competition_id,
+        cast(g.team_id as int)                          as team_id,
+        cast(g.opponent_team_id as int)                 as opponent_team_id,
+        dt_own.team_key                                 as team_key,
+        dt_opp.team_key                                 as opponent_team_key,
+        cast(g.game_state as string)                    as game_state,
+        cast(g.pos_in_gs as bigint)                     as pos_in_gs,
+        cast(m.pos_in_match as bigint)                  as pos_in_match,
+        cast(g.a3_entries as bigint)                    as a3_entries,
+        cast(g.shots as bigint)                         as shots,
+        cast(g.goals as bigint)                         as goals,
+        cast(g.wy_match_flag as smallint)               as wy_match_flag,
+        current_timestamp()                             as _loaded_at
     from per_gs g
     inner join per_match m using (match_id, team_id)
+    -- PR 5a: Kimball team keys via dim_teams (SB + WS providers only for funnel).
+    left join {{ ref('dim_teams') }} dt_own
+        on  dt_own.provider = g.data_source
+       and dt_own.native_team_id = cast(g.team_id as string)
+    left join {{ ref('dim_teams') }} dt_opp
+        on  dt_opp.provider = g.data_source
+       and dt_opp.native_team_id = cast(g.opponent_team_id as string)
 
 )
 
