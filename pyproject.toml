@@ -54,7 +54,7 @@ jax = [
 mlflow = [
     "mlflow>=2.17.0",
 ]
-training = ["torch>=2.0", "pyarrow>=14.0", "datasets>=3.0"]
+training = ["torch>=2.0", "pyarrow>=14.0", "datasets>=3.0", "safetensors>=0.4.0"]
 evolve = ["openevolve>=0.2.0"]
 taipy-app = [
     "taipy==4.1.1",
@@ -139,6 +139,7 @@ select = [
 "hf_taipy_app/**" = ["E501", "S104", "F405", "RUF022", "RUF005"]  # Taipy app: long help text, 0.0.0.0, star imports, unsorted __all__, list concat
 "hf_taipy_app/src/test_*.py" = ["E501", "S101", "S105", "S106"]  # Taipy app tests: long lines, asserts, fake tokens in test fixtures
 "src/evolve/targets/*/seed_programs/**" = ["F821"]  # Seed programs are exec'd with torch/math injected in globals
+"src/evolve/targets/*/seed_programs_stage2/**" = ["F821"]  # EV2 stage-2 adversary seeds — same exec'd-with-globals pattern as Phase 1 seed_programs
 # BLE001 per-file ignores below: each is a deliberate, justified catch of broad
 # Exception. Per-line `# noqa: BLE001` comments (with explanation) are preferred
 # when only a single call site needs the exemption inside a file; use these
@@ -236,6 +237,7 @@ exclude = [
     "scripts/train_xg_v2_hf.py",
     "scripts/train_xg_v2_hf_helpers.py",
     "src/evolve/targets/*/seed_programs",
+    "src/evolve/targets/*/seed_programs_stage2",
 ]
 
 [tool.pytest.ini_options]

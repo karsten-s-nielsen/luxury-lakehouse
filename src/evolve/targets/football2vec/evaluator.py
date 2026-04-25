@@ -12,6 +12,7 @@ import threading
 import time
 import traceback
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 _log = logging.getLogger(__name__)
@@ -257,7 +258,17 @@ def train_and_evaluate(
     config_obj = Football2VecConfig(**model_kwargs)
 
     # Load dataset (cached across candidates)
-    hf_token = os.environ.get("HF_TOKEN", "")
+    # Resolve token via huggingface_hub's standard chain: HF_TOKEN env ->
+    # ~/.cache/huggingface/token file -> None. Phase 1c (2026-04-23) debug:
+    # non-interactive SSH can have HF_TOKEN unset even when the remote has
+    # a valid file token. A bare ``os.environ.get(..., "")`` returns "" and
+    # downstream passes it as ``token=""`` to hf_hub_download, which builds
+    # an illegal ``Bearer `` header and httpx rejects with
+    # LocalProtocolError. get_token() resolves from the file cache
+    # transparently, matching HfApi()'s default behaviour.
+    from huggingface_hub import get_token
+
+    hf_token = get_token() or ""
     dataset_repo: str = candidate_config.get("dataset", "luxury-lakehouse/football2vec-training-data")
     cached = _load_or_cache(dataset_repo, hf_token)
 
@@ -317,4 +328,349 @@ def train_and_evaluate(
     return metrics
 
 
-__all__ = ["train_and_evaluate"]
+# ---------------------------------------------------------------------------
+# Stage-2 adversarial fine-tuning — EV2 infrastructure.
+# ---------------------------------------------------------------------------
+
+
+_stage1_cache: dict[tuple[str, str], dict[str, Any]] = {}
+_stage1_lock = threading.Lock()
+
+
+def _load_or_cache_stage1_encoder(
+    model_repo: str,
+    commit_sha: str,
+    config_obj: Any,  # Football2VecConfig
+    device: Any,  # torch.device
+    hf_token: str,
+) -> Any:
+    """Load the stage-1 encoder from a pinned HF Hub revision, cache per process.
+
+    Keyed by (model_repo, commit_sha). Weights are ~500 MB — re-download per
+    candidate evaluation is wasteful; the cache saves it.
+    """
+    import torch
+    import torch.nn as nn
+    from huggingface_hub import hf_hub_download
+    from safetensors.torch import load_file as _load
+
+    from analytics.football2vec_transformer import Football2VecEncoder
+    from ingestion.football2vec_v2_training import VOCAB_SIZE
+
+    key = (model_repo, commit_sha)
+    with _stage1_lock:
+        cached = _stage1_cache.get(key)
+        if cached is not None:
+            _log.info("Using cached stage-1 encoder for %s @ %s", model_repo, commit_sha[:8])
+            model = Football2VecEncoder(config_obj)
+            expanded = nn.Embedding(VOCAB_SIZE + 2, config_obj.hidden_dim)
+            with torch.no_grad():
+                expanded.weight[:VOCAB_SIZE] = model.token_embedding.weight
+            model.token_embedding = expanded
+            model.load_state_dict(cached["state_dict"])
+            return model.to(device)
+
+        local = hf_hub_download(
+            model_repo,
+            "stage1/model.safetensors",
+            repo_type="model",
+            token=hf_token,
+            revision=commit_sha,
+        )
+        state = _load(local, device="cpu")
+        _stage1_cache[key] = {"state_dict": state}
+
+        model = Football2VecEncoder(config_obj)
+        expanded = nn.Embedding(VOCAB_SIZE + 2, config_obj.hidden_dim)
+        with torch.no_grad():
+            expanded.weight[:VOCAB_SIZE] = model.token_embedding.weight
+        model.token_embedding = expanded
+        model.load_state_dict(state)
+        return model.to(device)
+
+
+def _apply_program_adversary(
+    program_path: str,
+    hidden_dim: int,
+    num_competitions: int,
+    device: Any,  # torch.device
+) -> Any:  # nn.Module
+    """Exec a Phase 1 seed under restricted globals and return a DynamicAdversary module.
+
+    Seeds follow the two-function pattern (same as ScoutGPT L2):
+
+    - ``custom_layers(hidden_dim, num_competitions)`` returns a ``dict[str, nn.Module]``
+      of adversary submodules. Must include a ``"grl"`` key (per-epoch lambda injection
+      hook).
+    - ``custom_embed(self, encoder_output, attention_mask)`` returns logits of shape
+      ``(B, num_competitions)``. Despite the name, this is the **adversary forward**
+      (the ``custom_embed`` function name is reused from the validator which hardcodes it).
+
+    We build a ``_DynamicAdversary`` wrapper that registers the layers as children
+    and delegates ``forward`` to ``custom_embed``.
+
+    Raises ValueError if the seed lacks either function or the layers dict lacks ``"grl"``.
+    """
+    import torch
+    import torch.nn as nn
+
+    from evolve.targets.scoutgpt.building_blocks import (
+        AdaLNZero,
+        AdaptiveBandwidth,
+        CompetitiveGate,
+        CrossLayer,
+        GradientReversal,
+        HyperLinear,
+        KANLayer,
+        MoERouter,
+        RatioGate,
+    )
+
+    source = Path(program_path).read_text(encoding="utf-8")
+    restricted_globals: dict[str, Any] = {
+        "torch": torch,
+        "math": __import__("math"),
+        "MoERouter": MoERouter,
+        "HyperLinear": HyperLinear,
+        "KANLayer": KANLayer,
+        "AdaLNZero": AdaLNZero,
+        "CrossLayer": CrossLayer,
+        "CompetitiveGate": CompetitiveGate,
+        "GradientReversal": GradientReversal,
+        "AdaptiveBandwidth": AdaptiveBandwidth,
+        "RatioGate": RatioGate,
+        "__builtins__": {},
+    }
+    exec(source, restricted_globals)  # noqa: S102 — see ADR-001  # nosemgrep: python.lang.security.audit.exec-detected.exec-detected
+
+    layers_fn = restricted_globals.get("custom_layers")
+    forward_fn = restricted_globals.get("custom_embed")
+    if layers_fn is None:
+        msg = f"seed {program_path} has no custom_layers() function"
+        raise ValueError(msg)
+    if forward_fn is None:
+        msg = f"seed {program_path} has no custom_embed() function"
+        raise ValueError(msg)
+
+    layers_dict = layers_fn(hidden_dim, num_competitions)
+    if not isinstance(layers_dict, dict):
+        msg = f"seed {program_path} custom_layers must return dict, got {type(layers_dict).__name__}"
+        raise ValueError(msg)
+    if "grl" not in layers_dict:
+        msg = f"seed {program_path} custom_layers dict must include 'grl' key for per-epoch lambda injection"
+        raise ValueError(msg)
+
+    class _DynamicAdversary(nn.Module):
+        """Evaluator-built wrapper: registers layers + delegates forward to custom_embed."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            for name, mod in layers_dict.items():
+                self.register_module(name, mod)
+
+        def forward(self, encoder_output: Any, attention_mask: Any) -> Any:
+            return forward_fn(self, encoder_output, attention_mask)
+
+    return _DynamicAdversary().to(device)
+
+
+def train_and_evaluate_stage2(
+    candidate_config: dict[str, Any],
+    device: str,
+    epochs: int,
+    seed: int,
+    program_path: str | None = None,
+) -> dict[str, Any]:
+    """Stage-2 adversarial fine-tuning evaluator.
+
+    Loads the pinned stage-1 encoder, builds the adversary (injected seed OR
+    registry lookup), runs the refactored ``_train_stage2_loop``, and returns
+    the metrics dict the harvest orchestrator consumes.
+
+    Required ``candidate_config`` keys (beyond stage-1 architecture keys):
+      ``stage1_model_repo``, ``stage1_commit_sha``, ``dataset``,
+      ``adversary_architecture``, ``lambda_schedule_shape``, ``lambda_max``,
+      ``lambda_warmup_epochs``. Optional ``L_0_reference`` (float): when set,
+      the returned ``mlm_score`` and ``fitness`` are computed; otherwise they
+      are NaN (baseline run populates L_0 for subsequent seeds).
+
+    Returns a dict with keys: val_mlm_loss, val_adv_accuracy, num_competitions,
+    chance, leakage, debias_score, mlm_score, fitness, param_count,
+    training_time_seconds, epochs_trained.
+    """
+    import sys
+
+    import torch
+
+    from analytics.football2vec_adversary import AdversaryConfig, build_adversary, lambda_schedule
+    from analytics.football2vec_transformer import Football2VecConfig
+    from ingestion.football2vec_v2_training import (
+        Football2VecDataset,
+        load_training_data,
+        parse_actions,
+        stratified_split,
+    )
+
+    torch_device = torch.device(device)
+    start = time.monotonic()
+    _log.info("Stage-2 candidate starting (device=%s, epochs=%d, seed=%d)", device, epochs, seed)
+    torch.manual_seed(seed)
+
+    config_keys = {
+        "vocab_size",
+        "hidden_dim",
+        "num_layers",
+        "num_heads",
+        "dropout",
+        "max_seq_len",
+        "spatial_mlp_dim",
+        "pooling_type",
+        "spatial_injection",
+        "position_embedding",
+    }
+    model_kwargs = {k: v for k, v in candidate_config.items() if k in config_keys}
+    config_obj = Football2VecConfig(**model_kwargs)
+
+    # Use huggingface_hub's env -> file -> None resolution (see _load_or_cache
+    # for the Phase 1c debug rationale).
+    from huggingface_hub import get_token
+
+    hf_token = get_token() or ""
+    dataset_repo: str = candidate_config.get("dataset", "luxury-lakehouse/football2vec-training-data")
+    data, _commit = load_training_data(hf_token, dataset_repo)
+    aids_all, xs_all, ys_all = parse_actions(data["actions"])
+    ucomp = sorted(data["competition_id"].unique().tolist())
+    c2i: dict[int, int] = {int(c): i for i, c in enumerate(ucomp)}
+    cl = [c2i[int(c)] for c in data["competition_id"].values]
+    num_competitions = len(ucomp)
+
+    train_df, val_df, _test_df = stratified_split(data)
+    ti, vi = train_df.index.tolist(), val_df.index.tolist()
+
+    batch_size: int = int(candidate_config.get("batch_size", 256))
+    lr: float = float(candidate_config.get("learning_rate", 3e-4))
+    mask_prob: float = float(candidate_config.get("mask_prob", 0.22))
+    patience: int = max(3, epochs // 2)
+
+    train_ds = Football2VecDataset(
+        [aids_all[i] for i in ti],
+        [xs_all[i] for i in ti],
+        [ys_all[i] for i in ti],
+        max_seq_len=config_obj.max_seq_len,
+        mask_prob=mask_prob,
+        mlm=True,
+        competition_ids=[cl[i] for i in ti],
+    )
+    val_ds = Football2VecDataset(
+        [aids_all[i] for i in vi],
+        [xs_all[i] for i in vi],
+        [ys_all[i] for i in vi],
+        max_seq_len=config_obj.max_seq_len,
+        mask_prob=mask_prob,
+        mlm=True,
+        competition_ids=[cl[i] for i in vi],
+    )
+
+    stage1_repo: str = candidate_config.get("stage1_model_repo", "luxury-lakehouse/football2vec-v2")
+    stage1_sha: str = str(candidate_config.get("stage1_commit_sha", "main"))
+    encoder = _load_or_cache_stage1_encoder(stage1_repo, stage1_sha, config_obj, torch_device, hf_token)
+
+    adv_cfg = AdversaryConfig(
+        architecture=candidate_config.get("adversary_architecture", "linear"),
+        lambda_schedule_shape=candidate_config.get("lambda_schedule_shape", "linear"),
+        lambda_max=float(candidate_config.get("lambda_max", 0.2)),
+        lambda_warmup_epochs=int(candidate_config.get("lambda_warmup_epochs", 5)),
+    )
+    if program_path is not None:
+        adversary = _apply_program_adversary(program_path, config_obj.hidden_dim, num_competitions, torch_device)
+    else:
+        adversary = build_adversary(adv_cfg, config_obj.hidden_dim, num_competitions).to(torch_device)
+
+    def schedule_fn(epoch: int, total_epochs: int) -> float:
+        return lambda_schedule(adv_cfg, epoch, total_epochs)
+
+    sys.path.insert(0, "scripts")
+    try:
+        from train_football2vec_v2 import _train_stage2_loop
+    finally:
+        sys.path.pop(0)
+
+    try:
+        _encoder, _adversary, history = _train_stage2_loop(
+            encoder,
+            train_ds,
+            val_ds,
+            num_competitions,
+            config_obj,
+            torch_device,
+            epochs=epochs,
+            batch_size=batch_size,
+            lr=lr,
+            patience=patience,
+            adversary_module=adversary,
+            lambda_schedule_fn=schedule_fn,
+        )
+
+        val_mlm_loss_final = history["val_mlm_loss"][-1] if history["val_mlm_loss"] else float("inf")
+        val_adv_acc_final = history["val_adv_accuracy"][-1] if history["val_adv_accuracy"] else 0.0
+        chance = 1.0 / num_competitions
+        leakage = max(0.0, (val_adv_acc_final - chance) / max(1.0 - chance, 1e-9))
+        debias_score = 1.0 - leakage
+
+        l_0_reference = candidate_config.get("L_0_reference")
+        mlm_score: float = float("nan")
+        fitness: float = float("nan")
+        if l_0_reference is not None and val_mlm_loss_final > 0:
+            mlm_score = min(1.0, float(l_0_reference) / val_mlm_loss_final)
+            fitness = 0.4 * mlm_score + 0.6 * debias_score
+
+        param_count = sum(p.numel() for p in encoder.parameters()) + sum(p.numel() for p in adversary.parameters())
+
+        elapsed = time.monotonic() - start
+        metrics: dict[str, Any] = {
+            "val_mlm_loss": val_mlm_loss_final,
+            "val_adv_accuracy": val_adv_acc_final,
+            "num_competitions": float(num_competitions),
+            "chance": chance,
+            "leakage": leakage,
+            "debias_score": debias_score,
+            "mlm_score": mlm_score,
+            "fitness": fitness,
+            "param_count": float(param_count),
+            "training_time_seconds": elapsed,
+            "epochs_trained": float(len(history.get("val_mlm_loss", []))),
+        }
+        _log.info(
+            "Stage-2 candidate done: val_mlm=%.4f val_adv_acc=%.4f leak=%.3f time=%.1fs",
+            val_mlm_loss_final,
+            val_adv_acc_final,
+            leakage,
+            elapsed,
+        )
+    # Broadened from (OutOfMemoryError, RuntimeError, ValueError) after
+    # Phase 1c/1d (2026-04-23) silent failures: httpx.LocalProtocolError
+    # from empty HF_TOKEN fell outside the original tuple, the exception
+    # escaped, remote_worker silently exited non-zero, and the orchestrator
+    # logged fail_metrics with NO _error_text. Catching Exception guarantees
+    # the full traceback lands in _error_text for post-mortem debugging.
+    except Exception as exc:
+        _log.warning("Stage-2 candidate failed: %s", exc)
+        metrics = {
+            "val_mlm_loss": float("inf"),
+            "val_adv_accuracy": 0.0,
+            "debias_score": 0.0,
+            "mlm_score": 0.0,
+            "fitness": 0.0,
+            "param_count": 0.0,
+            "training_time_seconds": time.monotonic() - start,
+            "epochs_trained": 0.0,
+            "error": 1.0,
+            "_error_text": traceback.format_exc(),
+        }
+
+    if torch_device.type == "cuda":
+        torch.cuda.empty_cache()
+    return metrics
+
+
+__all__ = ["_apply_program_adversary", "train_and_evaluate", "train_and_evaluate_stage2"]

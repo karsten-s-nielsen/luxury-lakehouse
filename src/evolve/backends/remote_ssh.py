@@ -6,6 +6,7 @@ import atexit
 import json
 import logging
 import os
+import shlex
 import subprocess
 import tempfile
 import threading
@@ -275,9 +276,31 @@ class RemoteSSHBackend:
         #    stdout is captured in full (contains the JSON metrics line).
         #    stderr is streamed line-by-line to the local logger.
         program_arg = f" --program {remote_program}" if remote_program else ""
+        # Forward HF_TOKEN from the local orchestrator env to the remote worker.
+        # Removes the per-remote token-sync burden: whenever HF_TOKEN rotates
+        # locally (e.g., after a security event or scheduled ~90-day rotation),
+        # the next dispatch automatically propagates the fresh token without
+        # touching ~/.bashrc or ~/.cache/huggingface/token on each remote. See
+        # docs/engineering/orchestration.md Rule 1 and Appendix A (Phase 1c debug
+        # narrative) for the history that motivated this.
+        #
+        # Security note: the token appears briefly in the argv of the local ssh
+        # process (visible to Windows/Linux `ps`) and in the remote shell
+        # cmdline until the shell execs env / stdbuf / python via the exec
+        # chain. Acceptable on internal dev machines where the only local-account
+        # observer is the same user; NOT acceptable if the remote hosts
+        # untrusted processes. For hardened setups, use ssh's SendEnv +
+        # AcceptEnv mechanism instead (requires `AcceptEnv HF_TOKEN` in
+        # /etc/ssh/sshd_config on each remote; no cmdline exposure).
+        # shlex.quote() defensively escapes any shell metacharacters; HF tokens are
+        # alphanumeric in practice but the env var is process-controlled, so the
+        # quote is correct hygiene and silences semgrep
+        # `dangerous-subprocess-use-tainted-env-args`.
+        local_hf_token = os.environ.get("HF_TOKEN", "")
+        hf_token_prefix = f"HF_TOKEN={shlex.quote(local_hf_token)} " if local_hf_token else ""
         remote_cmd = (
             f"cd {self._remote_dir} && "
-            f"PYTHONUNBUFFERED=1 stdbuf -oL -eL "
+            f"{hf_token_prefix}PYTHONUNBUFFERED=1 stdbuf -oL -eL "
             f"{self._python_path} -m evolve.remote_worker "
             f"{remote_filename} {self._device} {epochs} {seed} {target}"
             f"{program_arg}"
