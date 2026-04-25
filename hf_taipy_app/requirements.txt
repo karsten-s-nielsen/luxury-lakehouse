@@ -67,7 +67,7 @@ cycler==0.12.1
     # via matplotlib
 databricks-sdk==0.105.0
     # via luxury-lakehouse (pyproject.toml)
-deepdiff==7.0.1
+deepdiff==9.0.0
     # via taipy-common
 dnspython==2.8.0
     # via pymongo
