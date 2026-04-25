@@ -6,6 +6,7 @@ import atexit
 import json
 import logging
 import os
+import shlex
 import subprocess
 import tempfile
 import threading
@@ -291,8 +292,12 @@ class RemoteSSHBackend:
         # untrusted processes. For hardened setups, use ssh's SendEnv +
         # AcceptEnv mechanism instead (requires `AcceptEnv HF_TOKEN` in
         # /etc/ssh/sshd_config on each remote; no cmdline exposure).
+        # shlex.quote() defensively escapes any shell metacharacters; HF tokens are
+        # alphanumeric in practice but the env var is process-controlled, so the
+        # quote is correct hygiene and silences semgrep
+        # `dangerous-subprocess-use-tainted-env-args`.
         local_hf_token = os.environ.get("HF_TOKEN", "")
-        hf_token_prefix = f"HF_TOKEN={local_hf_token} " if local_hf_token else ""
+        hf_token_prefix = f"HF_TOKEN={shlex.quote(local_hf_token)} " if local_hf_token else ""
         remote_cmd = (
             f"cd {self._remote_dir} && "
             f"{hf_token_prefix}PYTHONUNBUFFERED=1 stdbuf -oL -eL "
