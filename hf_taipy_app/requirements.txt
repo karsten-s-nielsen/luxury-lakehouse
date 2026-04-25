@@ -8,7 +8,7 @@ annotated-types==0.7.0
     # via pydantic
 anyio==4.13.0
     # via httpx
-apispec==6.8.2
+apispec==6.10.0
     # via
     #   apispec-webframeworks
     #   taipy-rest
