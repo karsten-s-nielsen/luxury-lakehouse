@@ -81,12 +81,22 @@ jobs:
         run: uv run validate_workflow_cards workflow-cards/
 
       - name: Verify taipy-app requirements are up to date
+        # Pre-seed the output file with the existing pinned requirements.txt so
+        # uv pip compile reads it as input and preserves existing pins where
+        # pyproject.toml constraints still allow them. Without this seed, uv
+        # would re-resolve fresh from PyPI on every CI run — and any new
+        # minor release of any transitive dep would falsely flag the file as
+        # "stale", breaking main + every Dependabot PR within hours of merge.
+        # With the seed, the diff is non-zero ONLY when pyproject.toml itself
+        # changed (i.e. an intentional bump or a new dep), which is the
+        # invariant we actually want to enforce.
         run: |
+          cp hf_taipy_app/requirements.txt /tmp/requirements-check.txt
           uv pip compile pyproject.toml --extra taipy-app --python-version 3.10 --python-platform linux -o /tmp/requirements-check.txt
           tail -n +3 hf_taipy_app/requirements.txt > /tmp/req-actual.txt
           tail -n +3 /tmp/requirements-check.txt > /tmp/req-expected.txt
           diff -u /tmp/req-actual.txt /tmp/req-expected.txt || {
-            echo "::error::hf_taipy_app/requirements.txt is stale — run: uv pip compile pyproject.toml --extra taipy-app --python-version 3.10 --python-platform linux -o hf_taipy_app/requirements.txt"
+            echo "::error::hf_taipy_app/requirements.txt is stale vs pyproject.toml constraints — run: uv pip compile pyproject.toml --extra taipy-app --python-version 3.10 --python-platform linux -o hf_taipy_app/requirements.txt"
             exit 1
           }
 
@@ -151,10 +161,11 @@ jobs:
       - name: Audit dependencies
         # CVE-2026-4539 (pygments), CVE-2026-0545 (mlflow), CVE-2026-33866 (?)  — no upstream fix yet.
         # CVE-2026-28684 (python-dotenv 1.0.1): taipy-gui>=4.1 pins python-dotenv>=1.0.0,<=1.0.1; cannot upgrade to 1.2.2 without breaking taipy-app. Track upstream; revisit when taipy-gui 4.2+ lands with a relaxed pin.
-        run: uv run pip-audit --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-0545 --ignore-vuln CVE-2026-33866 --ignore-vuln CVE-2026-28684
+        # CVE-2026-3219 (pip 26.0.1, GHSA-58qw-9mgm-455v, medium): pip interpretation conflict handling both concatenated tar and ZIP files as ZIP. No patched version as of 2026-04-24. Not exploitable in this pipeline — we only install from trusted PyPI via uv; no attacker-controlled package sources. Revisit when pip ships a fix.
+        run: uv run pip-audit --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-0545 --ignore-vuln CVE-2026-33866 --ignore-vuln CVE-2026-28684 --ignore-vuln CVE-2026-3219
 
       - name: Generate SBOM (CycloneDX)
-        run: uv run pip-audit --format cyclonedx-json --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-0545 --ignore-vuln CVE-2026-33866 --ignore-vuln CVE-2026-28684 -o sbom.json
+        run: uv run pip-audit --format cyclonedx-json --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-0545 --ignore-vuln CVE-2026-33866 --ignore-vuln CVE-2026-28684 --ignore-vuln CVE-2026-3219 -o sbom.json
 
       - name: Upload SBOM artifact
         if: always()

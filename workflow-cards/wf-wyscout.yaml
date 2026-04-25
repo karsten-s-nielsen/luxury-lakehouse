@@ -31,6 +31,8 @@ outputs:
       destination: delta-table
     - id: "{catalog}.bronze.wyscout_players"
       destination: delta-table
+    - id: "{catalog}.bronze.wyscout_teams"
+      destination: delta-table
 
 execution:
   ingestion:

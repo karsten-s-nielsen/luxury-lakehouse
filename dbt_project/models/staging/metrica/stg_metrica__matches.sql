@@ -20,6 +20,10 @@ final as (
     select
         match_id                 as native_match_id,
         'metrica'                as provider,
+        -- PR 5a (ADR-011): pseudo-competition sentinel so dim_matches
+        -- auto-resolves competition_key for Metrica passes. Matching
+        -- Metrica pseudo-row in dim_competitions. Ref TODO #32.
+        'metrica-sample'         as competition_id,
         'Home'                   as home_team_name,
         'Away'                   as away_team_name
 

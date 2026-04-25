@@ -12,8 +12,16 @@ with match_context as (
         ms.competition_id,
         ms.season_id
     from {{ ref('fct_player_embeddings') }} pe
+    -- PR 2 (ADR-011) migrated fct_match_summary from match_id to match_key;
+    -- fct_player_embeddings still keyed on native StatsBomb match_id (PR 5b
+    -- migrates the embedding marts to player_key + match_key). Bridge via
+    -- dim_matches until PR 5b: cast SB native match_id string to bigint to
+    -- join the embedding's int match_id.
+    inner join {{ ref('dim_matches') }} dm
+        on dm.provider = 'statsbomb'
+       and try_cast(dm.native_match_id as bigint) = pe.match_id
     inner join {{ ref('fct_match_summary') }} ms
-        on cast(pe.match_id as string) = cast(ms.match_id as string)
+        on ms.match_key = dm.match_key
     where pe.data_source = 'football2vec_360'
 ),
 

@@ -158,3 +158,27 @@ sources:
           - name: _ingested_at
             description: UTC timestamp when the row was written to bronze (audit col).
 
+      - name: wyscout_teams
+        description: >
+          Wyscout team roster from Figshare teams.json (Pappalardo et al. 2019,
+          article 7765310). 142 teams across 7 competitions, 2017/18 season.
+          Ingested by ingestion.wyscout.ingest_teams (PR 5a addition) — closes
+          the pre-existing team-name gap for dim_teams Wyscout rows.
+        columns:
+          - name: wyId
+            description: Wyscout team identifier (integer surrogate key).
+          - name: officialName
+            description: Official team name (e.g., "Real Club Celta de Vigo").
+          - name: name
+            description: Display / short team name (e.g., "Celta de Vigo").
+          - name: city
+            description: Home city.
+          - name: area
+            description: >
+              Nested JSON struct {name, id, alpha2code, alpha3code} — serialized
+              to JSON string for Delta compat. Staging parses via get_json_object.
+          - name: type
+            description: Team type (club / national).
+          - name: _ingested_at
+            description: UTC timestamp when the row was written to bronze (audit col).
+

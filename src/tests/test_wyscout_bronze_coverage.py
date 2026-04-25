@@ -38,12 +38,12 @@ class TestWyscoutBronzeCoverage:
     """Every bronze column must be documented in _wyscout__sources.yml."""
 
     def test_snapshot_has_expected_tables(self, _snapshot: dict) -> None:
-        expected = {"wyscout_events", "wyscout_matches", "wyscout_players"}
+        expected = {"wyscout_events", "wyscout_matches", "wyscout_players", "wyscout_teams"}
         assert set(_snapshot["tables"].keys()) == expected
 
     @pytest.mark.parametrize(
         "table_name",
-        ["wyscout_events", "wyscout_matches", "wyscout_players"],
+        ["wyscout_events", "wyscout_matches", "wyscout_players", "wyscout_teams"],
     )
     def test_every_bronze_col_documented(self, _snapshot: dict, table_name: str) -> None:
         snapshot_cols = {c["name"] for c in _snapshot["tables"][table_name]}
