@@ -355,19 +355,30 @@ def fetch_competitions() -> list[tuple[str, int, int]]:
 
     Returns: list of (label, competition_key, competition_id_legacy_int).
     """
+    # PR 5a (ADR-011) extended dim_competitions to 4 providers (StatsBomb,
+    # Wyscout, IDSSE, Metrica). Same display name (e.g. "England — Premier
+    # League") can appear under both StatsBomb and Wyscout — different
+    # competition_keys, identical label. Dedupe per (country,
+    # competition_name) with provider preference (SB > WS > IDSSE > Metrica)
+    # so the user sees one row per competition. Downstream fact queries are
+    # competition_key-keyed; the chosen key picks the provider whose data
+    # populates the page. Long-term: introduce canonical_competition_key
+    # similar to canonical_team_key / canonical_player_key from PR 5a's
+    # entity resolution work.
     tbl = t("dim_competitions_synced")
     df = execute_query(
-        f"WITH RECURSIVE dc AS ("  # noqa: S608
-        f"  SELECT MIN(competition_key) AS competition_key FROM {tbl}"
-        f"  UNION ALL"
-        f"  SELECT (SELECT MIN(competition_key) FROM {tbl}"
-        f"          WHERE competition_key > dc.competition_key)"
-        f"  FROM dc WHERE dc.competition_key IS NOT NULL"
-        f") SELECT dc.competition_key, c.competition_id, c.competition_name, c.country "
-        f"FROM dc "
-        f"JOIN {tbl} c ON dc.competition_key = c.competition_key "
-        f"WHERE dc.competition_key IS NOT NULL "
-        f"ORDER BY c.country, c.competition_name LIMIT 100",
+        f"SELECT DISTINCT ON (c.country, c.competition_name) "  # noqa: S608
+        f"  c.competition_key, c.competition_id, c.competition_name, c.country "
+        f"FROM {tbl} c "
+        f"ORDER BY c.country, c.competition_name, "
+        f"  CASE c.provider "
+        f"    WHEN 'statsbomb' THEN 1 "
+        f"    WHEN 'wyscout' THEN 2 "
+        f"    WHEN 'idsse' THEN 3 "
+        f"    WHEN 'metrica' THEN 4 "
+        f"    ELSE 5 "
+        f"  END "
+        f"LIMIT 100",
     )
     if df.empty:
         return []

@@ -210,6 +210,64 @@ def test_metrica_tracking_live_schema_covers_parser(conn: object) -> None:
 
 
 @requires_databricks
+def test_tracking_player_metadata_has_is_anonymized(conn: object) -> None:
+    """PR 5a (ADR-011 §4): is_anonymized forward-compat flag present on
+    bronze.tracking_player_metadata. Set False for IDSSE + SkillCorner
+    (both carry real identity); schema unified with bronze.metrica_tracking
+    so downstream can branch on a single flag contract."""
+    cols = _live_bronze_cols(conn, "tracking_player_metadata")
+    assert "is_anonymized" in cols, (
+        f"is_anonymized absent from bronze.tracking_player_metadata. "
+        f"Cols present: {sorted(cols)}. "
+        f"Fix: run scripts/migrations/2026-04-24-add-metrica-is-anonymized.sql "
+        f"via scripts/migrations/_runner.py"
+    )
+
+
+@requires_databricks
+def test_team_xref_raw_live_schema(conn: object) -> None:
+    """PR 5a (ADR-011): bronze.team_xref_raw created as the team analogue
+    of player_xref_raw. Populated by scripts/generate_entity_xref.py with
+    cross-provider team identity pairs (SB↔WS↔IDSSE) at confidence ≥ 70."""
+    expected = {
+        "source_a",
+        "team_id_a",
+        "source_b",
+        "team_id_b",
+        "confidence",
+        "match_layer",
+        "resolution_type",
+        "_ingested_at",
+    }
+    cols = _live_bronze_cols(conn, "team_xref_raw")
+    missing = expected - cols
+    assert not missing, (
+        f"bronze.team_xref_raw missing {len(missing)} expected col(s): "
+        f"{sorted(missing)}. Cols present: {sorted(cols)}. "
+        f"Fix: run scripts/migrations/2026-04-24-create-team-xref-raw.sql "
+        f"via scripts/migrations/_runner.py"
+    )
+
+
+@requires_databricks
+def test_wyscout_teams_live_schema(conn: object) -> None:
+    """PR 5a (ADR-011): bronze.wyscout_teams landed via ingest_teams()
+    closing the pre-existing Figshare teams.json ingestion gap. 142 teams
+    across 7 competitions (verified against wyscout_matches.teamsData).
+    Schema source: Figshare article 7765310 teams.json columns serialised
+    through the G1 finalize_bronze_df guard."""
+    expected = {"wyId", "officialName", "name", "city", "area", "type"}
+    cols = _live_bronze_cols(conn, "wyscout_teams")
+    missing = expected - cols
+    assert not missing, (
+        f"bronze.wyscout_teams missing {len(missing)} expected col(s): "
+        f"{sorted(missing)}. Cols present: {sorted(cols)}. "
+        f"Fix: trigger the ingest_wyscout Databricks Job to populate the "
+        f"table via src/ingestion/wyscout.py::ingest_teams."
+    )
+
+
+@requires_databricks
 def test_metrica_events_live_schema_covers_parser(conn: object) -> None:
     sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
     from ingestion.metrica_events import _METRICA_EVENTS_BRONZE_COLS

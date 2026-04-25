@@ -1,12 +1,16 @@
 version: 2
 updates:
-  # Python: only propose bumps for dependencies listed directly in pyproject.toml.
-  # The compiled lockfile at hf_taipy_app/requirements.txt contains transitive pins
-  # (pyarrow, pymongo, openpyxl, flask-socketio, gitignore-parser, etc.) whose
-  # versions are determined by upstream constraint trees — bumping them in the
-  # lockfile without a matching pyproject.toml change is rejected by our CI's
-  # "requirements.txt is stale" check. Restricting to direct dependencies avoids
-  # the false-positive PR class (see closed #138, #140, #141, #142, #143).
+  # Python: dependabot-pip only scans pyproject.toml (direct dependencies).
+  #
+  # `hf_taipy_app/requirements.txt` is NO LONGER committed (see .gitignore).
+  # It is regenerated fresh at deploy time by scripts/manage_space.py and at
+  # CI time as needed. This permanently closes the false-positive class where
+  # dependabot-pip treated every transitive pin in the compiled lockfile as a
+  # "direct" dependency (requirements.txt has no transitive/direct distinction),
+  # opening weekly PRs for every transitive minor-version release on PyPI.
+  # History of closed false positives from this class: #138, #140, #141, #142,
+  # #143, #186 apispec, #187 deepdiff, #189 pyarrow, #193 simple-websocket,
+  # #194 sqlalchemy, #195 url-normalize, #197 flask-cors.
   - package-ecosystem: "pip"
     directory: "/"
     schedule:

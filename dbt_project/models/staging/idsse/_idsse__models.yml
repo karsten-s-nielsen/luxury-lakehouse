@@ -56,6 +56,13 @@ models:
           - accepted_values:
               arguments:
                 values: ['home', 'away']
+      - name: team_id
+        description: >
+          Real DFL TeamId (e.g., 'DFL-CLU-XXXXXX') from the enclosing FrameSet
+          TeamId attribute. Surfaced in staging from PR 5a (ADR-011); feeds
+          stg_idsse__home_away_teams bridge.
+        data_tests:
+          - not_null
       - name: source_provider
         description: Data source identifier (always 'idsse')
         data_tests:
@@ -95,6 +102,76 @@ models:
                 min_value: -10
                 max_value: 90
                 row_condition: "ball_y is not null"
+
+      # ------------------------------------------------------------------
+      # Bronze passthrough — PR 5a bronze-completeness sweep (2026-04-24).
+      # These 14 bronze cols (is_goalkeeper + 13 tracking/ball attrs) were
+      # present in bronze.idsse_tracking since PR 1.8 but not previously
+      # documented in _idsse__sources.yml nor surfaced in stg_idsse__tracking.
+      # PR 5a closes both gaps — staging SQL carries them through verbatim,
+      # and this yml documents them so the bronze-completeness coverage
+      # test sees every source col accounted for. Rich per-col descriptions
+      # live in _idsse__sources.yml; staging yml uses a consistent template
+      # referring callers back there (mirrors the stg_idsse__events pattern).
+      # ------------------------------------------------------------------
+      - name: is_goalkeeper
+        description: Bronze passthrough — is_goalkeeper from idsse_tracking (see _idsse__sources.yml).
+      - name: t
+        description: Bronze passthrough — t from idsse_tracking (see _idsse__sources.yml).
+      - name: s
+        description: Bronze passthrough — s from idsse_tracking (see _idsse__sources.yml).
+      - name: a
+        description: Bronze passthrough — a from idsse_tracking (see _idsse__sources.yml).
+      - name: d
+        description: Bronze passthrough — d from idsse_tracking (see _idsse__sources.yml).
+      - name: m
+        description: Bronze passthrough — m from idsse_tracking (see _idsse__sources.yml).
+      - name: ball_z
+        description: Bronze passthrough — ball_z from idsse_tracking (see _idsse__sources.yml).
+      - name: ball_s
+        description: Bronze passthrough — ball_s from idsse_tracking (see _idsse__sources.yml).
+      - name: ball_a
+        description: Bronze passthrough — ball_a from idsse_tracking (see _idsse__sources.yml).
+      - name: ball_d
+        description: Bronze passthrough — ball_d from idsse_tracking (see _idsse__sources.yml).
+      - name: ball_m
+        description: Bronze passthrough — ball_m from idsse_tracking (see _idsse__sources.yml).
+      - name: ball_t
+        description: Bronze passthrough — ball_t from idsse_tracking (see _idsse__sources.yml).
+      - name: ball_possession
+        description: Bronze passthrough — ball_possession from idsse_tracking (see _idsse__sources.yml).
+      - name: ball_status
+        description: Bronze passthrough — ball_status from idsse_tracking (see _idsse__sources.yml).
+
+  - name: stg_idsse__home_away_teams
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Bridge from (match_id, side) to real DFL TeamId for IDSSE matches.
+      Built from distinct (match_id, team, team_id) in stg_idsse__tracking.
+      Consumed by stg_idsse__passes + dim_teams IDSSE CTE.
+    columns:
+      - name: match_id
+        description: Native DFL match identifier (idsse_ prefix stripped).
+        data_tests:
+          - not_null
+      - name: side
+        description: Home or away side.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['home', 'away']
+      - name: team_id
+        description: Real DFL TeamId (e.g., 'DFL-CLU-XXXXXX').
+        data_tests:
+          - not_null
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [match_id, side]
 
   - name: stg_idsse__events
     config:

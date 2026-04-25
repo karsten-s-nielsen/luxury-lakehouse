@@ -45,6 +45,43 @@ sources:
             description: Match identifier prefixed with 'idsse_'
           - name: frame_rate
             description: Frame rate in fps (always 25 for IDSSE)
+          - name: team_id
+            description: >
+              Real DFL TeamId (e.g., 'DFL-CLU-XXXXXX') extracted from the
+              enclosing FrameSet TeamId attribute in positions.xml. Present
+              in bronze since PR 1.8 (src/ingestion/idsse.py:580) but first
+              surfaced in staging by PR 5a — feeds stg_idsse__home_away_teams
+              bridge → dim_teams IDSSE CTE.
+          - name: is_goalkeeper
+            description: >
+              Boolean flag derived from DFL MatchInformation PlayingPosition='TW'.
+              PR 1.8-era bronze column documented in source YAML by PR 5a.
+          - name: t
+            description: Tracking-frame t-value (DFL per-row timestamp).
+          - name: s
+            description: Player speed (m/s) from DFL position.xml.
+          - name: a
+            description: Player acceleration (m/s²).
+          - name: d
+            description: Player direction (radians).
+          - name: m
+            description: Movement flag boolean.
+          - name: ball_z
+            description: Ball z-coordinate (height in meters).
+          - name: ball_s
+            description: Ball speed (m/s).
+          - name: ball_a
+            description: Ball acceleration (m/s²).
+          - name: ball_d
+            description: Ball direction.
+          - name: ball_m
+            description: Ball movement flag.
+          - name: ball_t
+            description: Ball tracking-frame t-value.
+          - name: ball_possession
+            description: Ball possession state label (home/away/neutral).
+          - name: ball_status
+            description: Ball status (alive/dead).
 
       - name: idsse_events
         description: >

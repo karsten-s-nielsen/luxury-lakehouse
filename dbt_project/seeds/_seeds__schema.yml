@@ -31,25 +31,56 @@ seeds:
 
   - name: player_xref_overrides
     description: >
-      Manual overrides for cross-source player entity resolution.
-      Rows with action=force_match force a link between StatsBomb and Wyscout
-      player IDs. Rows with action=force_reject suppress a false positive.
+      Manual overrides for cross-provider player entity resolution (PR 5a).
+      Grain: (source_a, player_id_a, source_b, player_id_b). Rows with
+      action=force_match force a link between two native player identifiers;
+      action=force_reject suppresses a false-positive automated match.
     config:
       column_types:
-        statsbomb_player_id: int
-        wyscout_player_id: int
+        source_a: string
+        player_id_a: string
+        source_b: string
+        player_id_b: string
         action: string
     columns:
-      - name: statsbomb_player_id
-        description: StatsBomb player_id
-        data_tests:
-          - not_null
-      - name: wyscout_player_id
-        description: Wyscout wyId
-        data_tests:
-          - not_null
+      - name: source_a
+        description: Provider on side A (statsbomb/wyscout/idsse).
+      - name: player_id_a
+        description: Native player ID on side A (stringified).
+      - name: source_b
+        description: Provider on side B.
+      - name: player_id_b
+        description: Native player ID on side B.
       - name: action
-        description: Override action (force_match or force_reject)
+        description: Override action (force_match or force_reject).
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['force_match', 'force_reject']
+
+  - name: team_xref_overrides
+    description: >
+      Manual overrides for cross-provider team entity resolution (PR 5a).
+      Grain: (source_a, team_id_a, source_b, team_id_b). Same semantics as
+      player_xref_overrides.
+    config:
+      column_types:
+        source_a: string
+        team_id_a: string
+        source_b: string
+        team_id_b: string
+        action: string
+    columns:
+      - name: source_a
+        description: Provider on side A.
+      - name: team_id_a
+        description: Native team ID on side A (stringified).
+      - name: source_b
+        description: Provider on side B.
+      - name: team_id_b
+        description: Native team ID on side B.
+      - name: action
+        description: Override action (force_match or force_reject).
         data_tests:
           - accepted_values:
               arguments:

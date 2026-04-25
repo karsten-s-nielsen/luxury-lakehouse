@@ -43,7 +43,7 @@ sdk = [
     # minimal dependency set without pulling the full taipy-app extra.
     # Lakebase is a Databricks service — a PG client belongs with SDK
     # clients thematically.
-    "psycopg2-binary==2.9.11",
+    "psycopg2-binary==2.9.12",
 ]
 embeddings = [
     "gensim>=4.3.0",
@@ -58,7 +58,7 @@ training = ["torch>=2.0", "pyarrow>=14.0", "datasets>=3.0", "safetensors>=0.4.0"
 evolve = ["openevolve>=0.2.0"]
 taipy-app = [
     "taipy==4.1.1",
-    "psycopg2-binary==2.9.11",
+    "psycopg2-binary==2.9.12",
     "mplsoccer==1.6.1",
     "pandas==2.2.3",
     "numpy==1.26.4",
@@ -332,5 +332,5 @@ dev = [
     "pydantic-settings>=2.0.0",
     "psycopg2-binary>=2.9.9",
     "luxury-lakehouse[analytics,embeddings,training,evolve]",
-    "pandas-stubs>=2.2.3,<2.3",
+    "pandas-stubs>=2.2.3,<2.4",
 ]

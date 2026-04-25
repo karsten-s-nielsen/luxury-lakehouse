@@ -35,6 +35,11 @@ normalized as (
         -- Player identity
         player_id,
         team,
+        -- PR 5a: surface real DFL TeamId (e.g., 'DFL-CLU-XXXXXX') from bronze.
+        -- Present since PR 1.8 (src/ingestion/idsse.py:580) but not previously
+        -- consumed in staging. Feeds stg_idsse__home_away_teams bridge +
+        -- dim_teams IDSSE CTE. Ref: docs/superpowers/specs/2026-04-24-kimball-pr5-design.md §2
+        team_id,
 
         -- Source provider
         'idsse'                                         as source_provider,
@@ -48,7 +53,29 @@ normalized as (
 
         -- Ball coordinates scaled to 120×80
         {{ normalize_x('ball_x', 'center_m') }} as ball_x,
-        {{ normalize_y('ball_y', 'center_m') }} as ball_y
+        {{ normalize_y('ball_y', 'center_m') }} as ball_y,
+
+        -- Bronze passthrough — PR 5a bronze-completeness sweep.
+        -- These 13 DFL tracking attrs were present in bronze.idsse_tracking
+        -- since PR 1.8 (src/ingestion/idsse.py) but not previously surfaced
+        -- in staging or declared in _idsse__sources.yml. PR 5a closed the
+        -- source-YAML gap; this block closes the staging-passthrough gap so
+        -- the bronze-completeness principle (feedback_bronze_completeness_principle)
+        -- holds across the idsse_tracking pipeline. Downstream consumers
+        -- may opt in to these attrs without re-ingesting bronze.
+        t                                               as t,
+        s                                               as s,
+        a                                               as a,
+        d                                               as d,
+        m                                               as m,
+        ball_z                                          as ball_z,
+        ball_s                                          as ball_s,
+        ball_a                                          as ball_a,
+        ball_d                                          as ball_d,
+        ball_m                                          as ball_m,
+        ball_t                                          as ball_t,
+        ball_possession                                 as ball_possession,
+        ball_status                                     as ball_status
 
     from source
     where x is not null

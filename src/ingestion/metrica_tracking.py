@@ -294,6 +294,10 @@ _METRICA_TRACKING_BRONZE_COLS: frozenset[str] = frozenset(
         "gk_jersey_numbers",
         "pitch_length_m",
         "pitch_width_m",
+        # PR 5a (ADR-011 §4): forward-compat flag. True for sample-CSV path
+        # (this script); False for future subscription-API path. Drives
+        # dim_teams / dim_players synthesis branch selection.
+        "is_anonymized",
     },
 )
 """Bronze-completeness contract for bronze.metrica_tracking. Covers both the
@@ -310,6 +314,7 @@ _METRICA_TRACKING_DTYPE_OVERRIDES: dict[str, str] = {
     "frame_rate": "Int64",
     "pitch_length_m": "Float64",
     "pitch_width_m": "Float64",
+    "is_anonymized": "boolean",
 }
 
 
@@ -359,6 +364,9 @@ def ingest_tracking(
             logger.info("Tracking for %s already ingested — skipping", match_id)
             continue
         tracking_df = _download_and_parse_tracking(urls["home"], urls["away"], match_id, logger)
+        # PR 5a: sample-CSV path is the only ingestion today; flag all rows.
+        # Future subscription-API path will set False pre-finalize.
+        tracking_df["is_anonymized"] = True
         tracking_df = finalize_bronze_df(
             tracking_df,
             expected_cols=_METRICA_TRACKING_BRONZE_COLS,
@@ -390,6 +398,8 @@ def ingest_tracking(
         rows = _parse_epts_tracking(tracking_resp.text, metadata, match_id)
 
         tracking_df = pd.DataFrame(rows)
+        # PR 5a: sample EPTS path is also anonymised.
+        tracking_df["is_anonymized"] = True
         tracking_df = finalize_bronze_df(
             tracking_df,
             expected_cols=_METRICA_TRACKING_BRONZE_COLS,

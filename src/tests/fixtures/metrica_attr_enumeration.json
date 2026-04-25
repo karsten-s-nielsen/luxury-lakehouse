@@ -20,7 +20,8 @@
       "frame_rate",
       "gk_jersey_numbers",
       "pitch_length_m",
-      "pitch_width_m"
+      "pitch_width_m",
+      "is_anonymized"
     ],
     "source_to_bronze": {
       "csv_header_Period": "period",
@@ -38,7 +39,8 @@
       "epts_metadata_FieldSize_Length": "pitch_length_m",
       "epts_metadata_FieldSize_Width": "pitch_width_m",
       "epts_metadata_Player_PlayingPosition": "gk_jersey_numbers (derived via TW/GK filter)",
-      "ingestion_match_id": "match_id"
+      "ingestion_match_id": "match_id",
+      "ingestion_is_anonymized_true_for_sample_path": "is_anonymized (PR 5a forward-compat flag; True for sample CSV / EPTS paths, False for future subscription data)"
     }
   },
   "events": {

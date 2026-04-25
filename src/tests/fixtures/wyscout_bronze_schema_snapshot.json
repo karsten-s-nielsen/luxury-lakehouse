@@ -130,6 +130,36 @@
         "type": "timestamp"
       }
     ],
+    "wyscout_teams": [
+      {
+        "name": "wyId",
+        "type": "bigint"
+      },
+      {
+        "name": "officialName",
+        "type": "string"
+      },
+      {
+        "name": "name",
+        "type": "string"
+      },
+      {
+        "name": "city",
+        "type": "string"
+      },
+      {
+        "name": "area",
+        "type": "string"
+      },
+      {
+        "name": "type",
+        "type": "string"
+      },
+      {
+        "name": "_ingested_at",
+        "type": "timestamp"
+      }
+    ],
     "wyscout_players": [
       {
         "name": "passportArea",
