@@ -134,6 +134,7 @@ __all__ = [
 
 _ps_comp_map: dict[str, int] = {}
 _ps_player_map: dict[str, str] = {}  # label -> canonical_player_id
+_ps_player_key_map: dict[str, int] = {}  # label -> player_key (PR 5b dual-read)
 _ps_compare_map: dict[str, str] = {}  # label -> canonical_player_id for results
 _ps_results_df: pd.DataFrame = pd.DataFrame()  # cached results for compare selection
 
@@ -263,7 +264,7 @@ def _resolve_competition_id(state: Any) -> int | None:
 
 def _load_player_list(state: Any) -> None:
     """Reload the player dropdown from embedding table based on current filters."""
-    global _ps_player_map
+    global _ps_player_map, _ps_player_key_map
     comp_id = _resolve_competition_id(state)
     raw_table, count_col = _get_table_and_columns(comp_id)
     min_matches = int(state.ps_min_matches)
@@ -276,10 +277,15 @@ def _load_player_list(state: Any) -> None:
             )
             return
         _ps_player_map = {label: pid for label, pid in players}
+        # PR 5b: clear the parallel key map; populated lazily per selection
+        # in _run_similarity_search to avoid the up-front lookup of the
+        # entire (~9000-player) candidate list.
+        _ps_player_key_map = {}
         state.ps_player_lov = [label for label, _ in players]
     except Exception:
         logger.exception("Failed to load embedding players")
         _ps_player_map = {}
+        _ps_player_key_map = {}
         state.ps_player_lov = []
 
 
@@ -486,9 +492,35 @@ def _run_similarity_search(state: Any) -> None:
     # Show loading feedback during pgvector search (CHI-AUDIT: Gergle feedback)
     state.ps_status_message = f"Searching for similar players ({search_mode})..."
 
+    # PR 5b dual-read (ADR-011): look up player_key for the selected
+    # canonical_player_id so the pgvector query filters on the Kimball
+    # surrogate when available. Falls back to canonical_player_id on
+    # lookup failure (forward-compat — never blocks the search).
+    player_key = _ps_player_key_map.get(player_label)
+    if player_key is None:
+        try:
+            from queries.common import execute_query, t
+
+            dim_tbl = t("dim_players_synced")
+            df_pk = execute_query(
+                f"SELECT player_key FROM {dim_tbl} "  # noqa: S608
+                f"WHERE canonical_player_id = %s LIMIT 1",
+                (player_id,),
+            )
+            if not df_pk.empty:
+                player_key = int(df_pk.iloc[0]["player_key"])
+                _ps_player_key_map[player_label] = player_key
+        except Exception:
+            logger.debug(
+                "player_key lookup failed for %s — falling back to canonical_player_id",
+                player_label,
+                exc_info=True,
+            )
+            player_key = None
+
     try:
-        # Fetch target vector
-        target_result = fetch_player_embedding_vector(raw_table, player_id, comp_id)
+        # Fetch target vector (player_key path when resolved; canonical_player_id fallback)
+        target_result = fetch_player_embedding_vector(raw_table, player_id, comp_id, player_key=player_key)
         if target_result.empty:
             state.ps_warning_text = "No embedding vector for this player. Try switching the search mode or selecting a player with more match history."
             state.ps_status_message = ""
@@ -517,7 +549,7 @@ def _run_similarity_search(state: Any) -> None:
 
         vector_str = _format_vector_literal(vector)
 
-        # Run similarity search
+        # Run similarity search (player_key path when resolved; canonical_player_id fallback)
         results = search_similar_players(
             table=raw_table,
             vector_str=vector_str,
@@ -528,6 +560,7 @@ def _run_similarity_search(state: Any) -> None:
             min_matches=int(state.ps_min_matches),
             limit=limit,
             competition_id=comp_id,
+            player_key=player_key,
         )
 
         if results.empty:

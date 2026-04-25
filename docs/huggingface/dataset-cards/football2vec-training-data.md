@@ -77,6 +77,18 @@ Each element in the `actions` array:
 | 6 | corner_short | 14 | keeper_save | 22 | goalkick |
 | 7 | take_on | 15 | keeper_claim | | |
 
+## Schema Migration &mdash; Dual-Column Window (2026-04-25 &rarr; 2026-07-22)
+
+PR 5b of the lakehouse Kimball migration (ADR-011) adds the BIGINT surrogate `player_key` to the upstream `fct_player_embeddings*` marts. The training-data export script (`src/ingestion/export_embeddings_training_data.py`) **continues to read `canonical_player_id` only** &mdash; this dataset's payload is unchanged in PR 5b. PR 8 (planned 2026-07-22) will add `player_key` to the payload in a backwards-compatible way and announce a sunset for `canonical_player_id`.
+
+Recommended consumer behaviour during this window:
+
+- **No change required.** Continue to read `canonical_player_id` from this dataset.
+- If you maintain your own join to a `dim_players` clone, you may pre-compute `player_key = xxhash64(provider || '|' || cast(player_id as string))` to align with the lakehouse Kimball convention ahead of the payload change.
+- After 2026-07-22 the dataset will carry both columns for at least one HF dataset version, then `canonical_player_id` will be deprecated. Migrate at your convenience inside that window.
+
+If you depend on this dataset and need extra notice before the column drop, open an issue on the [lakehouse repo](https://github.com/karsten-s-nielsen/luxury-lakehouse).
+
 ## Data Sources
 
 | Source | Matches | License |

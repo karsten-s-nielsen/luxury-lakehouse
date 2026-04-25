@@ -1114,11 +1114,42 @@ models:
               field: canonical_player_id
               config:
                 severity: warn
+      - name: player_key
+        data_type: bigint
+        description: >
+          Kimball surrogate FK to dim_players (PR 5b, ADR-011). LEFT JOIN
+          on canonical_player_id; nullable for upstream rows whose
+          dim_players row hasn't materialised yet (live coverage 100% at
+          PR 5b ship). Coexists with canonical_player_id during the
+          2026-07-22 dual-column window; PR 8 drops canonical_player_id.
+        data_tests:
+          - relationships:
+              to: ref('dim_players')
+              field: player_key
+              config:
+                severity: warn
       - name: match_id
         data_type: string
         description: Match identifier
         data_tests:
           - not_null
+      - name: match_key
+        data_type: bigint
+        description: >
+          Kimball surrogate FK to dim_matches (PR 5b, ADR-011). LEFT JOIN
+          on (provider='statsbomb', try_cast(native_match_id as bigint)
+          = match_id). Nullable for Wyscout rows (data_source='wyscout')
+          where the SB-only filter doesn't match; downstream
+          fct_player_embeddings_season + _season_360 INNER JOIN
+          fct_match_summary on match_key, so unmatched rows are excluded
+          from the season aggregates (same behaviour as the PR 5a CI-
+          triage dim_matches bridge that this column retires).
+        data_tests:
+          - relationships:
+              to: ref('dim_matches')
+              field: match_key
+              config:
+                severity: warn
       - name: data_source
         data_type: string
         description: Data provider or model variant (statsbomb, wyscout, football2vec_360)
@@ -1167,6 +1198,19 @@ models:
           - relationships:
               to: ref('dim_players')
               field: canonical_player_id
+              config:
+                severity: warn
+      - name: player_key
+        data_type: bigint
+        description: >
+          Kimball surrogate FK to dim_players (PR 5b, ADR-011). Passed
+          through from fct_player_embeddings via any_value() in the
+          season aggregate. Coexists with canonical_player_id during the
+          2026-07-22 dual-column window.
+        data_tests:
+          - relationships:
+              to: ref('dim_players')
+              field: player_key
               config:
                 severity: warn
       - name: competition_id
@@ -1226,6 +1270,19 @@ models:
           - relationships:
               to: ref('dim_players')
               field: canonical_player_id
+              config:
+                severity: warn
+      - name: player_key
+        data_type: bigint
+        description: >
+          Kimball surrogate FK to dim_players (PR 5b, ADR-011). Passed
+          through from fct_player_embeddings via any_value() in the
+          career aggregate. Coexists with canonical_player_id during the
+          2026-07-22 dual-column window.
+        data_tests:
+          - relationships:
+              to: ref('dim_players')
+              field: player_key
               config:
                 severity: warn
       - name: behavioral_vector
@@ -2202,6 +2259,19 @@ models:
         description: Player identifier.
         data_tests:
           - not_null
+      - name: player_key
+        data_type: bigint
+        description: >
+          Kimball surrogate FK to dim_players (PR 5b, ADR-011). Pulled
+          through from fct_player_stats which carries player_key via
+          INNER JOIN to dim_players (PR 5a). Coexists with player_id
+          during the 2026-07-22 dual-column window.
+        data_tests:
+          - relationships:
+              to: ref('dim_players')
+              field: player_key
+              config:
+                severity: warn
       - name: competition_id
         data_type: int
         description: Competition identifier (partition key). NULL when upstream fct_player_stats has NULL.
@@ -3036,6 +3106,19 @@ models:
               field: canonical_player_id
               config:
                 severity: warn
+      - name: player_key
+        data_type: bigint
+        description: >
+          Kimball surrogate FK to dim_players (PR 5b, ADR-011). Passed
+          through from fct_player_embeddings via any_value() in the 360
+          career aggregate. Coexists with canonical_player_id during the
+          2026-07-22 dual-column window.
+        data_tests:
+          - relationships:
+              to: ref('dim_players')
+              field: player_key
+              config:
+                severity: warn
       - name: behavioral_vector
         data_type: array<double>
         description: >
@@ -3083,6 +3166,19 @@ models:
           - relationships:
               to: ref('dim_players')
               field: canonical_player_id
+              config:
+                severity: warn
+      - name: player_key
+        data_type: bigint
+        description: >
+          Kimball surrogate FK to dim_players (PR 5b, ADR-011). Passed
+          through from fct_player_embeddings via any_value() in the 360
+          season aggregate. Coexists with canonical_player_id during the
+          2026-07-22 dual-column window.
+        data_tests:
+          - relationships:
+              to: ref('dim_players')
+              field: player_key
               config:
                 severity: warn
       - name: competition_id

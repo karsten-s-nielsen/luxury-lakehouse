@@ -7,6 +7,8 @@
 -- from the stat mean.
 --
 -- Grain: one row per player (canonical_player_id).
+--
+-- PR 5b (ADR-011): added player_key passthrough.
 
 {{ config(
     materialized='table',
@@ -30,10 +32,11 @@ grouped as (
 
     select
         e.canonical_player_id,
-        collect_list(e.behavioral_vector)                    as behavioral_vectors,
+        any_value(e.player_key)                                 as player_key,
+        collect_list(e.behavioral_vector)                       as behavioral_vectors,
         filter(collect_list(e.stat_vector), v -> v is not null) as non_null_stat_vectors,
-        count(*)                                             as total_matches,
-        collect_set(e.data_source)                           as data_sources
+        count(*)                                                as total_matches,
+        collect_set(e.data_source)                              as data_sources
     from {{ ref('fct_player_embeddings') }} e
     inner join player_best_dim p
         on e.canonical_player_id = p.canonical_player_id
@@ -46,6 +49,7 @@ grouped as (
 
 select
     canonical_player_id,
+    player_key,
     -- Element-wise mean of behavioral vectors (dimension derived from data)
     transform(
         sequence(0, size(behavioral_vectors[0]) - 1),
