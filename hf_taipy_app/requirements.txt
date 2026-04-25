@@ -292,7 +292,7 @@ six==1.17.0
     # via
     #   flask-restful
     #   python-dateutil
-sqlalchemy==2.0.30
+sqlalchemy==2.0.49
     # via taipy-core
 taipy==4.1.1
     # via luxury-lakehouse (pyproject.toml)
