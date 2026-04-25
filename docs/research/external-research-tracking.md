@@ -24,11 +24,15 @@
 - **Surfaced:** LinkedIn post by Salmankhah, 2026-04-21 (poster at [LISS Football Analytics Symposium](https://www.kuleuven.be/liss/events/liss-football-analytics-symposium) 2026-04-23).
 - **What it is:** "ExT: Improving the Computational Efficiency and Spatial Granularity of the Expected Threat Model" — per-source-cell conditional xT surface at ~24×16 grid resolution (vs Singh-2018's 12×8 or 16×12), with contextual features beyond spatial-only inputs. Evidence: the poster figure shows a dark-theme heatmap labeled `Sup X / Sup Y` source markers with a colorbar on the standard xT scale (0-0.23), clearly finer grid than any published xT implementation. Post text claims previous contextual xT formulations were "not feasible" at this resolution until their efficiency trick.
 - **Why the lakehouse cares:** xT is load-bearing in `wf-xt-grids`, `fct_action_values`, every action-value surface, and the D60-D63 pass-decision suite. If ExT delivers a working conditional + fine-grid formulation with open code, it's a qualitative xT v2 upgrade (not a drop-in), with downstream effects on D60 EPV formula, U4 uncertainty bounds, and U6 three-axis VAEP/xT framing.
+- **Methodology (per author response on LinkedIn 2026-04-25, cited as channel):**
+  - **Sparsity:** Addressed via Kernel Density Estimation smoothing; authors state explicitly that KDE + KNN does not fully eliminate the curse of dimensionality.
+  - **Storage:** Transition matrix replaced by K-nearest-neighbor lookup in (source, context) feature space — converts the cost of adding a contextual feature from multiplicative on tensor storage to linear on KNN dimensionality. This is the efficiency claim implicit in the poster.
+  - **Features:** Not limited to source position; named examples include position of the last defender and count of opposition between ball and opponents' goal — both derivable from existing lakehouse tracking sources. Feature set still under experimentation.
+  - **Release:** No preprint or code-release date stated.
 - **Mechanism:**
   - GitHub watch (Releases + new repos) on [SMSadegh19](https://github.com/SMSadegh19) and [Amirparsa-Sal](https://github.com/Amirparsa-Sal).
   - Google Scholar alert on [Salmankhah's profile](https://scholar.google.com/citations?user=kYj5p-oAAAAJ&hl=en).
-  - LinkedIn comment + connection request drafted 2026-04-24 (send pending).
-- **Last reviewed:** 2026-04-24 (initial).
+- **Last reviewed:** 2026-04-25.
 - **Next review:** 2026-07-24 (or earlier if either watch fires).
 - **Status:** Active, paper pre-publication.
 

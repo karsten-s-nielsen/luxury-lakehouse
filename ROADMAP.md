@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the current [architecture](ARCHITECTURE.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-04-24 (added Tensor-Native Retrieval (Vespa) & Vector Artifact Sharing section — exploratory entry for multi-vector retrieval + HF-published vector artifacts, prompted by tensor-native RAG investigation)
+**Last updated**: 2026-04-25 (added ExT-style Conditional xT (xT v2 Candidate) section — methodology surfaced via T1 tracker, reproduction design spike on TODO/On-Deck D66; KDE+KNN classical approach with Optuna-driven HPO, neural successor captured as longer-term peer bet)
 
 ---
 
@@ -721,6 +721,46 @@ Extends VAEP (Phase 9) from *valuing what happened* to *optimizing what should h
 ### Not immediately actionable
 
 Requires commercial-grade tracking data (Belgian Pro League / Stats Perform) — significantly beyond current public datasets. Filed as a long-horizon research direction.
+
+---
+
+## ExT-style Conditional xT (xT v2 Candidate)
+
+**Status:** External research stream tracked at T1 (`docs/research/external-research-tracking.md`); reproduction design spike on TODO/On-Deck (D66)
+**Budget:** Negligible (CPU-only — KDE + KNN run in numpy/sklearn; Optuna-driven hyperparameter search)
+**References:** Salimi & Salmankhah, "ExT: Improving the Computational Efficiency and Spatial Granularity of the Expected Threat Model," LISS Football Analytics Symposium 2026-04-23 (poster, paper pre-publication)
+
+The platform's current xT (`wf-xt-grids`) implements Singh-2018: an unconditional 12×8 / 16×12 transition matrix per source cell. ExT reframes the model as per-source-cell *conditional* xT at ~24×16 resolution, with arbitrary contextual features (last-defender position, count-between-ball-and-goal, others) handled as additional KNN-query dimensions. The architectural unlock is replacing the full transition tensor with KNN lookup, which converts "add a contextual feature" from multiplicative on tensor storage to linear on KNN dimensionality — making per-cell conditional xT tractable at finer grids than Singh's original work. KDE smoothing handles the residual sparsity that finer grids exacerbate.
+
+### Why the lakehouse cares
+
+xT is load-bearing in `fct_action_values` (every action-value surface), the D60–D63 pass-decision suite (TODO/On-Deck), the U6 three-axis VAEP/xT framing (TODO/On-Deck), and downstream consumers including ScoutGPT counterfactual evaluation and the planned Decision Optimality Score (D61). An xT v2 upgrade is not a drop-in — it changes the value table downstream models consume, requiring `fct_action_values` regen and re-validation of every dependent calibration. Worth doing well, not quickly.
+
+### Reproduction posture
+
+**Methodology is reproducible from current information** (T1 tracker entry has the KDE + KNN approach documented from author response on LinkedIn channel). The hyperparameters (KDE kernel + bandwidth, KNN K + distance + normalization, contextual feature subset) are typed with known ranges — classical hyperparameter optimization (Optuna with TPE sampler) territory, not a neural architecture search. CPU-only, no GPU required, no new training infrastructure. Held-out negative log-likelihood is the cheap inner-loop fitness; downstream calibration to actual outcomes is the outer selection metric across top-K trials.
+
+**Not evolve-shaped.** The evolve framework targets neural architecture search where each variant requires GPU training and the parameter→fitness relationship is opaque. ExT's KDE+KNN is sklearn-shaped, fast-evaluating, with declared ranges — wrong tool, right problem. (A *neural xT successor* — small per-cell estimator over (source, context) — would be evolve-shaped; captured below as a longer-term peer bet.)
+
+### Phased reproduction plan (post-spike)
+
+| Phase | Goal | Validates |
+|-------|------|-----------|
+| 0 | Singh-2018 baseline on our data, NLL on held-out | Floor metric; reference point |
+| 1 | KDE-smoothed Singh, Optuna over (kernel, bandwidth) | KDE half of ExT works on our data |
+| 2 | KNN replaces transition matrix, no context, Optuna over (K, distance, normalization) | KNN substitution does not regress against Phase 1 |
+| 3 | Add contextual features incrementally — last-defender position first, count-between-ball-and-goal second | Each addition improves NLL incrementally; otherwise drop |
+| 4 | Feature exploration — game state, attacker count in attacking third, score differential, time pressure | Discover features beyond the published set |
+
+### Longer-term peer bet — neural xT successor
+
+If ExT-class classical methods plateau, or if the adopted reproduction underperforms expectations, a small neural per-cell estimator — MLP or transformer over (source, context) outputting destination distribution — becomes the natural research direction. Architecture is open-ended, training is GPU-native, hyperparameter→fitness opaque — evolve-shaped. Out of scope for the current cycle; captured here so the framing exists when the time comes.
+
+### Promotion triggers
+
+- T1 tracker fires (preprint or code release) → reconcile our spike output against published specifics
+- Spike output (D66) green-lights full reproduction → promotes to numbered TODO with phasing
+- Full reproduction completes → ARCHITECTURE.md update + ADR if architectural contracts change (xT outputs schema, downstream consumer contracts)
 
 ---
 
