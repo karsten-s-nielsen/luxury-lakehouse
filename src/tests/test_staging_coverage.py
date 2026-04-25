@@ -72,6 +72,10 @@ PROVIDER_COVERAGE: dict[str, list[tuple[str, str]]] = {
         # wyscout_matches: stg_wyscout__matches.sql exists but is not yet
         # documented in _wyscout__models.yml. Added to coverage when docs land.
         ("wyscout_players", "stg_wyscout__players"),
+        # PR 5a (ADR-011): teams.json ingestion closed the pre-existing gap.
+        # bronze.wyscout_teams (142 teams across 7 competitions) is staged
+        # verbatim into stg_wyscout__teams.
+        ("wyscout_teams", "stg_wyscout__teams"),
     ],
 }
 
@@ -111,6 +115,13 @@ RENAMES: dict[tuple[str, str], dict[str, str]] = {
         "teamId": "team_id",
     },
     ("wyscout", "wyscout_players"): {},
+    # stg_wyscout__teams keeps bronze cols verbatim as passthroughs EXCEPT
+    # ``name`` which is renamed to ``team_name`` (the primary display col;
+    # the bronze camelCase ``officialName`` is kept separately as the
+    # ``official_name`` alias + the verbatim passthrough). ``city`` stays
+    # under both ``city`` and the ``city_raw`` passthrough alias; ``area``
+    # stays as-is and is ALSO exploded into area_name/alpha2/alpha3.
+    ("wyscout", "wyscout_teams"): {"name": "team_name"},
 }
 
 

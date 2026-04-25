@@ -39,3 +39,10 @@ sources:
             description: Tracking data provider (idsse, skillcorner)
           - name: _ingested_at
             description: UTC timestamp when the row was written
+          - name: is_anonymized
+            description: >
+              PR 5a forward-compat flag. False for IDSSE / SkillCorner (both
+              carry real player + team identity). Column shape unified with
+              bronze.metrica_tracking to give downstream a single contract
+              for distinguishing anonymised sample data from real identity.
+              See docs/superpowers/specs/2026-04-24-kimball-pr5-design.md §4.

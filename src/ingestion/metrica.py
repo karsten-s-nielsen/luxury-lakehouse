@@ -22,6 +22,17 @@ Implementation split:
   - ``metrica_common`` — shared constants, EPTS parsers, utilities
   - ``metrica_tracking`` — CSV header parsing, wide-to-narrow reshape, tracking ingestion
   - ``metrica_events`` — event CSV parsing, event ingestion
+
+Sample-vs-subscription contract (PR 5a, ADR-011 §4):
+  The bronze tables carry an ``is_anonymized`` BOOLEAN column. The sample-CSV
+  path implemented here writes ``is_anonymized = True`` for every row
+  (players are anonymised "PlayerNN" strings; no real team/player identity).
+  A future subscription-API ingestion path would set ``is_anonymized = False``
+  and pass real IDs through to ``stg_metrica__team_players`` →
+  ``dim_teams`` / ``dim_players``, which branch on the flag to pick
+  synthesis vs real-identity columns. Do not remove this flag without first
+  updating the dim synthesis branches.
+  See ``docs/superpowers/specs/2026-04-24-kimball-pr5-design.md`` §4.
 """
 
 from __future__ import annotations

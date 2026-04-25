@@ -37,15 +37,39 @@ with source as (
 
 ),
 
+events_with_native_match_id as (
+
+    select
+        *,
+        regexp_replace(cast(match_id as string), '^idsse_', '') as native_match_id
+    from source
+
+),
+
+-- PR 5a: hydrate real DFL TeamId via the new home_away bridge. DFL event
+-- XML carries play_team as 'home'/'away' string only; the bridge resolves
+-- (match_id, side) → DFL-CLU-XXXXXX by joining to tracking's per-frame
+-- TeamId. Gives stg_idsse__passes a real team_id_native instead of the
+-- useless 'home'/'away' value it previously carried.
+hydrated as (
+
+    select
+        e.*,
+        bridge.team_id                                          as bridge_team_id
+    from events_with_native_match_id e
+    left join {{ ref('stg_idsse__home_away_teams') }} bridge
+        on bridge.match_id = e.native_match_id
+       and bridge.side = lower(e.play_team)
+
+),
+
 final as (
 
     select
         cast(event_id as string)                                as event_id,
 
-        -- Strip the 'idsse_' prefix so native_match_id matches
-        -- dim_matches.native_match_id (stg_idsse__matches already
-        -- strips the same prefix).
-        regexp_replace(cast(match_id as string), '^idsse_', '') as match_id,
+        -- Match id with 'idsse_' prefix already stripped in upstream CTE.
+        native_match_id                                          as match_id,
 
         -- Canonical typed identity cols (INT FKs). NULL for IDSSE because
         -- DFL IDs are strings; int_unified_passes union needs INT.
@@ -53,10 +77,12 @@ final as (
         cast(null as int)                                       as team_id,
         cast(null as int)                                       as pass_recipient_id,
 
-        -- Raw DFL identity strings — surfaced for future cross-provider
-        -- reconciliation + debugging. DO NOT drop these from staging.
+        -- Raw DFL identity strings — surfaced for dim_teams / dim_players
+        -- surrogate resolution (PR 5a) + lineage. DO NOT drop these.
         cast(play_player as string)                             as player_id_native,
-        cast(play_team as string)                               as team_id_native,
+        -- PR 5a: team_id_native now carries the REAL DFL TeamId from the
+        -- bridge (was previously 'home' / 'away' — useless for xref).
+        cast(bridge_team_id as string)                          as team_id_native,
         cast(play_recipient as string)                          as pass_recipient_id_native,
         cast(team as string)                                    as team_side,
 
@@ -136,7 +162,7 @@ final as (
 
         'idsse'                                                 as data_source
 
-    from source
+    from hydrated
 
 )
 
