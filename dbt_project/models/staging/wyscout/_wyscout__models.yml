@@ -236,3 +236,97 @@ models:
         description: Bronze passthrough — competition_name from wyscout_events.
       - name: _ingested_at
         description: Bronze passthrough — _ingested_at UTC audit timestamp from wyscout_events.
+
+  - name: stg_wyscout__home_away_teams
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Bridge: one row per (match_id, side) for Wyscout matches, with the real
+      team_id when teams_data_parsed explodes cleanly, and a deterministic
+      synth fallback (is_synthesized=true, synthesis_reason='wyscout_unresolved_teamsdata')
+      when the source MAP is NULL/empty. Feeds fct_match_summary +
+      fct_funnel_stages_agg (opponent_team_id warn-flip) and dim_teams Wyscout CTE.
+    columns:
+      - name: match_id
+        data_type: bigint
+        data_tests:
+          - not_null
+      - name: side
+        data_type: string
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['home', 'away']
+      - name: native_team_id
+        data_type: string
+        description: Real team_id stringified, or 'wyscout_unresolved_<match_id>_<side>' for synth rows.
+        data_tests:
+          - not_null
+      - name: team_id
+        data_type: int
+        description: NULL for synth-fallback rows; populated for real parsed rows.
+      - name: is_synthesized
+        data_type: boolean
+        data_tests:
+          - not_null
+      - name: synthesis_reason
+        data_type: string
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [match_id, side]
+
+  - name: stg_wyscout__teams
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Cleaned Wyscout team roster (Figshare teams.json, Pappalardo et al. 2019).
+      Feeds dim_teams Wyscout CTE with team names — closes the pre-existing
+      team-name coverage gap for Wyscout real rows in dim_teams. ~142 teams
+      across 7 competitions.
+    columns:
+      - name: team_id
+        description: Wyscout team identifier (from wyId).
+        data_tests:
+          - unique
+          - not_null
+      - name: official_name
+        description: Official team name (e.g. "Real Club Celta de Vigo").
+      - name: team_name
+        description: Display / short team name (e.g. "Celta de Vigo").
+      - name: city
+        description: Home city.
+      - name: area_name
+        description: Country / area display name (parsed from area JSON).
+      - name: area_alpha3
+        description: ISO 3166-1 alpha-3 area code (parsed from area JSON).
+      - name: area_alpha2
+        description: ISO 3166-1 alpha-2 area code (parsed from area JSON).
+      - name: team_type
+        description: Team type classification (club / national).
+      - name: data_source
+        description: Data provider identifier.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['wyscout']
+      - name: wyId
+        description: Bronze passthrough — wyId from wyscout_teams.
+      - name: officialName
+        description: Bronze passthrough — officialName from wyscout_teams.
+      - name: city_raw
+        description: Bronze passthrough — original city column.
+      - name: area
+        description: >
+          Bronze passthrough — raw area JSON string {name, id, alpha2code, alpha3code}.
+          Used upstream of area_name / area_alpha3 extraction.
+      - name: type
+        description: Bronze passthrough — raw type column (club / national).
+      - name: _ingested_at
+        description: Bronze passthrough — _ingested_at UTC audit timestamp.

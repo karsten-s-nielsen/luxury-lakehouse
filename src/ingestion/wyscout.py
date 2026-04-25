@@ -18,6 +18,7 @@ Bronze tables produced:
   - wyscout_events
   - wyscout_matches
   - wyscout_players
+  - wyscout_teams  (PR 5a addition; closes pre-existing teams.json gap)
 """
 
 from __future__ import annotations
@@ -75,6 +76,10 @@ _WYSCOUT_PLAYERS_EXPECTED_COLS: tuple[str, ...] = expected_cols_from_snapshot(
 _WYSCOUT_PLAYERS_DTYPE_OVERRIDES: dict[str, str] = dtype_overrides_from_snapshot(
     _WYSCOUT_SNAPSHOT_TABLES, "wyscout_players"
 )
+_WYSCOUT_TEAMS_EXPECTED_COLS: tuple[str, ...] = expected_cols_from_snapshot(_WYSCOUT_SNAPSHOT_TABLES, "wyscout_teams")
+_WYSCOUT_TEAMS_DTYPE_OVERRIDES: dict[str, str] = dtype_overrides_from_snapshot(
+    _WYSCOUT_SNAPSHOT_TABLES, "wyscout_teams"
+)
 
 
 class _WyscoutGuard:
@@ -92,7 +97,8 @@ class _WyscoutGuard:
             e_count = spark.table(f"{catalog}.{schema}.wyscout_events").select("competition_name").distinct().count()
             m_count = spark.table(f"{catalog}.{schema}.wyscout_matches").select("competition_name").distinct().count()
             p_exists = spark.table(f"{catalog}.{schema}.wyscout_players").limit(1).count() > 0
-            if e_count >= expected and m_count >= expected and p_exists:
+            t_exists = spark.table(f"{catalog}.{schema}.wyscout_teams").limit(1).count() > 0
+            if e_count >= expected and m_count >= expected and p_exists and t_exists:
                 return FilterResult(workflow_id=self.workflow_id, count=0)
         return FilterResult(workflow_id=self.workflow_id, count=1)
 
@@ -105,6 +111,10 @@ skip_guard = _WyscoutGuard()
 _EVENTS_ZIP_URL = "https://ndownloader.figshare.com/files/14464685"
 _MATCHES_ZIP_URL = "https://ndownloader.figshare.com/files/14464622"
 _PLAYERS_URL = "https://ndownloader.figshare.com/files/15073721"
+# PR 5a addition — teams.json from Figshare article 7765310 ("Teams"),
+# resolved 2026-04-24 via Figshare v2 API. 142 teams across 7 competitions.
+# Schema: wyId (int), officialName, name, city, area (nested struct), type.
+_TEAMS_URL = "https://ndownloader.figshare.com/files/15073697"
 
 _COMPETITIONS = [
     "England",
@@ -552,6 +562,82 @@ def _load_players(
     return df
 
 
+def _load_teams(
+    data_dir: pathlib.Path | None,
+    logger: logging.Logger,
+) -> pd.DataFrame:
+    """Load Wyscout team roster from local file or Figshare download.
+
+    Returns a DataFrame with one row per team. ``area`` is a nested JSON
+    struct (name/id/alpha2code/alpha3code) serialized to a string for
+    Spark/Delta compatibility. 142 teams across 7 competitions (verified
+    2026-04-24 against live bronze — exact coverage of all team_ids
+    referenced by ``bronze.wyscout_matches.teamsData``; Pappalardo et al.
+    2019, Figshare article 7765310).
+    """
+    if data_dir is not None:
+        local_path = data_dir / "teams.json"
+        if local_path.exists():
+            logger.info("Loading local teams file: %s", local_path)
+            df = pd.read_json(local_path)
+            df = _decode_unicode_escapes(df)
+            df = serialize_json_columns(df, ["area"])
+            return df
+
+    logger.info("Downloading teams.json from Figshare")
+    resp = fetch_url(_TEAMS_URL, timeout=(10, 60))
+    data = resp.json()
+    df = pd.DataFrame(data)
+    df = _decode_unicode_escapes(df)
+    df = serialize_json_columns(df, ["area"])
+    logger.info("Loaded %d teams from Figshare", len(df))
+    return df
+
+
+def ingest_teams(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    data_dir: pathlib.Path | None,
+    logger: logging.Logger,
+) -> None:
+    """Load and write Wyscout team metadata.
+
+    PR 5a addition — closes pre-existing ingestion gap where teams.json
+    wasn't pulled from Figshare. Mirrors ingest_players' shape.
+    """
+    full_table_name = f"{catalog}.{schema}.wyscout_teams"
+    if spark.catalog.tableExists(full_table_name):
+        logger.info("wyscout_teams already populated — skipping")
+        return
+    logger.info("No existing wyscout_teams table — will ingest")
+
+    pdf = _load_teams(data_dir, logger)
+    pdf = _normalize_mixed_types(pdf, logger=logger)  # G2 audit
+    pdf = finalize_bronze_df(
+        pdf,
+        expected_cols=_WYSCOUT_TEAMS_EXPECTED_COLS,
+        dtype_overrides=_WYSCOUT_TEAMS_DTYPE_OVERRIDES,
+    )  # G1
+
+    sdf = spark.createDataFrame(pdf)
+    row_count = validate_dataframe(
+        sdf,
+        ["wyId", "officialName", "name"],
+        "wyscout_teams",
+        logger,
+    )
+    write_delta_table(
+        sdf,
+        catalog,
+        schema,
+        "wyscout_teams",
+        mode="overwrite",
+        logger=logger,
+        row_count=row_count,
+    )
+
+
 def ingest_players(
     spark: SparkSession,
     catalog: str,
@@ -618,6 +704,7 @@ def run_pipeline(
     ingest_events(spark, catalog, schema, data_dir, logger)
     ingest_matches(spark, catalog, schema, data_dir, logger)
     ingest_players(spark, catalog, schema, data_dir, logger)
+    ingest_teams(spark, catalog, schema, data_dir, logger)
     return 0
 
 

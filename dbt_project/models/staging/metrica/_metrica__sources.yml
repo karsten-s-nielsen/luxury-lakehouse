@@ -68,6 +68,16 @@ sources:
               Pitch width in meters, read from the EPTS <FieldSize> element
               (Game 3). NaN for CSV-source games (Games 1-2). See
               pitch_length_m for rationale.
+          - name: is_anonymized
+            description: >
+              PR 5a forward-compat flag. True for sample-CSV ingestion from
+              the Metrica open-data GitHub repo (3 anonymised matches).
+              False for future subscription-API ingestion with real player
+              and team identity. Set at bronze-write time by
+              ingestion.metrica_tracking; propagates to
+              stg_metrica__team_players and drives synthesis branch
+              selection in dim_teams + dim_players.
+              See docs/superpowers/specs/2026-04-24-kimball-pr5-design.md §4.
 
       - name: metrica_events
         description: >

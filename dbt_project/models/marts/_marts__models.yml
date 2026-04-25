@@ -366,28 +366,44 @@ models:
     description: >
       Per-90-minute player aggregation table. Contains rolling and seasonal
       statistics normalized to per-90 rates for fair comparison across
-      players with different minutes played. One row per player per
-      competition per season.
+      players with different minutes played. Grain: one row per
+      (player_id, competition_id, season_id, data_source) — PR 5a added
+      data_source to the grain so dim_players resolves player_key uniquely.
     columns:
       - name: player_stats_id
         data_type: string
-        description: Surrogate key (player_id + competition_id + season_id)
+        description: Surrogate key (player_id + competition_id + season_id + data_source).
         data_tests:
           - unique
           - not_null
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players.player_key (ADR-011, PR 5a).
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_players')
+              field: player_key
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams.team_key. Nullable — aggregate spans teams.
       - name: player_id
         data_type: int
         description: >
-          Foreign key to dim_players. 1 row currently NULL (pre-existing
-          data gap — likely the StatsBomb match 3825894 outlier where the
-          silver layer failed to resolve team/player IDs for that specific
-          match). Closed by ADR-011 PR 5 (Kimball-conformed `dim_players`
-          + silver-layer repair); until then this test is warn-severity to
-          preserve live-CI signal on all other invariants.
+          LEGACY native player identifier. 1 NULL outlier (match 3825894)
+          previously warn-suppressed; closed in PR 5a via INNER JOIN to
+          dim_players. Retained for the coordinated 2026-07-22 dual-column
+          sunset per ADR-011.
         data_tests:
-          - not_null:
-              config:
-                severity: warn
+          - not_null
+      - name: data_source
+        data_type: string
+        description: Provider origin (statsbomb/wyscout/idsse/metrica) — part of the grain post-PR-5a.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica']
       - name: competition_id
         data_type: int
         description: Foreign key to dim_competitions
@@ -1776,40 +1792,58 @@ models:
         data_sensitivity: public
         contains_pii: false
     description: >
-      Player dimension table combining StatsBomb and Wyscout data via cross-source
-      entity resolution (Phase 14). Players matched across sources share a
-      canonical_player_id; unmatched players retain their source-native ID.
-      One row per unique canonical_player_id.
+      Conformed player dimension (ADR-011 PR 5a). 4-provider union with Kimball
+      surrogate player_key + preserved canonical_player_id legacy hash (for
+      Hyrum's Law compat across 57 downstream files + HF datasets).
+      canonical_player_key collapses xref-matched pairs per entity resolution.
+      Metrica siloed by design (anonymised; no cross-provider xref possible).
+      Grain: one row per (provider, native_player_id).
     columns:
-      - name: canonical_player_id
-        data_type: string
-        description: Surrogate key for cross-source identity (unique per player)
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate (xxhash64 of provider|native_player_id).
         data_tests:
           - unique
           - not_null
-      - name: player_id
-        data_type: int
-        description: Source-native player identifier
-        data_tests:
-          - not_null
-      - name: player_name
-        data_type: string
-        description: Player full name
-        data_tests:
-          - not_null
-      - name: player_display_name
-        data_type: string
-        description: Preferred display name (nickname or short_name if available)
-        data_tests:
-          - not_null
-      - name: primary_position
-        data_type: string
-        description: Most common playing position from source data
-      - name: position_group
+      - name: canonical_player_id
         data_type: string
         description: >
-          Broad position category (Goalkeeper, Defender, Midfielder, Forward)
-          mapped from primary_position via position_mapping seed
+          Legacy string hash preserved for downstream compat through the
+          coordinated 2026-07-22 sunset (ADR-011). 57 files + HF embedding
+          datasets reference this column.
+        data_tests:
+          - not_null
+      - name: canonical_player_key
+        data_type: bigint
+        description: xref-resolved canonical pointer (SB > WS > IDSSE), or self.
+        data_tests:
+          - not_null
+      - name: provider
+        data_type: string
+        description: Provider label for this row (4-provider union post-PR-5a).
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica']
+      - name: native_player_id
+        data_type: string
+        description: Stringified native provider ID (real for SB/WS/IDSSE; synthesised for Metrica anonymised).
+        data_tests:
+          - not_null
+      - name: player_id
+        data_type: int
+        description: >
+          Legacy native integer (StatsBomb + Wyscout only). Dual-column window
+          through 2026-07-22 per ADR-011. NULL for IDSSE/Metrica rows.
+      - name: player_name
+        data_type: string
+      - name: player_display_name
+        data_type: string
+      - name: primary_position
+        data_type: string
+      - name: position_group
+        data_type: string
         data_tests:
           - accepted_values:
               arguments:
@@ -1818,32 +1852,37 @@ models:
                 severity: warn
       - name: statsbomb_player_id
         data_type: int
-        description: StatsBomb player_id (null for Wyscout-only players)
+        description: SB native ID when row is SB; otherwise NULL.
       - name: wyscout_player_id
         data_type: int
-        description: Wyscout wyId (null for unmatched StatsBomb players)
+        description: WS native ID when row is WS; otherwise NULL.
+      - name: idsse_player_id
+        data_type: string
+        description: IDSSE DFL PersonId when row is IDSSE; otherwise NULL.
       - name: match_confidence
         data_type: double
-        description: Entity resolution confidence score (0-100, null if unmatched)
       - name: match_layer
-        data_type: bigint
-        description: >
-          Resolution layer (0=manual override, 1=strict, 2=standard, 3=relaxed,
-          null if unmatched)
+        data_type: int
       - name: birth_date
         data_type: string
-        description: Date of birth from Wyscout (YYYY-MM-DD, null if unmatched)
       - name: nationality
         data_type: string
-        description: Country name from Wyscout passportArea (null if unmatched)
+      - name: is_synthesized
+        data_type: boolean
+        data_tests:
+          - not_null
+      - name: is_anonymized
+        data_type: boolean
+      - name: synthesis_reason
+        data_type: string
       - name: data_sources
         data_type: string
-        description: Comma-separated list of data providers for this player
+        description: Provider label (same as provider col; retained for backward compat).
         data_tests:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb', 'wyscout', 'statsbomb,wyscout']
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica']
 
   - name: dim_teams
     config:
@@ -1853,26 +1892,76 @@ models:
         data_sensitivity: public
         contains_pii: false
     description: >
-      Team dimension table. Deduplicated team master data from all
-      data sources. One row per unique team.
+      Conformed team dimension (ADR-011 PR 5a). Kimball surrogate team_key
+      across StatsBomb / Wyscout / IDSSE / Metrica. Synthesis flags mark
+      Metrica anonymised + Wyscout unresolved-teamsdata fallback rows.
+      team_name populated for Wyscout real rows from Figshare teams.json
+      (ingestion gap closed in PR 5a).
+      Grain: one row per (provider, native_team_id).
     columns:
-      - name: team_id
+      - name: team_key
         data_type: bigint
-        description: Primary key — canonical team identifier
+        description: Kimball surrogate (xxhash64 of provider|native_team_id).
         data_tests:
           - unique
           - not_null
-      - name: team_name
+      - name: provider
         data_type: string
-        description: Team display name (NULL for Wyscout — names not in open data)
-      - name: data_source
-        data_type: string
-        description: Data provider
         data_tests:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb', 'wyscout']
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica']
+      - name: native_team_id
+        data_type: string
+        data_tests:
+          - not_null
+      - name: team_id
+        data_type: bigint
+        description: >
+          Legacy native team_id (SB + WS real rows only). BIGINT matches
+          upstream stg_*_events.team_id AND the pre-PR-5a synced-table PK.
+          Changing the synced-table PK column type is unsupported
+          (CHANGED_PRIMARY_KEY_COLUMN_TYPE), so we retain BIGINT regardless
+          of the plan's original INT intent. Dual-column window through
+          2026-07-22 per ADR-011. NULL for IDSSE / Metrica / Wyscout
+          synth-fallback rows.
+      - name: team_name
+        data_type: string
+      - name: canonical_team_key
+        data_type: bigint
+        description: xref-resolved canonical pointer (SB > WS > IDSSE), or self.
+        data_tests:
+          - not_null
+      - name: is_synthesized
+        data_type: boolean
+        data_tests:
+          - not_null
+      - name: is_anonymized
+        data_type: boolean
+      - name: synthesis_reason
+        data_type: string
+      - name: data_source
+        data_type: string
+        description: >
+          LEGACY provider label — preserved during the coordinated ADR-011
+          dual-column window (sunset 2026-07-22 per PR 8). Same value as
+          `team_data_source` and `provider`. Retained so Lakebase synced-table
+          auto-evolution stays additive (drop would require destructive
+          recreate; auto-evolution cannot handle DROP COLUMN). Consumer code
+          should migrate to `provider` for new development.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica']
+      - name: team_data_source
+        data_type: string
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica']
 
   - name: dim_competitions
     config:
@@ -1883,9 +1972,13 @@ models:
         contains_pii: false
     description: >
       Conformed competition dimension unifying StatsBomb + Wyscout + IDSSE
-      competitions. Metrica is intentionally absent (anonymised open-data
-      has no competition metadata). PR 2 of the Kimball migration
-      (ADR-011) added `competition_key` as the surrogate primary key,
+      + Metrica competitions. PR 2 (ADR-011) added `competition_key` as
+      the surrogate primary key. PR 5a added a synthetic Metrica
+      pseudo-competition row (native_competition_id='metrica-sample',
+      provider='metrica') so anonymised sample-data matches surface in
+      the Pass Map competition cascade alongside the three real-identity
+      providers. The Metrica row has NULL country + gender per the
+      anonymised-source constraint.
       extending the same pattern as `dim_matches.match_key` from matches
       to competitions.
 
@@ -1906,12 +1999,16 @@ models:
           - not_null
       - name: provider
         data_type: string
-        description: Data source that produced this competition (statsbomb, wyscout, idsse).
+        description: >
+          Data source that produced this competition (statsbomb, wyscout,
+          idsse, metrica). PR 5a added a 'metrica' pseudo-competition row
+          (native_competition_id='metrica-sample') so Metrica passes
+          surface in the Pass Map competition cascade.
         data_tests:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb', 'wyscout', 'idsse']
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica']
       - name: native_competition_id
         data_type: string
         description: >
@@ -3039,9 +3136,21 @@ models:
         data_sensitivity: public
         contains_pii: false
     columns:
+      - name: match_key
+        data_type: bigint
+        description: >
+          Kimball surrogate FK to dim_matches.match_key (ADR-011, PR 5a).
+          Propagated from fct_match_summary via the existing `using (match_key)` join.
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('fct_match_summary')
+              field: match_key
       - name: match_id
         data_type: bigint
-        description: Native match identifier. Relationship test to fct_match_summary is suspended during the Kimball migration (ADR-011) — fct_match_summary migrated to match_key in PR 2 while fct_funnel_stages_agg still uses native match_id; relationship restored when funnel_stages migrates.
+        description: >
+          LEGACY native match identifier retained for the coordinated 2026-07-22
+          dual-column sunset per ADR-011.
         data_tests:
           - not_null
       - name: competition_id
@@ -3051,23 +3160,36 @@ models:
           - not_null
       - name: team_id
         data_type: int
-        description: Acting team.
+        description: Acting team (legacy INT).
         data_tests:
           - not_null
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams.team_key (acting team, ADR-011 PR 5a).
+        data_tests:
+          - relationships:
+              to: ref('dim_teams')
+              field: team_key
+              config:
+                where: "team_key IS NOT NULL"
       - name: opponent_team_id
         data_type: int
         description: >
           The other team in the match (derived from fct_match_summary home/away).
-          NULL for Wyscout rows (~36% of the mart): `fct_match_summary` was
-          migrated to match_key in PR 2 but did not parse Wyscout's
-          `teams_data_parsed` → home/away team_id. Closed properly by ADR-011
-          PR 5 (Kimball-conformed `dim_teams`, scheduled); until then this
-          test is warn-severity to preserve live-CI signal on all other
-          invariants without failing on a known pre-existing gap.
+          Wyscout rows previously NULL (~7,587 of ~21,000). PR 5a closed the
+          gap via stg_wyscout__home_away_teams bridge + fct_match_summary
+          Wyscout branch update. Flipped from warn to error severity.
         data_tests:
-          - not_null:
+          - not_null
+      - name: opponent_team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams.team_key (opposing team, ADR-011 PR 5a).
+        data_tests:
+          - relationships:
+              to: ref('dim_teams')
+              field: team_key
               config:
-                severity: warn
+                where: "opponent_team_key IS NOT NULL"
       - name: game_state
         data_type: string
         description: "Score-state bucket — winning, losing, or drawing — at the time of the action."
