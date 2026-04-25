@@ -50,6 +50,16 @@ class TestFetchHfCostHistory:
 
     def test_returns_completed_runs_from_history(self, tmp_path: Path) -> None:
         """Completed runs loaded from _cost_history/ files."""
+        from datetime import datetime, timedelta, timezone
+
+        # Use a recent timestamp so the implementation's 30-day filter
+        # (state/workflows.py: end_ts < cutoff -> skip) does not silently
+        # drop the fixture and trigger the legacy fallback path. Hardcoded
+        # 2026-03-26 dates aged out of the window on 2026-04-25 and made
+        # this test a time-bomb; relative timestamps keep it evergreen.
+        ended = datetime.now(tz=timezone.utc) - timedelta(hours=1)
+        started = ended - timedelta(minutes=5)
+
         # Live file shows COMPLETED (not RUNNING)
         live_data = {"workflow_id": "wf-xt-grids", "state": "COMPLETED"}
         live_file = tmp_path / "live.json"
@@ -59,8 +69,8 @@ class TestFetchHfCostHistory:
         run_data = {
             "workflow_id": "wf-xt-grids",
             "state": "COMPLETED",
-            "started_at": "2026-03-26T10:00:00+00:00",
-            "ended_at": "2026-03-26T10:05:00+00:00",
+            "started_at": started.isoformat(),
+            "ended_at": ended.isoformat(),
             "duration_seconds": 300,
             "estimated_cost_usd": 0.05,
         }

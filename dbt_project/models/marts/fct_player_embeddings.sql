@@ -26,7 +26,8 @@
     materialized='incremental',
     unique_key='embedding_id',
     enabled=var('embeddings_enabled', false),
-    incremental_strategy='merge'
+    incremental_strategy='merge',
+    on_schema_change='append_new_columns'
 ) }}
 
 -- D62 (2026-04-15) introduced a 360-embeddings variant alongside the
