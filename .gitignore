@@ -106,3 +106,12 @@ luxury_lakehouse_http_cache.sqlite
 
 # Demo Space sample data (generated from Databricks, uploaded to HF directly)
 demo_space/data/*.parquet
+
+# Compiled lockfile for the Taipy HF Space — regenerated at deploy time by
+# scripts/manage_space.py::_compile_requirements. Committing it creates
+# false-positive dependabot-pip PRs for every transitive pin (dependabot
+# treats every requirements.txt pin as "direct"), which is unmanageable.
+# The Space's build uses the deploy-time generated file; local devs can
+# regenerate with: uv pip compile pyproject.toml --extra taipy-app
+# --python-version 3.10 --python-platform linux -o hf_taipy_app/requirements.txt
+hf_taipy_app/requirements.txt

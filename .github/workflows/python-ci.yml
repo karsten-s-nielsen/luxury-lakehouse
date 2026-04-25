@@ -80,26 +80,6 @@ jobs:
       - name: Validate workflow cards
         run: uv run validate_workflow_cards workflow-cards/
 
-      - name: Verify taipy-app requirements are up to date
-        # Pre-seed the output file with the existing pinned requirements.txt so
-        # uv pip compile reads it as input and preserves existing pins where
-        # pyproject.toml constraints still allow them. Without this seed, uv
-        # would re-resolve fresh from PyPI on every CI run — and any new
-        # minor release of any transitive dep would falsely flag the file as
-        # "stale", breaking main + every Dependabot PR within hours of merge.
-        # With the seed, the diff is non-zero ONLY when pyproject.toml itself
-        # changed (i.e. an intentional bump or a new dep), which is the
-        # invariant we actually want to enforce.
-        run: |
-          cp hf_taipy_app/requirements.txt /tmp/requirements-check.txt
-          uv pip compile pyproject.toml --extra taipy-app --python-version 3.10 --python-platform linux -o /tmp/requirements-check.txt
-          tail -n +3 hf_taipy_app/requirements.txt > /tmp/req-actual.txt
-          tail -n +3 /tmp/requirements-check.txt > /tmp/req-expected.txt
-          diff -u /tmp/req-actual.txt /tmp/req-expected.txt || {
-            echo "::error::hf_taipy_app/requirements.txt is stale vs pyproject.toml constraints — run: uv pip compile pyproject.toml --extra taipy-app --python-version 3.10 --python-platform linux -o hf_taipy_app/requirements.txt"
-            exit 1
-          }
-
       - name: Build wheel
         run: uv build --wheel
 
