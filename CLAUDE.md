@@ -71,6 +71,11 @@ Significant architectural decisions — ones future maintainers will reasonably 
 
 **Existing ADRs:** `docs/superpowers/adrs/ADR-*.md`. **Template:** `docs/superpowers/adrs/ADR-TEMPLATE.md`.
 
+## External Research Tracking
+
+- **`docs/research/external-research-tracking.md` is the durable record of external research sources being monitored** — specific pre-publication papers, academic labs (DTAI Sports Analytics Lab / KU Leuven), conferences (MLSA), and actively-developed libraries (UnravelSports) whose output could change a lakehouse decision. Add a tracker entry (What / Why / Mechanism / Last reviewed / Next review) when a LinkedIn post, paper, or release surfaces an *ongoing* research stream — not when a one-shot conversion to TODO suffices (e.g. D60-D64 from single LinkedIn posts went directly to TODO without a tracker entry).
+- **Quarterly review cadence**: first week of Jan / Apr / Jul / Oct. Check each active tracker's mechanism, update "Last reviewed," promote anything ready to TODO/ROADMAP/ADR via the Promotion log, archive anything that went stale. Next scheduled review: 2026-07-24.
+
 ## Type Safety
 
 - **Pyright basic mode**: All Python code must pass `pyright` in basic type checking mode.

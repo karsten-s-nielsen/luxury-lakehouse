@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the current [architecture](ARCHITECTURE.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-04-10 (PA1/PA4 status corrected — PA1 dbt-only, PA4 disabled pending D57/D58)
+**Last updated**: 2026-04-24 (added Tensor-Native Retrieval (Vespa) & Vector Artifact Sharing section — exploratory entry for multi-vector retrieval + HF-published vector artifacts, prompted by tensor-native RAG investigation)
 
 ---
 
@@ -909,6 +909,161 @@ Research spike for privacy-preserving statistical publishing. Use case: publish 
 **Prototype target:** Add one library to dev dependencies in `pyproject.toml`. Implement epsilon-bounded DP noise on existing aggregate queries (COUNT/AVG on xG calibration data). Goal: working utility functions demonstrating the privacy-utility tradeoff, not production deployment.
 
 **Why this matters:** Any future multi-party analytics scenario (cross-club benchmarking, league-wide aggregate publishing) requires provable privacy guarantees. Starting with aggregate statistics is simpler than model training and delivers real analytical value.
+
+---
+
+## Tensor-Native Retrieval (Vespa) & Vector Artifact Sharing
+
+**Status:** Research — exploratory, $0 starter cost via HF Spaces Docker
+**Discovered:** 2026-04-24 (session 55, prompted by interest in tensor-native RAG)
+
+[Vespa](https://github.com/vespa-engine/vespa) is an open-source tensor-native search and retrieval engine — Yahoo's internal search infrastructure since the early 2000s, open-sourced 2017, spun out as an independent company in October 2023. It is a strict superset of pgvector's single-vector HNSW capability, with three architectural primitives that pgvector cannot deliver: multi-vector per document via mapped tensor dimensions, declarative phased ranking with custom rank profiles, and ONNX model evaluation at serve time inside the content node.
+
+**For the lakehouse today, Vespa is over-provisioned.** Six pgvector HNSW indexes (4×128d behavioral_vector + 2×144d behavioral_vector + stat_vector 13d) handle the current single-vector player-similarity workload adequately. The trigger to revisit is the moment retrieval needs *exceed* what single-vector cosine can express — multi-vector embeddings (per-match, per-context, per-sequence), cross-model joint scoring, structure+vector hybrid queries with pre-filter correctness, or learned reranking. Three TODO items already on the board would change architecturally if Vespa were available: D33 (ScoutGPT per-sequence embeddings), U3 (Global player search), HF3 (set-piece + throw-in feature retrieval).
+
+### Why this lives on the ROADMAP, not the TODO list
+
+Vespa adoption is contingent on a workload appearing that pgvector cannot serve. Until that workload exists, premature migration burns weeks of ramp time for capability you're not yet using. The ROADMAP entry captures the analysis so the next decision point doesn't repeat the investigation; it doesn't commit to action.
+
+### Docker-on-HF-Spaces evaluation scenario
+
+Apples-to-apples with the existing Taipy app architecture: a separate HF Space running Vespa via the Docker SDK, $0 on the free CPU tier (currently 2 vCPU, 16 GB RAM), one container bundling all three Vespa service tiers (config server, container nodes, content nodes). Architecture sketch:
+
+```
+HF Spaces (free tier)            Lakebase (existing)
++----------------+               +----------------+
+| Taipy app      |               | pgvector HNSW  |
+| (existing)     |               | (existing)     |
++----------------+               +----------------+
+        |                                |
+        +---- A/B query path ----+       |
+                                 |       |
+                                 v       v
+                          +--------------+
+                          | Vespa Space  |
+                          | (new, free)  |
+                          +--------------+
+                                 ^
+                                 | feed via HTTP API
+                          +--------------+
+                          | Databricks   |
+                          | notebook     |
+                          +--------------+
+```
+
+**Space configuration:**
+
+- Docker SDK in the Space README YAML; base image `vespaengine/vespa`
+- Set `app_port: 7860` (or override Vespa's query port to match HF convention)
+- Internal ports (config 19071, status 19112) stay container-internal
+- `startup_duration_timeout: 5m` — Vespa cold-starts in 30-90 s; the JVM config server can be slow on first deploy
+- Public Space (default) — fine for already-public soccer data; HF Spaces secrets handle any tokens
+
+**Feed pipeline:** a one-shot Databricks notebook reads existing 144d `behavioral_vector` from the Delta table — or, to avoid Databricks-credential coupling on the Space, directly from the published HF Dataset `luxury-lakehouse/football2vec-player-embeddings`. Batch-feed Vespa via the HTTP Feed API; ~12 K player documents at 144d fits in 16 GB RAM with the HNSW index.
+
+#### Cost ladder
+
+| Setup | $/month | What you get |
+|---|---|---|
+| Vespa on free CPU, ephemeral | **$0** | Re-feed on every cold start; experiment-only |
+| + HF persistent storage 20GB | **$5** | Index survives restarts; multi-day experiments without re-feed |
+| + CPU upgrade ($0.03/hr always-on) | **~$22** | 8 vCPU + 32 GB RAM, no auto-sleep, production-feel latency |
+| Vespa Cloud (managed) | not publicly priced | Production-grade; out of scope for an experiment |
+
+#### What the spike measures cleanly
+
+- Schema package + rank profile authoring experience (does the YAML / expression DSL feel ergonomic?)
+- Query expressiveness — write the same "filtered nearest neighbour" both ways, see which feels natural
+- Recall quality on filtered queries — the pre-filter-aware ANN difference vs pgvector's post-filter pitfall, measurable in warm state
+- Cross-model joint scoring (combine `behavioral_vector` + `stat_vector` in one rank profile) — both vectors already exist
+- Optionally: ColBERT-style multi-vector retrieval if you feed each player as multiple sub-embeddings
+
+#### What the spike does NOT measure
+
+- Production p50 / p99 latency at always-on cluster scale (HF Spaces auto-sleep + cold-start makes this comparison unfair)
+- Multi-node sharding behaviour
+- Schema migration mechanics under load
+- Vespa Cloud-specific features (autoscaling, managed upgrades)
+
+#### Effort estimate
+
+~2 days solo-dev for the full spike including A/B query path in Taipy. The Docker setup is `docker run` + schema package authoring — Vespa's `pyvespa` SDK reduces the boilerplate. Bulk of the time is in writing the rank profile and validating query quality, which is the *point* of the spike.
+
+### HF Hub as the vector-sharing venue
+
+The lakehouse already publishes embeddings as HF Datasets via `ingestion.hf_publish` ([ADR-014](docs/superpowers/adrs/ADR-014-hf-card-inventory-parity.md)). The Vespa angle adds zero migration cost and three new sharable artifact types, all native to HF Hub:
+
+#### Three sharable Vespa-related artifact types
+
+| Artifact | HF Repo Type | Existing Pattern? | Examples in the wild |
+|---|---|---|---|
+| **Embeddings (vectors + metadata)** | Dataset (parquet) | Yes — already in use | `Cohere/wikipedia-22-12`, `mteb/*`, `BeIR/*`, `sentence-transformers/*` |
+| **ONNX rerankers** | Model | Yes — `docs/huggingface/model-cards/` discipline applies | `cross-encoder/ms-marco-MiniLM-L-6-v2` |
+| **Vespa application package** (schema + rank profiles + `services.xml`) | GitHub repo OR Model | No HF convention; GitHub more idiomatic | Vespa community samples on GitHub |
+
+Indexed-state Vespa data is **not** a sharable artifact — Vespa, pgvector, FAISS, Qdrant all reconstruct their indexes differently from the same source vectors. Embeddings travel as data; the index is a downstream cache.
+
+#### "Tensor-native ready" positioning for existing datasets
+
+Low-cost additive enhancement to the existing publishing discipline that telegraphs Vespa-readiness without requiring internal Vespa adoption:
+
+1. **Document the schema mapping in the dataset card.** A small section: "this dataset maps to a Vespa schema as `tensor<float>(player{},embedding[144])` for multi-vector retrieval, or to a single-vector pgvector index as `vector(144)`." 4-5 lines, free, telegraphs you've thought about downstream consumers.
+2. **Ship a sample `schema.sd` and a 5-line `pyvespa` ingestion snippet** as a companion file in the dataset repo — same energy as bundling a `pandas.read_parquet` example. Lowers the barrier to "play with these in Vespa" from "an afternoon" to "five minutes."
+3. **Tag with `tensor-native`, `multi-vector`, or `vespa-ready` topic tags** if/when those community conventions stabilize. Currently informal but emerging in the embedding-dataset space.
+
+Same parquet file works for pgvector, FAISS, Qdrant, Weaviate, and Vespa. The "tensor-native ready" framing is purely additive — no commitment to Vespa internally.
+
+#### License posture
+
+Vespa itself is Apache 2.0. Embeddings published under CC-BY-NC (the existing `football2vec-l2-harvest` license, inherited from training data) stay CC-BY-NC when consumed by Vespa. Worth a one-line note in any "tensor-native ready" dataset card so consumers know what they're getting. The existing EU AI Act stanza requirement on every model card per `AI_GOVERNANCE.md` applies cleanly.
+
+### Forward-looking publishing idea — `tactical-pattern-windows` dataset
+
+The most genuinely novel publishing direction this analysis surfaces. A dataset where each row is a 5-second tracking-data window from a match, with a 128d-or-similar embedding of the spatial pattern in that window. Multiple windows per match; queryable as "find all windows tactically similar to this one."
+
+| Property | Why it matters |
+|---|---|
+| Novel | No equivalent public dataset exists for soccer |
+| Genuine multi-vector use case | One document per match, mapped tensor over time-windows — actually requires tensor-native retrieval to make sense |
+| Useful regardless of Vespa adoption | Researchers using FAISS or Qdrant ingest the same parquet |
+| Downstream of pipelines already built | Pitch control, line-breaking, formations all already produce per-window features |
+
+This is the dataset that would actually showcase tensor-native retrieval as the *right* architectural choice for soccer analytics. The existing single-vector-per-player datasets don't need Vespa; they're fine in pgvector. A multi-vector dataset *of windows* would land in HF as a genuine novelty and would justify the Vespa angle to anyone evaluating it.
+
+### Trigger conditions for graduation to a numbered phase
+
+This entry graduates from ROADMAP to a TODO item / numbered phase when **any one** of the following is true:
+
+- D33 (ScoutGPT Embeddings & Taipy integration) ships per-sequence embeddings (multi-vector retrieval becomes the natural architecture)
+- U3 (Global player search) extends to event/pass corpus scale (>1M searchable items where pgvector recall under filtered queries starts to bite)
+- A scouting/text corpus enters the platform (cross-modal text + tactical-stat retrieval becomes a real workload)
+- Cross-model joint scoring (Football2Vec + ScoutGPT + stats fused into one ranking) becomes a product requirement
+- Databricks Vector Search adds multi-vector or ranking-DSL support (closes the gap; *removes* the motivation — graduate the entry as "DROPPED" rather than as "PROCEED")
+
+Per the ADR discipline in `CLAUDE.md`, if Vespa adoption is greenlit, write an ADR capturing the trigger condition that fired, the spike result, the chosen integration architecture (Databricks → Delta → HTTP Feed API → Vespa serving), and the operational tier (HF Spaces / self-hosted VM / Vespa Cloud).
+
+### When NOT to adopt
+
+Even if a single trigger fires above, defer if:
+
+- The team is still solo-dev and the workload is solvable with a 50-LOC application-layer hack
+- The corpus is <100 K documents (Vespa's architectural advantages don't manifest at small scale)
+- The retrieval-quality regression of pgvector post-filter is not yet observable in production traces
+
+The premature-adoption failure mode is real — a Vespa cluster you don't fully use still demands maintenance attention.
+
+### References
+
+- [Vespa documentation](https://docs.vespa.ai/)
+- [Vespa Tensor User Guide](https://docs.vespa.ai/en/ranking/tensor-user-guide.html)
+- [Vespa Phased Ranking](https://docs.vespa.ai/en/ranking/phased-ranking.html)
+- [Vespa ONNX Models in Ranking](https://docs.vespa.ai/en/ranking/onnx.html)
+- [Vespa ColBERT Embedder Announcement](https://blog.vespa.ai/announcing-colbert-embedder-in-vespa/)
+- [Vinted: Goodbye Elasticsearch, Hello Vespa (2024)](https://vinted.engineering/2024/09/05/goodbye-elasticsearch-hello-vespa/)
+- [Perplexity uses Vespa for RAG retrieval](https://vespa.ai/perplexity/)
+- [Vespa case studies index](https://vespa.ai/case-studies/)
+- [pyvespa multi-vector indexing example](https://vespa-engine.github.io/pyvespa/examples/multi-vector-indexing.html)
+- [Vespa Cloud pricing calculator](https://cloud.vespa.ai/price-calculator)
 
 ---
 
