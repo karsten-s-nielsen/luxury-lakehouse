@@ -344,7 +344,7 @@ tzdata==2026.2
     #   pandas
 tzlocal==5.2
     # via taipy-gui
-url-normalize==2.2.1
+url-normalize==3.0.0
     # via requests-cache
 urllib3==2.6.3
     # via
