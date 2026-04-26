@@ -31,6 +31,10 @@ analytics = [
     "rapidfuzz>=3.6.0",
     "unidecode>=1.3.0",
     "sparse-dot-topn>=1.1.0",
+    # Optuna powers the ExT v2 reproduction harness (src/analytics/ext_v2/).
+    # Phase 0 uses a single-trial study with no axes active; Phases 1-4
+    # progressively activate KDE/KNN/contextual-feature suggests via TPE.
+    "optuna>=4.0",
 ]
 dbt = [
     "dbt-core>=1.10.0",
@@ -224,6 +228,9 @@ exclude = [
     "scripts/compute_space_creation_hf_helpers.py",
     "scripts/compute_xt_grid_hf.py",
     "scripts/export_embedding_atlas_data.py",
+    # ExT v2 Phase 0 baseline runner — depends on `databricks-sql-connector`
+    # which is installed ad-hoc via `uv run --with` (not a project dep).
+    "scripts/run_ext_v2_phase0.py",
     "scripts/publish_freeze_frame_hf.py",
     "scripts/publish_spadl_vaep_hf.py",
     "scripts/publish_xg_shots_hf.py",
