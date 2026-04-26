@@ -26,6 +26,7 @@ import argparse
 import sys
 import time
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 from databricks.sdk import WorkspaceClient
@@ -362,6 +363,68 @@ def _poll_pipeline(pipeline_id: str, headers: dict[str, str]) -> str:
     return "TIMEOUT"
 
 
+# Default concurrency for parallel polling. Each worker only does HTTP I/O
+# (a `_poll_pipeline` call which sleeps `POLL_INTERVAL_S` between requests),
+# so threads are correct here, not processes. 10 workers means at most 10
+# in-flight requests at any moment — well under any reasonable Databricks
+# REST API rate limit (the actual request rate is ~1/30s per pipeline).
+_DEFAULT_POLL_MAX_WORKERS = 10
+
+
+def _poll_pipelines_parallel(
+    triggered: list[tuple[str, str]],
+    headers: dict[str, str],
+    *,
+    max_workers: int = _DEFAULT_POLL_MAX_WORKERS,
+) -> dict[str, str]:
+    """Poll multiple pipelines concurrently; return ``{table: terminal_state}``.
+
+    Replaces the previous sequential for-loop in :func:`main` whose worst-case
+    wait was ``Sum(MAX_POLL_ATTEMPTS * POLL_INTERVAL_S)`` per pipeline (30 min
+    per pipeline times N pipelines). The 2026-04-25 PR 5b deploy hit this: one slow
+    pipeline (`fct_workflow_costs_synced`, fixed in PR #203) ran out the full
+    30-min ceiling while the other 40 had reached IDLE within 3-4 min, so the
+    script took 40 min instead of ~5 min. Parallel polling collapses the
+    worst case to a single 30-min ceiling regardless of N.
+
+    Each table is polled in its own thread; results print as they complete
+    (via :func:`concurrent.futures.as_completed`) so a slow pipeline does not
+    delay reporting on faster ones. Per-pipeline exceptions are caught and
+    surfaced as ``"ERROR: <message>"`` strings rather than propagated, so a
+    single transient network blip does not abort the whole batch.
+
+    Args:
+        triggered: ``[(table_name, pipeline_id), ...]`` from the trigger phase.
+        headers: Auth + content-type headers for the polling HTTP requests.
+        max_workers: Concurrency cap. Default 10; tune via the CLI flag.
+
+    Returns:
+        ``{table: state}`` where state is the value from
+        :func:`_poll_pipeline` (``"IDLE"`` / ``"FAILED"`` / ``"DELETED"`` /
+        ``"TIMEOUT"``) or ``"ERROR: <message>"`` if polling raised.
+    """
+    results: dict[str, str] = {}
+
+    def _poll_one(item: tuple[str, str]) -> tuple[str, str]:
+        table, pipeline_id = item
+        try:
+            return (table, _poll_pipeline(pipeline_id, headers))
+        except Exception as exc:
+            return (table, f"ERROR: {exc}")
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(_poll_one, item): item for item in triggered}
+        for future in as_completed(futures):
+            table, state = future.result()
+            results[table] = state
+            if state == "IDLE":
+                print(f"  {table}: COMPLETE")
+            else:
+                print(f"  {table}: {state}")
+
+    return results
+
+
 def wait_until_online(
     table_fqn: str,
     *,
@@ -466,6 +529,16 @@ def main() -> None:
             "normal refresh runs should leave this off so drift fails loudly."
         ),
     )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=_DEFAULT_POLL_MAX_WORKERS,
+        help=(
+            f"Concurrency cap for --wait polling (default: {_DEFAULT_POLL_MAX_WORKERS}). "
+            f"Each worker polls one pipeline; total wait collapses from "
+            f"Sum-per-pipeline to max-of-pipelines."
+        ),
+    )
     args = parser.parse_args()
 
     # Validate identifiers per CLAUDE.md security rule (regex prevents SQL injection
@@ -541,18 +614,12 @@ def main() -> None:
             errors += 1
 
     if args.wait and triggered:
-        print(f"\nWaiting for {len(triggered)} pipelines (polling every {POLL_INTERVAL_S}s)...")
-        for table, pipeline_id in triggered:
-            try:
-                state = _poll_pipeline(pipeline_id, headers)
-                if state == "IDLE":
-                    print(f"  {table}: COMPLETE")
-                else:
-                    print(f"  {table}: {state}")
-                    errors += 1
-            except Exception as exc:
-                print(f"  {table}: POLL ERROR — {exc}")
-                errors += 1
+        print(
+            f"\nWaiting for {len(triggered)} pipelines "
+            f"(polling every {POLL_INTERVAL_S}s, up to {args.max_workers} in parallel)..."
+        )
+        poll_results = _poll_pipelines_parallel(triggered, headers, max_workers=args.max_workers)
+        errors += sum(1 for state in poll_results.values() if state != "IDLE")
 
     print(f"\nSummary: {len(triggered)} triggered, {errors} errors")
     if errors:
