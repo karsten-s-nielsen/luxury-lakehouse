@@ -524,3 +524,127 @@ class TestWaitUntilOnline:
 
         with pytest.raises(ValueError, match="Invalid table_fqn"):
             refresh.wait_until_online("soccer_analytics.dev_gold.has space")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _poll_pipelines_parallel — parallel polling refactor (2026-04-26 hotfix).
+#
+# Sequential polling in the prior `main` was Σ-per-pipeline; one slow pipeline
+# stalled all reporting. Parallel polling collapses worst-case to max-of-
+# pipelines. The tests below assert the parallelism actually delivers + that
+# per-pipeline exceptions don't abort the batch.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestPollPipelinesParallel:
+    def test_runs_polls_concurrently(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Total wall-time must collapse to max-of-polls, not sum-of-polls."""
+        import time as _time
+
+        from ingestion.refresh_synced_tables import _poll_pipelines_parallel
+
+        per_poll_seconds = 0.5
+
+        def _slow_poll(pipeline_id: str, headers: dict[str, str]) -> str:
+            _time.sleep(per_poll_seconds)
+            return "IDLE"
+
+        monkeypatch.setattr(
+            "ingestion.refresh_synced_tables._poll_pipeline",
+            _slow_poll,
+        )
+
+        triggered = [(f"table_{i}", f"pid_{i}") for i in range(5)]
+        start = _time.monotonic()
+        results = _poll_pipelines_parallel(triggered, {}, max_workers=10)
+        elapsed = _time.monotonic() - start
+
+        # Sequential would be 5 * 0.5 = 2.5s. Parallel with 10 workers should
+        # be ~0.5s. Threshold 1.5s gives 3x margin for thread scheduling jitter.
+        assert elapsed < 1.5, (
+            f"parallel polling too slow: {elapsed:.2f}s "
+            f"(expected <1.5s; sequential would be ~{len(triggered) * per_poll_seconds}s)"
+        )
+        assert len(results) == len(triggered)
+        assert all(state == "IDLE" for state in results.values())
+
+    def test_max_workers_caps_concurrency(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When max_workers < N, total time is at least Σ/max_workers."""
+        import time as _time
+
+        from ingestion.refresh_synced_tables import _poll_pipelines_parallel
+
+        per_poll_seconds = 0.4
+
+        def _slow_poll(pipeline_id: str, headers: dict[str, str]) -> str:
+            _time.sleep(per_poll_seconds)
+            return "IDLE"
+
+        monkeypatch.setattr(
+            "ingestion.refresh_synced_tables._poll_pipeline",
+            _slow_poll,
+        )
+
+        triggered = [(f"table_{i}", f"pid_{i}") for i in range(8)]
+        start = _time.monotonic()
+        _poll_pipelines_parallel(triggered, {}, max_workers=2)
+        elapsed = _time.monotonic() - start
+
+        # 8 polls at 0.4s with max_workers=2 → ~4 batches of 0.4s = 1.6s lower bound.
+        # Allow a generous upper bound so CI jitter doesn't flake the test.
+        assert elapsed >= 1.0, (
+            f"max_workers cap not honoured: {elapsed:.2f}s "
+            f"(expected >=1.0s with max_workers=2 over 8 polls of 0.4s each)"
+        )
+
+    def test_per_pipeline_exception_does_not_abort_batch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A single failing poll must not abort the whole batch; surface as ERROR string."""
+        from ingestion.refresh_synced_tables import _poll_pipelines_parallel
+
+        def _selectively_failing_poll(pipeline_id: str, headers: dict[str, str]) -> str:
+            if pipeline_id == "pid_bad":
+                raise ConnectionError("network down")
+            return "IDLE"
+
+        monkeypatch.setattr(
+            "ingestion.refresh_synced_tables._poll_pipeline",
+            _selectively_failing_poll,
+        )
+
+        triggered = [
+            ("table_a", "pid_a"),
+            ("table_bad", "pid_bad"),
+            ("table_c", "pid_c"),
+        ]
+        results = _poll_pipelines_parallel(triggered, {}, max_workers=10)
+
+        assert results["table_a"] == "IDLE"
+        assert results["table_c"] == "IDLE"
+        assert results["table_bad"].startswith("ERROR:")
+        assert "network down" in results["table_bad"]
+
+    def test_failed_pipeline_state_is_returned_verbatim(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """FAILED / TIMEOUT / DELETED states from _poll_pipeline pass through unchanged."""
+        from ingestion.refresh_synced_tables import _poll_pipelines_parallel
+
+        states_by_pid = {"pid_a": "IDLE", "pid_b": "FAILED", "pid_c": "TIMEOUT"}
+
+        def _state_table_poll(pipeline_id: str, headers: dict[str, str]) -> str:
+            return states_by_pid[pipeline_id]
+
+        monkeypatch.setattr(
+            "ingestion.refresh_synced_tables._poll_pipeline",
+            _state_table_poll,
+        )
+
+        triggered = [(f"table_{k[-1]}", k) for k in states_by_pid]
+        results = _poll_pipelines_parallel(triggered, {}, max_workers=10)
+
+        assert results == {"table_a": "IDLE", "table_b": "FAILED", "table_c": "TIMEOUT"}
+
+    def test_empty_triggered_list_returns_empty_dict(self) -> None:
+        """Edge case: nothing triggered → empty result, no exceptions."""
+        from ingestion.refresh_synced_tables import _poll_pipelines_parallel
+
+        results = _poll_pipelines_parallel([], {}, max_workers=10)
+        assert results == {}
