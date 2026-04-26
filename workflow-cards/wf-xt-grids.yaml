@@ -95,8 +95,11 @@ and iteratively solves for the xT value at each grid cell.
 
 ## Algorithm
 
-The pitch is discretized into a 16x12 grid. Move transition probabilities and shot
-probabilities are estimated from SPADL actions. The xT surface is solved via iterative
-value propagation: each cell's value is the weighted sum of shooting value and the
-expected value of moving to adjacent cells. Convergence typically occurs within 10
-iterations.
+The pitch is discretized into a configurable grid (default 12x8 cells — see
+`ExpectedThreatParams.n_zones_x` / `n_zones_y` in `src/analytics/expected_threat.py`
+for the canonical resolution; the YAML prose is parity-checked against code defaults
+by `src/tests/test_workflow_card_xt_grid_ssot.py`). Move transition probabilities and
+shot probabilities are estimated from SPADL actions. The xT surface is solved via
+iterative value propagation: each cell's value is the weighted sum of shooting value
+and the expected value of moving to adjacent cells. Convergence typically occurs
+within 10 iterations.

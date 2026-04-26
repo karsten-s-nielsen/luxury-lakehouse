@@ -21,6 +21,7 @@ import pytest
 
 from analytics.augmentation import PerturbationConfig, perturb_positions
 from analytics.defcon_lite import DefconLiteParams, assign_defensive_credits
+from analytics.expected_threat import XTGrid
 from analytics.line_breaking import LineBreakingParams, detect_line_breaking
 from analytics.obso import compute_obso_surface
 from analytics.off_ball_xt import compute_off_ball_xt_frame
@@ -99,13 +100,26 @@ def pitch_control_params():  # type: ignore[no-untyped-def]
 
 
 @pytest.fixture
-def xt_grid() -> np.ndarray:
-    """Synthetic 12x8 expected-threat grid (Karun Singh dimensions)."""
+def xt_grid() -> XTGrid:
+    """Synthetic 12x8 expected-threat grid (Karun Singh dimensions).
+
+    Wrapped in XTGrid so it works with the post-XTGrid-migration
+    ``compute_off_ball_xt_frame`` signature. Coord system matches the
+    StatsBomb 120x80 ``players_df`` fixture for direct (no-conversion)
+    lookup.
+    """
     rng = np.random.default_rng(7)
     # Values should increase toward the opponent goal (left-to-right in StatsBomb coords)
     base = np.linspace(0.0, 0.15, 12).reshape(12, 1) * np.ones((1, 8))
     noise = rng.uniform(-0.01, 0.01, (12, 8))
-    return base + noise
+    values = base + noise
+    return XTGrid(
+        values=values,
+        pitch_length=120.0,
+        pitch_width=80.0,
+        coord_system="statsbomb",
+        competition_id="test",
+    )
 
 
 @pytest.fixture
@@ -233,7 +247,7 @@ class TestBenchmarks:
         self,
         benchmark: Any,
         players_df: pd.DataFrame,
-        xt_grid: np.ndarray,
+        xt_grid: XTGrid,
         pitch_control_params: Any,
     ) -> None:
         """Off-ball xT for a single 22-player frame.

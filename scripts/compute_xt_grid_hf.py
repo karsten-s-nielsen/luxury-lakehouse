@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.14-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.15-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -34,7 +34,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from analytics.expected_threat import compute_expected_threat_grid, grid_to_dataframe, validate_xt_grid
+from analytics.expected_threat import compute_expected_threat_grid
 from ingestion.hf_jobs_cost import HF_RATE_CPU_BASIC, HFJobsCostRecorder
 from workflows import workflow
 
@@ -256,26 +256,26 @@ def main() -> None:
         if n_events < 100:
             print(f"  Competition {comp_id}: {n_events} events -- skipping (too few)")
             continue
-        grid = compute_expected_threat_grid(comp_actions, params)
-        grid_df = grid_to_dataframe(grid, str(comp_id))
+        grid = compute_expected_threat_grid(comp_actions, params, competition_id=str(comp_id))
+        grid_df = grid.to_dataframe()
         all_grids.append(grid_df)
-        print(f"  Competition {comp_id}: {n_events:,} events, max xT={grid.max():.5f}")
+        print(f"  Competition {comp_id}: {n_events:,} events, max xT={grid.values.max():.5f}")
 
     # ------------------------------------------------------------------
     # 3. Global grid (all competitions combined)
     # ------------------------------------------------------------------
     print("\n=== Computing global xT grid ===")
-    global_grid = compute_expected_threat_grid(all_actions, params)
-    validate_xt_grid(global_grid)
-    global_df = grid_to_dataframe(global_grid, "global")
+    global_grid = compute_expected_threat_grid(all_actions, params, competition_id="global")
+    global_grid.validate_structural(max_value=0.50)
+    global_df = global_grid.to_dataframe()
     all_grids.append(global_df)
-    print(f"  Global: {len(all_actions):,} events, max xT={global_grid.max():.5f}")
+    print(f"  Global: {len(all_actions):,} events, max xT={global_grid.values.max():.5f}")
 
     # Print grid summary
-    row_means = global_grid.mean(axis=1)
+    row_means = global_grid.values.mean(axis=1)
     print(f"  Zone x=0 (defense): {row_means[0]:.5f}")
     print(f"  Zone x=11 (attack): {row_means[-1]:.5f}")
-    print(f"  Range: {global_grid.min():.5f} to {global_grid.max():.5f}")
+    print(f"  Range: {global_grid.values.min():.5f} to {global_grid.values.max():.5f}")
 
     # ------------------------------------------------------------------
     # 3b. Log xT grid to MLflow as artifact for provenance
@@ -305,9 +305,9 @@ def main() -> None:
             mlflow.log_param("spadl_vaep_action_values_commit", _dataset_commit)
             mlflow.log_metrics(
                 {
-                    "global_max_xt": float(global_grid.max()),
-                    "global_min_xt": float(global_grid.min()),
-                    "global_range": float(global_grid.max() - global_grid.min()),
+                    "global_max_xt": float(global_grid.values.max()),
+                    "global_min_xt": float(global_grid.values.min()),
+                    "global_range": float(global_grid.values.max() - global_grid.values.min()),
                 }
             )
 
@@ -315,7 +315,7 @@ def main() -> None:
             with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as grid_f:
                 grid_json = {
                     "shape": list(global_grid.shape),
-                    "values": global_grid.tolist(),
+                    "values": global_grid.values.tolist(),
                     "zone_x_labels": list(range(params.n_zones_x)),
                     "zone_y_labels": list(range(params.n_zones_y)),
                 }
@@ -358,8 +358,8 @@ def main() -> None:
             "competitions": [str(c) for c in competitions],
             "n_competitions_computed": len(all_grids) - 1,  # exclude global
             "total_actions": len(all_actions),
-            "global_max_xt": float(global_grid.max()),
-            "global_min_xt": float(global_grid.min()),
+            "global_max_xt": float(global_grid.values.max()),
+            "global_min_xt": float(global_grid.values.min()),
         }
         metadata = recorder.complete(metadata, row_count=len(combined_df))
         with open(str(Path(tmpdir) / "metadata.json"), "w") as f:
@@ -390,7 +390,7 @@ def main() -> None:
 
     print(f"\n  Published: https://huggingface.co/datasets/{OUTPUT_DATASET}")
     print(f"  Competitions: {len(all_grids) - 1}")
-    print(f"  Global max xT: {global_grid.max():.5f}")
+    print(f"  Global max xT: {global_grid.values.max():.5f}")
     print("xT grid computation complete!")
 
 
