@@ -37,6 +37,7 @@ from workflows.exceptions import WorkflowSkippedError
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
+    from analytics.expected_threat import XTGrid
     from analytics.off_ball_xt import OffBallXtParams
     from analytics.pitch_control import PitchControlParams
 
@@ -54,12 +55,21 @@ _guard_logger = logging.getLogger(f"{__name__}.guard")
 _DEFAULT_BATCH_SIZE = 500
 
 
-def _load_xt_grid_from_spark(spark: SparkSession, catalog: str, schema: str = "bronze") -> np.ndarray:
-    """Load xT grid from the expected_threat_grids Delta table.
+def _load_xt_grid_from_spark(spark: SparkSession, catalog: str, schema: str = "bronze") -> XTGrid:
+    """Load the global xT grid from the expected_threat_grids Delta table.
 
-    Reads the global grid from {catalog}.{schema}.expected_threat_grids.
-    Raises RuntimeError if the table does not exist — run compute_expected_threat first.
+    Reads the global grid from {catalog}.{schema}.expected_threat_grids
+    and reconstructs an ``XTGrid`` in SPADL coordinate system (the
+    convention for grids written by ``compute_expected_threat``). Grid
+    shape is derived from the query results — supports any
+    ``ExpectedThreatParams`` resolution, including ExT v2's planned
+    24x16 conditional grids.
+
+    Raises RuntimeError if the table does not exist or has no global
+    rows — run compute_expected_threat first.
     """
+    from analytics.expected_threat import XTGrid
+
     table = f"{catalog}.{schema}.expected_threat_grids"
     try:
         rows = spark.sql(
@@ -70,30 +80,49 @@ def _load_xt_grid_from_spark(spark: SparkSession, catalog: str, schema: str = "b
         msg = f"xT grid table {table} not found. Run compute_expected_threat pipeline first."
         raise RuntimeError(msg) from exc
 
-    grid = np.zeros((12, 8))
+    if not rows:
+        msg = f"xT grid table {table} has no rows for competition_id='global'."
+        raise RuntimeError(msg)
+
+    n_x = max(int(r.zone_x) for r in rows) + 1
+    n_y = max(int(r.zone_y) for r in rows) + 1
+    values = np.zeros((n_x, n_y))
     for row in rows:
-        grid[int(row.zone_x), int(row.zone_y)] = float(row.xt_value)
-    return grid
+        values[int(row.zone_x), int(row.zone_y)] = float(row.xt_value)
+
+    return XTGrid(
+        values=values,
+        pitch_length=105.0,
+        pitch_width=68.0,
+        coord_system="spadl",
+        competition_id="global",
+    )
 
 
 def _make_batch_udf(
-    xt_grid: np.ndarray,
+    xt_grid: XTGrid,
     sample_fps: float,
     pc_grid_cells_x: int,
     pc_grid_cells_y: int,
 ) -> object:
     """Build the ``applyInPandas`` UDF closure.
 
-    The xT grid (96 floats) and scalar params are captured by the closure
-    so they are serialised with the UDF and available on executors without
-    network access.
+    The xT grid values + metadata are captured by the closure as
+    Python primitives so they pickle cleanly for executor distribution
+    (avoids ndarray pickle dependency issues seen with raw numpy
+    captures). The closure reconstructs an ``XTGrid`` on the executor
+    side before calling ``compute_off_ball_xt_frame``.
 
     Returns:
         A callable ``(pd.DataFrame) -> pd.DataFrame`` suitable for
         ``applyInPandas``.
     """
-    # Serialise grid as list-of-lists so pickle has no ndarray dependency issues
-    grid_data: list[list[float]] = xt_grid.tolist()
+    # Serialise as primitives so pickle has no ndarray dependency issues
+    grid_data: list[list[float]] = xt_grid.values.tolist()
+    grid_pitch_length: float = xt_grid.pitch_length
+    grid_pitch_width: float = xt_grid.pitch_width
+    grid_coord_system: str = xt_grid.coord_system
+    grid_competition_id: str | None = xt_grid.competition_id
 
     def _udf(pdf: pd.DataFrame) -> pd.DataFrame:
         """Compute per-player off-ball xT for one (match_id, frame_batch_id) group."""
@@ -101,10 +130,17 @@ def _make_batch_udf(
         import numpy as _np
         import pandas as _pd
 
+        from analytics.expected_threat import XTGrid as _XTGrid
         from analytics.off_ball_xt import compute_off_ball_xt_frame
         from analytics.pitch_control import PitchControlParams as _PCParams
 
-        grid = _np.array(grid_data, dtype=_np.float64)
+        xt_grid_local = _XTGrid(
+            values=_np.array(grid_data, dtype=_np.float64),
+            pitch_length=grid_pitch_length,
+            pitch_width=grid_pitch_width,
+            coord_system=grid_coord_system,  # type: ignore[arg-type]
+            competition_id=grid_competition_id,
+        )
         pc_params = _PCParams(grid_cells_x=pc_grid_cells_x, grid_cells_y=pc_grid_cells_y)
 
         _empty = _pd.DataFrame(columns=_pd.Index(["match_id", "player_id", "off_ball_xt_sum", "frame_count"]))
@@ -141,7 +177,7 @@ def _make_batch_udf(
             if frame_df["team"].nunique() < 2:
                 continue
 
-            frame_results = compute_off_ball_xt_frame(_pd.DataFrame(frame_df), grid, pc_params)
+            frame_results = compute_off_ball_xt_frame(_pd.DataFrame(frame_df), xt_grid_local, pc_params)
             all_frame_results.append(frame_results)
 
         if not all_frame_results:
@@ -206,7 +242,7 @@ def _process_matches(
     catalog: str,
     schema: str,
     logger: logging.Logger,
-    xt_grid: np.ndarray,
+    xt_grid: XTGrid,
     params: OffBallXtParams,
     pc_params: PitchControlParams,
     *,
@@ -330,7 +366,7 @@ def run_pipeline(
     pc_params = PitchControlParams()
 
     xt_grid = _load_xt_grid_from_spark(spark, catalog)
-    logger.info("xT grid loaded: shape %s, max %.5f", xt_grid.shape, float(xt_grid.max()))
+    logger.info("xT grid loaded: shape %s, max %.5f", xt_grid.shape, float(xt_grid.values.max()))
 
     total = _process_matches(spark, catalog, schema, logger, xt_grid, params, pc_params, filter_result=filter_result)
     logger.info("Off-Ball xT pipeline complete — %d total rows written", total)

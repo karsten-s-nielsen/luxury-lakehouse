@@ -12,9 +12,9 @@ from unittest.mock import MagicMock
 import numpy as np
 import pandas as pd
 
+from analytics.expected_threat import XTGrid
 from analytics.off_ball_xt import (
     OffBallXtParams,
-    _lookup_xt,
     compute_off_ball_xt_frame,
     compute_off_ball_xt_match,
 )
@@ -24,11 +24,21 @@ from analytics.pitch_control import PitchControlParams
 # Helpers
 # ---------------------------------------------------------------------------
 
-# Simple 12x8 grid: values increase linearly with zone_x
-_TEST_GRID = np.zeros((12, 8), dtype=np.float64)
+# Production xT grids are SPADL 105x68 — match that here so tests exercise
+# the cross-coordinate-system lookup path that production code takes
+# (StatsBomb 120x80 tracking input → SPADL grid lookup via XTGrid.lookup).
+_TEST_VALUES = np.zeros((12, 8), dtype=np.float64)
 for _zx in range(12):
     for _zy in range(8):
-        _TEST_GRID[_zx, _zy] = (_zx + 1) * 0.01  # 0.01 to 0.12
+        _TEST_VALUES[_zx, _zy] = (_zx + 1) * 0.01  # 0.01 to 0.12
+
+_TEST_GRID = XTGrid(
+    values=_TEST_VALUES,
+    pitch_length=105.0,
+    pitch_width=68.0,
+    coord_system="spadl",
+    competition_id="test",
+)
 
 
 def _make_frame(
@@ -101,54 +111,11 @@ class TestOffBallXtParams:
 
     def test_defaults(self) -> None:
         params = OffBallXtParams()
-        assert params.pitch_length == 120.0
-        assert params.pitch_width == 80.0
         assert params.sample_fps == 1.0
 
     def test_custom_override(self) -> None:
         params = OffBallXtParams(sample_fps=5.0)
         assert params.sample_fps == 5.0
-        assert params.pitch_length == 120.0
-
-
-# ---------------------------------------------------------------------------
-# TestXtGridLookup
-# ---------------------------------------------------------------------------
-
-
-class TestXtGridLookup:
-    """Test xT grid lookup function."""
-
-    def test_center_zone(self) -> None:
-        # x=60 → zone 6, y=40 → zone 4
-        xt = _lookup_xt(60.0, 40.0, _TEST_GRID)
-        assert xt == _TEST_GRID[6, 4]
-
-    def test_corner_zone_origin(self) -> None:
-        # x=0, y=0 → zone 0,0
-        xt = _lookup_xt(0.0, 0.0, _TEST_GRID)
-        assert xt == _TEST_GRID[0, 0]
-
-    def test_corner_zone_max(self) -> None:
-        # x=119, y=79 → zone 11,7
-        xt = _lookup_xt(119.0, 79.0, _TEST_GRID)
-        assert xt == _TEST_GRID[11, 7]
-
-    def test_out_of_bounds_clamping(self) -> None:
-        # x=130 should clamp to zone 11
-        xt = _lookup_xt(130.0, 40.0, _TEST_GRID)
-        assert xt == _TEST_GRID[11, 4]
-
-    def test_negative_clamping(self) -> None:
-        xt = _lookup_xt(-5.0, -5.0, _TEST_GRID)
-        assert xt == _TEST_GRID[0, 0]
-
-    def test_nan_returns_zero(self) -> None:
-        xt = _lookup_xt(float("nan"), 40.0, _TEST_GRID)
-        assert xt == 0.0
-
-    def test_grid_shape(self) -> None:
-        assert _TEST_GRID.shape == (12, 8)
 
 
 # ---------------------------------------------------------------------------
@@ -167,13 +134,13 @@ class TestComputeOffBallXtFrame:
         assert all(result["off_ball_xt"] >= 0)
 
     def test_high_xt_zone(self) -> None:
-        # All players in zone 11 (high xT near goal)
+        # All players near attacking goal (StatsBomb x≈115 → last grid zone)
         frame = _make_frame(home_x=115.0, away_x=115.0)
         result = compute_off_ball_xt_frame(frame, _TEST_GRID)
         assert all(result["xt_value"] > 0.1)
 
     def test_low_xt_zone(self) -> None:
-        # All players in zone 0 (own half, low xT)
+        # All players in own half (StatsBomb x≈5 → first grid zone)
         frame = _make_frame(home_x=5.0, away_x=5.0)
         result = compute_off_ball_xt_frame(frame, _TEST_GRID)
         assert all(result["xt_value"] <= 0.02)
@@ -301,7 +268,7 @@ class TestEdgeCases:
         result = compute_off_ball_xt_frame(frame, _TEST_GRID)
         assert len(result) == 6
         # Players share same x-zone but y-offsets may span zone boundaries
-        # All should still be in the same x-zone (zone 6)
+        # All should still be in the same x-zone
         assert all(result["xt_value"] > 0)
 
     def test_zero_velocity(self) -> None:
@@ -333,7 +300,7 @@ class TestEdgeCases:
 
 
 class TestLoadXtGridFromSpark:
-    """Tests for Delta table grid loading."""
+    """Tests for Delta table grid loading. Returns XTGrid (not raw ndarray)."""
 
     def test_loads_from_delta_table(self) -> None:
         from ingestion.off_ball_xt import _load_xt_grid_from_spark
@@ -343,9 +310,25 @@ class TestLoadXtGridFromSpark:
         mock_spark = MagicMock()
         mock_spark.sql.return_value.collect.return_value = mock_rows
         grid = _load_xt_grid_from_spark(mock_spark, "soccer_analytics")
+        assert isinstance(grid, XTGrid)
         assert grid.shape == (12, 8)
-        assert grid[0, 0] == pytest.approx(0.01)
-        assert grid[11, 7] == pytest.approx(0.12)
+        assert grid.coord_system == "spadl"
+        assert grid.competition_id == "global"
+        assert grid.values[0, 0] == pytest.approx(0.01)
+        assert grid.values[11, 7] == pytest.approx(0.12)
+
+    def test_loads_arbitrary_resolution(self) -> None:
+        """Bug 2 fix: loader derives shape from query results, not hardcoded 12x8."""
+        from ingestion.off_ball_xt import _load_xt_grid_from_spark
+
+        Row = namedtuple("Row", ["zone_x", "zone_y", "xt_value"])
+        # Simulate a 24x16 grid (ExT v2 resolution) in the bronze table
+        mock_rows = [Row(x, y, 0.01 * (x + 1)) for x in range(24) for y in range(16)]
+        mock_spark = MagicMock()
+        mock_spark.sql.return_value.collect.return_value = mock_rows
+        grid = _load_xt_grid_from_spark(mock_spark, "soccer_analytics")
+        assert grid.shape == (24, 16)
+        assert grid.values[23, 15] == pytest.approx(0.24)
 
     def test_raises_on_missing_table(self) -> None:
         from ingestion.off_ball_xt import _load_xt_grid_from_spark
@@ -353,4 +336,13 @@ class TestLoadXtGridFromSpark:
         mock_spark = MagicMock()
         mock_spark.sql.side_effect = Exception("Table not found")
         with pytest.raises(RuntimeError, match="Run compute_expected_threat"):
+            _load_xt_grid_from_spark(mock_spark, "soccer_analytics")
+
+    def test_raises_on_empty_global_grid(self) -> None:
+        """Bug 2 follow-on: explicit error when table exists but has no rows."""
+        from ingestion.off_ball_xt import _load_xt_grid_from_spark
+
+        mock_spark = MagicMock()
+        mock_spark.sql.return_value.collect.return_value = []
+        with pytest.raises(RuntimeError, match="no rows for competition_id='global'"):
             _load_xt_grid_from_spark(mock_spark, "soccer_analytics")

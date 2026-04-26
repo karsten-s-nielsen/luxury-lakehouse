@@ -99,6 +99,56 @@ class _ExpectedThreatGuard:
 skip_guard = _ExpectedThreatGuard()
 
 
+def _load_previous_grid(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    competition_id: str,
+    logger: logging.Logger,
+):
+    """Load the previous run's xT grid for the given competition_id.
+
+    Returns ``None`` if no prior grid exists (first run for this
+    competition_id, or the bronze table is empty / missing). All grids
+    written by this pipeline are SPADL 105x68 — ``coord_system`` is
+    hardcoded as that's the established convention for this bronze table.
+    """
+    import numpy as np
+
+    from analytics.expected_threat import XTGrid
+    from ingestion.utils import tolerate_missing_table
+
+    table = f"{catalog}.{schema}.{_TABLE_NAME}"
+    rows: list = []
+    with tolerate_missing_table(
+        logger,
+        f"first run on {table} — no previous grid for differential check",
+    ):
+        rows = list(
+            spark.sql(
+                f"SELECT zone_x, zone_y, xt_value FROM {table} "  # noqa: S608
+                f"WHERE competition_id = '{competition_id}'"
+            ).collect()
+        )
+
+    if not rows:
+        return None
+
+    n_x = max(int(r.zone_x) for r in rows) + 1
+    n_y = max(int(r.zone_y) for r in rows) + 1
+    values = np.zeros((n_x, n_y))
+    for row in rows:
+        values[int(row.zone_x), int(row.zone_y)] = float(row.xt_value)
+
+    return XTGrid(
+        values=values,
+        pitch_length=105.0,
+        pitch_width=68.0,
+        coord_system="spadl",
+        competition_id=competition_id,
+    )
+
+
 def _load_actions(spark: SparkSession, catalog: str) -> pd.DataFrame:
     """Load SPADL actions from gold mart, filtered to xT-relevant types."""
     types_sql = ", ".join(f"'{t}'" for t in _RELEVANT_TYPES)
@@ -134,8 +184,6 @@ def run_pipeline(
     from analytics.expected_threat import (
         ExpectedThreatParams,
         compute_expected_threat_grid,
-        grid_to_dataframe,
-        validate_xt_grid,
     )
 
     params = ExpectedThreatParams()
@@ -198,8 +246,13 @@ def run_pipeline(
             logger.warning("Competition %s has only %d events — skipping", comp_id, n_events)
             continue
 
-        grid = compute_expected_threat_grid(comp_actions, params)
-        grid_df = grid_to_dataframe(grid, competition_id=str(comp_id))
+        xt_grid = compute_expected_threat_grid(comp_actions, params, competition_id=str(comp_id))
+
+        # Differential validation against the previous run's grid for this competition.
+        previous = _load_previous_grid(spark, catalog, schema, str(comp_id), logger)
+        xt_grid.validate_differential(previous)
+
+        grid_df = xt_grid.to_dataframe()
         spark_df = spark.createDataFrame(grid_df)  # type: ignore[union-attr]
         write_delta_table(
             spark_df,
@@ -210,13 +263,26 @@ def run_pipeline(
             logger=logger,
         )
         competitions_written += 1
-        logger.info("Competition %s: %d events, max xT=%.5f", comp_id, n_events, float(grid.max()))
+        logger.info(
+            "Competition %s: %d events, max xT=%.5f",
+            comp_id,
+            n_events,
+            float(xt_grid.values.max()),
+        )
 
     # ── Global grid (all competitions combined) ───────────────────────
     if need_global:
-        global_grid = compute_expected_threat_grid(actions_df, params)
-        validate_xt_grid(global_grid)
-        global_df = grid_to_dataframe(global_grid, competition_id="global")
+        global_xt_grid = compute_expected_threat_grid(actions_df, params, competition_id="global")
+
+        # Structural validation (legacy v1 max_value=0.50 preserved here;
+        # ExT v2 conditional grids will pass max_value=None or a higher ceiling).
+        global_xt_grid.validate_structural(max_value=0.50)
+
+        # Differential validation against the previous global grid.
+        previous_global = _load_previous_grid(spark, catalog, schema, "global", logger)
+        global_xt_grid.validate_differential(previous_global)
+
+        global_df = global_xt_grid.to_dataframe()
         spark_df = spark.createDataFrame(global_df)  # type: ignore[union-attr]
         write_delta_table(
             spark_df,
@@ -226,7 +292,11 @@ def run_pipeline(
             replace_where="competition_id = 'global'",
             logger=logger,
         )
-        logger.info("Global grid: %d events, max xT=%.5f", len(actions_df), float(global_grid.max()))
+        logger.info(
+            "Global grid: %d events, max xT=%.5f",
+            len(actions_df),
+            float(global_xt_grid.values.max()),
+        )
 
     logger.info(
         "Done — wrote %d competition grids%s",
