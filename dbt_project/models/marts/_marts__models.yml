@@ -2436,6 +2436,19 @@ models:
           Best available cost: COALESCE(attributed_cost_usd, estimated_cost_usd).
           Shows actual billing cost when available (~1 day lag), falls back to
           hook estimate for recent runs. NULL only for pre-hook runs.
+    data_tests:
+      # Grain is (task_key, usage_date, job_run_id). Synced table
+      # fct_workflow_costs_synced enforces this as a PG primary-key constraint;
+      # without this compile-time gate, multiplications from the warm_tier
+      # temporal-window join (workflow retries within 7 min) reach the synced
+      # refresh and fail with PRIMARY_KEY_CONSTRAINT_VIOLATION. The terminal
+      # QUALIFY in fct_workflow_costs.sql is the runtime guarantee; this is
+      # the dbt-build-time gate that catches future regressions in CI.
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - task_key
+            - usage_date
+            - job_run_id
 
   # ── Formation Detection ────────────────────────────────────────────────
 

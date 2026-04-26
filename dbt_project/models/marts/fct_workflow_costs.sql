@@ -160,3 +160,23 @@ LEFT JOIN warm_tier AS wt
     ON wid.workflow_id = wt.workflow_id
     AND wt.started_at BETWEEN tasks.task_started_at - INTERVAL 2 MINUTES
         AND tasks.task_started_at + INTERVAL 5 MINUTES
+-- Retry tiebreaker: when a workflow attempt fails and the framework retries
+-- within the 7-min temporal window, the warm-tier `workflow_cost_live` table
+-- carries one row per attempt (CostEstimateHook fires per-attempt). The LEFT
+-- JOIN above then matches every attempt to the single task row, multiplying
+-- the fact grain. Pick the warm-tier row whose started_at is closest to the
+-- task's task_started_at (the attempt most likely associated with the
+-- original task invocation), with run_id as a stable secondary tiebreaker.
+-- 2026-04-25 incident: `wf-model-validation` failed + retried 1m50s later on
+-- 2026-04-21; both attempts matched the task's 7-min window, breaking the
+-- fct_workflow_costs_synced PG primary-key constraint
+-- (task_key, usage_date, job_run_id). See accompanying schema test
+-- `unique_combination_of_columns` in _marts__models.yml — that's the
+-- compile-time gate; this QUALIFY is the runtime guarantee.
+QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY tasks.task_key,
+                 COALESCE(billing.usage_date, CAST(tasks.task_started_at AS DATE)),
+                 tasks.job_run_id
+    ORDER BY abs(TIMESTAMPDIFF(SECOND, tasks.task_started_at, wt.started_at)) NULLS LAST,
+             wt.run_id NULLS LAST
+) = 1
