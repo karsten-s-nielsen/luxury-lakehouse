@@ -207,23 +207,32 @@ models:
         description: Foreign key to dim_teams (NULL for IDSSE/Metrica — see stg_*__passes).
       - name: start_x
         data_type: double
-        description: Starting X coordinate (120-yard scale). May slightly exceed bounds.
+        description: Starting X coordinate (120-yard scale). May slightly exceed bounds for off-pitch events (corner kicks at endline, throw-ins).
         data_tests:
+          # Range relaxed 2026-04-27 to [-2, 122]: legitimate off-pitch
+          # events (corner kicks at exactly 120, Metrica throw-ins at -1.85)
+          # were firing warn-severity at [0, 120]. Float-precision drift on
+          # Metrica's 0-1 → 0-120 rescale also contributes. Test still
+          # detects coordinate-system inversions or normalizer bugs that
+          # shift values into the 1000s.
           - dbt_expectations.expect_column_values_to_be_between:
               arguments:
-                min_value: 0
-                max_value: 120
+                min_value: -2
+                max_value: 122
                 row_condition: "start_x is not null"
               config:
                 severity: warn
       - name: start_y
         data_type: double
-        description: Starting Y coordinate (80-yard scale)
+        description: Starting Y coordinate (80-yard scale). May slightly exceed bounds for off-pitch events (throw-ins past the touchline).
         data_tests:
+          # Range relaxed 2026-04-27 to [-2, 82]: legitimate throw-in
+          # positions on/over the touchline + Metrica float-precision on
+          # 0-1 → 0-80 rescale. See start_x rationale above.
           - dbt_expectations.expect_column_values_to_be_between:
               arguments:
-                min_value: 0
-                max_value: 80
+                min_value: -2
+                max_value: 82
                 row_condition: "start_y is not null"
               config:
                 severity: warn
@@ -481,12 +490,17 @@ models:
         description: Total number of line-breaking passes
       - name: line_breaking_per_90
         data_type: decimal(28,2)
-        description: Line-breaking passes per 90 minutes
+        description: Line-breaking passes per 90 minutes. Top-class playmakers (deep-lying CMs, ball-playing CBs) routinely exceed 20/90.
         data_tests:
+          # Ceiling raised 2026-04-27 from 20 → 70: empirical max on
+          # dev_gold is ~50/90 with adequate minutes (e.g. 1322 line-breakers
+          # over 3053 minutes = 38.97/90), and small-minute substitutes can
+          # legitimately hit higher per-90 rates. 20 was always too low —
+          # the test was firing on legitimate top-tier playmakers, not bugs.
           - dbt_expectations.expect_column_values_to_be_between:
               arguments:
                 min_value: 0
-                max_value: 20
+                max_value: 70
                 row_condition: "line_breaking_per_90 is not null"
               config:
                 severity: warn
