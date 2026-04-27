@@ -2,7 +2,8 @@
     materialized='incremental',
     unique_key='shot_id',
     liquid_clustered_by=['match_key'],
-    incremental_strategy='merge'
+    incremental_strategy='merge',
+    on_schema_change='append_new_columns'
 ) }}
 -- fct_shots.sql
 -- Gold-layer shot fact table with xG features for ML model training.
@@ -57,6 +58,13 @@ shots_with_score as (
         -- Entity FKs
         unified_shots.player_id,
         unified_shots.team_id,
+
+        -- PR 7 (ADR-011): Kimball surrogate FKs resolved via dim_teams /
+        -- dim_players JOINs on (provider, native_id). SB+WS native IDs are
+        -- real BIGINTs cast to string for the JOIN. PR 8 drops the legacy
+        -- INT cols.
+        dt.team_key,
+        dp.player_key,
 
         -- Temporal context
         unified_shots.period,
@@ -119,6 +127,13 @@ shots_with_score as (
                 and (rs.minute * 60 + rs.second)
                     <= (unified_shots.minute * 60 + unified_shots.second))
         )
+    -- PR 7 (ADR-011): dim_teams / dim_players JOINs by (provider, native_id).
+    left join {{ ref('dim_teams') }} dt
+        on  dt.provider = unified_shots.data_source
+       and dt.native_team_id = cast(unified_shots.team_id as string)
+    left join {{ ref('dim_players') }} dp
+        on  dp.provider = unified_shots.data_source
+       and dp.native_player_id = cast(unified_shots.player_id as string)
 
 ),
 
@@ -129,6 +144,8 @@ final as (
         match_key,
         player_id,
         team_id,
+        team_key,
+        player_key,
         competition_key,
         competition_id,
         season_id,

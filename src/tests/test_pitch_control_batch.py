@@ -48,6 +48,8 @@ def _make_frame(
                 "ball_x": 60.0,
                 "ball_y": 40.0,
                 "source_provider": "test",
+                "data_source": "test",
+                "match_key": 12345,
                 "frame_rate": 25,
             }
         )
@@ -67,6 +69,8 @@ def _make_frame(
                 "ball_x": 60.0,
                 "ball_y": 40.0,
                 "source_provider": "test",
+                "data_source": "test",
+                "match_key": 12345,
                 "frame_rate": 25,
             }
         )

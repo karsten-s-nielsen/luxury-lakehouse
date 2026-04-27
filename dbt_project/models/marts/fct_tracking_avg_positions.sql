@@ -2,8 +2,8 @@
     materialized='incremental',
     incremental_strategy='merge',
     unique_key='avg_position_id',
-    on_schema_change='fail',
-    liquid_clustered_by=['match_id']
+    on_schema_change='append_new_columns',
+    liquid_clustered_by=['match_key']
 ) }}
 -- fct_tracking_avg_positions.sql
 -- Pre-computed average positions per player per match-period.
@@ -30,9 +30,14 @@ tracking as (
 
     select
         match_id,
+        match_key,
         period,
         player_id,
+        player_key,
         team,
+        team_id,
+        team_key,
+        data_source,
         x,
         y,
         speed_ms,
@@ -49,11 +54,16 @@ tracking as (
 final as (
 
     select
-        {{ dbt_utils.generate_surrogate_key(['match_id', 'period', 'player_id']) }} as avg_position_id,
+        {{ dbt_utils.generate_surrogate_key(['match_id', 'period', 'player_id', 'data_source']) }} as avg_position_id,
         match_id,
+        match_key,
         period,
         player_id,
+        player_key,
         team,
+        team_id,
+        team_key,
+        data_source,
         avg(x)                                              as avg_x,
         avg(y)                                              as avg_y,
         avg(speed_ms)                                       as avg_speed,
@@ -62,7 +72,7 @@ final as (
         max(frame)                                          as max_frame,
         max(frame_rate)                                     as frame_rate
     from tracking
-    group by match_id, period, player_id, team
+    group by match_id, match_key, period, player_id, player_key, team, team_id, team_key, data_source
 
 )
 

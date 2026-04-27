@@ -122,3 +122,7 @@ If you use this dataset, please cite StatsBomb and the Deep Sets architecture:
 - **License**: [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/)
 - **Publishing script**: `scripts/publish_xg_shots_hf.py`
 - **Platform**: [Luxury Lakehouse Soccer Analytics](https://github.com/karsten-s-nielsen/luxury-lakehouse)
+
+## PR 7 changelog (2026-04-27)
+
+The lineage mart `fct_shots` now carries Kimball surrogate FKs (`team_key`, `player_key`) alongside the existing `match_key` (PR 3) and the legacy `team_id`/`player_id` INT columns during the 2026-07-22 dual-column window per ADR-011. The freeze-frame payload itself is unchanged at this grain; the keys flow through `fct_xg_predictions_v2` (the v2 set-encoder mart) via INNER JOIN to `fct_shots`. PR 8 will sunset legacy IDs post-2026-07-22.

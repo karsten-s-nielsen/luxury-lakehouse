@@ -142,4 +142,8 @@ And the silly-kicks library:
 
 > **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
 
+## PR 7 changelog (2026-04-27)
+
+The upstream gold mart `fct_action_values` (9.5M-row VAEP spine) now carries Kimball surrogate FKs (`team_key`, `player_key`) alongside the existing `match_key` (PR 4b) and the legacy `team_id`/`player_id` INT columns during the 2026-07-22 dual-column window per ADR-011. SPADL covers SB+WS providers only; native team/player IDs are real BIGINTs cast to string for the dim JOINs. PR 8 will sunset the legacy `*_id` columns post-2026-07-22.
+
 - **License**: [MIT](https://opensource.org/licenses/MIT)

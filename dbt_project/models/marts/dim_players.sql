@@ -137,6 +137,31 @@ metrica_real_players as (
 
 ),
 
+skillcorner_players as (
+
+    -- PR 7 (ADR-011 close-out): SkillCorner onboarded into dim_players.
+    -- Real SkillCorner player_ids from bronze.skillcorner_tracking. Position
+    -- is the bronze position_name passthrough. No player_name in bronze
+    -- (SkillCorner broadcast tracking doesn't carry player names);
+    -- is_anonymized=true so consumers know name is unavailable.
+    select
+        cast(player_id as string)                       as native_player_id,
+        cast(null as int)                               as player_id_legacy,
+        cast(null as string)                            as player_name,
+        cast(player_id as string)                       as player_display_name,
+        max(position_name)                              as primary_position,
+        'skillcorner'                                   as provider,
+        false                                           as is_synthesized,
+        true                                            as is_anonymized,
+        'skillcorner_no_player_names_in_bronze'         as synthesis_reason,
+        cast(null as string)                            as birth_date,
+        cast(null as string)                            as nationality
+    from {{ ref('stg_skillcorner__tracking') }}
+    where player_id is not null
+    group by cast(player_id as string)
+
+),
+
 unioned as (
 
     select * from statsbomb_players
@@ -148,6 +173,8 @@ unioned as (
     select * from metrica_anon_players
     union all
     select * from metrica_real_players
+    union all
+    select * from skillcorner_players
 
 ),
 

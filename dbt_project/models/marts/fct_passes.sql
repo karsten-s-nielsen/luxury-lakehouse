@@ -2,7 +2,8 @@
     materialized='incremental',
     unique_key='pass_id',
     liquid_clustered_by=['match_key'],
-    incremental_strategy='merge'
+    incremental_strategy='merge',
+    on_schema_change='append_new_columns'
 ) }}
 -- fct_passes.sql
 -- Gold-layer pass fact table — every pass from all four providers
@@ -76,6 +77,14 @@ passes_with_score as (
         unified_passes.team_id,
         unified_passes.pass_recipient_id,
 
+        -- PR 7 (ADR-011): Kimball surrogate FKs resolved via dim_teams /
+        -- dim_players JOINs on (provider, native_id). Coexists with legacy
+        -- INT cols during the 2026-07-22 dual-column window; PR 8 drops the
+        -- legacy INT cols.
+        dt.team_key,
+        dp_passer.player_key                            as passer_player_key,
+        dp_recipient.player_key                         as recipient_player_key,
+
         match_attrs.competition_key,
         match_attrs.competition_id,
         match_attrs.season_id,
@@ -145,6 +154,16 @@ passes_with_score as (
                 and (rs.minute * 60 + rs.second)
                     <= (unified_passes.minute * 60 + unified_passes.second))
         )
+    -- PR 7 (ADR-011): dim_teams / dim_players JOINs by (provider, native_id).
+    left join {{ ref('dim_teams') }} dt
+        on  dt.provider = unified_passes.data_source
+       and dt.native_team_id = unified_passes.native_team_id
+    left join {{ ref('dim_players') }} dp_passer
+        on  dp_passer.provider = unified_passes.data_source
+       and dp_passer.native_player_id = unified_passes.native_player_id
+    left join {{ ref('dim_players') }} dp_recipient
+        on  dp_recipient.provider = unified_passes.data_source
+       and dp_recipient.native_player_id = unified_passes.native_recipient_id
 
 ),
 
@@ -156,6 +175,9 @@ final as (
         player_id,
         team_id,
         pass_recipient_id,
+        team_key,
+        passer_player_key,
+        recipient_player_key,
         competition_key,
         competition_id,
         season_id,

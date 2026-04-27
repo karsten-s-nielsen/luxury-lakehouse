@@ -82,8 +82,8 @@ Add one bullet under "Architecture Principles":
 
 ### First two applications
 
-- **PR 3 (this PR):** xG v2 promotion — `fct_xg_predictions_v2.sql` is the first ADR-013 mart. Paired with the xG v1 mart restructure (`fct_xg_predictions.sql` also INNER-JOINs fct_shots per this pattern).
-- **PR 7 (planned):** `fct_pausa_values` promotion to dbt mart, atomically with its ADR-011 Kimball migration.
+- **PR 3 (shipped 2026-04-22):** xG v2 promotion — `fct_xg_predictions_v2.sql` is the first ADR-013 mart. Paired with the xG v1 mart restructure (`fct_xg_predictions.sql` also INNER-JOINs fct_shots per this pattern).
+- **PR 7 (in progress, branch `kimball-pr7-tracking-formations-pausa`):** `fct_pausa_values` promotion to dbt mart — second ADR-013 application. `src/ingestion/pausa.py` retargets writes from `dev_gold.fct_pausa_values` (direct gold-write) to `bronze.pausa_values` (raw), and the new `dbt_project/models/marts/fct_pausa_values.sql` mart with `contract: enforced: true` builds the gold table via `INNER JOIN fct_passes ON pass_id` to inherit Kimball surrogate FKs (match_key/team_key/passer_player_key). The pattern matches PR 3's xG v2 INNER-JOIN-fct_shots template exactly.
 
 ### Interaction with wheel bumps
 

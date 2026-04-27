@@ -26,6 +26,13 @@ with statsbomb_passes as (
         'statsbomb'                                             as provider,
         cast(player_id as int)                                  as player_id,
         cast(team_id as int)                                    as team_id,
+        cast(pass_recipient_id as int)                          as pass_recipient_id,
+        -- PR 7 (ADR-011): native_* STRING columns surfaced for dim_teams /
+        -- dim_players JOINs in fct_passes. SB native IDs are real BIGINTs;
+        -- cast to string preserves identity. NULL passthrough preserved.
+        cast(team_id as string)                                 as native_team_id,
+        cast(player_id as string)                               as native_player_id,
+        cast(pass_recipient_id as string)                       as native_recipient_id,
         cast(period as bigint)                                  as period,
         cast(minute as bigint)                                  as minute,
         cast(second as bigint)                                  as second,
@@ -42,7 +49,6 @@ with statsbomb_passes as (
         coalesce(pass_cross, false)                             as is_cross,
         coalesce(pass_switch, false)                            as is_switch,
         coalesce(pass_through_ball, false)                      as is_through_ball,
-        cast(pass_recipient_id as int)                          as pass_recipient_id,
         {{ distance_to_goal(
             'get(from_json(pass_end_location, \'ARRAY<DOUBLE>\'), 0)',
             'get(from_json(pass_end_location, \'ARRAY<DOUBLE>\'), 1)'
@@ -63,6 +69,12 @@ wyscout_passes as (
         'wyscout'                                               as provider,
         cast(player_id as int)                                  as player_id,
         cast(team_id as int)                                    as team_id,
+        cast(null as int)                                       as pass_recipient_id,
+        -- PR 7 (ADR-011): WS open-data has no recipient field (kloppy strips
+        -- it). team / player native IDs are real BIGINTs cast to string.
+        cast(team_id as string)                                 as native_team_id,
+        cast(player_id as string)                               as native_player_id,
+        cast(null as string)                                    as native_recipient_id,
         cast(period as bigint)                                  as period,
         cast(floor(event_sec / 60) as bigint)                   as minute,
         cast(cast(event_sec as int) % 60 as bigint)             as second,
@@ -79,7 +91,6 @@ wyscout_passes as (
         sub_event_type in ('Cross', 'Head cross')               as is_cross,
         sub_event_type = 'Launch'                               as is_switch,
         sub_event_type = 'Through pass'                         as is_through_ball,
-        cast(null as int)                                       as pass_recipient_id,
         {{ distance_to_goal('end_x', 'end_y') }}
             < {{ var('progressive_pass_ratio') }} * {{ distance_to_goal('start_x', 'start_y') }}
                                                                 as is_progressive,
@@ -97,6 +108,13 @@ idsse_passes as (
         'idsse'                                                 as provider,
         cast(player_id as int)                                  as player_id,
         cast(team_id as int)                                    as team_id,
+        cast(pass_recipient_id as int)                          as pass_recipient_id,
+        -- PR 7 (ADR-011): IDSSE legacy INT IDs are forced NULL upstream
+        -- (DFL native IDs are STRING). Surface the real DFL identifiers
+        -- (CLU / OBJ) for dim_teams + dim_players JOINs in fct_passes.
+        team_id_native                                          as native_team_id,
+        player_id_native                                        as native_player_id,
+        pass_recipient_id_native                                as native_recipient_id,
         cast(period as bigint)                                  as period,
         cast(minute as bigint)                                  as minute,
         cast(second as bigint)                                  as second,
@@ -113,7 +131,6 @@ idsse_passes as (
         is_cross,
         is_switch,
         is_through_ball,
-        cast(pass_recipient_id as int)                          as pass_recipient_id,
         is_progressive,
         data_source
     from {{ ref('stg_idsse__passes') }}
@@ -128,6 +145,20 @@ metrica_passes as (
         'metrica'                                               as provider,
         cast(player_id as int)                                  as player_id,
         cast(team_id as int)                                    as team_id,
+        cast(pass_recipient_id as int)                          as pass_recipient_id,
+        -- PR 7 (ADR-011): Metrica anonymised — synthesize native IDs that
+        -- match the dim_teams.metrica_anon_teams + dim_players.metrica_anon_players
+        -- patterns from PR 5a (concat('metrica_', match_id, '_', side, ...)).
+        -- team_side is 'Home'/'Away' from bronze; lower() to match dim synth.
+        concat('metrica_', match_id, '_', lower(team_side))     as native_team_id,
+        case
+            when player_id_native is not null
+                then concat('metrica_', match_id, '_', lower(team_side), '_', player_id_native)
+        end                                                     as native_player_id,
+        case
+            when pass_recipient_id_native is not null
+                then concat('metrica_', match_id, '_', lower(team_side), '_', pass_recipient_id_native)
+        end                                                     as native_recipient_id,
         cast(period as bigint)                                  as period,
         cast(minute as bigint)                                  as minute,
         cast(second as bigint)                                  as second,
@@ -144,7 +175,6 @@ metrica_passes as (
         is_cross,
         is_switch,
         is_through_ball,
-        cast(pass_recipient_id as int)                          as pass_recipient_id,
         is_progressive,
         data_source
     from {{ ref('stg_metrica__passes') }}
@@ -170,6 +200,12 @@ keyed as (
         dm.match_key,
         u.player_id,
         u.team_id,
+        u.pass_recipient_id,
+        -- PR 7 (ADR-011): native_* STRINGs flow through to fct_passes for
+        -- dim_teams / dim_players JOINs. Provider stays implicit via data_source.
+        u.native_team_id,
+        u.native_player_id,
+        u.native_recipient_id,
         u.period,
         u.minute,
         u.second,
@@ -186,7 +222,6 @@ keyed as (
         u.is_cross,
         u.is_switch,
         u.is_through_ball,
-        u.pass_recipient_id,
         u.is_progressive,
         u.data_source
 

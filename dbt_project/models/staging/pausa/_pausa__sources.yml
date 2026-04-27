@@ -4,8 +4,10 @@ sources:
   - name: pausa
     description: >
       PAUSA (Passing Ability Under Spatiotemporal Awareness) pipeline outputs.
-      Contains per-pass OBSO raw scores from GPU batch (D16) and computed
-      PAUSA values from the serverless pipeline (D10).
+      Contains per-pass OBSO raw scores from GPU batch (D16) and per-pass
+      PAUSA decomposition (PR 7 ADR-013: writer emits to bronze; the gold
+      mart fct_pausa_values is built by dbt and inherits Kimball FKs via
+      INNER JOIN to fct_passes on pass_id).
     database: soccer_analytics
     schema: bronze
     loader: python_wheel
@@ -32,24 +34,14 @@ sources:
           - name: optimal_obso
             description: Maximum OBSO across all available receivers
 
-  - name: pausa_gold
-    description: >
-      PAUSA computed values in the gold layer, written directly by the
-      compute_pausa Python pipeline.
-    database: soccer_analytics
-    schema: dev_gold
-    loader: python_wheel
-    config:
-      loaded_at_field: _ingested_at
-      freshness:
-        warn_after: {count: 24, period: hour}
-        error_after: {count: 72, period: hour}
-
-    tables:
-      - name: fct_pausa_values
+      - name: pausa_values
         description: >
-          Per-pass PAUSA decomposition: temporal judgment, spatial selection,
-          and composite PAUSA score. Written by compute_pausa pipeline.
+          PR 7 (ADR-013 second application): per-pass PAUSA decomposition
+          written by src/ingestion/pausa.py to the bronze schema. Replaces
+          the prior pausa_gold.fct_pausa_values direct-write path. The gold
+          mart fct_pausa_values is built downstream by dbt with
+          contract: enforced: true and inherits Kimball surrogate FKs
+          (match_key/team_key/player_key) via INNER JOIN to fct_passes.
         columns:
           - name: pass_id
             description: Unique pass identifier

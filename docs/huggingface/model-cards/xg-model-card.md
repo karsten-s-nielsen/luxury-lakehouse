@@ -231,6 +231,12 @@ metrics.json          -- evaluation metrics and training configuration
 - **UC Volume**: `/Volumes/soccer_analytics/dev_gold/model_weights/xg_model/`
 - **Source module**: `src/analytics/xg_model.py`
 
+## Output Mart
+
+Predictions are persisted to `{catalog}.dev_gold.fct_xg_predictions` as the production gold table (per ADR-013, consumer-side ML inference output).
+
+**PR 7 (ADR-011 close-out):** the mart now exposes `team_key` + `player_key` Kimball surrogate FKs (BIGINT) inherited from `fct_shots` via the existing `INNER JOIN fct_shots ON shot_id`. Coexists with legacy `competition_id` INT during the 2026-07-22 dual-column window. Same change applies to `fct_xg_predictions_v2` (the v2 set-encoder mart with MC-dropout CIs).
+
 ## Companion Resources
 
 Pre-computed datasets derived from the platform's analytics pipelines:

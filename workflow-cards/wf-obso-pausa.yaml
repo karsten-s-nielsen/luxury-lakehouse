@@ -48,8 +48,13 @@ outputs:
       destination: huggingface
       description: "Computed OBSO surfaces and PAUSA timing values"
   tables:
+    - id: "{catalog}.bronze.pausa_values"
+      destination: delta-table
+      description: "Bronze raw PAUSA scores written by src/ingestion/pausa.py (PR 7 ADR-013 retarget)"
     - id: "{catalog}.dev_gold.fct_pausa_values"
       destination: delta-table
+      dbt_model: fct_pausa_values
+      description: "dbt-built gold mart inheriting Kimball FKs via INNER JOIN to fct_passes (ADR-013 second application)"
 
 execution:
   training:

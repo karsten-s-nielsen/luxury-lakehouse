@@ -28,7 +28,18 @@ cleaned as (
         cast(match_id as string)           as match_id,
         cast(total_off_ball_xt as double)  as total_off_ball_xt,
         cast(avg_off_ball_xt as double)    as avg_off_ball_xt,
-        cast(frames_sampled as int)        as frames_sampled
+        cast(frames_sampled as int)        as frames_sampled,
+
+        -- PR 7 (ADR-011): derive source_provider from match_id prefix
+        -- (off-ball xT pipeline reads from fct_tracking_frames; SB/WS don't
+        -- contribute tracking data so cannot collide here). Single source of
+        -- truth for downstream marts that JOIN dim_matches / dim_players on
+        -- (provider, native_id).
+        case
+            when match_id like 'idsse_%'        then 'idsse'
+            when match_id like 'Sample_Game_%'  then 'metrica'
+            else 'skillcorner'
+        end                                as source_provider
 
     from deduplicated
     where _row_num = 1

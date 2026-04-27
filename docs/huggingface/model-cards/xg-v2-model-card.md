@@ -171,6 +171,8 @@ This normalization ensures that the per-player MLP receives consistent scale inp
 
 The model is serialized as a JSON file with base64-encoded NumPy arrays &mdash; no pickle, no PyTorch dependency at inference time.
 
+**Output mart**: predictions are persisted to `{catalog}.dev_gold.fct_xg_predictions_v2` as a dbt-built mart with `contract: enforced: true`, inheriting Kimball surrogate FKs (`match_key`, `team_key`, `player_key`, `competition_key`) via INNER JOIN to `fct_shots` on `shot_id` per ADR-013 (consumer-side ML inference output). PR 7 (2026-04-27) extended the inheritance with `team_key` + `player_key`.
+
 ```python
 from huggingface_hub import hf_hub_download
 import json

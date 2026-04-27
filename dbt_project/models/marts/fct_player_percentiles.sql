@@ -61,6 +61,10 @@ player_stats as (
 
 physical_by_comp as (
 
+    -- PR 7 (ADR-011 close-out): fct_physical_stats now carries match_key
+    -- (PR 7 tracking-subsystem migration). The dim_matches bridge previously
+    -- used here to translate native_match_id → match_key has been retired —
+    -- direct INNER JOIN on match_key is sufficient.
     select
         cast(ps.player_id as string) as player_id,
         ms.competition_id,
@@ -68,14 +72,8 @@ physical_by_comp as (
         avg(ps.distance_per_minute_m)  as avg_distance_per_minute,
         avg(ps.max_speed_ms)           as avg_max_speed
     from {{ ref('fct_physical_stats') }} ps
-    -- fct_match_summary was migrated to match_key in PR 2 (ADR-011) and no
-    -- longer has match_id. fct_physical_stats is still native-keyed
-    -- (Kimball migration in PR 7); route the join through dim_matches to
-    -- bridge the two until PR 7 migrates fct_physical_stats.
-    inner join {{ ref('dim_matches') }} dm
-        on cast(ps.match_id as string) = dm.native_match_id
     inner join {{ ref('fct_match_summary') }} ms
-        on dm.match_key = ms.match_key
+        on ps.match_key = ms.match_key
     group by cast(ps.player_id as string), ms.competition_id, ms.season_id
 
 ),

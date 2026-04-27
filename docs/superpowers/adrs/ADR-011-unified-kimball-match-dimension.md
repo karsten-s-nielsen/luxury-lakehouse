@@ -83,7 +83,7 @@ No CLAUDE.md amendment. This ADR establishes a new pattern that complements exis
 | PR 4 | Action values + VAEP migration | Planned |
 | PR 5 | Player stats + embeddings migration | Shipped (PR 5a #190 2026-04-24, PR 5b #202 2026-04-25) |
 | PR 6 | Defensive + goalkeeper + pitch control migration | Shipped (#207 2026-04-27, plus followups #208/#209/#210 + DEFCON-cast-fix branch widening BIGINT end-to-end through staging+marts and adding `test_defcon_schema_parity.py` writer/DDL guard) |
-| PR 7 | Tracking + formations + pausa + tail facts migration (**`fct_pausa_values` also promoted Python→dbt mart under ADR-013 as part of this PR**) | Planned |
+| PR 7 | Tracking + formations + pausa + tail facts migration + Q3 conformed-fact closures (fct_passes/fct_shots/fct_action_values/fct_line_breaking_results gain team_key+player_key) + Option A SkillCorner dim onboarding + fct_match_summary tracking-provider home/away extension. **`fct_pausa_values` also promoted Python→dbt mart under ADR-013 as part of this PR**. **`pitch_control_batch.py` writer schema widened with data_source + match_key, collapsing the PR 6 prefix-CASE bridge in stg_pitch_control__values to a passthrough.** | In progress (branch `kimball-pr7-tracking-formations-pausa`) |
 | PR 8 | Scripts + final cleanup + doc sweep | Planned |
 
 > **ADR-013 applications:** PR 3 is the first application of [ADR-013](ADR-013-ml-inference-outputs-dbt-mart.md) (xG v2 promotion to `fct_xg_predictions_v2`); PR 7 is the second (`fct_pausa_values` promotion to a dbt mart under the same pattern).

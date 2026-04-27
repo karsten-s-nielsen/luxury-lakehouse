@@ -36,15 +36,24 @@ if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 _TABLE_NAME = "pitch_control_values"
-_RESULTS_SCHEMA = "tracking_id STRING, match_id STRING, pitch_control_value DOUBLE, _ingested_at TIMESTAMP"
+# PR 7 (ADR-011 close-out): widened with data_source + match_key. Collapses
+# the prefix-CASE bridge in stg_pitch_control__values introduced by PR 6
+# (§4.7) to a passthrough — the writer now emits Kimball-conformed columns
+# natively from the gold tracking source.
+_RESULTS_SCHEMA = (
+    "tracking_id STRING, match_id STRING, data_source STRING, match_key BIGINT, "
+    "pitch_control_value DOUBLE, _ingested_at TIMESTAMP"
+)
 
 # Bronze contract — column names emitted by the writer. Single source of
 # truth for test_pitch_control_bronze_coverage.py +
 # test_bronze_live_schema.py (PR 6, ADR-011 first-class promotion of
-# stg_pitch_control__values).
+# stg_pitch_control__values; PR 7 widening adds data_source + match_key).
 _PITCH_CONTROL_BRONZE_COLS: tuple[str, ...] = (
     "tracking_id",
     "match_id",
+    "data_source",
+    "match_key",
     "pitch_control_value",
     "_ingested_at",
 )
@@ -92,7 +101,12 @@ def _make_batch_udf(
         from analytics.pitch_control import PitchControlParams as _PCParams
         from analytics.pitch_control import compute_pitch_control_at_points as _pc_at_points
 
-        _empty = _pd.DataFrame(columns=_pd.Index(["tracking_id", "match_id", "pitch_control_value"]))
+        # PR 7 (ADR-011): writer emits data_source + match_key natively so
+        # stg_pitch_control__values can collapse its prefix-CASE bridge to
+        # a passthrough.
+        _empty = _pd.DataFrame(
+            columns=_pd.Index(["tracking_id", "match_id", "data_source", "match_key", "pitch_control_value"])
+        )
 
         if pdf.empty:
             return _empty
@@ -136,9 +150,11 @@ def _make_batch_udf(
             # Compute pitch control at each player's position
             pc_values = _pc_at_points(frame_clean, target_points, pc_params)
 
-            for tid, mid, pcv in zip(
+            for tid, mid, ds, mk, pcv in zip(
                 frame_clean["tracking_id"],
                 frame_clean["match_id"],
+                frame_clean["data_source"],
+                frame_clean["match_key"],
                 pc_values,
                 strict=False,
             ):
@@ -146,6 +162,8 @@ def _make_batch_udf(
                     {
                         "tracking_id": str(tid),
                         "match_id": str(mid),
+                        "data_source": str(ds) if ds is not None else None,
+                        "match_key": int(mk) if mk is not None else None,
                         "pitch_control_value": float(pcv),
                     }
                 )
@@ -211,7 +229,7 @@ def _process_matches(
     Returns number of rows written.
     """
     from pyspark.sql import functions as F  # noqa: N812
-    from pyspark.sql.types import DoubleType, StringType, StructField, StructType
+    from pyspark.sql.types import DoubleType, LongType, StringType, StructField, StructType
 
     from analytics.pitch_control import PitchControlParams
 
@@ -222,12 +240,17 @@ def _process_matches(
 
     if not new_ids_str:
         return 0
+    # PR 7 (ADR-011): pull data_source + match_key from fct_tracking_frames
+    # (added in PR 7's tracking-subsystem migration). Eliminates the prefix-CASE
+    # bridge in stg_pitch_control__values.
     tracking_df = (
         spark.table(gold_table)
         .filter(F.col("match_id").isin(new_ids_str))
         .select(
             "tracking_id",
             "match_id",
+            "data_source",
+            "match_key",
             "player_id",
             "team",
             "x",
@@ -263,6 +286,8 @@ def _process_matches(
         [
             StructField("tracking_id", StringType(), nullable=False),
             StructField("match_id", StringType(), nullable=False),
+            StructField("data_source", StringType(), nullable=True),
+            StructField("match_key", LongType(), nullable=True),
             StructField("pitch_control_value", DoubleType(), nullable=False),
         ]
     )

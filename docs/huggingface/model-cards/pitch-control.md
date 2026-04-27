@@ -58,6 +58,8 @@ The canonical tracking corpus used by the project is published as [`luxury-lakeh
 
 Computed daily via Databricks serverless workflow `compute_pitch_control` (module `ingestion.pitch_control_batch`). Distribution: `applyInPandas` grouped by synthetic `frame_batch_id` partitions to stay within the 1 GB UDF memory limit. Output table: `{catalog}.bronze.pitch_control_values`.
 
+**PR 7 (ADR-011 close-out):** writer schema widened with `data_source STRING` + `match_key BIGINT` natively, so the per-row Kimball surrogate FK is emitted at write time rather than re-derived in `stg_pitch_control__values`. Collapses the PR 6 prefix-CASE-then-dim_matches-JOIN bridge to a passthrough.
+
 A batched Numba-accelerated implementation is available for off-line surface generation. Benchmark target: ≤ 5 ms per frame for 22 targets.
 
 See [`workflow-cards/wf-pitch-control.yaml`](https://github.com/karsten-s-nielsen/luxury-lakehouse/blob/main/workflow-cards/wf-pitch-control.yaml) for the full operational contract.

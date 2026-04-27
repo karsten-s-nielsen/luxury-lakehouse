@@ -62,6 +62,8 @@ Runtime inputs per frame:
 
 Daily Databricks serverless workflow `compute_off_ball_xt` (module `ingestion.off_ball_xt`). Distribution: `applyInPandas` grouped by synthetic frame-batch partitions. Output table: `{catalog}.bronze.off_ball_xt_results`.
 
+**PR 7 (ADR-011 close-out):** the downstream gold mart `fct_off_ball_xt` now carries Kimball-conformed FKs (`match_key`, `player_key`, `data_source`) alongside the legacy native columns during the 2026-07-22 dual-column window. The bronze output schema is unchanged — provider derivation lives in staging via `match_id` prefix CASE.
+
 See [`workflow-cards/wf-off-ball-xt.yaml`](https://github.com/karsten-s-nielsen/luxury-lakehouse/blob/main/workflow-cards/wf-off-ball-xt.yaml) for the full operational contract.
 
 Benchmark target: off-ball xT frame computation ≤ 5 ms for 22 targets.

@@ -3,7 +3,13 @@
 Reads pre-computed OBSO scalars from ``pausa_raw_scores`` (produced by D16 GPU
 batch), enriches with event metadata from ``elastic_sync_results`` and
 ``stg_idsse__events``, computes PAUSA decomposition, and writes results to
-``fct_pausa_values`` in the gold layer.
+``bronze.pausa_values`` for downstream dbt mart construction.
+
+PR 7 (ADR-013 second application, after PR 3 fct_xg_predictions_v2): writer
+emits raw native identifiers + predictions to bronze; the gold mart
+``fct_pausa_values`` is built by dbt with ``contract: enforced: true`` and
+inherits Kimball surrogate FKs (match_key/team_key/player_key) via INNER JOIN
+to fct_passes on pass_id.
 
 Architecture: ``applyInPandas`` grouped by ``match_id`` — each of the 7 IDSSE
 matches is processed as one group on a Spark executor.
@@ -27,14 +33,14 @@ from ingestion.utils import (
     validate_dataframe,
     write_delta_table,
 )
-from shared.constants import DEFAULT_GOLD_SCHEMA
 from workflows import workflow
 from workflows.exceptions import WorkflowSkippedError
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
-_TABLE_NAME = "fct_pausa_values"
+_TABLE_NAME = "pausa_values"
+_BRONZE_SCHEMA = "bronze"
 _RESULTS_SCHEMA = (
     "pass_id STRING, match_id STRING, player_id STRING, team STRING, period INT, "
     "timestamp_seconds DOUBLE, frame_id INT, temporal_judgment DOUBLE, spatial_selection DOUBLE, "
@@ -53,7 +59,10 @@ class _PausaGuard:
         """Check which matches need PAUSA computation."""
         from ingestion.guards import ensure_table, find_new_ids
 
-        results_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.{_TABLE_NAME}"
+        # PR 7 (ADR-013 second application): writer targets bronze raw table.
+        # The dbt-built gold mart fct_pausa_values reads from this via
+        # stg_pausa__values; INNER JOIN to fct_passes inherits Kimball FKs.
+        results_table = f"{catalog}.{_BRONZE_SCHEMA}.{_TABLE_NAME}"
         ensure_table(spark, results_table, _RESULTS_SCHEMA)
         new_match_ids = find_new_ids(
             spark,
@@ -260,12 +269,14 @@ def _process_matches(
     ]
     row_count = validate_dataframe(result_df, required_cols, "pausa", logger)
 
-    # Write with replaceWhere for idempotent incremental writes
+    # Write with replaceWhere for idempotent incremental writes.
+    # PR 7 (ADR-013 second application): write to bronze.pausa_values; the
+    # gold mart fct_pausa_values is built by dbt with contract: enforced: true.
     ids_sql = ", ".join(f"'{mid}'" for mid in new_ids_str)
     written = write_delta_table(
         result_df,
         catalog,
-        DEFAULT_GOLD_SCHEMA,
+        _BRONZE_SCHEMA,
         _TABLE_NAME,
         replace_where=f"match_id IN ({ids_sql})",
         logger=logger,

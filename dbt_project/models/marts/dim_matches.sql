@@ -77,6 +77,24 @@ metrica_matches as (
 
 ),
 
+skillcorner_matches as (
+
+    -- PR 7 (ADR-011 close-out): SkillCorner onboarded into dim_matches.
+    -- SkillCorner has tracking-only data (no separate matches/teams/players
+    -- staging models); identity derived from distinct match_ids in the
+    -- tracking staging. No competition/season/date metadata in bronze.
+    select distinct
+        cast(match_id as string)       as native_match_id,
+        'skillcorner'                  as provider,
+        cast(null as string)           as competition_id,
+        cast(null as string)           as season_id,
+        cast(null as date)             as match_date,
+        cast(null as string)           as home_team_name,
+        cast(null as string)           as away_team_name
+    from {{ ref('stg_skillcorner__tracking') }}
+
+),
+
 unioned as (
 
     select * from statsbomb_matches
@@ -86,6 +104,8 @@ unioned as (
     select * from idsse_matches
     union all
     select * from metrica_matches
+    union all
+    select * from skillcorner_matches
 
 ),
 

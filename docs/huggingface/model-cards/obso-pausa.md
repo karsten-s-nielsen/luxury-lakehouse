@@ -67,7 +67,7 @@ Runtime inputs:
 
 **OBSO surface computation**: HF Jobs GPU (`l40sx1`), script `scripts/compute_obso_hf.py`. Typical duration: 60 minutes for full corpus, ≈$1.50 per run.
 
-**PAUSA inference**: Daily Databricks serverless workflow `compute_pausa` (module `ingestion.pausa`). Distribution: `applyInPandas` grouped by `match_id`. Output table: `{catalog}.dev_gold.fct_pausa_values`. Output dataset: [`luxury-lakehouse/obso-pausa-values`](https://huggingface.co/datasets/luxury-lakehouse/obso-pausa-values).
+**PAUSA inference**: Daily Databricks serverless workflow `compute_pausa` (module `ingestion.pausa`). Distribution: `applyInPandas` grouped by `match_id`. Output table: `{catalog}.dev_gold.fct_pausa_values` (built by dbt with `contract: enforced: true` from `bronze.pausa_values` per ADR-013 second application — PR 7 promotes the writer from direct-gold-write to bronze-write so Kimball surrogate FKs (match_key/team_key/player_key) inherit via INNER JOIN to fct_passes on pass_id). Output dataset: [`luxury-lakehouse/obso-pausa-values`](https://huggingface.co/datasets/luxury-lakehouse/obso-pausa-values).
 
 See [`workflow-cards/wf-obso-pausa.yaml`](https://github.com/karsten-s-nielsen/luxury-lakehouse/blob/main/workflow-cards/wf-obso-pausa.yaml) for the full operational contract.
 
