@@ -49,13 +49,19 @@ passes_for_keys as (
 
     -- PR 7: surface (event_id, data_source, native_*) from int_unified_passes
     -- for team_key + player_key resolution. View materialization makes this
-    -- a cheap reference rather than a duplicate scan.
+    -- a cheap reference rather than a duplicate scan. GROUP BY collapses any
+    -- duplicate (event_id, data_source) pairs in upstream staging
+    -- (defensive — empirically int_unified_passes has 1 row per pass, but
+    -- the live-CI MERGE failure on a duplicate fct_line_breaking_results
+    -- target row proved the assumption was thin) so the LEFT JOIN below
+    -- never multiplies line_breaking_raw rows.
     select
         event_id,
         data_source,
-        native_team_id,
-        native_player_id
+        max(native_team_id)                             as native_team_id,
+        max(native_player_id)                           as native_player_id
     from {{ ref('int_unified_passes') }}
+    group by event_id, data_source
 
 ),
 
