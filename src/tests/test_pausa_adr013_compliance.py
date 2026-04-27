@@ -34,9 +34,11 @@ Mirrors the structural-invariant pattern of test_xg_v2_adr013_compliance
 
 from __future__ import annotations
 
+import importlib
 import os
 import re
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -44,10 +46,16 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _MART_PATH = _REPO_ROOT / "dbt_project" / "models" / "marts" / "fct_pausa_values.sql"
 _STG_PATH = _REPO_ROOT / "dbt_project" / "models" / "staging" / "pausa" / "stg_pausa__values.sql"
 
+# Use importlib rather than `from databricks import sql` so pyright doesn't
+# raise reportAttributeAccessIssue when databricks-sql-connector is absent
+# (CI lint-and-test job runs without it; live tests skip via the marker below).
+# Type: Any so the fixture's `.connect(...)` call type-checks without an
+# explicit cast inside the test body.
+_databricks_sql_mod: Any
 try:
-    from databricks import sql as _databricks_sql_mod
+    _databricks_sql_mod = importlib.import_module("databricks.sql")
 except ImportError:  # pragma: no cover — local CI without databricks-sql-connector
-    _databricks_sql_mod = None  # type: ignore[assignment]
+    _databricks_sql_mod = None
 
 _requires_databricks = pytest.mark.skipif(
     _databricks_sql_mod is None
