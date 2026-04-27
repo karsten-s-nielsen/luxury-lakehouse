@@ -1,6 +1,6 @@
 {{ config(
     materialized='table',
-    liquid_clustered_by=['match_id']
+    liquid_clustered_by=['match_key']
 ) }}
 -- fct_pass_timing.sql
 -- Per-player per-match PAUSA pass timing aggregation.
@@ -10,6 +10,10 @@
 -- player rankings and comparative analysis.
 --
 -- One row per player per match.
+--
+-- PR 7 (ADR-011 close-out): adds Kimball surrogate FKs match_key + player_key
+-- and a new pass_timing_id surrogate (over player_id, match_id) for stable
+-- downstream FK references.
 
 {% if var('pausa_enabled', false) %}
 
@@ -26,6 +30,8 @@ aggregated as (
         player_id,
         match_id,
         player_display_name,
+        max(player_key)                                             as player_key,
+        max(match_key)                                              as match_key,
 
         count(*)                                                    as pass_count,
         avg(temporal_judgment)                                      as avg_temporal_judgment,
@@ -42,8 +48,14 @@ aggregated as (
 final as (
 
     select
+        {{ dbt_utils.generate_surrogate_key([
+            'player_id',
+            'match_id'
+        ]) }}                                                       as pass_timing_id,
         cast(player_id as string)                                   as player_id,
+        player_key,
         cast(match_id as string)                                    as match_id,
+        match_key,
         cast(player_display_name as string)                         as player_display_name,
         cast(pass_count as int)                                     as pass_count,
         cast(avg_temporal_judgment as double)                        as avg_temporal_judgment,
@@ -63,8 +75,11 @@ select * from final
 
 -- PAUSA not enabled — produce empty table with correct schema
 select
+    cast(null as string)    as pass_timing_id,
     cast(null as string)    as player_id,
+    cast(null as bigint)    as player_key,
     cast(null as string)    as match_id,
+    cast(null as bigint)    as match_key,
     cast(null as string)    as player_display_name,
     cast(null as int)       as pass_count,
     cast(null as double)    as avg_temporal_judgment,

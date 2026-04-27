@@ -1,14 +1,20 @@
 -- int_pausa__pass_quality.sql
--- Ephemeral CTE joining PAUSA values with player and team dimension tables.
+-- Ephemeral CTE joining PAUSA values with player display names.
 --
--- Enriches raw PAUSA scores with human-readable player names and team names
--- for downstream mart aggregation and Streamlit display.
+-- Enriches PAUSA scores with human-readable player names for downstream mart
+-- aggregation and Streamlit display.
+--
+-- PR 7 (ADR-013 second application): reads from fct_pausa_values (the
+-- dbt-built gold mart that inherits Kimball FKs via INNER JOIN to fct_passes)
+-- instead of stg_pausa__values. Surfaces match_key + team_key + player_key
+-- so downstream marts (fct_pausa_rankings, fct_pass_timing) can passthrough
+-- the surrogate FKs.
 
 {{ config(materialized='ephemeral', enabled=var('pausa_enabled', false)) }}
 
 with pausa as (
 
-    select * from {{ ref('stg_pausa__values') }}
+    select * from {{ ref('fct_pausa_values') }}
 
 ),
 
@@ -26,8 +32,11 @@ final as (
     select
         p.pass_id,
         p.match_id,
+        p.match_key,
         p.player_id,
+        p.player_key,
         p.team,
+        p.team_key,
         p.period,
         p.timestamp_seconds,
         p.frame_id,

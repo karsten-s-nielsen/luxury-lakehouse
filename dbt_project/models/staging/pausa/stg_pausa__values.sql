@@ -1,14 +1,20 @@
 -- stg_pausa__values.sql
--- Clean and deduplicate PAUSA values from the gold layer.
+-- Clean and deduplicate PAUSA values from the bronze layer.
 --
 -- Dedup: ROW_NUMBER partitioned by (pass_id), latest _ingested_at wins.
 -- Enabled by pausa_enabled toggle.
+--
+-- PR 7 (ADR-013 second application): source repointed from
+-- pausa_gold.fct_pausa_values (Python writer direct-write) to bronze.pausa_values
+-- (Python writer raw output). The gold mart fct_pausa_values is now built by
+-- dbt with contract: enforced: true and inherits Kimball FKs via INNER JOIN
+-- to fct_passes on pass_id.
 
 {{ config(enabled=var('pausa_enabled', false)) }}
 
 with source as (
 
-    select * from {{ source('pausa_gold', 'fct_pausa_values') }}
+    select * from {{ source('pausa', 'pausa_values') }}
 
 ),
 

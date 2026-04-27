@@ -2,7 +2,8 @@
     materialized='incremental',
     unique_key='action_value_id',
     liquid_clustered_by=['match_key'],
-    incremental_strategy='merge'
+    incremental_strategy='merge',
+    on_schema_change='append_new_columns'
 ) }}
 -- fct_action_values.sql
 -- Gold-layer SPADL action values with VAEP scores, possession context,
@@ -87,6 +88,12 @@ actions_with_score as (
 
         av.player_id,
         av.team_id,
+        -- PR 7 (ADR-011): Kimball surrogate FKs via dim_teams / dim_players
+        -- JOINs on (provider, native_id). SPADL is SB+WS only — native IDs
+        -- are real BIGINTs cast to string for the JOIN. PR 8 drops the
+        -- legacy INT cols.
+        dt.team_key,
+        dp.player_key,
         av.season_id,
         av.period,
         av.time_seconds,
@@ -144,6 +151,13 @@ actions_with_score as (
             or (rs.period = av.period
                 and (rs.minute * 60 + rs.second) <= (av.minute * 60 + av.second))
         )
+    -- PR 7 (ADR-011): dim_teams / dim_players JOINs by (provider, native_id).
+    left join {{ ref('dim_teams') }} dt
+        on  dt.provider = av.data_source
+       and dt.native_team_id = cast(av.team_id as string)
+    left join {{ ref('dim_players') }} dp
+        on  dp.provider = av.data_source
+       and dp.native_player_id = cast(av.player_id as string)
 
 ),
 
@@ -157,6 +171,8 @@ final as (
         competition_id,
         player_id,
         team_id,
+        team_key,
+        player_key,
         season_id,
         period,
         time_seconds,

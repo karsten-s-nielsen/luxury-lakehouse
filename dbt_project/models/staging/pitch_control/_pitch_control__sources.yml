@@ -26,6 +26,17 @@ sources:
             description: >
               Match identifier — provider prefix encodes the source
               (idsse_*, Sample_Game_*, skillcorner_*).
+          - name: data_source
+            description: >
+              Source provider ('idsse', 'metrica', 'skillcorner'). PR 7 added
+              — emitted natively by pitch_control_batch.py from
+              fct_tracking_frames.source_provider, replacing the prefix-CASE
+              bridge in stg_pitch_control__values.
+          - name: match_key
+            description: >
+              Kimball surrogate FK to dim_matches (BIGINT). PR 7 added —
+              emitted natively by pitch_control_batch.py from
+              fct_tracking_frames.match_key.
           - name: pitch_control_value
             description: >
               Home-team control probability [0,1] at this player's position

@@ -27,11 +27,17 @@
 -- idx_passes_comp_player / idx_passes_comp_team_match composites and are
 -- fast at <100 ms).
 
+-- PR 7 (ADR-011 close-out): adds team_key passthrough from upstream
+-- fct_passes / fct_shots. Aggregate grain unchanged (still by team_id
+-- legacy INT to preserve PG-PK + Lakebase synced-table contract during
+-- the 2026-07-22 dual-column window).
+
 with pass_events as (
 
     select
         competition_id,
         team_id,
+        team_key,
         cast(round(start_x / 10) * 10 + 5 as int)    as x_bin,
         cast(round(start_y / 10) * 10 + 5 as int)    as y_bin,
         'pass'                                       as action_type
@@ -48,6 +54,7 @@ shot_events as (
     select
         competition_id,
         team_id,
+        team_key,
         cast(round(location_x / 10) * 10 + 5 as int) as x_bin,
         cast(round(location_y / 10) * 10 + 5 as int) as y_bin,
         'shot'                                       as action_type
@@ -72,6 +79,7 @@ aggregated as (
     select
         competition_id,
         team_id,
+        max(team_key)                                as team_key,
         action_type,
         x_bin,
         y_bin,
@@ -86,6 +94,7 @@ final as (
     select
         cast(competition_id as int)                  as competition_id,
         cast(team_id as int)                         as team_id,
+        team_key,
         cast(action_type as string)                  as action_type,
         cast(x_bin as int)                           as x_bin,
         cast(y_bin as int)                           as y_bin,

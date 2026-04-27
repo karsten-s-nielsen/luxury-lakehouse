@@ -43,6 +43,12 @@ models:
         description: Foreign key to dim_teams
         data_tests:
           - not_null
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams (PR 7 — populated for all SB+WS shots via dim_teams JOIN on (provider, native_team_id)).
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players (PR 7 — populated for all SB+WS shots via dim_players JOIN on (provider, native_player_id)).
       - name: location_x
         data_type: double
         description: Shot X coordinate (0-120). May slightly exceed bounds for off-pitch events.
@@ -205,6 +211,15 @@ models:
       - name: team_id
         data_type: int
         description: Foreign key to dim_teams (NULL for IDSSE/Metrica — see stg_*__passes).
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams (PR 7 — populated for all providers via dim_teams JOIN on (provider, native_team_id)).
+      - name: passer_player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players (PR 7 — populated for all providers via dim_players JOIN on (provider, native_player_id)).
+      - name: recipient_player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players for recipient (PR 7 — NULL when recipient is unknown).
       - name: start_x
         data_type: double
         description: Starting X coordinate (120-yard scale). May slightly exceed bounds for off-pitch events (corner kicks at endline, throw-ins).
@@ -620,6 +635,12 @@ models:
         description: Foreign key to dim_teams
         data_tests:
           - not_null
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams (PR 7 — populated for all SB+WS actions via dim_teams JOIN on (provider, native_team_id)).
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players (PR 7 — populated for all SB+WS actions via dim_players JOIN on (provider, native_player_id)).
       - name: competition_id
         data_type: int
         description: >
@@ -828,6 +849,12 @@ models:
       - name: away_team_id
         data_type: int
         description: Foreign key to dim_teams (NULL for non-StatsBomb rows in PR 2).
+      - name: home_team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams (PR 7 — populated for all providers via per-provider derivation; tracking-only providers via fct_tracking_frames CTE).
+      - name: away_team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams (PR 7 — populated for all providers via per-provider derivation; tracking-only providers via fct_tracking_frames CTE).
       - name: match_date
         data_type: date
         description: Date the match was played (NULL for IDSSE/Metrica).
@@ -1898,6 +1925,12 @@ models:
       - name: competition_id
         data_type: int
         description: Legacy INT competition id, nullable (inherited from fct_shots). Scheduled for removal in PR 8 sweep; replaced by competition_key per ADR-011.
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams (PR 7 — inherited from fct_shots via INNER JOIN on shot_id).
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players (PR 7 — inherited from fct_shots via INNER JOIN on shot_id).
       - name: xg_logistic
         data_type: double
         description: Logistic regression baseline xG (distance + angle only)
@@ -1953,6 +1986,12 @@ models:
       - name: competition_id
         data_type: int
         description: Legacy INT competition id, nullable (inherited from fct_shots). Scheduled for removal in PR 8 sweep per ADR-011.
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams (PR 7 — inherited from fct_shots via INNER JOIN on shot_id).
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players (PR 7 — inherited from fct_shots via INNER JOIN on shot_id).
       - name: xg_set_encoder
         data_type: double
         description: v2 Deep Sets + MC dropout mean xG prediction.
@@ -1986,6 +2025,101 @@ models:
                 row_condition: "xg_ci_upper is not null"
               config:
                 severity: warn
+
+  - name: fct_pausa_values
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Gold-layer per-pass PAUSA decomposition: temporal judgment, spatial
+      selection, and composite PAUSA score. Keys inherited via INNER JOIN
+      to fct_passes on pass_id per ADR-013 (consumer-side ML inference output
+      pattern; second application after PR 3 fct_xg_predictions_v2). Enabled
+      via var 'pausa_enabled' (default true). Reference Lee et al. (2026).
+    columns:
+      - name: pass_id
+        data_type: string
+        description: FK to fct_passes (surrogate key from int_unified_passes).
+        data_tests:
+          - not_null
+          - unique
+      - name: match_id
+        data_type: string
+        description: Native match identifier (legacy; passthrough from staging during dual-column window).
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches (PR 7 — inherited from fct_passes via INNER JOIN on pass_id).
+        data_tests:
+          - not_null
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams (PR 7 — inherited from fct_passes via INNER JOIN on pass_id).
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players (PR 7 — passer player; inherited from fct_passes.passer_player_key via INNER JOIN).
+      - name: player_id
+        data_type: string
+        description: Native passer player identifier (legacy — IDSSE OBJ STRING).
+      - name: team
+        data_type: string
+        description: Team role string ('home'/'away' or DFL CLU code per source).
+      - name: period
+        data_type: int
+        description: Match period (1 or 2).
+      - name: timestamp_seconds
+        data_type: double
+        description: Event timestamp in seconds from period start.
+      - name: frame_id
+        data_type: int
+        description: Aligned tracking frame identifier.
+      - name: temporal_judgment
+        data_type: double
+        description: Ratio of actual to peak OBSO (0–1, higher = better release timing).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+              config:
+                severity: warn
+      - name: spatial_selection
+        data_type: double
+        description: Ratio of actual to optimal OBSO (0–1, higher = better receiver choice).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+              config:
+                severity: warn
+      - name: pausa_score
+        data_type: double
+        description: Composite PAUSA = temporal × spatial (0–1, higher = better timing + selection).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+              config:
+                severity: warn
+      - name: actual_obso
+        data_type: double
+        description: OBSO value at pass release.
+      - name: peak_obso
+        data_type: double
+        description: Peak OBSO in the temporal evaluation window.
+      - name: optimal_obso
+        data_type: double
+        description: Optimal OBSO across all available receivers at release time.
+      - name: receiver_x
+        data_type: double
+        description: Receiver X coordinate (StatsBomb 120×80 normalized).
+      - name: receiver_y
+        data_type: double
+        description: Receiver Y coordinate (StatsBomb 120×80 normalized).
 
   # ── Dimension Tables ──────────────────────────────────────────────────
 
@@ -2265,12 +2399,24 @@ models:
       spatial selection, and composite PAUSA score aggregated at the
       player-match grain. One row per player per match.
     columns:
+      - name: pass_timing_id
+        data_type: string
+        description: Surrogate key (player_id + match_id; PR 7 added).
+        data_tests:
+          - unique
+          - not_null
       - name: player_id
         data_type: string
         description: Player identifier (foreign key to dim_players)
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players (PR 7 — passthrough from int_pausa__pass_quality).
       - name: match_id
         data_type: string
         description: Match identifier
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches (PR 7 — passthrough from int_pausa__pass_quality).
       - name: player_display_name
         data_type: string
         description: Human-readable player name from dim_players
@@ -2349,12 +2495,21 @@ models:
         data_sensitivity: public
         contains_pii: false
     columns:
+      - name: pausa_ranking_id
+        data_type: string
+        description: Surrogate key (player_id; PR 7 added).
+        data_tests:
+          - unique
+          - not_null
       - name: player_id
         data_type: string
         description: Player identifier.
         data_tests:
           - unique
           - not_null
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players (PR 7 — passthrough from int_pausa__pass_quality).
       - name: player_display_name
         data_type: string
         description: Human-readable player name from dim_players.
@@ -2620,7 +2775,7 @@ models:
     columns:
       - name: formation_label_id
         data_type: string
-        description: Surrogate key (match_id + period + team + window_start_s + detector)
+        description: Surrogate key (match_id + period + team + window_start_s + detector + source_provider; PR 7 added source_provider)
         data_tests:
           - unique
           - not_null
@@ -2629,6 +2784,9 @@ models:
         description: Match identifier (string, prefixed by tracking provider)
         data_tests:
           - not_null
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches (PR 7 — resolved via dim_matches JOIN on (provider, native_match_id) with provider derived from staging match_id prefix).
       - name: period
         data_type: int
         description: Match period (1 or 2)
@@ -2648,6 +2806,9 @@ models:
           - accepted_values:
               arguments:
                 values: ['home', 'away']
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams (PR 7 — resolved via fct_match_summary JOIN + CASE on team='home'/'away' → home_team_key/away_team_key).
       - name: window_start_s
         data_type: double
         description: Window start time in seconds from period start
@@ -2673,6 +2834,9 @@ models:
           - accepted_values:
               arguments:
                 values: ['efpi', 'shape_graph']
+      - name: data_source
+        data_type: string
+        description: Source provider (PR 7 — derived from match_id prefix in stg_formations__labels).
       - name: _ingested_at
         data_type: timestamp
         description: UTC timestamp when the row was written to the bronze table
@@ -2694,7 +2858,7 @@ models:
     columns:
       - name: position_id
         data_type: string
-        description: Surrogate key (match_id + frame_id + player_id)
+        description: Surrogate key (match_id + frame_id + player_id + source_provider; PR 7 added source_provider)
         data_tests:
           - unique
           - not_null
@@ -2703,6 +2867,9 @@ models:
         description: Match identifier (string, prefixed by tracking provider)
         data_tests:
           - not_null
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches (PR 7 — resolved via dim_matches JOIN on (provider, native_match_id)).
       - name: frame_id
         data_type: bigint
         description: Tracking frame identifier within the match
@@ -2713,6 +2880,9 @@ models:
         description: Player identifier from the tracking data source
         data_tests:
           - not_null
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players (PR 7 — resolved via dim_players JOIN on (provider, native_player_id)).
       - name: player_display_name
         data_type: string
         description: "Human-readable player name from tracking metadata (falls back to player_id)"
@@ -2726,6 +2896,9 @@ models:
           - accepted_values:
               arguments:
                 values: ['home', 'away']
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams (PR 7 — resolved via fct_match_summary JOIN + CASE on team='home'/'away').
       - name: team_display_name
         data_type: string
         description: "Human-readable team name from tracking metadata (falls back to Home/Away)"
@@ -2757,6 +2930,9 @@ models:
         description: Detection algorithm identifier (shape_graph)
         data_tests:
           - not_null
+      - name: data_source
+        data_type: string
+        description: Source provider (PR 7 — derived from match_id prefix in stg_shape_graphs__positions).
       - name: _ingested_at
         data_type: timestamp
         description: UTC timestamp when the row was written to the bronze table
@@ -2778,7 +2954,7 @@ models:
     columns:
       - name: position_map_id
         data_type: string
-        description: Surrogate key (player_id + match_id + position_label + phase)
+        description: Surrogate key (player_id + match_id + position_label + data_source + phase; PR 7 added data_source)
         data_tests:
           - unique
           - not_null
@@ -2787,6 +2963,9 @@ models:
         description: Player identifier from the tracking data source
         data_tests:
           - not_null
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players (PR 7 — passthrough from upstream fct_player_positions).
       - name: player_display_name
         data_type: string
         description: "Human-readable player name from tracking metadata (falls back to player_id)"
@@ -2797,6 +2976,9 @@ models:
         description: Match identifier (string, prefixed by tracking provider)
         data_tests:
           - not_null
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches (PR 7 — passthrough from upstream fct_player_positions).
       - name: team
         data_type: string
         description: Team side (home or away)
@@ -2805,6 +2987,9 @@ models:
           - accepted_values:
               arguments:
                 values: ['home', 'away']
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams (PR 7 — passthrough from upstream fct_player_positions).
       - name: team_display_name
         data_type: string
         description: "Human-readable team name from tracking metadata (falls back to Home/Away)"
@@ -2849,6 +3034,9 @@ models:
           - accepted_values:
               arguments:
                 values: ['all', 'in_possession', 'out_of_possession']
+      - name: data_source
+        data_type: string
+        description: Source provider (PR 7 — passthrough from upstream fct_player_positions).
 
   - name: fct_tracking_avg_positions
     config:
@@ -3019,6 +3207,12 @@ models:
         description: Kimball surrogate FK to dim_matches.match_key (ADR-011).
         data_tests:
           - not_null
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams (PR 7 — passer team; resolved via int_unified_passes JOIN).
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players (PR 7 — passer; resolved via int_unified_passes JOIN).
       - name: is_line_breaking
         data_type: boolean
         description: Whether the pass broke at least one defensive line
@@ -3065,7 +3259,7 @@ models:
     columns:
       - name: off_ball_xt_id
         data_type: string
-        description: Surrogate key (player_id + match_id)
+        description: Surrogate key (player_id + match_id + source_provider; PR 7 added source_provider)
         data_tests:
           - unique
           - not_null
@@ -3074,11 +3268,17 @@ models:
         description: Player identifier from the tracking data source
         data_tests:
           - not_null
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players (PR 7 \u2014 resolved via dim_players JOIN on (provider, native_player_id)).
       - name: match_id
         data_type: string
         description: Match identifier
         data_tests:
           - not_null
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches (PR 7 \u2014 resolved via dim_matches JOIN on (provider, native_match_id)).
       - name: total_off_ball_xt
         data_type: double
         description: "Total off-ball xT accumulated across all sampled frames (0\u20131+ scale, higher = more threat generated)"
@@ -3096,6 +3296,9 @@ models:
                 max_value: 200000
               config:
                 severity: warn
+      - name: data_source
+        data_type: string
+        description: Source provider (PR 7 \u2014 derived from match_id prefix in stg_off_ball_xt__results).
 
   # ── Goalkeeper Stats ─────────────────────────────────────────────────
 
@@ -3253,7 +3456,7 @@ models:
     columns:
       - name: space_creation_id
         data_type: string
-        description: Surrogate key (match_id + frame_id + player_id)
+        description: Surrogate key (match_id + frame_id + player_id + source_provider; PR 7 added source_provider)
         data_tests:
           - unique
           - not_null
@@ -3262,6 +3465,9 @@ models:
         description: Match identifier
         data_tests:
           - not_null
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches (PR 7 — resolved via dim_matches JOIN on (provider, native_match_id)).
       - name: frame_id
         data_type: int
         description: Tracking frame identifier
@@ -3272,6 +3478,9 @@ models:
         description: Player identifier (canonical, resolved via dim_players where available)
         data_tests:
           - not_null
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players (PR 7 — resolved via dim_players JOIN on (provider, native_player_id)).
       - name: team
         data_type: string
         description: Team of the player at this frame
@@ -3287,6 +3496,9 @@ models:
       - name: net_space_m2
         data_type: double
         description: "Net space impact in square metres (space_created_m2 - space_destroyed_m2)"
+      - name: data_source
+        data_type: string
+        description: Source provider (PR 7 — derived from match_id prefix in stg_space_creation__values).
 
   - name: fct_player_embeddings_career_360
     config:
@@ -3580,6 +3792,9 @@ models:
         description: Foreign key to dim_teams.
         data_tests:
           - not_null
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams (PR 7 — passthrough from upstream fct_passes / fct_shots).
       - name: action_type
         data_type: string
         description: "Either 'pass' or 'shot'."
@@ -3633,11 +3848,17 @@ models:
         description: Foreign key to dim_teams.
         data_tests:
           - not_null
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams (PR 7 — passthrough from upstream fct_action_values).
       - name: player_id
         data_type: int
         description: Foreign key to dim_players.
         data_tests:
           - not_null
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players (PR 7 — passthrough from upstream fct_action_values).
       - name: action_type
         data_type: string
         description: SPADL action type (pass, dribble, shot, tackle, ...).
@@ -3808,6 +4029,9 @@ models:
         description: Foreign key to fct_match_summary.
         data_tests:
           - not_null
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches (PR 7 — resolved via dim_matches JOIN, provider='statsbomb').
       - name: competition_id
         data_type: int
         description: Foreign key to dim_competitions.
@@ -3832,11 +4056,17 @@ models:
       - name: player_id
         data_type: int
         description: Foreign key to dim_players (the carded player).
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players (PR 7 — resolved via dim_players JOIN, provider='statsbomb').
       - name: team_id
         data_type: int
         description: Team the carded player played for.
         data_tests:
           - not_null
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams (PR 7 — resolved via dim_teams JOIN, provider='statsbomb').
       - name: event_type
         data_type: string
         description: StatsBomb event type that carried the card ('Bad Behaviour' or 'Foul Committed').

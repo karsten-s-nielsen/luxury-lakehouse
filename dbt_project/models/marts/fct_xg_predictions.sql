@@ -20,6 +20,10 @@ select
     s.match_key,
     s.competition_key,
     s.competition_id,
+    -- PR 7 (ADR-011 close-out): pull-through team_key + player_key from
+    -- fct_shots; ADR-013 INNER JOIN already inherits all surrogate FKs.
+    s.team_key,
+    s.player_key,
     p.xg_logistic,
     p.xg_gradient_boosted
 

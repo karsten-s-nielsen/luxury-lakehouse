@@ -10,6 +10,9 @@
 -- IDSSE event data lacks a pass outcome attribute.
 --
 -- Reference: Lee, Jo, Hong, Bauer & Ko (2026). "Valuing La Pausa."
+--
+-- PR 7 (ADR-011 close-out): adds Kimball surrogate FK player_key (career
+-- grain — no match/team) and a new pausa_ranking_id surrogate.
 
 {% if var('pausa_enabled', false) %}
 
@@ -33,6 +36,7 @@ aggregated as (
 
     select
         pq.player_id,
+        max(pq.player_key)                                           as player_key,
         pq.player_display_name,
         count(distinct pq.match_id)                                  as total_matches,
         count(*)                                                     as total_passes,
@@ -50,7 +54,9 @@ aggregated as (
 final as (
 
     select
+        {{ dbt_utils.generate_surrogate_key(['a.player_id']) }}      as pausa_ranking_id,
         cast(a.player_id as string)                                  as player_id,
+        a.player_key,
         cast(a.player_display_name as string)                        as player_display_name,
         cast(a.total_matches as int)                                 as total_matches,
         cast(a.total_passes as int)                                  as total_passes,
@@ -74,7 +80,9 @@ select * from final
 
 -- PAUSA not enabled — produce empty table with correct schema
 select
+    cast(null as string)    as pausa_ranking_id,
     cast(null as string)    as player_id,
+    cast(null as bigint)    as player_key,
     cast(null as string)    as player_display_name,
     cast(null as int)       as total_matches,
     cast(null as int)       as total_passes,

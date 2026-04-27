@@ -21,7 +21,16 @@ cleaned as (
         cast(period as int) as period,
         cast(space_created_m2 as double) as space_created_m2,
         cast(space_destroyed_m2 as double) as space_destroyed_m2,
-        cast(net_space_m2 as double) as net_space_m2
+        cast(net_space_m2 as double) as net_space_m2,
+
+        -- PR 7 (ADR-011): derive source_provider from match_id prefix
+        -- (space-creation pipeline reads from fct_tracking_frames; SB/WS
+        -- don't contribute tracking data so cannot collide here).
+        case
+            when match_id like 'idsse_%'        then 'idsse'
+            when match_id like 'Sample_Game_%'  then 'metrica'
+            else 'skillcorner'
+        end as source_provider
     from deduplicated
     where _rn = 1
 )

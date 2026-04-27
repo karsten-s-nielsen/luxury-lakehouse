@@ -88,6 +88,9 @@ outputs:
     - id: "{catalog}.dev_gold.fct_pausa_rankings"
       destination: delta-table
       dbt_model: fct_pausa_rankings
+    - id: "{catalog}.dev_gold.fct_pausa_values"
+      destination: delta-table
+      dbt_model: fct_pausa_values
     - id: "{catalog}.dev_gold.fct_physical_stats"
       destination: delta-table
       dbt_model: fct_physical_stats

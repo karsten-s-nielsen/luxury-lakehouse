@@ -2,7 +2,7 @@
     materialized='incremental',
     incremental_strategy='merge',
     unique_key='match_key',
-    on_schema_change='fail',
+    on_schema_change='append_new_columns',
     liquid_clustered_by=['match_key']
 ) }}
 -- fct_match_summary.sql
@@ -26,6 +26,26 @@
 -- PPDA (Passes Per Defensive Action): opponent passes allowed in the
 -- defending team's defensive 40% of pitch, divided by that team's
 -- defensive actions in the same zone. StatsBomb only.
+--
+-- PR 7 (ADR-011 close-out): adds Kimball surrogate FKs `home_team_key` and
+-- `away_team_key` for ALL providers. Resolution sources differ by provider:
+--   * StatsBomb: existing match_team_ids (from stg_statsbomb__events) →
+--     dim_teams JOIN.
+--   * Wyscout: existing stg_wyscout__home_away_teams (PR 5a bridge) →
+--     dim_teams JOIN.
+--   * IDSSE / Metrica / SkillCorner: NEW tracking_home_away CTE derives
+--     home/away team_id per match from fct_tracking_frames (one row per
+--     match-team-frame; DISTINCT collapses to ~2 rows per match) → dim_teams
+--     JOIN. SkillCorner onboarded into dim_matches/dim_teams/dim_players in
+--     PR 7 alongside this mart.
+-- Legacy `home_team_id` / `away_team_id` BIGINT columns remain populated
+-- where they were before (StatsBomb + Wyscout); NULL for tracking-only
+-- providers as before. PR 8 drops the legacy INT columns post-2026-07-22.
+--
+-- Downstream tracking-derivative marts (fct_player_positions,
+-- fct_position_maps, fct_formation_labels) resolve their own `team_key`
+-- by JOINing this mart on `match_key` and CASE-ing on the row's
+-- `team='home'|'away'` role string.
 
 with dim as (
 
@@ -142,6 +162,38 @@ sb_keyed as (
 
 ),
 
+tracking_home_away as (
+
+    -- PR 7 (ADR-011): For tracking-only providers (idsse, metrica, skillcorner)
+    -- the home/away team_id is not stored in dim_matches. We derive it from
+    -- fct_tracking_frames where each row carries (match_key, source_provider,
+    -- team='home'|'away', team_id). DISTINCT collapses the scan to one row
+    -- per (match-team) pair (~2 rows per match × ~260 tracking matches);
+    -- liquid_clustered_by=['match_key'] on fct_tracking_frames keeps I/O bounded.
+    -- Output feeds the dim_teams JOINs in non_sb_summary below; downstream
+    -- tracking-derivative marts (fct_player_positions, fct_position_maps,
+    -- fct_formation_labels) reuse the resulting home_team_key / away_team_key
+    -- via fct_match_summary JOIN rather than re-deriving here.
+    select
+        match_key,
+        source_provider,
+        max(case when team = 'home' then team_id end)   as home_team_id_str,
+        max(case when team = 'away' then team_id end)   as away_team_id_str
+    from (
+        select distinct
+            match_key,
+            source_provider,
+            team,
+            team_id
+        from {{ ref('fct_tracking_frames') }}
+        where source_provider in ('idsse', 'metrica', 'skillcorner')
+          and team_id is not null
+          and team in ('home', 'away')
+    ) distinct_team_rows
+    group by match_key, source_provider
+
+),
+
 sb_summary as (
 
     select
@@ -154,6 +206,8 @@ sb_summary as (
         sb.away_team_name,
         htm.team_id                                     as home_team_id,
         atm.team_id                                     as away_team_id,
+        dt_h.team_key                                   as home_team_key,
+        dt_a.team_key                                   as away_team_key,
         sb.home_score,
         sb.away_score,
         coalesce(hs.total_shots, 0)                     as home_shots,
@@ -206,6 +260,12 @@ sb_summary as (
         on sb.sb_match_id = htm.match_id and sb.home_team_name = htm.team_name
     left join match_team_ids atm
         on sb.sb_match_id = atm.match_id and sb.away_team_name = atm.team_name
+    left join {{ ref('dim_teams') }} dt_h
+        on  dt_h.provider = 'statsbomb'
+       and dt_h.native_team_id = cast(htm.team_id as string)
+    left join {{ ref('dim_teams') }} dt_a
+        on  dt_a.provider = 'statsbomb'
+       and dt_a.native_team_id = cast(atm.team_id as string)
     left join match_shots hs on sb.sb_match_id = hs.match_id and htm.team_id = hs.team_id
     left join match_shots aws on sb.sb_match_id = aws.match_id and atm.team_id = aws.team_id
     left join passes_sb_ws hp on sb.match_key = hp.match_key and htm.team_id = hp.team_id
@@ -238,6 +298,8 @@ non_sb_summary as (
         dm.away_team_name,
         case when dm.provider = 'wyscout' then hab.team_id end as home_team_id,
         case when dm.provider = 'wyscout' then aab.team_id end as away_team_id,
+        coalesce(dt_h_ws.team_key, dt_h_track.team_key) as home_team_key,
+        coalesce(dt_a_ws.team_key, dt_a_track.team_key) as away_team_key,
         cast(null as int)                               as home_score,
         cast(null as int)                               as away_score,
         cast(null as bigint)                            as home_shots,
@@ -270,6 +332,22 @@ non_sb_summary as (
         on  dm.provider = 'wyscout'
        and try_cast(dm.native_match_id as bigint) = aab.match_id
        and aab.side = 'away'
+    -- Wyscout team_key resolution via dim_teams (real BIGINT team_id).
+    left join {{ ref('dim_teams') }} dt_h_ws
+        on  dt_h_ws.provider = 'wyscout'
+       and dt_h_ws.native_team_id = cast(hab.team_id as string)
+    left join {{ ref('dim_teams') }} dt_a_ws
+        on  dt_a_ws.provider = 'wyscout'
+       and dt_a_ws.native_team_id = cast(aab.team_id as string)
+    -- Tracking-provider home/away derivation + dim_teams JOINs (PR 7).
+    left join tracking_home_away tho
+        on dm.match_key = tho.match_key
+    left join {{ ref('dim_teams') }} dt_h_track
+        on  dt_h_track.provider = tho.source_provider
+       and dt_h_track.native_team_id = tho.home_team_id_str
+    left join {{ ref('dim_teams') }} dt_a_track
+        on  dt_a_track.provider = tho.source_provider
+       and dt_a_track.native_team_id = tho.away_team_id_str
     where dm.provider != 'statsbomb'
 
 )

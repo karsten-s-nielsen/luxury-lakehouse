@@ -20,6 +20,11 @@
 -- Row estimate:  ~21 comps * ~25 teams * ~25 players * ~10 action types
 --                * sparsity ~50% = ~65K rows.
 
+-- PR 7 (ADR-011 close-out): adds team_key + player_key passthrough from
+-- upstream fct_action_values. Aggregate grain unchanged (still by
+-- competition_id, team_id, player_id legacy INTs to preserve PG-PK +
+-- Lakebase synced-table contract during the 2026-07-22 dual-column window).
+
 with action_values as (
 
     select * from {{ ref('fct_action_values') }}
@@ -35,7 +40,9 @@ aggregated as (
     select
         competition_id,
         team_id,
+        max(team_key)                                 as team_key,
         player_id,
+        max(player_key)                               as player_key,
         action_type,
         sum(vaep_value)                               as total_vaep,
         sum(offensive_value)                          as total_offensive,
@@ -51,7 +58,9 @@ final as (
     select
         cast(competition_id as int)                   as competition_id,
         cast(team_id as int)                          as team_id,
+        team_key,
         cast(player_id as int)                        as player_id,
+        player_key,
         cast(action_type as string)                   as action_type,
         cast(total_vaep as double)                    as total_vaep,
         cast(total_offensive as double)               as total_offensive,
