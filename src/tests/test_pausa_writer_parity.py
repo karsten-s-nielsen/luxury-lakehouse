@@ -96,8 +96,7 @@ class TestPausaWriterDdlParity:
 
         mismatched = {c: (out[c], ddl[c]) for c in out if out[c] != ddl[c]}
         assert not mismatched, (
-            f"pausa writer/DDL type drift {mismatched}. "
-            "Either widen the DDL or narrow the StructType."
+            f"pausa writer/DDL type drift {mismatched}. Either widen the DDL or narrow the StructType."
         )
 
     def test_writer_targets_bronze_schema(self) -> None:
@@ -110,6 +109,5 @@ class TestPausaWriterDdlParity:
             f"fct_pausa_values is the gold-layer target."
         )
         assert pausa._TABLE_NAME == "pausa_values", (
-            f"PR 7 (ADR-013) renames the bronze raw table to 'pausa_values'; "
-            f"got _TABLE_NAME={pausa._TABLE_NAME!r}."
+            f"PR 7 (ADR-013) renames the bronze raw table to 'pausa_values'; got _TABLE_NAME={pausa._TABLE_NAME!r}."
         )

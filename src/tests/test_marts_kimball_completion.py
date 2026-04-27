@@ -123,7 +123,7 @@ class TestKimballCompletion:
             "Kimball-completion regression — smart-key islands found:\n"
             + "\n".join(f"  - {v}" for v in violations)
             + "\n\nPR 7 closed the ADR-011 staged migration; any future mart that "
-              "introduces a legacy *_id without the *_key surrogate fails this invariant. "
-              "Either add the JOIN/passthrough or add an entry to _KEY_ABSENT_BY_DESIGN "
-              "with documented rationale."
+            "introduces a legacy *_id without the *_key surrogate fails this invariant. "
+            "Either add the JOIN/passthrough or add an entry to _KEY_ABSENT_BY_DESIGN "
+            "with documented rationale."
         )

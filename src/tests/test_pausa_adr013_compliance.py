@@ -43,8 +43,7 @@ class TestFctPausaValuesAdr013Compliance:
         # Match either dict-style or YAML-mapping-style contract config
         # 'contract={'enforced': true}' OR 'contract: {enforced: true}'.
         assert re.search(r"contract\s*=\s*\{\s*['\"]enforced['\"]\s*:\s*true\s*\}", sql), (
-            f"fct_pausa_values.sql must declare contract={{'enforced': true}}. "
-            f"Source: {_MART_PATH}"
+            f"fct_pausa_values.sql must declare contract={{'enforced': true}}. Source: {_MART_PATH}"
         )
 
     def test_mart_inner_joins_fct_passes_on_pass_id(self) -> None:

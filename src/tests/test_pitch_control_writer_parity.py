@@ -88,8 +88,7 @@ class TestPitchControlWriterDdlParity:
 
         mismatched = {c: (out[c], ddl[c]) for c in out if out[c] != ddl[c]}
         assert not mismatched, (
-            f"pitch_control writer/DDL type drift {mismatched}. "
-            "Either widen the DDL or narrow the StructType."
+            f"pitch_control writer/DDL type drift {mismatched}. Either widen the DDL or narrow the StructType."
         )
 
     def test_bronze_cols_constant_matches_results_schema(self) -> None:
