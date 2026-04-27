@@ -56,7 +56,16 @@ jax = [
     "jax[cpu]>=0.4.35",
 ]
 mlflow = [
-    "mlflow>=2.17.0",
+    # >=2.19.0 is the first mlflow line that natively allows protobuf 6,
+    # matching the Databricks Serverless runtime's protobuf 6.33.6. The
+    # earlier `>=2.17.0` floor allowed pip to resolve mlflow 2.17.x, which
+    # pins protobuf<5 and produces the dependency-conflict warning observed
+    # on PR #208's live-build CI run (mlflow-skinny 2.11.4 vs protobuf
+    # 6.33.6). Bumping the floor to 2.19 closes the warning and aligns our
+    # wheel's resolved version (currently mlflow 3.11.1 per uv.lock) with
+    # the runtime baseline. Training scripts (xg, vaep, psxg, football2vec,
+    # scoutgpt) continue to use the same mlflow tracking client API.
+    "mlflow>=2.19.0",
 ]
 training = ["torch>=2.0", "pyarrow>=14.0", "datasets>=3.0", "safetensors>=0.4.0"]
 evolve = ["openevolve>=0.2.0"]

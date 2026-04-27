@@ -58,22 +58,31 @@ models:
               arguments:
                 values: ['statsbomb_360', 'metrica_tracking']
       - name: defender_x
-        description: Defender X coordinate (0-105 meters, SPADL)
+        description: Defender X coordinate (0-105 meters, SPADL). May fall outside the touchlines for off-pitch defenders in StatsBomb 360 freeze frames (GK off the line, defender clearing past the endline).
         data_tests:
+          # Range relaxed 2026-04-27 to [-3, 112]: legitimate off-pitch
+          # defenders observed on dev_gold (-2.84 to 110.96 across 2,439 of
+          # 828k rows, 0.29%). StatsBomb 360 freeze frames record actual
+          # player positions, including those outside the 0-120 SB pitch
+          # box; the 0-120 → 0-105 rescale propagates that. Test still
+          # catches coordinate-system inversions or large normalizer drift.
           - dbt_expectations.expect_column_values_to_be_between:
               arguments:
-                min_value: 0
-                max_value: 105
+                min_value: -3
+                max_value: 112
                 row_condition: "defender_x is not null"
               config:
                 severity: warn
       - name: defender_y
-        description: Defender Y coordinate (0-68 meters, SPADL)
+        description: Defender Y coordinate (0-68 meters, SPADL). May fall outside the touchlines for off-pitch defenders in StatsBomb 360 freeze frames.
         data_tests:
+          # Range relaxed 2026-04-27 to [-6, 75]: legitimate off-pitch
+          # defenders observed on dev_gold (-5.46 to 74.12 across 366 of
+          # 828k rows, 0.04%). See defender_x rationale above.
           - dbt_expectations.expect_column_values_to_be_between:
               arguments:
-                min_value: 0
-                max_value: 68
+                min_value: -6
+                max_value: 75
                 row_condition: "defender_y is not null"
               config:
                 severity: warn

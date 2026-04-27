@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any, NamedTuple
 
 import pandas as pd
 import pytest
@@ -14,6 +15,8 @@ import pytest
 # pattern that guards other plotly-dependent tests.
 pytest.importorskip("plotly", reason="plotly is only installed with taipy-app extra")
 
+import plotly.graph_objects as go
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "hf_taipy_app" / "src"))
 
 from state.match_summary_render import (
@@ -21,6 +24,42 @@ from state.match_summary_render import (
     render_delta_table_html,
     render_moments_html,
 )
+
+
+class _ScatterXY(NamedTuple):
+    """Narrowed (x, y) coordinates from a Plotly Scatter trace.
+
+    Plotly's `Scatter.x` / `Scatter.y` are typed as a wide union
+    (`str | tuple | numpy.ndarray | None | ...`) which pyright cannot index
+    with `[-1]` or apply `len()` to. This NamedTuple is the post-narrow
+    return type used by `_named_scatter()`.
+    """
+
+    x: list[Any]
+    y: list[Any]
+
+
+def _named_scatter(fig: go.Figure, name: str) -> _ScatterXY:
+    """Locate the unique Scatter trace named ``name`` and return its (x, y) lists.
+
+    The pyright narrowing path is: ``Figure.data`` is a wide union of
+    ~50 trace classes; ``isinstance(t, go.Scatter)`` narrows individual
+    traces; the explicit ``not isinstance(.., str)`` + ``is not None``
+    asserts narrow the ``.x`` / ``.y`` attributes from Plotly's wide
+    ``str|tuple|ndarray|None`` union to a plain list for unambiguous
+    indexing at call sites.
+
+    Asserts there is EXACTLY one matching trace so test failures point at
+    the trace-identification problem, not a downstream `IndexError`.
+    """
+    matches = [t for t in fig.data if isinstance(t, go.Scatter) and t.name == name]
+    assert len(matches) == 1, f"Expected exactly 1 Scatter trace named {name!r}, got {len(matches)}"
+    s = matches[0]
+    x, y = s.x, s.y
+    assert x is not None and not isinstance(x, str), f"trace.x narrow failed: {type(x).__name__}"
+    assert y is not None and not isinstance(y, str), f"trace.y narrow failed: {type(y).__name__}"
+    return _ScatterXY(x=list(x), y=list(y))
+
 
 # ── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -183,7 +222,7 @@ def test_xg_race_figure_has_expected_traces() -> None:
         home_color="#5a9999",
         away_color="#a55555",
     )
-    assert len(fig.data) >= 6
+    assert len(list(fig.data)) >= 6
 
 
 def test_xg_race_figure_has_halftime_line() -> None:
@@ -217,9 +256,8 @@ def test_xg_race_cumulative_matches_team_total() -> None:
         away_color="#a55555",
     )
     home_total = shots.loc[shots["team_id"] == 10, "xg"].sum()
-    home_traces = [t for t in fig.data if getattr(t, "name", None) == "Chelsea xG"]
-    assert len(home_traces) == 1
-    assert home_traces[0].y[-1] == pytest.approx(home_total, abs=1e-6)
+    home = _named_scatter(fig, "Chelsea xG")
+    assert home.y[-1] == pytest.approx(home_total, abs=1e-6)
 
 
 def test_xg_race_red_card_marker_present_when_red_card_issued() -> None:
@@ -287,8 +325,8 @@ def test_xg_race_lines_extend_to_common_end_minute() -> None:
         home_color="#5a9999",
         away_color="#a55555",
     )
-    home_trace = next(t for t in fig.data if getattr(t, "name", None) == "Chelsea xG")
-    away_trace = next(t for t in fig.data if getattr(t, "name", None) == "Arsenal xG")
+    home_trace = _named_scatter(fig, "Chelsea xG")
+    away_trace = _named_scatter(fig, "Arsenal xG")
     # Both traces must terminate at the same x value so the chart doesn't look truncated.
     assert home_trace.x[-1] == away_trace.x[-1], (
         f"Home line ends at {home_trace.x[-1]}, away line ends at {away_trace.x[-1]} — "
@@ -334,12 +372,11 @@ def test_xg_race_goal_trace_uses_boolean_filter_not_label_index() -> None:
         home_color="#5a9999",
         away_color="#a55555",
     )
-    goal_traces = [t for t in fig.data if getattr(t, "name", None) == "Goals"]
-    assert len(goal_traces) == 1
+    goal = _named_scatter(fig, "Goals")
     # Exactly 2 goal markers for 2 is_goal=1 rows — not 6 (the shot count).
-    assert len(goal_traces[0].x) == 2
+    assert len(goal.x) == 2
     # Goal minutes are 23 (Chelsea) and 84 (Chelsea).
-    assert sorted(int(m) for m in goal_traces[0].x) == [23, 84]
+    assert sorted(int(m) for m in goal.x) == [23, 84]
 
 
 # ── Row 3: ranked delta table ───────────────────────────────────────────────
