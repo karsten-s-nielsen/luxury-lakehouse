@@ -241,16 +241,49 @@ def process_360_matches(
         )
     )
 
-    # 360 freeze frames are anonymous — add synthetic IDs
+    # 360 freeze frames are anonymous — synthesize player_id; team_id
+    # is derived post-join below from the teammate boolean.
     ff_df = (
         ff_df.withColumn("ff_player_id", F.monotonically_increasing_id().cast("int"))
-        .withColumn("ff_team_id", F.lit(0).cast("int"))
         .withColumn("ff_velocity_x", F.lit(0.0))
         .withColumn("ff_velocity_y", F.lit(0.0))
     )
 
     # Join actions x freeze frames on event_id
     joined = actions_df.join(ff_df, actions_df["act_event_id"] == ff_df["ff_event_id"], "inner").drop("ff_event_id")
+
+    # PR 6-followup: derive ff_team_id from teammate flag + per-match team
+    # list. Pre-PR-6-followup this column was hardcoded to F.lit(0), which
+    # propagated through bronze.defcon_results.defender_team_id = 0 across
+    # all 829k+ rows and broke the Kimball team_key resolution introduced
+    # in PR 6 (ADR-011) — fct_defensive_values.team_key + fct_defcon_actions
+    # .team_key both went 0% non-NULL on the first post-merge live invariant
+    # test (2026-04-27). Root cause: StatsBomb 360 freeze-frame data only
+    # carries `teammate` boolean (defender on actor's team yes/no), not
+    # real team IDs. The teammate→team derivation requires the match's two
+    # team IDs, which we collect from the action table itself (each match
+    # has exactly two distinct team_ids across its actions).
+    match_teams = (
+        actions_df.select(F.col("act_match_id"), F.col("act_team_id"))
+        .distinct()
+        .groupBy("act_match_id")
+        .agg(F.collect_set("act_team_id").alias("_match_team_ids"))
+    )
+
+    joined = (
+        joined.join(match_teams, on="act_match_id", how="left")
+        .withColumn(
+            "ff_team_id",
+            F.when(F.col("ff_teammate"), F.col("act_team_id"))
+            .otherwise(
+                # The other team in this match: filter out the actor's
+                # team_id from the per-match list, take the remaining element.
+                F.expr("element_at(array_except(_match_team_ids, array(act_team_id)), 1)")
+            )
+            .cast("int"),
+        )
+        .drop("_match_team_ids")
+    )
 
     # Pass 1: assign credits per match on executors
     credits_schema = StructType(
