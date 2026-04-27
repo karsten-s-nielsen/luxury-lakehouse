@@ -1877,6 +1877,7 @@ jax = [
 ]
 mlflow = [
     { name = "mlflow" },
+    { name = "optuna-integration", extra = ["mlflow"] },
 ]
 sdk = [
     { name = "databricks-sdk", version = "0.102.0", source = { registry = "https://pypi.org/simple" } },
@@ -1944,6 +1945,7 @@ requires-dist = [
     { name = "numpy", marker = "extra == 'taipy-app'", specifier = "==1.26.4" },
     { name = "openevolve", marker = "extra == 'evolve'", specifier = ">=0.2.0" },
     { name = "optuna", marker = "extra == 'analytics'", specifier = ">=4.0" },
+    { name = "optuna-integration", extras = ["mlflow"], marker = "extra == 'mlflow'", specifier = ">=4.0" },
     { name = "pandas", marker = "extra == 'analytics'", specifier = ">=2.1.0" },
     { name = "pandas", marker = "extra == 'taipy-app'", specifier = "==2.2.3" },
     { name = "plotly", marker = "extra == 'taipy-app'", specifier = ">=6.7.0,<7" },
@@ -2699,6 +2701,23 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/bf/9b/62f120fb2ecbc4338bee70c5a3671c8e561714f3aa1a046b897ff142050e/optuna-4.8.0.tar.gz", hash = "sha256:6f7043e9f8ecb5e607af86a7eb00fb5ec2be26c3b08c201209a73d36aff37a38", size = 482603, upload-time = "2026-03-16T04:59:58.659Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ac/24/7c731839566d30dc70556d9824ef17692d896c15e3df627bce8c16f753e1/optuna-4.8.0-py3-none-any.whl", hash = "sha256:c57a7682679c36bfc9bca0da430698179e513874074b71bebedb0334964ab930", size = 419456, upload-time = "2026-03-16T04:59:56.977Z" },
+]
+
+[[package]]
+name = "optuna-integration"
+version = "4.8.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "optuna" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8f/d9/bdfd6ac94dd733a4df90e9e5b59273e18978132320949c0ca111a1d579db/optuna_integration-4.8.0.tar.gz", hash = "sha256:9f1e3053500a5a6a23f302cbd7ac371f6dd1010372b4b4374c538b8988bd0603", size = 89695, upload-time = "2026-03-16T04:48:05.535Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/57/cb/c209dbb41829dc856b2bdd5b58e877a6480752bd595d4b55f4a8c514efd5/optuna_integration-4.8.0-py3-none-any.whl", hash = "sha256:bb5c038702f744386b9032b12b993779b02e39e6893c324637178df68998f33d", size = 103151, upload-time = "2026-03-16T04:48:04.232Z" },
+]
+
+[package.optional-dependencies]
+mlflow = [
+    { name = "mlflow" },
 ]
 
 [[package]]

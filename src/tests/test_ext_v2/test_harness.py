@@ -12,6 +12,7 @@ The shape exists end-to-end so Phases 1-4 plug in axes via
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import numpy as np
 import optuna
@@ -228,3 +229,223 @@ class TestRunPhase0HarnessValidation:
         )
         with pytest.raises(ValueError, match="empty"):
             run_phase0_harness(empty)
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 — objective_phase1 (3 KDE axes + nll_floorless diagnostic)
+# ---------------------------------------------------------------------------
+
+
+class TestPhase1Objective:
+    """Phase 1 objective triggers all 3 KDE axes and logs the eps-free diagnostic."""
+
+    def test_all_three_axes_suggested(self) -> None:
+        from analytics.ext_v2.harness import objective_phase1
+
+        actions = _make_actions_with_competitions(n_per_match=200, matches_per_comp=20, n_comps=3)
+        train = actions
+        holdout_passes = actions[actions["type_name"] == "pass"].copy()
+        grid = GridSpec()
+        study = optuna.create_study(direction="minimize")
+        trial = study.ask()
+        objective_phase1(trial, train, holdout_passes, grid=grid)
+        assert set(trial.params) == {"kde_kernel", "kde_bandwidth", "kde_adaptive"}
+
+    def test_kde_kernel_categorical(self) -> None:
+        from analytics.ext_v2.harness import objective_phase1
+
+        actions = _make_actions_with_competitions(n_per_match=100, matches_per_comp=10, n_comps=2)
+        train = actions
+        holdout_passes = actions[actions["type_name"] == "pass"].copy()
+        grid = GridSpec()
+        study = optuna.create_study(direction="minimize")
+        trial = study.ask()
+        objective_phase1(trial, train, holdout_passes, grid=grid)
+        assert trial.params["kde_kernel"] in {"gaussian", "epanechnikov", "tophat"}
+
+    def test_kde_bandwidth_in_range(self) -> None:
+        from analytics.ext_v2.harness import objective_phase1
+
+        actions = _make_actions_with_competitions(n_per_match=100, matches_per_comp=10, n_comps=2)
+        train = actions
+        holdout_passes = actions[actions["type_name"] == "pass"].copy()
+        grid = GridSpec()
+        study = optuna.create_study(direction="minimize")
+        trial = study.ask()
+        objective_phase1(trial, train, holdout_passes, grid=grid)
+        bw = trial.params["kde_bandwidth"]
+        assert 0.01 <= bw <= 2.0
+
+    def test_kde_adaptive_boolean(self) -> None:
+        from analytics.ext_v2.harness import objective_phase1
+
+        actions = _make_actions_with_competitions(n_per_match=100, matches_per_comp=10, n_comps=2)
+        train = actions
+        holdout_passes = actions[actions["type_name"] == "pass"].copy()
+        grid = GridSpec()
+        study = optuna.create_study(direction="minimize")
+        trial = study.ask()
+        objective_phase1(trial, train, holdout_passes, grid=grid)
+        assert isinstance(trial.params["kde_adaptive"], bool)
+
+    def test_returns_finite_positive_float(self) -> None:
+        from analytics.ext_v2.harness import objective_phase1
+
+        actions = _make_actions_with_competitions(n_per_match=200, matches_per_comp=15, n_comps=3)
+        train = actions
+        holdout_passes = actions[actions["type_name"] == "pass"].copy()
+        grid = GridSpec()
+        study = optuna.create_study(direction="minimize")
+        trial = study.ask()
+        nll = objective_phase1(trial, train, holdout_passes, grid=grid)
+        assert isinstance(nll, float)
+        assert math.isfinite(nll)
+        assert nll > 0
+
+    def test_logs_nll_floorless_user_attr(self) -> None:
+        """Per spec section 10.3 Q4: the trial must log nll_floorless as a user_attr.
+
+        Optuna's ``study.tell(trial, value)`` finalizes the trial — only after
+        tell does the trial appear in ``study.trials``. The test runs
+        ``objective_phase1``, calls ``tell`` with the returned NLL, then
+        inspects the persisted ``FrozenTrial.user_attrs``.
+        """
+        from analytics.ext_v2.harness import objective_phase1
+
+        actions = _make_actions_with_competitions(n_per_match=200, matches_per_comp=15, n_comps=3)
+        train = actions
+        holdout_passes = actions[actions["type_name"] == "pass"].copy()
+        grid = GridSpec()
+        study = optuna.create_study(direction="minimize")
+        trial = study.ask()
+        nll = objective_phase1(trial, train, holdout_passes, grid=grid)
+        study.tell(trial, nll)
+        ft = study.trials[0]
+        assert "nll_floorless" in ft.user_attrs
+        assert math.isfinite(ft.user_attrs["nll_floorless"])
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 — Phase1Result dataclass
+# ---------------------------------------------------------------------------
+
+
+class TestPhase1Result:
+    """Phase1Result dataclass surfaces best trial + study + counts + diagnostic."""
+
+    def test_dataclass_fields(self) -> None:
+        from dataclasses import fields
+
+        from analytics.ext_v2.harness import Phase1Result
+
+        names = {f.name for f in fields(Phase1Result)}
+        expected = {
+            "best_trial",
+            "best_xt_grid",
+            "best_nll",
+            "best_nll_floorless",
+            "study",
+            "n_train_actions",
+            "n_holdout_passes",
+            "producer",
+        }
+        assert expected.issubset(names)
+
+    def test_dataclass_is_frozen(self) -> None:
+        from analytics.ext_v2.harness import Phase1Result
+
+        # __dataclass_params__ is a runtime-only attribute set by @dataclass;
+        # pyright doesn't know about it via standard type stubs.
+        assert Phase1Result.__dataclass_params__.frozen is True  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 — run_phase1_harness end-to-end
+# ---------------------------------------------------------------------------
+
+
+class TestRunPhase1Harness:
+    """End-to-end Phase 1 harness smoke on small synthetic data."""
+
+    def test_returns_phase1_result(self) -> None:
+        from analytics.ext_v2.harness import Phase1Result, run_phase1_harness
+
+        actions = _make_actions_with_competitions(n_per_match=200, matches_per_comp=15, n_comps=3)
+        result = run_phase1_harness(actions, n_trials=3)
+        assert isinstance(result, Phase1Result)
+
+    def test_runs_requested_trial_count(self) -> None:
+        from analytics.ext_v2.harness import run_phase1_harness
+
+        actions = _make_actions_with_competitions(n_per_match=150, matches_per_comp=10, n_comps=3)
+        result = run_phase1_harness(actions, n_trials=5)
+        assert len(result.study.trials) == 5
+
+    def test_best_nll_finite_and_positive(self) -> None:
+        from analytics.ext_v2.harness import run_phase1_harness
+
+        actions = _make_actions_with_competitions(n_per_match=200, matches_per_comp=15, n_comps=3)
+        result = run_phase1_harness(actions, n_trials=3)
+        assert math.isfinite(result.best_nll)
+        assert result.best_nll > 0
+        assert math.isfinite(result.best_nll_floorless)
+        assert result.best_nll_floorless > 0
+
+    def test_xtgrid_shape(self) -> None:
+        from analytics.ext_v2.harness import run_phase1_harness
+
+        actions = _make_actions_with_competitions(n_per_match=200, matches_per_comp=15, n_comps=3)
+        result = run_phase1_harness(actions, n_trials=2)
+        assert isinstance(result.best_xt_grid, XTGrid)
+        assert result.best_xt_grid.shape == (12, 8)
+
+    def test_callbacks_passthrough(self) -> None:
+        """Callbacks kwarg threads through to study.optimize."""
+        from analytics.ext_v2.harness import run_phase1_harness
+
+        actions = _make_actions_with_competitions(n_per_match=100, matches_per_comp=10, n_comps=2)
+        callback_invocations = []
+
+        def my_callback(study: optuna.Study, trial: optuna.trial.FrozenTrial) -> None:
+            callback_invocations.append(trial.number)
+
+        run_phase1_harness(actions, n_trials=3, callbacks=[my_callback])
+        assert callback_invocations == [0, 1, 2]
+
+    def test_study_storage_persists_to_sqlite(self, tmp_path: Path) -> None:
+        """When study_storage is given, trials persist to SQLite; new study can resume."""
+        from analytics.ext_v2.harness import run_phase1_harness
+
+        db_path = tmp_path / "phase1.db"
+        actions = _make_actions_with_competitions(n_per_match=100, matches_per_comp=10, n_comps=2)
+        storage = f"sqlite:///{db_path}"
+        result1 = run_phase1_harness(actions, n_trials=2, study_storage=storage, study_name="phase1-resume-test")
+        # Reopen the same study and confirm trial count is preserved.
+        study = optuna.load_study(study_name="phase1-resume-test", storage=storage)
+        assert len(study.trials) == len(result1.study.trials) == 2
+
+    def test_validates_input_columns(self) -> None:
+        from analytics.ext_v2.harness import run_phase1_harness
+
+        bad = pd.DataFrame({"competition_id": ["A"], "match_key": [1]})
+        with pytest.raises(ValueError, match="missing required columns"):
+            run_phase1_harness(bad, n_trials=1)
+
+    def test_validates_empty(self) -> None:
+        from analytics.ext_v2.harness import run_phase1_harness
+
+        empty = pd.DataFrame(
+            {
+                "competition_id": pd.Series([], dtype=str),
+                "match_key": pd.Series([], dtype=int),
+                "type_name": pd.Series([], dtype=str),
+                "result_name": pd.Series([], dtype=str),
+                "action_type": pd.Series([], dtype=str),
+                "start_x": pd.Series([], dtype=float),
+                "start_y": pd.Series([], dtype=float),
+                "end_x": pd.Series([], dtype=float),
+                "end_y": pd.Series([], dtype=float),
+            }
+        )
+        with pytest.raises(ValueError, match="empty"):
+            run_phase1_harness(empty, n_trials=1)

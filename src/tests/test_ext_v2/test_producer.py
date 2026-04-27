@@ -215,3 +215,70 @@ class TestSinghProducerParams:
         actions = _make_realistic_actions(n=500)
         grid = SinghProducer(tolerance=1e-3).fit(actions).xt_grid
         assert isinstance(grid, XTGrid)
+
+
+class TestKDESmoothedProducerComposition:
+    """KDESmoothedProducer wraps KDESmoothedTransition; transition_matrix is delegation."""
+
+    def test_subclass_of_producer(self) -> None:
+        from analytics.ext_v2.producer import KDESmoothedProducer
+
+        assert issubclass(KDESmoothedProducer, Producer)
+
+    def test_transition_matrix_matches_kde_smoothed_transition(self) -> None:
+        from analytics.ext_v2.kde import KDESmoothedTransition
+        from analytics.ext_v2.producer import KDESmoothedProducer
+
+        actions = _make_realistic_actions(n=5000, seed=29)
+        from_producer = (
+            KDESmoothedProducer(kernel="gaussian", bandwidth=2.0, adaptive=False).fit(actions).transition_matrix
+        )
+        from_helper = KDESmoothedTransition(kernel="gaussian", bandwidth=2.0, adaptive=False).fit(actions).matrix
+        np.testing.assert_array_equal(from_producer, from_helper)
+
+    def test_xt_grid_is_xtgrid_instance(self) -> None:
+        from analytics.ext_v2.producer import KDESmoothedProducer
+
+        actions = _make_realistic_actions(n=2000)
+        grid = KDESmoothedProducer(bandwidth=1.5).fit(actions).xt_grid
+        assert isinstance(grid, XTGrid)
+        assert grid.shape == (12, 8)
+
+    def test_kde_kwargs_propagate(self) -> None:
+        """kernel, bandwidth, adaptive must round-trip through producer to its transition."""
+        from analytics.ext_v2.producer import KDESmoothedProducer
+
+        actions = _make_realistic_actions(n=2000, seed=31)
+        p_a = KDESmoothedProducer(kernel="gaussian", bandwidth=0.5).fit(actions)
+        p_b = KDESmoothedProducer(kernel="gaussian", bandwidth=2.0).fit(actions)
+        # Different bandwidths -> different matrices (sanity that bandwidth wires through).
+        assert not np.allclose(p_a.transition_matrix, p_b.transition_matrix)
+
+
+class TestKDESmoothedProducerAPI:
+    def test_xt_grid_before_fit_raises(self) -> None:
+        from analytics.ext_v2.producer import KDESmoothedProducer
+
+        with pytest.raises(RuntimeError, match="fit"):
+            KDESmoothedProducer().xt_grid  # noqa: B018
+
+    def test_transition_matrix_before_fit_raises(self) -> None:
+        from analytics.ext_v2.producer import KDESmoothedProducer
+
+        with pytest.raises(RuntimeError, match="fit"):
+            KDESmoothedProducer().transition_matrix  # noqa: B018
+
+    def test_fit_returns_self(self) -> None:
+        from analytics.ext_v2.producer import KDESmoothedProducer
+
+        actions = _make_realistic_actions(n=200)
+        producer = KDESmoothedProducer()
+        result = producer.fit(actions)
+        assert result is producer
+
+    def test_rejects_missing_columns(self) -> None:
+        from analytics.ext_v2.producer import KDESmoothedProducer
+
+        actions = pd.DataFrame({"type_name": ["pass"], "start_x": [1.0]})
+        with pytest.raises(ValueError, match="missing required columns"):
+            KDESmoothedProducer().fit(actions)
