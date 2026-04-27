@@ -280,7 +280,13 @@ def process_360_matches(
                 # team_id from the per-match list, take the remaining element.
                 F.expr("element_at(array_except(_match_team_ids, array(act_team_id)), 1)")
             )
-            .cast("int"),
+            # cast to long (not int): credits_schema declares
+            # defender_team_id as LongType, AND Spark ANSI mode rejects
+            # LONG-to-INT casts statically (the array_except / element_at
+            # combinator returns LONG by default — observed 2026-04-27 on
+            # PR-#208 deploy: [CAST_OVERFLOW] thrown despite all team_id
+            # values fitting in INT range).
+            .cast("long"),
         )
         .drop("_match_team_ids")
     )
