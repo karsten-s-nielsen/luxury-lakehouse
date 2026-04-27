@@ -213,13 +213,43 @@ models:
         description: Foreign key to dim_teams (NULL for IDSSE/Metrica — see stg_*__passes).
       - name: team_key
         data_type: bigint
-        description: Kimball surrogate FK to dim_teams (PR 7 — populated for all providers via dim_teams JOIN on (provider, native_team_id)).
+        description: >
+          Kimball surrogate FK to dim_teams (PR 7 — populated for all providers
+          via dim_teams JOIN on (provider, native_team_id)). PR 7 hotfix #2:
+          IDSSE staging now reads the DFL-CLU code from `play_team` directly
+          (the bridge JOIN was an obsolete intermediate that 100%-NULL'd team_key
+          for every IDSSE row).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_key
       - name: passer_player_key
         data_type: bigint
-        description: Kimball surrogate FK to dim_players (PR 7 — populated for all providers via dim_players JOIN on (provider, native_player_id)).
+        description: >
+          Kimball surrogate FK to dim_players (PR 7 — populated for all providers
+          via dim_players JOIN on (provider, native_player_id)). PR 7 hotfix #2:
+          Metrica staging now strips the 'Player' / 'Player ' prefix from the
+          source player column so the synthesized native_player_id matches the
+          form dim_players uses (bare numeric per the tracking JSON map keys).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_players')
+                field: player_key
       - name: recipient_player_key
         data_type: bigint
-        description: Kimball surrogate FK to dim_players for recipient (PR 7 — NULL when recipient is unknown).
+        description: >
+          Kimball surrogate FK to dim_players for recipient (PR 7 — NULL when
+          recipient is unknown, e.g. Wyscout open-data has no recipient field
+          + incomplete passes for any provider).
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_players')
+                field: player_key
       - name: start_x
         data_type: double
         description: Starting X coordinate (120-yard scale). May slightly exceed bounds for off-pitch events (corner kicks at endline, throw-ins).

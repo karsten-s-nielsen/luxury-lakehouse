@@ -63,16 +63,33 @@ events_with_native_match_id as (
 
 ),
 
--- PR 5a: hydrate real DFL TeamId via the new home_away bridge. DFL event
--- XML carries play_team as 'home'/'away' string only; the bridge resolves
--- (match_id, side) → DFL-CLU-XXXXXX by joining to tracking's per-frame
--- TeamId. Gives stg_idsse__passes a real team_id_native instead of the
--- useless 'home'/'away' value it previously carried.
+-- PR 5a: hydrate real DFL TeamId via the home_away bridge. The bridge was
+-- written when DFL event XML carried play_team as 'home'/'away' string only;
+-- the bridge resolved (match_id, side) → DFL-CLU-XXXXXX by joining to
+-- tracking's per-frame TeamId.
+--
+-- PR 7 hotfix #2 (2026-04-27): bronze.idsse_events.play_team has since been
+-- normalized at ingest to carry the DFL-CLU code directly (e.g. 'DFL-CLU-00000P').
+-- The bridge JOIN's `lower(e.play_team) = bridge.side` predicate could never
+-- match a 'DFL-CLU-' prefixed string against 'home' / 'away' — resulting in
+-- 5,381 / 5,381 IDSSE pass rows landing in fct_passes with team_key NULL.
+-- Fix: prefer play_team directly when it carries a DFL-CLU code; fall back
+-- to the bridge for any row where play_team is NULL or in the legacy
+-- 'home'/'away' shape (forward-compat with any future ingestion path that
+-- regresses to the legacy shape). The relationships test on
+-- fct_passes.team_key → dim_teams.team_key (filtered by data_source='idsse')
+-- is the structural guard that catches recipe drift like this on first build.
 hydrated as (
 
     select
         e.*,
-        bridge.team_id                                          as bridge_team_id
+        coalesce(
+            case
+                when e.play_team like 'DFL-CLU-%' then cast(e.play_team as string)
+                else cast(null as string)
+            end,
+            bridge.team_id
+        )                                                       as bridge_team_id
     from events_with_native_match_id e
     left join {{ ref('stg_idsse__home_away_teams') }} bridge
         on bridge.match_id = e.native_match_id
