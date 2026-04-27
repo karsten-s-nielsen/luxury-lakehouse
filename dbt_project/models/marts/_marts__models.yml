@@ -2042,13 +2042,23 @@ models:
     columns:
       - name: pass_id
         data_type: string
-        description: FK to fct_passes (surrogate key from int_unified_passes).
+        description: >
+          Kimball surrogate FK to fct_passes (md5(match_key || '-' || event_id
+          || '-' || data_source) — same dbt_utils.generate_surrogate_key recipe
+          fct_passes uses). Resolved in stg_pausa__values from the bronze
+          writer's prefixed native id; the relationships test below is the
+          structural guard that catches recipe drift between staging and the
+          identity-fact mart on first build.
         data_tests:
           - not_null
           - unique
+          - relationships:
+              arguments:
+                to: ref('fct_passes')
+                field: pass_id
       - name: match_id
         data_type: string
-        description: Native match identifier (legacy; passthrough from staging during dual-column window).
+        description: Native prefixed match identifier (e.g. `idsse_J03WMX`); preserved for parity with the obso-pausa-values HF dataset shape during the dual-column window.
       - name: match_key
         data_type: bigint
         description: Kimball surrogate FK to dim_matches (PR 7 — inherited from fct_passes via INNER JOIN on pass_id).

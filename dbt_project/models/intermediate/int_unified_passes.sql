@@ -97,6 +97,14 @@ wyscout_passes as (
         'wyscout'                                               as data_source
     from {{ ref('stg_wyscout__events') }}
     where event_type = 'Pass'
+      -- Wyscout open-data uses `playerId: 0` as an "unknown player" sentinel
+      -- when player attribution failed at capture time. 31 of 1,665,508 (0.002%)
+      -- pass events carry it. Drop here at the staging boundary so dim_players
+      -- LEFT JOIN in fct_passes never has to special-case the sentinel — keeps
+      -- mart invariants strict (`passer_player_key NOT NULL` on every fct_passes
+      -- row from any provider). Mirrors the IDSSE/Metrica pattern of filtering
+      -- source-NULL player ids upstream rather than carrying NULL forward.
+      and player_id is not null and player_id <> 0
 
 ),
 

@@ -111,7 +111,13 @@ def test_fct_passes_team_key_non_null_for_sb_ws(conn: object) -> None:
 
 @requires_databricks
 def test_fct_passes_passer_player_key_non_null_for_sb_ws(conn: object) -> None:
-    """PR 7: passer_player_key resolves 100% on StatsBomb + Wyscout."""
+    """PR 7: passer_player_key resolves 100% on StatsBomb + Wyscout.
+
+    Wyscout open-data uses ``playerId: 0`` as an "unknown player" sentinel
+    (31 of 1,665,508 = 0.002% pass events). PR 7 hotfix filters those rows
+    out at int_unified_passes' Wyscout CTE so the mart-level invariant stays
+    strict (no NULL passer_player_key for any provider, anywhere).
+    """
     cur = conn.cursor()  # type: ignore[attr-defined]
     cur.execute(
         "SELECT count(*) FROM soccer_analytics.dev_gold.fct_passes "
@@ -120,7 +126,35 @@ def test_fct_passes_passer_player_key_non_null_for_sb_ws(conn: object) -> None:
     null_count = cur.fetchone()[0]
     assert null_count == 0, (
         f"fct_passes has {null_count} SB/WS rows with NULL passer_player_key — "
-        "the dim_players JOIN should resolve every SB/WS row."
+        "the dim_players JOIN should resolve every SB/WS row. If Wyscout source "
+        "data has any new `playerId: 0` rows, ensure int_unified_passes' Wyscout "
+        "CTE WHERE clause still filters `player_id <> 0`."
+    )
+
+
+@requires_databricks
+def test_fct_passes_wyscout_has_no_zero_player_id(conn: object) -> None:
+    """Wyscout `playerId: 0` rows must be filtered upstream, not present in the mart.
+
+    Wyscout open-data uses 0 as an "unknown player" sentinel. fct_passes is the
+    canonical "passes by an attributed player" mart — phantom-player rows would
+    over-count downstream player aggregates and pollute pass-network analyses.
+    The filter lives in dbt_project/models/intermediate/int_unified_passes.sql
+    Wyscout CTE: `where event_type = 'Pass' and player_id is not null and player_id <> 0`.
+
+    A failure here means the upstream filter regressed (lost or moved). Investigate
+    int_unified_passes' Wyscout CTE before relaxing the assertion.
+    """
+    cur = conn.cursor()  # type: ignore[attr-defined]
+    cur.execute(
+        "SELECT count(*) FROM soccer_analytics.dev_gold.fct_passes "
+        "WHERE data_source = 'wyscout' AND (player_id IS NULL OR player_id = 0)"
+    )
+    bad_count = cur.fetchone()[0]
+    assert bad_count == 0, (
+        f"fct_passes has {bad_count} Wyscout rows with NULL or 0 player_id — "
+        "the int_unified_passes Wyscout CTE filter regressed. Restore "
+        "`and player_id is not null and player_id <> 0` in the WHERE clause."
     )
 
 
@@ -151,6 +185,13 @@ def test_fct_passes_covers_all_four_providers(conn: object) -> None:
 def test_fct_passes_sb_ws_baseline_preserved(conn: object) -> None:
     """Pre-migration StatsBomb and Wyscout rowcounts captured 2026-04-21.
     These MUST not drift post-migration (IDSSE+Metrica rows are net-new).
+
+    PR 7 hotfix: Wyscout baseline 1,665,508 → 1,665,477 (delta = 31). Cause:
+    int_unified_passes' Wyscout CTE now filters out `player_id = 0` rows
+    (Wyscout open-data "unknown player" sentinel — see
+    test_fct_passes_wyscout_has_no_zero_player_id for the structural test).
+    The 31-row drop is intentional and one-time; future deploys must hold the
+    new baseline.
     """
     cur = conn.cursor()  # type: ignore[attr-defined]
     cur.execute(
@@ -159,7 +200,7 @@ def test_fct_passes_sb_ws_baseline_preserved(conn: object) -> None:
     )
     counts = {row[0]: row[1] for row in cur.fetchall()}
     assert counts.get("statsbomb") == 3_386_907, counts
-    assert counts.get("wyscout") == 1_665_508, counts
+    assert counts.get("wyscout") == 1_665_477, counts
 
 
 # ---------------------------------------------------------------------------
