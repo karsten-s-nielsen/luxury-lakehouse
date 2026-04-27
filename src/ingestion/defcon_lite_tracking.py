@@ -237,7 +237,7 @@ def process_tracking_matches(
     Returns number of rows written.
     """
     from pyspark.sql import functions as F  # noqa: N812
-    from pyspark.sql.types import DoubleType, LongType, StringType, StructField, StructType
+    from pyspark.sql.types import DoubleType, FloatType, LongType, StringType, StructField, StructType
 
     action_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_action_values"
     tracking_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_tracking_frames"
@@ -321,7 +321,11 @@ def process_tracking_matches(
             StructField("defender_team_id", LongType(), nullable=True),
             StructField("defender_x", DoubleType(), nullable=True),
             StructField("defender_y", DoubleType(), nullable=True),
-            StructField("action_player_id", StringType(), nullable=True),
+            # action_player_id LongType (not StringType): pdf carries int64
+            # from BIGINT act_player_id; bronze DDL says BIGINT; pyarrow
+            # refuses int->string coercion in applyInPandas. Mirrors the
+            # 2026-04-27 fix in defcon_lite_360.py.
+            StructField("action_player_id", LongType(), nullable=True),
             StructField("action_type", StringType(), nullable=True),
             StructField("action_x", DoubleType(), nullable=True),
             StructField("action_y", DoubleType(), nullable=True),
@@ -357,13 +361,15 @@ def process_tracking_matches(
             StructField("defender_team_id", LongType(), nullable=True),
             StructField("defender_x", DoubleType(), nullable=True),
             StructField("defender_y", DoubleType(), nullable=True),
-            StructField("action_player_id", StringType(), nullable=True),
+            # action_player_id LongType — see credits_schema rationale above.
+            StructField("action_player_id", LongType(), nullable=True),
             StructField("action_type", StringType(), nullable=True),
             StructField("action_x", DoubleType(), nullable=True),
             StructField("action_y", DoubleType(), nullable=True),
             StructField("credit_type", StringType(), nullable=True),
             StructField("confidence", StringType(), nullable=True),
-            StructField("defcon_value", DoubleType(), nullable=True),
+            # defcon_value FloatType — see defcon_lite_360.py rationale.
+            StructField("defcon_value", FloatType(), nullable=True),
             StructField("dist_to_ball", DoubleType(), nullable=True),
             StructField("pitch_control_at_action", DoubleType(), nullable=True),
             StructField("data_source", StringType(), nullable=True),

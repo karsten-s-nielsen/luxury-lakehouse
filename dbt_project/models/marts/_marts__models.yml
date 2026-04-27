@@ -1451,7 +1451,12 @@ models:
           - unique
           - not_null
       - name: player_id
-        data_type: int
+        # bigint, not int: bronze.defcon_results.defender_player_id is BIGINT
+        # because StatsBomb 360 freeze frames are anonymous and the synthetic
+        # ID is generated via monotonically_increasing_id() which produces
+        # 64-bit values exceeding INT range under multi-partition serverless
+        # (PR #210, 2026-04-27). Casting BIGINT->INT statically fails ANSI.
+        data_type: bigint
         description: Foreign key to dim_players
         data_tests:
           - not_null
@@ -1472,13 +1477,13 @@ models:
               config:
                 severity: warn
       - name: competition_id
-        data_type: int
+        data_type: bigint
         description: Foreign key to dim_competitions
       - name: season_id
-        data_type: int
+        data_type: bigint
         description: Season identifier
       - name: team_id
-        data_type: int
+        data_type: bigint
         description: Foreign key to dim_teams
       - name: data_source
         data_type: string
@@ -1591,7 +1596,8 @@ models:
         data_tests:
           - not_null
       - name: player_id
-        data_type: int
+        # bigint, not int — see fct_defensive_values.player_id rationale.
+        data_type: bigint
         description: Credited defender player ID
         data_tests:
           - not_null
@@ -1624,13 +1630,13 @@ models:
         data_tests:
           - not_null
       - name: competition_id
-        data_type: int
+        data_type: bigint
         description: Foreign key to dim_competitions
       - name: season_id
-        data_type: int
+        data_type: bigint
         description: Season identifier
       - name: team_id
-        data_type: int
+        data_type: bigint
         description: Foreign key to dim_teams
       - name: defender_x
         data_type: double
@@ -1639,7 +1645,7 @@ models:
         data_type: double
         description: Defender Y coordinate (SPADL 105x68 meters)
       - name: action_player_id
-        data_type: int
+        data_type: bigint
         description: Player who performed the action
       - name: action_type
         data_type: string
@@ -1740,7 +1746,8 @@ models:
           - unique
           - not_null
       - name: player_id
-        data_type: int
+        # bigint, not int — see fct_defensive_values.player_id rationale.
+        data_type: bigint
         description: Foreign key to dim_players (real attacker player_id)
         data_tests:
           - not_null
@@ -1766,10 +1773,10 @@ models:
               config:
                 severity: warn
       - name: competition_id
-        data_type: int
+        data_type: bigint
         description: Foreign key to dim_competitions
       - name: season_id
-        data_type: int
+        data_type: bigint
         description: Season identifier
       - name: data_source
         data_type: string

@@ -164,11 +164,15 @@ def test_fct_action_values_legacy_match_id_matches_new_key(conn: object) -> None
 
 _FCT_DEFENSIVE_VALUES_EXPECTED_COLS: dict[str, str] = {
     "defensive_value_id": "string",
-    "player_id": "int",
+    # bigint, not int — bronze.defcon_results stores BIGINT IDs because the
+    # 360-synthetic defender_player_id from monotonically_increasing_id()
+    # exceeds INT range under multi-partition serverless. Widening propagated
+    # end-to-end 2026-04-27 to fix CAST_OVERFLOW on staging not_null tests.
+    "player_id": "bigint",
     "match_id": "string",
-    "competition_id": "int",
-    "season_id": "int",
-    "team_id": "int",
+    "competition_id": "bigint",
+    "season_id": "bigint",
+    "team_id": "bigint",
     "data_source": "string",
     # PR 6 Kimball surrogates
     "match_key": "bigint",
@@ -194,13 +198,14 @@ _FCT_DEFCON_ACTIONS_EXPECTED_COLS: dict[str, str] = {
     "defcon_action_id": "string",
     "event_id": "string",
     "match_id": "string",
-    "competition_id": "int",
-    "season_id": "int",
-    "player_id": "int",
-    "team_id": "int",
+    # bigint — see _FCT_DEFENSIVE_VALUES_EXPECTED_COLS rationale.
+    "competition_id": "bigint",
+    "season_id": "bigint",
+    "player_id": "bigint",
+    "team_id": "bigint",
     "defender_x": "double",
     "defender_y": "double",
-    "action_player_id": "int",
+    "action_player_id": "bigint",
     "action_type": "string",
     "action_x": "double",
     "action_y": "double",
@@ -221,10 +226,11 @@ _FCT_DEFCON_ACTIONS_EXPECTED_COLS: dict[str, str] = {
 
 _FCT_DEFCON_PRESSURE_EXPECTED_COLS: dict[str, str] = {
     "pressure_id": "string",
-    "player_id": "int",
+    # bigint — see _FCT_DEFENSIVE_VALUES_EXPECTED_COLS rationale.
+    "player_id": "bigint",
     "match_id": "string",
-    "competition_id": "int",
-    "season_id": "int",
+    "competition_id": "bigint",
+    "season_id": "bigint",
     "data_source": "string",
     # PR 6 Kimball surrogates
     "match_key": "bigint",
