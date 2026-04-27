@@ -84,6 +84,49 @@ _CASES: tuple[tuple[str, str, float], ...] = (
     ("fct_gk_actions_detail", "match_key", 0.99),
     ("fct_gk_actions_detail", "team_key", 0.99),
     ("fct_gk_actions_detail", "player_key", 0.99),
+    # PR 7 — conformed-fact closures (Step IX). Initial thresholds are 0.0
+    # (smoke-test the column exists and the test runs); thresholds calibrated
+    # post-Phase-2 rebuild per `feedback_evidence_before_claim` and committed
+    # in the same PR's 2nd commit (or a follow-up if needed).
+    ("fct_passes", "team_key", 0.0),
+    ("fct_passes", "passer_player_key", 0.0),
+    # recipient_player_key — NULL by design on incomplete passes; threshold
+    # stays 0.0 even after calibration. Test asserts column existence only.
+    ("fct_passes", "recipient_player_key", 0.0),
+    ("fct_shots", "team_key", 0.0),
+    ("fct_shots", "player_key", 0.0),
+    ("fct_action_values", "team_key", 0.0),
+    ("fct_action_values", "player_key", 0.0),
+    ("fct_line_breaking_results", "team_key", 0.0),
+    ("fct_line_breaking_results", "player_key", 0.0),
+    # PR 7 — fct_match_summary cross-provider home/away resolution.
+    ("fct_match_summary", "home_team_key", 0.0),
+    ("fct_match_summary", "away_team_key", 0.0),
+    # PR 7 — tracking subsystem (existing at checkpoint d4f2004 + new this PR).
+    ("fct_tracking_frames", "match_key", 0.0),
+    ("fct_tracking_frames", "team_key", 0.0),
+    ("fct_tracking_frames", "player_key", 0.0),
+    ("fct_player_positions", "match_key", 0.0),
+    ("fct_player_positions", "team_key", 0.0),
+    ("fct_player_positions", "player_key", 0.0),
+    ("fct_position_maps", "match_key", 0.0),
+    ("fct_position_maps", "team_key", 0.0),
+    ("fct_position_maps", "player_key", 0.0),
+    ("fct_formation_labels", "match_key", 0.0),
+    ("fct_formation_labels", "team_key", 0.0),
+    ("fct_physical_stats", "match_key", 0.0),
+    ("fct_physical_stats", "player_key", 0.0),
+    # PR 7 — off-ball / space / discipline.
+    ("fct_off_ball_xt", "match_key", 0.0),
+    ("fct_off_ball_xt", "player_key", 0.0),
+    ("fct_discipline_events", "match_key", 0.0),
+    ("fct_discipline_events", "team_key", 0.0),
+    ("fct_discipline_events", "player_key", 0.0),
+    # PR 7 — pausa subsystem (only when pausa_enabled at runtime; the live
+    # query handles disabled-mart-empty-result via the threshold check).
+    ("fct_pass_timing", "match_key", 0.0),
+    ("fct_pass_timing", "player_key", 0.0),
+    ("fct_pausa_rankings", "player_key", 0.0),
 )
 
 

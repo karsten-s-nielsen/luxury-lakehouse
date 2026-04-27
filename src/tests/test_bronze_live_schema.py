@@ -439,3 +439,50 @@ def test_xg_predictions_v2_live_schema_covers_writer(conn: object) -> None:
             "Fix: re-run compute_xg_model_v2 with the current writer code."
         )
         raise AssertionError(msg)
+
+
+# ---------------------------------------------------------------------------
+# PAUSA values — added in PR 7 (ADR-013 second application)
+# ---------------------------------------------------------------------------
+
+
+_PAUSA_BRONZE_COLS: tuple[str, ...] = (
+    "pass_id",
+    "match_id",
+    "player_id",
+    "team",
+    "period",
+    "timestamp_seconds",
+    "frame_id",
+    "temporal_judgment",
+    "spatial_selection",
+    "pausa_score",
+    "actual_obso",
+    "peak_obso",
+    "optimal_obso",
+    "receiver_x",
+    "receiver_y",
+)
+
+
+@requires_databricks
+def test_pausa_values_live_schema_covers_writer(conn: object) -> None:
+    """Every column the pausa writer emits must exist in live bronze.pausa_values.
+
+    PR 7 (ADR-013 second application): src/ingestion/pausa.py retargets from
+    direct gold-write to bronze.pausa_values; the dbt-built mart fct_pausa_values
+    inherits Kimball FKs via INNER JOIN to fct_passes on pass_id.
+    """
+    expected = set(_PAUSA_BRONZE_COLS)
+    actual = _live_bronze_cols(conn, "pausa_values") - _AUDIT_COLS
+    missing = expected - actual
+    if missing:
+        msg = (
+            f"\n[PAUSA] Live bronze.pausa_values is missing "
+            f"{len(missing)} column(s) the writer emits: {sorted(missing)}\n"
+            f"Expected (per src/ingestion/pausa.py _RESULTS_SCHEMA): {sorted(expected)}\n"
+            f"Actual (live, minus audit cols): {sorted(actual)}\n"
+            "Fix: drop dev_gold.fct_pausa_values + re-trigger wf-obso-pausa "
+            "(post-PR-7 deploy step). The writer now targets bronze.pausa_values."
+        )
+        raise AssertionError(msg)
