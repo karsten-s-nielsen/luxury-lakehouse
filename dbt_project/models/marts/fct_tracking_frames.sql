@@ -1,8 +1,9 @@
 {{ config(
     materialized='incremental',
     unique_key='tracking_id',
-    liquid_clustered_by=['match_id'],
-    incremental_strategy='merge'
+    liquid_clustered_by=['match_key'],
+    incremental_strategy='merge',
+    on_schema_change='append_new_columns'
 ) }}
 -- fct_tracking_frames.sql
 -- Enriched tracking data from all providers (Metrica, IDSSE, SkillCorner).
@@ -35,16 +36,14 @@ existing_matches as (
 
 tracking as (
 
-    -- Post PR #174 drop-safety sweep, the three tracking staging views have
-    -- diverged in column count (metrica=20, idsse=15, skillcorner=21) because
-    -- each now surfaces provider-specific metadata (metrica: formation lineups,
-    -- pitch dimensions; skillcorner: ball state, team ids, z-coordinate). The
-    -- fct_tracking_frames `final` CTE only consumes the 14 shared columns, so
-    -- we project each staging view to that common schema before UNION ALL.
+    -- PR 7 (ADR-011): tracking staging now surfaces team_id per Q1 (IDSSE
+    -- real DFL TeamId from PR 5a; Metrica synthesized via dim_teams pattern;
+    -- SkillCorner via home_team_id/away_team_id CASE). The 15-column shared
+    -- schema includes team_id so dim_teams JOINs at mart layer resolve cleanly.
     -- Revisit if any provider-specific column starts driving downstream logic.
     select
         tracking_id, match_id, period, frame, timestamp_seconds,
-        frame_rate, player_id, team, source_provider, is_goalkeeper,
+        frame_rate, player_id, team, team_id, source_provider, is_goalkeeper,
         x, y, ball_x, ball_y
     from {{ ref('stg_metrica__tracking') }}
     {% if is_incremental() %}
@@ -53,7 +52,7 @@ tracking as (
     union all
     select
         tracking_id, match_id, period, frame, timestamp_seconds,
-        frame_rate, player_id, team, source_provider, is_goalkeeper,
+        frame_rate, player_id, team, team_id, source_provider, is_goalkeeper,
         x, y, ball_x, ball_y
     from {{ ref('stg_idsse__tracking') }}
     {% if is_incremental() %}
@@ -62,7 +61,7 @@ tracking as (
     union all
     select
         tracking_id, match_id, period, frame, timestamp_seconds,
-        frame_rate, player_id, team, source_provider, is_goalkeeper,
+        frame_rate, player_id, team, team_id, source_provider, is_goalkeeper,
         x, y, ball_x, ball_y
     from {{ ref('stg_skillcorner__tracking') }}
     {% if is_incremental() %}
@@ -125,41 +124,50 @@ with_lag_2 as (
 ),
 
 -- Final output with acceleration derived from consecutive speed_ms values.
+-- PR 7 (ADR-011): adds Kimball surrogate FKs match_key + team_key + player_key
+-- via LEFT JOINs to dim_matches / dim_teams / dim_players using
+-- (provider, native_id) pairs. Coexists with legacy match_id / team_id /
+-- player_id during the 2026-07-22 dual-column window.
 final as (
 
     select
-        tracking_id,
-        match_id,
-        period,
-        frame,
-        timestamp_seconds,
-        player_id,
-        team,
-        source_provider,
-        is_goalkeeper,
-        frame_rate,
-        x,
-        y,
-        ball_x,
-        ball_y,
+        wl.tracking_id,
+        wl.match_id,
+        dm.match_key,
+        wl.period,
+        wl.frame,
+        wl.timestamp_seconds,
+        wl.player_id,
+        dp.player_key,
+        wl.team,
+        wl.team_id,
+        dt.team_key,
+        wl.source_provider,
+        wl.source_provider                              as data_source,
+        wl.is_goalkeeper,
+        wl.frame_rate,
+        wl.x,
+        wl.y,
+        wl.ball_x,
+        wl.ball_y,
 
         -- Distance to ball (Euclidean, SB coordinate units)
         sqrt(
-            power(x - ball_x, 2) + power(y - ball_y, 2)
+            power(wl.x - wl.ball_x, 2) + power(wl.y - wl.ball_y, 2)
         )                                               as distance_to_ball,
 
         -- Velocity in SB coordinate units/second (backward compat)
-        velocity_x,
-        velocity_y,
-        speed,
+        wl.velocity_x,
+        wl.velocity_y,
+        wl.speed,
 
         -- Velocity in m/s (anisotropic-scaled)
-        velocity_x_ms,
-        velocity_y_ms,
-        speed_ms,
+        wl.velocity_x_ms,
+        wl.velocity_y_ms,
+        wl.speed_ms,
 
         -- Acceleration in m/s^2: (speed_ms - prev_speed_ms) * frame_rate
-        (speed_ms - prev_speed_ms) * frame_rate         as acceleration_ms2,
+        (wl.speed_ms - wl.prev_speed_ms) * wl.frame_rate as acceleration_ms2,
 
         -- Pitch control value at this player's location
         -- Populated by external Python model via MLflow (Phase 11+)
@@ -169,7 +177,16 @@ final as (
         -- Computed by external spatial analysis pipeline (Phase 11+)
         cast(null as double)                            as voronoi_area
 
-    from with_lag_2
+    from with_lag_2 wl
+    left join {{ ref('dim_matches') }} dm
+        on  dm.provider = wl.source_provider
+       and dm.native_match_id = cast(wl.match_id as string)
+    left join {{ ref('dim_teams') }} dt
+        on  dt.provider = wl.source_provider
+       and dt.native_team_id = cast(wl.team_id as string)
+    left join {{ ref('dim_players') }} dp
+        on  dp.provider = wl.source_provider
+       and dp.native_player_id = cast(wl.player_id as string)
 
 )
 

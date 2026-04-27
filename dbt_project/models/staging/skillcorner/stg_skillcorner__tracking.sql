@@ -35,6 +35,15 @@ normalized as (
         player_id,
         team,
 
+        -- Team_id derivation (PR 7, ADR-011): SkillCorner emits real team_ids
+        -- via home_team_id / away_team_id bronze passthroughs. Project the
+        -- correct one based on the team='home'/'away' role so downstream
+        -- tracking marts can LEFT JOIN dim_teams cleanly.
+        case
+            when team = 'home' then home_team_id
+            when team = 'away' then away_team_id
+        end                                             as team_id,
+
         -- Source provider
         'skillcorner'                                   as source_provider,
 

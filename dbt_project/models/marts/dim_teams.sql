@@ -129,6 +129,27 @@ metrica_real_teams as (
 
 ),
 
+skillcorner_teams as (
+
+    -- PR 7 (ADR-011 close-out): SkillCorner onboarded into dim_teams.
+    -- Real SkillCorner team_ids from bronze.skillcorner_tracking via
+    -- home_team_id/away_team_id passthroughs (surfaced in stg_skillcorner__tracking
+    -- post-PR-7 team_id derivation). No team_name in bronze (SkillCorner
+    -- broadcast tracking doesn't carry team names); is_anonymized=true so
+    -- consumers know name is unavailable.
+    select distinct
+        'skillcorner'                                   as provider,
+        cast(team_id as string)                         as native_team_id,
+        cast(null as bigint)                            as team_id_legacy,
+        concat('SkillCorner Team ', team_id)            as team_name,
+        false                                           as is_synthesized,
+        true                                            as is_anonymized,
+        'skillcorner_no_team_names_in_bronze'           as synthesis_reason
+    from {{ ref('stg_skillcorner__tracking') }}
+    where team_id is not null
+
+),
+
 unioned as (
 
     select * from statsbomb_teams
@@ -142,6 +163,8 @@ unioned as (
     select * from metrica_anon_teams
     union all
     select * from metrica_real_teams
+    union all
+    select * from skillcorner_teams
 
 ),
 

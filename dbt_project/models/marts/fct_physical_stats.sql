@@ -1,8 +1,9 @@
 {{ config(
     materialized='incremental',
     unique_key='physical_stats_id',
-    liquid_clustered_by=['match_id'],
-    incremental_strategy='merge'
+    liquid_clustered_by=['match_key'],
+    incremental_strategy='merge',
+    on_schema_change='append_new_columns'
 ) }}
 -- fct_physical_stats.sql
 -- Per-player per-match physical performance aggregation from tracking data.
@@ -35,8 +36,11 @@ frames as (
 
     select
         player_id,
+        player_key,
         match_id,
+        match_key,
         source_provider,
+        data_source,
         frame_rate,
         period,
         frame,
@@ -61,8 +65,11 @@ player_match_stats as (
 
     select
         player_id,
+        any_value(player_key)                               as player_key,
         match_id,
+        any_value(match_key)                                as match_key,
         min(source_provider)                                as source_provider,
+        any_value(data_source)                              as data_source,
         min(frame_rate)                                     as frame_rate,
 
         -- Minutes played (estimated from frame range)
@@ -124,10 +131,13 @@ off_ball_xt as (
 final as (
 
     select
-        {{ dbt_utils.generate_surrogate_key(['s.player_id', 's.match_id']) }} as physical_stats_id,
+        {{ dbt_utils.generate_surrogate_key(['s.player_id', 's.match_id', 's.data_source']) }} as physical_stats_id,
         s.player_id,
+        s.player_key,
         s.match_id,
+        s.match_key,
         s.source_provider,
+        s.data_source,
         s.frame_rate,
         s.minutes_played,
         s.total_distance_m,

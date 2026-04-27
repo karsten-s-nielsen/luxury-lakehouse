@@ -104,6 +104,14 @@ normalized as (
         player_id,
         team,
 
+        -- Team_id derivation (PR 7, ADR-011): synthesizes the team_id that
+        -- matches dim_teams.native_team_id for Metrica anonymized teams.
+        -- PR 5a created dim_teams Metrica rows with native_team_id =
+        -- concat('metrica_', match_id, '_', team_role) where team_role is
+        -- 'home'/'away'. Surface here so downstream tracking marts can
+        -- LEFT JOIN dim_teams cleanly without re-deriving.
+        concat('metrica_', match_id, '_', team)         as team_id,
+
         -- Source provider
         'metrica'                                       as source_provider,
 
