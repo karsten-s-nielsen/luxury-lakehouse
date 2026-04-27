@@ -35,25 +35,10 @@ deduplicated as (
 
 cleaned as (
 
-    -- PR 7 transitional: existing bronze rows pre-date the writer schema
-    -- widening — they have NULL data_source / match_key. Backfill data_source
-    -- via the PR 6 prefix-CASE on match_id so the downstream not_null test
-    -- holds across both schemas. match_key stays NULL on legacy rows
-    -- (relationships test gates on `where match_key IS NOT NULL`); Phase 2
-    -- redeploy of wf-pitch-control with the widened writer populates both
-    -- columns natively. After full re-population, the COALESCE branch
-    -- becomes dead code and can be removed.
     select
         cast(tracking_id as string)              as tracking_id,
         cast(match_id as string)                 as match_id,
-        coalesce(
-            cast(data_source as string),
-            case
-                when match_id like 'idsse_%'        then 'idsse'
-                when match_id like 'Sample_Game_%'  then 'metrica'
-                when match_id like 'skillcorner_%'  then 'skillcorner'
-            end
-        )                                        as data_source,
+        cast(data_source as string)              as data_source,
         cast(match_key as bigint)                as match_key,
         cast(pitch_control_value as double)      as pitch_control_value,
         _ingested_at

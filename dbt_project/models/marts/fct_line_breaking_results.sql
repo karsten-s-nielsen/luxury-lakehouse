@@ -47,21 +47,22 @@ with line_breaking_raw as (
 
 passes_for_keys as (
 
-    -- PR 7: surface (event_id, data_source, native_*) from int_unified_passes
-    -- for team_key + player_key resolution. View materialization makes this
-    -- a cheap reference rather than a duplicate scan. GROUP BY collapses any
-    -- duplicate (event_id, data_source) pairs in upstream staging
-    -- (defensive — empirically int_unified_passes has 1 row per pass, but
-    -- the live-CI MERGE failure on a duplicate fct_line_breaking_results
-    -- target row proved the assumption was thin) so the LEFT JOIN below
-    -- never multiplies line_breaking_raw rows.
+    -- PR 7: surface (match_key, event_id, data_source, native_*) from
+    -- int_unified_passes for team_key + player_key resolution. The JOIN
+    -- key MUST include match_key — IDSSE / Metrica event_id strings are
+    -- per-match, not globally unique, so JOINing on (event_id, data_source)
+    -- alone multiplies line_breaking_raw rows when the same event_id
+    -- string repeats across matches with different teams/players. Adding
+    -- match_key matches int_unified_passes' own pass identity grain
+    -- (the same (match_key, event_id, data_source) triple that
+    -- fct_passes.pass_id surrogates over).
     select
+        match_key,
         event_id,
         data_source,
-        max(native_team_id)                             as native_team_id,
-        max(native_player_id)                           as native_player_id
+        native_team_id,
+        native_player_id
     from {{ ref('int_unified_passes') }}
-    group by event_id, data_source
 
 ),
 
@@ -81,7 +82,8 @@ keyed as (
         on dm.provider = lb.provider
        and dm.native_match_id = lb.native_match_id
     left join passes_for_keys p
-        on  p.event_id = lb.event_id
+        on  p.match_key = dm.match_key
+       and p.event_id = lb.event_id
        and p.data_source = lb.provider
     left join {{ ref('dim_teams') }} dt
         on  dt.provider = lb.provider
