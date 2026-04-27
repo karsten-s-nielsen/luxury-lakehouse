@@ -149,21 +149,44 @@ def poll_run(
     max_attempts: int = _MAX_POLL_ATTEMPTS,
     poll_interval_s: int = _POLL_INTERVAL_S,
 ) -> RunResult:
-    """Poll /api/2.0/jobs/runs/get until terminal state or max_attempts."""
-    host = host.rstrip("/").removeprefix("https://").removeprefix("http://")
+    """Poll until terminal state or max_attempts.
+
+    Uses WorkspaceClient.jobs.get_run for the poll loop — the SDK handles
+    OIDC token rotation transparently. Pre-PR-6-followup this used direct
+    requests.get with a static Authorization header, which 403s after ~5
+    min when the GitHub OIDC token expires (verified 2026-04-27 on PR
+    #207's first live-build run: 19 polls succeeded, attempt 20 hit 403
+    even though the underlying dbt job was still in flight and ultimately
+    succeeded). The SDK's auth provider auto-refreshes tokens via the
+    GitHub workload identity federation flow, so polls past the original
+    OIDC TTL keep working.
+
+    `host` and `token` are retained for backward compatibility with manual
+    invocations (for ``DATABRICKS_AUTH_TYPE`` unset). When the OIDC env is
+    detected (CI), the SDK constructor reads the federation config from
+    env directly and ignores the static token.
+    """
+    import os
+
+    from databricks.sdk import WorkspaceClient
+
+    # Prefer ambient env (OIDC federation auto-refresh); fall back to
+    # explicit (host, token) for manual invocations.
+    if os.environ.get("DATABRICKS_AUTH_TYPE") == "github-oidc":
+        ws = WorkspaceClient()
+    else:
+        ws_host = host.rstrip("/").removeprefix("https://").removeprefix("http://")
+        ws = WorkspaceClient(host=f"https://{ws_host}", token=token)
+
     for attempt in range(max_attempts):
-        resp = requests.get(
-            # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
-            f"https://{host}/api/2.0/jobs/runs/get?run_id={run_id}",
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=(10, 30),
-            verify=True,
-        )
-        resp.raise_for_status()
-        body = resp.json()
-        life = body.get("state", {}).get("life_cycle_state", "")
-        result = body.get("state", {}).get("result_state")
-        url = body.get("run_page_url", "")
+        run = ws.jobs.get_run(run_id=run_id)
+        state = run.state
+        life_enum = state.life_cycle_state if state else None
+        result_enum = state.result_state if state else None
+        # SDK enums expose .value (e.g. RunLifeCycleState.RUNNING.value == "RUNNING").
+        life = life_enum.value if life_enum is not None else ""
+        result = result_enum.value if result_enum is not None else None
+        url = run.run_page_url or ""
         logger.info(
             "run_id=%d attempt=%d life_cycle_state=%s result_state=%s",
             run_id,

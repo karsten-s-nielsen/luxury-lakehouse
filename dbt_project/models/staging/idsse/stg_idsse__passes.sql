@@ -24,14 +24,28 @@
 --     cross-provider reconciliation in a future PR (dim_teams /
 --     dim_players surrogate keys akin to dim_matches.match_key).
 --
---   * end_x / end_y derived in PR 6 via ball-frame tracking lookup
---     (LEFT JOIN stg_idsse__tracking on (match_id, period, end_frame=frame)
---     to recover ball position at end-of-pass). NULL when end_frame is
---     null or the tracking lookup misses.
+--   * end_x / end_y derived via two-tier strategy:
+--     (a) PREFERRED: frame-based ball lookup (LEFT JOIN stg_idsse__tracking
+--         on (match_id, period, end_frame=frame) to recover ball position
+--         at end-of-pass). Activates when end_frame IS NOT NULL — currently
+--         0% on the figshare CC-BY 4.0 research-tier release (verified
+--         2026-04-27 via raw DFL XML inspection: Play XML elements in
+--         research-tier files do not carry StartFrame/EndFrame despite
+--         the schema documenting them); becomes the dominant path on
+--         commercial DFL subscription data tiers that include the
+--         frame attributes per the DFL_03_02 schema.
+--     (b) FALLBACK: next-event start position. LEAD-window over all events
+--         in the same (match, period) ordered by timestamp + event_id —
+--         the SPADL convention used by socceraction et al. for providers
+--         without explicit pass-end coords. Always available (~99%
+--         coverage; NULL only at end-of-period boundary).
+--     Combined via COALESCE — frame wins when populated, fallback fills
+--     the gap. No re-migration needed when subscription data lands.
 --
 --   * is_progressive evaluated via the standard cross-provider rule
 --     (distance_to_goal end < progressive_pass_ratio * distance_to_goal start)
---     applied to the derived end coords. NULL-preserving.
+--     applied to the derived end coords. NULL-preserving when both
+--     mechanisms produce NULL (only at end-of-period boundary).
 
 with source as (
 
@@ -66,10 +80,13 @@ hydrated as (
 
 ),
 
--- PR 6 (ADR-011): ball position at the pass-end frame, used to derive
--- end_x/end_y + is_progressive. Tracking replicates ball_x/ball_y across
--- per-player rows for the same frame; DISTINCT collapses to one row per
--- (match, period, frame).
+-- PR 6 / PR 6-followup: ball position at the pass-end frame.
+-- PREFERRED end-coord source when end_frame is populated (commercial DFL
+-- subscription tiers). Tracking replicates ball_x/ball_y across per-player
+-- rows for the same frame; DISTINCT collapses to one row per (match, period,
+-- frame). On the figshare CC-BY 4.0 research-tier release this CTE produces
+-- a useful row but bef.ball_x/ball_y are joined as NULL because end_frame
+-- is itself NULL across all 5,381 Play rows there.
 ball_at_end_frame as (
 
     select distinct
@@ -84,22 +101,50 @@ ball_at_end_frame as (
 
 ),
 
+-- PR 6-followup: next-event end coords (FALLBACK).
+-- Standard SPADL convention used by socceraction / Wyscout-derived
+-- pipelines for providers without explicit pass-end coords: the pass
+-- ends at the start position of the chronologically next event in the
+-- same (match, period). LEAD-window over ALL events (Play + non-Play).
+-- Always available except at end-of-period (last event has no successor
+-- in the partition). Coordinates normalized to 120x80 inline so the
+-- COALESCE downstream uses a single coordinate convention.
+events_with_next as (
+
+    select
+        cast(event_id as string)                                as event_id,
+        lead({{ normalize_x('x', 'pitch_m') }}) over (
+            partition by match_id, period
+            order by timestamp_seconds, event_id
+        )                                                       as next_event_x,
+        lead({{ normalize_y('y', 'pitch_m') }}) over (
+            partition by match_id, period
+            order by timestamp_seconds, event_id
+        )                                                       as next_event_y
+    from {{ source('idsse', 'idsse_events') }}
+
+),
+
 -- PR 6: precompute normalized start + end coordinates so the final SELECT
 -- can reference them by alias in the is_progressive CASE expression
 -- without repeating the normalize_x / normalize_y macro expansion.
+-- PR 6-followup: end coords are now COALESCE(frame_lookup, next_event_start) —
+-- frame-based wins when populated, next-event-start fills the gap.
 with_end_coords as (
 
     select
         h.*,
         {{ normalize_x('h.x', 'pitch_m') }}                     as _start_x_normalized,
         {{ normalize_y('h.y', 'pitch_m') }}                     as _start_y_normalized,
-        bef.ball_x                                              as _end_x_normalized,
-        bef.ball_y                                              as _end_y_normalized
+        coalesce(bef.ball_x, ene.next_event_x)                  as _end_x_normalized,
+        coalesce(bef.ball_y, ene.next_event_y)                  as _end_y_normalized
     from hydrated h
     left join ball_at_end_frame bef
         on  bef.match_id = h.native_match_id
        and bef.period   = cast(h.period as int)
        and bef.frame    = cast(h.end_frame as int)
+    left join events_with_next ene
+        on  ene.event_id = cast(h.event_id as string)
 
 ),
 
