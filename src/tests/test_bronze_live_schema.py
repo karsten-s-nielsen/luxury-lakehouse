@@ -379,6 +379,39 @@ def test_skillcorner_tracking_live_schema_covers_parser(conn: object) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Pitch control values — promoted to first-class in PR 6 (ADR-011)
+# ---------------------------------------------------------------------------
+
+
+@requires_databricks
+def test_pitch_control_values_live_schema_covers_writer(conn: object) -> None:
+    """Every column the pitch_control_batch writer emits must exist in live
+    bronze.pitch_control_values.
+
+    PR 6 (ADR-011): closed a previously-uncovered bronze table; the
+    staging promotion (data_source + match_key) is upstream-derived only,
+    so this test guards against the writer's bronze contract drifting
+    from the live Delta schema.
+    """
+    sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
+    from ingestion.pitch_control_batch import _PITCH_CONTROL_BRONZE_COLS
+
+    expected = set(_PITCH_CONTROL_BRONZE_COLS) - _AUDIT_COLS
+    actual = _live_bronze_cols(conn, "pitch_control_values") - _AUDIT_COLS
+    missing = expected - actual
+    if missing:
+        msg = (
+            f"\n[Pitch Control] Live bronze.pitch_control_values is missing "
+            f"{len(missing)} column(s) the writer emits: {sorted(missing)}\n"
+            f"Expected: {sorted(set(_PITCH_CONTROL_BRONZE_COLS))}\n"
+            f"(per ingestion.pitch_control_batch._PITCH_CONTROL_BRONZE_COLS)\n"
+            f"Actual (live, minus audit cols): {sorted(actual)}\n"
+            "Fix: re-run compute_pitch_control with the current writer code."
+        )
+        raise AssertionError(msg)
+
+
+# ---------------------------------------------------------------------------
 # xG v2 predictions — added in PR 3 (ADR-013)
 # ---------------------------------------------------------------------------
 

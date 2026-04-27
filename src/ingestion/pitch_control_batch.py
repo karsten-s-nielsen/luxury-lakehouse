@@ -37,6 +37,17 @@ if TYPE_CHECKING:
 
 _TABLE_NAME = "pitch_control_values"
 _RESULTS_SCHEMA = "tracking_id STRING, match_id STRING, pitch_control_value DOUBLE, _ingested_at TIMESTAMP"
+
+# Bronze contract — column names emitted by the writer. Single source of
+# truth for test_pitch_control_bronze_coverage.py +
+# test_bronze_live_schema.py (PR 6, ADR-011 first-class promotion of
+# stg_pitch_control__values).
+_PITCH_CONTROL_BRONZE_COLS: tuple[str, ...] = (
+    "tracking_id",
+    "match_id",
+    "pitch_control_value",
+    "_ingested_at",
+)
 _guard_logger = logging.getLogger(f"{__name__}.guard")
 
 # Default number of source frames per batch group.  Each batch is processed

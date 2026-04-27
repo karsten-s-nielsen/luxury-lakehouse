@@ -6,21 +6,56 @@ models:
       meta:
         data_sensitivity: public
         contains_pii: false
-    description: "Deduplicated pitch control values from bronze layer."
+    description: >
+      Deduplicated pitch control values from bronze layer with Kimball-conformed
+      FKs (PR 6, ADR-011). Grain: one row per (match, period, frame, player) —
+      the same grain as fct_tracking_frames. Consumer:
+      notebooks/publish_datasets.py INNER JOINs on tracking_id to publish
+      luxury-lakehouse/pitch-control-tracking.
     columns:
       - name: tracking_id
-        description: "FK to fct_tracking_frames"
+        description: "Primary key — FK to fct_tracking_frames.tracking_id (one player-frame)."
         data_tests:
           - unique
           - not_null
       - name: match_id
-        description: "Match identifier"
+        description: "Native match identifier with provider prefix (idsse_*, Sample_Game_*, skillcorner_*)."
         data_tests:
           - not_null
       - name: pitch_control_value
-        description: "Home-team control probability [0,1]"
+        description: >
+          Home-team control probability [0,1] at this player's position under
+          the Spearman 2017 model. Per-player grain (NOT per-team).
         data_tests:
           - not_null
           - dbt_expectations.expect_column_values_to_be_between:
-              min_value: 0.0
-              max_value: 1.0
+              arguments:
+                min_value: 0.0
+                max_value: 1.0
+      - name: data_source
+        description: >
+          Provider derived from match_id prefix (PR 6). Sunset when
+          pitch_control_batch.py emits data_source natively (PR 7).
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['idsse', 'metrica', 'skillcorner']
+      - name: match_key
+        description: >
+          Kimball surrogate FK to dim_matches.match_key (PR 6, ADR-011).
+          Resolved via LEFT JOIN on (provider, native_match_id).
+        data_tests:
+          - relationships:
+              to: ref('dim_matches')
+              field: match_key
+              config:
+                severity: warn
+                where: "match_key IS NOT NULL"
+      - name: _ingested_at
+        description: "UTC timestamp when this row was written to bronze."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - match_id
+            - tracking_id

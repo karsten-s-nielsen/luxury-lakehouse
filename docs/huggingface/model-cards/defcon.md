@@ -58,6 +58,8 @@ Inline training: the XGBoost value estimator is trained from scratch on each inf
 
 Daily Databricks serverless workflow `compute_defcon_lite` (module `ingestion.defcon_lite`). Distribution: `applyInPandas` grouped by `match_id` with partition-level idempotency keyed by `(match_id, data_source)`. Output table: `{catalog}.bronze.defcon_results`.
 
+**PR 6 (2026-04-26):** The downstream marts that consume `bronze.defcon_results` (`fct_defensive_values`, `fct_defcon_actions`, `fct_defcon_pressure`) now carry Kimball-conformed FKs (`match_key`, `team_key`, `player_key`, plus `action_player_key` on `fct_defcon_actions`) per ADR-011. Legacy native columns (`match_id`, `team_id`, `player_id`) coexist during the 2026-07-22 dual-column window. Surrogate IDs (`defensive_value_id`, `pressure_id`) now hash `data_source` into the grain — IDs differ from pre-PR-6.
+
 See [`workflow-cards/wf-defcon.yaml`](https://github.com/karsten-s-nielsen/luxury-lakehouse/blob/main/workflow-cards/wf-defcon.yaml) for the full operational contract.
 
 ## Intended Use

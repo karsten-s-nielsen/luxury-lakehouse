@@ -149,3 +149,183 @@ def test_fct_action_values_legacy_match_id_matches_new_key(conn: object) -> None
     row = cur.fetchone()
     divergent = int(row[0]) if row else 0
     assert divergent == 0, f"{divergent} match_keys map to multiple match_ids"
+
+
+# ---------------------------------------------------------------------------
+# PR 6 (2026-04-26): fct_defensive_values, fct_defcon_actions,
+# fct_defcon_pressure, fct_goalkeeper_stats, fct_gk_actions_detail.
+#
+# The expected schemas below assert presence + types. If a column type
+# mismatches, dbt's contract: enforced will catch it at build time too —
+# this test is the post-deploy live check. Spark sum(case) returns BIGINT
+# (not int) for boolean-aggregation columns; count(*) returns BIGINT.
+# ---------------------------------------------------------------------------
+
+
+_FCT_DEFENSIVE_VALUES_EXPECTED_COLS: dict[str, str] = {
+    "defensive_value_id": "string",
+    "player_id": "int",
+    "match_id": "string",
+    "competition_id": "int",
+    "season_id": "int",
+    "team_id": "int",
+    "data_source": "string",
+    # PR 6 Kimball surrogates
+    "match_key": "bigint",
+    "team_key": "bigint",
+    "player_key": "bigint",
+    "total_defcon_value": "double",
+    "total_credits": "bigint",
+    "intercept_value": "double",
+    "concede_value": "double",
+    "disturb_value": "double",
+    "deter_value": "double",
+    "intercept_count": "bigint",
+    "concede_count": "bigint",
+    "disturb_count": "bigint",
+    "deter_count": "bigint",
+    "high_confidence_count": "bigint",
+    "approx_confidence_count": "bigint",
+    "_loaded_at": "timestamp",
+}
+
+
+_FCT_DEFCON_ACTIONS_EXPECTED_COLS: dict[str, str] = {
+    "defcon_action_id": "string",
+    "event_id": "string",
+    "match_id": "string",
+    "competition_id": "int",
+    "season_id": "int",
+    "player_id": "int",
+    "team_id": "int",
+    "defender_x": "double",
+    "defender_y": "double",
+    "action_player_id": "int",
+    "action_type": "string",
+    "action_x": "double",
+    "action_y": "double",
+    "credit_type": "string",
+    "confidence": "string",
+    "defcon_value": "double",
+    "dist_to_ball": "double",
+    "pitch_control_at_action": "double",
+    "data_source": "string",
+    # PR 6 Kimball surrogates (defender + action_player)
+    "match_key": "bigint",
+    "team_key": "bigint",
+    "player_key": "bigint",
+    "action_player_key": "bigint",
+    "_loaded_at": "timestamp",
+}
+
+
+_FCT_DEFCON_PRESSURE_EXPECTED_COLS: dict[str, str] = {
+    "pressure_id": "string",
+    "player_id": "int",
+    "match_id": "string",
+    "competition_id": "int",
+    "season_id": "int",
+    "data_source": "string",
+    # PR 6 Kimball surrogates
+    "match_key": "bigint",
+    "player_key": "bigint",
+    "total_pressure": "double",
+    "total_defensive_actions": "bigint",
+    "intercept_pressure": "double",
+    "concede_pressure": "double",
+    "disturb_pressure": "double",
+    "deter_pressure": "double",
+    "intercept_count": "bigint",
+    "concede_count": "bigint",
+    "disturb_count": "bigint",
+    "deter_count": "bigint",
+    "high_confidence_count": "bigint",
+    "approx_confidence_count": "bigint",
+    "_loaded_at": "timestamp",
+}
+
+
+_FCT_GOALKEEPER_STATS_EXPECTED_COLS: dict[str, str] = {
+    "gk_stat_id": "string",
+    "player_id": "int",
+    "match_id": "bigint",
+    "team_id": "int",
+    "competition_id": "int",
+    "season_id": "int",
+    "data_source": "string",
+    # PR 6 Kimball surrogates + permanent data_source column
+    "match_key": "bigint",
+    "team_key": "bigint",
+    "player_key": "bigint",
+    "minutes_played": "double",
+    "saves": "bigint",
+    "save_pct": "double",
+    "claims": "bigint",
+    "claim_success_rate": "double",
+    "punches": "bigint",
+    "distribution_passes": "bigint",
+    "gk_xt_delta_total": "double",
+    "gk_xt_per_pass": "double",
+    "launch_rate": "double",
+    "keeper_pick_ups": "bigint",
+    "psxg_faced": "double",
+    "goals_conceded": "int",
+    "goals_prevented": "double",
+    "avg_defensive_action_distance": "double",
+    "actions_outside_box_per_90": "double",
+}
+
+
+_FCT_GK_ACTIONS_DETAIL_EXPECTED_COLS: dict[str, str] = {
+    "gk_action_id": "string",
+    "match_id": "bigint",
+    "match_key": "bigint",
+    "competition_id": "int",
+    "season_id": "int",
+    "team_id": "int",
+    "player_id": "int",
+    "team_key": "bigint",
+    "player_key": "bigint",
+    "period": "int",
+    "time_seconds": "double",
+    "minute": "int",
+    "second": "int",
+    "start_x": "double",
+    "start_y": "double",
+    "end_x": "double",
+    "end_y": "double",
+    "action_type": "string",
+    "action_result": "string",
+    "data_source": "string",
+    "_loaded_at": "timestamp",
+}
+
+
+_PR6_MARTS: tuple[tuple[str, dict[str, str]], ...] = (
+    ("fct_defensive_values", _FCT_DEFENSIVE_VALUES_EXPECTED_COLS),
+    ("fct_defcon_actions", _FCT_DEFCON_ACTIONS_EXPECTED_COLS),
+    ("fct_defcon_pressure", _FCT_DEFCON_PRESSURE_EXPECTED_COLS),
+    ("fct_goalkeeper_stats", _FCT_GOALKEEPER_STATS_EXPECTED_COLS),
+    ("fct_gk_actions_detail", _FCT_GK_ACTIONS_DETAIL_EXPECTED_COLS),
+)
+
+
+@requires_databricks
+@pytest.mark.parametrize(("mart", "expected"), _PR6_MARTS)
+def test_pr6_mart_live_schema_matches_contract(conn: object, mart: str, expected: dict[str, str]) -> None:
+    """Live DESCRIBE on each PR-6 mart matches the expected column set + types.
+
+    Catches drift between the YAML contract, compiled SQL, and live storage.
+    Type-tolerance: `bigint` and `int` distinctions matter for FK joins.
+    """
+    actual = _describe_live(conn, f"soccer_analytics.dev_gold.{mart}")
+    missing = set(expected) - set(actual)
+    extras = set(actual) - set(expected)
+    assert not missing, f"Columns missing from live {mart}: {sorted(missing)}"
+    assert not extras, f"Unexpected columns in live {mart}: {sorted(extras)}"
+    type_mismatches = [
+        (c, expected[c], actual[c])
+        for c in expected
+        if actual[c] != expected[c]
+    ]
+    assert not type_mismatches, f"Type mismatches in {mart}: {type_mismatches}"

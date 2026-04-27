@@ -24,11 +24,14 @@
 --     cross-provider reconciliation in a future PR (dim_teams /
 --     dim_players surrogate keys akin to dim_matches.match_key).
 --
---   * end_x / end_y NULL — the DFL <Play> row carries a start location
---     only. ELASTIC event-tracking sync (`stg_idsse__elastic_sync`,
---     pausa_enabled-gated) could enrich end coords; not in PR 2 scope.
+--   * end_x / end_y derived in PR 6 via ball-frame tracking lookup
+--     (LEFT JOIN stg_idsse__tracking on (match_id, period, end_frame=frame)
+--     to recover ball position at end-of-pass). NULL when end_frame is
+--     null or the tracking lookup misses.
 --
---   * is_progressive = FALSE (requires end coordinates to evaluate).
+--   * is_progressive evaluated via the standard cross-provider rule
+--     (distance_to_goal end < progressive_pass_ratio * distance_to_goal start)
+--     applied to the derived end coords. NULL-preserving.
 
 with source as (
 
@@ -63,6 +66,43 @@ hydrated as (
 
 ),
 
+-- PR 6 (ADR-011): ball position at the pass-end frame, used to derive
+-- end_x/end_y + is_progressive. Tracking replicates ball_x/ball_y across
+-- per-player rows for the same frame; DISTINCT collapses to one row per
+-- (match, period, frame).
+ball_at_end_frame as (
+
+    select distinct
+        regexp_replace(cast(match_id as string), '^idsse_', '') as match_id,
+        cast(period as int)                                     as period,
+        cast(frame as int)                                      as frame,
+        ball_x,
+        ball_y
+    from {{ ref('stg_idsse__tracking') }}
+    where ball_x is not null
+      and ball_y is not null
+
+),
+
+-- PR 6: precompute normalized start + end coordinates so the final SELECT
+-- can reference them by alias in the is_progressive CASE expression
+-- without repeating the normalize_x / normalize_y macro expansion.
+with_end_coords as (
+
+    select
+        h.*,
+        {{ normalize_x('h.x', 'pitch_m') }}                     as _start_x_normalized,
+        {{ normalize_y('h.y', 'pitch_m') }}                     as _start_y_normalized,
+        bef.ball_x                                              as _end_x_normalized,
+        bef.ball_y                                              as _end_y_normalized
+    from hydrated h
+    left join ball_at_end_frame bef
+        on  bef.match_id = h.native_match_id
+       and bef.period   = cast(h.period as int)
+       and bef.frame    = cast(h.end_frame as int)
+
+),
+
 final as (
 
     select
@@ -91,10 +131,11 @@ final as (
         cast(cast(timestamp_seconds as int) % 60 as int)        as second,
 
         -- Event coordinates: DFL pitch-origin metres → 120x80.
-        {{ normalize_x('x', 'pitch_m') }}                       as start_x,
-        {{ normalize_y('y', 'pitch_m') }}                       as start_y,
-        cast(null as double)                                    as end_x,
-        cast(null as double)                                    as end_y,
+        -- PR 6: precomputed in with_end_coords; reuse here.
+        _start_x_normalized                                     as start_x,
+        _start_y_normalized                                     as start_y,
+        _end_x_normalized                                       as end_x,
+        _end_y_normalized                                       as end_y,
 
         -- Canonical pass-attribute cols (present on all providers in
         -- int_unified_passes).
@@ -118,7 +159,17 @@ final as (
         end                                                     as is_cross,
         cast(null as boolean)                                   as is_switch,
         pass_direction = 'throughBall'                          as is_through_ball,
-        false                                                   as is_progressive,
+
+        -- PR 6 (ADR-011): is_progressive derived via ball-frame tracking
+        -- lookup. NULL when end_frame is null OR the tracking lookup misses
+        -- (preserves "unknown" semantics rather than false-positive).
+        case
+            when _end_x_normalized is null or _end_y_normalized is null
+                then cast(null as boolean)
+            else {{ distance_to_goal('_end_x_normalized', '_end_y_normalized') }}
+                 < {{ var('progressive_pass_ratio') }}
+                   * {{ distance_to_goal('_start_x_normalized', '_start_y_normalized') }}
+        end                                                     as is_progressive,
 
         -- Bronze passthrough — Play-event prefixed attributes. Surfaced
         -- as-is so future UI reviews can spot uses without
@@ -162,7 +213,7 @@ final as (
 
         'idsse'                                                 as data_source
 
-    from hydrated
+    from with_end_coords
 
 )
 

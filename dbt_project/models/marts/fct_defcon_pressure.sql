@@ -1,8 +1,9 @@
 {{ config(
     materialized='incremental',
     unique_key='pressure_id',
-    liquid_clustered_by=['match_id'],
-    incremental_strategy='merge'
+    liquid_clustered_by=['match_key'],
+    incremental_strategy='merge',
+    on_schema_change='append_new_columns'
 ) }}
 -- fct_defcon_pressure.sql
 -- Per-attacker per-match defensive pressure summary.
@@ -13,7 +14,15 @@
 -- how much defensive attention each attacker attracted.
 --
 -- Coordinate system: SPADL 105x68 meters.
--- One row per attacker per match.
+-- One row per attacker per match per data_source.
+--
+-- PR 6 (ADR-011): Kimball surrogate FKs added.
+--   - match_key + player_key (action attacker) LEFT JOIN-resolved
+--     via provider CASE on data_source.
+--   - data_source folded into surrogate hash (pressure_id) — existing IDs
+--     CHANGE on first --full-refresh rebuild.
+-- No team_key — action_team_id is not present on the source grain.
+-- LEFT JOIN with relationships severity:warn during 2026-07-22 dual-column window.
 
 {% if var('defcon_enabled', false) %}
 
@@ -27,6 +36,18 @@ with defcon as (
 
 ),
 
+defcon_with_provider as (
+
+    select
+        *,
+        case data_source
+            when 'statsbomb_360'    then 'statsbomb'
+            when 'metrica_tracking' then 'metrica'
+        end as _provider
+    from defcon
+
+),
+
 pressure_agg as (
 
     select
@@ -35,6 +56,7 @@ pressure_agg as (
         competition_id,
         season_id,
         data_source,
+        _provider,
 
         sum(defcon_value)                                               as total_pressure,
         count(*)                                                        as total_defensive_actions,
@@ -52,8 +74,8 @@ pressure_agg as (
         sum(case when confidence = 'high' then 1 else 0 end)                 as high_confidence_count,
         sum(case when confidence = 'approximate' then 1 else 0 end)           as approx_confidence_count
 
-    from defcon
-    group by action_player_id, match_id, competition_id, season_id, data_source
+    from defcon_with_provider
+    group by action_player_id, match_id, competition_id, season_id, data_source, _provider
 
 ),
 
@@ -61,35 +83,46 @@ final as (
 
     select
         {{ dbt_utils.generate_surrogate_key([
-            'action_player_id',
-            'match_id'
+            'pa.action_player_id',
+            'pa.match_id',
+            'pa.data_source'
         ]) }}                                                           as pressure_id,
 
-        action_player_id                                                as player_id,
-        match_id,
-        competition_id,
-        season_id,
-        data_source,
+        pa.action_player_id                                             as player_id,
+        pa.match_id,
+        pa.competition_id,
+        pa.season_id,
+        pa.data_source,
 
-        total_pressure,
-        total_defensive_actions,
+        -- PR 6 (ADR-011) Kimball surrogate FKs.
+        dm.match_key,
+        dp.player_key,
 
-        intercept_pressure,
-        concede_pressure,
-        disturb_pressure,
-        deter_pressure,
+        pa.total_pressure,
+        pa.total_defensive_actions,
 
-        intercept_count,
-        concede_count,
-        disturb_count,
-        deter_count,
+        pa.intercept_pressure,
+        pa.concede_pressure,
+        pa.disturb_pressure,
+        pa.deter_pressure,
 
-        high_confidence_count,
-        approx_confidence_count,
+        pa.intercept_count,
+        pa.concede_count,
+        pa.disturb_count,
+        pa.deter_count,
+
+        pa.high_confidence_count,
+        pa.approx_confidence_count,
 
         current_timestamp()                                             as _loaded_at
 
-    from pressure_agg
+    from pressure_agg pa
+    left join {{ ref('dim_matches') }} dm
+        on  dm.provider = pa._provider
+       and dm.native_match_id = pa.match_id
+    left join {{ ref('dim_players') }} dp
+        on  dp.provider = pa._provider
+       and dp.native_player_id = cast(pa.action_player_id as string)
 
 )
 
@@ -97,7 +130,6 @@ select * from final
 
 {% else %}
 
--- DEFCON-lite not enabled — produce empty table with correct schema
 select
     cast(null as string)    as pressure_id,
     cast(null as int)       as player_id,
@@ -105,6 +137,8 @@ select
     cast(null as int)       as competition_id,
     cast(null as int)       as season_id,
     cast(null as string)    as data_source,
+    cast(null as bigint)    as match_key,
+    cast(null as bigint)    as player_key,
     cast(null as double)    as total_pressure,
     cast(null as int)       as total_defensive_actions,
     cast(null as double)    as intercept_pressure,

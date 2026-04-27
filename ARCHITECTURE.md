@@ -661,7 +661,7 @@ luxury-lakehouse/
 │   ├── models/
 │   │   ├── staging/                  # SILVER: statsbomb/, metrica/, wyscout/, spadl/, idsse/, skillcorner/, line_breaking/, off_ball_xt/, defcon/, entity_resolution/, pitch_control/, pausa/
 │   │   ├── intermediate/             # Cross-source joins (ephemeral)
-│   │   └── marts/                    # GOLD: 29 fact + 5 dimension tables (34 total) — `dim_matches` is the Kimball conformed match dim per [ADR-011](docs/superpowers/adrs/ADR-011-unified-kimball-match-dimension.md)
+│   │   └── marts/                    # GOLD: 35 fact + 4 dimension tables (39 total) — `dim_matches` / `dim_competitions` / `dim_players` / `dim_teams` are Kimball-conformed per [ADR-011](docs/superpowers/adrs/ADR-011-unified-kimball-match-dimension.md)
 │   ├── tests/                        # Custom data tests
 │   ├── macros/                       # distance_to_goal, shot_angle, normalize_coordinates, generate_match_key (ADR-011)
 │   └── seeds/                        # 6 seeds: competition_metadata, position_mapping, player_xref_overrides, competition_id_mapping, model_baseline_scalars, task_workflow_mapping
