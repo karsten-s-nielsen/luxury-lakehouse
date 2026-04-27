@@ -323,9 +323,5 @@ def test_pr6_mart_live_schema_matches_contract(conn: object, mart: str, expected
     extras = set(actual) - set(expected)
     assert not missing, f"Columns missing from live {mart}: {sorted(missing)}"
     assert not extras, f"Unexpected columns in live {mart}: {sorted(extras)}"
-    type_mismatches = [
-        (c, expected[c], actual[c])
-        for c in expected
-        if actual[c] != expected[c]
-    ]
+    type_mismatches = [(c, expected[c], actual[c]) for c in expected if actual[c] != expected[c]]
     assert not type_mismatches, f"Type mismatches in {mart}: {type_mismatches}"
