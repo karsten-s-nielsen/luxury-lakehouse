@@ -109,6 +109,9 @@ LUXURY-REVIEW.md
 temp/
 results/evolve/
 
+# MLflow run artifacts (per-trial metrics + params; regenerated each Optuna run)
+mlruns/
+
 # HTTP cache (requests-cache SQLite database)
 luxury_lakehouse_http_cache.sqlite
 

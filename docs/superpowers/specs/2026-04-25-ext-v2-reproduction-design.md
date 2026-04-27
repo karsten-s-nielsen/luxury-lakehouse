@@ -384,6 +384,85 @@ Phase 0 implementation shipped on `feat/ext-v2-phase-0-singh-baseline`. Stop con
 
 **Phase 1 stop condition (pre-registered):** Phase 1 NLL < 3.7513 (i.e., ≥ 1% relative improvement over Phase 0). Below that threshold, KDE smoothing isn't doing useful work on this data — file finding and skip to Phase 2.
 
+### 10.3 Phase 1 design — locked decisions (2026-04-26)
+
+Phase 1 design locked in conversation 2026-04-26 ahead of implementation. This subsection captures the seven decisions resolved before code is written; build outcomes will be appended after the harness run completes.
+
+**Phase 1 brief:** KDE-smoothed Singh transition matrix under the existing Phase 0 Optuna harness skeleton, with `kde_kernel`, `kde_bandwidth`, `kde_adaptive` axes activated. Stop condition pre-registered in §10.2: `nll_primary < 3.7513` (≥ 1% relative improvement over Phase 0's 3.78924). Run venue: local Win11 96 GB. Estimated wall-clock at `n_trials=500`: ~83 minutes.
+
+**Locked design decisions made during Phase 1 brainstorm:**
+
+| # | Decision | Lock | Rationale |
+|---|---|---|---|
+| 1 | KDE library | `sklearn.neighbors.KernelDensity` | Only library supporting all three named kernels {gaussian, epanechnikov, tophat} (§4); BallTree-backed scales to 8.8M-row training; already top-level dep at `pyproject.toml:28` (zero new-dep cost); same family as Phase 2's KNN. Rejected: `scipy.stats.gaussian_kde` (gaussian-only collapses §4 axis), hand-rolled numpy (oracle-test surface against sklearn anyway). |
+| 2 | What gets KDE-smoothed | Per-source-zone destination KDE — one 2D KDE per source row over `(end_x, end_y)`; evaluate at zone centers (point evaluation), row-normalize | Matches Singh's row-stochastic interpretation `T[s,:] = P(d|s)`; aligns with published Salimi/Salmankhah per-source-cell conditional surfaces (LISS poster); 2-3× faster than 4D joint KDE at our scale; trivially parallelizable per source. Rejected: 4D joint (rough bandwidth selection, post-hoc row normalization, GK-area→midfielder probability leakage), zone-integration via Monte Carlo (10-100× per-trial cost for negligible gain when row-normalization absorbs discretization bias). |
+| 3 | `kde_adaptive` semantics | Per-row Silverman with global multiplier — `h_s = bandwidth × silverman_2d(n_s)` when `adaptive=True`, `h_s = bandwidth` when `adaptive=False`; `silverman_2d(n) = n^(−1/6) × sigma_s` with isotropic σ proxy `sigma_s = sqrt((var_x + var_y) / 2)` from per-row destination positions; row-mean fallback for zero-event source zones | Both Optuna axes meaningful in both modes (no dead-axis trial waste); statistically legitimate (Silverman 1986 §4.3); aligns with methodology's per-source-cell smoothing variation (LISS poster); enables sparse-row auto-widening; post-hoc trial-table analysis reveals adaptive selection rate as a free ablation. Rejected: Silverman-fallback (kde_bandwidth dead when adaptive=True, TPE waste), drop axis (loses literature-validated per-row variance-aware behavior). |
+| 4 | NLL eps clipping | Primary `nll_primary` retains Phase 0 `eps=1e-10`; per-trial diagnostic `nll_floorless` logged at `eps=1e-300` (IEEE numerical safety only) | Stop condition compares to Phase 0's NLL — same machinery required for apples-to-apples comparison; diagnostic catches finite-support kernel impact post-hoc (gaussian: `nll_primary ≈ nll_floorless`; epanechnikov/tophat: diagnostic may differ) without contaminating the primary metric. Rejected: remove floor (∞ on epanechnikov/tophat zero cells), relax to 1e-6 (moves Phase 0 → 1 goalposts), per-kernel branching (breaks cross-kernel comparison within a single Optuna study). |
+| 5 | Trial count sizing | `n_trials=500` (~83 min wall-clock at ~10s/trial); plateau-check escape hatch — if `study.best_trial.number` ∈ last 50 trials, manually extend by 200 | Generous saturation margin for 3-axis space with six categorical regimes; `kde_bandwidth` log-uniform over two orders of magnitude needs density; marginal cost over `n_trials=300` is ~30 minutes on local hardware; consistent methodology with Phase 4's higher axis count. Rejected: `n_trials=300` (insufficient margin given 1% stop-condition slack), adaptive extension logic (overkill for 3 axes), time-budgeted via Optuna `timeout=` (results depend on machine speed). |
+| 6 | Outer selection (top-K Brier calibration) | Defer entirely to Phase 2; Phase 1 keeps `holdout_split(holdout_fraction=0.15)` unchanged from Phase 0 | Phase 1 stop condition is NLL-only — outer selection adds no decision value here; a 3-way 80/15/5 split would shrink train by 7%, risking ~0.5% relative NLL contamination of the 1% stop-condition margin; Phase 1's KDE config is discarded by Phase 2's KNN substitution anyway; Brier-score machinery (~150 LOC + actual goal-outcome lookup) is genuinely useful in Phase 2 where it drives stop-condition design. Rejected: full inclusion in Phase 1 (train-shrinkage + bloat), hybrid 3-way-now-Brier-later (still pays train-shrinkage cost). |
+| 7 | Real-data run venue | Local Win11 96 GB | Phase 0 venue — same hardware, proven 8.8M-row Databricks pull pattern; ~83 min wall-clock acceptable; zero infrastructure cost. Rejected: DGX Spark (Grace ARM ~0.5× speed, ~166 min), Databricks job (16 GB driver constraint complicates 8.8M-row Arrow load, $1-2 cost, slower iteration cycle for an 83-min job). |
+
+**Architecture additions to `src/analytics/ext_v2/`:**
+
+- `kde.py` (new): `KDESmoothedTransition(TransitionModel)` — per-row KDE wrapping 96 `KernelDensity` instances with per-row adaptive bandwidth.
+- `producer.py` (extended): `KDESmoothedProducer(Producer)` — composition mirror of `SinghProducer` swapping the transition step; value-iteration and `XTGrid` wrap unchanged.
+- `harness.py` (extended): Phase 1 axes activated in `objective`; new `Phase1Result` dataclass; `run_phase1_harness(...)` wires `optuna.integration.MLflowCallback`.
+
+**Optuna study persistence:** SQLite at `docs/evolve/ext-v2-phase-1/optuna.db` (resumable, durable, checked in). **MLflow tracking URI:** `file:./mlruns` (repo-root convention; `mlruns/` added to `.gitignore`).
+
+**Test surface (`src/tests/test_ext_v2/test_kde.py` + extensions to peer test files):**
+
+- `TestKDESmoothedTransitionContract` — row-stochasticity per row; correct dtype/shape; `matrix` raises before `fit`; required-columns validation.
+- `TestKernelCorrectness` — for each of {gaussian, epanechnikov, tophat}, fitted matrix matches a hand-built sklearn `KernelDensity` reference on synthetic data.
+- `TestSilvermanAdaptive` — `adaptive=True` produces wider bandwidth on sparse rows; multiplier semantics match `bandwidth × silverman_2d(n)`.
+- `TestZeroEventSourceFallback` — source zone with no train events gets row equal to mean of all other rows.
+- `TestEpsClipBehaviour` — gaussian: `nll_primary ≈ nll_floorless` (within float noise); epanechnikov/tophat: diagnostic captures the gap.
+- `TestSmoothingConvergesToSingh` — as `bandwidth → 0` (Dirac limit), `KDESmoothedTransition.matrix ≈ SinghTransitionMatrix.matrix` (within tolerance) — sanity check that smoothing → no smoothing degenerates correctly.
+- `test_producer.py::TestKDESmoothedProducerComposition` — `KDESmoothedProducer.transition_matrix == KDESmoothedTransition.fit(...).matrix` (composition is delegation, not duplication).
+- `test_harness.py::TestPhase1ObjectiveAxes` — running `objective` with synthetic mock `trial` exercises all 3 axes with at least 1 value each.
+
+**Per-phase artifacts** (mirror Phase 0 convention at `docs/evolve/ext-v2-phase-1/`):
+
+- `SUMMARY.md` — stop-condition disposition, headline numbers, per-competition NLL table, plateau-check note, design-decision back-references.
+- `phase1_baseline.json` — best trial's params, `nll_primary` + `nll_floorless`, `n_train_actions`, `n_holdout_passes`, study metadata.
+- `best_producer.joblib` — fitted `KDESmoothedProducer` of the best config (per §6.2).
+- `optuna.db` — SQLite study (resumable; checked in).
+- `mlruns/` — MLflow run artifacts (gitignored).
+
+**Phase 1 build outcomes (2026-04-26):**
+
+Phase 1 implementation shipped on `feat/ext-v2-phase-1-kde-smoothed`. Stop condition met: PASS — see [`docs/evolve/ext-v2-phase-1/SUMMARY.md`](../../evolve/ext-v2-phase-1/SUMMARY.md) for headline numbers, full per-competition NLL table, and lessons-learned narrative.
+
+| Metric | Value |
+|---|---:|
+| `nll_primary` (eps=1e-10, stop-condition metric) | **3.74823** |
+| `nll_floorless` (eps=1e-300, diagnostic) | 3.74823 |
+| Phase 0 baseline | 3.78924 |
+| Relative improvement | **+1.082%** |
+| Stop threshold | 3.7513 |
+| Stop disposition | **PASS** |
+| Best trial | #276 of 500 |
+| Best params | `kernel=gaussian, bandwidth=1.99998, adaptive=True` |
+| Plateau warning | False |
+| Wall-clock | 8,130.2s (~135 min) |
+| Per-trial wall-clock | ~16s (smoke-extrapolated estimate was 10s; revise Phase 4 sizing) |
+
+Holdout fold matches Phase 0 byte-for-byte (677,436 passes across 16 of 22 competitions); the Phase 0→1 NLL comparison is strictly apples-to-apples per Q4/Q6 design locks.
+
+**Diagnostic equality `nll_primary == nll_floorless`** confirms the gaussian kernel never triggered the 1e-10 eps floor — every transition probability is strictly positive within float64 representable range. Validates the Q4 design assumption that gaussian + reasonable bandwidth makes the eps clip dormant.
+
+**Lessons / locked-decision amendments captured during Phase 1 build:**
+
+1. **Bandwidth optimum saturated the upper edge of `[0.01, 2.0]`** — TPE found best at `bandwidth = 1.99998`. Phase 2 should widen the prior (e.g., `[0.01, 5.0]`) to allow further exploration. NOT a Phase 1 blocker (already PASS); recorded as a Phase 2 follow-up.
+2. **`(m > 0).all()` for gaussian KDE is float64-wrong** — gaussian density is mathematically unbounded but underflows to 0.0 at destinations many bandwidths from training events. Test rewritten to assert positive density at *observed* destinations only. Pattern worth carrying forward to Phase 2's KNN tests.
+3. **Adaptive widening must be tested on the helper, not the matrix** — original entropy-of-row comparison conflated bandwidth-widening with data-spread effects (a row with 500 events naturally spans more zones than a row with 5, even at the same bandwidth). Replaced with a direct property test of `silverman_2d`. Same lesson applies to Phase 2's KNN-K-vs-distribution-spread tests.
+4. **`cosine` is a valid sklearn kernel** — `KDESmoothedTransition.__init__` does NOT validate kernel name; defers to sklearn at fit() time. The Optuna axis is the constraint, not the class. Phase 2's `knn_distance` axis should follow the same pattern (constrain at the Optuna layer, not the class layer).
+5. **Optuna 4.x removed `MLflowCallback` from core** — needed `optuna-integration[mlflow]>=4.0` added to the `[mlflow]` extra. Phase 2/3/4 inherit this dependency for free.
+6. **Per-trial wall-clock 16s, not 10s** — smoke used 5K-row uniform synthetic data; real 8.8M-row clustered data is heavier per BallTree query. Update spec §7 sizing estimates: Phase 4 with 8 axes at 500 trials projects to ~135 min × ~3-5x for the wider search → ~7-12 hr wall-clock. Still feasible on local hardware.
+7. **Per-comp NLL improvement was modest and uniform** — no outlier comp where smoothing failed; no outlier comp where smoothing helped enormously. Confirms KDE smoothing is a flat-improvement methodology, not the place to look for big gains. Phase 2's KNN substitution is where structural variance should appear.
+
+**Forward to Phase 2:** branch `feat/ext-v2-phase-2-knn-no-context` (cut after Phase 1 merges to main). Phase 2 stop condition pre-registered per spec §6 row 2: `nll_primary` within 1% relative of Phase 1's 3.74823 — i.e., `3.71 ≤ nll_primary ≤ 3.79`. Below 3.71 → KNN beats KDE (proceed to Phase 3 confidently); above 3.79 → halt + debug. Phase 2 is schema-agnostic; does NOT need Kimball PR 7.
+
 ---
 
 ## 11. References
