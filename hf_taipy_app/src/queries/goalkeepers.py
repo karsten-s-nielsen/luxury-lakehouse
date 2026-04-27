@@ -1,6 +1,14 @@
 """Goalkeeper analytics queries.
 
 All functions return pd.DataFrame. SQL uses %s parameterized placeholders.
+
+PR 6 (ADR-011): fct_goalkeeper_stats now carries data_source (latent
+multi-provider correctness fix) + match_key + team_key + player_key.
+fct_gk_actions_detail likewise carries the new keys. Existing queries in
+this module filter by competition_id / team_id / player_id, not match_id,
+so no optional match_key parameters were added — current SELECTs continue
+to work via the legacy columns during the 2026-07-22 dual-column window.
+PR 8 will sweep aggregations and filter expressions to the new keys.
 """
 
 from __future__ import annotations

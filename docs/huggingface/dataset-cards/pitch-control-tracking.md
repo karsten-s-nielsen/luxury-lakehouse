@@ -92,6 +92,20 @@ All providers use standardized tracking formats normalized to the StatsBomb coor
 - **Physics model approximation**: The Spearman (2017) model assumes constant maximum acceleration and uniform reaction time. It does not account for player fatigue, directional momentum, or tactical intent.
 - **No goalkeeper distinction**: Goalkeepers are treated identically to outfield players in the control model.
 
+## Dual-Column Window (2026-04-26 → 2026-07-22)
+
+The lakehouse is migrating to Kimball-conformed surrogate keys per ADR-011.
+The upstream `stg_pitch_control__values` model now carries `match_key` (BIGINT,
+FK to `dim_matches`) and `data_source` (`idsse`, `metrica`, `skillcorner`)
+alongside the existing `match_id`. **The published HF dataset payload remains
+unchanged in this window** — current consumers see exactly the columns
+documented above.
+
+The next dataset version (planned 2026-07-22, alongside PR 8 of the staged
+Kimball migration) will add `match_key` and `data_source` to the published
+parquet payload, and deprecate `match_id` in favour of `match_key`. Schema
+changes will be announced in the dataset's HF revision history.
+
 ## Citation
 
 If you use this dataset, please cite the original pitch control paper:

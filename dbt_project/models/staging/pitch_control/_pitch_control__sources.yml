@@ -4,7 +4,7 @@ sources:
   - name: pitch_control
     description: >
       Per-player per-frame pitch control values computed by the Spearman 2017
-      physics-based model.
+      physics-based model. Writer: src/ingestion/pitch_control_batch.py.
     database: soccer_analytics
     schema: bronze
     loader: python_wheel
@@ -17,11 +17,18 @@ sources:
     tables:
       - name: pitch_control_values
         description: >
-          Per-player per-frame pitch control probability [0,1].
+          Per-player per-frame pitch control probability [0,1] at the
+          player's position. Grain: one row per (match, period, frame, player).
         columns:
           - name: tracking_id
-            description: "FK to fct_tracking_frames.tracking_id"
+            description: "FK to fct_tracking_frames.tracking_id (one row per player-frame)."
           - name: match_id
-            description: "Match identifier for partition filtering"
+            description: >
+              Match identifier — provider prefix encodes the source
+              (idsse_*, Sample_Game_*, skillcorner_*).
           - name: pitch_control_value
-            description: "Home-team control probability [0,1]"
+            description: >
+              Home-team control probability [0,1] at this player's position
+              under the Spearman 2017 model.
+          - name: _ingested_at
+            description: "UTC timestamp when this row was written to bronze."

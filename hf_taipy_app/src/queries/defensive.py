@@ -358,23 +358,39 @@ def fetch_player_defcon_matches(pid: int, comp_id: int, team_id: int | None) -> 
 
 
 @ttl_cache()
-def fetch_match_timeline(match_id: str, pid: int) -> pd.DataFrame:
+def fetch_match_timeline(
+    match_id: str,
+    pid: int,
+    match_key: int | None = None,
+) -> pd.DataFrame:
     """Per-action DEFCON credits for a player in a specific match.
+
+    PR 6 (ADR-011) forward-compat: accepts optional match_key (BIGINT
+    Kimball surrogate). When provided, filters on match_key (preferred);
+    otherwise falls back to legacy match_id (still populated during the
+    2026-07-22 dual-column window). PR 8 will retire the match_id branch
+    and require match_key.
 
     Expected columns: event_id, opposing_player_id, credit_type,
     confidence, defcon_value, action_type, action_x, action_y, dist_to_ball.
     """
     da = t("fct_defcon_actions_synced")
+    if match_key is not None:
+        where_clause = "WHERE da.match_key = %s AND da.action_player_id = %s"
+        params: tuple[Any, ...] = (int(match_key), pid)
+    else:
+        where_clause = "WHERE da.match_id = %s AND da.action_player_id = %s"
+        params = (match_id, pid)
     return execute_query(
         f"SELECT da.event_id, da.player_id as opposing_player_id, "  # noqa: S608
         f"  da.credit_type, da.confidence, da.defcon_value, "
         f"  da.action_type, da.action_x, da.action_y, "
         f"  da.dist_to_ball "
         f"FROM {da} da "
-        f"WHERE da.match_id = %s AND da.action_player_id = %s "
+        f"{where_clause} "
         f"ORDER BY da.event_id "
         f"LIMIT 2000",
-        (match_id, pid),
+        params,
     )
 
 

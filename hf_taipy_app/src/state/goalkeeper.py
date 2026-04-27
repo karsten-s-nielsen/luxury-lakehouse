@@ -5,6 +5,12 @@ Three sub-views controlled by shared.selected_sub_view:
   - "Rankings": GK leaderboard with four-pillar stats
   - "Shot Stopping": goalmouth scatter + goals prevented bar chart
   - "Distribution": half-pitch pass map colored by distance category
+
+PR 6 (ADR-011): fct_goalkeeper_stats + fct_gk_actions_detail now carry
+data_source + match_key + team_key + player_key (additive). Queries flow
+through queries/goalkeepers.py — see that module's docstring for the
+dual-column-window strategy. No state-level changes in PR 6; PR 8 will
+sweep aggregations and filter expressions to the new keys.
 """
 
 from __future__ import annotations

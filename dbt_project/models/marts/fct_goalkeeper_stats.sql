@@ -4,19 +4,34 @@
 ) }}
 -- fct_goalkeeper_stats.sql
 -- Per-match goalkeeper statistics combining saves, claims, distribution xT,
--- and future PSxG metrics.
+-- and PSxG metrics.
 --
--- Grain: one row per goalkeeper per match.
+-- Grain: one row per goalkeeper per match per data_source.
 -- Feature-gated: requires goalkeeper_enabled=true.
 --
 -- xT distribution uses the global expected_threat_grids from bronze.
 -- SPADL pitch is 105x68m, grid is 12x8 zones.
--- Zone index: x = least(cast(x / (105.0 / 12) as int), 11)
---             y = least(cast(y / (68.0 / 8) as int), 7)
 --
 -- D39 columns: psxg_faced, goals_conceded, goals_prevented from
 -- stg_psxg__predictions; avg_defensive_action_distance, actions_outside_box_per_90
 -- computed from defensive actions in gk_actions.
+--
+-- PR 6 (ADR-011): Kimball surrogate FKs added.
+--   - data_source PROMOTED to permanent column (was dropped from gk_actions
+--     pre-PR-6). Closes a latent multi-provider correctness gap: pre-PR-6
+--     SB and WS BIGINT match_ids could collide on (player_id, match_id).
+--   - match_key inherited from fct_action_values (PR 4b migration) via
+--     gk_matches; PR-3 dim_matches bridges in shot_save_stats / psxg_shots
+--     RETIRED — now JOIN fct_shots on match_key directly.
+--   - team_key + player_key LEFT JOIN-resolved via dim_teams / dim_players
+--     using data_source as provider (fct_action_values emits 'statsbomb' /
+--     'wyscout' which map 1:1 to dim_matches.provider — no CASE needed).
+--   - gk_stat_id surrogate hash now includes data_source — existing IDs
+--     CHANGE on first --full-refresh rebuild.
+--   - minutes CTE is StatsBomb-only by source (lineups + substitutions
+--     come from stg_statsbomb__events); a 'statsbomb' literal data_source
+--     is projected so the equality JOIN cleanly filters out non-SB GKs
+--     (which legitimately have NULL minutes_played in this model).
 
 {% if var('goalkeeper_enabled', false) %}
 
@@ -31,8 +46,10 @@ with gk_players as (
 
 gk_actions as (
 
+    -- PR 6: PROPAGATE av.match_key + av.data_source (was dropped pre-PR-6).
     select
         av.match_id,
+        av.match_key,
         av.player_id,
         av.team_id,
         av.competition_id,
@@ -42,7 +59,8 @@ gk_actions as (
         av.start_x,
         av.start_y,
         av.end_x,
-        av.end_y
+        av.end_y,
+        av.data_source
 
     from {{ ref('fct_action_values') }} av
     inner join gk_players gk
@@ -67,6 +85,7 @@ gk_passes as (
     select
         a.player_id,
         a.match_id,
+        a.data_source,
         a.action_type,
         a.action_result,
         a.start_x,
@@ -92,6 +111,7 @@ pass_stats as (
     select
         player_id,
         match_id,
+        data_source,
         count(*)                                                        as distribution_passes,
         sum(xt_delta)                                                   as gk_xt_delta_total,
         case
@@ -101,11 +121,11 @@ pass_stats as (
         sum(case when pass_distance > 60.0 then 1 else 0 end)          as long_passes
 
     from gk_passes
-    group by player_id, match_id
+    group by player_id, match_id, data_source
 
 ),
 
--- Per-match minutes from event-derived lineup/substitution logic
+-- StatsBomb-only minutes derivation (lineups + substitutions are SB events).
 events as (
 
     select * from {{ ref('stg_statsbomb__events') }}
@@ -189,9 +209,13 @@ minutes as (
 
     -- MAX() deduplicates: lineups can have multiple position entries per
     -- player-match (formation changes), and UNION ALL can overlap with subs.
+    -- PR 6: project a 'statsbomb' data_source literal so the downstream
+    -- equality JOIN cleanly filters out non-SB GKs (which legitimately
+    -- have NULL minutes_played here — minutes derivation is SB-events-only).
     select
         pmm.player_id,
         pmm.match_id,
+        'statsbomb'                                                     as data_source,
         max(pmm.minutes_played) as minutes_played
     from player_match_minutes pmm
     inner join gk_players gk
@@ -206,6 +230,7 @@ collection_stats as (
     select
         player_id,
         match_id,
+        data_source,
         sum(case when action_type = 'keeper_claim' then 1 else 0 end)  as claims,
         case
             when sum(case when action_type = 'keeper_claim' then 1 else 0 end) > 0
@@ -219,24 +244,25 @@ collection_stats as (
 
     from gk_actions
     where action_type in ('keeper_claim', 'keeper_punch')
-    group by player_id, match_id
+    group by player_id, match_id, data_source
 
 ),
 
--- Base grain: one row per (player_id, match_id).
--- MIN() on competition_id/season_id avoids fan-out when incremental
--- ingestion produces inconsistent metadata for the same match.
--- Positioned before save CTEs which reference it.
+-- Base grain: one row per (player_id, match_id, data_source).
+-- min(match_key) safe because match_key is functionally determined by
+-- (data_source, match_id). MIN() on competition_id/season_id avoids fan-out.
 gk_matches as (
 
     select
         player_id,
         match_id,
+        data_source,
+        min(match_key)      as match_key,
         min(team_id)        as team_id,
         min(competition_id) as competition_id,
         min(season_id)      as season_id
     from gk_actions
-    group by player_id, match_id
+    group by player_id, match_id, data_source
 
 ),
 
@@ -246,41 +272,37 @@ spadl_save_stats as (
     select
         player_id,
         match_id,
+        data_source,
         sum(case when action_type = 'keeper_save' then 1 else 0 end)   as saves,
         sum(case when action_type = 'keeper_pick_up' then 1 else 0 end) as keeper_pick_ups
 
     from gk_actions
     where action_type in ('keeper_save', 'keeper_pick_up')
-    group by player_id, match_id
+    group by player_id, match_id, data_source
 
 ),
 
 -- Shot-based save stats: shots with outcome 'Saved' / 'Saved Off Target' /
 -- 'Saved to Post' counted against the GK's team. StatsBomb provides granular
 -- shot outcomes; Wyscout only has 'Goal' / 'No Goal' so this CTE only
--- contributes saves for StatsBomb matches. COALESCE with SPADL saves below
--- ensures both sources are covered.
+-- contributes saves for StatsBomb matches.
+-- PR 6: dim_matches bridge retired — gk_matches now carries match_key
+-- directly via fct_action_values (PR 4b). JOIN fct_shots on match_key.
 shot_save_stats as (
 
     select
         gm.player_id,
         gm.match_id,
+        gm.data_source,
         cast(count(*) as bigint)                                        as saves
 
-    -- PR 3 (ADR-011): fct_shots was migrated from match_id to match_key.
-    -- gk_matches is sourced from stg_statsbomb__events which still carries
-    -- native match_id, so we recover it on fct_shots via dim_matches JOIN
-    -- rather than migrating gk_matches (deferred to PR 6).
-    from (
-        select s.*, try_cast(dm.native_match_id as bigint) as match_id
-        from {{ ref('fct_shots') }} s
-        left join {{ ref('dim_matches') }} dm on s.match_key = dm.match_key
-    ) s
+    from {{ ref('fct_shots') }} s
     inner join gk_matches gm
-        on s.match_id = gm.match_id
-        and s.team_id != gm.team_id
+        on s.match_key = gm.match_key
+       and s.team_id != gm.team_id
+       and s.data_source = gm.data_source
     where s.shot_outcome in ('Saved', 'Saved Off Target', 'Saved to Post')
-    group by gm.player_id, gm.match_id
+    group by gm.player_id, gm.match_id, gm.data_source
 
 ),
 
@@ -289,12 +311,12 @@ shot_save_stats as (
 -- own goal at x=0, others at x=105. LEAST(x, 105-x) computes distance
 -- from the nearest goal line, which is always the GK's own goal.
 -- Penalty area extends 16.5m from the goal line.
--- Defensive action types match src/analytics/goalkeeper.py.
 sweeper_stats as (
 
     select
         ga.player_id,
         ga.match_id,
+        ga.data_source,
         avg(least(ga.start_x, 105.0 - ga.start_x))                      as avg_defensive_action_distance,
         case
             when max(m.minutes_played) > 0
@@ -309,36 +331,33 @@ sweeper_stats as (
     inner join minutes m
         on ga.player_id = m.player_id
         and ga.match_id = m.match_id
+        and ga.data_source = m.data_source
     where ga.action_type in (
         'tackle', 'interception', 'clearance', 'block',
         'keeper_save', 'keeper_claim', 'keeper_punch', 'keeper_pick_up'
     )
-    group by ga.player_id, ga.match_id
+    group by ga.player_id, ga.match_id, ga.data_source
 
 ),
 
 -- PSxG aggregation: shots faced by the GK's team, joined with PSxG predictions.
--- stg_psxg__predictions.event_id is fct_shots.shot_id (MD5 surrogate key,
--- aliased as event_id by export_shots_on_target.py line 103).
--- stg_psxg__predictions.player_id is the SHOOTER — match via same match_id
--- where the shooter's team != the GK's team.
+-- stg_psxg__predictions.event_id is fct_shots.shot_id (MD5 surrogate key).
+-- PR 6: shot_id is the unique join key — match_id cross-check dropped.
+-- match_key + data_source flow through fct_shots so we can JOIN gk_matches
+-- on (match_key, data_source).
 psxg_shots as (
 
     select
         psxg.event_id,
         psxg.match_id,
         psxg.psxg,
-        shots.team_id    as shooter_team_id,
+        shots.team_id      as shooter_team_id,
+        shots.match_key,
+        shots.data_source,
         shots.shot_outcome
     from {{ ref('stg_psxg__predictions') }} psxg
-    inner join (
-        -- PR 3 (ADR-011): recover native match_id via dim_matches JOIN.
-        select s.*, try_cast(dm.native_match_id as bigint) as match_id
-        from {{ ref('fct_shots') }} s
-        left join {{ ref('dim_matches') }} dm on s.match_key = dm.match_key
-    ) shots
+    inner join {{ ref('fct_shots') }} shots
         on shots.shot_id = psxg.event_id
-        and cast(shots.match_id as string) = psxg.match_id
 
 ),
 
@@ -347,26 +366,26 @@ psxg_agg as (
     select
         gm.player_id,
         gm.match_id,
+        gm.data_source,
         sum(ps.psxg)                                                      as psxg_faced,
         cast(sum(case when ps.shot_outcome = 'Goal' then 1 else 0 end)
             as int)                                                       as goals_conceded
     from gk_matches gm
     inner join psxg_shots ps
-        on cast(gm.match_id as string) = ps.match_id
-        and cast(gm.team_id as int) != cast(ps.shooter_team_id as int)
-    group by gm.player_id, gm.match_id
+        on gm.match_key = ps.match_key
+       and gm.team_id != ps.shooter_team_id
+       and gm.data_source = ps.data_source
+    group by gm.player_id, gm.match_id, gm.data_source
 
 ),
 
 -- Combined saves: prefer shot-based (ground truth) over SPADL (derived).
--- StatsBomb matches have shot_outcome granularity -> shot_save_stats.
--- Wyscout matches have SPADL keeper_save -> spadl_save_stats.
--- save_pct = saves / (saves + goals_conceded) i.e. shots stopped / shots on target.
 save_stats as (
 
     select
         gm.player_id,
         gm.match_id,
+        gm.data_source,
         coalesce(shs.saves, ss.saves, cast(0 as bigint))               as saves,
         case
             when coalesce(shs.saves, ss.saves, 0) + coalesce(pa.goals_conceded, 0) > 0
@@ -380,12 +399,15 @@ save_stats as (
     left join shot_save_stats shs
         on gm.player_id = shs.player_id
         and gm.match_id = shs.match_id
+        and gm.data_source = shs.data_source
     left join spadl_save_stats ss
         on gm.player_id = ss.player_id
         and gm.match_id = ss.match_id
+        and gm.data_source = ss.data_source
     left join psxg_agg pa
         on gm.player_id = pa.player_id
         and gm.match_id = pa.match_id
+        and gm.data_source = pa.data_source
 
 ),
 
@@ -394,7 +416,8 @@ final as (
     select
         {{ dbt_utils.generate_surrogate_key([
             'gm.player_id',
-            'gm.match_id'
+            'gm.match_id',
+            'gm.data_source'
         ]) }}                                                           as gk_stat_id,
 
         gm.player_id,
@@ -402,6 +425,12 @@ final as (
         gm.team_id,
         gm.competition_id,
         gm.season_id,
+        gm.data_source,
+
+        -- PR 6 (ADR-011) Kimball surrogate FKs.
+        gm.match_key,
+        dt.team_key,
+        dp.player_key,
 
         coalesce(m.minutes_played, cast(null as double))                as minutes_played,
 
@@ -438,21 +467,36 @@ final as (
     left join minutes m
         on gm.player_id = m.player_id
         and gm.match_id = m.match_id
+        and gm.data_source = m.data_source
     left join save_stats ss
         on gm.player_id = ss.player_id
         and gm.match_id = ss.match_id
+        and gm.data_source = ss.data_source
     left join collection_stats cs
         on gm.player_id = cs.player_id
         and gm.match_id = cs.match_id
+        and gm.data_source = cs.data_source
     left join pass_stats ps
         on gm.player_id = ps.player_id
         and gm.match_id = ps.match_id
+        and gm.data_source = ps.data_source
     left join sweeper_stats sw
         on gm.player_id = sw.player_id
         and gm.match_id = sw.match_id
+        and gm.data_source = sw.data_source
     left join psxg_agg pa
         on gm.player_id = pa.player_id
         and gm.match_id = pa.match_id
+        and gm.data_source = pa.data_source
+    -- PR 6 Kimball FK resolution. fct_action_values emits data_source =
+    -- 'statsbomb' / 'wyscout' which maps 1:1 to dim_matches.provider —
+    -- no CASE translation needed (unlike the defcon marts).
+    left join {{ ref('dim_teams') }} dt
+        on  dt.provider = gm.data_source
+       and dt.native_team_id = cast(gm.team_id as string)
+    left join {{ ref('dim_players') }} dp
+        on  dp.provider = gm.data_source
+       and dp.native_player_id = cast(gm.player_id as string)
 
 )
 
@@ -468,6 +512,10 @@ select
     cast(null as int)       as team_id,
     cast(null as int)       as competition_id,
     cast(null as int)       as season_id,
+    cast(null as string)    as data_source,
+    cast(null as bigint)    as match_key,
+    cast(null as bigint)    as team_key,
+    cast(null as bigint)    as player_key,
     cast(null as double)    as minutes_played,
     cast(null as bigint)    as saves,
     cast(null as double)    as save_pct,

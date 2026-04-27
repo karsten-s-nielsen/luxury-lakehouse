@@ -26,6 +26,15 @@
 -- This is a pre-filtered narrow projection — NOT an aggregation.  The Taipy
 -- page renders individual passes as arrows on a pitch, so per-action detail
 -- must be preserved.
+--
+-- PR 6 (ADR-011): Kimball surrogate FKs added.
+--   - match_key inherited from fct_action_values (PR 4b migration).
+--   - team_key + player_key LEFT JOIN-resolved via dim_teams / dim_players
+--     using data_source as provider directly (fct_action_values emits
+--     'statsbomb' / 'wyscout' which map 1:1 to dim_matches.provider).
+--   - gk_action_id surrogate UNCHANGED — passthrough cast of
+--     fct_action_values.action_value_id which already encodes data_source
+--     in its hash inputs (verified Phase 0 Task 0.1).
 
 with gk_players as (
 
@@ -40,6 +49,7 @@ gk_actions as (
     select
         av.action_value_id,
         av.match_id,
+        av.match_key,
         av.competition_id,
         av.season_id,
         av.team_id,
@@ -64,26 +74,38 @@ gk_actions as (
 final as (
 
     select
-        cast(action_value_id as string)               as gk_action_id,
-        cast(match_id as bigint)                      as match_id,
-        cast(competition_id as int)                   as competition_id,
-        cast(season_id as int)                        as season_id,
-        cast(team_id as int)                          as team_id,
-        cast(player_id as int)                        as player_id,
-        cast(period as int)                           as period,
-        cast(time_seconds as double)                  as time_seconds,
-        cast(minute as int)                           as minute,
-        cast(second as int)                           as second,
-        cast(start_x as double)                       as start_x,
-        cast(start_y as double)                       as start_y,
-        cast(end_x as double)                         as end_x,
-        cast(end_y as double)                         as end_y,
-        cast(action_type as string)                   as action_type,
-        cast(action_result as string)                 as action_result,
-        cast(data_source as string)                   as data_source,
+        cast(ga.action_value_id as string)            as gk_action_id,
+        cast(ga.match_id as bigint)                   as match_id,
+        ga.match_key,
+        cast(ga.competition_id as int)                as competition_id,
+        cast(ga.season_id as int)                     as season_id,
+        cast(ga.team_id as int)                       as team_id,
+        cast(ga.player_id as int)                     as player_id,
+        dt.team_key,
+        dp.player_key,
+        cast(ga.period as int)                        as period,
+        cast(ga.time_seconds as double)               as time_seconds,
+        cast(ga.minute as int)                        as minute,
+        cast(ga.second as int)                        as second,
+        cast(ga.start_x as double)                    as start_x,
+        cast(ga.start_y as double)                    as start_y,
+        cast(ga.end_x as double)                      as end_x,
+        cast(ga.end_y as double)                      as end_y,
+        cast(ga.action_type as string)                as action_type,
+        cast(ga.action_result as string)              as action_result,
+        cast(ga.data_source as string)                as data_source,
         current_timestamp()                           as _loaded_at
 
-    from gk_actions
+    from gk_actions ga
+    -- PR 6 Kimball FK resolution. fct_action_values emits data_source =
+    -- 'statsbomb' / 'wyscout' which maps 1:1 to dim_teams / dim_players
+    -- provider — no CASE translation needed.
+    left join {{ ref('dim_teams') }} dt
+        on  dt.provider = ga.data_source
+       and dt.native_team_id = cast(ga.team_id as string)
+    left join {{ ref('dim_players') }} dp
+        on  dp.provider = ga.data_source
+       and dp.native_player_id = cast(ga.player_id as string)
 
 )
 

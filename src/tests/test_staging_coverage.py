@@ -77,6 +77,13 @@ PROVIDER_COVERAGE: dict[str, list[tuple[str, str]]] = {
         # verbatim into stg_wyscout__teams.
         ("wyscout_teams", "stg_wyscout__teams"),
     ],
+    # PR 6 (ADR-011): stg_pitch_control__values promoted to first-class
+    # treatment because notebooks/publish_datasets.py:248 INNER JOINs it
+    # to publish luxury-lakehouse/pitch-control-tracking. Staging adds
+    # data_source + match_key derived from match_id prefix.
+    "pitch_control": [
+        ("pitch_control_values", "stg_pitch_control__values"),
+    ],
 }
 
 
@@ -122,6 +129,9 @@ RENAMES: dict[tuple[str, str], dict[str, str]] = {
     # under both ``city`` and the ``city_raw`` passthrough alias; ``area``
     # stays as-is and is ALSO exploded into area_name/alpha2/alpha3.
     ("wyscout", "wyscout_teams"): {"name": "team_name"},
+    # PR 6: pitch_control bronze cols pass through verbatim; staging
+    # additionally derives data_source + match_key (additive, not renames).
+    ("pitch_control", "pitch_control_values"): {},
 }
 
 

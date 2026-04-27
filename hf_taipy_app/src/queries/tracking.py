@@ -1,6 +1,10 @@
 """Tracking queries — pitch control, movement, heat map. Extracted from state modules.
 
 All functions return pd.DataFrame. SQL uses %s parameterized placeholders.
+
+PR 6 (ADR-011): pitch-control queries use fct_tracking_frames_synced (PR 7
+migration target, not PR 6). stg_pitch_control__values now carries match_key
+forward-compat — annotation only here; no functional change in PR 6.
 """
 
 from __future__ import annotations

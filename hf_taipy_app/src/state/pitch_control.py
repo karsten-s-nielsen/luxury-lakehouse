@@ -4,6 +4,10 @@ Loads tracking frame data for a selected match + frame, computes physics-based
 or Voronoi pitch control surfaces, renders to mplsoccer pitch images.
 INTEGER slider for elapsed seconds — converts to frame via fps.
 Registered as the Pitch-Control page refresher via shared.register_page_refresher.
+
+PR 6 (ADR-011): stg_pitch_control__values now carries match_key + data_source
+(promoted to first-class). This module computes pitch-control on-demand from
+raw tracking frames (does not consume the staging mart) — annotation only.
 """
 
 from __future__ import annotations

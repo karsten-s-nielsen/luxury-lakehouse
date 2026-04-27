@@ -1524,6 +1524,48 @@ models:
       - name: _loaded_at
         data_type: timestamp
         description: Timestamp when the defensive values were loaded into the gold table
+      - name: match_key
+        data_type: bigint
+        description: >
+          Kimball surrogate FK to dim_matches.match_key (PR 6, ADR-011).
+          Resolved via provider CASE on data_source.
+        data_tests:
+          - relationships:
+              to: ref('dim_matches')
+              field: match_key
+              config:
+                severity: warn
+                where: "match_key IS NOT NULL"
+      - name: team_key
+        data_type: bigint
+        description: >
+          Kimball surrogate FK to dim_teams.team_key (defender's team).
+        data_tests:
+          - relationships:
+              to: ref('dim_teams')
+              field: team_key
+              config:
+                severity: warn
+                where: "team_key IS NOT NULL"
+      - name: player_key
+        data_type: bigint
+        description: >
+          Kimball surrogate FK to dim_players.player_key (defender).
+          Resolution rate is structurally low (~16% on dev_gold) due to
+          360-synthetic defenders that don't have real player_id.
+        data_tests:
+          - relationships:
+              to: ref('dim_players')
+              field: player_key
+              config:
+                severity: warn
+                where: "player_key IS NOT NULL"
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - player_id
+            - match_id
+            - data_source
 
   - name: fct_defcon_actions
     config:
@@ -1622,6 +1664,61 @@ models:
       - name: _loaded_at
         data_type: timestamp
         description: Timestamp when loaded into the gold table
+      - name: match_key
+        data_type: bigint
+        description: >
+          Kimball surrogate FK to dim_matches.match_key (PR 6, ADR-011).
+          Resolved via provider CASE on data_source.
+        data_tests:
+          - relationships:
+              to: ref('dim_matches')
+              field: match_key
+              config:
+                severity: warn
+                where: "match_key IS NOT NULL"
+      - name: team_key
+        data_type: bigint
+        description: >
+          Kimball surrogate FK to dim_teams.team_key (defender's team).
+        data_tests:
+          - relationships:
+              to: ref('dim_teams')
+              field: team_key
+              config:
+                severity: warn
+                where: "team_key IS NOT NULL"
+      - name: player_key
+        data_type: bigint
+        description: >
+          Kimball surrogate FK to dim_players.player_key (defender).
+          Resolution rate is structurally low (~16%) due to 360-synthetic
+          defenders that don't have real player_id; action_player_key
+          (below) resolves at near-100%.
+        data_tests:
+          - relationships:
+              to: ref('dim_players')
+              field: player_key
+              config:
+                severity: warn
+                where: "player_key IS NOT NULL"
+      - name: action_player_key
+        data_type: bigint
+        description: >
+          Kimball surrogate FK to dim_players.player_key (the action-performing
+          player; the real attacker who drew the defensive credit).
+        data_tests:
+          - relationships:
+              to: ref('dim_players')
+              field: player_key
+              config:
+                severity: warn
+                where: "action_player_key IS NOT NULL"
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - event_id
+            - player_id
+            - data_source
 
   - name: fct_defcon_pressure
     config:
@@ -1718,6 +1815,36 @@ models:
       - name: _loaded_at
         data_type: timestamp
         description: Timestamp when loaded into the gold table
+      - name: match_key
+        data_type: bigint
+        description: >
+          Kimball surrogate FK to dim_matches.match_key (PR 6, ADR-011).
+          Resolved via provider CASE on data_source.
+        data_tests:
+          - relationships:
+              to: ref('dim_matches')
+              field: match_key
+              config:
+                severity: warn
+                where: "match_key IS NOT NULL"
+      - name: player_key
+        data_type: bigint
+        description: >
+          Kimball surrogate FK to dim_players.player_key (the action-performing
+          attacker — real player, not 360-synthetic).
+        data_tests:
+          - relationships:
+              to: ref('dim_players')
+              field: player_key
+              config:
+                severity: warn
+                where: "player_key IS NOT NULL"
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - player_id
+            - match_id
+            - data_source
 
   - name: fct_xg_predictions
     config:
@@ -3036,6 +3163,56 @@ models:
       - name: actions_outside_box_per_90
         data_type: double
         description: "Defensive actions outside the penalty box per 90 minutes played"
+      - name: data_source
+        data_type: string
+        description: >
+          Provider attribution (PR 6 — ADR-011). Closes a latent multi-provider
+          correctness gap: pre-PR-6 SB and WS BIGINT match_ids could collide
+          on (player_id, match_id).
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['statsbomb', 'wyscout']
+      - name: match_key
+        data_type: bigint
+        description: >
+          Kimball surrogate FK to dim_matches.match_key (PR 6, ADR-011).
+          Inherited from fct_action_values via gk_matches (PR 4b migration
+          of fct_action_values + PR 6 propagation).
+        data_tests:
+          - relationships:
+              to: ref('dim_matches')
+              field: match_key
+              config:
+                severity: warn
+                where: "match_key IS NOT NULL"
+      - name: team_key
+        data_type: bigint
+        description: "Kimball surrogate FK to dim_teams.team_key (GK's team)."
+        data_tests:
+          - relationships:
+              to: ref('dim_teams')
+              field: team_key
+              config:
+                severity: warn
+                where: "team_key IS NOT NULL"
+      - name: player_key
+        data_type: bigint
+        description: "Kimball surrogate FK to dim_players.player_key (the GK)."
+        data_tests:
+          - relationships:
+              to: ref('dim_players')
+              field: player_key
+              config:
+                severity: warn
+                where: "player_key IS NOT NULL"
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - player_id
+            - match_id
+            - data_source
 
   # ── Space Creation ───────────────────────────────────────────────────
 
@@ -3549,6 +3726,36 @@ models:
       - name: data_source
         data_type: string
         description: Data provider (statsbomb, wyscout, etc.).
+      - name: match_key
+        data_type: bigint
+        description: "Kimball surrogate FK inherited from fct_action_values."
+        data_tests:
+          - relationships:
+              to: ref('dim_matches')
+              field: match_key
+              config:
+                severity: warn
+                where: "match_key IS NOT NULL"
+      - name: team_key
+        data_type: bigint
+        description: "Kimball surrogate FK to dim_teams.team_key."
+        data_tests:
+          - relationships:
+              to: ref('dim_teams')
+              field: team_key
+              config:
+                severity: warn
+                where: "team_key IS NOT NULL"
+      - name: player_key
+        data_type: bigint
+        description: "Kimball surrogate FK to dim_players.player_key (GK)."
+        data_tests:
+          - relationships:
+              to: ref('dim_players')
+              field: player_key
+              config:
+                severity: warn
+                where: "player_key IS NOT NULL"
       - name: _loaded_at
         data_type: timestamp
         description: Audit timestamp.
