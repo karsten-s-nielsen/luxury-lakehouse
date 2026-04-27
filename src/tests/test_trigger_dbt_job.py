@@ -69,36 +69,38 @@ class TestSubmitRun:
             )
 
 
+def _sdk_run_mock(life_cycle: str, result_state: str | None, run_page_url: str = "u") -> MagicMock:
+    """Build a mock SDK Run object matching the shape poll_run reads.
+
+    `state.life_cycle_state` and `state.result_state` are SDK enums; poll_run
+    accesses `.value` on each. Returning a MagicMock with `.value` set on the
+    enum mocks satisfies that access pattern. Pass `result_state=None` for an
+    in-flight run (poll_run's branch returns the literal None in that case).
+    """
+    state = MagicMock()
+    state.life_cycle_state = MagicMock(value=life_cycle)
+    state.result_state = MagicMock(value=result_state) if result_state is not None else None
+    return MagicMock(state=state, run_page_url=run_page_url)
+
+
 class TestPollRun:
+    """Tests for the WorkspaceClient.jobs.get_run-based poll loop.
+
+    Pre-PR-6-followup these tests patched `scripts.trigger_dbt_job.requests.get`
+    because the implementation polled via raw HTTP and 403'd after ~5 min when
+    the GitHub OIDC token expired. PR-6-followup replaced the raw HTTP path
+    with the SDK's auto-token-refreshing client, so the patches moved to
+    `databricks.sdk.WorkspaceClient`.
+    """
+
     @patch("scripts.trigger_dbt_job.time.sleep", new=MagicMock())
-    @patch("scripts.trigger_dbt_job.requests.get")
-    def test_poll_returns_on_terminal_success(self, mock_get: MagicMock) -> None:
-        # NOTE (plan gap, surfaced 2026-04-23): the canonical plan test in
-        # docs/superpowers/plans/2026-04-23-kimball-pr4-live-ci.md Phase 2 Task 2.1
-        # iterates `mock_get.side_effect` AFTER assignment. mock converts an
-        # assigned iterable into an iterator; iterating it consumes it, so
-        # the production code's first `requests.get` call raises StopIteration.
-        # Behaviour-preserving fix: build the response mocks in a local list,
-        # set `raise_for_status` on each, then assign the list to side_effect.
-        responses = [
-            MagicMock(
-                status_code=200,
-                json=lambda: {"state": {"life_cycle_state": "RUNNING"}, "run_page_url": "u"},
-            ),
-            MagicMock(
-                status_code=200,
-                json=lambda: {
-                    "state": {
-                        "life_cycle_state": "TERMINATED",
-                        "result_state": "SUCCESS",
-                    },
-                    "run_page_url": "u",
-                },
-            ),
+    @patch("databricks.sdk.WorkspaceClient")
+    def test_poll_returns_on_terminal_success(self, mock_ws_class: MagicMock) -> None:
+        """Poll returns RunResult once the SDK reports a terminal SUCCESS."""
+        mock_ws_class.return_value.jobs.get_run.side_effect = [
+            _sdk_run_mock(life_cycle="RUNNING", result_state=None),
+            _sdk_run_mock(life_cycle="TERMINATED", result_state="SUCCESS"),
         ]
-        for r in responses:
-            r.raise_for_status = MagicMock()
-        mock_get.side_effect = responses
 
         result = trigger.poll_run(
             host="h",
@@ -111,14 +113,12 @@ class TestPollRun:
         assert result.run_page_url == "u"
 
     @patch("scripts.trigger_dbt_job.time.sleep", new=MagicMock())
-    @patch("scripts.trigger_dbt_job.requests.get")
-    def test_poll_returns_on_terminal_failure(self, mock_get: MagicMock) -> None:
-        mock_get.return_value.status_code = 200
-        mock_get.return_value.json.return_value = {
-            "state": {"life_cycle_state": "TERMINATED", "result_state": "FAILED"},
-            "run_page_url": "u",
-        }
-        mock_get.return_value.raise_for_status = MagicMock()
+    @patch("databricks.sdk.WorkspaceClient")
+    def test_poll_returns_on_terminal_failure(self, mock_ws_class: MagicMock) -> None:
+        mock_ws_class.return_value.jobs.get_run.return_value = _sdk_run_mock(
+            life_cycle="TERMINATED",
+            result_state="FAILED",
+        )
         result = trigger.poll_run(
             host="h",
             token="t",  # noqa: S106 — test fixture, not a real credential
@@ -128,14 +128,12 @@ class TestPollRun:
         assert result.result_state == "FAILED"
 
     @patch("scripts.trigger_dbt_job.time.sleep", new=MagicMock())
-    @patch("scripts.trigger_dbt_job.requests.get")
-    def test_poll_timeout_raises(self, mock_get: MagicMock) -> None:
-        mock_get.return_value.status_code = 200
-        mock_get.return_value.json.return_value = {
-            "state": {"life_cycle_state": "RUNNING"},
-            "run_page_url": "u",
-        }
-        mock_get.return_value.raise_for_status = MagicMock()
+    @patch("databricks.sdk.WorkspaceClient")
+    def test_poll_timeout_raises(self, mock_ws_class: MagicMock) -> None:
+        mock_ws_class.return_value.jobs.get_run.return_value = _sdk_run_mock(
+            life_cycle="RUNNING",
+            result_state=None,
+        )
         with pytest.raises(TimeoutError):
             trigger.poll_run(
                 host="h",
