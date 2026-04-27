@@ -89,46 +89,69 @@ def test_fct_passes_pr7_kimball_keys_present(conn: object) -> None:
         )
 
 
-@requires_databricks
-def test_fct_passes_team_key_non_null_for_sb_ws(conn: object) -> None:
-    """PR 7: team_key resolves 100% on StatsBomb + Wyscout (real BIGINT
-    team_ids cast to string and JOIN dim_teams cleanly). IDSSE + Metrica
-    coverage is provider-specific; tested separately at calibrated
-    thresholds in test_marts_kimball_contracts.py.
-    """
-    cur = conn.cursor()  # type: ignore[attr-defined]
-    cur.execute(
-        "SELECT count(*) FROM soccer_analytics.dev_gold.fct_passes "
-        "WHERE data_source IN ('statsbomb', 'wyscout') AND team_key IS NULL"
-    )
-    null_count = cur.fetchone()[0]
-    assert null_count == 0, (
-        f"fct_passes has {null_count} SB/WS rows with NULL team_key — "
-        "the dim_teams JOIN on (provider, native_team_id=cast(team_id as string)) "
-        "should resolve every SB/WS row. Re-run with --full-refresh and recheck."
-    )
+_FCT_PASSES_PROVIDERS: tuple[str, ...] = ("statsbomb", "wyscout", "idsse", "metrica")
+"""Providers that must have 100% Kimball-FK coverage on fct_passes.
+
+PR 7 hotfix #2 (2026-04-27) added IDSSE + Metrica:
+- IDSSE: stg_idsse__passes now reads `play_team` (DFL-CLU code) directly,
+  bypassing the obsolete home/away bridge that was 100%-NULL'ing team_key.
+- Metrica: stg_metrica__passes now strips the 'Player' / 'Player ' prefix
+  from player_id_native so the synthesized native_player_id matches the
+  bare-numeric form dim_players uses (per the tracking JSON map keys).
+"""
 
 
 @requires_databricks
-def test_fct_passes_passer_player_key_non_null_for_sb_ws(conn: object) -> None:
-    """PR 7: passer_player_key resolves 100% on StatsBomb + Wyscout.
+@pytest.mark.parametrize("provider", _FCT_PASSES_PROVIDERS)
+def test_fct_passes_team_key_non_null(conn: object, provider: str) -> None:
+    """PR 7: team_key resolves 100% on every provider via dim_teams JOIN.
 
-    Wyscout open-data uses ``playerId: 0`` as an "unknown player" sentinel
-    (31 of 1,665,508 = 0.002% pass events). PR 7 hotfix filters those rows
-    out at int_unified_passes' Wyscout CTE so the mart-level invariant stays
-    strict (no NULL passer_player_key for any provider, anywhere).
+    Per-provider parameterisation surfaces single-provider recipe drift
+    immediately rather than letting it hide behind aggregate counts. PR 7
+    shipped without per-provider assertions and IDSSE was 100% NULL for
+    62+ hours before the hotfix surfaced it.
     """
     cur = conn.cursor()  # type: ignore[attr-defined]
     cur.execute(
-        "SELECT count(*) FROM soccer_analytics.dev_gold.fct_passes "
-        "WHERE data_source IN ('statsbomb', 'wyscout') AND passer_player_key IS NULL"
+        f"SELECT count(*) FROM soccer_analytics.dev_gold.fct_passes "  # noqa: S608 — provider is a literal from _FCT_PASSES_PROVIDERS
+        f"WHERE data_source = '{provider}' AND team_key IS NULL"
     )
     null_count = cur.fetchone()[0]
     assert null_count == 0, (
-        f"fct_passes has {null_count} SB/WS rows with NULL passer_player_key — "
-        "the dim_players JOIN should resolve every SB/WS row. If Wyscout source "
-        "data has any new `playerId: 0` rows, ensure int_unified_passes' Wyscout "
-        "CTE WHERE clause still filters `player_id <> 0`."
+        f"fct_passes has {null_count} {provider} rows with NULL team_key — "
+        "dim_teams JOIN on (provider, native_team_id) failed for these rows. "
+        "Investigate native_team_id propagation in the per-provider staging "
+        "(stg_<provider>__passes) and verify dim_teams contains the expected "
+        "(provider, native_team_id) entries."
+    )
+
+
+@requires_databricks
+@pytest.mark.parametrize("provider", _FCT_PASSES_PROVIDERS)
+def test_fct_passes_passer_player_key_non_null(conn: object, provider: str) -> None:
+    """PR 7: passer_player_key resolves 100% on every provider via dim_players JOIN.
+
+    Provider-specific upstream filters that achieve 100% post-hotfix:
+    - Wyscout: int_unified_passes filters `player_id = 0` (unknown-player sentinel).
+    - Metrica: stg_metrica__passes strips 'Player ' prefix from player_id_native.
+    - IDSSE: stg_idsse__passes uses play_team for native_team_id (separate fix).
+
+    A failure here points to ONE of: source-data NULL gap (relax via upstream
+    filter), staging recipe drift between fact-side and dim-side (align both),
+    or dim_players coverage gap (extend the dim generator).
+    """
+    cur = conn.cursor()  # type: ignore[attr-defined]
+    cur.execute(
+        f"SELECT count(*) FROM soccer_analytics.dev_gold.fct_passes "  # noqa: S608 — provider is a literal from _FCT_PASSES_PROVIDERS
+        f"WHERE data_source = '{provider}' AND passer_player_key IS NULL"
+    )
+    null_count = cur.fetchone()[0]
+    assert null_count == 0, (
+        f"fct_passes has {null_count} {provider} rows with NULL passer_player_key — "
+        "dim_players JOIN on (provider, native_player_id) failed for these rows. "
+        "Verify the staging-side native_player_id form matches the dim_players "
+        "synth recipe; mismatched recipes silently 100%-NULL a single provider "
+        "while the aggregate count still looks healthy."
     )
 
 

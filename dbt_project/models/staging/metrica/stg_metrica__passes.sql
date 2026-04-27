@@ -54,11 +54,22 @@ final as (
         cast(null as int)                                       as team_id,
         cast(null as int)                                       as pass_recipient_id,
 
-        -- Raw Metrica identity strings ('Player 10', 'Home'/'Away').
-        -- Preserved for future dim_players / dim_teams conformance PRs.
-        cast(player as string)                                  as player_id_native,
+        -- Metrica identity strings, normalized to match dim_players' synth recipe.
+        -- Bronze format varies between sample matches: 'Player19' (no space,
+        -- Sample_Game_1 / 2) and 'Player 8' (with space, Sample_Game_3). The
+        -- dim_players generator (stg_metrica__team_players) reads the raw
+        -- Metrica tracking JSON map keys which are BARE numbers ('1', '11', ...)
+        -- and synthesizes `metrica_<match>_<side>_<bare_number>`. For the
+        -- INNER JOIN to dim_players to resolve in fct_passes, the native_id
+        -- propagated up from this staging row must, after `concat('metrica_'
+        -- || match_id || '_' || side || '_' || ...)` in int_unified_passes,
+        -- equal the dim_players' synthesized form. So strip the 'Player' /
+        -- 'Player ' prefix here at the staging boundary. Falls back to the
+        -- raw value if the regex doesn't match (forward-compat for any
+        -- subscription-data shape that emits real player IDs).
+        regexp_replace(cast(player as string), '^Player[ ]?', '') as player_id_native,
         cast(team as string)                                    as team_side,
-        cast(`to` as string)                                    as pass_recipient_id_native,
+        regexp_replace(cast(`to` as string), '^Player[ ]?', '')   as pass_recipient_id_native,
 
         cast(period as int)                                     as period,
         cast(floor(start_time_s / 60.0) as int)                 as minute,
