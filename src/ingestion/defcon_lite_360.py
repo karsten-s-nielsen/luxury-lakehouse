@@ -243,8 +243,13 @@ def process_360_matches(
 
     # 360 freeze frames are anonymous — synthesize player_id; team_id
     # is derived post-join below from the teammate boolean.
+    # ff_player_id MUST be cast to long, not int: monotonically_increasing_id()
+    # returns 64-bit values (upper 31 bits = partition id, lower 33 bits = row
+    # number within partition); under multi-partition serverless the values
+    # exceed 2^31 and Spark ANSI mode rejects LONG→INT statically. Matches
+    # credits_schema StructField("defender_player_id", LongType()) downstream.
     ff_df = (
-        ff_df.withColumn("ff_player_id", F.monotonically_increasing_id().cast("int"))
+        ff_df.withColumn("ff_player_id", F.monotonically_increasing_id().cast("long"))
         .withColumn("ff_velocity_x", F.lit(0.0))
         .withColumn("ff_velocity_y", F.lit(0.0))
     )
