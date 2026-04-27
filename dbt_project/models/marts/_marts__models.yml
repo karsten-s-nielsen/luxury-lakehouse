@@ -2159,12 +2159,12 @@ models:
           - not_null
       - name: provider
         data_type: string
-        description: Provider label for this row (4-provider union post-PR-5a).
+        description: Provider label for this row (5-provider union post-PR-7; SkillCorner onboarded for tracking-only data).
         data_tests:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb', 'wyscout', 'idsse', 'metrica']
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner']
       - name: native_player_id
         data_type: string
         description: Stringified native provider ID (real for SB/WS/IDSSE; synthesised for Metrica anonymised).
@@ -2216,12 +2216,12 @@ models:
         data_type: string
       - name: data_sources
         data_type: string
-        description: Provider label (same as provider col; retained for backward compat).
+        description: Provider label (same as provider col; retained for backward compat). PR 7 adds 'skillcorner'.
         data_tests:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb', 'wyscout', 'idsse', 'metrica']
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner']
 
   - name: dim_teams
     config:
@@ -2250,7 +2250,7 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb', 'wyscout', 'idsse', 'metrica']
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner']
       - name: native_team_id
         data_type: string
         data_tests:
@@ -2293,14 +2293,14 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb', 'wyscout', 'idsse', 'metrica']
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner']
       - name: team_data_source
         data_type: string
         data_tests:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb', 'wyscout', 'idsse', 'metrica']
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner']
 
   - name: dim_competitions
     config:
@@ -4131,12 +4131,13 @@ models:
         data_type: string
         description: >
           Data source that produced this match. One of: statsbomb, wyscout,
-          idsse, metrica.
+          idsse, metrica, skillcorner (PR 7 onboarded SkillCorner for
+          tracking-only data).
         data_tests:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb', 'wyscout', 'idsse', 'metrica']
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner']
       - name: native_match_id
         data_type: string
         description: >
