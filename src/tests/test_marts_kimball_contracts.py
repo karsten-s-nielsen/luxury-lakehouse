@@ -10,12 +10,24 @@ Renamed from test_marts_player_key_contracts.py and parameterized over
     action_player_key where present) — thresholds calibrated per
     Phase 0 Task 0.7 measurement on dev_gold.
 
-Phase 0 Task 0.7 finding (2026-04-26): defender_player_id resolution
-against dim_players is structurally low (~16% on stg_defcon__results)
-because 360-synthetic defenders use synthetic IDs that don't appear in
-dim_players. action_player_id (real attackers) resolves at 100%. The
-floor for defender keys is therefore set conservatively at 0.10 to
-catch real regressions while accommodating the 360-synthetic floor.
+Phase 0 Task 0.7 originally observed defender_player_id resolution
+at ~16% on stg_defcon__results, but that figure was an artifact of the
+pre-2026-04-27 INT cast in `stg_defcon__results.sql` truncating the
+synthetic LONG IDs from `monotonically_increasing_id()` into the real
+player_id range by accident. After the BIGINT widening (PRs #208-#210
+plus the defcon-cast-fix branch), the synthetic IDs land in the
+9-10-digit range where they no longer overlap with real StatsBomb
+player_ids — measured at 0.06% (469 / 828k) on the 2026-04-27 dev
+rebuild. The defender_player_key tests for fct_defensive_values and
+fct_defcon_actions are therefore removed: the column is structurally
+unresolvable for 360-anonymous freeze-frame defenders, and the 16%
+figure cannot be regressed-against because it was never semantic.
+
+team_key on those marts moves from 0.10 floor to 0.99 — PR 6-followup
+#209 derives team_key from the teammate flag + per-match team-pair, so
+post-fix coverage is 100% (measured 828634/828634). action_player_key
+remains 0.99 — real attacker IDs resolve fully via the dim_players
+join.
 
 Skips when DATABRICKS_* env vars are absent (air-gapped CI). Otherwise
 runs against dev_gold via the standard SQL warehouse connection.
@@ -40,8 +52,11 @@ requires_databricks = pytest.mark.skipif(
 )
 
 # (mart, key_column, non_null_rate_threshold)
-# Defender-on-defcon thresholds set to 0.10 per Phase 0 Task 0.7 (360-synthetic
-# floor at ~0.16); raise/lower at first dev rebuild measurement if needed.
+#
+# Calibrated 2026-04-27 against post-defcon-cast-fix dev_gold:
+#   - match_key, team_key, action_player_key: 100% on 828634 rows
+#   - defender player_key on fct_defensive_values / fct_defcon_actions:
+#     0.06% (structural — see module docstring). Not tested.
 _CASES: tuple[tuple[str, str, float], ...] = (
     # PR 5b — player_key on six embedding marts
     ("fct_player_embeddings", "player_key", 0.99),
@@ -50,14 +65,14 @@ _CASES: tuple[tuple[str, str, float], ...] = (
     ("fct_player_embeddings_season_360", "player_key", 0.99),
     ("fct_player_embeddings_career_360", "player_key", 0.99),
     ("fct_player_percentiles", "player_key", 0.99),
-    # PR 6 — fct_defensive_values (defender keys; 360-synthetic floor ~16%)
+    # PR 6 — fct_defensive_values (real match + team; defender 360-synthetic
+    # player_key intentionally unresolved, no test).
     ("fct_defensive_values", "match_key", 0.99),
-    ("fct_defensive_values", "team_key", 0.10),
-    ("fct_defensive_values", "player_key", 0.10),
-    # PR 6 — fct_defcon_actions (defender low-resolution; action_player full)
+    ("fct_defensive_values", "team_key", 0.99),
+    # PR 6 — fct_defcon_actions (real match + team + action_player; defender
+    # 360-synthetic player_key intentionally unresolved, no test).
     ("fct_defcon_actions", "match_key", 0.99),
-    ("fct_defcon_actions", "team_key", 0.10),
-    ("fct_defcon_actions", "player_key", 0.10),
+    ("fct_defcon_actions", "team_key", 0.99),
     ("fct_defcon_actions", "action_player_key", 0.99),
     # PR 6 — fct_defcon_pressure (action_player only — real player IDs)
     ("fct_defcon_pressure", "match_key", 0.99),

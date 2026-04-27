@@ -81,8 +81,8 @@ No CLAUDE.md amendment. This ADR establishes a new pattern that complements exis
 | PR 2 | Passes conformed + LB-IDSSE + LB-METRICA functional surfacing + bronze→staging completeness sweep | Shipped (2026-04-22) |
 | PR 3 | Shots + xG migration | Planned |
 | PR 4 | Action values + VAEP migration | Planned |
-| PR 5 | Player stats + embeddings migration | Planned |
-| PR 6 | Defensive + goalkeeper + pitch control migration | Planned |
+| PR 5 | Player stats + embeddings migration | Shipped (PR 5a #190 2026-04-24, PR 5b #202 2026-04-25) |
+| PR 6 | Defensive + goalkeeper + pitch control migration | Shipped (#207 2026-04-27, plus followups #208/#209/#210 + DEFCON-cast-fix branch widening BIGINT end-to-end through staging+marts and adding `test_defcon_schema_parity.py` writer/DDL guard) |
 | PR 7 | Tracking + formations + pausa + tail facts migration (**`fct_pausa_values` also promoted Python→dbt mart under ADR-013 as part of this PR**) | Planned |
 | PR 8 | Scripts + final cleanup + doc sweep | Planned |
 

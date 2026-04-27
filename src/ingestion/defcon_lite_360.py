@@ -184,7 +184,7 @@ def process_360_matches(
     Returns number of rows written.
     """
     from pyspark.sql import functions as F  # noqa: N812
-    from pyspark.sql.types import DoubleType, LongType, StringType, StructField, StructType
+    from pyspark.sql.types import DoubleType, FloatType, LongType, StringType, StructField, StructType
 
     action_table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_action_values"
     ff_table = f"{catalog}.bronze.statsbomb_360"
@@ -296,7 +296,16 @@ def process_360_matches(
         .drop("_match_team_ids")
     )
 
-    # Pass 1: assign credits per match on executors
+    # Pass 1: assign credits per match on executors.
+    # action_player_id is LongType, not StringType: the analytics module
+    # produces it as int64 (action_row.get("player_id") on a BIGINT-typed
+    # pandas column), the bronze DDL declares BIGINT (line 23 above), the
+    # staging cast is `cast(action_player_id as int)`, and downstream marts
+    # treat it as numeric. Pre-2026-04-27 the schema declared StringType,
+    # which produced silent agreement only because SkipGuard prevented
+    # re-execution; the first re-trigger via PR-6-followup hit
+    # pyarrow.lib.ArrowTypeError "Expected a string or bytes dtype, got
+    # int64" because pyarrow refuses int->string coercion in applyInPandas.
     credits_schema = StructType(
         [
             StructField("event_id", StringType(), nullable=True),
@@ -307,7 +316,7 @@ def process_360_matches(
             StructField("defender_team_id", LongType(), nullable=True),
             StructField("defender_x", DoubleType(), nullable=True),
             StructField("defender_y", DoubleType(), nullable=True),
-            StructField("action_player_id", StringType(), nullable=True),
+            StructField("action_player_id", LongType(), nullable=True),
             StructField("action_type", StringType(), nullable=True),
             StructField("action_x", DoubleType(), nullable=True),
             StructField("action_y", DoubleType(), nullable=True),
@@ -332,7 +341,8 @@ def process_360_matches(
         schema=credits_schema,
     )
 
-    # Pass 2: estimate DEFCON values per match on executors
+    # Pass 2: estimate DEFCON values per match on executors.
+    # action_player_id LongType — see credits_schema rationale above.
     valued_schema = StructType(
         [
             StructField("event_id", StringType(), nullable=True),
@@ -343,13 +353,20 @@ def process_360_matches(
             StructField("defender_team_id", LongType(), nullable=True),
             StructField("defender_x", DoubleType(), nullable=True),
             StructField("defender_y", DoubleType(), nullable=True),
-            StructField("action_player_id", StringType(), nullable=True),
+            StructField("action_player_id", LongType(), nullable=True),
             StructField("action_type", StringType(), nullable=True),
             StructField("action_x", DoubleType(), nullable=True),
             StructField("action_y", DoubleType(), nullable=True),
             StructField("credit_type", StringType(), nullable=True),
             StructField("confidence", StringType(), nullable=True),
-            StructField("defcon_value", DoubleType(), nullable=True),
+            # defcon_value is FloatType (not DoubleType) to match the bronze
+            # DDL `_RESULTS_SCHEMA` which declares FLOAT (line 25 above) and
+            # the existing live table at soccer_analytics.bronze.defcon_results.
+            # 2026-04-27: Delta refused MERGE with DoubleType producer
+            # ([DELTA_FAILED_TO_MERGE_FIELDS] on `defcon_value`); precision
+            # loss from float64 -> float32 is acceptable for XGBoost-emitted
+            # DEFCON values. Guarded by test_defcon_schema_parity.py.
+            StructField("defcon_value", FloatType(), nullable=True),
             StructField("dist_to_ball", DoubleType(), nullable=True),
             StructField("pitch_control_at_action", DoubleType(), nullable=True),
             StructField("data_source", StringType(), nullable=True),

@@ -87,6 +87,8 @@ For every operational telemetry writer that MERGEs into a Delta table via `whenM
 - `src/tests/test_cost_hook.py::TestCostHookSchemaDriftGuard` parses `scripts/create_cost_table.sql` and asserts set equality, order equality, and that orphan columns (`task_key`, `job_run_id`) stay out.
 - `src/tests/test_cost_hook_integration.py` provides an end-to-end Spark MERGE round-trip against a real temp Delta table, auto-skipping when local Spark is unavailable.
 
+**Confirming application — DEFCON `valued_schema` (2026-04-27, PR-6-followup):** the same pattern is applied to `ingestion.defcon_lite_360._RESULTS_SCHEMA` (the bronze DDL string) vs the in-function `valued_schema` `StructType` used by `applyInPandas`. `src/tests/test_defcon_schema_parity.py` parses `_RESULTS_SCHEMA` and asserts column-name + Spark-type equality with the StructType for both `defcon_lite_360` and `defcon_lite_tracking`, and asserts the two modules' DDL strings agree. Four production failures during the PR-6 cycle (StringType vs int64 `action_player_id`, DoubleType vs FLOAT `defcon_value`, INT casts overflowing on 64-bit synthetic IDs) all trace to drift this guard now catches at CI time.
+
 Future writers to new telemetry tables must follow the same pattern: canonical schema constant, factory function, drift guard test, optional Spark integration test.
 
 ### 5. Hard-fail-first UDF semantics
