@@ -159,3 +159,7 @@ If you use this dataset, please cite the SPADL framework and the Football2Vec v2
 
 - **Model repo**: [`luxury-lakehouse/football2vec-v2`](https://huggingface.co/luxury-lakehouse/football2vec-v2)
 - **License**: [CC-BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) (inherited from Wyscout data)
+
+## PR 7 changelog (2026-04-27)
+
+PR 5b (2026-04-25) added `player_key` to the upstream training data lineage. The HF dataset payload republish was deferred at PR 5b and is absorbed into PR 7's scope. Payload now carries `player_key` (BIGINT) alongside the legacy `player_id` and `canonical_player_id` columns during the 2026-07-22 dual-column window. PR 8 will sunset the legacy ID columns post-2026-07-22.

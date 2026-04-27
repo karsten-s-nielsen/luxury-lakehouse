@@ -74,6 +74,57 @@ def test_fct_passes_has_no_match_id_column(conn: object) -> None:
 
 
 @requires_databricks
+def test_fct_passes_pr7_kimball_keys_present(conn: object) -> None:
+    """PR 7 (ADR-011 close-out) extends fct_passes with team_key +
+    passer_player_key + recipient_player_key. All three columns must exist
+    on the live mart post-deploy.
+    """
+    cur = conn.cursor()  # type: ignore[attr-defined]
+    cur.execute("DESCRIBE soccer_analytics.dev_gold.fct_passes")
+    cols = {row[0] for row in cur.fetchall() if row[0] and not row[0].startswith("#")}
+    for required in ("team_key", "passer_player_key", "recipient_player_key"):
+        assert required in cols, (
+            f"fct_passes missing PR-7 column '{required}' — re-run "
+            "`dbt run --select +fct_passes --full-refresh` after the PR 7 deploy."
+        )
+
+
+@requires_databricks
+def test_fct_passes_team_key_non_null_for_sb_ws(conn: object) -> None:
+    """PR 7: team_key resolves 100% on StatsBomb + Wyscout (real BIGINT
+    team_ids cast to string and JOIN dim_teams cleanly). IDSSE + Metrica
+    coverage is provider-specific; tested separately at calibrated
+    thresholds in test_marts_kimball_contracts.py.
+    """
+    cur = conn.cursor()  # type: ignore[attr-defined]
+    cur.execute(
+        "SELECT count(*) FROM soccer_analytics.dev_gold.fct_passes "
+        "WHERE data_source IN ('statsbomb', 'wyscout') AND team_key IS NULL"
+    )
+    null_count = cur.fetchone()[0]
+    assert null_count == 0, (
+        f"fct_passes has {null_count} SB/WS rows with NULL team_key — "
+        "the dim_teams JOIN on (provider, native_team_id=cast(team_id as string)) "
+        "should resolve every SB/WS row. Re-run with --full-refresh and recheck."
+    )
+
+
+@requires_databricks
+def test_fct_passes_passer_player_key_non_null_for_sb_ws(conn: object) -> None:
+    """PR 7: passer_player_key resolves 100% on StatsBomb + Wyscout."""
+    cur = conn.cursor()  # type: ignore[attr-defined]
+    cur.execute(
+        "SELECT count(*) FROM soccer_analytics.dev_gold.fct_passes "
+        "WHERE data_source IN ('statsbomb', 'wyscout') AND passer_player_key IS NULL"
+    )
+    null_count = cur.fetchone()[0]
+    assert null_count == 0, (
+        f"fct_passes has {null_count} SB/WS rows with NULL passer_player_key — "
+        "the dim_players JOIN should resolve every SB/WS row."
+    )
+
+
+@requires_databricks
 def test_fct_passes_match_key_joins_to_dim(conn: object) -> None:
     cur = conn.cursor()  # type: ignore[attr-defined]
     cur.execute(

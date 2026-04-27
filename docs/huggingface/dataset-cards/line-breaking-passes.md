@@ -124,4 +124,8 @@ There is no formal paper for this dataset. If you use it, please cite the reposi
 
 > **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
 
+## PR 7 changelog (2026-04-27)
+
+The upstream gold mart `fct_line_breaking_results` now carries Kimball surrogate FKs (`team_key`, `player_key`) alongside the legacy native columns during the 2026-07-22 dual-column window per ADR-011. Resolution is via `int_unified_passes` JOIN on (event_id, data_source) → dim_teams/dim_players. PR 8 will sunset the legacy `*_id` columns post-2026-07-22.
+
 - **License**: [MIT](https://opensource.org/licenses/MIT)

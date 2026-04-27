@@ -160,3 +160,7 @@ If you use this dataset, please cite:
 - **Model repo**: [`luxury-lakehouse/psxg-model`](https://huggingface.co/luxury-lakehouse/psxg-model)
 - **License**: [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/) (StatsBomb Open Data)
 - **Platform**: [Luxury Lakehouse Soccer Analytics](https://github.com/karsten-s-nielsen/luxury-lakehouse)
+
+## PR 7 changelog (2026-04-27)
+
+The upstream gold mart `fct_shots` now carries Kimball surrogate FKs (`team_key`, `player_key`) alongside the existing `match_key` (PR 3) and the legacy `team_id`/`player_id` INT columns during the 2026-07-22 dual-column window per ADR-011. SB+WS native IDs are real BIGINTs cast to string for the dim JOINs. PR 8 will sunset the legacy `*_id` columns post-2026-07-22.

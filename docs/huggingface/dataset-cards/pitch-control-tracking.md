@@ -59,6 +59,12 @@ The result is a per-player control value: the home-team control probability [0, 
 | `pitch_control_value` | `double` | Home-team control probability [0, 1] at this player's position |
 | `source_provider` | `string` | Tracking data provider (metrica, idsse, skillcorner) |
 | `frame_rate` | `bigint` | Frame rate in fps (25 for Metrica/IDSSE, 10 for SkillCorner) |
+| `data_source` | `string` | PR 7 — alias of `source_provider` for downstream Kimball-conformed marts. Emitted natively by `pitch_control_batch.py` (PR 7 schema widening). |
+| `match_key` | `bigint` | PR 7 — Kimball surrogate FK to `dim_matches`. Emitted natively by `pitch_control_batch.py` (PR 7 schema widening), collapsing the PR 6 prefix-CASE bridge in `stg_pitch_control__values` to a passthrough. |
+
+### PR 7 — Dual-column window
+
+The new `data_source` and `match_key` columns coexist with the existing `match_id` (string with provider prefix) and `source_provider` columns during the 2026-07-22 dual-column window. After 2026-07-22, PR 8 will sunset the legacy `source_provider` (alias) — `match_id` stays as the human-debug column. Consumers joining to other Kimball marts should migrate to `match_key` (BIGINT) for cross-provider stability.
 
 ### Coordinate System
 

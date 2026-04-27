@@ -166,3 +166,7 @@ And the underlying SPADL/VAEP framework:
 
 - **Model repo**: [`luxury-lakehouse/football2vec-statsbomb-wyscout`](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout)
 - **License**: [MIT](https://opensource.org/licenses/MIT)
+
+## PR 7 changelog (2026-04-27)
+
+PR 5b (2026-04-25) added Kimball surrogate FK `player_key` to the upstream gold mart. The HF dataset payload republish was deferred at PR 5b and is **absorbed into PR 7's scope** per `feedback_hf_artifacts_in_scope_pr` and `project_kimball_pr8_scope_locked`. Payload now carries `player_key` (BIGINT) alongside the legacy `player_id` and `canonical_player_id` columns during the 2026-07-22 dual-column window. PR 8 will sunset the legacy ID columns post-2026-07-22.

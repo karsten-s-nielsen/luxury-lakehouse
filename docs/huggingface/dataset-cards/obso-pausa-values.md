@@ -90,6 +90,8 @@ All coordinates use the **StatsBomb 120&times;80 yards** scale. The origin (0, 0
 
 Computed from IDSSE tracking data via ELASTIC event-tracking synchronization. Event coordinates are normalized to the StatsBomb scale during the OBSO pipeline.
 
+**PR 7 (ADR-013 second application — 2026-04-27):** the gold mart `fct_pausa_values` is now built by dbt with `contract: enforced: true` from `bronze.pausa_values` (the writer `src/ingestion/pausa.py` retargets bronze; previously wrote gold directly). Mart inherits Kimball surrogate FKs (`match_key`, `team_key`, `player_key`) via `INNER JOIN fct_passes ON pass_id`. The published HF dataset payload gains the new key columns alongside the legacy native IDs during the 2026-07-22 dual-column window; consumers should migrate joins from `pass_id`/`match_id` to `match_key` for cross-provider stability.
+
 ## Companion Resources
 
 | Resource | Description |

@@ -62,6 +62,8 @@ Runtime inputs:
 
 **Batch computation**: HF Jobs GPU (`l40sx1`), script `scripts/compute_space_creation_hf.py`. Typical duration: 45 minutes for full corpus. Output dataset: [`luxury-lakehouse/space-creation-values`](https://huggingface.co/datasets/luxury-lakehouse/space-creation-values).
 
+**PR 7 (ADR-011 close-out):** the downstream gold mart `fct_space_creation` now carries Kimball-conformed FKs (`match_key`, `player_key`, `data_source`) alongside the legacy native columns during the 2026-07-22 dual-column window. The per-row `team` column remains a 'home'/'away' role string (the source data does not carry a real team identifier at frame grain); team-level resolution is deferred until a use case demands it.
+
 See [`workflow-cards/wf-space-creation.yaml`](https://github.com/karsten-s-nielsen/luxury-lakehouse/blob/main/workflow-cards/wf-space-creation.yaml) for the full operational contract.
 
 ## Intended Use
