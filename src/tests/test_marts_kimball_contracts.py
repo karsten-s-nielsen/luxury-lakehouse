@@ -109,7 +109,11 @@ _CASES_PR7: tuple[tuple[str, str, str, float], ...] = (
     ("fct_passes", "passer_player_key", "wyscout", 1.0),
     ("fct_passes", "passer_player_key", "idsse", 1.0),
     ("fct_passes", "passer_player_key", "metrica", 1.0),
-    ("fct_passes", "recipient_player_key", "statsbomb", 1.0),
+    # StatsBomb has recipient on completed passes only; ~6.45% of pass rows are
+    # incomplete passes / passes out of bounds where no teammate received.
+    # Calibrated 2026-04-28 against post-hotfix-3 dev_gold: 3,168,336 / 3,386,907
+    # = 93.55%. Floor at 0.93 leaves headroom for natural variation.
+    ("fct_passes", "recipient_player_key", "statsbomb", 0.93),
     # Wyscout open-data has NO recipient field — kloppy strips at parse.
     # Structural source gap; threshold stays 0.0.
     ("fct_passes", "recipient_player_key", "wyscout", 0.0),
@@ -131,12 +135,18 @@ _CASES_PR7: tuple[tuple[str, str, str, float], ...] = (
     # fct_line_breaking_results — SB only
     ("fct_line_breaking_results", "team_key", "statsbomb", 1.0),
     ("fct_line_breaking_results", "player_key", "statsbomb", 1.0),
-    # fct_match_summary — extended to all 4 providers via tracking-side bridge
-    ("fct_match_summary", "home_team_key", "statsbomb", 1.0),
+    # fct_match_summary — extended to all 4 providers via tracking-side bridge.
+    # SB threshold relaxed to 0.9997 to accommodate 1 SB Open Data edge case:
+    # match 3825894 (RC Deportivo La Coruña vs Getafe, 2016-05-01) has metadata
+    # in stg_statsbomb__matches but zero events in stg_statsbomb__events, so
+    # match_team_ids pivot returns no rows for it. Calibrated 2026-04-28:
+    # 3,463 / 3,464 = 99.97%. Floor at 0.9997 catches catastrophic regression
+    # while permitting the documented single-row gap.
+    ("fct_match_summary", "home_team_key", "statsbomb", 0.9997),
     ("fct_match_summary", "home_team_key", "wyscout", 1.0),
     ("fct_match_summary", "home_team_key", "idsse", 1.0),
     ("fct_match_summary", "home_team_key", "metrica", 1.0),
-    ("fct_match_summary", "away_team_key", "statsbomb", 1.0),
+    ("fct_match_summary", "away_team_key", "statsbomb", 0.9997),
     ("fct_match_summary", "away_team_key", "wyscout", 1.0),
     ("fct_match_summary", "away_team_key", "idsse", 1.0),
     ("fct_match_summary", "away_team_key", "metrica", 1.0),
@@ -189,11 +199,14 @@ _CASES_PR7: tuple[tuple[str, str, str, float], ...] = (
     ("fct_off_ball_xt", "player_key", "idsse", 1.0),
     ("fct_off_ball_xt", "player_key", "metrica", 1.0),
     ("fct_off_ball_xt", "player_key", "skillcorner", 1.0),
-    # fct_pass_timing + fct_pausa_rankings — IDSSE-only (PAUSA scope, see
-    # `feedback`-equivalent reasoning in hotfix-3 spec §3.1)
+    # fct_pass_timing — IDSSE-only (PAUSA scope, see hotfix-3 spec §3.1).
     ("fct_pass_timing", "match_key", "idsse", 1.0),
     ("fct_pass_timing", "player_key", "idsse", 1.0),
-    ("fct_pausa_rankings", "player_key", "idsse", 1.0),
+    # fct_pausa_rankings is per-player career aggregate — NO match_key column,
+    # so the test's JOIN-via-dim_matches fallback can't filter by provider.
+    # Coverage on player_key is implicitly tested via fct_pausa_values (which
+    # has player_key + match_key + the tested per-provider parameterization).
+    # Removed from _CASES_PR7 to avoid false-positive query errors.
 )
 
 

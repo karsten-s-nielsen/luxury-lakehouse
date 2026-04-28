@@ -669,17 +669,9 @@ models:
         data_type: bigint
         description: Kimball surrogate FK to dim_teams (PR 7 — populated for all SB+WS actions via dim_teams JOIN on (provider, native_team_id)).
         data_tests:
-          # PR 7 hotfix #3: severity warn until post-merge --full-refresh clears
-          # the stale-incremental NULLs (on_schema_change='append_new_columns'
-          # populated new columns on new rows only; existing rows kept NULL
-          # until --full-refresh). Promote to error after deploy verifies 100%
-          # coverage on dev_gold. live-CI uses `dbt build --select state:modified+`
-          # which is incremental — incompatible with strict not_null on
-          # backfill-pending columns until the wide-selector full-refresh runs.
           - not_null:
               config:
                 where: "data_source IN ('statsbomb', 'wyscout')"
-                severity: warn
           - relationships:
               arguments:
                 to: ref('dim_teams')
@@ -691,7 +683,6 @@ models:
           - not_null:
               config:
                 where: "data_source IN ('statsbomb', 'wyscout')"
-                severity: warn
           - relationships:
               arguments:
                 to: ref('dim_players')
@@ -1208,10 +1199,7 @@ models:
         data_type: bigint
         description: Kimball surrogate FK to dim_matches (PR 7 hotfix #3 — populated for all 3 tracking providers post idsse_ prefix strip at staging).
         data_tests:
-          # severity: warn until post-merge --full-refresh — see fct_action_values comment.
-          - not_null:
-              config:
-                severity: warn
+          - not_null
           - relationships:
               arguments:
                 to: ref('dim_matches')
@@ -1223,9 +1211,7 @@ models:
         data_type: bigint
         description: Kimball surrogate FK to dim_teams (PR 7 hotfix #3 — populated for all 3 tracking providers via canonicalized native_team_id).
         data_tests:
-          - not_null:
-              config:
-                severity: warn
+          - not_null
           - relationships:
               arguments:
                 to: ref('dim_teams')
@@ -1234,9 +1220,7 @@ models:
         data_type: bigint
         description: Kimball surrogate FK to dim_players (PR 7 hotfix #3 — populated for all 3 tracking providers post Metrica Player-prefix strip at staging).
         data_tests:
-          - not_null:
-              config:
-                severity: warn
+          - not_null
           - relationships:
               arguments:
                 to: ref('dim_players')
@@ -1598,11 +1582,7 @@ models:
         data_type: bigint
         description: Kimball surrogate FK to dim_matches (PR 7 hotfix #3 — populated post fct_tracking_frames staging fix; auto-resolves on full-refresh).
         data_tests:
-          # severity: warn until post-merge --full-refresh — same stale-incremental
-          # rationale as fct_action_values (and fct_off_ball_xt below).
-          - not_null:
-              config:
-                severity: warn
+          - not_null
           - relationships:
               arguments:
                 to: ref('dim_matches')
@@ -1611,9 +1591,7 @@ models:
         data_type: bigint
         description: Kimball surrogate FK to dim_players (PR 7 hotfix #3 — populated post fct_tracking_frames staging fix).
         data_tests:
-          - not_null:
-              config:
-                severity: warn
+          - not_null
           - relationships:
               arguments:
                 to: ref('dim_players')
@@ -2944,14 +2922,7 @@ models:
         data_type: bigint
         description: Kimball surrogate FK to dim_matches (PR 7 — resolved via dim_matches JOIN on (provider, native_match_id) with provider derived from staging match_id prefix).
         data_tests:
-          # severity: warn until post-merge --full-refresh — stale-incremental
-          # (fct_formation_labels is materialized='incremental' with
-          # on_schema_change='append_new_columns'; existing rows kept NULL on
-          # the IDSSE prefix-stripped match_key until the wide-selector
-          # full-refresh runs).
-          - not_null:
-              config:
-                severity: warn
+          - not_null
           - relationships:
               arguments:
                 to: ref('dim_matches')
@@ -2979,10 +2950,7 @@ models:
         data_type: bigint
         description: Kimball surrogate FK to dim_teams (PR 7 hotfix #3 — resolved via int_tracking__match_side_team_bridge JOIN on (source_provider, match_id, side='home'/'away') → team_id → dim_teams).
         data_tests:
-          # severity: warn until post-merge --full-refresh — stale-incremental.
-          - not_null:
-              config:
-                severity: warn
+          - not_null
           - relationships:
               arguments:
                 to: ref('dim_teams')
@@ -3071,9 +3039,7 @@ models:
         data_type: bigint
         description: Kimball surrogate FK to dim_players (PR 7 — resolved via dim_players JOIN on (provider, native_player_id)).
         data_tests:
-          - not_null:
-              config:
-                severity: warn
+          - not_null
           - relationships:
               arguments:
                 to: ref('dim_players')
@@ -3095,9 +3061,7 @@ models:
         data_type: bigint
         description: Kimball surrogate FK to dim_teams (PR 7 hotfix #3 — resolved via int_tracking__player_match_team_bridge → dim_teams).
         data_tests:
-          - not_null:
-              config:
-                severity: warn
+          - not_null
           - relationships:
               arguments:
                 to: ref('dim_teams')
@@ -3170,11 +3134,7 @@ models:
         data_type: bigint
         description: Kimball surrogate FK to dim_players (PR 7 — passthrough from upstream fct_player_positions).
         data_tests:
-          # severity: warn — fct_position_maps is downstream of fct_player_positions
-          # which is materialized='incremental'. Same stale-incremental rationale.
-          - not_null:
-              config:
-                severity: warn
+          - not_null
           - relationships:
               arguments:
                 to: ref('dim_players')
@@ -3193,9 +3153,7 @@ models:
         data_type: bigint
         description: Kimball surrogate FK to dim_matches (PR 7 — passthrough from upstream fct_player_positions).
         data_tests:
-          - not_null:
-              config:
-                severity: warn
+          - not_null
           - relationships:
               arguments:
                 to: ref('dim_matches')
@@ -3212,9 +3170,7 @@ models:
         data_type: bigint
         description: Kimball surrogate FK to dim_teams (PR 7 hotfix #3 — passthrough from upstream fct_player_positions, which now resolves via int_tracking__player_match_team_bridge).
         data_tests:
-          - not_null:
-              config:
-                severity: warn
+          - not_null
           - relationships:
               arguments:
                 to: ref('dim_teams')
@@ -3579,10 +3535,7 @@ models:
         data_type: bigint
         description: Kimball surrogate FK to dim_players (PR 7 \u2014 resolved via dim_players JOIN on (provider, native_player_id)).
         data_tests:
-          # severity: warn until post-merge --full-refresh clears stale-incremental NULLs.
-          - not_null:
-              config:
-                severity: warn
+          - not_null
           - relationships:
               arguments:
                 to: ref('dim_players')
@@ -3596,9 +3549,7 @@ models:
         data_type: bigint
         description: Kimball surrogate FK to dim_matches (PR 7 \u2014 resolved via dim_matches JOIN on (provider, native_match_id)).
         data_tests:
-          - not_null:
-              config:
-                severity: warn
+          - not_null
           - relationships:
               arguments:
                 to: ref('dim_matches')
