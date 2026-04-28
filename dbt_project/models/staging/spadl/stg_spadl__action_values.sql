@@ -112,6 +112,12 @@ cleaned as (
     left join comp_mapping cm
         on cast(d.competition_id as int) = cm.wyscout_competition_id
     where d._row_num = 1
+      -- PR 7 hotfix #3 followup: Wyscout open-data uses `playerId: 0` as an
+      -- "unknown player" sentinel (16,133 of 2,465,557 = 0.65% action rows).
+      -- Same pattern as int_unified_passes (PR #215) and int_unified_shots
+      -- (PR #217). Drop here at the staging boundary so dim_players LEFT JOIN
+      -- in fct_action_values resolves 100% on every Wyscout row.
+      and not (d.data_source = 'wyscout' and (d.player_id is null or cast(d.player_id as int) = 0))
 
 )
 
