@@ -27,7 +27,12 @@ CATALOG = "soccer_analytics"
 GOLD_SCHEMA = "dev_gold"
 HF_ORG = "luxury-lakehouse"
 
+# CARD_BASE points to a workspace path the driver script keeps in sync with
+# `docs/huggingface/dataset-cards/` from the local repo. The driver uploads
+# the cards via `WorkspaceClient.workspace.import_` immediately before
+# submitting this job so the notebook can shutil.copy2 them.
 CARD_BASE = "/Workspace/Users/karstenskyt@gmail.com/luxury-lakehouse/docs/huggingface/dataset-cards"
+MODEL_CARD_BASE = "/Workspace/Users/karstenskyt@gmail.com/luxury-lakehouse/docs/huggingface/model-cards"
 
 # UC Volume for staging Parquet exports (Spark CAN write here on serverless)
 _VOLUME_STAGE = f"/Volumes/{CATALOG}/bronze/libs/hf_export"
@@ -61,17 +66,22 @@ print("Setup complete")
 def publish_dataset(
     sql_query: str,
     repo_name: str,
-    card_path: str,
+    card_filename: str,
     partition_cols: list[str] | None = None,
 ) -> None:
     """Export a Spark SQL query to Parquet via UC Volume and upload to HF Hub.
 
     Spark writes Parquet to UC Volume (executor-side, no driver OOM risk).
     Driver then uploads from the Volume path to HuggingFace.
+
+    The dataset card markdown is read from CARD_BASE (a Workspace path the
+    driver script keeps in sync with the local repo's
+    `docs/huggingface/dataset-cards/` directory).
     """
     repo_id = f"{HF_ORG}/{repo_name}"
     vol_dir = f"{_VOLUME_STAGE}/{repo_name}"
     data_dir = f"{vol_dir}/data"
+    card_path = f"{CARD_BASE}/{card_filename}"
 
     try:
         df = spark.sql(sql_query)  # noqa: F821
@@ -118,16 +128,18 @@ print("Publishing SPADL/VAEP Action Values ...")
 
 publish_dataset(
     sql_query=f"""
-        SELECT action_value_id, match_id, player_id, team_id,
-               competition_id, season_id, period, time_seconds,
-               minute, second, start_x, start_y, end_x, end_y,
+        SELECT action_value_id,
+               match_key, competition_key, player_key, team_key,
+               match_id, player_id, team_id, competition_id, season_id,
+               period, time_seconds, minute, second,
+               start_x, start_y, end_x, end_y,
                action_type, action_result, bodypart,
                offensive_value, defensive_value, vaep_value,
                data_source, original_event_id
         FROM {CATALOG}.{GOLD_SCHEMA}.fct_action_values
     """,  # noqa: S608
     repo_name="spadl-vaep-action-values",
-    card_path=f"{CARD_BASE}/spadl-vaep-action-values.md",
+    card_filename="spadl-vaep-action-values.md",
     partition_cols=["data_source"],
 )
 
@@ -142,17 +154,24 @@ print("Publishing Line-Breaking Passes ...")
 
 publish_dataset(
     sql_query=f"""
-        SELECT pass_id, match_id, player_id, team_id, pass_recipient_id,
-               competition_id, season_id, period, minute, second,
-               start_x, start_y, end_x, end_y,
-               pass_type, pass_height, body_part, pass_length, pass_angle_radians,
-               pass_outcome, is_cross, is_switch, is_through_ball, is_complete, is_progressive,
-               pass_direction, is_line_breaking, lines_broken, line_breaking_type,
-               data_source
-        FROM {CATALOG}.{GOLD_SCHEMA}.fct_passes
+        SELECT p.pass_id,
+               p.match_key, p.team_key, p.passer_player_key, p.recipient_player_key,
+               -- Resolve native match_id from dim_matches for cross-provider human-debug joins.
+               -- fct_passes itself stopped emitting match_id at PR 7 (pure Kimball: match_key only).
+               dm.native_match_id AS match_id,
+               p.player_id, p.team_id, p.pass_recipient_id,
+               p.competition_id, p.season_id, p.period, p.minute, p.second,
+               p.start_x, p.start_y, p.end_x, p.end_y,
+               p.pass_type, p.pass_height, p.body_part, p.pass_length, p.pass_angle_radians,
+               p.pass_outcome, p.is_cross, p.is_switch, p.is_through_ball, p.is_complete, p.is_progressive,
+               p.pass_direction, p.is_line_breaking, p.lines_broken, p.line_breaking_type,
+               p.data_source
+        FROM {CATALOG}.{GOLD_SCHEMA}.fct_passes p
+        LEFT JOIN {CATALOG}.{GOLD_SCHEMA}.dim_matches dm
+            ON p.match_key = dm.match_key
     """,  # noqa: S608
     repo_name="line-breaking-passes",
-    card_path=f"{CARD_BASE}/line-breaking-passes.md",
+    card_filename="line-breaking-passes.md",
     partition_cols=["data_source"],
 )
 
@@ -239,7 +258,9 @@ print("Publishing Pitch Control Tracking Data ...")
 
 publish_dataset(
     sql_query=f"""
-        SELECT t.tracking_id, t.match_id, t.player_id, t.team, t.period, t.frame,
+        SELECT t.tracking_id,
+               t.match_key, t.team_key, t.player_key,
+               t.match_id, t.player_id, t.team_id, t.team, t.period, t.frame,
                t.timestamp_seconds, t.x, t.y, t.ball_x, t.ball_y,
                t.velocity_x, t.velocity_y, t.speed_ms,
                pc.pitch_control_value,
@@ -249,7 +270,7 @@ publish_dataset(
           ON t.tracking_id = pc.tracking_id
     """,  # noqa: S608
     repo_name="pitch-control-tracking",
-    card_path=f"{CARD_BASE}/pitch-control-tracking.md",
+    card_filename="pitch-control-tracking.md",
     partition_cols=["source_provider"],
 )
 
@@ -284,7 +305,7 @@ publish_dataset(
           AND e.shot_freeze_frame IS NOT NULL
     """,  # noqa: S608
     repo_name="xg-freeze-frame-data",
-    card_path=f"{CARD_BASE}/xg-freeze-frame-data.md",
+    card_filename="xg-freeze-frame-data.md",
     partition_cols=["competition_id"],
 )
 
@@ -299,9 +320,7 @@ import shutil as _shutil  # noqa: E402
 import tempfile as _tempfile  # noqa: E402
 from pathlib import Path as _Path  # noqa: E402
 
-_WORKSPACE_ROOT = "/Workspace/Users/karstenskyt@gmail.com/luxury-lakehouse"
-
-_model_card_src = _Path(f"{_WORKSPACE_ROOT}/docs/huggingface/model-cards/football2vec-statsbomb-wyscout.md")
+_model_card_src = _Path(f"{MODEL_CARD_BASE}/football2vec-statsbomb-wyscout.md")
 _model_repo = f"{HF_ORG}/football2vec-statsbomb-wyscout"
 _model_tmp = _tempfile.mkdtemp(prefix="hf_model_card_", dir=_LOCAL_TMP)
 try:
@@ -317,8 +336,7 @@ finally:
     _shutil.rmtree(_model_tmp, ignore_errors=True)
 
 print("Model card update complete!")
-print("NOTE: Org card -> paste docs/huggingface/org-card.md via HF web UI")
-print("NOTE: Org interests -> paste docs/huggingface/org-interests.md via HF web UI")
+print("NOTE: Org card -> push via scripts/publish_hf_cards.py --org")
 
 # COMMAND ----------
 

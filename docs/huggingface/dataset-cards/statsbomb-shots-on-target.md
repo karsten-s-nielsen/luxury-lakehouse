@@ -70,6 +70,9 @@ Only shots with `shot_outcome` in `{Saved, Goal, Post}` are included. Blocked sh
 | `match_key` | `Int64` | **Canonical Kimball match FK** (ADR-011). BIGINT surrogate, collision-free across providers. |
 | `match_id` | `Int64` | LEGACY provider-native match identifier; sunset 2026-07-22 (see top-of-card). |
 | `player_id` | `Int64` | Shooter player identifier |
+| `player_key` | `Int64` | **Canonical Kimball player FK** (PR 7, ADR-011). BIGINT surrogate. |
+| `team_id` | `Int64` | Shooter's team identifier (provider-native) |
+| `team_key` | `Int64` | **Canonical Kimball team FK** (PR 7, ADR-011). BIGINT surrogate. |
 | `end_location_y` | `float64` | Normalized horizontal goalmouth position [0, 1] (0 = left post, 1 = right post) |
 | `end_location_z` | `float64` | Normalized vertical goalmouth position [0, 1] (0 = ground level, 1 = crossbar) |
 | `shot_outcome` | `string` | Outcome: `Saved`, `Goal`, or `Post` |

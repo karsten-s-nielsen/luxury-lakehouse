@@ -180,6 +180,7 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
 _HF_JOBS_SCRIPT_TO_CARD: dict[str, str | None] = {
     "publish_xg_shots_hf.py": "wf-publish-xg-shots",
     "publish_spadl_vaep_hf.py": "wf-publish-spadl-vaep",
+    "publish_shots_on_target_hf.py": "wf-publish-shots-on-target",
     # Freeze-frame positions are supporting context for the xG v2 Deep Sets
     # encoder but do not themselves constitute a published methodology or a
     # per-player evaluative output. The upstream source (StatsBomb freeze

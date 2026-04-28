@@ -45,10 +45,14 @@ The dataset includes **all passes** &mdash; both line-breaking and non-line-brea
 | Column | Type | Description |
 |--------|------|-------------|
 | `pass_id` | `string` | Unique pass identifier (surrogate key) |
-| `match_id` | `bigint` | Match identifier |
-| `player_id` | `int` | Player identifier |
-| `team_id` | `int` | Team identifier |
-| `pass_recipient_id` | `int` | Player who received the pass (NULL for Wyscout and incomplete passes) |
+| `match_key` | `bigint` | **Canonical Kimball match FK** (PR 7, ADR-011). BIGINT surrogate, collision-free across providers. |
+| `team_key` | `bigint` | **Canonical Kimball team FK** (PR 7, ADR-011). BIGINT surrogate. |
+| `passer_player_key` | `bigint` | **Canonical Kimball player FK** for the passer (PR 7, ADR-011). BIGINT surrogate. |
+| `recipient_player_key` | `bigint` | **Canonical Kimball player FK** for the recipient (PR 7, ADR-011). NULL for Wyscout and incomplete passes. |
+| `match_id` | `bigint` | Match identifier (provider-native; coexists with `match_key` until 2026-07-22 sunset) |
+| `player_id` | `int` | Passer player identifier (provider-native) |
+| `team_id` | `int` | Team identifier (provider-native) |
+| `pass_recipient_id` | `int` | Recipient identifier (provider-native; NULL for Wyscout and incomplete passes) |
 | `competition_id` | `int` | Competition identifier |
 | `season_id` | `int` | Season identifier |
 | `period` | `bigint` | Match period (1&ndash;5) |
