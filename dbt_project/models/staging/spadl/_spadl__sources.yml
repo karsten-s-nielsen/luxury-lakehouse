@@ -77,3 +77,24 @@ sources:
             description: Competition identifier
           - name: season_id
             description: Season identifier
+          - name: statsbomb_possession_id
+            description: >
+              StatsBomb-native possession sequence number (BIGINT). Surfaced
+              via silly-kicks 1.5.0+ ``preserve_native`` kwarg on the
+              StatsBomb converter. NULL for non-StatsBomb sources.
+          - name: statsbomb_possession_team_id
+            description: >
+              StatsBomb-native team ID for the team in possession (BIGINT,
+              raw provider ID — NOT a Kimball surrogate). The mart resolves
+              ``possession_team_key`` via dim_teams on (provider, native_id).
+              NULL for non-StatsBomb sources.
+          - name: statsbomb_play_pattern
+            description: >
+              StatsBomb-native broader phase tag (e.g. ``Regular Play``,
+              ``From Throw In``, ``From Free Kick``, ``From Corner``,
+              ``From Counter``). NULL for non-StatsBomb sources.
+          - name: statsbomb_under_pressure
+            description: >
+              StatsBomb-native pressure flag — True iff a defender was
+              within ~1m of the actor at the moment of the event.
+              NULL for non-StatsBomb sources.

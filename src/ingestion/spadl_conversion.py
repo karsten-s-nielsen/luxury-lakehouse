@@ -126,6 +126,11 @@ def _make_sb_spadl_udf() -> object:
                 "competition_id",
                 "season_id",
                 "data_source",
+                # Provider-namespaced StatsBomb-native fields (silly-kicks 1.5.0+).
+                "statsbomb_possession_id",
+                "statsbomb_possession_team_id",
+                "statsbomb_play_pattern",
+                "statsbomb_under_pressure",
             ]
         )
 
@@ -141,7 +146,16 @@ def _make_sb_spadl_udf() -> object:
 
         try:
             adapted = _adapt(pdf, home_team_id)
-            actions, _report = _spadl_sb.convert_to_actions(adapted, home_team_id)
+            actions, _report = _spadl_sb.convert_to_actions(
+                adapted,
+                home_team_id,
+                preserve_native=[
+                    "possession",
+                    "possession_team_id",
+                    "play_pattern",
+                    "under_pressure",
+                ],
+            )
         except Exception as exc:
             msg = f"StatsBomb SPADL conversion failed for match_id={match_id}"
             raise RuntimeError(msg) from exc
@@ -151,9 +165,34 @@ def _make_sb_spadl_udf() -> object:
         actions["season_id"] = season_id
         actions["data_source"] = "statsbomb"
 
+        # Provider-namespace the preserved fields. silly-kicks returns them with
+        # their input names (``possession``, ``possession_team_id``, etc.); the
+        # bronze + mart conventions use ``statsbomb_*`` per the multi-provider
+        # symmetry argument (Wyscout/IDSSE/SkillCorner produce NULL here).
+        actions = actions.rename(
+            columns={
+                "possession": "statsbomb_possession_id",
+                "possession_team_id": "statsbomb_possession_team_id",
+                "play_pattern": "statsbomb_play_pattern",
+                "under_pressure": "statsbomb_under_pressure",
+            }
+        )
+
         # Cast original_event_id to str for Spark/PyArrow serialization
         # (silly-kicks outputs object dtype; Spark needs explicit string)
         actions["original_event_id"] = actions["original_event_id"].astype(str)
+
+        # Force pandas nullable dtypes on the preserved fields. silly-kicks's
+        # ``_add_dribbles`` inserts synthetic dribble rows with NaN in preserved
+        # columns; without nullable dtypes the BIGINT columns upcast to float64
+        # and the BOOLEAN column upcasts to object — PyArrow then has
+        # inconsistent conversion paths to LongType / BooleanType in the
+        # applyInPandas schema. Explicit nullable dtypes make the intent
+        # contract-level and survive the Spark round-trip cleanly.
+        actions["statsbomb_possession_id"] = actions["statsbomb_possession_id"].astype("Int64")
+        actions["statsbomb_possession_team_id"] = actions["statsbomb_possession_team_id"].astype("Int64")
+        actions["statsbomb_under_pressure"] = actions["statsbomb_under_pressure"].astype("boolean")
+        # statsbomb_play_pattern stays object (string with NaN) — fine for StringType.
 
         return _pd.DataFrame(actions[_spadl_cols])
 
@@ -176,7 +215,14 @@ def _convert_statsbomb_from_bronze(
     Returns whether any data was written.
     """
     from pyspark.sql import functions as spark_fn
-    from pyspark.sql.types import DoubleType, LongType, StringType, StructField, StructType
+    from pyspark.sql.types import (
+        BooleanType,
+        DoubleType,
+        LongType,
+        StringType,
+        StructField,
+        StructType,
+    )
 
     events_table = f"{catalog}.{schema}.statsbomb_events"
     matches_table = f"{catalog}.{schema}.statsbomb_matches"
@@ -256,6 +302,12 @@ def _convert_statsbomb_from_bronze(
             StructField("competition_id", LongType()),
             StructField("season_id", LongType()),
             StructField("data_source", StringType()),
+            # Provider-namespaced StatsBomb-native fields (silly-kicks 1.5.0+).
+            # Wyscout / IDSSE / SkillCorner produce NULL.
+            StructField("statsbomb_possession_id", LongType()),
+            StructField("statsbomb_possession_team_id", LongType()),
+            StructField("statsbomb_play_pattern", StringType()),
+            StructField("statsbomb_under_pressure", BooleanType()),
         ]
     )
 
@@ -325,6 +377,14 @@ def _make_ws_spadl_udf(goalkeeper_ids: set[int] | None = None) -> object:
                 "competition_id",
                 "season_id",
                 "data_source",
+                # Multi-source schema parity: Wyscout has no analogues to the
+                # StatsBomb-native ``possession`` / ``play_pattern`` /
+                # ``under_pressure`` fields, so these columns are NULL on the
+                # Wyscout code path.
+                "statsbomb_possession_id",
+                "statsbomb_possession_team_id",
+                "statsbomb_play_pattern",
+                "statsbomb_under_pressure",
             ]
         )
 
@@ -354,6 +414,16 @@ def _make_ws_spadl_udf(goalkeeper_ids: set[int] | None = None) -> object:
         # Cast original_event_id to str for Spark/PyArrow serialization
         actions["original_event_id"] = actions["original_event_id"].astype(str)
 
+        # NULL-fill the StatsBomb-namespaced fields for multi-source parity.
+        # Use explicit nullable pandas dtypes so PyArrow's applyInPandas
+        # conversion to LongType / StringType / BooleanType survives without
+        # ambiguity (object-dtype all-NA columns can convert inconsistently).
+        n = len(actions)
+        actions["statsbomb_possession_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
+        actions["statsbomb_possession_team_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
+        actions["statsbomb_play_pattern"] = _pd.array([_pd.NA] * n, dtype="object")
+        actions["statsbomb_under_pressure"] = _pd.array([_pd.NA] * n, dtype="boolean")
+
         return _pd.DataFrame(actions[_spadl_cols])
 
     return _udf
@@ -375,7 +445,14 @@ def _convert_wyscout_from_bronze(
     Returns whether any data was written.
     """
     from pyspark.sql import functions as spark_fn
-    from pyspark.sql.types import DoubleType, LongType, StringType, StructField, StructType
+    from pyspark.sql.types import (
+        BooleanType,
+        DoubleType,
+        LongType,
+        StringType,
+        StructField,
+        StructType,
+    )
 
     events_table = f"{catalog}.{schema}.wyscout_events"
     matches_table = f"{catalog}.{schema}.wyscout_matches"
@@ -459,7 +536,8 @@ def _convert_wyscout_from_bronze(
         .join(lookup_sdf, on=match_id_col, how="inner")
     )
 
-    # Define SPADL output schema (same as StatsBomb)
+    # Define SPADL output schema (same as StatsBomb).
+    # NOTE: 4 statsbomb_* fields are NULL on the Wyscout code path (multi-source parity).
     spadl_schema = StructType(
         [
             StructField("game_id", LongType()),
@@ -479,6 +557,10 @@ def _convert_wyscout_from_bronze(
             StructField("competition_id", LongType()),
             StructField("season_id", LongType()),
             StructField("data_source", StringType()),
+            StructField("statsbomb_possession_id", LongType()),
+            StructField("statsbomb_possession_team_id", LongType()),
+            StructField("statsbomb_play_pattern", StringType()),
+            StructField("statsbomb_under_pressure", BooleanType()),
         ]
     )
 

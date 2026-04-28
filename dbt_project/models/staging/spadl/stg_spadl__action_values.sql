@@ -106,7 +106,14 @@ cleaned as (
         data_source,
         cast(coalesce(cm.statsbomb_competition_id,
                  cast(competition_id as int)) as int)    as competition_id,
-        cast(season_id as int)                          as season_id
+        cast(season_id as int)                          as season_id,
+
+        -- Provider-namespaced StatsBomb-native fields (silly-kicks 1.5.0+
+        -- preserve_native passthrough). NULL for non-StatsBomb sources.
+        statsbomb_possession_id,
+        statsbomb_possession_team_id,
+        statsbomb_play_pattern,
+        statsbomb_under_pressure
 
     from deduplicated d
     left join comp_mapping cm

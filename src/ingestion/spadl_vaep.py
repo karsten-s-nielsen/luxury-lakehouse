@@ -52,7 +52,11 @@ _SPADL_SCHEMA = (
     "game_id BIGINT, original_event_id STRING, period_id BIGINT, time_seconds DOUBLE, "
     "team_id BIGINT, player_id BIGINT, start_x DOUBLE, start_y DOUBLE, end_x DOUBLE, end_y DOUBLE, "
     "type_id BIGINT, result_id BIGINT, bodypart_id BIGINT, action_id BIGINT, "
-    "competition_id BIGINT, season_id BIGINT, data_source STRING, _ingested_at TIMESTAMP, match_id BIGINT"
+    "competition_id BIGINT, season_id BIGINT, data_source STRING, _ingested_at TIMESTAMP, match_id BIGINT, "
+    # Provider-namespaced StatsBomb-native fields surfaced via silly-kicks 1.5.0+
+    # ``preserve_native`` kwarg on convert_to_actions. NULL for non-StatsBomb sources.
+    "statsbomb_possession_id BIGINT, statsbomb_possession_team_id BIGINT, "
+    "statsbomb_play_pattern STRING, statsbomb_under_pressure BOOLEAN"
 )
 _VAEP_TABLE = "vaep_action_values"
 _VAEP_SCHEMA = (
@@ -61,7 +65,13 @@ _VAEP_SCHEMA = (
     "end_x DOUBLE, end_y DOUBLE, type_id BIGINT, action_type STRING, result_id BIGINT, "
     "action_result STRING, bodypart_id BIGINT, bodypart STRING, offensive_value DOUBLE, "
     "defensive_value DOUBLE, vaep_value DOUBLE, competition_id BIGINT, season_id BIGINT, "
-    "data_source STRING, _ingested_at TIMESTAMP"
+    "data_source STRING, _ingested_at TIMESTAMP, "
+    # Provider-namespaced StatsBomb-native fields (carried through from spadl_actions).
+    # NULL for non-StatsBomb sources. See ADR-011 dual-column window for `possession_team_*`
+    # naming: gold mart resolves `possession_team_key` via dim_teams; legacy
+    # `possession_team_id` retained until 2026-07-22 cutover.
+    "statsbomb_possession_id BIGINT, statsbomb_possession_team_id BIGINT, "
+    "statsbomb_play_pattern STRING, statsbomb_under_pressure BOOLEAN"
 )
 
 
@@ -290,6 +300,12 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                 "competition_id",
                 "season_id",
                 "data_source",
+                # Provider-namespaced StatsBomb-native fields carried through from
+                # spadl_actions. NULL on Wyscout / IDSSE / SkillCorner code paths.
+                "statsbomb_possession_id",
+                "statsbomb_possession_team_id",
+                "statsbomb_play_pattern",
+                "statsbomb_under_pressure",
             ]
         )
 
@@ -374,6 +390,16 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                                 "result_name",
                                 "bodypart_id",
                                 "bodypart_name",
+                                # Carry through provider-namespaced StatsBomb-native
+                                # fields (NULL for non-StatsBomb sources). The ``c in
+                                # game_actions.columns`` guard above tolerates the
+                                # Wyscout-only path where these columns may be absent
+                                # from the per-game frame; the post-concat schema
+                                # alignment fills them as NULL.
+                                "statsbomb_possession_id",
+                                "statsbomb_possession_team_id",
+                                "statsbomb_play_pattern",
+                                "statsbomb_under_pressure",
                             ]
                             if c in game_actions.columns
                         ]
