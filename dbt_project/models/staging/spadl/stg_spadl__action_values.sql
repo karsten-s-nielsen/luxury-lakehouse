@@ -1,3 +1,15 @@
+{{ config(
+    pre_hook=ensure_bronze_columns(
+        source('spadl', 'vaep_action_values'),
+        [
+            ('statsbomb_possession_id', 'BIGINT'),
+            ('statsbomb_possession_team_id', 'BIGINT'),
+            ('statsbomb_play_pattern', 'STRING'),
+            ('statsbomb_under_pressure', 'BOOLEAN'),
+        ]
+    )
+) }}
+
 -- stg_spadl__action_values.sql
 -- Clean and deduplicate VAEP action values from the bronze layer.
 --
