@@ -3338,6 +3338,45 @@ models:
       - name: frame_rate
         data_type: bigint
         description: Tracking frame rate in Hz (constant per match, MAX aggregated)
+      - name: data_source
+        data_type: string
+        description: Source provider (PR 7 hotfix #3 — passthrough from fct_tracking_frames).
+      - name: team_id
+        data_type: string
+        description: Native team identifier (PR 7 hotfix #3 — passthrough from fct_tracking_frames).
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches (PR 7 hotfix #3 — passthrough).
+        data_tests:
+          - not_null:
+              config:
+                severity: warn
+          - relationships:
+              arguments:
+                to: ref('dim_matches')
+                field: match_key
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams (PR 7 hotfix #3 — passthrough).
+        data_tests:
+          - not_null:
+              config:
+                severity: warn
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_key
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players (PR 7 hotfix #3 — passthrough).
+        data_tests:
+          - not_null:
+              config:
+                severity: warn
+          - relationships:
+              arguments:
+                to: ref('dim_players')
+                field: player_key
 
   - name: fct_tracking_shape_timeline
     config:
@@ -3403,6 +3442,45 @@ models:
       - name: avg_speed
         data_type: double
         description: Average speed in meters per second within the 5-second bucket
+      - name: data_source
+        data_type: string
+        description: Source provider (PR 7 hotfix #3 — passthrough from fct_tracking_frames).
+      - name: team_id
+        data_type: string
+        description: Native team identifier (PR 7 hotfix #3 — passthrough from fct_tracking_frames).
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches (PR 7 hotfix #3 — passthrough).
+        data_tests:
+          - not_null:
+              config:
+                severity: warn
+          - relationships:
+              arguments:
+                to: ref('dim_matches')
+                field: match_key
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams (PR 7 hotfix #3 — passthrough).
+        data_tests:
+          - not_null:
+              config:
+                severity: warn
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_key
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players (PR 7 hotfix #3 — passthrough).
+        data_tests:
+          - not_null:
+              config:
+                severity: warn
+          - relationships:
+              arguments:
+                to: ref('dim_players')
+                field: player_key
 
   # ── Line-Breaking Detection ──────────────────────────────────────────
 
