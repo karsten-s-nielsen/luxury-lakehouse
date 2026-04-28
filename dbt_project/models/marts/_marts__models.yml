@@ -668,9 +668,25 @@ models:
       - name: team_key
         data_type: bigint
         description: Kimball surrogate FK to dim_teams (PR 7 — populated for all SB+WS actions via dim_teams JOIN on (provider, native_team_id)).
+        data_tests:
+          - not_null:
+              config:
+                where: "data_source IN ('statsbomb', 'wyscout')"
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_key
       - name: player_key
         data_type: bigint
         description: Kimball surrogate FK to dim_players (PR 7 — populated for all SB+WS actions via dim_players JOIN on (provider, native_player_id)).
+        data_tests:
+          - not_null:
+              config:
+                where: "data_source IN ('statsbomb', 'wyscout')"
+          - relationships:
+              arguments:
+                to: ref('dim_players')
+                field: player_key
       - name: competition_id
         data_type: int
         description: >
@@ -881,10 +897,22 @@ models:
         description: Foreign key to dim_teams (NULL for non-StatsBomb rows in PR 2).
       - name: home_team_key
         data_type: bigint
-        description: Kimball surrogate FK to dim_teams (PR 7 — populated for all providers via per-provider derivation; tracking-only providers via fct_tracking_frames CTE).
+        description: Kimball surrogate FK to dim_teams (home team) — PR 7 hotfix #3 extended resolution to all providers via int_tracking__match_side_team_bridge for tracking-derived providers (IDSSE/Metrica/SkillCorner); SB/WS continue via event-team-id pivot.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_key
       - name: away_team_key
         data_type: bigint
-        description: Kimball surrogate FK to dim_teams (PR 7 — populated for all providers via per-provider derivation; tracking-only providers via fct_tracking_frames CTE).
+        description: Kimball surrogate FK to dim_teams (away team) — PR 7 hotfix #3 extended resolution to all providers via int_tracking__match_side_team_bridge.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_key
       - name: match_date
         data_type: date
         description: Date the match was played (NULL for IDSSE/Metrica).
@@ -1155,6 +1183,39 @@ models:
       - name: voronoi_area
         data_type: double
         description: Voronoi cell area controlled by player (NULL until spatial pipeline)
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches (PR 7 hotfix #3 — populated for all 3 tracking providers post idsse_ prefix strip at staging).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_matches')
+                field: match_key
+      - name: team_id
+        data_type: string
+        description: Native team identifier (provider-canonical post staging fixes).
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams (PR 7 hotfix #3 — populated for all 3 tracking providers via canonicalized native_team_id).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_key
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players (PR 7 hotfix #3 — populated for all 3 tracking providers post Metrica Player-prefix strip at staging).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_players')
+                field: player_key
+      - name: data_source
+        data_type: string
+        description: Data provider (alias of source_provider for cross-mart consistency).
 
   - name: fct_player_embeddings
     config:
@@ -1502,6 +1563,27 @@ models:
       - name: off_ball_xt_frames_sampled
         data_type: int
         description: Number of frames sampled for Off-Ball xT computation
+      - name: data_source
+        data_type: string
+        description: Data provider — provider-specific.
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches (PR 7 hotfix #3 — populated post fct_tracking_frames staging fix; auto-resolves on full-refresh).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_matches')
+                field: match_key
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players (PR 7 hotfix #3 — populated post fct_tracking_frames staging fix).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_players')
+                field: player_key
 
   - name: fct_defensive_values
     config:
@@ -2827,6 +2909,12 @@ models:
       - name: match_key
         data_type: bigint
         description: Kimball surrogate FK to dim_matches (PR 7 — resolved via dim_matches JOIN on (provider, native_match_id) with provider derived from staging match_id prefix).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_matches')
+                field: match_key
       - name: period
         data_type: int
         description: Match period (1 or 2)
@@ -2848,7 +2936,13 @@ models:
                 values: ['home', 'away']
       - name: team_key
         data_type: bigint
-        description: Kimball surrogate FK to dim_teams (PR 7 — resolved via fct_match_summary JOIN + CASE on team='home'/'away' → home_team_key/away_team_key).
+        description: Kimball surrogate FK to dim_teams (PR 7 hotfix #3 — resolved via int_tracking__match_side_team_bridge JOIN on (source_provider, match_id, side='home'/'away') → team_id → dim_teams).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_key
       - name: window_start_s
         data_type: double
         description: Window start time in seconds from period start
@@ -2910,6 +3004,12 @@ models:
       - name: match_key
         data_type: bigint
         description: Kimball surrogate FK to dim_matches (PR 7 — resolved via dim_matches JOIN on (provider, native_match_id)).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_matches')
+                field: match_key
       - name: frame_id
         data_type: bigint
         description: Tracking frame identifier within the match
@@ -2923,6 +3023,12 @@ models:
       - name: player_key
         data_type: bigint
         description: Kimball surrogate FK to dim_players (PR 7 — resolved via dim_players JOIN on (provider, native_player_id)).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_players')
+                field: player_key
       - name: player_display_name
         data_type: string
         description: "Human-readable player name from tracking metadata (falls back to player_id)"
@@ -2938,7 +3044,13 @@ models:
                 values: ['home', 'away']
       - name: team_key
         data_type: bigint
-        description: Kimball surrogate FK to dim_teams (PR 7 — resolved via fct_match_summary JOIN + CASE on team='home'/'away').
+        description: Kimball surrogate FK to dim_teams (PR 7 hotfix #3 — resolved via int_tracking__player_match_team_bridge → dim_teams).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_key
       - name: team_display_name
         data_type: string
         description: "Human-readable team name from tracking metadata (falls back to Home/Away)"
@@ -3006,6 +3118,12 @@ models:
       - name: player_key
         data_type: bigint
         description: Kimball surrogate FK to dim_players (PR 7 — passthrough from upstream fct_player_positions).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_players')
+                field: player_key
       - name: player_display_name
         data_type: string
         description: "Human-readable player name from tracking metadata (falls back to player_id)"
@@ -3019,6 +3137,12 @@ models:
       - name: match_key
         data_type: bigint
         description: Kimball surrogate FK to dim_matches (PR 7 — passthrough from upstream fct_player_positions).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_matches')
+                field: match_key
       - name: team
         data_type: string
         description: Team side (home or away)
@@ -3029,7 +3153,13 @@ models:
                 values: ['home', 'away']
       - name: team_key
         data_type: bigint
-        description: Kimball surrogate FK to dim_teams (PR 7 — passthrough from upstream fct_player_positions).
+        description: Kimball surrogate FK to dim_teams (PR 7 hotfix #3 — passthrough from upstream fct_player_positions, which now resolves via int_tracking__player_match_team_bridge).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_key
       - name: team_display_name
         data_type: string
         description: "Human-readable team name from tracking metadata (falls back to Home/Away)"
@@ -3311,6 +3441,12 @@ models:
       - name: player_key
         data_type: bigint
         description: Kimball surrogate FK to dim_players (PR 7 \u2014 resolved via dim_players JOIN on (provider, native_player_id)).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_players')
+                field: player_key
       - name: match_id
         data_type: string
         description: Match identifier
@@ -3319,6 +3455,12 @@ models:
       - name: match_key
         data_type: bigint
         description: Kimball surrogate FK to dim_matches (PR 7 \u2014 resolved via dim_matches JOIN on (provider, native_match_id)).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_matches')
+                field: match_key
       - name: total_off_ball_xt
         data_type: double
         description: "Total off-ball xT accumulated across all sampled frames (0\u20131+ scale, higher = more threat generated)"

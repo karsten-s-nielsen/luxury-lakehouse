@@ -28,7 +28,10 @@ deduplicated as (
 cleaned as (
 
     select
-        cast(match_id as string)           as match_id,
+        -- PR 7 hotfix #3: strip the `idsse_` prefix at staging boundary so
+        -- mart-side JOINs to dim_matches.native_match_id match. source_provider
+        -- derivation below reads the still-prefixed bronze match_id BEFORE the strip.
+        regexp_replace(cast(match_id as string), '^idsse_', '') as match_id,
         cast(period as int)                as period,
         cast(team as string)               as team,
         cast(window_start_s as double)     as window_start_s,
