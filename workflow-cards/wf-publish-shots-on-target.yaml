@@ -1,0 +1,100 @@
+---
+name: Publish On-Target Shots to HF Hub (PEP 723 alternative)
+id: wf-publish-shots-on-target
+version: "1.0"
+status: production
+type: data-movement
+domain: psxg
+owners:
+  - karsten
+tags:
+  - psxg
+  - shots-on-target
+  - training-data
+  - huggingface
+
+# No academic methodology — operational data-publishing script that
+# extracts on-target shot records (end_location_z IS NOT NULL) from
+# fct_shots and publishes to HF Hub as the PSxG training dataset.
+# Parallel to wf-export-shots (Databricks workflow task) — same SELECT,
+# same destination repo, but runs as PEP 723 on HF Jobs / local shell
+# without requiring workspace upload of notebook + Python source tree.
+# Provenance lives in wf-statsbomb (source) and wf-psxg (downstream model).
+references: []
+
+inputs:
+  tables:
+    - id: "{catalog}.{schema}.fct_shots"
+      source: delta-table
+      description: "Gold-layer shot facts (filtered to on-target via end_location_z IS NOT NULL)"
+    - id: "{catalog}.{schema}.dim_matches"
+      source: delta-table
+      description: "Kimball match dimension — used to recover native_match_id alongside match_key"
+
+outputs:
+  datasets:
+    - id: "luxury-lakehouse/statsbomb-shots-on-target"
+      destination: huggingface
+      description: "Parquet dataset of on-target shots with goalmouth coordinates — primary training input for PSxG model"
+
+execution:
+  export:
+    trigger: manual
+    runtime: hf-jobs
+    script: "scripts/publish_shots_on_target_hf.py"
+    flavor: cpu-basic
+    timeout: "1800s"
+
+depends_on:
+  - wf-statsbomb
+  - wf-wyscout
+
+idempotency:
+  strategy: full-overwrite
+  key: event_id
+  description: "Re-publishes the full on-target shot dataset each run; HF Hub dataset is replaced."
+
+cost:
+  export:
+    runtime: hf-jobs
+    flavor: cpu-basic
+    rate_usd_per_hour: 0.03
+    typical_duration_minutes: 5
+    typical_cost_usd: 0.003
+
+monitoring:
+  freshness_sla_hours: 720
+
+links:
+  source_code:
+    - "scripts/publish_shots_on_target_hf.py"
+  hf_dataset: "https://huggingface.co/datasets/luxury-lakehouse/statsbomb-shots-on-target"
+---
+
+## Overview
+
+Queries the Databricks SQL Statement Execution API to extract every on-target
+shot record from the gold-layer `fct_shots` table (filtered to
+`end_location_z IS NOT NULL`), JOINed to `dim_matches` to recover native
+match identifiers alongside the Kimball `match_key` surrogate. Normalises
+dtypes and publishes the resulting Parquet dataset to HF Hub as
+`luxury-lakehouse/statsbomb-shots-on-target`.
+
+This dataset is the primary training input for the PSxG (Post-Shot Expected
+Goals) model documented in `wf-psxg`.
+
+## Relationship to wf-export-shots
+
+This card is the PEP 723 / HF Jobs alternative to the Databricks-workflow-task
+form documented in `wf-export-shots`. Both produce the same HF dataset; the
+PEP 723 form is preferred for ad-hoc local republishes (no workspace clone
+of the lakehouse repo required) while `wf-export-shots` is preferred when
+the export rides alongside other Databricks workflow tasks in a single job.
+
+## Trigger Policy
+
+Manual HF Jobs invocation — `hf jobs uv run scripts/publish_shots_on_target_hf.py`
+— or local invocation via `uv run --no-project --script scripts/publish_shots_on_target_hf.py`
+with `DATABRICKS_HOST` / `DATABRICKS_TOKEN` / `DATABRICKS_SQL_WAREHOUSE_ID` /
+`HF_TOKEN` env vars set. Republish on demand when upstream shot fact data
+or governance posture has changed materially.
