@@ -841,11 +841,46 @@ models:
         description: >
           StatsBomb possession sequence number identifying the possession
           chain this action belongs to. NULL for Wyscout (no possession
-          tracking in open data).
+          tracking in open data). LL1 (silly-kicks 1.5.0+): sourced
+          upstream via the silly-kicks ``preserve_native`` kwarg, replacing
+          the prior late-join to ``stg_statsbomb__events``.
       - name: possession_team_id
-        data_type: int
+        data_type: bigint
         description: >
-          Team ID of the team in possession during this action.
+          StatsBomb-native team ID of the team in possession (LEGACY raw
+          provider ID). Inside the ADR-011 dual-column window — sunset
+          2026-07-22 alongside ``team_id`` / ``match_id`` /
+          ``competition_id``. Use ``possession_team_key`` for new
+          consumers. NULL for Wyscout.
+      - name: possession_team_key
+        data_type: bigint
+        description: >
+          Kimball surrogate FK for the team in possession — resolves to
+          ``dim_teams.team_key`` via (provider, native_team_id) JOIN. Same
+          pattern as ``team_key`` / ``player_key``. NULL for Wyscout
+          (no native possession_team_id) and for any rows that fail to
+          resolve in dim_teams.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_key
+              config:
+                where: "possession_team_key is not null"
+      - name: play_pattern
+        data_type: string
+        description: >
+          StatsBomb-native broader phase tag — one of "Regular Play",
+          "From Throw In", "From Free Kick", "From Corner", "From
+          Goal Kick", "From Counter", "From Keeper", "From Kick Off",
+          "Other". Useful for "shots from corners vs open play" splits and
+          phase-conditional VAEP analysis. NULL for Wyscout.
+      - name: under_pressure
+        data_type: boolean
+        description: >
+          StatsBomb-native pressure flag — True iff a defender was within
+          ~1m of the actor at the moment of the event. Useful as a
+          pressure proxy for valuing actions taken under duress.
           NULL for Wyscout.
       - name: game_state
         data_type: string

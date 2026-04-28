@@ -31,15 +31,12 @@ with action_values as (
 
 ),
 
-sb_events as (
-
-    select
-        event_id,
-        possession,
-        possession_team_id
-    from {{ ref('stg_statsbomb__events') }}
-
-),
+-- LL1 (silly-kicks 1.5.0+): possession_id and possession_team_id are now
+-- preserved through SPADL conversion via the silly-kicks ``preserve_native``
+-- kwarg, sourced upstream from ``stg_spadl__action_values`` rather than via
+-- a late-join to ``stg_statsbomb__events``. Eliminates a per-row JOIN on
+-- ``original_event_id`` that ran for every StatsBomb action. Plus we now
+-- carry ``play_pattern`` and ``under_pressure`` for analytics use.
 
 running_score as (
 
@@ -116,9 +113,20 @@ actions_with_score as (
         av.defensive_value,
         av.vaep_value,
 
-        -- Possession context (StatsBomb only; NULL for Wyscout)
-        sbe.possession                              as possession_id,
-        sbe.possession_team_id,
+        -- Possession context (StatsBomb-only; NULL for Wyscout / IDSSE / SkillCorner).
+        -- Sourced upstream via silly-kicks 1.5.0 preserve_native kwarg (LL1).
+        av.statsbomb_possession_id                  as possession_id,
+        -- Legacy `possession_team_id` retained inside the ADR-011 dual-column
+        -- window (sunset 2026-07-22 alongside team_id / match_id / competition_id).
+        -- The Kimball surrogate `possession_team_key` is the canonical FK.
+        av.statsbomb_possession_team_id             as possession_team_id,
+        -- Kimball surrogate FK for the possession team — same dim_teams
+        -- resolution pattern as `team_key` / `player_key` above.
+        dt_poss.team_key                            as possession_team_key,
+
+        -- Pure descriptors (no FK semantics) — StatsBomb-only.
+        av.statsbomb_play_pattern                   as play_pattern,
+        av.statsbomb_under_pressure                 as under_pressure,
 
         -- Running score for game state derivation
         rs.home_score_after,
@@ -141,9 +149,6 @@ actions_with_score as (
     left join match_attrs ma
         on cast(av.match_id as string) = ma.native_match_id
         and av.data_source = ma.provider
-    left join sb_events sbe
-        on av.original_event_id = sbe.event_id
-        and av.data_source = 'statsbomb'
     left join running_score rs
         on rs.match_id = av.match_id
         and (
@@ -158,6 +163,13 @@ actions_with_score as (
     left join {{ ref('dim_players') }} dp
         on  dp.provider = av.data_source
        and dp.native_player_id = cast(av.player_id as string)
+    -- LL1 (silly-kicks 1.5.0+): resolve `possession_team_key` via dim_teams
+    -- using the StatsBomb-native team ID. Same (provider, native_id) pattern
+    -- as `team_key` / `player_key` above. NULL on non-StatsBomb sources where
+    -- statsbomb_possession_team_id is NULL.
+    left join {{ ref('dim_teams') }} dt_poss
+        on  dt_poss.provider = av.data_source
+       and dt_poss.native_team_id = cast(av.statsbomb_possession_team_id as string)
 
 ),
 
@@ -190,6 +202,9 @@ final as (
         vaep_value,
         possession_id,
         possession_team_id,
+        possession_team_key,
+        play_pattern,
+        under_pressure,
         case
             when coalesce(home_score_after, 0) = coalesce(away_score_after, 0)
                 then 'drawing'

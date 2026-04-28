@@ -1964,7 +1964,7 @@ requires-dist = [
     { name = "scikit-learn", marker = "extra == 'analytics'", specifier = ">=1.3.0" },
     { name = "scipy", marker = "extra == 'analytics'", specifier = ">=1.11.0" },
     { name = "scipy", marker = "extra == 'taipy-app'", specifier = ">=1.15.0" },
-    { name = "silly-kicks", marker = "extra == 'analytics'", specifier = ">=1.0.0,<2.0" },
+    { name = "silly-kicks", marker = "extra == 'analytics'", specifier = ">=1.5.0,<2.0" },
     { name = "sparse-dot-topn", marker = "extra == 'analytics'", specifier = ">=1.1.0" },
     { name = "taipy", marker = "extra == 'taipy-app'", specifier = "==4.1.1" },
     { name = "torch", marker = "extra == 'training'", specifier = ">=2.0", index = "https://download.pytorch.org/whl/cu128" },
@@ -3697,16 +3697,16 @@ wheels = [
 
 [[package]]
 name = "silly-kicks"
-version = "1.0.1"
+version = "1.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
     { name = "pandas" },
     { name = "scikit-learn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a3/f3/5ce5b4635c60c14809ceba21ed6899da107f52c5530d2c0fc65eac724f40/silly_kicks-1.0.1.tar.gz", hash = "sha256:a4b0a875394dea033f473f34cac1c6cd63f9fc47dd307b431f12063bb1b11d0a", size = 810079, upload-time = "2026-04-07T17:19:54.248Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e9/1c/543a61676f0c9ed460b353fd4d3f3d446efa4699edbba6cf7a4b4e472c33/silly_kicks-1.5.0.tar.gz", hash = "sha256:3052f3c265fb1517af273489b63dbd4e1b6a65c29e5004c3ca0518d567ce40ac", size = 1450068, upload-time = "2026-04-28T03:04:20.251Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f2/3b/7752f416162ca0e724c9fb3c7018a11279f4025b7faa12afa8adcac70869/silly_kicks-1.0.1-py3-none-any.whl", hash = "sha256:4b2b4e28a3879385a8cbc475ff1210dbddcf8b813ac3cb27afecfa4749cfbfb6", size = 63336, upload-time = "2026-04-07T17:19:52.944Z" },
+    { url = "https://files.pythonhosted.org/packages/d5/59/0d34d783e94cfcf907ae6d0d11c3d75fc2006dc19506fceaac69fc50be89/silly_kicks-1.5.0-py3-none-any.whl", hash = "sha256:690191fdeb06361f159cd6846dc094ff35c54c73d4cd2521bac2b378d266354f", size = 82408, upload-time = "2026-04-28T03:04:18.585Z" },
 ]
 
 [[package]]
@@ -4080,9 +4080,9 @@ dependencies = [
     { name = "typing-extensions" },
 ]
 wheels = [
-    { url = "https://download-r2.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp310-cp310-manylinux_2_28_aarch64.whl", upload-time = "2026-03-23T15:00:45Z" },
-    { url = "https://download-r2.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp310-cp310-manylinux_2_28_x86_64.whl", upload-time = "2026-03-23T15:00:56Z" },
-    { url = "https://download-r2.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp310-cp310-win_amd64.whl", upload-time = "2026-03-23T15:00:59Z" },
+    { url = "https://download-r2.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp310-cp310-manylinux_2_28_aarch64.whl", hash = "sha256:5ac6e34681d5a0e527edb741b38254899cd03087a7dd7e841791a4ee0a5e7011", upload-time = "2026-04-27T17:32:32Z" },
+    { url = "https://download-r2.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:72d53f3176a69cc20710c4ecb95f7dc4c6ba10c4e4eda45b8396ee79ee40f75a", upload-time = "2026-04-27T17:33:09Z" },
+    { url = "https://download-r2.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp310-cp310-win_amd64.whl", hash = "sha256:7c792fe95ad5edaf622cf9e4f5573f5aecf2bc0654c7e866eda6134088f95d72", upload-time = "2026-04-27T17:34:55Z" },
 ]
 
 [[package]]
