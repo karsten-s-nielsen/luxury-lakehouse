@@ -20,7 +20,16 @@ normalized as (
         {{ dbt_utils.generate_surrogate_key(['match_id', 'period', 'frame', 'player_id']) }} as tracking_id,
 
         -- Match context
-        match_id,
+        -- PR 7 hotfix #3: strip the `idsse_` bronze prefix at staging boundary so
+        -- downstream consumers (fct_tracking_frames, dim_matches JOINs) receive the
+        -- canonical native form. Pre-fix: 100% of fct_tracking_frames IDSSE rows had
+        -- match_key=NULL because match_id='idsse_J03WMX' couldn't match
+        -- dim_matches.native_match_id='J03WMX'. Downstream regexp_replace strips in
+        -- the deleted stg_idsse__home_away_teams (subsumed by
+        -- int_tracking__match_side_team_bridge) and stg_idsse__passes.ball_at_end_frame
+        -- become idempotent no-ops on already-clean strings — the regex matches
+        -- nothing and returns input unchanged.
+        regexp_replace(cast(match_id as string), '^idsse_', '') as match_id,
 
         -- Frame identifiers
         cast(period as int)                             as period,

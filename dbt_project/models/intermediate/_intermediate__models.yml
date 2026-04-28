@@ -339,3 +339,69 @@ models:
         description: Cumulative away team goals after this event
         data_tests:
           - not_null
+
+  - name: int_tracking__player_match_team_bridge
+    description: >
+      Per-(source_provider, match_id, player_id) → team_id bridge for tracking-derived
+      facts. Materialized as table (small ~616-row footprint avoids repeat 38M-row
+      DISTINCT scans across formations marts that would otherwise force full scans
+      on each consumer JOIN). PR 7 hotfix #3.
+    columns:
+      - name: source_provider
+        data_type: string
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['idsse', 'metrica', 'skillcorner']
+      - name: match_id
+        data_type: string
+        data_tests:
+          - not_null
+      - name: player_id
+        data_type: string
+        data_tests:
+          - not_null
+      - name: team_id
+        data_type: string
+        data_tests:
+          - not_null
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [source_provider, match_id, player_id]
+
+  - name: int_tracking__match_side_team_bridge
+    description: >
+      Per-(source_provider, match_id, side='home'/'away') → team_id bridge.
+      Generalises the deleted stg_idsse__home_away_teams across all 3 tracking
+      providers. Used by fct_match_summary to resolve home/away team_keys for
+      IDSSE/Metrica/SkillCorner and by fct_formation_labels for per-side team
+      resolution. PR 7 hotfix #3.
+    columns:
+      - name: source_provider
+        data_type: string
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['idsse', 'metrica', 'skillcorner']
+      - name: match_id
+        data_type: string
+        data_tests:
+          - not_null
+      - name: side
+        data_type: string
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['home', 'away']
+      - name: team_id
+        data_type: string
+        data_tests:
+          - not_null
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [source_provider, match_id, side]

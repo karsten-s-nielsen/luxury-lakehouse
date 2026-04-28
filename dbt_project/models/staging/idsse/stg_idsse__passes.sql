@@ -90,9 +90,14 @@ hydrated as (
             end,
             bridge.team_id
         )                                                       as bridge_team_id
+    -- PR 7 hotfix #3: stg_idsse__home_away_teams was deleted. Its replacement is
+    -- int_tracking__match_side_team_bridge filtered to source_provider='idsse'.
+    -- Functionally identical to the old bridge but generalises across all 3
+    -- tracking providers (single source of truth for per-(match, side)→team_id).
     from events_with_native_match_id e
-    left join {{ ref('stg_idsse__home_away_teams') }} bridge
-        on bridge.match_id = e.native_match_id
+    left join {{ ref('int_tracking__match_side_team_bridge') }} bridge
+        on  bridge.source_provider = 'idsse'
+       and bridge.match_id = e.native_match_id
        and bridge.side = lower(e.play_team)
 
 ),

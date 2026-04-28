@@ -75,6 +75,12 @@ wyscout_shots as (
 
     from {{ ref('stg_wyscout__events') }}
     where event_type = 'Shot'
+      -- PR 7 hotfix #3: Wyscout open-data uses `playerId: 0` as an "unknown
+      -- player" sentinel (3 of 131,077 shots = 0.002%). Same pattern as
+      -- int_unified_passes' Wyscout filter (PR #215 hotfix). Drop here at the
+      -- staging boundary so dim_players LEFT JOIN in fct_shots resolves 100%
+      -- on every Wyscout row.
+      and player_id is not null and player_id <> 0
 
 ),
 

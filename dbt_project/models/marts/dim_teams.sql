@@ -78,6 +78,8 @@ wyscout_synth_teams as (
 
 idsse_teams as (
 
+    -- PR 7 hotfix #3: stg_idsse__home_away_teams was deleted; subsumed by
+    -- int_tracking__match_side_team_bridge filtered to source_provider='idsse'.
     select
         'idsse'                                         as provider,
         hat.team_id                                     as native_team_id,
@@ -86,12 +88,13 @@ idsse_teams as (
         false                                           as is_synthesized,
         cast(null as boolean)                           as is_anonymized,
         cast(null as string)                            as synthesis_reason
-    from {{ ref('stg_idsse__home_away_teams') }} hat
+    from {{ ref('int_tracking__match_side_team_bridge') }} hat
     left join {{ ref('stg_tracking__player_metadata') }} pm
         on  pm.provider = 'idsse'
-       and pm.match_id = concat('idsse_', hat.match_id)  -- bronze match_id keeps idsse_ prefix
+       and pm.match_id = concat('idsse_', hat.match_id)  -- bronze tracking_player_metadata.match_id keeps idsse_ prefix
        and pm.team_side = hat.side
-    where hat.team_id is not null
+    where hat.source_provider = 'idsse'
+      and hat.team_id is not null
     group by hat.team_id
 
 ),

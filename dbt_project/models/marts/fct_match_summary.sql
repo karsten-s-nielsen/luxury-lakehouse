@@ -164,33 +164,23 @@ sb_keyed as (
 
 tracking_home_away as (
 
-    -- PR 7 (ADR-011): For tracking-only providers (idsse, metrica, skillcorner)
-    -- the home/away team_id is not stored in dim_matches. We derive it from
-    -- fct_tracking_frames where each row carries (match_key, source_provider,
-    -- team='home'|'away', team_id). DISTINCT collapses the scan to one row
-    -- per (match-team) pair (~2 rows per match × ~260 tracking matches);
-    -- liquid_clustered_by=['match_key'] on fct_tracking_frames keeps I/O bounded.
-    -- Output feeds the dim_teams JOINs in non_sb_summary below; downstream
-    -- tracking-derivative marts (fct_player_positions, fct_position_maps,
-    -- fct_formation_labels) reuse the resulting home_team_key / away_team_key
-    -- via fct_match_summary JOIN rather than re-deriving here.
+    -- PR 7 hotfix #3: replaced the prior inline fct_tracking_frames-derived CTE
+    -- with the shared int_tracking__match_side_team_bridge. The bridge generalises
+    -- the per-(match, side)→team_id mapping across all 3 tracking providers and
+    -- eliminates the dependency on fct_tracking_frames being rebuilt before this
+    -- mart resolves correctly. JOIN dim_matches to recover match_key from the
+    -- bridge's native match_id (post-staging-canonicalization).
     select
-        match_key,
-        source_provider,
-        max(case when team = 'home' then team_id end)   as home_team_id_str,
-        max(case when team = 'away' then team_id end)   as away_team_id_str
-    from (
-        select distinct
-            match_key,
-            source_provider,
-            team,
-            team_id
-        from {{ ref('fct_tracking_frames') }}
-        where source_provider in ('idsse', 'metrica', 'skillcorner')
-          and team_id is not null
-          and team in ('home', 'away')
-    ) distinct_team_rows
-    group by match_key, source_provider
+        dm.match_key,
+        mstb.source_provider,
+        max(case when mstb.side = 'home' then mstb.team_id end)   as home_team_id_str,
+        max(case when mstb.side = 'away' then mstb.team_id end)   as away_team_id_str
+    from {{ ref('int_tracking__match_side_team_bridge') }} mstb
+    inner join {{ ref('dim_matches') }} dm
+        on  dm.provider = mstb.source_provider
+       and dm.native_match_id = mstb.match_id
+    where mstb.source_provider in ('idsse', 'metrica', 'skillcorner')
+    group by dm.match_key, mstb.source_provider
 
 ),
 

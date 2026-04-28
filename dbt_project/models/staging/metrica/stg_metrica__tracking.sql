@@ -101,7 +101,15 @@ normalized as (
         timestamp,
 
         -- Player identity
-        player_id,
+        -- PR 7 hotfix #3: synthesize the dim_players-compatible native_player_id.
+        -- Bronze tracking JSON map keys are bare numerics (e.g., '5', '11'); dim_players
+        -- (stg_metrica__team_players, PR 5a) synthesizes
+        -- `metrica_<match>_<side>_<map_key>`. Pre-fix: 100% of fct_tracking_frames Metrica
+        -- rows had player_key=NULL because the bare key 5 couldn't JOIN the synth form.
+        -- This canonicalization preserves the bare key as the upstream lateral-view
+        -- variable `player_key` from home_players_exploded / away_players_exploded
+        -- (still accessible internally if any future consumer needs the raw map key).
+        concat('metrica_', match_id, '_', team, '_', player_id) as player_id,
         team,
 
         -- Team_id derivation (PR 7, ADR-011): synthesizes the team_id that

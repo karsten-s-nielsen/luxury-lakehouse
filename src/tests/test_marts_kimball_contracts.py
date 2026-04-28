@@ -84,49 +84,116 @@ _CASES: tuple[tuple[str, str, float], ...] = (
     ("fct_gk_actions_detail", "match_key", 0.99),
     ("fct_gk_actions_detail", "team_key", 0.99),
     ("fct_gk_actions_detail", "player_key", 0.99),
-    # PR 7 — conformed-fact closures (Step IX). Initial thresholds are 0.0
-    # (smoke-test the column exists and the test runs); thresholds calibrated
-    # post-Phase-2 rebuild per `feedback_evidence_before_claim` and committed
-    # in the same PR's 2nd commit (or a follow-up if needed).
-    ("fct_passes", "team_key", 0.0),
-    ("fct_passes", "passer_player_key", 0.0),
-    # recipient_player_key — NULL by design on incomplete passes; threshold
-    # stays 0.0 even after calibration. Test asserts column existence only.
-    ("fct_passes", "recipient_player_key", 0.0),
-    ("fct_shots", "team_key", 0.0),
-    ("fct_shots", "player_key", 0.0),
-    ("fct_action_values", "team_key", 0.0),
-    ("fct_action_values", "player_key", 0.0),
-    ("fct_line_breaking_results", "team_key", 0.0),
-    ("fct_line_breaking_results", "player_key", 0.0),
-    # PR 7 — fct_match_summary cross-provider home/away resolution.
-    ("fct_match_summary", "home_team_key", 0.0),
-    ("fct_match_summary", "away_team_key", 0.0),
-    # PR 7 — tracking subsystem (existing at checkpoint d4f2004 + new this PR).
-    ("fct_tracking_frames", "match_key", 0.0),
-    ("fct_tracking_frames", "team_key", 0.0),
-    ("fct_tracking_frames", "player_key", 0.0),
-    ("fct_player_positions", "match_key", 0.0),
-    ("fct_player_positions", "team_key", 0.0),
-    ("fct_player_positions", "player_key", 0.0),
-    ("fct_position_maps", "match_key", 0.0),
-    ("fct_position_maps", "team_key", 0.0),
-    ("fct_position_maps", "player_key", 0.0),
-    ("fct_formation_labels", "match_key", 0.0),
-    ("fct_formation_labels", "team_key", 0.0),
-    ("fct_physical_stats", "match_key", 0.0),
-    ("fct_physical_stats", "player_key", 0.0),
-    # PR 7 — off-ball / space / discipline.
-    ("fct_off_ball_xt", "match_key", 0.0),
-    ("fct_off_ball_xt", "player_key", 0.0),
-    ("fct_discipline_events", "match_key", 0.0),
-    ("fct_discipline_events", "team_key", 0.0),
-    ("fct_discipline_events", "player_key", 0.0),
-    # PR 7 — pausa subsystem (only when pausa_enabled at runtime; the live
-    # query handles disabled-mart-empty-result via the threshold check).
-    ("fct_pass_timing", "match_key", 0.0),
-    ("fct_pass_timing", "player_key", 0.0),
-    ("fct_pausa_rankings", "player_key", 0.0),
+    # PR 7 hotfix #3: PR-7 entries moved to _CASES_PR7 below for per-(mart, key,
+    # provider) parameterization. Single-provider drift surfaces against the named
+    # provider rather than hiding behind aggregate counts.
+)
+
+
+# PR 7 hotfix #3 — per-(mart, key, provider) calibrated thresholds.
+#
+# Three patterns:
+#   1. Strict 1.0 — JOIN MUST resolve 100%; failure indicates recipe drift or new data gap.
+#   2. 0.0 with comment — structural source-data gap (e.g., Wyscout has no recipient field).
+#   3. Calibrated <1.0 — true partial coverage with documented reason; commit measured value.
+#
+# Calibrated post-rebuild on dev_gold; final values committed in the hotfix-#3 PR.
+# (mart, key_column, provider, non_null_rate_threshold)
+_CASES_PR7: tuple[tuple[str, str, str, float], ...] = (
+    # fct_passes — 4 providers x 3 FK columns
+    ("fct_passes", "team_key", "statsbomb", 1.0),
+    ("fct_passes", "team_key", "wyscout", 1.0),
+    ("fct_passes", "team_key", "idsse", 1.0),
+    ("fct_passes", "team_key", "metrica", 1.0),
+    ("fct_passes", "passer_player_key", "statsbomb", 1.0),
+    ("fct_passes", "passer_player_key", "wyscout", 1.0),
+    ("fct_passes", "passer_player_key", "idsse", 1.0),
+    ("fct_passes", "passer_player_key", "metrica", 1.0),
+    ("fct_passes", "recipient_player_key", "statsbomb", 1.0),
+    # Wyscout open-data has NO recipient field — kloppy strips at parse.
+    # Structural source gap; threshold stays 0.0.
+    ("fct_passes", "recipient_player_key", "wyscout", 0.0),
+    # IDSSE/Metrica — calibrate post-rebuild and update with measured values.
+    ("fct_passes", "recipient_player_key", "idsse", 0.5),
+    ("fct_passes", "recipient_player_key", "metrica", 0.5),
+    # fct_action_values — SB/WS only
+    ("fct_action_values", "team_key", "statsbomb", 1.0),
+    ("fct_action_values", "team_key", "wyscout", 1.0),
+    ("fct_action_values", "player_key", "statsbomb", 1.0),
+    ("fct_action_values", "player_key", "wyscout", 1.0),
+    # fct_shots — SB/WS only
+    ("fct_shots", "team_key", "statsbomb", 1.0),
+    ("fct_shots", "team_key", "wyscout", 1.0),
+    # Phase 6 of hotfix-#3 plan: investigate 3 NULL player_key SB rows.
+    # If dim_players gap → fix dim. If source NULL → relax to 0.99998.
+    ("fct_shots", "player_key", "statsbomb", 1.0),
+    ("fct_shots", "player_key", "wyscout", 1.0),
+    # fct_line_breaking_results — SB only
+    ("fct_line_breaking_results", "team_key", "statsbomb", 1.0),
+    ("fct_line_breaking_results", "player_key", "statsbomb", 1.0),
+    # fct_match_summary — extended to all 4 providers via tracking-side bridge
+    ("fct_match_summary", "home_team_key", "statsbomb", 1.0),
+    ("fct_match_summary", "home_team_key", "wyscout", 1.0),
+    ("fct_match_summary", "home_team_key", "idsse", 1.0),
+    ("fct_match_summary", "home_team_key", "metrica", 1.0),
+    ("fct_match_summary", "away_team_key", "statsbomb", 1.0),
+    ("fct_match_summary", "away_team_key", "wyscout", 1.0),
+    ("fct_match_summary", "away_team_key", "idsse", 1.0),
+    ("fct_match_summary", "away_team_key", "metrica", 1.0),
+    # fct_tracking_frames — 3 tracking providers x 3 FK columns
+    ("fct_tracking_frames", "match_key", "idsse", 1.0),
+    ("fct_tracking_frames", "match_key", "metrica", 1.0),
+    ("fct_tracking_frames", "match_key", "skillcorner", 1.0),
+    ("fct_tracking_frames", "team_key", "idsse", 1.0),
+    ("fct_tracking_frames", "team_key", "metrica", 1.0),
+    ("fct_tracking_frames", "team_key", "skillcorner", 1.0),
+    ("fct_tracking_frames", "player_key", "idsse", 1.0),
+    ("fct_tracking_frames", "player_key", "metrica", 1.0),
+    ("fct_tracking_frames", "player_key", "skillcorner", 1.0),
+    # Formations marts — 3 tracking providers x FK columns
+    ("fct_player_positions", "match_key", "idsse", 1.0),
+    ("fct_player_positions", "match_key", "metrica", 1.0),
+    ("fct_player_positions", "match_key", "skillcorner", 1.0),
+    ("fct_player_positions", "team_key", "idsse", 1.0),
+    ("fct_player_positions", "team_key", "metrica", 1.0),
+    ("fct_player_positions", "team_key", "skillcorner", 1.0),
+    ("fct_player_positions", "player_key", "idsse", 1.0),
+    ("fct_player_positions", "player_key", "metrica", 1.0),
+    ("fct_player_positions", "player_key", "skillcorner", 1.0),
+    ("fct_position_maps", "match_key", "idsse", 1.0),
+    ("fct_position_maps", "match_key", "metrica", 1.0),
+    ("fct_position_maps", "match_key", "skillcorner", 1.0),
+    ("fct_position_maps", "team_key", "idsse", 1.0),
+    ("fct_position_maps", "team_key", "metrica", 1.0),
+    ("fct_position_maps", "team_key", "skillcorner", 1.0),
+    ("fct_position_maps", "player_key", "idsse", 1.0),
+    ("fct_position_maps", "player_key", "metrica", 1.0),
+    ("fct_position_maps", "player_key", "skillcorner", 1.0),
+    ("fct_formation_labels", "match_key", "idsse", 1.0),
+    ("fct_formation_labels", "match_key", "metrica", 1.0),
+    ("fct_formation_labels", "match_key", "skillcorner", 1.0),
+    ("fct_formation_labels", "team_key", "idsse", 1.0),
+    ("fct_formation_labels", "team_key", "metrica", 1.0),
+    ("fct_formation_labels", "team_key", "skillcorner", 1.0),
+    # fct_physical_stats — 3 tracking providers
+    ("fct_physical_stats", "match_key", "idsse", 1.0),
+    ("fct_physical_stats", "match_key", "metrica", 1.0),
+    ("fct_physical_stats", "match_key", "skillcorner", 1.0),
+    ("fct_physical_stats", "player_key", "idsse", 1.0),
+    ("fct_physical_stats", "player_key", "metrica", 1.0),
+    ("fct_physical_stats", "player_key", "skillcorner", 1.0),
+    # fct_off_ball_xt — 3 tracking providers
+    ("fct_off_ball_xt", "match_key", "idsse", 1.0),
+    ("fct_off_ball_xt", "match_key", "metrica", 1.0),
+    ("fct_off_ball_xt", "match_key", "skillcorner", 1.0),
+    ("fct_off_ball_xt", "player_key", "idsse", 1.0),
+    ("fct_off_ball_xt", "player_key", "metrica", 1.0),
+    ("fct_off_ball_xt", "player_key", "skillcorner", 1.0),
+    # fct_pass_timing + fct_pausa_rankings — IDSSE-only (PAUSA scope, see
+    # `feedback`-equivalent reasoning in hotfix-3 spec §3.1)
+    ("fct_pass_timing", "match_key", "idsse", 1.0),
+    ("fct_pass_timing", "player_key", "idsse", 1.0),
+    ("fct_pausa_rankings", "player_key", "idsse", 1.0),
 )
 
 
@@ -144,7 +211,11 @@ def conn():
 @requires_databricks
 @pytest.mark.parametrize(("mart", "key_column", "threshold"), _CASES)
 def test_kimball_key_populated(conn, mart: str, key_column: str, threshold: float) -> None:
-    """Each (mart, key) pair must have non-NULL rate >= threshold on dev_gold."""
+    """Each (mart, key) pair must have non-NULL rate >= threshold on dev_gold.
+
+    Aggregate-level threshold; PR 5b/PR 6 entries that don't need per-provider
+    differentiation. PR 7+ entries live in test_kimball_key_populated_per_provider.
+    """
     catalog = "soccer_analytics"
     schema = "dev_gold"
     table = f"{catalog}.{schema}.{mart}"
@@ -164,4 +235,64 @@ def test_kimball_key_populated(conn, mart: str, key_column: str, threshold: floa
     assert rate >= threshold, (
         f"{mart}.{key_column}: non-NULL rate {rate:.4f} below {threshold} threshold "
         f"(total={total}, non_null={non_null}). Investigate dim resolution."
+    )
+
+
+@requires_databricks
+@pytest.mark.parametrize(("mart", "key_column", "provider", "threshold"), _CASES_PR7)
+def test_kimball_key_populated_per_provider(conn, mart: str, key_column: str, provider: str, threshold: float) -> None:
+    """PR 7 hotfix #3: per-(mart, key, provider) coverage assertion.
+
+    Single-provider drift surfaces against the named provider rather than hiding
+    behind aggregate counts. Tracking marts use `source_provider`; event-derived
+    marts use `data_source`. Auto-detected from the table's column inventory.
+    """
+    catalog = "soccer_analytics"
+    schema = "dev_gold"
+    table = f"{catalog}.{schema}.{mart}"
+
+    cur = conn.cursor()
+    # Identify the provider column. Tracking marts use 'source_provider';
+    # event-derived marts use 'data_source'. fct_match_summary has no provider
+    # column (one row per match — provider is implicit via match_key→dim_matches).
+    cur.execute(f"DESCRIBE {table}")
+    cols = {row[0] for row in cur.fetchall() if row[0] and not row[0].startswith("#")}
+    provider_col: str | None
+    if "source_provider" in cols:
+        provider_col = "source_provider"
+    elif "data_source" in cols:
+        provider_col = "data_source"
+    else:
+        # No native provider column — JOIN dim_matches to filter by provider.
+        provider_col = None
+
+    if provider_col is None:
+        # fct_match_summary case: filter via dim_matches.provider
+        cur.execute(
+            f"SELECT count(*) AS total, count(m.{key_column}) AS non_null "
+            f"FROM {table} m "
+            f"JOIN soccer_analytics.dev_gold.dim_matches dm ON dm.match_key = m.match_key "
+            f"WHERE dm.provider = '{provider}'"
+        )
+    else:
+        cur.execute(
+            f"SELECT count(*) AS total, count({key_column}) AS non_null "
+            f"FROM {table} WHERE {provider_col} = '{provider}'"
+        )
+    row = cur.fetchall()[0]
+    assert row is not None, f"empty result on {table} for provider={provider}"
+    total = int(row[0])
+    non_null = int(row[1])
+
+    if total == 0:
+        pytest.skip(
+            f"{mart} has zero rows for provider={provider} — feature gate may be off "
+            f"or provider not loaded for this mart"
+        )
+
+    rate = non_null / total
+    assert rate >= threshold, (
+        f"{mart}.{key_column} provider={provider}: non-NULL rate {rate:.4f} "
+        f"below {threshold} threshold (total={total}, non_null={non_null}). "
+        f"Investigate dim resolution recipe drift."
     )

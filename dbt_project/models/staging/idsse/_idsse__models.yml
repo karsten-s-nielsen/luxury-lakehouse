@@ -143,35 +143,8 @@ models:
       - name: ball_status
         description: Bronze passthrough — ball_status from idsse_tracking (see _idsse__sources.yml).
 
-  - name: stg_idsse__home_away_teams
-    config:
-      meta:
-        data_sensitivity: public
-        contains_pii: false
-    description: >
-      Bridge from (match_id, side) to real DFL TeamId for IDSSE matches.
-      Built from distinct (match_id, team, team_id) in stg_idsse__tracking.
-      Consumed by stg_idsse__passes + dim_teams IDSSE CTE.
-    columns:
-      - name: match_id
-        description: Native DFL match identifier (idsse_ prefix stripped).
-        data_tests:
-          - not_null
-      - name: side
-        description: Home or away side.
-        data_tests:
-          - not_null
-          - accepted_values:
-              arguments:
-                values: ['home', 'away']
-      - name: team_id
-        description: Real DFL TeamId (e.g., 'DFL-CLU-XXXXXX').
-        data_tests:
-          - not_null
-    data_tests:
-      - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns: [match_id, side]
+# PR 7 hotfix #3: stg_idsse__home_away_teams DELETED — subsumed by
+# int_tracking__match_side_team_bridge (see dbt_project/models/intermediate/).
 
   - name: stg_idsse__events
     config:
