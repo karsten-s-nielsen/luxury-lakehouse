@@ -73,7 +73,9 @@ SELECT
     match_id,                    -- LEGACY: sunset 2026-07-22
     competition_id,              -- LEGACY: sunset 2026-07-22
     player_id,
+    player_key,                  -- new: Kimball surrogate (PR 7, ADR-011)
     team_id,
+    team_key,                    -- new: Kimball surrogate (PR 7, ADR-011)
     season_id,
     period,
     time_seconds,

@@ -43,9 +43,13 @@ The result is a per-player control value: the home-team control probability [0, 
 | Column | Type | Description |
 |--------|------|-------------|
 | `tracking_id` | `string` | Primary key &mdash; unique player-frame identifier |
-| `match_id` | `string` | Match identifier (prefixed by provider) |
-| `player_id` | `string` | Player identifier |
-| `team` | `string` | Team affiliation (home or away) |
+| `match_key` | `bigint` | **Canonical Kimball match FK** (PR 7, ADR-011). BIGINT surrogate, collision-free across providers. Emitted natively by `pitch_control_batch.py` per PR 7 schema widening. |
+| `team_key` | `bigint` | **Canonical Kimball team FK** (PR 7, ADR-011). BIGINT surrogate. |
+| `player_key` | `bigint` | **Canonical Kimball player FK** (PR 7, ADR-011). BIGINT surrogate. |
+| `match_id` | `string` | Match identifier (prefixed by provider — kept for human-debug joins) |
+| `player_id` | `string` | Player identifier (provider-native) |
+| `team_id` | `string` | Team identifier (provider-native; PR 7 staging canonicalization) |
+| `team` | `string` | Team side affiliation (home or away) |
 | `period` | `int` | Match period (1 or 2) |
 | `frame` | `int` | Frame number within the period |
 | `timestamp_seconds` | `double` | Timestamp in seconds from period start |
@@ -60,11 +64,10 @@ The result is a per-player control value: the home-team control probability [0, 
 | `source_provider` | `string` | Tracking data provider (metrica, idsse, skillcorner) |
 | `frame_rate` | `bigint` | Frame rate in fps (25 for Metrica/IDSSE, 10 for SkillCorner) |
 | `data_source` | `string` | PR 7 — alias of `source_provider` for downstream Kimball-conformed marts. Emitted natively by `pitch_control_batch.py` (PR 7 schema widening). |
-| `match_key` | `bigint` | PR 7 — Kimball surrogate FK to `dim_matches`. Emitted natively by `pitch_control_batch.py` (PR 7 schema widening), collapsing the PR 6 prefix-CASE bridge in `stg_pitch_control__values` to a passthrough. |
 
-### PR 7 — Dual-column window
+### PR 7 — Kimball surrogate keys + dual-column window
 
-The new `data_source` and `match_key` columns coexist with the existing `match_id` (string with provider prefix) and `source_provider` columns during the 2026-07-22 dual-column window. After 2026-07-22, PR 8 will sunset the legacy `source_provider` (alias) — `match_id` stays as the human-debug column. Consumers joining to other Kimball marts should migrate to `match_key` (BIGINT) for cross-provider stability.
+The Kimball surrogate keys (`match_key`, `team_key`, `player_key`) are emitted alongside the legacy provider-native identifiers (`match_id`, `team_id`, `player_id`). The Kimball keys are BIGINT and collision-free across providers; consumers joining to other Kimball marts should use them. The legacy `source_provider` alias will be sunset in PR 8 (~2026-07-22) — `match_id`, `team_id`, `player_id` remain as human-debug columns.
 
 ### Coordinate System
 

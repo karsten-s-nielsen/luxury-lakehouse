@@ -12,6 +12,9 @@ Columns exported:
     match_key        - Kimball surrogate BIGINT FK to dim_matches (ADR-011; primary match id as of 2026-04-22)
     match_id         - string match identifier (DEPRECATED 2026-04-22; removed on or after 2026-07-22 per ADR-013)
     player_id        - player identifier
+    player_key       - Kimball surrogate BIGINT FK to dim_players (PR 7, ADR-011)
+    team_id          - team identifier
+    team_key         - Kimball surrogate BIGINT FK to dim_teams (PR 7, ADR-011)
     end_location_y   - shot destination y (vertical position on goal face)
     end_location_z   - shot destination z (height on goal face)
     shot_outcome     - categorical: Goal, Saved, Blocked, etc.
@@ -107,6 +110,9 @@ SELECT
     s.match_key,
     CAST(dm.native_match_id AS STRING)                     AS match_id,
     s.player_id,
+    s.player_key,
+    s.team_id,
+    s.team_key,
     s.end_location_y,
     s.end_location_z,
     s.shot_outcome,

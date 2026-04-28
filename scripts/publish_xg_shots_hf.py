@@ -27,7 +27,9 @@ Columns published:
     competition_id   - NULL for Wyscout shots (no StatsBomb match join)
     season_id        - NULL for Wyscout shots
     player_id        - player identifier
+    player_key       - Kimball surrogate BIGINT FK to dim_players (PR 7, ADR-011)
     team_id          - team identifier
+    team_key         - Kimball surrogate BIGINT FK to dim_teams (PR 7, ADR-011)
     period           - match period (1, 2, ET...)
     minute           - match minute
     second           - second within minute
@@ -105,7 +107,9 @@ SELECT
     s.competition_id,
     s.season_id,
     s.player_id,
+    s.player_key,                -- new: Kimball surrogate (PR 7, ADR-011)
     s.team_id,
+    s.team_key,                  -- new: Kimball surrogate (PR 7, ADR-011)
     s.period,
     s.minute,
     s.second,

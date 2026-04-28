@@ -90,7 +90,7 @@ All coordinates use the **StatsBomb 120&times;80 yards** scale. The origin (0, 0
 
 Computed from IDSSE tracking data via ELASTIC event-tracking synchronization. Event coordinates are normalized to the StatsBomb scale during the OBSO pipeline.
 
-**PR 7 (ADR-013 second application — 2026-04-27):** the gold mart `fct_pausa_values` is now built by dbt with `contract: enforced: true` from `bronze.pausa_values` (the writer `src/ingestion/pausa.py` retargets bronze; previously wrote gold directly). Mart inherits Kimball surrogate FKs (`match_key`, `team_key`, `player_key`) via `INNER JOIN fct_passes ON pass_id`. The published HF dataset payload gains the new key columns alongside the legacy native IDs during the 2026-07-22 dual-column window; consumers should migrate joins from `pass_id`/`match_id` to `match_key` for cross-provider stability.
+**PR 7 (ADR-013 second application — 2026-04-27):** the gold mart `fct_pausa_values` is now built by dbt with `contract: enforced: true` from `bronze.pausa_values` (the writer `src/ingestion/pausa.py` retargets bronze; previously wrote gold directly). The mart inherits Kimball surrogate FKs (`match_key`, `team_key`, `player_key`) via `INNER JOIN fct_passes ON pass_id`. The HF dataset payload itself remains as-published by `scripts/compute_obso_hf.py` (a pre-mart compute output) and does **not** carry surrogate keys — per ADR-013, ML inference outputs are joined back to identity facts at the mart layer. Consumers querying the lakehouse should join `fct_pausa_values` directly; consumers reading this HF dataset should join via `pass_id` to the published `line-breaking-passes` dataset (which carries `match_key`/`team_key`/`passer_player_key` post-PR-7).
 
 ## Companion Resources
 

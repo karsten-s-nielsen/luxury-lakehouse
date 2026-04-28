@@ -69,8 +69,10 @@ This dataset contains every shot from the StatsBomb and Wyscout open data collec
 | `match_id` | `Int64` | LEGACY provider-native match identifier; sunset 2026-07-22 (see top-of-card). |
 | `competition_id` | `Int64` | Competition identifier (NULL for Wyscout) |
 | `season_id` | `Int64` | Season identifier (NULL for Wyscout) |
-| `player_id` | `Int64` | Player identifier |
-| `team_id` | `Int64` | Team identifier |
+| `player_id` | `Int64` | Player identifier (provider-native) |
+| `player_key` | `Int64` | **Canonical Kimball player FK** (PR 7, ADR-011). BIGINT surrogate. |
+| `team_id` | `Int64` | Team identifier (provider-native) |
+| `team_key` | `Int64` | **Canonical Kimball team FK** (PR 7, ADR-011). BIGINT surrogate. |
 | `period` | `Int64` | Match period (1 = first half, 2 = second half, 3+ = extra time) |
 | `minute` | `Int64` | Match minute |
 | `second` | `Int64` | Second within the minute |

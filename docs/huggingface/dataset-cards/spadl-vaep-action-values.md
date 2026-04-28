@@ -57,9 +57,11 @@ top_players = df.groupby("player_id")["vaep_value"].sum().nlargest(10)
 | `action_value_id` | `string` | Surrogate key (deterministic hash of match_id + period + time_seconds + player_id + type_id + data_source) |
 | `match_key` | `bigint` | **Canonical Kimball match FK** (ADR-011). BIGINT surrogate, collision-free across providers. |
 | `competition_key` | `bigint` | **Canonical Kimball competition FK**. BIGINT surrogate. |
+| `player_key` | `bigint` | **Canonical Kimball player FK** (PR 7, ADR-011). BIGINT surrogate. |
+| `team_key` | `bigint` | **Canonical Kimball team FK** (PR 7, ADR-011). BIGINT surrogate. |
 | `match_id` | `bigint` | LEGACY provider-native match identifier; sunset 2026-07-22 (see top-of-card). |
 | `player_id` | `bigint` | Player identifier (source-native) |
-| `team_id` | `bigint` | Team identifier |
+| `team_id` | `bigint` | Team identifier (provider-native) |
 | `competition_id` | `bigint` | LEGACY provider-native competition identifier; sunset 2026-07-22 (see top-of-card). |
 | `season_id` | `bigint` | Season identifier |
 | `period` | `int` | Match period (1 = first half, 2 = second half, 3+ = extra time) |
