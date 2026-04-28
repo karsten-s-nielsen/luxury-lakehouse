@@ -23,9 +23,22 @@ deduplicated as (
 
 cleaned as (
 
+    -- PR 7 hotfix #3 followup: derive Metrica synth player_id by JOINing
+    -- stg_metrica__team_players. Bronze off_ball_xt Metrica player_id is the
+    -- bare map key ('5', '11', ...); dim_players uses synth form
+    -- 'metrica_<match>_<side>_<map_key>'. team_players has both forms keyed on
+    -- (match_id, player_key_in_map), so the JOIN converts bare → synth. IDSSE /
+    -- SkillCorner bypass via fallback (their bronze player_id is already in
+    -- dim-compatible form).
     select
-        cast(player_id as string)          as player_id,
-        cast(match_id as string)           as match_id,
+        coalesce(mtp.native_player_id, cast(deduplicated.player_id as string)) as player_id,
+        -- PR 7 hotfix #3 followup: strip the `idsse_` prefix at staging boundary
+        -- so mart-side JOINs to dim_matches.native_match_id match. Pre-fix:
+        -- 100% of fct_off_ball_xt rows had match_key=NULL because match_id was
+        -- `idsse_J03WOY` and dim_matches.native_match_id was `J03WOY`.
+        -- source_provider derivation below reads the still-prefixed bronze
+        -- match_id BEFORE the regex strip.
+        regexp_replace(cast(deduplicated.match_id as string), '^idsse_', '') as match_id,
         cast(total_off_ball_xt as double)  as total_off_ball_xt,
         cast(avg_off_ball_xt as double)    as avg_off_ball_xt,
         cast(frames_sampled as int)        as frames_sampled,
@@ -35,13 +48,23 @@ cleaned as (
         -- contribute tracking data so cannot collide here). Single source of
         -- truth for downstream marts that JOIN dim_matches / dim_players on
         -- (provider, native_id).
+        --
+        -- Note: derivation reads the still-prefixed bronze `match_id` before
+        -- the regexp_replace strip above — `like 'idsse_%'` only matches the
+        -- raw bronze form.
         case
-            when match_id like 'idsse_%'        then 'idsse'
-            when match_id like 'Sample_Game_%'  then 'metrica'
+            when deduplicated.match_id like 'idsse_%'        then 'idsse'
+            when deduplicated.match_id like 'Sample_Game_%'  then 'metrica'
             else 'skillcorner'
         end                                as source_provider
 
     from deduplicated
+    -- LEFT JOIN per-match-side team_players for Metrica synth player_id resolution.
+    -- Active only on Metrica rows (Sample_Game_*). For IDSSE/SkillCorner, mtp.*
+    -- is NULL and the COALESCE falls through to the bronze player_id unchanged.
+    left join {{ ref('stg_metrica__team_players') }} mtp
+        on  deduplicated.match_id = mtp.match_id
+       and cast(deduplicated.player_id as string) = mtp.player_key_in_map
     where _row_num = 1
 
 )
