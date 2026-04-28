@@ -83,7 +83,7 @@ No CLAUDE.md amendment. This ADR establishes a new pattern that complements exis
 | PR 4 | Action values + VAEP migration | Planned |
 | PR 5 | Player stats + embeddings migration | Shipped (PR 5a #190 2026-04-24, PR 5b #202 2026-04-25) |
 | PR 6 | Defensive + goalkeeper + pitch control migration | Shipped (#207 2026-04-27, plus followups #208/#209/#210 + DEFCON-cast-fix branch widening BIGINT end-to-end through staging+marts and adding `test_defcon_schema_parity.py` writer/DDL guard) |
-| PR 7 | Tracking + formations + pausa + tail facts migration + Q3 conformed-fact closures (fct_passes/fct_shots/fct_action_values/fct_line_breaking_results gain team_key+player_key) + Option A SkillCorner dim onboarding + fct_match_summary tracking-provider home/away extension. **`fct_pausa_values` also promoted Python→dbt mart under ADR-013 as part of this PR**. **`pitch_control_batch.py` writer schema widened with data_source + match_key, collapsing the PR 6 prefix-CASE bridge in stg_pitch_control__values to a passthrough.** | In progress (branch `kimball-pr7-tracking-formations-pausa`) |
+| PR 7 | Tracking + formations + pausa + tail facts migration + Q3 conformed-fact closures (fct_passes/fct_shots/fct_action_values/fct_line_breaking_results gain team_key+player_key) + Option A SkillCorner dim onboarding + fct_match_summary tracking-provider home/away extension. **`fct_pausa_values` also promoted Python→dbt mart under ADR-013 as part of this PR**. **`pitch_control_batch.py` writer schema widened with data_source + match_key, collapsing the PR 6 prefix-CASE bridge in stg_pitch_control__values to a passthrough.** | Shipped (#214 2026-04-27 + post-deploy hotfixes #215/#216/#217/#218/#219/#220 closing latent staging-canonicalization gaps, see "PR 7 lessons-learned" below) |
 | PR 8 | Scripts + final cleanup + doc sweep | Planned |
 
 > **ADR-013 applications:** PR 3 is the first application of [ADR-013](ADR-013-ml-inference-outputs-dbt-mart.md) (xG v2 promotion to `fct_xg_predictions_v2`); PR 7 is the second (`fct_pausa_values` promotion to a dbt mart under the same pattern).
@@ -99,3 +99,30 @@ After PR 8 merges, the warehouse contains zero smart-keyed `match_id` columns. L
 - `N = 100,000,000` → ~2.7 × 10⁻⁴ (revisit with `xxhash128` or `uuid_v5` if the dim ever grows this large)
 
 Comfortably below any operational threshold at the foreseeable scale.
+
+### Staging canonicalization principle
+
+PR 7's hotfix #3 surfaced a recurring pattern that warrants codification: **native identifiers from a provider must be canonicalized to dim-compatible form at the staging boundary, never inside individual mart SQLs.**
+
+Concretely, every `stg_<provider>__<entity>.sql` is responsible for transforming the raw bronze identifier into the exact form that `dim_matches.native_match_id` / `dim_teams.native_team_id` / `dim_players.native_player_id` use for that provider:
+
+- **IDSSE** — strip the `idsse_` prefix on bronze `match_id` (bronze carries `idsse_J03WMX`, dim carries `J03WMX`).
+- **Metrica** — synthesize `metrica_<match_id>_<team_side>_<player_map_key>` from the raw bronze map key + match + team side, since dim_players uses the synthesized form (PR 5a). Strip the `Player` prefix where it appears in raw bronze data.
+- **Wyscout** — drop `playerId: 0` "unknown player" sentinel rows at the staging boundary (verified 0.65% of action rows, 5% of pass-recipient rows; the sentinel never resolves in dim_players).
+- **StatsBomb** — passthrough; bronze native IDs already match dim form.
+
+The reason this principle is load-bearing: any mart that reads `stg_<provider>__<entity>` and JOINs to `dim_*` on `(provider, native_*_id)` must be able to assume the staging output is already canonical. If canonicalization is duplicated inside individual marts, the next mart that's added either re-derives the same logic (DRY violation) or silently produces NULL FKs at scale (the bug class PR 7 hotfix #3 surfaced across 12 catastrophic + 8 partial mart resolutions).
+
+Audit hook: any new `stg_<provider>__<entity>.sql` PR must document its canonicalization transform in the file header. Any mart that still has a `regexp_replace`/`concat`/sentinel-filter on a native ID is treated as evidence that canonicalization has leaked out of staging — fix in staging instead.
+
+### PR 7 lessons-learned
+
+The original PR 7 (#214) shipped 2026-04-27 with green CI and green slim-CI. Six post-merge hotfix PRs (#215–#220) closed latent gaps that live-CI's `state:modified+` selection could not surface. Documenting the gap classes here so future Kimball PRs can prevent rather than chase them:
+
+1. **Wyscout `playerId: 0` sentinel** (#215, #220) — bronze rows where Wyscout's open-data has no recorded player. Always 0; never resolves in dim_players. Filter at staging, not in marts. Affected `fct_passes` (28k rows) and `fct_action_values` (16k rows) and `fct_off_ball_xt` (small).
+2. **IDSSE `idsse_` prefix on bronze `match_id`** (#216, #217, #220) — bronze carries the prefix, dim does not. The prefix-strip must happen in every `stg_<entity>__*` that reads IDSSE bronze, not in `int_*` or fact marts. Affected tracking, off_ball_xt, formation_labels, pausa staging.
+3. **Metrica synthesized `player_id`** (#216, #217) — dim_players uses `metrica_<match>_<side>_<map_key>` (PR 5a). Bronze tracking carries the bare map key. Stripping `Player` prefix is a separate but related normalization. Affected tracking, off_ball_xt, formation_labels, position_maps, player_positions, pausa rankings.
+4. **Cross-staging dim resolution requires bridge views** (#217) — when a mart needs to resolve `team_key` from a tracking-provider source where the staging row carries only `(side='home'|'away', match_id)`, the answer requires another provider's staging table (e.g., `stg_idsse__home_away_teams` or its successor). Express via a Kimball factless-fact bridge under `intermediate/` (`int_tracking__match_side_team_bridge`, `int_tracking__player_match_team_bridge`). Never embed cross-staging JOINs inside individual mart SQLs.
+5. **`contract: enforced: true` validates only on `--full-refresh`** (#218) — incremental builds with `on_schema_change='append_new_columns'` silently absorb new columns via `ALTER TABLE` without invoking the contract assertion. dbt-live-CI runs `state:modified+` (incremental), so contract drift surfaces only at the next `--full-refresh` deploy. Mitigation: any PR that adds a SELECT-emitted column to a `contract: enforced: true` incremental mart must update the YAML contract in the same commit. Captured in `memory/reference_contract_enforced_full_refresh_only.md`.
+
+Process change: PR 8 (Scripts + final cleanup) will scope-include a "provider-add scaling test" that exercises every staging canonicalization for every provider against every Kimball-FK mart, so that the next provider added (Respo.Vision, SkillCorner-events, homegrown tracking) does not relitigate the gap class. Tracked as TODO G4.
