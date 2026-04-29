@@ -6,9 +6,12 @@ a read of the pre-aggregated fct_funnel_stages_agg mart (~12,145 rows → compos
 index lookup, <100 ms).  Simultaneously closes a silent LIMIT 500000 truncation
 that under-reported A3 entries / shots / goals by >50 % for prolific teams.
 
-Straddler + Wyscout semantics are handled in rollup_stages() using the two
-possession-count columns (pos_in_gs, pos_in_match) plus the wy_match_flag —
-see fct_funnel_stages_agg.sql header for the mart-side derivation.
+LL2 Path B (2026-04-29): Wyscout-synthetic-possession compensation removed.
+Possession IDs are now sourced from silly-kicks's heuristic add_possessions
+and populated for ALL 4 sources (StatsBomb / Wyscout / IDSSE / Metrica).
+Straddler semantics still handled via the two possession-count columns
+(pos_in_gs, pos_in_match) — see fct_funnel_stages_agg.sql header for the
+mart-side derivation. The wy_match_flag column was retired in LL2.
 """
 
 from __future__ import annotations
@@ -42,7 +45,7 @@ def fetch_funnel_agg(
     tbl = t("fct_funnel_stages_agg_synced")
     cols = (
         "match_id, competition_id, team_id, opponent_team_id, game_state,"
-        " pos_in_gs, pos_in_match, a3_entries, shots, goals, wy_match_flag"
+        " pos_in_gs, pos_in_match, a3_entries, shots, goals"
     )
     where: list[str]
     params: list[Any]
@@ -84,18 +87,18 @@ def rollup_stages(rows: pd.DataFrame, *, gs_filtered: bool) -> dict[str, int]:
     gs_filtered = False → dedup pos_in_match across (match_id, team_id) then sum
                           (handles the per-match replication across gs rows)
 
-    wy_match_flag=1 matches are counted once per match and added as synthetic
-    possessions (Wyscout data has possession_id = NULL for 28.27 % of rows per V05).
+    LL2 Path B: possession_id is canonical heuristic across all 4 sources, so
+    pos_in_gs / pos_in_match capture all possessions natively. The pre-LL2
+    wy_match_flag synthetic-possession compensation has been removed.
     """
     if rows.empty:
         return dict.fromkeys(_STAGE_KEYS, 0)
     if gs_filtered:
-        sb_possessions = int(rows["pos_in_gs"].sum())
+        possessions = int(rows["pos_in_gs"].sum())
     else:
-        sb_possessions = int(rows.groupby(["match_id", "team_id"])["pos_in_match"].first().sum())
-    wy_matches = int(rows.loc[rows["wy_match_flag"] == 1, "match_id"].nunique())
+        possessions = int(rows.groupby(["match_id", "team_id"])["pos_in_match"].first().sum())
     return {
-        "possessions": sb_possessions + wy_matches,
+        "possessions": possessions,
         "a3_entries": int(rows["a3_entries"].sum()),
         "shots": int(rows["shots"].sum()),
         "goals": int(rows["goals"].sum()),

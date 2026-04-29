@@ -69,11 +69,19 @@ _FCT_ACTION_VALUES_EXPECTED_COLS: dict[str, str] = {
     "competition_id": "int",
     "player_id": "int",
     "team_id": "int",
+    # PR 7 (ADR-011): Kimball surrogate FKs added to the mart via dim_teams /
+    # dim_players JOINs on (provider, native_id). Live mart already emits
+    # these — the test must include them to clear "no extras" assert.
+    "team_key": "bigint",
+    "player_key": "bigint",
+    "possession_team_key": "bigint",
     "season_id": "int",
     "period": "int",
     "time_seconds": "double",
     "minute": "int",
     "second": "int",
+    # LL2: per-match action sequence number (was 100% NULL pre-LL2).
+    "action_id": "bigint",
     "start_x": "double",
     "start_y": "double",
     "end_x": "double",
@@ -84,8 +92,26 @@ _FCT_ACTION_VALUES_EXPECTED_COLS: dict[str, str] = {
     "offensive_value": "double",
     "defensive_value": "double",
     "vaep_value": "double",
+    # LL2 Path B: canonical heuristic possession_id (replaces the pre-LL2
+    # alias of statsbomb_possession_id).
     "possession_id": "bigint",
-    "possession_team_id": "int",
+    # β-consistent: provider-namespaced StatsBomb-native passthroughs.
+    "statsbomb_possession_id": "bigint",
+    "statsbomb_possession_team_id": "bigint",
+    "statsbomb_play_pattern": "string",
+    "statsbomb_under_pressure": "boolean",
+    # LL2 enrichment columns (provider-agnostic, populated for ALL sources).
+    "gk_role": "string",
+    "gk_was_distributing": "boolean",
+    "gk_was_engaged": "boolean",
+    "gk_actions_in_possession": "bigint",
+    "defending_gk_player_id": "bigint",
+    # LL2 Path B: native string identifiers (Kimball-aligned).
+    "team_id_native": "string",
+    "home_team_id_native": "string",
+    "competition_native_id": "string",
+    "season_native_id": "string",
+    "match_id_native": "string",
     "game_state": "string",
     "data_source": "string",
     "original_event_id": "string",

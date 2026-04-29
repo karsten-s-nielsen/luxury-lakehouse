@@ -827,39 +827,50 @@ models:
                 severity: warn
       - name: data_source
         data_type: string
-        description: Data provider (statsbomb, wyscout)
+        description: Data provider (statsbomb, wyscout, idsse, metrica) — LL2 Path B expanded to 4 sources.
         data_tests:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb', 'wyscout']
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica']
       - name: original_event_id
         data_type: string
         description: Original event ID from source data (NULL for synthetic dribbles)
+      - name: action_id
+        data_type: bigint
+        description: >
+          LL2: Per-match action sequence number, surfaced from silly-kicks
+          ``convert_to_actions`` output. Pre-LL2 declared but 100% NULL.
       - name: possession_id
         data_type: bigint
         description: >
-          StatsBomb possession sequence number identifying the possession
-          chain this action belongs to. NULL for Wyscout (no possession
-          tracking in open data). LL1 (silly-kicks 1.5.0+): sourced
-          upstream via the silly-kicks ``preserve_native`` kwarg, replacing
-          the prior late-join to ``stg_statsbomb__events``.
-      - name: possession_team_id
+          LL2 Path B: Canonical heuristic possession sequence number from
+          ``silly_kicks.spadl.utils.add_possessions``. Provider-agnostic;
+          populated for ALL sources. β-consistent rename: pre-LL2 alias of
+          ``statsbomb_possession_id`` (StatsBomb-only). New definition:
+          heuristic across all 4 sources (~93% recall vs StatsBomb native
+          on the 3-match boundary fixture). See ADR-016.
+      - name: statsbomb_possession_id
+        data_type: bigint
+        description: >
+          StatsBomb-native possession sequence number (BIGINT). Surfaced
+          via silly-kicks 1.5.0+ ``preserve_native`` (LL1). NULL for non-StatsBomb sources.
+          β-consistent renaming from the pre-LL2 ``possession_id`` mart alias.
+      - name: statsbomb_possession_team_id
         data_type: bigint
         description: >
           StatsBomb-native team ID of the team in possession (LEGACY raw
-          provider ID). Inside the ADR-011 dual-column window — sunset
-          2026-07-22 alongside ``team_id`` / ``match_id`` /
-          ``competition_id``. Use ``possession_team_key`` for new
-          consumers. NULL for Wyscout.
+          provider ID). NULL for non-StatsBomb sources. Use
+          ``possession_team_key`` for canonical Kimball joins. β-consistent
+          renaming from the pre-LL2 ``possession_team_id`` mart alias.
       - name: possession_team_key
         data_type: bigint
         description: >
           Kimball surrogate FK for the team in possession — resolves to
           ``dim_teams.team_key`` via (provider, native_team_id) JOIN. Same
-          pattern as ``team_key`` / ``player_key``. NULL for Wyscout
-          (no native possession_team_id) and for any rows that fail to
-          resolve in dim_teams.
+          pattern as ``team_key`` / ``player_key``. NULL for non-StatsBomb
+          sources (no native possession_team_id) and for any rows that fail
+          to resolve in dim_teams.
         data_tests:
           - relationships:
               arguments:
@@ -867,21 +878,81 @@ models:
                 field: team_key
               config:
                 where: "possession_team_key is not null"
-      - name: play_pattern
+      - name: statsbomb_play_pattern
         data_type: string
         description: >
           StatsBomb-native broader phase tag — one of "Regular Play",
           "From Throw In", "From Free Kick", "From Corner", "From
           Goal Kick", "From Counter", "From Keeper", "From Kick Off",
-          "Other". Useful for "shots from corners vs open play" splits and
-          phase-conditional VAEP analysis. NULL for Wyscout.
-      - name: under_pressure
+          "Other". NULL for non-StatsBomb sources. β-consistent renaming
+          from the pre-LL2 ``play_pattern`` mart alias.
+      - name: statsbomb_under_pressure
         data_type: boolean
         description: >
           StatsBomb-native pressure flag — True iff a defender was within
-          ~1m of the actor at the moment of the event. Useful as a
-          pressure proxy for valuing actions taken under duress.
-          NULL for Wyscout.
+          ~1m of the actor at the moment of the event. NULL for non-StatsBomb sources.
+          β-consistent renaming from the pre-LL2 ``under_pressure`` mart alias.
+      - name: gk_role
+        data_type: string
+        description: >
+          LL2: Goalkeeper-specific action role from
+          ``silly_kicks.spadl.utils.add_gk_role``. NULL on non-GK rows.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['shot_save', 'ball_distribution', 'ball_claim', 'one_on_one', 'general_play']
+              config:
+                where: "gk_role is not null"
+      - name: gk_was_distributing
+        data_type: boolean
+        description: >
+          LL2: Boolean — true iff the GK was distributing in the action
+          immediately preceding this row's shot. Defaults False on
+          non-shot rows.
+      - name: gk_was_engaged
+        data_type: boolean
+        description: >
+          LL2: Boolean — true iff the GK had taken any action in the
+          possession leading to this row's shot.
+      - name: gk_actions_in_possession
+        data_type: bigint
+        description: >
+          LL2: Count of GK actions in the possession leading to this
+          row's shot (0 on non-shot rows).
+      - name: defending_gk_player_id
+        data_type: bigint
+        description: >
+          LL2: Defending team's GK player_id for this row's shot.
+          NULL when not a shot or GK not identifiable.
+      - name: team_id_native
+        data_type: string
+        description: >
+          LL2 Path B: Native (string) team ID of the row's acting team.
+          For StatsBomb / Wyscout: stringified int. For IDSSE: ``DFL-CLU-XXXXXX``.
+          For Metrica: synthetic ``Sample_Game_N-Home/Away``. Joins to
+          ``dim_teams.native_team_id`` on (provider, native_id).
+      - name: home_team_id_native
+        data_type: string
+        description: >
+          LL2 Path B: Native (string) home-team ID, constant per match.
+          Same domain conventions as ``team_id_native``.
+      - name: competition_native_id
+        data_type: string
+        description: >
+          LL2 Path B: Native (string) competition ID. Joins to
+          ``dim_competitions.native_competition_id`` on (provider, native_id).
+      - name: season_native_id
+        data_type: string
+        description: >
+          LL2 Path B: Native (string) season ID.
+      - name: match_id_native
+        data_type: string
+        description: >
+          LL2 Path B: Native (string) match ID. For SB/WS this is the
+          stringified int match_id; for IDSSE this is ``idsse_J03WMX`` style;
+          for Metrica this is ``Sample_Game_N``. Used for the dim_matches
+          JOIN on (provider, native_match_id) since the legacy ``match_id``
+          BIGINT is hashed (not native) for IDSSE/Metrica.
       - name: game_state
         data_type: string
         description: >
@@ -4056,19 +4127,6 @@ models:
         description: Shots where action_result = 'success'.
         data_tests:
           - not_null
-      - name: wy_match_flag
-        data_type: smallint
-        description: >
-          1 if the team had any NULL-possession_id row (Wyscout) during this
-          specific (match, team, game_state). Per-gs flag (NOT match-level):
-          a match with Wyscout rows only during 'drawing' has flag=1 on its
-          drawing row but flag=0 on its winning/losing rows. Used at the app
-          driver via COUNT(DISTINCT CASE WHEN wy_match_flag=1 THEN match_id END),
-          which correctly handles both gs-filtered and gs=All rollups.
-        data_tests:
-          - not_null
-          - accepted_values:
-              values: [0, 1]
       - name: _loaded_at
         data_type: timestamp
         description: Audit timestamp.

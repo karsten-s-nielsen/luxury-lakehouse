@@ -61,6 +61,7 @@ cleaned as (
         cast(player_id as int)                          as player_id,
         cast(team_id as int)                            as team_id,
         original_event_id,
+        action_id,
 
         -- Temporal — minute is match-absolute (see header comment)
         cast(period_id as int)                          as period,
@@ -83,7 +84,12 @@ cleaned as (
         )                                               as minute,
         cast(floor(time_seconds % 60) as int)           as second,
 
-        -- SPADL coordinates (105x68 meters)
+        -- SPADL coordinates (105x68 meters for StatsBomb/Wyscout/IDSSE;
+        -- normalised [0, 1] for Metrica — Metrica adapter scales to SPADL frame
+        -- before silly-kicks's converter, but bronze.metrica_events row coords
+        -- arrive here already in SPADL frame because the spadl_actions writer
+        -- emits post-silly-kicks output. Coordinate normalisation is a pre-
+        -- conversion adapter concern; spadl_actions is always 105x68 SPADL.)
         start_x,
         start_y,
         end_x,
@@ -113,7 +119,28 @@ cleaned as (
         statsbomb_possession_id,
         statsbomb_possession_team_id,
         statsbomb_play_pattern,
-        statsbomb_under_pressure
+        statsbomb_under_pressure,
+
+        -- LL2: 6 post-conversion enrichment columns from apply_spadl_enrichments.
+        -- See ADR-016. Populated for ALL sources; deterministic from canonical SPADL.
+        possession_id_heuristic,
+        gk_role,
+        gk_was_distributing,
+        gk_was_engaged,
+        gk_actions_in_possession,
+        defending_gk_player_id,
+
+        -- LL2 Path B: native string identifiers for Kimball-aligned joins to
+        -- dim_teams / dim_competitions on (provider, native_id). For
+        -- StatsBomb / Wyscout these are stringified ints; for IDSSE these are
+        -- 'DFL-CLU-XXXXXX' / 'DFL-COM-XXXXXX' / 'DFL-SEA-XXXXXX'; for Metrica
+        -- these are synthetic IDs from bronze.metrica_events. Always populated
+        -- for all 4 sources post-LL2 deploy.
+        team_id_native,
+        home_team_id_native,
+        competition_native_id,
+        season_native_id,
+        match_id_native
 
     from deduplicated d
     left join comp_mapping cm

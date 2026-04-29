@@ -123,6 +123,7 @@ def _make_sb_spadl_udf() -> object:
                 "type_id",
                 "result_id",
                 "bodypart_id",
+                "action_id",  # LL2: surfaced from silly-kicks convert_to_actions output
                 "competition_id",
                 "season_id",
                 "data_source",
@@ -131,6 +132,20 @@ def _make_sb_spadl_udf() -> object:
                 "statsbomb_possession_team_id",
                 "statsbomb_play_pattern",
                 "statsbomb_under_pressure",
+                # LL2: 6 post-conversion enrichment columns from apply_spadl_enrichments.
+                "possession_id_heuristic",
+                "gk_role",
+                "gk_was_distributing",
+                "gk_was_engaged",
+                "gk_actions_in_possession",
+                "defending_gk_player_id",
+                # LL2 Path B: native string identifiers — populated for ALL sources.
+                # For StatsBomb these are stringified ints (numeric native IDs).
+                "team_id_native",
+                "home_team_id_native",
+                "competition_native_id",
+                "season_native_id",
+                "match_id_native",
             ]
         )
 
@@ -178,6 +193,13 @@ def _make_sb_spadl_udf() -> object:
             }
         )
 
+        # LL2: provider-agnostic post-conversion enrichments. Adds 6 columns:
+        # possession_id_heuristic, gk_role, gk_was_distributing, gk_was_engaged,
+        # gk_actions_in_possession, defending_gk_player_id. See ADR-016.
+        from ingestion.spadl_enrichments import apply_spadl_enrichments as _enrich
+
+        actions = _enrich(actions, source="statsbomb")
+
         # Cast original_event_id to str for Spark/PyArrow serialization
         # (silly-kicks outputs object dtype; Spark needs explicit string)
         actions["original_event_id"] = actions["original_event_id"].astype(str)
@@ -193,6 +215,29 @@ def _make_sb_spadl_udf() -> object:
         actions["statsbomb_possession_team_id"] = actions["statsbomb_possession_team_id"].astype("Int64")
         actions["statsbomb_under_pressure"] = actions["statsbomb_under_pressure"].astype("boolean")
         # statsbomb_play_pattern stays object (string with NaN) — fine for StringType.
+
+        # LL2: cast enrichment columns to nullable dtypes for clean PyArrow conversion.
+        # action_id and possession_id_heuristic come back as int64 from silly-kicks but
+        # synthetic dribble rows can introduce NaN — use Int64 to be safe.
+        actions["action_id"] = actions["action_id"].astype("Int64")
+        actions["possession_id_heuristic"] = actions["possession_id_heuristic"].astype("Int64")
+        # gk_role is pd.Categorical from silly-kicks — convert to object (string) for StringType.
+        actions["gk_role"] = actions["gk_role"].astype("object")
+        # GK context booleans default to False on non-shot rows (silly-kicks contract).
+        actions["gk_was_distributing"] = actions["gk_was_distributing"].astype("boolean")
+        actions["gk_was_engaged"] = actions["gk_was_engaged"].astype("boolean")
+        actions["gk_actions_in_possession"] = actions["gk_actions_in_possession"].astype("Int64")
+        # defending_gk_player_id comes back as float64-with-NaN from silly-kicks; convert to Int64.
+        actions["defending_gk_player_id"] = actions["defending_gk_player_id"].astype("Int64")
+
+        # LL2 Path B: native string identifiers. StatsBomb has numeric native IDs;
+        # stringify them so the column type is STRING across all sources (string-domain
+        # joins to dim_teams.native_team_id / dim_competitions.native_competition_id).
+        actions["team_id_native"] = actions["team_id"].astype("Int64").astype("string")
+        actions["home_team_id_native"] = str(home_team_id)
+        actions["competition_native_id"] = str(competition_id)
+        actions["season_native_id"] = str(season_id)
+        actions["match_id_native"] = str(match_id)
 
         return _pd.DataFrame(actions[_spadl_cols])
 
@@ -299,6 +344,7 @@ def _convert_statsbomb_from_bronze(
             StructField("type_id", LongType()),
             StructField("result_id", LongType()),
             StructField("bodypart_id", LongType()),
+            StructField("action_id", LongType()),  # LL2: surfaced from silly-kicks
             StructField("competition_id", LongType()),
             StructField("season_id", LongType()),
             StructField("data_source", StringType()),
@@ -308,6 +354,19 @@ def _convert_statsbomb_from_bronze(
             StructField("statsbomb_possession_team_id", LongType()),
             StructField("statsbomb_play_pattern", StringType()),
             StructField("statsbomb_under_pressure", BooleanType()),
+            # LL2: 6 post-conversion enrichment columns from apply_spadl_enrichments.
+            StructField("possession_id_heuristic", LongType()),
+            StructField("gk_role", StringType()),
+            StructField("gk_was_distributing", BooleanType()),
+            StructField("gk_was_engaged", BooleanType()),
+            StructField("gk_actions_in_possession", LongType()),
+            StructField("defending_gk_player_id", LongType()),
+            # LL2 Path B: native string identifiers (Kimball-aligned).
+            StructField("team_id_native", StringType()),
+            StructField("home_team_id_native", StringType()),
+            StructField("competition_native_id", StringType()),
+            StructField("season_native_id", StringType()),
+            StructField("match_id_native", StringType()),
         ]
     )
 
@@ -374,6 +433,7 @@ def _make_ws_spadl_udf(goalkeeper_ids: set[int] | None = None) -> object:
                 "type_id",
                 "result_id",
                 "bodypart_id",
+                "action_id",  # LL2: surfaced from silly-kicks convert_to_actions
                 "competition_id",
                 "season_id",
                 "data_source",
@@ -385,6 +445,20 @@ def _make_ws_spadl_udf(goalkeeper_ids: set[int] | None = None) -> object:
                 "statsbomb_possession_team_id",
                 "statsbomb_play_pattern",
                 "statsbomb_under_pressure",
+                # LL2: 6 post-conversion enrichment columns (provider-agnostic — populated for Wyscout).
+                "possession_id_heuristic",
+                "gk_role",
+                "gk_was_distributing",
+                "gk_was_engaged",
+                "gk_actions_in_possession",
+                "defending_gk_player_id",
+                # LL2 Path B: native string identifiers — populated for ALL sources.
+                # For Wyscout these are stringified ints (numeric native IDs).
+                "team_id_native",
+                "home_team_id_native",
+                "competition_native_id",
+                "season_native_id",
+                "match_id_native",
             ]
         )
 
@@ -411,6 +485,11 @@ def _make_ws_spadl_udf(goalkeeper_ids: set[int] | None = None) -> object:
         actions["season_id"] = season_id
         actions["data_source"] = "wyscout"
 
+        # LL2: provider-agnostic post-conversion enrichments (populated for Wyscout).
+        from ingestion.spadl_enrichments import apply_spadl_enrichments as _enrich
+
+        actions = _enrich(actions, source="wyscout")
+
         # Cast original_event_id to str for Spark/PyArrow serialization
         actions["original_event_id"] = actions["original_event_id"].astype(str)
 
@@ -423,6 +502,24 @@ def _make_ws_spadl_udf(goalkeeper_ids: set[int] | None = None) -> object:
         actions["statsbomb_possession_team_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
         actions["statsbomb_play_pattern"] = _pd.array([_pd.NA] * n, dtype="object")
         actions["statsbomb_under_pressure"] = _pd.array([_pd.NA] * n, dtype="boolean")
+
+        # LL2: cast enrichment columns to nullable dtypes (same pattern as StatsBomb path).
+        actions["action_id"] = actions["action_id"].astype("Int64")
+        actions["possession_id_heuristic"] = actions["possession_id_heuristic"].astype("Int64")
+        actions["gk_role"] = actions["gk_role"].astype("object")
+        actions["gk_was_distributing"] = actions["gk_was_distributing"].astype("boolean")
+        actions["gk_was_engaged"] = actions["gk_was_engaged"].astype("boolean")
+        actions["gk_actions_in_possession"] = actions["gk_actions_in_possession"].astype("Int64")
+        actions["defending_gk_player_id"] = actions["defending_gk_player_id"].astype("Int64")
+
+        # LL2 Path B: native string identifiers. Wyscout has numeric native IDs;
+        # stringify for cross-provider STRING-domain joins to dim_teams /
+        # dim_competitions on (provider, native_id).
+        actions["team_id_native"] = actions["team_id"].astype("Int64").astype("string")
+        actions["home_team_id_native"] = str(home_team_id)
+        actions["competition_native_id"] = str(competition_id)
+        actions["season_native_id"] = str(season_id)
+        actions["match_id_native"] = str(match_id)
 
         return _pd.DataFrame(actions[_spadl_cols])
 
@@ -554,6 +651,7 @@ def _convert_wyscout_from_bronze(
             StructField("type_id", LongType()),
             StructField("result_id", LongType()),
             StructField("bodypart_id", LongType()),
+            StructField("action_id", LongType()),  # LL2
             StructField("competition_id", LongType()),
             StructField("season_id", LongType()),
             StructField("data_source", StringType()),
@@ -561,6 +659,19 @@ def _convert_wyscout_from_bronze(
             StructField("statsbomb_possession_team_id", LongType()),
             StructField("statsbomb_play_pattern", StringType()),
             StructField("statsbomb_under_pressure", BooleanType()),
+            # LL2: 6 enrichment columns
+            StructField("possession_id_heuristic", LongType()),
+            StructField("gk_role", StringType()),
+            StructField("gk_was_distributing", BooleanType()),
+            StructField("gk_was_engaged", BooleanType()),
+            StructField("gk_actions_in_possession", LongType()),
+            StructField("defending_gk_player_id", LongType()),
+            # LL2 Path B: native string identifiers (Kimball-aligned).
+            StructField("team_id_native", StringType()),
+            StructField("home_team_id_native", StringType()),
+            StructField("competition_native_id", StringType()),
+            StructField("season_native_id", StringType()),
+            StructField("match_id_native", StringType()),
         ]
     )
 
@@ -580,4 +691,562 @@ def _convert_wyscout_from_bronze(
     )
 
     logger.info("Wyscout: SPADL conversion complete for %d games", len(new_game_ids))
+    return True
+
+
+# ---------------------------------------------------------------------------
+# IDSSE (DFL Bundesliga / Sportec) SPADL conversion — LL2 Path B
+# ---------------------------------------------------------------------------
+#
+# Uses silly-kicks 1.7.0+ ``silly_kicks.spadl.sportec.convert_to_actions``
+# (DataFrame-based) against bronze.idsse_events. Native STRING IDs flow
+# through unchanged on the new ``*_native`` SPADL columns; legacy BIGINT
+# columns are NULL for IDSSE EXCEPT ``match_id`` / ``game_id`` which are
+# deterministically hashed via ``hash_native_id_to_bigint`` so the
+# downstream VAEP scoring ``groupBy("match_id").applyInPandas(...)``
+# can dispatch IDSSE rows correctly. The original strings are preserved
+# in the bronze.idsse_events.match_id column.
+
+
+def _make_idsse_replace_where(hashed_match_ids: list[int]) -> str:
+    """Build a replaceWhere predicate scoped to specific IDSSE matches.
+
+    IDSSE bronze.idsse_events.match_id is STRING (e.g. ``'idsse_J03WMX'``)
+    but bronze.spadl_actions.match_id is BIGINT — we hash the strings via
+    ``hash_native_id_to_bigint`` so this predicate quotes BIGINTs.
+    """
+    if not hashed_match_ids:
+        msg = "replace_where predicate requires at least one match_id"
+        raise ValueError(msg)
+    ids_sql = ", ".join(str(int(h)) for h in sorted(hashed_match_ids))
+    return f"data_source = 'idsse' AND match_id IN ({ids_sql})"
+
+
+def _make_idsse_spadl_udf() -> object:
+    """Build the ``applyInPandas`` UDF closure for IDSSE SPADL conversion.
+
+    All silly-kicks library imports happen inside the closure so they are
+    available on Spark executors without module-level serialisation.
+
+    The UDF expects bronze.idsse_events rows that have been augmented with
+    PR-LL2 Path B columns: ``competition_native_id``, ``season_native_id``,
+    ``home_team_id_native``, ``team_id_native`` (sourced from the DFL
+    matchinformation XML during ingestion).
+    """
+
+    def _udf(pdf: pd.DataFrame) -> pd.DataFrame:
+        """Convert one IDSSE match's events to SPADL actions."""
+        import pandas as _pd
+
+        from ingestion.spadl_adapter import (
+            adapt_idsse_events_for_silly_kicks as _adapt,
+        )
+        from ingestion.spadl_adapter import (
+            hash_native_id_to_bigint as _hash_id,
+        )
+
+        _spadl_cols = _pd.Index(
+            [
+                "game_id",
+                "match_id",
+                "original_event_id",
+                "period_id",
+                "time_seconds",
+                "team_id",
+                "player_id",
+                "start_x",
+                "start_y",
+                "end_x",
+                "end_y",
+                "type_id",
+                "result_id",
+                "bodypart_id",
+                "action_id",
+                "competition_id",
+                "season_id",
+                "data_source",
+                # statsbomb_* NULL on the IDSSE code path (multi-source parity).
+                "statsbomb_possession_id",
+                "statsbomb_possession_team_id",
+                "statsbomb_play_pattern",
+                "statsbomb_under_pressure",
+                # LL2: 6 post-conversion enrichment columns (provider-agnostic).
+                "possession_id_heuristic",
+                "gk_role",
+                "gk_was_distributing",
+                "gk_was_engaged",
+                "gk_actions_in_possession",
+                "defending_gk_player_id",
+                # LL2 Path B: native string identifiers — populated for IDSSE.
+                "team_id_native",
+                "home_team_id_native",
+                "competition_native_id",
+                "season_native_id",
+                "match_id_native",
+            ]
+        )
+
+        if pdf.empty:
+            return _pd.DataFrame(columns=_spadl_cols)
+
+        import silly_kicks.spadl.sportec as _spadl_sportec
+
+        # Match-level metadata (constant across rows of this match) sourced
+        # from bronze.idsse_events Path B columns.
+        match_id_str = str(pdf["match_id"].iloc[0])
+        home_team_id_native = str(pdf["home_team_id_native"].iloc[0])
+        away_team_id_native = str(pdf["away_team_id_native"].iloc[0])
+        competition_native_id = str(pdf["competition_native_id"].iloc[0])
+        season_native_id = str(pdf["season_native_id"].iloc[0])
+
+        try:
+            adapted = _adapt(pdf)
+            # silly-kicks's ``home_team_id`` is used by ``_fix_direction_of_play``
+            # for string equality with the ``team`` column. bronze.idsse_events.team
+            # carries 'home' / 'away' / 'unknown' labels — pass the literal
+            # 'home' string so direction normalisation matches by value.
+            actions, _report = _spadl_sportec.convert_to_actions(
+                adapted,
+                home_team_id="home",
+            )
+        except Exception as exc:
+            msg = f"IDSSE SPADL conversion failed for match_id={match_id_str}"
+            raise RuntimeError(msg) from exc
+
+        # LL2 Path B: derive team_id_native from silly-kicks's output team_id
+        # BEFORE we NULL-fill the legacy BIGINT team_id column. silly-kicks's
+        # sportec converter (line 605 of upstream) sets output team_id =
+        # input row's `team` column ('home' / 'away' / 'unknown') for real
+        # rows, and propagates the prior action's team_id to synthetic
+        # dribble rows. Map both real + synthetic to the actual DFL CLU id.
+        def _team_label_to_dfl_id(team_label: object) -> str | None:
+            if team_label == "home":
+                return home_team_id_native
+            if team_label == "away":
+                return away_team_id_native
+            return None
+
+        actions["team_id_native"] = actions["team_id"].map(_team_label_to_dfl_id).astype("string")
+
+        # silly-kicks's sportec converter emits ``game_id`` and ``team_id`` as
+        # the input string values. luxury-lakehouse's bronze.spadl_actions
+        # legacy BIGINTs require a deterministic hash for match_id+game_id;
+        # team_id / player_id / competition_id / season_id are NULL for IDSSE
+        # (Kimball joins use the _native STRING columns instead).
+        match_id_hashed = _hash_id(match_id_str)
+        actions["match_id"] = match_id_hashed
+        actions["game_id"] = match_id_hashed
+        n = len(actions)
+        actions["team_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
+        actions["player_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
+        actions["competition_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
+        actions["season_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
+        actions["data_source"] = "idsse"
+
+        # LL2 post-conversion enrichments (provider-agnostic).
+        from ingestion.spadl_enrichments import apply_spadl_enrichments as _enrich
+
+        actions = _enrich(actions, source="idsse")
+
+        actions["original_event_id"] = actions["original_event_id"].astype(str)
+
+        # NULL-fill the StatsBomb-namespaced fields for multi-source parity.
+        actions["statsbomb_possession_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
+        actions["statsbomb_possession_team_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
+        actions["statsbomb_play_pattern"] = _pd.array([_pd.NA] * n, dtype="object")
+        actions["statsbomb_under_pressure"] = _pd.array([_pd.NA] * n, dtype="boolean")
+
+        # LL2 enrichment column dtype casts.
+        actions["action_id"] = actions["action_id"].astype("Int64")
+        actions["possession_id_heuristic"] = actions["possession_id_heuristic"].astype("Int64")
+        actions["gk_role"] = actions["gk_role"].astype("object")
+        actions["gk_was_distributing"] = actions["gk_was_distributing"].astype("boolean")
+        actions["gk_was_engaged"] = actions["gk_was_engaged"].astype("boolean")
+        actions["gk_actions_in_possession"] = actions["gk_actions_in_possession"].astype("Int64")
+        actions["defending_gk_player_id"] = actions["defending_gk_player_id"].astype("Int64")
+
+        # LL2 Path B match-level identifiers (constants across all rows
+        # including synthetic dribbles).
+        actions["home_team_id_native"] = home_team_id_native
+        actions["competition_native_id"] = competition_native_id
+        actions["season_native_id"] = season_native_id
+        actions["match_id_native"] = match_id_str
+
+        return _pd.DataFrame(actions[_spadl_cols])
+
+    return _udf
+
+
+def _convert_idsse_from_bronze(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    logger: logging.Logger,
+    existing_matches: set[int],
+) -> bool:
+    """Read IDSSE events from bronze, adapt, convert to SPADL via silly-kicks 1.7.0 sportec, write Delta.
+
+    LL2 Path B: bronze.idsse_events.match_id is STRING (e.g. ``'idsse_J03WMX'``);
+    we hash to BIGINT via ``hash_native_id_to_bigint`` so the downstream
+    BIGINT-typed bronze.spadl_actions.match_id column accepts the value and
+    VAEP ``groupBy("match_id")`` continues to work.
+
+    Returns whether any data was written.
+    """
+    from pyspark.sql import functions as spark_fn
+    from pyspark.sql.types import (
+        BooleanType,
+        DoubleType,
+        LongType,
+        StringType,
+        StructField,
+        StructType,
+    )
+
+    from ingestion.spadl_adapter import hash_native_id_to_bigint
+
+    events_table = f"{catalog}.{schema}.idsse_events"
+
+    try:
+        events_sdf = spark.table(events_table)
+    except Exception:
+        logger.exception("Cannot read IDSSE events bronze table")
+        return False
+
+    all_match_rows = events_sdf.select("match_id").distinct().collect()
+    all_match_ids: list[str] = [str(row["match_id"]) for row in all_match_rows]
+
+    # existing_matches contains hashed BIGINT match_ids from
+    # bronze.spadl_actions; hash IDSSE strings the same way for comparison.
+    new_match_ids: list[str] = [mid for mid in all_match_ids if hash_native_id_to_bigint(mid) not in existing_matches]
+
+    if not new_match_ids:
+        logger.info("IDSSE: all %d matches already converted — skipping", len(all_match_ids))
+        return False
+
+    logger.info("IDSSE: converting %d new matches (of %d total)", len(new_match_ids), len(all_match_ids))
+
+    new_events_sdf = events_sdf.filter(spark_fn.col("match_id").isin(new_match_ids))
+
+    spadl_schema = StructType(
+        [
+            StructField("game_id", LongType()),
+            StructField("match_id", LongType()),
+            StructField("original_event_id", StringType()),
+            StructField("period_id", LongType()),
+            StructField("time_seconds", DoubleType()),
+            StructField("team_id", LongType()),
+            StructField("player_id", LongType()),
+            StructField("start_x", DoubleType()),
+            StructField("start_y", DoubleType()),
+            StructField("end_x", DoubleType()),
+            StructField("end_y", DoubleType()),
+            StructField("type_id", LongType()),
+            StructField("result_id", LongType()),
+            StructField("bodypart_id", LongType()),
+            StructField("action_id", LongType()),
+            StructField("competition_id", LongType()),
+            StructField("season_id", LongType()),
+            StructField("data_source", StringType()),
+            StructField("statsbomb_possession_id", LongType()),
+            StructField("statsbomb_possession_team_id", LongType()),
+            StructField("statsbomb_play_pattern", StringType()),
+            StructField("statsbomb_under_pressure", BooleanType()),
+            StructField("possession_id_heuristic", LongType()),
+            StructField("gk_role", StringType()),
+            StructField("gk_was_distributing", BooleanType()),
+            StructField("gk_was_engaged", BooleanType()),
+            StructField("gk_actions_in_possession", LongType()),
+            StructField("defending_gk_player_id", LongType()),
+            StructField("team_id_native", StringType()),
+            StructField("home_team_id_native", StringType()),
+            StructField("competition_native_id", StringType()),
+            StructField("season_native_id", StringType()),
+            StructField("match_id_native", StringType()),
+        ]
+    )
+
+    udf_fn = _make_idsse_spadl_udf()
+    spadl_sdf = new_events_sdf.groupBy("match_id").applyInPandas(
+        udf_fn,  # type: ignore[arg-type]
+        schema=spadl_schema,
+    )
+
+    hashed_new_ids = [hash_native_id_to_bigint(mid) for mid in new_match_ids]
+    write_delta_table(
+        spadl_sdf,
+        catalog,
+        schema,
+        _SPADL_TABLE,
+        replace_where=_make_idsse_replace_where(hashed_new_ids),
+        logger=logger,
+    )
+
+    logger.info("IDSSE: SPADL conversion complete for %d matches", len(new_match_ids))
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Metrica SPADL conversion — LL2 Path B
+# ---------------------------------------------------------------------------
+#
+# Mirrors the IDSSE pattern: silly-kicks 1.7.0+ ``silly_kicks.spadl.metrica.
+# convert_to_actions`` against bronze.metrica_events. ``match_id`` is the
+# Metrica string (e.g. ``'Sample_Game_1'``), hashed deterministically for
+# the legacy BIGINT column. team labels are ``'Home'`` / ``'Away'``
+# (capitalised, distinct from IDSSE's lowercase). Coordinates are
+# normalised [0, 1] in bronze; the adapter scales by per-match pitch dims.
+
+
+def _make_metrica_replace_where(hashed_match_ids: list[int]) -> str:
+    """Build a replaceWhere predicate scoped to specific Metrica matches."""
+    if not hashed_match_ids:
+        msg = "replace_where predicate requires at least one match_id"
+        raise ValueError(msg)
+    ids_sql = ", ".join(str(int(h)) for h in sorted(hashed_match_ids))
+    return f"data_source = 'metrica' AND match_id IN ({ids_sql})"
+
+
+def _make_metrica_spadl_udf() -> object:
+    """Build the ``applyInPandas`` UDF closure for Metrica SPADL conversion.
+
+    The UDF expects bronze.metrica_events rows with PR-LL2 Path B columns:
+    ``competition_native_id``, ``season_native_id``, ``home_team_id_native``,
+    ``away_team_id_native``, ``team_id_native`` (synthetic IDs synthesized
+    during ingestion since the open-data sample lacks real club IDs).
+    """
+
+    def _udf(pdf: pd.DataFrame) -> pd.DataFrame:
+        """Convert one Metrica match's events to SPADL actions."""
+        import pandas as _pd
+
+        from ingestion.spadl_adapter import (
+            adapt_metrica_events_for_silly_kicks as _adapt,
+        )
+        from ingestion.spadl_adapter import (
+            hash_native_id_to_bigint as _hash_id,
+        )
+
+        _spadl_cols = _pd.Index(
+            [
+                "game_id",
+                "match_id",
+                "original_event_id",
+                "period_id",
+                "time_seconds",
+                "team_id",
+                "player_id",
+                "start_x",
+                "start_y",
+                "end_x",
+                "end_y",
+                "type_id",
+                "result_id",
+                "bodypart_id",
+                "action_id",
+                "competition_id",
+                "season_id",
+                "data_source",
+                "statsbomb_possession_id",
+                "statsbomb_possession_team_id",
+                "statsbomb_play_pattern",
+                "statsbomb_under_pressure",
+                "possession_id_heuristic",
+                "gk_role",
+                "gk_was_distributing",
+                "gk_was_engaged",
+                "gk_actions_in_possession",
+                "defending_gk_player_id",
+                "team_id_native",
+                "home_team_id_native",
+                "competition_native_id",
+                "season_native_id",
+                "match_id_native",
+            ]
+        )
+
+        if pdf.empty:
+            return _pd.DataFrame(columns=_spadl_cols)
+
+        import silly_kicks.spadl.metrica as _spadl_metrica
+
+        match_id_str = str(pdf["match_id"].iloc[0])
+        home_team_id_native = str(pdf["home_team_id_native"].iloc[0])
+        away_team_id_native = str(pdf["away_team_id_native"].iloc[0])
+        competition_native_id = str(pdf["competition_native_id"].iloc[0])
+        season_native_id = str(pdf["season_native_id"].iloc[0])
+
+        try:
+            adapted = _adapt(pdf)
+            # silly-kicks's metrica converter takes ``home_team_id`` as the
+            # value to match against the ``team`` column for direction-of-play.
+            # bronze.metrica_events.team is 'Home' / 'Away' (capitalised).
+            actions, _report = _spadl_metrica.convert_to_actions(
+                adapted,
+                home_team_id="Home",
+            )
+        except Exception as exc:
+            msg = f"Metrica SPADL conversion failed for match_id={match_id_str}"
+            raise RuntimeError(msg) from exc
+
+        # LL2 Path B: derive team_id_native from silly-kicks's team_id output
+        # BEFORE NULL-filling the legacy team_id BIGINT. silly-kicks's metrica
+        # converter (line 252 of upstream) emits team_id as the input ``team``
+        # column verbatim; map 'Home'/'Away' to the synthetic native IDs.
+        def _team_label_to_native_id(team_label: object) -> str | None:
+            if team_label == "Home":
+                return home_team_id_native
+            if team_label == "Away":
+                return away_team_id_native
+            return None
+
+        actions["team_id_native"] = actions["team_id"].map(_team_label_to_native_id).astype("string")
+
+        # Hash match_id for legacy BIGINT compatibility; NULL-fill the other
+        # legacy BIGINT IDs (Kimball joins use _native cols).
+        match_id_hashed = _hash_id(match_id_str)
+        actions["match_id"] = match_id_hashed
+        actions["game_id"] = match_id_hashed
+        n = len(actions)
+        actions["team_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
+        actions["player_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
+        actions["competition_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
+        actions["season_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
+        actions["data_source"] = "metrica"
+
+        from ingestion.spadl_enrichments import apply_spadl_enrichments as _enrich
+
+        actions = _enrich(actions, source="metrica")
+
+        actions["original_event_id"] = actions["original_event_id"].astype(str)
+
+        # NULL-fill the StatsBomb-namespaced fields for multi-source parity.
+        actions["statsbomb_possession_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
+        actions["statsbomb_possession_team_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
+        actions["statsbomb_play_pattern"] = _pd.array([_pd.NA] * n, dtype="object")
+        actions["statsbomb_under_pressure"] = _pd.array([_pd.NA] * n, dtype="boolean")
+
+        # LL2 enrichment column dtype casts.
+        actions["action_id"] = actions["action_id"].astype("Int64")
+        actions["possession_id_heuristic"] = actions["possession_id_heuristic"].astype("Int64")
+        actions["gk_role"] = actions["gk_role"].astype("object")
+        actions["gk_was_distributing"] = actions["gk_was_distributing"].astype("boolean")
+        actions["gk_was_engaged"] = actions["gk_was_engaged"].astype("boolean")
+        actions["gk_actions_in_possession"] = actions["gk_actions_in_possession"].astype("Int64")
+        actions["defending_gk_player_id"] = actions["defending_gk_player_id"].astype("Int64")
+
+        # LL2 Path B match-level constants.
+        actions["home_team_id_native"] = home_team_id_native
+        actions["competition_native_id"] = competition_native_id
+        actions["season_native_id"] = season_native_id
+        actions["match_id_native"] = match_id_str
+
+        return _pd.DataFrame(actions[_spadl_cols])
+
+    return _udf
+
+
+def _convert_metrica_from_bronze(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    logger: logging.Logger,
+    existing_matches: set[int],
+) -> bool:
+    """Read Metrica events from bronze, adapt, convert to SPADL, write Delta.
+
+    LL2 Path B: bronze.metrica_events.match_id is STRING (e.g.
+    ``'Sample_Game_1'``); we hash to BIGINT via ``hash_native_id_to_bigint``
+    for the legacy BIGINT column compat.
+
+    Returns whether any data was written.
+    """
+    from pyspark.sql import functions as spark_fn
+    from pyspark.sql.types import (
+        BooleanType,
+        DoubleType,
+        LongType,
+        StringType,
+        StructField,
+        StructType,
+    )
+
+    from ingestion.spadl_adapter import hash_native_id_to_bigint
+
+    events_table = f"{catalog}.{schema}.metrica_events"
+
+    try:
+        events_sdf = spark.table(events_table)
+    except Exception:
+        logger.exception("Cannot read Metrica events bronze table")
+        return False
+
+    all_match_rows = events_sdf.select("match_id").distinct().collect()
+    all_match_ids: list[str] = [str(row["match_id"]) for row in all_match_rows]
+
+    new_match_ids: list[str] = [mid for mid in all_match_ids if hash_native_id_to_bigint(mid) not in existing_matches]
+
+    if not new_match_ids:
+        logger.info("Metrica: all %d matches already converted — skipping", len(all_match_ids))
+        return False
+
+    logger.info("Metrica: converting %d new matches (of %d total)", len(new_match_ids), len(all_match_ids))
+
+    new_events_sdf = events_sdf.filter(spark_fn.col("match_id").isin(new_match_ids))
+
+    spadl_schema = StructType(
+        [
+            StructField("game_id", LongType()),
+            StructField("match_id", LongType()),
+            StructField("original_event_id", StringType()),
+            StructField("period_id", LongType()),
+            StructField("time_seconds", DoubleType()),
+            StructField("team_id", LongType()),
+            StructField("player_id", LongType()),
+            StructField("start_x", DoubleType()),
+            StructField("start_y", DoubleType()),
+            StructField("end_x", DoubleType()),
+            StructField("end_y", DoubleType()),
+            StructField("type_id", LongType()),
+            StructField("result_id", LongType()),
+            StructField("bodypart_id", LongType()),
+            StructField("action_id", LongType()),
+            StructField("competition_id", LongType()),
+            StructField("season_id", LongType()),
+            StructField("data_source", StringType()),
+            StructField("statsbomb_possession_id", LongType()),
+            StructField("statsbomb_possession_team_id", LongType()),
+            StructField("statsbomb_play_pattern", StringType()),
+            StructField("statsbomb_under_pressure", BooleanType()),
+            StructField("possession_id_heuristic", LongType()),
+            StructField("gk_role", StringType()),
+            StructField("gk_was_distributing", BooleanType()),
+            StructField("gk_was_engaged", BooleanType()),
+            StructField("gk_actions_in_possession", LongType()),
+            StructField("defending_gk_player_id", LongType()),
+            StructField("team_id_native", StringType()),
+            StructField("home_team_id_native", StringType()),
+            StructField("competition_native_id", StringType()),
+            StructField("season_native_id", StringType()),
+            StructField("match_id_native", StringType()),
+        ]
+    )
+
+    udf_fn = _make_metrica_spadl_udf()
+    spadl_sdf = new_events_sdf.groupBy("match_id").applyInPandas(
+        udf_fn,  # type: ignore[arg-type]
+        schema=spadl_schema,
+    )
+
+    hashed_new_ids = [hash_native_id_to_bigint(mid) for mid in new_match_ids]
+    write_delta_table(
+        spadl_sdf,
+        catalog,
+        schema,
+        _SPADL_TABLE,
+        replace_where=_make_metrica_replace_where(hashed_new_ids),
+        logger=logger,
+    )
+
+    logger.info("Metrica: SPADL conversion complete for %d matches", len(new_match_ids))
     return True

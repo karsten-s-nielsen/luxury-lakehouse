@@ -100,6 +100,40 @@ def _download_and_parse_events(
     return df
 
 
+def _augment_ll2_metadata(df: pd.DataFrame, match_id: str) -> pd.DataFrame:
+    """Append PR-LL2 Path B metadata columns to a Metrica events DataFrame.
+
+    Called from ``ingest_events`` after both CSV (Games 1-2) and EPTS
+    (Game 3) parsers, so a single augmentation policy applies. Adds 5
+    string columns per the bronze.metrica_events contract:
+
+    - ``competition_native_id`` (constant ``'metrica-sample'``)
+    - ``season_native_id`` (constant ``'metrica-open-2017'``)
+    - ``home_team_id_native`` (synthetic ``f"{match_id}-Home"``)
+    - ``away_team_id_native`` (synthetic ``f"{match_id}-Away"``)
+    - ``team_id_native`` (per-row: home id when ``team=='Home'``,
+      away id when ``team=='Away'``, NULL otherwise)
+
+    Returns the DataFrame mutated in place + returned for chain-style use.
+    """
+    home_id_native, away_id_native = _native_team_ids(match_id)
+    df["competition_native_id"] = _METRICA_COMPETITION_NATIVE_ID
+    df["season_native_id"] = _METRICA_SEASON_NATIVE_ID
+    df["home_team_id_native"] = home_id_native
+    df["away_team_id_native"] = away_id_native
+    if "team" in df.columns:
+        df["team_id_native"] = (
+            df["team"]
+            .map(
+                lambda t: home_id_native if t == "Home" else (away_id_native if t == "Away" else None),
+            )
+            .astype("string")
+        )
+    else:
+        df["team_id_native"] = pd.array([None] * len(df), dtype="string")
+    return df
+
+
 # ---------------------------------------------------------------------------
 # Ingestion orchestration
 # ---------------------------------------------------------------------------
@@ -126,11 +160,47 @@ _METRICA_EVENTS_BRONZE_COLS: frozenset[str] = frozenset(
         "match_id",
         "pitch_length_m",
         "pitch_width_m",
+        # PR-LL2 Path B: match-level metadata + per-row team identity for
+        # downstream SPADL conversion + dim_teams / dim_competitions joins.
+        # Provider-agnostic naming convention (matches bronze.idsse_events
+        # Path B additions). For Metrica's open-data sample, competition +
+        # season + team IDs are synthetic but stable + unique.
+        "competition_native_id",  # constant 'metrica-sample' across all rows
+        "season_native_id",  # constant 'metrica-open-2017' across all rows
+        "home_team_id_native",  # f"{match_id}-Home" (synthetic, per match)
+        "away_team_id_native",  # f"{match_id}-Away"
+        "team_id_native",  # home/away id of the row's acting team; NULL otherwise
     },
 )
 """Bronze-completeness contract for bronze.metrica_events. Union of CSV-path
 (Games 1-2) and EPTS-path (Game 3) columns. `subtypes_all_json` carries
-multi-subtype events that CSV lacks; `pitch_*_m` carries EPTS metadata."""
+multi-subtype events that CSV lacks; `pitch_*_m` carries EPTS metadata.
+
+Source-faithful coordinate frame: ``start_x``/``start_y``/``end_x``/``end_y``
+are stored as Metrica-native [0, 1] normalised values (NOT transformed to
+SPADL meters). Per the bronze stability principle, transformations live in
+silver/staging or in adapters — bronze preserves the source frame.
+Downstream consumers wanting SPADL meters multiply by ``pitch_length_m``
+(default 105) / ``pitch_width_m`` (default 68)."""
+
+
+# PR-LL2 Path B: constants for the LL2 metadata columns on bronze.metrica_events.
+# Single sample dataset → single competition + season string. dim_competitions
+# already uses ``provider='metrica', native_competition_id='metrica-sample'``.
+_METRICA_COMPETITION_NATIVE_ID = "metrica-sample"
+_METRICA_SEASON_NATIVE_ID = "metrica-open-2017"
+
+
+def _native_team_ids(match_id: str) -> tuple[str, str]:
+    """Synthesize stable home/away team identifiers for a Metrica sample match.
+
+    Metrica's open-data sample doesn't expose actual club identifiers — events
+    only carry "Home" / "Away" labels. Returns deterministic synthetic IDs
+    keyed on ``match_id`` so downstream ``dim_teams`` lookups can match
+    against ``provider='metrica', native_team_id='Sample_Game_1-Home'``.
+    """
+    return f"{match_id}-Home", f"{match_id}-Away"
+
 
 _METRICA_EVENTS_DTYPE_OVERRIDES: dict[str, str] = {
     "event_id": "Int64",
@@ -183,6 +253,7 @@ def ingest_events(
             logger.info("Events for %s already ingested — skipping", match_id)
             continue
         events_df = _download_and_parse_events(url, match_id, logger)
+        events_df = _augment_ll2_metadata(events_df, match_id)
         events_df = finalize_bronze_df(
             events_df,
             expected_cols=_METRICA_EVENTS_BRONZE_COLS,
@@ -214,6 +285,7 @@ def ingest_events(
         events_json = resp.json()
         events_data: list[dict[str, object]] = events_json.get("data", events_json)
         events_df = _parse_epts_events(events_data, match_id, metadata)
+        events_df = _augment_ll2_metadata(events_df, match_id)
         events_df = finalize_bronze_df(
             events_df,
             expected_cols=_METRICA_EVENTS_BRONZE_COLS,
