@@ -131,14 +131,14 @@ def _validate_xg_predictions(
 
     xg_df: pd.DataFrame | None = None
     with tolerate_missing_table(logger, f"Cannot find {table} — skipping xG validation"):
-        xg_df = spark.table(table).select("xg_prediction").limit(500_000).toPandas()
+        xg_df = spark.table(table).select("xg_gradient_boosted").limit(500_000).toPandas()
 
     if xg_df is None or xg_df.empty:
         if xg_df is not None:
             logger.info("No xG predictions to validate")
         return results
 
-    predictions = xg_df["xg_prediction"].dropna().to_numpy(dtype=np.float64)
+    predictions = xg_df["xg_gradient_boosted"].dropna().to_numpy(dtype=np.float64)
 
     # Mean prediction check against baseline
     mean_pred = float(np.mean(predictions))
