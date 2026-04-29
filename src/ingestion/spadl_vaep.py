@@ -173,21 +173,23 @@ class _VaepGuard:
         if total_new == 0:
             return FilterResult(workflow_id=self.workflow_id, count=0)
 
-        # Union new_spadl with unscored so Stage 2 sees the match_ids Stage 1
-        # is about to add to spadl_actions in the same run. The two sets are
-        # disjoint by construction (new_spadl = in_events ∧ ¬in_spadl,
-        # unscored = in_spadl ∧ ¬in_vaep — cannot satisfy both), so the union
-        # is lossless and total_new remains accurate. Without the union,
-        # Stage 2 reads filter_result.metadata["unscored_vaep_match_ids"]
-        # (pre-Stage-1 state) and skips any match_id Stage 1 is about to add,
-        # reporting SUCCEEDED with zero new rows written. Reproduced
-        # 2026-04-14 during the feat/gold-data-repair investigation.
+        # LL2: store unscored_vaep_match_ids as the PURE Stage-2 diff (not
+        # unioned with new_spadl) so the test_guard_conformance contract
+        # (count == sum-of-metadata-list-lengths) holds for arbitrary mock
+        # data. run_pipeline computes the Stage-2 union at consumption time
+        # — see ``_compute_unscored_at_consumption`` below. Pre-LL2 stored
+        # the union here, which broke the contract once IDSSE/Metrica added
+        # match_ids that don't appear in mock-uniform unscored lists.
+        # Production invariant new_spadl ∩ unscored = ∅ (a match_id is
+        # EITHER in events∧¬spadl OR in spadl∧¬vaep, not both) means
+        # total_new = len(new_spadl) + len(unscored) is the correct work
+        # count; the run_pipeline union remains lossless.
         return FilterResult(
             workflow_id=self.workflow_id,
             count=total_new,
             metadata={
                 "new_spadl_match_ids": sorted(new_spadl),
-                "unscored_vaep_match_ids": sorted(set(new_spadl) | set(unscored)),
+                "unscored_vaep_match_ids": sorted(unscored),
             },
         )
 
@@ -211,8 +213,6 @@ class _VaepGuard:
         Returns the new match_id BIGINTs (as strings, for union with
         find_new_ids output), or empty list if bronze table is missing.
         """
-        from pyspark.sql import functions as spark_fn
-
         from ingestion.spadl_adapter import hash_native_id_to_bigint
         from ingestion.utils import tolerate_missing_table
 
@@ -228,19 +228,31 @@ class _VaepGuard:
 
         bronze_hashed: set[int] = {hash_native_id_to_bigint(s) for s in bronze_strings}
 
-        # spadl_actions BIGINT match_ids for this source. tolerate_missing_table
-        # is overkill here (spadl_table was just ensure_table'd) but kept for
-        # symmetry with the bronze read above.
+        # spadl_actions BIGINT match_ids for this source. SQL string filter
+        # (not Column expression) so this method doesn't require pyspark to
+        # be importable in the test env.
+        # tolerate_missing_table is overkill here (spadl_table was just
+        # ensure_table'd) but kept for symmetry with the bronze read above.
         in_spadl: set[int] = set()
         with tolerate_missing_table(_logger, f"spadl_actions table {spadl_table} missing"):
+            # Quote single-quotes in data_source defensively even though
+            # callers pass module-controlled values ('idsse', 'metrica').
+            ds_quoted = data_source.replace("'", "''")
             spadl_rows = (
-                spark.table(spadl_table)
-                .filter(spark_fn.col("data_source") == data_source)
-                .select("match_id")
-                .distinct()
-                .collect()
+                spark.table(spadl_table).filter(f"data_source = '{ds_quoted}'").select("match_id").distinct().collect()
             )
-            in_spadl = {int(row["match_id"]) for row in spadl_rows if row["match_id"] is not None}
+            for row in spadl_rows:
+                v = row["match_id"]
+                if v is None:
+                    continue
+                # Tests may mock spark with non-numeric match_ids; production
+                # bronze.spadl_actions.match_id is BIGINT. Skip non-numeric
+                # values gracefully — they cannot collide with the hashed
+                # bronze BIGINTs anyway.
+                try:
+                    in_spadl.add(int(v))
+                except (TypeError, ValueError):
+                    continue
 
         return [str(h) for h in sorted(bronze_hashed - in_spadl)]
 
@@ -600,7 +612,18 @@ def run_pipeline(
     if filter_result.count == 0:
         raise WorkflowSkippedError("No new work")
 
-    unscored_ids = filter_result.metadata["unscored_vaep_match_ids"]
+    # LL2: union new_spadl_match_ids with unscored_vaep_match_ids at consumption
+    # time so Stage 2 sees the match_ids Stage 1 is about to add to spadl_actions
+    # in the same run. Production invariant: new_spadl ∩ unscored = ∅
+    # (a match_id is EITHER in events∧¬spadl OR in spadl∧¬vaep, not both),
+    # so the union is lossless. Pre-LL2 the guard pre-unioned at metadata
+    # storage time, but that broke test_guard_conformance's
+    # ``count == sum-of-metadata-list-lengths`` contract once IDSSE/Metrica
+    # match_ids that don't appear in mock-uniform unscored lists were added.
+    unscored_ids = sorted(
+        set(filter_result.metadata["unscored_vaep_match_ids"])
+        | set(filter_result.metadata.get("new_spadl_match_ids", [])),
+    )
 
     spadl_table = f"{catalog}.{schema}.{_SPADL_TABLE}"
 
