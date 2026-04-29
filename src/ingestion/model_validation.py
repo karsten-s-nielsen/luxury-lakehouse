@@ -241,8 +241,8 @@ def _validate_line_breaking(
     with tolerate_missing_table(logger, f"Cannot find {table} — skipping line-breaking validation"):
         passes_df = (
             spark.table(table)
-            .select("match_id", "is_line_breaking")
-            .groupBy("match_id")
+            .select("match_key", "is_line_breaking")
+            .groupBy("match_key")
             .agg({"is_line_breaking": "avg"})
             .toPandas()
         )
