@@ -18,13 +18,24 @@ models:
         data_tests:
           - not_null
       - name: player_id
-        description: Player performing the action
+        description: >
+          Player performing the action. NULL for IDSSE/Metrica per ADR-016 —
+          those sources use `*_native` STRING identifiers; per-player Kimball
+          mapping (`player_id_native` + `dim_players.native_player_id`) is
+          deferred to PR-LL3.
         data_tests:
-          - not_null
+          - not_null:
+              config:
+                where: "data_source IN ('statsbomb', 'wyscout')"
       - name: team_id
-        description: Team performing the action
+        description: >
+          Team performing the action. NULL for IDSSE/Metrica per ADR-016 —
+          those sources use `team_id_native` STRING identifier instead;
+          mart-level joins use `(provider, native_id)` per Kimball.
         data_tests:
-          - not_null
+          - not_null:
+              config:
+                where: "data_source IN ('statsbomb', 'wyscout')"
       - name: period
         description: Match period (1-5)
         data_tests:
@@ -107,24 +118,38 @@ models:
               config:
                 severity: warn
       - name: offensive_value
-        description: VAEP offensive value
+        description: >
+          VAEP offensive value. NULL on ~80% of IDSSE/Metrica rows because
+          silly-kicks's VAEP scorer relies on player_id context which is
+          NULL for those sources (see ADR-016). Closed by PR-LL3 once
+          per-player Kimball mapping populates legacy player_id BIGINT.
         data_tests:
-          - not_null
+          - not_null:
+              config:
+                where: "data_source IN ('statsbomb', 'wyscout')"
       - name: defensive_value
-        description: VAEP defensive value
+        description: >
+          VAEP defensive value. NULL pattern mirrors `offensive_value` —
+          closed by PR-LL3 per-player Kimball mapping.
         data_tests:
-          - not_null
+          - not_null:
+              config:
+                where: "data_source IN ('statsbomb', 'wyscout')"
       - name: vaep_value
-        description: Net VAEP value (offensive + defensive)
+        description: >
+          Net VAEP value (offensive + defensive). NULL pattern mirrors
+          `offensive_value` — closed by PR-LL3 per-player Kimball mapping.
         data_tests:
-          - not_null
+          - not_null:
+              config:
+                where: "data_source IN ('statsbomb', 'wyscout')"
       - name: data_source
-        description: Data provider (statsbomb, wyscout)
+        description: Data provider (statsbomb, wyscout, idsse, metrica)
         data_tests:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb', 'wyscout']
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica']
       - name: competition_id
         description: Competition identifier
       - name: season_id
