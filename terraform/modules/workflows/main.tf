@@ -518,6 +518,12 @@ resource "databricks_job" "data_ingestion" {
     }
 
     # Same 9 leaf compute tasks that refresh_synced_tables previously depended on.
+    # NOTE: run_model_validation is intentionally NOT a dependency. Validation
+    # reads from gold marts (which dbt_build PRODUCES), so any "validation
+    # before mart refresh" gating is semantically reading yesterday's data.
+    # Keeping it independent ensures a single validator regression cannot
+    # block today's mart refresh + Lakebase synced-table propagation. See
+    # docs/superpowers/adrs/ADR-017-model-validation-as-signal-not-gate.md.
     depends_on { task_key = "compute_defcon_lite" }
     depends_on { task_key = "compute_embeddings_v1" }
     depends_on { task_key = "compute_formations_shape_graph" }
@@ -526,7 +532,6 @@ resource "databricks_job" "data_ingestion" {
     depends_on { task_key = "compute_xg_model_v2" }
     depends_on { task_key = "extract_tracking_metadata" }
     depends_on { task_key = "hf_sync" }
-    depends_on { task_key = "run_model_validation" }
 
     environment_key = "dbt"
   }
