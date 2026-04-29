@@ -169,7 +169,10 @@ depends_on:
   - wf-line-breaking
   - wf-formations
   - wf-football2vec
-  - wf-model-validation
+# Note: wf-model-validation deliberately omitted — validation reads from gold
+# marts that dbt_build produces, so gating mart refresh on validation only
+# checks yesterday's data. Validation is a quality signal, not a correctness
+# gate. See docs/superpowers/adrs/ADR-017-model-validation-as-signal-not-gate.md.
 
 idempotency:
   strategy: full-overwrite

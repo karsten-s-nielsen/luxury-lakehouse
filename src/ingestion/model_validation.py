@@ -239,9 +239,12 @@ def _validate_line_breaking(
 
     passes_df: pd.DataFrame | None = None
     with tolerate_missing_table(logger, f"Cannot find {table} — skipping line-breaking validation"):
+        # is_line_breaking is BOOLEAN in the mart contract; Spark refuses
+        # implicit bool→numeric cast inside avg(). Cast explicitly to INT
+        # (true=1 / false=0) so the per-match avg gives the detection rate.
         passes_df = (
             spark.table(table)
-            .select("match_key", "is_line_breaking")
+            .selectExpr("match_key", "cast(is_line_breaking as int) as is_line_breaking")
             .groupBy("match_key")
             .agg({"is_line_breaking": "avg"})
             .toPandas()
