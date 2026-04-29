@@ -19,6 +19,15 @@
 -- and `competition_id` (both BIGINT nullable) for the 90-day dual-column
 -- window — removed on or after 2026-07-22 per ADR-011 policy.
 --
+-- PR-LL2 Path B (2026-04-29): β-consistent rename of 4 StatsBomb-native
+-- mart aliases (possession_id / possession_team_id / play_pattern /
+-- under_pressure) to bronze names with `statsbomb_` prefix. Introduces a
+-- new canonical `possession_id` sourced from `av.possession_id_heuristic`
+-- (silly-kicks add_possessions, populated for ALL sources). Adds 6 LL2
+-- enrichment columns + action_id + 5 LL2 Path B native string identifiers.
+-- For IDSSE / Metrica, dim_matches / dim_teams joins use `match_id_native`
+-- and `team_id_native` (since legacy BIGINT IDs are NULL on those rows).
+--
 -- Coordinate system: 105x68 meters (SPADL academic standard).
 -- One row per action.
 
@@ -77,18 +86,21 @@ actions_with_score as (
         ma.match_key,
         ma.competition_key,
 
-        -- Legacy columns for 90-day dual-column window (sunset 2026-07-22).
-        -- av.match_id is already BIGINT on the source; retain as-is.
-        -- av.competition_id is already typed; retain as-is.
+        -- Legacy BIGINT IDs for 90-day dual-column window (sunset 2026-07-22).
+        -- For IDSSE / Metrica these are NULL except `match_id` which carries
+        -- a deterministic SHA-256 hash of the bronze string match_id (so
+        -- VAEP groupBy(match_id) works). Joins to dim_* use `*_native`.
         av.match_id,
         av.competition_id,
 
         av.player_id,
         av.team_id,
         -- PR 7 (ADR-011): Kimball surrogate FKs via dim_teams / dim_players
-        -- JOINs on (provider, native_id). SPADL is SB+WS only — native IDs
-        -- are real BIGINTs cast to string for the JOIN. PR 8 drops the
-        -- legacy INT cols.
+        -- JOINs on (provider, native_id). LL2 Path B updates the join key
+        -- from cast(team_id as string) to team_id_native — works for ALL 4
+        -- sources (SB/WS = stringified int, IDSSE = DFL-CLU-XXXXXX, Metrica
+        -- = synthetic). Same change for dim_players (player_id_native NOT
+        -- yet on spadl_actions — IDSSE/Metrica player_key resolves NULL).
         dt.team_key,
         dp.player_key,
         av.season_id,
@@ -96,6 +108,8 @@ actions_with_score as (
         av.time_seconds,
         av.minute,
         av.second,
+        -- LL2: per-match action sequence number (was 100% NULL pre-LL2).
+        av.action_id,
 
         -- SPADL coordinates (105x68 meters)
         av.start_x,
@@ -113,20 +127,38 @@ actions_with_score as (
         av.defensive_value,
         av.vaep_value,
 
-        -- Possession context (StatsBomb-only; NULL for Wyscout / IDSSE / SkillCorner).
-        -- Sourced upstream via silly-kicks 1.5.0 preserve_native kwarg (LL1).
-        av.statsbomb_possession_id                  as possession_id,
-        -- Legacy `possession_team_id` retained inside the ADR-011 dual-column
-        -- window (sunset 2026-07-22 alongside team_id / match_id / competition_id).
-        -- The Kimball surrogate `possession_team_key` is the canonical FK.
-        av.statsbomb_possession_team_id             as possession_team_id,
+        -- LL2 Path B: canonical possession_id sourced from silly-kicks's
+        -- heuristic add_possessions output — populated for ALL sources.
+        -- Replaces the previous LL1 alias of `statsbomb_possession_id`.
+        av.possession_id_heuristic                  as possession_id,
+
+        -- Provider-namespaced StatsBomb-native passthroughs (β-consistent
+        -- LL2 rename: previously aliased to plain canonical names; now
+        -- exposed under their bronze names — see ADR-016 for the naming
+        -- rule). NULL for Wyscout / IDSSE / Metrica.
+        av.statsbomb_possession_id,
+        av.statsbomb_possession_team_id,
+        av.statsbomb_play_pattern,
+        av.statsbomb_under_pressure,
         -- Kimball surrogate FK for the possession team — same dim_teams
-        -- resolution pattern as `team_key` / `player_key` above.
+        -- resolution pattern as `team_key` / `player_key` above. NULL when
+        -- statsbomb_possession_team_id is NULL (non-StatsBomb sources).
         dt_poss.team_key                            as possession_team_key,
 
-        -- Pure descriptors (no FK semantics) — StatsBomb-only.
-        av.statsbomb_play_pattern                   as play_pattern,
-        av.statsbomb_under_pressure                 as under_pressure,
+        -- LL2 enrichment columns (provider-agnostic, populated for ALL
+        -- sources from apply_spadl_enrichments — see ADR-016).
+        av.gk_role,
+        av.gk_was_distributing,
+        av.gk_was_engaged,
+        av.gk_actions_in_possession,
+        av.defending_gk_player_id,
+
+        -- LL2 Path B: native string identifiers (Kimball-aligned).
+        av.team_id_native,
+        av.home_team_id_native,
+        av.competition_native_id,
+        av.season_native_id,
+        av.match_id_native,
 
         -- Running score for game state derivation
         rs.home_score_after,
@@ -146,8 +178,13 @@ actions_with_score as (
         av.original_event_id
 
     from action_values av
+    -- LL2 Path B: dim_matches join on (provider, native_match_id) — works
+    -- across all 4 sources because match_id_native carries the bronze
+    -- string identifier (SB/WS = stringified int, IDSSE = 'idsse_J03WMX',
+    -- Metrica = 'Sample_Game_N'). Replaces the LL1 cast(match_id as string)
+    -- which broke for IDSSE/Metrica (BIGINT match_id is hashed, not native).
     left join match_attrs ma
-        on cast(av.match_id as string) = ma.native_match_id
+        on av.match_id_native = ma.native_match_id
         and av.data_source = ma.provider
     left join running_score rs
         on rs.match_id = av.match_id
@@ -156,10 +193,14 @@ actions_with_score as (
             or (rs.period = av.period
                 and (rs.minute * 60 + rs.second) <= (av.minute * 60 + av.second))
         )
-    -- PR 7 (ADR-011): dim_teams / dim_players JOINs by (provider, native_id).
+    -- LL2 Path B: dim_teams / dim_players JOINs use the LL2 native cols
+    -- (always populated) instead of cast(legacy_id as string) which is NULL
+    -- for IDSSE/Metrica.
     left join {{ ref('dim_teams') }} dt
         on  dt.provider = av.data_source
-       and dt.native_team_id = cast(av.team_id as string)
+       and dt.native_team_id = av.team_id_native
+    -- player_id_native is NOT yet on spadl_actions (PR-LL3); for IDSSE/
+    -- Metrica this JOIN resolves NULL until then.
     left join {{ ref('dim_players') }} dp
         on  dp.provider = av.data_source
        and dp.native_player_id = cast(av.player_id as string)
@@ -185,11 +226,13 @@ final as (
         team_id,
         team_key,
         player_key,
+        possession_team_key,
         season_id,
         period,
         time_seconds,
         minute,
         second,
+        action_id,
         start_x,
         start_y,
         end_x,
@@ -200,11 +243,34 @@ final as (
         offensive_value,
         defensive_value,
         vaep_value,
+        -- LL2 Path B: canonical possession_id (heuristic, populated for ALL sources).
         possession_id,
-        possession_team_id,
-        possession_team_key,
-        play_pattern,
-        under_pressure,
+        -- β-consistent: provider-namespaced StatsBomb-native passthroughs.
+        statsbomb_possession_id,
+        statsbomb_possession_team_id,
+        statsbomb_play_pattern,
+        statsbomb_under_pressure,
+        -- LL2 enrichment columns.
+        gk_role,
+        gk_was_distributing,
+        gk_was_engaged,
+        gk_actions_in_possession,
+        defending_gk_player_id,
+        -- LL2 Path B: native string identifiers.
+        team_id_native,
+        home_team_id_native,
+        competition_native_id,
+        season_native_id,
+        match_id_native,
+        -- Game state — uses _rs_home_team_id (BIGINT from running_score) which
+        -- only resolves for SB/WS (numeric team_id). For IDSSE/Metrica where
+        -- team_id is NULL, comparison `team_id = _rs_home_team_id` is NULL,
+        -- so game_state falls into the 'drawing' default if scores tied else
+        -- the 'losing' branch. PR-LL3 should switch this to team_id_native
+        -- comparison via running_score's home_team_id_native (does not yet
+        -- exist on int_running_score). For now, IDSSE/Metrica game_state is
+        -- best-effort (mostly correct on tied/no-goals matches; biased away
+        -- from 'winning' on goals matches). Document in ADR-016.
         case
             when coalesce(home_score_after, 0) = coalesce(away_score_after, 0)
                 then 'drawing'

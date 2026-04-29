@@ -27,6 +27,7 @@ import logging
 import math
 import re
 import xml.etree.ElementTree as ET  # nosemgrep: use-defused-xml -- trusted local DFL XML files, not untrusted input
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -260,6 +261,18 @@ def _compute_idsse_events_bronze_cols() -> frozenset[str]:
             "player_id",
             "team",
             "timestamp_seconds",
+            # PR-LL2 Path B: match-level metadata sourced from the DFL
+            # <General> element of the matchinformation XML. Same value for
+            # every row of a given match. Provider-agnostic naming convention
+            # (matches dim_competitions.native_competition_id; aligns with
+            # bronze.metrica_events Path B additions).
+            "competition_native_id",  # e.g. 'DFL-COM-000001'
+            "season_native_id",  # e.g. 'DFL-SEA-0001K6'
+            "home_team_id_native",  # DFL CLU id of the home team
+            "away_team_id_native",  # DFL CLU id of the guest team
+            "team_id_native",  # DFL CLU id of the acting team for THIS row;
+            #                    home if `team`='home', away if `team`='away',
+            #                    NULL if `team`='unknown'.
         }
     )
 
@@ -374,6 +387,105 @@ def _parse_teams(info_path: str) -> tuple[str, str, dict[str, str], set[str]]:
                     gk_player_ids.add(person_id)
 
     return home_team_id, away_team_id, player_team_map, gk_player_ids
+
+
+@dataclass(frozen=True)
+class _MatchMetadata:
+    """Match-level metadata sourced from the DFL ``<General>`` and
+    ``<Environment>`` elements in the matchinformation XML.
+
+    PR-LL2 Path B: previously the SPADL/VAEP pipeline had no way to access
+    the per-match competition / season / pitch dimensions because none of
+    these landed in ``bronze.idsse_events``. This dataclass + parser
+    surface them so the bronze writer can populate the LL2-added columns
+    (``competition_native_id``, ``season_native_id``,
+    ``home_team_id_native``, ``away_team_id_native``).
+    """
+
+    competition_id: str
+    """DFL CompetitionId, e.g. ``DFL-COM-000001``. Format ``DFL-COM-XXXXXX``."""
+
+    season_id: str
+    """DFL SeasonId, e.g. ``DFL-SEA-0001K6``. Format ``DFL-SEA-XXXXXX``."""
+
+    home_team_id: str
+    """DFL HomeTeamId, e.g. ``DFL-CLU-000008``. Format ``DFL-CLU-XXXXXX``."""
+
+    away_team_id: str
+    """DFL GuestTeamId (DFL spec calls the away team "guest")."""
+
+    pitch_x: float | None
+    """Pitch length in meters (e.g. 105.0). NULL if absent from XML."""
+
+    pitch_y: float | None
+    """Pitch width in meters (e.g. 68.0). NULL if absent from XML."""
+
+
+def _parse_match_metadata(info_path: str) -> _MatchMetadata:
+    """Parse the ``<General>`` + ``<Environment>`` elements of a DFL
+    matchinformation XML, returning competition / season / pitch metadata.
+
+    DFL spec, ``DFL_02_01_matchinformation_*.xml`` shape::
+
+        <PutDataRequest>
+          <MatchInformation>
+            <General CompetitionId="DFL-COM-000001"
+                     SeasonId="DFL-SEA-0001K6"
+                     HomeTeamId="DFL-CLU-000008"
+                     GuestTeamId="DFL-CLU-00000G"
+                     ... />
+            <Environment PitchX="105.00" PitchY="68.00" ... />
+            <Teams>...</Teams>
+            ...
+
+    Args:
+        info_path: Filesystem path (or UC Volume path) to the matchinformation XML.
+
+    Returns:
+        Populated ``_MatchMetadata``. Empty strings for any missing IDs
+        (callers tolerate empty home_team_id today; we surface that as
+        empty string rather than raising so a malformed XML doesn't kill
+        the whole batch).
+    """
+    tree = ET.parse(info_path)  # noqa: S314  # nosemgrep: use-defused-xml-parse
+    root = tree.getroot()
+
+    general = root.find(".//General")
+    environment = root.find(".//Environment")
+
+    competition_id = general.get("CompetitionId", "") if general is not None else ""
+    season_id = general.get("SeasonId", "") if general is not None else ""
+    home_team_id = general.get("HomeTeamId", "") if general is not None else ""
+    away_team_id = general.get("GuestTeamId", "") if general is not None else ""
+
+    pitch_x: float | None = None
+    pitch_y: float | None = None
+    if environment is not None:
+        pitch_x = _parse_float_or_none(environment.get("PitchX", ""))
+        pitch_y = _parse_float_or_none(environment.get("PitchY", ""))
+
+    return _MatchMetadata(
+        competition_id=competition_id,
+        season_id=season_id,
+        home_team_id=home_team_id,
+        away_team_id=away_team_id,
+        pitch_x=pitch_x,
+        pitch_y=pitch_y,
+    )
+
+
+# Sentinel used by ``_parse_events_xml`` / ``_build_event_row`` when callers
+# don't have a real matchinformation XML available (e.g. unit tests with
+# synthetic event XML, no companion matchinfo). Production ingestion always
+# passes a populated metadata via ``_parse_match_metadata``.
+_EMPTY_MATCH_METADATA: _MatchMetadata = _MatchMetadata(
+    competition_id="",
+    season_id="",
+    home_team_id="",
+    away_team_id="",
+    pitch_x=None,
+    pitch_y=None,
+)
 
 
 # DFL Frame attribute contract — ground truth from
@@ -851,6 +963,7 @@ def _build_event_row(
     current_period: int,
     player_team_map: dict[str, str],
     period_start_time: dict[int, datetime],
+    metadata: _MatchMetadata = _EMPTY_MATCH_METADATA,
 ) -> dict[str, object]:
     """Build one bronze row from a DFL <Event> element + its first child.
 
@@ -859,6 +972,14 @@ def _build_event_row(
     bronze column. Type-casts event-level cols that downstream analysis
     treats as numeric (x/y coords, frame numbers). Returns the full row
     dict; callers need not pre-populate any columns.
+
+    Args:
+        ...
+        metadata: Match-level metadata from ``_parse_match_metadata``.
+            PR-LL2 Path B: lifts ``competition_native_id`` /
+            ``season_native_id`` / ``home_team_id_native`` /
+            ``away_team_id_native`` onto every row. ``team_id_native`` is
+            derived per-row from the ``team`` label.
     """
     row: dict[str, object] = {
         "match_id": prefixed_match_id,
@@ -866,6 +987,12 @@ def _build_event_row(
         "period": current_period,
         "player_id": "",
         "team": "unknown",
+        # PR-LL2: match-level metadata (same value for every row of a match).
+        "competition_native_id": metadata.competition_id,
+        "season_native_id": metadata.season_id,
+        "home_team_id_native": metadata.home_team_id,
+        "away_team_id_native": metadata.away_team_id,
+        # team_id_native filled below after `team` label resolves.
     }
 
     # --- Event-level attrs → bronze cols via EVENT_LEVEL_ATTR_MAP ---
@@ -922,6 +1049,16 @@ def _build_event_row(
     if isinstance(pid_val, str) and pid_val:
         row["team"] = player_team_map.get(pid_val, "unknown")
 
+    # PR-LL2: derive `team_id_native` (DFL CLU id of the acting team) from
+    # the resolved home/away label. NULL when team is unknown.
+    team_label = row["team"]
+    if team_label == "home":
+        row["team_id_native"] = metadata.home_team_id
+    elif team_label == "away":
+        row["team_id_native"] = metadata.away_team_id
+    else:
+        row["team_id_native"] = None
+
     # --- First-child attrs → {prefix}_{snake(attr)} bronze cols ---
     prefix = _EVENT_TYPE_PREFIX.get(event_type)
     if prefix is not None:
@@ -947,6 +1084,7 @@ def _parse_events_xml(
     player_team_map: dict[str, str],
     match_id: str,
     logger: logging.Logger,
+    metadata: _MatchMetadata = _EMPTY_MATCH_METADATA,
 ) -> list[dict[str, object]]:
     """Parse DFL event XML (DFL_03_02 series) into bronze-completeness row dicts.
 
@@ -1033,6 +1171,7 @@ def _parse_events_xml(
             current_period,
             player_team_map,
             period_start_time,
+            metadata,
         )
         rows.append(row)
         elem.clear()
@@ -1109,7 +1248,12 @@ def ingest_idsse_events(
         info_path = f"{data_dir}/DFL_02_01_matchinformation_{comp}_DFL-MAT-{mid}.xml"
 
         _home_id, _away_id, player_team_map, _gk_ids = _parse_teams(info_path)
-        rows = _parse_events_xml(event_path, player_team_map, mid, logger)
+        # PR-LL2 Path B: source competition / season / DFL team IDs from the
+        # <General> element so the bronze writer can populate the LL2 columns
+        # (competition_native_id, season_native_id, home_team_id_native,
+        # away_team_id_native, team_id_native).
+        metadata = _parse_match_metadata(info_path)
+        rows = _parse_events_xml(event_path, player_team_map, mid, logger, metadata)
 
         if not rows:
             logger.info("No events with position data for match %s", mid)

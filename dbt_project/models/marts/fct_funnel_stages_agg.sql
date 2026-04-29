@@ -36,20 +36,22 @@
 --                  replicated on every gs row for that match+team so the app
 --                  can dedup via groupby((match,team)).first().sum() at gs=All.
 --
--- Wyscout handling:
---   Wyscout actions have possession_id = NULL. Current Python treats those
---   as 1 synthetic possession per match (at gs=All) or per (match, gs) at
---   gs-filter. wy_match_flag=1 if a team had any NULL-possession row during
---   THIS specific (match, team, gs); flag is per-gs (not match-level). The
---   app dedups at the driver via
---   COUNT(DISTINCT CASE WHEN wy_match_flag=1 THEN match_id END), which works
---   correctly for both gs-filtered (sees only that gs's flags) and gs=All
---   (unions all gs's flags and dedups on match_id via nunique).
+-- LL2 Path B (2026-04-29): Canonical possession_id semantics.
+--   The pre-LL2 Wyscout-synthetic-possession workaround retired. Possession
+--   IDs are now sourced from silly-kicks's heuristic ``add_possessions``
+--   (sourced into ``av.possession_id_heuristic``, exposed as canonical
+--   ``possession_id`` on the mart) and populated for ALL 4 sources
+--   (StatsBomb / Wyscout / IDSSE / Metrica). The previous COUNT(DISTINCT
+--   CASE WHEN possession_id IS NOT NULL ...) wrapping is no longer needed
+--   — every row has a possession_id. ``wy_match_flag`` removed (always 0
+--   post-LL2 since possession_id is non-null for every row).
 --
---   Earlier design had wy_match_flag at match-level (max across gs rows),
---   but that over-counted: a match with Wyscout rows only during drawing
---   would register flag=1 on ALL gs rows, so a winning-gs query would
---   erroneously count it as a Wyscout match during winning.
+--   The own-possession filter uses ``statsbomb_possession_team_id`` (the
+--   β-consistent renamed StatsBomb-native passthrough). It remains
+--   meaningful only for StatsBomb rows; other sources fall through the
+--   NULL branch and treat every row as own-possession. PR-LL3 may
+--   extend the heuristic to also emit possession_team via
+--   ``add_possessions_with_team`` and let this filter narrow further.
 --
 -- Other invariants (V04, V09):
 --   INNER JOIN to fct_match_summary drops any orphaned action rows (V04: 0 in current data).
@@ -64,12 +66,13 @@ with base as (
         av.team_id,
         av.game_state,
         av.possession_id,
-        av.possession_team_id,
+        av.statsbomb_possession_team_id,
         av.start_x,
         av.end_x,
         av.action_type,
         av.action_result,
         av.data_source,
+        av.team_id_native,
         ms.home_team_id,
         ms.away_team_id
     from {{ ref('fct_action_values') }} av
@@ -92,7 +95,11 @@ own_possession as (
             else home_team_id
         end as opponent_team_id
     from base
-    where possession_team_id is null or possession_team_id = team_id
+    -- LL2 Path B: own-possession filter uses the β-consistent
+    -- statsbomb_possession_team_id (was possession_team_id pre-LL2).
+    -- For non-StatsBomb sources this column is NULL, falling through to
+    -- the "treat every row as own-possession" branch.
+    where statsbomb_possession_team_id is null or statsbomb_possession_team_id = team_id
 
 ),
 
@@ -106,8 +113,9 @@ per_gs as (
         opponent_team_id,
         data_source,
         game_state,
-        count(distinct case when possession_id is not null then possession_id end)      as pos_in_gs,
-        max(case when possession_id is null then 1 else 0 end)                           as wy_match_flag,
+        -- LL2 Path B: possession_id is canonical heuristic, populated for
+        -- ALL sources. No more NULL handling needed.
+        count(distinct possession_id)                                                    as pos_in_gs,
         sum(case when start_x <= 70 and end_x > 70 then 1 else 0 end)                    as a3_entries,
         sum(case when action_type in ('shot','shot_penalty','shot_freekick') then 1 else 0 end) as shots,
         sum(case
@@ -125,7 +133,7 @@ per_match as (
     select
         match_id,
         team_id,
-        count(distinct case when possession_id is not null then possession_id end) as pos_in_match
+        count(distinct possession_id) as pos_in_match
     from own_possession
     group by match_id, team_id
 
@@ -147,7 +155,6 @@ final as (
         cast(g.a3_entries as bigint)                    as a3_entries,
         cast(g.shots as bigint)                         as shots,
         cast(g.goals as bigint)                         as goals,
-        cast(g.wy_match_flag as smallint)               as wy_match_flag,
         current_timestamp()                             as _loaded_at
     from per_gs g
     inner join per_match m using (match_id, team_id)

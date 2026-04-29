@@ -201,18 +201,22 @@ class TestTryLoadChampionVaep:
 
 
 class TestVaepGuardMetadata:
-    """Test ``_VaepGuard.check()`` includes match_ids Stage 1 is about to add.
+    """Test ``_VaepGuard.check()`` produces the metadata Stage 2 needs.
 
     Regression guard for the staleness bug discovered 2026-04-14. Stage 2 at
-    ``spadl_vaep.py:429`` reads ``filter_result.metadata["unscored_vaep_match_ids"]``
+    ``run_pipeline`` reads ``filter_result.metadata["unscored_vaep_match_ids"]``
     which is computed by the guard BEFORE Stage 1 runs. When Stage 1 repopulates
     ``bronze.spadl_actions`` with new match_ids in the same run (e.g., after a
     user DELETE), those match_ids are not in the guard's pre-Stage-1 ``unscored``
-    set, and Stage 2 skips them with the stale metadata.
+    set.
 
-    Fix: union ``new_spadl`` (match_ids Stage 1 will add) with ``unscored``
-    (match_ids already in spadl but missing from vaep) in the metadata. The two
-    sets are disjoint by construction.
+    LL2 Path B contract update: the guard stores ``unscored_vaep_match_ids`` as
+    the PURE Stage-2 diff (no union with ``new_spadl``). ``run_pipeline`` does
+    the union at consumption time so Stage 2 still sees Stage 1's adds. The
+    union moved out of the guard so the test_guard_conformance contract
+    (count == sum-of-metadata-list-lengths) holds for arbitrary mock data —
+    pre-LL2 the union storage double-counted match_ids that appeared in both
+    sets, breaking the contract for IDSSE/Metrica mocks.
     """
 
     def test_regression_today_scenario_sb_new_nonempty_unscored_empty(self) -> None:
@@ -221,10 +225,10 @@ class TestVaepGuardMetadata:
         User had wiped statsbomb from both ``bronze.spadl_actions`` (v638) and
         ``bronze.vaep_action_values`` (v8). Guard computes:
           sb_new=[3 statsbomb match_ids], ws_new=[], unscored=[].
-        Without the fix, unscored_vaep_match_ids=[] and Stage 2 exits at
-        the ``if not unscored_match_ids: return 0`` gate.
-        With the fix, unscored_vaep_match_ids=[3 statsbomb match_ids] — Stage 2
-        proceeds to score them.
+
+        LL2 contract: metadata['unscored_vaep_match_ids']=[] (pure Stage-2 diff,
+        no union). metadata['new_spadl_match_ids']=[3 ids]. ``run_pipeline``
+        unions them at consumption time so Stage 2 still scores the 3 new ids.
         """
         from ingestion.spadl_vaep import _VaepGuard
 
@@ -247,8 +251,9 @@ class TestVaepGuardMetadata:
         # count = len(new_spadl) + len(unscored) = 3 + 0
         assert result.count == 3
         assert result.metadata["new_spadl_match_ids"] == ["3754348", "3754349", "3754350"]
-        # THE FIX: union picks up the new_spadl match_ids even though pre-Stage-1 unscored was empty
-        assert result.metadata["unscored_vaep_match_ids"] == ["3754348", "3754349", "3754350"]
+        # LL2: pure Stage-2 diff (was unioned with new_spadl pre-LL2). run_pipeline
+        # does the consumer-side union — see ``run_pipeline``'s ``unscored_ids`` build.
+        assert result.metadata["unscored_vaep_match_ids"] == []
 
     def test_disjoint_union_both_sources_contribute(self) -> None:
         """Normal mixed case: new events from both providers plus existing unscored matches."""
@@ -272,7 +277,8 @@ class TestVaepGuardMetadata:
         # count = len(new_spadl) + len(unscored) = 2 + 2
         assert result.count == 4
         assert result.metadata["new_spadl_match_ids"] == ["sb1", "ws1"]
-        assert result.metadata["unscored_vaep_match_ids"] == ["existing1", "existing2", "sb1", "ws1"]
+        # LL2: pure Stage-2 diff (was sorted union of new_spadl + unscored pre-LL2).
+        assert result.metadata["unscored_vaep_match_ids"] == ["existing1", "existing2"]
 
     def test_unscored_only_no_new_events(self) -> None:
         """Steady-state case: no new events, only previously-unscored spadl matches.

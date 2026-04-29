@@ -115,6 +115,14 @@ The reason this principle is load-bearing: any mart that reads `stg_<provider>__
 
 Audit hook: any new `stg_<provider>__<entity>.sql` PR must document its canonicalization transform in the file header. Any mart that still has a `regexp_replace`/`concat`/sentinel-filter on a native ID is treated as evidence that canonicalization has leaked out of staging — fix in staging instead.
 
+### PR-LL2 (2026-04-29) — `*_native` STRING column extension to bronze layer
+
+PR-LL2 (silly-kicks SPADL post-conversion enrichment + 4-source coverage) extends ADR-011's `(provider, native_id)` join pattern from `dim_*` (silver) into `bronze.spadl_actions` and `bronze.vaep_action_values` directly. The two bronze tables now carry five `*_native` STRING columns: `team_id_native`, `home_team_id_native`, `competition_native_id`, `season_native_id`, `match_id_native`. Always populated for all 4 sources; for StatsBomb/Wyscout the values are stringified ints, for IDSSE these are real DFL identifiers (`DFL-CLU-XXXXXX` / `DFL-COM-XXXXXX` / `DFL-SEA-XXXXXX`), for Metrica they are synthetic per-match identifiers (`Sample_Game_N-Home/Away` / `metrica-sample` / `metrica-open-2017`).
+
+Why bronze, not staging-only: IDSSE and Metrica carry STRING native identifiers that don't fit the legacy BIGINT-typed `bronze.spadl_actions.team_id` / `competition_id` / `season_id` columns; those legacy columns are NULL for IDSSE/Metrica rows. The `match_id` BIGINT is special — populated via deterministic `hash_native_id_to_bigint` (SHA-256[:15]) so `applyInPandas(groupBy("match_id"))` continues to dispatch per-match groups, with the original string preserved in `match_id_native`.
+
+PR-LL2 also closes a 24-hour mart-level alias introduced by PR-LL1: `possession_team_id` (the alias of `statsbomb_possession_team_id`) was retained in PR-LL1 inside the standard 90-day dual-column window. PR-LL2 dropped the alias — acceptable in this specific case because zero downstream consumers had time to accrue dependence on the alias (`hf_taipy_app/`, `src/`, `dbt_project/` greps clean at rename time). The 90-day window remains in force for the original PR 8 legacy columns; sunset 2026-07-22 unchanged. See ADR-016 for the canonical/native naming rule that drove the rename.
+
 ### PR 7 lessons-learned
 
 The original PR 7 (#214) shipped 2026-04-27 with green CI and green slim-CI. Six post-merge hotfix PRs (#215–#220) closed latent gaps that live-CI's `state:modified+` selection could not surface. Documenting the gap classes here so future Kimball PRs can prevent rather than chase them:

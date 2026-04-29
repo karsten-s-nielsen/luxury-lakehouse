@@ -114,8 +114,16 @@ class TestRollupStages:
         result = rollup_stages(df, gs_filtered=True)
         assert result["possessions"] == 15
 
-    def test_wy_match_deduped_across_gs(self) -> None:
-        """A Wyscout match with wy_match_flag=1 on all 3 gs rows → counted ONCE."""
+    def test_zero_possession_match_no_synthetic_compensation(self) -> None:
+        """LL2 Path B: matches with pos_in_gs=0 contribute 0 — no Wyscout
+        synthetic-possession +1 compensation (wy_match_flag retired).
+
+        Pre-LL2 this test asserted possessions==1 because Wyscout possession_id
+        was NULL and the driver added a synthetic +1. LL2 Path B canonicalises
+        possession_id via silly-kicks's heuristic add_possessions for ALL
+        sources, so Wyscout matches now have real possession counts in
+        pos_in_gs and the synthetic compensation is unnecessary.
+        """
         from queries.funnel import rollup_stages
 
         df = pd.DataFrame(
@@ -127,16 +135,20 @@ class TestRollupStages:
                 "a3_entries": [4, 2, 3],
                 "shots": [1, 1, 0],
                 "goals": [0, 0, 0],
-                "wy_match_flag": [1, 1, 1],
             }
         )
         result = rollup_stages(df, gs_filtered=True)
-        # 0 SB possessions + 1 Wyscout match = 1 synthetic possession
-        assert result["possessions"] == 1
+        # LL2: no synthetic compensation — 0 SB possessions + 0 = 0 (was 1 pre-LL2)
+        assert result["possessions"] == 0
         assert result["a3_entries"] == 9
 
-    def test_wy_mixed_sb(self) -> None:
-        """2 SB matches (pos_in_match=15, 8) + 1 Wyscout match → 15+8+1 = 24."""
+    def test_mixed_match_possession_sum(self) -> None:
+        """LL2 Path B: 2 matches with pos_in_match=15+8 sum to 23 (no synthetic +1).
+
+        Pre-LL2 a third match with NULL possession_id would add a synthetic +1
+        for the Wyscout case → 24 total. LL2 deletes the wy_match_flag column
+        and the synthetic compensation; possessions are summed straight.
+        """
         from queries.funnel import rollup_stages
 
         df = pd.DataFrame(
@@ -148,11 +160,11 @@ class TestRollupStages:
                 "a3_entries": [4, 2, 3],
                 "shots": [1, 1, 0],
                 "goals": [0, 1, 0],
-                "wy_match_flag": [0, 0, 1],
             }
         )
         result = rollup_stages(df, gs_filtered=False)
-        assert result["possessions"] == 15 + 8 + 1
+        # LL2: 15 + 8 + 0 = 23 (was 15+8+1=24 pre-LL2 with synthetic compensation)
+        assert result["possessions"] == 15 + 8 + 0
 
     def test_stage_sums_independent_of_wyscout(self) -> None:
         """a3/shots/goals are simple sums regardless of wy_match_flag."""

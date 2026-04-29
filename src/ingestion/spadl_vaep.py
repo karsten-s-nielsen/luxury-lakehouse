@@ -27,6 +27,8 @@ import pandas as pd
 from ingestion.guards import FilterResult, timed_check
 from ingestion.spadl_conversion import (
     _SPADL_TABLE,
+    _convert_idsse_from_bronze,
+    _convert_metrica_from_bronze,
     _convert_statsbomb_from_bronze,
     _convert_wyscout_from_bronze,
     _read_existing_match_ids,
@@ -56,7 +58,28 @@ _SPADL_SCHEMA = (
     # Provider-namespaced StatsBomb-native fields surfaced via silly-kicks 1.5.0+
     # ``preserve_native`` kwarg on convert_to_actions. NULL for non-StatsBomb sources.
     "statsbomb_possession_id BIGINT, statsbomb_possession_team_id BIGINT, "
-    "statsbomb_play_pattern STRING, statsbomb_under_pressure BOOLEAN"
+    "statsbomb_play_pattern STRING, statsbomb_under_pressure BOOLEAN, "
+    # LL2: 6 post-conversion enrichment columns from apply_spadl_enrichments.
+    # add_possessions → possession_id_heuristic
+    # add_gk_role → gk_role
+    # add_pre_shot_gk_context → 4 columns. See ADR-016.
+    "possession_id_heuristic BIGINT, gk_role STRING, "
+    "gk_was_distributing BOOLEAN, gk_was_engaged BOOLEAN, "
+    "gk_actions_in_possession BIGINT, defending_gk_player_id BIGINT, "
+    # LL2 Path B: native (string) provider identifiers for dim_teams /
+    # dim_competitions joins on (provider, native_id). Populated for ALL sources;
+    # mirrors the ADR-011 dim_competitions pattern (provider + native_competition_id +
+    # legacy competition_id INT NULL for non-numeric IDs). For StatsBomb/Wyscout
+    # the values are stringified ints; for IDSSE these are 'DFL-CLU-XXXXXX' /
+    # 'DFL-COM-XXXXXX' / 'DFL-SEA-XXXXXX'; for Metrica these are
+    # 'metrica-sample' / 'metrica-open-2017' / synthetic 'Sample_Game_N-Home/Away'.
+    "team_id_native STRING, home_team_id_native STRING, "
+    "competition_native_id STRING, season_native_id STRING, "
+    # match_id_native: required for fct_action_values to JOIN dim_matches on
+    # (provider, native_match_id). For SB/WS it equals str(match_id); for
+    # IDSSE/Metrica it's the original string ('idsse_J03WMX' / 'Sample_Game_1')
+    # while the BIGINT match_id is its deterministic hash.
+    "match_id_native STRING"
 )
 _VAEP_TABLE = "vaep_action_values"
 _VAEP_SCHEMA = (
@@ -66,12 +89,22 @@ _VAEP_SCHEMA = (
     "action_result STRING, bodypart_id BIGINT, bodypart STRING, offensive_value DOUBLE, "
     "defensive_value DOUBLE, vaep_value DOUBLE, competition_id BIGINT, season_id BIGINT, "
     "data_source STRING, _ingested_at TIMESTAMP, "
+    # LL2: action_id surfaced through to vaep_action_values (was never carried
+    # through pre-LL2 — bronze.spadl_actions.action_id existed but was 100% NULL).
+    "action_id BIGINT, "
     # Provider-namespaced StatsBomb-native fields (carried through from spadl_actions).
-    # NULL for non-StatsBomb sources. See ADR-011 dual-column window for `possession_team_*`
-    # naming: gold mart resolves `possession_team_key` via dim_teams; legacy
-    # `possession_team_id` retained until 2026-07-22 cutover.
+    # NULL for non-StatsBomb sources.
     "statsbomb_possession_id BIGINT, statsbomb_possession_team_id BIGINT, "
-    "statsbomb_play_pattern STRING, statsbomb_under_pressure BOOLEAN"
+    "statsbomb_play_pattern STRING, statsbomb_under_pressure BOOLEAN, "
+    # LL2: 6 post-conversion enrichment columns. See ADR-016.
+    "possession_id_heuristic BIGINT, gk_role STRING, "
+    "gk_was_distributing BOOLEAN, gk_was_engaged BOOLEAN, "
+    "gk_actions_in_possession BIGINT, defending_gk_player_id BIGINT, "
+    # LL2 Path B: native string identifiers (carried through from spadl_actions).
+    # See _SPADL_SCHEMA for naming + value conventions.
+    "team_id_native STRING, home_team_id_native STRING, "
+    "competition_native_id STRING, season_native_id STRING, "
+    "match_id_native STRING"
 )
 
 
@@ -94,7 +127,7 @@ class _VaepGuard:
         ensure_table(spark, spadl_table, _SPADL_SCHEMA)
         ensure_table(spark, vaep_table, _VAEP_SCHEMA)
 
-        # Stage 1: Source events not yet in SPADL (two sources, union results)
+        # Stage 1: Source events not yet in SPADL — 4-source union (LL2 Path B).
         sb_new = find_new_ids(
             spark,
             f"{catalog}.{schema}.statsbomb_events",
@@ -107,7 +140,26 @@ class _VaepGuard:
             id_column="matchId",
             results_id_column="match_id",
         )
-        new_spadl = sorted(set(sb_new) | set(ws_new))
+
+        # IDSSE + Metrica use STRING bronze match_ids that we hash to BIGINT
+        # for spadl_actions. find_new_ids string-cast comparison would compare
+        # 'idsse_J03WMX' vs '12345' (the hashed value as string) and find
+        # everything "new" — wrong. Compute the diff ourselves: hash bronze
+        # strings, scope spadl_actions to the source via data_source filter.
+        idsse_new = self._diff_hashed_source_against_spadl(
+            spark,
+            bronze_table=f"{catalog}.{schema}.idsse_events",
+            spadl_table=spadl_table,
+            data_source="idsse",
+        )
+        metrica_new = self._diff_hashed_source_against_spadl(
+            spark,
+            bronze_table=f"{catalog}.{schema}.metrica_events",
+            spadl_table=spadl_table,
+            data_source="metrica",
+        )
+
+        new_spadl = sorted(set(sb_new) | set(ws_new) | set(idsse_new) | set(metrica_new))
 
         # Stage 2: SPADL actions not yet scored with VAEP
         unscored = find_new_ids(
@@ -121,23 +173,88 @@ class _VaepGuard:
         if total_new == 0:
             return FilterResult(workflow_id=self.workflow_id, count=0)
 
-        # Union new_spadl with unscored so Stage 2 sees the match_ids Stage 1
-        # is about to add to spadl_actions in the same run. The two sets are
-        # disjoint by construction (new_spadl = in_events ∧ ¬in_spadl,
-        # unscored = in_spadl ∧ ¬in_vaep — cannot satisfy both), so the union
-        # is lossless and total_new remains accurate. Without the union,
-        # Stage 2 reads filter_result.metadata["unscored_vaep_match_ids"]
-        # (pre-Stage-1 state) and skips any match_id Stage 1 is about to add,
-        # reporting SUCCEEDED with zero new rows written. Reproduced
-        # 2026-04-14 during the feat/gold-data-repair investigation.
+        # LL2: store unscored_vaep_match_ids as the PURE Stage-2 diff (not
+        # unioned with new_spadl) so the test_guard_conformance contract
+        # (count == sum-of-metadata-list-lengths) holds for arbitrary mock
+        # data. run_pipeline computes the Stage-2 union at consumption time
+        # — see ``_compute_unscored_at_consumption`` below. Pre-LL2 stored
+        # the union here, which broke the contract once IDSSE/Metrica added
+        # match_ids that don't appear in mock-uniform unscored lists.
+        # Production invariant new_spadl ∩ unscored = ∅ (a match_id is
+        # EITHER in events∧¬spadl OR in spadl∧¬vaep, not both) means
+        # total_new = len(new_spadl) + len(unscored) is the correct work
+        # count; the run_pipeline union remains lossless.
         return FilterResult(
             workflow_id=self.workflow_id,
             count=total_new,
             metadata={
                 "new_spadl_match_ids": sorted(new_spadl),
-                "unscored_vaep_match_ids": sorted(set(new_spadl) | set(unscored)),
+                "unscored_vaep_match_ids": sorted(unscored),
             },
         )
+
+    @staticmethod
+    def _diff_hashed_source_against_spadl(
+        spark: SparkSession,
+        bronze_table: str,
+        spadl_table: str,
+        data_source: str,
+    ) -> list[str]:
+        """LL2 Path B: count new matches for a string-match_id source (IDSSE / Metrica).
+
+        Bronze tables for IDSSE / Metrica use STRING match_ids. spadl_actions
+        uses BIGINT (deterministically hashed via ``hash_native_id_to_bigint``).
+        ``find_new_ids`` does string-cast comparison; for hashed-source tables
+        that produces nonsense ('idsse_J03WMX' != '12345'). Instead: hash all
+        bronze strings, scope spadl_actions to the source via ``data_source``
+        filter, return the BIGINT diff as strings (matching find_new_ids
+        return type for downstream union compatibility).
+
+        Returns the new match_id BIGINTs (as strings, for union with
+        find_new_ids output), or empty list if bronze table is missing.
+        """
+        from ingestion.spadl_adapter import hash_native_id_to_bigint
+        from ingestion.utils import tolerate_missing_table
+
+        _logger = logging.getLogger(__name__)
+
+        bronze_strings: list[str] = []
+        with tolerate_missing_table(_logger, f"Bronze table {bronze_table} missing — no new {data_source} matches"):
+            bronze_rows = spark.table(bronze_table).select("match_id").distinct().collect()
+            bronze_strings = [str(row["match_id"]) for row in bronze_rows if row["match_id"] is not None]
+
+        if not bronze_strings:
+            return []
+
+        bronze_hashed: set[int] = {hash_native_id_to_bigint(s) for s in bronze_strings}
+
+        # spadl_actions BIGINT match_ids for this source. SQL string filter
+        # (not Column expression) so this method doesn't require pyspark to
+        # be importable in the test env.
+        # tolerate_missing_table is overkill here (spadl_table was just
+        # ensure_table'd) but kept for symmetry with the bronze read above.
+        in_spadl: set[int] = set()
+        with tolerate_missing_table(_logger, f"spadl_actions table {spadl_table} missing"):
+            # Quote single-quotes in data_source defensively even though
+            # callers pass module-controlled values ('idsse', 'metrica').
+            ds_quoted = data_source.replace("'", "''")
+            spadl_rows = (
+                spark.table(spadl_table).filter(f"data_source = '{ds_quoted}'").select("match_id").distinct().collect()
+            )
+            for row in spadl_rows:
+                v = row["match_id"]
+                if v is None:
+                    continue
+                # Tests may mock spark with non-numeric match_ids; production
+                # bronze.spadl_actions.match_id is BIGINT. Skip non-numeric
+                # values gracefully — they cannot collide with the hashed
+                # bronze BIGINTs anyway.
+                try:
+                    in_spadl.add(int(v))
+                except (TypeError, ValueError):
+                    continue
+
+        return [str(h) for h in sorted(bronze_hashed - in_spadl)]
 
 
 skip_guard = _VaepGuard()
@@ -300,12 +417,27 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                 "competition_id",
                 "season_id",
                 "data_source",
+                # LL2: action_id surfaced through (was 100% NULL pre-LL2).
+                "action_id",
                 # Provider-namespaced StatsBomb-native fields carried through from
-                # spadl_actions. NULL on Wyscout / IDSSE / SkillCorner code paths.
+                # spadl_actions. NULL on Wyscout / IDSSE / Metrica code paths.
                 "statsbomb_possession_id",
                 "statsbomb_possession_team_id",
                 "statsbomb_play_pattern",
                 "statsbomb_under_pressure",
+                # LL2: 6 post-conversion enrichment columns from apply_spadl_enrichments.
+                "possession_id_heuristic",
+                "gk_role",
+                "gk_was_distributing",
+                "gk_was_engaged",
+                "gk_actions_in_possession",
+                "defending_gk_player_id",
+                # LL2 Path B: native string identifiers carried through.
+                "team_id_native",
+                "home_team_id_native",
+                "competition_native_id",
+                "season_native_id",
+                "match_id_native",
             ]
         )
 
@@ -390,16 +522,27 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                                 "result_name",
                                 "bodypart_id",
                                 "bodypart_name",
+                                # LL2: action_id carried through from spadl_actions.
+                                "action_id",
                                 # Carry through provider-namespaced StatsBomb-native
-                                # fields (NULL for non-StatsBomb sources). The ``c in
-                                # game_actions.columns`` guard above tolerates the
-                                # Wyscout-only path where these columns may be absent
-                                # from the per-game frame; the post-concat schema
-                                # alignment fills them as NULL.
+                                # fields (NULL for non-StatsBomb sources).
                                 "statsbomb_possession_id",
                                 "statsbomb_possession_team_id",
                                 "statsbomb_play_pattern",
                                 "statsbomb_under_pressure",
+                                # LL2: 6 enrichment columns (populated for ALL sources).
+                                "possession_id_heuristic",
+                                "gk_role",
+                                "gk_was_distributing",
+                                "gk_was_engaged",
+                                "gk_actions_in_possession",
+                                "defending_gk_player_id",
+                                # LL2 Path B: native string identifiers.
+                                "team_id_native",
+                                "home_team_id_native",
+                                "competition_native_id",
+                                "season_native_id",
+                                "match_id_native",
                             ]
                             if c in game_actions.columns
                         ]
@@ -469,7 +612,18 @@ def run_pipeline(
     if filter_result.count == 0:
         raise WorkflowSkippedError("No new work")
 
-    unscored_ids = filter_result.metadata["unscored_vaep_match_ids"]
+    # LL2: union new_spadl_match_ids with unscored_vaep_match_ids at consumption
+    # time so Stage 2 sees the match_ids Stage 1 is about to add to spadl_actions
+    # in the same run. Production invariant: new_spadl ∩ unscored = ∅
+    # (a match_id is EITHER in events∧¬spadl OR in spadl∧¬vaep, not both),
+    # so the union is lossless. Pre-LL2 the guard pre-unioned at metadata
+    # storage time, but that broke test_guard_conformance's
+    # ``count == sum-of-metadata-list-lengths`` contract once IDSSE/Metrica
+    # match_ids that don't appear in mock-uniform unscored lists were added.
+    unscored_ids = sorted(
+        set(filter_result.metadata["unscored_vaep_match_ids"])
+        | set(filter_result.metadata.get("new_spadl_match_ids", [])),
+    )
 
     spadl_table = f"{catalog}.{schema}.{_SPADL_TABLE}"
 
@@ -480,9 +634,13 @@ def run_pipeline(
 
     sb_wrote = _convert_statsbomb_from_bronze(spark, catalog, schema, logger, existing_spadl_matches)
     ws_wrote = _convert_wyscout_from_bronze(spark, catalog, schema, logger, existing_spadl_matches)
+    # LL2 Path B: 4-source coverage. IDSSE + Metrica use string match_ids
+    # (hashed to BIGINT inside their UDFs for spadl_actions compat).
+    idsse_wrote = _convert_idsse_from_bronze(spark, catalog, schema, logger, existing_spadl_matches)
+    metrica_wrote = _convert_metrica_from_bronze(spark, catalog, schema, logger, existing_spadl_matches)
 
-    if not sb_wrote and not ws_wrote and not existing_spadl_matches:
-        msg = "No SPADL actions produced from either StatsBomb or Wyscout"
+    if not (sb_wrote or ws_wrote or idsse_wrote or metrica_wrote) and not existing_spadl_matches:
+        msg = "No SPADL actions produced from any source (StatsBomb / Wyscout / IDSSE / Metrica)"
         logger.error(msg)
         raise RuntimeError(msg)
 
@@ -529,7 +687,7 @@ def run_pipeline(
     unscored_sdf = spadl_sdf.filter(spark_fn.col("match_id").isin(unscored_match_ids))
 
     # Define output schema for scored actions
-    from pyspark.sql.types import DoubleType, LongType, StringType, StructField, StructType
+    from pyspark.sql.types import BooleanType, DoubleType, LongType, StringType, StructField, StructType
 
     vaep_schema = StructType(
         [
@@ -556,6 +714,27 @@ def run_pipeline(
             StructField("competition_id", LongType()),
             StructField("season_id", LongType()),
             StructField("data_source", StringType()),
+            # LL2: action_id carried through (closes pre-LL2 100%-NULL gap).
+            StructField("action_id", LongType()),
+            # PR-LL1 statsbomb_* — must be in this schema, otherwise applyInPandas
+            # silently drops them at the boundary. Closes the LL1 latent-bug class.
+            StructField("statsbomb_possession_id", LongType()),
+            StructField("statsbomb_possession_team_id", LongType()),
+            StructField("statsbomb_play_pattern", StringType()),
+            StructField("statsbomb_under_pressure", BooleanType()),
+            # LL2: 6 enrichment columns from apply_spadl_enrichments.
+            StructField("possession_id_heuristic", LongType()),
+            StructField("gk_role", StringType()),
+            StructField("gk_was_distributing", BooleanType()),
+            StructField("gk_was_engaged", BooleanType()),
+            StructField("gk_actions_in_possession", LongType()),
+            StructField("defending_gk_player_id", LongType()),
+            # LL2 Path B: native string identifiers carried through from spadl_actions.
+            StructField("team_id_native", StringType()),
+            StructField("home_team_id_native", StringType()),
+            StructField("competition_native_id", StringType()),
+            StructField("season_native_id", StringType()),
+            StructField("match_id_native", StringType()),
         ]
     )
 

@@ -35,12 +35,21 @@ sources:
       - name: vaep_action_values
         description: >
           SPADL actions with VAEP scores. Each row is a single on-ball action
-          converted from StatsBomb or Wyscout events into the unified SPADL
-          format, scored with offensive value, defensive value, and net VAEP.
-          Coordinates use the 105x68 meter academic standard.
+          converted from one of four event sources (StatsBomb, Wyscout, IDSSE,
+          Metrica) into the unified SPADL format, scored with offensive value,
+          defensive value, and net VAEP. Coordinates use the 105x68 meter
+          academic standard. PR-LL2 Path B added 4 native-string identifier
+          columns + 6 post-conversion enrichment columns + action_id surfacing.
         columns:
           - name: game_id
-            description: Match identifier from the source data
+            description: >
+              Match identifier as BIGINT. For StatsBomb / Wyscout: native
+              numeric ID. For IDSSE / Metrica: deterministic SHA-256 hash of
+              the bronze string match_id (the original is in
+              ``match_id_native``-equivalent context, but spadl_actions does
+              NOT carry a ``match_id_native`` column in PR-LL2 — defer to
+              future PR). Equal to ``match_id`` (legacy duplicate kept for
+              compat).
           - name: original_event_id
             description: Original event ID from the source data (nullable for synthetic dribbles)
           - name: period_id
@@ -48,9 +57,18 @@ sources:
           - name: time_seconds
             description: Seconds elapsed from the start of the period
           - name: team_id
-            description: Team performing the action
+            description: >
+              Team performing the action (BIGINT). NULL for IDSSE / Metrica —
+              use ``team_id_native`` joined to ``dim_teams.native_team_id``
+              instead.
           - name: player_id
-            description: Player performing the action
+            description: >
+              Player performing the action (BIGINT). NULL for IDSSE / Metrica
+              (PR-LL2 Path B does not surface player_id_native; future PR).
+          - name: action_id
+            description: >
+              LL2: Per-match action sequence number, surfaced from silly-kicks
+              ``convert_to_actions`` output. Pre-LL2 declared but 100% NULL.
           - name: start_x
             description: Action start X coordinate (0-105 meters)
           - name: start_y
@@ -72,11 +90,16 @@ sources:
           - name: vaep_value
             description: Net VAEP value (offensive + defensive)
           - name: data_source
-            description: Data provider (statsbomb, wyscout)
+            description: Data provider (statsbomb, wyscout, idsse, metrica)
           - name: competition_id
-            description: Competition identifier
+            description: >
+              Competition identifier (BIGINT). NULL for IDSSE / Metrica — use
+              ``competition_native_id`` joined to
+              ``dim_competitions.native_competition_id`` instead.
           - name: season_id
-            description: Season identifier
+            description: >
+              Season identifier (BIGINT). NULL for IDSSE / Metrica — use
+              ``season_native_id`` instead.
           - name: statsbomb_possession_id
             description: >
               StatsBomb-native possession sequence number (BIGINT). Surfaced
@@ -98,3 +121,56 @@ sources:
               StatsBomb-native pressure flag — True iff a defender was
               within ~1m of the actor at the moment of the event.
               NULL for non-StatsBomb sources.
+          - name: possession_id_heuristic
+            description: >
+              LL2: Heuristic possession sequence number from
+              ``silly_kicks.spadl.utils.add_possessions``. Provider-agnostic;
+              populated for ALL sources. ~93% recall vs StatsBomb's native
+              possession_id on the 3-match boundary fixture (precision ~42%
+              by algorithm-class limit; F1 ~0.58). The mart canonical
+              ``possession_id`` is sourced from this column. See ADR-016.
+          - name: gk_role
+            description: >
+              LL2: Goalkeeper-specific action role from
+              ``silly_kicks.spadl.utils.add_gk_role``. Categorical 5 values:
+              ``shot_save``, ``ball_distribution``, ``ball_claim``,
+              ``one_on_one``, ``general_play``. NULL on non-GK rows.
+          - name: gk_was_distributing
+            description: >
+              LL2: Boolean — true iff the GK was distributing in the action
+              immediately preceding this row's shot. Defaults False on
+              non-shot rows (silly-kicks contract).
+          - name: gk_was_engaged
+            description: >
+              LL2: Boolean — true iff the GK had taken any action in the
+              possession leading to this row's shot.
+          - name: gk_actions_in_possession
+            description: >
+              LL2: Count of GK actions in the possession leading to this
+              row's shot (0 on non-shot rows).
+          - name: defending_gk_player_id
+            description: >
+              LL2: Defending team's GK player_id for this row's shot
+              (BIGINT). NULL when not a shot or GK not identifiable.
+          - name: team_id_native
+            description: >
+              LL2 Path B: Native (string) team ID of the row's acting team.
+              For StatsBomb / Wyscout: stringified int. For IDSSE:
+              ``DFL-CLU-XXXXXX``. For Metrica: synthetic
+              ``Sample_Game_N-Home/Away``. Joins to
+              ``dim_teams.native_team_id`` on (provider, native_id).
+          - name: home_team_id_native
+            description: >
+              LL2 Path B: Native (string) home-team ID, constant per match.
+              Same domain conventions as ``team_id_native``.
+          - name: competition_native_id
+            description: >
+              LL2 Path B: Native (string) competition ID. For StatsBomb /
+              Wyscout: stringified int. For IDSSE: ``DFL-COM-XXXXXX``. For
+              Metrica: ``metrica-sample`` (constant for the open-data
+              dataset). Joins to ``dim_competitions.native_competition_id``.
+          - name: season_native_id
+            description: >
+              LL2 Path B: Native (string) season ID. For StatsBomb /
+              Wyscout: stringified int. For IDSSE: ``DFL-SEA-XXXXXX``. For
+              Metrica: ``metrica-open-2017`` (constant).
