@@ -786,3 +786,438 @@ class TestParseEventsXML:
         for row in rows:
             missing = core - set(row.keys())
             assert not missing, f"row {row.get('event_id')} missing core cols: {sorted(missing)}"
+
+
+class TestParseMatchIdsArg:
+    """`_parse_match_ids_arg` — CLI subset parsing + validation.
+
+    Used by the Terraform `for_each_task` fan-out: each child iteration
+    receives `--match-ids "J03WMX,J03WN1"` (comma-separated subset,
+    runtime-discovered by the preflight task). `main()` calls this helper
+    to parse + validate.
+    """
+
+    def test_returns_none_for_none_input(self) -> None:
+        from ingestion.idsse import _parse_match_ids_arg
+
+        assert _parse_match_ids_arg(None) is None
+
+    def test_returns_none_for_empty_string(self) -> None:
+        from ingestion.idsse import _parse_match_ids_arg
+
+        assert _parse_match_ids_arg("") is None
+
+    def test_parses_single_id(self) -> None:
+        from ingestion.idsse import _parse_match_ids_arg
+
+        assert _parse_match_ids_arg("J03WMX") == ["J03WMX"]
+
+    def test_parses_comma_separated_list(self) -> None:
+        from ingestion.idsse import _parse_match_ids_arg
+
+        assert _parse_match_ids_arg("J03WMX,J03WN1") == ["J03WMX", "J03WN1"]
+
+    def test_strips_whitespace(self) -> None:
+        from ingestion.idsse import _parse_match_ids_arg
+
+        assert _parse_match_ids_arg(" J03WMX , J03WN1 ") == ["J03WMX", "J03WN1"]
+
+    def test_skips_empty_segments(self) -> None:
+        from ingestion.idsse import _parse_match_ids_arg
+
+        assert _parse_match_ids_arg("J03WMX,,J03WN1") == ["J03WMX", "J03WN1"]
+
+    def test_rejects_unknown_id(self) -> None:
+        from ingestion.idsse import _parse_match_ids_arg
+
+        with pytest.raises(SystemExit) as excinfo:
+            _parse_match_ids_arg("BOGUS_ID")
+        assert "BOGUS_ID" in str(excinfo.value)
+
+    def test_rejects_mixed_known_and_unknown(self) -> None:
+        from ingestion.idsse import _parse_match_ids_arg
+
+        with pytest.raises(SystemExit) as excinfo:
+            _parse_match_ids_arg("J03WMX,BOGUS")
+        assert "BOGUS" in str(excinfo.value)
+
+    def test_accepts_full_idsse_match_id_set(self) -> None:
+        from ingestion.idsse import IDSSE_MATCH_IDS, _parse_match_ids_arg
+
+        joined = ",".join(IDSSE_MATCH_IDS)
+        result = _parse_match_ids_arg(joined)
+        assert result == list(IDSSE_MATCH_IDS)
+
+
+class TestRunPipelineMatchIds:
+    """`run_pipeline` forwards `match_ids` to the inner ingest functions.
+
+    Verifies the for_each_task wiring at the run_pipeline boundary.
+    """
+
+    def test_run_pipeline_forwards_match_ids_to_both_inner_functions(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        from ingestion.guards import FilterResult
+        from ingestion.idsse import run_pipeline
+
+        spark = MagicMock()
+        logger_mock = MagicMock()
+        fr = FilterResult(workflow_id="wf-idsse", count=2)
+        chunk = ["J03WMX", "J03WN1"]
+
+        with (
+            patch("ingestion.idsse.ingest_idsse") as mock_track,
+            patch("ingestion.idsse.ingest_idsse_events") as mock_events,
+        ):
+            run_pipeline(
+                spark,
+                "cat",
+                "schema",
+                logger_mock,
+                filter_result=fr,
+                match_ids=chunk,
+            )
+
+        assert mock_track.call_args.kwargs.get("match_ids") == chunk
+        assert mock_events.call_args.kwargs.get("match_ids") == chunk
+
+    def test_run_pipeline_default_match_ids_is_none(self) -> None:
+        """Backward-compat: existing callers passing no match_ids see None."""
+        from unittest.mock import MagicMock, patch
+
+        from ingestion.guards import FilterResult
+        from ingestion.idsse import run_pipeline
+
+        spark = MagicMock()
+        logger_mock = MagicMock()
+        fr = FilterResult(workflow_id="wf-idsse", count=7)
+
+        with (
+            patch("ingestion.idsse.ingest_idsse") as mock_track,
+            patch("ingestion.idsse.ingest_idsse_events") as mock_events,
+        ):
+            run_pipeline(spark, "cat", "schema", logger_mock, filter_result=fr)
+
+        assert mock_track.call_args.kwargs.get("match_ids") is None
+        assert mock_events.call_args.kwargs.get("match_ids") is None
+
+    def test_run_pipeline_skip_when_count_zero_does_not_invoke_ingest(self) -> None:
+        """When filter_result.count == 0, the inner ingest functions are
+        NOT invoked. The @workflow decorator's runner catches the internal
+        WorkflowSkippedError and returns cleanly — we verify skip
+        semantics by asserting no work was performed."""
+        from unittest.mock import MagicMock, patch
+
+        from ingestion.guards import FilterResult
+        from ingestion.idsse import run_pipeline
+
+        spark = MagicMock()
+        logger_mock = MagicMock()
+        fr = FilterResult(workflow_id="wf-idsse", count=0)
+
+        with (
+            patch("ingestion.idsse.ingest_idsse") as mock_track,
+            patch("ingestion.idsse.ingest_idsse_events") as mock_events,
+        ):
+            run_pipeline(
+                spark,
+                "cat",
+                "schema",
+                logger_mock,
+                filter_result=fr,
+                match_ids=["J03WMX", "J03WN1"],
+            )
+            mock_track.assert_not_called()
+            mock_events.assert_not_called()
+
+
+class TestMainCliE2E:
+    """End-to-end test of the iteration's CLI flow.
+
+    Exercises the full path that each `ingest_idsse_iteration` task hits:
+    `python -m ingestion.idsse --catalog cat --schema bronze --match-ids "J03WMX,J03WN1"`
+    Mocks only the Spark session + bootstrap + the inner ingest functions.
+    """
+
+    def test_main_with_chunk_subset_threads_through_to_ingest(self, monkeypatch) -> None:
+        from unittest.mock import MagicMock, patch
+
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "ingest_idsse",
+                "--catalog",
+                "soccer_analytics",
+                "--schema",
+                "bronze",
+                "--match-ids",
+                "J03WMX,J03WN1",
+            ],
+        )
+
+        with (
+            patch("ingestion.idsse.get_spark_session") as mock_spark,
+            patch("ingestion.bootstrap.bootstrap_hooks"),
+            patch("ingestion.idsse.timed_check") as mock_check,
+            patch("ingestion.idsse.ingest_idsse") as mock_track,
+            patch("ingestion.idsse.ingest_idsse_events") as mock_events,
+        ):
+            from ingestion.guards import FilterResult
+
+            mock_spark.return_value = MagicMock()
+            mock_check.return_value = FilterResult(workflow_id="wf-idsse", count=2)
+
+            from ingestion.idsse import main
+
+            main()
+
+        assert mock_track.call_count == 1
+        assert mock_events.call_count == 1
+        assert mock_track.call_args.kwargs.get("match_ids") == ["J03WMX", "J03WN1"]
+        assert mock_events.call_args.kwargs.get("match_ids") == ["J03WMX", "J03WN1"]
+
+    def test_main_without_match_ids_processes_all(self, monkeypatch) -> None:
+        from unittest.mock import MagicMock, patch
+
+        monkeypatch.setattr(
+            "sys.argv",
+            ["ingest_idsse", "--catalog", "soccer_analytics", "--schema", "bronze"],
+        )
+
+        with (
+            patch("ingestion.idsse.get_spark_session") as mock_spark,
+            patch("ingestion.bootstrap.bootstrap_hooks"),
+            patch("ingestion.idsse.timed_check") as mock_check,
+            patch("ingestion.idsse.ingest_idsse") as mock_track,
+            patch("ingestion.idsse.ingest_idsse_events") as mock_events,
+        ):
+            from ingestion.guards import FilterResult
+
+            mock_spark.return_value = MagicMock()
+            mock_check.return_value = FilterResult(workflow_id="wf-idsse", count=7)
+
+            from ingestion.idsse import main
+
+            main()
+
+        assert mock_track.call_args.kwargs.get("match_ids") is None
+        assert mock_events.call_args.kwargs.get("match_ids") is None
+
+    def test_main_with_unknown_match_id_exits(self, monkeypatch) -> None:
+        """Fail-fast: SystemExit before any Spark session is created."""
+        from unittest.mock import patch
+
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "ingest_idsse",
+                "--catalog",
+                "soccer_analytics",
+                "--schema",
+                "bronze",
+                "--match-ids",
+                "J03WMX,BOGUS_ID",
+            ],
+        )
+
+        with (
+            patch("ingestion.idsse.get_spark_session"),
+            patch("ingestion.bootstrap.bootstrap_hooks"),
+            patch("ingestion.idsse.ingest_idsse") as mock_track,
+        ):
+            from ingestion.idsse import main
+
+            with pytest.raises(SystemExit) as excinfo:
+                main()
+            assert "BOGUS_ID" in str(excinfo.value)
+            mock_track.assert_not_called()
+
+
+class TestIdsseGuardChunks:
+    """`_IdsseGuard.check()` runtime chunk discovery.
+
+    The guard anti-joins IDSSE_MATCH_IDS against (tracking ∩ events) to
+    determine missing matches, then partitions them into chunks of size
+    `chunk_size` (default 2). The preflight task forwards these chunks
+    to the for_each_task fan-out via `dbutils.jobs.taskValues`.
+    """
+
+    def _mock_spark_with_match_ids(
+        self,
+        tracking_ids: set[str],
+        events_ids: set[str],
+    ) -> object:
+        """Build a MagicMock Spark whose `.table(...).select(...).distinct().collect()`
+        returns rows with the configured match_ids per table name."""
+        from unittest.mock import MagicMock
+
+        spark = MagicMock()
+
+        def table_side_effect(name: str) -> MagicMock:
+            mock_df = MagicMock()
+            ids = events_ids if "events" in name else tracking_ids
+            mock_rows = []
+            for mid in ids:
+                row = MagicMock()
+                row.__getitem__ = lambda self, key, _mid=mid: _mid
+                mock_rows.append(row)
+            mock_df.select.return_value.distinct.return_value.collect.return_value = mock_rows
+            return mock_df
+
+        spark.table.side_effect = table_side_effect
+        return spark
+
+    def test_all_seven_missing_returns_four_chunks(self) -> None:
+        from ingestion.idsse import IDSSE_MATCH_IDS, skip_guard
+
+        spark = self._mock_spark_with_match_ids(set(), set())
+        result = skip_guard.check(spark, "cat", "bronze")
+
+        assert result.workflow_id == "wf-idsse"
+        assert result.count == 7
+        assert result.chunks is not None
+        assert len(result.chunks) == 4  # ceil(7 / 2)
+        # Sizing: 2,2,2,1
+        assert [len(c) for c in result.chunks] == [2, 2, 2, 1]
+        # All match IDs accounted for, in deterministic order
+        flattened = [mid for chunk in result.chunks for mid in chunk]
+        assert flattened == list(IDSSE_MATCH_IDS)
+
+    def test_all_seven_done_returns_count_zero_no_chunks(self) -> None:
+        from ingestion.idsse import IDSSE_MATCH_IDS, skip_guard
+
+        all_ids = set(IDSSE_MATCH_IDS)
+        spark = self._mock_spark_with_match_ids(all_ids, all_ids)
+        result = skip_guard.check(spark, "cat", "bronze")
+
+        assert result.count == 0
+        assert result.chunks is None or result.chunks == []
+
+    def test_partial_three_missing_returns_two_chunks(self) -> None:
+        from ingestion.idsse import IDSSE_MATCH_IDS, skip_guard
+
+        # First 4 done (in both tables), last 3 missing.
+        done = set(IDSSE_MATCH_IDS[:4])
+        spark = self._mock_spark_with_match_ids(done, done)
+        result = skip_guard.check(spark, "cat", "bronze")
+
+        assert result.count == 3
+        assert result.chunks is not None
+        assert len(result.chunks) == 2  # ceil(3 / 2)
+        assert [len(c) for c in result.chunks] == [2, 1]
+        flattened = [mid for chunk in result.chunks for mid in chunk]
+        assert sorted(flattened) == sorted(IDSSE_MATCH_IDS[4:])
+
+    def test_match_in_tracking_but_not_events_counts_as_missing(self) -> None:
+        """A match is 'complete' only when present in BOTH tracking AND events.
+
+        If tracking has it but events doesn't (e.g. mid-flight from a
+        previous job run), the match must still be re-attempted so the
+        events ingestion gets a chance to run."""
+        from ingestion.idsse import IDSSE_MATCH_IDS, skip_guard
+
+        all_ids = set(IDSSE_MATCH_IDS)
+        partial_events = all_ids - {IDSSE_MATCH_IDS[0]}  # missing one in events
+        spark = self._mock_spark_with_match_ids(all_ids, partial_events)
+
+        result = skip_guard.check(spark, "cat", "bronze")
+        assert result.count == 1
+        assert result.chunks == [[IDSSE_MATCH_IDS[0]]]
+
+    def test_chunk_size_is_two(self) -> None:
+        from ingestion.idsse import _IdsseGuard
+
+        assert _IdsseGuard.chunk_size == 2
+
+    def test_no_chunk_exceeds_chunk_size(self) -> None:
+        """Sizing invariant — preserved for any subset of missing matches."""
+        from ingestion.idsse import IDSSE_MATCH_IDS, skip_guard
+
+        # 5 missing
+        done = set(IDSSE_MATCH_IDS[:2])
+        spark = self._mock_spark_with_match_ids(done, done)
+        result = skip_guard.check(spark, "cat", "bronze")
+
+        assert result.chunks is not None
+        for chunk in result.chunks:
+            assert len(chunk) <= skip_guard.chunk_size
+
+
+class TestPreflightIdsse:
+    """`main_preflight` runs the guard and writes chunks to task values.
+
+    Output contract: `dbutils.jobs.taskValues.set(key="idsse_match_chunks",
+    value=<list>)` where `<list>` is a list of comma-separated match-ID
+    strings, exactly the shape that the for_each_task `inputs` field
+    expects. Empty list when no work — for_each_task spawns 0 iterations.
+    """
+
+    def test_preflight_writes_chunks_in_for_each_input_format(self, monkeypatch) -> None:
+        from unittest.mock import MagicMock, patch
+
+        monkeypatch.setattr(
+            "sys.argv",
+            ["preflight_idsse", "--catalog", "soccer_analytics", "--schema", "bronze"],
+        )
+
+        from ingestion.guards import FilterResult
+
+        with (
+            patch("ingestion.idsse.get_spark_session") as mock_spark,
+            patch("ingestion.bootstrap.bootstrap_hooks"),
+            patch("ingestion.idsse.timed_check") as mock_check,
+            patch("ingestion.idsse._write_match_chunks_task_value") as mock_write,
+        ):
+            mock_spark.return_value = MagicMock()
+            mock_check.return_value = FilterResult(
+                workflow_id="wf-idsse",
+                count=3,
+                chunks=[["J03WMX", "J03WN1"], ["J03WPY"]],
+            )
+
+            from ingestion.idsse import main_preflight
+
+            main_preflight()
+
+        # Helper called once with the for_each-shaped chunks.
+        assert mock_write.call_count == 1
+        chunks_for_inputs = mock_write.call_args.args[0]
+        assert chunks_for_inputs == ["J03WMX,J03WN1", "J03WPY"]
+
+    def test_preflight_writes_empty_list_when_no_work(self, monkeypatch) -> None:
+        from unittest.mock import MagicMock, patch
+
+        monkeypatch.setattr(
+            "sys.argv",
+            ["preflight_idsse", "--catalog", "soccer_analytics", "--schema", "bronze"],
+        )
+
+        from ingestion.guards import FilterResult
+
+        with (
+            patch("ingestion.idsse.get_spark_session") as mock_spark,
+            patch("ingestion.bootstrap.bootstrap_hooks"),
+            patch("ingestion.idsse.timed_check") as mock_check,
+            patch("ingestion.idsse._write_match_chunks_task_value") as mock_write,
+        ):
+            mock_spark.return_value = MagicMock()
+            mock_check.return_value = FilterResult(workflow_id="wf-idsse", count=0)
+
+            from ingestion.idsse import main_preflight
+
+            main_preflight()
+
+        # Empty list → for_each_task spawns 0 iterations.
+        chunks_for_inputs = mock_write.call_args.args[0]
+        assert chunks_for_inputs == []
+
+    def test_write_helper_degrades_cleanly_outside_databricks(self) -> None:
+        """The dbutils import fails in local/test mode; the helper logs and returns."""
+        from unittest.mock import MagicMock
+
+        from ingestion.idsse import _write_match_chunks_task_value
+
+        logger_mock = MagicMock()
+        # Should NOT raise, even though dbutils.jobs.taskValues is unavailable.
+        _write_match_chunks_task_value(["J03WMX,J03WN1"], logger_mock)

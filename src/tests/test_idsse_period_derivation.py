@@ -36,6 +36,71 @@ class TestKickoffScanPassOne:
         assert result[1].isoformat().startswith("2026-01-01T15:00:00")
         assert result[2].isoformat().startswith("2026-01-01T16:00:00")
 
+    def test_pass_one_handles_production_timestamp_format(self, tmp_path: Path) -> None:
+        """Production DFL XML uses milliseconds + non-UTC offsets like '+02:00'.
+
+        Regression guard for the regex-based pass-1 scan: the byte regex must
+        capture the whole ISO-8601 value including the fractional-second and
+        timezone-offset suffix, and ``datetime.fromisoformat`` must convert
+        the local-time offset to UTC.
+        """
+        xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<PutDataRequest>
+  <EventList>
+    <Event MatchId="DFL-MAT-PROD" EventId="e1" EventTime="2023-05-27T15:30:00.123+02:00">
+      <KickOff GameSection="firstHalf"/>
+    </Event>
+    <Event MatchId="DFL-MAT-PROD" EventId="e2" EventTime="2023-05-27T16:34:56.789+02:00">
+      <KickOff GameSection="secondHalf"/>
+    </Event>
+  </EventList>
+</PutDataRequest>
+"""
+        fixture = tmp_path / "prod.xml"
+        fixture.write_bytes(xml)
+        result = _scan_kickoff_times(str(fixture))
+        assert set(result.keys()) == {1, 2}
+        # +02:00 → UTC: 15:30:00 → 13:30:00, 16:34:56 → 14:34:56.
+        assert result[1].isoformat().startswith("2023-05-27T13:30:00")
+        assert result[2].isoformat().startswith("2023-05-27T14:34:56")
+
+    def test_pass_one_tolerates_arbitrary_event_attribute_order(self, tmp_path: Path) -> None:
+        """``EventTime`` may not be the last attribute on the ``<Event>`` open tag.
+
+        The lazy ``[^>]*?`` patterns in ``_KICKOFF_REGEX`` allow EventTime
+        anywhere in the attribute list. Regression guard for any future
+        attempt to anchor the EventTime capture.
+        """
+        xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<PutDataRequest>
+  <EventList>
+    <Event EventTime="2023-05-27T15:30:00+00:00" MatchId="DFL-MAT-PROD" EventId="e1">
+      <KickOff Foo="bar" GameSection="firstHalf"/>
+    </Event>
+  </EventList>
+</PutDataRequest>
+"""
+        fixture = tmp_path / "reorder.xml"
+        fixture.write_bytes(xml)
+        result = _scan_kickoff_times(str(fixture))
+        assert set(result.keys()) == {1}
+        assert result[1].isoformat().startswith("2023-05-27T15:30:00")
+
+    def test_pass_one_returns_empty_when_no_kickoffs(self, tmp_path: Path) -> None:
+        """Empty dict for inputs with no recognized KickOffs."""
+        xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<PutDataRequest>
+  <EventList>
+    <Event MatchId="DFL-MAT-PROD" EventId="e1" EventTime="2023-05-27T15:30:00+00:00">
+      <TacklingGame Winner="p1" WinnerTeam="DFL-CLU-A"/>
+    </Event>
+  </EventList>
+</PutDataRequest>
+"""
+        fixture = tmp_path / "no_kickoff.xml"
+        fixture.write_bytes(xml)
+        assert _scan_kickoff_times(str(fixture)) == {}
+
 
 class TestSecondaryBlockEventGetsCorrectPeriod:
     """Pass 2 — events derive period from event_time, not stream-order."""

@@ -600,25 +600,50 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "hf"
   }
 
-  # ── Task: Ingest IDSSE Bundesliga tracking data ─────────────────────────
-  # Uses stdlib XML parser — reads pre-downloaded DFL XML from UC Volume.
-  # No floodlight dependency needed (only pandas from default env).
+  # ── Task: Ingest IDSSE Bundesliga tracking data (for_each_task fan-out) ──
+  # PR-Cycle-A (2026-04-30): Runtime-discovered fan-out. The chunk array
+  # comes from `preflight_idsse` via task-value substitution; each chunk
+  # is a comma-separated match-ID list (e.g. "J03WMX,J03WN1"), forwarded
+  # to `--match-ids` of the iteration's `ingest_idsse` entry point.
+  #
+  # Behavior:
+  #   - All 7 missing → 4 chunks → 4 parallel iterations → ~13 min wall-clock
+  #   - Partial (e.g. 3 missing) → 2 chunks → 2 iterations
+  #   - No missing → 0 iterations spawned (preflight emitted [])
+  #
+  # Downstream tasks reference this task as `ingest_idsse` (the parent);
+  # Databricks resolves dependencies against the for_each_task parent
+  # rather than individual iterations.
   task {
-    task_key        = "ingest_idsse"
-    timeout_seconds = 900
-    max_retries     = 1
+    task_key = "ingest_idsse"
 
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "ingest_idsse"
-
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze"
-      ]
+    depends_on {
+      task_key = "preflight_idsse"
     }
 
-    environment_key = "default"
+    for_each_task {
+      inputs      = "{{tasks.preflight_idsse.values.idsse_match_chunks}}"
+      concurrency = 4
+
+      task {
+        task_key        = "ingest_idsse_iteration"
+        timeout_seconds = 900
+        max_retries     = 1
+
+        python_wheel_task {
+          package_name = "luxury_lakehouse"
+          entry_point  = "ingest_idsse"
+
+          parameters = [
+            "--catalog", var.catalog_name,
+            "--schema", "bronze",
+            "--match-ids", "{{input}}",
+          ]
+        }
+
+        environment_key = "default"
+      }
+    }
   }
 
   # ── Task: Ingest IDSSE event data (DFL event XML) ──────────────────────
@@ -718,6 +743,34 @@ resource "databricks_job" "data_ingestion" {
         "--catalog", var.catalog_name,
         "--schema", "bronze",
         "--data-dir", "/Volumes/${var.catalog_name}/bronze/libs/wyscout"
+      ]
+    }
+
+    environment_key = "default"
+  }
+
+  # ── Task: IDSSE preflight — discover unprocessed matches + emit chunks ────
+  # PR-Cycle-A (2026-04-30): Runtime chunk discovery for the for_each_task
+  # fan-out. Anti-joins IDSSE_MATCH_IDS against bronze.idsse_tracking ∩
+  # bronze.idsse_events, partitions missing matches into chunks of size 2
+  # (per `_IdsseGuard.chunk_size` in src/ingestion/idsse.py), and writes
+  # the chunks as a Databricks task value `idsse_match_chunks`.
+  #
+  # The downstream `ingest_idsse` for_each_task consumes the task value
+  # via `{{tasks.preflight_idsse.values.idsse_match_chunks}}` — no
+  # hardcoded chunks, no Terraform changes when adding/removing matches.
+  task {
+    task_key        = "preflight_idsse"
+    timeout_seconds = 300
+    max_retries     = 1
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "preflight_idsse"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
       ]
     }
 

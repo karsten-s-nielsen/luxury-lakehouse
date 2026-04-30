@@ -237,7 +237,9 @@ def test_data_ingestion_parser_count_anchor() -> None:
     env_keys = _extract_top_level_block_keys(text, "databricks_job", "data_ingestion", "environment", "environment_key")
     task_keys = _extract_top_level_block_keys(text, "databricks_job", "data_ingestion", "task", "task_key")
     assert len(env_keys) == 7, f"expected 7 environment blocks on data_ingestion, parser found {len(env_keys)}"
-    assert len(task_keys) == 29, f"expected 29 task blocks on data_ingestion, parser found {len(task_keys)}"
+    # 29 → 30 in PR-Cycle-A (2026-04-30): added `preflight_idsse` for runtime
+    # chunk discovery feeding the `ingest_idsse` for_each_task fan-out.
+    assert len(task_keys) == 30, f"expected 30 task blocks on data_ingestion, parser found {len(task_keys)}"
 
 
 if __name__ == "__main__":
