@@ -1005,9 +1005,16 @@ def _make_idsse_spadl_udf() -> object:
         # is consistent with ``team_id_native`` / ``team_key`` (Kimball
         # joins use the BIGINT keys against ``dim_players.player_key`` /
         # ``dim_teams.team_key``; the native strings preserve provenance).
+        from typing import Any as _Any
+
         from ingestion.spadl_adapter import hash_native_id_to_bigint as _hash_native
 
-        def _hash_or_na(v: object) -> object:
+        def _hash_or_na(v: _Any) -> _Any:
+            # Param/return are Any (rather than object) because the value
+            # comes from a pandas Series.map and may be str | float (NaN) |
+            # pd.NAType; pandas-stubs's pd.isna() accepts Scalar but not
+            # the broader ``object`` annotation pyright would otherwise
+            # infer here.
             if v is None or _pd.isna(v):
                 return _pd.NA
             s = str(v)
