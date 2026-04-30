@@ -4,8 +4,10 @@ name: Probe SDK statement_execution
 # (POST /api/2.0/sql/statements/) works against the workspace's SQL warehouse from
 # this CI environment.
 #
-# Triggered manually via `gh workflow run --ref <branch>`. Not bound to PR events
-# because this is a one-time CI-environment capability check, not a per-PR gate.
+# Triggered automatically when this workflow file is touched on a PR (so the
+# probe runs in the same CI environment we're trying to validate). Also exposed
+# via workflow_dispatch for retry/manual invocation. Not a per-PR gate — once
+# we have the answer, the file gets deleted in the same PR that ships the fix.
 #
 # Background: PR #235's live-build hit `databricks-sql-connector` Thrift retry
 # timeouts repeatedly (3 distinct CI runs) regardless of warehouse cold/warm
@@ -19,6 +21,9 @@ name: Probe SDK statement_execution
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/probe-sdk-statement-execution.yml"
 
 permissions:
   contents: read
