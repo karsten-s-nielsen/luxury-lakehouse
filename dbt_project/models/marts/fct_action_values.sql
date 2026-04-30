@@ -160,6 +160,14 @@ actions_with_score as (
         av.season_native_id,
         av.match_id_native,
 
+        -- PR-LL2 Path B close-out (2026-04-29, ADR-018): silly-kicks 2.0.0
+        -- sportec tackle qualifier passthrough. NULL on non-sportec rows
+        -- and on sportec rows where the DFL XML qualifier was absent.
+        av.tackle_winner_player_id,
+        av.tackle_winner_team_id,
+        av.tackle_loser_player_id,
+        av.tackle_loser_team_id,
+
         -- Running score for game state derivation
         rs.home_score_after,
         rs.away_score_after,
@@ -262,6 +270,12 @@ final as (
         competition_native_id,
         season_native_id,
         match_id_native,
+        -- PR-LL2 Path B close-out (2026-04-29, ADR-018): silly-kicks 2.0.0
+        -- sportec tackle qualifier passthrough.
+        tackle_winner_player_id,
+        tackle_winner_team_id,
+        tackle_loser_player_id,
+        tackle_loser_team_id,
         -- Game state — uses _rs_home_team_id (BIGINT from running_score) which
         -- only resolves for SB/WS (numeric team_id). For IDSSE/Metrica where
         -- team_id is NULL, comparison `team_id = _rs_home_team_id` is NULL,

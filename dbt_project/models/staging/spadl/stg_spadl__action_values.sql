@@ -42,16 +42,14 @@ deduplicated as (
 
 ),
 
--- Wyscout → StatsBomb competition ID mapping so all SPADL actions use
--- a single competition ID space (StatsBomb IDs).
-comp_mapping as (
-
-    select
-        wyscout_competition_id,
-        statsbomb_competition_id
-    from {{ ref('competition_id_mapping') }}
-
-),
+-- PR-LL2 Path B close-out (2026-04-29, ADR-018): the wyscout→statsbomb
+-- competition_id mapping that previously coalesced at this layer was
+-- dropped. competition_id is now provider-native everywhere — wyscout
+-- rows carry raw wyscout IDs (e.g., 795 for La Liga), statsbomb rows
+-- carry statsbomb IDs (11 for La Liga). Cross-provider competition
+-- equivalence is a query-layer concern; the `competition_id_mapping`
+-- seed remains as documentation. See `stg_wyscout__matches.sql` header
+-- for full rationale.
 
 cleaned as (
 
@@ -110,8 +108,7 @@ cleaned as (
 
         -- Provenance
         data_source,
-        cast(coalesce(cm.statsbomb_competition_id,
-                 cast(competition_id as int)) as int)    as competition_id,
+        cast(competition_id as int)                      as competition_id,
         cast(season_id as int)                          as season_id,
 
         -- Provider-namespaced StatsBomb-native fields (silly-kicks 1.5.0+
@@ -140,11 +137,18 @@ cleaned as (
         home_team_id_native,
         competition_native_id,
         season_native_id,
-        match_id_native
+        match_id_native,
+
+        -- PR-LL2 Path B close-out (2026-04-29): silly-kicks 2.0.0 sportec
+        -- tackle qualifier passthrough. NULL on non-sportec rows + on
+        -- sportec rows where the DFL ``tackle_winner`` qualifier was
+        -- absent. Per ADR-016 + ADR-018 + silly-kicks ADR-001.
+        tackle_winner_player_id,
+        tackle_winner_team_id,
+        tackle_loser_player_id,
+        tackle_loser_team_id
 
     from deduplicated d
-    left join comp_mapping cm
-        on cast(d.competition_id as int) = cm.wyscout_competition_id
     where d._row_num = 1
       -- PR 7 hotfix #3 followup: Wyscout open-data uses `playerId: 0` as an
       -- "unknown player" sentinel (16,133 of 2,465,557 = 0.65% action rows).

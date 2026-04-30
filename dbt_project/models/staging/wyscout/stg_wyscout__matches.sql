@@ -1,9 +1,29 @@
 -- stg_wyscout__matches.sql
--- Wyscout match metadata with competition ID mapped to StatsBomb ID space.
+-- Wyscout match metadata. Source-faithful — competition_id is the RAW
+-- wyscout-native ID (e.g., 795 for La Liga, NOT mapped to statsbomb's 11).
 --
--- The competition_id_mapping seed translates Wyscout-native competition IDs
--- (e.g., 795 for La Liga) to StatsBomb competition IDs (e.g., 11 for La Liga)
--- so all downstream models use a single competition ID space.
+-- PR-LL2 Path B close-out (2026-04-29, ADR-018): the staging-time
+-- coalesce(statsbomb_competition_id, raw) mapping was dropped. Reasons:
+--
+-- 1. ADR-016 conformance — `<entity>_native` and the legacy `competition_id`
+--    column should both be PROVIDER-NATIVE (source-faithful). The previous
+--    mapping made the legacy column statsbomb-native and silently broke
+--    consistency with bronze.spadl_actions.competition_native_id which was
+--    raw wyscout (after PR-LL2 added the `_native` columns).
+-- 2. Cross-table format-contract (ADR-018) — bronze + dim must agree on the
+--    same value for `(provider, native_competition_id)` JOINs to resolve.
+--    Both sides now use the same RAW wyscout value.
+-- 3. Single-source semantics — statsbomb / idsse / metrica all keep raw
+--    native IDs at staging; wyscout was the only outlier with a baked-in
+--    cross-provider transform.
+--
+-- The `competition_id_mapping` seed is RETAINED but no longer applied at
+-- staging — it remains as documentation of cross-provider competition
+-- equivalence (e.g., for query-layer joins or a future
+-- `dim_competition_xref` that maps semantically-equivalent competitions
+-- across providers). Existing fct_action_values.competition_id values
+-- shift from statsbomb-mapped to wyscout-raw on next mart rebuild;
+-- hardcoded query filters that relied on mapped values must update.
 
 with source as (
 
@@ -11,21 +31,11 @@ with source as (
 
 ),
 
-mapping as (
-
-    select
-        wyscout_competition_id,
-        statsbomb_competition_id
-    from {{ ref('competition_id_mapping') }}
-
-),
-
 final as (
 
     select
         cast(s.wyId as bigint)                           as match_id,
-        cast(coalesce(m.statsbomb_competition_id,
-                 cast(s.competitionId as int)) as int)    as competition_id,
+        cast(s.competitionId as int)                      as competition_id,
         cast(s.seasonId as int)                          as season_id,
         s.competition_name,
         s.dateutc                                        as match_date,
@@ -55,8 +65,6 @@ final as (
         'wyscout'                                        as data_source
 
     from source s
-    left join mapping m
-        on cast(s.competitionId as int) = m.wyscout_competition_id
 
 )
 

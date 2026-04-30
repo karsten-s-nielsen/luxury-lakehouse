@@ -97,6 +97,12 @@ def _build_statsbomb_spadl_struct():  # type: ignore[no-untyped-def]
             StructField("competition_native_id", StringType()),
             StructField("season_native_id", StringType()),
             StructField("match_id_native", StringType()),
+            # PR-LL2 Path B close-out (2026-04-29): silly-kicks 2.0.0 sportec
+            # tackle qualifier columns.
+            StructField("tackle_winner_player_id", LongType()),
+            StructField("tackle_winner_team_id", StringType()),
+            StructField("tackle_loser_player_id", LongType()),
+            StructField("tackle_loser_team_id", StringType()),
         ]
     )
 
@@ -147,6 +153,12 @@ def _build_wyscout_spadl_struct():  # type: ignore[no-untyped-def]
             StructField("competition_native_id", StringType()),
             StructField("season_native_id", StringType()),
             StructField("match_id_native", StringType()),
+            # PR-LL2 Path B close-out (2026-04-29): silly-kicks 2.0.0 sportec
+            # tackle qualifier columns.
+            StructField("tackle_winner_player_id", LongType()),
+            StructField("tackle_winner_team_id", StringType()),
+            StructField("tackle_loser_player_id", LongType()),
+            StructField("tackle_loser_team_id", StringType()),
         ]
     )
 
@@ -360,6 +372,70 @@ class TestSpadlVaepWriterDdlParity:
                 f"_VAEP_SCHEMA {col!r} type drift: got {ddl[col]!r}, expected {expected_type!r}"
             )
 
+    @pytest.mark.parametrize(
+        "struct_builder_name",
+        [
+            "_build_statsbomb_spadl_struct",
+            "_build_wyscout_spadl_struct",
+            "_build_idsse_spadl_struct",
+            "_build_metrica_spadl_struct",
+            "_build_vaep_scoring_struct",
+        ],
+    )
+    def test_struct_includes_tackle_qualifiers(self, struct_builder_name: str) -> None:
+        """PR-LL2 Path B close-out (2026-04-29): every applyInPandas StructType
+        in the SPADL/VAEP pipeline must include the 4 silly-kicks 2.0.0 tackle
+        qualifier columns (multi-source schema parity). NULL on non-sportec
+        rows; populated on sportec TacklingGame rows where DFL XML qualifier present.
+        ADR-018 + ADR-016."""
+        builder = globals()[struct_builder_name]
+        struct = builder()
+        cols = {f.name for f in struct.fields}
+        expected = {
+            "tackle_winner_player_id",
+            "tackle_winner_team_id",
+            "tackle_loser_player_id",
+            "tackle_loser_team_id",
+        }
+        missing = expected - cols
+        assert not missing, (
+            f"{struct_builder_name}: missing tackle qualifier columns {missing}. "
+            "silly-kicks 2.0.0 SPORTEC_SPADL_COLUMNS extension requires these "
+            "in every applyInPandas struct (multi-source parity)."
+        )
+
+    def test_spadl_ddl_includes_tackle_qualifiers(self) -> None:
+        """PR-LL2 Path B close-out: 4 tackle qualifier columns in _SPADL_SCHEMA."""
+        from ingestion import spadl_vaep
+
+        ddl = _parse_ddl(spadl_vaep._SPADL_SCHEMA)
+        for col, expected_type in (
+            ("tackle_winner_player_id", "long"),
+            ("tackle_winner_team_id", "string"),
+            ("tackle_loser_player_id", "long"),
+            ("tackle_loser_team_id", "string"),
+        ):
+            assert col in ddl, f"_SPADL_SCHEMA missing tackle qualifier column {col!r}"
+            assert ddl[col] == expected_type, (
+                f"_SPADL_SCHEMA {col!r} type drift: got {ddl[col]!r}, expected {expected_type!r}"
+            )
+
+    def test_vaep_ddl_includes_tackle_qualifiers(self) -> None:
+        """PR-LL2 Path B close-out: 4 tackle qualifier columns must propagate through to vaep_action_values."""
+        from ingestion import spadl_vaep
+
+        ddl = _parse_ddl(spadl_vaep._VAEP_SCHEMA)
+        for col, expected_type in (
+            ("tackle_winner_player_id", "long"),
+            ("tackle_winner_team_id", "string"),
+            ("tackle_loser_player_id", "long"),
+            ("tackle_loser_team_id", "string"),
+        ):
+            assert col in ddl, f"_VAEP_SCHEMA missing tackle qualifier column {col!r}"
+            assert ddl[col] == expected_type, (
+                f"_VAEP_SCHEMA {col!r} type drift: got {ddl[col]!r}, expected {expected_type!r}"
+            )
+
 
 def _build_metrica_spadl_struct():  # type: ignore[no-untyped-def]
     """Replay the Metrica applyInPandas StructType in spadl_conversion.py (LL2 Path B).
@@ -423,6 +499,14 @@ def _build_idsse_spadl_struct():  # type: ignore[no-untyped-def]
             StructField("home_team_id_native", StringType()),
             StructField("competition_native_id", StringType()),
             StructField("season_native_id", StringType()),
+            StructField("match_id_native", StringType()),
+            # PR-LL2 Path B close-out (2026-04-29): silly-kicks 2.0.0 sportec
+            # tackle qualifier columns. IDSSE writer populates these when
+            # the DFL XML qualifier is present; NaN otherwise.
+            StructField("tackle_winner_player_id", LongType()),
+            StructField("tackle_winner_team_id", StringType()),
+            StructField("tackle_loser_player_id", LongType()),
+            StructField("tackle_loser_team_id", StringType()),
         ]
     )
 
@@ -489,6 +573,12 @@ def _build_vaep_scoring_struct():  # type: ignore[no-untyped-def]
             StructField("competition_native_id", StringType()),
             StructField("season_native_id", StringType()),
             StructField("match_id_native", StringType()),
+            # PR-LL2 Path B close-out (2026-04-29): silly-kicks 2.0.0 sportec
+            # tackle qualifier columns carried through to vaep_action_values.
+            StructField("tackle_winner_player_id", LongType()),
+            StructField("tackle_winner_team_id", StringType()),
+            StructField("tackle_loser_player_id", LongType()),
+            StructField("tackle_loser_team_id", StringType()),
         ]
     )
 

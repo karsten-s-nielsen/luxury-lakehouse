@@ -70,6 +70,17 @@ _LL2_PATH_B_SPADL_COLS: dict[str, str] = {
     "match_id_native": "STRING",
 }
 
+# PR-LL2 Path B close-out (2026-04-29, ADR-018): silly-kicks 2.0.0 sportec
+# tackle qualifier columns added to bronze.spadl_actions + bronze.vaep_action_values.
+# NaN on non-sportec rows + on sportec rows where the DFL XML's tackle_winner
+# qualifier was absent. silly-kicks 2.0.0 SPORTEC_SPADL_COLUMNS extension.
+_PATH_B_CLOSE_OUT_TACKLE_COLS: dict[str, str] = {
+    "tackle_winner_player_id": "BIGINT",
+    "tackle_winner_team_id": "STRING",
+    "tackle_loser_player_id": "BIGINT",
+    "tackle_loser_team_id": "STRING",
+}
+
 # LL2 Path B for bronze events tables (idsse + metrica). away_team_id_native
 # is exposed on these but NOT on spadl_actions (which only carries the acting
 # team's id_native).
@@ -83,22 +94,26 @@ _LL2_PATH_B_EVENTS_COLS: dict[str, str] = {
 
 
 def _spadl_actions_target() -> dict[str, str]:
-    """Target columns for bronze.spadl_actions (LL1 backfill + LL2 + Path B)."""
+    """Target columns for bronze.spadl_actions (LL1 backfill + LL2 + Path B
+    + Path B close-out tackle qualifiers)."""
     return {
         **_LL1_STATSBOMB_NATIVE_COLS,
         **_LL2_ENRICHMENT_COLS,
         **_LL2_PATH_B_SPADL_COLS,
+        **_PATH_B_CLOSE_OUT_TACKLE_COLS,
     }
 
 
 def _vaep_action_values_target() -> dict[str, str]:
-    """Target columns for bronze.vaep_action_values (LL2 + Path B; LL1 statsbomb_*
-    cols already added by the PR-LL1 ALTER but kept here for idempotency safety)."""
+    """Target columns for bronze.vaep_action_values (LL2 + Path B + Path B
+    close-out tackle qualifiers; LL1 statsbomb_* cols already added by the
+    PR-LL1 ALTER but kept here for idempotency safety)."""
     return {
         **_LL1_STATSBOMB_NATIVE_COLS,
         **_LL2_ACTION_ID_COL,
         **_LL2_ENRICHMENT_COLS,
         **_LL2_PATH_B_SPADL_COLS,
+        **_PATH_B_CLOSE_OUT_TACKLE_COLS,
     }
 
 
