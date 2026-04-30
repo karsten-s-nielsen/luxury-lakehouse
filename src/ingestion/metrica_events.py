@@ -192,14 +192,20 @@ _METRICA_SEASON_NATIVE_ID = "metrica-open-2017"
 
 
 def _native_team_ids(match_id: str) -> tuple[str, str]:
-    """Synthesize stable home/away team identifiers for a Metrica sample match.
+    """Synthesize stable home/away team identifiers per ADR-018 canonical format.
 
-    Metrica's open-data sample doesn't expose actual club identifiers — events
-    only carry "Home" / "Away" labels. Returns deterministic synthetic IDs
-    keyed on ``match_id`` so downstream ``dim_teams`` lookups can match
-    against ``provider='metrica', native_team_id='Sample_Game_1-Home'``.
+    Returns a tuple of ``(home_native_id, away_native_id)`` matching
+    ``stg_metrica__team_players``'s ``concat('metrica_', match_id, '_', side)``
+    convention (lowercase, prefixed, underscore-separated).
+
+    Pre-2026-04-29 PR-LL2-Path-B-close-out, this returned
+    ``f"{match_id}-Home"`` / ``f"{match_id}-Away"`` (capital, hyphen) which
+    did not match the dim_teams convention — produced 100% NULL team_key on
+    fct_action_values for Metrica rows. ADR-018 + Bug #2.
     """
-    return f"{match_id}-Home", f"{match_id}-Away"
+    from shared.identifiers import metrica_native_team_id
+
+    return metrica_native_team_id(match_id, "home"), metrica_native_team_id(match_id, "away")
 
 
 _METRICA_EVENTS_DTYPE_OVERRIDES: dict[str, str] = {

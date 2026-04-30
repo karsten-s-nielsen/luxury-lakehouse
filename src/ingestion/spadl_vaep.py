@@ -77,9 +77,16 @@ _SPADL_SCHEMA = (
     "competition_native_id STRING, season_native_id STRING, "
     # match_id_native: required for fct_action_values to JOIN dim_matches on
     # (provider, native_match_id). For SB/WS it equals str(match_id); for
-    # IDSSE/Metrica it's the original string ('idsse_J03WMX' / 'Sample_Game_1')
-    # while the BIGINT match_id is its deterministic hash.
-    "match_id_native STRING"
+    # IDSSE/Metrica it's the original string ('J03WMX' / 'Sample_Game_1') while
+    # the BIGINT match_id is its deterministic hash.
+    "match_id_native STRING, "
+    # PR-LL2 Path B close-out (2026-04-29): silly-kicks 2.0.0 sportec tackle
+    # qualifier passthrough (4 columns, SPORTEC_SPADL_COLUMNS extension to
+    # KLOPPY_SPADL_COLUMNS). NaN on non-sportec rows + on tackle rows where
+    # the DFL ``tackle_winner`` qualifier was absent. Per silly-kicks ADR-001
+    # ("caller's team_id/player_id sacred") + luxury-lakehouse ADR-016/-018.
+    "tackle_winner_player_id BIGINT, tackle_winner_team_id STRING, "
+    "tackle_loser_player_id BIGINT, tackle_loser_team_id STRING"
 )
 _VAEP_TABLE = "vaep_action_values"
 _VAEP_SCHEMA = (
@@ -104,7 +111,11 @@ _VAEP_SCHEMA = (
     # See _SPADL_SCHEMA for naming + value conventions.
     "team_id_native STRING, home_team_id_native STRING, "
     "competition_native_id STRING, season_native_id STRING, "
-    "match_id_native STRING"
+    "match_id_native STRING, "
+    # PR-LL2 Path B close-out (2026-04-29): silly-kicks 2.0.0 sportec tackle
+    # qualifier passthrough (4 columns).
+    "tackle_winner_player_id BIGINT, tackle_winner_team_id STRING, "
+    "tackle_loser_player_id BIGINT, tackle_loser_team_id STRING"
 )
 
 
@@ -438,6 +449,12 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                 "competition_native_id",
                 "season_native_id",
                 "match_id_native",
+                # PR-LL2 Path B close-out (2026-04-29, ADR-018): silly-kicks 2.0.0
+                # sportec tackle qualifier columns carried through from spadl_actions.
+                "tackle_winner_player_id",
+                "tackle_winner_team_id",
+                "tackle_loser_player_id",
+                "tackle_loser_team_id",
             ]
         )
 
@@ -735,6 +752,12 @@ def run_pipeline(
             StructField("competition_native_id", StringType()),
             StructField("season_native_id", StringType()),
             StructField("match_id_native", StringType()),
+            # PR-LL2 Path B close-out (2026-04-29): silly-kicks 2.0.0 sportec
+            # tackle qualifier columns. NULL on non-sportec rows.
+            StructField("tackle_winner_player_id", LongType()),
+            StructField("tackle_winner_team_id", StringType()),
+            StructField("tackle_loser_player_id", LongType()),
+            StructField("tackle_loser_team_id", StringType()),
         ]
     )
 

@@ -140,7 +140,16 @@ cleaned as (
         home_team_id_native,
         competition_native_id,
         season_native_id,
-        match_id_native
+        match_id_native,
+
+        -- PR-LL2 Path B close-out (2026-04-29): silly-kicks 2.0.0 sportec
+        -- tackle qualifier passthrough. NULL on non-sportec rows + on
+        -- sportec rows where the DFL ``tackle_winner`` qualifier was
+        -- absent. Per ADR-016 + ADR-018 + silly-kicks ADR-001.
+        tackle_winner_player_id,
+        tackle_winner_team_id,
+        tackle_loser_player_id,
+        tackle_loser_team_id
 
     from deduplicated d
     left join comp_mapping cm

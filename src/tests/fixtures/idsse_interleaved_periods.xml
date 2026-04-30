@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Synthetic DFL XML covering Bug #6 reproduction shape.
+
+  Pre-fix the IDSSE bronze events parser used a state-machine `current_period`
+  updated at each <KickOff GameSection="..."> in stream order. DFL XML often
+  emits secondary blocks (BallClaiming / RefereeBall / etc.) AFTER the
+  secondHalf KickOff in stream order with first-half event_times — and the
+  pre-fix parser tagged these period=2 with negative period-relative
+  timestamp_seconds.
+
+  Post-fix (2-pass parser):
+    Pass 1 scans KickOff events first to build {period: kickoff_time}.
+    Pass 2 derives each event's period from event_time (largest kickoff_time ≤ event_time).
+
+  This fixture's events e6 + e7 are the secondary-block first-half events that
+  must land in period=1 with non-negative timestamp_seconds post-fix.
+-->
+<PutDataRequest>
+  <EventList>
+    <Event MatchId="DFL-MAT-TEST" EventId="e1" EventTime="2026-01-01T15:00:00+00:00">
+      <KickOff GameSection="firstHalf"/>
+    </Event>
+    <Event MatchId="DFL-MAT-TEST" EventId="e2" EventTime="2026-01-01T15:10:00+00:00" X-Position="50.0" Y-Position="34.0">
+      <TacklingGame Winner="p1" WinnerTeam="DFL-CLU-A"/>
+    </Event>
+    <Event MatchId="DFL-MAT-TEST" EventId="e3" EventTime="2026-01-01T15:20:00+00:00" X-Position="50.0" Y-Position="34.0">
+      <TacklingGame Winner="p2" WinnerTeam="DFL-CLU-B"/>
+    </Event>
+    <Event MatchId="DFL-MAT-TEST" EventId="e4" EventTime="2026-01-01T16:00:00+00:00">
+      <KickOff GameSection="secondHalf"/>
+    </Event>
+    <Event MatchId="DFL-MAT-TEST" EventId="e5" EventTime="2026-01-01T16:10:00+00:00" X-Position="50.0" Y-Position="34.0">
+      <TacklingGame Winner="p3" WinnerTeam="DFL-CLU-A"/>
+    </Event>
+  </EventList>
+  <!-- Secondary block: BallClaiming events with FIRST-HALF EventTimes,
+       appearing in stream order AFTER the secondHalf KickOff. The pre-fix
+       state-machine parser would tag these period=2; the 2-pass parser
+       must derive period=1 from event_time. -->
+  <Event MatchId="DFL-MAT-TEST" EventId="e6" EventTime="2026-01-01T15:05:00+00:00" X-Position="40.0" Y-Position="20.0">
+    <BallClaiming Player="p4"/>
+  </Event>
+  <Event MatchId="DFL-MAT-TEST" EventId="e7" EventTime="2026-01-01T15:15:00+00:00" X-Position="60.0" Y-Position="50.0">
+    <BallClaiming Player="p5"/>
+  </Event>
+</PutDataRequest>

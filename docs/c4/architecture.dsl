@@ -3,6 +3,21 @@
 # Refresh after each major architectural change (new container, new external system,
 # changed data flow). Keep in sync with ARCHITECTURE.md.
 #
+# 2026-04-29 review (PR-LL2 Path B close-out): six bug fixes + ADR-018 cross-table
+# format-contract testing foundation. All changes are inside existing containers; no
+# new architectural element. New utility module ``src/shared/identifiers.py`` (single
+# source of truth for native ID format generators across all 4 SPADL sources) lives
+# inside the wheelLib container. silly-kicks bumped 1.7.0 → 2.0.0 (their ADR-001 makes
+# caller's ``team_id`` / ``player_id`` sacred — no override from sportec tackle
+# qualifiers). Four new tackle qualifier columns (``tackle_winner_player_id``,
+# ``tackle_winner_team_id``, ``tackle_loser_player_id``, ``tackle_loser_team_id``)
+# surface through bronze.spadl_actions → bronze.vaep_action_values → fct_action_values
+# for analytics — captured in the existing bronzeDelta + goldMarts container descriptions.
+# IDSSE bronze parser refactored from state-machine to two-pass (kickoff scan + event
+# emit) to eliminate period-misclassification class. Test infrastructure added at
+# slim_ci tag (12 dbt singular tests + 16 silly-kicks boundary tests + format-contract
+# Python tests + pre-merge native-id integrity probe).
+#
 # 2026-04-29 review (PR-LL2): SPADL post-conversion enrichment + 4-source coverage
 # (StatsBomb / Wyscout / IDSSE / Metrica) modifies the ingestion pipeline INTERNALS
 # inside the existing ingestionJobs container; no new architectural element. ADR-016

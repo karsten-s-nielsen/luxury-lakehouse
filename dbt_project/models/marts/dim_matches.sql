@@ -65,10 +65,16 @@ idsse_matches as (
 
 metrica_matches as (
 
+    -- PR-LL2 Path B close-out (2026-04-29, ADR-018 + Bug #4):
+    -- pass competition_id through from staging instead of hardcoding NULL.
+    -- stg_metrica__matches emits 'metrica-sample' (PR 5a, ADR-011) and
+    -- dim_competitions has the matching row — without this passthrough,
+    -- generate_competition_key returns NULL for all Metrica rows, breaking
+    -- fct_action_values.competition_key resolution.
     select
         native_match_id,
         provider,
-        cast(null as string)           as competition_id,
+        competition_id,
         cast(null as string)           as season_id,
         cast(null as date)             as match_date,
         home_team_name,

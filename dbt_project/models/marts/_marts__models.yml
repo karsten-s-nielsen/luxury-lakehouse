@@ -657,14 +657,23 @@ models:
           - not_null
       - name: player_id
         data_type: int
-        description: Foreign key to dim_players
+        description: >
+          Foreign key to dim_players. NULL for IDSSE/Metrica rows pending
+          PR-LL3 per-player Kimball mapping (ADR-016, S1/S2). Mart-level
+          where: filter mirrors the staging filter applied in PR #228.
         data_tests:
-          - not_null
+          - not_null:
+              config:
+                where: "data_source IN ('statsbomb', 'wyscout')"
       - name: team_id
         data_type: int
-        description: Foreign key to dim_teams
+        description: >
+          Foreign key to dim_teams. NULL for IDSSE/Metrica rows (legacy
+          BIGINT space; use team_key + team_id_native for those sources).
         data_tests:
-          - not_null
+          - not_null:
+              config:
+                where: "data_source IN ('statsbomb', 'wyscout')"
       - name: team_key
         data_type: bigint
         description: Kimball surrogate FK to dim_teams (PR 7 — populated for all SB+WS actions via dim_teams JOIN on (provider, native_team_id)).
@@ -791,9 +800,14 @@ models:
         description: Body part used for the action
       - name: offensive_value
         data_type: double
-        description: VAEP offensive value (change in scoring probability)
+        description: >
+          VAEP offensive value (change in scoring probability). NULL for
+          IDSSE/Metrica rows pending PR-LL3 per-player Kimball mapping
+          (model needs player_id resolution).
         data_tests:
-          - not_null
+          - not_null:
+              config:
+                where: "data_source IN ('statsbomb', 'wyscout')"
           - dbt_expectations.expect_column_values_to_be_between:
               arguments:
                 min_value: -1
@@ -803,9 +817,13 @@ models:
                 severity: warn
       - name: defensive_value
         data_type: double
-        description: VAEP defensive value (change in conceding probability)
+        description: >
+          VAEP defensive value (change in conceding probability). NULL for
+          IDSSE/Metrica rows pending PR-LL3 per-player Kimball mapping.
         data_tests:
-          - not_null
+          - not_null:
+              config:
+                where: "data_source IN ('statsbomb', 'wyscout')"
           - dbt_expectations.expect_column_values_to_be_between:
               arguments:
                 min_value: -1
@@ -815,9 +833,13 @@ models:
                 severity: warn
       - name: vaep_value
         data_type: double
-        description: Net VAEP value (offensive + defensive)
+        description: >
+          Net VAEP value (offensive + defensive). NULL for IDSSE/Metrica
+          rows pending PR-LL3 per-player Kimball mapping.
         data_tests:
-          - not_null
+          - not_null:
+              config:
+                where: "data_source IN ('statsbomb', 'wyscout')"
           - dbt_expectations.expect_column_values_to_be_between:
               arguments:
                 min_value: -1
@@ -949,10 +971,36 @@ models:
         data_type: string
         description: >
           LL2 Path B: Native (string) match ID. For SB/WS this is the
-          stringified int match_id; for IDSSE this is ``idsse_J03WMX`` style;
-          for Metrica this is ``Sample_Game_N``. Used for the dim_matches
-          JOIN on (provider, native_match_id) since the legacy ``match_id``
+          stringified int match_id; for IDSSE this is ``J03WMX`` (bare
+          DFL MatchId — pre-PR-LL2-Path-B-close-out was prefixed
+          ``idsse_J03WMX``, see ADR-018); for Metrica this is
+          ``Sample_Game_N``. Used for the dim_matches JOIN on
+          (provider, native_match_id) since the legacy ``match_id``
           BIGINT is hashed (not native) for IDSSE/Metrica.
+      - name: tackle_winner_player_id
+        data_type: bigint
+        description: >
+          PR-LL2 Path B close-out (2026-04-29, ADR-018):
+          silly-kicks 2.0.0 sportec tackle qualifier — DFL ObjectId of the
+          tackle winner. NULL for non-sportec rows + for tackle rows where
+          the DFL XML's ``tackle_winner`` qualifier was absent. Per
+          silly-kicks ADR-001 (caller's identifiers sacred — winner ids
+          surface as dedicated columns rather than overriding ``team_id``).
+      - name: tackle_winner_team_id
+        data_type: string
+        description: >
+          PR-LL2 Path B close-out: silly-kicks 2.0.0 sportec tackle qualifier
+          — DFL CLU id of the tackle winner's team. NULL for non-sportec rows.
+      - name: tackle_loser_player_id
+        data_type: bigint
+        description: >
+          PR-LL2 Path B close-out: silly-kicks 2.0.0 sportec tackle qualifier
+          — DFL ObjectId of the tackle loser. NULL for non-sportec rows.
+      - name: tackle_loser_team_id
+        data_type: string
+        description: >
+          PR-LL2 Path B close-out: silly-kicks 2.0.0 sportec tackle qualifier
+          — DFL CLU id of the tackle loser's team. NULL for non-sportec rows.
       - name: game_state
         data_type: string
         description: >
