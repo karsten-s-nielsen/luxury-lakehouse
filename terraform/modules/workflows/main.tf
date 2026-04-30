@@ -864,13 +864,13 @@ resource "databricks_job" "data_ingestion" {
 
       dependencies = [
         var.wheel_path,
-        "silly-kicks>=1.0.0,<2.0",
+        "silly-kicks>=2.5.0,<3.0",
         "numpy<2.0",
         "xgboost==3.2.0",
         "rapidfuzz>=3.6.0",
         "unidecode>=1.3.0",
         "sparse-dot-topn>=1.1.0",
-        "mlflow>=2.17.0",
+        "mlflow>=2.19.0",
         "mplsoccer>=1.1.3",
         "matplotlib>=3.8.0",
         "scipy>=1.11.0"
@@ -920,7 +920,7 @@ resource "databricks_job" "data_ingestion" {
         [var.wheel_path],
         [
           "gensim>=4.3.0",
-          "huggingface_hub>=0.25.0",
+          "huggingface_hub>=1.5.0",
         ]
       )
     }
@@ -938,7 +938,7 @@ resource "databricks_job" "data_ingestion" {
 
       dependencies = [
         var.wheel_path,
-        "huggingface_hub>=0.25.0"
+        "huggingface_hub>=1.5.0"
       ]
     }
   }
