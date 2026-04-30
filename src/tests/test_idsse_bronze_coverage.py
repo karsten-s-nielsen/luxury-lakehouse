@@ -78,10 +78,24 @@ def _generate_synthetic_xml(enum: dict) -> str:
     coverage of COLUMN NAMES, not values.
     """
     events: list[str] = []
+    # PR-LL2 Path B close-out (ADR-018): the 2-pass parser uses the
+    # ``{period: kickoff_event_time}`` map to derive each event's period
+    # by comparing its event_time to kickoff times. Events whose
+    # event_time precedes ALL kickoff times get period=None and are
+    # skipped (legitimate behavior — pre-match warmup). For this coverage
+    # test we want every event-type's columns to land in bronze, so we
+    # give the KickOff event an event_time BEFORE all other events
+    # (14:59:59) so every event in the alphabetical iteration that
+    # follows resolves to period=1.
     for i, tag in enumerate(sorted(enum["first_child_types"].keys())):
         info = enum["first_child_types"][tag]
         attrs = info["attrs"]
-        attr_str = " ".join(f'{a}="v{i}_{j}"' for j, a in enumerate(attrs))
+        # KickOff requires a recognized GameSection — use 'firstHalf' so
+        # _SECTION_TO_PERIOD lookup succeeds.
+        attr_str = " ".join(
+            f'{a}="firstHalf"' if (tag == "KickOff" and a == "GameSection") else f'{a}="v{i}_{j}"'
+            for j, a in enumerate(attrs)
+        )
 
         nested_xml = ""
         for nested_tag, nested_info in enum.get("nested_children", {}).get(tag, {}).items():
@@ -89,10 +103,17 @@ def _generate_synthetic_xml(enum: dict) -> str:
             nested_attr_str = " ".join(f'{a}="nv{i}_{k}"' for k, a in enumerate(nested_attrs))
             nested_xml += f"<{nested_tag} {nested_attr_str}/>"
 
+        # KickOff gets an event_time earlier than any other event so all
+        # subsequent events derive period=1 (event_time >= kickoff_time).
+        if tag == "KickOff":
+            event_time = "2023-05-27T14:59:59.000+02:00"
+        else:
+            event_time = f"2023-05-27T15:{i // 60:02d}:{i % 60:02d}.000+02:00"
+
         events.append(
             f'<Event MatchId="DFL-MAT-TEST" '
             f'EventId="E{i:03d}" '
-            f'EventTime="2023-05-27T15:{i // 60:02d}:{i % 60:02d}.000+02:00" '
+            f'EventTime="{event_time}" '
             f'StartFrame="{i}" EndFrame="{i + 10}" CalculatedFrame="{i + 5}" '
             f'CalculatedTimestamp="2023-05-27T15:{i // 60:02d}:{i % 60:02d}.500+02:00" '
             f'X-Position="52.5" Y-Position="34.0" '

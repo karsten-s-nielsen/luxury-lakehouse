@@ -210,9 +210,11 @@ class TestParsePositionsXML:
         rows = self._get_rows()
         assert len(rows) > 0
 
-    def test_match_id_prefixed(self) -> None:
+    def test_match_id_bare(self) -> None:
+        """Post-PR-LL2-Path-B-close-out (ADR-018): bronze.idsse_*.match_id is bare
+        DFL MatchId (no `idsse_` prefix). Pre-close-out asserted prefixed form."""
         rows = self._get_rows()
-        assert all(r["match_id"] == "idsse_J03WMX" for r in rows)
+        assert all(r["match_id"] == "J03WMX" for r in rows)
 
     def test_frame_rate_always_25(self) -> None:
         rows = self._get_rows()
@@ -660,9 +662,11 @@ class TestParseEventsXML:
         rows = self._get_rows()
         assert len(rows) == 6
 
-    def test_match_id_prefixed(self) -> None:
+    def test_match_id_bare(self) -> None:
+        """Post-PR-LL2-Path-B-close-out (ADR-018): bronze.idsse_*.match_id is bare
+        DFL MatchId (no `idsse_` prefix). Pre-close-out asserted prefixed form."""
         rows = self._get_rows()
-        assert all(r["match_id"] == "idsse_J03WMX" for r in rows)
+        assert all(r["match_id"] == "J03WMX" for r in rows)
 
     def test_event_id_preserved(self) -> None:
         rows = self._get_rows()
