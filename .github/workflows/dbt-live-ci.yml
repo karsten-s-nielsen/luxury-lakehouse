@@ -175,6 +175,17 @@ jobs:
             echo "No new bronze migrations in PR diff — skipping."
             exit 0
           fi
+          # Pre-warm the SQL warehouse via REST API before invoking the
+          # _runner.py (which uses databricks-sql-connector). The connector
+          # has a documented retry-sleep bug (v4.1.x) where each retry
+          # sleeps ~60s and the session times out (900s budget) before the
+          # warehouse finishes auto-resuming from STOPPED. PR #236's
+          # migration step shipped without this pre-warm; first PR to
+          # actually carry a new migration (#235) hit the 900s timeout
+          # against an idle warehouse. ensure_warehouse.py uses the REST
+          # API (requests, no Thrift) and polls until RUNNING (3-min
+          # budget), so it's hang-proof.
+          uv run --no-sync python scripts/ensure_warehouse.py
           echo "Applying $(echo "$NEW" | wc -l) new migration(s):"
           echo "$NEW"
           while IFS= read -r sql; do
