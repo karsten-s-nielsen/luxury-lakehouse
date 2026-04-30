@@ -606,9 +606,15 @@ def _convert_wyscout_from_bronze(
         logger.info("Wyscout: all %d games already converted — skipping", len(all_game_ids))
         return False
 
-    # Only now pull metadata tables needed for home_team_id resolution
+    # Only now pull metadata tables needed for home_team_id + competition + season resolution.
+    # PR-LL2 Path B close-out (2026-04-29, ADR-018): explicitly select competitionId
+    # and seasonId so the downstream match_meta dict gets RAW wyscout-native values
+    # (pre-close-out the SELECT was missing those columns, causing match_meta to
+    # stay empty and all wyscout SPADL rows to default to (competition_id, season_id)
+    # = (0, 0). Bronze is now source-faithful per ADR-016 — staging applies any
+    # cross-provider mapping if needed, not the bronze writer.
     try:
-        all_matches_pdf = spark.table(matches_table).select("wyId", "teamsData").toPandas()
+        all_matches_pdf = spark.table(matches_table).select("wyId", "teamsData", "competitionId", "seasonId").toPandas()
     except Exception:
         logger.exception("Cannot read Wyscout matches bronze table")
         return False
@@ -638,14 +644,18 @@ def _convert_wyscout_from_bronze(
         goalkeeper_ids = {int(row["wyId"]) for row in gk_rows}
         logger.info("Wyscout: loaded %d goalkeeper IDs for keeper_claim routing", len(goalkeeper_ids))
 
-    # Build lookup DataFrame with home_team_id, competition_id, season_id per game
-    # Derive competition_id and season_id from matches metadata
-    match_meta: dict[int, tuple[int, int]] = {}
-    if "competitionId" in all_matches_pdf.columns:
-        indexed = all_matches_pdf.set_index("wyId")
-        comp_ids = indexed["competitionId"].astype(int)
-        season_ids = indexed["seasonId"].astype(int) if "seasonId" in indexed.columns else comp_ids * 0
-        match_meta = {int(k): (int(c), int(s)) for k, c, s in zip(indexed.index, comp_ids, season_ids, strict=True)}
+    # Build lookup DataFrame with home_team_id, competition_id, season_id per game.
+    # PR-LL2 Path B close-out (2026-04-29): we explicitly SELECTed competitionId and
+    # seasonId above, so this block is no longer guarded — the columns are
+    # guaranteed present. Pre-close-out the guard `if "competitionId" in ...columns`
+    # was always False because the SELECT was missing those columns, leading to
+    # silent fallback to (0, 0). Bronze is RAW-source-faithful per ADR-016/-018.
+    indexed = all_matches_pdf.set_index("wyId")
+    comp_ids = indexed["competitionId"].astype(int)
+    season_ids = indexed["seasonId"].astype(int)
+    match_meta: dict[int, tuple[int, int]] = {
+        int(k): (int(c), int(s)) for k, c, s in zip(indexed.index, comp_ids, season_ids, strict=True)
+    }
 
     lookup_rows = [
         (gid, home_team_map[gid], match_meta.get(gid, (0, 0))[0], match_meta.get(gid, (0, 0))[1])

@@ -3,7 +3,10 @@
 -- Asserts bronze.spadl_actions.competition_native_id for StatsBomb rows resolves in
 -- dim_competitions.native_competition_id.
 
-{{ config(tags=['slim_ci']) }}
+{{ config(
+    tags=['post_deploy_only'],
+    enabled=var('include_post_deploy_tests', false),
+) }}
 
 select distinct b.competition_native_id
 from {{ ref('stg_spadl__action_values') }} b

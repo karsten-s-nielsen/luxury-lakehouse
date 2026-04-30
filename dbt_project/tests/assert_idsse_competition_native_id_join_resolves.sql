@@ -1,7 +1,10 @@
 -- assert_idsse_competition_native_id_join_resolves.sql
 -- ADR-018 cross-table JOIN-coverage gate.
 
-{{ config(tags=['slim_ci']) }}
+{{ config(
+    tags=['post_deploy_only'],
+    enabled=var('include_post_deploy_tests', false),
+) }}
 
 select distinct b.competition_native_id
 from {{ ref('stg_spadl__action_values') }} b

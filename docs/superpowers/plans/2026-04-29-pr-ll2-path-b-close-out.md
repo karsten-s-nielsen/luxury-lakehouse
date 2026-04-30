@@ -2220,9 +2220,11 @@ SELECT COUNT(*) FROM soccer_analytics.bronze.spadl_actions_pre_close_out_backup;
 ```sql
 DELETE FROM soccer_analytics.bronze.idsse_events;
 DELETE FROM soccer_analytics.bronze.metrica_events;
-DELETE FROM soccer_analytics.bronze.spadl_actions WHERE data_source IN ('idsse', 'metrica');
-DELETE FROM soccer_analytics.bronze.vaep_action_values WHERE data_source IN ('idsse', 'metrica');
+DELETE FROM soccer_analytics.bronze.spadl_actions WHERE data_source IN ('idsse', 'metrica', 'wyscout');
+DELETE FROM soccer_analytics.bronze.vaep_action_values WHERE data_source IN ('idsse', 'metrica', 'wyscout');
 ```
+
+**Wyscout included:** the wyscout SPADL UDF previously didn't SELECT competitionId/seasonId from wyscout_matches, so all wyscout SPADL rows had competition_id=0 + season_id=0 (broken cascade — surfaced via `assert_wyscout_competition_native_id_join_resolves`). After UDF fix + staging mapping drop, fresh wyscout SPADL data carries raw wyscout competition_ids (e.g., 795 for La Liga). 2.46M wyscout SPADL rows + ~2.46M VAEP rows are deleted and re-converted.
 
 ### Task 35: 🛑 G8 — Trigger workflow re-runs (consumes auto-uploaded 0.3.22 wheel)
 
@@ -2253,20 +2255,23 @@ Expected: VALIDATION PASSED — all column fills + JOIN coverages green.
 
 ## Phase I — Final dbt build verification (T37)
 
-### Task 37: Local dbt build + refresh synced tables
+### Task 37: Local dbt build + post-deploy regression suite
 
-- [ ] **Step 37.1: Run**
+- [ ] **Step 37.1: Run full dbt build with post-deploy tests enabled**
 
 ```bash
-uv run --extra dbt python scripts/dbt_build_and_refresh.py
+cd dbt_project && uv run dbt build --vars '{include_post_deploy_tests: true}' --select state:modified+
+cd .. && uv run python -m ingestion.refresh_synced_tables --wait
 ```
 
-Expected: PASS ≥ 808 (= 796 baseline + 12 new singular tests), WARN = 21, ERROR = 0, SKIP = 68.
+Expected: PASS ≥ 808 (= 796 baseline + 12 new singular tests + tackle qualifier writer parity), WARN = 21, ERROR = 0, SKIP = 68.
 
-- [ ] **Step 37.2: Verify the 12 new dbt tests pass**
+The 12 ADR-018 cross-table JOIN-coverage tests (`assert_<source>_<entity>_native_join_resolves.sql`) are guarded by `enabled=var('include_post_deploy_tests', false)` — they only compile when the var is true. PR-CI never sets the var (since data is pre-rebuild); this command's `--vars` flag opts them in for the post-deploy regression check.
+
+- [ ] **Step 37.2: Verify the 12 post-deploy tests pass**
 
 ```bash
-cd dbt_project && uv run dbt test --select 'tag:slim_ci' 2>&1 | grep -E "(assert_.*_native_join_resolves|PASS|FAIL|ERROR)"
+cd dbt_project && uv run dbt test --vars '{include_post_deploy_tests: true}' --select 'tag:post_deploy_only' 2>&1 | grep -E "(assert_.*_native_join_resolves|PASS|FAIL|ERROR)"
 ```
 
 Expected: 12 PASS, 0 FAIL.

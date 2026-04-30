@@ -5,7 +5,10 @@
 -- but dim_matches.native_match_id was bare 'J03WMX'. Bug #1 strips the prefix
 -- in bronze writer; this test goes GREEN after re-ingestion.
 
-{{ config(tags=['slim_ci']) }}
+{{ config(
+    tags=['post_deploy_only'],
+    enabled=var('include_post_deploy_tests', false),
+) }}
 
 select distinct b.match_id_native
 from {{ ref('stg_spadl__action_values') }} b

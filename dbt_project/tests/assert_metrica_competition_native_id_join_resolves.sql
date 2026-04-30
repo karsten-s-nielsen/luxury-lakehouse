@@ -4,7 +4,10 @@
 -- competition_id even though stg_metrica__matches emitted 'metrica-sample'.
 -- Goes GREEN after the dim_matches CTE passthrough fix.
 
-{{ config(tags=['slim_ci']) }}
+{{ config(
+    tags=['post_deploy_only'],
+    enabled=var('include_post_deploy_tests', false),
+) }}
 
 select distinct b.competition_native_id
 from {{ ref('stg_spadl__action_values') }} b

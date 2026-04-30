@@ -50,11 +50,26 @@ full-refresh-build time. Concretely:
    `shared.identifiers` produces the same string a test fixture's
    bronze writer would. Runs in slim CI.
 
-3. **dbt singular JOIN-coverage tests.** Every
-   `(bronze.X.native_id_col, dim.Y.native_id_col)` pair used by a
+3. **dbt singular JOIN-coverage tests** (post-deploy regression gate).
+   Every `(bronze.X.native_id_col, dim.Y.native_id_col)` pair used by a
    JOIN in `fct_*` marts has an
    `assert_<source>_<entity>_native_join_resolves.sql` singular
-   test. Returns rows ⇒ failure. Tagged `slim_ci`.
+   test. Returns rows ⇒ failure. Tagged `post_deploy_only` and
+   guarded by `enabled=var('include_post_deploy_tests', false)` —
+   they're disabled by default and only compile when a full build
+   opts in via `--vars '{include_post_deploy_tests: true}'`.
+
+   **Two-tier rationale.** These tests need bronze data to be
+   consistent with code to assert anything meaningful. PR-CI compiles
+   against pre-merge bronze, which is intentionally stale during
+   any PR that fixes a bronze writer (the data is fixed only after
+   merge → re-ingest). Running these tests at PR-CI time on stale
+   data would produce expected failures every writer-modifying PR,
+   normalizing CI override rituals. The Python format-contract tests
+   above (Layer 2) cover CODE drift at PR-CI time as the primary
+   gate; these dbt tests cover DATA drift at full-build time as the
+   regression gate. Both gates are required — neither is sufficient
+   alone.
 
 4. **Third-party API boundary tests.** Every external library producing
    values that flow into bronze gets a boundary test at OUR repo
@@ -101,6 +116,32 @@ full-refresh-build time. Concretely:
 - ADR-016 SPADL Path B naming rule reinforced — every native ID format
   declared in ADR-016 now has a canonical generator function.
 - PR-LL3 scope tracker S5/S6/S7 deferred items remain valid follow-ups.
+
+## Wyscout competition_id source-faithfulness amendment
+
+PR-LL2 Path B close-out (2026-04-29) added a sub-decision to ADR-018
+during execution: `stg_wyscout__matches` previously applied a
+`coalesce(statsbomb_competition_id, raw_wyscout)` mapping at staging
+time, making wyscout's "native" competition_id actually statsbomb-
+native. This violated ADR-016's source-faithfulness rule and broke the
+cross-table format contract this ADR enforces.
+
+The fix removed the staging-time mapping in two places
+(`stg_wyscout__matches.sql` + `stg_spadl__action_values.sql`) and
+fixed the wyscout SPADL UDF to SELECT `competitionId` + `seasonId`
+from `wyscout_matches` (was previously omitted, causing all wyscout
+rows to default `competition_id=0`). The `competition_id_mapping`
+seed CSV is RETAINED as documentation of cross-provider competition
+equivalence (e.g., wyscout 795 ≡ statsbomb 11 ≡ "La Liga"); future
+cross-provider competition-name analytics queries can join via this
+seed or via a future `dim_competition_xref`. Hardcoded query filters
+that previously relied on the staging-mapped values must update to
+use raw wyscout IDs OR `competition_name` for cross-provider work.
+
+This amendment establishes a precedent: provider-native ID columns
+in dim_* and bronze.spadl_actions are SOURCE-FAITHFUL — the provider's
+own ID space, not a normalized cross-provider key. Surrogate keys
+(`generate_match_key` etc.) handle Kimball cross-provider identity.
 
 ## CLAUDE.md Amendment
 
