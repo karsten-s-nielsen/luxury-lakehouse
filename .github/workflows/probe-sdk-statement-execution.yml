@@ -1,0 +1,92 @@
+name: Probe SDK statement_execution
+
+# One-off validation that the Databricks SDK's `statement_execution.execute_statement()`
+# (POST /api/2.0/sql/statements/) works against the workspace's SQL warehouse from
+# this CI environment.
+#
+# Triggered manually via `gh workflow run --ref <branch>`. Not bound to PR events
+# because this is a one-time CI-environment capability check, not a per-PR gate.
+#
+# Background: PR #235's live-build hit `databricks-sql-connector` Thrift retry
+# timeouts repeatedly (3 distinct CI runs) regardless of warehouse cold/warm
+# state or token type (static / OIDC). Other Databricks REST endpoints work
+# fine in the same CI runner. This probe validates the candidate fix path
+# (SDK `statement_execution`, which is REST/JSON) before we commit to rewriting
+# `scripts/migrations/_runner.py` against it.
+#
+# Pass = SDK is the right path → ship the rewrite.
+# Fail = there's a deeper CI/Databricks issue that needs different mitigation.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}  # pragma: allowlist secret
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --frozen --extra dbt --no-install-project
+
+      - name: Pre-warm warehouse
+        run: uv run --no-sync python scripts/ensure_warehouse.py
+
+      - name: Probe SDK statement_execution (SELECT 1)
+        run: |
+          uv run --no-sync python <<'PYEOF'
+          import os
+          import sys
+          import time
+
+          from databricks.sdk import WorkspaceClient
+          from databricks.sdk.service.sql import StatementState
+
+          # Auto-config from env: DATABRICKS_HOST + DATABRICKS_CLIENT_ID +
+          # github-oidc auth_type → SDK mints the OIDC-derived bearer
+          # automatically. No explicit token plumbing needed.
+          w = WorkspaceClient()
+
+          warehouse_id = os.environ['DATABRICKS_HTTP_PATH'].rstrip('/').split('/')[-1]
+          print(f'Probing SDK statement_execution against warehouse_id={warehouse_id}')
+
+          resp = w.statement_execution.execute_statement(
+              warehouse_id=warehouse_id,
+              statement='SELECT 1 AS probe_value',
+              wait_timeout='30s',
+          )
+          sid = resp.statement_id
+          print(f'Submitted statement_id={sid}; initial state={resp.status.state.value if resp.status else "-"}')
+
+          for attempt in range(30):
+              if resp.status and resp.status.state == StatementState.SUCCEEDED:
+                  rows = resp.result.data_array if resp.result else None
+                  print(f'PROBE SUCCEEDED — SDK statement_execution works in CI.')
+                  print(f'Result rows: {rows}')
+                  sys.exit(0)
+              if resp.status and resp.status.state in (StatementState.FAILED, StatementState.CANCELED):
+                  msg = resp.status.error.message if resp.status.error else 'unknown'
+                  print(f'PROBE FAILED — terminal state with error: {msg}')
+                  sys.exit(1)
+              time.sleep(2)
+              resp = w.statement_execution.get_statement(sid)
+
+          print('PROBE TIMEOUT — never reached terminal state in 60s')
+          sys.exit(1)
+          PYEOF
