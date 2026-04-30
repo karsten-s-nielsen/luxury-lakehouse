@@ -117,6 +117,65 @@ full-refresh-build time. Concretely:
   declared in ADR-016 now has a canonical generator function.
 - PR-LL3 scope tracker S5/S6/S7 deferred items remain valid follow-ups.
 
+## Multi-stage UDF projection drift amendment (2026-04-30)
+
+PR-LL2 Path B close-out hot-fix surfaced an additional drift class:
+**multi-stage column projection within a single applyInPandas UDF
+closure.** A UDF that projects columns through multiple intermediate
+DataFrames before returning can drop or mismatch columns at any
+internal layer — Spark's applyInPandas StructType only enforces the
+FINAL output shape; internal layers are unchecked.
+
+Specifically, the `spadl_vaep.py:_make_scoring_udf` failure exposed a
+4-layer projection stack:
+
+1. DDL `_VAEP_SCHEMA` (Delta table contract)
+2. `vaep_schema` StructType (applyInPandas output contract)
+3. `_output_cols` Index (final UDF return projection)
+4. **Inner per-game projection list** (filters `game_actions` columns
+   per scored game, before concat) ← **drift here was the bug**
+
+The pre-existing writer-parity test asserted (1) ≡ (2) ≡ (3). It did
+not assert (3) ⊆ (4) — adding a column to (1)+(2)+(3) but missing
+from (4) silently dropped that column from every per-game DataFrame,
+so the outer `[_output_cols]` projection raised `KeyError` at runtime.
+
+A `pausa.py:_make_scoring_udf` audit revealed the same silent-filter
+shape (`available = [c for c in out_cols if c in scored.columns]`)
+that would have produced a SILENT NULL fill (worse — silent failure
+instead of loud KeyError). It was hardened to a hard projection
+`scored[out_cols]` per ADR-002 §5 ("hard-fail-first UDF semantics").
+
+### Decision (added)
+
+5. **Multi-stage UDF projection contract.** Any applyInPandas UDF
+   closure with intermediate column-projection layers (e.g., per-game
+   subset projection before concat) must:
+   (a) Use **hard projections** (`df[col_list]`) that raise `KeyError`
+       on missing columns. Avoid silent filters
+       (`[c for c in cols if c in df.columns]`) which silently drop
+       columns and let Spark NULL-fill via StructType.
+   (b) For closures that genuinely need intermediate projection lists
+       (e.g., the VAEP scoring UDF's per-game list because it predates
+       silly-kicks's `add_names` rename step), add an AST-based
+       regression test that parses the closure source and asserts the
+       inner list matches the final output column set (modulo
+       documented intermediate renames). Pattern:
+       `test_vaep_per_game_projection_matches_output_cols` in
+       `test_spadl_vaep_writer_parity.py`.
+
+### Audit log
+
+| UDF | Pattern | Status |
+|---|---|---|
+| `spadl_vaep:_make_scoring_udf` | inner per-game list + outer `[_output_cols]` | inner list extended to include 4 tackle qualifier cols; AST regression test added |
+| `pausa:_make_scoring_udf` | silent `[c for c in out_cols if c in scored.columns]` filter | hardened to `scored[out_cols]` |
+| `spadl_conversion._make_*_spadl_udf` (4 SPADL UDFs) | single inner `_spadl_cols` Index, hard `actions[_spadl_cols]` projection | hard projection — safe (writer-parity test covers) |
+| `formations_efpi:_udf` | hard `result[_result_columns]` | safe |
+| `line_breaking_{360,tracking}:_udf` | hard `result_df[_RESULT_COLUMNS]` | safe |
+| `player_embeddings_v1:_udf` | explicit dict construction | safe |
+| `defcon_lite_*`, `off_ball_xt`, `xg_model*`, `formations_shape_graph` | explicit / hard projections | safe |
+
 ## Wyscout competition_id source-faithfulness amendment
 
 PR-LL2 Path B close-out (2026-04-29) added a sub-decision to ADR-018

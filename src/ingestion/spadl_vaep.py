@@ -560,6 +560,19 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                                 "competition_native_id",
                                 "season_native_id",
                                 "match_id_native",
+                                # PR-LL2 Path B close-out (2026-04-30, ADR-018):
+                                # silly-kicks 2.0.0 sportec tackle qualifier
+                                # passthrough. Must be in this projection list
+                                # AND in `_output_cols` AND in `vaep_schema`
+                                # StructType — drift between these layers is
+                                # the LL1 latent-bug class. Adding a column
+                                # requires updating ALL FOUR places (DDL +
+                                # StructType + per-game projection + output
+                                # column index).
+                                "tackle_winner_player_id",
+                                "tackle_winner_team_id",
+                                "tackle_loser_player_id",
+                                "tackle_loser_team_id",
                             ]
                             if c in game_actions.columns
                         ]

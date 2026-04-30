@@ -127,7 +127,7 @@ def _make_pausa_udf() -> object:
 
         scored = compute_pausa_scores(pdf)
 
-        # Select output columns in the declared schema order
+        # Select output columns in the declared schema order.
         out_cols = [
             "pass_id",
             "match_id",
@@ -145,9 +145,17 @@ def _make_pausa_udf() -> object:
             "receiver_x",
             "receiver_y",
         ]
-        # Only select columns that exist (defensive)
-        available = [c for c in out_cols if c in scored.columns]
-        return _pd.DataFrame(scored[available])
+        # PR-LL2 Path B close-out hot-fix (2026-04-30, ADR-018 + ADR-002 §5):
+        # HARD projection — raises KeyError if any out_cols column is missing
+        # from scored. Pre-fix used a silent filter
+        # (`[c for c in out_cols if c in scored.columns]`) which silently
+        # dropped missing columns; Spark's applyInPandas would then fill
+        # NULL via the StructType, masking what is actually a writer/UDF
+        # contract violation (the LL1 latent-bug class re-applied to this
+        # layer). Hard projection surfaces drift at runtime as a loud
+        # error instead of silent NULL fill. Mirrors the
+        # `formations_efpi`/`line_breaking_*` UDF convention.
+        return _pd.DataFrame(scored[out_cols])
 
     return _udf
 
