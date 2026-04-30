@@ -88,7 +88,16 @@ jobs:
           uv run --no-sync dbt parse --profiles-dir .
           mkdir -p ../target-main
           cp target/manifest.json ../target-main/manifest.json
-          git checkout ${{ github.sha }} -- .
+          # Restore PR's HEAD across the FULL working tree, not just dbt_project/.
+          # The earlier `rm -f` above is scoped to repo root via a subshell; this
+          # restore must match that scope or PR-added files OUTSIDE dbt_project/
+          # (notably scripts/migrations/*.sql, consumed by the auto-apply step
+          # below) stay deleted and downstream steps fail with FileNotFoundError.
+          # Latent bug exposed when PR #235 became the first PR since PR #236
+          # introduced the migration auto-apply step to actually add a new
+          # migration file — the previous databricks-sql-connector path masked
+          # it by hanging on sql.connect() before reaching args.migration.read_text().
+          ( cd "$(git rev-parse --show-toplevel)" && git checkout ${{ github.sha }} -- . )
           git stash pop || true
 
       # state:modified+ catches model changes plus downstream dependents. If any
