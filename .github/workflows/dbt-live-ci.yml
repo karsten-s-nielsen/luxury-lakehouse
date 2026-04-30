@@ -146,6 +146,44 @@ jobs:
           echo "::add-mask::$TOKEN"
           echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
 
+      # Apply any new bronze schema migrations (`scripts/migrations/*.sql`)
+      # introduced by this PR before running `dbt build` on the warehouse.
+      # Eliminates the chicken-and-egg observed on PR #235 (session 69):
+      # PR adds a bronze column + staging SQL that consumes it → dbt build
+      # fails compilation because the live bronze doesn't have the column
+      # until an operator runs the migration manually.
+      #
+      # Filter is `--diff-filter=A` — only NEW migration files in the PR
+      # are auto-applied. Modifying an existing migration file is a
+      # separate concern (re-applying may fail or produce different state)
+      # and intentionally NOT covered here; operator runs those manually.
+      #
+      # Safety: every migration in `scripts/migrations/*.sql` MUST be
+      # idempotent. The runner (`_runner.py`) already skips
+      # `ALTER TABLE ADD COLUMNS` when the column exists; UPDATE/SET
+      # TBLPROPERTIES/CREATE IF NOT EXISTS are idempotent by construction.
+      # See CLAUDE.md "Migration auto-apply at live-build CI" for the
+      # convention every new migration must follow.
+      #
+      # Uses static token from secrets (databricks-sql-connector path),
+      # not the OIDC token (which is for SDK/REST). Both are available.
+      - name: Apply pending bronze migrations
+        run: |
+          set -euo pipefail
+          NEW=$(git diff --name-only --diff-filter=A origin/main...HEAD -- 'scripts/migrations/*.sql' || true)
+          if [ -z "$NEW" ]; then
+            echo "No new bronze migrations in PR diff — skipping."
+            exit 0
+          fi
+          echo "Applying $(echo "$NEW" | wc -l) new migration(s):"
+          echo "$NEW"
+          while IFS= read -r sql; do
+            [ -z "$sql" ] && continue
+            echo "::group::Apply $sql"
+            uv run --no-sync --with databricks-sql-connector python scripts/migrations/_runner.py "$sql"
+            echo "::endgroup::"
+          done <<< "$NEW"
+
       # Exit code of this step drives the workflow's success/failure (and thus
       # the required-check status on the PR). SHORT_SHA extracted from the PR
       # head so scratch/fork runs see the same id the PR description shows.
