@@ -167,7 +167,20 @@ jobs:
       #
       # Uses static token from secrets (databricks-sql-connector path),
       # not the OIDC token (which is for SDK/REST). Both are available.
+      # Step-level `env:` overrides the workflow-level `DATABRICKS_TOKEN`
+      # (a legacy static secret used only for dbt-parse env_var resolution
+      # per the comment at lines 38-40) with the GitHub-OIDC-derived token
+      # acquired in step 11. The static secret token has REST access (per
+      # ensure_warehouse.py succeeding) but appears to lack SQL warehouse
+      # Thrift permission, causing _runner.py via databricks-sql-connector
+      # to retry-loop until the 900s budget hits (observed on PR #235 CI
+      # runs 25190951314 + 25189954469). The OIDC token is the same one
+      # `trigger_dbt_job.py` uses for downstream Databricks Job submission
+      # — it has the broader scope this step needs. Token is masked via
+      # `::add-mask::` in step 11, propagated to step env.
       - name: Apply pending bronze migrations
+        env:
+          DATABRICKS_TOKEN: ${{ steps.databricks_token.outputs.token }}
         run: |
           set -euo pipefail
           NEW=$(git diff --name-only --diff-filter=A origin/main...HEAD -- 'scripts/migrations/*.sql' || true)
