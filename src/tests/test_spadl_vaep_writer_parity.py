@@ -436,6 +436,115 @@ class TestSpadlVaepWriterDdlParity:
                 f"_VAEP_SCHEMA {col!r} type drift: got {ddl[col]!r}, expected {expected_type!r}"
             )
 
+    def test_vaep_per_game_projection_matches_output_cols(self) -> None:
+        """PR-LL2 Path B close-out hot-fix (2026-04-30): regression test for the
+        VAEP scoring UDF's inner per-game column-projection list. The list at
+        ``_make_scoring_udf._udf.<inner>`` filters ``game_actions`` columns by
+        membership in a hardcoded list, then the outer ``[_output_cols]``
+        projection at the function tail asserts presence. If the inner list
+        is missing a column that ``_output_cols`` requires, the UDF raises
+        ``KeyError: '<col> not in index'`` at runtime — the LL1 latent-bug
+        class re-applied to a different layer.
+
+        This test parses the UDF source via AST, extracts both the inner
+        passthrough list and ``_output_cols``, and asserts the inner list
+        contains every passthrough column that would appear in
+        ``_output_cols`` (excluding the 9 columns added during scoring).
+        """
+        import ast
+        import inspect
+
+        from ingestion import spadl_vaep
+
+        # _make_scoring_udf is the closure-builder. Parse its source.
+        src = inspect.getsource(spadl_vaep._make_scoring_udf)
+        tree = ast.parse(src)
+
+        # Collect all string-list literals nested in the function body.
+        # The inner per-game projection list is the longest string-list
+        # literal nested in a List comprehension iterator.
+        string_lists: list[list[str]] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ListComp):
+                # The list comp pattern: [c for c in [<list>] if ...]
+                if isinstance(node.generators[0].iter, ast.List) and all(
+                    isinstance(e, ast.Constant) and isinstance(e.value, str) for e in node.generators[0].iter.elts
+                ):
+                    string_lists.append([e.value for e in node.generators[0].iter.elts])  # type: ignore[attr-defined]
+            elif isinstance(node, ast.Assign):
+                # _output_cols = _pd.Index([...]) — extract the Index arg
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id == "_output_cols":
+                        if (
+                            isinstance(node.value, ast.Call)
+                            and isinstance(node.value.func, ast.Attribute)
+                            and node.value.func.attr == "Index"
+                            and isinstance(node.value.args[0], ast.List)
+                        ):
+                            string_lists.append(
+                                [e.value for e in node.value.args[0].elts if isinstance(e, ast.Constant)]
+                            )
+
+        # Heuristic: 2 string lists of substantial length — _output_cols + per-game projection
+        long_lists = [lst for lst in string_lists if len(lst) > 10]
+        assert len(long_lists) >= 2, (
+            f"AST parse expected ≥2 long string lists in _make_scoring_udf; got {len(long_lists)}"
+        )
+
+        # Per-game projection columns + _output_cols columns (different lengths,
+        # we want the smaller one to be a SUBSET of the larger PLUS the cols
+        # added during scoring).
+        scoring_added = {
+            "action_type",
+            "action_result",
+            "bodypart",
+            "offensive_value",
+            "defensive_value",
+            "vaep_value",
+            "competition_id",
+            "season_id",
+            "data_source",
+        }
+        passthrough_renamed = {"type_name", "result_name", "bodypart_name"}
+
+        # Pair: smaller list is per-game-projection, larger is _output_cols (or vice versa).
+        # Both must include the 4 tackle qualifier columns.
+        for col in (
+            "tackle_winner_player_id",
+            "tackle_winner_team_id",
+            "tackle_loser_player_id",
+            "tackle_loser_team_id",
+        ):
+            for lst in long_lists:
+                assert col in lst, (
+                    f"_make_scoring_udf string-list missing tackle qualifier column {col!r}. "
+                    "Both the per-game projection list AND _output_cols must include it — "
+                    "drift between them produces KeyError at runtime (the LL1 latent-bug class)."
+                )
+
+        # Stronger assertion: every column in _output_cols (excluding the
+        # 9 columns added during scoring) must appear in the per-game
+        # projection list, modulo the 3 documented rename mappings
+        # (`type_name` → `action_type`, `result_name` → `action_result`,
+        # `bodypart_name` → `bodypart`) which silly-kicks `add_names`
+        # adds before scoring.
+        sorted_lists = sorted(long_lists, key=len)
+        per_game_proj = sorted_lists[0]
+        output_cols_list = sorted_lists[-1]
+        rename_back = {
+            "action_type": "type_name",
+            "action_result": "result_name",
+            "bodypart": "bodypart_name",
+        }
+        required_in_per_game = set(output_cols_list) - scoring_added
+        missing = required_in_per_game - (set(per_game_proj) | passthrough_renamed)
+        missing_after_rename = {c for c in missing if rename_back.get(c, c) not in per_game_proj}
+        assert not missing_after_rename, (
+            f"_output_cols requires columns NOT in per-game projection list: "
+            f"{sorted(missing_after_rename)}. Adding a column requires updating "
+            "BOTH the per-game projection list AND _output_cols."
+        )
+
 
 def _build_metrica_spadl_struct():  # type: ignore[no-untyped-def]
     """Replay the Metrica applyInPandas StructType in spadl_conversion.py (LL2 Path B).
