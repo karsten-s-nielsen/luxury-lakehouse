@@ -302,6 +302,15 @@ class TestParsePositionsXML:
             "ball_t",
             "ball_possession",
             "ball_status",
+            # Per-match metadata (session 69 — parity with bronze.idsse_events).
+            # Empty-string sentinels here because _get_rows() doesn't pass
+            # metadata; production callers pass populated _MatchMetadata via
+            # _parse_match_metadata. Verified by
+            # test_idsse_match_metadata_parity.py.
+            "competition_native_id",
+            "season_native_id",
+            "home_team_id_native",
+            "away_team_id_native",
         }
         assert set(rows[0].keys()) == expected
 

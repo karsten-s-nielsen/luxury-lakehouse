@@ -1,40 +1,35 @@
 -- stg_idsse__matches.sql
--- One row per IDSSE Bundesliga match. 7 matches total (static collection).
+-- One row per IDSSE Bundesliga match. Match count is data-driven —
+-- whatever distinct match_ids exist in bronze.idsse_tracking ship through.
+-- The legacy hardcoded `idsse_competitions` CTE was eliminated in
+-- session 69 once the bronze writer was wired to surface
+-- competition_native_id directly from the DFL matchinformation XML
+-- (parity with bronze.idsse_events; see ADR-018 + the meta-test in
+-- src/tests/test_idsse_match_metadata_parity.py).
 --
 -- Sources:
---   - bronze.idsse_tracking (distinct match_id for match presence)
+--   - bronze.idsse_tracking (one distinct row per match_id; carries
+--     competition_native_id + season_native_id + home/away_team_id_native)
 --   - stg_tracking__player_metadata (home/away team display names)
---   - Hardcoded DFL competition mappings (see src/ingestion/idsse.py)
 --
--- Strips the 'idsse_' prefix from bronze match_id to yield the native
--- DFL MatchId (e.g., 'idsse_J03WMX' -> 'J03WMX'). The provider column
--- (constant 'idsse') disambiguates against other providers' native IDs
--- via the surrogate key in dim_matches.
+-- Format invariant: bronze.idsse_*.match_id is the BARE DFL MatchId
+-- (e.g. 'J03WMX') per shared/identifiers.py:idsse_native_match_id.
+-- Live boundary test: src/tests/test_idsse_bronze_match_id_format.py.
 
-with tracking_matches as (
+with tracking_metadata as (
 
+    -- Pull one row per match carrying the per-match metadata that the
+    -- bronze writer broadcasts to every tracking row. Picking any single
+    -- row is fine since these columns are constant per match — `select
+    -- distinct match_id, competition_native_id, ...` collapses the
+    -- tracking-scale row count down to one row per match.
     select distinct
-        match_id as prefixed_match_id
+        match_id                  as native_match_id,
+        competition_native_id     as competition_id,
+        season_native_id          as season_id,
+        home_team_id_native       as home_team_id,
+        away_team_id_native       as away_team_id
     from {{ source('idsse', 'idsse_tracking') }}
-
-),
-
-idsse_competitions as (
-
-    -- DFL competition mapping from src/ingestion/idsse.py._MATCH_COMPETITION.
-    -- 5 matches in DFL-COM-000002, 2 in DFL-COM-000001.
-    -- Keep in sync with the Python source until a proper DFL metadata
-    -- bronze table exists.
-    select * from (
-        values
-            ('idsse_J03WMX', 'DFL-COM-000001'),
-            ('idsse_J03WN1', 'DFL-COM-000001'),
-            ('idsse_J03WPY', 'DFL-COM-000002'),
-            ('idsse_J03WOH', 'DFL-COM-000002'),
-            ('idsse_J03WQQ', 'DFL-COM-000002'),
-            ('idsse_J03WOY', 'DFL-COM-000002'),
-            ('idsse_J03WR9', 'DFL-COM-000002')
-    ) as t(prefixed_match_id, competition_id)
 
 ),
 
@@ -53,19 +48,19 @@ team_names as (
 final as (
 
     select
-        -- Native DFL MatchId with the 'idsse_' prefix stripped
-        regexp_replace(tm.prefixed_match_id, '^idsse_', '') as native_match_id,
+        tm.native_match_id,
         'idsse'                                              as provider,
-        ic.competition_id,
+        tm.competition_id,
+        tm.season_id,
+        tm.home_team_id,
+        tm.away_team_id,
         tn.home_team_name,
         tn.away_team_name,
-        tm.prefixed_match_id                                 as bronze_match_id
+        tm.native_match_id                                   as bronze_match_id
 
-    from tracking_matches tm
-    left join idsse_competitions ic
-        on tm.prefixed_match_id = ic.prefixed_match_id
+    from tracking_metadata tm
     left join team_names tn
-        on tm.prefixed_match_id = tn.match_id
+        on tm.native_match_id = tn.match_id
 
 )
 

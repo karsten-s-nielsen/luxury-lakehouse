@@ -14,6 +14,7 @@
 
 {{ config(
     materialized='view',
+    schema='silver',
     enabled=var('entity_resolution_enabled', false)
 ) }}
 

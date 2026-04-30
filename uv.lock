@@ -1837,7 +1837,7 @@ wheels = [
 
 [[package]]
 name = "luxury-lakehouse"
-version = "0.3.26"
+version = "0.3.27"
 source = { editable = "." }
 dependencies = [
     { name = "huggingface-hub" },
