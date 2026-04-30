@@ -142,6 +142,14 @@ models:
         description: Bronze passthrough — ball_possession from idsse_tracking (see _idsse__sources.yml).
       - name: ball_status
         description: Bronze passthrough — ball_status from idsse_tracking (see _idsse__sources.yml).
+      - name: competition_native_id
+        description: Bronze passthrough — competition_native_id from idsse_tracking (see _idsse__sources.yml). Per-match metadata, same value every row.
+      - name: season_native_id
+        description: Bronze passthrough — season_native_id from idsse_tracking (see _idsse__sources.yml). Per-match metadata, same value every row.
+      - name: home_team_id_native
+        description: Bronze passthrough — home_team_id_native from idsse_tracking (see _idsse__sources.yml). Per-match metadata, same value every row.
+      - name: away_team_id_native
+        description: Bronze passthrough — away_team_id_native from idsse_tracking (see _idsse__sources.yml). Per-match metadata, same value every row.
 
 # PR 7 hotfix #3: stg_idsse__home_away_teams DELETED — subsumed by
 # int_tracking__match_side_team_bridge (see dbt_project/models/intermediate/).

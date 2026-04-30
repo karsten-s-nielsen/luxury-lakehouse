@@ -84,7 +84,17 @@ normalized as (
         ball_m                                          as ball_m,
         ball_t                                          as ball_t,
         ball_possession                                 as ball_possession,
-        ball_status                                     as ball_status
+        ball_status                                     as ball_status,
+
+        -- Per-match metadata (session 69 — parity with bronze.idsse_events).
+        -- Sourced from <General> in matchinformation XML by
+        -- ingestion.idsse._parse_match_metadata. Constant per match.
+        -- Single source of truth for stg_idsse__matches; downstream models
+        -- can also opt in here without joining to stg_idsse__matches.
+        competition_native_id                           as competition_native_id,
+        season_native_id                                as season_native_id,
+        home_team_id_native                             as home_team_id_native,
+        away_team_id_native                             as away_team_id_native
 
     from source
     where x is not null
