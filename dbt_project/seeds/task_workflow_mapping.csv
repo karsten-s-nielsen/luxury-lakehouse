@@ -21,6 +21,7 @@ compute_expected_threat,wf-xt-grids
 ingest_statsbomb,wf-statsbomb
 ingest_metrica,wf-metrica
 ingest_wyscout,wf-wyscout
+preflight_idsse,wf-idsse
 ingest_idsse,wf-idsse
 ingest_idsse_events,wf-idsse-events
 ingest_skillcorner,wf-skillcorner

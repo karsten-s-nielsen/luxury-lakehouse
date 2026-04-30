@@ -944,11 +944,11 @@ class TestStaticDatasetGuards:
     """Static-dataset guards must return count=0 when data is complete."""
 
     @pytest.mark.parametrize(
-        "module_path,tables_and_counts",
+        "module_path,tables_and_counts,source_ids_attr",
         [
-            ("ingestion.metrica", [("metrica_tracking", 3), ("metrica_events", 3)]),
-            ("ingestion.idsse", [("idsse_tracking", 7), ("idsse_events", 7)]),
-            ("ingestion.skillcorner", [("skillcorner_tracking", 10)]),
+            ("ingestion.metrica", [("metrica_tracking", 3), ("metrica_events", 3)], None),
+            ("ingestion.idsse", [("idsse_tracking", 7), ("idsse_events", 7)], "IDSSE_MATCH_IDS"),
+            ("ingestion.skillcorner", [("skillcorner_tracking", 10)], None),
         ],
         ids=["metrica", "idsse", "skillcorner"],
     )
@@ -956,20 +956,45 @@ class TestStaticDatasetGuards:
         self,
         module_path: str,
         tables_and_counts: list[tuple[str, int]],
+        source_ids_attr: str | None,
     ) -> None:
-        """Mock tables with expected distinct counts, verify count=0."""
+        """Mock tables with expected distinct counts, verify count=0.
+
+        ``source_ids_attr`` (e.g. ``"IDSSE_MATCH_IDS"``) is provided for
+        guards that use ``.collect()`` for runtime chunk discovery rather
+        than ``.count()``. When set, the mock additionally configures
+        ``.collect()`` to return rows whose ``match_id`` matches the
+        source-of-truth IDs so the guard's anti-join finds zero missing.
+        """
         mod = importlib.import_module(module_path)
         guard = mod.skip_guard
         spark = MagicMock()
+
+        # For guards that use .collect() for runtime chunk discovery, build
+        # mock rows whose ["match_id"] returns one of the source-of-truth IDs.
+        source_ids: list[str] = []
+        if source_ids_attr is not None:
+            source_ids = list(getattr(mod, source_ids_attr))
+
+        def _make_rows(ids: list[str]) -> list[MagicMock]:
+            rows: list[MagicMock] = []
+            for mid in ids:
+                row = MagicMock()
+                row.__getitem__ = lambda self, key, _mid=mid: _mid
+                rows.append(row)
+            return rows
 
         def table_side_effect(name: str) -> MagicMock:
             mock_df = MagicMock()
             for table_name, expected_count in tables_and_counts:
                 if table_name in name:
                     mock_df.select.return_value.distinct.return_value.count.return_value = expected_count
+                    if source_ids:
+                        mock_df.select.return_value.distinct.return_value.collect.return_value = _make_rows(source_ids)
                     return mock_df
-            # Default: return 0 for unknown tables
+            # Default: return 0 / empty for unknown tables
             mock_df.select.return_value.distinct.return_value.count.return_value = 0
+            mock_df.select.return_value.distinct.return_value.collect.return_value = []
             return mock_df
 
         spark.table.side_effect = table_side_effect

@@ -53,22 +53,57 @@ from ingestion.utils import SparkAnalysisException as _SparkAnalysisException
 
 
 class _IdsseGuard:
+    """Skip guard + runtime chunk discovery for IDSSE ingestion.
+
+    The guard anti-joins :data:`IDSSE_MATCH_IDS` against the canonical
+    ``match_id`` columns of ``bronze.idsse_tracking`` and
+    ``bronze.idsse_events`` (intersection — a match is only "complete" when
+    BOTH tables have ingested it). The resulting list of missing matches
+    is partitioned into chunks of size :attr:`chunk_size` for the Terraform
+    ``for_each_task`` fan-out (Cycle A pattern; Cycle B+ extends to other
+    workflows).
+
+    Wall-clock budget:
+        At ~6.4 min/match wall-clock post-PR-1.8 (TODO D40d, 2026-04-21),
+        a 2-match chunk fits ~13 min within the 900 s
+        ``ingest_idsse_iteration`` timeout. ``chunk_size = 2`` is the
+        largest size that fits with safety margin.
+    """
+
     workflow_id = "wf-idsse"
+    chunk_size: int = 2
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
-        """Skip if all IDSSE matches are already ingested."""
+        """Compute missing matches and partition into for_each_task chunks."""
         import logging as _logging
 
         from ingestion.utils import tolerate_missing_table
 
-        expected = len(IDSSE_MATCH_IDS)
         _guard_logger = _logging.getLogger(__name__)
+
+        existing_t: set[str] = set()
+        existing_e: set[str] = set()
         with tolerate_missing_table(_guard_logger, "IDSSE tables missing — needs ingestion"):
-            t_count = spark.table(f"{catalog}.{schema}.idsse_tracking").select("match_id").distinct().count()
-            e_count = spark.table(f"{catalog}.{schema}.idsse_events").select("match_id").distinct().count()
-            if t_count >= expected and e_count >= expected:
-                return FilterResult(workflow_id=self.workflow_id, count=0)
-        return FilterResult(workflow_id=self.workflow_id, count=1)
+            t_rows = spark.table(f"{catalog}.{schema}.idsse_tracking").select("match_id").distinct().collect()
+            existing_t = {str(row["match_id"]) for row in t_rows}
+            e_rows = spark.table(f"{catalog}.{schema}.idsse_events").select("match_id").distinct().collect()
+            existing_e = {str(row["match_id"]) for row in e_rows}
+
+        # A match is complete only when present in BOTH tracking AND events.
+        # Bronze stores match_id as the canonical bare DFL form (e.g.
+        # 'J03WMX') per ADR-018 / Bug #1 (PR-LL2 close-out).
+        completed = existing_t & existing_e
+        missing = [mid for mid in IDSSE_MATCH_IDS if mid not in completed]
+
+        if not missing:
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        chunks = [missing[i : i + self.chunk_size] for i in range(0, len(missing), self.chunk_size)]
+        return FilterResult(
+            workflow_id=self.workflow_id,
+            count=len(missing),
+            chunks=chunks,
+        )
 
 
 skip_guard = _IdsseGuard()
@@ -340,6 +375,36 @@ def _smooth_tracking(df: pd.DataFrame) -> pd.DataFrame:
 
 # Default Volume path for pre-downloaded IDSSE data
 _DEFAULT_DATA_DIR = "/Volumes/soccer_analytics/bronze/libs/idsse_data"
+
+
+def _parse_match_ids_arg(raw: str | None) -> list[str] | None:
+    """Parse the optional ``--match-ids`` comma-separated CLI value.
+
+    Used by the Terraform ``for_each_task`` fan-out: each child iteration
+    receives ``--match-ids "J03WMX,J03WN1"`` (a runtime-discovered subset
+    of :data:`IDSSE_MATCH_IDS`). This helper parses the string, validates
+    every ID is known, and returns a clean list (or ``None`` when no
+    filter was provided — full 7-match run).
+
+    Args:
+        raw: Raw CLI string (e.g. ``"J03WMX,J03WN1"`` or ``None``).
+
+    Returns:
+        Validated list of match IDs, or ``None`` when ``raw`` is empty.
+
+    Raises:
+        SystemExit: When any ID in ``raw`` is not in :data:`IDSSE_MATCH_IDS`.
+            Hard-fail-fast — silent filtering would mask preflight/Python
+            drift (e.g. an iteration receiving an ID that was removed from
+            the constant).
+    """
+    if raw is None or raw == "":
+        return None
+    requested = [mid.strip() for mid in raw.split(",") if mid.strip()]
+    unknown = [mid for mid in requested if mid not in IDSSE_MATCH_IDS]
+    if unknown:
+        raise SystemExit(f"Unknown IDSSE match IDs in --match-ids: {unknown}. Valid IDs: {sorted(IDSSE_MATCH_IDS)}")
+    return requested
 
 
 def _parse_teams(info_path: str) -> tuple[str, str, dict[str, str], set[str]]:
@@ -897,18 +962,61 @@ def run_pipeline(
     *,
     filter_result: FilterResult,
     ctx: object = None,
+    match_ids: list[str] | None = None,
 ) -> int:
-    """Ingest IDSSE tracking and event data into the bronze layer."""
+    """Ingest IDSSE tracking and event data into the bronze layer.
+
+    Args:
+        spark: Active Spark session.
+        catalog: Unity Catalog name.
+        schema: Bronze schema name.
+        logger: Structured logger.
+        filter_result: Skip-guard result; ``count == 0`` raises
+            :class:`WorkflowSkippedError`.
+        ctx: Optional workflow context (kept for hook parity).
+        match_ids: Optional subset of :data:`IDSSE_MATCH_IDS` to ingest.
+            ``None`` means process all 7 matches (single-task path or
+            backward-compat caller). When set (typically by the
+            ``for_each_task`` fan-out passing ``--match-ids "J03WMX,J03WN1"``
+            from the preflight task's discovered chunks), only the listed
+            matches are ingested for both tracking AND events. Per-match
+            incremental skip still applies inside :func:`ingest_idsse`
+            and :func:`ingest_idsse_events`.
+    """
     if filter_result.count == 0:
         raise WorkflowSkippedError("No new work")
-    ingest_idsse(spark, catalog, schema, logger)
-    ingest_idsse_events(spark, catalog, schema, logger)
+    ingest_idsse(spark, catalog, schema, logger, match_ids=match_ids)
+    ingest_idsse_events(spark, catalog, schema, logger, match_ids=match_ids)
     return 0
 
 
 def main() -> None:
-    """CLI entry point for IDSSE tracking data ingestion."""
-    args = parse_ingestion_args("Ingest IDSSE Bundesliga tracking data into the bronze layer")
+    """CLI entry point for IDSSE tracking ingestion (single-iteration handler).
+
+    Each iteration of the ``for_each_task`` fan-out invokes this entry point
+    with ``--match-ids "J03WMX,J03WN1"`` (a runtime-discovered subset
+    written by the ``preflight_idsse`` task). When invoked without
+    ``--match-ids`` (e.g., manual standalone run), the function processes
+    the full 7-match :data:`IDSSE_MATCH_IDS` set.
+    """
+    args = parse_ingestion_args(
+        "Ingest IDSSE Bundesliga tracking data into the bronze layer",
+        extra_args=[
+            (
+                "--match-ids",
+                {
+                    "type": str,
+                    "default": None,
+                    "help": (
+                        "Optional comma-separated subset of IDSSE match IDs to "
+                        "ingest (e.g. 'J03WMX,J03WN1'). Used by the Terraform "
+                        "for_each_task fan-out — runtime-discovered by the "
+                        "preflight_idsse task. Omit to process all 7 matches."
+                    ),
+                },
+            ),
+        ],
+    )
     logger = configure_logging("idsse")
     spark = get_spark_session()
 
@@ -916,10 +1024,22 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
+    match_ids = _parse_match_ids_arg(getattr(args, "match_ids", None))
+
     filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
 
     logger.info("Starting IDSSE ingestion into %s.%s", args.catalog, args.schema)
-    run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
+    if match_ids is not None:
+        logger.info("Restricted to chunk: %s (%d matches)", match_ids, len(match_ids))
+
+    run_pipeline(
+        spark,
+        args.catalog,
+        args.schema,
+        logger,
+        filter_result=filter_result,
+        match_ids=match_ids,
+    )
     logger.info("IDSSE ingestion complete")
 
 
@@ -1384,6 +1504,98 @@ def ingest_idsse_events(
         )
         del df, sdf
         gc.collect()
+
+
+# ---------------------------------------------------------------------------
+# Preflight entry point — runtime-discovered chunks for for_each_task fan-out
+# ---------------------------------------------------------------------------
+
+
+def _write_match_chunks_task_value(
+    chunks_for_inputs: list[str],
+    logger: logging.Logger,
+) -> None:
+    """Write the discovered chunks as a Databricks task value.
+
+    The downstream ``ingest_idsse`` task's ``for_each_task`` reads this
+    via ``"{{tasks.preflight_idsse.values.idsse_match_chunks}}"``.
+    Empty list → 0 iterations spawned (no-op runs cost only the preflight
+    task itself, ~30 s).
+
+    Outside the Databricks runtime (local dev, unit tests), the
+    ``dbutils`` import fails; we log a warning and return cleanly so
+    the entry point remains testable.
+
+    Args:
+        chunks_for_inputs: List of comma-separated match-ID strings,
+            e.g. ``["J03WMX,J03WN1", "J03WPY,J03WOH"]``. Each element
+            becomes one iteration's ``{{input}}`` value.
+        logger: Structured logger.
+    """
+    try:
+        from pyspark.dbutils import DBUtils  # type: ignore[import-not-found]
+        from pyspark.sql import SparkSession
+
+        spark = SparkSession.getActiveSession()
+        if spark is None:
+            logger.warning("No active SparkSession — task value not written")
+            return
+        dbutils = DBUtils(spark)
+        dbutils.jobs.taskValues.set(key="idsse_match_chunks", value=chunks_for_inputs)
+        logger.info(
+            "Wrote task value 'idsse_match_chunks' (%d chunks)",
+            len(chunks_for_inputs),
+        )
+    except (ImportError, AttributeError, RuntimeError) as exc:
+        logger.warning("Task values not available (likely standalone mode) — %s", exc)
+
+
+def main_preflight() -> None:
+    """CLI entry point for the IDSSE preflight task.
+
+    Runs the IDSSE skip guard, partitions any missing matches into
+    fan-out chunks (size :attr:`_IdsseGuard.chunk_size`), and writes the
+    chunks as a Databricks task value (``idsse_match_chunks``) for the
+    downstream ``ingest_idsse`` ``for_each_task`` to consume.
+
+    Behavior:
+        - All 7 missing → emits 4 chunks (2,2,2,1)
+        - Partial (e.g. 3 missing) → emits 2 chunks (2,1)
+        - All 7 done → emits empty list ``[]`` (for_each_task spawns 0 iterations)
+        - 8th match added to ``IDSSE_MATCH_IDS`` → automatically picked up
+          (chunks regenerate on the next preflight run)
+
+    The same pattern (guard returns ``FilterResult.chunks`` → preflight
+    writes task value → for_each_task consumes) is the prototype for
+    Cycle B+ broader fan-out activation (TODO D40a — pitch_control,
+    off-ball xT, SPADL-VAEP).
+    """
+    args = parse_ingestion_args(
+        "Preflight: discover unprocessed IDSSE matches and emit chunks "
+        "as a Databricks task value for downstream for_each_task fan-out"
+    )
+    logger = configure_logging("idsse_preflight")
+    spark = get_spark_session()
+
+    from ingestion.bootstrap import bootstrap_hooks
+
+    bootstrap_hooks(spark, args.catalog, args.schema)
+
+    fr = timed_check(skip_guard, spark, args.catalog, args.schema)
+
+    # Serialize each chunk as a comma-separated string —
+    # for_each_task's `{{input}}` interpolates the entire string, and
+    # the iteration's CLI splits on comma via _parse_match_ids_arg.
+    chunks_for_inputs: list[str] = [",".join(chunk) for chunk in (fr.chunks or [])]
+
+    logger.info(
+        "IDSSE preflight: %d missing matches across %d chunks (chunk_size=%d)",
+        fr.count,
+        len(chunks_for_inputs),
+        skip_guard.chunk_size,
+    )
+
+    _write_match_chunks_task_value(chunks_for_inputs, logger)
 
 
 if __name__ == "__main__":

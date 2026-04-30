@@ -132,6 +132,12 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     # bundle already governed by wf-idsse. Pure data-relay helper with no
     # ML methodology and no per-player evaluation — falls outside CLAUDE.md:253.
     "ingest_idsse_events": None,
+    # PR-Cycle-A (2026-04-30): Runtime chunk-discovery preflight feeding the
+    # `ingest_idsse` for_each_task fan-out. Pure orchestration helper —
+    # writes a Databricks task value (`idsse_match_chunks`) and exits.
+    # Subordinate to wf-idsse; no independent methodology, no per-player
+    # output.
+    "preflight_idsse": None,
     # Idempotent repair helper that refills _raw_extra_json where upstream
     # ingest left it NULL. Subordinate to wf-statsbomb; no independent
     # methodology or output.

@@ -1,6 +1,6 @@
 [project]
 name = "luxury-lakehouse"
-version = "0.3.23"
+version = "0.3.24"
 description = "Serverless soccer analytics platform built on Databricks Lakebase"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -99,6 +99,7 @@ backfill_statsbomb_360 = "ingestion.statsbomb_backfill_360:main"
 backfill_statsbomb_extra = "ingestion.statsbomb_backfill_extra:main"
 compute_spadl_vaep = "ingestion.spadl_vaep:main"
 ingest_idsse = "ingestion.idsse:main"
+preflight_idsse = "ingestion.idsse:main_preflight"
 ingest_skillcorner = "ingestion.skillcorner:main"
 compute_line_breaking = "ingestion.line_breaking:main"
 compute_off_ball_xt = "ingestion.off_ball_xt:main"
@@ -354,4 +355,16 @@ dev = [
     "psycopg2-binary>=2.9.9",
     "luxury-lakehouse[analytics,embeddings,training,evolve]",
     "pandas-stubs>=2.2.3,<2.4",
+    # cachetools is used by hf_taipy_app/src/cache.py (on the test sys.path
+    # via pyright extraPaths). Several src/tests/test_queries_*.py and
+    # test_trigger_dbt_job.py + test_dbt_fct_action_values_minute.py tests
+    # transitively import it.
+    "cachetools>=6.0.0",
+    # NOTE: tests touching `databricks-sdk` (test_refresh_synced_tables,
+    # test_grant_synced_table_permissions, test_fix_event_log_ownership)
+    # require `uv sync --group dev --extra sdk` because the
+    # [tool.uv].conflicts entry declaring `dbt`/`sdk` mutually exclusive
+    # makes the sdk extra non-default in dev resolution. CI runs that
+    # cover those tests must pass `--extra sdk` explicitly. Cycle A scope
+    # does NOT change the conflict architecture; that is queued separately.
 ]

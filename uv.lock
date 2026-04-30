@@ -1837,7 +1837,7 @@ wheels = [
 
 [[package]]
 name = "luxury-lakehouse"
-version = "0.3.23"
+version = "0.3.24"
 source = { editable = "." }
 dependencies = [
     { name = "huggingface-hub" },
@@ -1908,6 +1908,7 @@ training = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "cachetools" },
     { name = "import-linter" },
     { name = "luxury-lakehouse", extra = ["analytics", "embeddings", "evolve", "training"] },
     { name = "matplotlib" },
@@ -1975,6 +1976,7 @@ provides-extras = ["analytics", "dbt", "sdk", "embeddings", "jax", "mlflow", "tr
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "cachetools", specifier = ">=6.0.0" },
     { name = "import-linter", specifier = ">=2.0" },
     { name = "luxury-lakehouse", extras = ["analytics", "embeddings", "training", "evolve"] },
     { name = "matplotlib", specifier = ">=3.10.8" },
