@@ -470,7 +470,13 @@ class TestSpadlVaepWriterDdlParity:
                 if isinstance(node.generators[0].iter, ast.List) and all(
                     isinstance(e, ast.Constant) and isinstance(e.value, str) for e in node.generators[0].iter.elts
                 ):
-                    string_lists.append([e.value for e in node.generators[0].iter.elts])  # type: ignore[attr-defined]
+                    string_lists.append(
+                        [
+                            str(e.value)
+                            for e in node.generators[0].iter.elts
+                            if isinstance(e, ast.Constant) and isinstance(e.value, str)
+                        ]
+                    )
             elif isinstance(node, ast.Assign):
                 # _output_cols = _pd.Index([...]) — extract the Index arg
                 for target in node.targets:
@@ -482,7 +488,11 @@ class TestSpadlVaepWriterDdlParity:
                             and isinstance(node.value.args[0], ast.List)
                         ):
                             string_lists.append(
-                                [e.value for e in node.value.args[0].elts if isinstance(e, ast.Constant)]
+                                [
+                                    str(e.value)
+                                    for e in node.value.args[0].elts
+                                    if isinstance(e, ast.Constant) and isinstance(e.value, str)
+                                ]
                             )
 
         # Heuristic: 2 string lists of substantial length — _output_cols + per-game projection
