@@ -143,3 +143,96 @@ def test_time_seconds_non_negative(source, converter, fixture) -> None:  # type:
     assert len(neg) == 0, (
         f"{source}: {len(neg)} rows with negative time_seconds — bronze parser period misclassification"
     )
+
+
+@_PARAMETRIZE
+def test_apply_spadl_enrichments_baseline(source, converter, fixture) -> None:  # type: ignore[no-untyped-def]
+    """The full enrichment chain runs on every production-shape fixture without raising.
+
+    Catches: silly-kicks API breaks, our adapter regressions, or a future
+    enrichment helper that fails on a provider's natural data shape.
+    """
+    from ingestion.spadl_enrichments import apply_spadl_enrichments
+
+    df = pd.read_parquet(_FIXTURE_DIR / fixture)
+    adapted, hti = _adapt_input(source, df)
+    actions, _ = converter.convert_to_actions(adapted, home_team_id=hti)
+
+    enriched = apply_spadl_enrichments(actions, source=source)
+
+    expected_cols = {
+        "possession_id_heuristic",
+        "gk_role",
+        "gk_was_distributing",
+        "gk_was_engaged",
+        "gk_actions_in_possession",
+        "defending_gk_player_id",
+    }
+    missing = expected_cols - set(enriched.columns)
+    assert not missing, f"{source}: enrichment chain dropped columns {missing}"
+    assert len(enriched) == len(actions), f"{source}: enrichment changed row count {len(actions)} -> {len(enriched)}"
+
+
+@_PARAMETRIZE
+def test_apply_spadl_enrichments_nan_player_id_safe(source, converter, fixture) -> None:  # type: ignore[no-untyped-def]
+    """Regression for the silly-kicks NaN-safety contract (silly-kicks ≥ 2.5.0).
+
+    Pre-2.5.0 ``compute_spadl_vaep`` failed in production with::
+
+        File "silly_kicks/spadl/utils.py", line 534, in add_pre_shot_gk_context
+            gk_id = int(player_id[window_start + relative_indices[-1]])
+        ValueError: cannot convert float NaN to integer
+
+    Curated dev fixtures don't reliably contain the trigger shape (the bug
+    appeared on real bronze data from Phase H IDSSE re-ingest, run
+    ``959919928283335`` task ``compute_spadl_vaep``). To lock in the contract
+    independent of fixture coverage, this test injects NaN into the
+    ``player_id`` column at every 5th row of the converted actions frame
+    — the same shape silly-kicks's enrichment helpers index into.
+
+    silly-kicks 2.5.0 ships ADR-003 (NaN-safety contract for enrichment
+    helpers): a NaN in any caller-supplied identifier column is treated
+    as "not identifiable" for that row — the helper produces NULL output
+    on the affected row, never raises. This test fails on any
+    silly-kicks build that violates that contract.
+    """
+    from ingestion.spadl_enrichments import apply_spadl_enrichments
+
+    df = pd.read_parquet(_FIXTURE_DIR / fixture)
+    adapted, hti = _adapt_input(source, df)
+    actions, _ = converter.convert_to_actions(adapted, home_team_id=hti)
+
+    # Inject np.nan into player_id on every 5th row to mirror the exact
+    # production failure mode: bronze.spadl_actions returned player_id
+    # with np.nan for some rows. Different providers use different native
+    # player_id dtypes (StatsBomb/Wyscout: int; IDSSE/Metrica: string DFL
+    # IDs); pandas upcasts each appropriately on np.nan assignment.
+    # silly-kicks ≥ 2.5.0 must handle this under ADR-003 (NaN-safety contract).
+    import numpy as np
+
+    actions_with_nan = actions.copy()
+    nan_mask = actions_with_nan.index % 5 == 0
+    n_nan = int(nan_mask.sum())
+    assert n_nan > 0, f"{source}: fixture too small to inject NaN"
+    actions_with_nan.loc[nan_mask, "player_id"] = np.nan
+
+    # The contract: this must not raise.
+    enriched = apply_spadl_enrichments(actions_with_nan, source=source)
+
+    # Enrichment chain ran to completion: row count preserved, contract
+    # columns all present. The actual NULL-handling for affected rows is
+    # silly-kicks's contract to honor — we don't assert specific values
+    # for the NaN rows here, only that no exception escaped.
+    expected_cols = {
+        "possession_id_heuristic",
+        "gk_role",
+        "gk_was_distributing",
+        "gk_was_engaged",
+        "gk_actions_in_possession",
+        "defending_gk_player_id",
+    }
+    missing = expected_cols - set(enriched.columns)
+    assert not missing, f"{source}: enrichment chain dropped columns {missing}"
+    assert len(enriched) == len(actions_with_nan), (
+        f"{source}: enrichment changed row count {len(actions_with_nan)} -> {len(enriched)}"
+    )
