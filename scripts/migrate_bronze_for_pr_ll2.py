@@ -70,16 +70,36 @@ _LL2_PATH_B_SPADL_COLS: dict[str, str] = {
     "match_id_native": "STRING",
 }
 
-# PR-LL2 Path B close-out (2026-04-29, ADR-018): silly-kicks 2.0.0 sportec
-# tackle qualifier columns added to bronze.spadl_actions + bronze.vaep_action_values.
-# NaN on non-sportec rows + on sportec rows where the DFL XML's tackle_winner
-# qualifier was absent. silly-kicks 2.0.0 SPORTEC_SPADL_COLUMNS extension.
+# PR-Cycle-A.4 (2026-04-30, ADR-018 alignment): silly-kicks 2.5.0 sportec
+# tackle qualifier columns. ``<col>_native`` STRING + ``<col>_key`` BIGINT
+# surrogate (via ``hash_native_id_to_bigint``) per LL2 Path B convention.
+# Pre-2.5.0 silly-kicks silently hashed sportec player/team IDs to int
+# (lossy); 2.5.0 emits native DFL OBJ/CLU strings, and we surface BOTH
+# forms for Kimball-aligned joins.
 _PATH_B_CLOSE_OUT_TACKLE_COLS: dict[str, str] = {
-    "tackle_winner_player_id": "BIGINT",
-    "tackle_winner_team_id": "STRING",
-    "tackle_loser_player_id": "BIGINT",
-    "tackle_loser_team_id": "STRING",
+    "tackle_winner_player_id_native": "STRING",
+    "tackle_winner_player_key": "BIGINT",
+    "tackle_winner_team_id_native": "STRING",
+    "tackle_winner_team_key": "BIGINT",
+    "tackle_loser_player_id_native": "STRING",
+    "tackle_loser_player_key": "BIGINT",
+    "tackle_loser_team_id_native": "STRING",
+    "tackle_loser_team_key": "BIGINT",
 }
+
+# Legacy tackle columns from the original PR-LL2 close-out (2026-04-29).
+# These predate ADR-018 alignment and silly-kicks 2.5.0; replaced by the
+# 8 new ``_native``/``_key`` columns above. The migration drops these
+# before adding the new ones (Delta supports DROP COLUMN since column
+# mapping was enabled in PR-LL2). All values were NULL anyway since
+# StatsBomb/Wyscout don't emit tackle data and IDSSE/Metrica rows were
+# DELETE'd in Phase H, so no data loss.
+_LEGACY_TACKLE_COLS_TO_DROP: tuple[str, ...] = (
+    "tackle_winner_player_id",
+    "tackle_winner_team_id",
+    "tackle_loser_player_id",
+    "tackle_loser_team_id",
+)
 
 # LL2 Path B for bronze events tables (idsse + metrica). away_team_id_native
 # is exposed on these but NOT on spadl_actions (which only carries the acting
@@ -180,10 +200,47 @@ def _alter_add_columns(cur, fq_table: str, missing_cols: dict[str, str], dry_run
     cur.execute(sql_text)
 
 
+def _enable_column_mapping(cur, fq_table: str, dry_run: bool) -> None:  # type: ignore[no-untyped-def]
+    """Enable Delta column mapping (one-time, required for DROP COLUMN).
+
+    Idempotent: setting these properties when already set is a no-op.
+    Upgrades the table protocol to (2, 5) — irreversible but standard.
+    See https://docs.delta.io/latest/delta-column-mapping.html.
+    """
+    sql_text = (
+        f"ALTER TABLE {fq_table} SET TBLPROPERTIES ("
+        "'delta.columnMapping.mode' = 'name', "
+        "'delta.minReaderVersion' = '2', "
+        "'delta.minWriterVersion' = '5')"
+    )
+    logger.info("SQL: %s", sql_text)
+    if dry_run:
+        return
+    cur.execute(sql_text)
+
+
+def _alter_drop_columns(cur, fq_table: str, cols_to_drop: list[str], dry_run: bool) -> None:  # type: ignore[no-untyped-def]
+    """Emit one ALTER TABLE DROP COLUMN per legacy column.
+
+    Delta supports DROP COLUMN with column-mapping enabled (call
+    ``_enable_column_mapping`` first). All-NULL columns drop cleanly
+    with no data loss.
+    """
+    for col in cols_to_drop:
+        sql_text = f"ALTER TABLE {fq_table} DROP COLUMN IF EXISTS {col}"
+        logger.info("SQL: %s", sql_text)
+        if dry_run:
+            continue
+        cur.execute(sql_text)
+
+
 def _migrate_table(cur, catalog: str, schema: str, table: str, target: dict[str, str], dry_run: bool) -> bool:  # type: ignore[no-untyped-def]
     """Apply the LL2 ALTER for one bronze table.
 
-    Returns True if any columns were added (or would be in dry-run mode).
+    Returns True if any columns were added or dropped (or would be in dry-run).
+    Order: legacy DROP first, then ADD. The DROP step is only relevant for
+    spadl_actions + vaep_action_values (legacy tackle columns from
+    PR-LL2 close-out 2026-04-29); other tables ignore it.
     """
     fq = f"{catalog}.{schema}.{table}"
     try:
@@ -195,14 +252,35 @@ def _migrate_table(cur, catalog: str, schema: str, table: str, target: dict[str,
         logger.warning("Could not DESCRIBE %s: %s — skipping", fq, exc)
         return False
 
-    missing = {col: ddl_type for col, ddl_type in target.items() if col not in existing}
-    if not missing:
-        logger.info("%s — already at target schema (no missing LL2 cols)", fq)
-        return False
+    changed = False
 
-    logger.info("%s — adding %d missing columns: %s", fq, len(missing), sorted(missing))
-    _alter_add_columns(cur, fq, missing, dry_run)
-    return True
+    # PR-Cycle-A.4 (2026-04-30): drop legacy tackle columns BEFORE adding the
+    # new _native/_key replacements. Only relevant for spadl_actions +
+    # vaep_action_values; the DROP requires Delta column mapping (enabled
+    # below if needed). Idempotent re-runnable — existing-column check
+    # short-circuits when the migration has already been applied.
+    if table in ("spadl_actions", "vaep_action_values"):
+        legacy_present = [c for c in _LEGACY_TACKLE_COLS_TO_DROP if c in existing]
+        if legacy_present:
+            logger.info("%s — enabling column mapping (required for DROP COLUMN)", fq)
+            _enable_column_mapping(cur, fq, dry_run)
+            logger.info("%s — dropping %d legacy tackle columns: %s", fq, len(legacy_present), legacy_present)
+            _alter_drop_columns(cur, fq, legacy_present, dry_run)
+            changed = True
+            # Refresh `existing` after the DROPs so the missing-cols
+            # diff below excludes them.
+            existing = existing - set(legacy_present)
+
+    missing = {col: ddl_type for col, ddl_type in target.items() if col not in existing}
+    if missing:
+        logger.info("%s — adding %d missing columns: %s", fq, len(missing), sorted(missing))
+        _alter_add_columns(cur, fq, missing, dry_run)
+        changed = True
+
+    if not changed:
+        logger.info("%s — already at target schema (no missing LL2 cols, no legacy cols)", fq)
+
+    return changed
 
 
 def main() -> int:

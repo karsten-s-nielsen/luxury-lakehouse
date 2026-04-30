@@ -80,13 +80,17 @@ _SPADL_SCHEMA = (
     # IDSSE/Metrica it's the original string ('J03WMX' / 'Sample_Game_1') while
     # the BIGINT match_id is its deterministic hash.
     "match_id_native STRING, "
-    # PR-LL2 Path B close-out (2026-04-29): silly-kicks 2.0.0 sportec tackle
-    # qualifier passthrough (4 columns, SPORTEC_SPADL_COLUMNS extension to
-    # KLOPPY_SPADL_COLUMNS). NaN on non-sportec rows + on tackle rows where
-    # the DFL ``tackle_winner`` qualifier was absent. Per silly-kicks ADR-001
-    # ("caller's team_id/player_id sacred") + luxury-lakehouse ADR-016/-018.
-    "tackle_winner_player_id BIGINT, tackle_winner_team_id STRING, "
-    "tackle_loser_player_id BIGINT, tackle_loser_team_id STRING"
+    # PR-Cycle-A.4 (2026-04-30, ADR-018): silly-kicks 2.5.0 sportec tackle
+    # qualifier passthrough as ``<col>_native`` (STRING) + ``<col>_key``
+    # (BIGINT surrogate via ``hash_native_id_to_bigint``) per LL2 Path B
+    # convention. Pre-2.5.0 silly-kicks silently hashed sportec player/team
+    # IDs to int (lossy); 2.5.0 emits native DFL OBJ/CLU strings, and we
+    # surface BOTH the string + a deterministic BIGINT key for Kimball
+    # joins. NULL on non-sportec rows.
+    "tackle_winner_player_id_native STRING, tackle_winner_player_key BIGINT, "
+    "tackle_winner_team_id_native STRING, tackle_winner_team_key BIGINT, "
+    "tackle_loser_player_id_native STRING, tackle_loser_player_key BIGINT, "
+    "tackle_loser_team_id_native STRING, tackle_loser_team_key BIGINT"
 )
 _VAEP_TABLE = "vaep_action_values"
 _VAEP_SCHEMA = (
@@ -112,10 +116,13 @@ _VAEP_SCHEMA = (
     "team_id_native STRING, home_team_id_native STRING, "
     "competition_native_id STRING, season_native_id STRING, "
     "match_id_native STRING, "
-    # PR-LL2 Path B close-out (2026-04-29): silly-kicks 2.0.0 sportec tackle
-    # qualifier passthrough (4 columns).
-    "tackle_winner_player_id BIGINT, tackle_winner_team_id STRING, "
-    "tackle_loser_player_id BIGINT, tackle_loser_team_id STRING"
+    # PR-Cycle-A.4 (2026-04-30, ADR-018): silly-kicks 2.5.0 sportec tackle
+    # qualifier passthrough — ``<col>_native`` STRING + ``<col>_key`` BIGINT.
+    # Carried through from spadl_actions; see _SPADL_SCHEMA for full rationale.
+    "tackle_winner_player_id_native STRING, tackle_winner_player_key BIGINT, "
+    "tackle_winner_team_id_native STRING, tackle_winner_team_key BIGINT, "
+    "tackle_loser_player_id_native STRING, tackle_loser_player_key BIGINT, "
+    "tackle_loser_team_id_native STRING, tackle_loser_team_key BIGINT"
 )
 
 
@@ -451,10 +458,14 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                 "match_id_native",
                 # PR-LL2 Path B close-out (2026-04-29, ADR-018): silly-kicks 2.0.0
                 # sportec tackle qualifier columns carried through from spadl_actions.
-                "tackle_winner_player_id",
-                "tackle_winner_team_id",
-                "tackle_loser_player_id",
-                "tackle_loser_team_id",
+                "tackle_winner_player_id_native",
+                "tackle_winner_player_key",
+                "tackle_winner_team_id_native",
+                "tackle_winner_team_key",
+                "tackle_loser_player_id_native",
+                "tackle_loser_player_key",
+                "tackle_loser_team_id_native",
+                "tackle_loser_team_key",
             ]
         )
 
@@ -569,10 +580,14 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                                 # requires updating ALL FOUR places (DDL +
                                 # StructType + per-game projection + output
                                 # column index).
-                                "tackle_winner_player_id",
-                                "tackle_winner_team_id",
-                                "tackle_loser_player_id",
-                                "tackle_loser_team_id",
+                                "tackle_winner_player_id_native",
+                                "tackle_winner_player_key",
+                                "tackle_winner_team_id_native",
+                                "tackle_winner_team_key",
+                                "tackle_loser_player_id_native",
+                                "tackle_loser_player_key",
+                                "tackle_loser_team_id_native",
+                                "tackle_loser_team_key",
                             ]
                             if c in game_actions.columns
                         ]
@@ -767,10 +782,14 @@ def run_pipeline(
             StructField("match_id_native", StringType()),
             # PR-LL2 Path B close-out (2026-04-29): silly-kicks 2.0.0 sportec
             # tackle qualifier columns. NULL on non-sportec rows.
-            StructField("tackle_winner_player_id", LongType()),
-            StructField("tackle_winner_team_id", StringType()),
-            StructField("tackle_loser_player_id", LongType()),
-            StructField("tackle_loser_team_id", StringType()),
+            StructField("tackle_winner_player_id_native", StringType()),
+            StructField("tackle_winner_player_key", LongType()),
+            StructField("tackle_winner_team_id_native", StringType()),
+            StructField("tackle_winner_team_key", LongType()),
+            StructField("tackle_loser_player_id_native", StringType()),
+            StructField("tackle_loser_player_key", LongType()),
+            StructField("tackle_loser_team_id_native", StringType()),
+            StructField("tackle_loser_team_key", LongType()),
         ]
     )
 
