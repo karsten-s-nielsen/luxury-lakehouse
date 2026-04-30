@@ -159,28 +159,20 @@ jobs:
       # and intentionally NOT covered here; operator runs those manually.
       #
       # Safety: every migration in `scripts/migrations/*.sql` MUST be
-      # idempotent. The runner (`_runner.py`) already skips
-      # `ALTER TABLE ADD COLUMNS` when the column exists; UPDATE/SET
-      # TBLPROPERTIES/CREATE IF NOT EXISTS are idempotent by construction.
-      # See CLAUDE.md "Migration auto-apply at live-build CI" for the
-      # convention every new migration must follow.
+      # idempotent. `_runner.py` skips `ALTER TABLE ADD COLUMNS` when
+      # the column exists; UPDATE / SET TBLPROPERTIES / CREATE IF NOT
+      # EXISTS / GRANT are idempotent by construction. See CLAUDE.md
+      # "Project Conventions" → Bronze migrations auto-apply contract.
       #
-      # Uses static token from secrets (databricks-sql-connector path),
-      # not the OIDC token (which is for SDK/REST). Both are available.
-      # Step-level `env:` overrides the workflow-level `DATABRICKS_TOKEN`
-      # (a legacy static secret used only for dbt-parse env_var resolution
-      # per the comment at lines 38-40) with the GitHub-OIDC-derived token
-      # acquired in step 11. The static secret token has REST access (per
-      # ensure_warehouse.py succeeding) but appears to lack SQL warehouse
-      # Thrift permission, causing _runner.py via databricks-sql-connector
-      # to retry-loop until the 900s budget hits (observed on PR #235 CI
-      # runs 25190951314 + 25189954469). The OIDC token is the same one
-      # `trigger_dbt_job.py` uses for downstream Databricks Job submission
-      # — it has the broader scope this step needs. Token is masked via
-      # `::add-mask::` in step 11, propagated to step env.
+      # Auth + warehouse start: handled by `_runner.py` itself via the
+      # Databricks SDK (`statement_execution`, REST). SDK auto-resolves
+      # auth from env (`DATABRICKS_AUTH_TYPE=github-oidc` here) and the
+      # statements API auto-starts a STOPPED warehouse on first call —
+      # so neither `ensure_warehouse.py` nor a step-level token override
+      # is needed (the previous PR #237 / PR #238 workarounds were tied
+      # to the `databricks-sql-connector` Thrift path that the SDK
+      # rewrite replaced; see `scripts/migrations/_runner.py` header).
       - name: Apply pending bronze migrations
-        env:
-          DATABRICKS_TOKEN: ${{ steps.databricks_token.outputs.token }}
         run: |
           set -euo pipefail
           NEW=$(git diff --name-only --diff-filter=A origin/main...HEAD -- 'scripts/migrations/*.sql' || true)
@@ -188,23 +180,12 @@ jobs:
             echo "No new bronze migrations in PR diff — skipping."
             exit 0
           fi
-          # Pre-warm the SQL warehouse via REST API before invoking the
-          # _runner.py (which uses databricks-sql-connector). The connector
-          # has a documented retry-sleep bug (v4.1.x) where each retry
-          # sleeps ~60s and the session times out (900s budget) before the
-          # warehouse finishes auto-resuming from STOPPED. PR #236's
-          # migration step shipped without this pre-warm; first PR to
-          # actually carry a new migration (#235) hit the 900s timeout
-          # against an idle warehouse. ensure_warehouse.py uses the REST
-          # API (requests, no Thrift) and polls until RUNNING (3-min
-          # budget), so it's hang-proof.
-          uv run --no-sync python scripts/ensure_warehouse.py
           echo "Applying $(echo "$NEW" | wc -l) new migration(s):"
           echo "$NEW"
           while IFS= read -r sql; do
             [ -z "$sql" ] && continue
             echo "::group::Apply $sql"
-            uv run --no-sync --with databricks-sql-connector python scripts/migrations/_runner.py "$sql"
+            uv run --no-sync python scripts/migrations/_runner.py "$sql"
             echo "::endgroup::"
           done <<< "$NEW"
 
