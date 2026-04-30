@@ -18,6 +18,18 @@
 --
 -- A test `select` that returns rows is a FAILURE in dbt's singular-test
 -- convention. Zero rows = pass.
+--
+-- Var-gated under the ADR-018 two-tier pattern. Vanilla `dbt build` skips
+-- this; post-deploy operator runs `dbt build --vars '{include_post_deploy_tests:
+-- true}'` after the IDSSE/Metrica re-ingest cycle. Session 69 surfaced 21
+-- IDSSE rows with period-local minute values caused by the cascade-skip
+-- pattern that PR #235 fixes upstream; the rows resolve once compute_spadl_vaep
+-- regenerates bronze.spadl_actions against the freshly-ingested bronze.idsse_*
+-- data with the new metadata cols.
+{{ config(
+    enabled=var('include_post_deploy_tests', false),
+    tags=['post_deploy_only']
+) }}
 
 select
     match_id,
