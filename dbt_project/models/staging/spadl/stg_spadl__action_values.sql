@@ -139,14 +139,19 @@ cleaned as (
         season_native_id,
         match_id_native,
 
-        -- PR-LL2 Path B close-out (2026-04-29): silly-kicks 2.0.0 sportec
-        -- tackle qualifier passthrough. NULL on non-sportec rows + on
-        -- sportec rows where the DFL ``tackle_winner`` qualifier was
-        -- absent. Per ADR-016 + ADR-018 + silly-kicks ADR-001.
-        tackle_winner_player_id,
-        tackle_winner_team_id,
-        tackle_loser_player_id,
-        tackle_loser_team_id
+        -- PR-Cycle-A.4 (2026-04-30, ADR-018 alignment): silly-kicks 2.5.0
+        -- sportec tackle qualifier passthrough. ``<col>_native`` STRING +
+        -- ``<col>_key`` BIGINT surrogate per LL2 Path B convention. NULL
+        -- on non-sportec rows + on sportec rows where the DFL XML
+        -- ``tackle_winner`` qualifier was absent.
+        tackle_winner_player_id_native,
+        tackle_winner_player_key,
+        tackle_winner_team_id_native,
+        tackle_winner_team_key,
+        tackle_loser_player_id_native,
+        tackle_loser_player_key,
+        tackle_loser_team_id_native,
+        tackle_loser_team_key
 
     from deduplicated d
     where d._row_num = 1

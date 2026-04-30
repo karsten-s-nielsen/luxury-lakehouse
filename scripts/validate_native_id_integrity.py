@@ -92,14 +92,20 @@ _LL2_PATH_B_VALIDATIONS: list[tuple[str, list[str]]] = [
     ("match_id_native", ["statsbomb", "wyscout", "idsse", "metrica"]),
 ]
 
-# PR-LL2 Path B close-out (2026-04-29): silly-kicks 2.0.0 sportec tackle
-# qualifier columns. Populated only on sportec (idsse) rows where the DFL
-# XML's tackle_winner qualifier is present. Other sources NULL by design.
+# PR-Cycle-A.4 (2026-04-30, ADR-018 alignment): silly-kicks 2.5.0 sportec
+# tackle qualifier columns. ``<col>_native`` STRING + ``<col>_key`` BIGINT
+# surrogate per LL2 Path B convention. Populated only on sportec (idsse)
+# rows where the DFL XML's tackle_winner qualifier is present. Other
+# sources NULL by design.
 _PATH_B_CLOSE_OUT_TACKLE_VALIDATIONS: list[tuple[str, list[str]]] = [
-    ("tackle_winner_player_id", ["idsse"]),
-    ("tackle_winner_team_id", ["idsse"]),
-    ("tackle_loser_player_id", ["idsse"]),
-    ("tackle_loser_team_id", ["idsse"]),
+    ("tackle_winner_player_id_native", ["idsse"]),
+    ("tackle_winner_player_key", ["idsse"]),
+    ("tackle_winner_team_id_native", ["idsse"]),
+    ("tackle_winner_team_key", ["idsse"]),
+    ("tackle_loser_player_id_native", ["idsse"]),
+    ("tackle_loser_player_key", ["idsse"]),
+    ("tackle_loser_team_id_native", ["idsse"]),
+    ("tackle_loser_team_key", ["idsse"]),
 ]
 
 _ALL_COLUMN_VALIDATIONS: list[tuple[str, list[str]]] = (
