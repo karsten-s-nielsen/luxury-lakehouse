@@ -149,10 +149,14 @@ def _make_sb_spadl_udf() -> object:
                 # PR-LL2 Path B close-out (2026-04-29, ADR-018): silly-kicks 2.0.0
                 # sportec tackle qualifier columns. NULL on non-sportec UDFs for
                 # multi-source schema parity.
-                "tackle_winner_player_id",
-                "tackle_winner_team_id",
-                "tackle_loser_player_id",
-                "tackle_loser_team_id",
+                "tackle_winner_player_id_native",
+                "tackle_winner_player_key",
+                "tackle_winner_team_id_native",
+                "tackle_winner_team_key",
+                "tackle_loser_player_id_native",
+                "tackle_loser_player_key",
+                "tackle_loser_team_id_native",
+                "tackle_loser_team_key",
             ]
         )
 
@@ -250,10 +254,24 @@ def _make_sb_spadl_udf() -> object:
         # the StatsBomb path (multi-source schema parity; only sportec
         # populates these).
         n = len(actions)
-        actions["tackle_winner_player_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
-        actions["tackle_winner_team_id"] = _pd.array([_pd.NA] * n, dtype="object")
-        actions["tackle_loser_player_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
-        actions["tackle_loser_team_id"] = _pd.array([_pd.NA] * n, dtype="object")
+        # PR-Cycle-A.4 (2026-04-30, ADR-018 alignment): tackle qualifier
+        # columns are silly-kicks 2.5.0 sportec passthroughs; non-IDSSE
+        # providers always NULL. Column shape: ``<col>_native`` (STRING)
+        # + ``<col>_key`` (BIGINT surrogate) per LL2 Path B convention.
+        for _native_col in (
+            "tackle_winner_player_id_native",
+            "tackle_winner_team_id_native",
+            "tackle_loser_player_id_native",
+            "tackle_loser_team_id_native",
+        ):
+            actions[_native_col] = _pd.array([_pd.NA] * n, dtype="string")
+        for _key_col in (
+            "tackle_winner_player_key",
+            "tackle_winner_team_key",
+            "tackle_loser_player_key",
+            "tackle_loser_team_key",
+        ):
+            actions[_key_col] = _pd.array([_pd.NA] * n, dtype="Int64")
 
         return _pd.DataFrame(actions[_spadl_cols])
 
@@ -383,12 +401,16 @@ def _convert_statsbomb_from_bronze(
             StructField("competition_native_id", StringType()),
             StructField("season_native_id", StringType()),
             StructField("match_id_native", StringType()),
-            # PR-LL2 Path B close-out (2026-04-29): silly-kicks 2.0.0 sportec
+            # PR-Cycle-A.4 (2026-04-30, ADR-018): silly-kicks 2.5.0 sportec
             # tackle qualifier columns. NULL on non-sportec rows.
-            StructField("tackle_winner_player_id", LongType()),
-            StructField("tackle_winner_team_id", StringType()),
-            StructField("tackle_loser_player_id", LongType()),
-            StructField("tackle_loser_team_id", StringType()),
+            StructField("tackle_winner_player_id_native", StringType()),
+            StructField("tackle_winner_player_key", LongType()),
+            StructField("tackle_winner_team_id_native", StringType()),
+            StructField("tackle_winner_team_key", LongType()),
+            StructField("tackle_loser_player_id_native", StringType()),
+            StructField("tackle_loser_player_key", LongType()),
+            StructField("tackle_loser_team_id_native", StringType()),
+            StructField("tackle_loser_team_key", LongType()),
         ]
     )
 
@@ -483,10 +505,14 @@ def _make_ws_spadl_udf(goalkeeper_ids: set[int] | None = None) -> object:
                 "match_id_native",
                 # PR-LL2 Path B close-out: silly-kicks 2.0.0 sportec tackle
                 # qualifier columns. NULL on Wyscout (multi-source parity).
-                "tackle_winner_player_id",
-                "tackle_winner_team_id",
-                "tackle_loser_player_id",
-                "tackle_loser_team_id",
+                "tackle_winner_player_id_native",
+                "tackle_winner_player_key",
+                "tackle_winner_team_id_native",
+                "tackle_winner_team_key",
+                "tackle_loser_player_id_native",
+                "tackle_loser_player_key",
+                "tackle_loser_team_id_native",
+                "tackle_loser_team_key",
             ]
         )
 
@@ -551,10 +577,24 @@ def _make_ws_spadl_udf(goalkeeper_ids: set[int] | None = None) -> object:
 
         # PR-LL2 Path B close-out: tackle qualifier columns NULL-filled on
         # the Wyscout path (multi-source schema parity).
-        actions["tackle_winner_player_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
-        actions["tackle_winner_team_id"] = _pd.array([_pd.NA] * n, dtype="object")
-        actions["tackle_loser_player_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
-        actions["tackle_loser_team_id"] = _pd.array([_pd.NA] * n, dtype="object")
+        # PR-Cycle-A.4 (2026-04-30, ADR-018 alignment): tackle qualifier
+        # columns are silly-kicks 2.5.0 sportec passthroughs; non-IDSSE
+        # providers always NULL. Column shape: ``<col>_native`` (STRING)
+        # + ``<col>_key`` (BIGINT surrogate) per LL2 Path B convention.
+        for _native_col in (
+            "tackle_winner_player_id_native",
+            "tackle_winner_team_id_native",
+            "tackle_loser_player_id_native",
+            "tackle_loser_team_id_native",
+        ):
+            actions[_native_col] = _pd.array([_pd.NA] * n, dtype="string")
+        for _key_col in (
+            "tackle_winner_player_key",
+            "tackle_winner_team_key",
+            "tackle_loser_player_key",
+            "tackle_loser_team_key",
+        ):
+            actions[_key_col] = _pd.array([_pd.NA] * n, dtype="Int64")
 
         return _pd.DataFrame(actions[_spadl_cols])
 
@@ -717,12 +757,16 @@ def _convert_wyscout_from_bronze(
             StructField("competition_native_id", StringType()),
             StructField("season_native_id", StringType()),
             StructField("match_id_native", StringType()),
-            # PR-LL2 Path B close-out (2026-04-29): silly-kicks 2.0.0 sportec
+            # PR-Cycle-A.4 (2026-04-30, ADR-018): silly-kicks 2.5.0 sportec
             # tackle qualifier columns. NULL on Wyscout rows.
-            StructField("tackle_winner_player_id", LongType()),
-            StructField("tackle_winner_team_id", StringType()),
-            StructField("tackle_loser_player_id", LongType()),
-            StructField("tackle_loser_team_id", StringType()),
+            StructField("tackle_winner_player_id_native", StringType()),
+            StructField("tackle_winner_player_key", LongType()),
+            StructField("tackle_winner_team_id_native", StringType()),
+            StructField("tackle_winner_team_key", LongType()),
+            StructField("tackle_loser_player_id_native", StringType()),
+            StructField("tackle_loser_player_key", LongType()),
+            StructField("tackle_loser_team_id_native", StringType()),
+            StructField("tackle_loser_team_key", LongType()),
         ]
     )
 
@@ -834,13 +878,22 @@ def _make_idsse_spadl_udf() -> object:
                 "competition_native_id",
                 "season_native_id",
                 "match_id_native",
-                # PR-LL2 Path B close-out (2026-04-29, ADR-018): silly-kicks 2.0.0
-                # sportec tackle qualifier passthrough. Populated for IDSSE rows
-                # where DFL XML has tackle_winner_*; NaN otherwise.
-                "tackle_winner_player_id",
-                "tackle_winner_team_id",
-                "tackle_loser_player_id",
-                "tackle_loser_team_id",
+                # PR-Cycle-A.4 (2026-04-30, ADR-018 alignment): silly-kicks 2.5.0
+                # sportec tackle qualifier passthrough. silly-kicks 2.5.0
+                # emits tackle player/team IDs as NATIVE STRINGS (DFL OBJ /
+                # CLU IDs); we surface them as ``<col>_native`` (STRING) +
+                # ``<col>_key`` (BIGINT surrogate via ``hash_native_id_to_bigint``)
+                # to match the LL2 Path B convention (``team_id_native`` /
+                # ``team_key`` pattern). NaN on non-tackle rows + on
+                # non-IDSSE provider rows.
+                "tackle_winner_player_id_native",
+                "tackle_winner_player_key",
+                "tackle_winner_team_id_native",
+                "tackle_winner_team_key",
+                "tackle_loser_player_id_native",
+                "tackle_loser_player_key",
+                "tackle_loser_team_id_native",
+                "tackle_loser_team_key",
             ]
         )
 
@@ -943,27 +996,35 @@ def _make_idsse_spadl_udf() -> object:
         actions["season_native_id"] = season_native_id
         actions["match_id_native"] = match_id_str
 
-        # PR-LL2 Path B close-out (2026-04-29): silly-kicks 2.0.0 sportec
-        # converter emits 4 tackle qualifier columns directly on the actions
-        # DataFrame (SPORTEC_SPADL_COLUMNS extension). NaN on non-tackle rows
-        # + on tackle rows where the DFL XML's qualifier was absent. Cast to
-        # nullable Int64/object dtypes for clean PyArrow → Spark conversion.
-        if "tackle_winner_player_id" in actions.columns:
-            actions["tackle_winner_player_id"] = actions["tackle_winner_player_id"].astype("Int64")
-        else:
-            actions["tackle_winner_player_id"] = _pd.array([_pd.NA] * len(actions), dtype="Int64")
-        if "tackle_winner_team_id" in actions.columns:
-            actions["tackle_winner_team_id"] = actions["tackle_winner_team_id"].astype("object")
-        else:
-            actions["tackle_winner_team_id"] = _pd.array([_pd.NA] * len(actions), dtype="object")
-        if "tackle_loser_player_id" in actions.columns:
-            actions["tackle_loser_player_id"] = actions["tackle_loser_player_id"].astype("Int64")
-        else:
-            actions["tackle_loser_player_id"] = _pd.array([_pd.NA] * len(actions), dtype="Int64")
-        if "tackle_loser_team_id" in actions.columns:
-            actions["tackle_loser_team_id"] = actions["tackle_loser_team_id"].astype("object")
-        else:
-            actions["tackle_loser_team_id"] = _pd.array([_pd.NA] * len(actions), dtype="object")
+        # PR-Cycle-A.4 (2026-04-30, ADR-018 alignment): silly-kicks 2.5.0
+        # sportec converter emits all 4 tackle qualifier columns as NATIVE
+        # STRINGS (DFL OBJ ids for players, DFL CLU ids for teams) directly
+        # on the actions DataFrame. We surface them via the LL2 Path B
+        # convention: ``<col>_native`` (STRING) + ``<col>_key`` (BIGINT
+        # surrogate via ``hash_native_id_to_bigint``) so the bronze schema
+        # is consistent with ``team_id_native`` / ``team_key`` (Kimball
+        # joins use the BIGINT keys against ``dim_players.player_key`` /
+        # ``dim_teams.team_key``; the native strings preserve provenance).
+        from ingestion.spadl_adapter import hash_native_id_to_bigint as _hash_native
+
+        def _hash_or_na(v: object) -> object:
+            if v is None or _pd.isna(v):
+                return _pd.NA
+            s = str(v)
+            return _hash_native(s) if s else _pd.NA
+
+        for native_col, key_col, sk_col in (
+            ("tackle_winner_player_id_native", "tackle_winner_player_key", "tackle_winner_player_id"),
+            ("tackle_winner_team_id_native", "tackle_winner_team_key", "tackle_winner_team_id"),
+            ("tackle_loser_player_id_native", "tackle_loser_player_key", "tackle_loser_player_id"),
+            ("tackle_loser_team_id_native", "tackle_loser_team_key", "tackle_loser_team_id"),
+        ):
+            if sk_col in actions.columns:
+                actions[native_col] = actions[sk_col].astype("string")
+                actions[key_col] = actions[native_col].map(_hash_or_na).astype("Int64")
+            else:
+                actions[native_col] = _pd.array([_pd.NA] * len(actions), dtype="string")
+                actions[key_col] = _pd.array([_pd.NA] * len(actions), dtype="Int64")
 
         return _pd.DataFrame(actions[_spadl_cols])
 
@@ -1056,13 +1117,17 @@ def _convert_idsse_from_bronze(
             StructField("competition_native_id", StringType()),
             StructField("season_native_id", StringType()),
             StructField("match_id_native", StringType()),
-            # PR-LL2 Path B close-out (2026-04-29): silly-kicks 2.0.0 sportec
+            # PR-Cycle-A.4 (2026-04-30, ADR-018): silly-kicks 2.5.0 sportec
             # tackle qualifier columns. Populated for tackle rows where the
             # DFL XML has the qualifier; NULL elsewhere.
-            StructField("tackle_winner_player_id", LongType()),
-            StructField("tackle_winner_team_id", StringType()),
-            StructField("tackle_loser_player_id", LongType()),
-            StructField("tackle_loser_team_id", StringType()),
+            StructField("tackle_winner_player_id_native", StringType()),
+            StructField("tackle_winner_player_key", LongType()),
+            StructField("tackle_winner_team_id_native", StringType()),
+            StructField("tackle_winner_team_key", LongType()),
+            StructField("tackle_loser_player_id_native", StringType()),
+            StructField("tackle_loser_player_key", LongType()),
+            StructField("tackle_loser_team_id_native", StringType()),
+            StructField("tackle_loser_team_key", LongType()),
         ]
     )
 
@@ -1164,10 +1229,14 @@ def _make_metrica_spadl_udf() -> object:
                 "match_id_native",
                 # PR-LL2 Path B close-out: silly-kicks 2.0.0 sportec tackle
                 # qualifier columns. NULL on Metrica (multi-source parity).
-                "tackle_winner_player_id",
-                "tackle_winner_team_id",
-                "tackle_loser_player_id",
-                "tackle_loser_team_id",
+                "tackle_winner_player_id_native",
+                "tackle_winner_player_key",
+                "tackle_winner_team_id_native",
+                "tackle_winner_team_key",
+                "tackle_loser_player_id_native",
+                "tackle_loser_player_key",
+                "tackle_loser_team_id_native",
+                "tackle_loser_team_key",
             ]
         )
 
@@ -1249,10 +1318,24 @@ def _make_metrica_spadl_udf() -> object:
 
         # PR-LL2 Path B close-out: tackle qualifier columns NULL-filled on
         # the Metrica path (multi-source schema parity).
-        actions["tackle_winner_player_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
-        actions["tackle_winner_team_id"] = _pd.array([_pd.NA] * n, dtype="object")
-        actions["tackle_loser_player_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
-        actions["tackle_loser_team_id"] = _pd.array([_pd.NA] * n, dtype="object")
+        # PR-Cycle-A.4 (2026-04-30, ADR-018 alignment): tackle qualifier
+        # columns are silly-kicks 2.5.0 sportec passthroughs; non-IDSSE
+        # providers always NULL. Column shape: ``<col>_native`` (STRING)
+        # + ``<col>_key`` (BIGINT surrogate) per LL2 Path B convention.
+        for _native_col in (
+            "tackle_winner_player_id_native",
+            "tackle_winner_team_id_native",
+            "tackle_loser_player_id_native",
+            "tackle_loser_team_id_native",
+        ):
+            actions[_native_col] = _pd.array([_pd.NA] * n, dtype="string")
+        for _key_col in (
+            "tackle_winner_player_key",
+            "tackle_winner_team_key",
+            "tackle_loser_player_key",
+            "tackle_loser_team_key",
+        ):
+            actions[_key_col] = _pd.array([_pd.NA] * n, dtype="Int64")
 
         return _pd.DataFrame(actions[_spadl_cols])
 
@@ -1342,12 +1425,16 @@ def _convert_metrica_from_bronze(
             StructField("competition_native_id", StringType()),
             StructField("season_native_id", StringType()),
             StructField("match_id_native", StringType()),
-            # PR-LL2 Path B close-out (2026-04-29): silly-kicks 2.0.0 sportec
+            # PR-Cycle-A.4 (2026-04-30, ADR-018): silly-kicks 2.5.0 sportec
             # tackle qualifier columns. NULL on Metrica rows.
-            StructField("tackle_winner_player_id", LongType()),
-            StructField("tackle_winner_team_id", StringType()),
-            StructField("tackle_loser_player_id", LongType()),
-            StructField("tackle_loser_team_id", StringType()),
+            StructField("tackle_winner_player_id_native", StringType()),
+            StructField("tackle_winner_player_key", LongType()),
+            StructField("tackle_winner_team_id_native", StringType()),
+            StructField("tackle_winner_team_key", LongType()),
+            StructField("tackle_loser_player_id_native", StringType()),
+            StructField("tackle_loser_player_key", LongType()),
+            StructField("tackle_loser_team_id_native", StringType()),
+            StructField("tackle_loser_team_key", LongType()),
         ]
     )
 

@@ -977,30 +977,54 @@ models:
           ``Sample_Game_N``. Used for the dim_matches JOIN on
           (provider, native_match_id) since the legacy ``match_id``
           BIGINT is hashed (not native) for IDSSE/Metrica.
-      - name: tackle_winner_player_id
-        data_type: bigint
-        description: >
-          PR-LL2 Path B close-out (2026-04-29, ADR-018):
-          silly-kicks 2.0.0 sportec tackle qualifier — DFL ObjectId of the
-          tackle winner. NULL for non-sportec rows + for tackle rows where
-          the DFL XML's ``tackle_winner`` qualifier was absent. Per
-          silly-kicks ADR-001 (caller's identifiers sacred — winner ids
-          surface as dedicated columns rather than overriding ``team_id``).
-      - name: tackle_winner_team_id
+      - name: tackle_winner_player_id_native
         data_type: string
         description: >
-          PR-LL2 Path B close-out: silly-kicks 2.0.0 sportec tackle qualifier
-          — DFL CLU id of the tackle winner's team. NULL for non-sportec rows.
-      - name: tackle_loser_player_id
+          PR-Cycle-A.4 (2026-04-30, ADR-018 alignment): silly-kicks 2.5.0
+          sportec tackle qualifier — native DFL ObjectId of the tackle
+          winner (e.g. ``DFL-OBJ-0027G0``). NULL for non-sportec rows + for
+          tackle rows where the DFL XML's ``tackle_winner`` qualifier was
+          absent. Pre-2.5.0 silly-kicks silently hashed this to int (lossy);
+          2.5.0 + ADR-018 expose the native STRING + a deterministic BIGINT
+          key (``tackle_winner_player_key``) for Kimball joins.
+      - name: tackle_winner_player_key
         data_type: bigint
         description: >
-          PR-LL2 Path B close-out: silly-kicks 2.0.0 sportec tackle qualifier
-          — DFL ObjectId of the tackle loser. NULL for non-sportec rows.
-      - name: tackle_loser_team_id
+          PR-Cycle-A.4 (2026-04-30, ADR-018): BIGINT surrogate of
+          ``tackle_winner_player_id_native`` via
+          ``hash_native_id_to_bigint`` (deterministic SHA-256[:15]). Use
+          this for Kimball joins against ``dim_players.player_key``.
+      - name: tackle_winner_team_id_native
         data_type: string
         description: >
-          PR-LL2 Path B close-out: silly-kicks 2.0.0 sportec tackle qualifier
-          — DFL CLU id of the tackle loser's team. NULL for non-sportec rows.
+          PR-Cycle-A.4: silly-kicks 2.5.0 sportec tackle qualifier — native
+          DFL CLU id of the tackle winner's team (e.g. ``DFL-CLU-00000G``).
+          NULL for non-sportec rows.
+      - name: tackle_winner_team_key
+        data_type: bigint
+        description: >
+          BIGINT surrogate of ``tackle_winner_team_id_native`` via
+          ``hash_native_id_to_bigint``. Joins against ``dim_teams.team_key``.
+      - name: tackle_loser_player_id_native
+        data_type: string
+        description: >
+          PR-Cycle-A.4: silly-kicks 2.5.0 sportec tackle qualifier — native
+          DFL ObjectId of the tackle loser. NULL for non-sportec rows.
+      - name: tackle_loser_player_key
+        data_type: bigint
+        description: >
+          BIGINT surrogate of ``tackle_loser_player_id_native``. Joins
+          against ``dim_players.player_key``.
+      - name: tackle_loser_team_id_native
+        data_type: string
+        description: >
+          PR-Cycle-A.4: silly-kicks 2.5.0 sportec tackle qualifier — native
+          DFL CLU id of the tackle loser's team. NULL for non-sportec rows.
+      - name: tackle_loser_team_key
+        data_type: bigint
+        description: >
+          BIGINT surrogate of ``tackle_loser_team_id_native``. Joins
+          against ``dim_teams.team_key``.
       - name: game_state
         data_type: string
         description: >

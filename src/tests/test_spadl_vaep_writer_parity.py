@@ -99,10 +99,14 @@ def _build_statsbomb_spadl_struct():  # type: ignore[no-untyped-def]
             StructField("match_id_native", StringType()),
             # PR-LL2 Path B close-out (2026-04-29): silly-kicks 2.0.0 sportec
             # tackle qualifier columns.
-            StructField("tackle_winner_player_id", LongType()),
-            StructField("tackle_winner_team_id", StringType()),
-            StructField("tackle_loser_player_id", LongType()),
-            StructField("tackle_loser_team_id", StringType()),
+            StructField("tackle_winner_player_id_native", StringType()),
+            StructField("tackle_winner_player_key", LongType()),
+            StructField("tackle_winner_team_id_native", StringType()),
+            StructField("tackle_winner_team_key", LongType()),
+            StructField("tackle_loser_player_id_native", StringType()),
+            StructField("tackle_loser_player_key", LongType()),
+            StructField("tackle_loser_team_id_native", StringType()),
+            StructField("tackle_loser_team_key", LongType()),
         ]
     )
 
@@ -155,10 +159,14 @@ def _build_wyscout_spadl_struct():  # type: ignore[no-untyped-def]
             StructField("match_id_native", StringType()),
             # PR-LL2 Path B close-out (2026-04-29): silly-kicks 2.0.0 sportec
             # tackle qualifier columns.
-            StructField("tackle_winner_player_id", LongType()),
-            StructField("tackle_winner_team_id", StringType()),
-            StructField("tackle_loser_player_id", LongType()),
-            StructField("tackle_loser_team_id", StringType()),
+            StructField("tackle_winner_player_id_native", StringType()),
+            StructField("tackle_winner_player_key", LongType()),
+            StructField("tackle_winner_team_id_native", StringType()),
+            StructField("tackle_winner_team_key", LongType()),
+            StructField("tackle_loser_player_id_native", StringType()),
+            StructField("tackle_loser_player_key", LongType()),
+            StructField("tackle_loser_team_id_native", StringType()),
+            StructField("tackle_loser_team_key", LongType()),
         ]
     )
 
@@ -392,10 +400,14 @@ class TestSpadlVaepWriterDdlParity:
         struct = builder()
         cols = {f.name for f in struct.fields}
         expected = {
-            "tackle_winner_player_id",
-            "tackle_winner_team_id",
-            "tackle_loser_player_id",
-            "tackle_loser_team_id",
+            "tackle_winner_player_id_native",
+            "tackle_winner_player_key",
+            "tackle_winner_team_id_native",
+            "tackle_winner_team_key",
+            "tackle_loser_player_id_native",
+            "tackle_loser_player_key",
+            "tackle_loser_team_id_native",
+            "tackle_loser_team_key",
         }
         missing = expected - cols
         assert not missing, (
@@ -410,10 +422,14 @@ class TestSpadlVaepWriterDdlParity:
 
         ddl = _parse_ddl(spadl_vaep._SPADL_SCHEMA)
         for col, expected_type in (
-            ("tackle_winner_player_id", "long"),
-            ("tackle_winner_team_id", "string"),
-            ("tackle_loser_player_id", "long"),
-            ("tackle_loser_team_id", "string"),
+            ("tackle_winner_player_id_native", "string"),
+            ("tackle_winner_player_key", "long"),
+            ("tackle_winner_team_id_native", "string"),
+            ("tackle_winner_team_key", "long"),
+            ("tackle_loser_player_id_native", "string"),
+            ("tackle_loser_player_key", "long"),
+            ("tackle_loser_team_id_native", "string"),
+            ("tackle_loser_team_key", "long"),
         ):
             assert col in ddl, f"_SPADL_SCHEMA missing tackle qualifier column {col!r}"
             assert ddl[col] == expected_type, (
@@ -426,10 +442,14 @@ class TestSpadlVaepWriterDdlParity:
 
         ddl = _parse_ddl(spadl_vaep._VAEP_SCHEMA)
         for col, expected_type in (
-            ("tackle_winner_player_id", "long"),
-            ("tackle_winner_team_id", "string"),
-            ("tackle_loser_player_id", "long"),
-            ("tackle_loser_team_id", "string"),
+            ("tackle_winner_player_id_native", "string"),
+            ("tackle_winner_player_key", "long"),
+            ("tackle_winner_team_id_native", "string"),
+            ("tackle_winner_team_key", "long"),
+            ("tackle_loser_player_id_native", "string"),
+            ("tackle_loser_player_key", "long"),
+            ("tackle_loser_team_id_native", "string"),
+            ("tackle_loser_team_key", "long"),
         ):
             assert col in ddl, f"_VAEP_SCHEMA missing tackle qualifier column {col!r}"
             assert ddl[col] == expected_type, (
@@ -520,10 +540,14 @@ class TestSpadlVaepWriterDdlParity:
         # Pair: smaller list is per-game-projection, larger is _output_cols (or vice versa).
         # Both must include the 4 tackle qualifier columns.
         for col in (
-            "tackle_winner_player_id",
-            "tackle_winner_team_id",
-            "tackle_loser_player_id",
-            "tackle_loser_team_id",
+            "tackle_winner_player_id_native",
+            "tackle_winner_player_key",
+            "tackle_winner_team_id_native",
+            "tackle_winner_team_key",
+            "tackle_loser_player_id_native",
+            "tackle_loser_player_key",
+            "tackle_loser_team_id_native",
+            "tackle_loser_team_key",
         ):
             for lst in long_lists:
                 assert col in lst, (
@@ -622,10 +646,14 @@ def _build_idsse_spadl_struct():  # type: ignore[no-untyped-def]
             # PR-LL2 Path B close-out (2026-04-29): silly-kicks 2.0.0 sportec
             # tackle qualifier columns. IDSSE writer populates these when
             # the DFL XML qualifier is present; NaN otherwise.
-            StructField("tackle_winner_player_id", LongType()),
-            StructField("tackle_winner_team_id", StringType()),
-            StructField("tackle_loser_player_id", LongType()),
-            StructField("tackle_loser_team_id", StringType()),
+            StructField("tackle_winner_player_id_native", StringType()),
+            StructField("tackle_winner_player_key", LongType()),
+            StructField("tackle_winner_team_id_native", StringType()),
+            StructField("tackle_winner_team_key", LongType()),
+            StructField("tackle_loser_player_id_native", StringType()),
+            StructField("tackle_loser_player_key", LongType()),
+            StructField("tackle_loser_team_id_native", StringType()),
+            StructField("tackle_loser_team_key", LongType()),
         ]
     )
 
@@ -694,10 +722,14 @@ def _build_vaep_scoring_struct():  # type: ignore[no-untyped-def]
             StructField("match_id_native", StringType()),
             # PR-LL2 Path B close-out (2026-04-29): silly-kicks 2.0.0 sportec
             # tackle qualifier columns carried through to vaep_action_values.
-            StructField("tackle_winner_player_id", LongType()),
-            StructField("tackle_winner_team_id", StringType()),
-            StructField("tackle_loser_player_id", LongType()),
-            StructField("tackle_loser_team_id", StringType()),
+            StructField("tackle_winner_player_id_native", StringType()),
+            StructField("tackle_winner_player_key", LongType()),
+            StructField("tackle_winner_team_id_native", StringType()),
+            StructField("tackle_winner_team_key", LongType()),
+            StructField("tackle_loser_player_id_native", StringType()),
+            StructField("tackle_loser_player_key", LongType()),
+            StructField("tackle_loser_team_id_native", StringType()),
+            StructField("tackle_loser_team_key", LongType()),
         ]
     )
 
