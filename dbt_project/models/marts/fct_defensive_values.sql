@@ -3,7 +3,8 @@
     unique_key='defensive_value_id',
     liquid_clustered_by=['match_key'],
     incremental_strategy='merge',
-    on_schema_change='append_new_columns'
+    on_schema_change='append_new_columns',
+    tags=['marts', 'output_mart']
 ) }}
 -- fct_defensive_values.sql
 -- Per-defender per-match defensive valuation summary.

@@ -1,3 +1,7 @@
+{{ config(
+    materialized='table',
+    tags=['marts', 'dimension']
+) }}
 -- dim_matches.sql
 -- Conformed match dimension unifying StatsBomb, Wyscout, IDSSE, and Metrica.
 --

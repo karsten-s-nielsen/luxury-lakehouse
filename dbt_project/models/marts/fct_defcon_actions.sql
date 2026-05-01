@@ -3,7 +3,8 @@
     unique_key='defcon_action_id',
     liquid_clustered_by=['match_key'],
     incremental_strategy='merge',
-    on_schema_change='append_new_columns'
+    on_schema_change='append_new_columns',
+    tags=['marts', 'output_mart']
 ) }}
 -- fct_defcon_actions.sql
 -- Per-defender per-action defensive credits for timeline visualization.

@@ -12,7 +12,8 @@
     enabled=var('xg_model_enabled', false),
     liquid_clustered_by=['match_key'],
     on_schema_change='fail',
-    contract={'enforced': true}
+    contract={'enforced': true},
+    tags=['marts', 'output_mart']
 ) }}
 
 select

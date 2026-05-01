@@ -27,7 +27,8 @@
     unique_key='embedding_id',
     enabled=var('embeddings_enabled', false),
     incremental_strategy='merge',
-    on_schema_change='append_new_columns'
+    on_schema_change='append_new_columns',
+    tags=['marts', 'output_mart']
 ) }}
 
 -- D62 (2026-04-15) introduced a 360-embeddings variant alongside the

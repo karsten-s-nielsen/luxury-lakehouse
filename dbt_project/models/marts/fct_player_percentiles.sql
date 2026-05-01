@@ -1,6 +1,7 @@
 {{ config(
     materialized='table',
-    liquid_clustered_by=['competition_id']
+    liquid_clustered_by=['competition_id'],
+    tags=['marts', 'output_mart']
 ) }}
 -- fct_player_percentiles.sql
 -- Per-competition percentile ranks for all player metrics.

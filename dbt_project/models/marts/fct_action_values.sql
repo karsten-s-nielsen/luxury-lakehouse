@@ -3,7 +3,8 @@
     unique_key='action_value_id',
     liquid_clustered_by=['match_key'],
     incremental_strategy='merge',
-    on_schema_change='append_new_columns'
+    on_schema_change='append_new_columns',
+    tags=['marts', 'intermediate_mart']
 ) }}
 -- fct_action_values.sql
 -- Gold-layer SPADL action values with VAEP scores, possession context,

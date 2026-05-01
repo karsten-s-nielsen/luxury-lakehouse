@@ -3,7 +3,8 @@
     unique_key='tracking_id',
     liquid_clustered_by=['match_key'],
     incremental_strategy='merge',
-    on_schema_change='append_new_columns'
+    on_schema_change='append_new_columns',
+    tags=['marts', 'input_mart']
 ) }}
 -- fct_tracking_frames.sql
 -- Enriched tracking data from all providers (Metrica, IDSSE, SkillCorner).

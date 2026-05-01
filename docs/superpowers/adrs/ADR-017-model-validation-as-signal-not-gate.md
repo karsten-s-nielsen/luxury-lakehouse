@@ -4,6 +4,7 @@
 |---|---|
 | **Date** | 2026-04-29 |
 | **Status** | Accepted |
+| **Amended** | 2026-05-01 — yesterday-gold carve-out supplanted by ADR-019's three-stage `dbt_build` topology. The "signal not gate" principle is now preserved by sibling-of-`refresh_synced_tables` positioning under `dbt_build_output_marts`, not by stale reads. The original narrative below remains intact for historical context. |
 | **Deciders** | Karsten S. Nielsen |
 
 ## Context

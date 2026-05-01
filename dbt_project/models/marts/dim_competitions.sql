@@ -1,3 +1,7 @@
+{{ config(
+    materialized='table',
+    tags=['marts', 'dimension']
+) }}
 -- dim_competitions.sql
 -- Conformed competition dimension. Unifies StatsBomb + Wyscout + IDSSE
 -- competitions. Metrica is intentionally absent — its open-data is

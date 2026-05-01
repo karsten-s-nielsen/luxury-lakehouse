@@ -1,7 +1,8 @@
 {{ config(
     materialized='table',
     liquid_clustered_by=['match_key'],
-    contract=({'enforced': true} if var('space_creation_enabled', false) else {'enforced': false})
+    contract=({'enforced': true} if var('space_creation_enabled', false) else {'enforced': false}),
+    tags=['marts', 'output_mart']
 ) }}
 
 -- fct_space_creation.sql

@@ -1,6 +1,7 @@
 {{ config(
     materialized='table',
-    liquid_clustered_by=['match_key']
+    liquid_clustered_by=['match_key'],
+    tags=['marts', 'input_mart']
 ) }}
 -- fct_discipline_events.sql
 -- Per-event discipline mart. One row per card issued (Yellow, Red, or Second

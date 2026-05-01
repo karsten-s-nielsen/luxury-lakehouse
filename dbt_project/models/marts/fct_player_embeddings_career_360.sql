@@ -1,6 +1,7 @@
 {{ config(
     materialized='table',
-    enabled=var('embeddings_enabled', false)
+    enabled=var('embeddings_enabled', false),
+    tags=['marts', 'output_mart']
 ) }}
 
 -- PR 5b (ADR-011): added player_key passthrough.

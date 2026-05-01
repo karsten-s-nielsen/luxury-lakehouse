@@ -3,7 +3,8 @@
     unique_key='shot_id',
     liquid_clustered_by=['match_key'],
     incremental_strategy='merge',
-    on_schema_change='append_new_columns'
+    on_schema_change='append_new_columns',
+    tags=['marts', 'input_mart']
 ) }}
 -- fct_shots.sql
 -- Gold-layer shot fact table with xG features for ML model training.

@@ -20,6 +20,7 @@
 
 {{ config(
     materialized='table',
+    tags=['marts', 'dimension'],
     meta={'contains_pii': False}
 ) }}
 

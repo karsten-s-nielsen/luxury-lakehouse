@@ -3,7 +3,8 @@
     incremental_strategy='merge',
     unique_key='off_ball_xt_id',
     on_schema_change='append_new_columns',
-    liquid_clustered_by=['match_key']
+    liquid_clustered_by=['match_key'],
+    tags=['marts', 'output_mart']
 ) }}
 -- fct_off_ball_xt.sql
 -- Gold-layer off-ball expected threat (xT) results per player per match.
