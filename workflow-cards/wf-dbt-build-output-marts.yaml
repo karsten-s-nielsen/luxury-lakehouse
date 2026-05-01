@@ -1,6 +1,6 @@
 ---
-name: dbt build (gold layer)
-id: wf-dbt-build
+name: dbt build — stage 3 (output marts)
+id: wf-dbt-build-output-marts
 version: "1.0.0"
 status: production
 type: data-movement
@@ -11,38 +11,26 @@ tags:
   - dbt
   - gold
   - daily-job
+  - three-stage
 
-# No academic methodology — operational data transformation pipeline.
-# Runs `dbt build` against the SQL warehouse to materialize 36 gold mart
-# tables from bronze sources. dbt's own model lineage and tests cover
-# quality. See src/ingestion/dbt_runner.py.
+# Stage 3 of 3 in PR-Cycle-C PR-β (ADR-019). Builds output_marts — marts that
+# are NOT consumed by any compute task (consumed only by apps/dashboards/HF/
+# run_model_validation). Selector: `--select tag:output_mart` (no leading `+`)
+# because all ancestors are built by stages 1 + 2.
+#
+# refresh_synced_tables and run_model_validation are siblings depending on
+# this stage — validation reads today's output marts but a validation
+# regression cannot block synced-table propagation.
 references: []
 
 inputs:
   datasets:
-    - id: "{catalog}.bronze.statsbomb_events"
+    - id: "{catalog}.bronze.xg_predictions"
       source: delta-table
-      description: "Bronze tables produced by the 9 leaf compute tasks"
+      description: "Bronze tables produced by phase-2 compute tasks (xg_model[_v2], pausa, defcon, embeddings, formations, off_ball_xt, line_breaking, etc.)"
 
 outputs:
   tables:
-    # Every row here maps 1:1 to a .sql file under dbt_project/models/marts/.
-    # test_card_dbt_model_field enforces full coverage in both directions.
-    - id: "{catalog}.dev_gold.dim_competitions"
-      destination: delta-table
-      dbt_model: dim_competitions
-    - id: "{catalog}.dev_gold.dim_matches"
-      destination: delta-table
-      dbt_model: dim_matches
-    - id: "{catalog}.dev_gold.dim_players"
-      destination: delta-table
-      dbt_model: dim_players
-    - id: "{catalog}.dev_gold.dim_teams"
-      destination: delta-table
-      dbt_model: dim_teams
-    - id: "{catalog}.dev_gold.fct_action_values"
-      destination: delta-table
-      dbt_model: fct_action_values
     - id: "{catalog}.dev_gold.fct_defcon_actions"
       destination: delta-table
       dbt_model: fct_defcon_actions
@@ -52,9 +40,6 @@ outputs:
     - id: "{catalog}.dev_gold.fct_defensive_values"
       destination: delta-table
       dbt_model: fct_defensive_values
-    - id: "{catalog}.dev_gold.fct_discipline_events"
-      destination: delta-table
-      dbt_model: fct_discipline_events
     - id: "{catalog}.dev_gold.fct_formation_labels"
       destination: delta-table
       dbt_model: fct_formation_labels
@@ -121,18 +106,12 @@ outputs:
     - id: "{catalog}.dev_gold.fct_position_maps"
       destination: delta-table
       dbt_model: fct_position_maps
-    - id: "{catalog}.dev_gold.fct_shots"
-      destination: delta-table
-      dbt_model: fct_shots
     - id: "{catalog}.dev_gold.fct_space_creation"
       destination: delta-table
       dbt_model: fct_space_creation
     - id: "{catalog}.dev_gold.fct_tracking_avg_positions"
       destination: delta-table
       dbt_model: fct_tracking_avg_positions
-    - id: "{catalog}.dev_gold.fct_tracking_frames"
-      destination: delta-table
-      dbt_model: fct_tracking_frames
     - id: "{catalog}.dev_gold.fct_tracking_shape_timeline"
       destination: delta-table
       dbt_model: fct_tracking_shape_timeline
@@ -161,7 +140,7 @@ execution:
     environment: dbt
 
 depends_on:
-  - wf-vaep
+  - wf-dbt-build-intermediate-marts
   - wf-xg-v1
   - wf-xg-v2
   - wf-defcon
@@ -170,9 +149,11 @@ depends_on:
   - wf-formations
   - wf-football2vec
 # Note: wf-model-validation deliberately omitted — validation reads from gold
-# marts that dbt_build produces, so gating mart refresh on validation only
+# marts that this stage produces, so gating mart refresh on validation only
 # checks yesterday's data. Validation is a quality signal, not a correctness
-# gate. See docs/superpowers/adrs/ADR-017-model-validation-as-signal-not-gate.md.
+# gate. See docs/superpowers/adrs/ADR-017-model-validation-as-signal-not-gate.md
+# (amended by ADR-019 — sibling-of-refresh_synced_tables now realises the
+# "signal not gate" intent via topology, not via stale reads).
 
 idempotency:
   strategy: full-overwrite
@@ -187,8 +168,8 @@ cost:
   ingestion:
     runtime: databricks
     sku: "jobs_serverless_compute_run_dbus"
-    typical_dbu: 5
-    typical_cost_usd: 0.35
+    typical_dbu: 3
+    typical_cost_usd: 0.21
 
 monitoring:
   freshness_sla_hours: 24
@@ -200,21 +181,14 @@ links:
 
 ## Overview
 
-D59: programmatic dbt invocation inside the daily Databricks ingestion job.
-After the 9 leaf compute tasks complete, this task runs ``dbt build`` against
-the SQL warehouse to materialize the 36 gold mart tables (32 fact + 4 dim)
-from the bronze layer. The wheel-bundled ``dbt_project/`` directory is
-resolved at runtime via ``importlib.resources``. Authentication:
-``ingestion.dbt_runner._ensure_databricks_env_vars()`` calls
-``WorkspaceClient.config.authenticate()`` to exchange the runtime SP identity
-for a short-lived OAuth M2M bearer token, writes it to ``DATABRICKS_TOKEN``,
-and the ``serverless`` profile consumes it via ``env_var('DATABRICKS_TOKEN')``.
-This explicit exchange is required because dbt-databricks otherwise falls
-through to ``authenticate_with_external_browser`` and hangs indefinitely on
-a headless serverless task.
+Stage 3 of the three-stage dbt_build topology introduced by ADR-019. Builds
+the 32 output_marts. Selector: `--select tag:output_mart` (no leading `+`)
+because all staging ancestors were built by stages 1 + 2.
 
-Replaces the previous flow where ``dbt build`` only ran from developer
-machines via ``scripts/dbt_build_and_refresh.py``. The next task in the daily
-DAG (``refresh_synced_tables``) now depends on this task instead of the 9
-leaf computes directly, so Lakebase synced tables propagate fresh gold data
-without manual intervention.
+`refresh_synced_tables` and `run_model_validation` are SIBLINGS depending on
+this stage — both children of `dbt_build_output_marts`. A validation
+regression cannot transitively block today's synced-table refresh, preserving
+ADR-017's "signal not gate" intent via topology rather than via stale reads
+(supplants ADR-017's pre-three-stage yesterday-gold workaround).
+
+See `docs/superpowers/adrs/ADR-019-three-stage-dbt-build.md`.

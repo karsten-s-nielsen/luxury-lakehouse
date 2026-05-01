@@ -1,0 +1,112 @@
+---
+name: dbt build — stage 1 (input + dimension marts)
+id: wf-dbt-build-input-marts
+version: "1.0.0"
+status: production
+type: data-movement
+domain: soccer-analytics
+owners:
+  - karsten
+tags:
+  - dbt
+  - gold
+  - daily-job
+  - three-stage
+
+# Stage 1 of 3 in PR-Cycle-C PR-β (ADR-019). Builds dimensions + marts whose
+# lineage contains no compute task output. Compute tasks reading these gold
+# marts (pitch_control / off_ball_xt / xg_model[_v2] / formations_efpi /
+# formations_shape_graph / line_breaking) wait on this stage.
+# See src/ingestion/dbt_runner.py — selector arg differentiates from stages 2/3.
+references: []
+
+inputs:
+  datasets:
+    - id: "{catalog}.bronze.statsbomb_events"
+      source: delta-table
+      description: "Bronze tables produced by ingest_* + ingest-helper compute tasks (extract_tracking_metadata, backfills, resolve_players)"
+
+outputs:
+  tables:
+    # Every row maps 1:1 to a marts/*.sql file with tag:dimension or tag:input_mart.
+    # test_card_dbt_model_field enforces full coverage in both directions.
+    - id: "{catalog}.dev_gold.dim_competitions"
+      destination: delta-table
+      dbt_model: dim_competitions
+    - id: "{catalog}.dev_gold.dim_matches"
+      destination: delta-table
+      dbt_model: dim_matches
+    - id: "{catalog}.dev_gold.dim_players"
+      destination: delta-table
+      dbt_model: dim_players
+    - id: "{catalog}.dev_gold.dim_teams"
+      destination: delta-table
+      dbt_model: dim_teams
+    - id: "{catalog}.dev_gold.fct_discipline_events"
+      destination: delta-table
+      dbt_model: fct_discipline_events
+    - id: "{catalog}.dev_gold.fct_shots"
+      destination: delta-table
+      dbt_model: fct_shots
+    - id: "{catalog}.dev_gold.fct_tracking_frames"
+      destination: delta-table
+      dbt_model: fct_tracking_frames
+
+execution:
+  ingestion:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: dbt_build
+    module: ingestion.dbt_runner
+    distribution: driver-bound
+    schedule: "daily 06:00 UTC"
+    timeout: "3600s"
+    environment: dbt
+
+depends_on:
+  - wf-statsbomb
+  - wf-wyscout
+  - wf-metrica
+  - wf-idsse
+  - wf-skillcorner
+  - wf-entity-resolution
+
+idempotency:
+  strategy: full-overwrite
+  key: model
+  description: "dbt CREATE OR REPLACE TABLE semantics — idempotent per model."
+
+performance:
+  inference_timeout: "3600s"
+  memory_ceiling: "16 GB driver"
+
+cost:
+  ingestion:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 2
+    typical_cost_usd: 0.14
+
+monitoring:
+  freshness_sla_hours: 24
+
+links:
+  source_code:
+    - "src/ingestion/dbt_runner.py"
+---
+
+## Overview
+
+Stage 1 of the three-stage dbt_build topology introduced by ADR-019 (PR-Cycle-C
+PR-β). Builds the 4 dimensions + 3 input_marts (`fct_tracking_frames`,
+`fct_shots`, `fct_discipline_events`) plus their staging-view ancestors and
+seeds. Selector: `--select +tag:input_mart +tag:dimension`.
+
+Compute tasks reading these gold marts (`compute_pitch_control`,
+`compute_off_ball_xt`, `compute_xg_model`, `compute_xg_model_v2`,
+`compute_formations_efpi`, `compute_formations_shape_graph`,
+`compute_line_breaking`) declare `depends_on { task_key = "dbt_build_input_marts" }`
+so they read TODAY's gold rather than yesterday's.
+
+See `docs/superpowers/adrs/ADR-019-three-stage-dbt-build.md` for the full
+classification taxonomy and § "Compute reads today's gold" principle.

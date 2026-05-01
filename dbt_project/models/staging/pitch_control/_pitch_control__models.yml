@@ -47,15 +47,17 @@ models:
           Resolved via LEFT JOIN on (provider, native_match_id).
         data_tests:
           - relationships:
-              to: ref('dim_matches')
-              field: match_key
-              config:
-                severity: warn
-                where: "match_key IS NOT NULL"
+              arguments:
+                to: ref('dim_matches')
+                field: match_key
+                config:
+                  severity: warn
+                  where: "match_key IS NOT NULL"
       - name: _ingested_at
         description: "UTC timestamp when this row was written to bronze."
     data_tests:
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns:
-            - match_id
-            - tracking_id
+          arguments:
+            combination_of_columns:
+              - match_id
+              - tracking_id

@@ -436,8 +436,9 @@ models:
         data_tests:
           - not_null
           - relationships:
-              to: ref('dim_players')
-              field: player_key
+              arguments:
+                to: ref('dim_players')
+                field: player_key
       - name: team_key
         data_type: bigint
         description: Kimball surrogate FK to dim_teams.team_key. Nullable — aggregate spans teams.
@@ -1456,10 +1457,11 @@ models:
         data_tests:
           - not_null
           - relationships:
-              to: ref('dim_players')
-              field: canonical_player_id
-              config:
-                severity: warn
+              arguments:
+                to: ref('dim_players')
+                field: canonical_player_id
+                config:
+                  severity: warn
       - name: player_key
         data_type: bigint
         description: >
@@ -1470,10 +1472,11 @@ models:
           2026-07-22 dual-column window; PR 8 drops canonical_player_id.
         data_tests:
           - relationships:
-              to: ref('dim_players')
-              field: player_key
-              config:
-                severity: warn
+              arguments:
+                to: ref('dim_players')
+                field: player_key
+                config:
+                  severity: warn
       - name: match_id
         data_type: string
         description: Match identifier
@@ -1492,10 +1495,11 @@ models:
           triage dim_matches bridge that this column retires).
         data_tests:
           - relationships:
-              to: ref('dim_matches')
-              field: match_key
-              config:
-                severity: warn
+              arguments:
+                to: ref('dim_matches')
+                field: match_key
+                config:
+                  severity: warn
       - name: data_source
         data_type: string
         description: Data provider or model variant (statsbomb, wyscout, football2vec_360)
@@ -1542,10 +1546,11 @@ models:
         data_tests:
           - not_null
           - relationships:
-              to: ref('dim_players')
-              field: canonical_player_id
-              config:
-                severity: warn
+              arguments:
+                to: ref('dim_players')
+                field: canonical_player_id
+                config:
+                  severity: warn
       - name: player_key
         data_type: bigint
         description: >
@@ -1555,10 +1560,11 @@ models:
           2026-07-22 dual-column window.
         data_tests:
           - relationships:
-              to: ref('dim_players')
-              field: player_key
-              config:
-                severity: warn
+              arguments:
+                to: ref('dim_players')
+                field: player_key
+                config:
+                  severity: warn
       - name: competition_id
         data_type: int
         description: Foreign key to dim_competitions
@@ -1614,10 +1620,11 @@ models:
           - unique
           - not_null
           - relationships:
-              to: ref('dim_players')
-              field: canonical_player_id
-              config:
-                severity: warn
+              arguments:
+                to: ref('dim_players')
+                field: canonical_player_id
+                config:
+                  severity: warn
       - name: player_key
         data_type: bigint
         description: >
@@ -1627,10 +1634,11 @@ models:
           2026-07-22 dual-column window.
         data_tests:
           - relationships:
-              to: ref('dim_players')
-              field: player_key
-              config:
-                severity: warn
+              arguments:
+                to: ref('dim_players')
+                field: player_key
+                config:
+                  severity: warn
       - name: behavioral_vector
         data_type: array<double>
         description: >
@@ -1903,22 +1911,24 @@ models:
           Resolved via provider CASE on data_source.
         data_tests:
           - relationships:
-              to: ref('dim_matches')
-              field: match_key
-              config:
-                severity: warn
-                where: "match_key IS NOT NULL"
+              arguments:
+                to: ref('dim_matches')
+                field: match_key
+                config:
+                  severity: warn
+                  where: "match_key IS NOT NULL"
       - name: team_key
         data_type: bigint
         description: >
           Kimball surrogate FK to dim_teams.team_key (defender's team).
         data_tests:
           - relationships:
-              to: ref('dim_teams')
-              field: team_key
-              config:
-                severity: warn
-                where: "team_key IS NOT NULL"
+              arguments:
+                to: ref('dim_teams')
+                field: team_key
+                config:
+                  severity: warn
+                  where: "team_key IS NOT NULL"
       - name: player_key
         data_type: bigint
         description: >
@@ -1927,17 +1937,19 @@ models:
           360-synthetic defenders that don't have real player_id.
         data_tests:
           - relationships:
-              to: ref('dim_players')
-              field: player_key
-              config:
-                severity: warn
-                where: "player_key IS NOT NULL"
+              arguments:
+                to: ref('dim_players')
+                field: player_key
+                config:
+                  severity: warn
+                  where: "player_key IS NOT NULL"
     data_tests:
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns:
-            - player_id
-            - match_id
-            - data_source
+          arguments:
+            combination_of_columns:
+              - player_id
+              - match_id
+              - data_source
 
   - name: fct_defcon_actions
     config:
@@ -2044,22 +2056,24 @@ models:
           Resolved via provider CASE on data_source.
         data_tests:
           - relationships:
-              to: ref('dim_matches')
-              field: match_key
-              config:
-                severity: warn
-                where: "match_key IS NOT NULL"
+              arguments:
+                to: ref('dim_matches')
+                field: match_key
+                config:
+                  severity: warn
+                  where: "match_key IS NOT NULL"
       - name: team_key
         data_type: bigint
         description: >
           Kimball surrogate FK to dim_teams.team_key (defender's team).
         data_tests:
           - relationships:
-              to: ref('dim_teams')
-              field: team_key
-              config:
-                severity: warn
-                where: "team_key IS NOT NULL"
+              arguments:
+                to: ref('dim_teams')
+                field: team_key
+                config:
+                  severity: warn
+                  where: "team_key IS NOT NULL"
       - name: player_key
         data_type: bigint
         description: >
@@ -2069,11 +2083,12 @@ models:
           (below) resolves at near-100%.
         data_tests:
           - relationships:
-              to: ref('dim_players')
-              field: player_key
-              config:
-                severity: warn
-                where: "player_key IS NOT NULL"
+              arguments:
+                to: ref('dim_players')
+                field: player_key
+                config:
+                  severity: warn
+                  where: "player_key IS NOT NULL"
       - name: action_player_key
         data_type: bigint
         description: >
@@ -2081,17 +2096,19 @@ models:
           player; the real attacker who drew the defensive credit).
         data_tests:
           - relationships:
-              to: ref('dim_players')
-              field: player_key
-              config:
-                severity: warn
-                where: "action_player_key IS NOT NULL"
+              arguments:
+                to: ref('dim_players')
+                field: player_key
+                config:
+                  severity: warn
+                  where: "action_player_key IS NOT NULL"
     data_tests:
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns:
-            - event_id
-            - player_id
-            - data_source
+          arguments:
+            combination_of_columns:
+              - event_id
+              - player_id
+              - data_source
 
   - name: fct_defcon_pressure
     config:
@@ -2119,10 +2136,11 @@ models:
         data_tests:
           - not_null
           - relationships:
-              to: ref('dim_players')
-              field: player_id
-              config:
-                severity: warn
+              arguments:
+                to: ref('dim_players')
+                field: player_id
+                config:
+                  severity: warn
       - name: match_id
         data_type: string
         description: Match identifier
@@ -2196,11 +2214,12 @@ models:
           Resolved via provider CASE on data_source.
         data_tests:
           - relationships:
-              to: ref('dim_matches')
-              field: match_key
-              config:
-                severity: warn
-                where: "match_key IS NOT NULL"
+              arguments:
+                to: ref('dim_matches')
+                field: match_key
+                config:
+                  severity: warn
+                  where: "match_key IS NOT NULL"
       - name: player_key
         data_type: bigint
         description: >
@@ -2208,17 +2227,19 @@ models:
           attacker — real player, not 360-synthetic).
         data_tests:
           - relationships:
-              to: ref('dim_players')
-              field: player_key
-              config:
-                severity: warn
-                where: "player_key IS NOT NULL"
+              arguments:
+                to: ref('dim_players')
+                field: player_key
+                config:
+                  severity: warn
+                  where: "player_key IS NOT NULL"
     data_tests:
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns:
-            - player_id
-            - match_id
-            - data_source
+          arguments:
+            combination_of_columns:
+              - player_id
+              - match_id
+              - data_source
 
   - name: fct_xg_predictions
     config:
@@ -2717,9 +2738,10 @@ models:
                 values: ['male', 'female']
     data_tests:
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns:
-            - provider
-            - native_competition_id
+          arguments:
+            combination_of_columns:
+              - provider
+              - native_competition_id
 
   # ── PAUSA Tables ──────────────────────────────────────────────────────
 
@@ -2907,10 +2929,11 @@ models:
           during the 2026-07-22 dual-column window.
         data_tests:
           - relationships:
-              to: ref('dim_players')
-              field: player_key
-              config:
-                severity: warn
+              arguments:
+                to: ref('dim_players')
+                field: player_key
+                config:
+                  severity: warn
       - name: competition_id
         data_type: int
         description: Competition identifier (partition key). NULL when upstream fct_player_stats has NULL.
@@ -2926,7 +2949,8 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values: ['Goalkeeper', 'Defender', 'Midfielder', 'Forward']
+              arguments:
+                values: ['Goalkeeper', 'Defender', 'Midfielder', 'Forward']
       - name: minutes_played
         data_type: double
         description: Total minutes played in this competition/season.
@@ -3084,10 +3108,11 @@ models:
       # QUALIFY in fct_workflow_costs.sql is the runtime guarantee; this is
       # the dbt-build-time gate that catches future regressions in CI.
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns:
-            - task_key
-            - usage_date
-            - job_run_id
+          arguments:
+            combination_of_columns:
+              - task_key
+              - usage_date
+              - job_run_id
 
   # ── Formation Detection ────────────────────────────────────────────────
 
@@ -3883,37 +3908,41 @@ models:
           of fct_action_values + PR 6 propagation).
         data_tests:
           - relationships:
-              to: ref('dim_matches')
-              field: match_key
-              config:
-                severity: warn
-                where: "match_key IS NOT NULL"
+              arguments:
+                to: ref('dim_matches')
+                field: match_key
+                config:
+                  severity: warn
+                  where: "match_key IS NOT NULL"
       - name: team_key
         data_type: bigint
         description: "Kimball surrogate FK to dim_teams.team_key (GK's team)."
         data_tests:
           - relationships:
-              to: ref('dim_teams')
-              field: team_key
-              config:
-                severity: warn
-                where: "team_key IS NOT NULL"
+              arguments:
+                to: ref('dim_teams')
+                field: team_key
+                config:
+                  severity: warn
+                  where: "team_key IS NOT NULL"
       - name: player_key
         data_type: bigint
         description: "Kimball surrogate FK to dim_players.player_key (the GK)."
         data_tests:
           - relationships:
-              to: ref('dim_players')
-              field: player_key
-              config:
-                severity: warn
-                where: "player_key IS NOT NULL"
+              arguments:
+                to: ref('dim_players')
+                field: player_key
+                config:
+                  severity: warn
+                  where: "player_key IS NOT NULL"
     data_tests:
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns:
-            - player_id
-            - match_id
-            - data_source
+          arguments:
+            combination_of_columns:
+              - player_id
+              - match_id
+              - data_source
 
   # ── Space Creation ───────────────────────────────────────────────────
 
@@ -4002,10 +4031,11 @@ models:
         data_tests:
           - not_null
           - relationships:
-              to: ref('dim_players')
-              field: canonical_player_id
-              config:
-                severity: warn
+              arguments:
+                to: ref('dim_players')
+                field: canonical_player_id
+                config:
+                  severity: warn
       - name: player_key
         data_type: bigint
         description: >
@@ -4015,10 +4045,11 @@ models:
           2026-07-22 dual-column window.
         data_tests:
           - relationships:
-              to: ref('dim_players')
-              field: player_key
-              config:
-                severity: warn
+              arguments:
+                to: ref('dim_players')
+                field: player_key
+                config:
+                  severity: warn
       - name: behavioral_vector
         data_type: array<double>
         description: >
@@ -4064,10 +4095,11 @@ models:
         data_tests:
           - not_null
           - relationships:
-              to: ref('dim_players')
-              field: canonical_player_id
-              config:
-                severity: warn
+              arguments:
+                to: ref('dim_players')
+                field: canonical_player_id
+                config:
+                  severity: warn
       - name: player_key
         data_type: bigint
         description: >
@@ -4077,10 +4109,11 @@ models:
           2026-07-22 dual-column window.
         data_tests:
           - relationships:
-              to: ref('dim_players')
-              field: player_key
-              config:
-                severity: warn
+              arguments:
+                to: ref('dim_players')
+                field: player_key
+                config:
+                  severity: warn
       - name: competition_id
         data_type: bigint
         description: Foreign key to dim_competitions
@@ -4140,8 +4173,9 @@ models:
         data_tests:
           - not_null
           - relationships:
-              to: ref('fct_match_summary')
-              field: match_key
+              arguments:
+                to: ref('fct_match_summary')
+                field: match_key
       - name: match_id
         data_type: bigint
         description: >
@@ -4164,10 +4198,11 @@ models:
         description: Kimball surrogate FK to dim_teams.team_key (acting team, ADR-011 PR 5a).
         data_tests:
           - relationships:
-              to: ref('dim_teams')
-              field: team_key
-              config:
-                where: "team_key IS NOT NULL"
+              arguments:
+                to: ref('dim_teams')
+                field: team_key
+                config:
+                  where: "team_key IS NOT NULL"
       - name: opponent_team_id
         data_type: int
         description: >
@@ -4182,17 +4217,19 @@ models:
         description: Kimball surrogate FK to dim_teams.team_key (opposing team, ADR-011 PR 5a).
         data_tests:
           - relationships:
-              to: ref('dim_teams')
-              field: team_key
-              config:
-                where: "opponent_team_key IS NOT NULL"
+              arguments:
+                to: ref('dim_teams')
+                field: team_key
+                config:
+                  where: "opponent_team_key IS NOT NULL"
       - name: game_state
         data_type: string
         description: "Score-state bucket — winning, losing, or drawing — at the time of the action."
         data_tests:
           - not_null
           - accepted_values:
-              values: ['winning', 'losing', 'drawing']
+              arguments:
+                values: ['winning', 'losing', 'drawing']
       - name: pos_in_gs
         data_type: bigint
         description: >
@@ -4228,10 +4265,11 @@ models:
         description: Audit timestamp.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns:
-            - match_id
-            - team_id
-            - game_state
+          arguments:
+            combination_of_columns:
+              - match_id
+              - team_id
+              - game_state
 
   - name: fct_heatmap_agg
     description: >
@@ -4265,7 +4303,8 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values: ['pass', 'shot']
+              arguments:
+                values: ['pass', 'shot']
       - name: x_bin
         data_type: int
         description: Grid bin centre X coordinate (5, 15, 25, ... 115).
@@ -4425,7 +4464,8 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values: ['goalkick', 'pass']
+              arguments:
+                values: ['goalkick', 'pass']
       - name: action_result
         data_type: string
         description: "SPADL action result: 'success' or 'fail'."
@@ -4437,31 +4477,34 @@ models:
         description: "Kimball surrogate FK inherited from fct_action_values."
         data_tests:
           - relationships:
-              to: ref('dim_matches')
-              field: match_key
-              config:
-                severity: warn
-                where: "match_key IS NOT NULL"
+              arguments:
+                to: ref('dim_matches')
+                field: match_key
+                config:
+                  severity: warn
+                  where: "match_key IS NOT NULL"
       - name: team_key
         data_type: bigint
         description: "Kimball surrogate FK to dim_teams.team_key."
         data_tests:
           - relationships:
-              to: ref('dim_teams')
-              field: team_key
-              config:
-                severity: warn
-                where: "team_key IS NOT NULL"
+              arguments:
+                to: ref('dim_teams')
+                field: team_key
+                config:
+                  severity: warn
+                  where: "team_key IS NOT NULL"
       - name: player_key
         data_type: bigint
         description: "Kimball surrogate FK to dim_players.player_key (GK)."
         data_tests:
           - relationships:
-              to: ref('dim_players')
-              field: player_key
-              config:
-                severity: warn
-                where: "player_key IS NOT NULL"
+              arguments:
+                to: ref('dim_players')
+                field: player_key
+                config:
+                  severity: warn
+                  where: "player_key IS NOT NULL"
       - name: _loaded_at
         data_type: timestamp
         description: Audit timestamp.
@@ -4637,6 +4680,7 @@ models:
           for Metrica (anonymised open-data).
     data_tests:
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns:
-            - provider
-            - native_match_id
+          arguments:
+            combination_of_columns:
+              - provider
+              - native_match_id

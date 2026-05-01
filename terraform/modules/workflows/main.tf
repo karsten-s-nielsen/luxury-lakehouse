@@ -228,8 +228,12 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 3600
     max_retries     = 1
 
+    # PR-Cycle-C PR-β (2026-05-02, ADR-019): reads gold.fct_action_values
+    # (intermediate_mart) — wait on stage 2. The legacy resolve_players
+    # edge was a misclassification — v2 inference reads HF-published
+    # weights + fct_action_values gold, NOT bronze.player_xref_raw.
     depends_on {
-      task_key = "resolve_players"
+      task_key = "dbt_build_intermediate_marts"
     }
 
     python_wheel_task {
@@ -277,8 +281,12 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 3600
     max_retries     = 1
 
+    # PR-Cycle-C PR-β (2026-05-02, ADR-019): reads gold.fct_tracking_frames
+    # (input_mart). The legacy compute_pitch_control edge was a peer
+    # serialization remnant — formations_efpi does NOT read pitch_control
+    # bronze (would be in test_workflow_dag_bronze_reads if it did).
     depends_on {
-      task_key = "compute_pitch_control"
+      task_key = "dbt_build_input_marts"
     }
 
     python_wheel_task {
@@ -303,8 +311,14 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 3600
     max_retries     = 1
 
+    # PR-Cycle-C PR-β (2026-05-02, ADR-019): consumes the EFPI temp table
+    # written by compute_formations_efpi (kept) AND reads gold.fct_tracking_frames
+    # input_mart (new edge to stage 1). Order: alphabetical.
     depends_on {
       task_key = "compute_formations_efpi"
+    }
+    depends_on {
+      task_key = "dbt_build_input_marts"
     }
 
     python_wheel_task {
@@ -338,9 +352,15 @@ resource "databricks_job" "data_ingestion" {
     # - Plus bronze.statsbomb_events for guard's source-filter scope → ingest_statsbomb (kept)
     # Without these, today's compute silently runs against yesterday's bronze
     # for the missing source(s) (1-day lag class).
+    # PR-Cycle-C PR-β (2026-05-02, ADR-019): added dbt_build_input_marts so
+    # gold-side reads of fct_tracking_frames pick up today's input_mart.
+    # Bronze-side ingest edges retained per test_workflow_dag_bronze_reads.
     # Order: alphabetical (test_workflows_tf_ordering enforcement).
     depends_on {
       task_key = "backfill_statsbomb_360"
+    }
+    depends_on {
+      task_key = "dbt_build_input_marts"
     }
     depends_on {
       task_key = "ingest_idsse"
@@ -375,17 +395,15 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 3600
     max_retries     = 1
 
+    # PR-Cycle-C PR-β (2026-05-02, ADR-019): reads gold.fct_tracking_frames
+    # (input_mart) + bronze xT grids from compute_expected_threat. Drops the
+    # legacy ingest_* edges (pre-three-stage gold-reader workarounds).
+    # Order: alphabetical (test_workflows_tf_ordering enforcement).
     depends_on {
       task_key = "compute_expected_threat"
     }
     depends_on {
-      task_key = "ingest_idsse"
-    }
-    depends_on {
-      task_key = "ingest_metrica"
-    }
-    depends_on {
-      task_key = "ingest_skillcorner"
+      task_key = "dbt_build_input_marts"
     }
 
     python_wheel_task {
@@ -445,14 +463,12 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 7200
     max_retries     = 1
 
+    # PR-Cycle-C PR-β (2026-05-02, ADR-019): reads gold.fct_tracking_frames
+    # (input_mart) — wait on stage 1 to ensure today's tracking frames are
+    # built before pitch-control compute. Drops the legacy ingest_* edges
+    # which were pre-three-stage gold-reader workarounds.
     depends_on {
-      task_key = "ingest_idsse"
-    }
-    depends_on {
-      task_key = "ingest_metrica"
-    }
-    depends_on {
-      task_key = "ingest_skillcorner"
+      task_key = "dbt_build_input_marts"
     }
 
     python_wheel_task {
@@ -514,8 +530,12 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 3600
     max_retries     = 1
 
+    # PR-Cycle-C PR-β (2026-05-02, ADR-019): reads gold.fct_shots (input_mart)
+    # — wait on stage 1. Drops the legacy compute_spadl_vaep edge which was a
+    # serialization-not-data-flow remnant (xg model reads gold.fct_shots, not
+    # bronze.spadl_actions).
     depends_on {
-      task_key = "compute_spadl_vaep"
+      task_key = "dbt_build_input_marts"
     }
 
     python_wheel_task {
@@ -536,8 +556,12 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 3600
     max_retries     = 1
 
+    # PR-Cycle-C PR-β (2026-05-02, ADR-019): reads gold.fct_shots (input_mart)
+    # — wait on stage 1. Drops the legacy compute_spadl_vaep edge which was a
+    # serialization-not-data-flow remnant (xg model reads gold.fct_shots, not
+    # bronze.spadl_actions).
     depends_on {
-      task_key = "compute_spadl_vaep"
+      task_key = "dbt_build_input_marts"
     }
 
     python_wheel_task {
@@ -552,42 +576,110 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "analytics"
   }
 
-  # ── Task: dbt build (gold layer materialization) ─────────────────────
-  # D59 (2026-04-13): runs `dbt build` against the SQL warehouse to materialize
-  # the 36 gold mart tables from bronze sources. Bundled dbt_project/ ships in
-  # the wheel via Hatch force-include; auth uses dbt-databricks 1.10+ runtime
-  # OAuth M2M identity discovery. See src/ingestion/dbt_runner.py.
+  # ── Task: dbt build — stage 1 (input + dimension marts) ──────────────
+  # PR-Cycle-C PR-β (2026-05-02, ADR-019): first of three sequential dbt
+  # invocations. Builds dimensions + marts whose lineage has NO compute
+  # task in it (`fct_tracking_frames`, `fct_shots`, `fct_discipline_events`)
+  # plus their staging-view ancestors and seeds. Compute tasks reading
+  # these gold marts (pitch_control / off_ball_xt / xg_model[_v2] /
+  # formations_efpi / formations_shape_graph / line_breaking) wait on
+  # this stage. Selector: --select +tag:input_mart +tag:dimension.
+  # See src/ingestion/dbt_runner.py — selector arg differentiates from stages 2/3.
   task {
-    task_key        = "dbt_build"
+    task_key        = "dbt_build_input_marts"
     timeout_seconds = 3600
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
       entry_point  = "dbt_build"
+      parameters   = ["--select", "+tag:input_mart", "+tag:dimension"]
     }
 
-    # 12 leaf compute tasks whose bronze outputs feed dbt's stg_* views.
-    # PR-Cycle-B (2026-05-01) added 4 missing edges: compute_pausa,
-    # compute_elastic_sync, backfill_statsbomb_360, compute_embeddings_360.
-    # Without these, dbt_build silently builds today's gold marts from
-    # YESTERDAY's bronze for those 4 sources (1-day lag class).
-    # NOTE: run_model_validation is intentionally NOT a dependency. Validation
-    # reads from gold marts (which dbt_build PRODUCES), so any "validation
-    # before mart refresh" gating is semantically reading yesterday's data.
-    # Keeping it independent ensures a single validator regression cannot
-    # block today's mart refresh + Lakebase synced-table propagation. See
-    # docs/superpowers/adrs/ADR-017-model-validation-as-signal-not-gate.md.
+    # All ingest tasks + ingest-helper compute tasks (extract_tracking_metadata,
+    # backfills, resolve_players) per ADR-019 § "Treatment of ingest-helper
+    # compute tasks". Order: alphabetical.
     depends_on { task_key = "backfill_statsbomb_360" }
+    depends_on { task_key = "backfill_statsbomb_extra" }
+    depends_on { task_key = "extract_tracking_metadata" }
+    depends_on { task_key = "ingest_idsse" }
+    depends_on { task_key = "ingest_idsse_events" }
+    depends_on { task_key = "ingest_metrica" }
+    depends_on { task_key = "ingest_skillcorner" }
+    depends_on { task_key = "ingest_statsbomb" }
+    depends_on { task_key = "ingest_wyscout" }
+    depends_on { task_key = "resolve_players" }
+
+    environment_key = "dbt"
+  }
+
+  # ── Task: dbt build — stage 2 (intermediate marts) ───────────────────
+  # PR-Cycle-C PR-β (2026-05-02, ADR-019): second of three sequential dbt
+  # invocations. Builds intermediate_marts (marts with compute output in
+  # their lineage AND consumed by at least one compute task) — currently
+  # `fct_action_values` only. `+tag:intermediate_mart` includes ancestors
+  # so any staging views unique to intermediate marts are built here.
+  # Selector: --select +tag:intermediate_mart.
+  task {
+    task_key        = "dbt_build_intermediate_marts"
+    timeout_seconds = 3600
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "dbt_build"
+      parameters   = ["--select", "+tag:intermediate_mart"]
+    }
+
+    # Sequential edge to stage 1 + the phase-1 compute task that writes
+    # bronze.{spadl_actions, vaep_action_values} consumed by fct_action_values.
+    # Order: alphabetical.
+    depends_on { task_key = "compute_spadl_vaep" }
+    depends_on { task_key = "dbt_build_input_marts" }
+
+    environment_key = "dbt"
+  }
+
+  # ── Task: dbt build — stage 3 (output marts) ─────────────────────────
+  # PR-Cycle-C PR-β (2026-05-02, ADR-019): third of three sequential dbt
+  # invocations. Builds output_marts — every mart that is NOT consumed
+  # by a compute task (consumed only by apps/dashboards/HF/run_model_validation).
+  # Selector: --select tag:output_mart (no leading `+`) because all
+  # staging ancestors were built by stages 1 + 2.
+  #
+  # refresh_synced_tables and run_model_validation are SIBLINGS depending
+  # on this stage — both children of `dbt_build_output_marts`. A
+  # validation regression cannot transitively block today's synced-table
+  # refresh, preserving ADR-017's "signal not gate" intent via topology
+  # rather than via stale reads (supplants ADR-017's pre-three-stage
+  # yesterday-gold workaround).
+  task {
+    task_key        = "dbt_build_output_marts"
+    timeout_seconds = 3600
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "dbt_build"
+      parameters   = ["--select", "tag:output_mart"]
+    }
+
+    # Stage 2 sequential edge + every phase-2 compute task that writes
+    # bronze read by an output_mart. (compute_spadl_vaep is in stage 2;
+    # extract_tracking_metadata + backfills + resolve_players are in
+    # stage 1.) Order: alphabetical.
     depends_on { task_key = "compute_defcon_lite" }
     depends_on { task_key = "compute_elastic_sync" }
     depends_on { task_key = "compute_embeddings_360" }
     depends_on { task_key = "compute_embeddings_v1" }
+    depends_on { task_key = "compute_embeddings_v2" }
+    depends_on { task_key = "compute_expected_threat" }
+    depends_on { task_key = "compute_formations_efpi" }
     depends_on { task_key = "compute_formations_shape_graph" }
     depends_on { task_key = "compute_line_breaking" }
     depends_on { task_key = "compute_off_ball_xt" }
     depends_on { task_key = "compute_pausa" }
+    depends_on { task_key = "compute_pitch_control" }
+    depends_on { task_key = "compute_xg_model" }
     depends_on { task_key = "compute_xg_model_v2" }
-    depends_on { task_key = "extract_tracking_metadata" }
+    depends_on { task_key = "dbt_build_intermediate_marts" }
     depends_on { task_key = "hf_sync" }
 
     environment_key = "dbt"
@@ -877,8 +969,11 @@ resource "databricks_job" "data_ingestion" {
       parameters   = ["--wait"]
     }
 
+    # PR-Cycle-C PR-β (2026-05-02, ADR-019): waits on stage 3 (the final dbt
+    # invocation). Pre-PR-β this depended on the single `dbt_build` task;
+    # post-PR-β stage 3 is the equivalent terminal mart-build step.
     depends_on {
-      task_key = "dbt_build"
+      task_key = "dbt_build_output_marts"
     }
 
     environment_key = "default"
@@ -920,8 +1015,15 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 900
     max_retries     = 1
 
+    # PR-Cycle-C PR-β (2026-05-02, ADR-019): reads today's output_marts
+    # (fct_xg_predictions_v2, fct_pausa_values, etc.). Sibling of
+    # refresh_synced_tables (both children of dbt_build_output_marts) —
+    # validation regression CANNOT block today's mart refresh, preserving
+    # ADR-017's "signal not gate" intent via topology rather than via
+    # stale reads. Drops the legacy compute_pausa edge (subsumed by
+    # transitive path through dbt_build_output_marts).
     depends_on {
-      task_key = "compute_pausa"
+      task_key = "dbt_build_output_marts"
     }
 
     python_wheel_task {
