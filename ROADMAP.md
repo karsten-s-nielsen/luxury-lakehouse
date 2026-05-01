@@ -2,7 +2,7 @@
 
 Research directions, long-horizon features, and exploratory ideas beyond the current [architecture](ARCHITECTURE.md). Items here are **unscheduled** — they represent valuable directions that may graduate into numbered phases as prerequisites are met and priorities clarify.
 
-**Last updated**: 2026-04-25 (added ExT-style Conditional xT (xT v2 Candidate) section — methodology surfaced via T1 tracker, reproduction design spike on TODO/On-Deck D66; KDE+KNN classical approach with Optuna-driven HPO, neural successor captured as longer-term peer bet)
+**Last updated**: 2026-05-02 (refreshed ExT-style Conditional xT (xT v2 Candidate) section to reflect the spike's conclusion: design doc + ADR-015 shipped 2026-04-25/26 [PR #205]; Phase 0 Singh baseline shipped 2026-04-26 [PR #206, NLL 3.78924]; Phase 1 KDE-smoothed Singh shipped 2026-04-27 [PR #213, NLL 3.74823 / +1.082%]; Phase 2 KNN-replaces-transition is the next step, tracked in TODO/On-Deck as **ExT2-P2** — not D66, which has been retired)
 
 ---
 
@@ -726,9 +726,9 @@ Requires commercial-grade tracking data (Belgian Pro League / Stats Perform) —
 
 ## ExT-style Conditional xT (xT v2 Candidate)
 
-**Status:** External research stream tracked at T1 (`docs/research/external-research-tracking.md`); reproduction design spike on TODO/On-Deck (D66)
-**Budget:** Negligible (CPU-only — KDE + KNN run in numpy/sklearn; Optuna-driven hyperparameter search)
-**References:** Salimi & Salmankhah, "ExT: Improving the Computational Efficiency and Spatial Granularity of the Expected Threat Model," LISS Football Analytics Symposium 2026-04-23 (poster, paper pre-publication)
+**Status:** Reproduction in flight. Phase 0 (Singh baseline) shipped 2026-04-26 (PR #206, NLL **3.78924** held-out on 8.8M actions / 5,404 matches / 22 comps). Phase 1 (KDE-smoothed Singh) shipped 2026-04-27 (PR #213, NLL **3.74823**, +1.082% vs Phase 0; best `kde_kernel=gaussian, kde_bandwidth=1.9999822, kde_adaptive=True`). **Phase 2 (KNN-replaces-transition) is the next step — tracked in TODO/On-Deck as `ExT2-P2`.** External research stream tracked at T1 (`docs/research/external-research-tracking.md`).
+**Budget:** Negligible (CPU-only — KDE + KNN run in numpy/sklearn; Optuna-driven hyperparameter search; ~135 min wall-clock per phase per Phase 1 empirical measurement)
+**References:** Salimi & Salmankhah, "ExT: Improving the Computational Efficiency and Spatial Granularity of the Expected Threat Model," LISS Football Analytics Symposium 2026-04-23 (poster, paper pre-publication); spec `docs/superpowers/specs/2026-04-25-ext-v2-reproduction-design.md`; ADR-015 (XTGrid wrapper + differential validation, PR #205)
 
 The platform's current xT (`wf-xt-grids`) implements Singh-2018: an unconditional 12×8 / 16×12 transition matrix per source cell. ExT reframes the model as per-source-cell *conditional* xT at ~24×16 resolution, with arbitrary contextual features (last-defender position, count-between-ball-and-goal, others) handled as additional KNN-query dimensions. The architectural unlock is replacing the full transition tensor with KNN lookup, which converts "add a contextual feature" from multiplicative on tensor storage to linear on KNN dimensionality — making per-cell conditional xT tractable at finer grids than Singh's original work. KDE smoothing handles the residual sparsity that finer grids exacerbate.
 
@@ -758,9 +758,9 @@ If ExT-class classical methods plateau, or if the adopted reproduction underperf
 
 ### Promotion triggers
 
-- T1 tracker fires (preprint or code release) → reconcile our spike output against published specifics
-- Spike output (D66) green-lights full reproduction → promotes to numbered TODO with phasing
-- Full reproduction completes → ARCHITECTURE.md update + ADR if architectural contracts change (xT outputs schema, downstream consumer contracts)
+- T1 tracker fires (preprint or code release) → reconcile shipped Phase 0/1 + Phase 2 plan against published specifics
+- Phase 2 (`ExT2-P2`) ships → if NLL beats Phase 1's 3.74823 (out of `[3.71, 3.79]` band), proceed to Phase 3 (contextual features); if regresses, halt + debug
+- Phase 3+4 complete → ARCHITECTURE.md update + ADR if architectural contracts change (xT outputs schema, downstream consumer contracts)
 
 ---
 
