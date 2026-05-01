@@ -643,7 +643,18 @@ models:
         data_type: bigint
         description: Kimball surrogate FK to dim_matches.match_key (ADR-011, PR 4b). Primary match identifier.
         data_tests:
-          - not_null
+          # Var-gated under the ADR-018 two-tier pattern. Vanilla `dbt build`
+          # skips this; post-deploy operator runs `dbt build --vars
+          # '{include_post_deploy_tests: true}'` after the IDSSE/Metrica
+          # re-ingest cycle. Session 69 surfaced 2521 IDSSE NULL match_keys
+          # caused by the cascade-skip pattern that PR #235 fixes upstream;
+          # the rows resolve to non-NULL once compute_spadl_vaep regenerates
+          # bronze.spadl_actions against the freshly-ingested bronze.idsse_*
+          # data with the new metadata cols.
+          - not_null:
+              config:
+                enabled: "{{ var('include_post_deploy_tests', false) }}"
+                tags: ['post_deploy_only']
       - name: competition_key
         data_type: bigint
         description: Kimball surrogate FK to dim_competitions.competition_key (ADR-011, PR 4b). Nullable.
@@ -654,7 +665,11 @@ models:
           dual-column window (sunset 2026-07-22 per ADR-011 policy). Use
           match_key for new consumer code.
         data_tests:
-          - not_null
+          # Var-gated alongside `match_key` not_null — same chicken-and-egg.
+          - not_null:
+              config:
+                enabled: "{{ var('include_post_deploy_tests', false) }}"
+                tags: ['post_deploy_only']
       - name: player_id
         data_type: int
         description: >
@@ -919,10 +934,19 @@ models:
         description: >
           LL2: Goalkeeper-specific action role from
           ``silly_kicks.spadl.utils.add_gk_role``. NULL on non-GK rows.
+          Categorical with 5 values per
+          ``silly_kicks.spadl.utils._GK_ROLE_CATEGORIES`` (silly-kicks 2.5.0):
+          shot_stopping / cross_collection / sweeping / pick_up / distribution.
+          Pre-PR-LL2 the test enum carried StatsBomb-era values
+          (shot_save / ball_distribution / ball_claim / one_on_one /
+          general_play); silly-kicks 2.5.0 producers (especially the IDSSE
+          sportec converter) emit the canonical enum above. Session 69
+          aligned the test with the actual silly-kicks output after PR #235
+          unmasked the IDSSE GK rows by fixing the upstream cascade-skip.
         data_tests:
           - accepted_values:
               arguments:
-                values: ['shot_save', 'ball_distribution', 'ball_claim', 'one_on_one', 'general_play']
+                values: ['shot_stopping', 'cross_collection', 'sweeping', 'pick_up', 'distribution']
               config:
                 where: "gk_role is not null"
       - name: gk_was_distributing

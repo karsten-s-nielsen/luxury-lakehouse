@@ -82,6 +82,29 @@ sources:
             description: Ball possession state label (home/away/neutral).
           - name: ball_status
             description: Ball status (alive/dead).
+          - name: competition_native_id
+            description: >
+              DFL CompetitionId (e.g. 'DFL-COM-000001'). Sourced from the
+              <General> element of the matchinformation XML. Same value for
+              every row of a given match. Added in session 69 (2026-04-30) to
+              close the asymmetric-coverage gap with bronze.idsse_events
+              where PR-LL2 wired this in but missed the tracking writer.
+              Single source of truth for stg_idsse__matches.competition_id —
+              eliminates the hardcoded SQL CTE that was the prior workaround.
+          - name: season_native_id
+            description: >
+              DFL SeasonId (e.g. 'DFL-SEA-0001K6'). Sourced from <General>;
+              parity with bronze.idsse_events.
+          - name: home_team_id_native
+            description: >
+              DFL HomeTeamId (CLU-format) for the match. Constant per match;
+              parity with bronze.idsse_events. Distinct from the per-row
+              ``team_id`` column (which carries the team of THIS player's
+              row, sourced from the FrameSet TeamId attribute).
+          - name: away_team_id_native
+            description: >
+              DFL GuestTeamId (CLU-format) for the match. Constant per match;
+              parity with bronze.idsse_events.
 
       - name: idsse_events
         description: >

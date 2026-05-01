@@ -345,6 +345,24 @@ def _compute_idsse_events_bronze_cols() -> frozenset[str]:
 _IDSSE_EVENTS_BRONZE_COLS: frozenset[str] = _compute_idsse_events_bronze_cols()
 """Expected bronze columns for bronze.idsse_events (computed at import time)."""
 
+
+# Single source of truth for which `_MatchMetadata` fields surface to bronze.
+# Both `ingest_idsse` (tracking writer) and `ingest_idsse_events` (events
+# writer) MUST emit a per-row column for each name here. Asserted by
+# `src/tests/test_idsse_match_metadata_parity.py` — closes the asymmetric-
+# coverage gap discovered in session 69 (2026-04-30) where PR-LL2 wired
+# `_parse_match_metadata` into `bronze.idsse_events` but missed
+# `bronze.idsse_tracking`. Both tables share the same upstream
+# matchinformation XML; both must surface the same per-match metadata.
+_IDSSE_MATCH_METADATA_BRONZE_COLS: frozenset[str] = frozenset(
+    {
+        "competition_native_id",  # e.g. 'DFL-COM-000001'
+        "season_native_id",  # e.g. 'DFL-SEA-0001K6'
+        "home_team_id_native",  # DFL CLU id of the home team
+        "away_team_id_native",  # DFL CLU id of the guest team
+    }
+)
+
 # Dtype overrides for the handful of columns that must land as numerics.
 # Columns not in this map default to pd.StringDtype() via finalize_bronze_df.
 _IDSSE_EVENTS_DTYPE_OVERRIDES: dict[str, str] = {
@@ -596,6 +614,7 @@ def _parse_positions_xml(
     match_id: str,
     logger: logging.Logger,
     gk_player_ids: set[str] | None = None,
+    metadata: _MatchMetadata = _EMPTY_MATCH_METADATA,
 ) -> dict[int, list[dict[str, object]]]:
     """Parse DFL position XML into bronze-complete row dicts, split by period.
 
@@ -766,6 +785,16 @@ def _parse_positions_xml(
                 "a": _parse_float_or_none(frame_el.get("A", "")),
                 "d": _parse_float_or_none(frame_el.get("D", "")),
                 "m": _parse_bool_or_none(frame_el.get("M", "")),
+                # Per-match metadata (sourced from <General> in matchinformation XML).
+                # Same value for every row of a given match — replicated here for
+                # parity with bronze.idsse_events (asserted by
+                # test_idsse_match_metadata_parity.py). Empty string when the
+                # XML lacked the attribute or the caller passed _EMPTY_MATCH_METADATA
+                # (test path with no companion matchinfo).
+                "competition_native_id": metadata.competition_id,
+                "season_native_id": metadata.season_id,
+                "home_team_id_native": metadata.home_team_id,
+                "away_team_id_native": metadata.away_team_id,
                 # Ball-joined cols
                 **ball_entry,
             }
@@ -825,6 +854,12 @@ _IDSSE_TRACKING_BRONZE_COLS: tuple[str, ...] = (
     "ball_t",
     "ball_possession",
     "ball_status",
+    # Per-match metadata sourced from matchinformation XML's <General> element.
+    # Parity with bronze.idsse_events; see _IDSSE_MATCH_METADATA_BRONZE_COLS.
+    "competition_native_id",
+    "season_native_id",
+    "home_team_id_native",
+    "away_team_id_native",
 )
 
 # Nullable dtype overrides for tracking columns. Columns not in this map
@@ -903,10 +938,18 @@ def ingest_idsse(
         pos_path = f"{data_dir}/DFL_04_03_positions_raw_observed_{comp}_DFL-MAT-{mid}.xml"
 
         _home_id, _away_id, player_team_map, gk_player_ids = _parse_teams(info_path)
+        # Parity with `ingest_idsse_events`: surface match-level metadata
+        # (competition / season / home+away DFL TeamIds) onto every bronze row.
+        # PR-LL2 wired this for events but missed tracking; session 69 closes
+        # the gap. Eliminates the hardcoded `_MATCH_COMPETITION` mirror in
+        # `dbt_project/models/staging/idsse/stg_idsse__matches.sql`.
+        match_metadata = _parse_match_metadata(info_path)
         logger.info(
-            "Found %d players in match info (%d GKs)",
+            "Found %d players in match info (%d GKs) — competition=%s, season=%s",
             len(player_team_map),
             len(gk_player_ids),
+            match_metadata.competition_id or "<missing>",
+            match_metadata.season_id or "<missing>",
         )
 
         rows_by_period = _parse_positions_xml(
@@ -915,6 +958,7 @@ def ingest_idsse(
             mid,
             logger,
             gk_player_ids=gk_player_ids,
+            metadata=match_metadata,
         )
         total_rows = sum(len(r) for r in rows_by_period.values())
         logger.info("Parsed %d tracking rows for IDSSE match %s", total_rows, mid)

@@ -26,6 +26,33 @@ def _load_fct_action_values_entry() -> dict:
     raise AssertionError  # pragma: no cover — satisfies return type for pyright
 
 
+def _has_test(data_tests: list | None, test_name: str) -> bool:
+    """Return True if a generic dbt test ``test_name`` appears in
+    ``data_tests``, recognising BOTH bare-string and configured-dict forms.
+
+    dbt allows either::
+
+        data_tests:
+          - not_null                                 # bare string
+          - not_null:                                # dict with config
+              config:
+                where: "..."
+                enabled: "{{ var(...) }}"
+
+    Session 69 introduced var-gated `not_null` tests on `match_key` and
+    legacy `match_id` (chicken-and-egg post-deploy gating per ADR-018);
+    those land as the dict form, so a plain ``"not_null" in tests``
+    membership check no longer matches. This helper centralises the
+    both-form recognition.
+    """
+    for t in data_tests or []:
+        if t == test_name:
+            return True
+        if isinstance(t, dict) and test_name in t:
+            return True
+    return False
+
+
 class TestFctActionValuesContract:
     def test_contract_enforced(self) -> None:
         entry = _load_fct_action_values_entry()
@@ -37,7 +64,10 @@ class TestFctActionValuesContract:
         assert "match_key" in cols, "match_key must be in contract post-PR-4b"
         mk = cols["match_key"]
         assert mk.get("data_type", "").lower() == "bigint"
-        assert "not_null" in (mk.get("data_tests") or [])
+        assert _has_test(mk.get("data_tests"), "not_null"), (
+            "match_key must declare a not_null data test (var-gated under "
+            "include_post_deploy_tests is acceptable; bare not_null also OK)"
+        )
 
     def test_competition_key_present_nullable(self) -> None:
         entry = _load_fct_action_values_entry()
@@ -45,7 +75,7 @@ class TestFctActionValuesContract:
         assert "competition_key" in cols, "competition_key must be in contract post-PR-4b"
         ck = cols["competition_key"]
         assert ck.get("data_type", "").lower() == "bigint"
-        assert "not_null" not in (ck.get("data_tests") or [])
+        assert not _has_test(ck.get("data_tests"), "not_null"), "competition_key is intentionally nullable post-PR-4b"
 
     def test_legacy_match_id_retained(self) -> None:
         entry = _load_fct_action_values_entry()
@@ -67,6 +97,6 @@ class TestFctActionValuesContract:
         entry = _load_fct_action_values_entry()
         cols = {c["name"]: c for c in entry.get("columns", [])}
         avid = cols["action_value_id"]
-        tests = avid.get("data_tests") or []
-        assert "unique" in tests
-        assert "not_null" in tests
+        tests = avid.get("data_tests")
+        assert _has_test(tests, "unique")
+        assert _has_test(tests, "not_null")
