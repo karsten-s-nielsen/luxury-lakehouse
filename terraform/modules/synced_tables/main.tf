@@ -107,7 +107,11 @@ resource "databricks_database_synced_database_table" "fct_passes" {
   spec = {
     source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_passes"
     primary_key_columns    = ["pass_id"]
-    scheduling_policy      = "SNAPSHOT"
+    # PR-Cycle-C PR-γ pilot (2026-05-01): TRIGGERED + Delta CDF on source.
+    # `lifecycle.ignore_changes = all` means this is declared intent only —
+    # the actual mode lives on the UI-created resource. ADR-021 codifies the
+    # per-mart sync policy triage.
+    scheduling_policy = "TRIGGERED"
   }
 
   lifecycle {
@@ -225,7 +229,11 @@ resource "databricks_database_synced_database_table" "fct_action_values" {
   spec = {
     source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_action_values"
     primary_key_columns    = ["action_value_id"]
-    scheduling_policy      = "SNAPSHOT"
+    # PR-Cycle-C PR-γ pilot (2026-05-01): TRIGGERED + Delta CDF on source.
+    # `lifecycle.ignore_changes = all` means this is declared intent only —
+    # the actual mode lives on the UI-created resource. ADR-021 codifies the
+    # per-mart sync policy triage.
+    scheduling_policy = "TRIGGERED"
   }
 
   lifecycle {
@@ -241,7 +249,11 @@ resource "databricks_database_synced_database_table" "fct_tracking_frames" {
   spec = {
     source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_tracking_frames"
     primary_key_columns    = ["tracking_id"]
-    scheduling_policy      = "SNAPSHOT"
+    # PR-Cycle-C PR-γ pilot (2026-05-01): TRIGGERED + Delta CDF on source.
+    # `lifecycle.ignore_changes = all` means this is declared intent only —
+    # the actual mode lives on the UI-created resource. ADR-021 codifies the
+    # per-mart sync policy triage.
+    scheduling_policy = "TRIGGERED"
   }
 
   lifecycle {
