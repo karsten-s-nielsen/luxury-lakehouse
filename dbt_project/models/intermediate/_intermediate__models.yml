@@ -14,10 +14,11 @@ models:
       as view (upgraded from ephemeral in PR 2).
     data_tests:
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns:
-            - match_key
-            - event_id
-            - data_source
+          arguments:
+            combination_of_columns:
+              - match_key
+              - event_id
+              - data_source
     columns:
       - name: event_id
         description: Source event identifier (globally unique for StatsBomb/Wyscout; match-local for IDSSE/Metrica — use with match_key for global uniqueness).
@@ -90,10 +91,11 @@ models:
       upgrade).
     data_tests:
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns:
-            - match_key
-            - event_id
-            - data_source
+          arguments:
+            combination_of_columns:
+              - match_key
+              - event_id
+              - data_source
     columns:
       - name: event_id
         description: Source event identifier (globally unique for StatsBomb/Wyscout).
@@ -166,11 +168,12 @@ models:
       and force_reject. Materialized as view (was ephemeral pre-PR-5a).
     data_tests:
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns:
-            - source_a
-            - player_id_a
-            - source_b
-            - player_id_b
+          arguments:
+            combination_of_columns:
+              - source_a
+              - player_id_a
+              - source_b
+              - player_id_b
     columns:
       - name: source_a
         description: Provider label for side A (statsbomb/wyscout/idsse/metrica).
@@ -220,11 +223,12 @@ models:
       (source_a, team_id_a, source_b, team_id_b).
     data_tests:
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns:
-            - source_a
-            - team_id_a
-            - source_b
-            - team_id_b
+          arguments:
+            combination_of_columns:
+              - source_a
+              - team_id_a
+              - source_b
+              - team_id_b
     columns:
       - name: source_a
         description: Provider label for side A.
@@ -273,10 +277,11 @@ models:
       Materialized as ephemeral (CTE).
     data_tests:
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns:
-            - player_id
-            - competition_id
-            - season_id
+          arguments:
+            combination_of_columns:
+              - player_id
+              - competition_id
+              - season_id
     columns:
       - name: player_id
         description: Player identifier

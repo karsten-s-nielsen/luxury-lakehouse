@@ -1,7 +1,7 @@
 name: Lakebase Maintenance (Ownership + Grants + Indexes)
 
-# Self-healing Lakebase synced-table maintenance. Runs THREE idempotent
-# passes in sequence — all three are the canonical hooks for any synced
+# Self-healing Lakebase synced-table maintenance. Runs FOUR idempotent
+# passes in sequence — all four are the canonical hooks for any synced
 # table added to `ingestion.refresh_synced_tables.SYNCED_TABLES`:
 #
 #   1. `fix_event_log_ownership.py --skip-trigger-refresh` — re-sets
@@ -9,11 +9,20 @@ name: Lakebase Maintenance (Ownership + Grants + Indexes)
 #      a UI recreation transfers it to whoever performed the recreate.
 #      Without this, the ingestion SP cannot trigger pipeline refreshes.
 #      Idempotent (already_correct entries are no-op).
-#   2. `run_lakebase_grants.py` — re-applies SELECT grants. See
+#   2. `run_lakebase_grants.py` — re-applies PG SELECT grants. See
 #      docs/superpowers/adrs/ADR-005-lakebase-synced-table-grants.md for why
 #      auto-inherit via pg_default_acl is structurally unavailable and this
 #      scheduled re-apply is the canonical compensating control.
-#   3. `create_indexes.py --verify` — re-applies PG indexes (IF NOT EXISTS)
+#   3. `grant_synced_table_permissions.py` — re-applies workspace-API CAN_RUN
+#      on each synced table's backing pipeline (and CAN_USE on the database
+#      project). Closes the same drift class as step 2 but on the workspace
+#      ACL surface, not the PG schema surface. After UI recreation,
+#      pipeline_ids change AND ownership transfers — both reset workspace
+#      ACLs to default. The daily Databricks job's `refresh_synced_tables`
+#      task and the Taipy admin endpoint's pipeline-refresh path both
+#      require CAN_RUN. Without this step, those tasks 403 silently after
+#      every UI recreation. See docs/superpowers/adrs/ADR-020-lakebase-canrun-autoheal.md.
+#   4. `create_indexes.py --verify` — re-applies PG indexes (IF NOT EXISTS)
 #      and EXPLAIN-ANALYZE-verifies Index Scan plans. Synced-table
 #      recreation drops custom indexes; a daily rebuild restores them
 #      before the first dashboard query hits Seq Scan.
@@ -122,6 +131,19 @@ jobs:
         run: |
           uv run python scripts/run_lakebase_grants.py \
               --sp-uuid "$HF_APP_SP_APPLICATION_ID"
+
+      # Step 3: Re-apply workspace-API CAN_RUN on each synced table's backing
+      # pipeline (and CAN_USE on the database project). Step 2 (above) handles
+      # the PG-side SELECT grants; this step handles the workspace-side ACL
+      # surface that the Lakebase Refresh API checks. Both surfaces drift after
+      # a UI recreation. Idempotent — granting an existing permission is a
+      # no-op; the script's --status mode is the way to verify state.
+      # ADR-020 (PR-Cycle-C PR-β, 2026-05-02) — empirical motivation: 2026-05-01
+      # 403s on UI-recreated career + season embedding synced tables.
+      - name: Apply synced-table workspace permissions
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.verify_only != true }}
+        run: |
+          uv run python scripts/grant_synced_table_permissions.py
 
       - name: Verify grant coverage
         run: |

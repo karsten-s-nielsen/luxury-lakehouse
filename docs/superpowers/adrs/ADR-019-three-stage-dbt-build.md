@@ -4,6 +4,7 @@
 |---|---|
 | **Date** | 2026-05-01 |
 | **Status** | Accepted |
+| **Implementation status** | PR-α merged 2026-05-01 (mart tags + classification conformance test); PR-β merged 2026-05-02 (TF restructure + gold-read conformance test + 3 workflow cards) |
 | **Deciders** | Karsten S. Nielsen |
 
 ## Context

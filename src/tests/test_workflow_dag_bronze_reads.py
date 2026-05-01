@@ -67,13 +67,19 @@ _BRONZE_READ_REQUIREMENTS: list[tuple[str, str, str]] = [
     # Evidence: src/ingestion/pausa.py:69,180
     #         + src/ingestion/import_obso_results.py:141-142
     ("compute_pausa", "pausa_raw_scores", "import_obso_results"),
-    # ── dbt_build: stg_* views read leaf compute outputs ────────────────
-    # Without these edges, today's gold marts get built from yesterday's
-    # bronze for the named source (1-day lag class).
-    ("dbt_build", "pausa_values", "compute_pausa"),
-    ("dbt_build", "elastic_event_match", "compute_elastic_sync"),
-    ("dbt_build", "statsbomb_360", "backfill_statsbomb_360"),
-    ("dbt_build", "player_embeddings_raw_360", "compute_embeddings_360"),
+    # ── dbt_build_*: stg_* views read leaf compute outputs ──────────────
+    # PR-Cycle-C PR-β (2026-05-02, ADR-019): single `dbt_build` task replaced
+    # with three sequential stages. Each entry assigned to the stage that
+    # actually rebuilds the consuming mart. Without these edges, today's
+    # gold marts get built from yesterday's bronze for the named source
+    # (1-day lag class).
+    ("dbt_build_output_marts", "pausa_values", "compute_pausa"),
+    ("dbt_build_output_marts", "elastic_event_match", "compute_elastic_sync"),
+    # statsbomb_360 (backfill_statsbomb_360 writer) — read by stg_statsbomb_360
+    # which is an ancestor of input_mart fct_shots. Migration to
+    # dbt_build_input_marts is correct per ADR-019 § ingest-helper exemption.
+    ("dbt_build_input_marts", "statsbomb_360", "backfill_statsbomb_360"),
+    ("dbt_build_output_marts", "player_embeddings_raw_360", "compute_embeddings_360"),
 ]
 
 

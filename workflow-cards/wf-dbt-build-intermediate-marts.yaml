@@ -1,0 +1,86 @@
+---
+name: dbt build — stage 2 (intermediate marts)
+id: wf-dbt-build-intermediate-marts
+version: "1.0.0"
+status: production
+type: data-movement
+domain: soccer-analytics
+owners:
+  - karsten
+tags:
+  - dbt
+  - gold
+  - daily-job
+  - three-stage
+
+# Stage 2 of 3 in PR-Cycle-C PR-β (ADR-019). Builds intermediate_marts —
+# marts that have compute output in their lineage AND are consumed by at
+# least one compute task. Currently only `fct_action_values` (built from
+# bronze.{spadl_actions, vaep_action_values} written by compute_spadl_vaep,
+# read by compute_embeddings_v2). Forward-compatible with future intermediate
+# marts as ML pipelines compose.
+references: []
+
+inputs:
+  datasets:
+    - id: "{catalog}.bronze.spadl_actions"
+      source: delta-table
+      description: "SPADL actions bronze written by compute_spadl_vaep (4-source union)"
+
+outputs:
+  tables:
+    - id: "{catalog}.dev_gold.fct_action_values"
+      destination: delta-table
+      dbt_model: fct_action_values
+
+execution:
+  ingestion:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: dbt_build
+    module: ingestion.dbt_runner
+    distribution: driver-bound
+    schedule: "daily 06:00 UTC"
+    timeout: "3600s"
+    environment: dbt
+
+depends_on:
+  - wf-vaep
+  - wf-dbt-build-input-marts
+
+idempotency:
+  strategy: full-overwrite
+  key: model
+  description: "dbt CREATE OR REPLACE TABLE semantics — idempotent per model."
+
+performance:
+  inference_timeout: "3600s"
+  memory_ceiling: "16 GB driver"
+
+cost:
+  ingestion:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 1
+    typical_cost_usd: 0.07
+
+monitoring:
+  freshness_sla_hours: 24
+
+links:
+  source_code:
+    - "src/ingestion/dbt_runner.py"
+---
+
+## Overview
+
+Stage 2 of the three-stage dbt_build topology introduced by ADR-019. Builds
+the single intermediate_mart (`fct_action_values`) from
+`bronze.{spadl_actions, vaep_action_values}` written by `compute_spadl_vaep`.
+Selector: `--select +tag:intermediate_mart` — `+` includes the staging-view
+ancestors unique to this mart.
+
+`compute_embeddings_v2` declares `depends_on { task_key = "dbt_build_intermediate_marts" }`
+so its inference reads TODAY's `fct_action_values`.
+
+See `docs/superpowers/adrs/ADR-019-three-stage-dbt-build.md`.

@@ -13,7 +13,8 @@ sources:
           Warm-tier cost and lifecycle data written by CostEstimateHook during
           pipeline execution. Rows are pruned by fct_workflow_costs post-hook
           after cold-tier capture. Not managed by dbt.
-        loaded_at_field: updated_at
+        config:
+          loaded_at_field: updated_at
         columns:
           - name: workflow_id
             description: >

@@ -26,10 +26,12 @@ with player_best_dim as (
     select canonical_player_id, max(size(behavioral_vector)) as best_dim
     from {{ ref('fct_player_embeddings') }}
     where data_source != 'football2vec_360'
-      and data_source != 'football2vec_v1'   -- PR-Cycle-C 2026-05-01: exclude 32d v1 Doc2Vec.
-                                             -- v1 is "Retained for comparison; superseded by v2"
-                                             -- per terraform/modules/workflows/main.tf:22-24.
-                                             -- Mixed-dim career rows broke HNSW build at vector(192).
+      and size(behavioral_vector) != 32   -- PR-Cycle-C 2026-05-02 (PR-β Phase 0): exclude 32d v1 Doc2Vec.
+                                          -- data_source is provider label ('wyscout'/'statsbomb'/etc),
+                                          -- NOT model version — v1 + v2 wyscout share data_source='wyscout',
+                                          -- so PR-α's `data_source != 'football2vec_v1'` filter was a no-op.
+                                          -- Dim-based filter is robust + version-agnostic.
+                                          -- Mixed-dim career rows broke HNSW build at vector(192).
     group by canonical_player_id
 ),
 

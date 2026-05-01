@@ -242,7 +242,11 @@ def test_data_ingestion_parser_count_anchor() -> None:
     # 30 → 31 in PR-Cycle-B (2026-05-01): split `import_obso_results` out of
     # hf_sync into its own scheduled task so compute_pausa can declare an
     # explicit dependency on the OBSO import.
-    assert len(task_keys) == 31, f"expected 31 task blocks on data_ingestion, parser found {len(task_keys)}"
+    # 31 → 33 in PR-Cycle-C PR-β (2026-05-02): replace single `dbt_build`
+    # task with three sequential tasks (`dbt_build_input_marts`,
+    # `_intermediate_marts`, `_output_marts`) per ADR-019. Net +2 tasks
+    # (3 added, 1 removed).
+    assert len(task_keys) == 33, f"expected 33 task blocks on data_ingestion, parser found {len(task_keys)}"
 
 
 if __name__ == "__main__":

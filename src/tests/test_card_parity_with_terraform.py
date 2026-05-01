@@ -171,7 +171,13 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     # bronze Delta table for dbt resolution. No ML, no methodology.
     "extract_tracking_metadata": None,
     "hf_sync": "wf-hf-sync",
-    "dbt_build": "wf-dbt-build",
+    # PR-Cycle-C PR-β (2026-05-02, ADR-019): single `dbt_build` task replaced
+    # with three sequential dbt invocations driven by mart classification tags.
+    # All three share the same `dbt_build` wheel entry point — differentiated
+    # by the `--select` parameter passed in TF. Cards are split 1→3 to match.
+    "dbt_build_input_marts": "wf-dbt-build-input-marts",
+    "dbt_build_intermediate_marts": "wf-dbt-build-intermediate-marts",
+    "dbt_build_output_marts": "wf-dbt-build-output-marts",
     # Infrastructure plumbing — triggers Lakebase SNAPSHOT refresh via the
     # Databricks REST API. Not an AI/ML workflow under CLAUDE.md:253.
     "refresh_synced_tables": None,
