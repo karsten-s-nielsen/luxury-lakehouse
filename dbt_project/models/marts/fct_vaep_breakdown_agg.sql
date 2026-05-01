@@ -1,6 +1,7 @@
 {{ config(
     materialized='table',
-    liquid_clustered_by=['competition_id']
+    liquid_clustered_by=['competition_id'],
+    tags=['marts', 'output_mart']
 ) }}
 -- fct_vaep_breakdown_agg.sql
 -- Pre-aggregated VAEP breakdown by action_type for Taipy Action Values

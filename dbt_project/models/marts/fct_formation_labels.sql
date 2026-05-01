@@ -3,7 +3,8 @@
     incremental_strategy='merge',
     unique_key='formation_label_id',
     on_schema_change='append_new_columns',
-    liquid_clustered_by=['match_key']
+    liquid_clustered_by=['match_key'],
+    tags=['marts', 'output_mart']
 ) }}
 -- fct_formation_labels.sql
 -- Gold-layer formation detection results per match, period, and team.

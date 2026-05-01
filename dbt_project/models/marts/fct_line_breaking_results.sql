@@ -3,7 +3,8 @@
     incremental_strategy='merge',
     unique_key='line_breaking_id',
     on_schema_change='append_new_columns',
-    liquid_clustered_by=['match_key']
+    liquid_clustered_by=['match_key'],
+    tags=['marts', 'output_mart']
 ) }}
 -- fct_line_breaking_results.sql
 -- Gold-layer line-breaking detection results per pass event.

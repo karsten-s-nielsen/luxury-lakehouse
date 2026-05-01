@@ -9,7 +9,8 @@
         "DELETE FROM {{ this.database }}.observability.workflow_cost_live
          WHERE state = 'RUNNING'
            AND started_at < CURRENT_TIMESTAMP - INTERVAL 24 HOURS"
-    ]
+    ],
+    tags=['marts', 'output_mart']
 ) }}
 -- fct_workflow_costs.sql
 -- Gold-layer workflow cost attribution from Databricks system tables.

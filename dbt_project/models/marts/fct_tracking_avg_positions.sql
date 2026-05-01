@@ -3,7 +3,8 @@
     incremental_strategy='merge',
     unique_key='avg_position_id',
     on_schema_change='append_new_columns',
-    liquid_clustered_by=['match_key']
+    liquid_clustered_by=['match_key'],
+    tags=['marts', 'output_mart']
 ) }}
 -- fct_tracking_avg_positions.sql
 -- Pre-computed average positions per player per match-period.

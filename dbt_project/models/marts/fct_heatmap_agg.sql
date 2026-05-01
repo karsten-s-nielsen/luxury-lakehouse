@@ -1,6 +1,7 @@
 {{ config(
     materialized='table',
-    liquid_clustered_by=['competition_id']
+    liquid_clustered_by=['competition_id'],
+    tags=['marts', 'output_mart']
 ) }}
 -- fct_heatmap_agg.sql
 -- Pre-aggregated heatmap grid counts for Taipy Heat Map page.

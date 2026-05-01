@@ -1,3 +1,7 @@
+{{ config(
+    materialized='table',
+    tags=['marts', 'dimension']
+) }}
 -- dim_teams.sql
 -- Conformed team dimension unifying StatsBomb, Wyscout, IDSSE, and Metrica.
 --

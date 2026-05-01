@@ -3,7 +3,8 @@
     incremental_strategy='merge',
     unique_key='match_key',
     on_schema_change='append_new_columns',
-    liquid_clustered_by=['match_key']
+    liquid_clustered_by=['match_key'],
+    tags=['marts', 'output_mart']
 ) }}
 -- fct_match_summary.sql
 -- Match-level aggregate metrics. One row per match, keyed by `match_key`

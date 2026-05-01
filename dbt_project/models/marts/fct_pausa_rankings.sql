@@ -1,6 +1,7 @@
 {{ config(
     materialized='table',
-    liquid_clustered_by=['player_id']
+    liquid_clustered_by=['player_id'],
+    tags=['marts', 'output_mart']
 ) }}
 -- fct_pausa_rankings.sql
 -- Player-level PAUSA aggregate with activity quality filters.

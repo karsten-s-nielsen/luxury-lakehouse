@@ -1,6 +1,7 @@
 {{ config(
     materialized='table',
-    liquid_clustered_by=['match_id']
+    liquid_clustered_by=['match_id'],
+    tags=['marts', 'output_mart']
 ) }}
 -- fct_gk_actions_detail.sql
 -- Pre-filtered goalkeeper pass and goalkick actions for the Taipy Goalkeeper

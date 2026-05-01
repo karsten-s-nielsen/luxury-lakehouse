@@ -1,6 +1,6 @@
 # Databricks Lakebase Architecture — Soccer Analytics Platform
 
-> **Status**: SEC1 cycle (EU AI Act gap analysis) — 16 Taipy pages, 38 synced tables, 67 PG indexes (61 btree + 6 HNSW at 128d/144d). Hugging Face Hub: 12 models + 18 datasets published, GPU training on HF Jobs L40S. Regulation (EU) 2024/1689 gap analysis in [`AI_GOVERNANCE.md`](AI_GOVERNANCE.md) covering 13 per-player evaluative ML systems; every model card carries an "EU AI Act — Intended Use and Non-Use" stanza, enforced by `src/tests/test_ai_governance_md.py`. Daily Job Hardening (D59/D56/SEC2): self-healing daily job with dbt_build python_wheel_task + SHA-256 artifact integrity verification on model loads. PSxG model (Brier 0.129). ScoutGPT decoder + training pipeline (D32). Guard-as-wrapper: 33 skip guards with mandatory `FilterResult` injection. `fct_workflow_costs` enriched with warm-tier lifecycle data (D51). HF-app SP codified in Terraform with UC grants (TF-SP). M2 OAuth infrastructure complete.
+> **Status**: SEC1 cycle (EU AI Act gap analysis) — 16 Taipy pages, 40 synced tables, 71 PG indexes (65 btree + 6 HNSW at 192d/144d/13d). Hugging Face Hub: 17 models + 19 datasets published, GPU training on HF Jobs L40S. Regulation (EU) 2024/1689 gap analysis in [`AI_GOVERNANCE.md`](AI_GOVERNANCE.md) covering 13 per-player evaluative ML systems; every model card carries an "EU AI Act — Intended Use and Non-Use" stanza, enforced by `src/tests/test_ai_governance_md.py`. Daily Job Hardening (D59/D56/SEC2): self-healing daily job with dbt_build python_wheel_task + SHA-256 artifact integrity verification on model loads. PSxG model (Brier 0.129). ScoutGPT decoder + training pipeline (D32). Guard-as-wrapper: 33 skip guards with mandatory `FilterResult` injection. `fct_workflow_costs` enriched with warm-tier lifecycle data (D51). HF-app SP codified in Terraform with UC grants (TF-SP). M2 OAuth infrastructure complete. Mart classification taxonomy (PR-Cycle-C, ADR-019): every gold mart tagged `dimension`/`input_mart`/`intermediate_mart`/`output_mart` for the upcoming three-stage `dbt_build` (PR-α metadata; PR-β TF restructure).
 > **Last Updated**: 2026-04-18
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready
@@ -119,22 +119,26 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • stg_idsse__events, stg_idsse__elastic_sync                  │    │
 │  │  • stg_pausa__values                                           │    │
 │  │                                                                  │    │
-│  │  GOLD (business logic, analytics-ready — 30 fact + 4 dim):       │    │
-│  │  • fct_shots, fct_passes, fct_player_stats, fct_match_summary    │    │
-│  │  • fct_xg_predictions, fct_tracking_frames, fct_action_values    │    │
-│  │  • fct_discipline_events (red/yellow card events)                │    │
-│  │  • fct_player_embeddings, fct_physical_stats                     │    │
-│  │  • fct_defensive_values, fct_defcon_actions, fct_defcon_pressure │    │
-│  │  • fct_player_embeddings_season/career                           │    │
-│  │  • fct_player_embeddings_season_360/career_360                   │    │
-│  │  • fct_pass_timing, fct_pausa_rankings                            │    │
-│  │  • fct_player_percentiles, fct_workflow_costs                    │    │
-│  │  • fct_formation_labels, fct_tracking_avg_positions              │    │
-│  │  • fct_tracking_shape_timeline, fct_player_positions             │    │
-│  │  • fct_position_maps, fct_goalkeeper_stats                       │    │
-│  │  • fct_line_breaking_results, fct_off_ball_xt                    │    │
-│  │  • fct_space_creation                                            │    │
-│  │  • dim_players, dim_teams, dim_competitions, dim_tracking_matches│    │
+│  │  GOLD (business logic, analytics-ready — 36 fact + 4 dim):       │    │
+│  │  Tagged per ADR-019 (PR-Cycle-C). Authoritative list:            │    │
+│  │  `dbt_project/models/marts/{dim_*,fct_*}.sql` + `tags=[...]`.    │    │
+│  │  • dimension (4): dim_competitions, dim_matches, dim_players,    │    │
+│  │    dim_teams                                                     │    │
+│  │  • input_mart (3): fct_tracking_frames, fct_shots,               │    │
+│  │    fct_discipline_events                                         │    │
+│  │  • intermediate_mart (1): fct_action_values                      │    │
+│  │  • output_mart (32): fct_passes, fct_match_summary,              │    │
+│  │    fct_physical_stats, fct_player_stats, fct_player_percentiles, │    │
+│  │    fct_xg_predictions, fct_xg_predictions_v2, fct_off_ball_xt,   │    │
+│  │    fct_formation_labels, fct_player_positions, fct_position_maps,│    │
+│  │    fct_player_embeddings(_career/_season/_career_360/_season_360)│    │
+│  │    fct_line_breaking_results, fct_pausa_values, fct_pausa_rankings│   │
+│  │    fct_pass_timing, fct_defcon_actions, fct_defcon_pressure,     │    │
+│  │    fct_defensive_values, fct_goalkeeper_stats,                   │    │
+│  │    fct_funnel_stages_agg, fct_heatmap_agg, fct_vaep_breakdown_agg,│   │
+│  │    fct_gk_actions_detail, fct_space_creation,                    │    │
+│  │    fct_tracking_avg_positions, fct_tracking_shape_timeline,      │    │
+│  │    fct_workflow_costs                                            │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
                               ▼
@@ -454,7 +458,7 @@ luxury-lakehouse/
 │   │   ├── lakebase/                 # Lakebase Autoscaling (PG 17)
 │   │   ├── sql_warehouse/            # Serverless SQL Warehouse
 │   │   ├── workflows/                # Ingestion job definitions
-│   │   ├── synced_tables/            # Gold → Lakebase sync (38 synced tables)
+│   │   ├── synced_tables/            # Gold → Lakebase sync (40 synced tables)
 │   │   ├── app/                      # (removed — Streamlit migrated to HF Spaces)
 │   │   ├── service_principals/       # Ingestion SP, App SP, CI SP + federation
 │   │   ├── github_oidc/              # AWS IAM OIDC provider + scoped role

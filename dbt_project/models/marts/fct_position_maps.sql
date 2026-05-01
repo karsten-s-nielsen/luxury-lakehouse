@@ -3,7 +3,8 @@
     incremental_strategy='merge',
     unique_key='position_map_id',
     on_schema_change='append_new_columns',
-    liquid_clustered_by=['match_key']
+    liquid_clustered_by=['match_key'],
+    tags=['marts', 'output_mart']
 ) }}
 -- fct_position_maps.sql
 -- Gold-layer aggregated position maps per player per match.

@@ -1,6 +1,7 @@
 {{ config(
     materialized='table',
-    liquid_clustered_by=['competition_id']
+    liquid_clustered_by=['competition_id'],
+    tags=['marts', 'output_mart']
 ) }}
 -- fct_funnel_stages_agg.sql
 -- Pre-aggregated conversion funnel stages for Taipy Conversion Funnel page.
