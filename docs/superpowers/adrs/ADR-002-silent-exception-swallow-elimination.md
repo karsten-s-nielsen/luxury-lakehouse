@@ -91,6 +91,43 @@ For every operational telemetry writer that MERGEs into a Delta table via `whenM
 
 Future writers to new telemetry tables must follow the same pattern: canonical schema constant, factory function, drift guard test, optional Spark integration test.
 
+### 6. Full-overwrite writer schema parity (added 2026-05-01)
+
+PR-Cycle-B (2026-05-01) discovered the same writer/target schema drift class
+on a writer that uses **full overwrite** instead of MERGE: `extract_tracking_metadata`
+overwrote `bronze.tracking_player_metadata` without including the `is_anonymized`
+column added by the 2026-04-24 migration. Every daily-job run silently dropped
+the migration-added column; scheduled `Bronze Live Schema` CI checks failed
+nightly with `is_anonymized absent from bronze.tracking_player_metadata`.
+
+§4 above scopes to MERGE writers. The same drift class affects writers that
+use:
+
+- `mode="overwrite"` (Delta full-replace)
+- `replaceWhere` (partition-level overwrite)
+- Any pattern where the writer's row-dict / DataFrame schema fully replaces
+  the live table's schema instead of being merged into it
+
+For these writers, the rule is: **the writer's schema constant MUST list
+every column that exists in the live table, including columns added by
+migrations**. When a migration adds a column, the writer's schema constant
+must be updated in the same PR. A pytest parity test asserts:
+
+1. The schema constant (DDL string or column list) declares the column.
+2. Every emitted row dict includes the column as a key.
+
+**Reference implementation**: `src/ingestion/tracking_metadata.py` —
+`_RESULTS_SCHEMA` declares `is_anonymized BOOLEAN`; both `_extract_idsse_metadata`
+and `_extract_skillcorner_metadata` emit `"is_anonymized": False` on every
+row. `src/tests/test_tracking_metadata_schema.py` asserts both at PR-CI time.
+
+**Why an explicit §6 instead of expanding §4**: MERGE-writer drift fails LOUDLY
+(`DELTA_MERGE_UNRESOLVED_EXPRESSION` on every call), while overwrite-writer
+drift fails SILENTLY (column quietly dropped, downstream `INNER JOIN` returns
+NULL or empty). The two failure modes have different telemetry and need
+different framings — both require the same parity test, but operators
+diagnose them differently.
+
 ### 5. Hard-fail-first UDF semantics
 
 Inside any closure passed to a distributed executor API (`applyInPandas`, `mapInPandas`, `map_partitions`, `@ray.remote`, `dask.delayed`, etc.), exceptions must **propagate with the group key in the error message**. No `except Exception: return pd.DataFrame(columns=...)` or `return []` patterns.

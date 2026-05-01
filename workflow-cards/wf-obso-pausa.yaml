@@ -77,6 +77,11 @@ execution:
 depends_on:
   - wf-epv-reachability
   - wf-elastic-sync
+  # PR-Cycle-B (2026-05-01): explicit dependency on the standalone OBSO/PAUSA
+  # import task — pre-split, this was hidden inside wf-hf-sync and PAUSA
+  # silently ran on yesterday's bronze.pausa_raw_scores when hf_sync took
+  # longer than the elastic_sync→pausa chain.
+  - wf-import-obso
 
 idempotency:
   strategy: skip-guard

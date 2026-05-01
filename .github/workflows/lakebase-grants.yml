@@ -143,3 +143,13 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.verify_only == true }}
         run: |
           uv run python scripts/create_indexes.py --verify
+
+      # PR-Cycle-B (2026-05-01): asserts every entry in
+      # ingestion.refresh_synced_tables.SYNCED_TABLES is in
+      # SYNCED_TABLE_ONLINE_NO_PENDING_UPDATE state. Catches the
+      # OFFLINE_FAILED class that hit career/season embedding tables in
+      # session 17 / session 43-44 / session 69 — each time discovered
+      # via dashboard staleness instead of at deploy time.
+      - name: Verify all synced tables online
+        run: |
+          uv run pytest src/tests/test_synced_tables_online.py -v --tb=short --no-header

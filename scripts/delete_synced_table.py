@@ -15,12 +15,22 @@ import argparse
 import os
 import sys
 import uuid
+from typing import TYPE_CHECKING
 
 import psycopg2
 import requests
-from databricks.sdk import WorkspaceClient
 
 from shared.constants import IDENTIFIER_RE
+
+# PR-Cycle-B (2026-05-01): databricks-sdk is in the [sdk] optional extra.
+# Lazy-import keeps this module importable without the extra installed.
+if TYPE_CHECKING:
+    from databricks.sdk import WorkspaceClient
+else:
+    try:
+        from databricks.sdk import WorkspaceClient
+    except ImportError:
+        WorkspaceClient = None  # type: ignore[assignment, misc]
 
 CATALOG = "soccer_analytics"
 SCHEMA = "dev_gold"

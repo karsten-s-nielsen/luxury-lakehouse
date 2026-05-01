@@ -19,14 +19,33 @@ Requires:
 from __future__ import annotations
 
 import argparse
+from typing import TYPE_CHECKING
 
-from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.postgres import (
-    Role,
-    RoleAuthMethod,
-    RoleIdentityType,
-    RoleRoleSpec,
-)
+# PR-Cycle-B (2026-05-01): databricks-sdk is in the [sdk] optional extra.
+# Lazy-import keeps this module importable without the extra installed.
+if TYPE_CHECKING:
+    from databricks.sdk import WorkspaceClient
+    from databricks.sdk.service.postgres import (
+        Role,
+        RoleAuthMethod,
+        RoleIdentityType,
+        RoleRoleSpec,
+    )
+else:
+    try:
+        from databricks.sdk import WorkspaceClient
+        from databricks.sdk.service.postgres import (
+            Role,
+            RoleAuthMethod,
+            RoleIdentityType,
+            RoleRoleSpec,
+        )
+    except ImportError:
+        WorkspaceClient = None  # type: ignore[assignment, misc]
+        Role = None  # type: ignore[assignment, misc]
+        RoleAuthMethod = None  # type: ignore[assignment, misc]
+        RoleIdentityType = None  # type: ignore[assignment, misc]
+        RoleRoleSpec = None  # type: ignore[assignment, misc]
 
 # ---------------------------------------------------------------------------
 # Configuration — desired PG roles

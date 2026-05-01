@@ -92,10 +92,19 @@ depended only on `dbt_build`, so it inherits the change automatically.
 - The validation task itself is unchanged. It still runs daily,
   reads gold marts, computes drift metrics, writes results to the
   observability schema.
-- `dbt_build` still hard-depends on the 8 leaf compute tasks that
+- `dbt_build` still hard-depends on the leaf compute tasks that
   produce its actual inputs (StatsBomb, Wyscout, IDSSE, Metrica,
   SkillCorner ingests + the compute-* family that produces bronze
-  fact data).
+  fact data). PR-Cycle-B (2026-05-01) extended the leaf-fan-in from
+  8 to 12 by adding `compute_pausa`, `compute_elastic_sync`,
+  `backfill_statsbomb_360`, and `compute_embeddings_360` — those four
+  tasks write bronze tables that dbt's `stg_*` views read, but the
+  TF DAG had been silently allowing them to run in parallel with
+  `dbt_build` for an unknown duration. Without these edges today's
+  `dbt_build` builds today's gold marts from yesterday's bronze for
+  the four affected sources (1-day lag class). The new edges are
+  enforced by `src/tests/test_workflow_dag_bronze_reads.py` going
+  forward.
 
 ## CLAUDE.md Amendment
 

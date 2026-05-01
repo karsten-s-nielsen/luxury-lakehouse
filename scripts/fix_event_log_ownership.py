@@ -70,10 +70,9 @@ import re
 import sys
 import time
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import requests
-from databricks.sdk import WorkspaceClient
 
 from ingestion.refresh_synced_tables import (
     DEFAULT_CATALOG,
@@ -82,6 +81,18 @@ from ingestion.refresh_synced_tables import (
     _classify_pipeline_poll_response,
 )
 from shared.constants import IDENTIFIER_RE
+
+# PR-Cycle-B (2026-05-01): databricks-sdk is in the [sdk] optional extra.
+# Lazy-import keeps this script importable for pytest collection of
+# test_fix_event_log_ownership.py (which tests pure helper functions).
+# Same pattern as src/ingestion/refresh_synced_tables.py.
+if TYPE_CHECKING:
+    from databricks.sdk import WorkspaceClient
+else:
+    try:
+        from databricks.sdk import WorkspaceClient
+    except ImportError:
+        WorkspaceClient = None  # type: ignore[assignment, misc]
 
 # Windows consoles default to cp1252 which crashes on UTF-8 characters used in
 # docstrings (em-dash, arrows). Reconfigure stdout/stderr to UTF-8 at module

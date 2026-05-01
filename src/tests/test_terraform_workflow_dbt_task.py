@@ -72,7 +72,11 @@ def test_dbt_build_task_uses_correct_entry_point_and_environment() -> None:
     src = _read_workflows_main_tf()
     idx = src.find('"dbt_build"')
     assert idx != -1
-    window = src[idx : idx + 1500]
+    # Window expanded from 1500 to 2500 chars after PR-Cycle-B (2026-05-01)
+    # added 4 missing depends_on edges (compute_pausa, compute_elastic_sync,
+    # backfill_statsbomb_360, compute_embeddings_360) — the 1500-char window
+    # was no longer wide enough to reach the environment_key declaration.
+    window = src[idx : idx + 2500]
     assert "python_wheel_task" in window, "dbt_build task must use python_wheel_task"
     assert 'entry_point  = "dbt_build"' in window or 'entry_point = "dbt_build"' in window, (
         "dbt_build task entry_point must be 'dbt_build'"
@@ -80,21 +84,29 @@ def test_dbt_build_task_uses_correct_entry_point_and_environment() -> None:
     assert 'environment_key = "dbt"' in window, "dbt_build task must use the dbt environment_key"
 
 
-def test_dbt_build_task_depends_on_nine_leaf_compute_tasks() -> None:
+def test_dbt_build_task_depends_on_twelve_leaf_compute_tasks() -> None:
+    """PR-Cycle-B (2026-05-01): the leaf-fan-in grew from 8 to 12 after
+    adding the 4 previously-missing edges (compute_pausa,
+    compute_elastic_sync, backfill_statsbomb_360, compute_embeddings_360).
+    Without these, dbt_build silently built today's gold marts from
+    yesterday's bronze for those 4 sources (1-day lag class)."""
     src = _read_workflows_main_tf()
     idx = src.find('"dbt_build"')
     assert idx != -1
     window = src[idx : idx + 2500]
     expected_deps = [
-        "run_model_validation",
-        "hf_sync",
-        "compute_formations_shape_graph",
-        "compute_embeddings_v1",
-        "compute_off_ball_xt",
-        "compute_line_breaking",
+        "backfill_statsbomb_360",
         "compute_defcon_lite",
+        "compute_elastic_sync",
+        "compute_embeddings_v1",
+        "compute_embeddings_360",
+        "compute_formations_shape_graph",
+        "compute_line_breaking",
+        "compute_off_ball_xt",
+        "compute_pausa",
         "compute_xg_model_v2",
         "extract_tracking_metadata",
+        "hf_sync",
     ]
     missing = [d for d in expected_deps if d not in window]
     assert not missing, f"dbt_build task missing depends_on entries: {missing}"

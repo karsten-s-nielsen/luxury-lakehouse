@@ -34,17 +34,18 @@ outputs:
 
 execution:
   import:
-    trigger: orchestrated
-    orchestrated_by: wf-hf-sync
+    trigger: scheduled
     runtime: databricks-workflow
     entry_point: import_obso_results
     module: ingestion.import_obso_results
     distribution: driver-bound
     timeout: "900s"
-    environment: analytics
+    environment: hf
 
-depends_on:
-  - wf-elastic-sync
+# PR-Cycle-B (2026-05-01): standalone task — split out of wf-hf-sync so that
+# wf-obso-pausa (compute_pausa) can declare an explicit dependency on the
+# OBSO import. Pure HF Hub download; no internal pipeline data dependency.
+depends_on: []
 
 idempotency:
   strategy: skip-guard

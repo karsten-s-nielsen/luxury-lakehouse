@@ -162,6 +162,9 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     "compute_embeddings_360": "wf-football2vec-360",
     "compute_elastic_sync": "wf-elastic-sync",
     "compute_pausa": "wf-obso-pausa",
+    # PR-Cycle-B (2026-05-01): split out of wf-hf-sync into its own scheduled
+    # Databricks task so wf-obso-pausa can declare an explicit dependency.
+    "import_obso_results": "wf-import-obso",
     "run_model_validation": "wf-model-validation",
     # Metadata extraction plumbing — reads tracking player/team names from
     # IDSSE DFL match info XMLs and SkillCorner kloppy metadata into a
@@ -298,9 +301,11 @@ def test_every_direct_tf_task_has_scheduled_card() -> None:
 
 # hf_sync.py module path -> expected card id. Kept explicit because module
 # paths and card ids don't share a single mechanical transformation.
+# PR-Cycle-B (2026-05-01): ingestion.import_obso_results split out of
+# hf_sync._SUB_OPERATIONS into its own Databricks task; mapping moved to
+# _DIRECT_TASK_ENTRY_POINT_TO_CARD above.
 _MODULE_TO_CARD: dict[str, str] = {
     "ingestion.import_space_creation": "wf-import-space-creation",
-    "ingestion.import_obso_results": "wf-import-obso",
     "ingestion.import_psxg_predictions": "wf-import-psxg",
     "ingestion.export_embeddings_training_data": "wf-football2vec-v2-export",
     "ingestion.export_shots_on_target": "wf-export-shots",
