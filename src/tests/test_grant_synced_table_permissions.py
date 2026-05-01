@@ -106,6 +106,8 @@ def test_show_project_acl_emits_events_on_success(capsys: pytest.CaptureFixture[
 
 def test_show_project_acl_raises_on_sdk_error() -> None:
     """Regression: the previous implementation silently skipped on r.ok=False."""
+    # databricks-sdk is in the [sdk] optional extra; skip cleanly when not installed.
+    pytest.importorskip("databricks.sdk.errors.base")
     from databricks.sdk.errors.base import DatabricksError
 
     ws = MagicMock()

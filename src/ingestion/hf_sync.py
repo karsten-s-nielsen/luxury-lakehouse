@@ -101,9 +101,16 @@ def _make_sync_costs_op() -> Callable[..., None]:
 # Imports pull from previous HF Jobs runs (not the current pipeline run), so
 # their ordering relative to exports is not a within-run dependency.
 # Each is a callable(spark, catalog, schema, logger) for uniform invocation.
+#
+# PR-Cycle-B (2026-05-01) split `ingestion.import_obso_results` out of this
+# list into its own Databricks task. Reason: compute_pausa reads
+# bronze.pausa_raw_scores written by import_obso_results — pre-split,
+# compute_pausa ran in parallel with hf_sync, so PAUSA silently consumed
+# yesterday's pausa_raw_scores when hf_sync took longer than the
+# elastic_sync→pausa chain. The standalone import_obso_results task makes
+# this dependency explicit; see terraform/modules/workflows/main.tf.
 _SUB_OPERATIONS: list[tuple[str, Callable[..., None]]] = [
     ("ingestion.import_space_creation", _make_volume_op("ingestion.import_space_creation")),
-    ("ingestion.import_obso_results", _make_volume_op("ingestion.import_obso_results")),
     ("ingestion.import_psxg_predictions", _make_volume_op("ingestion.import_psxg_predictions")),
     ("ingestion.export_embeddings_training_data", _make_logger_op("ingestion.export_embeddings_training_data")),
     ("ingestion.export_shots_on_target", _make_export_shots_op()),

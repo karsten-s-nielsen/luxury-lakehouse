@@ -120,6 +120,12 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 7200
     max_retries     = 1
 
+    # PR-Cycle-B (2026-05-01): defcon_lite_360 reads bronze.statsbomb_360
+    # written by backfill_statsbomb_360. Without this edge today's compute
+    # silently runs against yesterday's 360 frames (1-day lag class).
+    depends_on {
+      task_key = "backfill_statsbomb_360"
+    }
     depends_on {
       task_key = "compute_spadl_vaep"
     }
@@ -317,12 +323,31 @@ resource "databricks_job" "data_ingestion" {
   # ── Task: Detect line-breaking passes ────────────────────────────────
   # Path A: StatsBomb 360 freeze-frame defender positions.
   # Path B: Metrica tracking data for defender line estimation.
+  # Path C: IDSSE tracking + events for Bundesliga line-breaking.
   # Writes bronze.line_breaking_results.
   task {
     task_key        = "compute_line_breaking"
     timeout_seconds = 3600
     max_retries     = 1
 
+    # PR-Cycle-B (2026-05-01): conformance test caught 5 missing edges
+    # for line-breaking's 4-path detector (caught beyond the original audit):
+    # - Path A reads bronze.statsbomb_360 → backfill_statsbomb_360
+    # - Path B reads bronze.metrica_events → ingest_metrica (kept)
+    # - Path C reads bronze.idsse_events + bronze.idsse_tracking → ingest_idsse + ingest_idsse_events
+    # - Plus bronze.statsbomb_events for guard's source-filter scope → ingest_statsbomb (kept)
+    # Without these, today's compute silently runs against yesterday's bronze
+    # for the missing source(s) (1-day lag class).
+    # Order: alphabetical (test_workflows_tf_ordering enforcement).
+    depends_on {
+      task_key = "backfill_statsbomb_360"
+    }
+    depends_on {
+      task_key = "ingest_idsse"
+    }
+    depends_on {
+      task_key = "ingest_idsse_events"
+    }
     depends_on {
       task_key = "ingest_metrica"
     }
@@ -379,7 +404,8 @@ resource "databricks_job" "data_ingestion" {
   # ── Task: Compute PAUSA pass timing values ────────────────────────────
   # Lee et al. (2026) PAUSA: temporal judgment × spatial selection from
   # OBSO surfaces. Depends on ELASTIC sync results and pre-computed OBSO
-  # values (imported from HF Jobs GPU run).
+  # values (imported from HF Jobs GPU run via the standalone
+  # import_obso_results task — split out of hf_sync in PR-Cycle-B).
   task {
     task_key        = "compute_pausa"
     timeout_seconds = 3600
@@ -387,6 +413,15 @@ resource "databricks_job" "data_ingestion" {
 
     depends_on {
       task_key = "compute_elastic_sync"
+    }
+    # PR-Cycle-B (2026-05-01): PAUSA reads bronze.pausa_raw_scores written
+    # by import_obso_results. Pre-split, hf_sync wrapped this import as a
+    # sub-op and ran in PARALLEL with compute_pausa — so PAUSA silently ran
+    # on yesterday's pausa_raw_scores. C-6 split makes the dep explicit.
+    # Evidence: src/ingestion/pausa.py:69,180 +
+    # src/ingestion/import_obso_results.py:141-142.
+    depends_on {
+      task_key = "import_obso_results"
     }
 
     python_wheel_task {
@@ -439,8 +474,22 @@ resource "databricks_job" "data_ingestion" {
     timeout_seconds = 7200
     max_retries     = 1
 
+    # PR-Cycle-B (2026-05-01): the 4-source SPADL union reads bronze events
+    # from ALL providers — statsbomb (covered via backfill_statsbomb_extra),
+    # wyscout, idsse_events, metrica. Without ingest_idsse_events +
+    # ingest_metrica edges, today's SPADL silently runs against yesterday's
+    # bronze.idsse_events / bronze.metrica_events (1-day lag class).
+    # Evidence: src/ingestion/spadl_vaep.py:169,174 +
+    # src/ingestion/spadl_conversion.py:1069,1379.
+    # Order: alphabetical (test_workflows_tf_ordering enforcement).
     depends_on {
       task_key = "backfill_statsbomb_extra"
+    }
+    depends_on {
+      task_key = "ingest_idsse_events"
+    }
+    depends_on {
+      task_key = "ingest_metrica"
     }
     depends_on {
       task_key = "ingest_wyscout"
@@ -517,18 +566,26 @@ resource "databricks_job" "data_ingestion" {
       entry_point  = "dbt_build"
     }
 
-    # Same 9 leaf compute tasks that refresh_synced_tables previously depended on.
+    # 12 leaf compute tasks whose bronze outputs feed dbt's stg_* views.
+    # PR-Cycle-B (2026-05-01) added 4 missing edges: compute_pausa,
+    # compute_elastic_sync, backfill_statsbomb_360, compute_embeddings_360.
+    # Without these, dbt_build silently builds today's gold marts from
+    # YESTERDAY's bronze for those 4 sources (1-day lag class).
     # NOTE: run_model_validation is intentionally NOT a dependency. Validation
     # reads from gold marts (which dbt_build PRODUCES), so any "validation
     # before mart refresh" gating is semantically reading yesterday's data.
     # Keeping it independent ensures a single validator regression cannot
     # block today's mart refresh + Lakebase synced-table propagation. See
     # docs/superpowers/adrs/ADR-017-model-validation-as-signal-not-gate.md.
+    depends_on { task_key = "backfill_statsbomb_360" }
     depends_on { task_key = "compute_defcon_lite" }
+    depends_on { task_key = "compute_elastic_sync" }
+    depends_on { task_key = "compute_embeddings_360" }
     depends_on { task_key = "compute_embeddings_v1" }
     depends_on { task_key = "compute_formations_shape_graph" }
     depends_on { task_key = "compute_line_breaking" }
     depends_on { task_key = "compute_off_ball_xt" }
+    depends_on { task_key = "compute_pausa" }
     depends_on { task_key = "compute_xg_model_v2" }
     depends_on { task_key = "extract_tracking_metadata" }
     depends_on { task_key = "hf_sync" }
@@ -595,6 +652,32 @@ resource "databricks_job" "data_ingestion" {
     }
     depends_on {
       task_key = "resolve_players"
+    }
+
+    environment_key = "hf"
+  }
+
+  # ── Task: Import OBSO/PAUSA results from HF Hub ────────────────────────
+  # PR-Cycle-B (2026-05-01) — split out of hf_sync to make compute_pausa's
+  # dependency on this import explicit. Pre-split, hf_sync invoked
+  # import_obso_results as one of 7 sub-operations; compute_pausa ran in
+  # parallel with hf_sync, so PAUSA silently ran on yesterday's
+  # bronze.pausa_raw_scores when hf_sync took longer than the
+  # elastic_sync→pausa chain. Now: standalone task with no upstream deps
+  # (pure HF Hub download), and compute_pausa explicitly waits on it.
+  task {
+    task_key        = "import_obso_results"
+    timeout_seconds = 900
+    max_retries     = 1
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "import_obso_results"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+      ]
     }
 
     environment_key = "hf"

@@ -16,12 +16,22 @@ import argparse
 import logging
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from databricks.sdk import WorkspaceClient
 from huggingface_hub import get_token, hf_hub_download
 
 from shared.constants import IDENTIFIER_RE
 from shared.wheel import WHEEL_FILENAME, WHEEL_REPO
+
+# PR-Cycle-B (2026-05-01): databricks-sdk is in the [sdk] optional extra.
+# Lazy-import keeps this module importable without the extra installed.
+if TYPE_CHECKING:
+    from databricks.sdk import WorkspaceClient
+else:
+    try:
+        from databricks.sdk import WorkspaceClient
+    except ImportError:
+        WorkspaceClient = None  # type: ignore[assignment, misc]
 
 logger = logging.getLogger(__name__)
 

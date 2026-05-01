@@ -61,17 +61,40 @@ import json
 import sys
 import time
 from collections.abc import Iterable
-
-from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.iam import AccessControlRequest, PermissionLevel
+from typing import TYPE_CHECKING
 
 from ingestion.refresh_synced_tables import DEFAULT_CATALOG, DEFAULT_SCHEMA, SYNCED_TABLES
 
+# PR-Cycle-B (2026-05-01): databricks-sdk is in the [sdk] optional extra.
+# Lazy-import keeps this script importable for pytest collection of
+# test_grant_synced_table_permissions.py. Same pattern as
+# src/ingestion/refresh_synced_tables.py.
+if TYPE_CHECKING:
+    from databricks.sdk import WorkspaceClient
+    from databricks.sdk.service.iam import AccessControlRequest, PermissionLevel
+else:
+    try:
+        from databricks.sdk import WorkspaceClient
+        from databricks.sdk.service.iam import AccessControlRequest, PermissionLevel
+    except ImportError:
+        WorkspaceClient = None  # type: ignore[assignment, misc]
+        AccessControlRequest = None  # type: ignore[assignment, misc]
+        PermissionLevel = None  # type: ignore[assignment, misc]
+
 _LOG_SOURCE = "grant_synced_table_permissions"
 
-DATABASE_PROJECT_PERMISSION = PermissionLevel.CAN_USE
-PIPELINE_PERMISSION = PermissionLevel.CAN_RUN
-CI_SP_PIPELINE_PERMISSION = PermissionLevel.CAN_VIEW
+# When databricks-sdk isn't installed (the [sdk] extra is opt-in), keep
+# these constants as None placeholders so module import succeeds for
+# pytest collection. Functions that actually use them call the SDK and
+# fail loudly if it's missing.
+if PermissionLevel is None:
+    DATABASE_PROJECT_PERMISSION = None
+    PIPELINE_PERMISSION = None
+    CI_SP_PIPELINE_PERMISSION = None
+else:
+    DATABASE_PROJECT_PERMISSION = PermissionLevel.CAN_USE
+    PIPELINE_PERMISSION = PermissionLevel.CAN_RUN
+    CI_SP_PIPELINE_PERMISSION = PermissionLevel.CAN_VIEW
 
 HF_APP_SP_NAME_PATTERN = "luxury-lakehouse-hf-app-v2-{env}"
 INGESTION_SP_NAME_PATTERN = "luxury-lakehouse-ingestion-{env}"

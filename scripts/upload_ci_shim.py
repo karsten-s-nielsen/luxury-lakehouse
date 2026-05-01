@@ -17,9 +17,20 @@ import io
 import logging
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.workspace import ImportFormat
+# PR-Cycle-B (2026-05-01): databricks-sdk is in the [sdk] optional extra.
+# Lazy-import keeps this module importable without the extra installed.
+if TYPE_CHECKING:
+    from databricks.sdk import WorkspaceClient
+    from databricks.sdk.service.workspace import ImportFormat
+else:
+    try:
+        from databricks.sdk import WorkspaceClient
+        from databricks.sdk.service.workspace import ImportFormat
+    except ImportError:
+        WorkspaceClient = None  # type: ignore[assignment, misc]
+        ImportFormat = None  # type: ignore[assignment, misc]
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)

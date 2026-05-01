@@ -35,9 +35,15 @@ if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
 TABLE_NAME = "tracking_player_metadata"
+# is_anonymized: PR-Cycle-B (2026-05-01) — added to writer schema after the
+# 2026-04-24 migration added the column to bronze.tracking_player_metadata.
+# IDSSE + SkillCorner both carry real player identity, so the writer emits
+# False on every row (Metrica, which IS anonymized, writes to its own
+# bronze.metrica_tracking table — not this one).
 _RESULTS_SCHEMA = (
     "match_id STRING, player_id STRING, player_display_name STRING, "
-    "team_side STRING, team_display_name STRING, provider STRING, jersey_number STRING, _ingested_at TIMESTAMP"
+    "team_side STRING, team_display_name STRING, provider STRING, "
+    "jersey_number STRING, is_anonymized BOOLEAN, _ingested_at TIMESTAMP"
 )
 
 _guard_logger = logging.getLogger(f"{__name__}.guard")
@@ -215,6 +221,7 @@ def _extract_idsse_metadata(data_dir: str, logger: logging.Logger) -> list[dict[
                         "team_display_name": team_name,
                         "jersey_number": jersey_number,
                         "provider": "idsse",
+                        "is_anonymized": False,
                     }
                 )
                 match_count += 1
@@ -284,6 +291,7 @@ def _extract_skillcorner_metadata(logger: logging.Logger) -> list[dict[str, obje
                         "team_display_name": team_name,
                         "jersey_number": int(jersey) if jersey else None,
                         "provider": "skillcorner",
+                        "is_anonymized": False,
                     }
                 )
                 match_count += 1

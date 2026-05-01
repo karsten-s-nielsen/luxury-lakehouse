@@ -32,9 +32,11 @@ execution:
     distribution: driver-bound
     timeout: "1800s"
     environment: hf
+    # PR-Cycle-B (2026-05-01): wf-import-obso split out into its own Databricks
+    # task so wf-obso-pausa can declare an explicit dependency on the import.
+    # Was previously the 2nd sub-operation in this list.
     sub_operations:
       - wf-import-space-creation
-      - wf-import-obso
       - wf-import-psxg
       - wf-football2vec-v2-export
       - wf-export-shots
@@ -74,16 +76,20 @@ links:
 ## Overview
 
 The `hf_sync` task is the daily job's HF orchestration stage. It iterates
-through 7 sub-operations in order, each wrapped in a best-effort error
+through 6 sub-operations in order, each wrapped in a best-effort error
 boundary (failures logged at ERROR but do not abort the parent task):
 
 1. Import space creation data from HF Hub
-2. Import OBSO/PAUSA results from HF Hub
-3. Import PSXG predictions from HF Hub
-4. Export football2vec v2 training data to HF Hub
-5. Export shots-on-target to HF Hub
-6. Prepare 360 training data for HF Jobs
-7. Sync HF Jobs cost telemetry into Delta
+2. Import PSXG predictions from HF Hub
+3. Export football2vec v2 training data to HF Hub
+4. Export shots-on-target to HF Hub
+5. Prepare 360 training data for HF Jobs
+6. Sync HF Jobs cost telemetry into Delta
+
+The OBSO/PAUSA import was previously a 7th sub-operation here; PR-Cycle-B
+(2026-05-01) split it out into its own Databricks task (`import_obso_results`)
+so `wf-obso-pausa` (`compute_pausa`) can declare an explicit dependency on
+the import. See `workflow-cards/wf-import-obso.yaml`.
 
 The parent task runs once daily via the `soccer-analytics-ingestion-dev`
 Databricks job (`terraform/modules/workflows/main.tf`); each sub-operation's

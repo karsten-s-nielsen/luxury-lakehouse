@@ -213,10 +213,13 @@ INDEXES: list[tuple[str, str, str]] = [
 # These use a DIFFERENT syntax: CREATE INDEX ... ON table USING hnsw ((expr) ops_class)
 HNSW_INDEXES: list[tuple[str, str, str]] = [
     # ── fct_player_embeddings_career_synced — Behavioral similarity ──────
+    # Dim 192 — Football2VecConfig.hidden_dim (since EV1 PR #158, b4ebf94 on
+    # 2026-04-19). Source-of-truth: src/analytics/football2vec_transformer.py.
+    # Parity enforced by src/tests/test_hnsw_dim_parity.py.
     (
         "idx_embeddings_career_behavioral_hnsw",
         "fct_player_embeddings_career_synced",
-        "USING hnsw ((behavioral_vector::text::vector(128)) vector_cosine_ops)",
+        "USING hnsw ((behavioral_vector::text::vector(192)) vector_cosine_ops)",
     ),
     # ── fct_player_embeddings_career_synced — Statistical similarity ─────
     (
@@ -225,10 +228,12 @@ HNSW_INDEXES: list[tuple[str, str, str]] = [
         "USING hnsw ((stat_vector::text::vector(13)) vector_cosine_ops)",
     ),
     # ── fct_player_embeddings_season_synced — Behavioral similarity ──────
+    # Dim 192 — Football2VecConfig.hidden_dim (parity enforced via
+    # src/tests/test_hnsw_dim_parity.py).
     (
         "idx_embeddings_season_behavioral_hnsw",
         "fct_player_embeddings_season_synced",
-        "USING hnsw ((behavioral_vector::text::vector(128)) vector_cosine_ops)",
+        "USING hnsw ((behavioral_vector::text::vector(192)) vector_cosine_ops)",
     ),
     # ── fct_player_embeddings_season_synced — Statistical similarity ─────
     (
@@ -307,7 +312,7 @@ VERIFY_QUERIES: list[tuple[str, str]] = [
     (
         "fct_player_embeddings_career: behavioral cosine kNN (idx_embeddings_career_behavioral_hnsw)",
         f"SELECT canonical_player_id FROM {SCHEMA}.fct_player_embeddings_career_synced"  # noqa: S608
-        " ORDER BY behavioral_vector::text::vector(128) <=> (SELECT behavioral_vector::text::vector(128)"
+        " ORDER BY behavioral_vector::text::vector(192) <=> (SELECT behavioral_vector::text::vector(192)"
         f" FROM {SCHEMA}.fct_player_embeddings_career_synced LIMIT 1) LIMIT 5",
     ),
     (

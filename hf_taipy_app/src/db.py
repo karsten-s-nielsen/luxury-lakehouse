@@ -9,7 +9,7 @@ import re
 import threading
 import time
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import psycopg2
@@ -17,9 +17,21 @@ import psycopg2.extras
 import psycopg2.pool
 import requests as httplib
 from config import get_settings
-from databricks.sdk import WorkspaceClient
 
 from shared.constants import IDENTIFIER_RE
+
+# PR-Cycle-B (2026-05-01): databricks-sdk is in the [sdk] optional extra.
+# Lazy-import keeps this module importable for pytest collection of any
+# test that imports hf_taipy_app/src/queries/* (which transitively imports
+# this module). Functions that actually need the SDK fail with a clear
+# ImportError. Same pattern as src/ingestion/refresh_synced_tables.py.
+if TYPE_CHECKING:
+    from databricks.sdk import WorkspaceClient
+else:
+    try:
+        from databricks.sdk import WorkspaceClient
+    except ImportError:
+        WorkspaceClient = None  # type: ignore[assignment, misc]
 
 logger = logging.getLogger(__name__)
 _SAFE_ID_RE = re.compile(r"^[a-zA-Z0-9_\-]+$")

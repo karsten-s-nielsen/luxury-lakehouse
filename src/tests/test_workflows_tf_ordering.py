@@ -239,7 +239,10 @@ def test_data_ingestion_parser_count_anchor() -> None:
     assert len(env_keys) == 7, f"expected 7 environment blocks on data_ingestion, parser found {len(env_keys)}"
     # 29 → 30 in PR-Cycle-A (2026-04-30): added `preflight_idsse` for runtime
     # chunk discovery feeding the `ingest_idsse` for_each_task fan-out.
-    assert len(task_keys) == 30, f"expected 30 task blocks on data_ingestion, parser found {len(task_keys)}"
+    # 30 → 31 in PR-Cycle-B (2026-05-01): split `import_obso_results` out of
+    # hf_sync into its own scheduled task so compute_pausa can declare an
+    # explicit dependency on the OBSO import.
+    assert len(task_keys) == 31, f"expected 31 task blocks on data_ingestion, parser found {len(task_keys)}"
 
 
 if __name__ == "__main__":

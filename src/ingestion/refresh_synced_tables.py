@@ -27,11 +27,31 @@ import sys
 import time
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import TYPE_CHECKING
 
 import requests
-from databricks.sdk import WorkspaceClient
 
 from shared.constants import IDENTIFIER_RE
+
+# PR-Cycle-B (2026-05-01): databricks-sdk is in the [sdk] optional extra
+# (kept out of default deps so the wheel deployed to Databricks serverless
+# stays lean; the runtime auto-provides the SDK there). Module-level import
+# would make this whole module unimportable when the extra isn't installed,
+# breaking pytest collection on any test file that imports any helper from
+# here. The try/except + TYPE_CHECKING pattern keeps:
+#   - module importable without the SDK (collection works)
+#   - WorkspaceClient at module level for tests to monkeypatch (existing
+#     mocks at test_refresh_synced_tables.py:51,68 keep working)
+#   - type-checker sees the real symbol via TYPE_CHECKING
+#   - functions that actually need the SDK raise a clear error if it's
+#     missing (better than the original ModuleNotFoundError on import)
+if TYPE_CHECKING:
+    from databricks.sdk import WorkspaceClient
+else:
+    try:
+        from databricks.sdk import WorkspaceClient
+    except ImportError:
+        WorkspaceClient = None  # type: ignore[assignment, misc]
 
 DEFAULT_CATALOG = "soccer_analytics"
 DEFAULT_SCHEMA = "dev_gold"
@@ -62,7 +82,17 @@ def _get_workspace_client() -> WorkspaceClient:
     Not cached here — ``_get_host`` caches the resolved host string so
     the constructor is called at most once per process during normal
     operation.
+
+    Raises ``ImportError`` with an actionable message when the
+    ``[sdk]`` extra isn't installed.
     """
+    if WorkspaceClient is None:
+        msg = (
+            "databricks-sdk is not installed. Install the [sdk] extra: "
+            "`uv sync --extra sdk` (CI does this automatically; locally "
+            "it's an opt-in to keep the wheel lean for Databricks serverless)."
+        )
+        raise ImportError(msg)
     return WorkspaceClient()
 
 

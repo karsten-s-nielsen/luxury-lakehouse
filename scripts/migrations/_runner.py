@@ -48,9 +48,20 @@ import pathlib
 import re
 import sys
 import time
+from typing import TYPE_CHECKING
 
-from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.sql import StatementState
+# PR-Cycle-B (2026-05-01): databricks-sdk is in the [sdk] optional extra.
+# Lazy-import keeps this module importable without the extra installed.
+if TYPE_CHECKING:
+    from databricks.sdk import WorkspaceClient
+    from databricks.sdk.service.sql import StatementState
+else:
+    try:
+        from databricks.sdk import WorkspaceClient
+        from databricks.sdk.service.sql import StatementState
+    except ImportError:
+        WorkspaceClient = None  # type: ignore[assignment, misc]
+        StatementState = None  # type: ignore[assignment, misc]
 
 _ADD_RE = re.compile(
     r"ALTER\s+TABLE\s+(\S+)\s+ADD\s+COLUMNS\s*\(\s*(\w+)\s+\w+",

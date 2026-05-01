@@ -39,11 +39,23 @@ import json
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
-from databricks import sql
-from databricks.sdk import WorkspaceClient
+
+# PR-Cycle-B (2026-05-01): databricks-sdk + databricks-sql-connector are in
+# the [sdk] optional extra. Lazy-import keeps this module importable
+# without those extras installed.
+if TYPE_CHECKING:
+    from databricks import sql
+    from databricks.sdk import WorkspaceClient
+else:
+    try:
+        from databricks import sql
+        from databricks.sdk import WorkspaceClient
+    except ImportError:
+        sql = None  # type: ignore[assignment, misc]
+        WorkspaceClient = None  # type: ignore[assignment, misc]
 
 WAREHOUSE_ID = "6c3b36ca64d183fe"
 """soccer-analytics-warehouse-dev (2X-Small serverless)."""
