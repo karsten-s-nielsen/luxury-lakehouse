@@ -1,6 +1,6 @@
 [project]
 name = "luxury-lakehouse"
-version = "0.3.29"
+version = "0.3.30"
 description = "Serverless soccer analytics platform built on Databricks Lakebase"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -26,7 +26,7 @@ analytics = [
     "matplotlib>=3.8.0",
     "scipy>=1.11.0",
     "scikit-learn>=1.3.0",
-    "silly-kicks>=2.5.0,<3.0",
+    "silly-kicks>=3.0.1,<4",
     "xgboost==3.2.0",
     "rapidfuzz>=3.6.0",
     "unidecode>=1.3.0",
@@ -170,6 +170,7 @@ select = [
 "src/ingestion/wyscout.py" = ["BLE001"]  # downloader best-effort + _raw_extra_json building (logs with traceback)
 "src/ingestion/tracking_metadata.py" = ["BLE001"]  # per-match XML/kloppy parse best-effort
 "src/ingestion/dbt_runner.py" = ["BLE001"]  # SDK token resolution (prints + re-raises)
+"scripts/sk3_mig_*.py" = ["S608"]  # SK3-MIG orchestrator + verifier — module-controlled internal table names interpolated into SQL strings, no user input path
 "src/evolve/**" = ["BLE001"]  # Typed error-return paths in evolve backends
 # Taipy UI app — event handlers, background daemons, filter init, and DB
 # pool teardown all use broad catches to prevent UI crashes. Each caught

@@ -36,6 +36,11 @@ concurrency:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+    env:
+      # SK3-MIG (2026-05-02): silly-kicks 3.0.0+ raises on input-convention mismatches
+      # under this flag instead of warning. Production-posture: same as Databricks
+      # job env (terraform/modules/workflows/main.tf) — fail-loud on any regression.
+      SILLY_KICKS_ASSERT_INVARIANTS: "1"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 

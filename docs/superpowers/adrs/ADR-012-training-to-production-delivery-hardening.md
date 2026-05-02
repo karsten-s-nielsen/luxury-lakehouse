@@ -38,6 +38,8 @@ Both `scripts/train_xg_v2_hf.py` (v2 set encoder) and `scripts/train_xg_model_hf
 
 Model weight files whose serialization format does not natively embed feature names (e.g., the NumPy-dump envelope used by the Deep Sets set encoder) must inject a top-level `feature_names: list[str]` field into the JSON envelope. Inference reads the embedded list and reindexes tabular input to it. Legacy envelopes without the field fall back to the companion v1 XGBoost feature list for one release window, then the fallback is removed.
 
+**Grace-period closure (2026-05-02, SK3-MIG cycle):** the v2→v1 XGBoost feature-list fallback was removed in `src/ingestion/xg_model_v2.py`. v2 envelopes lacking `feature_names` now raise `RuntimeError` at inference time via the new module-level helper `_parse_v2_envelope_features`. The trainer (`scripts/train_xg_v2_hf.py`) was hardened to inject `tabular_dim` alongside `feature_names` as defense-in-depth. See [ADR-022](ADR-022-direction-of-play-migration.md) for the broader cycle context.
+
 This decouples downstream models from upstream model version drift. XGBoost serialization is exempt because the booster binary already carries feature_names natively via `get_booster().feature_names`.
 
 ### 3. HF Jobs single-file constraint — training scripts are self-contained

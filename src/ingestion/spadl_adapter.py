@@ -316,3 +316,125 @@ def adapt_metrica_events_for_silly_kicks(events_pdf: pd.DataFrame) -> pd.DataFra
             adapted[col] = adapted[col].astype("float64") * scale
 
     return adapted
+
+
+# ---------------------------------------------------------------------------
+# SK3-MIG (2026-05-02): home_team_start_left derivation per provider
+# ---------------------------------------------------------------------------
+#
+# silly-kicks 3.0.1 (PR-S23) requires Sportec + Metrica callers to pass
+# ``home_team_start_left: bool`` on ``convert_to_actions(...)``. Bronze
+# storage of this flag varies per provider:
+#
+#   IDSSE / Sportec — AUTHORITATIVE: DFL XML's ``<KickOff>`` element ships
+#     ``TeamLeft`` and ``TeamRight`` attributes per game-section. Our IDSSE
+#     parser captures these as ``kickoff_team_left`` / ``kickoff_team_right``
+#     columns on KickOff event rows. ``derive_idsse_home_team_start_left``
+#     reads the firstHalf KickOff row and compares to the home team native id.
+#
+#   Metrica — EMPIRICAL: bronze does not capture a per-period direction flag.
+#     ``derive_metrica_home_team_start_left`` infers from period-1 SHOT
+#     positions: if home-team avg shot start_x > pitch_mid, home was shooting
+#     toward the right goal in period 1 (i.e., home defends the LEFT goal,
+#     so home_team_start_left=True). Falls back to all home period-1 events
+#     when shots are sparse, then raises if no usable signal exists.
+
+
+def derive_idsse_home_team_start_left(events: pd.DataFrame, home_team_id_native: str) -> bool:
+    """Derive ``home_team_start_left`` for an IDSSE / Sportec match from bronze.
+
+    Reads the firstHalf ``KickOff`` event's ``kickoff_team_left`` attribute
+    (captured by the IDSSE bronze parser from the DFL XML) and compares it to
+    the home team's native id. AUTHORITATIVE — ground truth from the source
+    XML, not derived from event positions.
+
+    Parameters
+    ----------
+    events : pd.DataFrame
+        IDSSE adapted DataFrame (post ``adapt_idsse_events_for_silly_kicks``).
+        Must contain ``event_type``, ``kickoff_game_section``,
+        ``kickoff_team_left`` columns.
+    home_team_id_native : str
+        Home team's DFL native id (e.g., ``"DFL-CLU-000008"``).
+
+    Returns
+    -------
+    bool
+        True iff the home team is positioned on the LEFT side of the pitch
+        in the first half (and thus attacks toward the right goal).
+
+    Raises
+    ------
+    RuntimeError
+        No firstHalf KickOff row found, or its ``kickoff_team_left`` is null.
+    """
+    first_half_kickoffs = events[
+        (events["event_type"] == "KickOff")
+        & (events["kickoff_game_section"] == "firstHalf")
+        & events["kickoff_team_left"].notna()
+    ]
+    if first_half_kickoffs.empty:
+        msg = (
+            "IDSSE: no firstHalf KickOff row with kickoff_team_left found. "
+            "Cannot derive home_team_start_left for silly-kicks 3.0.1 "
+            "convert_to_actions(...)."
+        )
+        raise RuntimeError(msg)
+    team_left = str(first_half_kickoffs["kickoff_team_left"].iloc[0])
+    return team_left == home_team_id_native
+
+
+def derive_metrica_home_team_start_left(
+    events: pd.DataFrame,
+    home_team_value: str = "Home",
+    *,
+    pitch_length_m: float = 105.0,
+) -> bool:
+    """Derive ``home_team_start_left`` for a Metrica match by empirical inference.
+
+    Metrica bronze does NOT capture a per-period direction flag. Inference
+    uses period-1 SHOT positions: if home-team avg shot start_x > pitch_mid,
+    home was shooting toward the right goal in period 1 (home defends LEFT
+    goal, so home_team_start_left=True). Falls back to all home period-1
+    events when shots are sparse, then raises if no usable signal exists.
+
+    Parameters
+    ----------
+    events : pd.DataFrame
+        Metrica adapted DataFrame (post ``adapt_metrica_events_for_silly_kicks``).
+        Must contain ``team``, ``period``, ``start_x``, ``type`` columns.
+    home_team_value : str
+        Value in the ``team`` column representing the home team. Default
+        ``"Home"`` matches the Metrica adapter's output convention.
+    pitch_length_m : float
+        Full pitch length in meters. Default 105.0 (canonical SPADL).
+
+    Returns
+    -------
+    bool
+
+    Raises
+    ------
+    RuntimeError
+        Insufficient period-1 home-team data to determine direction.
+    """
+    pitch_mid = pitch_length_m / 2.0
+    period_1_home = events[(events["period"] == 1) & (events["team"] == home_team_value)]
+
+    home_p1_shots = period_1_home[period_1_home["type"] == "SHOT"]
+    if len(home_p1_shots) >= 2:
+        avg_x = float(home_p1_shots["start_x"].mean())
+        return avg_x > pitch_mid
+
+    home_p1_with_x = period_1_home[period_1_home["start_x"].notna()]
+    if len(home_p1_with_x) >= 5:
+        avg_x = float(home_p1_with_x["start_x"].mean())
+        return avg_x > pitch_mid
+
+    msg = (
+        f"Metrica: insufficient period-1 home-team data to derive "
+        f"home_team_start_left (home shots={len(home_p1_shots)}, "
+        f"home events with x={len(home_p1_with_x)}). Need ≥2 shots OR ≥5 "
+        f"events with non-null start_x."
+    )
+    raise RuntimeError(msg)

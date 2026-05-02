@@ -80,13 +80,24 @@ def _get_tabular_dim() -> int:
     return len(xgb_features)
 
 
-def _make_dummy_v2_weights(tabular_dim: int) -> bytes:
+def _make_dummy_v2_weights(tabular_dim: int, feature_names: list[str] | None = None) -> bytes:
     """Create synthetic set encoder weights for testing.
+
+    Mirrors production envelope shape (post-SK3-MIG): every envelope MUST
+    carry ``feature_names`` (per ADR-012 §2 grace-period closure 2026-05-02);
+    ``tabular_dim`` is also injected as defense-in-depth (matches what
+    ``scripts/train_xg_v2_hf.py`` writes).
 
     Args:
         tabular_dim: Number of tabular feature columns after one-hot encoding.
             Must match the actual output of ``build_features()``.
+        feature_names: Optional explicit feature list. Defaults to
+            ``["feat_0", "feat_1", ..., "feat_{tabular_dim-1}"]`` — synthetic
+            names that exercise the envelope path without coupling to any
+            specific production feature ordering.
     """
+    import json
+
     from analytics.set_encoder import SetEncoderConfig, serialize_set_encoder_weights
 
     config = SetEncoderConfig()
@@ -109,7 +120,14 @@ def _make_dummy_v2_weights(tabular_dim: int) -> bytes:
             "pred_fc3_bias": rng.standard_normal(1),
         }
     )
-    return serialize_set_encoder_weights(weights)
+    weight_bytes = serialize_set_encoder_weights(weights)
+    # Inject feature_names + tabular_dim to mirror production envelope shape.
+    envelope = json.loads(weight_bytes.decode("utf-8"))
+    envelope["feature_names"] = (
+        feature_names if feature_names is not None else [f"feat_{i}" for i in range(tabular_dim)]
+    )
+    envelope["tabular_dim"] = tabular_dim
+    return json.dumps(envelope).encode("utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -493,31 +511,69 @@ class TestV2EnvelopeFeatureNames:
         assert cached_v2_features == envelope["feature_names"], (
             f"UDF cached v2_features={cached_v2_features!r}; expected envelope's injected list"
         )
-        # xgb_features still cached as the fallback
-        assert udf._model_cache["xgb_features"] != envelope["feature_names"], (  # type: ignore[attr-defined]
-            "xgb_features should differ from envelope feature_names — sanity check the test setup"
+        # SK3-MIG (2026-05-02): xgb_features is no longer cached as the legacy
+        # fallback (ADR-012 §2 grace-period closure). v2_features comes from
+        # the envelope only.
+        assert "xgb_features" not in udf._model_cache, (  # type: ignore[attr-defined]
+            "xgb_features cache slot was retired in SK3-MIG (ADR-012 §2 closure) — "
+            "v2 envelopes must carry their own feature_names."
         )
 
-    def test_udf_falls_back_to_xgb_features_for_legacy_envelope(self) -> None:
-        """When v2 envelope lacks feature_names (legacy), UDF falls back to xgb_features."""
-        xgboost_bytes = _train_xgboost_and_serialize()
-        tabular_dim = _get_tabular_dim()
-        v2_bytes = _make_dummy_v2_weights(tabular_dim)
+    def test_parse_v2_envelope_features_raises_on_missing_feature_names(self) -> None:
+        """ADR-012 §2 grace-period closure (SK3-MIG, 2026-05-02).
 
-        from ingestion.xg_model_v2 import _make_v2_scoring_udf
+        v2 envelopes that lack ``feature_names`` must raise RuntimeError with a
+        clear pointer to the retraining script. The pre-2026-04-22 fallback
+        to v1's XGBoost ``xgb_features`` was removed; envelopes must carry their
+        own feature list. ADR-012 §2 grace-period (one release window) has
+        long expired.
+        """
+        import json
 
-        udf = _make_v2_scoring_udf(v2_bytes, xgboost_bytes)
+        legacy_envelope_bytes = json.dumps(
+            {
+                "tabular_dim": 41,
+                # Note: no "feature_names" key — this is the legacy shape.
+            }
+        ).encode("utf-8")
 
-        shots = _make_synthetic_shots(3)
-        shots["shot_id"] = [f"s_{i}" for i in range(3)]
-        shots["competition_id"] = 1
-        shots["shot_freeze_frame"] = None
-        udf(shots)
+        from ingestion.xg_model_v2 import _parse_v2_envelope_features
 
-        # Legacy envelope has no feature_names → v2_features identical to xgb_features
-        assert udf._model_cache["v2_features"] == udf._model_cache["xgb_features"], (  # type: ignore[attr-defined]
-            "Legacy envelope (no feature_names) must fall back to xgb_features for backward compat"
-        )
+        with pytest.raises(RuntimeError, match="missing 'feature_names'"):
+            _parse_v2_envelope_features(legacy_envelope_bytes)
+
+    def test_parse_v2_envelope_features_raises_on_inconsistent_dim(self) -> None:
+        """Envelope with feature_names but wrong tabular_dim signals corruption."""
+        import json
+
+        bad_envelope_bytes = json.dumps(
+            {
+                "tabular_dim": 41,
+                "feature_names": ["a", "b", "c"],  # length 3, not 41
+            }
+        ).encode("utf-8")
+
+        from ingestion.xg_model_v2 import _parse_v2_envelope_features
+
+        with pytest.raises(AssertionError, match="inconsistent"):
+            _parse_v2_envelope_features(bad_envelope_bytes)
+
+    def test_parse_v2_envelope_features_returns_list_and_dim(self) -> None:
+        """Happy path: envelope with feature_names + matching tabular_dim returns both."""
+        import json
+
+        good_envelope_bytes = json.dumps(
+            {
+                "tabular_dim": 3,
+                "feature_names": ["feat_a", "feat_b", "feat_c"],
+            }
+        ).encode("utf-8")
+
+        from ingestion.xg_model_v2 import _parse_v2_envelope_features
+
+        features, dim = _parse_v2_envelope_features(good_envelope_bytes)
+        assert features == ["feat_a", "feat_b", "feat_c"]
+        assert dim == 3
 
 
 class TestMlflowLookupsUseGoldSchema:

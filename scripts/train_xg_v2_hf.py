@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.29-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.30-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -709,15 +709,25 @@ def main() -> None:
     feature_names = list(x_tabular.columns)
     envelope = json.loads(weight_bytes.decode("utf-8"))
     envelope["feature_names"] = feature_names
+    # SK3-MIG (2026-05-02): also inject tabular_dim explicitly so the inference
+    # consumer's _parse_v2_envelope_features (xg_model_v2.py) gets a redundant
+    # consistency check rather than deriving from len(feature_names). Defense
+    # in depth — catches the case where the envelope is hand-edited or merged.
+    envelope["tabular_dim"] = tabular_dim
     weight_bytes = json.dumps(envelope).encode("utf-8")
 
-    # Validate roundtrip (including the injected feature_names)
+    # Validate roundtrip (including the injected feature_names + tabular_dim)
     envelope = json.loads(weight_bytes.decode("utf-8"))
     if envelope.get("feature_names") != feature_names:
         raise RuntimeError(
             "feature_names injection lost through JSON round-trip. "
             f"Expected {feature_names[:3]}... ({len(feature_names)} cols); "
             f"got {envelope.get('feature_names')!r}."
+        )
+    if envelope.get("tabular_dim") != tabular_dim:
+        raise RuntimeError(
+            f"tabular_dim injection lost through JSON round-trip. "
+            f"Expected {tabular_dim}; got {envelope.get('tabular_dim')!r}."
         )
     for key, meta in envelope["weights"].items():
         arr = np.frombuffer(base64.b64decode(meta["data"]), dtype=np.float64).copy().reshape(meta["shape"])

@@ -7,10 +7,20 @@ changing only this module — no per-pipeline edits.
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
+
+
+# SK3-MIG (2026-05-02): silly-kicks 3.0.0+ raises on input-convention
+# mismatches under this flag instead of warning. Databricks serverless
+# `compute.Environment` does not support per-job env vars, so we set it
+# at process bootstrap before any silly-kicks import. Mirrors the CI env
+# block in .github/workflows/python-ci.yml + dbt-live-ci.yml. setdefault
+# preserves a deliberate operator override (e.g., `--no-strict` debugging).
+os.environ.setdefault("SILLY_KICKS_ASSERT_INVARIANTS", "1")
 
 
 def bootstrap_hooks(spark: SparkSession, catalog: str, schema: str) -> None:
