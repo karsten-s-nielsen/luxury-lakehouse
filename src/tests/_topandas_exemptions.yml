@@ -1,0 +1,55 @@
+# Allowlist for `.toPandas()` calls that are bounded but NOT
+# AST-detectable (typically because the bound is inside a SQL string
+# passed to `spark.sql(...)`, opaque to static analysis).
+#
+# Maintained by `src/tests/test_topandas_boundedness.py`. Adding to
+# this file requires articulating WHY driver memory can hold the
+# result — `dim-table size`, `per-match filter`, `upstream
+# applyInPandas-bounded`, `explicit LIMIT in SQL`, etc.
+#
+# Three failure modes the companion test catches:
+#   1. New unbounded `.toPandas()` call with no entry → fix or add entry.
+#   2. Stale entry pointing to a (file, line) that no longer has an
+#      unbounded call → remove the entry.
+#   3. Entry with empty `reason:` → fill it in.
+
+exemptions:
+  - file: src/ingestion/entity_resolution.py
+    line: 82
+    reason: "StatsBomb player dimension (`statsbomb_lineups`); ~12K players for full league coverage. Bounded by source-table size, not row-by-row data."
+
+  - file: src/ingestion/entity_resolution.py
+    line: 115
+    reason: "Wyscout player dimension (`wyscout_players`); ~12K players. Bounded by source-table size."
+
+  - file: src/ingestion/model_validation.py
+    line: 82
+    reason: "`model_baseline_scalars` is a small reference table holding per-metric scalar baselines (~10–30 rows). One row per (metric, group)."
+
+  - file: src/ingestion/player_embeddings_common.py
+    line: 272
+    reason: "Test-compat wrapper (`_load_events`) — explicitly deprecated in docstring. Production code uses `_load_events_sdf` for distributed processing. Bounded by test fixture sizes."
+
+  - file: src/ingestion/player_embeddings_v1.py
+    line: 317
+    reason: "Output of upstream `applyInPandas` (`behavioral_sdf`). Per docstring (line 314–316): O(players × matches_per_player) ≈ ~90K rows of short JSON strings. Bounded by player-match grain."
+
+  - file: src/ingestion/player_embeddings_v2.py
+    line: 144
+    reason: "`SELECT DISTINCT` over match-grain dimension columns from `fct_action_values`. Bounded to one row per match (~5,400 matches across 22 competitions)."
+
+  - file: src/ingestion/player_embeddings_v2.py
+    line: 387
+    reason: "`SELECT DISTINCT` over match-grain dimension columns; bounded to ~5,400 matches. Same shape as line 144."
+
+  - file: src/ingestion/spadl_conversion.py
+    line: 327
+    reason: "`statsbomb_matches` dimension table — one row per match (~3,000 matches across 5 competitions). Bounded by source-table size."
+
+  - file: src/ingestion/spadl_conversion.py
+    line: 657
+    reason: "`wyscout_matches` dimension table — one row per match across 3 competitions. Bounded by source-table size."
+
+  - file: src/ingestion/statsbomb.py
+    line: 169
+    reason: "`statsbomb_competitions` reference table — one row per competition (~5 competitions). Bounded by source-table size."

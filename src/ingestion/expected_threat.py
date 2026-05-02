@@ -149,22 +149,60 @@ def _load_previous_grid(
     )
 
 
-def _load_actions(spark: SparkSession, catalog: str) -> pd.DataFrame:
-    """Load SPADL actions from gold mart, filtered to xT-relevant types."""
-    types_sql = ", ".join(f"'{t}'" for t in _RELEVANT_TYPES)
-    query = f"""
-        SELECT
-            competition_id,
-            action_type AS type_name,
-            action_result AS result_name,
-            start_x,
-            start_y,
-            end_x,
-            end_y
-        FROM {catalog}.{DEFAULT_GOLD_SCHEMA}.{_GOLD_TABLE}
-        WHERE action_type IN ({types_sql})
-    """  # noqa: S608
-    return spark.sql(query).toPandas()  # type: ignore[union-attr]
+def _list_relevant_competition_ids(spark: SparkSession, catalog: str) -> list[str]:
+    """Return distinct competition_ids in fct_action_values restricted to
+    xT-relevant action types.
+
+    Bounded — the column has ~22 distinct values across all current
+    sources. Returns a list of strings (we never join numerically here).
+    Driver memory: O(n_competitions x ~30 bytes) = trivial.
+    """
+    from pyspark.sql.functions import col
+
+    rows = (
+        spark.table(f"{catalog}.{DEFAULT_GOLD_SCHEMA}.{_GOLD_TABLE}")
+        .filter(col("action_type").isin(list(_RELEVANT_TYPES)))
+        .filter(col("competition_id").isNotNull())
+        .select("competition_id")
+        .distinct()
+        .collect()
+    )
+    return [str(row["competition_id"]) for row in rows]
+
+
+def _load_actions_for_competition(
+    spark: SparkSession,
+    catalog: str,
+    competition_id: str,
+) -> pd.DataFrame:
+    """Pull a single competition's xT-relevant actions to driver memory.
+
+    Bounded by per-competition row count — largest competition (a full
+    league season's SPADL events) is ~500K rows x 6 cols ≈ 24 MB,
+    well below the 16 GB driver budget. Replaces the pre-OPT-1
+    full-fact-table pull (~9.5M x 6 cols ≈ 456 MB) that used to run
+    when the global grid needed rebuilding.
+
+    Returns the same column shape as the legacy ``_load_actions``:
+    ``competition_id, type_name, result_name, start_x/y, end_x/y``.
+    """
+    from pyspark.sql.functions import col
+
+    return (
+        spark.table(f"{catalog}.{DEFAULT_GOLD_SCHEMA}.{_GOLD_TABLE}")
+        .filter(col("action_type").isin(list(_RELEVANT_TYPES)))
+        .filter(col("competition_id") == competition_id)
+        .selectExpr(
+            "CAST(competition_id AS STRING) AS competition_id",
+            "action_type AS type_name",
+            "action_result AS result_name",
+            "start_x",
+            "start_y",
+            "end_x",
+            "end_y",
+        )
+        .toPandas()  # type: ignore[union-attr]
+    )
 
 
 @workflow("wf-xt-grids", phase="grid_computation")
@@ -177,13 +215,24 @@ def run_pipeline(
     filter_result: FilterResult,
     ctx=None,
 ) -> int:
-    """Compute per-competition and global xT grids, write to Delta."""
+    """Compute per-competition and global xT grids, write to Delta.
+
+    Streams per-competition action slices (~24 MB each) instead of
+    pulling the full ``fct_action_values`` table to driver memory at
+    once (~456 MB peak under the legacy implementation). Exploits the
+    additivity of ``ZoneCounters`` to build the global grid by
+    accumulating per-comp counters across iterations — see
+    ``analytics.expected_threat.ZoneCounters`` docstring for the
+    primitive's contract. Refactored OPT-1 (2026-05-03).
+    """
     if filter_result.count == 0:
         raise WorkflowSkippedError("No new work")
 
     from analytics.expected_threat import (
         ExpectedThreatParams,
-        compute_expected_threat_grid,
+        ZoneCounters,
+        bucket_actions_into_counters,
+        xt_grid_from_counters,
     )
 
     params = ExpectedThreatParams()
@@ -202,106 +251,105 @@ def run_pipeline(
         " + global" if need_global else "",
     )
 
-    # ── Load actions (only for missing competitions + global) ─────────
-    # Global grid needs all actions; per-comp grids only need their slice.
-    # When global is needed, load everything; otherwise load only new comps.
+    # ── Determine which competitions need to be visited this run ─────
+    # Per-comp grids: just `new_comps`. Global grid: every competition
+    # with relevant actions (so its counters can be folded into the
+    # global accumulator). Visiting each comp once and reusing its
+    # counters for both purposes is the streaming optimisation.
+    new_comp_set = {str(c) for c in new_comps}
     if need_global:
-        logger.info(
-            "Loading all SPADL actions from %s.%s.%s (global grid needed)",
-            catalog,
-            DEFAULT_GOLD_SCHEMA,
-            _GOLD_TABLE,
-        )
-        actions_df = _load_actions(spark, catalog)
+        all_comp_ids = _list_relevant_competition_ids(spark, catalog)
+        comps_to_visit = sorted(set(all_comp_ids) | new_comp_set)
     else:
-        comp_filter = ", ".join(f"'{c}'" for c in new_comps)
-        types_filter = ", ".join(f"'{t}'" for t in _RELEVANT_TYPES)
-        query = f"""
-            SELECT
-                competition_id,
-                action_type AS type_name,
-                action_result AS result_name,
-                start_x, start_y, end_x, end_y
-            FROM {catalog}.{DEFAULT_GOLD_SCHEMA}.{_GOLD_TABLE}
-            WHERE action_type IN ({types_filter})
-              AND CAST(competition_id AS STRING) IN ({comp_filter})
-        """  # noqa: S608
-        actions_df = spark.sql(query).toPandas()  # type: ignore[union-attr]
-    logger.info("Loaded %d relevant actions", len(actions_df))
+        comps_to_visit = sorted(new_comp_set)
 
-    if actions_df.empty:
-        logger.warning("No actions found — skipping xT computation")
-        return 0
-
-    # ── Per-competition grids (only missing ones) ─────────────────────
-    # Pre-build indexed lookup to avoid O(n*m) boolean mask (F-02 OPT-AUDIT-200)
-    actions_by_comp = dict(iter(actions_df.groupby("competition_id")))
+    global_counters = ZoneCounters.zero(params)
     competitions_written = 0
-    for comp_id in new_comps:
-        comp_actions = actions_by_comp.get(comp_id)
-        if comp_actions is None:
+    total_actions_accumulated = 0
+
+    for comp_id in comps_to_visit:
+        comp_actions = _load_actions_for_competition(spark, catalog, comp_id)
+        if comp_actions.empty:
             continue
         n_events = len(comp_actions)
-        if n_events < 100:
-            logger.warning("Competition %s has only %d events — skipping", comp_id, n_events)
-            continue
+        total_actions_accumulated += n_events
 
-        xt_grid = compute_expected_threat_grid(comp_actions, params, competition_id=str(comp_id))
+        comp_counters = bucket_actions_into_counters(comp_actions, params)
+        if need_global:
+            global_counters = global_counters + comp_counters
 
-        # Differential validation against the previous run's grid for this competition.
-        previous = _load_previous_grid(spark, catalog, schema, str(comp_id), logger)
-        xt_grid.validate_differential(previous)
+        # Per-comp grid only for competitions the guard flagged as new.
+        if comp_id in new_comp_set:
+            if n_events < 100:
+                logger.warning(
+                    "Competition %s has only %d events — skipping per-comp grid",
+                    comp_id,
+                    n_events,
+                )
+                continue
 
-        grid_df = xt_grid.to_dataframe()
-        spark_df = spark.createDataFrame(grid_df)  # type: ignore[union-attr]
-        write_delta_table(
-            spark_df,
-            catalog=catalog,
-            schema=schema,
-            table_name=_TABLE_NAME,
-            replace_where=f"competition_id = '{comp_id}'",
-            logger=logger,
-        )
-        competitions_written += 1
-        logger.info(
-            "Competition %s: %d events, max xT=%.5f",
-            comp_id,
-            n_events,
-            float(xt_grid.values.max()),
-        )
+            xt_grid = xt_grid_from_counters(comp_counters, params, competition_id=comp_id)
 
-    # ── Global grid (all competitions combined) ───────────────────────
+            # Differential validation against the previous run's grid for this competition.
+            previous = _load_previous_grid(spark, catalog, schema, comp_id, logger)
+            xt_grid.validate_differential(previous)
+
+            grid_df = xt_grid.to_dataframe()
+            spark_df = spark.createDataFrame(grid_df)  # type: ignore[union-attr]
+            write_delta_table(
+                spark_df,
+                catalog=catalog,
+                schema=schema,
+                table_name=_TABLE_NAME,
+                replace_where=f"competition_id = '{comp_id}'",
+                logger=logger,
+            )
+            competitions_written += 1
+            logger.info(
+                "Competition %s: %d events, max xT=%.5f",
+                comp_id,
+                n_events,
+                float(xt_grid.values.max()),
+            )
+
+    # ── Global grid (built from accumulated per-comp counters) ────────
     if need_global:
-        global_xt_grid = compute_expected_threat_grid(actions_df, params, competition_id="global")
+        if global_counters.total_actions == 0:
+            logger.warning("No relevant actions found across any competition — skipping global xT grid")
+        else:
+            global_xt_grid = xt_grid_from_counters(global_counters, params, competition_id="global")
 
-        # Structural validation (legacy v1 max_value=0.50 preserved here;
-        # ExT v2 conditional grids will pass max_value=None or a higher ceiling).
-        global_xt_grid.validate_structural(max_value=0.50)
+            # Structural validation (legacy v1 max_value=0.50 preserved here;
+            # ExT v2 conditional grids will pass max_value=None or a higher ceiling).
+            global_xt_grid.validate_structural(max_value=0.50)
 
-        # Differential validation against the previous global grid.
-        previous_global = _load_previous_grid(spark, catalog, schema, "global", logger)
-        global_xt_grid.validate_differential(previous_global)
+            # Differential validation against the previous global grid.
+            previous_global = _load_previous_grid(spark, catalog, schema, "global", logger)
+            global_xt_grid.validate_differential(previous_global)
 
-        global_df = global_xt_grid.to_dataframe()
-        spark_df = spark.createDataFrame(global_df)  # type: ignore[union-attr]
-        write_delta_table(
-            spark_df,
-            catalog=catalog,
-            schema=schema,
-            table_name=_TABLE_NAME,
-            replace_where="competition_id = 'global'",
-            logger=logger,
-        )
-        logger.info(
-            "Global grid: %d events, max xT=%.5f",
-            len(actions_df),
-            float(global_xt_grid.values.max()),
-        )
+            global_df = global_xt_grid.to_dataframe()
+            spark_df = spark.createDataFrame(global_df)  # type: ignore[union-attr]
+            write_delta_table(
+                spark_df,
+                catalog=catalog,
+                schema=schema,
+                table_name=_TABLE_NAME,
+                replace_where="competition_id = 'global'",
+                logger=logger,
+            )
+            logger.info(
+                "Global grid: %d events accumulated across %d competitions, max xT=%.5f",
+                global_counters.total_actions,
+                len(comps_to_visit),
+                float(global_xt_grid.values.max()),
+            )
 
     logger.info(
-        "Done — wrote %d competition grids%s",
+        "Done — wrote %d competition grids%s (streamed %d total actions across %d competitions)",
         competitions_written,
         " + global" if need_global else "",
+        total_actions_accumulated,
+        len(comps_to_visit),
     )
     return 0
 
