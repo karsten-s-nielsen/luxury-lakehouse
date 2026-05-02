@@ -39,6 +39,10 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+from shared.constants import DEFAULT_CATALOG  # noqa: E402
+
+_CATALOG: str = os.environ.get("DATABRICKS_CATALOG", DEFAULT_CATALOG)
+
 _EXPECTED_SOURCES: list[str] = ["statsbomb", "wyscout", "idsse", "metrica"]
 _PROVIDER_COVERAGE_TABLES: list[str] = [
     "bronze.spadl_actions",
@@ -67,6 +71,7 @@ def _execute_query(client: Any, sql: str) -> list[dict[str, Any]]:
     response = client.statement_execution.execute_statement(
         warehouse_id=warehouse_id,
         statement=sql,
+        catalog=_CATALOG,
         wait_timeout="30s",
     )
     statement_id = response.statement_id

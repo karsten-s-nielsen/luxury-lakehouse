@@ -58,6 +58,11 @@ desktop.ini
 *.key
 credentials.json
 
+# SK3-MIG orchestrator runtime sidecars (Delta-version rollback + pre-rebuild snapshot)
+sk3_mig_pre.json
+sk3_mig_rollback.json
+sk3_mig_post_report.md
+
 # Terraform
 terraform/.terraform/
 terraform/**/.terraform/
