@@ -33,14 +33,18 @@ import argparse
 import datetime as dt
 import json
 import logging
+import os
 import subprocess
 import sys
 import time
 from pathlib import Path
 from typing import Any
 
+from shared.constants import DEFAULT_CATALOG
+
 logger = logging.getLogger(__name__)
 
+_CATALOG: str = os.environ.get("DATABRICKS_CATALOG", DEFAULT_CATALOG)
 _ROLLBACK_SIDECAR = Path("sk3_mig_rollback.json")
 _PRE_COUNTS_SIDECAR = Path("sk3_mig_pre.json")
 
@@ -65,13 +69,11 @@ _STEP_8_JOBS_IN_ORDER: list[str] = [
 
 
 def _now_iso() -> str:
-    return dt.datetime.now(dt.UTC).isoformat()
+    return dt.datetime.now(dt.timezone.utc).isoformat()
 
 
 def _execute_query(client: Any, sql: str, *, expect_rows: bool = True) -> list[dict[str, Any]]:
     """Run SQL via WorkspaceClient.statement_execution and return list of dict rows."""
-    import os
-
     warehouse_id = os.environ.get("DATABRICKS_SQL_WAREHOUSE_ID")
     if not warehouse_id:
         for w in client.warehouses.list():
@@ -84,6 +86,7 @@ def _execute_query(client: Any, sql: str, *, expect_rows: bool = True) -> list[d
     response = client.statement_execution.execute_statement(
         warehouse_id=warehouse_id,
         statement=sql,
+        catalog=_CATALOG,
         wait_timeout="50s",
     )
     statement_id = response.statement_id
