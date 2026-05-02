@@ -199,6 +199,49 @@ def _load_shots_with_context(
     return spark.sql(query)
 
 
+def _parse_v2_envelope_features(v2_weights_bytes: bytes) -> tuple[list[str], int]:
+    """Parse v2 weights envelope and return ``(feature_names, tabular_dim)``.
+
+    ADR-012 §2 grace-period closure (SK3-MIG, 2026-05-02): legacy envelopes
+    without ``feature_names`` raise :class:`RuntimeError`. Inference must run
+    on weights produced by 2026-04-22+ training (PR #177 ``ecf2551``+).
+
+    The ``tabular_dim`` field is optional in the envelope — pre-SK3-MIG
+    training scripts only injected ``feature_names``. When absent, derive
+    ``tabular_dim`` from ``len(feature_names)`` (they must be equal — the
+    set encoder's first prediction-MLP weight expects exactly one column
+    per tabular feature). When present (post-SK3-MIG training), validate
+    consistency and raise on mismatch.
+
+    Raises
+    ------
+    RuntimeError
+        ``feature_names`` is missing from the envelope.
+    AssertionError
+        Explicit ``tabular_dim`` field disagrees with ``len(feature_names)``
+        (envelope corrupted at training time).
+    """
+    import json
+
+    envelope = json.loads(v2_weights_bytes.decode("utf-8"))
+    v2_features = envelope.get("feature_names")
+    if not v2_features:
+        raise RuntimeError(
+            "v2 weights envelope is missing 'feature_names'. "
+            "ADR-012 §2 grace-period removal — refresh @Champion via "
+            "scripts/train_xg_v2_hf.py before re-running."
+        )
+    declared_dim = envelope.get("tabular_dim")
+    if declared_dim is not None and len(v2_features) != declared_dim:
+        msg = (
+            f"v2 envelope is inconsistent: feature_names={len(v2_features)} "
+            f"!= tabular_dim={declared_dim}. Envelope corrupted at training time."
+        )
+        raise AssertionError(msg)
+    v2_tabular_dim = declared_dim if declared_dim is not None else len(v2_features)
+    return list(v2_features), v2_tabular_dim
+
+
 def _make_v2_scoring_udf(
     v2_weights_bytes: bytes,
     xgboost_bytes: bytes,
@@ -233,32 +276,19 @@ def _make_v2_scoring_udf(
             _udf._model_cache = {}  # type: ignore[attr-defined]
         cache: dict[str, Any] = _udf._model_cache  # type: ignore[attr-defined]
         if "v2_weights" not in cache:
-            import json as _json
-
             cache["v2_weights"] = deserialize_set_encoder_weights(v2_weights_bytes)
             cache["xgboost"] = deserialize_xgboost_model(xgboost_bytes)
-            # Extract v1 training-time feature names from the XGBoost booster
-            # (used as a fallback for legacy v2 envelopes that don't carry
-            # feature_names of their own; see below).
-            cc = next(iter(cache["xgboost"].calibrated_classifiers_))
-            xgb_estimator = cc.estimator  # type: ignore[union-attr]
-            cache["xgb_features"] = list(xgb_estimator.get_booster().feature_names)
-            # Prefer v2's own feature list embedded in the weights envelope.
-            # Post-2026-04-22 training writes ``envelope["feature_names"]`` so
-            # inference aligns tabular input to v2's tabular_dim directly,
-            # without coupling to whatever v1 XGBoost happens to be on disk.
-            # Legacy envelopes (pre-2026-04-22) lack this field — fall through
-            # to ``xgb_features`` to preserve backward compatibility until a
-            # fresh v2 training run replaces the weights.
-            v2_envelope = _json.loads(v2_weights_bytes.decode("utf-8"))
-            v2_features = v2_envelope.get("feature_names")
-            cache["v2_features"] = list(v2_features) if v2_features else cache["xgb_features"]
+            # SK3-MIG (2026-05-02): the v2 envelope's ``feature_names`` is the
+            # only source for tabular reindex. ADR-012 §2 grace-period for the
+            # v1-XGBoost-feature-list fallback expired (~17 wheel releases past
+            # the 2026-04-22 v2 retrain that ships ``feature_names``); legacy
+            # envelopes now raise via _parse_v2_envelope_features.
+            cache["v2_features"], _ = _parse_v2_envelope_features(v2_weights_bytes)
 
-        # Build tabular features for the set encoder's tabular input. Use v2's
-        # embedded feature list when present; otherwise fall back to the v1
-        # XGBoost feature list (legacy envelope).
+        # Build tabular features for the set encoder's tabular input,
+        # reindexed to v2's embedded feature list (envelope-only, no fallback).
         config = XGModelConfig()
-        x, _ = build_features(pdf, config, expected_features=cache.get("v2_features"))
+        x, _ = build_features(pdf, config, expected_features=cache["v2_features"])
 
         v2_weights = cache["v2_weights"]
         n_rows = len(pdf)

@@ -82,6 +82,29 @@ def _adapt_input(source: str, df: pd.DataFrame) -> tuple[pd.DataFrame, object]:
     raise ValueError(msg)
 
 
+def _call_converter(source: str, converter, adapted: pd.DataFrame, hti, df: pd.DataFrame):  # type: ignore[no-untyped-def]
+    """Invoke silly-kicks converter with per-provider kwargs that match production.
+
+    silly-kicks 3.0.1 (PR-S23) requires Sportec + Metrica callers to pass
+    ``home_team_start_left``. Lakehouse derivation helpers compute it from
+    bronze (authoritative for IDSSE via DFL XML; empirical from period-1
+    SHOT positions for Metrica). Mirrors the production SPADL UDF call sites
+    in ``src/ingestion/spadl_conversion.py``.
+    """
+    if source == "idsse":
+        from ingestion.spadl_adapter import derive_idsse_home_team_start_left
+
+        home_team_id_native = str(df["home_team_id_native"].dropna().iloc[0])
+        home_start_left = derive_idsse_home_team_start_left(adapted, home_team_id_native)
+        return converter.convert_to_actions(adapted, home_team_id=hti, home_team_start_left=home_start_left)
+    if source == "metrica":
+        from ingestion.spadl_adapter import derive_metrica_home_team_start_left
+
+        home_start_left = derive_metrica_home_team_start_left(adapted, home_team_value="Home")
+        return converter.convert_to_actions(adapted, home_team_id=hti, home_team_start_left=home_start_left)
+    return converter.convert_to_actions(adapted, home_team_id=hti)
+
+
 @_PARAMETRIZE
 def test_team_id_subset_of_input_team_or_team_id(source, converter, fixture) -> None:  # type: ignore[no-untyped-def]
     """ADR-018 boundary contract: silly-kicks's output ``team_id`` values
@@ -89,7 +112,7 @@ def test_team_id_subset_of_input_team_or_team_id(source, converter, fixture) -> 
     """
     df = pd.read_parquet(_FIXTURE_DIR / fixture)
     adapted, hti = _adapt_input(source, df)
-    actions, _report = converter.convert_to_actions(adapted, home_team_id=hti)
+    actions, _report = _call_converter(source, converter, adapted, hti, df)
     out_teams = set(actions["team_id"].dropna().unique())
     # Determine the input team-identifier column per provider:
     if source == "statsbomb":
@@ -114,7 +137,7 @@ def test_action_id_non_null(source, converter, fixture) -> None:  # type: ignore
     """Every output action must have a non-NULL action_id (silly-kicks invariant)."""
     df = pd.read_parquet(_FIXTURE_DIR / fixture)
     adapted, hti = _adapt_input(source, df)
-    actions, _ = converter.convert_to_actions(adapted, home_team_id=hti)
+    actions, _ = _call_converter(source, converter, adapted, hti, df)
     assert actions["action_id"].notna().all(), f"{source}: NULL action_id rows present"
 
 
@@ -123,7 +146,7 @@ def test_period_id_in_valid_range(source, converter, fixture) -> None:  # type: 
     """Output period_id must be in {1..5}."""
     df = pd.read_parquet(_FIXTURE_DIR / fixture)
     adapted, hti = _adapt_input(source, df)
-    actions, _ = converter.convert_to_actions(adapted, home_team_id=hti)
+    actions, _ = _call_converter(source, converter, adapted, hti, df)
     periods = set(actions["period_id"].dropna().astype(int).unique())
     assert periods <= {1, 2, 3, 4, 5}, f"{source}: invalid period_ids {periods}"
 
@@ -138,7 +161,7 @@ def test_time_seconds_non_negative(source, converter, fixture) -> None:  # type:
     """
     df = pd.read_parquet(_FIXTURE_DIR / fixture)
     adapted, hti = _adapt_input(source, df)
-    actions, _ = converter.convert_to_actions(adapted, home_team_id=hti)
+    actions, _ = _call_converter(source, converter, adapted, hti, df)
     neg = actions[actions["time_seconds"] < 0]
     assert len(neg) == 0, (
         f"{source}: {len(neg)} rows with negative time_seconds — bronze parser period misclassification"
@@ -156,7 +179,7 @@ def test_apply_spadl_enrichments_baseline(source, converter, fixture) -> None:  
 
     df = pd.read_parquet(_FIXTURE_DIR / fixture)
     adapted, hti = _adapt_input(source, df)
-    actions, _ = converter.convert_to_actions(adapted, home_team_id=hti)
+    actions, _ = _call_converter(source, converter, adapted, hti, df)
 
     enriched = apply_spadl_enrichments(actions, source=source)
 
@@ -200,7 +223,7 @@ def test_apply_spadl_enrichments_nan_player_id_safe(source, converter, fixture) 
 
     df = pd.read_parquet(_FIXTURE_DIR / fixture)
     adapted, hti = _adapt_input(source, df)
-    actions, _ = converter.convert_to_actions(adapted, home_team_id=hti)
+    actions, _ = _call_converter(source, converter, adapted, hti, df)
 
     # Inject np.nan into player_id on every 5th row to mirror the exact
     # production failure mode: bronze.spadl_actions returned player_id

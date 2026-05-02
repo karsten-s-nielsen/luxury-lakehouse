@@ -912,13 +912,19 @@ def _make_idsse_spadl_udf() -> object:
 
         try:
             adapted = _adapt(pdf)
-            # silly-kicks's ``home_team_id`` is used by ``_fix_direction_of_play``
-            # for string equality with the ``team`` column. bronze.idsse_events.team
-            # carries 'home' / 'away' / 'unknown' labels — pass the literal
-            # 'home' string so direction normalisation matches by value.
+            # silly-kicks 3.0.1 (PR-S23) requires explicit per-period direction
+            # for Sportec. Derive home_team_start_left authoritatively from the
+            # DFL XML's KickOff TeamLeft/TeamRight attributes (captured in
+            # bronze as kickoff_team_left). home_team_id="home" is the LABEL
+            # used in spadl_actions output; home_team_id_native is the DFL CLU
+            # id used for the kickoff comparison.
+            from ingestion.spadl_adapter import derive_idsse_home_team_start_left
+
+            home_start_left = derive_idsse_home_team_start_left(adapted, home_team_id_native)
             actions, _report = _spadl_sportec.convert_to_actions(
                 adapted,
                 home_team_id="home",
+                home_team_start_left=home_start_left,
             )
         except Exception as exc:
             msg = f"IDSSE SPADL conversion failed for match_id={match_id_str}"
@@ -1260,12 +1266,17 @@ def _make_metrica_spadl_udf() -> object:
 
         try:
             adapted = _adapt(pdf)
-            # silly-kicks's metrica converter takes ``home_team_id`` as the
-            # value to match against the ``team`` column for direction-of-play.
-            # bronze.metrica_events.team is 'Home' / 'Away' (capitalised).
+            # silly-kicks 3.0.1 (PR-S23) requires explicit per-period direction
+            # for Metrica. Bronze does not capture a kickoff-side flag, so
+            # infer from period-1 SHOT positions (sparse but unambiguous —
+            # teams shoot toward the opponent goal).
+            from ingestion.spadl_adapter import derive_metrica_home_team_start_left
+
+            home_start_left = derive_metrica_home_team_start_left(adapted, home_team_value="Home")
             actions, _report = _spadl_metrica.convert_to_actions(
                 adapted,
                 home_team_id="Home",
+                home_team_start_left=home_start_left,
             )
         except Exception as exc:
             msg = f"Metrica SPADL conversion failed for match_id={match_id_str}"
