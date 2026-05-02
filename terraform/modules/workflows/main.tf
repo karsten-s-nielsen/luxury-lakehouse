@@ -92,7 +92,7 @@ resource "databricks_job" "data_ingestion" {
   # Idempotent: only processes matches where _raw_extra_json IS NULL or '{}'.
   task {
     task_key        = "backfill_statsbomb_extra"
-    timeout_seconds = 3600
+    timeout_seconds = 2400
     max_retries     = 1
 
     depends_on {
@@ -117,7 +117,7 @@ resource "databricks_job" "data_ingestion" {
   # credits per-defender per-action, trains XGBoost value estimators.
   task {
     task_key        = "compute_defcon_lite"
-    timeout_seconds = 7200
+    timeout_seconds = 1500
     max_retries     = 1
 
     # PR-Cycle-B (2026-05-01): defcon_lite_360 reads bronze.statsbomb_360
@@ -148,7 +148,7 @@ resource "databricks_job" "data_ingestion" {
   # tracking frames via ball acceleration + player-ball distance features.
   task {
     task_key        = "compute_elastic_sync"
-    timeout_seconds = 3600
+    timeout_seconds = 600
     max_retries     = 1
 
     depends_on {
@@ -175,7 +175,7 @@ resource "databricks_job" "data_ingestion" {
   # first (shared HF Hub auth + stat vector cache path).
   task {
     task_key        = "compute_embeddings_360"
-    timeout_seconds = 3600
+    timeout_seconds = 600
     max_retries     = 1
 
     depends_on {
@@ -200,7 +200,7 @@ resource "databricks_job" "data_ingestion" {
   # Retained for comparison; superseded by v2 transformer embeddings.
   task {
     task_key        = "compute_embeddings_v1"
-    timeout_seconds = 3600
+    timeout_seconds = 600
     max_retries     = 1
 
     depends_on {
@@ -225,7 +225,7 @@ resource "databricks_job" "data_ingestion" {
   # HF Hub, writes to bronze.player_embeddings_raw with model_version='v2'.
   task {
     task_key        = "compute_embeddings_v2"
-    timeout_seconds = 3600
+    timeout_seconds = 600
     max_retries     = 1
 
     # PR-Cycle-C PR-β (2026-05-02, ADR-019): reads gold.fct_action_values
@@ -252,7 +252,7 @@ resource "databricks_job" "data_ingestion" {
   # ── Task: Compute Expected Threat grids from SPADL actions ─────────
   task {
     task_key        = "compute_expected_threat"
-    timeout_seconds = 900
+    timeout_seconds = 600
     max_retries     = 1
 
     depends_on {
@@ -278,7 +278,7 @@ resource "databricks_job" "data_ingestion" {
   # EFPI temp table consumed by shape graph detector.
   task {
     task_key        = "compute_formations_efpi"
-    timeout_seconds = 3600
+    timeout_seconds = 900
     max_retries     = 1
 
     # PR-Cycle-C PR-β (2026-05-02, ADR-019): reads gold.fct_tracking_frames
@@ -308,7 +308,7 @@ resource "databricks_job" "data_ingestion" {
   # player_positions, and position_maps.
   task {
     task_key        = "compute_formations_shape_graph"
-    timeout_seconds = 3600
+    timeout_seconds = 900
     max_retries     = 1
 
     # PR-Cycle-C PR-β (2026-05-02, ADR-019): consumes the EFPI temp table
@@ -341,7 +341,7 @@ resource "databricks_job" "data_ingestion" {
   # Writes bronze.line_breaking_results.
   task {
     task_key        = "compute_line_breaking"
-    timeout_seconds = 3600
+    timeout_seconds = 600
     max_retries     = 1
 
     # PR-Cycle-B (2026-05-01): conformance test caught 5 missing edges
@@ -392,7 +392,7 @@ resource "databricks_job" "data_ingestion" {
   # Depends on all three tracking providers + xT grid computation.
   task {
     task_key        = "compute_off_ball_xt"
-    timeout_seconds = 3600
+    timeout_seconds = 600
     max_retries     = 1
 
     # PR-Cycle-C PR-β (2026-05-02, ADR-019): reads gold.fct_tracking_frames
@@ -426,7 +426,7 @@ resource "databricks_job" "data_ingestion" {
   # import_obso_results task — split out of hf_sync in PR-Cycle-B).
   task {
     task_key        = "compute_pausa"
-    timeout_seconds = 3600
+    timeout_seconds = 600
     max_retries     = 1
 
     depends_on {
@@ -460,7 +460,7 @@ resource "databricks_job" "data_ingestion" {
   # at each player's position, writes bronze.pitch_control_values.
   task {
     task_key        = "compute_pitch_control"
-    timeout_seconds = 7200
+    timeout_seconds = 1200
     max_retries     = 1
 
     # PR-Cycle-C PR-β (2026-05-02, ADR-019): reads gold.fct_tracking_frames
@@ -487,7 +487,7 @@ resource "databricks_job" "data_ingestion" {
   # ── Task: Compute SPADL actions and VAEP scores ─────────────────────────
   task {
     task_key        = "compute_spadl_vaep"
-    timeout_seconds = 7200
+    timeout_seconds = 1800
     max_retries     = 1
 
     # PR-Cycle-B (2026-05-01): the 4-source SPADL union reads bronze events
@@ -527,7 +527,7 @@ resource "databricks_job" "data_ingestion" {
   # ── Task: Score shots with custom xG models ─────────────────────────
   task {
     task_key        = "compute_xg_model"
-    timeout_seconds = 3600
+    timeout_seconds = 900
     max_retries     = 1
 
     # PR-Cycle-C PR-β (2026-05-02, ADR-019): reads gold.fct_shots (input_mart)
@@ -553,7 +553,7 @@ resource "databricks_job" "data_ingestion" {
   # ── Task: Score shots with xG v2 set encoder (Deep Sets + MC dropout) ──
   task {
     task_key        = "compute_xg_model_v2"
-    timeout_seconds = 3600
+    timeout_seconds = 900
     max_retries     = 1
 
     # PR-Cycle-C PR-β (2026-05-02, ADR-019): reads gold.fct_shots (input_mart)
@@ -588,6 +588,7 @@ resource "databricks_job" "data_ingestion" {
   task {
     task_key        = "dbt_build_input_marts"
     timeout_seconds = 3600
+    max_retries     = 1
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
@@ -622,6 +623,7 @@ resource "databricks_job" "data_ingestion" {
   task {
     task_key        = "dbt_build_intermediate_marts"
     timeout_seconds = 3600
+    max_retries     = 1
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
@@ -654,6 +656,7 @@ resource "databricks_job" "data_ingestion" {
   task {
     task_key        = "dbt_build_output_marts"
     timeout_seconds = 3600
+    max_retries     = 1
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
@@ -717,7 +720,8 @@ resource "databricks_job" "data_ingestion" {
   # ── Task: HF Hub sync — combined imports + exports ───────────────────
   task {
     task_key        = "hf_sync"
-    timeout_seconds = 1800
+    timeout_seconds = 600
+    max_retries     = 1
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
@@ -759,7 +763,7 @@ resource "databricks_job" "data_ingestion" {
   # (pure HF Hub download), and compute_pausa explicitly waits on it.
   task {
     task_key        = "import_obso_results"
-    timeout_seconds = 900
+    timeout_seconds = 600
     max_retries     = 1
 
     python_wheel_task {
@@ -826,7 +830,7 @@ resource "databricks_job" "data_ingestion" {
   # Separate from tracking ingestion — different XML schema.
   task {
     task_key        = "ingest_idsse_events"
-    timeout_seconds = 900
+    timeout_seconds = 600
     max_retries     = 1
 
     depends_on {
@@ -849,7 +853,7 @@ resource "databricks_job" "data_ingestion" {
   # ── Task: Ingest Metrica tracking data ───────────────────────────────────
   task {
     task_key        = "ingest_metrica"
-    timeout_seconds = 900
+    timeout_seconds = 600
     max_retries     = 1
 
     python_wheel_task {
@@ -868,7 +872,7 @@ resource "databricks_job" "data_ingestion" {
   # ── Task: Ingest SkillCorner A-League tracking data ────────────────────
   task {
     task_key        = "ingest_skillcorner"
-    timeout_seconds = 900
+    timeout_seconds = 1200
     max_retries     = 1
 
     python_wheel_task {
@@ -887,7 +891,7 @@ resource "databricks_job" "data_ingestion" {
   # ── Task: Ingest StatsBomb data ──────────────────────────────────────────
   task {
     task_key        = "ingest_statsbomb"
-    timeout_seconds = 900
+    timeout_seconds = 1200
     max_retries     = 1
 
     python_wheel_task {
@@ -907,7 +911,7 @@ resource "databricks_job" "data_ingestion" {
   # ── Task: Ingest Wyscout data ────────────────────────────────────────────
   task {
     task_key        = "ingest_wyscout"
-    timeout_seconds = 900
+    timeout_seconds = 1200
     max_retries     = 1
 
     python_wheel_task {
@@ -962,6 +966,7 @@ resource "databricks_job" "data_ingestion" {
   task {
     task_key        = "refresh_synced_tables"
     timeout_seconds = 2400 # 30 min refresh window + overhead
+    max_retries     = 1
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
@@ -984,7 +989,7 @@ resource "databricks_job" "data_ingestion" {
   # Writes player_xref_raw bronze table for dbt int_player_xref → dim_players.
   task {
     task_key        = "resolve_players"
-    timeout_seconds = 900
+    timeout_seconds = 1200
     max_retries     = 1
 
     depends_on {
@@ -1012,7 +1017,7 @@ resource "databricks_job" "data_ingestion" {
   # Runs post-dbt and post-PAUSA to validate all model outputs.
   task {
     task_key        = "run_model_validation"
-    timeout_seconds = 900
+    timeout_seconds = 600
     max_retries     = 1
 
     # PR-Cycle-C PR-β (2026-05-02, ADR-019): reads today's output_marts

@@ -324,30 +324,84 @@ if _USE_JAX:
         return np.asarray(xt), max_iterations
 
 
-def compute_expected_threat_grid(
-    actions_df: pd.DataFrame,
-    params: ExpectedThreatParams | None = None,
-    *,
-    competition_id: str | None = None,
-) -> XTGrid:
-    """Compute an xT grid from SPADL action data via Markov chain value iteration.
+@dataclass(frozen=True)
+class ZoneCounters:
+    """Bucketed per-zone aggregates needed for xT value iteration.
 
-    Args:
-        actions_df: SPADL actions with columns: type_name, result_name,
-            start_x, start_y, end_x, end_y. Coordinates in SPADL 105x68m.
-        params: Grid and convergence parameters. Defaults if None.
-        competition_id: Optional source competition identifier to embed
-            on the returned XTGrid.
+    Pre-aggregates the only information about an action set that the
+    Markov-chain xT computation actually consumes: per-zone start counts,
+    per-zone shot/goal/successful-move counts, and the start→end
+    transition count matrix (successful moves only). Once an action set
+    has been bucketed into a ``ZoneCounters``, the original row-level
+    actions are no longer needed.
 
-    Returns:
-        XTGrid in SPADL coordinate system, with shape
-        (n_zones_x, n_zones_y). Grid orientation: [0, 0] = own-goal
-        bottom-left, [n_zones_x-1, n_zones_y-1] = opponent goal top-right.
-        Matches the dbt seed CSV layout.
+    Critically, ``ZoneCounters`` is **additive** under union of action
+    sets:
+
+        counters(A) + counters(B) == counters(concat(A, B))   for any A, B
+
+    Additivity is what makes streaming xT computation possible — instead
+    of pulling all 9.5M+ actions to driver memory at once
+    (`fct_action_values` global rebuild — see OPT-1, 2026-05-03), the
+    ingestion pipeline streams per-competition action slices to driver,
+    buckets each into a small ``ZoneCounters`` (~9,600 floats fixed
+    size, regardless of input rows), and accumulates across competitions
+    before running value iteration once on the union counters. Driver
+    memory peaks at single-competition slice size (~24 MB) instead of
+    full-fact-table size (~456 MB).
+
+    The dataclass is frozen so it is safe for `applyInPandas` closure
+    capture per project conventions; ``__add__`` returns a new
+    ``ZoneCounters`` rather than mutating self.
     """
-    if params is None:
-        params = ExpectedThreatParams()
 
+    total_per_zone: np.ndarray
+    shots_per_zone: np.ndarray
+    goals_per_zone: np.ndarray
+    succ_moves_per_zone: np.ndarray
+    transition_counts: np.ndarray
+
+    @classmethod
+    def zero(cls, params: ExpectedThreatParams) -> ZoneCounters:
+        """Construct an all-zero counter sized for the given grid params."""
+        n_zones = params.n_zones_x * params.n_zones_y
+        return cls(
+            total_per_zone=np.zeros(n_zones, dtype=np.float64),
+            shots_per_zone=np.zeros(n_zones, dtype=np.float64),
+            goals_per_zone=np.zeros(n_zones, dtype=np.float64),
+            succ_moves_per_zone=np.zeros(n_zones, dtype=np.float64),
+            transition_counts=np.zeros((n_zones, n_zones), dtype=np.float64),
+        )
+
+    def __add__(self, other: ZoneCounters) -> ZoneCounters:
+        """Return a new ZoneCounters whose entries are the elementwise sum."""
+        return ZoneCounters(
+            total_per_zone=self.total_per_zone + other.total_per_zone,
+            shots_per_zone=self.shots_per_zone + other.shots_per_zone,
+            goals_per_zone=self.goals_per_zone + other.goals_per_zone,
+            succ_moves_per_zone=self.succ_moves_per_zone + other.succ_moves_per_zone,
+            transition_counts=self.transition_counts + other.transition_counts,
+        )
+
+    @property
+    def total_actions(self) -> int:
+        """Total number of actions bucketed (sum of per-zone start counts)."""
+        return int(self.total_per_zone.sum())
+
+
+def bucket_actions_into_counters(
+    actions_df: pd.DataFrame,
+    params: ExpectedThreatParams,
+) -> ZoneCounters:
+    """Bin SPADL actions into per-zone aggregates needed for xT value iteration.
+
+    The output ``ZoneCounters`` is fixed-size (O(n_zones²)) regardless of
+    input row count — a 9.5M-row input and a 100-row input produce
+    counters of identical shape. This is the primitive that makes
+    streaming xT computation possible (see ``ZoneCounters`` docstring).
+
+    Pure function: deterministic, no side effects, no I/O.
+    """
     n_zones = params.n_zones_x * params.n_zones_y
 
     # Classify events
@@ -375,19 +429,58 @@ def compute_expected_threat_grid(
     successful_moves = is_move & is_success
     succ_moves_per_zone = np.bincount(start_zones[successful_moves], minlength=n_zones).astype(np.float64)
 
-    # Probabilities per zone
-    safe_total = np.maximum(total_per_zone, 1.0)
-    shot_prob = shots_per_zone / safe_total
-    goal_prob = np.where(shots_per_zone > 0, goals_per_zone / shots_per_zone, 0.0)
-    # Use successful move probability — failed moves contribute xT=0 implicitly
-    move_prob = succ_moves_per_zone / safe_total
-
-    # Transition matrix (successful moves only)
-    transition = _build_transition_matrix(
-        start_zones[successful_moves],
-        end_zones[successful_moves],
-        n_zones,
+    # Raw transition counts (NOT row-normalized — normalization deferred
+    # to xt_grid_from_counters so per-comp counters are additive).
+    transition_counts = np.zeros((n_zones, n_zones), dtype=np.float64)
+    np.add.at(
+        transition_counts,
+        (start_zones[successful_moves], end_zones[successful_moves]),
+        1.0,
     )
+
+    return ZoneCounters(
+        total_per_zone=total_per_zone,
+        shots_per_zone=shots_per_zone,
+        goals_per_zone=goals_per_zone,
+        succ_moves_per_zone=succ_moves_per_zone,
+        transition_counts=transition_counts,
+    )
+
+
+def xt_grid_from_counters(
+    counters: ZoneCounters,
+    params: ExpectedThreatParams,
+    *,
+    competition_id: str | None = None,
+) -> XTGrid:
+    """Run Markov-chain value iteration on bucketed counters; return XTGrid.
+
+    Companion to ``bucket_actions_into_counters`` — together they
+    decompose the original ``compute_expected_threat_grid`` into a
+    bucket step (which is additive across input slices) and a
+    value-iteration step (which only needs the bucketed counters, not
+    the original row-level actions). This decomposition is what enables
+    streaming the global-grid computation across per-competition slices
+    without loading all actions to driver memory at once.
+    """
+    n_zones = params.n_zones_x * params.n_zones_y
+
+    # Probabilities per zone
+    safe_total = np.maximum(counters.total_per_zone, 1.0)
+    shot_prob = counters.shots_per_zone / safe_total
+    goal_prob = np.where(
+        counters.shots_per_zone > 0,
+        counters.goals_per_zone / np.maximum(counters.shots_per_zone, 1.0),
+        0.0,
+    )
+    # Use successful move probability — failed moves contribute xT=0 implicitly
+    move_prob = counters.succ_moves_per_zone / safe_total
+
+    # Row-normalize the transition matrix (deferred from bucketing so
+    # per-comp counters remained additive).
+    row_sums = counters.transition_counts.sum(axis=1, keepdims=True)
+    row_sums = np.maximum(row_sums, 1.0)
+    transition = counters.transition_counts / row_sums
 
     # Value iteration
     use_jax = _USE_JAX and n_zones > 200  # JAX overhead not worth it for small grids
@@ -417,3 +510,37 @@ def compute_expected_threat_grid(
         coord_system="spadl",
         competition_id=competition_id,
     )
+
+
+def compute_expected_threat_grid(
+    actions_df: pd.DataFrame,
+    params: ExpectedThreatParams | None = None,
+    *,
+    competition_id: str | None = None,
+) -> XTGrid:
+    """Compute an xT grid from SPADL action data via Markov chain value iteration.
+
+    Backwards-compatible wrapper: equivalent to
+    ``xt_grid_from_counters(bucket_actions_into_counters(actions_df,
+    params), params, competition_id=competition_id)`` for any single
+    DataFrame. The two-stage form is preferred when the input is too
+    large to fit in driver memory at once — see ``ZoneCounters``
+    docstring for the streaming pattern.
+
+    Args:
+        actions_df: SPADL actions with columns: type_name, result_name,
+            start_x, start_y, end_x, end_y. Coordinates in SPADL 105x68m.
+        params: Grid and convergence parameters. Defaults if None.
+        competition_id: Optional source competition identifier to embed
+            on the returned XTGrid.
+
+    Returns:
+        XTGrid in SPADL coordinate system, with shape
+        (n_zones_x, n_zones_y). Grid orientation: [0, 0] = own-goal
+        bottom-left, [n_zones_x-1, n_zones_y-1] = opponent goal top-right.
+        Matches the dbt seed CSV layout.
+    """
+    if params is None:
+        params = ExpectedThreatParams()
+    counters = bucket_actions_into_counters(actions_df, params)
+    return xt_grid_from_counters(counters, params, competition_id=competition_id)
