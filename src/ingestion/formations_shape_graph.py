@@ -127,6 +127,7 @@ def _make_shape_graph_udf(
             "position_label",
             "vertical_level",
             "horizontal_level",
+            "source_provider",  # PR-1.5: propagate to bronze
             "_row_type",
         ]
         _empty = _pd.DataFrame(columns=_pd.Index(_combined_columns))
@@ -137,6 +138,8 @@ def _make_shape_graph_udf(
         match_id = str(pdf["match_id"].iloc[0])
         period = int(pdf["period"].iloc[0])
         team = str(pdf["team"].iloc[0])
+        # PR-1.5: propagate source_provider from fct_tracking_frames to bronze
+        source_provider = str(pdf["source_provider"].iloc[0]) if "source_provider" in pdf.columns else None
         direction = attacking_direction(team, period)
 
         # Filter to outfield players (same guards as EFPI UDF)
@@ -203,6 +206,7 @@ def _make_shape_graph_udf(
                     "position_label": None,
                     "vertical_level": None,
                     "horizontal_level": None,
+                    "source_provider": source_provider,
                     "_row_type": "formation",
                 }
             )
@@ -236,6 +240,7 @@ def _make_shape_graph_udf(
                         "window_end_s": None,
                         "formation_label": None,
                         "cost": None,
+                        "source_provider": source_provider,
                         "_row_type": "position",
                     }
                 )
@@ -348,6 +353,7 @@ def _run_shape_graph(
             StructField("position_label", StringType(), nullable=True),
             StructField("vertical_level", StringType(), nullable=True),
             StructField("horizontal_level", StringType(), nullable=True),
+            StructField("source_provider", StringType(), nullable=True),  # PR-1.5
             StructField("_row_type", StringType(), nullable=False),
         ]
     )
@@ -370,6 +376,7 @@ def _run_shape_graph(
         "vertical_level",
         "horizontal_level",
         "detector",
+        "source_provider",  # PR-1.5: propagate to bronze
     )
 
     total_written = 0

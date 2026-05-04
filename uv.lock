@@ -734,7 +734,8 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lz4" },
     { name = "oauthlib" },
-    { name = "openpyxl", version = "3.1.5", source = { registry = "https://pypi.org/simple" } },
+    { name = "openpyxl", version = "3.1.2", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-16-luxury-lakehouse-dbt' and extra == 'extra-16-luxury-lakehouse-sdk') or (extra != 'extra-16-luxury-lakehouse-sdk' and extra == 'extra-16-luxury-lakehouse-taipy-app') or (extra != 'extra-16-luxury-lakehouse-dbt' and extra == 'extra-16-luxury-lakehouse-taipy-app')" },
+    { name = "openpyxl", version = "3.1.5", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-16-luxury-lakehouse-dbt' or extra != 'extra-16-luxury-lakehouse-taipy-app'" },
     { name = "pandas" },
     { name = "pyjwt" },
     { name = "python-dateutil" },
@@ -1849,6 +1850,7 @@ dependencies = [
 
 [package.optional-dependencies]
 analytics = [
+    { name = "databricks-sql-connector" },
     { name = "matplotlib" },
     { name = "mplsoccer" },
     { name = "numpy" },
@@ -1931,6 +1933,7 @@ requires-dist = [
     { name = "cachetools", marker = "extra == 'taipy-app'", specifier = ">=6.0.0" },
     { name = "databricks-sdk", marker = "extra == 'sdk'", specifier = ">=0.102.0" },
     { name = "databricks-sdk", marker = "extra == 'taipy-app'", specifier = ">=0.102.0" },
+    { name = "databricks-sql-connector", marker = "extra == 'analytics'", specifier = ">=4.0.0" },
     { name = "datasets", marker = "extra == 'training'", specifier = ">=3.0" },
     { name = "dbt-core", marker = "extra == 'dbt'", specifier = ">=1.10.0" },
     { name = "dbt-databricks", marker = "extra == 'dbt'", specifier = ">=1.10.0" },
@@ -2607,7 +2610,7 @@ name = "openpyxl"
 version = "3.1.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "et-xmlfile" },
+    { name = "et-xmlfile", marker = "(extra == 'extra-16-luxury-lakehouse-dbt' and extra == 'extra-16-luxury-lakehouse-sdk') or (extra != 'extra-16-luxury-lakehouse-sdk' and extra == 'extra-16-luxury-lakehouse-taipy-app') or (extra != 'extra-16-luxury-lakehouse-dbt' and extra == 'extra-16-luxury-lakehouse-taipy-app')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/42/e8/af028681d493814ca9c2ff8106fc62a4a32e4e0ae14602c2a98fc7b741c8/openpyxl-3.1.2.tar.gz", hash = "sha256:a6f5977418eff3b2d5500d54d9db50c8277a368436f4e4f8ddb1be3422870184", size = 185977, upload-time = "2023-03-11T16:58:38.78Z" }
 wheels = [
