@@ -49,7 +49,7 @@ execution:
   training:
     trigger: manual
     runtime: hf-jobs
-    flavor: cpu-basic
+    flavor: cpu-large
     script: "scripts/train_vaep_model_hf.py"
     timeout: "900s"
   inference:

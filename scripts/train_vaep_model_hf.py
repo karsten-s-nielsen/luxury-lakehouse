@@ -1,13 +1,13 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.31-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.32-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
 #     "scikit-learn>=1.3.0",
 #     "xgboost>=2.0",
-#     "silly-kicks>=1.0.0,<2.0",
+#     "psutil>=5.9",
 #     "huggingface-hub>=1.5.0",
 #     "mlflow>=2.17.0",
 # ]
@@ -45,6 +45,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import psutil
 import silly_kicks.spadl as spadl
 import silly_kicks.spadl.config as spadlcfg
 import silly_kicks.vaep.features as fs
@@ -57,6 +58,30 @@ from ingestion.hf_jobs_cost import HF_RATE_CPU_BASIC, HFJobsCostRecorder
 from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 from shared.constants import mlflow_model_uri
 from workflows import workflow
+
+# Validated HF Jobs flavor — single source of truth, asserted against
+# scripts/sk3_mig_b_retrain.py:_FLAVOR_MAP at CI time. Escalated from
+# cpu-basic per spec §1.6 (cpu-basic OOMed at 4323/5404 games on the SK3-MIG
+# data scale; psutil instrumentation in main() reports RSS for next-cycle
+# review).
+VALIDATED_HF_FLAVOR: str = "cpu-large"
+
+# uv silent-downgrade footgun (CLAUDE.md): a top-level silly-kicks pin in PEP
+# 723 deps silently overrides the wheel's transitive pin; explicit pins are an
+# active footgun, not a safety net (verified empirically 2026-05-04).
+_REQUIRED_SK_MIN: tuple[int, int, int] = (3, 0, 1)
+
+
+def _assert_silly_kicks_min() -> None:
+    import silly_kicks
+
+    actual = tuple(int(p) for p in silly_kicks.__version__.split(".")[:3])
+    if actual < _REQUIRED_SK_MIN:
+        raise RuntimeError(
+            f"silly-kicks {silly_kicks.__version__} < required "
+            f"{'.'.join(str(p) for p in _REQUIRED_SK_MIN)} — refusing to train."
+        )
+
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -167,9 +192,24 @@ def extract_features_for_games(
     # Pre-build game index (CLAUDE.md: no boolean mask filter inside loops)
     game_groups: dict[Any, pd.DataFrame] = dict(iter(named.groupby("game_id")))
 
+    # Per spec §2.6: log resident-set high-water marks every 100 games so the
+    # operator can size the next cycle's flavor escalation if cpu-large OOMs.
+    process = psutil.Process()
+    rss_high_water_gb = 0.0
+
     n_processed = 0
     n_failed = 0
-    for game_id in game_ids:
+    for i, game_id in enumerate(game_ids):
+        if i % 100 == 0:
+            rss_gb = process.memory_info().rss / 1e9
+            rss_high_water_gb = max(rss_high_water_gb, rss_gb)
+            logger.info(
+                "feature_extraction game=%d/%d rss=%.2fGB hwm=%.2fGB",
+                i,
+                len(game_ids),
+                rss_gb,
+                rss_high_water_gb,
+            )
         game_actions = game_groups.get(game_id, pd.DataFrame()).reset_index(drop=True)
         if len(game_actions) < 2:
             continue
@@ -229,6 +269,8 @@ def serialize_vaep_models(
 @workflow("wf-vaep", phase="training")
 def main() -> None:
     """Download SPADL actions, train VAEP models, log to MLflow, push to HF Hub."""
+    _assert_silly_kicks_min()
+
     from huggingface_hub import HfApi, get_token, hf_hub_download
 
     hf_token = os.environ.get("HF_TOKEN", "") or (get_token() or "")

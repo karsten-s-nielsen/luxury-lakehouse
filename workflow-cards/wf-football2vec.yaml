@@ -44,8 +44,9 @@ outputs:
 execution:
   training:
     trigger: manual
-    runtime: databricks-notebook
-    script: "notebooks/train_football2vec.py"
+    runtime: hf-jobs
+    flavor: cpu-large
+    script: "scripts/train_football2vec.py"
     timeout: "3600s"
   inference:
     trigger: scheduled

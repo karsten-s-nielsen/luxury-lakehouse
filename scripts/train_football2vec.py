@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.31-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.32-py3-none-any.whl",
 #     "databricks-sdk>=0.20",
 #     "gensim>=4.3",
 #     "huggingface-hub>=1.5.0",
@@ -68,6 +68,29 @@ from analytics.football2vec import (
 )
 from ingestion.artifact_deploy import require_mlflow_env, set_and_verify_mlflow_champion
 from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
+
+# Validated HF Jobs flavor — single source of truth, asserted against
+# scripts/sk3_mig_b_retrain.py:_FLAVOR_MAP at CI time. f2v_v1 trains on
+# CPU; the script docstring's `--flavor cpu-large` example is the validated
+# invocation.
+VALIDATED_HF_FLAVOR: str = "cpu-large"
+
+# uv silent-downgrade footgun (CLAUDE.md): a top-level silly-kicks pin in PEP
+# 723 deps silently overrides the wheel's transitive pin; explicit pins are an
+# active footgun, not a safety net (verified empirically 2026-05-04).
+_REQUIRED_SK_MIN: tuple[int, int, int] = (3, 0, 1)
+
+
+def _assert_silly_kicks_min() -> None:
+    import silly_kicks
+
+    actual = tuple(int(p) for p in silly_kicks.__version__.split(".")[:3])
+    if actual < _REQUIRED_SK_MIN:
+        raise RuntimeError(
+            f"silly-kicks {silly_kicks.__version__} < required "
+            f"{'.'.join(str(p) for p in _REQUIRED_SK_MIN)} — refusing to train."
+        )
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -187,6 +210,8 @@ def upload_gensim_to_uc_volume(
 
 
 def main() -> None:
+    _assert_silly_kicks_min()
+
     require_mlflow_env()
 
     hf_token = get_token() or os.environ.get("HF_TOKEN", "")

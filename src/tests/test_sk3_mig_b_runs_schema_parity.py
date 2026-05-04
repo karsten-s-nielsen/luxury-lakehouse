@@ -117,8 +117,11 @@ def test_struct_type_factory_produces_one_field_per_constant_entry() -> None:
         ("defcon_lite", "compute_only"),
         ("obso", "compute_only"),
         ("pausa", "compute_only"),
-        ("spadl_vaep_publish", "publish"),
-        ("xg_shots_publish", "publish"),
+        # Input publishes (Group 0, spec §2.4 PR-1) — gate Group 1 retrains.
+        ("spadl_vaep_publish", "input_publish"),
+        ("xg_shots_publish", "input_publish"),
+        ("freeze_frame_publish", "input_publish"),
+        # Output publishes (Group 3) — depend on Group 1/2 retrain results.
         ("obso_pausa_values_publish", "publish"),
         ("f2v_embeddings_publish", "publish"),
         ("pre_state", "meta_event"),

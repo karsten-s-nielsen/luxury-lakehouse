@@ -1,0 +1,242 @@
+"""SK3-MIG-B orchestrator + trainer constant-parity sentinels.
+
+Per spec §2.10 — importlib-based introspection (no regex on dict literals or
+docstrings). Catches drift between:
+
+- orchestrator's `_FLAVOR_MAP` and each trainer's `VALIDATED_HF_FLAVOR` (§2.10.1)
+- orchestrator's `_TASK_KEY_MAP` values and the dbt seed task list (§2.10.2)
+- the dbt seed task list and the live mega-job task_keys (§2.10.3, env-gated)
+- trainer-side `silly-kicks` PEP 723 pins (§2.10.4)
+- trainer-side `_REQUIRED_SK_MIN` runtime-assertion constants (§2.10.5)
+
+Origin: 2026-05-04 SK3-MIG-B Phase 9 hardening (PR-1). The 2026-05-04 cycle
+halted on each of the divergences these sentinels cover; once green, they
+prevent reversion.
+"""
+
+from __future__ import annotations
+
+import csv
+import importlib.util
+import os
+import re
+import sys
+from pathlib import Path
+from types import ModuleType
+
+import pytest
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_ORCHESTRATOR_PATH = _REPO_ROOT / "scripts" / "sk3_mig_b_retrain.py"
+_SEED_PATH = _REPO_ROOT / "dbt_project" / "seeds" / "task_workflow_mapping.csv"
+_TRAINER_PATHS: dict[str, Path] = {
+    "vaep": _REPO_ROOT / "scripts" / "train_vaep_model_hf.py",
+    "xg_v2": _REPO_ROOT / "scripts" / "train_xg_v2_hf.py",
+    "f2v_v1": _REPO_ROOT / "scripts" / "train_football2vec.py",
+    "f2v_v2": _REPO_ROOT / "scripts" / "train_football2vec_v2.py",
+    "f2v_360": _REPO_ROOT / "scripts" / "train_football2vec_360.py",
+    "scoutgpt": _REPO_ROOT / "scripts" / "train_scoutgpt_hf.py",
+}
+
+
+_SCRIPTS_DIR = _REPO_ROOT / "scripts"
+
+
+def _load_script_module(path: Path, mod_name: str) -> ModuleType:
+    """Load a PEP 723 script as a Python module.
+
+    Idempotent across pytest collection — re-uses sys.modules entry if present.
+    Adds `scripts/` to sys.path during the load so that PEP 723 trainers using
+    sibling helper modules (e.g. train_football2vec_360_helpers) resolve
+    correctly. The `if __name__ == "__main__"` guard in our scripts makes
+    import-without-main side-effect-free.
+    """
+    cached = sys.modules.get(mod_name)
+    if cached is not None:
+        return cached
+    spec = importlib.util.spec_from_file_location(mod_name, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Could not build importlib spec for {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[mod_name] = module
+    scripts_str = str(_SCRIPTS_DIR)
+    added = scripts_str not in sys.path
+    if added:
+        sys.path.insert(0, scripts_str)
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        if added:
+            sys.path.remove(scripts_str)
+    return module
+
+
+def _seed_task_keys() -> set[str]:
+    with _SEED_PATH.open(encoding="utf-8", newline="") as fh:
+        reader = csv.DictReader(fh)
+        return {row["task_key"] for row in reader}
+
+
+# ── §2.10.2 — orchestrator _TASK_KEY_MAP values ⊆ seed task_keys ────────────
+
+
+def test_orchestrator_task_keys_present_in_seed() -> None:
+    """Every value in `_TASK_KEY_MAP` must be a task_key in the dbt seed.
+
+    Catches:
+    - typos in mappings (e.g. `compute_defcon` vs `compute_defcon_lite`)
+    - stale entries pointing at deleted/never-existed mega-job tasks
+      (e.g. `wf_scoutgpt_export` was never a live task)
+    """
+    orch = _load_script_module(_ORCHESTRATOR_PATH, "sk3_mig_b_retrain")
+    assert hasattr(orch, "_TASK_KEY_MAP"), (
+        "Orchestrator must expose `_TASK_KEY_MAP` as a module-level dict — "
+        "introspectable from CI without regex on a dict literal inside a function body."
+    )
+    task_key_map: dict[str, str] = orch._TASK_KEY_MAP
+    assert isinstance(task_key_map, dict), "_TASK_KEY_MAP must be a dict"
+    seed_keys = _seed_task_keys()
+    missing = {item: tk for item, tk in task_key_map.items() if tk not in seed_keys}
+    assert not missing, (
+        f"_TASK_KEY_MAP values not present in dbt seed task_workflow_mapping.csv: {missing}. "
+        f"Either fix the mapping or add the task to the seed (and confirm it exists in the live mega-job)."
+    )
+
+
+# ── §2.10.1 — orchestrator _FLAVOR_MAP[item] == trainer.VALIDATED_HF_FLAVOR ──
+
+
+def test_orchestrator_flavor_map_matches_trainer_constants() -> None:
+    """Each `_FLAVOR_MAP[item]` must equal the trainer's `VALIDATED_HF_FLAVOR`.
+
+    Single source of truth per trainer; orchestrator inherits from trainers
+    rather than dictating. Catches PR-alpha-style downsizing where the orchestrator
+    silently overrode a validated GPU flavor with a smaller one.
+    """
+    orch = _load_script_module(_ORCHESTRATOR_PATH, "sk3_mig_b_retrain")
+    assert hasattr(orch, "_FLAVOR_MAP"), (
+        "Orchestrator must expose `_FLAVOR_MAP` as a module-level dict (per spec §2.2)."
+    )
+    flavor_map: dict[str, str] = orch._FLAVOR_MAP
+    mismatches: dict[str, tuple[str, str]] = {}
+    for item, trainer_path in _TRAINER_PATHS.items():
+        trainer = _load_script_module(trainer_path, f"_sk3_trainer_{item}")
+        assert hasattr(trainer, "VALIDATED_HF_FLAVOR"), (
+            f"Trainer {trainer_path.name} must declare module-level `VALIDATED_HF_FLAVOR: str` per spec §2.3."
+        )
+        trainer_flavor = trainer.VALIDATED_HF_FLAVOR
+        assert item in flavor_map, f"_FLAVOR_MAP missing entry for cycle item {item!r}"
+        if flavor_map[item] != trainer_flavor:
+            mismatches[item] = (flavor_map[item], trainer_flavor)
+    assert not mismatches, (
+        f"_FLAVOR_MAP / VALIDATED_HF_FLAVOR mismatches (item: orchestrator vs trainer): {mismatches}. "
+        f"Trainer constants are the validated source of truth — sync the orchestrator."
+    )
+
+
+# ── §2.10.3 — seed task_keys ⊆ live mega-job task_keys (env-gated) ──────────
+
+
+@pytest.mark.skipif(
+    not (os.environ.get("DATABRICKS_TOKEN") and os.environ.get("DATABRICKS_HOST")),
+    reason="DATABRICKS_TOKEN+DATABRICKS_HOST required to query live mega-job task list",
+)
+def test_seed_csv_subset_of_live_mega_job() -> None:
+    """Seed task_keys must be a subset of the live mega-job's task_keys.
+
+    Catches seed drift after a workflow-card rename / removal that hasn't been
+    reflected in the seed yet. Skipped on forks / no-secrets PRs.
+    """
+    from databricks.sdk import WorkspaceClient
+
+    w = WorkspaceClient()
+    jobs = list(w.jobs.list(name="soccer-analytics-ingestion-dev"))
+    assert jobs and jobs[0].job_id is not None, "Mega-job 'soccer-analytics-ingestion-dev' not found in workspace"
+    job = w.jobs.get(job_id=jobs[0].job_id)
+    settings = job.settings
+    assert settings is not None, "Mega-job has no settings — workspace API drift?"
+    live_keys = {t.task_key for t in (settings.tasks or []) if t.task_key}
+    seed_keys = _seed_task_keys()
+    orphan = sorted(seed_keys - live_keys)
+    assert not orphan, (
+        f"Seed task_keys not present in live mega-job: {orphan}. "
+        f"Either re-derive the seed from `WorkspaceClient.jobs.get(...).settings.tasks` "
+        f"or document the divergence as 'sub_operation_of'."
+    )
+
+
+# ── §2.10.4 — no trainer pins silly-kicks explicitly in PEP 723 deps ────────
+
+
+_PEP723_HEADER_RE = re.compile(r"^# /// script\s*$", re.MULTILINE)
+_PEP723_FOOTER_RE = re.compile(r"^# ///\s*$", re.MULTILINE)
+_PEP723_SILLY_KICKS_RE = re.compile(
+    r'^#\s+"silly-kicks[^"]*"',  # any "silly-kicks..." dep line
+    re.MULTILINE,
+)
+
+
+def _extract_pep723_block(src: str) -> str:
+    """Return the PEP 723 metadata block contents (between # /// script and # ///).
+
+    Returns an empty string when no PEP 723 block is present (e.g. non-script
+    file). Raises if header found without footer.
+    """
+    header = _PEP723_HEADER_RE.search(src)
+    if header is None:
+        return ""
+    footer = _PEP723_FOOTER_RE.search(src, pos=header.end())
+    if footer is None:
+        raise RuntimeError("PEP 723 block opened with `# /// script` but never closed with `# ///`")
+    return src[header.end() : footer.start()]
+
+
+def test_no_trainer_pins_silly_kicks_explicitly() -> None:
+    """No trainer may pin `silly-kicks` in its PEP 723 deps.
+
+    The wheel's transitive pin (silly-kicks>=3.0.1,<4) is the single source of
+    truth. uv silently picks a conflicting top-level pin over the wheel's
+    transitive pin (verified empirically 2026-05-04 — silly-kicks 1.0.2 loaded
+    under `silly-kicks>=1.0.0,<2.0` + wheel-pulled `>=3.0.1`). An explicit pin
+    in a PEP 723 deps block is therefore an active footgun, not a safety net.
+    """
+    offenders: dict[str, str] = {}
+    for item, path in _TRAINER_PATHS.items():
+        if not path.exists():
+            continue
+        src = path.read_text(encoding="utf-8")
+        block = _extract_pep723_block(src)
+        match = _PEP723_SILLY_KICKS_RE.search(block)
+        if match is not None:
+            offenders[item] = match.group(0).strip()
+    assert not offenders, (
+        f"Trainers with explicit silly-kicks PEP 723 pins (must be removed): {offenders}. "
+        f"Defense against the silent uv-downgrade footgun = runtime version assertion "
+        f"in main(), not a PEP 723 dep pin."
+    )
+
+
+# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (3, 0, 1) ──────────
+
+
+def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
+    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (3, 0, 1)`.
+
+    Per spec §2.10.5: the runtime check inside `main()` is not directly
+    introspectable post-hoc, so we assert the constant. Code review covers
+    that the constant is actually consulted in `main()`. (Honest about what's
+    mechanically testable — Q18 commitment.)
+    """
+    missing: list[str] = []
+    wrong_value: dict[str, object] = {}
+    for item, path in _TRAINER_PATHS.items():
+        trainer = _load_script_module(path, f"_sk3_trainer_{item}")
+        if not hasattr(trainer, "_REQUIRED_SK_MIN"):
+            missing.append(item)
+            continue
+        expected = (3, 0, 1)
+        actual = trainer._REQUIRED_SK_MIN
+        if actual != expected:
+            wrong_value[item] = actual
+    assert not missing, f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (3, 0, 1)`: {missing}"
+    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (3, 0, 1): {wrong_value}"

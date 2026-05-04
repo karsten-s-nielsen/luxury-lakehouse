@@ -66,16 +66,76 @@ _STATUS_INTERVAL_SECONDS = 60
 _GROUP_1_TRAINED = ("vaep", "xg_v2", "ext_v2_p0", "ext_v2_p1")
 _GROUP_1_COMPUTE_ONLY = ("defcon_lite", "obso", "pausa")
 _GROUP_2_TRAINED = ("f2v_v1", "f2v_v2", "f2v_360", "scoutgpt")
-_GROUP_3_PUBLISH = (
+# Group 0 (Step 0a, spec §2.4): input-dataset publishes that gate Group 1
+# trainers — vaep + xg_v2 read these from HF Hub. Run BEFORE Group 1 retrains.
+_GROUP_0_INPUT_PUBLISH = (
     "spadl_vaep_publish",
     "xg_shots_publish",
     "freeze_frame_publish",
+)
+# Group 3 (Step 3): output-dataset publishes that depend on Group 1/2 retrain
+# results. Spec §2.4 moved the 3 input publishes to Group 0; remaining 5 stay.
+_GROUP_3_PUBLISH = (
     "shots_on_target_publish",
     "obso_pausa_inputs_publish",
     "obso_trained_grids_publish",
     "obso_pausa_values_publish",
     "f2v_embeddings_publish",
 )
+
+# Per-trainer HF Jobs flavor. Module-level for CI introspection (sentinel:
+# test_orchestrator_flavor_map_matches_trainer_constants). Each value MUST
+# equal the trainer's `VALIDATED_HF_FLAVOR` constant — trainer docs +
+# workflow-cards are the validated source of truth, not the orchestrator.
+# Values corrected in step 4b lockstep with trainer-side `VALIDATED_HF_FLAVOR`.
+_FLAVOR_MAP: dict[str, str] = {
+    "vaep": "cpu-large",
+    "xg_v2": "l40sx1",
+    "f2v_v1": "cpu-large",
+    "f2v_v2": "l40sx1",
+    "f2v_360": "l40sx1",
+    "scoutgpt": "l40sx1",
+}
+
+# Mega-job task_keys keyed by orchestrator cycle item. Module-level for CI
+# introspection (sentinel: test_orchestrator_task_keys_present_in_seed). Values
+# MUST be present in dbt_project/seeds/task_workflow_mapping.csv AND in the live
+# mega-job's `settings.tasks` list (job_id 302697362345215).
+#
+# Items absent from this map fall through to the cycle_item itself in
+# `_task_key_for_item` — only valid when cycle_item == task_key (e.g. raw
+# task_keys passed by caller).
+_TASK_KEY_MAP: dict[str, str] = {
+    "defcon_lite": "compute_defcon_lite",
+    "obso": "compute_pausa",
+    "pausa": "compute_pausa",
+    "vaep": "compute_spadl_vaep",
+    "xg_v2": "compute_xg_model_v2",
+    # hf_sync_prereq (Step 0b, Q31): triggers the mega-job's `hf_sync` task to
+    # refresh football2vec-training-data + football2vec-360-training-data so
+    # f2v_v2/f2v_360 retrain on FRESH SK3-MIG-corrected inputs in PR-1's
+    # Phase 9 retry. PR-2's wf-hf-sync amendment closes the scoutgpt gap.
+    "hf_sync_prereq": "hf_sync",
+}
+
+# Trained-model items whose "training" + validation happens entirely on the
+# orchestrator host (no HF Job, no mega-job task). _run_cycle_item skips
+# _trigger_mega_job_task for these — the smoke gate is the validator.
+_LOCAL_TRAINED_MODELS: frozenset[str] = frozenset({"ext_v2_p0", "ext_v2_p1"})
+
+# PEP 723 trainer script paths keyed by orchestrator cycle item. Module-level for
+# symmetry with _FLAVOR_MAP and _TASK_KEY_MAP. None entries are local-only items
+# (must also appear in _LOCAL_TRAINED_MODELS).
+_TRAINER_SCRIPT_MAP: dict[str, str | None] = {
+    "vaep": "scripts/train_vaep_model_hf.py",
+    "xg_v2": "scripts/train_xg_v2_hf.py",
+    "ext_v2_p0": None,
+    "ext_v2_p1": None,
+    "f2v_v1": "scripts/train_football2vec.py",
+    "f2v_v2": "scripts/train_football2vec_v2.py",
+    "f2v_360": "scripts/train_football2vec_360.py",
+    "scoutgpt": "scripts/train_scoutgpt_hf.py",
+}
 
 # Per-item cost estimates (USD) — empirical from prior cycles. Drives state.cumulative_cost_usd.
 _ITEM_COST_USD: dict[str, float] = {
@@ -236,7 +296,7 @@ INSERT INTO {state.catalog}.bronze.sk3_mig_b_runs (
   wall_clock_seconds, cost_usd, recorded_at
 ) VALUES (
   '{state.cycle_id}', {_fmt_ts(state.cycle_started_at)}, NULL,
-  '{state.wheel_at_start}', {_fmt_str("0.3.31" if cycle_item != "pre_state" else None)}, '{state.silly_kicks_version}',
+  '{state.wheel_at_start}', {_fmt_str("0.3.32" if cycle_item != "pre_state" else None)}, '{state.silly_kicks_version}',
   {_COST_CAP_USD}, {_WALLTIME_CAP_HOURS},
   '{cycle_item}', '{cycle_item_kind}',
   {_fmt_str(hf_job_id)}, {_fmt_ts(champion_set_at)},
@@ -318,7 +378,7 @@ def _step_0_preflight(state: CycleState) -> None:
 
     pyproject = (_REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     version_lines = [line for line in pyproject.splitlines() if line.startswith("version")]
-    if "0.3.31" not in version_lines[0]:
+    if "0.3.32" not in version_lines[0]:
         raise RuntimeError(f"Wheel version mismatch: {version_lines[0]!r}. PR-α wheel bump may not have merged.")
     _emit_status(state, step="0", phase="running", msg="wheel 0.3.31 OK")
 
@@ -463,15 +523,10 @@ def _mart_for_item(cycle_item: str) -> str:
 
 
 def _task_key_for_item(cycle_item: str) -> str:
-    """Mega-job task_key per workflow card."""
-    return {
-        "defcon_lite": "compute_defcon",
-        "obso": "compute_pausa",
-        "pausa": "compute_pausa",
-        "vaep": "compute_spadl_vaep",
-        "xg_v2": "compute_xg_model_v2",
-        "scoutgpt_export": "wf_scoutgpt_export",
-    }.get(cycle_item, cycle_item)
+    """Mega-job task_key per workflow card. Falls through to cycle_item itself
+    when caller passes a raw task_key (e.g. `hf_sync_prereq` → `hf_sync` will
+    be wired in §2.4b)."""
+    return _TASK_KEY_MAP.get(cycle_item, cycle_item)
 
 
 def _synced_tables_for_item(cycle_item: str) -> list[str]:
@@ -510,38 +565,27 @@ def _estimate_item_cost(cycle_item: str) -> float:
 
 def _dispatch_trained_model(state: CycleState, cycle_item: str) -> str:
     """Invoke HF Jobs (or local) for trained-model cycle items. Returns job_id."""
-    trainer_map = {
-        "vaep": "scripts/train_vaep_model_hf.py",
-        "xg_v2": "scripts/train_xg_v2_hf.py",
-        "ext_v2_p0": None,  # local Win11
-        "ext_v2_p1": None,  # local Win11
-        "f2v_v1": "scripts/train_football2vec.py",
-        "f2v_v2": "scripts/train_football2vec_v2.py",
-        "f2v_360": "scripts/train_football2vec_360.py",
-        "scoutgpt": "scripts/train_scoutgpt_hf.py",
-    }
-    script = trainer_map[cycle_item]
+    script = _TRAINER_SCRIPT_MAP[cycle_item]
     if script is None:
-        phase_module = "phase_0" if "p0" in cycle_item else "phase_1"
+        # ext_v2_p0 / ext_v2_p1 are local-only (no HF Job, no mart write). The
+        # NLL threshold validation is the smoke gate — see
+        # src/tests/sk3_mig_b/test_ext_v2_p{0,1}_post_retrain_smoke.py — which
+        # fetches fct_action_values and calls run_phase{0,1}_harness directly.
+        # Dispatch only smoke-imports the harness module to fail fast on import
+        # drift; _run_cycle_item skips _trigger_mega_job_task for these (they
+        # have no mega-job task_key — would hang in the polling loop).
         cmd = [
             "uv",
             "run",
             "python",
             "-c",
-            f"from analytics.ext_v2.{phase_module} import run_phase; run_phase()",
+            "from analytics.ext_v2.harness import run_phase0_harness, run_phase1_harness; "
+            "print('ext_v2 harness import OK')",
         ]
         subprocess.run(cmd, check=True)
         return f"local-{cycle_item}-{int(time.time())}"
 
-    flavor_map = {
-        "vaep": "cpu-basic",
-        "xg_v2": "l40sx1",
-        "f2v_v1": "gpu-medium",
-        "f2v_v2": "gpu-medium",
-        "f2v_360": "gpu-medium",
-        "scoutgpt": "gpu-large",
-    }
-    flavor = flavor_map[cycle_item]
+    flavor = _FLAVOR_MAP[cycle_item]
 
     from huggingface_hub import HfApi
 
@@ -557,6 +601,10 @@ def _dispatch_trained_model(state: CycleState, cycle_item: str) -> str:
             "DATABRICKS_HOST": os.environ["DATABRICKS_HOST"],
             "MLFLOW_TRACKING_URI": os.environ["MLFLOW_TRACKING_URI"],
             "DATABRICKS_WAREHOUSE_ID": os.environ["DATABRICKS_WAREHOUSE_ID"],
+            # f2v_v1 (scripts/train_football2vec.py) reads
+            # DATABRICKS_SQL_WAREHOUSE_ID; the v2/360 gamma rewrites in PR-2
+            # will need it too. Pass on every dispatch — non-SQL trainers ignore.
+            "DATABRICKS_SQL_WAREHOUSE_ID": os.environ["DATABRICKS_WAREHOUSE_ID"],
         },
     )
     job_id = job.id
@@ -817,7 +865,8 @@ def _run_cycle_item(state: CycleState, cycle_item: str) -> bool:
     if kind == "trained_model":
         hf_job_id = _dispatch_trained_model(state, cycle_item)
         champion_set_at = _promote_champion(state, cycle_item)
-        post_mart_version = _trigger_mega_job_task(state, cycle_item)
+        if cycle_item not in _LOCAL_TRAINED_MODELS:
+            post_mart_version = _trigger_mega_job_task(state, cycle_item)
     elif kind == "compute_only":
         post_mart_version = _trigger_mega_job_task(state, cycle_item)
     else:
@@ -902,11 +951,12 @@ def _step_1_group_1(state: CycleState) -> None:
 
 
 def _step_2_group_2(state: CycleState) -> None:
+    # `wf-scoutgpt-export` is NOT in the live mega-job (Phase 0.5 verification
+    # 2026-05-04). scoutgpt-training-data continues to refresh only when PR-2's
+    # §2.4a.1 amendment wires `wf-scoutgpt-export` into `wf-hf-sync.sub_operations`.
+    # PR-1 retry trains scoutgpt against whatever HF Hub currently holds (stale);
+    # PR-2 retry closes the gap.
     _emit_status(state, step="2", phase="running", msg="Group 2 cycle items")
-    if not state.dry_run:
-        _emit_status(state, step="2", phase="running", msg="ScoutGPT prerequisite: wf-scoutgpt-export")
-        _trigger_mega_job_task(state, "scoutgpt_export")
-        _write_telemetry_row(state, cycle_item="scoutgpt_export", smoke_pass=True)
     for item in _GROUP_2_TRAINED:
         if not _run_cycle_item(state, item):
             sys.exit(3)
@@ -924,66 +974,95 @@ def _get_hf_revision_sha(repo_id: str) -> str | None:
         return None
 
 
-def _step_3_group_3_publish(state: CycleState) -> None:
-    _emit_status(state, step="3", phase="running", msg="Group 3 HF dataset republishes")
-    publishers = [
-        ("spadl_vaep_publish", "scripts/publish_spadl_vaep_hf.py", "luxury-lakehouse/spadl-vaep-action-values"),
-        ("xg_shots_publish", "scripts/publish_xg_shots_hf.py", "luxury-lakehouse/xg-shots"),
-        ("freeze_frame_publish", "scripts/publish_freeze_frame_hf.py", "luxury-lakehouse/xg-freeze-frame-data"),
-        ("shots_on_target_publish", "scripts/publish_shots_on_target_hf.py", "luxury-lakehouse/shots-on-target"),
-        ("obso_pausa_inputs_publish", "scripts/publish_obso_pausa_inputs_hf.py", "luxury-lakehouse/obso-pausa-inputs"),
-        ("obso_trained_grids_publish", "scripts/compute_epv_transition_hf.py", "luxury-lakehouse/obso-trained-grids"),
-        ("obso_pausa_values_publish", "scripts/compute_obso_hf.py", "luxury-lakehouse/obso-pausa-values"),
-        (
-            "f2v_embeddings_publish",
-            "scripts/publish_football2vec_embeddings_hf.py",
-            "luxury-lakehouse/football2vec-player-embeddings",
-        ),
-    ]
-    for cycle_item, script, repo_id in publishers:
-        pre_sha = _get_hf_revision_sha(repo_id)
-        if state.dry_run:
+_GROUP_0_PUBLISHERS: tuple[tuple[str, str, str], ...] = (
+    ("spadl_vaep_publish", "scripts/publish_spadl_vaep_hf.py", "luxury-lakehouse/spadl-vaep-action-values"),
+    ("xg_shots_publish", "scripts/publish_xg_shots_hf.py", "luxury-lakehouse/xg-shots"),
+    ("freeze_frame_publish", "scripts/publish_freeze_frame_hf.py", "luxury-lakehouse/xg-freeze-frame-data"),
+)
+_GROUP_3_PUBLISHERS: tuple[tuple[str, str, str], ...] = (
+    ("shots_on_target_publish", "scripts/publish_shots_on_target_hf.py", "luxury-lakehouse/shots-on-target"),
+    ("obso_pausa_inputs_publish", "scripts/publish_obso_pausa_inputs_hf.py", "luxury-lakehouse/obso-pausa-inputs"),
+    ("obso_trained_grids_publish", "scripts/compute_epv_transition_hf.py", "luxury-lakehouse/obso-trained-grids"),
+    ("obso_pausa_values_publish", "scripts/compute_obso_hf.py", "luxury-lakehouse/obso-pausa-values"),
+    (
+        "f2v_embeddings_publish",
+        "scripts/publish_football2vec_embeddings_hf.py",
+        "luxury-lakehouse/football2vec-player-embeddings",
+    ),
+)
+
+
+def _run_publisher(state: CycleState, step_label: str, cycle_item: str, script: str, repo_id: str) -> None:
+    """Run a single publisher script + record telemetry. Halts on failure."""
+    pre_sha = _get_hf_revision_sha(repo_id)
+    if state.dry_run:
+        _emit_status(state, step=step_label, item=cycle_item, phase="running", msg=f"[dry-run] skip {script}")
+    else:
+        cmd = ["uv", "run", "python", script]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
             _emit_status(
                 state,
-                step="3",
+                step=step_label,
                 item=cycle_item,
-                phase="running",
-                msg=f"[dry-run] skip {script}",
+                phase="halted",
+                msg=f"republish FAILED. Pre-revision SHA: {pre_sha}. stdout={result.stdout[:300]}",
             )
-        else:
-            cmd = ["uv", "run", "python", script]
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode != 0:
-                _emit_status(
-                    state,
-                    step="3",
-                    item=cycle_item,
-                    phase="halted",
-                    msg=f"republish FAILED. Pre-revision SHA: {pre_sha}. stdout={result.stdout[:300]}",
-                )
-                _write_telemetry_row(
-                    state,
-                    cycle_item=cycle_item,
-                    smoke_pass=False,
-                    pre_hf_revision_sha=pre_sha,
-                    smoke_metrics_str={"failure_stdout": result.stdout[:500]},
-                )
-                sys.exit(5)
+            _write_telemetry_row(
+                state,
+                cycle_item=cycle_item,
+                smoke_pass=False,
+                pre_hf_revision_sha=pre_sha,
+                smoke_metrics_str={"failure_stdout": result.stdout[:500]},
+            )
+            sys.exit(5)
 
-        _write_telemetry_row(
-            state,
-            cycle_item=cycle_item,
-            smoke_pass=True,
-            pre_hf_revision_sha=pre_sha,
-            cost_usd=_estimate_item_cost(cycle_item),
-        )
-        _emit_status(
-            state,
-            step="3",
-            item=cycle_item,
-            phase="complete",
-            msg=f"published {repo_id}",
-        )
+    _write_telemetry_row(
+        state,
+        cycle_item=cycle_item,
+        smoke_pass=True,
+        pre_hf_revision_sha=pre_sha,
+        cost_usd=_estimate_item_cost(cycle_item),
+    )
+    _emit_status(state, step=step_label, item=cycle_item, phase="complete", msg=f"published {repo_id}")
+
+
+def _step_0a_group_0_inputs(state: CycleState) -> None:
+    """Group 0 (Step 0a, spec §2.4): vaep + xg_v2 input-dataset republishes.
+
+    Runs synchronously BEFORE Group 1 so vaep + xg_v2 retrain on fresh
+    SK3-MIG-corrected inputs from HF Hub. Halt on first failure.
+    """
+    _emit_status(state, step="0a", phase="running", msg="Group 0 input-dataset republishes")
+    for cycle_item, script, repo_id in _GROUP_0_PUBLISHERS:
+        _run_publisher(state, "0a", cycle_item, script, repo_id)
+    _emit_status(state, step="0a", phase="complete", msg="Group 0 COMPLETE")
+
+
+def _step_0b_hf_sync_prereq(state: CycleState) -> None:
+    """Group 0.5 (Step 0b, spec §2.4b, Q31): refresh f2v_v2 + f2v_360 inputs.
+
+    Triggers the daily mega-job's `hf_sync` task to refresh
+    `football2vec-training-data` and `football2vec-360-training-data` via the
+    existing wf-football2vec-v2-export + wf-prepare-360-data sub-operations.
+    Other mega-job tasks run independently in parallel — canonical pattern
+    per reference_mega_job_orchestrator_design. ~3 min walltime for hf_sync.
+
+    scoutgpt-training-data is NOT covered: wf-scoutgpt-export is added to
+    hf_sync.sub_operations only by PR-2's §2.4a.1 amendment.
+    """
+    _emit_status(state, step="0b", phase="running", msg="hf_sync_prereq trigger (Q31 in scope)")
+    if state.dry_run:
+        _emit_status(state, step="0b", phase="running", msg="[dry-run] skip hf_sync trigger")
+        return
+    _trigger_mega_job_task(state, "hf_sync_prereq")
+    _emit_status(state, step="0b", phase="complete", msg="hf_sync_prereq COMPLETE")
+
+
+def _step_3_group_3_publish(state: CycleState) -> None:
+    _emit_status(state, step="3", phase="running", msg="Group 3 HF dataset republishes")
+    for cycle_item, script, repo_id in _GROUP_3_PUBLISHERS:
+        _run_publisher(state, "3", cycle_item, script, repo_id)
     _emit_status(state, step="3", phase="complete", msg="Group 3 COMPLETE")
 
 
@@ -1131,6 +1210,8 @@ def _step_already_at_or_past(current: str, target: str) -> bool:
     """True if current step is at-or-after target step."""
     order = (
         "preflight",
+        "group_0_inputs",
+        "hf_sync_prereq",
         "group_1",
         "group_2",
         "group_3",
@@ -1138,7 +1219,8 @@ def _step_already_at_or_past(current: str, target: str) -> bool:
         "hf4_cleanup",
         "final_sweep",
     )
-    item_to_step = {item: "group_1" for item in _GROUP_1_TRAINED + _GROUP_1_COMPUTE_ONLY}
+    item_to_step = {item: "group_0_inputs" for item in _GROUP_0_INPUT_PUBLISH}
+    item_to_step.update({item: "group_1" for item in _GROUP_1_TRAINED + _GROUP_1_COMPUTE_ONLY})
     item_to_step.update({item: "group_2" for item in _GROUP_2_TRAINED})
     item_to_step.update({item: "group_3" for item in _GROUP_3_PUBLISH})
     target_step = item_to_step.get(target, target)
@@ -1205,7 +1287,7 @@ def main() -> int:
     state = CycleState(
         cycle_id=cycle_id,
         cycle_started_at=_now_utc(),
-        wheel_at_start="0.3.31",
+        wheel_at_start="0.3.32",
         silly_kicks_version=sk_version,
         catalog=catalog,
         warehouse_id=warehouse_id,
@@ -1222,6 +1304,8 @@ def main() -> int:
     try:
         steps_in_order = [
             ("preflight", lambda: _step_0_preflight(state)),
+            ("group_0_inputs", lambda: _step_0a_group_0_inputs(state)),
+            ("hf_sync_prereq", lambda: _step_0b_hf_sync_prereq(state)),
             ("group_1", lambda: _step_1_group_1(state)),
             ("group_2", lambda: _step_2_group_2(state)),
             ("group_3", lambda: _step_3_group_3_publish(state)),

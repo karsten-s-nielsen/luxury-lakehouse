@@ -67,11 +67,19 @@ _COMPUTE_ONLY_ITEMS: frozenset[str] = frozenset(
         "pausa",
     }
 )
-_PUBLISH_ITEMS: frozenset[str] = frozenset(
+# "input_publish" — input datasets republished BEFORE Group 1 retrains so trainers
+# consume fresh SK3-MIG-corrected data. Spec §2.4 (PR-1): orchestrator step 0a.
+_INPUT_PUBLISH_ITEMS: frozenset[str] = frozenset(
     {
         "spadl_vaep_publish",
         "xg_shots_publish",
         "freeze_frame_publish",
+    }
+)
+# "publish" — output datasets republished AFTER Group 1/2 retrains depend on
+# their results. Spec §2.4: orchestrator step 3.
+_PUBLISH_ITEMS: frozenset[str] = frozenset(
+    {
         "shots_on_target_publish",
         "obso_pausa_inputs_publish",
         "obso_trained_grids_publish",
@@ -130,6 +138,8 @@ def classify_cycle_item(cycle_item: str) -> str:
         return "trained_model"
     if cycle_item in _COMPUTE_ONLY_ITEMS:
         return "compute_only"
+    if cycle_item in _INPUT_PUBLISH_ITEMS:
+        return "input_publish"
     if cycle_item in _PUBLISH_ITEMS:
         return "publish"
     if cycle_item in _META_EVENT_ITEMS:
@@ -137,5 +147,6 @@ def classify_cycle_item(cycle_item: str) -> str:
     raise ValueError(
         f"Unknown cycle_item: {cycle_item!r}. "
         f"Add it to one of _TRAINED_MODEL_ITEMS / _COMPUTE_ONLY_ITEMS / "
-        f"_PUBLISH_ITEMS / _META_EVENT_ITEMS in src/ingestion/sk3_mig_b_telemetry.py."
+        f"_INPUT_PUBLISH_ITEMS / _PUBLISH_ITEMS / _META_EVENT_ITEMS in "
+        f"src/ingestion/sk3_mig_b_telemetry.py."
     )
