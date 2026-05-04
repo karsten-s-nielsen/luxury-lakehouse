@@ -103,6 +103,25 @@ def test_orchestrator_main_reconfigures_stdout_for_utf8() -> None:
     )
 
 
+def test_orchestrator_polling_handles_str_stage_at_runtime() -> None:
+    """huggingface_hub returns JobStatus.stage as `str` at runtime, not JobStage enum.
+
+    The dataclass annotation says `stage: JobStage` but `inspect_job` returns the
+    raw API string ("RUNNING" / "COMPLETED" / "CANCELED" / ...). The polling
+    helper must use a defensive accessor — direct `.value` on a str raises
+    `AttributeError: 'str' object has no attribute 'value'`.
+
+    Origin: 2026-05-04 Phase 9 first dispatch halted on this exact line. Sentinel
+    catches reversion to direct `.value` access.
+    """
+    src = _ORCHESTRATOR.read_text(encoding="utf-8")
+    assert "getattr(stage" in src or "hasattr(stage" in src or "isinstance(stage" in src, (
+        "_poll_hf_job_until_terminal must defensively extract stage value — "
+        "huggingface_hub returns JobStatus.stage as str at runtime, not JobStage enum. "
+        "Use `getattr(stage_obj, 'value', stage_obj)` or equivalent guard."
+    )
+
+
 def test_orchestrator_uses_loaded_at_for_gold_marts() -> None:
     """Gold marts use _loaded_at (dbt convention); only bronze uses _ingested_at.
 
