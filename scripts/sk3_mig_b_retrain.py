@@ -359,14 +359,16 @@ def _step_0_preflight(state: CycleState) -> None:
             raise RuntimeError(f"{var} unset — orchestrator cannot proceed")
     _emit_status(state, step="0", phase="running", msg="env vars OK")
 
-    sql = f"SELECT MAX(_ingested_at) FROM {state.catalog}.dev_gold.fct_action_values"
+    # Gold marts use `_loaded_at` (dbt incremental audit column); only bronze
+    # uses `_ingested_at`. Plan-write-time error caught at first cycle invocation.
+    sql = f"SELECT MAX(_loaded_at) FROM {state.catalog}.dev_gold.fct_action_values"
     rows = _execute_sql(state, sql)
     max_ts = rows[0][0] if rows else None
     sk3_mig_a_merge = datetime(2026, 5, 2, tzinfo=timezone.utc)
     if isinstance(max_ts, str):
         max_ts = datetime.fromisoformat(max_ts.replace("Z", "+00:00"))
     if max_ts is None or max_ts <= sk3_mig_a_merge:
-        raise RuntimeError(f"fct_action_values max(_ingested_at) = {max_ts} <= SK3-MIG-A merge {sk3_mig_a_merge}")
+        raise RuntimeError(f"fct_action_values max(_loaded_at) = {max_ts} <= SK3-MIG-A merge {sk3_mig_a_merge}")
     _emit_status(state, step="0", phase="running", msg=f"fct_action_values fresh ({max_ts}) OK")
 
     sql = (
@@ -544,12 +546,11 @@ def _dispatch_trained_model(state: CycleState, cycle_item: str) -> str:
     from huggingface_hub import HfApi
 
     api = HfApi()
-    # NOTE: `run_jobs` API surface depends on huggingface_hub version; if not
-    # exposed at the project's pinned version, fall back to the underlying REST
-    # endpoint via api._inner_api.post(...). Verified at Phase 9 prep time.
-    job = api.run_jobs(  # type: ignore[attr-defined]
-        script_path=script,
-        hardware=flavor,
+    # JobInfo dataclass exposes `.id` (not `.job_id`); run_uv_job takes `flavor=`
+    # (not `hardware=`). Sentinel test: src/tests/test_sk3_mig_b_orchestrator_apis.py.
+    job = api.run_uv_job(
+        script=script,
+        flavor=flavor,
         secrets={
             "HF_TOKEN": os.environ["HF_TOKEN"],
             "DATABRICKS_TOKEN": os.environ["DATABRICKS_TOKEN"],
@@ -558,8 +559,67 @@ def _dispatch_trained_model(state: CycleState, cycle_item: str) -> str:
             "DATABRICKS_WAREHOUSE_ID": os.environ["DATABRICKS_WAREHOUSE_ID"],
         },
     )
-    state.current_hf_job_id = job.job_id
-    return job.job_id
+    job_id = job.id
+    state.current_hf_job_id = job_id
+    _emit_status(
+        state,
+        step="dispatch",
+        item=cycle_item,
+        phase="running",
+        hf_job_id=job_id,
+        msg=f"HF Job dispatched: script={script} flavor={flavor}",
+    )
+    _poll_hf_job_until_terminal(state, cycle_item, job_id)
+    return job_id
+
+
+def _poll_hf_job_until_terminal(state: CycleState, cycle_item: str, job_id: str) -> None:
+    """Block until HF Job reaches a terminal stage. Raises on non-COMPLETED.
+
+    JobStage values (huggingface_hub 0.20+): RUNNING (non-terminal); COMPLETED,
+    CANCELED, ERROR, DELETED (terminal). Heartbeat each _STATUS_INTERVAL_SECONDS.
+    Walltime cap from _WALLTIME_CAP_HOURS; bypassable via --override-walltime-cap.
+
+    Without polling, _promote_champion + _trigger_mega_job_task would run before
+    the trainer has finished writing the new MLflow Champion + bronze rows.
+    """
+    from huggingface_hub import HfApi
+
+    api = HfApi()
+    poll_started = _now_utc()
+    walltime_cap_seconds = _WALLTIME_CAP_HOURS * 3600
+    terminal_stages = {"COMPLETED", "CANCELED", "ERROR", "DELETED"}
+    last_stage: str | None = None
+    while True:
+        elapsed = (_now_utc() - poll_started).total_seconds()
+        if elapsed > walltime_cap_seconds and not state.override_walltime_cap:
+            raise RuntimeError(
+                f"HF Job {job_id} for {cycle_item} exceeded walltime cap "
+                f"({elapsed:.0f}s > {walltime_cap_seconds:.0f}s). "
+                f"Resume with --override-walltime-cap."
+            )
+        info = api.inspect_job(job_id=job_id)
+        stage_obj = info.status.stage if info.status else None
+        stage_value = stage_obj.value if stage_obj is not None else "UNKNOWN"
+        if stage_value != last_stage:
+            _emit_status(
+                state,
+                step="poll",
+                item=cycle_item,
+                phase="running",
+                hf_job_id=job_id,
+                elapsed_seconds=elapsed,
+                msg=f"HF Job stage: {stage_value}",
+            )
+            last_stage = stage_value
+        if stage_value in terminal_stages:
+            if stage_value != "COMPLETED":
+                msg = info.status.message if info.status else None
+                raise RuntimeError(
+                    f"HF Job {job_id} for {cycle_item} terminated with stage={stage_value} (message: {msg or 'n/a'})"
+                )
+            return
+        time.sleep(_STATUS_INTERVAL_SECONDS)
 
 
 def _promote_champion(state: CycleState, cycle_item: str) -> datetime:
@@ -637,23 +697,38 @@ def _run_smoke_gate(cycle_item: str) -> bool:
     return result.returncode == 0
 
 
-def _refresh_synced_table(state: CycleState, fqn: str) -> None:
-    """Trigger Lakebase synced-table refresh."""
-    cmd = ["uv", "run", "python", "scripts/refresh_synced_tables.py", "--table", fqn]
-    subprocess.run(cmd, check=False)
+def _refresh_lakebase_synced_tables_for_item(state: CycleState, cycle_item: str) -> None:
+    """Trigger Lakebase synced-table refresh + index restoration after a cycle item.
 
+    Delegates to scripts/maintain_synced_tables.py — the canonical wrapper per
+    ADR-005 that chains: grants → refresh → btree+HNSW index creation → verify.
+    The wrapper operates on the whole catalog/schema (no per-table mode), so this
+    is a no-op for cycle items whose marts have no Lakebase synced counterpart
+    (e.g. scoutgpt). Idempotent across cycle items.
 
-def _restore_pg_indexes(state: CycleState, fqn: str) -> None:
-    cmd = [
-        "uv",
-        "run",
-        "python",
-        "scripts/maintain_synced_tables.py",
-        "--skip-refresh",
-        "--table",
-        fqn,
-    ]
-    subprocess.run(cmd, check=False)
+    Non-fatal failure: mart is already updated; sync can be retried operationally
+    (the scheduled `lakebase-grants.yml` GitHub Action also reapplies indexes).
+    """
+    targets = _synced_tables_for_item(cycle_item)
+    if not targets:
+        return
+    _emit_status(
+        state,
+        step="lakebase",
+        item=cycle_item,
+        phase="running",
+        msg=f"refresh + index restoration via maintain_synced_tables.py (targets: {targets})",
+    )
+    cmd = ["uv", "run", "python", "scripts/maintain_synced_tables.py"]
+    result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    if result.returncode != 0:
+        _emit_status(
+            state,
+            step="lakebase",
+            item=cycle_item,
+            phase="running",
+            msg=f"maintain_synced_tables.py rc={result.returncode}: {result.stderr[:500]}",
+        )
 
 
 def _verify_lakebase_parity(state: CycleState, cycle_item: str) -> None:
@@ -775,9 +850,7 @@ def _run_cycle_item(state: CycleState, cycle_item: str) -> bool:
             )
         sys.exit(3)
 
-    for synced_table in _synced_tables_for_item(cycle_item):
-        _refresh_synced_table(state, synced_table)
-        _restore_pg_indexes(state, synced_table)
+    _refresh_lakebase_synced_tables_for_item(state, cycle_item)
     _verify_lakebase_parity(state, cycle_item)
 
     elapsed = (_now_utc() - item_started_at).total_seconds()
@@ -1073,6 +1146,14 @@ def _step_already_at_or_past(current: str, target: str) -> bool:
 
 
 def main() -> int:
+    # Win11's cp1252 default stdout codepage crashes on the Greek alpha in "PR-alpha"
+    # status lines. Force utf-8 at entry — belt-and-suspenders for the operator-runtime
+    # PYTHONIOENCODING=utf-8 PYTHONUTF8=1 envs.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+
     parser = argparse.ArgumentParser(description="SK3-MIG-B retrain orchestrator")
     parser.add_argument(
         "--start-at",
