@@ -102,6 +102,16 @@ jobs:
           # migration file — the previous databricks-sql-connector path masked
           # it by hanging on sql.connect() before reaching args.migration.read_text().
           ( cd "$(git rev-parse --show-toplevel)" && git checkout ${{ github.sha }} -- . )
+          # Symmetric to the PR-added rm above (line ~88-89): PR-DELETED files
+          # were restored by `git checkout origin/main -- .`, but `git checkout
+          # ${{ github.sha }} -- .` does NOT delete them (it only restores files
+          # that exist in HEAD). Without this re-rm, the tarball ships with
+          # deleted .sql models / .yaml workflow cards / etc., and dbt build
+          # fails on `state:modified+` trying to compile them. Latent bug
+          # exposed by SK3-MIG-B PR-alpha (PR #251) — the first PR to delete a
+          # contract-enforced dbt mart + its staging dependency.
+          ( cd "$(git rev-parse --show-toplevel)" && \
+            git diff --name-only --diff-filter=D origin/main..HEAD | xargs -r rm -f )
           git stash pop || true
 
       # state:modified+ catches model changes plus downstream dependents. If any
