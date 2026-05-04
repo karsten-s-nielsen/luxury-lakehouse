@@ -81,6 +81,27 @@ hf jobs uv run scripts/train_xg_v2_hf.py \
 
 `MLFLOW_TRACKING_URI` is always the literal string `"databricks"` in this project; `DATABRICKS_HOST` is the workspace URL. Neither is a secret. Tokens ARE secrets.
 
+### 6. Runtime dependency-version assertion (uv silent-downgrade defense)
+
+**Discovered 2026-05-04 (SK3-MIG-B Phase 9 cycle 1):** uv does NOT fail-fast on conflicting top-level vs wheel-transitive dep pins in PEP 723 deps. The top-level pin wins silently. The cancelled cycle ran on poisoned `silly-kicks==1.0.2` for 4323 games (the wheel pinned `>=3.0.1` but `train_vaep_model_hf.py`'s PEP 723 `dependencies` block declared `silly-kicks>=1.0.0,<2.0`, and uv resolved to 1.0.2 without raising `ResolutionImpossible`). Had the cycle not OOM-cancelled, every Champion artifact would have been silently wrong-coordinate.
+
+**Decision:** every PEP 723 trainer whose correctness depends on a project-owned library version MUST:
+
+1. Declare a module-level required-minimum constant: `_REQUIRED_SK_MIN: tuple[int, int, int] = (3, 0, 1)`.
+2. Define a module-level helper `_assert_silly_kicks_min()` that imports the dep at runtime and raises `RuntimeError` if `__version__` is below the constant.
+3. Call the helper as the FIRST statement of `main()` (before any other work — fail fast).
+
+Explicit upper-bound pins in PEP 723 `dependencies` (e.g., `silly-kicks>=1.0.0,<2.0`) are FORBIDDEN — they are the active footgun. The wheel's transitive pin is the single source of truth. Runtime assertion is the defense.
+
+**CI sentinels (`src/tests/test_sk3_mig_b_orchestrator_invariants.py`):**
+
+- `test_no_trainer_pins_silly_kicks_explicitly` — parses each trainer's PEP 723 metadata block; fails if any trainer declares a `silly-kicks` line.
+- `test_all_trainers_assert_silly_kicks_runtime_min` — `importlib` introspection asserts every trainer has module-level `_REQUIRED_SK_MIN = (3, 0, 1)`.
+
+The pattern is intentionally generalisable: when another project-owned dep needs the same discipline (e.g., a hypothetical `lakehouse-utils` whose version determines schema correctness), add a peer constant + helper + sentinel pair. The CLAUDE.md "Project Conventions" entry "uv silent-downgrade footgun in PEP 723 deps" documents the rationale at the front-door level for future contributors.
+
+**Applied to:** `train_vaep_model_hf.py`, `train_xg_v2_hf.py`, `train_football2vec.py`, `train_football2vec_v2.py`, `train_football2vec_360.py`, `train_scoutgpt_hf.py` (all 6 SK3-MIG-B retrain trainers). Future Databricks-inference-targeting trainers must follow the same pattern.
+
 ## Alternatives considered
 
 | Option | Pros | Cons | Why rejected |

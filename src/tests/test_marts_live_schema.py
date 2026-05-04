@@ -112,6 +112,19 @@ _FCT_ACTION_VALUES_EXPECTED_COLS: dict[str, str] = {
     "competition_native_id": "string",
     "season_native_id": "string",
     "match_id_native": "string",
+    # PR-Cycle-A.4 (2026-04-30, ADR-018): silly-kicks 2.5.0 sportec tackle
+    # qualifier — native string IDs + BIGINT Kimball surrogates. NULL outside
+    # IDSSE / Metrica. The YAML contract under _marts__models.yml has all 8;
+    # this hardcoded dict had drifted (tracked as known broken until 2026-05-04
+    # SK3-MIG-B PR-1).
+    "tackle_winner_player_id_native": "string",
+    "tackle_winner_player_key": "bigint",
+    "tackle_winner_team_id_native": "string",
+    "tackle_winner_team_key": "bigint",
+    "tackle_loser_player_id_native": "string",
+    "tackle_loser_player_key": "bigint",
+    "tackle_loser_team_id_native": "string",
+    "tackle_loser_team_key": "bigint",
     "game_state": "string",
     "data_source": "string",
     "original_event_id": "string",

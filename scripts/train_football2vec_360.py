@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.31-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.32-py3-none-any.whl",
 #     "numpy>=1.26.0",
 #     "pandas>=2.0.0",
 #     "pyarrow>=14.0.0",
@@ -63,6 +63,29 @@ from ingestion.hf_jobs_cost import HF_RATE_A10G_LARGE, HFJobsCostRecorder
 from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 from shared.constants import mlflow_model_uri
 from workflows import workflow
+
+# Validated HF Jobs flavor — single source of truth, asserted against
+# scripts/sk3_mig_b_retrain.py:_FLAVOR_MAP at CI time. The trainer docstring
+# example invocation has no `--flavor` token (per spec §1.3 / Q28); this
+# constant is the FIRST canonical declaration of the flavor for f2v_360.
+VALIDATED_HF_FLAVOR: str = "l40sx1"
+
+# uv silent-downgrade footgun (CLAUDE.md): a top-level silly-kicks pin in PEP
+# 723 deps silently overrides the wheel's transitive pin; explicit pins are an
+# active footgun, not a safety net (verified empirically 2026-05-04).
+_REQUIRED_SK_MIN: tuple[int, int, int] = (3, 0, 1)
+
+
+def _assert_silly_kicks_min() -> None:
+    import silly_kicks
+
+    actual = tuple(int(p) for p in silly_kicks.__version__.split(".")[:3])
+    if actual < _REQUIRED_SK_MIN:
+        raise RuntimeError(
+            f"silly-kicks {silly_kicks.__version__} < required "
+            f"{'.'.join(str(p) for p in _REQUIRED_SK_MIN)} — refusing to train."
+        )
+
 
 logging.basicConfig(
     format='{"time":"%(asctime)s","level":"%(levelname)s","module":"%(module)s","message":"%(message)s"}',
@@ -681,6 +704,8 @@ def _log_to_mlflow(
 @workflow("wf-football2vec-360", phase="training")
 def main() -> None:
     """Train Football2Vec 360: Stage 1 (MLM) or Stage 2 (adversarial debiasing)."""
+    _assert_silly_kicks_min()
+
     parser = argparse.ArgumentParser(description="Train Football2Vec 360-enriched transformer")
     parser.add_argument("--stage", type=int, choices=[1, 2], default=1)
     parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS)

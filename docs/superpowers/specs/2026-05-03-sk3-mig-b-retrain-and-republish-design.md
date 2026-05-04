@@ -28,17 +28,17 @@ The bulk of the cycle. **11 cycle items** — 8 trained-model retrains (xG v1 dr
 
 | Model | Training script | Venue | Estimated wall-clock |
 |---|---|---|---|
-| VAEP | `scripts/train_vaep_model_hf.py` | HF Jobs cpu-basic | ~5 min |
+| VAEP | `scripts/train_vaep_model_hf.py` | HF Jobs cpu-large | ~5 min |
 | xG v2 | `scripts/train_xg_v2_hf.py` | HF Jobs l40sx1 | ~15 min |
 | ExT v2 P0 | `src/analytics/ext_v2/` (Singh baseline) | local Win11 96GB | seconds |
 | ExT v2 P1 | `src/analytics/ext_v2/` (KDE Optuna 200 trials) | local Win11 96GB | ~135 min |
 | DEFCON-lite | `wf-defcon` Databricks workflow (compute-only, no model fitting) | Databricks workflow | per daily-job |
 | OBSO | `wf-obso-pausa` Databricks workflow | Databricks workflow | per daily-job |
 | PAUSA | `wf-obso-pausa` Databricks workflow | Databricks workflow | per daily-job |
-| Football2Vec v1 | `scripts/train_football2vec.py` (NEW — migrated from `notebooks/train_football2vec.py` as part of HF4 expansion; see §4.2) | HF Jobs gpu-medium | ~30 min |
-| Football2Vec v2 | `scripts/train_football2vec_v2.py` | HF Jobs gpu-medium | ~45 min |
-| Football2Vec 360 | `scripts/train_football2vec_360.py` | HF Jobs gpu-medium | ~60 min |
-| ScoutGPT | `wf-scoutgpt-export` (re-tokenize) → `scripts/train_scoutgpt_hf.py` | Databricks workflow → HF Jobs gpu-large | ~3-4 hr |
+| Football2Vec v1 | `scripts/train_football2vec.py` (NEW — migrated from `notebooks/train_football2vec.py` as part of HF4 expansion; see §4.2) | HF Jobs cpu-large | ~30 min |
+| Football2Vec v2 | `scripts/train_football2vec_v2.py` | HF Jobs l40sx1 | ~45 min |
+| Football2Vec 360 | `scripts/train_football2vec_360.py` | HF Jobs l40sx1 | ~60 min |
+| ScoutGPT | `wf-scoutgpt-export` (re-tokenize) → `scripts/train_scoutgpt_hf.py` | Databricks workflow → HF Jobs l40sx1 | ~3-4 hr |
 
 xT v1 production grid is **out of scope** — already shipped under SK3-MIG-A's full-refresh.
 
@@ -122,7 +122,7 @@ GROUP 0 (already done — verify only)
 └── xT v1 production grid
 
 GROUP 1 (action-value family — independent of each other; all consume fct_action_values)
-├── VAEP                 HF Jobs cpu-basic       ~5 min
+├── VAEP                 HF Jobs cpu-large       ~5 min
 ├── xG v2                HF Jobs l40sx1          ~15 min
 ├── DEFCON-lite          Databricks workflow     compute-only
 ├── OBSO                 Databricks workflow     compute-only
@@ -131,10 +131,10 @@ GROUP 1 (action-value family — independent of each other; all consume fct_acti
 
 GROUP 2 (embedding family — checked: ScoutGPT does NOT depend on F2V weights;
          ScoutGPT consumes raw SPADL action sequences from wf-scoutgpt-export)
-├── Football2Vec v1      HF Jobs gpu-medium      ~30 min
-├── Football2Vec v2      HF Jobs gpu-medium      ~45 min
-├── Football2Vec 360     HF Jobs gpu-medium      ~60 min
-└── ScoutGPT             HF Jobs gpu-large       ~3-4 hr
+├── Football2Vec v1      HF Jobs cpu-large       ~30 min
+├── Football2Vec v2      HF Jobs l40sx1          ~45 min
+├── Football2Vec 360     HF Jobs l40sx1          ~60 min
+└── ScoutGPT             HF Jobs l40sx1          ~3-4 hr
                          (requires wf-scoutgpt-export rerun first)
 
 GROUP 3 (HF dataset republishes — depend on PR-α's retrained models being Champion-promoted; ALL via PEP 723 scripts in scripts/, all calling upload_hf_readme per ADR-014; 8 datasets total)
@@ -317,11 +317,11 @@ Step 1  : Group 1 cycle items (mixed dispatch + serial smoke gates)
             Per-cycle-item E2E loop (§5.2 below).
 
 Step 2  : Group 2 cycle items (HF Jobs parallel + serial smoke gates)
-            F2V v1 | F2V v2 | F2V 360 — all HF Jobs gpu-medium, parallel dispatch.
+            F2V v1 (cpu-large) | F2V v2 (l40sx1) | F2V 360 (l40sx1) — parallel dispatch.
             wf-scoutgpt-export → ScoutGPT train (sequential):
               - wf-scoutgpt-export is a Databricks workflow task — triggered
                 via the mega-job pattern from Step 1.
-              - ScoutGPT train is HF Jobs gpu-large — direct dispatch after
+              - ScoutGPT train is HF Jobs l40sx1 — direct dispatch after
                 export completes.
             Per-cycle-item E2E loop.
 
