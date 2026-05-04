@@ -209,7 +209,7 @@ def main() -> None:
     # Tokenize via existing analytics helper (spatial grid).
     tokenizer_config = TokenizerConfig()
     documents = tokenize_match_events(df, tokenizer_config)
-    logger.info("Tokenized %s player-match documents", f"{len(documents):,}")
+    logger.info("Built %s player-match document corpus", f"{len(documents):,}")
     if not documents:
         raise RuntimeError(
             "tokenize_match_events returned 0 documents — verify SQL produces "

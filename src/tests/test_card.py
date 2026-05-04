@@ -16,7 +16,7 @@ from workflows.card import WorkflowCard
 MINIMAL_CARD = textwrap.dedent("""\
     ---
     name: Expected Goals Model
-    id: wf-xg-v1
+    id: wf-xg-v2
     version: "1.0.0"
     status: production
     type: training-and-inference
@@ -31,7 +31,7 @@ MINIMAL_CARD = textwrap.dedent("""\
 FULL_CARD = textwrap.dedent("""\
     ---
     name: Expected Goals Model
-    id: wf-xg-v1
+    id: wf-xg-v2
     version: "2.1.0"
     status: production
     type: training-and-inference
@@ -86,8 +86,8 @@ FULL_CARD = textwrap.dedent("""\
       inference:
         trigger: scheduled
         runtime: databricks-workflow
-        entry_point: compute_xg_model
-        module: ingestion.xg_model
+        entry_point: compute_xg_model_v2
+        module: ingestion.xg_model_v2
         distribution: applyInPandas
         partition_key: competition_id
         schedule: "Every Sunday 06:00 UTC"
@@ -141,9 +141,9 @@ FULL_CARD = textwrap.dedent("""\
       dataset_cards:
         - docs/huggingface/statsbomb-spadl-card.md
       source_code:
-        - src/ingestion/xg_model.py
-        - scripts/train_xg.py
-      tests: src/tests/test_xg_model.py
+        - src/ingestion/xg_model_v2.py
+        - scripts/train_xg_v2_hf.py
+      tests: src/tests/test_xg_model_v2.py
       hf_model: https://huggingface.co/luxury-lakehouse/xg-model
       hf_dataset: https://huggingface.co/datasets/luxury-lakehouse/xg-predictions
     ---
@@ -162,7 +162,7 @@ FULL_CARD = textwrap.dedent("""\
 def test_parse_minimal_valid_card() -> None:
     card = WorkflowCard.from_yaml_string(MINIMAL_CARD)
     assert card.name == "Expected Goals Model"
-    assert card.id == "wf-xg-v1"
+    assert card.id == "wf-xg-v2"
     assert card.version == "1.0.0"
     assert card.status == "production"
     assert card.type == "training-and-inference"
@@ -231,7 +231,7 @@ def test_full_card_execution() -> None:
     assert card.execution.training.flavor == "l40sx1"
     assert card.execution.inference is not None
     assert card.execution.inference.distribution == "applyInPandas"
-    assert card.execution.inference.entry_point == "compute_xg_model"
+    assert card.execution.inference.entry_point == "compute_xg_model_v2"
 
 
 def test_full_card_depends_on() -> None:

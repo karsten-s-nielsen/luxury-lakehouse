@@ -192,7 +192,7 @@ def test_dbt_build_output_marts_depends_on_stage2_and_phase2_compute() -> None:
         "compute_off_ball_xt",
         "compute_pausa",
         "compute_pitch_control",
-        "compute_xg_model",
+        # compute_xg_model retired SK3-MIG-B 2026-05-03 per ADR-023.
         "compute_xg_model_v2",
         "dbt_build_intermediate_marts",
         "hf_sync",

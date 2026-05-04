@@ -141,7 +141,6 @@ execution:
 
 depends_on:
   - wf-dbt-build-intermediate-marts
-  - wf-xg-v1
   - wf-xg-v2
   - wf-defcon
   - wf-off-ball-xt

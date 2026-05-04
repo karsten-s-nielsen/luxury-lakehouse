@@ -21,7 +21,7 @@ def _read(path: str) -> str:
 
 
 LOADER_MODULES = [
-    ("xg_model.py", "xG v1 logistic + XGBoost loader"),
+    # xg_model.py (v1) retired SK3-MIG-B 2026-05-03 per ADR-023.
     ("xg_model_v2.py", "xG v2 set encoder loader"),
     ("spadl_vaep.py", "VAEP scores/concedes loader"),
     ("defcon_lite_common.py", "DEFCON regressor loader"),
@@ -58,8 +58,7 @@ def test_loader_calls_verify_artifact_hash(module_name: str, description: str) -
 @pytest.mark.parametrize(
     ("module_name", "expected_min_call_sites"),
     [
-        # xg_model.py: MLflow path (2 calls: logistic + xgboost) + Volume path (2 calls) = 4
-        ("xg_model.py", 4),
+        # xg_model.py (v1) retired SK3-MIG-B 2026-05-03 per ADR-023.
         # xg_model_v2.py: MLflow v2 (1) + MLflow v1 xgb (1) + Volume v2 (1) + Volume v1 (1) = 4
         ("xg_model_v2.py", 4),
         # spadl_vaep.py: scores + concedes = 2 calls

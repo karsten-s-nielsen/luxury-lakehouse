@@ -18,10 +18,21 @@ if TYPE_CHECKING:
 
 @pytest.fixture(scope="session")
 def workspace_client() -> WorkspaceClient:
-    """Databricks SDK client — authenticated via env (DATABRICKS_TOKEN + DATABRICKS_HOST)."""
+    """Databricks SDK client — authenticated via env (DATABRICKS_TOKEN + DATABRICKS_HOST).
+
+    Skips the test if Databricks credentials aren't configured (CI without
+    Databricks secrets). The smoke gates are runtime gates designed to fire
+    against a deployed Champion + populated mart; they have no semantics in
+    a CI context that lacks lakehouse access.
+    """
+    if not os.environ.get("DATABRICKS_HOST"):
+        pytest.skip("DATABRICKS_HOST not set — smoke gate cannot run without lakehouse access")
     from databricks.sdk import WorkspaceClient
 
-    return WorkspaceClient()
+    try:
+        return WorkspaceClient()
+    except Exception as exc:
+        pytest.skip(f"WorkspaceClient construction failed (no Databricks auth in CI): {exc}")
 
 
 @pytest.fixture(scope="session")

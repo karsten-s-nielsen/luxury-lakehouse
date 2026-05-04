@@ -103,7 +103,7 @@ PR-β). Builds the 4 dimensions + 3 input_marts (`fct_tracking_frames`,
 seeds. Selector: `--select +tag:input_mart +tag:dimension`.
 
 Compute tasks reading these gold marts (`compute_pitch_control`,
-`compute_off_ball_xt`, `compute_xg_model`, `compute_xg_model_v2`,
+`compute_off_ball_xt`, `compute_xg_model_v2`,
 `compute_formations_efpi`, `compute_formations_shape_graph`,
 `compute_line_breaking`) declare `depends_on { task_key = "dbt_build_input_marts" }`
 so they read TODAY's gold rather than yesterday's.

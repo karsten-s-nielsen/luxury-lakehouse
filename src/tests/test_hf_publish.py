@@ -81,7 +81,6 @@ _EXPECTED_MODEL_CARDS: frozenset[str] = frozenset(
         "scoutgpt.md",
         "space-creation.md",
         "vaep-model.md",
-        "xg-model-card.md",
         "xg-v2-model-card.md",
     }
 )

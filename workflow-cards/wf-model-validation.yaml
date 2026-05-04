@@ -58,7 +58,6 @@ execution:
     environment: analytics
 
 depends_on:
-  - wf-xg-v1
   - wf-xg-v2
   - wf-vaep
   - wf-defcon

@@ -6,15 +6,15 @@ from workflows.context import WorkflowContext
 
 
 def test_context_creation_with_defaults() -> None:
-    ctx = WorkflowContext(workflow_id="wf-xg-v1", phase="inference")
-    assert ctx.workflow_id == "wf-xg-v1"
+    ctx = WorkflowContext(workflow_id="wf-xg-v2", phase="inference")
+    assert ctx.workflow_id == "wf-xg-v2"
     assert ctx.phase == "inference"
     assert ctx.run_id  # auto-generated UUID, non-empty
     assert ctx.started_at  # auto-generated timestamp
 
 
 def test_context_is_frozen() -> None:
-    ctx = WorkflowContext(workflow_id="wf-xg-v1", phase="inference")
+    ctx = WorkflowContext(workflow_id="wf-xg-v2", phase="inference")
     try:
         ctx.workflow_id = "wf-other"  # type: ignore[misc]
         raise AssertionError("Should have raised FrozenInstanceError")
@@ -63,6 +63,6 @@ def test_log_extra_all_values_are_strings() -> None:
 
 
 def test_run_id_is_unique_per_instance() -> None:
-    ctx1 = WorkflowContext(workflow_id="wf-xg-v1", phase="inference")
-    ctx2 = WorkflowContext(workflow_id="wf-xg-v1", phase="inference")
+    ctx1 = WorkflowContext(workflow_id="wf-xg-v2", phase="inference")
+    ctx2 = WorkflowContext(workflow_id="wf-xg-v2", phase="inference")
     assert ctx1.run_id != ctx2.run_id

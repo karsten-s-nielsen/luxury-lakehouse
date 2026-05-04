@@ -144,11 +144,12 @@ class TestModelCardParity:
         in_repo_model_basenames = set(_iter_card_basenames(_MODEL_CARDS_DIR))
 
         # Some model cards intentionally use a suffix that differs from the
-        # HF repo name (historical: xg-model-card.md vs xg-model-statsbomb-wyscout,
+        # HF repo name (historical: xg-v2-model-card.md vs xg-v2-model-set-encoder,
         # football2vec-v2-model-card.md vs football2vec-v2). Pre-declare the
         # known aliases so the invariant ignores them.
+        # xg-model-statsbomb-wyscout (v1) was retired SK3-MIG-B 2026-05-03 per
+        # ADR-023; the HF Hub repo is exempted via _MODEL_CARD_EXEMPT above.
         _aliases: dict[str, str] = {
-            "xg-model-statsbomb-wyscout": "xg-model-card",
             "xg-v2-model-set-encoder": "xg-v2-model-card",
             "vaep-model-statsbomb-wyscout": "vaep-model",
             "football2vec-v2": "football2vec-v2-model-card",
@@ -173,8 +174,8 @@ class TestModelCardParity:
         token = _hf_token_or_skip()
         hf_models = _list_hf_models(token)
         # Allow known aliases (stem → HF repo basename).
+        # xg-model-card (v1) deleted in SK3-MIG-B per ADR-023.
         _card_to_repo: dict[str, str] = {
-            "xg-model-card": "xg-model-statsbomb-wyscout",
             "xg-v2-model-card": "xg-v2-model-set-encoder",
             "vaep-model": "vaep-model-statsbomb-wyscout",
             "football2vec-v2-model-card": "football2vec-v2",
