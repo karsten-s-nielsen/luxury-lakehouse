@@ -600,7 +600,9 @@ def _poll_hf_job_until_terminal(state: CycleState, cycle_item: str, job_id: str)
             )
         info = api.inspect_job(job_id=job_id)
         stage_obj = info.status.stage if info.status else None
-        stage_value = stage_obj.value if stage_obj is not None else "UNKNOWN"
+        # huggingface_hub returns JobStatus.stage as `str` at runtime even though the
+        # dataclass annotates it as JobStage enum — getattr-with-default handles both.
+        stage_value = getattr(stage_obj, "value", stage_obj) if stage_obj is not None else "UNKNOWN"
         if stage_value != last_stage:
             _emit_status(
                 state,
