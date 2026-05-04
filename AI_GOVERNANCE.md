@@ -54,7 +54,7 @@ The following facts together constitute the "mitigating context" cited in `REG-0
 | No personal data in any data store; all subjects are professional athletes whose match performance is already in the public domain | `SECURITY.md` line 46 (Finding I-1, Informational) |
 | All training and evaluation data is publicly licensed (CC-BY 4.0, CC-BY-NC 4.0, MIT) | [`NOTICE`](NOTICE) lines 9–32 |
 | No club, league, federation, or employer is a customer, deployer, or partner of the project | `README.md`, `docs/getting-started.md` — absence of any customer list |
-| Model artifacts are published on HuggingFace Hub under CC-BY-NC 4.0 for **research and reproducibility** only | `docs/huggingface/model-cards/xg-model-card.md` line 245; `docs/huggingface/model-cards/vaep-model.md` line 258; etc. |
+| Model artifacts are published on HuggingFace Hub under CC-BY-NC 4.0 for **research and reproducibility** only | `docs/huggingface/model-cards/xg-v2-model-card.md` (NC license stanza); `docs/huggingface/model-cards/vaep-model.md` line 258; etc. |
 | The only user-facing surface is a Taipy dashboard hosted as a HuggingFace Space, labelled an "Interactive Demo · Published Datasets" in its site footer | `hf_taipy_app/src/page_template.py` — shared `_FOOTER_CONTENT` constant |
 | Models consume public event data (StatsBomb, Wyscout) and public tracking data (Metrica, IDSSE, SkillCorner); no biometric, health, IoT, or wearable-device data is processed | [`NOTICE`](NOTICE) third-party data attribution section |
 | No employment decision, recruitment ranking, contract negotiation, or task allocation is made with the outputs of any of these models by anyone, including the maintainer | Project has no employees and no user base that makes such decisions |
@@ -149,8 +149,7 @@ The `REG-01` finding names seven systems by label. This document analyses the fu
 
 | # | System | Workflow card | Source code (primary) | HuggingFace model card | Per-player evaluative? | Status |
 |---|---|---|---|---|---|---|
-| 1 | Expected Goals v1 | [`wf-xg-v1.yaml`](workflow-cards/wf-xg-v1.yaml) | `src/ingestion/xg_model.py`, `scripts/train_xg_model_hf.py` | [`docs/huggingface/model-cards/xg-model-card.md`](docs/huggingface/model-cards/xg-model-card.md) | Indirect — shot-level; aggregates to player xG | Production |
-| 2 | Expected Goals v2 (Deep Sets) | [`wf-xg-v2.yaml`](workflow-cards/wf-xg-v2.yaml) | `src/ingestion/xg_model_v2.py`, `scripts/train_xg_v2_hf.py` | [`docs/huggingface/model-cards/xg-v2-model-card.md`](docs/huggingface/model-cards/xg-v2-model-card.md) | Indirect — shot-level with uncertainty; aggregates to player xG | Production |
+| 1 | Expected Goals v2 (Deep Sets) | [`wf-xg-v2.yaml`](workflow-cards/wf-xg-v2.yaml) | `src/ingestion/xg_model_v2.py`, `scripts/train_xg_v2_hf.py` | [`docs/huggingface/model-cards/xg-v2-model-card.md`](docs/huggingface/model-cards/xg-v2-model-card.md) | Indirect — shot-level with uncertainty; aggregates to player xG | Production |
 | 3 | VAEP Action Valuation | [`wf-vaep.yaml`](workflow-cards/wf-vaep.yaml) | `src/ingestion/spadl_vaep.py`, `scripts/train_vaep_model_hf.py` | [`docs/huggingface/model-cards/vaep-model.md`](docs/huggingface/model-cards/vaep-model.md) | **Direct** — per-action attribution aggregates to per-player total value | Production |
 | 4 | PSxG (Post-Shot Expected Goals) | [`wf-goalkeeper.yaml`](workflow-cards/wf-goalkeeper.yaml) | `src/analytics/goalkeeper.py`, `scripts/train_psxg_hf.py` | [`docs/huggingface/model-cards/psxg-model.md`](docs/huggingface/model-cards/psxg-model.md) | **Direct** — goalkeeper shot-stopping evaluation | Production |
 | 5 | Pitch Control | [`wf-pitch-control.yaml`](workflow-cards/wf-pitch-control.yaml) | `src/analytics/pitch_control.py`, `src/ingestion/pitch_control_batch.py` | [`docs/huggingface/model-cards/pitch-control.md`](docs/huggingface/model-cards/pitch-control.md) | Indirect — surface-level; no per-player output by itself, but feeds 6, 7, 9 | Production (heuristic, no training) |
@@ -175,8 +174,7 @@ The question is hypothetical for every row in the table below because, under the
 
 | # | System | §4(a) recruitment/selection? | §4(b) work-relationship decisions / performance monitoring? | Conditional classification | Current classification (this project) |
 |---|---|---|---|---|---|
-| 1 | xG v1 | Yes — aggregated to player xG can inform scouting shortlists | Yes — can feed squad-selection or contract decisions | **Would be high-risk** under §4 in such deployment | **Not high-risk** (no such deployment) |
-| 2 | xG v2 | Yes — same hypothetical as v1, with better discrimination | Yes — same hypothetical as v1 | **Would be high-risk** under §4 | **Not high-risk** |
+| 1 | xG v2 (Deep Sets) | Yes — aggregated to player xG can inform scouting shortlists | Yes — can feed squad-selection or contract decisions | **Would be high-risk** under §4 in such deployment | **Not high-risk** (no such deployment) |
 | 3 | VAEP | Yes — player-level VAEP is a scouting-ready per-player value | Yes — "goals beyond goals" is canonically used for player valuation | **Would be high-risk** under §4 | **Not high-risk** |
 | 4 | PSxG | Yes — goals-prevented is the canonical shot-stopping metric for goalkeeper recruitment | Yes — could inform goalkeeper contract decisions | **Would be high-risk** under §4 | **Not high-risk** |
 | 5 | Pitch Control | No on its own | No on its own; but indirect, through 6, 7, 9 | **Not directly high-risk**; inherits any classification of its downstream consumers | **Not high-risk** |
@@ -264,8 +262,8 @@ All training data used by the thirteen systems in §5 is publicly licensed open-
 
 | Source | Rough coverage | Licence | Training data for |
 |---|---|---|---|
-| StatsBomb Open Data | ≈ 3,000 matches (events); 323 matches (360 freeze frames) | CC-BY 4.0 | xG v1/v2, VAEP, PSxG, Football2Vec v1/v2/360, ScoutGPT |
-| Wyscout Public Dataset | ≈ 1,900 matches (events) | CC-BY-NC 4.0 | xG v1/v2, VAEP, Football2Vec v1/v2, ScoutGPT |
+| StatsBomb Open Data | ≈ 3,000 matches (events); 323 matches (360 freeze frames) | CC-BY 4.0 | xG v2, VAEP, PSxG, Football2Vec v1/v2/360, ScoutGPT |
+| Wyscout Public Dataset | ≈ 1,900 matches (events) | CC-BY-NC 4.0 | xG v2, VAEP, Football2Vec v1/v2, ScoutGPT |
 | Metrica Sports sample-data | Small sample | Permissive | Pitch Control, Off-Ball xT, OBSO/PAUSA, Space Creation |
 | IDSSE (Bassek et al. 2025, DFL) | 7 Bundesliga matches | CC-BY 4.0 | Pitch Control, Off-Ball xT, OBSO/PAUSA, Space Creation |
 | SkillCorner Open Data | 10 A-League matches | MIT | Pitch Control, Off-Ball xT, OBSO/PAUSA, Space Creation |
@@ -329,7 +327,7 @@ These are minimal, reversible, and can be completed in a single working session.
 
 Every HuggingFace Hub model card listed in §5 must carry a short, clearly-labelled stanza explicitly stating that the model is not intended for, not validated for, and not supplied to any Annex III §4 use, and that any deployer who wishes to use it for such a purpose must perform their own conformity assessment. The stanza appears between "Intended Use" and "Limitations" so HF Hub consumers see it without scrolling past the usage instructions.
 
-**Applies to all thirteen cards** in [`docs/huggingface/model-cards/`](docs/huggingface/model-cards/): `xg-model-card.md`, `xg-v2-model-card.md`, `vaep-model.md`, `psxg-model.md`, `pitch-control.md`, `defcon.md`, `off-ball-xt.md`, `obso-pausa.md`, `space-creation.md`, `football2vec-statsbomb-wyscout.md`, `football2vec-v2-model-card.md`, `football2vec-360-model-card.md`, `scoutgpt.md`. The seven heuristic- and development-status cards have the stanza baked in at creation; the six pre-existing cards were edited to insert the stanza under their existing "Intended Use" section.
+**Applies to all twelve cards** in [`docs/huggingface/model-cards/`](docs/huggingface/model-cards/): `xg-v2-model-card.md`, `vaep-model.md`, `psxg-model.md`, `pitch-control.md`, `defcon.md`, `off-ball-xt.md`, `obso-pausa.md`, `space-creation.md`, `football2vec-statsbomb-wyscout.md`, `football2vec-v2-model-card.md`, `football2vec-360-model-card.md`, `scoutgpt.md`. The xG v1 card was retired with the v1 model on 2026-05-03 (SK3-MIG-B XG1-RETIRE).
 
 ### 12.2 Add a short governance section to `README.md` pointing at this document
 

@@ -13,7 +13,7 @@
 #   skillcorner       — A-League broadcast tracking (10fps, 10 matches via kloppy)
 #   backfill_statsbomb_extra — Backfill _raw_extra_json for GK sub-types (depends on statsbomb)
 #   compute_spadl_vaep — SPADL conversion + VAEP scoring (depends on backfill_extra + wyscout)
-#   compute_xg_model   — Custom xG model scoring (depends on SPADL/VAEP)
+#   compute_xg_model_v2 — v2 Deep Sets + MC dropout xG (depends on SPADL/VAEP; v1 retired SK3-MIG-B)
 #   compute_off_ball_xt — Off-Ball xT from tracking + pitch control (depends on tracking tasks)
 #   compute_pitch_control — Spearman 2017 pitch control values (depends on tracking tasks)
 #   compute_defcon_lite — DEFCON-lite defensive valuation (depends on SPADL/VAEP)
@@ -524,33 +524,9 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "analytics"
   }
 
-  # ── Task: Score shots with custom xG models ─────────────────────────
-  task {
-    task_key        = "compute_xg_model"
-    timeout_seconds = 900
-    max_retries     = 1
-
-    # PR-Cycle-C PR-β (2026-05-02, ADR-019): reads gold.fct_shots (input_mart)
-    # — wait on stage 1. Drops the legacy compute_spadl_vaep edge which was a
-    # serialization-not-data-flow remnant (xg model reads gold.fct_shots, not
-    # bronze.spadl_actions).
-    depends_on {
-      task_key = "dbt_build_input_marts"
-    }
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "compute_xg_model"
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze",
-      ]
-    }
-
-    environment_key = "analytics"
-  }
-
   # ── Task: Score shots with xG v2 set encoder (Deep Sets + MC dropout) ──
+  # XG1-RETIRE (SK3-MIG-B 2026-05-03): the legacy compute_xg_model task was
+  # removed; v2 is the only xG production scorer.
   task {
     task_key        = "compute_xg_model_v2"
     timeout_seconds = 900
@@ -680,7 +656,6 @@ resource "databricks_job" "data_ingestion" {
     depends_on { task_key = "compute_off_ball_xt" }
     depends_on { task_key = "compute_pausa" }
     depends_on { task_key = "compute_pitch_control" }
-    depends_on { task_key = "compute_xg_model" }
     depends_on { task_key = "compute_xg_model_v2" }
     depends_on { task_key = "dbt_build_intermediate_marts" }
     depends_on { task_key = "hf_sync" }
@@ -742,9 +717,6 @@ resource "databricks_job" "data_ingestion" {
     }
     depends_on {
       task_key = "compute_spadl_vaep"
-    }
-    depends_on {
-      task_key = "compute_xg_model"
     }
     depends_on {
       task_key = "resolve_players"

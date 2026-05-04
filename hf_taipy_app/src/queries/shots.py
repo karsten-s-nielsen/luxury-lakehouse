@@ -56,17 +56,21 @@ def fetch_shots(
 
 
 @ttl_cache()
-def fetch_xg_predictions(competition_key: int) -> pd.DataFrame:
-    """Fetch custom v1 xG predictions. Returns empty DataFrame if table unavailable.
+def fetch_xg_predictions_v2(competition_key: int) -> pd.DataFrame:
+    """Fetch v2 Set Encoder xG predictions with MC dropout 95% CI.
+
+    XG1-RETIRE (SK3-MIG-B): replaces fetch_xg_predictions (v1 logistic +
+    gradient-boosted, both retired). v2 mart consumes the same shot_id join
+    key so the Shot Map state needs only the column rename + CI band addition.
 
     Post-PR 3 (ADR-011): scopes on competition_key (Kimball surrogate).
 
-    Expected columns: shot_id, xg_logistic, xg_gradient_boosted.
+    Expected columns: shot_id, xg_set_encoder, xg_ci_lower, xg_ci_upper.
     """
     try:
         return execute_query(
-            f"SELECT shot_id, xg_logistic, xg_gradient_boosted "  # noqa: S608
-            f"FROM {t('fct_xg_predictions_synced')} "
+            f"SELECT shot_id, xg_set_encoder, xg_ci_lower, xg_ci_upper "  # noqa: S608
+            f"FROM {t('fct_xg_predictions_v2_synced')} "
             f"WHERE competition_key = %s "
             f"LIMIT 100000",
             (competition_key,),

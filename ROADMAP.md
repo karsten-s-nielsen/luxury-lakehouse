@@ -60,7 +60,7 @@ Each layer of the platform gets structured telemetry with configurable granulari
 
 | Attribute | Example |
 |-----------|---------|
-| `analytics.model.name` | `"xg_logistic"`, `"vaep_spadl"`, `"pitch_control_spearman"` |
+| `analytics.model.name` | `"xg_set_encoder"`, `"vaep_spadl"`, `"pitch_control_spearman"` |
 | `analytics.model.version` | `"v2"` |
 | `analytics.model.input_count` | `3400` |
 | `analytics.model.output_mean` | `0.098` |

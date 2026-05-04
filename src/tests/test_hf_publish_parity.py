@@ -50,9 +50,17 @@ _HF_ORG = "luxury-lakehouse"
 _DATASET_CARD_EXEMPT: frozenset[str] = frozenset()
 
 # Models that exist on HF Hub but deliberately lack an in-repo card.
-# ``build-artifacts`` hosts the pre-built wheel (no README). All other
-# luxury-lakehouse model repos have in-repo cards.
-_MODEL_CARD_EXEMPT: frozenset[str] = frozenset({"build-artifacts"})
+# ``build-artifacts`` hosts the pre-built wheel (no README).
+# ``xg-model-statsbomb-wyscout`` is the retired xG v1 HF repo (XG1-RETIRE,
+# SK3-MIG-B 2026-05-03); the in-repo card was deleted in Phase 4.5. The HF
+# Hub repo is left in-place for historical reproducibility; an operator
+# follow-up may delete it post-PR-alpha.
+_MODEL_CARD_EXEMPT: frozenset[str] = frozenset(
+    {
+        "build-artifacts",
+        "xg-model-statsbomb-wyscout",
+    }
+)
 
 
 def _hf_token_or_skip() -> str:
@@ -185,3 +193,39 @@ class TestModelCardParity:
             f"In-repo model cards without a matching HF model: {sorted(orphan)}. "
             f"Delete the card OR create the HF model."
         )
+
+
+def test_every_publisher_script_calls_upload_hf_readme() -> None:
+    """HF4 invariant 2 (ADR-014 amendment 2026-05-03): every scripts/publish_*_hf.py
+    and scripts/compute_*_hf.py that uploads to HF Hub MUST call
+    ingestion.hf_publish.upload_hf_readme. Closes the parity gap end-to-end.
+    """
+    import ast as _ast
+    from pathlib import Path as _Path
+
+    repo_root = _Path(__file__).resolve().parents[2]
+    scripts_dir = repo_root / "scripts"
+
+    # In-scope: any script that uploads HF datasets/models.
+    in_scope = sorted(list(scripts_dir.glob("publish_*_hf.py")) + list(scripts_dir.glob("compute_*_hf.py")))
+
+    missing_call: list[str] = []
+    for py_file in in_scope:
+        tree = _ast.parse(py_file.read_text(encoding="utf-8"))
+        found_call = False
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.Call):
+                if isinstance(node.func, _ast.Name) and node.func.id == "upload_hf_readme":
+                    found_call = True
+                    break
+                if isinstance(node.func, _ast.Attribute) and node.func.attr == "upload_hf_readme":
+                    found_call = True
+                    break
+        if not found_call:
+            missing_call.append(str(py_file.relative_to(repo_root)))
+
+    assert not missing_call, (
+        "These HF publisher scripts do NOT call upload_hf_readme (ADR-014 violation):\n  "
+        + "\n  ".join(missing_call)
+        + "\nAdd `from ingestion.hf_publish import upload_hf_readme` and call it post-upload."
+    )

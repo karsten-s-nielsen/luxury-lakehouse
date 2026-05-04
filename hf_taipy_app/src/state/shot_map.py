@@ -15,7 +15,7 @@ from filters import build_scope_label_plain, build_warning, fetch_data_freshness
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from mplsoccer import VerticalPitch
-from queries.shots import fetch_shots, fetch_xg_predictions
+from queries.shots import fetch_shots, fetch_xg_predictions_v2
 from render import AMBER, GRAY, PITCH_BG_COLOR, PITCH_LINE_COLOR, fmt_int, pitch_to_file
 
 from state.shared import _ALL_LABEL, get_competition_key, get_player_id, get_team_id, register_page_refresher
@@ -23,10 +23,12 @@ from state.shared import _ALL_LABEL, get_competition_key, get_player_id, get_tea
 logger = logging.getLogger(__name__)
 
 # ── xG model label -> column mapping ─────────────────────────────────────────
+# XG1-RETIRE (SK3-MIG-B): v1 logistic + gradient-boosted retired. The custom
+# slot now points at v2 Set Encoder (xg_set_encoder), with CI band columns
+# (xg_ci_lower, xg_ci_upper) available for uncertainty display.
 _XG_MODEL_OPTIONS: dict[str, str] = {
     "StatsBomb": "statsbomb_xg",
-    "Custom (Logistic)": "xg_logistic",
-    "Custom (XGBoost)": "xg_gradient_boosted",
+    "v2 Set Encoder": "xg_set_encoder",
 }
 
 # ── Exported state variables (all sm_ prefixed) ─────────────────────────────
@@ -80,11 +82,11 @@ __all__ = [
 
 
 def _join_xg_predictions(shots: pd.DataFrame, competition_key: int) -> tuple[pd.DataFrame, bool]:
-    """LEFT JOIN xG predictions onto shots. Returns (merged_df, has_custom_xg)."""
+    """LEFT JOIN v2 xG predictions onto shots. Returns (merged_df, has_custom_xg)."""
     if shots.empty or "shot_id" not in shots.columns:
         return shots, False
 
-    xg_preds = fetch_xg_predictions(competition_key)
+    xg_preds = fetch_xg_predictions_v2(competition_key)
     if xg_preds.empty:
         return shots, False
 

@@ -42,7 +42,6 @@ All public artifacts are hosted entirely within the HF ecosystem.
 |-------|-------------|-------|
 | [football2vec-v2](https://huggingface.co/luxury-lakehouse/football2vec-v2) | Transformer encoder (128-dim) + adversarial competition debiasing (Ganin GRL) | 114K per-match vectors across 22 competitions, debiased for competition identity |
 | [football2vec-statsbomb-wyscout](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) | Doc2Vec (PV-DM) 32-dim behavioral embeddings (v1 baseline) | 87K per-match vectors across 8,950 players from ~3,000 matches |
-| [xg-model-statsbomb-wyscout](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout) | Calibrated XGBoost + logistic baseline (13 features) | Trained on ~131K shots, ROC-AUC 0.979 on held-out test set |
 | [vaep-model-statsbomb-wyscout](https://huggingface.co/luxury-lakehouse/vaep-model-statsbomb-wyscout) | 2&times; XGBClassifier (P(scores) + P(concedes)) | Trained on ~2,388 matches from StatsBomb + Wyscout |
 | [xg-v2-model-set-encoder](https://huggingface.co/luxury-lakehouse/xg-v2-model-set-encoder) | Deep Sets (Zaheer et al. 2017) + MC dropout (Gal &amp; Ghahramani 2016) | ROC-AUC 0.915, trained on ~131K shots with 360 freeze frames |
 | [psxg-model](https://huggingface.co/luxury-lakehouse/psxg-model) | Logistic regression on goalmouth coordinates (Butcher et al. 2025) | Trained on ~15K on-target shots, JSON-serialised weights |

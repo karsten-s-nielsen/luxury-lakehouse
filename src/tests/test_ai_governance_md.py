@@ -25,7 +25,7 @@ MODEL_CARDS_DIR = REPO_ROOT / "docs" / "huggingface" / "model-cards"
 # matching HuggingFace model card under docs/huggingface/model-cards/.
 PER_PLAYER_EVALUATIVE_CARDS: frozenset[str] = frozenset(
     {
-        "wf-xg-v1",
+        # wf-xg-v1 retired 2026-05-03 (SK3-MIG-B XG1-RETIRE).
         "wf-xg-v2",
         "wf-vaep",
         "wf-goalkeeper",  # PSxG + goalkeeper aggregation
@@ -46,7 +46,6 @@ PER_PLAYER_EVALUATIVE_CARDS: frozenset[str] = frozenset(
 # (historical reasons: some cards use "-model-card.md", others "-model.md",
 # and some are method cards for heuristics), so the mapping is explicit.
 WORKFLOW_TO_MODEL_CARD: dict[str, str] = {
-    "wf-xg-v1": "xg-model-card.md",
     "wf-xg-v2": "xg-v2-model-card.md",
     "wf-vaep": "vaep-model.md",
     "wf-goalkeeper": "psxg-model.md",
