@@ -22,9 +22,6 @@ references: []
 
 inputs:
   datasets:
-    - id: "{catalog}.dev_gold.fct_xg_predictions"
-      source: delta-table
-      description: "xG predictions for calibration validation"
     - id: "{catalog}.dev_gold.fct_action_values"
       source: delta-table
       description: "VAEP action values for distribution validation"

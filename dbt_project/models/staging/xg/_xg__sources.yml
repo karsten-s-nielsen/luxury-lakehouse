@@ -16,6 +16,20 @@ sources:
         error_after: {count: 72, period: hour}
 
     tables:
+      - name: xg_predictions
+        description: >
+          [RETIRED 2026-05-03 SK3-MIG-B PR-alpha per ADR-023] Custom v1 xG model
+          predictions. Source declaration retained for dbt state:modified+
+          compatibility — main's manifest still references this source from
+          stg_xg__predictions, which dbt's saved-state validation cross-checks
+          against the current manifest. Removed entirely once main's manifest
+          no longer references it (operator follow-up after PR-alpha merge).
+        columns:
+          - name: shot_id
+            description: FK to fct_shots (surrogate key).
+          - name: _ingested_at
+            description: UTC timestamp when the row was written.
+
       - name: xg_predictions_v2
         description: >
           v2 xG predictions (Deep Sets set encoder + MC dropout CIs) written by
