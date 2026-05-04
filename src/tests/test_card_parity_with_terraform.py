@@ -148,7 +148,7 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     "backfill_statsbomb_360": None,
     "compute_spadl_vaep": "wf-vaep",
     "compute_expected_threat": "wf-xt-grids",
-    "compute_xg_model": "wf-xg-v1",
+    # compute_xg_model retired SK3-MIG-B 2026-05-03 (XG1-RETIRE per ADR-023).
     "compute_xg_model_v2": "wf-xg-v2",
     "compute_off_ball_xt": "wf-off-ball-xt",
     "compute_pitch_control": "wf-pitch-control",
@@ -202,6 +202,14 @@ _HF_JOBS_SCRIPT_TO_CARD: dict[str, str | None] = {
     # frames) is governed by wf-statsbomb; the downstream consumer model
     # (xG v2) is governed by wf-xg-v2. No independent governance needed.
     "publish_freeze_frame_hf.py": None,
+    # SK3-MIG-B 2026-05-03 (HF4 migration) — added 4 publishers replacing the
+    # notebook publishers in notebooks/publish_datasets.py + publish_obso_data.py.
+    # Each publisher's dataset card is governed by ADR-014; these scripts live
+    # in scripts/ and are invoked on-demand by the SK3-MIG-B orchestrator.
+    "publish_obso_pausa_inputs_hf.py": None,
+    "publish_football2vec_embeddings_hf.py": None,
+    "publish_line_breaking_passes_hf.py": None,
+    "publish_pitch_control_tracking_hf.py": None,
 }
 
 

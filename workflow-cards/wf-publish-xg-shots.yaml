@@ -15,8 +15,8 @@ tags:
 
 # No academic methodology — operational data-publishing script that
 # extracts shot records from fct_shots and publishes to HF Hub as the
-# xG v1/v2 training dataset. Provenance lives in wf-statsbomb/wf-wyscout
-# (sources) and wf-xg-v1/wf-xg-v2 (downstream models).
+# xG v2 training dataset. Provenance lives in wf-statsbomb/wf-wyscout
+# (sources) and wf-xg-v2 (downstream model; v1 retired SK3-MIG-B 2026-05-03).
 references: []
 
 inputs:
@@ -72,10 +72,9 @@ from the gold-layer `fct_shots` table, normalises dtypes, and publishes the
 resulting Parquet dataset (partitioned by `data_source`) to HF Hub as
 `luxury-lakehouse/xg-shot-data`.
 
-This dataset is the primary training input for two downstream workflow cards:
+This dataset is the primary training input for the downstream workflow card:
 
-- `wf-xg-v1` — XGBoost shot model (`scripts/train_xg_model_hf.py`)
-- `wf-xg-v2` — Deep Sets shot model (`scripts/train_xg_v2_hf.py`)
+- `wf-xg-v2` — Deep Sets shot model (`scripts/train_xg_v2_hf.py`); v1 retired SK3-MIG-B 2026-05-03 per ADR-023.
 
 ## Trigger Policy
 

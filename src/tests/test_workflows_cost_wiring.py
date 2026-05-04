@@ -50,8 +50,8 @@ _LATEST_RUN_COLS = [
 def _make_cold_costs(**overrides: Any) -> pd.DataFrame:
     """Build a realistic cold_costs DataFrame (cost aggregates only, no timing)."""
     base = {
-        "workflow_id": ["wf-vaep", "wf-xg-v1", "wf-football2vec"],
-        "task_key": ["compute_spadl_vaep", "compute_xg_model", "compute_embeddings_v1"],
+        "workflow_id": ["wf-vaep", "wf-xg-v2", "wf-football2vec"],
+        "task_key": ["compute_spadl_vaep", "compute_xg_model_v2", "compute_embeddings_v1"],
         "total_cost_usd": [0.50, 0.10, 0.30],
         "total_dbu": [1.5, 0.3, 0.9],
         "run_count": [10, 5, 3],
@@ -63,7 +63,7 @@ def _make_cold_costs(**overrides: Any) -> pd.DataFrame:
 def _make_latest_run_metrics(**overrides: Any) -> pd.DataFrame:
     """Build latest-run-per-workflow DataFrame with timing + entity data."""
     base = {
-        "workflow_id": ["wf-vaep", "wf-xg-v1", "wf-football2vec"],
+        "workflow_id": ["wf-vaep", "wf-xg-v2", "wf-football2vec"],
         "cold_start_seconds": [45, 30, 60],
         "duration_seconds": [120, 15, 90],
         "guard_duration_seconds": [5, 2, 8],
@@ -86,11 +86,11 @@ def _make_cards() -> dict[str, dict[str, Any]]:
             },
             "monitoring": {"freshness_sla_hours": 48},
         },
-        "wf-xg-v1": {
-            "name": "xG Model v1",
+        "wf-xg-v2": {
+            "name": "xG Model v2 (Deep Sets)",
             "type": "train_infer",
             "execution": {
-                "inference": {"runtime": "databricks", "trigger": "scheduled", "entry_point": "compute_xg_model"},
+                "inference": {"runtime": "databricks", "trigger": "scheduled", "entry_point": "compute_xg_model_v2"},
             },
             "monitoring": {"freshness_sla_hours": 48},
         },
@@ -339,7 +339,7 @@ class TestTableColumns:
         cards = _make_cards()
         cold = _make_cold_costs()
         latest = _make_latest_run_metrics(
-            workflow_id=["wf-vaep", "wf-xg-v1", "wf-football2vec"],
+            workflow_id=["wf-vaep", "wf-xg-v2", "wf-football2vec"],
             cold_start_seconds=[45, 30, 60],
             duration_seconds=[120, 15, 90],
             guard_duration_seconds=[5, 2, 8],
@@ -369,7 +369,7 @@ class TestTableColumns:
         cards = _make_cards()
         cold = _make_cold_costs()
         latest = _make_latest_run_metrics(
-            workflow_id=["wf-vaep", "wf-xg-v1", "wf-football2vec"],
+            workflow_id=["wf-vaep", "wf-xg-v2", "wf-football2vec"],
             cold_start_seconds=[45, 30, 60],
             duration_seconds=[120, 15, 90],
             guard_duration_seconds=[5, 2, 8],

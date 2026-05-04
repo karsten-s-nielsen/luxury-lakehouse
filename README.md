@@ -8,7 +8,7 @@
 
 ---
 
-[![CI](https://github.com/karsten-s-nielsen/luxury-lakehouse/actions/workflows/python-ci.yml/badge.svg)](https://github.com/karsten-s-nielsen/luxury-lakehouse/actions/workflows/python-ci.yml) [![Try the Demo](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Live%20Demo-yellow?style=flat-square)](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) [![Datasets](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Datasets-blue?style=flat-square)](https://huggingface.co/luxury-lakehouse) [![football2vec v2](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-football2vec%20v2-green?style=flat-square)](https://huggingface.co/luxury-lakehouse/football2vec-v2) [![xG Model](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-xG%20Model-green?style=flat-square)](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout)
+[![CI](https://github.com/karsten-s-nielsen/luxury-lakehouse/actions/workflows/python-ci.yml/badge.svg)](https://github.com/karsten-s-nielsen/luxury-lakehouse/actions/workflows/python-ci.yml) [![Try the Demo](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Live%20Demo-yellow?style=flat-square)](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) [![Datasets](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Datasets-blue?style=flat-square)](https://huggingface.co/luxury-lakehouse) [![football2vec v2](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-football2vec%20v2-green?style=flat-square)](https://huggingface.co/luxury-lakehouse/football2vec-v2) [![xG v2 Set Encoder](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-xG%20v2%20Set%20Encoder-green?style=flat-square)](https://huggingface.co/luxury-lakehouse/xg-v2-model-set-encoder)
 
 ## What Is This?
 
@@ -34,7 +34,7 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 
 ## Architecture
 
-> **[View interactive C4 diagrams](docs/c4/architecture.html)** &mdash; System Context, Container, and Deployment levels, generated from [Structurizr DSL](docs/c4/architecture.dsl) via the Structurizr &rarr; PlantUML rendering pipeline.
+> **[View interactive C4 diagrams](docs/c4/architecture.html)** &mdash; System Context and Container levels, generated from [Structurizr DSL](docs/c4/architecture.dsl) via the Structurizr &rarr; PlantUML rendering pipeline. Reflects post-SK3-MIG-B + post-XG1-RETIRE state (silly-kicks 3.0.1, wheel 0.3.31).
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
@@ -67,7 +67,7 @@ This project is a solo-maintained research artifact operating on publicly licens
 
 Built on the [Soccermatics](https://soccermatics.readthedocs.io/) curriculum by David Sumpter:
 
-- **Expected Goals (xG)** — Custom calibrated XGBoost (13 features, ROC-AUC 0.979) + logistic baseline, trained on ~131K shots, [published to Hugging Face](https://huggingface.co/luxury-lakehouse/xg-model-statsbomb-wyscout)
+- **Expected Goals (xG v2)** — Deep Sets set encoder (Zaheer et al. 2017) + MC dropout 95% CI (Gal & Ghahramani 2016), ROC-AUC 0.915, trained on ~131K shots with 360 freeze frames, [published to Hugging Face](https://huggingface.co/luxury-lakehouse/xg-v2-model-set-encoder)
 - **Expected Threat (xT)** — Data-driven pitch zone valuation via Markov chains (computed from 2.2M SPADL (Simplified Player Action Description Language) actions)
 - **Pass Networks** — Interactive team passing structure with hover tooltips (Plotly)
 - **Heat Maps** — Action density visualization for players and teams

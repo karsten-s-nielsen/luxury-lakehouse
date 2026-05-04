@@ -51,7 +51,7 @@ import pytest
 # mart. Source of truth is `src/ingestion/model_validation.py`; this table
 # mirrors it. Update both together.
 _VALIDATOR_MART_COLUMNS: dict[str, tuple[str, ...]] = {
-    "fct_xg_predictions": ("xg_gradient_boosted",),
+    # fct_xg_predictions (v1) retired SK3-MIG-B 2026-05-03 per ADR-023.
     "fct_action_values": ("vaep_value",),
     "fct_passes": ("match_key", "is_line_breaking"),
     "fct_physical_stats": ("max_speed_ms",),

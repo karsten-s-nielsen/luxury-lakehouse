@@ -46,7 +46,6 @@ execution:
 depends_on:
   - wf-vaep
   - wf-entity-resolution
-  - wf-xg-v1
   - wf-elastic-sync
 
 idempotency:

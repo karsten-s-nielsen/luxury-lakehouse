@@ -3,9 +3,9 @@ version: 2
 sources:
   - name: xg
     description: >
-      Custom xG model predictions produced by the compute_xg_model scoring
-      pipeline. Contains logistic regression baseline and calibrated XGBoost
-      expected goals values for every shot.
+      v2 xG model predictions (Deep Sets set encoder + MC dropout CIs).
+      Post-XG1-RETIRE: v1 logistic + gradient-boosted predictions retired
+      (SK3-MIG-B PR-alpha, 2026-05-03).
     database: soccer_analytics
     schema: bronze
     loader: python_wheel
@@ -18,22 +18,17 @@ sources:
     tables:
       - name: xg_predictions
         description: >
-          Custom v1 xG model predictions for all shots. Each row is one shot
-          with logistic regression baseline and calibrated XGBoost xG values.
-          Written by the compute_xg_model pipeline.
+          [RETIRED 2026-05-03 SK3-MIG-B PR-alpha per ADR-023] Custom v1 xG model
+          predictions. Source declaration retained for dbt state:modified+
+          compatibility — main's manifest still references this source from
+          stg_xg__predictions, which dbt's saved-state validation cross-checks
+          against the current manifest. Removed entirely once main's manifest
+          no longer references it (operator follow-up after PR-alpha merge).
         columns:
           - name: shot_id
-            description: FK to fct_shots (surrogate key)
-          - name: match_id
-            description: FK to fct_match_summary (legacy; kept for bronze back-compat)
-          - name: competition_id
-            description: FK to dim_competitions
-          - name: xg_logistic
-            description: Logistic regression baseline xG (distance + angle only)
-          - name: xg_gradient_boosted
-            description: Calibrated XGBoost xG (all 13 features)
+            description: FK to fct_shots (surrogate key).
           - name: _ingested_at
-            description: UTC timestamp when the row was written
+            description: UTC timestamp when the row was written.
 
       - name: xg_predictions_v2
         description: >

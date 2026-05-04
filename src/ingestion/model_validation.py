@@ -116,61 +116,11 @@ def _load_scalar_baselines(
 # ---------------------------------------------------------------------------
 
 
-def _validate_xg_predictions(
-    spark: SparkSession,
-    catalog: str,
-    baselines: dict[tuple[str, str], dict[str, float]],
-    logger: logging.Logger,
-) -> list[ValidationResult]:
-    """Validate xG model predictions: mean prediction PSI and metric thresholds."""
-    from analytics.model_validation import ValidationResult, check_physical_bounds
-    from ingestion.utils import tolerate_missing_table
-
-    results: list[ValidationResult] = []
-    table = f"{catalog}.{DEFAULT_GOLD_SCHEMA}.fct_xg_predictions"
-
-    xg_df: pd.DataFrame | None = None
-    with tolerate_missing_table(logger, f"Cannot find {table} — skipping xG validation"):
-        xg_df = spark.table(table).select("xg_gradient_boosted").limit(500_000).toPandas()
-
-    if xg_df is None or xg_df.empty:
-        if xg_df is not None:
-            logger.info("No xG predictions to validate")
-        return results
-
-    predictions = xg_df["xg_gradient_boosted"].dropna().to_numpy(dtype=np.float64)
-
-    # Mean prediction check against baseline
-    mean_pred = float(np.mean(predictions))
-    key = ("xg_xgboost", "mean_prediction")
-    if key in baselines:
-        bl = baselines[key]
-        # PSI: compare current distribution vs reference mean (generate reference from mean)
-        ref_value = bl["reference_value"]
-        deviation = abs(mean_pred - ref_value)
-        if deviation > bl["threshold_alert"]:
-            status = "alert"
-        elif deviation > bl["threshold_warn"]:
-            status = "warn"
-        else:
-            status = "ok"
-        results.append(
-            ValidationResult(
-                model_name="xg_xgboost",
-                metric_name="mean_prediction",
-                value=mean_pred,
-                status=status,
-                threshold_warn=bl["threshold_warn"],
-                threshold_alert=bl["threshold_alert"],
-                reference_value=ref_value,
-            )
-        )
-
-    # Physical bounds: xG must be in [0, 1]
-    bounds_result = check_physical_bounds(predictions, 0.0, 1.0, "xg_xgboost", "prediction_range")
-    results.append(bounds_result)
-
-    return results
+# _validate_xg_predictions (v1) retired SK3-MIG-B 2026-05-03 per ADR-023.
+# v2 validation lives in src/tests/sk3_mig_b/test_xg_v2_post_retrain_smoke.py
+# (calibration ECE, bounds, MC dropout CI band) — fired post-retrain by the
+# orchestrator's _run_smoke_gate. A follow-up may add a daily Databricks-side
+# v2 validator parallel to the other _validate_* functions in this module.
 
 
 def _validate_action_values(
@@ -407,7 +357,7 @@ def run_pipeline(
 
     # Run all validators
     all_results: list[ValidationResult] = []
-    all_results.extend(_validate_xg_predictions(spark, catalog, baselines, logger))
+    # _validate_xg_predictions (v1) retired SK3-MIG-B 2026-05-03 per ADR-023.
     all_results.extend(_validate_action_values(spark, catalog, baselines, logger))
     all_results.extend(_validate_line_breaking(spark, catalog, baselines, logger))
     all_results.extend(_validate_physical_stats(spark, catalog, baselines, logger))

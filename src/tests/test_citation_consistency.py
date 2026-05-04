@@ -82,7 +82,8 @@ def test_pitch_control_source_code_docstring_correct() -> None:
 # ---------------------------------------------------------------------------
 # Issue 2: Rathke citation is decorative-only — no anchor in src/analytics/.
 # Replaced with the project-canonical xG citation (Robberechts & Davis 2020)
-# from workflow-cards/wf-xg-v1.yaml:16. D56-4, Option A (approved 2026-04-13).
+# from workflow-cards/wf-xg-v2.yaml. D56-4, Option A (approved 2026-04-13).
+# v1 workflow card retired SK3-MIG-B 2026-05-03 per ADR-023.
 # ---------------------------------------------------------------------------
 
 
@@ -97,7 +98,7 @@ def test_match_summary_no_rathke_citation() -> None:
     )
     assert "Robberechts" in src, (
         "match_summary.py should now cite 'Robberechts & Davis (2020)' — the project-canonical "
-        "xG citation from wf-xg-v1.yaml:16."
+        "xG citation from wf-xg-v2.yaml."
     )
 
 

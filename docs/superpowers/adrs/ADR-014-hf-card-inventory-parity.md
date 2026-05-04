@@ -70,3 +70,22 @@ CLAUDE.md Project Conventions gains one bullet naming this helper as the only HF
 - **ADRs:** sibling of ADR-012 (training-to-production *weight* delivery); depends on ADR-011 (Kimball `match_key` — the 3 sunset-block datasets whose 2026-07-22 windows this ADR's helper makes visible).
 - **Enforcement tests:** `src/tests/test_hf_publish.py` (helper logic + content invariants), `src/tests/test_hf_publish_parity.py` (HF-Hub ↔ in-repo inventory parity).
 - **External references:** HuggingFace `HfApi.upload_file` documentation — `https://huggingface.co/docs/huggingface_hub/en/package_reference/hf_api`.
+
+
+## Amendment 2026-05-03 — SK3-MIG-B HF4 fold-in
+
+**Rule extended:** HF publishers and trainers are PEP 723 scripts in `scripts/`. Notebook publishers and trainers are forbidden.
+
+**Migration:** filename == repo basename + `upload_hf_readme` after the data upload, no exceptions.
+
+**Enforcement (CI tests, both added in SK3-MIG-B PR-α):**
+
+1. `src/tests/test_no_notebook_hf_publishers.py` — fails if `notebooks/publish_*.py` or `notebooks/train_*.py` exist (cleanest invariant) AND AST-walks any present files for forbidden calls (`HfApi.upload_folder`, `HfApi.upload_file`, `HfApi.create_commit`, `mlflow.register_model`, `mlflow.set_registered_model_alias`).
+2. `src/tests/test_hf_publish_parity.py` extended with `test_every_publisher_script_calls_upload_hf_readme` — AST-walks `scripts/publish_*_hf.py` AND `scripts/compute_*_hf.py` and asserts every file calls `ingestion.hf_publish.upload_hf_readme`.
+
+**Migrations completed in this PR:**
+
+- `notebooks/publish_datasets.py` -> 3 PEP 723 scripts (`publish_line_breaking_passes_hf.py`, `publish_pitch_control_tracking_hf.py`, `publish_football2vec_embeddings_hf.py`); duplicates of existing canonical publishers (`publish_spadl_vaep_hf.py`, `publish_freeze_frame_hf.py`) deleted.
+- `notebooks/publish_obso_data.py` -> `scripts/publish_obso_pausa_inputs_hf.py`.
+- `notebooks/train_football2vec.py` -> `scripts/train_football2vec.py` (F2V v1 trainer).
+- `notebooks/train_xg_model.py` -> DELETED (xG v1 retired entirely per XG1-RETIRE — same SK3-MIG-B PR-alpha).

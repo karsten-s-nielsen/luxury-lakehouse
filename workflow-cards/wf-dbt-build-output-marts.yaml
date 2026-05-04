@@ -121,9 +121,6 @@ outputs:
     - id: "{catalog}.dev_gold.fct_workflow_costs"
       destination: delta-table
       dbt_model: fct_workflow_costs
-    - id: "{catalog}.dev_gold.fct_xg_predictions"
-      destination: delta-table
-      dbt_model: fct_xg_predictions
     - id: "{catalog}.dev_gold.fct_xg_predictions_v2"
       destination: delta-table
       dbt_model: fct_xg_predictions_v2
@@ -141,7 +138,6 @@ execution:
 
 depends_on:
   - wf-dbt-build-intermediate-marts
-  - wf-xg-v1
   - wf-xg-v2
   - wf-defcon
   - wf-off-ball-xt

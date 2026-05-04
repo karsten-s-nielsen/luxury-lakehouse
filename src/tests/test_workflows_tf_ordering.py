@@ -246,7 +246,9 @@ def test_data_ingestion_parser_count_anchor() -> None:
     # task with three sequential tasks (`dbt_build_input_marts`,
     # `_intermediate_marts`, `_output_marts`) per ADR-019. Net +2 tasks
     # (3 added, 1 removed).
-    assert len(task_keys) == 33, f"expected 33 task blocks on data_ingestion, parser found {len(task_keys)}"
+    # 33 → 32 in SK3-MIG-B PR-alpha (2026-05-03): XG1-RETIRE removed
+    # `compute_xg_model` (per ADR-023).
+    assert len(task_keys) == 32, f"expected 32 task blocks on data_ingestion, parser found {len(task_keys)}"
 
 
 if __name__ == "__main__":

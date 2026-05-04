@@ -127,9 +127,9 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • input_mart (3): fct_tracking_frames, fct_shots,               │    │
 │  │    fct_discipline_events                                         │    │
 │  │  • intermediate_mart (1): fct_action_values                      │    │
-│  │  • output_mart (32): fct_passes, fct_match_summary,              │    │
+│  │  • output_mart (31): fct_passes, fct_match_summary,              │    │
 │  │    fct_physical_stats, fct_player_stats, fct_player_percentiles, │    │
-│  │    fct_xg_predictions, fct_xg_predictions_v2, fct_off_ball_xt,   │    │
+│  │    fct_xg_predictions_v2, fct_off_ball_xt,                       │    │
 │  │    fct_formation_labels, fct_player_positions, fct_position_maps,│    │
 │  │    fct_player_embeddings(_career/_season/_career_360/_season_360)│    │
 │  │    fct_line_breaking_results, fct_pausa_values, fct_pausa_rankings│   │
@@ -181,7 +181,6 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 | Source Table | Synced Table | Primary Key | Rows |
 |-------------|-------------|-------------|------|
 | `dev_gold.fct_shots` | `fct_shots_synced` | `shot_id` | 131,077 |
-| `dev_gold.fct_xg_predictions` | `fct_xg_predictions_synced` | `shot_id` | 87,999 |
 | `dev_gold.fct_passes` | `fct_passes_synced` | `pass_id` | 5,052,415 |
 | `dev_gold.fct_player_stats` | `fct_player_stats_synced` | `player_stats_id` | 19,154 |
 | `dev_gold.fct_match_summary` | `fct_match_summary_synced` | `match_id` | 3,464 |
@@ -915,7 +914,7 @@ Consolidated list of academic citations referenced across UI pages and analytics
 | Lamberts (2025) | Goalkeeper Distribution Value Model. DOI: 10.1007/978-3-031-31772-9_19 | Goalkeeper Analytics |
 | Lee, Jo, Hong, Bauer & Ko (2026) | "Valuing La Pausa" (PAUSA). *MIT Sloan Sports Analytics Conference 2026* | Pass Timing page, `wf-obso-pausa` |
 | Pena & Touchette (2012) | "A network theory analysis of football strategies." *arXiv:1206.6904* | Pass Network page |
-| Robberechts & Davis (2020) | "How Data Availability Affects the Ability to Learn Good xG Models." | Match Summary, Shot Map, `wf-xg-v1` (replaced Rathke per D56 Option A, 2026-04-13) |
+| Robberechts & Davis (2020) | "How Data Availability Affects the Ability to Learn Good xG Models." | Match Summary, Shot Map, `wf-xg-v2` (replaced Rathke per D56 Option A, 2026-04-13; v1 retired SK3-MIG-B 2026-05-03 per ADR-023) |
 | Shazeer, N. (2020) | "GLU Variants Improve Transformer." *arXiv:2002.05202* | `src/analytics/scoutgpt_decoder.py` (swiglu branch), `wf-scoutgpt` |
 | Singh, Karun (2018) | "Introducing Expected Threat (xT)." (blog: karun.in/blog/expected-threat.html) | Movement & Pressing, `wf-xt-grids`, `wf-off-ball-xt` |
 | Sotudeh, H. (2026) | "Identification of Team Tactical Formations and Player Positions in Association Football." *PhD thesis, ETH Zurich (DISS. ETH NO. 31732)*. Published: *npj Complexity*, DOI: 10.1038/s44260-025-00047-x | Tactical Positions, `src/analytics/shape_graph_construction.py`, `wf-shape-graphs` |
