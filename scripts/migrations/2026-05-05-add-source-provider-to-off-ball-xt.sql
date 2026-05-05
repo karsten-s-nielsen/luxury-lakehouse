@@ -23,3 +23,11 @@ SET source_provider = CASE
     ELSE 'skillcorner'
 END
 WHERE source_provider IS NULL;
+
+-- Step 3: Delete legacy prefixed rows that conflict with unprefixed rows.
+-- The new writer (post-PR-257) writes match_id without the 'idsse_' prefix.
+-- After backfill, both 'idsse_J03WMX' and 'J03WMX' exist with source_provider='idsse'.
+-- Staging normalizes with regexp_replace(match_id, '^idsse_', ''), causing duplicates.
+-- Delete the prefixed rows since the new writer uses unprefixed IDs.
+DELETE FROM soccer_analytics.bronze.off_ball_xt_results
+WHERE match_id LIKE 'idsse_%';
