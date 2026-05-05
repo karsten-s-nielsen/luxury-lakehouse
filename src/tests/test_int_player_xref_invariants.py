@@ -19,10 +19,8 @@ requires_databricks = pytest.mark.skipif(
     reason="Databricks SQL env vars not set",
 )
 
-# dbt-materialised int models land in the target schema (no +schema override
-# for intermediate in dbt_project.yml). Target is `dev` locally, so the view
-# resolves to `soccer_analytics.dev.int_player_xref`.
-_XREF = "soccer_analytics.dev.int_player_xref"
+# dbt-materialised int models land in dev_silver (schema='silver' in model config).
+_XREF = "soccer_analytics.dev_silver.int_player_xref"
 
 
 @pytest.fixture(scope="module")
