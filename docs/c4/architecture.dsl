@@ -1,124 +1,369 @@
 # Structurizr DSL
-workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks Lakebase. Medallion architecture (bronze/silver/gold), dbt-managed marts, Lakebase Postgres synced for low-latency UI reads, Taipy HF Space for analyst dashboards. Reflects SK3-MIG-B PR-1 (orchestrator hardening, 2026-05-04): Group 0 input-publish gating + hf_sync_prereq + runtime silly-kicks guard (ADR-012 §6). Wheel 0.3.32, silly-kicks 3.0.1." {
+workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks. Medallion architecture (bronze/silver/gold), dbt-managed marts, Lakebase Postgres for low-latency UI reads, Taipy HF Space for dashboards." {
 
     model {
-        // ── Actors ─────────────────────────────────────────────────────
-        operator = person "Platform Operator" "Triggers retrain cycles, reviews mega-job runs, manages Lakebase synced tables."
-        analyst = person "Soccer Analyst" "Reads Taipy dashboards: shot maps, player comparisons, defensive impact."
+        analyst = person "Soccer Analyst" "Coaches, scouts, analysts exploring match and player data"
+        developer = person "Developer" "Deploys updates, triggers pipeline runs, monitors costs"
+        operator = person "Platform Operator" "Triggers retrain cycles, reviews job runs, manages synced tables"
 
-        // ── External systems ───────────────────────────────────────────
-        statsbomb = softwareSystem "StatsBomb Open Data" "~3,000 matches (events) + 323 matches (360 freeze frames). CC-BY 4.0." "External"
-        wyscout = softwareSystem "Wyscout Public Dataset" "~1,900 matches (events). CC-BY-NC 4.0." "External"
-        idsse = softwareSystem "IDSSE / Bundesliga" "DFL XML tracking + matchinformation. Opta/StatsPerform format." "External"
-        metrica = softwareSystem "Metrica Sports" "Tracking + events (kloppy format)." "External"
-        skillcorner = softwareSystem "SkillCorner" "A-League tracking (kloppy format)." "External"
-        hfhub = softwareSystem "HuggingFace Hub" "Hosts datasets, model weights, Spaces. Org: luxury-lakehouse." "External"
-
-        // ── The lakehouse system ───────────────────────────────────────
-        lakehouse = softwareSystem "Luxury Lakehouse" "Serverless soccer analytics on Databricks." {
-
-            // Databricks-side containers
-            megaJob = container "Mega-Job Orchestrator" "Single Databricks Workflow (job_id 302697362345215, 32 task_keys post seed reconciliation). Triggers daily; SK3-MIG-B orchestrator triggers full job + waits on per-task termination." "Databricks Workflow"
-
-            bronze = container "Bronze Delta Layer" "Raw provider data: idsse_events, idsse_tracking, metrica_*, sk_events, statsbomb_*, wyscout_*, spadl_actions, xg_predictions_v2, sk3_mig_b_runs (telemetry, ADR-002 §4)." "Delta Lake / Unity Catalog" "Database"
-
-            silverGold = container "dbt Models (silver + gold)" "40 marts, 30 with enforced contracts, 24 with liquid clustering. Three-stage build (input -> intermediate -> output) per ADR-019. fct_action_values is the canonical SPADL action mart consumed by ext_v2 + γ trainers." "dbt + Databricks SQL"
-
-            mlflow = container "MLflow UC Registry" "Model versioning + @Champion alias. ADR-012 zombie-alias-guarded delivery (set_and_verify_mlflow_champion)." "MLflow + Unity Catalog"
-
-            ucVolume = container "UC Volume Model Weights" "Inference-time fallback artifacts: /Volumes/{cat}/dev_gold/model_weights/{model}/. SHA-256 sidecar per ADR-012." "Unity Catalog Volume"
-
-            lakebase = container "Lakebase Postgres" "34 synced tables, 56 PG indexes (50 btree + 6 HNSW vector). Low-latency reads for the Taipy app. Indexes auto-restored daily via dbt-live-ci.yml." "Lakebase Postgres" "Database"
-
-            telemetryTable = container "Telemetry: sk3_mig_b_runs" "Orchestrator cycle log per spec §5.3. cycle_id + cycle_item + cycle_item_kind (trained_model / compute_only / input_publish / publish / meta_event) + smoke_pass + cost_usd + heartbeat rows. ADR-002 §4 schema-drift guard." "Delta Lake" "Database"
-
-            // SK3-MIG-B orchestrator (PEP 723 single-file)
-            sk3MigBOrch = container "SK3-MIG-B Retrain Orchestrator" "PEP 723 single-file. Step 0 pre-flight -> 0a Group 0 input-publish (3 datasets, gates Group 1) -> 0b hf_sync_prereq (refreshes f2v_v2/f2v_360 inputs via daily mega-job) -> Group 1/2 trainers (ext_v2_p0/p1 local-only) -> Group 3 output-publish (5) -> XG1-retire runtime -> HF4 cleanup -> final sweep. Cost cap $80, walltime cap 8h, halt-resume. _FLAVOR_MAP / _TASK_KEY_MAP / _LOCAL_TRAINED_MODELS / _TRAINER_SCRIPT_MAP / _GROUP_0_PUBLISHERS / _GROUP_3_PUBLISHERS module-level constants." "Python (PEP 723)"
-
-            // HF-Jobs side
-            hfJobs = container "HF Jobs Trainers" "Cloud-GPU PEP 723 trainers (vaep cpu-large | xg_v2 l40sx1 | f2v_v1 cpu-large | f2v_v2 / f2v_360 / scoutgpt l40sx1). Each declares VALIDATED_HF_FLAVOR + _REQUIRED_SK_MIN module constants; main() asserts silly-kicks >= 3.0.1 at runtime (ADR-012 §6 — uv silent-downgrade defense). vaep adds psutil RSS HWM logging." "HuggingFace Jobs"
-
-            // Group 0 input-publish (vaep + xg_v2 input datasets — gates Group 1)
-            hfInputPublishers = container "Group 0 Input Publishers" "3 PEP 723 scripts run synchronously by orchestrator step 0a BEFORE Group 1 trainers: spadl-vaep-action-values, xg-shots, xg-freeze-frame-data. Ensures vaep + xg_v2 retrain on FRESH SK3-MIG-corrected inputs." "Python (PEP 723)"
-
-            // Group 3 output-publish (depend on Group 1/2 retrain results)
-            hfOutputPublishers = container "Group 3 Output Publishers" "5 PEP 723 scripts: shots-on-target, obso-pausa-inputs, obso-trained-grids, obso-pausa-values, football2vec-player-embeddings. SDK statement_execution + upload_hf_readme (ADR-014). Run AFTER Group 1/2 trainers + dbt build." "Python (PEP 723)"
-
-            // ext_v2 smoke-gate path — runs on operator host, fetches fct_action_values via chunked Arrow
-            extV2Gates = container "ext_v2 Smoke Gates (P0 + P1)" "Local-host pytest gates invoked by orchestrator after ext_v2_p0/p1 dispatch. Fetch fct_action_values (~10M rows) via Databricks Statement Execution + EXTERNAL_LINKS Arrow stream (chunked_sql_to_pandas helper). Phase 0: SinghProducer + run_phase0_harness; Phase 1: KDESmoothedProducer with champion params (gaussian, bandwidth=1.99998, adaptive). Assert NLL <= baseline + 1%." "pytest + analytics.ext_v2"
-
-            // CI sentinels
-            ciSentinels = container "CI Invariant Sentinels" "5 importlib-based sentinels in test_sk3_mig_b_orchestrator_invariants.py: _TASK_KEY_MAP-vs-seed, _FLAVOR_MAP-vs-VALIDATED_HF_FLAVOR, seed-vs-live-mega-job (env-gated), no-trainer-pins-silly-kicks, all-trainers-assert-_REQUIRED_SK_MIN. Plus test_marts_kimball_contracts.py + test_marts_live_schema.py (env-gated; PR-1.5 wires CI creds)." "pytest"
-
-            // Taipy app
-            taipy = container "Taipy Dashboard App" "16 pages on HF Space (prod + staging). Template-driven via page_template.PageConfig. Reads Lakebase Postgres for low-latency interactions." "Taipy / Python"
+        taipyApp = softwareSystem "Taipy Dashboard" "16-page interactive analytics app on HF Spaces. Shot maps, player comparisons, defensive impact, workflow monitoring." {
+            guiLayer = container "Taipy GUI" "Root template with sidebar nav, glossary panels, page routing" "Python, Taipy 4.1"
+            adminApi = container "Admin API" "Flask blueprint for cache clear and synced table refresh. HF org membership auth." "Python, Flask"
+            templateEngine = container "Template Engine" "Three layout builders (standard, sub-view, dashboard). Typed PageConfig dataclasses." "Python"
+            sidebarWidgets = container "Sidebar Widgets" "Filter cascade with progressive disclosure, debounce, help tooltips" "Python, Taipy"
+            stateModules = container "State Modules" "Per-page state, callbacks, chart rendering. SQL-free; delegates to Query Layer." "Python, Plotly"
+            queryLayer = container "Query Layer" "12 SQL modules with TTL cache. All parameterized queries." "Python, psycopg2"
+            filterLayer = container "Filter Layer" "Shared filter queries, scope labels, embedding player search" "Python, psycopg2"
+            dbLayer = container "DB Layer" "OAuth tokens, connection pooling, /health endpoint" "Python, psycopg2"
+            renderEngine = container "Render Engine" "Matplotlib/mplsoccer figure-to-PNG with cache-busting paths" "Python, mplsoccer"
+            pitchControl = container "Pitch Control Engine" "Physics-based (Spearman 2017) and Voronoi surface computation" "Python, NumPy"
+            configLayer = container "Config" "Pydantic settings from env vars and .env file" "Python, pydantic-settings"
+            guiExtensions = container "GUI Extensions (ll_ext)" "WAI-ARIA combobox, lightbox overlay. MUI/React UMD bundle." "TypeScript, React 18"
         }
 
-        // ── External relationships ─────────────────────────────────────
-        operator -> sk3MigBOrch "Triggers retrain cycles" "uv run python"
-        operator -> megaJob "Triggers daily / on-demand" "Databricks SDK"
-        analyst -> taipy "Browses dashboards" "HTTPS"
+        deployPipeline = softwareSystem "Deploy Pipeline" "Scripts for Taipy app and wheel deployment" {
+            deployScript = container "manage_space.py" "Full Space lifecycle: create, deploy, status, rebuild, teardown" "Python, huggingface_hub"
+            deployWheel = container "deploy_wheel.py" "Downloads wheel from HF Hub, uploads to UC Volume" "Python, databricks-sdk"
+            bumpWheel = container "bump_wheel.py" "Syncs wheel version to all static consumers (25+ files)" "Python"
+            dbtBuildAndRefresh = container "dbt_build_and_refresh.py" "Chains dbt build with synced table refresh" "Python, subprocess"
+        }
 
-        statsbomb -> megaJob "Provides events + 360" "ingest_statsbomb (HTTP/CC-BY)"
-        wyscout -> megaJob "Provides events" "ingest_wyscout (HTTP/CC-BY-NC)"
-        idsse -> megaJob "Provides DFL XML tracking" "ingest_idsse"
-        metrica -> megaJob "Provides tracking + events" "ingest_metrica (kloppy)"
-        skillcorner -> megaJob "Provides A-League tracking" "ingest_skillcorner (kloppy)"
+        pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "41 workflow-card-registered workflows. Centralized hooks, lifecycle tracking, three-tier cost tracking." {
+            workflowFramework = container "Workflow Framework" "Registry, @workflow decorator, lifecycle runner with hook dispatch" "Python"
+            workflowCards = container "Workflow Cards" "41 YAML manifests: inputs, outputs, deps, cost estimates, provenance" "YAML" "Database"
+            costEstimateHook = container "CostEstimateHook" "Writes run state, entity_count, row_count, cost to Delta via MERGE" "Python, PySpark"
+            hfCostRecorder = container "HFJobsCostRecorder" "Cost recorder for HF Jobs. Writes to HF Hub repos. 90-day pruning." "Python"
+            guardRegistry = container "Guard Registry" "SkipGuard protocol, FilterResult, find_new_ids(), timed_check() wrapper" "Python"
+            artifactDeploy = container "Artifact Deploy" "Training-to-production contract (ADR-012). MLflow + UC Volume helpers." "Python"
+            hfPublish = container "HF Publish Helper" "README delivery (ADR-014). upload_hf_readme + get_hf_card_path." "Python"
+            ingestionPipelines = container "Compute Pipelines" "30 @workflow-decorated Databricks pipelines across 5 providers" "Python, PySpark"
+            refreshSyncedTables = container "Synced Table Refresh" "Triggers SNAPSHOT refresh on 34 Lakebase synced tables" "Python, databricks-sdk"
+            dbtRunner = container "dbt Runner" "python_wheel_task entry point. OAuth token exchange, warehouse start." "Python, dbt-core"
+            evolveEngine = container "Evolve Engine" "LLM-guided architecture search. AST validation, restricted exec." "Python, OpenEvolve"
+            analyticsLibrary = container "Analytics Library" "Pure-Python domain models: xG, xT, VAEP, OBSO, pitch control, embeddings" "Python, PyTorch"
+            sharedLibrary = container "Shared Library" "Cross-package constants. Zero external deps." "Python"
+        }
 
-        // SK3-MIG-B orchestrator step ordering (post PR-1)
-        sk3MigBOrch -> hfInputPublishers "Step 0a: dispatch input-publish (gates Group 1)" "subprocess uv run"
-        sk3MigBOrch -> megaJob "Step 0b: trigger hf_sync task to refresh f2v_v2 + f2v_360 inputs (Q31)" "WorkspaceClient.jobs.run_now"
-        sk3MigBOrch -> hfJobs "Group 1/2: dispatch HF Jobs trainers (5 of 8 — ext_v2 is local)" "huggingface_hub.HfApi.run_uv_job"
-        sk3MigBOrch -> extV2Gates "Group 1: dispatch ext_v2_p0/p1 (local) + smoke validation" "uv run python -c (import sentinel) + pytest"
-        sk3MigBOrch -> megaJob "Group 1/2: trigger compute_* mega-job tasks + wait on per-task TERMINATED" "WorkspaceClient.jobs.run_now"
-        sk3MigBOrch -> hfOutputPublishers "Step 3: dispatch output-publish (depends on retrain results)" "subprocess uv run"
-        sk3MigBOrch -> telemetryTable "Appends cycle_item + heartbeat rows + final cost_usd" "INSERT INTO (statement_execution)"
-        sk3MigBOrch -> lakebase "Refreshes synced tables + restores indexes per cycle item" "scripts/maintain_synced_tables.py"
+        # SK3-MIG-B Retrain Orchestrator (new)
+        sk3MigBOrch = softwareSystem "Retrain Orchestrator" "Idempotent retrain cycle: pre-flight gates, input publish, HF Jobs trainers, dbt build, output publish, Lakebase refresh." {
+            orchestratorScript = container "sk3_mig_b_retrain.py" "PEP 723 single-file orchestrator. Resumable, cost-capped, walltime-capped." "Python"
+            hfInputPublishers = container "Input Dataset Publishers" "3 scripts: SPADL/VAEP, xG shots, freeze frames. Publish to HF Hub pre-training." "Python"
+            hfOutputPublishers = container "Output Dataset Publishers" "5 scripts: embeddings, OBSO grids, line-breaking, pitch control, shots-on-target." "Python"
+            hfJobsTrainers = container "HF Jobs Trainers" "Cloud-GPU training: VAEP, xG v2, PSxG, Football2Vec v2/360, ScoutGPT." "Python, PyTorch"
+            extV2Gates = container "ExT Smoke Gates" "Local NLL validation for Expected Threat Phase 0/1. Baseline thresholds." "pytest"
+            ciSentinels = container "CI Invariant Sentinels" "Task mappings, flavor configs, dep versions, Kimball contracts." "pytest"
+            telemetryTable = container "Telemetry Table" "Cycle log: items, smoke-gate pass/fail, cost tracking, heartbeat rows." "Delta Lake" "Database"
+        }
 
-        // Data flow
-        megaJob -> bronze "Writes raw + SPADL actions + telemetry" "Spark Delta writes"
-        bronze -> silverGold "Sourced by staging; gold materialised" "dbt models (3-stage build)"
-        silverGold -> lakebase "Synced via Databricks Synced Tables" "Snapshot replication"
+        dbtProject = softwareSystem "dbt Project" "Medallion transformation: 82 models (36 staging, 7 intermediate, 39 marts). Kimball dimensions, liquid clustering." {
+            fctWorkflowCosts = container "fct_workflow_costs" "Gold-layer cost attribution with billing JOIN. 90-day rolling window." "SQL, dbt" "Database"
+            goldModels = container "Gold Models" "35 fact + 4 dim tables. Enforced contracts, liquid clustering." "SQL, dbt" "Database"
+        }
 
-        // HF-Jobs trainer artifact delivery (ADR-012 three-destination contract)
-        hfJobs -> mlflow "Registers model versions + verifies @Champion (ADR-012 §1)" "set_and_verify_mlflow_champion"
-        hfJobs -> ucVolume "Uploads weight bytes + SHA-256 sidecar (ADR-012 §1)" "upload_weights_to_uc_volume"
-        hfJobs -> hfhub "Publishes weights + README (ADR-014)" "upload_hf_readme"
+        # Data stores
+        unityCatalog = softwareSystem "Unity Catalog" "Governed Delta Lake: bronze (raw), gold (analytics), observability (metadata)" "External" {
+            bronzeSchema = container "Bronze Schema" "Raw events, tracking, SPADL actions, VAEP scores, compute results" "Delta Lake" "Database"
+            goldSchema = container "Gold Schema" "35 fact + 4 dim tables. Analytics-ready." "Delta Lake" "Database"
+            observabilitySchema = container "Observability Schema" "workflow_cost_live, workflow_import_checksums, definer's-rights views" "Delta Lake" "Database"
+        }
 
-        // Trainer input data sources
-        hfJobs -> hfhub "Reads training datasets from HF Hub (vaep, xg_v2, f2v_v2, f2v_360, scoutgpt)" "datasets.load_dataset"
-        hfJobs -> silverGold "f2v_v1 reads fct_action_values directly via SQL (γ-precursor); PR-2 extends to f2v_v2/f2v_360/scoutgpt" "Statement Execution + Arrow EXTERNAL_LINKS"
+        lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL endpoint syncing 34 Delta tables (56 indexes: 50 btree + 6 HNSW)" "External"
+        databricksApi = softwareSystem "Databricks REST API" "OAuth, synced table metadata, pipeline triggers, state polling" "External"
+        databricksWorkflows = softwareSystem "Databricks Workflows" "32-task daily DAG: 5 ingest, 14 compute, 1 HF sync, dbt_build, refresh" "External"
+        hfIdentity = softwareSystem "HuggingFace Identity API" "Token validation via /api/whoami-v2. Org membership check." "External"
+        hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds Dockerfile, serves port 7860." "External"
+        hfHub = softwareSystem "HuggingFace Hub" "17 models, 19 datasets, build-artifacts wheel. READMEs via ADR-014." "External"
+        hfJobs = softwareSystem "HuggingFace Jobs" "L40S GPU / cpu-basic compute for training and batch analytics" "External"
+        openRouter = softwareSystem "OpenRouter" "LLM API: Claude Sonnet 4 (80%), Haiku 4.5 (20%) for Evolve mutations" "External"
 
-        // Group 0 + Group 3 publishers
-        hfInputPublishers -> silverGold "Reads gold marts (fct_action_values, fct_shots, fct_shot_freeze_frames)" "Statement Execution"
-        hfInputPublishers -> hfhub "Publishes input datasets" "HfApi.upload_folder"
-        hfOutputPublishers -> silverGold "Reads gold marts (post-retrain)" "Statement Execution"
-        hfOutputPublishers -> hfhub "Publishes output datasets + cards" "HfApi.upload_folder + upload_hf_readme"
+        githubActions = softwareSystem "GitHub Actions CI/CD" "Platform automation: Terraform, Python CI, dbt CI, Semgrep, Lakebase grants" {
+            terraformApply = container "Terraform Apply" "Auto-apply on push to main. AWS OIDC + Databricks federation." ".github/workflows/"
+            terraformPlan = container "Terraform Plan" "Plan on PR, posts diff. Human reviews before merge." ".github/workflows/"
+            pythonCi = container "Python CI" "ruff, pyright, pytest, detect-secrets, pip-audit. Deploys wheel on main." ".github/workflows/"
+            dbtCi = container "dbt CI" "dbt parse + slim CI for contract verification" ".github/workflows/"
+            semgrepCi = container "Semgrep SAST" "OWASP-aligned static analysis on every push" ".github/workflows/"
+            lakebaseGrantsWorkflow = container "Lakebase Grants" "Self-healing SELECT grants for Taipy SP (ADR-005)" ".github/workflows/"
+            bronzeLiveSchemaCi = container "Bronze Live Schema" "DESCRIBE parity + rowcount tests against live bronze" ".github/workflows/"
+        }
 
-        // ext_v2 smoke-gate dataflow
-        extV2Gates -> silverGold "Fetches fct_action_values via chunked Arrow stream (~10M rows)" "Statement Execution EXTERNAL_LINKS"
+        # Relationships - users
+        analyst -> guiLayer "Browses pages, views charts" "HTTPS"
+        developer -> deployScript "Deploys to staging/production" "CLI"
+        developer -> deployWheel "Pushes wheel to UC Volume" "CLI"
+        developer -> bumpWheel "Syncs version after bump" "CLI"
+        developer -> dbtBuildAndRefresh "Rebuilds gold + Lakebase" "CLI"
+        developer -> adminApi "Cache clear (incident response)" "HTTPS"
+        operator -> orchestratorScript "Triggers retrain cycles" "CLI"
+        operator -> databricksWorkflows "Triggers daily job" "Databricks UI"
 
-        // Mega-job inference path (consumers of ADR-012 artifacts)
-        megaJob -> mlflow "Loads @Champion at inference" "Pyfunc + UC Volume fallback"
-        megaJob -> ucVolume "Reads weight bytes (fallback)" "WorkspaceClient.files.download"
-        megaJob -> hfhub "SHA freshness probe" "HfApi.dataset_info / model_info"
+        # Relationships - Taipy internal
+        guiLayer -> templateEngine "Calls build_page()" ""
+        templateEngine -> sidebarWidgets "Generates filter sections" ""
+        guiLayer -> stateModules "Binds state and callbacks" ""
+        templateEngine -> stateModules "References state variables" ""
+        stateModules -> queryLayer "Fetches page data" ""
+        stateModules -> filterLayer "Fetches filter options" ""
+        queryLayer -> dbLayer "Executes SQL" "SQL"
+        filterLayer -> dbLayer "Queries dimensions" "SQL"
+        stateModules -> renderEngine "Generates pitch diagrams" ""
+        stateModules -> pitchControl "Computes surfaces" ""
+        renderEngine -> guiLayer "Returns image paths" ""
+        dbLayer -> configLayer "Reads Lakebase settings" ""
 
-        // CI gate (currently DB-gated tests skip; PR-1.5 wires creds)
-        ciSentinels -> sk3MigBOrch "Imports orchestrator + asserts _TASK_KEY_MAP / _FLAVOR_MAP / _LOCAL_TRAINED_MODELS" "importlib introspection"
-        ciSentinels -> hfJobs "Imports each trainer + asserts VALIDATED_HF_FLAVOR + _REQUIRED_SK_MIN" "importlib introspection"
+        # Relationships - external (Taipy)
+        dbLayer -> lakebase "Queries synced tables" "PostgreSQL/SSL"
+        dbLayer -> databricksApi "Fetches OAuth tokens" "HTTPS"
+        stateModules -> workflowCards "Reads YAML manifests" ""
+        stateModules -> hfHub "Loads embeddings, cost history" "HTTPS"
 
-        // Taipy serving
-        taipy -> lakebase "Low-latency reads" "PG SELECT (psycopg)"
-        taipy -> hfhub "Hosted on HF Space" "Docker container"
+        # Relationships - Admin API
+        adminApi -> hfIdentity "Validates HF token" "HTTPS"
+        adminApi -> refreshSyncedTables "Spawns refresh subprocess" "subprocess"
+
+        # Relationships - pipeline platform
+        ingestionPipelines -> workflowFramework "Decorated with @workflow" ""
+        workflowFramework -> workflowCards "Loads YAML metadata" ""
+        workflowFramework -> costEstimateHook "Dispatches lifecycle hooks" ""
+        ingestionPipelines -> analyticsLibrary "Imports domain logic" ""
+        ingestionPipelines -> sharedLibrary "Imports constants" ""
+        analyticsLibrary -> sharedLibrary "Imports IDENTIFIER_RE" ""
+        costEstimateHook -> sharedLibrary "Imports schema constants" ""
+        ingestionPipelines -> bronzeSchema "Writes compute results" "PySpark/Delta"
+        costEstimateHook -> observabilitySchema "MERGE cost estimates" "PySpark/Delta"
+        databricksWorkflows -> ingestionPipelines "Executes pipeline tasks" "Jobs API"
+        databricksWorkflows -> dbtRunner "Invokes dbt_build task" "Jobs API"
+        databricksWorkflows -> refreshSyncedTables "Final refresh task" "Jobs API"
+        dbtRunner -> dbtProject "Invokes dbt build" "dbt-core"
+        dbtRunner -> databricksApi "Exchanges SP for OAuth" "HTTPS"
+        dbtRunner -> sharedLibrary "Imports conventions" ""
+        ingestionPipelines -> guardRegistry "Calls timed_check()" ""
+        guardRegistry -> hfHub "Fetches commit SHA" "HTTPS"
+        guardRegistry -> observabilitySchema "Reads/writes checksums" "PySpark/Delta"
+        refreshSyncedTables -> databricksApi "Triggers SNAPSHOT" "HTTPS"
+        refreshSyncedTables -> sharedLibrary "Imports IDENTIFIER_RE" ""
+        dbtBuildAndRefresh -> refreshSyncedTables "Subprocess after dbt" "subprocess"
+
+        # Relationships - SK3-MIG-B Orchestrator
+        orchestratorScript -> hfInputPublishers "Publishes input datasets" ""
+        orchestratorScript -> databricksWorkflows "Triggers hf_sync prereq" "REST API"
+        orchestratorScript -> hfJobsTrainers "Dispatches cloud trainers" "HF Jobs API"
+        orchestratorScript -> extV2Gates "Runs local smoke gates" "pytest"
+        orchestratorScript -> databricksWorkflows "Triggers compute tasks" "REST API"
+        orchestratorScript -> hfOutputPublishers "Publishes output datasets" ""
+        orchestratorScript -> telemetryTable "Logs cycle progress" "Delta"
+        orchestratorScript -> lakebase "Refreshes synced tables" "REST API"
+        hfInputPublishers -> goldSchema "Reads gold marts" "Spark SQL"
+        hfInputPublishers -> hfHub "Publishes datasets" "HTTPS"
+        hfOutputPublishers -> goldSchema "Reads post-retrain marts" "Spark SQL"
+        hfOutputPublishers -> hfHub "Publishes datasets" "HTTPS"
+        hfJobsTrainers -> hfHub "Reads training data" "HTTPS"
+        hfJobsTrainers -> hfHub "Publishes weights + cards" "HTTPS"
+        hfJobsTrainers -> artifactDeploy "Registers models" "MLflow"
+        extV2Gates -> goldSchema "Fetches action values" "Spark SQL"
+        ciSentinels -> orchestratorScript "Validates config" "pytest"
+        ciSentinels -> hfJobsTrainers "Validates trainer config" "pytest"
+
+        # Relationships - Evolve Engine
+        developer -> evolveEngine "Runs evolve CLI" "CLI"
+        evolveEngine -> analyticsLibrary "Imports ScoutGPT decoder" ""
+        evolveEngine -> openRouter "Sends mutation prompts" "HTTPS"
+        evolveEngine -> hfHub "Downloads training data" "HTTPS"
+        evolveEngine -> workflowCards "Registered as wf-evolve-scoutgpt" ""
+        evolveEngine -> sharedLibrary "Imports WHEEL_BASE_URL" ""
+        evolveEngine -> hfJobs "Submits training jobs" "HTTPS"
+
+        # Relationships - HF Jobs
+        hfJobs -> analyticsLibrary "Imports from wheel" "pip"
+        hfJobs -> hfCostRecorder "Records cost" ""
+        hfCostRecorder -> hfHub "Writes cost JSON" "HTTPS"
+        hfJobs -> hfHub "Publishes models/grids" "HTTPS"
+        hfJobs -> hfPublish "Pushes README" "HTTPS"
+
+        # Relationships - HF Publish helper
+        ingestionPipelines -> hfPublish "Uploads README after data" ""
+        hfPublish -> hfHub "HfApi.upload_file" "HTTPS"
+        developer -> hfPublish "Manual card pushes" "CLI"
+
+        # Relationships - dbt
+        dbtProject -> unityCatalog "Reads bronze, writes gold" "Delta Lake"
+        fctWorkflowCosts -> observabilitySchema "Cleans warm-tier rows" "SQL"
+
+        # Relationships - deploy
+        deployScript -> hfSpaces "upload_folder()" "HTTPS"
+        bumpWheel -> sharedLibrary "Imports version helpers" ""
+        deployWheel -> sharedLibrary "Imports WHEEL_FILENAME" ""
+        deployWheel -> hfHub "Downloads wheel" "HTTPS"
+        deployWheel -> bronzeSchema "Uploads to UC Volume" "SDK"
+        taipyApp -> analyticsLibrary "Installs wheel at build" "pip"
+        hfSpaces -> taipyApp "Builds Docker, serves 7860" "Docker"
+        analyst -> hfSpaces "Accesses app" "HTTPS"
+
+        # Relationships - GitHub Actions
+        terraformApply -> databricksApi "Applies TF resources" "OIDC"
+        terraformPlan -> databricksApi "Reads state for diff" "OIDC"
+        pythonCi -> bronzeSchema "Deploys wheel on main" "HTTPS"
+        bronzeLiveSchemaCi -> bronzeSchema "DESCRIBE + count parity" "SQL"
+        bronzeLiveSchemaCi -> databricksApi "Warehouse auto-resume" "HTTPS"
+        lakebaseGrantsWorkflow -> databricksApi "Gets PG credential" "HTTPS"
+        lakebaseGrantsWorkflow -> lakebase "GRANT SELECT" "PostgreSQL"
+        terraformApply -> lakebaseGrantsWorkflow "workflow_run trigger" "GH Actions"
+        developer -> pythonCi "Opens PR / pushes" "git"
+        developer -> dbtCi "PR with dbt changes" "git"
+        developer -> terraformPlan "PR with TF changes" "git"
+        developer -> terraformApply "Merges to main" "git"
+
+        # Deployment environment
+        production = deploymentEnvironment "Production" {
+            deploymentNode "HuggingFace Infrastructure" "Managed container hosting" "Docker SDK" {
+                deploymentNode "cpu-basic" "Free tier, sleep after 48h" "2 vCPU, 16 GB RAM" {
+                    appInstance = containerInstance guiLayer
+                    healthEndpoint = infrastructureNode "Health Endpoint" "/health route"
+                }
+            }
+            deploymentNode "Databricks Cloud" "US East 1" "AWS" {
+                deploymentNode "Lakebase Autoscaling" "0.5-4 CU, scale-to-zero" "PostgreSQL 17" {
+                    lakebaseNode = infrastructureNode "Lakebase Endpoint" "PostgreSQL-compatible"
+                }
+                deploymentNode "Serverless Compute" "Auto-scaling, 16 GB driver" "Python 3.10" {
+                    pipelineInstance = containerInstance ingestionPipelines
+                }
+                deploymentNode "Unity Catalog" "Managed Delta Lake" "Delta Lake 3.x" {
+                    bronzeInstance = containerInstance bronzeSchema
+                    goldInstance = containerInstance goldSchema
+                    obsInstance = containerInstance observabilitySchema
+                }
+            }
+            deploymentNode "HuggingFace Jobs" "Ephemeral GPU/CPU containers" "Docker" {
+                deploymentNode "cpu-basic ($0.01/hr)" "16 GB RAM" "Python 3.10, UV" {
+                    cpuJobInstance = infrastructureNode "xT, EPV, xG v1, VAEP training"
+                }
+                deploymentNode "l40sx1 ($1.80/hr)" "62 GB RAM, L40S 48 GB VRAM" "Python 3.10, UV" {
+                    gpuJobInstance = infrastructureNode "PSxG, xG v2, Football2vec, OBSO, Evolve"
+                }
+            }
+        }
     }
 
     views {
-        systemContext lakehouse "SystemContext" {
+        systemContext taipyApp "SystemContext" {
             include *
+            include deployPipeline
+            include pipelinePlatform
+            include sk3MigBOrch
+            include dbtProject
+            include unityCatalog
+            include databricksWorkflows
+            include hfJobs
+            include openRouter
+            include hfIdentity
+            include githubActions
             autoLayout
         }
 
-        container lakehouse "Containers" {
+        container githubActions "CIContainers" {
+            include *
+            include databricksApi
+            include lakebase
+            include bronzeSchema
+            include developer
+            autoLayout
+        }
+
+        container pipelinePlatform "PipelineContainers" {
+            include *
+            include databricksWorkflows
+            include hfJobs
+            include hfHub
+            include observabilitySchema
+            include bronzeSchema
+            include openRouter
+            include developer
+            autoLayout
+        }
+
+        container taipyApp "TaipyContainers" {
+            include *
+            include lakebase
+            include databricksApi
+            include hfHub
+            include hfIdentity
+            include refreshSyncedTables
+            include analyticsLibrary
+            include sharedLibrary
+            autoLayout
+        }
+
+        container unityCatalog "DataStores" {
+            include *
+            include ingestionPipelines
+            include costEstimateHook
+            include fctWorkflowCosts
+            include dbtProject
+            autoLayout
+        }
+
+        container sk3MigBOrch "RetrainOrchestrator" {
+            include *
+            include databricksWorkflows
+            include hfJobs
+            include hfHub
+            include lakebase
+            include goldSchema
+            include operator
+            autoLayout
+        }
+
+        dynamic pipelinePlatform "CostTracking" {
+            ingestionPipelines -> workflowFramework "Pipeline starts"
+            workflowFramework -> costEstimateHook "on_start hook"
+            costEstimateHook -> observabilitySchema "MERGE RUNNING state"
+            ingestionPipelines -> workflowFramework "Pipeline completes"
+            workflowFramework -> costEstimateHook "on_complete hook"
+            costEstimateHook -> observabilitySchema "MERGE COMPLETED + cost"
+            autoLayout
+        }
+
+        dynamic taipyApp "FilterCascade" {
+            analyst -> guiLayer "Selects competition"
+            guiLayer -> stateModules "Fires callback"
+            stateModules -> filterLayer "Fetches filtered options"
+            filterLayer -> dbLayer "Recursive CTE query"
+            dbLayer -> lakebase "SELECT from synced table"
+            stateModules -> guiLayer "Updates state"
+            stateModules -> renderEngine "Re-renders chart"
+            renderEngine -> guiLayer "Returns image path"
+            autoLayout
+        }
+
+        dynamic pipelinePlatform "GuardAsWrapper" {
+            databricksWorkflows -> ingestionPipelines "Job starts"
+            ingestionPipelines -> guardRegistry "Calls timed_check()"
+            ingestionPipelines -> workflowFramework "WorkflowSkippedError"
+            workflowFramework -> costEstimateHook "on_skip dispatch"
+            costEstimateHook -> observabilitySchema "MERGE SKIPPED"
+            autoLayout
+        }
+
+        dynamic pipelinePlatform "EvolveLevel2" {
+            developer -> evolveEngine "Launch --code-evolution"
+            evolveEngine -> openRouter "Generate candidate"
+            evolveEngine -> analyticsLibrary "AST-validate + exec"
+            evolveEngine -> hfJobs "Dispatch to L40S"
+            autoLayout
+        }
+
+        dynamic pipelinePlatform "DailyJobHardening" {
+            databricksWorkflows -> ingestionPipelines "9 leaf computes run"
+            databricksWorkflows -> dbtRunner "dbt_build after leaves"
+            dbtRunner -> databricksApi "Exchange SP for OAuth"
+            dbtRunner -> dbtProject "Build 39 marts"
+            dbtProject -> observabilitySchema "fct_workflow_costs reads"
+            databricksWorkflows -> refreshSyncedTables "Final task"
+            refreshSyncedTables -> databricksApi "SNAPSHOT 34 tables"
+            autoLayout
+        }
+
+        deployment taipyApp "Production" "Deployment" {
             include *
             autoLayout
         }
