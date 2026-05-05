@@ -173,7 +173,7 @@ def load_training_data_sql(
     """
     from datetime import datetime, timezone
 
-    from ingestion.databricks_sql_fetch import query_databricks_sql
+    from analytics.databricks_sql_fetch import query_databricks_sql
 
     raw = query_databricks_sql(host, token, _SCOUTGPT_SQL, warehouse_id)
     logger.info("SQL fetch returned %d raw action rows", len(raw))

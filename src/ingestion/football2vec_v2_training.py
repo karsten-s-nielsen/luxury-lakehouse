@@ -140,7 +140,7 @@ def load_training_data_sql(host: str, token: str, warehouse_id: str) -> tuple[pd
     """
     from datetime import datetime, timezone
 
-    from ingestion.databricks_sql_fetch import query_databricks_sql
+    from analytics.databricks_sql_fetch import query_databricks_sql
 
     raw = query_databricks_sql(host, token, _F2V_V2_SQL, warehouse_id)
     logger.info("SQL fetch returned %d raw action rows", len(raw))
