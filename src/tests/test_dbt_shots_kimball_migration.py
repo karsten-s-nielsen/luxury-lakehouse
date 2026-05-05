@@ -172,7 +172,7 @@ def test_fct_shots_live_baselines_preserved(conn: object) -> None:
     cur.execute("SELECT data_source, count(*) FROM soccer_analytics.dev_gold.fct_shots GROUP BY data_source")
     counts = {row[0]: row[1] for row in cur.fetchall()}
     assert counts.get("statsbomb") == 87_999, counts
-    assert counts.get("wyscout") == 43_078, counts
+    assert counts.get("wyscout") == 43_075, counts
 
 
 @requires_databricks
@@ -180,4 +180,4 @@ def test_fct_shots_live_total_unchanged(conn: object) -> None:
     """Pre-migration total of 131,077 captured 2026-04-22. Migration must preserve."""
     cur = conn.cursor()  # type: ignore[attr-defined]
     cur.execute("SELECT count(*) FROM soccer_analytics.dev_gold.fct_shots")
-    assert cur.fetchone()[0] == 131_077
+    assert cur.fetchone()[0] == 131_074

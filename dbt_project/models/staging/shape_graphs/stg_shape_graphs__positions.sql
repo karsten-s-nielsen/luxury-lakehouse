@@ -51,22 +51,19 @@ cleaned as (
         cast(detector as string)          as detector,
         cast(_ingested_at as timestamp)   as _ingested_at,
 
-        -- PR 7 (ADR-011): derive source_provider from the match_id prefix
-        -- convention used by the upstream tracking stagings (fct_tracking_frames
-        -- inherits these prefixes). The shape-graph algorithm runs on
-        -- IDSSE/Metrica/SkillCorner only — StatsBomb / Wyscout don't produce
-        -- tracking frames so cannot collide here. Single source of truth for
-        -- downstream marts that JOIN dim_matches / dim_teams / dim_players on
-        -- (provider, native_id).
-        --
-        -- Note: derivation reads the still-prefixed bronze `match_id` before
-        -- the regexp_replace strip above — `like 'idsse_%'` only matches the
-        -- raw bronze form.
-        case
-            when match_id like 'idsse_%'        then 'idsse'
-            when match_id like 'Sample_Game_%'  then 'metrica'
-            else 'skillcorner'
-        end                                as source_provider
+        -- PR-1.5 (SK3-MIG-B): source_provider now comes from bronze directly.
+        -- The shape graph algorithm propagates source_provider from fct_tracking_frames
+        -- to bronze.player_positions. For pre-PR-1.5 rows that lack the column,
+        -- fall back to pattern derivation (backward compat).
+        coalesce(
+            cast(source_provider as string),
+            case
+                when match_id like 'skillcorner_%'  then 'skillcorner'
+                when match_id like 'Sample_Game_%'  then 'metrica'
+                when match_id like 'idsse_%'        then 'idsse'
+                else 'idsse'  -- Un-prefixed IDSSE (post-PR7-hotfix format)
+            end
+        )                                  as source_provider
 
     from deduplicated
     where _row_num = 1

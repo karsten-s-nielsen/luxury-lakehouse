@@ -35,6 +35,11 @@ analytics = [
     # Phase 0 uses a single-trial study with no axes active; Phases 1-4
     # progressively activate KDE/KNN/contextual-feature suggests via TPE.
     "optuna>=4.0",
+    # PR-1.5 (SK3-MIG-B): Live Kimball contract tests require direct SQL
+    # queries to dev_gold marts. The databricks-sql-connector provides the
+    # `databricks.sql` module used by test_marts_kimball_contracts.py +
+    # test_marts_live_schema.py + test_bronze_live_schema.py + ext_v2 harnesses.
+    "databricks-sql-connector>=4.0.0",
 ]
 dbt = [
     "dbt-core>=1.10.0",

@@ -33,7 +33,7 @@ _FORMATION_LABELS_SCHEMA = (
 _POSITIONS_SCHEMA = (
     "match_id STRING, frame_id BIGINT, player_id STRING, team STRING, "
     "position_label STRING, vertical_level STRING, horizontal_level STRING, "
-    "detector STRING, _ingested_at TIMESTAMP"
+    "detector STRING, source_provider STRING, _ingested_at TIMESTAMP"
 )
 
 if TYPE_CHECKING:
@@ -64,6 +64,7 @@ POSITION_COLUMNS = [
     "vertical_level",
     "horizontal_level",
     "detector",
+    "source_provider",
 ]
 
 # Vertical level ordering for formation label derivation (back -> front).
@@ -222,6 +223,7 @@ def prepare_tracking_data(
             "y",
             "is_goalkeeper",
             "frame",
+            "source_provider",  # PR-1.5: propagate to bronze for staging
         )
         .write.mode("overwrite")
         .option("overwriteSchema", "true")
