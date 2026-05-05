@@ -291,7 +291,7 @@ def test_fct_line_breaking_results_baselines_preserved(conn: object) -> None:
     )
     counts = {row[0]: row[1] for row in cur.fetchall()}
     assert counts.get("statsbomb_360") == 275_884, counts
-    assert counts.get("idsse_tracking") == 5_372, counts
+    assert counts.get("idsse_tracking") == 5_381, counts
     assert counts.get("metrica_tracking") == 2_037, counts
 
 

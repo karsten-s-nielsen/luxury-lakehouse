@@ -40,12 +40,12 @@ def conn() -> Iterator[object]:
 
 
 @requires_databricks
-def test_four_providers_present(conn: object) -> None:
-    """dim_matches must contain rows for all four providers."""
+def test_five_providers_present(conn: object) -> None:
+    """dim_matches must contain rows for all five providers."""
     cur = conn.cursor()  # type: ignore[attr-defined]
     cur.execute("SELECT DISTINCT provider FROM soccer_analytics.dev_gold.dim_matches")
     providers = {row[0] for row in cur.fetchall()}
-    assert providers == {"statsbomb", "wyscout", "idsse", "metrica"}, providers
+    assert providers == {"statsbomb", "wyscout", "idsse", "metrica", "skillcorner"}, providers
 
 
 @requires_databricks
