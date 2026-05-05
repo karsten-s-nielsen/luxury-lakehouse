@@ -1,7 +1,9 @@
 -- stg_off_ball_xt__results.sql
 -- Clean and deduplicate Off-Ball xT results from the bronze layer.
 --
--- Dedup: ROW_NUMBER partitioned by (player_id, match_id), latest _ingested_at wins.
+-- Dedup: ROW_NUMBER partitioned by (player_id, match_id, source_provider),
+-- latest _ingested_at wins. source_provider is written at bronze ingestion
+-- time (PR-1.5 fix) — no more derivation from match_id patterns.
 
 with source as (
 
@@ -14,7 +16,7 @@ deduplicated as (
     select
         *,
         row_number() over (
-            partition by player_id, match_id
+            partition by player_id, match_id, source_provider
             order by _ingested_at desc
         ) as _row_num
     from source
@@ -32,31 +34,25 @@ cleaned as (
     -- dim-compatible form).
     select
         coalesce(mtp.native_player_id, cast(deduplicated.player_id as string)) as player_id,
-        -- PR 7 hotfix #3 followup: strip the `idsse_` prefix at staging boundary
-        -- so mart-side JOINs to dim_matches.native_match_id match. Pre-fix:
-        -- 100% of fct_off_ball_xt rows had match_key=NULL because match_id was
-        -- `idsse_J03WOY` and dim_matches.native_match_id was `J03WOY`.
-        -- source_provider derivation below reads the still-prefixed bronze
-        -- match_id BEFORE the regex strip.
+        -- Strip the `idsse_` prefix at staging boundary so mart-side JOINs to
+        -- dim_matches.native_match_id match. Legacy data may still have the
+        -- prefix; new ingestion writes clean match_id without prefix.
         regexp_replace(cast(deduplicated.match_id as string), '^idsse_', '') as match_id,
         cast(total_off_ball_xt as double)  as total_off_ball_xt,
         cast(avg_off_ball_xt as double)    as avg_off_ball_xt,
         cast(frames_sampled as int)        as frames_sampled,
 
-        -- PR 7 (ADR-011): derive source_provider from match_id prefix
-        -- (off-ball xT pipeline reads from fct_tracking_frames; SB/WS don't
-        -- contribute tracking data so cannot collide here). Single source of
-        -- truth for downstream marts that JOIN dim_matches / dim_players on
-        -- (provider, native_id).
-        --
-        -- Note: derivation reads the still-prefixed bronze `match_id` before
-        -- the regexp_replace strip above — `like 'idsse_%'` only matches the
-        -- raw bronze form.
-        case
-            when deduplicated.match_id like 'idsse_%'        then 'idsse'
-            when deduplicated.match_id like 'Sample_Game_%'  then 'metrica'
-            else 'skillcorner'
-        end                                as source_provider
+        -- source_provider: read directly from bronze (written at ingestion).
+        -- Legacy fallback for rows ingested before PR-1.5: derive from match_id
+        -- pattern. NULL-safe: if source_provider is NULL, apply legacy derivation.
+        coalesce(
+            deduplicated.source_provider,
+            case
+                when deduplicated.match_id like 'idsse_%'        then 'idsse'
+                when deduplicated.match_id like 'Sample_Game_%'  then 'metrica'
+                else 'skillcorner'
+            end
+        )                                  as source_provider
 
     from deduplicated
     -- LEFT JOIN per-match-side team_players for Metrica synth player_id resolution.

@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 
 _TABLE_NAME = "off_ball_xt_results"
 _RESULTS_SCHEMA = (
-    "player_id STRING, match_id STRING, total_off_ball_xt DOUBLE, "
+    "player_id STRING, match_id STRING, source_provider STRING, total_off_ball_xt DOUBLE, "
     "avg_off_ball_xt DOUBLE, frames_sampled BIGINT, _ingested_at TIMESTAMP"
 )
 _guard_logger = logging.getLogger(f"{__name__}.guard")
@@ -143,12 +143,14 @@ def _make_batch_udf(
         )
         pc_params = _PCParams(grid_cells_x=pc_grid_cells_x, grid_cells_y=pc_grid_cells_y)
 
-        _empty = _pd.DataFrame(columns=_pd.Index(["match_id", "player_id", "off_ball_xt_sum", "frame_count"]))
+        _cols = ["match_id", "source_provider", "player_id", "off_ball_xt_sum", "frame_count"]
+        _empty = _pd.DataFrame(columns=_pd.Index(_cols))
 
         if pdf.empty:
             return _empty
 
         match_id = str(pdf["match_id"].iloc[0])
+        source_provider = str(pdf["source_provider"].iloc[0])
 
         # Filter out ball rows (player_id is null for ball)
         pdf = _pd.DataFrame(pdf[pdf["player_id"].notna()])
@@ -191,8 +193,9 @@ def _make_batch_udf(
         agg = combined.groupby("player_id")["off_ball_xt"].agg(["sum", "count"]).reset_index()
         agg.columns = _pd.Index(["player_id", "off_ball_xt_sum", "frame_count"])
         agg["match_id"] = match_id
+        agg["source_provider"] = source_provider
 
-        return _pd.DataFrame(agg[["match_id", "player_id", "off_ball_xt_sum", "frame_count"]])
+        return _pd.DataFrame(agg[["match_id", "source_provider", "player_id", "off_ball_xt_sum", "frame_count"]])
 
     return _udf
 
@@ -272,6 +275,7 @@ def _process_matches(
         .filter(F.col("match_id").isin(new_ids_str))
         .select(
             "match_id",
+            "source_provider",
             "player_id",
             "team",
             "x",
@@ -303,6 +307,7 @@ def _process_matches(
     batch_schema = StructType(
         [
             StructField("match_id", StringType(), nullable=False),
+            StructField("source_provider", StringType(), nullable=False),
             StructField("player_id", StringType(), nullable=False),
             StructField("off_ball_xt_sum", DoubleType(), nullable=False),
             StructField("frame_count", IntegerType(), nullable=False),
@@ -314,9 +319,9 @@ def _process_matches(
         schema=batch_schema,
     )
 
-    # Pass 2: aggregate across batches per (match_id, player_id)
+    # Pass 2: aggregate across batches per (match_id, source_provider, player_id)
     final_df = (
-        batch_results.groupBy("match_id", "player_id")
+        batch_results.groupBy("match_id", "source_provider", "player_id")
         .agg(
             F.sum("off_ball_xt_sum").alias("total_off_ball_xt"),
             F.sum("frame_count").alias("frames_sampled"),
@@ -325,7 +330,7 @@ def _process_matches(
             "avg_off_ball_xt",
             F.when(F.col("frames_sampled") > 0, F.col("total_off_ball_xt") / F.col("frames_sampled")).otherwise(0.0),
         )
-        .select("player_id", "match_id", "total_off_ball_xt", "avg_off_ball_xt", "frames_sampled")
+        .select("player_id", "match_id", "source_provider", "total_off_ball_xt", "avg_off_ball_xt", "frames_sampled")
     )
 
     # Write results with replaceWhere for idempotent incremental writes.

@@ -26,6 +26,8 @@ sources:
             description: Player identifier
           - name: match_id
             description: Match identifier
+          - name: source_provider
+            description: Data source provider (idsse, metrica, skillcorner). Written at ingestion time.
           - name: total_off_ball_xt
             description: Sum of per-frame off-ball xT contributions
           - name: avg_off_ball_xt
