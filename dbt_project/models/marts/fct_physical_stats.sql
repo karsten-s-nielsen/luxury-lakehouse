@@ -121,6 +121,7 @@ off_ball_xt as (
     select
         player_id,
         match_id,
+        source_provider,
         total_off_ball_xt,
         avg_off_ball_xt,
         frames_sampled as off_ball_xt_frames_sampled
@@ -170,7 +171,9 @@ final as (
     from player_match_stats s
     {% if var('off_ball_xt_enabled', false) %}
     left join off_ball_xt o
-        on s.player_id = o.player_id and s.match_id = o.match_id
+        on s.player_id = o.player_id
+        and s.match_id = o.match_id
+        and s.data_source = o.source_provider
     {% endif %}
 
 )
