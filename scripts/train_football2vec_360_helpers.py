@@ -41,6 +41,152 @@ DEFAULT_MASK_PROB = 0.15
 # ---------------------------------------------------------------------------
 
 
+_ACTION_TYPE_IDS: dict[str, int] = {
+    "pass": 0,
+    "cross": 1,
+    "throw_in": 2,
+    "freekick_crossed": 3,
+    "freekick_short": 4,
+    "corner_crossed": 5,
+    "corner_short": 6,
+    "take_on": 7,
+    "foul": 8,
+    "tackle": 9,
+    "interception": 10,
+    "shot": 11,
+    "shot_penalty": 12,
+    "shot_freekick": 13,
+    "keeper_save": 14,
+    "keeper_claim": 15,
+    "keeper_punch": 16,
+    "keeper_pick_up": 17,
+    "clearance": 18,
+    "bad_touch": 19,
+    "non_action": 20,
+    "dribble": 21,
+    "goalkick": 22,
+}
+
+_SPADL_PITCH_LENGTH = 105.0
+_SPADL_PITCH_WIDTH = 68.0
+_SB_PITCH_LENGTH = 120.0
+_SB_PITCH_WIDTH = 80.0
+
+_F2V_360_SQL = """\
+SELECT
+    CAST(dp.canonical_player_id AS STRING) AS canonical_player_id,
+    CAST(av.match_id AS STRING)            AS match_id,
+    CAST(av.competition_id AS INT)         AS competition_id,
+    CAST(av.season_id AS INT)              AS season_id,
+    dp.position_group,
+    av.action_type,
+    CAST(av.start_x / 105.0 AS FLOAT)     AS x,
+    CAST(av.start_y / 68.0  AS FLOAT)     AS y,
+    av.action_result,
+    av.period,
+    av.time_seconds,
+    av.original_event_id,
+    CAST(ff.location_x / 120.0 AS FLOAT)  AS ff_x_norm,
+    CAST(ff.location_y / 80.0  AS FLOAT)  AS ff_y_norm,
+    CAST(ff.is_keeper AS BOOLEAN)          AS ff_is_keeper,
+    CAST(ff.is_teammate AS BOOLEAN)        AS ff_is_teammate
+FROM soccer_analytics.dev_gold.fct_action_values av
+INNER JOIN soccer_analytics.dev_silver.stg_statsbomb__360 ff
+    ON av.original_event_id = ff.event_uuid
+INNER JOIN soccer_analytics.dev_gold.dim_players dp
+    ON av.player_key = dp.player_key
+WHERE av.data_source = 'statsbomb'
+  AND av.player_id IS NOT NULL
+  AND dp.canonical_player_id IS NOT NULL
+  AND av.action_type IS NOT NULL
+  AND av.start_x IS NOT NULL
+  AND av.start_y IS NOT NULL
+  AND ff.location_x IS NOT NULL
+  AND ff.location_y IS NOT NULL
+"""
+
+
+def _transform_360_to_training_data(raw: pd.DataFrame) -> pd.DataFrame:
+    """Transform raw 360 SQL output to training format (one row per player-match).
+
+    Two-pass aggregation mirroring prepare_360_training_data.py:
+    1. Per (player, match, event) -> collect freeze-frame players
+    2. Per (player, match) -> build aligned actions + freeze_frames arrays
+    """
+    raw["action_type_id"] = raw["action_type"].map(_ACTION_TYPE_IDS).fillna(20).astype(int)
+    raw["result_binary"] = (raw["action_result"] == "success").astype(int)
+    raw = raw.sort_values(["canonical_player_id", "match_id", "period", "time_seconds", "original_event_id"])
+
+    # Pass 1: collect freeze-frame players per action
+    per_action = raw.groupby(["canonical_player_id", "match_id", "original_event_id"], sort=False)
+    first_fields = per_action.first()[
+        [
+            "competition_id",
+            "season_id",
+            "position_group",
+            "period",
+            "time_seconds",
+            "action_type_id",
+            "x",
+            "y",
+            "result_binary",
+        ]
+    ].copy()
+    players_series = per_action.apply(
+        lambda grp: [
+            {
+                "x": float(r["ff_x_norm"]),
+                "y": float(r["ff_y_norm"]),
+                "is_keeper": bool(r["ff_is_keeper"]),
+                "is_teammate": bool(r["ff_is_teammate"]),
+            }
+            for _, r in grp[["ff_x_norm", "ff_y_norm", "ff_is_keeper", "ff_is_teammate"]].iterrows()
+        ],
+        include_groups=False,
+    )
+    first_fields["players"] = players_series
+    first_fields = first_fields.reset_index()
+
+    # Pass 2: group by (player, match) -> build aligned arrays
+    first_fields = first_fields.sort_values(["canonical_player_id", "match_id", "period", "time_seconds"])
+    grouped = first_fields.groupby(["canonical_player_id", "match_id"], sort=False)
+
+    action_cols = ["action_type_id", "x", "y", "result_binary"]
+    rename_map = {"action_type_id": "action_type", "result_binary": "result"}
+    actions_series = grouped.apply(
+        lambda grp: grp[action_cols].rename(columns=rename_map).to_dict("records"),
+        include_groups=False,
+    )
+    ff_series = grouped.apply(
+        lambda grp: [{"players": p} for p in grp["players"]],
+        include_groups=False,
+    )
+    meta = grouped.first()[["competition_id", "season_id", "position_group"]].copy()
+    meta["competition_id"] = meta["competition_id"].fillna(0).astype(int)
+    meta["season_id"] = meta["season_id"].fillna(0).astype(int)
+    meta["actions"] = actions_series
+    meta["freeze_frames"] = ff_series
+    return meta.reset_index()
+
+
+def load_training_data_sql(host: str, token: str, warehouse_id: str) -> tuple[pd.DataFrame, str]:
+    """Fetch 360-enriched training data directly from gold marts via SQL.
+
+    Returns:
+        (DataFrame with same schema as HF dataset, SQL-fetch timestamp string)
+    """
+    from datetime import datetime, timezone
+
+    from ingestion.databricks_sql_fetch import query_databricks_sql
+
+    raw = query_databricks_sql(host, token, _F2V_360_SQL, warehouse_id)
+    logger.info("SQL fetch returned %d raw 360 rows", len(raw))
+    data = _transform_360_to_training_data(raw)
+    logger.info("Transformed to %d player-match 360 training rows", len(data))
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return data, f"gold-sql-{ts}"
+
+
 def load_training_data(hf_token: str, input_dataset: str) -> tuple[pd.DataFrame, str]:
     """Download 360-enriched training data from HF Hub and return DataFrame + commit hash."""
     from datasets import load_dataset

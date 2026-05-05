@@ -17,6 +17,12 @@ from typing import Any
 
 _log = logging.getLogger(__name__)
 
+# Evolve pin-drift discipline (§2.12): freeze dataset version during
+# architecture experiments. Bump via: scripts/bump_evolve_pin.py
+PINNED_DATASET_REPO: str = "luxury-lakehouse/football2vec-training-data"
+PINNED_DATASET_SHA: str = "PLACEHOLDER_UNTIL_PHASE_9"
+PINNED_REASON: str = "Post-SK3-MIG-B Phase 9; bump via scripts/bump_evolve_pin.py"
+
 # ---------------------------------------------------------------------------
 # Module-level dataset cache — load once, reuse across all candidates.
 # ---------------------------------------------------------------------------
@@ -56,7 +62,7 @@ def _load_or_cache(dataset_repo: str, hf_token: str) -> _CachedData:
             stratified_split,
         )
 
-        data, _commit = load_training_data(hf_token, dataset_repo)
+        data, _commit = load_training_data(hf_token, dataset_repo, revision=PINNED_DATASET_SHA or None)
         aids_all, xs_all, ys_all = parse_actions(data["actions"])
         train_df, val_df, _test_df = stratified_split(data)
         ti = train_df.index.tolist()
@@ -537,7 +543,7 @@ def train_and_evaluate_stage2(
 
     hf_token = get_token() or ""
     dataset_repo: str = candidate_config.get("dataset", "luxury-lakehouse/football2vec-training-data")
-    data, _commit = load_training_data(hf_token, dataset_repo)
+    data, _commit = load_training_data(hf_token, dataset_repo, revision=PINNED_DATASET_SHA or None)
     aids_all, xs_all, ys_all = parse_actions(data["actions"])
     ucomp = sorted(data["competition_id"].unique().tolist())
     c2i: dict[int, int] = {int(c): i for i, c in enumerate(ucomp)}

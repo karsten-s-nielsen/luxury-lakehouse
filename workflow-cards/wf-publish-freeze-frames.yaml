@@ -1,0 +1,74 @@
+---
+name: Publish Freeze-Frame Data to HF Hub
+id: wf-publish-freeze-frames
+version: "1.0"
+status: development
+type: data-movement
+domain: expected-goals
+owners:
+  - karsten
+tags:
+  - xg
+  - freeze-frames
+  - statsbomb
+  - huggingface
+  - training-data
+
+# No academic references — pure data-movement workflow (extract + upload).
+references: []
+
+inputs:
+  tables:
+    - id: "{catalog}.dev_silver.stg_statsbomb__events"
+      source: delta-table
+      description: "StatsBomb events with shot_freeze_frame JSON"
+    - id: "{catalog}.dev_silver.stg_statsbomb__matches"
+      source: delta-table
+      description: "Match metadata for competition_id and season_id"
+
+outputs:
+  datasets:
+    - id: "luxury-lakehouse/xg-freeze-frame-data"
+      destination: huggingface
+      description: "Per-player freeze-frame positions partitioned by competition_id (Parquet)"
+
+execution:
+  export:
+    trigger: orchestrated
+    orchestrated_by: wf-hf-sync
+    runtime: databricks-workflow
+    entry_point: publish_freeze_frame_hf
+    module: ingestion.publish_freeze_frame_hf
+    distribution: driver-bound
+    timeout: "600s"
+    environment: analytics
+
+depends_on:
+  - wf-statsbomb-ingest
+
+idempotency:
+  strategy: full-overwrite
+  key: event_id
+  description: "Exports all freeze frames each run; HF Hub dataset is replaced in full."
+
+cost:
+  export:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 15
+    typical_cost_usd: 1.05
+
+monitoring:
+  freshness_sla_hours: 168
+
+links:
+  source_code:
+    - "src/ingestion/publish_freeze_frame_hf.py"
+---
+
+## Overview
+
+Databricks-runtime counterpart of `scripts/publish_freeze_frame_hf.py`. Reads
+shot events with freeze-frame JSON from `stg_statsbomb__events` (silver layer),
+parses into per-player rows with normalized coordinates, writes partitioned
+Parquet (by `competition_id`), and uploads to HF Hub.

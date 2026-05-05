@@ -1,11 +1,10 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.32-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.33-py3-none-any.whl",
 #     "numpy>=1.26.0",
 #     "pandas>=2.0.0",
 #     "pyarrow>=14.0.0",
-#     "datasets>=3.0",
 #     "torch>=2.1.0",
 #     "safetensors>=0.4.0",
 #     "huggingface-hub>=1.5.0",
@@ -50,7 +49,7 @@ from train_football2vec_360_helpers import (
     Football2Vec360Dataset,
     MLMHead,
     get_cosine_schedule_with_warmup,
-    load_training_data,
+    load_training_data_sql,
     mlm_forward_360,
     parse_actions,
     parse_freeze_frames,
@@ -748,7 +747,10 @@ def main() -> None:
 
 def _run_stage1(args: argparse.Namespace, hf_token: str, device: torch.device, recorder: HFJobsCostRecorder) -> None:
     """Execute Stage 1: MLM pre-training with 360 context."""
-    data, dataset_commit = load_training_data(hf_token, INPUT_DATASET)
+    host = os.environ["DATABRICKS_HOST"].replace("https://", "").replace("http://", "").rstrip("/")
+    data, dataset_commit = load_training_data_sql(
+        host, os.environ["DATABRICKS_TOKEN"], os.environ["DATABRICKS_SQL_WAREHOUSE_ID"]
+    )
     action_ids_all, x_coords_all, y_coords_all = parse_actions(data["actions"])
     freeze_frames_all = parse_freeze_frames(data["freeze_frames"])
     train_df, val_df, test_df = stratified_split(data)
@@ -839,7 +841,10 @@ def _run_stage1(args: argparse.Namespace, hf_token: str, device: torch.device, r
 
 def _run_stage2(args: argparse.Namespace, hf_token: str, device: torch.device, recorder: HFJobsCostRecorder) -> None:
     """Execute Stage 2: Adversarial competition debiasing."""
-    data, dataset_commit = load_training_data(hf_token, INPUT_DATASET)
+    host = os.environ["DATABRICKS_HOST"].replace("https://", "").replace("http://", "").rstrip("/")
+    data, dataset_commit = load_training_data_sql(
+        host, os.environ["DATABRICKS_TOKEN"], os.environ["DATABRICKS_SQL_WAREHOUSE_ID"]
+    )
     action_ids_all, x_coords_all, y_coords_all = parse_actions(data["actions"])
     freeze_frames_all = parse_freeze_frames(data["freeze_frames"])
     unique_comp = sorted(data["competition_id"].unique().tolist())

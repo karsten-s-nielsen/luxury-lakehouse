@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.32-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.33-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -75,6 +75,12 @@ HF_ORG = "luxury-lakehouse"
 RESULTS_REPO = f"{HF_ORG}/football2vec-l2-harvest"
 TRAINING_DATASET = f"{HF_ORG}/football2vec-training-data"
 STAGE1_MODEL_REPO = f"{HF_ORG}/football2vec-v2"
+
+# Evolve pin-drift discipline (§2.12): freeze dataset version during
+# architecture experiments. Bump via: scripts/bump_evolve_pin.py
+PINNED_DATASET_REPO: str = TRAINING_DATASET
+PINNED_DATASET_SHA: str = "PLACEHOLDER_UNTIL_PHASE_9"
+PINNED_REASON: str = "Post-SK3-MIG-B Phase 9; bump via scripts/bump_evolve_pin.py"
 _TARGET = "football2vec_stage2"
 
 # Pinned shared config — mirrors the Phase 1 spec section. Reproducibility
@@ -455,8 +461,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--dataset-sha",
-        required=True,
-        help="HF Hub commit SHA of luxury-lakehouse/football2vec-training-data to pin",
+        default=PINNED_DATASET_SHA,
+        help="HF Hub commit SHA of luxury-lakehouse/football2vec-training-data to pin (default: PINNED_DATASET_SHA)",
     )
     parser.add_argument(
         "--hosts",

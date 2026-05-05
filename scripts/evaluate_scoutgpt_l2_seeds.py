@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.32-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.33-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -60,6 +60,12 @@ HF_ORG = "luxury-lakehouse"
 RESULTS_REPO = f"{HF_ORG}/scoutgpt-l2-harvest"
 TRAINING_DATASET = f"{HF_ORG}/scoutgpt-training-data"
 
+# Evolve pin-drift discipline (§2.12): freeze dataset version during
+# architecture experiments. Bump via: scripts/bump_evolve_pin.py
+PINNED_DATASET_REPO: str = TRAINING_DATASET
+PINNED_DATASET_SHA: str = "PLACEHOLDER_UNTIL_PHASE_9"
+PINNED_REASON: str = "Post-SK3-MIG-B Phase 9; bump via scripts/bump_evolve_pin.py"
+
 # Shared config mirroring the L2 seed programs' declared hyperparameters
 # (fourier_cross_attention, hybrid_gated_attention, orthogonal_cross_attention,
 # swiglu_conditioning all declare identical configs). Baseline additive run
@@ -76,6 +82,7 @@ _SHARED_CONFIG: dict[str, Any] = {
     "weight_decay": 0.01,
     "batch_size": 384,
     "dataset": TRAINING_DATASET,
+    "dataset_revision": PINNED_DATASET_SHA,
 }
 
 _EPOCHS = 15

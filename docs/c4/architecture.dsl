@@ -28,15 +28,16 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             dbtBuildAndRefresh = container "dbt_build_and_refresh.py" "Chains dbt build with synced table refresh" "Python, subprocess"
         }
 
-        pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "41 workflow-card-registered workflows. Centralized hooks, lifecycle tracking, three-tier cost tracking." {
+        pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "44 workflow-card-registered workflows. Centralized hooks, lifecycle tracking, three-tier cost tracking." {
             workflowFramework = container "Workflow Framework" "Registry, @workflow decorator, lifecycle runner with hook dispatch" "Python"
-            workflowCards = container "Workflow Cards" "41 YAML manifests: inputs, outputs, deps, cost estimates, provenance" "YAML" "Database"
+            workflowCards = container "Workflow Cards" "44 YAML manifests: inputs, outputs, deps, cost estimates, provenance" "YAML" "Database"
             costEstimateHook = container "CostEstimateHook" "Writes run state, entity_count, row_count, cost to Delta via MERGE" "Python, PySpark"
             hfCostRecorder = container "HFJobsCostRecorder" "Cost recorder for HF Jobs. Writes to HF Hub repos. 90-day pruning." "Python"
             guardRegistry = container "Guard Registry" "SkipGuard protocol, FilterResult, find_new_ids(), timed_check() wrapper" "Python"
             artifactDeploy = container "Artifact Deploy" "Training-to-production contract (ADR-012). MLflow + UC Volume helpers." "Python"
             hfPublish = container "HF Publish Helper" "README delivery (ADR-014). upload_hf_readme + get_hf_card_path." "Python"
-            ingestionPipelines = container "Compute Pipelines" "30 @workflow-decorated Databricks pipelines across 5 providers" "Python, PySpark"
+            databricksSqlFetch = container "Databricks SQL Fetch" "HTTP helper for HF Jobs trainers querying gold marts (no Spark)" "Python, requests"
+            ingestionPipelines = container "Compute Pipelines" "37 @workflow-decorated Databricks pipelines across 5 providers" "Python, PySpark"
             refreshSyncedTables = container "Synced Table Refresh" "Triggers SNAPSHOT refresh on 34 Lakebase synced tables" "Python, databricks-sdk"
             dbtRunner = container "dbt Runner" "python_wheel_task entry point. OAuth token exchange, warehouse start." "Python, dbt-core"
             evolveEngine = container "Evolve Engine" "LLM-guided architecture search. AST validation, restricted exec." "Python, OpenEvolve"
@@ -69,7 +70,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
 
         lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL endpoint syncing 34 Delta tables (56 indexes: 50 btree + 6 HNSW)" "External"
         databricksApi = softwareSystem "Databricks REST API" "OAuth, synced table metadata, pipeline triggers, state polling" "External"
-        databricksWorkflows = softwareSystem "Databricks Workflows" "32-task daily DAG: 5 ingest, 14 compute, 1 HF sync, dbt_build, refresh" "External"
+        databricksWorkflows = softwareSystem "Databricks Workflows" "33-task daily DAG: 5 ingest, 14 compute, 1 HF sync (10 sub-ops), dbt_build, refresh" "External"
         hfIdentity = softwareSystem "HuggingFace Identity API" "Token validation via /api/whoami-v2. Org membership check." "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds Dockerfile, serves port 7860." "External"
         hfHub = softwareSystem "HuggingFace Hub" "17 models, 19 datasets, build-artifacts wheel. READMEs via ADR-014." "External"
@@ -172,12 +173,19 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         evolveEngine -> sharedLibrary "Imports WHEEL_BASE_URL" ""
         evolveEngine -> hfJobs "Submits training jobs" "HTTPS"
 
+        # Relationships - Databricks SQL Fetch (HF Jobs trainers)
+        hfJobsTrainers -> databricksSqlFetch "Queries gold marts" "HTTPS"
+        databricksSqlFetch -> databricksApi "Statement Execution API" "HTTPS"
+
         # Relationships - HF Jobs
         hfJobs -> analyticsLibrary "Imports from wheel" "pip"
         hfJobs -> hfCostRecorder "Records cost" ""
         hfCostRecorder -> hfHub "Writes cost JSON" "HTTPS"
         hfJobs -> hfHub "Publishes models/grids" "HTTPS"
         hfJobs -> hfPublish "Pushes README" "HTTPS"
+
+        # Relationships - Daily HF sync sub-operations (3 Group 0 publishers)
+        ingestionPipelines -> hfHub "Publishes datasets (hf_sync sub-ops)" "HTTPS"
 
         # Relationships - HF Publish helper
         ingestionPipelines -> hfPublish "Uploads README after data" ""

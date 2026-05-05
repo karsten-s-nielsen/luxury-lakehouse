@@ -1,7 +1,7 @@
 """Combined HF Hub sync task — imports and exports in a single Databricks task.
 
-Replaces 7 separate HF tasks (3 imports, 3 exports, 1 cost sync) with
-one task that calls each as a ``@workflow``-decorated sub-operation.
+Replaces separate HF tasks with one task that calls each as a
+``@workflow``-decorated sub-operation (currently 10 sub-operations).
 Each sub-operation gets its own record in ``workflow_cost_live``.
 """
 
@@ -85,6 +85,17 @@ def _make_export_shots_op() -> Callable[..., None]:
     return _call
 
 
+def _make_plain_op(module_path: str) -> Callable[..., None]:
+    """Create a sub-operation caller for modules with (spark, catalog, schema, logger) — no skip_guard."""
+
+    def _call(spark: SparkSession, catalog: str, schema: str, logger_arg: logging.Logger) -> None:
+        mod = importlib.import_module(module_path)
+        mod.run_pipeline(spark, catalog, schema, logger_arg)
+
+    _call.__qualname__ = f"_call[{module_path}]"
+    return _call
+
+
 def _make_sync_costs_op() -> Callable[..., None]:
     """Create the sync_hf_costs sub-operation (non-standard signature)."""
 
@@ -115,6 +126,10 @@ _SUB_OPERATIONS: list[tuple[str, Callable[..., None]]] = [
     ("ingestion.export_embeddings_training_data", _make_logger_op("ingestion.export_embeddings_training_data")),
     ("ingestion.export_shots_on_target", _make_export_shots_op()),
     ("ingestion.prepare_360_training_data", _make_volume_op("ingestion.prepare_360_training_data")),
+    ("ingestion.export_scoutgpt_training_data", _make_plain_op("ingestion.export_scoutgpt_training_data")),
+    ("ingestion.publish_spadl_vaep_hf", _make_plain_op("ingestion.publish_spadl_vaep_hf")),
+    ("ingestion.publish_xg_shots_hf", _make_plain_op("ingestion.publish_xg_shots_hf")),
+    ("ingestion.publish_freeze_frame_hf", _make_plain_op("ingestion.publish_freeze_frame_hf")),
     ("ingestion.sync_hf_costs", _make_sync_costs_op()),
 ]
 
