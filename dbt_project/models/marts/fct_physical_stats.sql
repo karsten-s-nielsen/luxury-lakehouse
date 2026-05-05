@@ -1,6 +1,6 @@
 {{ config(
     materialized='incremental',
-    unique_key='physical_stats_id',
+    unique_key=['player_key', 'match_key', 'data_source'],
     liquid_clustered_by=['match_key'],
     incremental_strategy='merge',
     on_schema_change='append_new_columns',
@@ -9,7 +9,7 @@
 -- fct_physical_stats.sql
 -- Per-player per-match physical performance aggregation from tracking data.
 --
--- Grain: one row per (player_id, match_id).
+-- Grain: one row per (player_key, match_key, data_source).
 -- Source: fct_tracking_frames with speed_ms and acceleration_ms2 columns.
 --
 -- Distance computation uses anisotropic scaling per frame to convert
@@ -70,7 +70,7 @@ player_match_stats as (
         match_id,
         any_value(match_key)                                as match_key,
         min(source_provider)                                as source_provider,
-        any_value(data_source)                              as data_source,
+        data_source,
         min(frame_rate)                                     as frame_rate,
 
         -- Minutes played (estimated from frame range)
@@ -111,7 +111,7 @@ player_match_stats as (
         avg(y)                                              as avg_y
 
     from frames
-    group by player_id, match_id
+    group by player_id, match_id, data_source
 
 ),
 
