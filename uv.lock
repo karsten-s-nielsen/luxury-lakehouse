@@ -1838,7 +1838,7 @@ wheels = [
 
 [[package]]
 name = "luxury-lakehouse"
-version = "0.3.33"
+version = "0.3.34"
 source = { editable = "." }
 dependencies = [
     { name = "gitpython" },
@@ -1885,6 +1885,9 @@ mlflow = [
 sdk = [
     { name = "databricks-sdk", version = "0.102.0", source = { registry = "https://pypi.org/simple" } },
     { name = "psycopg2-binary" },
+]
+spadl = [
+    { name = "silly-kicks" },
 ]
 taipy-app = [
     { name = "cachetools" },
@@ -1943,6 +1946,7 @@ requires-dist = [
     { name = "huggingface-hub", specifier = ">=1.5.0" },
     { name = "huggingface-hub", marker = "extra == 'taipy-app'", specifier = ">=1.5.0" },
     { name = "jax", extras = ["cpu"], marker = "extra == 'jax'", specifier = ">=0.4.35" },
+    { name = "luxury-lakehouse", extras = ["spadl"], marker = "extra == 'analytics'" },
     { name = "matplotlib", marker = "extra == 'analytics'", specifier = ">=3.8.0" },
     { name = "mlflow", marker = "extra == 'mlflow'", specifier = ">=2.19.0" },
     { name = "mplsoccer", marker = "extra == 'analytics'", specifier = ">=1.1.3" },
@@ -1970,14 +1974,14 @@ requires-dist = [
     { name = "scikit-learn", marker = "extra == 'analytics'", specifier = ">=1.3.0" },
     { name = "scipy", marker = "extra == 'analytics'", specifier = ">=1.11.0" },
     { name = "scipy", marker = "extra == 'taipy-app'", specifier = ">=1.15.0" },
-    { name = "silly-kicks", marker = "extra == 'analytics'", specifier = ">=3.0.1,<4" },
+    { name = "silly-kicks", marker = "extra == 'spadl'", specifier = ">=3.7.0,<4" },
     { name = "sparse-dot-topn", marker = "extra == 'analytics'", specifier = ">=1.1.0" },
     { name = "taipy", marker = "extra == 'taipy-app'", specifier = "==4.1.1" },
     { name = "torch", marker = "extra == 'training'", specifier = ">=2.0", index = "https://download.pytorch.org/whl/cu128" },
     { name = "unidecode", marker = "extra == 'analytics'", specifier = ">=1.3.0" },
     { name = "xgboost", marker = "extra == 'analytics'", specifier = "==3.2.0" },
 ]
-provides-extras = ["analytics", "dbt", "sdk", "embeddings", "jax", "mlflow", "training", "evolve", "taipy-app"]
+provides-extras = ["spadl", "analytics", "dbt", "sdk", "embeddings", "jax", "mlflow", "training", "evolve", "taipy-app"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -3704,16 +3708,17 @@ wheels = [
 
 [[package]]
 name = "silly-kicks"
-version = "3.0.1"
+version = "3.7.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
     { name = "pandas" },
     { name = "scikit-learn" },
+    { name = "scipy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/27/a6/c454966460a697b4d7f39c71627f3868eeeb505862c3866ce270cbc683aa/silly_kicks-3.0.1.tar.gz", hash = "sha256:ba281c4a692408a76c2b4e7b8429cb8715fd9fa946997db0367cbec7ca349654", size = 11235076, upload-time = "2026-05-02T15:04:08.594Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d6/18/3d49abdbba500dca22b991ba5bd2787638ad83184615d2779c614daa31f6/silly_kicks-3.7.0.tar.gz", hash = "sha256:3bd87078efef091845bd9968f89c435eed1eb40e2b6790ef478c7d2da234e6b9", size = 12846289, upload-time = "2026-05-06T02:55:27.408Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b8/59/e5accfd6f2f5bef9b023501718f5b3a9fdb7654ff8947c8906f209acd5dc/silly_kicks-3.0.1-py3-none-any.whl", hash = "sha256:47335e691c2da4f41d98c81ff5c15cf181195a26f717a18d45fb08fe65b00874", size = 181926, upload-time = "2026-05-02T15:04:06.901Z" },
+    { url = "https://files.pythonhosted.org/packages/af/4f/0d6f17527aec1ada6a7d076adf8dd1587875c2f8bd6e3f448a6917427bd2/silly_kicks-3.7.0-py3-none-any.whl", hash = "sha256:8b8d50db1766b5e00a1894a40e7acc8951d994d2c8b370ff23ebd949c4c7e968", size = 246860, upload-time = "2026-05-06T02:55:25.874Z" },
 ]
 
 [[package]]

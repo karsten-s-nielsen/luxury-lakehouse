@@ -194,11 +194,16 @@ def _extract_pep723_block(src: str) -> str:
 def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     """No trainer may pin `silly-kicks` in its PEP 723 deps.
 
-    The wheel's transitive pin (silly-kicks>=3.0.1,<4) is the single source of
-    truth. uv silently picks a conflicting top-level pin over the wheel's
-    transitive pin (verified empirically 2026-05-04 — silly-kicks 1.0.2 loaded
-    under `silly-kicks>=1.0.0,<2.0` + wheel-pulled `>=3.0.1`). An explicit pin
-    in a PEP 723 deps block is therefore an active footgun, not a safety net.
+    The wheel's ``[spadl]`` extra (silly-kicks>=3.7.0,<4) is the single source
+    of truth. Trainers install ``luxury-lakehouse[spadl] @ ...wheel`` which
+    resolves silly-kicks transitively. uv silently picks a conflicting
+    top-level pin over the wheel's transitive pin (verified empirically
+    2026-05-04). An explicit ``"silly-kicks..."`` pin in PEP 723 deps is
+    therefore an active footgun, not a safety net.
+
+    NOTE: the regex ``r'"silly-kicks'`` intentionally does not match the
+    ``luxury-lakehouse[spadl]`` wheel line — the token ``"silly-kicks``
+    never appears there.
     """
     offenders: dict[str, str] = {}
     for item, path in _TRAINER_PATHS.items():
@@ -216,11 +221,11 @@ def test_no_trainer_pins_silly_kicks_explicitly() -> None:
     )
 
 
-# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (3, 0, 1) ──────────
+# ── §2.10.5 — every trainer declares _REQUIRED_SK_MIN = (3, 7, 0) ──────────
 
 
 def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
-    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (3, 0, 1)`.
+    """Each trainer must declare module-level `_REQUIRED_SK_MIN = (3, 7, 0)`.
 
     Per spec §2.10.5: the runtime check inside `main()` is not directly
     introspectable post-hoc, so we assert the constant. Code review covers
@@ -234,9 +239,9 @@ def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
         if not hasattr(trainer, "_REQUIRED_SK_MIN"):
             missing.append(item)
             continue
-        expected = (3, 0, 1)
+        expected = (3, 7, 0)
         actual = trainer._REQUIRED_SK_MIN
         if actual != expected:
             wrong_value[item] = actual
-    assert not missing, f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (3, 0, 1)`: {missing}"
-    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (3, 0, 1): {wrong_value}"
+    assert not missing, f"Trainers missing module-level `_REQUIRED_SK_MIN: tuple[int, int, int] = (3, 7, 0)`: {missing}"
+    assert not wrong_value, f"Trainers with `_REQUIRED_SK_MIN` not equal to (3, 7, 0): {wrong_value}"

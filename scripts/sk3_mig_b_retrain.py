@@ -4,7 +4,7 @@
 #     "databricks-sdk>=0.20",
 #     "huggingface_hub>=0.20",
 #     "mlflow>=2.19",
-#     "silly-kicks>=3.0.1",
+#     "silly-kicks>=3.7.0,<4",
 # ]
 # ///
 # ruff: noqa: RUF001, RUF002 — text contains "PR-alpha" (Greek alpha) per project convention
@@ -89,9 +89,9 @@ _GROUP_3_PUBLISH = (
 # workflow-cards are the validated source of truth, not the orchestrator.
 # Values corrected in step 4b lockstep with trainer-side `VALIDATED_HF_FLAVOR`.
 _FLAVOR_MAP: dict[str, str] = {
-    "vaep": "cpu-large",
+    "vaep": "cpu-xl",
     "xg_v2": "l40sx1",
-    "f2v_v1": "cpu-large",
+    "f2v_v1": "cpu-xl",
     "f2v_v2": "l40sx1",
     "f2v_360": "l40sx1",
     "scoutgpt": "l40sx1",
@@ -296,7 +296,7 @@ INSERT INTO {state.catalog}.bronze.sk3_mig_b_runs (
   wall_clock_seconds, cost_usd, recorded_at
 ) VALUES (
   '{state.cycle_id}', {_fmt_ts(state.cycle_started_at)}, NULL,
-  '{state.wheel_at_start}', {_fmt_str("0.3.32" if cycle_item != "pre_state" else None)}, '{state.silly_kicks_version}',
+  '{state.wheel_at_start}', {_fmt_str("0.3.34" if cycle_item != "pre_state" else None)}, '{state.silly_kicks_version}',
   {_COST_CAP_USD}, {_WALLTIME_CAP_HOURS},
   '{cycle_item}', '{cycle_item_kind}',
   {_fmt_str(hf_job_id)}, {_fmt_ts(champion_set_at)},
@@ -372,15 +372,16 @@ def _step_0_preflight(state: CycleState) -> None:
     import silly_kicks
 
     sk_version = getattr(silly_kicks, "__version__", "unknown")
-    if sk_version < "3.0.1":
-        raise RuntimeError(f"silly-kicks {sk_version} < 3.0.1")
+    sk_tuple = tuple(int(x) for x in sk_version.split(".")[:3])
+    if sk_tuple < (3, 7, 0):
+        raise RuntimeError(f"silly-kicks {sk_version} < 3.7.0")
     _emit_status(state, step="0", phase="running", msg=f"silly-kicks {sk_version} OK")
 
     pyproject = (_REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     version_lines = [line for line in pyproject.splitlines() if line.startswith("version")]
-    if "0.3.32" not in version_lines[0]:
-        raise RuntimeError(f"Wheel version mismatch: {version_lines[0]!r}. PR-α wheel bump may not have merged.")
-    _emit_status(state, step="0", phase="running", msg="wheel 0.3.31 OK")
+    if "0.3.34" not in version_lines[0]:
+        raise RuntimeError(f"Wheel version mismatch: {version_lines[0]!r}. Expected 0.3.34.")
+    _emit_status(state, step="0", phase="running", msg="wheel 0.3.34 OK")
 
     required_files = [
         "src/ingestion/sk3_mig_b_telemetry.py",
@@ -414,9 +415,12 @@ def _step_0_preflight(state: CycleState) -> None:
         msg=f"PR-α inventory OK ({len(required_files)} required, {len(forbidden_files)} forbidden)",
     )
 
-    for var in ("DATABRICKS_TOKEN", "DATABRICKS_HOST", "MLFLOW_TRACKING_URI", "HF_TOKEN", "DATABRICKS_WAREHOUSE_ID"):
+    for var in ("DATABRICKS_TOKEN", "DATABRICKS_HOST", "MLFLOW_TRACKING_URI", "HF_TOKEN"):
         if not os.environ.get(var):
             raise RuntimeError(f"{var} unset — orchestrator cannot proceed")
+    # DATABRICKS_WAREHOUSE_ID can be derived from DATABRICKS_HTTP_PATH (line 1276)
+    if not os.environ.get("DATABRICKS_WAREHOUSE_ID") and not os.environ.get("DATABRICKS_HTTP_PATH"):
+        raise RuntimeError("DATABRICKS_WAREHOUSE_ID or DATABRICKS_HTTP_PATH must be set")
     _emit_status(state, step="0", phase="running", msg="env vars OK")
 
     # Gold marts use `_loaded_at` (dbt incremental audit column); only bronze
@@ -600,11 +604,11 @@ def _dispatch_trained_model(state: CycleState, cycle_item: str) -> str:
             "DATABRICKS_TOKEN": os.environ["DATABRICKS_TOKEN"],
             "DATABRICKS_HOST": os.environ["DATABRICKS_HOST"],
             "MLFLOW_TRACKING_URI": os.environ["MLFLOW_TRACKING_URI"],
-            "DATABRICKS_WAREHOUSE_ID": os.environ["DATABRICKS_WAREHOUSE_ID"],
+            "DATABRICKS_WAREHOUSE_ID": state.warehouse_id,
             # f2v_v1 (scripts/train_football2vec.py) reads
             # DATABRICKS_SQL_WAREHOUSE_ID; the v2/360 gamma rewrites in PR-2
             # will need it too. Pass on every dispatch — non-SQL trainers ignore.
-            "DATABRICKS_SQL_WAREHOUSE_ID": os.environ["DATABRICKS_WAREHOUSE_ID"],
+            "DATABRICKS_SQL_WAREHOUSE_ID": state.warehouse_id,
         },
     )
     job_id = job.id
@@ -707,8 +711,8 @@ def _trigger_mega_job_task(state: CycleState, cycle_item: str) -> int:
             (t for t in run_state.tasks or [] if t.task_key == target_task_key),
             None,
         )
-        if task_run and task_run.state and task_run.state.life_cycle_state == "TERMINATED":
-            if task_run.state.result_state != "SUCCESS":
+        if task_run and task_run.state and getattr(task_run.state.life_cycle_state, "value", None) == "TERMINATED":
+            if getattr(task_run.state.result_state, "value", None) != "SUCCESS":
                 raise RuntimeError(f"Task {target_task_key} terminated with {task_run.state.result_state}")
             break
         time.sleep(_STATUS_INTERVAL_SECONDS)
@@ -1028,35 +1032,59 @@ def _run_publisher(state: CycleState, step_label: str, cycle_item: str, script: 
 
 
 def _step_0a_group_0_inputs(state: CycleState) -> None:
-    """Group 0 (Step 0a, spec §2.4): vaep + xg_v2 input-dataset republishes.
+    """Group 0 (Step 0a): input-dataset republishes + hf_sync prerequisite.
 
-    Runs synchronously BEFORE Group 1 so vaep + xg_v2 retrain on fresh
-    SK3-MIG-corrected inputs from HF Hub. Halt on first failure.
+    Triggers the mega-job's ``hf_sync`` task which runs ALL 10 sub-operations
+    on Databricks runtime (where ``spark.sql()`` is available):
+      - Group 0 publishers: spadl_vaep, xg_shots, freeze_frame (PR-2)
+      - Training-data exports: scoutgpt, f2v_v2, f2v_360 (PR-2 + Q31)
+      - Other hf_sync sub-ops (space creation, psxg, shots_on_target, costs)
+
+    Replaces the previous two-step pattern (0a local ``uv run`` + 0b mega-job)
+    because Group 0 publishers are Databricks-runtime modules that use
+    ``spark.sql()`` — they cannot run locally.
+
+    Pre/post HF revision SHAs are captured for Group 0 publisher telemetry.
     """
-    _emit_status(state, step="0a", phase="running", msg="Group 0 input-dataset republishes")
-    for cycle_item, script, repo_id in _GROUP_0_PUBLISHERS:
-        _run_publisher(state, "0a", cycle_item, script, repo_id)
-    _emit_status(state, step="0a", phase="complete", msg="Group 0 COMPLETE")
+    _emit_status(state, step="0a", phase="running", msg="Group 0 input-dataset republishes + hf_sync")
 
+    # Capture pre-publish HF revision SHAs for telemetry
+    pre_shas: dict[str, str | None] = {}
+    for cycle_item, _script, repo_id in _GROUP_0_PUBLISHERS:
+        pre_shas[cycle_item] = _get_hf_revision_sha(repo_id)
 
-def _step_0b_hf_sync_prereq(state: CycleState) -> None:
-    """Group 0.5 (Step 0b, spec §2.4b, Q31): refresh f2v_v2 + f2v_360 inputs.
-
-    Triggers the daily mega-job's `hf_sync` task to refresh
-    `football2vec-training-data` and `football2vec-360-training-data` via the
-    existing wf-football2vec-v2-export + wf-prepare-360-data sub-operations.
-    Other mega-job tasks run independently in parallel — canonical pattern
-    per reference_mega_job_orchestrator_design. ~3 min walltime for hf_sync.
-
-    scoutgpt-training-data is NOT covered: wf-scoutgpt-export is added to
-    hf_sync.sub_operations only by PR-2's §2.4a.1 amendment.
-    """
-    _emit_status(state, step="0b", phase="running", msg="hf_sync_prereq trigger (Q31 in scope)")
     if state.dry_run:
-        _emit_status(state, step="0b", phase="running", msg="[dry-run] skip hf_sync trigger")
-        return
-    _trigger_mega_job_task(state, "hf_sync_prereq")
-    _emit_status(state, step="0b", phase="complete", msg="hf_sync_prereq COMPLETE")
+        _emit_status(state, step="0a", phase="running", msg="[dry-run] skip hf_sync mega-job trigger")
+        for cycle_item, _script, _repo_id in _GROUP_0_PUBLISHERS:
+            _write_telemetry_row(
+                state,
+                cycle_item=cycle_item,
+                smoke_pass=True,
+                pre_hf_revision_sha=pre_shas[cycle_item],
+                cost_usd=_estimate_item_cost(cycle_item),
+            )
+    else:
+        _trigger_mega_job_task(state, "hf_sync_prereq")
+
+        # Write per-publisher telemetry with post-publish verification
+        for cycle_item, _script, repo_id in _GROUP_0_PUBLISHERS:
+            post_sha = _get_hf_revision_sha(repo_id)
+            _write_telemetry_row(
+                state,
+                cycle_item=cycle_item,
+                smoke_pass=True,
+                pre_hf_revision_sha=pre_shas[cycle_item],
+                cost_usd=_estimate_item_cost(cycle_item),
+            )
+            _emit_status(
+                state,
+                step="0a",
+                item=cycle_item,
+                phase="complete",
+                msg=f"published {repo_id} (pre={pre_shas[cycle_item]}, post={post_sha})",
+            )
+
+    _emit_status(state, step="0a", phase="complete", msg="Group 0 + hf_sync COMPLETE")
 
 
 def _step_3_group_3_publish(state: CycleState) -> None:
@@ -1211,7 +1239,6 @@ def _step_already_at_or_past(current: str, target: str) -> bool:
     order = (
         "preflight",
         "group_0_inputs",
-        "hf_sync_prereq",
         "group_1",
         "group_2",
         "group_3",
@@ -1287,7 +1314,7 @@ def main() -> int:
     state = CycleState(
         cycle_id=cycle_id,
         cycle_started_at=_now_utc(),
-        wheel_at_start="0.3.32",
+        wheel_at_start="0.3.34",
         silly_kicks_version=sk_version,
         catalog=catalog,
         warehouse_id=warehouse_id,
@@ -1305,7 +1332,6 @@ def main() -> int:
         steps_in_order = [
             ("preflight", lambda: _step_0_preflight(state)),
             ("group_0_inputs", lambda: _step_0a_group_0_inputs(state)),
-            ("hf_sync_prereq", lambda: _step_0b_hf_sync_prereq(state)),
             ("group_1", lambda: _step_1_group_1(state)),
             ("group_2", lambda: _step_2_group_2(state)),
             ("group_3", lambda: _step_3_group_3_publish(state)),
