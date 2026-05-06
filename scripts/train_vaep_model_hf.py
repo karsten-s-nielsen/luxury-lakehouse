@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.33-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.34-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -64,12 +64,12 @@ from workflows import workflow
 # cpu-basic per spec §1.6 (cpu-basic OOMed at 4323/5404 games on the SK3-MIG
 # data scale; psutil instrumentation in main() reports RSS for next-cycle
 # review).
-VALIDATED_HF_FLAVOR: str = "cpu-large"
+VALIDATED_HF_FLAVOR: str = "cpu-xl"
 
 # uv silent-downgrade footgun (CLAUDE.md): a top-level silly-kicks pin in PEP
 # 723 deps silently overrides the wheel's transitive pin; explicit pins are an
 # active footgun, not a safety net (verified empirically 2026-05-04).
-_REQUIRED_SK_MIN: tuple[int, int, int] = (3, 0, 1)
+_REQUIRED_SK_MIN: tuple[int, int, int] = (3, 7, 0)
 
 
 def _assert_silly_kicks_min() -> None:

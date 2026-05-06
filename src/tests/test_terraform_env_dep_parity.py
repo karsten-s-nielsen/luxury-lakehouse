@@ -50,7 +50,7 @@ def _parse_pyproject_deps() -> dict[str, str]:
     text = _PYPROJECT.read_text(encoding="utf-8")
     deps: dict[str, str] = {}
     for block_match in re.finditer(
-        r"^\s*(?:dependencies|[\w-]+)\s*=\s*\[\s*\n([^\]]+)\]",
+        r"^\s*(?:dependencies|[\w-]+)\s*=\s*\[\s*\n((?:.*\n)*?)\s*\]",
         text,
         re.MULTILINE,
     ):
