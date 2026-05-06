@@ -13,7 +13,7 @@ tags:
   - daily-job
 
 # No academic methodology — operational orchestration layer that fans out
-# into 7 independent sub-operation workflows. See src/ingestion/hf_sync.py
+# into 10 independent sub-operation workflows. See src/ingestion/hf_sync.py
 # for the _SUB_OPERATIONS list.
 references: []
 
@@ -41,6 +41,10 @@ execution:
       - wf-football2vec-v2-export
       - wf-export-shots
       - wf-prepare-360-data
+      - wf-scoutgpt-export
+      - wf-publish-spadl-vaep
+      - wf-publish-xg-shots
+      - wf-publish-freeze-frames
       - wf-sync-hf-costs
 
 depends_on:
@@ -75,7 +79,7 @@ links:
 ## Overview
 
 The `hf_sync` task is the daily job's HF orchestration stage. It iterates
-through 6 sub-operations in order, each wrapped in a best-effort error
+through 10 sub-operations in order, each wrapped in a best-effort error
 boundary (failures logged at ERROR but do not abort the parent task):
 
 1. Import space creation data from HF Hub
@@ -83,7 +87,11 @@ boundary (failures logged at ERROR but do not abort the parent task):
 3. Export football2vec v2 training data to HF Hub
 4. Export shots-on-target to HF Hub
 5. Prepare 360 training data for HF Jobs
-6. Sync HF Jobs cost telemetry into Delta
+6. Export ScoutGPT training data to HF Hub
+7. Publish SPADL/VAEP action values to HF Hub
+8. Publish xG shot data to HF Hub
+9. Publish freeze-frame data to HF Hub
+10. Sync HF Jobs cost telemetry into Delta
 
 The OBSO/PAUSA import was previously a 7th sub-operation here; PR-Cycle-B
 (2026-05-01) split it out into its own Databricks task (`import_obso_results`)

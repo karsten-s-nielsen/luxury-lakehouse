@@ -31,6 +31,15 @@ outputs:
 
 execution:
   export:
+    trigger: orchestrated
+    orchestrated_by: wf-hf-sync
+    runtime: databricks-workflow
+    entry_point: publish_spadl_vaep_hf
+    module: ingestion.publish_spadl_vaep_hf
+    distribution: driver-bound
+    timeout: "900s"
+    environment: analytics
+  export_hf_jobs:
     trigger: manual
     runtime: hf-jobs
     script: "scripts/publish_spadl_vaep_hf.py"
@@ -58,24 +67,22 @@ monitoring:
 
 links:
   source_code:
+    - "src/ingestion/publish_spadl_vaep_hf.py"
     - "scripts/publish_spadl_vaep_hf.py"
   hf_dataset: "https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values"
 ---
 
 ## Overview
 
-Queries the Databricks SQL Statement Execution API to extract every action-value
-record from the gold-layer `fct_action_values` table and publishes the Parquet
-dataset (partitioned by `data_source`) to HF Hub as
+Publishes the full `fct_action_values` gold mart as a Parquet dataset
+(partitioned by `data_source`) to HF Hub as
 `luxury-lakehouse/spadl-vaep-action-values`.
 
-This dataset is the primary input for VAEP model retraining (`train_vaep_model_hf.py`)
-and for downstream analytics scripts that need pre-computed action values
-(xT grid, EPV transition, OBSO).
+Two execution paths:
+- **export** (orchestrated by `wf-hf-sync`): runs daily via `spark.sql()` in the
+  Databricks mega-job (`src/ingestion/publish_spadl_vaep_hf.py`).
+- **export_hf_jobs** (manual): `hf jobs uv run scripts/publish_spadl_vaep_hf.py`
+  — uses the Databricks SQL Statement Execution API from HF Jobs.
 
-## Trigger Policy
-
-Manual HF Jobs invocation — `hf jobs uv run scripts/publish_spadl_vaep_hf.py`.
-The daily `data_ingestion` job does not publish the dataset; republish on demand
-when the action-value pipeline has been retrained or when a new data source has
-been added upstream.
+This dataset is the primary input for VAEP model retraining and for downstream
+analytics scripts that need pre-computed action values (xT grid, EPV, OBSO).

@@ -58,6 +58,190 @@ _EVAL_NUM_WORKERS = 0 if sys.platform == "win32" else 2
 # ---------------------------------------------------------------------------
 
 
+# SPADL 23-type action vocabulary mapping (string -> int).
+_ACTION_TYPE_IDS: dict[str, int] = {
+    "pass": 0,
+    "cross": 1,
+    "throw_in": 2,
+    "freekick_crossed": 3,
+    "freekick_short": 4,
+    "corner_crossed": 5,
+    "corner_short": 6,
+    "take_on": 7,
+    "foul": 8,
+    "tackle": 9,
+    "interception": 10,
+    "shot": 11,
+    "shot_penalty": 12,
+    "shot_freekick": 13,
+    "keeper_save": 14,
+    "keeper_claim": 15,
+    "keeper_punch": 16,
+    "keeper_pick_up": 17,
+    "clearance": 18,
+    "bad_touch": 19,
+    "non_action": 20,
+    "dribble": 21,
+    "goalkick": 22,
+}
+
+_PITCH_LENGTH = 105.0
+_PITCH_WIDTH = 68.0
+
+_SET_PIECE_TYPES: frozenset[str] = frozenset(
+    {
+        "goalkick",
+        "throw_in",
+        "freekick_short",
+        "freekick_crossed",
+        "corner_short",
+        "corner_crossed",
+    }
+)
+
+_TIME_GAP_THRESHOLD = 10.0
+_MIN_EPISODE_LENGTH = 3
+
+_SCOUTGPT_SQL = """\
+SELECT
+    CAST(dp.canonical_player_id AS STRING) AS canonical_player_id,
+    CAST(av.match_id AS STRING)            AS match_id,
+    CAST(av.team_id AS INT)                AS team_id,
+    CAST(av.competition_id AS INT)         AS competition_id,
+    CAST(av.season_id AS INT)              AS season_id,
+    av.data_source,
+    av.action_type,
+    av.action_result,
+    av.period,
+    av.time_seconds,
+    av.start_x,
+    av.start_y,
+    av.end_x,
+    av.end_y,
+    av.vaep_value
+FROM soccer_analytics.dev_gold.fct_action_values av
+INNER JOIN soccer_analytics.dev_gold.dim_players dp
+    ON av.player_key = dp.player_key
+WHERE av.player_id IS NOT NULL
+  AND dp.canonical_player_id IS NOT NULL
+  AND av.action_type IS NOT NULL
+  AND av.start_x IS NOT NULL
+  AND av.start_y IS NOT NULL
+"""
+
+
+def _segment_possessions(df: pd.DataFrame) -> pd.DataFrame:
+    """Segment actions into possession episodes (pandas reimplementation of Spark window functions)."""
+    df = df.sort_values(["match_id", "period", "time_seconds"]).reset_index(drop=True)
+    df["prev_team_id"] = df.groupby("match_id")["team_id"].shift(1)
+    df["prev_period"] = df.groupby("match_id")["period"].shift(1)
+    df["prev_time"] = df.groupby("match_id")["time_seconds"].shift(1)
+    df["is_boundary"] = (
+        df["prev_team_id"].isna()
+        | (df["team_id"] != df["prev_team_id"])
+        | (df["period"] != df["prev_period"])
+        | df["action_type"].isin(_SET_PIECE_TYPES)
+        | ((df["period"] == df["prev_period"]) & ((df["time_seconds"] - df["prev_time"]) > _TIME_GAP_THRESHOLD))
+    ).astype(int)
+    df["episode_seq"] = df.groupby("match_id")["is_boundary"].cumsum()
+    df["episode_id"] = df["match_id"] + "_" + df["period"].astype(str) + "_" + df["episode_seq"].astype(str)
+    ep_counts = df.groupby("episode_id").size()
+    valid = ep_counts[ep_counts >= _MIN_EPISODE_LENGTH].index
+    df = df[df["episode_id"].isin(valid)].copy()
+    df["time_delta"] = df["time_seconds"] - df["prev_time"]
+    df.loc[df["is_boundary"] == 1, "time_delta"] = 0.0
+    df["time_delta"] = df["time_delta"].fillna(0.0).astype(float)
+    return df
+
+
+def _build_player_id_map_from_df(df: pd.DataFrame) -> dict[str, int]:
+    """Build canonical_player_id -> contiguous int mapping."""
+    unique_players = sorted(df["canonical_player_id"].unique().tolist())
+    return {pid: idx for idx, pid in enumerate(unique_players)}
+
+
+def load_training_data_sql(
+    host: str,
+    token: str,
+    warehouse_id: str,
+) -> tuple[pd.DataFrame, dict[str, int], str]:
+    """Fetch ScoutGPT training data directly from gold marts via SQL.
+
+    Gamma (gold-SQL) replacement for load_training_data() -- reads from
+    fct_action_values JOIN dim_players, segments possessions in pandas,
+    and returns the same schema as the HF dataset export.
+    """
+    from datetime import datetime, timezone
+
+    from analytics.databricks_sql_fetch import query_databricks_sql
+
+    raw = query_databricks_sql(host, token, _SCOUTGPT_SQL, warehouse_id)
+    logger.info("SQL fetch returned %d raw action rows", len(raw))
+
+    # Build player_id_map before transforms
+    player_id_map = _build_player_id_map_from_df(raw)
+    logger.info("Built player_id_map with %d unique players", len(player_id_map))
+
+    # Possession segmentation
+    seg = _segment_possessions(raw)
+    logger.info("After segmentation: %d actions in valid episodes", len(seg))
+
+    # Map action_type string -> int, normalize coords, binarize result
+    seg["action_type_id"] = seg["action_type"].map(_ACTION_TYPE_IDS).fillna(20).astype(int)
+    seg["start_x_norm"] = (seg["start_x"] / _PITCH_LENGTH).astype(float)
+    seg["start_y_norm"] = (seg["start_y"] / _PITCH_WIDTH).astype(float)
+    seg["end_x_norm"] = (seg["end_x"].fillna(seg["start_x"]) / _PITCH_LENGTH).astype(float)
+    seg["end_y_norm"] = (seg["end_y"].fillna(seg["start_y"]) / _PITCH_WIDTH).astype(float)
+    seg["result_binary"] = (seg["action_result"] == "success").astype(int)
+    seg["vaep_val"] = seg["vaep_value"].fillna(0.0).astype(float)
+    seg["player_idx"] = seg["canonical_player_id"].map(player_id_map).fillna(0).astype(int)
+
+    # Group by episode -> collect action struct arrays
+    action_fields = [
+        "action_type_id",
+        "start_x_norm",
+        "start_y_norm",
+        "end_x_norm",
+        "end_y_norm",
+        "result_binary",
+        "vaep_val",
+        "time_delta",
+        "player_idx",
+    ]
+    rename = {
+        "action_type_id": "action_type",
+        "start_x_norm": "start_x",
+        "start_y_norm": "start_y",
+        "end_x_norm": "end_x",
+        "end_y_norm": "end_y",
+        "result_binary": "result",
+        "vaep_val": "vaep_value",
+    }
+    grouped = seg.groupby("episode_id", sort=False)
+    actions_series = grouped.apply(
+        lambda grp: grp[action_fields].rename(columns=rename).to_dict("records"),
+        include_groups=False,
+    )
+    meta = grouped.first()[
+        [
+            "match_id",
+            "competition_id",
+            "season_id",
+            "team_id",
+            "data_source",
+        ]
+    ].copy()
+    meta["competition_id"] = meta["competition_id"].fillna(0).astype(int)
+    meta["season_id"] = meta["season_id"].fillna(0).astype(int)
+    meta["team_id"] = meta["team_id"].fillna(0).astype(int)
+    meta["actions"] = actions_series
+    data = meta.reset_index()
+    logger.info("Transformed to %d possession episodes", len(data))
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return data, player_id_map, f"gold-sql-{ts}"
+
+
 def load_training_data(
     hf_token: str,
     dataset_repo: str,

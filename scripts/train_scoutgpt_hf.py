@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.32-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.33-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -27,9 +27,10 @@ Usage (HF Jobs CLI):
     hf jobs uv run scripts/train_scoutgpt_hf.py \\
         --flavor l40sx1 --timeout 180m \\
         --secrets HF_TOKEN=$HF_TOKEN \\
+        --secrets DATABRICKS_TOKEN=$DATABRICKS_TOKEN \\
         --env MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI \\
         --env DATABRICKS_HOST=$DATABRICKS_HOST \\
-        --env DATABRICKS_TOKEN=$DATABRICKS_TOKEN \\
+        --env DATABRICKS_SQL_WAREHOUSE_ID=$WAREHOUSE_ID \\
         --env DATASET_PINNED_SHA=$DATASET_SHA \\
         -- --variant=rope --output-repo-suffix=-variant-rope
 """
@@ -61,6 +62,7 @@ from analytics.scoutgpt_training import (
     build_datasets,
     evaluate_and_report,
     load_training_data,
+    load_training_data_sql,
     stratified_split,
     train_loop,
 )
@@ -405,7 +407,19 @@ def _run_training_core(
     """
     dataset_revision = os.environ.get("DATASET_PINNED_SHA") or None
 
-    data, _player_id_map, dataset_commit = load_training_data(hf_token, TRAINING_DATASET, revision=dataset_revision)
+    db_host = os.environ.get("DATABRICKS_HOST", "")
+    if db_host:
+        data, _player_id_map, dataset_commit = load_training_data_sql(
+            db_host.replace("https://", "").replace("http://", "").rstrip("/"),
+            os.environ["DATABRICKS_TOKEN"],
+            os.environ["DATABRICKS_SQL_WAREHOUSE_ID"],
+        )
+    else:
+        data, _player_id_map, dataset_commit = load_training_data(
+            hf_token,
+            TRAINING_DATASET,
+            revision=dataset_revision,
+        )
     logger.info("Loaded %d episodes (commit=%s)", len(data), dataset_commit)
 
     if args.max_episodes is not None and args.max_episodes < len(data):

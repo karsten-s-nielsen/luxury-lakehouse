@@ -49,7 +49,110 @@ DEFAULT_MASK_PROB = 0.15
 # ---------------------------------------------------------------------------
 
 
-def load_training_data(hf_token: str, training_dataset: str) -> tuple[pd.DataFrame, str]:
+# SPADL 23-type action vocabulary mapping (string -> int).
+# Canonical ordering matches silly_kicks SPADL and defcon_lite._ACTION_TYPE_IDS.
+# Duplicated here (not imported from export_embeddings_training_data) because
+# that module pulls Spark imports which fail on HF Jobs.
+_ACTION_TYPE_IDS: dict[str, int] = {
+    "pass": 0,
+    "cross": 1,
+    "throw_in": 2,
+    "freekick_crossed": 3,
+    "freekick_short": 4,
+    "corner_crossed": 5,
+    "corner_short": 6,
+    "take_on": 7,
+    "foul": 8,
+    "tackle": 9,
+    "interception": 10,
+    "shot": 11,
+    "shot_penalty": 12,
+    "shot_freekick": 13,
+    "keeper_save": 14,
+    "keeper_claim": 15,
+    "keeper_punch": 16,
+    "keeper_pick_up": 17,
+    "clearance": 18,
+    "bad_touch": 19,
+    "non_action": 20,
+    "dribble": 21,
+    "goalkick": 22,
+}
+
+_PITCH_LENGTH = 105.0
+_PITCH_WIDTH = 68.0
+
+_F2V_V2_SQL = """\
+SELECT
+    CAST(dp.canonical_player_id AS STRING) AS canonical_player_id,
+    CAST(av.match_id AS STRING)            AS match_id,
+    CAST(av.competition_id AS INT)         AS competition_id,
+    CAST(av.season_id AS INT)              AS season_id,
+    dp.position_group,
+    av.action_type,
+    av.start_x,
+    av.start_y,
+    av.action_result,
+    av.period,
+    av.time_seconds
+FROM soccer_analytics.dev_gold.fct_action_values av
+INNER JOIN soccer_analytics.dev_gold.dim_players dp
+    ON av.player_key = dp.player_key
+WHERE av.player_id IS NOT NULL
+  AND dp.canonical_player_id IS NOT NULL
+  AND av.action_type IS NOT NULL
+  AND av.start_x IS NOT NULL
+  AND av.start_y IS NOT NULL
+"""
+
+
+def _transform_to_training_data(raw: pd.DataFrame) -> pd.DataFrame:
+    """Transform raw SQL output to f2v_v2 training format (one row per player-match)."""
+    raw["action_type_id"] = raw["action_type"].map(_ACTION_TYPE_IDS).fillna(20).astype(int)
+    raw["x_norm"] = (raw["start_x"] / _PITCH_LENGTH).astype(float)
+    raw["y_norm"] = (raw["start_y"] / _PITCH_WIDTH).astype(float)
+    raw["result_binary"] = (raw["action_result"] == "success").astype(int)
+    raw = raw.sort_values(["canonical_player_id", "match_id", "period", "time_seconds"])
+
+    action_cols = ["action_type_id", "x_norm", "y_norm", "result_binary"]
+    rename_map = {"action_type_id": "action_type", "x_norm": "x", "y_norm": "y", "result_binary": "result"}
+
+    grouped = raw.groupby(["canonical_player_id", "match_id"], sort=False)
+    actions_series = grouped.apply(
+        lambda grp: grp[action_cols].rename(columns=rename_map).to_dict("records"),
+        include_groups=False,
+    )
+    meta = grouped.first()[["competition_id", "season_id", "position_group"]].copy()
+    meta["competition_id"] = meta["competition_id"].fillna(0).astype(int)
+    meta["season_id"] = meta["season_id"].fillna(0).astype(int)
+    meta["actions"] = actions_series
+    return meta.reset_index()
+
+
+def load_training_data_sql(host: str, token: str, warehouse_id: str) -> tuple[pd.DataFrame, str]:
+    """Fetch training data directly from gold marts via Databricks SQL.
+
+    Gamma (gold-SQL) replacement for load_training_data() — reads from
+    fct_action_values JOIN dim_players instead of a stale HF dataset export.
+
+    Returns:
+        (DataFrame with same schema as HF dataset export, SQL-fetch timestamp string)
+    """
+    from datetime import datetime, timezone
+
+    from analytics.databricks_sql_fetch import query_databricks_sql
+
+    raw = query_databricks_sql(host, token, _F2V_V2_SQL, warehouse_id)
+    logger.info("SQL fetch returned %d raw action rows", len(raw))
+    data = _transform_to_training_data(raw)
+    logger.info("Transformed to %d player-match training rows", len(data))
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return data, f"gold-sql-{ts}"
+
+
+def load_training_data(
+    hf_token: str, training_dataset: str, *, revision: str | None = None
+) -> tuple[pd.DataFrame, str]:
     """Download training data from HF Hub and return DataFrame + commit hash."""
     from datasets import Dataset, load_dataset
     from huggingface_hub import HfApi
@@ -58,7 +161,7 @@ def load_training_data(hf_token: str, training_dataset: str) -> tuple[pd.DataFra
     # with split="train" explicitly specified it always returns Dataset, but the type stubs do not
     # narrow. Assert-narrow so downstream .to_pandas() + len() are type-safe, and so any future
     # upstream change that drops the narrow-on-split guarantee is caught at the boundary.
-    ds = load_dataset(training_dataset, split="train", token=hf_token)
+    ds = load_dataset(training_dataset, split="train", token=hf_token, revision=revision)
     if not isinstance(ds, Dataset):
         msg = f"expected Dataset from load_dataset(..., split='train'); got {type(ds).__name__}"
         raise TypeError(msg)

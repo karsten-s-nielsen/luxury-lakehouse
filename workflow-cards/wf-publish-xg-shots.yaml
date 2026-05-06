@@ -33,6 +33,15 @@ outputs:
 
 execution:
   export:
+    trigger: orchestrated
+    orchestrated_by: wf-hf-sync
+    runtime: databricks-workflow
+    entry_point: publish_xg_shots_hf
+    module: ingestion.publish_xg_shots_hf
+    distribution: driver-bound
+    timeout: "600s"
+    environment: analytics
+  export_hf_jobs:
     trigger: manual
     runtime: hf-jobs
     script: "scripts/publish_xg_shots_hf.py"
@@ -61,23 +70,21 @@ monitoring:
 
 links:
   source_code:
+    - "src/ingestion/publish_xg_shots_hf.py"
     - "scripts/publish_xg_shots_hf.py"
   hf_dataset: "https://huggingface.co/datasets/luxury-lakehouse/xg-shot-data"
 ---
 
 ## Overview
 
-Queries the Databricks SQL Statement Execution API to extract every shot record
-from the gold-layer `fct_shots` table, normalises dtypes, and publishes the
-resulting Parquet dataset (partitioned by `data_source`) to HF Hub as
-`luxury-lakehouse/xg-shot-data`.
+Publishes the full `fct_shots` gold mart as a Parquet dataset (partitioned by
+`data_source`) to HF Hub as `luxury-lakehouse/xg-shot-data`.
 
-This dataset is the primary training input for the downstream workflow card:
+Two execution paths:
+- **export** (orchestrated by `wf-hf-sync`): runs daily via `spark.sql()` in the
+  Databricks mega-job (`src/ingestion/publish_xg_shots_hf.py`).
+- **export_hf_jobs** (manual): `hf jobs uv run scripts/publish_xg_shots_hf.py`
+  — uses the Databricks SQL Statement Execution API from HF Jobs.
 
-- `wf-xg-v2` — Deep Sets shot model (`scripts/train_xg_v2_hf.py`); v1 retired SK3-MIG-B 2026-05-03 per ADR-023.
-
-## Trigger Policy
-
-Manual HF Jobs invocation — `hf jobs uv run scripts/publish_xg_shots_hf.py`.
-The daily `data_ingestion` job does not publish the dataset; republish on demand
-when upstream shot fact data has changed materially enough to retrain a model.
+Primary training input for `wf-xg-v2` (Deep Sets shot model); v1 retired
+SK3-MIG-B 2026-05-03 per ADR-023.

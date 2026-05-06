@@ -1,11 +1,10 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.32-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.33-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
-#     "datasets>=3.0",
 #     "torch>=2.0",
 #     "safetensors>=0.4.0",
 #     "huggingface-hub>=1.5.0",
@@ -26,9 +25,10 @@ Usage (HF Jobs CLI):
     hf jobs uv run scripts/train_football2vec_v2.py --stage 1 \\
         --flavor l40sx1 --timeout 120m \\
         --secrets HF_TOKEN=$HF_TOKEN \\
+        --secrets DATABRICKS_TOKEN=$DATABRICKS_TOKEN \\
         --env MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI \\
         --env DATABRICKS_HOST=$DATABRICKS_HOST \\
-        --env DATABRICKS_TOKEN=$DATABRICKS_TOKEN
+        --env DATABRICKS_SQL_WAREHOUSE_ID=$DATABRICKS_SQL_WAREHOUSE_ID
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ from ingestion.football2vec_v2_training import (
     WEIGHT_DECAY,
     Football2VecDataset,
     get_cosine_schedule_with_warmup,
-    load_training_data,
+    load_training_data_sql,
     parse_actions,
     stratified_split,
 )
@@ -696,7 +696,8 @@ def main() -> None:
 
 
 def _run_stage1(args: argparse.Namespace, hf_token: str, device: torch.device, recorder: HFJobsCostRecorder) -> None:
-    data, dc = load_training_data(hf_token, TRAINING_DATASET)
+    host = os.environ["DATABRICKS_HOST"].replace("https://", "").replace("http://", "").rstrip("/")
+    data, dc = load_training_data_sql(host, os.environ["DATABRICKS_TOKEN"], os.environ["DATABRICKS_SQL_WAREHOUSE_ID"])
     aids_all, xs_all, ys_all = parse_actions(data["actions"])
     train_df, val_df, test_df = stratified_split(data)
     ti, vi, tei = train_df.index.tolist(), val_df.index.tolist(), test_df.index.tolist()
@@ -747,7 +748,8 @@ def _run_stage1(args: argparse.Namespace, hf_token: str, device: torch.device, r
 
 
 def _run_stage2(args: argparse.Namespace, hf_token: str, device: torch.device, recorder: HFJobsCostRecorder) -> None:
-    data, dc = load_training_data(hf_token, TRAINING_DATASET)
+    host = os.environ["DATABRICKS_HOST"].replace("https://", "").replace("http://", "").rstrip("/")
+    data, dc = load_training_data_sql(host, os.environ["DATABRICKS_TOKEN"], os.environ["DATABRICKS_SQL_WAREHOUSE_ID"])
     aids_all, xs_all, ys_all = parse_actions(data["actions"])
     ucomp = sorted(data["competition_id"].unique().tolist())
     c2i: dict[int, int] = {c: i for i, c in enumerate(ucomp)}

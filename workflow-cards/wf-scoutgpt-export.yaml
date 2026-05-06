@@ -35,7 +35,8 @@ outputs:
 
 execution:
   export:
-    trigger: manual
+    trigger: orchestrated
+    orchestrated_by: wf-hf-sync
     runtime: databricks-workflow
     entry_point: export_scoutgpt_training_data
     module: ingestion.export_scoutgpt_training_data
