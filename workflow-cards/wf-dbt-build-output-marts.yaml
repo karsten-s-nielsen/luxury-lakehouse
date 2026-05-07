@@ -40,15 +40,18 @@ inputs:
     - id: "{catalog}.bronze.expected_threat_grids"
       source: delta-table
       description: "Expected threat grid values"
-    - id: "{catalog}.bronze.formations_efpi_results"
+    - id: "{catalog}.bronze.formation_labels"
       source: delta-table
-      description: "Formation EFPI results"
-    - id: "{catalog}.bronze.formations_shape_graph_results"
+      description: "Formation labels from formations pipeline"
+    - id: "{catalog}.bronze.player_positions"
       source: delta-table
-      description: "Formation shape graph results"
-    - id: "{catalog}.bronze.elastic_sync_results"
+      description: "Player positions from shape graph pipeline"
+    - id: "{catalog}.bronze.space_creation_values"
       source: delta-table
-      description: "Elastic sync / space creation results"
+      description: "Space creation values from elastic sync pipeline"
+    - id: "{catalog}.bronze.psxg_predictions"
+      source: delta-table
+      description: "Post-shot xG predictions"
     - id: "{catalog}.bronze.pausa_values"
       source: delta-table
       description: "PAUSA values from OBSO computation"
