@@ -31,6 +31,13 @@ from typing import TYPE_CHECKING
 
 import requests
 
+from ingestion.guards import (
+    FilterResult,
+    check_upstream_freshness,
+    record_watermarks,
+    timed_check,
+)
+from ingestion.utils import get_spark_session
 from shared.constants import IDENTIFIER_RE
 
 # PR-Cycle-B (2026-05-01): databricks-sdk is in the [sdk] optional extra
@@ -47,6 +54,7 @@ from shared.constants import IDENTIFIER_RE
 #     missing (better than the original ModuleNotFoundError on import)
 if TYPE_CHECKING:
     from databricks.sdk import WorkspaceClient
+    from pyspark.sql import SparkSession
 else:
     try:
         from databricks.sdk import WorkspaceClient
@@ -515,6 +523,33 @@ def wait_until_online(
         time.sleep(poll_interval_s)
 
 
+class _RefreshSyncedTablesGuard:
+    """Watermark guard that derives upstream tables from SYNCED_TABLES."""
+
+    workflow_id = "wf-refresh-synced-tables"
+
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        upstream = _derive_upstream_tables(catalog, schema)
+        return check_upstream_freshness(spark, catalog, self.workflow_id, upstream)
+
+
+def _derive_upstream_tables(catalog: str, default_schema: str) -> list[str]:
+    """Derive upstream Delta table FQNs from SYNCED_TABLES.
+
+    For each ``(table_name, schema_override)`` tuple, strips the ``_synced``
+    suffix and qualifies with the override schema (or default).
+    """
+    tables: list[str] = []
+    for synced_name, schema_override in SYNCED_TABLES:
+        base = synced_name.removesuffix("_synced")
+        effective_schema = schema_override or default_schema
+        tables.append(f"{catalog}.{effective_schema}.{base}")
+    return tables
+
+
+skip_guard = _RefreshSyncedTablesGuard()
+
+
 def main() -> None:
     """Trigger snapshot refresh on synced tables."""
     parser = argparse.ArgumentParser(description="Refresh Lakebase synced tables.")
@@ -586,6 +621,21 @@ def main() -> None:
         )
         sys.exit(2)
 
+    # Watermark guard — skip if no upstream table has changed.
+    # This module was historically Spark-free (pure REST API client).
+    # The guard requires a Spark session for DESCRIBE HISTORY; if Spark is
+    # unavailable (e.g., manual CLI invocation outside Databricks), fail open.
+    spark: SparkSession | None = None
+    try:
+        spark = get_spark_session()
+        fr = timed_check(skip_guard, spark, args.catalog, args.schema)
+        if fr.count == 0:
+            print("Watermark skip: no upstream changes since last refresh")
+            return
+    except Exception:
+        print("Spark unavailable for watermark check — proceeding with refresh", file=sys.stderr)
+        spark = None
+
     # Build lookup: table_name -> schema (per-table override beats CLI default)
     table_schema_map: dict[str, str] = {name: (override or args.schema) for name, override in SYNCED_TABLES}
     all_table_names = list(table_schema_map.keys())
@@ -650,6 +700,11 @@ def main() -> None:
         )
         poll_results = _poll_pipelines_parallel(triggered, headers, max_workers=args.max_workers)
         errors += sum(1 for state in poll_results.values() if state != "IDLE")
+
+    # Record watermarks after successful refresh (only if Spark was available)
+    if errors == 0 and spark is not None:
+        upstream = _derive_upstream_tables(args.catalog, args.schema)
+        record_watermarks(spark, args.catalog, skip_guard.workflow_id, upstream)
 
     print(f"\nSummary: {len(triggered)} triggered, {errors} errors")
     if errors:

@@ -25,9 +25,39 @@ references: []
 
 inputs:
   datasets:
-    - id: "{catalog}.bronze.xg_predictions"
+    - id: "{catalog}.bronze.line_breaking_results"
       source: delta-table
-      description: "Bronze tables produced by phase-2 compute tasks (xg_model[_v2], pausa, defcon, embeddings, formations, off_ball_xt, line_breaking, etc.)"
+      description: "Line-breaking detection results"
+    - id: "{catalog}.bronze.pitch_control_values"
+      source: delta-table
+      description: "Pitch control computation results"
+    - id: "{catalog}.bronze.off_ball_xt_results"
+      source: delta-table
+      description: "Off-ball expected threat results"
+    - id: "{catalog}.bronze.defcon_results"
+      source: delta-table
+      description: "DEFCON defensive contribution results"
+    - id: "{catalog}.bronze.expected_threat_grids"
+      source: delta-table
+      description: "Expected threat grid values"
+    - id: "{catalog}.bronze.formations_efpi_results"
+      source: delta-table
+      description: "Formation EFPI results"
+    - id: "{catalog}.bronze.formations_shape_graph_results"
+      source: delta-table
+      description: "Formation shape graph results"
+    - id: "{catalog}.bronze.elastic_sync_results"
+      source: delta-table
+      description: "Elastic sync / space creation results"
+    - id: "{catalog}.bronze.pausa_values"
+      source: delta-table
+      description: "PAUSA values from OBSO computation"
+    - id: "{catalog}.bronze.player_embeddings_raw"
+      source: delta-table
+      description: "Player embeddings (v1 + v2)"
+    - id: "{catalog}.bronze.xg_predictions_v2"
+      source: delta-table
+      description: "xG v2 deep-sets predictions"
 
 outputs:
   tables:

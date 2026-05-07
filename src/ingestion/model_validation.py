@@ -44,11 +44,20 @@ class _ModelValidationGuard:
     workflow_id = "wf-model-validation"
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
-        from ingestion.guards import ensure_table
+        from ingestion.guards import (
+            check_upstream_freshness,
+            ensure_table,
+            resolve_upstream_tables_from_card,
+        )
 
         results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
         ensure_table(spark, results_table, _RESULTS_SCHEMA)
-        return FilterResult(workflow_id=self.workflow_id, count=1)
+        try:
+            upstream = resolve_upstream_tables_from_card(self.workflow_id, catalog, schema)
+        except FileNotFoundError:
+            # Card file not found — fail open (e.g., running outside Databricks Repos)
+            return FilterResult(workflow_id=self.workflow_id, count=1)
+        return check_upstream_freshness(spark, catalog, self.workflow_id, upstream)
 
 
 skip_guard = _ModelValidationGuard()
@@ -435,6 +444,12 @@ def main() -> None:
 
     logger.info("Starting model validation into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
+
+    # Record watermarks after successful validation
+    from ingestion.guards import record_watermarks, resolve_upstream_tables_from_card
+
+    upstream = resolve_upstream_tables_from_card(skip_guard.workflow_id, args.catalog, args.schema)
+    record_watermarks(spark, args.catalog, skip_guard.workflow_id, upstream)
 
 
 if __name__ == "__main__":

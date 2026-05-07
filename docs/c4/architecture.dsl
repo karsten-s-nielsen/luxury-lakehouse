@@ -33,7 +33,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             workflowCards = container "Workflow Cards" "44 YAML manifests: inputs, outputs, deps, cost estimates, provenance" "YAML" "Database"
             costEstimateHook = container "CostEstimateHook" "Writes run state, entity_count, row_count, cost to Delta via MERGE" "Python, PySpark"
             hfCostRecorder = container "HFJobsCostRecorder" "Cost recorder for HF Jobs. Writes to HF Hub repos. 90-day pruning." "Python"
-            guardRegistry = container "Guard Registry" "SkipGuard protocol, FilterResult, find_new_ids(), timed_check() wrapper" "Python"
+            guardRegistry = container "Guard Registry" "SkipGuard protocol, FilterResult, find_new_ids(), timed_check(), watermark guards (ADR-024)" "Python"
             artifactDeploy = container "Artifact Deploy" "Training-to-production contract (ADR-012). MLflow + UC Volume helpers." "Python"
             hfPublish = container "HF Publish Helper" "README delivery (ADR-014). upload_hf_readme + get_hf_card_path." "Python"
             databricksSqlFetch = container "Databricks SQL Fetch" "HTTP helper for HF Jobs trainers querying gold marts (no Spark)" "Python, requests"
@@ -65,7 +65,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         unityCatalog = softwareSystem "Unity Catalog" "Governed Delta Lake: bronze (raw), gold (analytics), observability (metadata)" "External" {
             bronzeSchema = container "Bronze Schema" "Raw events, tracking, SPADL actions, VAEP scores, compute results" "Delta Lake" "Database"
             goldSchema = container "Gold Schema" "35 fact + 4 dim tables. Analytics-ready." "Delta Lake" "Database"
-            observabilitySchema = container "Observability Schema" "workflow_cost_live, workflow_import_checksums, definer's-rights views" "Delta Lake" "Database"
+            observabilitySchema = container "Observability Schema" "workflow_cost_live, workflow_import_checksums, workflow_watermarks, definer's-rights views" "Delta Lake" "Database"
         }
 
         lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL endpoint syncing 34 Delta tables (56 indexes: 50 btree + 6 HNSW)" "External"
@@ -137,11 +137,15 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         dbtRunner -> dbtProject "Invokes dbt build" "dbt-core"
         dbtRunner -> databricksApi "Exchanges SP for OAuth" "HTTPS"
         dbtRunner -> sharedLibrary "Imports conventions" ""
+        dbtRunner -> guardRegistry "Watermark check upstream tables" ""
+        dbtRunner -> observabilitySchema "Records watermarks after build" "PySpark/Delta"
         ingestionPipelines -> guardRegistry "Calls timed_check()" ""
         guardRegistry -> hfHub "Fetches commit SHA" "HTTPS"
-        guardRegistry -> observabilitySchema "Reads/writes checksums" "PySpark/Delta"
+        guardRegistry -> observabilitySchema "Reads/writes checksums + watermarks" "PySpark/Delta"
         refreshSyncedTables -> databricksApi "Triggers SNAPSHOT" "HTTPS"
         refreshSyncedTables -> sharedLibrary "Imports IDENTIFIER_RE" ""
+        refreshSyncedTables -> guardRegistry "Watermark check gold tables" ""
+        refreshSyncedTables -> observabilitySchema "Records watermarks after refresh" "PySpark/Delta"
         dbtBuildAndRefresh -> refreshSyncedTables "Subprocess after dbt" "subprocess"
 
         # Relationships - SK3-MIG-B Orchestrator
@@ -346,6 +350,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         dynamic pipelinePlatform "GuardAsWrapper" {
             databricksWorkflows -> ingestionPipelines "Job starts"
             ingestionPipelines -> guardRegistry "Calls timed_check()"
+            guardRegistry -> observabilitySchema "DESCRIBE HISTORY + watermark check"
             ingestionPipelines -> workflowFramework "WorkflowSkippedError"
             workflowFramework -> costEstimateHook "on_skip dispatch"
             costEstimateHook -> observabilitySchema "MERGE SKIPPED"
@@ -363,11 +368,13 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         dynamic pipelinePlatform "DailyJobHardening" {
             databricksWorkflows -> ingestionPipelines "9 leaf computes run"
             databricksWorkflows -> dbtRunner "dbt_build after leaves"
-            dbtRunner -> databricksApi "Exchange SP for OAuth"
+            dbtRunner -> guardRegistry "Watermark check upstream tables"
             dbtRunner -> dbtProject "Build 39 marts"
-            dbtProject -> observabilitySchema "fct_workflow_costs reads"
+            dbtRunner -> observabilitySchema "Record watermarks"
             databricksWorkflows -> refreshSyncedTables "Final task"
+            refreshSyncedTables -> guardRegistry "Watermark check gold tables"
             refreshSyncedTables -> databricksApi "SNAPSHOT 34 tables"
+            refreshSyncedTables -> observabilitySchema "Record watermarks"
             autoLayout
         }
 

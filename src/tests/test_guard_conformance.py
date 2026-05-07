@@ -33,9 +33,11 @@ _METADATA_EXEMPT = {
     "wf-import-obso",  # HF SHA guard — metadata is commit_sha string, not ID list
     "wf-import-psxg",  # HF SHA guard — metadata is commit_sha string, not ID list
     "wf-import-space-creation",  # HF SHA guard — metadata is commit_sha string, not ID list
-    "wf-model-validation",  # Monitoring, always-run
+    "wf-model-validation",  # Watermark guard — metadata from check_upstream_freshness
     "wf-sync-hf-costs",  # Polling sync, always-run
     "wf-hf-sync",  # Orchestrator, always-run stub
+    "wf-dbt-build-input-marts",  # Watermark guard — no ID-based metadata
+    "wf-refresh-synced-tables",  # Watermark guard — no ID-based metadata
     "wf-football2vec-v2",  # HF SHA guard — metadata is commit_sha string, not ID list
     "wf-football2vec-v2-export",  # Count-comparison guard
     "wf-prepare-360-data",  # Count-comparison guard
@@ -751,6 +753,9 @@ class TestMandatoryFilterResult:
     _EXEMPT: ClassVar[set[str]] = {
         "ingestion.defcon_lite_360",
         "ingestion.defcon_lite_tracking",
+        # dbt_runner and refresh_synced_tables handle guards in main(), not via @workflow
+        "ingestion.dbt_runner",
+        "ingestion.refresh_synced_tables",
     }
 
     _SPECIAL_CASES: ClassVar[dict[str, list[str]]] = {
@@ -1067,6 +1072,9 @@ class TestEarlyExitStructure:
     _EXEMPT: ClassVar[set[str]] = {
         "ingestion.defcon_lite_360",
         "ingestion.defcon_lite_tracking",
+        # dbt_runner and refresh_synced_tables handle guards in main(), not via @workflow
+        "ingestion.dbt_runner",
+        "ingestion.refresh_synced_tables",
     }
 
     def test_run_pipeline_references_workflow_skipped_error(self) -> None:
@@ -1102,6 +1110,9 @@ class TestEarlyExitBehavior:
     _EXEMPT: ClassVar[set[str]] = {
         "ingestion.defcon_lite_360",
         "ingestion.defcon_lite_tracking",
+        # dbt_runner and refresh_synced_tables handle guards in main(), not via @workflow
+        "ingestion.dbt_runner",
+        "ingestion.refresh_synced_tables",
     }
 
     # Special cases: pipelines with non-standard signatures
@@ -1198,3 +1209,91 @@ class TestEarlyExitBehavior:
         assert not failures, "run_pipeline() must raise WorkflowSkippedError on count=0:\n" + "\n".join(
             sorted(failures)
         )
+
+
+class TestWatermarkGuardHasCardInputs:
+    """Every module using check_upstream_freshness must have a workflow card with delta-table inputs."""
+
+    _WATERMARK_CARDS: ClassVar[list[str]] = [
+        "wf-publish-spadl-vaep",
+        "wf-publish-xg-shots",
+        "wf-publish-freeze-frames",
+        "wf-export-shots",
+        "wf-scoutgpt-export",
+        "wf-model-validation",
+        "wf-dbt-build-input-marts",
+        "wf-dbt-build-intermediate-marts",
+        "wf-dbt-build-output-marts",
+    ]
+
+    @pytest.mark.parametrize("card_id", _WATERMARK_CARDS)
+    def test_card_has_delta_table_inputs(self, card_id: str) -> None:
+        from ingestion.guards import _repo_cards_dir, resolve_upstream_tables_from_card
+
+        tables = resolve_upstream_tables_from_card(card_id, "test_catalog", "test_schema", cards_dir=_repo_cards_dir())
+        assert len(tables) > 0, f"Card {card_id} has no delta-table inputs for watermark guard"
+
+
+class TestSelectorToCardParity:
+    """Every key in _SELECTOR_TO_CARD must correspond to a dbt task in Terraform."""
+
+    def test_all_selectors_have_tf_task(self) -> None:
+        from ingestion.dbt_runner import _SELECTOR_TO_CARD
+
+        tf_path = Path(__file__).resolve().parent.parent.parent / "terraform" / "modules" / "workflows" / "main.tf"
+        tf_content = tf_path.read_text(encoding="utf-8")
+
+        for selector_tags, _card_id in _SELECTOR_TO_CARD.items():
+            # Each selector's individual tags should appear in a TF parameters block
+            for tag in selector_tags:
+                bare_tag = tag.lstrip("+-")
+                assert bare_tag in tf_content, (
+                    f"Selector tag '{bare_tag}' (from {selector_tags!r}) not found in Terraform workflow definition"
+                )
+
+
+class TestWatermarkRecordAfterSuccess:
+    """Modules with watermark guards must call record_watermarks after run_pipeline."""
+
+    _STANDALONE_MODULES: ClassVar[list[str]] = [
+        "ingestion.model_validation",
+        "ingestion.dbt_runner",
+        "ingestion.refresh_synced_tables",
+    ]
+
+    @pytest.mark.parametrize("module_path", _STANDALONE_MODULES)
+    def test_standalone_module_calls_record_watermarks(self, module_path: str) -> None:
+        mod = importlib.import_module(module_path)
+        assert mod.__file__ is not None
+        source_path = Path(mod.__file__)
+        tree = ast.parse(source_path.read_text(encoding="utf-8"))
+
+        # Check that record_watermarks appears in the AST
+        has_record = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                if isinstance(func, ast.Name) and func.id == "record_watermarks":
+                    has_record = True
+                elif isinstance(func, ast.Attribute) and func.attr == "record_watermarks":
+                    has_record = True
+        assert has_record, f"{module_path} must call record_watermarks after run_pipeline"
+
+    def test_hf_sync_factories_call_record_watermarks(self) -> None:
+        hf_sync_path = Path(__file__).resolve().parent.parent / "ingestion" / "hf_sync.py"
+        tree = ast.parse(hf_sync_path.read_text(encoding="utf-8"))
+
+        factory_names = {"_make_watermark_op", "_make_watermark_volume_op"}
+        found_factories: set[str] = set()
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name in factory_names:
+                # Check inner function calls record_watermarks
+                for inner in ast.walk(node):
+                    if isinstance(inner, ast.Call):
+                        func = inner.func
+                        if isinstance(func, ast.Name) and func.id == "record_watermarks":
+                            found_factories.add(node.name)
+
+        missing = factory_names - found_factories
+        assert not missing, f"hf_sync.py factories missing record_watermarks call: {missing}"

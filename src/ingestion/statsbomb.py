@@ -80,11 +80,80 @@ _STATSBOMB_360_DTYPE_OVERRIDES: dict[str, str] = dtype_overrides_from_snapshot(
 )
 
 
+logger = logging.getLogger(__name__)
+
+
 class _StatsbombGuard:
     workflow_id = "wf-statsbomb"
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
-        return FilterResult(workflow_id=self.workflow_id, count=1)
+        """Anti-join against sb.competitions() to find new competition/season pairs.
+
+        Fetches the competitions JSON from the StatsBomb open-data GitHub repo
+        (raw.githubusercontent.com). Unauthenticated GitHub rate limit is
+        60 req/hour; one guard check per daily scheduled run is well within this.
+        """
+        try:
+            sb = _get_sb()
+            api_comps = sb.competitions()
+        except Exception:
+            logger.warning("sb.competitions() failed — failing open")
+            return FilterResult(workflow_id=self.workflow_id, count=1)
+
+        # Load existing bronze competitions
+        from ingestion.utils import tolerate_missing_table
+
+        bronze_comps_df = None
+        with tolerate_missing_table(logger, "statsbomb_competitions not found — first run"):
+            bronze_comps_df = (
+                spark.table(f"{catalog}.{schema}.statsbomb_competitions")
+                .select("competition_id", "season_id")
+                .toPandas()
+            )
+
+        if bronze_comps_df is None:
+            return FilterResult(workflow_id=self.workflow_id, count=1)
+
+        # Anti-join: find competitions in API but not in bronze
+        api_keys = set(zip(api_comps["competition_id"], api_comps["season_id"], strict=False))
+        bronze_keys = set(zip(bronze_comps_df["competition_id"], bronze_comps_df["season_id"], strict=False))
+        new_comps = api_keys - bronze_keys
+
+        if new_comps:
+            return FilterResult(
+                workflow_id=self.workflow_id,
+                count=1,
+                metadata={"new_competitions": [f"{c}_{s}" for c, s in new_comps]},
+            )
+
+        # Check for new matches within existing competitions.
+        # sb.matches() fetches per competition/season — sample up to 3 existing
+        # competition/season pairs to check for new match days.
+        # Rate-limit budget: 1 (competitions) + 3 (matches) = 4 unauthenticated
+        # GitHub raw requests per guard invocation.  Limit is 60 req/hour.
+        # Do NOT increase the 3-pair ceiling without verifying daily run cadence.
+        bronze_matches_df = None
+        with tolerate_missing_table(logger, "statsbomb_matches not found"):
+            bronze_matches_df = spark.table(f"{catalog}.{schema}.statsbomb_matches").select("match_id").toPandas()
+
+        if bronze_matches_df is not None:
+            bronze_match_ids = set(bronze_matches_df["match_id"])
+            for comp_id, season_id in list(bronze_keys)[:3]:
+                try:
+                    api_matches = sb.matches(competition_id=comp_id, season_id=season_id)
+                except Exception:
+                    logger.warning("sb.matches(%s, %s) failed — skipping", comp_id, season_id)
+                    continue
+                api_match_ids = set(api_matches["match_id"])
+                new_matches = api_match_ids - bronze_match_ids
+                if new_matches:
+                    return FilterResult(
+                        workflow_id=self.workflow_id,
+                        count=1,
+                        metadata={"new_match_ids": [str(m) for m in list(new_matches)[:5]]},
+                    )
+
+        return FilterResult(workflow_id=self.workflow_id, count=0)
 
 
 skip_guard = _StatsbombGuard()

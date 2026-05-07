@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
@@ -348,6 +349,8 @@ _GUARD_MODULES: list[str] = [
     "ingestion.import_space_creation",
     "ingestion.tracking_metadata",
     "ingestion.model_validation",
+    "ingestion.dbt_runner",
+    "ingestion.refresh_synced_tables",
     "ingestion.sync_hf_costs",
     "ingestion.player_embeddings_v2",
     "ingestion.hf_sync",
@@ -380,3 +383,178 @@ def get_workflow_guards() -> dict[str, SkipGuard]:
             _logger.error("Skipping guard from %s (import failed)", module_path, exc_info=True)
 
     return guards
+
+
+# ---------------------------------------------------------------------------
+# Watermark-based skip guard — "has any upstream Delta table changed?"
+# ---------------------------------------------------------------------------
+
+_DATA_CHANGING_OPS: frozenset[str] = frozenset(
+    {
+        "WRITE",
+        "MERGE",
+        "DELETE",
+        "UPDATE",
+        "CREATE TABLE AS SELECT",
+        "CREATE OR REPLACE TABLE AS SELECT",
+        "RESTORE",
+    }
+)
+
+# Logical PK: (workflow_id, upstream_table) — enforced by MERGE ON clause,
+# not by Delta constraints (Delta Lake does not enforce PKs at write time).
+_WATERMARKS_DDL = (
+    "workflow_id STRING NOT NULL, upstream_table STRING NOT NULL, "
+    "last_seen_version BIGINT NOT NULL, checked_at TIMESTAMP NOT NULL"
+)
+
+
+def _load_stored_watermarks(
+    spark: SparkSession,
+    watermarks_table: str,
+    workflow_id: str,
+) -> dict[str, int]:
+    """Load stored watermarks for a workflow. Returns {table_fqn: version}."""
+    rows = spark.sql(
+        f"SELECT upstream_table, last_seen_version "  # noqa: S608
+        f"FROM {watermarks_table} "
+        f"WHERE workflow_id = '{workflow_id}'"
+    ).collect()
+    return {row.upstream_table: row.last_seen_version for row in rows}
+
+
+def _get_latest_data_version(
+    spark: SparkSession,
+    table: str,
+) -> int | None:
+    """Get the latest data-changing version from DESCRIBE HISTORY.
+
+    Returns None if no data-changing operations found.
+    """
+    rows = spark.sql(f"DESCRIBE HISTORY {table} LIMIT 20").collect()
+    data_versions = [row.version for row in rows if row.operation in _DATA_CHANGING_OPS]
+    return max(data_versions) if data_versions else None
+
+
+def check_upstream_freshness(
+    spark: SparkSession,
+    catalog: str,
+    workflow_id: str,
+    upstream_tables: list[str],
+) -> FilterResult:
+    """Check if any upstream Delta table has changed since last recorded watermark.
+
+    Returns ``FilterResult(count=0)`` if all upstream tables are at the same
+    version as the last recorded watermark.  Returns ``count=1`` (fail open)
+    on first run, version mismatch, or any error.
+    """
+    watermarks_table = f"{catalog}.observability.workflow_watermarks"
+    try:
+        ensure_table(spark, watermarks_table, _WATERMARKS_DDL)
+        stored = _load_stored_watermarks(spark, watermarks_table, workflow_id)
+    except Exception:  # noqa: BLE001 — fail open if watermarks table is inaccessible
+        _logger.warning("Watermark table inaccessible for %s — failing open", workflow_id)
+        return FilterResult(workflow_id=workflow_id, count=1)
+
+    for table in upstream_tables:
+        try:
+            current_version = _get_latest_data_version(spark, table)
+        except Exception:  # noqa: BLE001 — fail open on DESCRIBE HISTORY errors
+            _logger.warning("DESCRIBE HISTORY failed for %s — failing open", table)
+            return FilterResult(workflow_id=workflow_id, count=1)
+
+        stored_version = stored.get(table)
+
+        if current_version is None:
+            # No data-changing ops in the last 20 history entries.
+            # If we have a stored watermark, the data hasn't changed — skip.
+            # If no stored watermark (first run), fail open.
+            if stored_version is None:
+                return FilterResult(workflow_id=workflow_id, count=1)
+            continue
+
+        if stored_version is None or current_version != stored_version:
+            return FilterResult(workflow_id=workflow_id, count=1)
+
+    return FilterResult(workflow_id=workflow_id, count=0)
+
+
+def record_watermarks(
+    spark: SparkSession,
+    catalog: str,
+    workflow_id: str,
+    upstream_tables: list[str],
+) -> None:
+    """Record current upstream versions after successful pipeline completion."""
+    watermarks_table = f"{catalog}.observability.workflow_watermarks"
+    ensure_table(spark, watermarks_table, _WATERMARKS_DDL)
+
+    for table in upstream_tables:
+        current_version = _get_latest_data_version(spark, table)
+        # If no data-changing ops in recent history, record version 0 as sentinel.
+        # This prevents a livelock where the guard perpetually fails open because
+        # no watermark is ever stored for rarely-updated tables.
+        if current_version is None:
+            current_version = 0
+        spark.sql(
+            f"MERGE INTO {watermarks_table} AS target "
+            f"USING (SELECT '{workflow_id}' AS workflow_id, "
+            f"'{table}' AS upstream_table, "
+            f"{current_version} AS last_seen_version, "
+            f"current_timestamp() AS checked_at) AS source "
+            f"ON target.workflow_id = source.workflow_id "
+            f"AND target.upstream_table = source.upstream_table "
+            f"WHEN MATCHED THEN UPDATE SET "
+            f"target.last_seen_version = source.last_seen_version, "
+            f"target.checked_at = source.checked_at "
+            f"WHEN NOT MATCHED THEN INSERT *"
+        )
+
+
+def resolve_upstream_tables_from_card(
+    workflow_id: str,
+    catalog: str,
+    schema: str,
+    cards_dir: Path | None = None,
+) -> list[str]:
+    """Load upstream Delta table FQNs from a workflow card's inputs section.
+
+    Reads ``inputs.tables`` and ``inputs.datasets`` entries where
+    ``source == "delta-table"``, substitutes ``{catalog}`` and ``{schema}``
+    placeholders in the ``id`` field, and returns the resolved list.
+
+    ``cards_dir`` defaults to the Databricks Workspace Repos path
+    (``/Workspace/Repos/luxury-lakehouse/workflow-cards``).  workflow-cards/
+    is NOT bundled in the wheel — it lives at the repo root and is available
+    on Databricks via the Repos integration.  Tests and local callers must
+    pass an explicit ``cards_dir``.
+    """
+    if cards_dir is None:
+        cards_dir = Path("/Workspace/Repos/luxury-lakehouse/workflow-cards")
+
+    card_path = cards_dir / f"{workflow_id}.yaml"
+    with open(card_path, encoding="utf-8") as f:
+        import yaml
+
+        # Workflow cards have YAML front matter delimited by ---
+        content = f.read()
+        # Split on --- and take the first YAML document
+        parts = content.split("---")
+        if len(parts) >= 3:
+            card = yaml.safe_load(parts[1])
+        else:
+            card = yaml.safe_load(content)
+
+    tables: list[str] = []
+    inputs = card.get("inputs", {})
+    for section in ("tables", "datasets"):
+        for entry in inputs.get(section, []):
+            if entry.get("source") == "delta-table":
+                fqn = entry["id"].replace("{catalog}", catalog).replace("{schema}", schema)
+                tables.append(fqn)
+    return tables
+
+
+def _repo_cards_dir() -> Path:
+    """Resolve workflow-cards/ from the repo root (for local/test use)."""
+    return Path(__file__).resolve().parent.parent.parent / "workflow-cards"
