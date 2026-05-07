@@ -102,7 +102,8 @@ resource "aws_iam_role_policy" "terraform_state_access" {
           "iam:GetRole",
           "iam:GetRolePolicy",
           "iam:ListRolePolicies",
-          "iam:ListAttachedRolePolicies"
+          "iam:ListAttachedRolePolicies",
+          "iam:UpdateAssumeRolePolicy"
         ]
         Resource = [
           aws_iam_openid_connect_provider.github.arn,
