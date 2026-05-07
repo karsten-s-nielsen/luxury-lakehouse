@@ -3,22 +3,30 @@ name: dbt live CI
 # Live dbt build via a Databricks one-shot Job. Complements dbt-ci.yml (parse-only).
 # Closes the gap where runtime SQL errors merged to main undetected in PR 3.
 # See docs/superpowers/plans/2026-04-23-kimball-pr4-live-ci.md for design.
+#
+# Cost note (2026-05-07): moved from per-PR trigger to daily schedule to reduce
+# SQL Warehouse costs. Each run wakes the serverless warehouse for 10-30 min at
+# $0.70/DBU (4 DBU/hr) — 50+ CI runs in one week drove $15-25 of unnecessary
+# spend. Parse-only dbt-ci.yml still runs on every PR for syntax/ref safety.
+# Use workflow_dispatch for on-demand pre-merge live validation when needed.
 
 on:
-  pull_request:
-    paths:
-      - "dbt_project/**"
-      - "src/ingestion/**"          # Python-side producers that feed dbt sources
-      - ".github/workflows/dbt-live-ci.yml"
+  schedule:
+    - cron: "0 9 * * *"            # Daily 09:00 UTC — after lakebase-grants (07:00)
+  workflow_dispatch:
+    inputs:
+      select_override:
+        description: "Override --select arg (e.g. 'state:modified+' or '+all')"
+        type: string
+        default: "+all"
 
 permissions:
   contents: read
   id-token: write                   # GitHub OIDC -> Databricks SP token exchange
-  pull-requests: write              # post failure-summary comment
 
-# Supersede older runs on the same PR ref when a new commit arrives.
+# Only one live build at a time.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}
   cancel-in-progress: true
 
 jobs:
@@ -46,11 +54,6 @@ jobs:
       SILLY_KICKS_ASSERT_INVARIANTS: "1"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-        with:
-          fetch-depth: 0            # full history for dbt state diff vs main
-
-      - name: Fetch main for state comparison
-        run: git fetch origin main:refs/remotes/origin/main
 
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
@@ -64,77 +67,11 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --extra dbt --no-install-project
 
-      - name: Generate PR-branch manifest
+      - name: Generate manifest
         working-directory: dbt_project
         run: |
           uv run --no-sync dbt deps --profiles-dir .
           uv run --no-sync dbt parse --profiles-dir .
-
-      # Checkout main into the working tree, re-parse, copy manifest to repo root.
-      # Pattern mirrored from dbt-ci.yml:65-76 — stash keeps PR-branch changes
-      # safe, then we restore them with `git checkout <sha> -- .` + `stash pop`.
-      - name: Generate main-branch manifest
-        working-directory: dbt_project
-        run: |
-          # Switch to main's content for a baseline parse. `git checkout
-          # origin/main -- .` only restores files that exist in main, so
-          # PR-added files (new staging models, new source YAML entries)
-          # remain in the working tree and cause parse failures when they
-          # reference sources/refs that main doesn't have yet. Explicitly
-          # remove the PR-added files before parse. `git diff --name-only`
-          # emits repo-root-relative paths, so we run the rm from the repo
-          # root via a subshell that doesn't leak to the outer cwd.
-          git stash --include-untracked
-          ( cd "$(git rev-parse --show-toplevel)" && \
-            git diff --name-only --diff-filter=A origin/main..HEAD | xargs -r rm -f )
-          git checkout origin/main -- .
-          uv run --no-sync dbt deps --profiles-dir .
-          uv run --no-sync dbt parse --profiles-dir .
-          mkdir -p ../target-main
-          cp target/manifest.json ../target-main/manifest.json
-          # Restore PR's HEAD across the FULL working tree, not just dbt_project/.
-          # The earlier `rm -f` above is scoped to repo root via a subshell; this
-          # restore must match that scope or PR-added files OUTSIDE dbt_project/
-          # (notably scripts/migrations/*.sql, consumed by the auto-apply step
-          # below) stay deleted and downstream steps fail with FileNotFoundError.
-          # Latent bug exposed when PR #235 became the first PR since PR #236
-          # introduced the migration auto-apply step to actually add a new
-          # migration file — the previous databricks-sql-connector path masked
-          # it by hanging on sql.connect() before reaching args.migration.read_text().
-          ( cd "$(git rev-parse --show-toplevel)" && git checkout ${{ github.sha }} -- . )
-          # Symmetric to the PR-added rm above (line ~88-89): PR-DELETED files
-          # were restored by `git checkout origin/main -- .`, but `git checkout
-          # ${{ github.sha }} -- .` does NOT delete them (it only restores files
-          # that exist in HEAD). Without this re-rm, the tarball ships with
-          # deleted .sql models / .yaml workflow cards / etc., and dbt build
-          # fails on `state:modified+` trying to compile them. Latent bug
-          # exposed by SK3-MIG-B PR-alpha (PR #251) — the first PR to delete a
-          # contract-enforced dbt mart + its staging dependency.
-          ( cd "$(git rev-parse --show-toplevel)" && \
-            git diff --name-only --diff-filter=D origin/main..HEAD | xargs -r rm -f )
-          git stash pop || true
-
-      # state:modified+ catches model changes plus downstream dependents. If any
-      # project-wide config changed (dbt_project.yml, packages.yml, profiles.yml),
-      # a plain state diff is insufficient and we must rebuild the whole graph.
-      - name: Compute --select argument
-        id: select
-        run: |
-          set -euo pipefail
-          config_diff=0
-          for f in dbt_project/dbt_project.yml dbt_project/packages.yml dbt_project/profiles.yml; do
-            if ! git diff --quiet origin/main -- "$f"; then
-              config_diff=1
-              break
-            fi
-          done
-          if [ "$config_diff" = "1" ]; then
-            echo "select_arg=+all" >> "$GITHUB_OUTPUT"
-            echo "Config diff detected — running full build (+all)"
-          else
-            echo "select_arg=state:modified+" >> "$GITHUB_OUTPUT"
-            echo "No config diff — running state:modified+"
-          fi
 
       # target/, target-main/, and dbt_packages/ are regenerated inside the
       # Databricks shim; excluding them keeps the tarball small.
@@ -169,90 +106,24 @@ jobs:
           echo "::add-mask::$TOKEN"
           echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
 
-      # Apply any new bronze schema migrations (`scripts/migrations/*.sql`)
-      # introduced by this PR before running `dbt build` on the warehouse.
-      # Eliminates the chicken-and-egg observed on PR #235 (session 69):
-      # PR adds a bronze column + staging SQL that consumes it → dbt build
-      # fails compilation because the live bronze doesn't have the column
-      # until an operator runs the migration manually.
-      #
-      # Filter is `--diff-filter=A` — only NEW migration files in the PR
-      # are auto-applied. Modifying an existing migration file is a
-      # separate concern (re-applying may fail or produce different state)
-      # and intentionally NOT covered here; operator runs those manually.
-      #
-      # Safety: every migration in `scripts/migrations/*.sql` MUST be
-      # idempotent. `_runner.py` skips `ALTER TABLE ADD COLUMNS` when
-      # the column exists; UPDATE / SET TBLPROPERTIES / CREATE IF NOT
-      # EXISTS / GRANT are idempotent by construction. See CLAUDE.md
-      # "Project Conventions" → Bronze migrations auto-apply contract.
-      #
-      # Auth + warehouse start: handled by `_runner.py` itself via the
-      # Databricks SDK (`statement_execution`, REST). SDK auto-resolves
-      # auth from env (`DATABRICKS_AUTH_TYPE=github-oidc` here) and the
-      # statements API auto-starts a STOPPED warehouse on first call —
-      # so neither `ensure_warehouse.py` nor a step-level token override
-      # is needed (the previous PR #237 / PR #238 workarounds were tied
-      # to the `databricks-sql-connector` Thrift path that the SDK
-      # rewrite replaced; see `scripts/migrations/_runner.py` header).
-      - name: Apply pending bronze migrations
-        run: |
-          set -euo pipefail
-          NEW=$(git diff --name-only --diff-filter=A origin/main...HEAD -- 'scripts/migrations/*.sql' || true)
-          if [ -z "$NEW" ]; then
-            echo "No new bronze migrations in PR diff — skipping."
-            exit 0
-          fi
-          echo "Applying $(echo "$NEW" | wc -l) new migration(s):"
-          echo "$NEW"
-          while IFS= read -r sql; do
-            [ -z "$sql" ] && continue
-            echo "::group::Apply $sql"
-            uv run --no-sync python scripts/migrations/_runner.py "$sql"
-            echo "::endgroup::"
-          done <<< "$NEW"
-
-      # Exit code of this step drives the workflow's success/failure (and thus
-      # the required-check status on the PR). SHORT_SHA extracted from the PR
-      # head so scratch/fork runs see the same id the PR description shows.
+      # Daily scheduled run: full build (+all) validates the entire graph.
+      # Manual dispatch: use select_override input for targeted validation.
       - name: Trigger Databricks dbt run
         id: trigger
         env:
-          SHORT_SHA: ${{ github.event.pull_request.head.sha }}
+          SHORT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          SELECT_ARG="${{ inputs.select_override || '+all' }}"
+          echo "select_arg=${SELECT_ARG}"
           uv run --no-sync python scripts/trigger_dbt_job.py \
-            --pr-number "${{ github.event.pull_request.number }}" \
+            --pr-number 0 \
             --commit-sha "${SHORT_SHA:0:7}" \
             --tarball /tmp/dbt_project.tar.gz \
-            --manifest target-main/manifest.json \
-            --select-arg "${{ steps.select.outputs.select_arg }}" \
+            --manifest dbt_project/target/manifest.json \
+            --select-arg "${SELECT_ARG}" \
             --host "${{ vars.DATABRICKS_HOST }}" \
             --token "${{ steps.databricks_token.outputs.token }}" \
-            --volume-prefix "/Volumes/soccer_analytics/dev_gold/ci_dbt/${{ github.event.pull_request.number }}-${SHORT_SHA:0:7}" \
+            --volume-prefix "/Volumes/soccer_analytics/dev_gold/ci_dbt/daily-${SHORT_SHA:0:7}" \
             > /tmp/trigger_result.json
           cat /tmp/trigger_result.json
-
-      # Post a PR comment only when the trigger itself reported FAILED / CANCELED
-      # / INTERNAL_ERROR / TIMEOUT. We read the JSON straight from disk (via
-      # system python3, present on ubuntu-latest) instead of round-tripping
-      # through $GITHUB_OUTPUT — avoids shell-quote fragility if a field ever
-      # contains a single quote, and sidesteps an extra `uv run` startup cost.
-      - name: Post PR comment on failure
-        if: failure() && steps.trigger.outcome == 'failure'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [ ! -s /tmp/trigger_result.json ]; then
-            echo "trigger_result.json missing or empty; cannot post failure comment"
-            exit 0
-          fi
-          RUN_PAGE_URL=$(python3 -c "import json; print(json.load(open('/tmp/trigger_result.json')).get('run_page_url',''))")
-          OUTPUT_PATH=$(python3 -c "import json; print(json.load(open('/tmp/trigger_result.json')).get('output_volume_path',''))")
-          uv run --no-sync python scripts/post_dbt_failure_comment.py \
-            --repo "${{ github.repository }}" \
-            --pr-number "${{ github.event.pull_request.number }}" \
-            --run-page-url "$RUN_PAGE_URL" \
-            --run-output-volume-path "$OUTPUT_PATH" \
-            --github-token "$GITHUB_TOKEN"
