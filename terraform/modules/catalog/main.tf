@@ -284,6 +284,13 @@ resource "databricks_grant" "account_users_bronze_schema" {
   privileges = ["USE_SCHEMA", "SELECT"]
 }
 
+resource "databricks_grant" "account_users_observability_schema" {
+  schema = "${var.catalog_name}.${databricks_schema.observability.name}"
+
+  principal  = "account users"
+  privileges = ["USE_SCHEMA", "SELECT"]
+}
+
 # ── Unity Catalog Grants: App Service Principal ──────────────────────────────
 # Read-only access for the Streamlit dashboard: catalog traversal and
 # SELECT on the gold schema (which may be dbt-prefixed, e.g. dev_gold).
