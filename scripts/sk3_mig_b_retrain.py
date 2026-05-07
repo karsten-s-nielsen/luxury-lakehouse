@@ -239,6 +239,114 @@ def _execute_sql(state: CycleState, sql: str) -> list[list]:
     return result.result.data_array
 
 
+# ── Telemetry SQL formatting helpers ───────────────────────────────────────
+
+
+def _fmt_str(s: str | None) -> str:
+    return f"'{s}'" if s is not None else "NULL"
+
+
+def _fmt_ts(t: datetime | None) -> str:
+    return f"TIMESTAMP '{t.strftime('%Y-%m-%d %H:%M:%S')}'" if t else "NULL"
+
+
+def _fmt_num(n: float | int | None) -> str:
+    return str(n) if n is not None else "NULL"
+
+
+def _fmt_bool(b: bool | None) -> str:
+    return "TRUE" if b else "FALSE" if b is not None else "NULL"
+
+
+def _fmt_map_dbl(m: dict[str, float]) -> str:
+    if not m:
+        return "MAP()"
+    pairs = ", ".join(f"'{k}', {v}" for k, v in m.items())
+    return f"MAP({pairs})"
+
+
+def _fmt_map_str(m: dict[str, str]) -> str:
+    if not m:
+        return "MAP()"
+    pairs = ", ".join(f"'{k}', '{v}'" for k, v in m.items())
+    return f"MAP({pairs})"
+
+
+def _build_telemetry_values(
+    state: CycleState,
+    *,
+    cycle_item: str,
+    smoke_pass: bool,
+    smoke_metrics: dict[str, float] | None = None,
+    smoke_metrics_str: dict[str, str] | None = None,
+    hf_job_id: str | None = None,
+    champion_set_at: datetime | None = None,
+    pre_mart_version: int | None = None,
+    post_mart_version: int | None = None,
+    pre_hf_revision_sha: str | None = None,
+    wall_clock_seconds: float | None = None,
+    cost_usd: float | None = None,
+) -> str:
+    """Build a single VALUES clause for a telemetry row (no trailing comma)."""
+    cycle_item_kind = classify_cycle_item(cycle_item)
+    metrics = smoke_metrics or {}
+    metrics_str = smoke_metrics_str or {}
+    wheel_end = state.wheel_at_start if cycle_item != "pre_state" else None
+    return (
+        f"('{state.cycle_id}', {_fmt_ts(state.cycle_started_at)}, NULL, "
+        f"'{state.wheel_at_start}', {_fmt_str(wheel_end)}, '{state.silly_kicks_version}', "
+        f"{_COST_CAP_USD}, {_WALLTIME_CAP_HOURS}, "
+        f"'{cycle_item}', '{cycle_item_kind}', "
+        f"{_fmt_str(hf_job_id)}, {_fmt_ts(champion_set_at)}, "
+        f"{_fmt_num(pre_mart_version)}, {_fmt_num(post_mart_version)}, "
+        f"{_fmt_str(pre_hf_revision_sha)}, "
+        f"{_fmt_bool(smoke_pass)}, {_fmt_map_dbl(metrics)}, {_fmt_map_str(metrics_str)}, "
+        f"{_fmt_num(wall_clock_seconds)}, {_fmt_num(cost_usd)}, {_fmt_ts(_now_utc())})"
+    )
+
+
+# ── Batched telemetry buffer ──────────────────────────────────────────────
+# Heartbeats accumulate in _pending_rows (thread-safe via _pending_lock).
+# State-transition writes flush the buffer first, bundling heartbeat rows
+# into a single multi-row INSERT so the warehouse gets idle gaps and can
+# auto-stop between cycle items (~$0/day instead of ~$67/day).
+
+_pending_rows: list[str] = []
+_pending_lock = threading.Lock()
+
+_TELEMETRY_COLUMNS = """(
+  cycle_id, cycle_started_at, cycle_finished_at,
+  wheel_at_start, wheel_at_end, silly_kicks_version,
+  cost_cap_usd, walltime_cap_hours,
+  cycle_item, cycle_item_kind,
+  hf_job_id, champion_set_at,
+  pre_mart_version, post_mart_version,
+  pre_hf_revision_sha,
+  smoke_pass, smoke_metrics, smoke_metrics_str,
+  wall_clock_seconds, cost_usd, recorded_at
+)"""
+
+
+def _flush_pending(state: CycleState) -> None:
+    """Flush buffered heartbeat rows to the warehouse in a single INSERT."""
+    with _pending_lock:
+        rows = _pending_rows.copy()
+        _pending_rows.clear()
+    if not rows:
+        return
+    values_block = ",\n".join(rows)
+    sql = f"INSERT INTO {state.catalog}.bronze.sk3_mig_b_runs {_TELEMETRY_COLUMNS} VALUES {values_block}"
+    try:
+        _execute_sql(state, sql)
+    except Exception as exc:  # noqa: BLE001 — telemetry must not crash orchestrator
+        _emit_status(
+            state,
+            step="telemetry",
+            phase="halted",
+            msg=f"flush of {len(rows)} buffered heartbeat rows failed: {exc}",
+        )
+
+
 def _write_telemetry_row(
     state: CycleState,
     *,
@@ -256,61 +364,26 @@ def _write_telemetry_row(
 ) -> None:
     """Append one row to bronze.sk3_mig_b_runs.
 
-    Per spec §5.3 + ADR-002 §4 schema discipline. Builds an INSERT INTO statement
-    with literal SQL values (parameter binding via Databricks SDK doesn't yet
-    cover MAP types; the literals are project-internal — no SQL injection risk).
+    Flushes any buffered heartbeat rows first, then writes this row, so all
+    rows go in a single warehouse wake-up. Keeps the warehouse idle between
+    state transitions, allowing auto-stop to kick in.
     """
-    cycle_item_kind = classify_cycle_item(cycle_item)
-    metrics = smoke_metrics or {}
-    metrics_str = smoke_metrics_str or {}
-
-    def _fmt_str(s: str | None) -> str:
-        return f"'{s}'" if s is not None else "NULL"
-
-    def _fmt_ts(t: datetime | None) -> str:
-        return f"TIMESTAMP '{t.strftime('%Y-%m-%d %H:%M:%S')}'" if t else "NULL"
-
-    def _fmt_num(n: float | int | None) -> str:
-        return str(n) if n is not None else "NULL"
-
-    def _fmt_bool(b: bool | None) -> str:
-        return "TRUE" if b else "FALSE" if b is not None else "NULL"
-
-    def _fmt_map_dbl(m: dict[str, float]) -> str:
-        if not m:
-            return "MAP()"
-        pairs = ", ".join(f"'{k}', {v}" for k, v in m.items())
-        return f"MAP({pairs})"
-
-    def _fmt_map_str(m: dict[str, str]) -> str:
-        if not m:
-            return "MAP()"
-        pairs = ", ".join(f"'{k}', '{v}'" for k, v in m.items())
-        return f"MAP({pairs})"
-
-    sql = f"""
-INSERT INTO {state.catalog}.bronze.sk3_mig_b_runs (
-  cycle_id, cycle_started_at, cycle_finished_at,
-  wheel_at_start, wheel_at_end, silly_kicks_version,
-  cost_cap_usd, walltime_cap_hours,
-  cycle_item, cycle_item_kind,
-  hf_job_id, champion_set_at,
-  pre_mart_version, post_mart_version,
-  pre_hf_revision_sha,
-  smoke_pass, smoke_metrics, smoke_metrics_str,
-  wall_clock_seconds, cost_usd, recorded_at
-) VALUES (
-  '{state.cycle_id}', {_fmt_ts(state.cycle_started_at)}, NULL,
-  '{state.wheel_at_start}', {_fmt_str("0.3.34" if cycle_item != "pre_state" else None)}, '{state.silly_kicks_version}',
-  {_COST_CAP_USD}, {_WALLTIME_CAP_HOURS},
-  '{cycle_item}', '{cycle_item_kind}',
-  {_fmt_str(hf_job_id)}, {_fmt_ts(champion_set_at)},
-  {_fmt_num(pre_mart_version)}, {_fmt_num(post_mart_version)},
-  {_fmt_str(pre_hf_revision_sha)},
-  {_fmt_bool(smoke_pass)}, {_fmt_map_dbl(metrics)}, {_fmt_map_str(metrics_str)},
-  {_fmt_num(wall_clock_seconds)}, {_fmt_num(cost_usd)}, {_fmt_ts(_now_utc())}
-)
-"""
+    _flush_pending(state)
+    values = _build_telemetry_values(
+        state,
+        cycle_item=cycle_item,
+        smoke_pass=smoke_pass,
+        smoke_metrics=smoke_metrics,
+        smoke_metrics_str=smoke_metrics_str,
+        hf_job_id=hf_job_id,
+        champion_set_at=champion_set_at,
+        pre_mart_version=pre_mart_version,
+        post_mart_version=post_mart_version,
+        pre_hf_revision_sha=pre_hf_revision_sha,
+        wall_clock_seconds=wall_clock_seconds,
+        cost_usd=cost_usd,
+    )
+    sql = f"INSERT INTO {state.catalog}.bronze.sk3_mig_b_runs {_TELEMETRY_COLUMNS} VALUES {values}"
     try:
         _execute_sql(state, sql)
     except Exception as exc:  # noqa: BLE001 — telemetry must not crash orchestrator
@@ -329,7 +402,13 @@ _heartbeat_thread: threading.Thread | None = None
 
 
 def _heartbeat_loop(state: CycleState) -> None:
-    """Background thread — emits a heartbeat telemetry row every interval until stopped."""
+    """Background thread — buffers heartbeat rows locally, emits status to stdout.
+
+    Heartbeat rows are NOT written to the warehouse directly. They accumulate
+    in _pending_rows and get flushed when the next state-transition write
+    happens (via _write_telemetry_row → _flush_pending). This lets the
+    warehouse auto-stop between cycle items.
+    """
     while not _heartbeat_stop_event.wait(_STATUS_INTERVAL_SECONDS):
         if state.current_item is None:
             continue
@@ -343,7 +422,7 @@ def _heartbeat_loop(state: CycleState) -> None:
             hf_job_id=state.current_hf_job_id,
             msg="dispatch in flight",
         )
-        _write_telemetry_row(
+        values = _build_telemetry_values(
             state,
             cycle_item="heartbeat",
             smoke_pass=True,
@@ -353,6 +432,8 @@ def _heartbeat_loop(state: CycleState) -> None:
                 "current_hf_job_id": state.current_hf_job_id or "null",
             },
         )
+        with _pending_lock:
+            _pending_rows.append(values)
 
 
 def _start_heartbeat(state: CycleState) -> None:
@@ -364,8 +445,9 @@ def _start_heartbeat(state: CycleState) -> None:
     _heartbeat_thread.start()
 
 
-def _stop_heartbeat() -> None:
+def _stop_heartbeat(state: CycleState) -> None:
     _heartbeat_stop_event.set()
+    _flush_pending(state)
 
 
 # ── Step 0: pre-flight ──────────────────────────────────────────────────────
@@ -1386,7 +1468,7 @@ def main() -> int:
             skip_until = None
             fn()
     finally:
-        _stop_heartbeat()
+        _stop_heartbeat(state)
 
     _emit_status(state, step="—", phase="complete", msg="=== ORCHESTRATOR COMPLETE ===")
     return 0
