@@ -514,6 +514,7 @@ luxury-lakehouse/
 │   │   ├── export_scoutgpt_training_data.py   # Export SPADL possession episodes for ScoutGPT training
 │   │   ├── export_shots_on_target.py # On-target shots export to HF Hub (D39 prerequisite)
 │   │   ├── football2vec_v2_training.py # Football2vec v2 training helpers (dataset, MLM masking, splits, LR schedule)
+│   │   ├── football2vec_360_training.py # Football2vec 360 training helpers (dataset, 360 SQL, freeze-frame parsing)
 │   │   ├── formations_common.py      # Shared formation detection constants
 │   │   ├── formations_efpi.py        # EFPI template-matching formation detection
 │   │   ├── formations_shape_graph.py # Shape graph geometric formation detection
@@ -707,7 +708,6 @@ luxury-lakehouse/
 │   ├── train_vaep_model_hf.py        # HF Jobs CPU script: VAEP model training
 │   ├── train_football2vec_v2.py      # HF Jobs GPU script: football2vec v2 transformer + adversarial debiasing
 │   ├── train_football2vec_360.py     # HF Jobs GPU script: football2vec 360-enriched encoder training
-│   ├── train_football2vec_360_helpers.py # Football2vec 360 training helpers
 │   ├── train_psxg_hf.py              # HF Jobs CPU script: PSxG logistic model training
 │   ├── train_scoutgpt_hf.py          # HF Jobs GPU script: ScoutGPT decoder training (Hong et al. 2025)
 │   ├── publish_freeze_frame_hf.py    # Publish StatsBomb 360 freeze-frame dataset to HF Hub

@@ -1,8 +1,9 @@
-"""Helper module for train_football2vec_360.py.
+"""Training helpers for Football2Vec 360 (freeze-frame enriched transformer).
 
 Contains data loading, parsing, dataset class, train/val/test splitting,
-learning rate scheduler, and MLM head. The main script handles training
-loops, evaluation, model I/O, MLflow logging, and the pipeline orchestration.
+learning rate scheduler, and MLM head. Packaged in the wheel so HF Jobs
+PEP 723 scripts can import via ``from ingestion.football2vec_360_training import ...``
+(sibling imports do not work on HF Jobs).
 """
 
 from __future__ import annotations
@@ -193,7 +194,7 @@ def load_training_data(hf_token: str, input_dataset: str) -> tuple[pd.DataFrame,
     from huggingface_hub import HfApi
 
     ds = load_dataset(input_dataset, split="train", token=hf_token)
-    data = ds.to_pandas()
+    data: pd.DataFrame = ds.to_pandas()  # type: ignore[union-attr]
     logger.info("Loaded %d player-match sequences from %s", len(data), input_dataset)
 
     api = HfApi(token=hf_token)
@@ -278,8 +279,6 @@ class Football2Vec360Dataset(Dataset[dict[str, torch.Tensor]]):
         mlm: bool = True,
         competition_ids: list[int] | None = None,
     ) -> None:
-        import numpy as np
-
         n = len(action_ids)
         sl = max_seq_len
         mp = max_players
@@ -369,7 +368,8 @@ def stratified_split(
 
     stratify_col = data["competition_id"].astype(str)
     counts = stratify_col.value_counts()
-    rare_mask = stratify_col.isin(counts[counts < 3].index)
+    rare_labels = [label for label, cnt in counts.items() if cnt < 3]
+    rare_mask = stratify_col.isin(rare_labels)
     stratify_col = stratify_col.copy()
     stratify_col.loc[rare_mask] = "_other_"
 
@@ -381,11 +381,13 @@ def stratified_split(
         random_state=RANDOM_STATE,
         stratify=stratify_col,
     )
-
     val_relative = val_frac / (train_frac + val_frac)
-    stratify_trainval = stratify_col.iloc[train_val_idx]
+    # train_test_split returns a generic list; cast to int ndarray so the
+    # pandas .iloc overload resolution picks the integer-array signature.
+    stratify_trainval = stratify_col.iloc[np.asarray(train_val_idx, dtype=np.int64)]
     tv_counts = stratify_trainval.value_counts()
-    tv_rare = stratify_trainval.isin(tv_counts[tv_counts < 2].index)
+    tv_rare_labels = [label for label, cnt in tv_counts.items() if cnt < 2]
+    tv_rare = stratify_trainval.isin(tv_rare_labels)
     stratify_trainval = stratify_trainval.copy()
     stratify_trainval.loc[tv_rare] = "_other_"
 

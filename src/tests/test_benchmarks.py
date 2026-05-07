@@ -723,14 +723,9 @@ def test_bench_f2v_forward(benchmark: Any) -> None:
 @pytest.fixture
 def f2v360_dataset():  # type: ignore[no-untyped-def]
     """Small pre-tensorized Football2Vec 360 dataset for benchmarking."""
-    import sys
-    from pathlib import Path
 
     pytest.importorskip("pyarrow")
-    scripts_dir = str(Path(__file__).resolve().parents[2] / "scripts")
-    if scripts_dir not in sys.path:
-        sys.path.insert(0, scripts_dir)
-    from train_football2vec_360_helpers import Football2Vec360Dataset
+    from ingestion.football2vec_360_training import Football2Vec360Dataset
 
     g = torch.Generator().manual_seed(42)
     n, mp = 50, 22

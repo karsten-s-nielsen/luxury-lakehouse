@@ -1,6 +1,6 @@
 [project]
 name = "luxury-lakehouse"
-version = "0.3.35"
+version = "0.3.36"
 description = "Serverless soccer analytics platform built on Databricks Lakebase"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -207,7 +207,6 @@ select = [
 "scripts/compute_epv_transition_hf_helpers.py" = ["BLE001"]
 "scripts/compute_space_creation_hf_helpers.py" = ["BLE001"]
 "scripts/train_xg_v2_hf_helpers.py" = ["BLE001"]
-"scripts/train_football2vec_360_helpers.py" = ["BLE001"]
 "scripts/publish_*_hf.py" = ["BLE001"]  # HF Hub publish scripts (per-artifact loops)
 
 [tool.ruff.lint.isort]
@@ -261,7 +260,6 @@ exclude = [
     "scripts/publish_spadl_vaep_hf.py",
     "scripts/publish_xg_shots_hf.py",
     "scripts/train_football2vec_360.py",
-    "scripts/train_football2vec_360_helpers.py",
     "scripts/train_football2vec_v2.py",
     "scripts/train_psxg_hf.py",
     "scripts/train_scoutgpt_hf.py",

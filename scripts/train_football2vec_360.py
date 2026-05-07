@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.35-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.36-py3-none-any.whl",
 #     "numpy>=1.26.0",
 #     "pandas>=2.0.0",
 #     "pyarrow>=14.0.0",
@@ -38,7 +38,10 @@ import pandas as pd
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from train_football2vec_360_helpers import (
+
+from analytics.football2vec_360 import Football2Vec360Config, Football2Vec360Encoder
+from analytics.football2vec_transformer import TeamClassifierHead
+from ingestion.football2vec_360_training import (
     ADVERSARIAL_LAMBDA_MAX,
     ADVERSARIAL_WARMUP_EPOCHS,
     MAX_PLAYERS,
@@ -55,9 +58,6 @@ from train_football2vec_360_helpers import (
     parse_freeze_frames,
     stratified_split,
 )
-
-from analytics.football2vec_360 import Football2Vec360Config, Football2Vec360Encoder
-from analytics.football2vec_transformer import TeamClassifierHead
 from ingestion.hf_jobs_cost import HF_RATE_A10G_LARGE, HFJobsCostRecorder
 from ingestion.hf_publish import get_hf_card_path, upload_hf_readme
 from shared.constants import mlflow_model_uri
