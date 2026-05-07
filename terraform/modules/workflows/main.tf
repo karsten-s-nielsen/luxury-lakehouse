@@ -20,8 +20,7 @@
 #   compute_elastic_sync — ELASTIC event-tracking alignment (depends on idsse_events)
 #   compute_pausa     — PAUSA pass timing pipeline (depends on elastic_sync + OBSO import)
 #   resolve_players   — Cross-source entity resolution (depends on statsbomb + wyscout)
-#   compute_embeddings_v2 — Transformer (128d) player embeddings with adversarial debiasing (depends on entity resolution)
-#   compute_embeddings_v1 — Doc2Vec (gensim) player embeddings, deprecated (depends on compute_embeddings_v2)
+#   compute_embeddings_v2 — Transformer (192d) player embeddings with adversarial debiasing (depends on entity resolution)
 #   compute_formations_efpi — EFPI template-matching formation detection (depends on pitch control)
 #   compute_formations_shape_graph — Shape graph geometric formation detection (depends on EFPI)
 #   run_model_validation — Model drift detection (depends on compute_pausa)
@@ -169,7 +168,7 @@ resource "databricks_job" "data_ingestion" {
   }
 
   # ── Task: Compute player embeddings 360-enriched (Deep Sets + transformer) ───
-  # Football2vec 360: imports pre-trained 144d 360-enriched embeddings from
+  # Football2vec 360: imports pre-trained 208d 360-enriched embeddings from
   # HF Hub, writes to bronze.player_embeddings_raw with
   # data_source='football2vec_360'. Depends on compute_embeddings_v2 running
   # first (shared HF Hub auth + stat vector cache path).
@@ -185,31 +184,6 @@ resource "databricks_job" "data_ingestion" {
     python_wheel_task {
       package_name = "luxury_lakehouse"
       entry_point  = "compute_embeddings_360"
-
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze",
-      ]
-    }
-
-    environment_key = "embeddings"
-  }
-
-  # ── Task: Compute player embeddings v1 (Doc2Vec, deprecated) ────────
-  # Football2vec v1: Doc2Vec action sequences + statistical z-score vectors.
-  # Retained for comparison; superseded by v2 transformer embeddings.
-  task {
-    task_key        = "compute_embeddings_v1"
-    timeout_seconds = 600
-    max_retries     = 1
-
-    depends_on {
-      task_key = "compute_embeddings_v2"
-    }
-
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "compute_embeddings_v1"
 
       parameters = [
         "--catalog", var.catalog_name,
@@ -647,7 +621,6 @@ resource "databricks_job" "data_ingestion" {
     depends_on { task_key = "compute_defcon_lite" }
     depends_on { task_key = "compute_elastic_sync" }
     depends_on { task_key = "compute_embeddings_360" }
-    depends_on { task_key = "compute_embeddings_v1" }
     depends_on { task_key = "compute_embeddings_v2" }
     depends_on { task_key = "compute_expected_threat" }
     depends_on { task_key = "compute_formations_efpi" }

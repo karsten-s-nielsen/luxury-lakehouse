@@ -2,7 +2,7 @@
 
 The 360 path is structurally near-identical to the v2 path but:
 - Uses a different HF Hub dataset (luxury-lakehouse/football2vec-360-embeddings)
-- Produces 144-dim behavioral vectors (v2 is 128-dim)
+- Produces 208-dim behavioral vectors (v2 is 192-dim)
 - Labels rows with data_source='football2vec_360' so downstream dbt models
   can isolate them from v2's statsbomb/wyscout partitions
 """
@@ -42,9 +42,9 @@ def test_run_pipeline_360_writes_football2vec_360_data_source() -> None:
             "canonical_player_id": ["p1", "p2", "p3"],
             "match_id": ["m1", "m2", "m3"],
             "behavioral_vector": [
-                [0.1] * 144,
-                [0.2] * 144,
-                [0.3] * 144,
+                [0.1] * 208,
+                [0.2] * 208,
+                [0.3] * 208,
             ],
         }
     )
@@ -83,7 +83,7 @@ def test_run_pipeline_360_writes_football2vec_360_data_source() -> None:
 
 
 def test_run_pipeline_360_rejects_wrong_dimension() -> None:
-    """If the HF parquet has vectors with length != 144, the import must raise
+    """If the HF parquet has vectors with length != 208, the import must raise
     (not silently pass through the wrong dimension)."""
     from ingestion import player_embeddings_v2 as mod
 
@@ -91,7 +91,7 @@ def test_run_pipeline_360_rejects_wrong_dimension() -> None:
         {
             "canonical_player_id": ["p1"],
             "match_id": ["m1"],
-            "behavioral_vector": [[0.1] * 128],  # WRONG: 128 instead of 144
+            "behavioral_vector": [[0.1] * 192],  # WRONG: 192 instead of 208
         }
     )
 
@@ -103,5 +103,29 @@ def test_run_pipeline_360_rejects_wrong_dimension() -> None:
         patch("ingestion.player_embeddings_v2.repo_exists", return_value=True),
         patch("ingestion.player_embeddings_v2.pd.read_parquet", return_value=fake_parquet),
     ):
-        with pytest.raises((ValueError, RuntimeError), match="144"):
+        with pytest.raises((ValueError, RuntimeError), match="208"):
             mod._import_embeddings_360(spark, "soccer_analytics", "bronze", logger)
+
+
+def test_import_v2_rejects_wrong_dimension() -> None:
+    """If the v2 HF parquet has vectors with length != 192, the import must raise."""
+    from ingestion import player_embeddings_v2 as mod
+
+    fake_parquet = pd.DataFrame(
+        {
+            "canonical_player_id": ["p1"],
+            "match_id": ["m1"],
+            "behavioral_vector": [[0.1] * 128],  # WRONG: 128 instead of 192
+        }
+    )
+
+    spark = MagicMock()
+    logger = MagicMock()
+
+    with (
+        patch("ingestion.player_embeddings_v2.hf_hub_download", return_value="/fake.parquet"),
+        patch("ingestion.player_embeddings_v2.repo_exists", return_value=True),
+        patch("ingestion.player_embeddings_v2.pd.read_parquet", return_value=fake_parquet),
+    ):
+        with pytest.raises(RuntimeError, match="192"):
+            mod._import_v2_embeddings(spark, "soccer_analytics", "bronze", logger)

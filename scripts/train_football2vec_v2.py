@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.34-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.35-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -741,7 +741,6 @@ def _run_stage1(args: argparse.Namespace, hf_token: str, device: torch.device, r
     }
     metrics = recorder.complete(metrics, row_count=len(emb_df))
     _save_ckpt(model, config, "stage1", hf_token, metrics=metrics)
-    _publish_emb(emb_df, hf_token, "stage1")
     _log_mlflow(
         "stage1", config, history, {"test_loss": tl, "test_accuracy": ta}, model, args, dc, len(ti), len(vi), len(tei)
     )

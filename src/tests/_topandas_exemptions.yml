@@ -35,12 +35,12 @@ exemptions:
     reason: "Output of upstream `applyInPandas` (`behavioral_sdf`). Per docstring (line 314–316): O(players × matches_per_player) ≈ ~90K rows of short JSON strings. Bounded by player-match grain."
 
   - file: src/ingestion/player_embeddings_v2.py
-    line: 144
+    line: 156
     reason: "`SELECT DISTINCT` over match-grain dimension columns from `fct_action_values`. Bounded to one row per match (~5,400 matches across 22 competitions)."
 
   - file: src/ingestion/player_embeddings_v2.py
-    line: 387
-    reason: "`SELECT DISTINCT` over match-grain dimension columns; bounded to ~5,400 matches. Same shape as line 144."
+    line: 399
+    reason: "`SELECT DISTINCT` over match-grain dimension columns; bounded to ~5,400 matches. Same shape as line 156."
 
   - file: src/ingestion/spadl_conversion.py
     line: 327

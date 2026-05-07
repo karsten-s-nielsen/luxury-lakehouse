@@ -158,7 +158,9 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     "compute_defcon_lite": "wf-defcon",
     "resolve_players": "wf-entity-resolution",
     "compute_embeddings_v2": "wf-football2vec-v2",
-    "compute_embeddings_v1": "wf-football2vec",
+    # compute_embeddings_v1 removed — v1 Doc2Vec deprecated (2026-05-07).
+    # wf-football2vec.yaml stays on disk (status: deprecated) but is no
+    # longer wired to any TF task or pyproject entry point.
     "compute_embeddings_360": "wf-football2vec-360",
     "compute_elastic_sync": "wf-elastic-sync",
     "compute_pausa": "wf-obso-pausa",

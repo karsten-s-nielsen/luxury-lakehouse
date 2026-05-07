@@ -1,8 +1,8 @@
-"""Football2Vec 360-enriched encoder -- transformer + Deep Sets -> 144d.
+"""Football2Vec 360-enriched encoder -- transformer + Deep Sets -> 208d.
 
 Extends the Football2Vec v2 transformer encoder with a Deep Sets branch
 that encodes StatsBomb 360 freeze frame context per action. Output is
-128d (transformer) + 16d (Deep Sets) = 144d.
+192d (transformer) + 16d (Deep Sets) = 208d.
 
 References:
     Theiner, J. et al. (2022). "Extraction of Positional Player Data from
@@ -105,9 +105,9 @@ class _DeepSetsEncoder(nn.Module):
 class Football2Vec360Encoder(nn.Module):
     """Football2Vec encoder enriched with 360 freeze frame context.
 
-    Combines the transformer encoder (SPADL action sequences -> 128d)
+    Combines the transformer encoder (SPADL action sequences -> 192d)
     with a Deep Sets branch (360 freeze frames -> 16d) via concatenation
-    to produce 144d embeddings.
+    to produce 208d embeddings.
 
     When ``context_360`` is not provided, the Deep Sets branch outputs
     zeros, producing a graceful fallback to transformer-only embeddings.

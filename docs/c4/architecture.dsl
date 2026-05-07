@@ -70,7 +70,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
 
         lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL endpoint syncing 34 Delta tables (56 indexes: 50 btree + 6 HNSW)" "External"
         databricksApi = softwareSystem "Databricks REST API" "OAuth, synced table metadata, pipeline triggers, state polling" "External"
-        databricksWorkflows = softwareSystem "Databricks Workflows" "33-task daily DAG: 5 ingest, 14 compute, 1 HF sync (10 sub-ops), dbt_build, refresh" "External"
+        databricksWorkflows = softwareSystem "Databricks Workflows" "32-task daily DAG: 5 ingest, 13 compute, 1 HF sync (10 sub-ops), dbt_build, refresh" "External"
         hfIdentity = softwareSystem "HuggingFace Identity API" "Token validation via /api/whoami-v2. Org membership check." "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds Dockerfile, serves port 7860." "External"
         hfHub = softwareSystem "HuggingFace Hub" "17 models, 19 datasets, build-artifacts wheel. READMEs via ADR-014." "External"
@@ -247,7 +247,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             }
             deploymentNode "HuggingFace Jobs" "Ephemeral GPU/CPU containers" "Docker" {
                 deploymentNode "cpu-basic ($0.01/hr)" "16 GB RAM" "Python 3.10, UV" {
-                    cpuJobInstance = infrastructureNode "xT, EPV, xG v1, VAEP training"
+                    cpuJobInstance = infrastructureNode "xT, EPV, VAEP training"
                 }
                 deploymentNode "l40sx1 ($1.80/hr)" "62 GB RAM, L40S 48 GB VRAM" "Python 3.10, UV" {
                     gpuJobInstance = infrastructureNode "PSxG, xG v2, Football2vec, OBSO, Evolve"

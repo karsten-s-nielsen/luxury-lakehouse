@@ -31,7 +31,7 @@ sources:
           - name: data_source
             description: Source provider (statsbomb or wyscout)
           - name: behavioral_vector
-            description: Behavioral embedding (32-dim v1 or 128-dim v2, varies by data_source)
+            description: Behavioral embedding (192-dim v2 or 208-dim 360, varies by data_source)
           - name: stat_vector
             description: 13-dim z-score normalized per-90 stats (nullable)
           - name: _ingested_at

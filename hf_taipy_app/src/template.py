@@ -987,7 +987,7 @@ _SEARCH_WIDGETS: list[SidebarWidget] = [
         "Search by",
         "on_ps_search_mode_change",
         lov="ps_search_mode_lov",
-        help="Playing style: 128-d transformer embedding from match action sequences (adversarially debiased). Statistical output: 13-d z-score vector from per-90 stats.",
+        help="Playing style: 192-d transformer embedding from match action sequences (adversarially debiased). Statistical output: 13-d z-score vector from per-90 stats.",
     ),
     SidebarWidget(
         "combobox",

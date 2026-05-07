@@ -1,6 +1,6 @@
 # Databricks Lakebase Architecture — Soccer Analytics Platform
 
-> **Status**: SEC1 cycle (EU AI Act gap analysis) — 16 Taipy pages, 40 synced tables, 71 PG indexes (65 btree + 6 HNSW at 192d/144d/13d). Hugging Face Hub: 17 models + 19 datasets published, GPU training on HF Jobs L40S. Regulation (EU) 2024/1689 gap analysis in [`AI_GOVERNANCE.md`](AI_GOVERNANCE.md) covering 13 per-player evaluative ML systems; every model card carries an "EU AI Act — Intended Use and Non-Use" stanza, enforced by `src/tests/test_ai_governance_md.py`. Daily Job Hardening (D59/D56/SEC2): self-healing daily job with dbt_build python_wheel_task + SHA-256 artifact integrity verification on model loads. PSxG model (Brier 0.129). ScoutGPT decoder + training pipeline (D32). Guard-as-wrapper: 33 skip guards with mandatory `FilterResult` injection. `fct_workflow_costs` enriched with warm-tier lifecycle data (D51). HF-app SP codified in Terraform with UC grants (TF-SP). M2 OAuth infrastructure complete. Mart classification taxonomy (PR-Cycle-C, ADR-019): every gold mart tagged `dimension`/`input_mart`/`intermediate_mart`/`output_mart` and the daily-job DAG enforces the three-stage `dbt_build` topology (PR-α metadata 2026-05-01; PR-β TF restructure + ADR-020 CAN_RUN auto-heal 2026-05-02). `run_model_validation` is now a sibling of `refresh_synced_tables` under `dbt_build_output_marts`, supplanting ADR-017's pre-three-stage yesterday-gold workaround.
+> **Status**: SEC1 cycle (EU AI Act gap analysis) — 16 Taipy pages, 40 synced tables, 71 PG indexes (65 btree + 6 HNSW at 192d/208d/13d). Hugging Face Hub: 17 models + 19 datasets published, GPU training on HF Jobs L40S. Regulation (EU) 2024/1689 gap analysis in [`AI_GOVERNANCE.md`](AI_GOVERNANCE.md) covering 13 per-player evaluative ML systems; every model card carries an "EU AI Act — Intended Use and Non-Use" stanza, enforced by `src/tests/test_ai_governance_md.py`. Daily Job Hardening (D59/D56/SEC2): self-healing daily job with dbt_build python_wheel_task + SHA-256 artifact integrity verification on model loads. PSxG model (Brier 0.129). ScoutGPT decoder + training pipeline (D32). Guard-as-wrapper: 33 skip guards with mandatory `FilterResult` injection. `fct_workflow_costs` enriched with warm-tier lifecycle data (D51). HF-app SP codified in Terraform with UC grants (TF-SP). M2 OAuth infrastructure complete. Mart classification taxonomy (PR-Cycle-C, ADR-019): every gold mart tagged `dimension`/`input_mart`/`intermediate_mart`/`output_mart` and the daily-job DAG enforces the three-stage `dbt_build` topology (PR-α metadata 2026-05-01; PR-β TF restructure + ADR-020 CAN_RUN auto-heal 2026-05-02). `run_model_validation` is now a sibling of `refresh_synced_tables` under `dbt_build_output_marts`, supplanting ADR-017's pre-three-stage yesterday-gold workaround.
 > **Last Updated**: 2026-04-18
 > **Repository**: [`karsten-s-nielsen/luxury-lakehouse`](https://github.com/karsten-s-nielsen/luxury-lakehouse)
 > **Approach**: Professional-grade IaC, best practices, production-ready
@@ -62,8 +62,8 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • spadl_vaep → SPADL conversion + VAEP scoring from bronze      │    │
 │  │  • defcon_lite → DEFCON-lite defensive credit assignment         │    │
 │  │  • resolve_players → cross-source entity resolution              │    │
-│  │  • compute_embeddings_v2 → Import 128-d transformer embeddings    │    │
-│  │  • compute_embeddings_v1 → Doc2Vec + z-score (deprecated)        │    │
+│  │  • compute_embeddings_v2 → Import 192-d transformer embeddings    │    │
+│  │  • compute_embeddings_360 → Import 208-d 360-enriched embeddings │    │
 │  │  • export_embeddings_training_data → Transformer training data   │    │
 │  │  • compute_formations_efpi → EFPI template-matching detection    │    │
 │  │  • compute_formations_shape_graph → Shape graph detection        │    │
@@ -222,7 +222,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 - `logical_database_name = "databricks_postgres"` — standard Lakebase database
 - **Autoscaling workaround (provider v1.110.0):** `databricks_database_synced_database_table` only supports `database_instance_name` (Provisioned). Synced tables targeting Autoscaling projects must be created via Databricks UI, then imported into Terraform. `lifecycle { ignore_changes = all }` prevents drift. This applies to any new synced table.
 - **Schema changes:** Must delete synced table, drop ghost PG table, recreate via API, re-import into Terraform.
-- **PG indexes:** 61 btree indexes across 27 tables + 6 HNSW vector indexes on embedding tables (128-dim/144-dim) = 67 total. Dropped on synced table recreation — re-run `scripts/create_indexes.py` alongside `scripts/lakebase_grants.sql`. Script now runs `ANALYZE` on all indexed tables to ensure the query planner uses indexes.
+- **PG indexes:** 61 btree indexes across 27 tables + 6 HNSW vector indexes on embedding tables (192-dim/208-dim) = 67 total. Dropped on synced table recreation — re-run `scripts/create_indexes.py` alongside `scripts/lakebase_grants.sql`. Script now runs `ANALYZE` on all indexed tables to ensure the query planner uses indexes.
 - **SP refresh permissions:** The Lakebase database project + each backing pipeline must grant `CAN_USE` (project) + `CAN_RUN` (pipeline) to both the `hf_app_v2` SP (Taipy admin endpoint) and the `ingestion` SP (daily Databricks job's refresh task). Without these grants, calls to `GET /api/2.0/database/synced_tables/{name}` return 403. Apply via `scripts/grant_synced_table_permissions.py` (idempotent, integrated into `scripts/maintain_synced_tables.py` as Step 0). Re-run after any synced table recreation since pipeline_ids may change. Hard-verified empirically in dev: 70 grants total (2 project + 68 pipeline) → 34/34 staging refresh subprocess success.
 - **SNAPSHOT refresh:** Synced tables with `scheduling_policy = "SNAPSHOT"` do not auto-refresh. Run `python -m ingestion.refresh_synced_tables` (or the `refresh_synced_tables` console-script entry point) after upstream dbt rebuilds. Supports `--wait` (poll until IDLE) and `--tables` (comma-separated subset). Use `scripts/dbt_build_and_refresh.py` to chain `dbt build` + refresh atomically. The daily Databricks job auto-runs `refresh_synced_tables` as a final task. The Terraform provider has no schedule/cron field — this is the operational workaround.
 - **Credential API:** REST endpoint is `/api/2.0/postgres/credentials` (NOT `/api/2.0/database/credentials`).
@@ -477,8 +477,8 @@ luxury-lakehouse/
 │   │   ├── entity_resolution.py      # Three-layer progressive player matching (TF-IDF + rapidfuzz)
 │   │   ├── expected_threat.py        # Data-driven Expected Threat via Markov chain value iteration
 │   │   ├── football2vec.py           # Doc2Vec behavioral embeddings (tokenizer, training, inference)
-│   │   ├── football2vec_transformer.py # Transformer encoder for 128-dim embeddings (adversarial team debiasing, Ganin GRL)
-│   │   ├── football2vec_360.py       # 360-enriched encoder: base transformer + Deep Sets context (144-dim, 128+16)
+│   │   ├── football2vec_transformer.py # Transformer encoder for 192-dim embeddings (adversarial team debiasing, Ganin GRL)
+│   │   ├── football2vec_360.py       # 360-enriched encoder: base transformer + Deep Sets context (208-dim, 192+16)
 │   │   ├── formation_detection.py    # Formation label assignment from shape graph + EFPI
 │   │   ├── goalkeeper.py             # GK analytics: PSxG, distribution xT, collection, sweeper metrics
 │   │   ├── line_breaking.py          # Ward clustering + straddle test for line-breaking passes
@@ -822,7 +822,7 @@ Lakebase and Databricks performance standards are codified in [CLAUDE.md § Data
 - **Lakebase (PG):** Index every filtered column on fact tables >100K rows. No `ON ONLY` indexes (partitioned tables). Avoid `SELECT DISTINCT` on large tables — use recursive CTE. Re-run `scripts/create_indexes.py` after every synced table recreation.
 - **Databricks (Spark/dbt):** `validate_dataframe()` returns row count to `write_delta_table()` (no double `df.count()`), all writes use `replaceWhere` for idempotency, don't `.toPandas()` unbounded tables, extract repeated window functions into CTEs. 24 mart models use `liquid_clustered_by` for automatic data layout (replaced static Z-ordering). Predictive Optimization enabled at catalog level. Auto-compaction and `optimizeWrite` enabled via `+tblproperties` on all mart tables. 34 of 37 mart models enforce dbt model contracts (`contract: {enforced: true}`, `on_schema_change: fail`).
 
-The platform has 61 btree indexes across 27 tables + 6 HNSW vector indexes on embedding tables at 128-dim/144-dim (67 total) covering all Taipy query patterns. Managed by `scripts/create_indexes.py` with `ANALYZE` for planner statistics and `--verify` for EXPLAIN ANALYZE validation.
+The platform has 61 btree indexes across 27 tables + 6 HNSW vector indexes on embedding tables at 192-dim/208-dim (67 total) covering all Taipy query patterns. Managed by `scripts/create_indexes.py` with `ANALYZE` for planner statistics and `--verify` for EXPLAIN ANALYZE validation.
 
 ### 6.7 — Architecture Documentation
 
@@ -885,7 +885,7 @@ Some Terraform provider gaps and data constraints require manual workarounds tha
 | — | Model validation & drift detection | D12 — PSI, Wasserstein, CUSUM, KS across all models |
 | — | Goalkeeper analytics (PSxG, dist. xT) | Cycle 4 Phase 2 — `fct_goalkeeper_stats` |
 | — | Tactical positions & formations | Cycle 4 Phase 2 — `fct_player_positions`, `fct_position_maps`, shape graphs |
-| — | Player embeddings (transformer) | D25/D45 — football2vec v2 128d + 360-enriched 144d |
+| — | Player embeddings (transformer) | D25/D45 — football2vec v2 192d + 360-enriched 208d |
 | — | ScoutGPT decoder | D32 — player-conditioned action prediction (Hong et al. 2025) |
 | — | Space creation & destruction | D20 — differential OBSO (Fernandez & Bornn 2018) |
 | — | Skip guards (guard-as-wrapper) | D40/D52 — 35 guards with mandatory injection, guard-as-wrapper (each pipeline self-contained), entity_count observability, watermark-based skip (ADR-024) |

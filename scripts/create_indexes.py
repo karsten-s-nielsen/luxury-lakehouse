@@ -241,16 +241,16 @@ HNSW_INDEXES: list[tuple[str, str, str]] = [
         "fct_player_embeddings_season_synced",
         "USING hnsw ((stat_vector::text::vector(13)) vector_cosine_ops)",
     ),
-    # 360 embeddings — 144d (D31)
+    # 360 embeddings — 208d (hidden_dim=192 + context_dim=16)
     (
         "idx_fct_emb_career_360_behavioral_hnsw",
         "fct_player_embeddings_career_360_synced",
-        "USING hnsw ((behavioral_vector::text::vector(144)) vector_cosine_ops)",
+        "USING hnsw ((behavioral_vector::text::vector(208)) vector_cosine_ops)",
     ),
     (
         "idx_fct_emb_season_360_behavioral_hnsw",
         "fct_player_embeddings_season_360_synced",
-        "USING hnsw ((behavioral_vector::text::vector(144)) vector_cosine_ops)",
+        "USING hnsw ((behavioral_vector::text::vector(208)) vector_cosine_ops)",
     ),
 ]
 

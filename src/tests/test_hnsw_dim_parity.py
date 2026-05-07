@@ -95,7 +95,7 @@ def test_season_behavioral_hnsw_matches_football_config() -> None:
 
 
 def test_360_behavioral_hnsw_matches_360_dim() -> None:
-    """360 behavioral indexes dim must equal ``_V360_BEHAVIORAL_DIM`` (144)."""
+    """360 behavioral indexes dim must equal ``_V360_BEHAVIORAL_DIM`` (208)."""
     indexes = _parse_module_list("HNSW_INDEXES")
     expected_360 = {
         "idx_fct_emb_career_360_behavioral_hnsw",

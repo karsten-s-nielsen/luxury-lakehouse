@@ -38,7 +38,7 @@ outputs:
   tables:
     - id: "{catalog}.bronze.player_embeddings_raw"
       destination: delta-table
-      description: "144-dim 360-enriched embeddings per player-match"
+      description: "208-dim 360-enriched embeddings per player-match"
   models:
     - id: "luxury-lakehouse/football2vec-360"
       destination: huggingface
@@ -111,7 +111,7 @@ links:
 Football2Vec 360-Enriched extends the v2 transformer architecture with a Deep Sets
 encoder (Zaheer et al. 2017) that processes StatsBomb 360 freeze-frame context — the
 spatial positions of all visible opponents and teammates at the moment of each action.
-The resulting 144-dimensional embedding (128d transformer + 16d Deep Sets) captures
+The resulting 208-dimensional embedding (192d transformer + 16d Deep Sets) captures
 both a player's individual action sequences and their spatial relationship to surrounding
 players, providing richer representations than event-only models.
 
@@ -123,10 +123,10 @@ vectors.
 
 ## Architecture
 
-- Token embedding: 23 SPADL action types → 128d
-- Spatial encoding: MLP(x) + MLP(y) → 128d each, summed with token embedding
+- Token embedding: 23 SPADL action types → 192d
+- Spatial encoding: MLP(x) + MLP(y) → 192d each, summed with token embedding
 - 4-layer transformer encoder, 4 attention heads, GELU activation
-- Mean pooling over valid tokens → 128d player-match embedding (transformer stream)
+- Mean pooling over valid tokens → 192d player-match embedding (transformer stream)
 - Deep Sets encoder on freeze-frame coordinates → 16d context embedding
-- Concatenation: [128d transformer || 16d Deep Sets] → 144d output
+- Concatenation: [192d transformer || 16d Deep Sets] → 208d output
 - Stage 2: gradient reversal layer with team classifier head (lambda=0.2)
