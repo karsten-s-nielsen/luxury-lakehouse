@@ -160,6 +160,50 @@ class TestResolveUpstreamTablesFromCard:
         for table in result:
             assert table.count(".") >= 2, f"Expected FQN, got {table}"
 
+    def test_resolves_from_wheel_install_path(self, tmp_path: Path) -> None:
+        """When wheel-install path exists, resolver uses it (not source-tree)."""
+        from ingestion.guards import resolve_upstream_tables_from_card
+
+        # Create a fake wheel-install layout: <site-packages>/workflow_cards/wf-test.yaml
+        fake_site_packages = tmp_path / "site_packages"
+        cards_in_wheel = fake_site_packages / "workflow_cards"
+        cards_in_wheel.mkdir(parents=True)
+        card = cards_in_wheel / "wf-test.yaml"
+        card.write_text(
+            "inputs:\n  datasets:\n    - id: '{catalog}.{schema}.my_table'\n      source: delta-table\n",
+            encoding="utf-8",
+        )
+
+        # Monkeypatch the package-level anchor so the resolver thinks
+        # ingestion/__init__.py lives at <site-packages>/ingestion/__init__.py.
+        # This matches the hf_publish.py test pattern (_WHEEL_INGESTION_FILE).
+        import ingestion.guards as guards_mod
+
+        original = guards_mod._WHEEL_INGESTION_FILE
+        try:
+            guards_mod._WHEEL_INGESTION_FILE = fake_site_packages / "ingestion" / "__init__.py"
+            result = resolve_upstream_tables_from_card("wf-test", "cat", "sch")
+        finally:
+            guards_mod._WHEEL_INGESTION_FILE = original
+
+        assert result == ["cat.sch.my_table"]
+
+    def test_falls_back_to_source_tree(self, tmp_path: Path) -> None:
+        """When wheel-install path does not exist, resolver falls back to source-tree."""
+        import ingestion.guards as guards_mod
+        from ingestion.guards import resolve_upstream_tables_from_card
+
+        original = guards_mod._WHEEL_INGESTION_FILE
+        try:
+            guards_mod._WHEEL_INGESTION_FILE = tmp_path / "nonexistent" / "ingestion" / "__init__.py"
+            # Source-tree fallback should find the real workflow-cards/ at repo root
+            result = resolve_upstream_tables_from_card("wf-publish-spadl-vaep", "soccer_analytics", "dev_gold")
+        finally:
+            guards_mod._WHEEL_INGESTION_FILE = original
+
+        assert len(result) > 0
+        assert all("soccer_analytics" in t for t in result)
+
 
 class TestDeriveUpstreamTables:
     """Tests for _derive_upstream_tables in refresh_synced_tables."""

@@ -445,11 +445,22 @@ def main() -> None:
     logger.info("Starting model validation into %s.%s", args.catalog, args.schema)
     run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
 
-    # Record watermarks after successful validation
-    from ingestion.guards import record_watermarks, resolve_upstream_tables_from_card
+    # Record watermarks after successful validation.
+    # FileNotFoundError catch: if card resolution fails (e.g. local CLI run
+    # outside wheel and source tree), validation already succeeded and should
+    # not be marked as failed.  Next run re-processes (same as first run).
+    # All other exceptions (Spark, Delta) propagate — ADR-002.
+    try:
+        from ingestion.guards import record_watermarks, resolve_upstream_tables_from_card
 
-    upstream = resolve_upstream_tables_from_card(skip_guard.workflow_id, args.catalog, args.schema)
-    record_watermarks(spark, args.catalog, skip_guard.workflow_id, upstream)
+        upstream = resolve_upstream_tables_from_card(skip_guard.workflow_id, args.catalog, args.schema)
+        record_watermarks(spark, args.catalog, skip_guard.workflow_id, upstream)
+    except FileNotFoundError:
+        logger.error(
+            "Failed to record watermarks for %s — card file not found",
+            skip_guard.workflow_id,
+            exc_info=True,
+        )
 
 
 if __name__ == "__main__":

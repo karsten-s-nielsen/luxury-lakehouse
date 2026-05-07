@@ -357,10 +357,17 @@ def main() -> int:
 
     run_pipeline(extra_args=extra_args)
 
-    # Record watermarks after successful dbt build
+    # Record watermarks after successful dbt build.
+    # FileNotFoundError catch: if card resolution fails (e.g. local CLI run
+    # outside wheel and source tree), the dbt build already succeeded and
+    # should not be marked as failed.  Next run re-processes (same as first
+    # run).  All other exceptions (Spark, Delta) propagate — ADR-002.
     if card_id is not None and spark is not None:
-        upstream = resolve_upstream_tables_from_card(card_id, "soccer_analytics", "dev_gold")
-        record_watermarks(spark, "soccer_analytics", card_id, upstream)
+        try:
+            upstream = resolve_upstream_tables_from_card(card_id, "soccer_analytics", "dev_gold")
+            record_watermarks(spark, "soccer_analytics", card_id, upstream)
+        except FileNotFoundError:
+            logger.error("Failed to record watermarks for %s — card file not found", card_id, exc_info=True)
 
     return 0
 

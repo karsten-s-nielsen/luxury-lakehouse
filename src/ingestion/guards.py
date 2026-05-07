@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
+import ingestion as _ingestion
+
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
@@ -511,6 +513,42 @@ def record_watermarks(
         )
 
 
+# Reference the installed ``ingestion`` package to anchor wheel-path
+# resolution.  Uses ``_ingestion.__file__`` (package ``__init__.py``), NOT
+# ``__file__`` (this module), so the anchor is resilient to guards.py
+# moving within the package tree.  Same pattern as ``_WHEEL_INGESTION_FILE``
+# in ``ingestion.hf_publish``.  Exposed as a module-level attribute so tests
+# can monkeypatch it to simulate a site-packages layout.
+# The ``import ingestion as _ingestion`` statement is at the top of this file.
+_WHEEL_INGESTION_FILE: Path = Path(_ingestion.__file__).resolve()
+
+
+def _default_cards_dir() -> Path:
+    """Resolve workflow-cards using dual-mode resolution.
+
+    Dual-mode so the same code works at runtime inside both a wheel install
+    (Databricks workflow task) and a source-tree checkout (local dev, tests):
+
+      1. **Wheel install**: the wheel force-includes ``workflow-cards/`` as
+         ``workflow_cards/`` (sibling of the ``ingestion`` package).  Resolves
+         via ``Path(ingestion.__file__).parent.parent / "workflow_cards"``.
+
+      2. **Source-tree fallback**: when the wheel-side candidate does not
+         exist, walks up from this module to the repo root and descends into
+         ``workflow-cards/``.
+
+    Follows the ``get_hf_card_path`` precedent in ``ingestion.hf_publish``.
+    """
+    # Wheel-first: site-packages layout where workflow_cards/ is a sibling of ingestion/.
+    wheel_candidate = _WHEEL_INGESTION_FILE.parent.parent / "workflow_cards"
+    if wheel_candidate.is_dir():
+        return wheel_candidate
+
+    # Dev fallback: walk up from this module to repo root.
+    # src/ingestion/guards.py -> parents[2] = repo root.
+    return Path(__file__).resolve().parents[2] / "workflow-cards"
+
+
 def resolve_upstream_tables_from_card(
     workflow_id: str,
     catalog: str,
@@ -523,14 +561,13 @@ def resolve_upstream_tables_from_card(
     ``source == "delta-table"``, substitutes ``{catalog}`` and ``{schema}``
     placeholders in the ``id`` field, and returns the resolved list.
 
-    ``cards_dir`` defaults to the Databricks Workspace Repos path
-    (``/Workspace/Repos/luxury-lakehouse/workflow-cards``).  workflow-cards/
-    is NOT bundled in the wheel — it lives at the repo root and is available
-    on Databricks via the Repos integration.  Tests and local callers must
-    pass an explicit ``cards_dir``.
+    ``cards_dir`` defaults to dual-mode resolution: wheel-install path first
+    (``workflow_cards/`` force-included in the wheel), then source-tree
+    fallback (``workflow-cards/`` at repo root).  Tests can pass an explicit
+    ``cards_dir`` to override.
     """
     if cards_dir is None:
-        cards_dir = Path("/Workspace/Repos/luxury-lakehouse/workflow-cards")
+        cards_dir = _default_cards_dir()
 
     card_path = cards_dir / f"{workflow_id}.yaml"
     with open(card_path, encoding="utf-8") as f:
