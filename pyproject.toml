@@ -305,6 +305,11 @@ packages = ["src/ingestion", "src/analytics", "src/shared", "src/workflows", "sr
 "docs/huggingface/dataset-cards" = "docs/huggingface/dataset-cards"
 "docs/huggingface/model-cards" = "docs/huggingface/model-cards"
 "docs/huggingface/org-card.md" = "docs/huggingface/org-card.md"
+# Workflow card YAML manifests so ``ingestion.guards.resolve_upstream_tables_from_card``
+# resolves from the wheel install tree at runtime. Eliminates the runtime
+# dependency on ``/Workspace/Repos/luxury-lakehouse/workflow-cards``.
+# Hyphen-to-underscore rename follows Python packaging convention.
+"workflow-cards" = "workflow_cards"
 
 # D59: force ``dbt_project/dbt_packages/`` into the sdist even though it is
 # gitignored. ``uv build`` (no flag) builds sdist then extracts it into a temp

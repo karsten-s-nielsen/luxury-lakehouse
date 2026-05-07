@@ -10,7 +10,6 @@ from __future__ import annotations
 import importlib
 import logging
 from collections.abc import Callable
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ingestion.guards import (
@@ -39,10 +38,6 @@ class _HfSyncGuard:
 
 
 skip_guard = _HfSyncGuard()
-
-# Default workflow cards directory (matches the Databricks task parameter)
-_DEFAULT_CARDS_DIR = Path("/Workspace/Repos/luxury-lakehouse/workflow-cards")
-
 
 # Default UC Volume paths for sub-operations that stage via Volume.
 # These match the CLI defaults in each sub-module's ``main()`` function.
@@ -147,7 +142,9 @@ def _make_sync_costs_op() -> Callable[..., None]:
         from ingestion.sync_hf_costs import run_pipeline, skip_guard
 
         filter_result = timed_check(skip_guard, spark, catalog, schema)
-        run_pipeline(catalog, _DEFAULT_CARDS_DIR, filter_result=filter_result)
+        from ingestion.guards import _default_cards_dir
+
+        run_pipeline(catalog, _default_cards_dir(), filter_result=filter_result)
 
     return _call
 
