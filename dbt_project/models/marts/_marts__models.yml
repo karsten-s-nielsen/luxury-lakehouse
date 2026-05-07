@@ -3957,7 +3957,7 @@ models:
         contains_pii: false
     description: >
       Career-level aggregation of 360-degree player embedding vectors. Averages all
-      match-level embeddings from the football2vec_360 encoder (144-dim) across all
+      match-level embeddings from the football2vec_360 encoder (208-dim) across all
       competitions and seasons into a single career embedding per player.
       One row per canonical_player_id.
     columns:

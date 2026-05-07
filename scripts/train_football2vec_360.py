@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.34-py3-none-any.whl",
+#     "luxury-lakehouse[spadl] @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.35-py3-none-any.whl",
 #     "numpy>=1.26.0",
 #     "pandas>=2.0.0",
 #     "pyarrow>=14.0.0",
@@ -13,7 +13,7 @@
 # ///
 """Train Football2Vec 360-enriched transformer on HF Jobs A10G GPU.
 
-128d transformer + 16d Deep Sets context = 144d output embeddings.
+192d transformer + 16d Deep Sets context = 208d output embeddings.
 Stage 1: MLM training with 360 freeze frame context.
 Stage 2: Adversarial team debiasing via gradient reversal (Ganin et al. 2016).
 
@@ -443,7 +443,7 @@ def _generate_embeddings(
     device: torch.device,
     batch_size: int = 512,
 ) -> pd.DataFrame:
-    """Run inference on all data to produce 144d embeddings."""
+    """Run inference on all data to produce 208d embeddings."""
     model.eval()
     ds = Football2Vec360Dataset(action_ids_all, x_coords_all, y_coords_all, freeze_frames=freeze_frames_all, mlm=False)
     loader = DataLoader(
@@ -575,7 +575,7 @@ def _load_stage1(config: Football2Vec360Config, device: torch.device, hf_token: 
 
 
 def _publish_embeddings(embeddings_df: pd.DataFrame, hf_token: str, stage: str) -> None:
-    """Publish 144d embeddings DataFrame to HF Hub as Parquet."""
+    """Publish 208d embeddings DataFrame to HF Hub as Parquet."""
     from huggingface_hub import HfApi
 
     api = HfApi(token=hf_token)
@@ -824,7 +824,6 @@ def _run_stage1(args: argparse.Namespace, hf_token: str, device: torch.device, r
     }
     metrics = recorder.complete(metrics, row_count=len(embeddings_df))
     _save_checkpoint(model, config, "stage1", hf_token, metrics=metrics)
-    _publish_embeddings(embeddings_df, hf_token, "stage1")
     _log_to_mlflow(
         "stage1",
         config,

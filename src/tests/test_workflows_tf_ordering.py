@@ -248,7 +248,9 @@ def test_data_ingestion_parser_count_anchor() -> None:
     # (3 added, 1 removed).
     # 33 → 32 in SK3-MIG-B PR-alpha (2026-05-03): XG1-RETIRE removed
     # `compute_xg_model` (per ADR-023).
-    assert len(task_keys) == 32, f"expected 32 task blocks on data_ingestion, parser found {len(task_keys)}"
+    # 32 → 31 in f2v-dim-fix (2026-05-07): removed `compute_embeddings_v1`
+    # (v1 Doc2Vec deprecated — zero downstream consumers).
+    assert len(task_keys) == 31, f"expected 31 task blocks on data_ingestion, parser found {len(task_keys)}"
 
 
 if __name__ == "__main__":

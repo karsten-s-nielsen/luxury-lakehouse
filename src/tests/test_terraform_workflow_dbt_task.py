@@ -183,7 +183,7 @@ def test_dbt_build_output_marts_depends_on_stage2_and_phase2_compute() -> None:
         "compute_defcon_lite",
         "compute_elastic_sync",
         "compute_embeddings_360",
-        "compute_embeddings_v1",
+        # compute_embeddings_v1 removed — v1 Doc2Vec deprecated 2026-05-07.
         "compute_embeddings_v2",
         "compute_expected_threat",
         "compute_formations_efpi",

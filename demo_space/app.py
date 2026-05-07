@@ -1466,7 +1466,7 @@ with demo:
             "Find players with similar playing styles using Doc2Vec behavioral embeddings (v1 baseline, 32-d).\n\n"
             "*This demo uses pre-cached v1 embeddings. The "
             "[full dashboard](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) "
-            "uses v2 transformer embeddings (128-d, adversarially debiased). "
+            "uses v2 transformer embeddings (192-d, adversarially debiased). "
             "Match counts reflect games in the open dataset; higher counts indicate more robust similarity.*"
         )
         with gr.Row():
@@ -1542,7 +1542,7 @@ with demo:
     *This is a sample demo with pre-cached data subsets (v1 Doc2Vec embeddings).
     **[Try the full platform →](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)**
     — 380+ matches across 5 data providers, 14 analysis pages with live data,
-    128-d transformer embeddings (v2), dual-detector formation detection,
+    192-d transformer embeddings (v2), dual-detector formation detection,
     custom xG model comparison, player comparison radars, PPDA pressing analysis, and
     cross-player entity resolution across 11,918 unified players.*
 

@@ -1,8 +1,7 @@
-"""v2 transformer player embedding pipeline + combined orchestrator.
+"""v2 transformer player embedding pipeline.
 
-Imports pre-computed 128-dim transformer embeddings from HF Hub dataset
-``luxury-lakehouse/football2vec-statsbomb-wyscout``.  Also provides the
-combined ``run_pipeline()`` that tries v2 first then falls back to v1.
+Imports pre-computed 192-dim transformer embeddings from HF Hub dataset
+``luxury-lakehouse/football2vec-statsbomb-wyscout``.
 
 Bronze table produced:
   - player_embeddings_raw
@@ -65,8 +64,8 @@ class _Football2Vec360Guard:
 
 _football2vec_360_guard = _Football2Vec360Guard()
 
-_V2_BEHAVIORAL_DIM = 128
-_V360_BEHAVIORAL_DIM = 144
+_V2_BEHAVIORAL_DIM = 192
+_V360_BEHAVIORAL_DIM = 208
 _FOOTBALL2VEC_360_DATA_SOURCE = "football2vec_360"
 
 
@@ -76,7 +75,7 @@ def _import_v2_embeddings(
     schema: str,
     logger: logging.Logger,
 ) -> bool:
-    """Import pre-computed 128-dim transformer embeddings from HF Hub.
+    """Import pre-computed 192-dim transformer embeddings from HF Hub.
 
     Downloads the Parquet file from the ``luxury-lakehouse/football2vec-statsbomb-wyscout``
     dataset on HF Hub, converts to a Spark DataFrame, merges with stat vectors,
@@ -123,6 +122,19 @@ def _import_v2_embeddings(
         missing = required_cols - set(v2_pdf.columns)
         logger.warning("v2 Parquet missing columns %s — falling back to Doc2Vec v1", missing)
         return False
+
+    # Validate the dimension contract. Dimension drift would silently corrupt
+    # downstream cosine similarity — fail loudly. Check the first 10 rows.
+    for i, vec in enumerate(v2_pdf["behavioral_vector"].iloc[:10]):
+        vec_list = list(vec) if not isinstance(vec, list) else vec
+        if len(vec_list) != _V2_BEHAVIORAL_DIM:
+            msg = (
+                f"v2 Parquet vector at row {i} has length {len(vec_list)}, "
+                f"expected {_V2_BEHAVIORAL_DIM} ({_V2_BEHAVIORAL_DIM}-dim transformer). "
+                f"This means the HF dataset schema drifted — do NOT import "
+                f"until the training run is re-verified."
+            )
+            raise RuntimeError(msg)
 
     # Ensure string types for key columns
     for col in ("canonical_player_id", "match_id"):
@@ -265,7 +277,7 @@ def run_pipeline_v2(
 
 
 # ---------------------------------------------------------------------------
-# 360 import — pre-computed 144-dim 360-enriched transformer embeddings from HF Hub
+# 360 import — pre-computed 208-dim 360-enriched transformer embeddings from HF Hub
 # ---------------------------------------------------------------------------
 
 
@@ -275,16 +287,16 @@ def _import_embeddings_360(
     schema: str,
     logger: logging.Logger,
 ) -> int:
-    """Import pre-computed 144-dim 360-enriched embeddings from HF Hub.
+    """Import pre-computed 208-dim 360-enriched embeddings from HF Hub.
 
     Downloads the Parquet file from ``luxury-lakehouse/football2vec-360-embeddings``,
     labels every row with ``data_source='football2vec_360'`` (overriding any
-    provider info in the parquet), validates the 144-dim vector contract, and
+    provider info in the parquet), validates the 208-dim vector contract, and
     writes to ``player_embeddings_raw`` with ``replace_where=data_source='football2vec_360'``
     so the 360 partition is isolated from v2's provider-keyed partitions.
 
-    The 360 model has its own embedding space (144-dim = 128-dim transformer +
-    16-dim Deep Sets context) and is NOT directly comparable to the v2 128-dim
+    The 360 model has its own embedding space (208-dim = 192-dim transformer +
+    16-dim Deep Sets context) and is NOT directly comparable to the v2 192-dim
     embeddings. Downstream dbt models (``fct_player_embeddings_season_360``,
     ``fct_player_embeddings_career_360``) filter on ``data_source='football2vec_360'``
     to aggregate it separately from the v1/v2 paths.
@@ -301,7 +313,7 @@ def _import_embeddings_360(
 
     Raises:
         RuntimeError: If the downloaded parquet has vectors of the wrong
-            dimension (expected 144 per row). Silent dimension drift is
+            dimension (expected 208 per row). Silent dimension drift is
             forbidden — ADR-002 applies.
     """
     if not repo_exists(_HF_360_DATASET, repo_type="dataset"):
@@ -329,7 +341,7 @@ def _import_embeddings_360(
         msg = f"360 Parquet missing required columns {missing}"
         raise RuntimeError(msg)
 
-    # Validate the 144-dim contract. Dimension drift would silently corrupt
+    # Validate the 208-dim contract. Dimension drift would silently corrupt
     # downstream cosine similarity — fail loudly. Check the first 10 rows
     # (cheap, catches drift without full-column iteration).
     for i, vec in enumerate(pdf["behavioral_vector"].iloc[:10]):
@@ -337,7 +349,7 @@ def _import_embeddings_360(
         if len(vec_list) != _V360_BEHAVIORAL_DIM:
             msg = (
                 f"360 Parquet vector at row {i} has length {len(vec_list)}, "
-                f"expected {_V360_BEHAVIORAL_DIM} (144-dim 360-enriched). "
+                f"expected {_V360_BEHAVIORAL_DIM} (208-dim 360-enriched). "
                 f"This means the HF dataset schema drifted — do NOT import "
                 f"until the training run is re-verified."
             )
@@ -463,72 +475,8 @@ def run_pipeline_360(
 
 
 # ---------------------------------------------------------------------------
-# Combined orchestrator — tries v2 then falls back to v1
-# ---------------------------------------------------------------------------
-
-
-def run_pipeline(
-    spark: SparkSession,
-    catalog: str,
-    schema: str,
-    logger: logging.Logger,
-    *,
-    filter_result: FilterResult,
-    ctx: object = None,
-) -> int:
-    """Execute the player embedding computation pipeline (convenience wrapper).
-
-    Tries v2 (transformer) embeddings from HF Hub first.  If the v2 dataset
-    is not available, falls back to v1 Doc2Vec inference via applyInPandas.
-
-    This function is NOT decorated with ``@workflow`` — it calls
-    ``_import_v2_embeddings`` and ``run_pipeline_v1`` directly.  Use
-    ``run_pipeline_v2`` or ``run_pipeline_v1`` for independent Databricks
-    task execution with separate cost/runtime tracking.
-    """
-    if filter_result.count == 0:
-        raise WorkflowSkippedError("No new player embedding work")
-
-    from ingestion.player_embeddings_v1 import run_pipeline_v1
-
-    logger.info("Starting player embedding pipeline for %s.%s", catalog, schema)
-
-    # 0a. Try v2 import path (pre-computed transformer embeddings from HF Hub)
-    try:
-        if _import_v2_embeddings(spark, catalog, schema, logger):
-            logger.info("Player embedding pipeline complete (v2 path)")
-            return 0
-    except Exception:
-        logger.error(
-            "v2 import failed — falling back to Doc2Vec v1. "
-            "The v1 fallback masks the v2 failure — investigate the ERROR trace "
-            "above to fix the root cause (e.g. HF Hub auth, dataset schema drift).",
-            exc_info=True,
-        )
-
-    logger.info("Proceeding with v1 Doc2Vec inference path")
-    run_pipeline_v1(spark, catalog, schema, logger, filter_result=filter_result)
-    return 0
-
-
-# ---------------------------------------------------------------------------
 # CLI entry points
 # ---------------------------------------------------------------------------
-
-
-def main() -> None:
-    """CLI entry point for player embedding computation."""
-    args = parse_ingestion_args("Compute player embeddings from event data")
-    logger = configure_logging("player_embeddings")
-    spark = get_spark_session()
-
-    from ingestion.bootstrap import bootstrap_hooks
-
-    bootstrap_hooks(spark, args.catalog, args.schema)
-
-    filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
-
-    run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
 
 
 def main_v2() -> None:

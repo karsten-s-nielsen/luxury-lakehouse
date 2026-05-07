@@ -36,7 +36,7 @@ outputs:
   tables:
     - id: "{catalog}.bronze.player_embeddings_raw"
       destination: delta-table
-      description: "128-dim transformer embeddings per player-match"
+      description: "192-dim transformer embeddings per player-match"
   models:
     - id: "luxury-lakehouse/football2vec-v2"
       destination: huggingface
@@ -100,13 +100,13 @@ Football2Vec v2 replaces the Doc2Vec (gensim) player embedding model with a 4-la
 transformer encoder trained on 23-type SPADL action sequences with continuous spatial
 encoding. Training runs on HF Jobs GPU (A10G large) in two stages: masked action
 prediction (MLM), then adversarial team debiasing via gradient reversal (Ganin et al.
-2016). The result is 128-dim team-agnostic player embeddings that capture behavioral
+2016). The result is 192-dim team-agnostic player embeddings that capture behavioral
 style independent of team system effects.
 
 ## Architecture
 
-- Token embedding: 23 SPADL action types → 128d
-- Spatial encoding: MLP(x) + MLP(y) → 128d each, summed with token embedding
+- Token embedding: 23 SPADL action types → 192d
+- Spatial encoding: MLP(x) + MLP(y) → 192d each, summed with token embedding
 - 4-layer transformer encoder, 4 attention heads, GELU activation
-- Mean pooling over valid tokens → 128d player-match embedding
+- Mean pooling over valid tokens → 192d player-match embedding
 - Stage 2: gradient reversal layer with team classifier head (lambda=0.2)

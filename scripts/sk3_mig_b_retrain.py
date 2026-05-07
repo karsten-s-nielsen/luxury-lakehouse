@@ -147,8 +147,8 @@ _ITEM_COST_USD: dict[str, float] = {
     "obso": 1.50,
     "pausa": 0.20,
     "f2v_v1": 1.50,
-    "f2v_v2": 4.00,
-    "f2v_360": 5.00,
+    "f2v_v2": 8.00,  # doubled — stage1 + stage2
+    "f2v_360": 10.00,  # doubled — stage1 + stage2
     "scoutgpt": 18.00,
     "spadl_vaep_publish": 0.10,
     "xg_shots_publish": 0.10,
@@ -159,6 +159,11 @@ _ITEM_COST_USD: dict[str, float] = {
     "obso_pausa_values_publish": 0.10,
     "f2v_embeddings_publish": 0.10,
 }
+
+# Items requiring two-stage dispatch (stage1 -> poll -> stage2). Both stages are
+# separate HF Jobs. Stage1 saves a checkpoint; stage2 loads it via _load_stage1
+# and publishes final debiased embeddings to the production HF dataset.
+_TWO_STAGE_ITEMS: set[str] = {"f2v_v2", "f2v_360"}
 
 
 @dataclass
@@ -596,6 +601,35 @@ def _dispatch_trained_model(state: CycleState, cycle_item: str) -> str:
     api = HfApi()
     # JobInfo dataclass exposes `.id` (not `.job_id`); run_uv_job takes `flavor=`
     # (not `hardware=`). Sentinel test: src/tests/test_sk3_mig_b_orchestrator_apis.py.
+    if cycle_item in _TWO_STAGE_ITEMS:
+        # Two-stage dispatch: stage1 (checkpoint only) -> stage2 (publish)
+        for stage_num in (1, 2):
+            job = api.run_uv_job(
+                script=script,
+                script_args=["--stage", str(stage_num)],
+                flavor=flavor,
+                secrets={
+                    "HF_TOKEN": os.environ["HF_TOKEN"],
+                    "DATABRICKS_TOKEN": os.environ["DATABRICKS_TOKEN"],
+                    "DATABRICKS_HOST": os.environ["DATABRICKS_HOST"],
+                    "MLFLOW_TRACKING_URI": os.environ["MLFLOW_TRACKING_URI"],
+                    "DATABRICKS_WAREHOUSE_ID": state.warehouse_id,
+                    "DATABRICKS_SQL_WAREHOUSE_ID": state.warehouse_id,
+                },
+            )
+            job_id = job.id
+            state.current_hf_job_id = job_id
+            _emit_status(
+                state,
+                step="dispatch",
+                item=cycle_item,
+                phase="running",
+                hf_job_id=job_id,
+                msg=f"HF Job dispatched: script={script} flavor={flavor} stage={stage_num}",
+            )
+            _poll_hf_job_until_terminal(state, cycle_item, job_id)
+        return job_id  # return stage2 job_id
+
     job = api.run_uv_job(
         script=script,
         flavor=flavor,

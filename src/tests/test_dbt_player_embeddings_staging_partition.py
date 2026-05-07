@@ -1,11 +1,11 @@
 """D62 structural guards for dbt player embedding models.
 
 When the 360 import ships, bronze.player_embeddings_raw will contain both
-v2 rows (data_source='statsbomb'/'wyscout', 128d) and 360 rows
-(data_source='football2vec_360', 144d). The staging model must NOT collapse
+v2 rows (data_source='statsbomb'/'wyscout', 192d) and 360 rows
+(data_source='football2vec_360', 208d). The staging model must NOT collapse
 same-(player,match) rows with different data_source, and the non-360 marts
-must exclude 360 rows to avoid the player_best_dim CTE promoting 144d
-vectors over 128d ones.
+must exclude 360 rows to avoid the player_best_dim CTE promoting 208d
+vectors over 192d ones.
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ def test_fct_player_embeddings_season_excludes_360(mart_season_sql: str) -> None
     ), (
         "D62 regression: fct_player_embeddings_season.sql must include "
         "`where data_source != 'football2vec_360'` to prevent the "
-        "player_best_dim CTE from promoting 144d vectors over 128d."
+        "player_best_dim CTE from promoting 208d vectors over 192d."
     )
 
 
@@ -79,5 +79,5 @@ def test_fct_player_embeddings_career_excludes_360(mart_career_sql: str) -> None
     ), (
         "D62 regression: fct_player_embeddings_career.sql must include "
         "`where data_source != 'football2vec_360'` to prevent the "
-        "player_best_dim CTE from promoting 144d vectors over 128d."
+        "player_best_dim CTE from promoting 208d vectors over 192d."
     )
