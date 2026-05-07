@@ -16,36 +16,24 @@ tags:
 # Stage 2 of 3 in PR-Cycle-C PR-β (ADR-019). Builds intermediate_marts —
 # marts that have compute output in their lineage AND are consumed by at
 # least one compute task. Currently only `fct_action_values` (built from
-# bronze.{spadl_actions, vaep_action_values} written by compute_spadl_vaep,
+# bronze.vaep_action_values written by compute_spadl_vaep,
 # read by compute_embeddings_v2). Forward-compatible with future intermediate
 # marts as ML pipelines compose.
 references: []
 
 inputs:
   datasets:
-    # Stage 1 gold outputs (from input-marts dbt build)
-    - id: "{catalog}.{schema}.dim_competitions"
-      source: delta-table
-      description: "Competition dimension (input mart output)"
+    # Stage 1 gold outputs consumed by fct_action_values
     - id: "{catalog}.{schema}.dim_matches"
       source: delta-table
-      description: "Match dimension (input mart output)"
+      description: "Match dimension (fct_action_values.sql:67)"
     - id: "{catalog}.{schema}.dim_players"
       source: delta-table
-      description: "Player dimension (input mart output)"
+      description: "Player dimension (fct_action_values.sql:219)"
     - id: "{catalog}.{schema}.dim_teams"
       source: delta-table
-      description: "Team dimension (input mart output)"
-    - id: "{catalog}.{schema}.fct_shots"
-      source: delta-table
-      description: "Shots fact table (input mart output)"
-    - id: "{catalog}.{schema}.fct_action_values"
-      source: delta-table
-      description: "Action values fact table (input mart output)"
+      description: "Team dimension (fct_action_values.sql:214,226)"
     # Compute bronze tables consumed by intermediate staging models
-    - id: "{catalog}.bronze.spadl_actions"
-      source: delta-table
-      description: "SPADL actions from compute_spadl_vaep"
     - id: "{catalog}.bronze.vaep_action_values"
       source: delta-table
       description: "VAEP action values from compute_spadl_vaep"
@@ -99,7 +87,7 @@ links:
 
 Stage 2 of the three-stage dbt_build topology introduced by ADR-019. Builds
 the single intermediate_mart (`fct_action_values`) from
-`bronze.{spadl_actions, vaep_action_values}` written by `compute_spadl_vaep`.
+`bronze.vaep_action_values` written by `compute_spadl_vaep`.
 Selector: `--select +tag:intermediate_mart` — `+` includes the staging-view
 ancestors unique to this mart.
 

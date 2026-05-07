@@ -25,30 +25,18 @@ inputs:
     - id: "{catalog}.bronze.statsbomb_events"
       source: delta-table
       description: "StatsBomb events"
-    - id: "{catalog}.bronze.statsbomb_360"
-      source: delta-table
-      description: "StatsBomb 360 freeze-frame data"
     - id: "{catalog}.bronze.statsbomb_lineups"
       source: delta-table
       description: "StatsBomb lineups"
-    - id: "{catalog}.bronze.statsbomb_competitions"
-      source: delta-table
-      description: "StatsBomb competitions"
     - id: "{catalog}.bronze.statsbomb_matches"
       source: delta-table
       description: "StatsBomb matches"
     - id: "{catalog}.bronze.metrica_tracking"
       source: delta-table
       description: "Metrica tracking data"
-    - id: "{catalog}.bronze.metrica_events"
-      source: delta-table
-      description: "Metrica events"
     - id: "{catalog}.bronze.idsse_tracking"
       source: delta-table
       description: "IDSSE (DFL) tracking data"
-    - id: "{catalog}.bronze.idsse_events"
-      source: delta-table
-      description: "IDSSE (DFL) events"
     - id: "{catalog}.bronze.skillcorner_tracking"
       source: delta-table
       description: "SkillCorner tracking data"
@@ -67,6 +55,9 @@ inputs:
     - id: "{catalog}.bronze.player_xref_raw"
       source: delta-table
       description: "Player cross-reference (entity resolution input)"
+    - id: "{catalog}.bronze.team_xref_raw"
+      source: delta-table
+      description: "Team cross-reference (entity resolution input)"
     - id: "{catalog}.bronze.tracking_player_metadata"
       source: delta-table
       description: "Tracking player metadata"
