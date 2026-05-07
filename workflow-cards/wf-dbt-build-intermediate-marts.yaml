@@ -23,9 +23,32 @@ references: []
 
 inputs:
   datasets:
+    # Stage 1 gold outputs (from input-marts dbt build)
+    - id: "{catalog}.{schema}.dim_competitions"
+      source: delta-table
+      description: "Competition dimension (input mart output)"
+    - id: "{catalog}.{schema}.dim_matches"
+      source: delta-table
+      description: "Match dimension (input mart output)"
+    - id: "{catalog}.{schema}.dim_players"
+      source: delta-table
+      description: "Player dimension (input mart output)"
+    - id: "{catalog}.{schema}.dim_teams"
+      source: delta-table
+      description: "Team dimension (input mart output)"
+    - id: "{catalog}.{schema}.fct_shots"
+      source: delta-table
+      description: "Shots fact table (input mart output)"
+    - id: "{catalog}.{schema}.fct_action_values"
+      source: delta-table
+      description: "Action values fact table (input mart output)"
+    # Compute bronze tables consumed by intermediate staging models
     - id: "{catalog}.bronze.spadl_actions"
       source: delta-table
-      description: "SPADL actions bronze written by compute_spadl_vaep (4-source union)"
+      description: "SPADL actions from compute_spadl_vaep"
+    - id: "{catalog}.bronze.vaep_action_values"
+      source: delta-table
+      description: "VAEP action values from compute_spadl_vaep"
 
 outputs:
   tables:

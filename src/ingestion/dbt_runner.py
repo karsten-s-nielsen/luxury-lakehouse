@@ -25,6 +25,10 @@ import re
 import sys
 from importlib import resources
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pyspark.sql import SparkSession
 
 # dbt-core is an optional runtime dependency — only installed via the ``dbt``
 # extra (used by the Databricks daily job and local developer workflows).
@@ -39,7 +43,43 @@ try:
 except ImportError:  # pragma: no cover — CI lint-and-test path
     dbtRunner = None  # type: ignore[assignment,misc]  # noqa: N816
 
+from ingestion.guards import (
+    FilterResult,
+    check_upstream_freshness,
+    record_watermarks,
+    resolve_upstream_tables_from_card,
+    timed_check,
+)
+from ingestion.utils import get_spark_session
+
 logger = logging.getLogger(__name__)
+
+# Keys are frozensets of selector tags so lookup is order-independent.
+# The selector parser normalizes by stripping whitespace and sorting.
+_SELECTOR_TO_CARD: dict[frozenset[str], str] = {
+    frozenset({"+tag:input_mart", "+tag:dimension"}): "wf-dbt-build-input-marts",
+    frozenset({"+tag:intermediate_mart"}): "wf-dbt-build-intermediate-marts",
+    frozenset({"tag:output_mart"}): "wf-dbt-build-output-marts",
+}
+
+
+class _DbtWatermarkGuard:
+    """Watermark guard parameterized by workflow card ID."""
+
+    def __init__(self, card_id: str) -> None:
+        self.workflow_id = card_id
+
+    def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
+        try:
+            upstream = resolve_upstream_tables_from_card(self.workflow_id, catalog, schema)
+        except FileNotFoundError:
+            return FilterResult(workflow_id=self.workflow_id, count=1)
+        return check_upstream_freshness(spark, catalog, self.workflow_id, upstream)
+
+
+# Default guard for _GUARD_MODULES registration — uses the first dbt stage.
+# The actual guard in main() is parameterized per --select value.
+skip_guard = _DbtWatermarkGuard("wf-dbt-build-input-marts")
 
 
 def _resolve_bundled_dbt_project() -> Path:
@@ -282,13 +322,46 @@ def main() -> int:
     function that returns ``1`` is silently treated as success. Do NOT catch
     here. Returning a non-zero int does NOT fail the task.
 
-    The ``@workflow`` decorator is intentionally NOT applied because ``dbt
-    build`` is its own cost/time tracking system and does not fit the
-    pipeline-with-guard pattern.
+    NOTE: ``@workflow`` is intentionally NOT applied. dbt_runner invokes dbt
+    via ``dbtRunner().invoke(args)`` — no Spark infrastructure, no Delta writes.
+    The watermark guard below is the only Spark touchpoint, used purely for
+    metadata reads (DESCRIBE HISTORY + watermarks table).
     """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     extra_args = sys.argv[1:] if len(sys.argv) > 1 else None
+
+    # Resolve selector from args to find matching workflow card
+    selector_str = ""
+    if extra_args:
+        select_args: list[str] = []
+        capture = False
+        for arg in extra_args:
+            if arg == "--select":
+                capture = True
+                continue
+            if capture and not arg.startswith("--"):
+                select_args.append(arg)
+            else:
+                capture = False
+        selector_str = " ".join(select_args)
+
+    card_id = _SELECTOR_TO_CARD.get(frozenset(selector_str.split()) if selector_str else frozenset())
+    spark: SparkSession | None = None
+    if card_id is not None:
+        spark = get_spark_session()
+        watermark_guard = _DbtWatermarkGuard(card_id)
+        fr = timed_check(watermark_guard, spark, "soccer_analytics", "dev_gold")
+        if fr.count == 0:
+            logger.info("Watermark skip: %s — no upstream changes", card_id)
+            return 0
+
     run_pipeline(extra_args=extra_args)
+
+    # Record watermarks after successful dbt build
+    if card_id is not None and spark is not None:
+        upstream = resolve_upstream_tables_from_card(card_id, "soccer_analytics", "dev_gold")
+        record_watermarks(spark, "soccer_analytics", card_id, upstream)
+
     return 0
 
 

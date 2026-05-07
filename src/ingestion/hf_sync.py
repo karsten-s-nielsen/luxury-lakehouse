@@ -13,7 +13,13 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ingestion.guards import FilterResult, timed_check
+from ingestion.guards import (
+    FilterResult,
+    check_upstream_freshness,
+    record_watermarks,
+    resolve_upstream_tables_from_card,
+    timed_check,
+)
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
 from workflows import workflow
 from workflows.exceptions import WorkflowSkippedError
@@ -96,6 +102,44 @@ def _make_plain_op(module_path: str) -> Callable[..., None]:
     return _call
 
 
+def _make_watermark_op(module_path: str, card_id: str) -> Callable[..., None]:
+    """Create a watermark-guarded sub-operation for modules with (spark, catalog, schema, logger)."""
+
+    def _call(spark: SparkSession, catalog: str, schema: str, logger_arg: logging.Logger) -> None:
+        upstream = resolve_upstream_tables_from_card(card_id, catalog, schema)
+        fr = check_upstream_freshness(spark, catalog, card_id, upstream)
+        if fr.count == 0:
+            logger_arg.info("Watermark skip: %s — no upstream changes", card_id)
+            return
+        mod = importlib.import_module(module_path)
+        mod.run_pipeline(spark, catalog, schema, logger_arg)
+        record_watermarks(spark, catalog, card_id, upstream)
+
+    _call.__qualname__ = f"_call[{module_path}]"
+    return _call
+
+
+def _make_watermark_volume_op(module_path: str, card_id: str) -> Callable[..., None]:
+    """Create a watermark-guarded sub-operation for modules with (spark, catalog, schema, volume_path).
+
+    Uses the existing ``_VOLUME_PATHS`` dict to resolve the UC Volume path.
+    """
+
+    def _call(spark: SparkSession, catalog: str, schema: str, logger_arg: logging.Logger) -> None:
+        upstream = resolve_upstream_tables_from_card(card_id, catalog, schema)
+        fr = check_upstream_freshness(spark, catalog, card_id, upstream)
+        if fr.count == 0:
+            logger_arg.info("Watermark skip: %s — no upstream changes", card_id)
+            return
+        mod = importlib.import_module(module_path)
+        volume_path = _VOLUME_PATHS[module_path]
+        mod.run_pipeline(spark, catalog, schema, volume_path)
+        record_watermarks(spark, catalog, card_id, upstream)
+
+    _call.__qualname__ = f"_call[{module_path}]"
+    return _call
+
+
 def _make_sync_costs_op() -> Callable[..., None]:
     """Create the sync_hf_costs sub-operation (non-standard signature)."""
 
@@ -124,12 +168,27 @@ _SUB_OPERATIONS: list[tuple[str, Callable[..., None]]] = [
     ("ingestion.import_space_creation", _make_volume_op("ingestion.import_space_creation")),
     ("ingestion.import_psxg_predictions", _make_volume_op("ingestion.import_psxg_predictions")),
     ("ingestion.export_embeddings_training_data", _make_logger_op("ingestion.export_embeddings_training_data")),
-    ("ingestion.export_shots_on_target", _make_export_shots_op()),
+    (
+        "ingestion.export_shots_on_target",
+        _make_watermark_volume_op("ingestion.export_shots_on_target", "wf-export-shots"),
+    ),
     ("ingestion.prepare_360_training_data", _make_volume_op("ingestion.prepare_360_training_data")),
-    ("ingestion.export_scoutgpt_training_data", _make_plain_op("ingestion.export_scoutgpt_training_data")),
-    ("ingestion.publish_spadl_vaep_hf", _make_plain_op("ingestion.publish_spadl_vaep_hf")),
-    ("ingestion.publish_xg_shots_hf", _make_plain_op("ingestion.publish_xg_shots_hf")),
-    ("ingestion.publish_freeze_frame_hf", _make_plain_op("ingestion.publish_freeze_frame_hf")),
+    (
+        "ingestion.export_scoutgpt_training_data",
+        _make_watermark_op("ingestion.export_scoutgpt_training_data", "wf-scoutgpt-export"),
+    ),
+    (
+        "ingestion.publish_spadl_vaep_hf",
+        _make_watermark_op("ingestion.publish_spadl_vaep_hf", "wf-publish-spadl-vaep"),
+    ),
+    (
+        "ingestion.publish_xg_shots_hf",
+        _make_watermark_op("ingestion.publish_xg_shots_hf", "wf-publish-xg-shots"),
+    ),
+    (
+        "ingestion.publish_freeze_frame_hf",
+        _make_watermark_op("ingestion.publish_freeze_frame_hf", "wf-publish-freeze-frames"),
+    ),
     ("ingestion.sync_hf_costs", _make_sync_costs_op()),
 ]
 

@@ -80,7 +80,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • import_psxg_predictions → PSxG predictions from HF Hub       │    │
 │  │  • import_space_creation → Space creation values from HF Hub    │    │
 │  │  • extract_tracking_metadata → Tracking data metadata extraction│    │
-│  │  • guards → 33 skip guards (each pipeline runs its own at startup)│    │
+│  │  • guards → 35 skip guards (each pipeline runs its own at startup)│    │
 │  │  • evolve → Level 2 code evolution (ScoutGPT decoder, D32)      │    │
 │  └──────────────────────────┬───────────────────────────────────────┘    │
 └─────────────────────────────┼────────────────────────────────────────────┘
@@ -252,12 +252,13 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 
 ### Skip Guards (Guard-as-Wrapper)
 
-Each pipeline runs its own skip guard at startup via `skip_guard.check()`, raising `WorkflowSkippedError` when there is no new data. The 33 registered `SkipGuard` adapters live in `src/ingestion/guards.py`. This replaced the centralized freshness gate (D52) — each pipeline is self-contained, removing the 170s serial bottleneck that existed when all guards ran sequentially in a single task.
+Each pipeline runs its own skip guard at startup via `skip_guard.check()`, raising `WorkflowSkippedError` when there is no new data. The 35 registered `SkipGuard` adapters live in `src/ingestion/guards.py`. This replaced the centralized freshness gate (D52) — each pipeline is self-contained, removing the 170s serial bottleneck that existed when all guards ran sequentially in a single task.
 
 **Architecture:**
 - **Guard registry** (`_GUARD_MODULES`): Maps workflow IDs to guard modules. Each guard's `check()` returns a `FilterResult(workflow_id, count, chunks, metadata)`.
 - **`find_new_ids()`**: Spark LEFT ANTI JOIN with `cast("string")` normalization — pushes set difference to executors instead of collecting all IDs to the driver.
 - **`check_hf_dataset_freshness()`**: SHA-based skip guard for HF Hub import pipelines. Fetches the current HF Hub commit SHA via `HfApi.repo_info()`, compares against the stored SHA in `observability.workflow_import_checksums` (Delta, MERGE upsert). Skips import when SHAs match; fails open on network errors. Used by 5 guards: `wf-import-obso`, `wf-import-psxg`, `wf-import-space-creation`, `wf-football2vec-v2`, `wf-football2vec-360`.
+- **`check_upstream_freshness()`** ([ADR-024](docs/superpowers/adrs/ADR-024-watermark-based-skip-guards.md)): Watermark-based skip guard for downstream tasks (publishers, dbt stages, refresh_synced_tables, model_validation). Compares Delta `DESCRIBE HISTORY` versions (filtered to data-changing ops) against stored watermarks in `observability.workflow_watermarks`. Upstream table lists derived from workflow card `inputs.tables` or in-code `SYNCED_TABLES`. Used by 10 guards.
 - **Mandatory `FilterResult` injection**: `run_pipeline()` receives `FilterResult` as a **required** parameter (no default). Each pipeline's `main()` calls its guard via `timed_check(skip_guard, spark, catalog, schema)` — a wrapper in `ingestion/guards.py` that records guard wall-clock duration via `time.monotonic()` and returns a `FilterResult` with `guard_duration_seconds` populated. Inline `find_new_ids()` calls are prohibited outside guard classes, enforced by `TestNoInlineGuardInPipeline`.
 - **Three-way cost decomposition**: `CostEstimateHook` writes `entity_count` (input entities from guard), `row_count` (output rows), and `guard_duration_seconds` (guard wall-clock from `timed_check`) to `workflow_cost_live` in the observability schema. `fct_workflow_costs` uses `tasks` (lakeflow) as the driving table with LEFT JOIN on billing — timing data is available immediately, billing cost arrives with ~1 day lag. `effective_cost_usd = COALESCE(attributed_cost_usd, estimated_cost_usd)` ensures the UI always has a cost value. The cold tier exposes `cold_start_seconds` (total pre-pipeline time = env init + guard) and `guard_duration_seconds` (guard only); UI derives `environment_setup = cold_start - guard`. Warm-tier join uses `workflow_id` + temporal window — `job_run_id` and `task_key` are not in the warm tier (serverless exposes neither via Spark conf, and the columns were dropped after the seed mapping fix made them obsolete).
 - **Conformance tests**: `test_guard_conformance.py` auto-discovers all guards from the registry and validates architectural invariants: import isolation, mandatory parameters, no inline guards, direct guard call (no gate indirection), early exit structure, and early exit behavior. `test_pipeline_row_count.py` enforces all `run_pipeline()` functions return `int` (row count) and verifies all Terraform task_keys have entries in `task_workflow_mapping.csv` (seed coverage).
@@ -294,7 +295,7 @@ C4 diagrams (Context, Container, Component, Dynamic) are the standard deliverabl
 | **L4 — Dynamic** | Data Flow | End-to-end: API fetch → Bronze → dbt → Gold → Synced Table → Lakebase → Taipy |
 | **L4 — Dynamic** | Zero-ETL Sync | Gold Delta change → Lakeflow pipeline → Lakebase mirror update |
 | **Deployment** | Infrastructure | Databricks/AWS resource mapping |
-| **L3 — Component** | Guard Registry & Skip Guards | 33 SkipGuard adapters, mandatory FilterResult injection, guard-as-wrapper (each pipeline self-contained), entity_count observability |
+| **L3 — Component** | Guard Registry & Skip Guards | 35 SkipGuard adapters, mandatory FilterResult injection, guard-as-wrapper (each pipeline self-contained), entity_count observability, watermark-based skip (ADR-024) |
 
 ### 3.2 — C4 Model: Persons & External Systems
 
@@ -649,7 +650,9 @@ luxury-lakehouse/
 │       ├── test_evolve_level2.py     # Evolve L2 prompt tests
 │       ├── test_hf_sync.py           # HF sync tests
 │       ├── test_guards.py            # Guard registry + individual guard tests
-│       └── test_guard_conformance.py # Guard conformance suite (auto-discovers all guards)
+│       ├── test_guard_conformance.py # Guard conformance suite (auto-discovers all guards)
+│       ├── test_watermark_freshness.py # Watermark guard unit tests (ADR-024)
+│       └── test_statsbomb_guard.py   # StatsBomb anti-join guard tests
 │
 ├── hf_taipy_app/                     # Production Taipy dashboard (deployed to HF Spaces)
 │   ├── src/
@@ -885,7 +888,7 @@ Some Terraform provider gaps and data constraints require manual workarounds tha
 | — | Player embeddings (transformer) | D25/D45 — football2vec v2 128d + 360-enriched 144d |
 | — | ScoutGPT decoder | D32 — player-conditioned action prediction (Hong et al. 2025) |
 | — | Space creation & destruction | D20 — differential OBSO (Fernandez & Bornn 2018) |
-| — | Skip guards (guard-as-wrapper) | D40/D52 — 33 guards with mandatory injection, guard-as-wrapper (each pipeline self-contained), entity_count observability |
+| — | Skip guards (guard-as-wrapper) | D40/D52 — 35 guards with mandatory injection, guard-as-wrapper (each pipeline self-contained), entity_count observability, watermark-based skip (ADR-024) |
 
 ### C. Dependencies on MCP CodeDeploy Project
 

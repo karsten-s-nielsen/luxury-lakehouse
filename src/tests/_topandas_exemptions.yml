@@ -23,7 +23,7 @@ exemptions:
     reason: "Wyscout player dimension (`wyscout_players`); ~12K players. Bounded by source-table size."
 
   - file: src/ingestion/model_validation.py
-    line: 82
+    line: 91
     reason: "`model_baseline_scalars` is a small reference table holding per-metric scalar baselines (~10–30 rows). One row per (metric, group)."
 
   - file: src/ingestion/player_embeddings_common.py
@@ -51,7 +51,15 @@ exemptions:
     reason: "`wyscout_matches` dimension table — one row per match across 3 competitions. Bounded by source-table size."
 
   - file: src/ingestion/statsbomb.py
-    line: 169
+    line: 109
+    reason: "`statsbomb_competitions` reference table — one row per (competition, season) pair (~20 pairs). Bounded by source-table size. Used in anti-join guard."
+
+  - file: src/ingestion/statsbomb.py
+    line: 137
+    reason: "`statsbomb_matches` reference table — match_id column only (~3,000 matches). Bounded by source-table size. Used in anti-join guard."
+
+  - file: src/ingestion/statsbomb.py
+    line: 238
     reason: "`statsbomb_competitions` reference table — one row per competition (~5 competitions). Bounded by source-table size."
 
   - file: src/ingestion/publish_spadl_vaep_hf.py
