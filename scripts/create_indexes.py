@@ -52,11 +52,6 @@ INDEXES: list[tuple[str, str, str]] = [
     ("idx_tracking_provider_match", "fct_tracking_frames_synced", "source_provider, match_id"),
     ("idx_tracking_match_frame", "fct_tracking_frames_synced", "match_id, frame"),
     ("idx_tracking_match_period_frame", "fct_tracking_frames_synced", "match_id, period, frame"),
-    # ── fct_xg_predictions_synced — v1 mart (PR 3 migrated to Kimball keys) ─
-    # XG-1: match_key for match-level filtering (per-shot xG overlay)
-    ("idx_xg_predictions_match", "fct_xg_predictions_synced", "match_key"),
-    # XG-2: competition_key for competition-level queries
-    ("idx_xg_predictions_comp", "fct_xg_predictions_synced", "competition_key"),
     # ── fct_xg_predictions_v2_synced — v2 Deep Sets + MC dropout (PR 3, ADR-013) ──
     # V2-1: competition_key for Shot Map v2 overlay queries (PK shot_id auto)
     ("idx_xg_predictions_v2_comp", "fct_xg_predictions_v2_synced", "competition_key"),

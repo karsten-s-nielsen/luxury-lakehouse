@@ -138,7 +138,6 @@ def _get_host() -> str:
 # Tables in non-default schemas (e.g., observability) use the override.
 SYNCED_TABLES: list[tuple[str, str | None]] = [
     ("fct_shots_synced", None),
-    ("fct_xg_predictions_synced", None),
     # v2 xG mart added 2026-04-22 (PR 3, ADR-013): first mart applying the
     # ML-inference-outputs pattern (bronze raw → dbt staging → gold mart).
     ("fct_xg_predictions_v2_synced", None),

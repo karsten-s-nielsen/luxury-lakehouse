@@ -34,9 +34,6 @@ inputs:
     - id: "{catalog}.dev_gold.fct_pausa_values"
       source: delta-table
       description: "PAUSA values for distribution validation"
-    - id: "{catalog}.dev_gold.model_baseline_scalars"
-      source: delta-table
-      description: "Baseline metric thresholds for drift detection"
 
 outputs:
   tables:
