@@ -20,23 +20,23 @@ pipeline_tag: feature-extraction
 
 # Football2Vec v2 &mdash; Transformer Player Embeddings with Adversarial Team Debiasing
 
-128-dimensional player embedding vectors from a 4-layer transformer encoder trained via masked language modeling (MLM) on **~87K SPADL action sequences** from ~3,000 professional soccer matches. Adversarial team debiasing via gradient reversal (Ganin et al. 2016) removes competition-specific confounds, producing style representations that generalize across leagues.
+192-dimensional player embedding vectors from a 4-layer transformer encoder trained via masked language modeling (MLM) on **~87K SPADL action sequences** from ~3,000 professional soccer matches. Adversarial team debiasing via gradient reversal (Ganin et al. 2016) removes competition-specific confounds, producing style representations that generalize across leagues.
 
 Part of the (Right! Luxury!) Lakehouse soccer analytics platform. Replaces the [v1 Doc2Vec model](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) (32-dim) as the `@Champion` version.
 
 ## Model Description
 
-Football2Vec v2 learns contextual player embeddings from SPADL action sequences. Each player-match is represented as a sequence of tokenized actions with continuous spatial coordinates. The transformer encoder processes these sequences, and mean pooling over valid tokens produces a fixed-length 128-dim embedding capturing playing style.
+Football2Vec v2 learns contextual player embeddings from SPADL action sequences. Each player-match is represented as a sequence of tokenized actions with continuous spatial coordinates. The transformer encoder processes these sequences, and mean pooling over valid tokens produces a fixed-length 192-dim embedding capturing playing style.
 
 ### Architecture
 
 | Component | Detail |
 |-----------|--------|
-| **Token embedding** | 23 SPADL action types &rarr; 128d lookup table |
-| **Spatial encoding** | MLP(x) + MLP(y) &rarr; 128d each, summed with token embedding |
+| **Token embedding** | 23 SPADL action types &rarr; 192d lookup table |
+| **Spatial encoding** | MLP(x) + MLP(y) &rarr; 192d each, summed with token embedding |
 | **Positional embedding** | Learnable, max 512 tokens |
 | **Encoder** | 4-layer TransformerEncoder, 4 attention heads, GELU activation, 4x FFN |
-| **Pooling** | Mean pooling over valid (non-padding) tokens &rarr; 128d |
+| **Pooling** | Mean pooling over valid (non-padding) tokens &rarr; 192d |
 | **Adversarial head** | Gradient reversal layer (&lambda;=0.2) + competition classifier |
 
 ### Two-Stage Training
@@ -51,10 +51,10 @@ This model provides the **behavioral** half of a dual-vector player representati
 
 | Vector | Dimensions | Source | Captures |
 |--------|-----------|--------|----------|
-| **Behavioral** (this model) | 128 | Transformer on SPADL sequences | Playing style, spatial patterns, action context |
+| **Behavioral** (this model) | 192 | Transformer on SPADL sequences | Playing style, spatial patterns, action context |
 | **Statistical** | 13 | Z-score normalized per-90 stats | Goals, assists, xG, passes, VAEP, defensive metrics |
 
-Both vectors are stored in PostgreSQL with [pgvector](https://github.com/pgvector/pgvector) HNSW indexes (128-dim, cosine ops) for sub-10ms similarity queries.
+Both vectors are stored in PostgreSQL with [pgvector](https://github.com/pgvector/pgvector) HNSW indexes (192-dim, cosine ops) for sub-10ms similarity queries.
 
 ## Training Data
 
@@ -75,10 +75,10 @@ Continuous spatial coordinates (x, y) normalized to [0, 1] on a 105&times;68m pi
 
 | Parameter | Value |
 |-----------|-------|
-| Hidden dimension | 128 |
+| Hidden dimension | 192 |
 | Encoder layers | 4 |
 | Attention heads | 4 |
-| FFN multiplier | 4x (512) |
+| FFN multiplier | 4x (768) |
 | Dropout | 0.1 |
 | Max sequence length | 512 |
 | MLM mask probability | 0.15 |
@@ -124,12 +124,12 @@ ds = load_dataset("luxury-lakehouse/football2vec-player-embeddings")
 df = ds["train"].to_pandas()
 
 vectors = np.array(df["behavioral_vector"].tolist())
-print(f"{vectors.shape[0]} players, {vectors.shape[1]}-dim embeddings")  # (8950, 128)
+print(f"{vectors.shape[0]} players, {vectors.shape[1]}-dim embeddings")  # (8950, 192)
 ```
 
 ## Intended Use
 
-- **Player similarity search**: "Find players with a similar playing style to X" via cosine distance on 128-dim vectors
+- **Player similarity search**: "Find players with a similar playing style to X" via cosine distance on 192-dim vectors
 - **Scouting**: Identify transfer targets by behavioral profile, independent of league context
 - **Tactical analysis**: Cluster players by on-pitch behavior with team-agnostic representations
 - **Research**: Reproducible player embeddings for sports analytics, with adversarial debiasing removing confounding league effects
@@ -208,13 +208,13 @@ Model weights use the **safetensors** format &mdash; a tensor-only serialization
 | Resource | Description |
 |----------|-------------|
 | [Training Data](https://huggingface.co/datasets/luxury-lakehouse/football2vec-training-data) | SPADL action sequences used for training |
-| [Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings) | Pre-computed 128-dim vectors (career/season/match) |
+| [Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings) | Pre-computed 192-dim vectors (career/season/match) |
 | [SPADL/VAEP Action Values](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values) | Per-action offensive/defensive VAEP valuations |
 | [v1 Doc2Vec baseline](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) | 32-dim Doc2Vec model (retained as baseline) |
 
 ## Demo
 
-Try the interactive [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) &mdash; search for similar players by 128-dim behavioral embedding on the Player Similarity page.
+Try the interactive [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) &mdash; search for similar players by 192-dim behavioral embedding on the Player Similarity page.
 
 > **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
 

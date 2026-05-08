@@ -13,6 +13,7 @@ from page_template import (
     ContentBlock,
     ContentRow,
     PageConfig,
+    RequiredFilter,
     ScopeDim,
     StatCard,
     build_page,
@@ -113,9 +114,11 @@ page_config = PageConfig(
             condition="len(ms_home_name) > 0",
         ),
     ],
-    empty_message="Select a competition and match to begin.",
-    empty_condition="len(ms_home_name) == 0",
     warning_var="ms_warning_text",
+    required_filters=[
+        RequiredFilter("selected_competition", "competition"),
+        RequiredFilter("selected_match", "match"),
+    ],
     # League averages live per-row in the Row 3 delta table (spec §5.5), not as
     # a standalone scope line — removed 2026-04-19 after post-deploy UX review.
     freshness_var="ms_data_freshness",

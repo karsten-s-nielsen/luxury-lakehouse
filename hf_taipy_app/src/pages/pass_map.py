@@ -9,6 +9,7 @@ from page_template import (
     ContentRow,
     Metric,
     PageConfig,
+    RequiredFilter,
     ScopeDim,
     build_page,
 )
@@ -27,9 +28,12 @@ page_config = PageConfig(
         Citation("Parma Calcio 1913", "https://github.com/parmacalcio1913/line-breaking-passes"),
     ],
     content=[ContentRow([ContentBlock("image", "pm_pitch_image", alt_var="pm_pitch_image_alt")])],
-    empty_message="Select a competition, team, and match to begin.",
-    empty_condition='len(pm_pitch_image) == 0 and pm_total == "--"',
     warning_var="pm_warning_text",
+    required_filters=[
+        RequiredFilter("selected_competition", "competition"),
+        RequiredFilter("selected_team", "team"),
+        RequiredFilter("selected_match", "match"),
+    ],
     scope_dims=[
         ScopeDim("Competition", "pm_scope_comp"),
         ScopeDim("Team", "pm_scope_team"),

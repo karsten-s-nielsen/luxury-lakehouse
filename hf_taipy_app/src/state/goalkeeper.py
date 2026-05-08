@@ -513,8 +513,23 @@ def _render_distribution_pitch(passes: pd.DataFrame) -> str:
 
     if not passes.empty and all(c in passes.columns for c in ("start_x", "start_y", "end_x", "end_y")):
         df = passes.copy()
+        # Distance classification uses SPADL 105x68 metre values (thresholds in metres).
         df["distance"] = _compute_pass_distance(df)
         df["category"] = _categorise_distance(df["distance"])
+        # Scale SPADL 105x68 to StatsBomb 120x80 so mplsoccer renders on the
+        # correct pitch. Must happen after distance computation to preserve
+        # the metre-based threshold values for short/medium/long labelling.
+        _x_scale = 120.0 / 105.0
+        _y_scale = 80.0 / 68.0
+        df["start_x"] = df["start_x"] * _x_scale
+        df["start_y"] = df["start_y"] * _y_scale
+        df["end_x"] = df["end_x"] * _x_scale
+        df["end_y"] = df["end_y"] * _y_scale
+        # Mirror x so the GK's own goal (x≈0 in SPADL) maps to x=120 (top of
+        # the half-pitch). VerticalPitch(half=True) renders x∈[60,120]; without
+        # this mirror, all pass origins sit off-screen at x<20.
+        df["start_x"] = 120.0 - df["start_x"]
+        df["end_x"] = 120.0 - df["end_x"]
 
         color_map = {"short": _SHORT_COLOR, "medium": _MEDIUM_COLOR, "long": _LONG_COLOR}
         width_map = {"short": 1.0, "medium": 1.5, "long": 2.5}
@@ -617,7 +632,7 @@ def _refresh_shot_stopping(state: Any) -> None:
 
     # Fetch shots faced (per-match team exclusion via GK stats join)
     try:
-        shots = fetch_gk_shots(comp_id, player_id)
+        shots = fetch_gk_shots(comp_id, player_id, team_id)
     except Exception:
         logger.exception("Failed to fetch GK shots")
         state.gk_goalmouth_figure = None
@@ -691,7 +706,7 @@ def _refresh_distribution(state: Any) -> None:
     state.gk_distribution_image_alt = f"GK pass distribution — {scope_plain}"
 
     try:
-        passes = fetch_gk_passes(comp_id, player_id)
+        passes = fetch_gk_passes(comp_id, player_id, team_id)
     except Exception:
         logger.exception("Failed to fetch GK passes")
         state.gk_distribution_image = ""

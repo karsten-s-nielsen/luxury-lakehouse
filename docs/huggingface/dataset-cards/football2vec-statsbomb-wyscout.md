@@ -23,7 +23,7 @@ configs:
 
 # Football2Vec v2 Embeddings &mdash; StatsBomb + Wyscout
 
-Per-player 128-dimensional embeddings produced by [Football2Vec v2](https://huggingface.co/luxury-lakehouse/football2vec-v2) &mdash; a transformer encoder with adversarial competition debiasing. Trained on ~3,000 StatsBomb + ~1,900 Wyscout open-data matches; the dataset here is the post-training *embeddings* output, one row per unique canonical player.
+Per-player 192-dimensional embeddings produced by [Football2Vec v2](https://huggingface.co/luxury-lakehouse/football2vec-v2) &mdash; a transformer encoder with adversarial competition debiasing. Trained on ~3,000 StatsBomb + ~1,900 Wyscout open-data matches; the dataset here is the post-training *embeddings* output, one row per unique canonical player.
 
 Part of the (Right! Luxury!) Lakehouse soccer analytics platform.
 
@@ -50,7 +50,7 @@ print(f"{len(df):,} players, dim={len(df.loc[0, 'embedding'])}")
 |--------|------|-------------|
 | `canonical_player_id` | `Int64` | Cross-source-resolved canonical player identifier |
 | `player_name` | `string` | Player display name at time of training |
-| `embedding` | `list<float32>` | 128-dimensional vector produced by Football2Vec v2 |
+| `embedding` | `list<float32>` | 192-dimensional vector produced by Football2Vec v2 |
 | `total_matches` | `Int64` | Number of matches the player appeared in across both sources |
 | `data_sources` | `list<string>` | Sources where the player has appearances (`statsbomb`, `wyscout`) |
 

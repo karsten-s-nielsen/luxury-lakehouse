@@ -1,6 +1,6 @@
 """Player Similarity state module — all variables prefixed with ps_.
 
-pgvector cosine distance search on behavioral (128-d) or statistical (13-d)
+pgvector cosine distance search on behavioral (192-d) or statistical (13-d)
 embedding vectors. Custom in-page filters (not sidebar). Career vs season
 table routing based on competition filter toggle.
 
@@ -152,7 +152,7 @@ def _get_vector_column(search_mode: str) -> str:
 def _get_vector_dimension(search_mode: str) -> int:
     """Return the vector dimension based on search mode."""
     if search_mode == "Playing style":
-        return 128
+        return 192  # F2V v2 transformer hidden_dim (was 128 pre-#264)
     return 13
 
 

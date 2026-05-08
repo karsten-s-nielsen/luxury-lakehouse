@@ -97,7 +97,7 @@ GLOSSARY: dict[str, str] = {
     "Cosine Distance": "Player similarity measure. 0.0 = identical style, 1.0 = completely different.",
     "A3 Entry": "A successful action (pass, dribble, or carry) that crosses from outside the attacking third into the final 35 meters of the pitch. Measures territorial penetration.",
     "Behavioral Vector": (
-        "128-dimensional embedding from a transformer encoder trained on SPADL action sequences. "
+        "192-dimensional embedding from a transformer encoder trained on SPADL action sequences. "
         "Captures playing style — movement patterns, decision sequences, and positional tendencies. "
         "Adversarially debiased to remove team-specific confounds (Ganin GRL)."
     ),
@@ -358,8 +358,14 @@ _glossary_panels = _build_glossary_panels()
 
 # fmt: off
 _COMP_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary", "Player-Impact", "Player-Comparison", "Goalkeeper-Analytics", "Conversion-Funnel")
-_TEAM_PAGES = ("Shot-Map", "Pass-Map", "Heat-Map", "Pass-Network", "Match-Summary", "Player-Impact", "Player-Comparison", "Conversion-Funnel")
-_MATCH_PAGES = ("Pass-Map", "Pass-Network", "Match-Summary", "Player-Impact", "Conversion-Funnel")
+# Team: required on pages that cannot display data without a specific team;
+# optional on pages that work with "All" (competition-wide view).
+_TEAM_REQUIRED_PAGES = ("Conversion-Funnel", "Pass-Map", "Pass-Network")
+_TEAM_OPTIONAL_PAGES = ("Shot-Map", "Heat-Map", "Match-Summary", "Player-Impact", "Player-Comparison")
+# Match: required on pages that need a single match to render;
+# optional on pages that aggregate across matches.
+_MATCH_REQUIRED_PAGES = ("Pass-Map", "Pass-Network", "Match-Summary")
+_MATCH_OPTIONAL_PAGES = ("Player-Impact", "Conversion-Funnel")
 _PLAYER_PAGES = ("Shot-Map", "Heat-Map", "Player-Impact")
 _PLAYER_MULTI_PAGES = ("Player-Comparison",)
 _XG_MODEL_PAGES = ("Shot-Map",)
@@ -423,7 +429,18 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         "selected_team",
         "Team",
         "on_team_change",
-        condition=f"current_page in {_TEAM_PAGES}",
+        condition=f"current_page in {_TEAM_REQUIRED_PAGES}",
+        lov="team_lov",
+        depends_on="selected_competition",
+        required=True,
+        help="Select a team. Required for this page.",
+    ),
+    SidebarWidget(
+        "dropdown",
+        "selected_team",
+        "Team",
+        "on_team_change",
+        condition=f"current_page in {_TEAM_OPTIONAL_PAGES}",
         lov="team_lov",
         depends_on="selected_competition",
         required=False,
@@ -434,10 +451,22 @@ _FILTER_WIDGETS: list[SidebarWidget] = [
         "selected_match",
         "Match",
         "on_match_change",
-        condition=f"current_page in {_MATCH_PAGES}",
+        condition=f"current_page in {_MATCH_REQUIRED_PAGES}",
         lov="match_lov",
         depends_on="selected_competition",
-        help="Select a specific match. Shows date and opponent. Setting Team first narrows this list.",
+        required=True,
+        help="Select a specific match. Required for this page. Setting Team first narrows this list.",
+    ),
+    SidebarWidget(
+        "dropdown",
+        "selected_match",
+        "Match",
+        "on_match_change",
+        condition=f"current_page in {_MATCH_OPTIONAL_PAGES}",
+        lov="match_lov",
+        depends_on="selected_competition",
+        required=False,
+        help="Optionally filter to a single match. Setting Team first narrows this list.",
     ),
     SidebarWidget(
         "dropdown",

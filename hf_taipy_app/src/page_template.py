@@ -360,6 +360,22 @@ class Citation:
 
 
 @dataclass(frozen=True)
+class RequiredFilter:
+    """Declares a filter that must be set for a page to display data.
+
+    The template uses these to:
+    1. Auto-generate ``empty_condition`` when the page doesn't provide one.
+    2. Auto-generate ``empty_message`` when the page doesn't provide one.
+
+    Both auto-generated values are skipped when the page provides explicit
+    ``empty_condition`` / ``empty_message`` in its ``PageConfig``.
+    """
+
+    var: str  # state variable name (e.g., "selected_team")
+    label: str  # human-readable name for auto-generated empty messages (e.g., "team")
+
+
+@dataclass(frozen=True)
 class ScopeDim:
     """One dimension in the canonical scope line.
 
@@ -408,6 +424,10 @@ class PageConfig:
     # Optional: multi-view sub-views (when set, replaces single-view layout)
     sub_views: list[SubView] = field(default_factory=list)
     stats: list[StatCard] = field(default_factory=list)  # dashboard stat cards (triggers dashboard layout)
+    # Required filters — declares which sidebar filters must be set (non-None,
+    # non-"All") for this page to produce data.  The template auto-generates
+    # empty_condition and empty_message from these when neither is set.
+    required_filters: list[RequiredFilter] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -869,6 +889,33 @@ def _build_standard_page(parts: list[str], cfg: PageConfig) -> None:
     parts.append("|>")
 
 
+def _auto_empty_state(cfg: PageConfig) -> PageConfig:
+    """Derive empty_condition / empty_message from required_filters when not explicit.
+
+    Returns a *new* PageConfig with the auto-generated fields filled in.
+    Skips generation when the page already provides its own values.
+    """
+    if not cfg.required_filters:
+        return cfg
+
+    overrides: dict[str, str] = {}
+
+    if not cfg.empty_condition:
+        parts = [f'({rf.var} is None or {rf.var} == "All")' for rf in cfg.required_filters]
+        overrides["empty_condition"] = " or ".join(parts)
+
+    if not cfg.empty_message:
+        labels = [rf.label for rf in cfg.required_filters]
+        if len(labels) == 1:
+            overrides["empty_message"] = f"Select a {labels[0]} to begin."
+        elif len(labels) == 2:
+            overrides["empty_message"] = f"Select a {labels[0]} and {labels[1]} to begin."
+        else:
+            overrides["empty_message"] = f"Select a {', '.join(labels[:-1])}, and {labels[-1]} to begin."
+
+    return replace(cfg, **overrides) if overrides else cfg
+
+
 def build_page(cfg: PageConfig) -> str:
     """Generate the standard page template markdown from config.
 
@@ -877,6 +924,7 @@ def build_page(cfg: PageConfig) -> str:
     - stats non-empty     -> dashboard page  (_build_dashboard_page)
     - otherwise           -> standard page   (_build_standard_page)
     """
+    cfg = _auto_empty_state(cfg)
     parts = [build_header_from_config(cfg), ""]
 
     if cfg.sub_views:

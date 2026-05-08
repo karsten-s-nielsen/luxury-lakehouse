@@ -29,7 +29,7 @@ The infrastructure uses a **Medallion architecture** (Bronze &rarr; Silver &rarr
 - **5 distinct data sources** unified: StatsBomb, Wyscout, Metrica Sports, IDSSE (Bundesliga), and SkillCorner (A-League)
 - **[16 Taipy dashboard pages](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)** deployed on Hugging Face Spaces (Docker SDK), querying Lakebase PostgreSQL via Databricks OAuth
 - **41 synced tables** with Zero-ETL continuous sync from Gold Delta Lake to Lakebase PostgreSQL 17
-- **67 PostgreSQL indexes** (61 btree + 6 HNSW vector indexes: 4x128d + 2x144d) for sub-10ms OLTP queries
+- **67 PostgreSQL indexes** (61 btree + 6 HNSW vector indexes: 4x192d + 2x208d) for sub-10ms OLTP queries
 - Pipeline reliability enforced through **1,118+ unit tests** and **381+ dbt data tests**
 
 ## The Hugging Face Footprint
@@ -40,12 +40,12 @@ All public artifacts are hosted entirely within the HF ecosystem.
 
 | Model | Architecture | Scale |
 |-------|-------------|-------|
-| [football2vec-v2](https://huggingface.co/luxury-lakehouse/football2vec-v2) | Transformer encoder (128-dim) + adversarial competition debiasing (Ganin GRL) | 114K per-match vectors across 22 competitions, debiased for competition identity |
+| [football2vec-v2](https://huggingface.co/luxury-lakehouse/football2vec-v2) | Transformer encoder (192-dim) + adversarial competition debiasing (Ganin GRL) | 114K per-match vectors across 22 competitions, debiased for competition identity |
 | [football2vec-statsbomb-wyscout](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) | Doc2Vec (PV-DM) 32-dim behavioral embeddings (v1 baseline) | 87K per-match vectors across 8,950 players from ~3,000 matches |
 | [vaep-model-statsbomb-wyscout](https://huggingface.co/luxury-lakehouse/vaep-model-statsbomb-wyscout) | 2&times; XGBClassifier (P(scores) + P(concedes)) | Trained on ~2,388 matches from StatsBomb + Wyscout |
 | [xg-v2-model-set-encoder](https://huggingface.co/luxury-lakehouse/xg-v2-model-set-encoder) | Deep Sets (Zaheer et al. 2017) + MC dropout (Gal &amp; Ghahramani 2016) | ROC-AUC 0.915, trained on ~131K shots with 360 freeze frames |
 | [psxg-model](https://huggingface.co/luxury-lakehouse/psxg-model) | Logistic regression on goalmouth coordinates (Butcher et al. 2025) | Trained on ~15K on-target shots, JSON-serialised weights |
-| [football2vec-360](https://huggingface.co/luxury-lakehouse/football2vec-360) | Transformer encoder (128-dim) + Deep Sets 360 context (16-dim) = 144-dim | 323 StatsBomb 360 matches, adversarial team debiasing |
+| [football2vec-360](https://huggingface.co/luxury-lakehouse/football2vec-360) | Transformer encoder (192-dim) + Deep Sets 360 context (16-dim) = 208-dim | 323 StatsBomb 360 matches, adversarial team debiasing |
 | [pitch-control](https://huggingface.co/luxury-lakehouse/pitch-control) | Physics-based team-control probability surface (Spearman 2017) | Heuristic method card &mdash; no trained weights; substrate for OBSO / Off-Ball xT / Space Creation |
 | [defcon](https://huggingface.co/luxury-lakehouse/defcon) | XGBoost counterfactual value estimator (Kim et al. 2025 DEFCON-lite) | Inline-trained per run; per-defender credit assignment on open 360/tracking data |
 | [off-ball-xt](https://huggingface.co/luxury-lakehouse/off-ball-xt) | Heuristic xT &times; pitch-control attribution (Singh 2018, Spearman 2017) | Method card &mdash; attributes attacking threat to off-ball players |
@@ -65,7 +65,7 @@ All model serialization uses **JSON envelopes** &mdash; zero pickle files (banne
 |---------|-------|-------------|
 | [spadl-vaep-action-values](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values) | ~9.5M actions | Per-action offensive/defensive VAEP valuations. **Dual-column schema through 2026-07-22** &mdash; `match_id` / `competition_id` sunset then; migrate consumers to `match_key` / `competition_key` per [ADR-011](https://github.com/karsten-s-nielsen/luxury-lakehouse/blob/main/docs/superpowers/adrs/ADR-011-unified-kimball-match-dimension.md). |
 | [line-breaking-passes](https://huggingface.co/datasets/luxury-lakehouse/line-breaking-passes) | ~5M passes | All passes with defensive line-breaking labels via Ward clustering on 360 freeze frames. **Dual-column schema through 2026-07-22** &mdash; legacy `match_id` sunset then; migrate to `match_key`. |
-| [football2vec-player-embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings) | 114K vectors | Pre-computed behavioral (128-d transformer) + statistical (13-d) player vectors. **Dual-column schema through 2026-07-22** &mdash; legacy `canonical_player_id` sunset then; migrate to `player_key`. |
+| [football2vec-player-embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings) | 114K vectors | Pre-computed behavioral (192-d transformer) + statistical (13-d) player vectors. **Dual-column schema through 2026-07-22** &mdash; legacy `canonical_player_id` sunset then; migrate to `player_key`. |
 | [football2vec-training-data](https://huggingface.co/datasets/luxury-lakehouse/football2vec-training-data) | ~114K sequences | Tokenized SPADL action sequences for transformer training. **Dual-column schema through 2026-07-22** &mdash; legacy `canonical_player_id` sunset then; migrate to `player_key`. |
 | [pitch-control-tracking](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking) | 38M frames | Per-player per-frame Spearman (2017) physics-based pitch control. **Dual-column schema through 2026-07-22** &mdash; legacy `match_id` sunset then; migrate to `match_key`. |
 | [expected-threat-grids](https://huggingface.co/datasets/luxury-lakehouse/expected-threat-grids) | 12x8 grid | Data-driven Expected Threat values computed from 2.2M SPADL actions |
@@ -78,8 +78,8 @@ All model serialization uses **JSON envelopes** &mdash; zero pickle files (banne
 | [statsbomb-shots-on-target](https://huggingface.co/datasets/luxury-lakehouse/statsbomb-shots-on-target) | ~15K shots | On-target shots with goalmouth coordinates for PSxG training. **Dual-column schema through 2026-07-22** &mdash; legacy `match_id` sunset then; migrate to `match_key`. |
 | [psxg-predictions](https://huggingface.co/datasets/luxury-lakehouse/psxg-predictions) | ~15K shots | Per-shot PSxG probabilities from logistic model |
 | [football2vec-360-training-data](https://huggingface.co/datasets/luxury-lakehouse/football2vec-360-training-data) | ~2M actions | SPADL action sequences with 360 freeze frame context. **Dual-column schema through 2026-07-22** &mdash; legacy `canonical_player_id` sunset then; migrate to `player_key`. |
-| [football2vec-statsbomb-wyscout](https://huggingface.co/datasets/luxury-lakehouse/football2vec-statsbomb-wyscout) | 114K vectors | Per-match v2 transformer (128-dim) raw embeddings with adversarial competition debiasing. **Dual-column schema through 2026-07-22** &mdash; legacy `canonical_player_id` sunset then; migrate to `player_key`. |
-| [football2vec-360-embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-360-embeddings) | ~4K players | 144-dim player embeddings from 360-enriched model. **Dual-column schema through 2026-07-22** &mdash; legacy `canonical_player_id` sunset then; migrate to `player_key`. |
+| [football2vec-statsbomb-wyscout](https://huggingface.co/datasets/luxury-lakehouse/football2vec-statsbomb-wyscout) | 114K vectors | Per-match v2 transformer (192-dim) raw embeddings with adversarial competition debiasing. **Dual-column schema through 2026-07-22** &mdash; legacy `canonical_player_id` sunset then; migrate to `player_key`. |
+| [football2vec-360-embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-360-embeddings) | ~4K players | 208-dim player embeddings from 360-enriched model. **Dual-column schema through 2026-07-22** &mdash; legacy `canonical_player_id` sunset then; migrate to `player_key`. |
 | [scoutgpt-training-data](https://huggingface.co/datasets/luxury-lakehouse/scoutgpt-training-data) | 894K episodes | SPADL possession episodes with per-action player attribution (Hong et al. 2025) |
 | [pining-for-the-data](https://huggingface.co/datasets/luxury-lakehouse/pining-for-the-data) | 10 matches | SkillCorner open tracking data (V3 format) redistributed under MIT |
 

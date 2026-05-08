@@ -26,7 +26,7 @@ Part of the (Right! Luxury!) Lakehouse soccer analytics platform.
 ## Status
 
 - **Status**: Deprecated (superseded 2026-03-31 by Football2Vec v2)
-- **Replacement**: [`luxury-lakehouse/football2vec-v2`](https://huggingface.co/luxury-lakehouse/football2vec-v2) (128-dim transformer + adversarial competition debiasing)
+- **Replacement**: [`luxury-lakehouse/football2vec-v2`](https://huggingface.co/luxury-lakehouse/football2vec-v2) (192-dim transformer + adversarial competition debiasing)
 - **Retained for**: Reproducibility of pre-2026-03-31 downstream analyses; documentation traceability for the governance baseline established in [`AI_GOVERNANCE.md`](https://github.com/karsten-s-nielsen/luxury-lakehouse/blob/main/AI_GOVERNANCE.md)
 
 ## Method Description
@@ -73,7 +73,7 @@ See the [`AI_GOVERNANCE.md`](https://github.com/karsten-s-nielsen/luxury-lakehou
 - **Deprecated.** See "Replacement" above.
 - **Event-based only.** Captures on-ball actions. Off-ball movement, positioning, and pressing intensity are not represented.
 - **No debiasing.** The v1 model has no mechanism to remove league-level or team-level style confounds. Similarity-search results correlate strongly with league rather than individual style. This was the primary reason for the v2 migration.
-- **Low dimensionality.** 32-dim vectors provide coarser style discrimination than the v2 128-dim embeddings.
+- **Low dimensionality.** 32-dim vectors provide coarser style discrimination than the v2 192-dim embeddings.
 - **Deterministic inference only.** No uncertainty quantification.
 
 ## Files
@@ -104,7 +104,7 @@ See the [`AI_GOVERNANCE.md`](https://github.com/karsten-s-nielsen/luxury-lakehou
 
 | Resource | Description |
 |---|---|
-| [Football2Vec v2](https://huggingface.co/luxury-lakehouse/football2vec-v2) | **Active replacement** (128-dim transformer + adversarial debiasing) |
+| [Football2Vec v2](https://huggingface.co/luxury-lakehouse/football2vec-v2) | **Active replacement** (192-dim transformer + adversarial debiasing) |
 | [Football2Vec 360](https://huggingface.co/luxury-lakehouse/football2vec-360) | Alternative active model with 360 freeze-frame context |
 | [Training Data](https://huggingface.co/datasets/luxury-lakehouse/football2vec-training-data) | SPADL action sequences used for training |
 

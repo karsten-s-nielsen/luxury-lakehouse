@@ -19,7 +19,7 @@ from queries.tracking import fetch_heatmap_actions
 from render import AMBER, PITCH_BG_COLOR, PITCH_LINE_COLOR, fmt_int, pitch_to_file
 
 # matplotlib.use("Agg") is handled by render.py at module load (imported above) — no redundant call needed here.
-from state.shared import _ALL_LABEL, get_comp_id, get_match_id, get_player_id, get_team_id, register_page_refresher
+from state.shared import _ALL_LABEL, get_comp_id, get_match_key, get_player_id, get_team_id, register_page_refresher
 
 logger = logging.getLogger(__name__)
 
@@ -299,7 +299,7 @@ def hm_refresh(state: Any) -> None:
 
     team_id = get_team_id(state.selected_team)
     player_id = get_player_id(state.selected_player)
-    match_id = get_match_id(state.selected_match)
+    match_key = get_match_key(state.selected_match)
 
     # Resolve display labels for scope line (dimensions the page filters by)
     comp_label = state.selected_competition or ""
@@ -312,7 +312,7 @@ def hm_refresh(state: Any) -> None:
     scope_plain = build_scope_label_plain([("Competition", comp_label), ("Team", team_label), ("Player", player_label)])
 
     try:
-        actions = fetch_heatmap_actions(comp_id, team_id, player_id, match_id)
+        actions = fetch_heatmap_actions(comp_id, team_id, player_id, match_key)
     except Exception:
         logger.exception("Failed to fetch heatmap actions for comp=%d", comp_id)
         state.hm_pass_bubbles = ""
@@ -345,8 +345,8 @@ def hm_refresh(state: Any) -> None:
     state.hm_passes = metrics["passes"]
     state.hm_shots = metrics["shots"]
 
-    # Coverage context for EID — simple f-string
-    n_matches = int(actions["match_id"].nunique()) if "match_id" in actions.columns else 0
+    # Coverage context for EID — n_matches comes from the query's scalar subquery / CTE
+    n_matches = int(actions["n_matches"].iloc[0]) if "n_matches" in actions.columns and not actions.empty else 0
     state.hm_scope_coverage = (
         f"{metrics['total']} actions across {n_matches} match{'es' if n_matches != 1 else ''}" if n_matches > 0 else ""
     )
