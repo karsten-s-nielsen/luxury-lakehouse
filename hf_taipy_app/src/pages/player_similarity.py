@@ -10,7 +10,7 @@ page_config = PageConfig(
     nav_section=NAV_PLAYER_ANALYSIS,
     freshness_var="ps_data_freshness",
     description=(
-        "Find similar players using pgvector cosine distance on behavioral (128-d) "
+        "Find similar players using pgvector cosine distance on behavioral (192-d) "
         "or statistical (13-d) embedding vectors. "
         "Behavioral embeddings via football2vec v2 transformer encoder with adversarial "
         "team debiasing (Ganin et al. 2016). "

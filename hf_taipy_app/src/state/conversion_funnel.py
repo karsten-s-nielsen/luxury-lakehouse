@@ -18,6 +18,7 @@ from state.shared import (
     _ALL_LABEL,
     get_comp_id,
     get_match_id,
+    get_match_key,
     get_team_id,
     register_page_refresher,
 )
@@ -180,6 +181,7 @@ def cf_refresh(state: Any) -> None:
         return
 
     match_id = get_match_id(state.selected_match)
+    match_key = get_match_key(state.selected_match)
     game_state = getattr(state, "cf_selected_game_state", "All")
     gs_param = game_state if game_state and game_state != "All" else None
     gs_filtered = gs_param is not None
@@ -200,8 +202,8 @@ def cf_refresh(state: Any) -> None:
     opp_stages = rollup_stages(opp_rows, gs_filtered=gs_filtered)
     show_stages = primary_stages
 
-    if match_id is not None:
-        meta = fetch_match_meta(comp_id, match_id)
+    if match_id is not None and match_key is not None:
+        meta = fetch_match_meta(comp_id, match_key)
         if meta.empty:
             _clear_state(state)
             state.cf_warning_text = "Match metadata not found. Try selecting a different match."

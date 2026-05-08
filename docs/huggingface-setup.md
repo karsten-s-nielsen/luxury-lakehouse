@@ -71,7 +71,7 @@ print(vector.shape, similar)
 
 ## 1b. Using Football2Vec v2 (Transformer, Recommended)
 
-Football2Vec v2 is a 128-dim transformer encoder with adversarial team debiasing. It replaces v1 as the `@Champion` model. For most use cases, load pre-computed embeddings directly:
+Football2Vec v2 is a 192-dim transformer encoder with adversarial team debiasing. It replaces v1 as the `@Champion` model. For most use cases, load pre-computed embeddings directly:
 
 ```bash
 pip install datasets numpy
@@ -86,7 +86,7 @@ df = ds["train"].to_pandas()
 
 vectors = np.array(df["behavioral_vector"].tolist())
 print(f"{vectors.shape[0]} players, {vectors.shape[1]}-dim embeddings")
-# Expected: (8950, 128)
+# Expected: (8950, 192)
 ```
 
 To load the model weights directly (for fine-tuning or custom inference):
@@ -104,10 +104,10 @@ with open(config_path) as f:
 
 state_dict = load_file(weights_path)
 print(f"Architecture: {config['hidden_dim']}-dim, {config['num_layers']} layers, {config['num_heads']} heads")
-# Expected: 128-dim, 4 layers, 4 heads
+# Expected: 192-dim, 4 layers, 4 heads
 ```
 
-**Verify:** `vectors.shape` returns `(8950, 128)` for career embeddings.
+**Verify:** `vectors.shape` returns `(8950, 192)` for career embeddings.
 
 > **See also:** [v2 Model card](huggingface/model-cards/football2vec-v2-model-card.md) for architecture details, training hyperparameters, and adversarial debiasing methodology.
 

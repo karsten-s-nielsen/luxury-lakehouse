@@ -22,7 +22,7 @@ configs:
 
 # football2vec Player Embeddings
 
-Pre-computed player embedding vectors from the [football2vec v2](https://huggingface.co/luxury-lakehouse/football2vec-v2) transformer model &mdash; ready to use without loading model weights. Covers **~87,000** per-match vectors, **~8,950** career vectors, and season-level aggregates across professional soccer competitions. V2 uses a 128-dim transformer encoder with adversarial team debiasing (Ganin GRL) to prevent team identity from confounding player style representations.
+Pre-computed player embedding vectors from the [football2vec v2](https://huggingface.co/luxury-lakehouse/football2vec-v2) transformer model &mdash; ready to use without loading model weights. Covers **~87,000** per-match vectors, **~8,950** career vectors, and season-level aggregates across professional soccer competitions. V2 uses a 192-dim transformer encoder with adversarial team debiasing (Ganin GRL) to prevent team identity from confounding player style representations.
 
 Part of the (Right! Luxury!) Lakehouse soccer analytics platform.
 
@@ -46,7 +46,7 @@ print(f"{vectors.shape[0]} players, {vectors.shape[1]}-dim embeddings")
 
 Each embedding is composed of two complementary vectors trained or derived from open event data:
 
-- **Behavioral vector** (128-dimensional): A transformer encoder embedding with adversarial team debiasing (Ganin GRL). Trained on tokenized SPADL action streams (23-type vocabulary), it captures *how* a player plays &mdash; their movement patterns, decision sequences, and positional tendencies &mdash; while removing team-specific confounds. V1 (32-dim Doc2Vec) is retained as a baseline.
+- **Behavioral vector** (192-dimensional): A transformer encoder embedding with adversarial team debiasing (Ganin GRL). Trained on tokenized SPADL action streams (23-type vocabulary), it captures *how* a player plays &mdash; their movement patterns, decision sequences, and positional tendencies &mdash; while removing team-specific confounds. V1 (32-dim Doc2Vec) is retained as a baseline.
 - **Statistical vector** (13-dimensional, may be NULL): Per-90 statistics z-score normalized **within position group** (GK, Def, Mid, Fwd). This position-aware normalization prevents goalkeeper contamination in similarity search and provides fairer cross-position comparisons.
 
 For model architecture details, training methodology, and the full vocabulary, see the companion model repositories: [`luxury-lakehouse/football2vec-v2`](https://huggingface.co/luxury-lakehouse/football2vec-v2) (v2 transformer) and [`luxury-lakehouse/football2vec-statsbomb-wyscout`](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) (v1 Doc2Vec baseline).
@@ -72,7 +72,7 @@ One row per player per match. The most granular config; suitable for match-level
 | Column | Type | Description |
 |--------|------|-------------|
 | `canonical_player_id` | `string` | Unified player identifier (see [dim_players](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings)) |
-| `behavioral_vector` | `array<double>` | 128-dim embedding (element-wise mean across career) |
+| `behavioral_vector` | `array<double>` | 192-dim embedding (element-wise mean across career) |
 | `stat_vector` | `array<double>` | 13-dim z-score normalized per-90 stats (may be NULL) |
 | `total_matches` | `bigint` | Number of matches contributing to this career embedding |
 | `data_sources` | `array<string>` | Data providers contributing (e.g., `["statsbomb", "wyscout"]`) |
@@ -85,7 +85,7 @@ One row per player per match. The most granular config; suitable for match-level
 | `canonical_player_id` | `string` | Unified player identifier |
 | `competition_id` | `int` | Competition identifier |
 | `season_id` | `int` | Season identifier |
-| `behavioral_vector` | `array<double>` | 128-dim embedding (season-level mean across matches) |
+| `behavioral_vector` | `array<double>` | 192-dim embedding (season-level mean across matches) |
 | `stat_vector` | `array<double>` | 13-dim stat vector (may be NULL) |
 | `matches_in_sample` | `bigint` | Number of matches contributing in this competition-season |
 | `data_sources` | `array<string>` | Data providers contributing |
@@ -98,7 +98,7 @@ One row per player per match. The most granular config; suitable for match-level
 | `canonical_player_id` | `string` | Unified player identifier |
 | `match_id` | `string` | Match identifier |
 | `data_source` | `string` | Data provider (`statsbomb` or `wyscout`) |
-| `behavioral_vector` | `array<double>` | 128-dim embedding for this player-match |
+| `behavioral_vector` | `array<double>` | 192-dim embedding for this player-match |
 | `stat_vector` | `array<double>` | 13-dim stat vector (may be NULL) |
 
 ## Schema Migration &mdash; Dual-Column Window (2026-04-25 &rarr; 2026-07-22)

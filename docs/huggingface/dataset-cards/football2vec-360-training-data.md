@@ -181,10 +181,10 @@ If you use this dataset, please cite the SPADL framework, the Football2Vec 360-E
 
 | Resource | Description |
 |----------|-------------|
-| [Football2Vec 360 Model](https://huggingface.co/luxury-lakehouse/football2vec-360) | 144-dim model trained on this data |
-| [360 Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-360-embeddings) | Pre-computed 144-dim vectors per player-match |
+| [Football2Vec 360 Model](https://huggingface.co/luxury-lakehouse/football2vec-360) | 208-dim model trained on this data |
+| [360 Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-360-embeddings) | Pre-computed 208-dim vectors per player-match |
 | [Football2Vec v2 Training Data](https://huggingface.co/datasets/luxury-lakehouse/football2vec-training-data) | Event-only SPADL sequences (~87K player-matches, ~3,000 matches) |
-| [Football2Vec v2 Model](https://huggingface.co/luxury-lakehouse/football2vec-v2) | 128-dim event-only model with broader coverage |
+| [Football2Vec v2 Model](https://huggingface.co/luxury-lakehouse/football2vec-v2) | 192-dim event-only model with broader coverage |
 | [SPADL/VAEP Action Values](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values) | Per-action offensive/defensive VAEP valuations |
 
 ## More Information

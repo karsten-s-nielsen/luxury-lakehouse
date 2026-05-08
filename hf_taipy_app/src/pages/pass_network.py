@@ -9,6 +9,7 @@ from page_template import (
     ContentRow,
     Metric,
     PageConfig,
+    RequiredFilter,
     ScopeDim,
     build_page,
 )
@@ -30,9 +31,12 @@ page_config = PageConfig(
             [ContentBlock("chart", "pn_chart_figure", condition="pn_total_passes != '--'", chart_height="650px")]
         )
     ],
-    empty_message="Select a competition, team, and match to begin.",
-    empty_condition="selected_competition is None or selected_team is None or selected_match is None",
     warning_var="pn_warning_text",
+    required_filters=[
+        RequiredFilter("selected_competition", "competition"),
+        RequiredFilter("selected_team", "team"),
+        RequiredFilter("selected_match", "match"),
+    ],
     scope_dims=[
         ScopeDim("Competition", "pn_scope_comp"),
         ScopeDim("Team", "pn_scope_team"),

@@ -188,11 +188,13 @@ def fetch_gk_player_lov(competition_id: int, team_id: int | None = None) -> list
 def fetch_gk_shots(
     competition_id: int | None,
     player_id: int | None,
+    team_id: int | None = None,
 ) -> pd.DataFrame:
     """Fetch on-target shots faced by a GK for shot map scatter.
 
     When a GK is selected, joins fct_goalkeeper_stats to get per-match
     team_id for correct team exclusion (handles mid-season transfers).
+    When only team_id is set (no player), filters to shots against that team.
     Uses end_location_x/y (pitch coordinates) since goalmouth Z is not
     available in the synced table.
 
@@ -210,10 +212,14 @@ def fetch_gk_shots(
     if player_id is not None:
         # Join GK stats for per-match team_id — handles transfers correctly
         gk_tbl = t("fct_goalkeeper_stats_synced")
-        join_clause = f"INNER JOIN {gk_tbl} gk ON gk.match_id = s.match_id AND gk.player_id = %s"
+        join_clause = f"INNER JOIN {gk_tbl} gk ON gk.match_key = s.match_key AND gk.player_id = %s"
         join_params.append(int(player_id))
         # Exclude shots by the GK's own team (per-match correct)
         where_parts.append("s.team_id != gk.team_id")
+    elif team_id is not None:
+        # No specific GK — filter to shots faced by this team (i.e. shots by opponents)
+        where_parts.append("s.team_id != %s")
+        where_params.append(int(team_id))
 
     where = " AND ".join(where_parts)
     # Params must match SQL order: JOIN params before WHERE params
@@ -222,7 +228,6 @@ def fetch_gk_shots(
     sql = (
         f"SELECT "  # noqa: S608
         f"  s.shot_id AS event_id, "
-        f"  s.match_id, "
         f"  s.end_location_x AS end_x, "
         f"  s.end_location_y AS end_y, "
         f"  s.shot_outcome, "
@@ -233,7 +238,7 @@ def fetch_gk_shots(
         f"LEFT JOIN {t('dim_players_synced')} shooter "
         f"  ON s.player_id = shooter.player_id "
         f"WHERE {where} "
-        f"ORDER BY s.match_id, s.period, s.minute "
+        f"ORDER BY s.match_key, s.period, s.minute "
         f"LIMIT 2000"
     )
 
@@ -244,6 +249,7 @@ def fetch_gk_shots(
 def fetch_gk_passes(
     competition_id: int | None,
     player_id: int | None,
+    team_id: int | None = None,
 ) -> pd.DataFrame:
     """Fetch GK distribution passes for pitch figure.
 
@@ -266,6 +272,9 @@ def fetch_gk_passes(
     if player_id is not None:
         where_parts.append("player_id = %s")
         params.append(int(player_id))
+    elif team_id is not None:
+        where_parts.append("team_id = %s")
+        params.append(int(team_id))
 
     where = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
 

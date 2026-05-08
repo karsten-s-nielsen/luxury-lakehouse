@@ -148,7 +148,7 @@ If you use this dataset, please cite the SPADL framework and the Football2Vec v2
 
 | Resource | Description |
 |----------|-------------|
-| [Football2Vec v2 Model](https://huggingface.co/luxury-lakehouse/football2vec-v2) | 128-dim transformer encoder trained on this data |
+| [Football2Vec v2 Model](https://huggingface.co/luxury-lakehouse/football2vec-v2) | 192-dim transformer encoder trained on this data |
 | [Football2Vec v1 Model](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) | 32-dim Doc2Vec baseline |
 | [Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings) | Pre-computed vectors (career/season/match) |
 | [SPADL/VAEP Action Values](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values) | Per-action offensive/defensive VAEP valuations |

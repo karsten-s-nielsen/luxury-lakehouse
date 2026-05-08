@@ -8,6 +8,7 @@ from page_template import (
     ContentBlock,
     ContentRow,
     PageConfig,
+    RequiredFilter,
     ScopeDim,
     StatCard,
     build_page,
@@ -31,8 +32,11 @@ page_config = PageConfig(
         "Select a competition and team to see the conversion funnel. "
         "Optionally select a match for single-game analysis."
     ),
-    empty_condition="len(cf_possessions) == 0",
     warning_var="cf_warning_text",
+    required_filters=[
+        RequiredFilter("selected_competition", "competition"),
+        RequiredFilter("selected_team", "team"),
+    ],
     scope_dims=[
         ScopeDim("Competition", "cf_scope_comp"),
         ScopeDim("Team", "cf_scope_team"),

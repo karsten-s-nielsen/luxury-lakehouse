@@ -20,27 +20,27 @@ pipeline_tag: feature-extraction
 
 # Football2Vec 360-Enriched &mdash; Transformer + Deep Sets Player Embeddings
 
-144-dimensional player embedding vectors from a 4-layer transformer encoder augmented with a Deep Sets context encoder (Zaheer et al. 2017) trained on **~2M SPADL actions** with StatsBomb 360 freeze-frame data from **323 professional soccer matches**. Adversarial team debiasing via gradient reversal (Ganin et al. 2016) removes team-identity confounds, producing style representations that generalize across teams.
+208-dimensional player embedding vectors from a 4-layer transformer encoder augmented with a Deep Sets context encoder (Zaheer et al. 2017) trained on **~2M SPADL actions** with StatsBomb 360 freeze-frame data from **323 professional soccer matches**. Adversarial team debiasing via gradient reversal (Ganin et al. 2016) removes team-identity confounds, producing style representations that generalize across teams.
 
-This model occupies a **separate embedding space** from [Football2Vec v2](https://huggingface.co/luxury-lakehouse/football2vec-v2) (128-dim, event-only). The 360-enriched vectors are not directly comparable to v2 vectors and should not be mixed in downstream similarity search without re-indexing.
+This model occupies a **separate embedding space** from [Football2Vec v2](https://huggingface.co/luxury-lakehouse/football2vec-v2) (192-dim, event-only). The 360-enriched vectors are not directly comparable to v2 vectors and should not be mixed in downstream similarity search without re-indexing.
 
 Part of the (Right! Luxury!) Lakehouse soccer analytics platform.
 
 ## Model Description
 
-Football2Vec 360-Enriched extends the v2 transformer architecture with a Deep Sets encoder that processes the spatial positions of all visible opponents and teammates at the moment of each action. The 144-dim output captures both individual action sequences and the spatial context in which those actions occur — richer representations than event-only models for players who frequently appear in 360-annotated matches.
+Football2Vec 360-Enriched extends the v2 transformer architecture with a Deep Sets encoder that processes the spatial positions of all visible opponents and teammates at the moment of each action. The 208-dim output captures both individual action sequences and the spatial context in which those actions occur — richer representations than event-only models for players who frequently appear in 360-annotated matches.
 
 ### Architecture
 
 | Component | Detail |
 |-----------|--------|
-| **Token embedding** | 23 SPADL action types &rarr; 128d lookup table |
-| **Spatial encoding** | MLP(x) + MLP(y) &rarr; 128d each, summed with token embedding |
+| **Token embedding** | 23 SPADL action types &rarr; 192d lookup table |
+| **Spatial encoding** | MLP(x) + MLP(y) &rarr; 192d each, summed with token embedding |
 | **Positional embedding** | Learnable, max 512 tokens |
 | **Encoder** | 4-layer TransformerEncoder, 4 attention heads, GELU activation, 4x FFN |
-| **Pooling** | Mean pooling over valid (non-padding) tokens &rarr; 128d |
+| **Pooling** | Mean pooling over valid (non-padding) tokens &rarr; 192d |
 | **Deep Sets encoder** | Per-player MLP on freeze-frame (x, y, team) &rarr; sum-pool &rarr; 16d |
-| **Output** | Concatenation [128d transformer \|\| 16d Deep Sets] &rarr; 144d |
+| **Output** | Concatenation [192d transformer \|\| 16d Deep Sets] &rarr; 208d |
 | **Adversarial head** | Gradient reversal layer (&lambda;=0.2) + team classifier |
 
 ### Two-Stage Training
@@ -55,7 +55,7 @@ This model provides the **behavioral** half of a dual-vector player representati
 
 | Vector | Dimensions | Source | Captures |
 |--------|-----------|--------|----------|
-| **Behavioral** (this model) | 144 | Transformer + Deep Sets on SPADL + 360 freeze-frames | Playing style, spatial context, action sequences |
+| **Behavioral** (this model) | 208 | Transformer + Deep Sets on SPADL + 360 freeze-frames | Playing style, spatial context, action sequences |
 | **Statistical** | 13 | Z-score normalized per-90 stats | Goals, assists, xG, passes, VAEP, defensive metrics |
 
 Both vectors are stored in PostgreSQL with [pgvector](https://github.com/pgvector/pgvector) HNSW indexes for sub-10ms similarity queries.
@@ -80,16 +80,16 @@ Continuous spatial coordinates (x, y) normalized to [0, 1] on a 105&times;68m pi
 
 | Parameter | Value |
 |-----------|-------|
-| Hidden dimension | 128 |
+| Hidden dimension | 192 |
 | Encoder layers | 4 |
 | Attention heads | 4 |
-| FFN multiplier | 4x (512) |
+| FFN multiplier | 4x (768) |
 | Dropout | 0.1 |
 | Max sequence length | 512 |
 | MLM mask probability | 0.15 |
 | Spatial MLP intermediate dim | 64 |
 | Deep Sets MLP dims | [32, 16] |
-| Output dimension | 144 |
+| Output dimension | 208 |
 | Batch size | 256 |
 | Learning rate | 1e-4 |
 | Weight decay | 0.01 |
@@ -117,7 +117,7 @@ with open(config_path) as f:
 
 state_dict = load_file(weights_path)
 print(f"Config: {config['hidden_dim']}-dim transformer + {config['deepsets_dim']}-dim Deep Sets")
-print(f"Output dimension: {config['output_dim']}")  # 144
+print(f"Output dimension: {config['output_dim']}")  # 208
 print(f"Parameters: {sum(p.numel() for p in state_dict.values()):,}")
 ```
 
@@ -133,14 +133,14 @@ ds = load_dataset("luxury-lakehouse/football2vec-360-embeddings")
 df = ds["train"].to_pandas()
 
 vectors = np.array(df["behavioral_vector"].tolist())
-print(f"{vectors.shape[0]} player-matches, {vectors.shape[1]}-dim embeddings")  # (~4K, 144)
+print(f"{vectors.shape[0]} player-matches, {vectors.shape[1]}-dim embeddings")  # (~4K, 208)
 ```
 
 > **Note:** These embeddings cover only players with StatsBomb 360 match appearances (~4K player-match records vs. ~87K for Football2Vec v2). For broader coverage, use [Football2Vec v2](https://huggingface.co/luxury-lakehouse/football2vec-v2).
 
 ## Intended Use
 
-- **Context-aware player similarity**: Cosine distance on 144-dim vectors finds players with similar style *and* spatial decision-making
+- **Context-aware player similarity**: Cosine distance on 208-dim vectors finds players with similar style *and* spatial decision-making
 - **Spatial pattern analysis**: The 16-dim Deep Sets component captures how players behave relative to nearby opponents and teammates
 - **Scouting in high-press contexts**: Embeddings encode how players handle actions under spatial pressure from surrounding defenders
 - **Research**: Reproducible 360-enriched player representations with adversarial debiasing; pairs with Football2Vec v2 for ablation studies
@@ -158,7 +158,7 @@ See the [`AI_GOVERNANCE.md`](https://github.com/karsten-s-nielsen/luxury-lakehou
 
 - **360-data only**: Covers 323 StatsBomb 360 matches. Players with appearances only in non-360 matches have no embeddings from this model.
 - **Smaller training corpus**: 323 matches vs. ~3,000 for Football2Vec v2. Embeddings for players with few 360 appearances may be noisier.
-- **Separate embedding space**: 144-dim vectors are not comparable to Football2Vec v2 128-dim vectors. Cannot mix in the same similarity index without re-embedding all players.
+- **Separate embedding space**: 208-dim vectors are not comparable to Football2Vec v2 192-dim vectors. Cannot mix in the same similarity index without re-embedding all players.
 - **Event-based actions + freeze-frames**: Off-ball runs and pressing without a nearby action event are not captured.
 - **Team debiasing, not competition debiasing**: The adversarial head targets team ID (stronger confounder in the smaller 360 corpus). Cross-league confounds are attenuated but not fully removed.
 - **Open data only**: Derived from publicly available StatsBomb 360 data. Commercial datasets with proprietary 360 annotations may yield different representations.
@@ -231,8 +231,8 @@ Model weights use the **safetensors** format &mdash; a tensor-only serialization
 | Resource | Description |
 |----------|-------------|
 | [360 Training Data](https://huggingface.co/datasets/luxury-lakehouse/football2vec-360-training-data) | SPADL sequences with 360 freeze-frames used for training |
-| [360 Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-360-embeddings) | Pre-computed 144-dim vectors per player-match |
-| [Football2Vec v2](https://huggingface.co/luxury-lakehouse/football2vec-v2) | 128-dim event-only model (~3,000 matches, broader coverage) |
+| [360 Player Embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-360-embeddings) | Pre-computed 208-dim vectors per player-match |
+| [Football2Vec v2](https://huggingface.co/luxury-lakehouse/football2vec-v2) | 192-dim event-only model (~3,000 matches, broader coverage) |
 | [Football2Vec v1](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout) | 32-dim Doc2Vec baseline |
 | [SPADL/VAEP Action Values](https://huggingface.co/datasets/luxury-lakehouse/spadl-vaep-action-values) | Per-action offensive/defensive VAEP valuations |
 

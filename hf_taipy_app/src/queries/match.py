@@ -49,12 +49,12 @@ def fetch_league_averages(comp_id: int) -> pd.DataFrame:
     Expected columns: avg_xg_per_team, avg_possession, avg_pass_completion.
     """
     tbl = t("fct_match_summary_synced")
-    # Post-PR 2 (ADR-011): filters on competition_key (Kimball surrogate).
+    # comp_id is the legacy competition_id INT (from get_comp_id).
     return execute_query(
         f"SELECT AVG(home_xg + away_xg) / 2 as avg_xg_per_team, "  # noqa: S608
         f"  AVG(home_possession_pct) as avg_possession, "
         f"  AVG((home_pass_completion_pct + away_pass_completion_pct) / 2) as avg_pass_completion "
-        f"FROM {tbl} WHERE competition_key = %s",
+        f"FROM {tbl} WHERE competition_id = %s",
         (comp_id,),
     )
 

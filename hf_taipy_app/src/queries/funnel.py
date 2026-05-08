@@ -65,15 +65,19 @@ def fetch_funnel_agg(
 
 
 @ttl_cache()
-def fetch_match_meta(comp_id: int, match_id: int) -> pd.DataFrame:
-    """Single-match home/away name lookup — used only in single-match mode."""
+def fetch_match_meta(comp_id: int, match_key: int) -> pd.DataFrame:
+    """Single-match home/away name lookup — used only in single-match mode.
+
+    Post-PR 2 (ADR-011): fct_match_summary_synced is keyed on match_key;
+    match_id was removed from its final SELECT. Filter on match_key.
+    """
     ms_tbl = t("fct_match_summary_synced")
     return execute_query(
-        f"SELECT match_id, home_team_id, away_team_id, home_team_name, away_team_name"  # noqa: S608
+        f"SELECT home_team_id, away_team_id, home_team_name, away_team_name"  # noqa: S608
         f" FROM {ms_tbl}"
-        f" WHERE competition_id = %s AND match_id = %s"
+        f" WHERE competition_id = %s AND match_key = %s"
         f" LIMIT 1",
-        (int(comp_id), int(match_id)),
+        (int(comp_id), int(match_key)),
     )
 
 

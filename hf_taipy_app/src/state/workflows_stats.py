@@ -198,7 +198,7 @@ def load_cards_from_yaml() -> dict[str, dict[str, Any]]:
     for yaml_path in sorted(cards_dir.glob("*.yaml")):
         try:
             card = WorkflowCard.from_yaml_file(yaml_path)
-            data: dict[str, Any] = card.model_dump()
+            data: dict[str, Any] = card.model_dump(by_alias=True)
             data["_file"] = yaml_path.name
             if card.id:
                 cards[card.id] = data

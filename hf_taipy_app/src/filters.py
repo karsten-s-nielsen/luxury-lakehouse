@@ -682,21 +682,28 @@ def fetch_defcon_teams(competition_id: int) -> list[tuple[str, int]]:
 
 @ttl_cache()
 def fetch_pausa_matches() -> list[tuple[str, str]]:
-    """Matches with PAUSA data, labeled from match summary."""
+    """Matches with PAUSA data, labeled from match summary.
+
+    Iterates on match_key (Kimball FK) and joins fct_match_summary_synced
+    on match_key. A scalar subquery retrieves match_id for downstream
+    filter compatibility (fetch_pausa_teams / fetch_pausa_players filter
+    on fct_pausa_values_synced.match_id).
+    """
     pausa_tbl = t("fct_pausa_values_synced")
     match_tbl = t("fct_match_summary_synced")
     df = execute_query(
         f"WITH RECURSIVE dm AS ("  # noqa: S608
-        f"  SELECT MIN(match_id) AS match_id FROM {pausa_tbl}"
+        f"  SELECT MIN(match_key) AS match_key FROM {pausa_tbl}"
         f"  UNION ALL"
-        f"  SELECT (SELECT MIN(match_id) FROM {pausa_tbl} WHERE match_id > dm.match_id)"
-        f"  FROM dm WHERE dm.match_id IS NOT NULL"
-        f") SELECT dm.match_id, "
+        f"  SELECT (SELECT MIN(match_key) FROM {pausa_tbl} WHERE match_key > dm.match_key)"
+        f"  FROM dm WHERE dm.match_key IS NOT NULL"
+        f") SELECT dm.match_key, "
+        f"  (SELECT pv.match_id FROM {pausa_tbl} pv WHERE pv.match_key = dm.match_key LIMIT 1) AS match_id, "
         f"  COALESCE(ms.match_date || ' \u2014 ' || ms.home_team_name || ' v ' || ms.away_team_name, "
-        f"    'Match ' || dm.match_id) AS match_label "
+        f"    'Match ' || dm.match_key) AS match_label "
         f"FROM dm "
-        f"LEFT JOIN {match_tbl} ms ON dm.match_id::text = ms.match_id::text "
-        f"WHERE dm.match_id IS NOT NULL "
+        f"LEFT JOIN {match_tbl} ms ON dm.match_key = ms.match_key "
+        f"WHERE dm.match_key IS NOT NULL "
         f"ORDER BY match_label LIMIT 100",
     )
     if df.empty:

@@ -16,7 +16,7 @@ platform.
 
 ## What is this?
 
-Each dot represents a player's playing style encoded as a 128-dimensional
+Each dot represents a player's playing style encoded as a 192-dimensional
 behavioral embedding (Football2Vec v2 transformer architecture). The 2D layout
 is computed via UMAP cosine projection — players close together have similar
 on-pitch behavior patterns.

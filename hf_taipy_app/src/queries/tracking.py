@@ -88,7 +88,7 @@ def fetch_pc_match_label(match_id: str) -> str:
         f"SELECT ms.match_date, ms.home_team_name, ms.away_team_name "  # noqa: S608
         f"FROM {dim_tbl} dm "
         f"LEFT JOIN {match_tbl} ms ON dm.match_key = ms.match_key "
-        f"WHERE dm.native_match_id = regexp_replace(%s, '^idsse_', '') LIMIT 1",
+        f"WHERE dm.native_match_id = regexp_replace(%s, '^(idsse_|metrica_)', '') LIMIT 1",
         (str(match_id),),
     )
     if df.empty:
@@ -107,7 +107,7 @@ def fetch_heatmap_actions(
     comp_id: int,
     team_id: int | None,
     player_id: int | None,
-    match_id: int | None,
+    match_key: int | None,
 ) -> pd.DataFrame:
     """Fetch server-side aggregated heat data.
 
@@ -127,29 +127,40 @@ def fetch_heatmap_actions(
        `idx_passes_comp_team_match`, `idx_shots_comp_team_player`
        etc. which already make these paths fast (<100 ms).
 
-    Both paths return identical columns: x, y, action_type, cnt.
+    Both paths return identical columns: x, y, action_type, cnt, n_matches.
     """
     # Path 1: aggregated mart — no player / match filter
-    if player_id is None and match_id is None:
+    if player_id is None and match_key is None:
         heatmap_tbl = t("fct_heatmap_agg_synced")
+        ms_tbl = t("fct_match_summary_synced")
         conditions = ["competition_id = %s"]
         params: list[Any] = [int(comp_id)]
+        ms_conditions = ["competition_id = %s"]
+        ms_params: list[Any] = [int(comp_id)]
         if team_id is not None:
             conditions.append("team_id = %s")
             params.append(int(team_id))
+            ms_conditions.append("(home_team_id = %s OR away_team_id = %s)")
+            ms_params.extend([int(team_id), int(team_id)])
         where = " AND ".join(conditions)
+        ms_where = " AND ".join(ms_conditions)
         return execute_query(
             f"SELECT x_bin AS x, y_bin AS y, action_type, "  # noqa: S608
-            f"       sum(event_count) AS cnt "
+            f"       sum(event_count) AS cnt, "
+            f"       (SELECT COUNT(*) FROM {ms_tbl} WHERE {ms_where}) AS n_matches "
             f"FROM {heatmap_tbl} "
             f"WHERE {where} "
             f"GROUP BY x_bin, y_bin, action_type",
-            tuple(params),
+            tuple(ms_params + params),
         )
 
     # Path 2: direct fall-through for player/match filters (not in mart grain)
     passes_tbl = t("fct_passes_synced")
     shots_tbl = t("fct_shots_synced")
+
+    # Build match-count CTE conditions (no table alias — standalone subquery)
+    mc_conditions = ["competition_id = %s"]
+    mc_params: list[Any] = [int(comp_id)]
 
     pass_conditions = ["p.competition_id = %s"]
     shot_conditions = ["s.competition_id = %s"]
@@ -157,29 +168,42 @@ def fetch_heatmap_actions(
     shot_params: list[Any] = [int(comp_id)]
 
     if team_id is not None:
+        mc_conditions.append("team_id = %s")
+        mc_params.append(int(team_id))
         pass_conditions.append("p.team_id = %s")
         shot_conditions.append("s.team_id = %s")
         pass_params.append(int(team_id))
         shot_params.append(int(team_id))
 
     if player_id is not None:
+        mc_conditions.append("player_id = %s")
+        mc_params.append(int(player_id))
         pass_conditions.append("p.player_id = %s")
         shot_conditions.append("s.player_id = %s")
         pass_params.append(int(player_id))
         shot_params.append(int(player_id))
 
-    if match_id is not None:
-        pass_conditions.append("p.match_id = %s")
-        shot_conditions.append("s.match_id = %s")
-        pass_params.append(int(match_id))
-        shot_params.append(int(match_id))
+    if match_key is not None:
+        mc_conditions.append("match_key = %s")
+        mc_params.append(int(match_key))
+        pass_conditions.append("p.match_key = %s")
+        shot_conditions.append("s.match_key = %s")
+        pass_params.append(int(match_key))
+        shot_params.append(int(match_key))
 
+    mc_where = " AND ".join(mc_conditions)
     pass_where = " AND ".join(pass_conditions)
     shot_where = " AND ".join(shot_conditions)
-    all_params = tuple(pass_params + shot_params)
+    all_params = tuple(mc_params + pass_params + shot_params)
 
     return execute_query(
-        f"SELECT x, y, action_type, sum(cnt) AS cnt FROM ("  # noqa: S608
+        f"WITH mc AS ("  # noqa: S608
+        f"  SELECT COUNT(DISTINCT match_key) AS n_matches "
+        f"  FROM {passes_tbl} WHERE {mc_where}"
+        f") "
+        f"SELECT x, y, action_type, sum(cnt) AS cnt, "
+        f"  (SELECT n_matches FROM mc) AS n_matches "
+        f"FROM ("
         f"  SELECT round(p.start_x / 10) * 10 + 5 AS x,"
         f"    round(p.start_y / 10) * 10 + 5 AS y,"
         f"    'pass' AS action_type, count(*) AS cnt "
@@ -240,7 +264,7 @@ def fetch_ppda_data(competition_id: int) -> pd.DataFrame:
     """
     tbl = t("fct_match_summary_synced")
     return execute_query(
-        f"SELECT match_id, match_date, home_team_name, away_team_name, "  # noqa: S608
+        f"SELECT match_key AS match_id, match_date, home_team_name, away_team_name, "  # noqa: S608
         f"  home_ppda, away_ppda, home_possession_pct "
         f"FROM {tbl} "
         f"WHERE competition_id = %s AND home_ppda IS NOT NULL "
