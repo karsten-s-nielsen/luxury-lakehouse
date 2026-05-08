@@ -95,12 +95,13 @@ resource "aws_iam_role_policy" "terraform_state_access" {
         Resource = ["arn:aws:budgets::*:budget/luxury-lakehouse-*"]
       },
       {
-        Sid    = "IAMReadOIDC"
+        Sid    = "IAMManageOIDC"
         Effect = "Allow"
         Action = [
           "iam:GetOpenIDConnectProvider",
           "iam:GetRole",
           "iam:GetRolePolicy",
+          "iam:PutRolePolicy",
           "iam:ListRolePolicies",
           "iam:ListAttachedRolePolicies",
           "iam:UpdateAssumeRolePolicy"
