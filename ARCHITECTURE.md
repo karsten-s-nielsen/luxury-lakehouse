@@ -235,7 +235,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 | Match Summary | Dashboard: Final/xG/Verdict tiles + Big Story VAEP cards + Plotly xG race + ranked delta table | `fct_match_summary_synced`, `fct_action_values_synced`, `fct_shots_synced`, `fct_discipline_events_synced` |
 | Pass Map | Full pitch arrows, progressive pass highlighting | `fct_passes_synced` |
 | Pass Network | Interactive Plotly graph with hover tooltips | `fct_passes_synced` |
-| Shot Map | Half-pitch shots sized by xG, colored by outcome, custom xG overlay | `fct_shots_synced`, `fct_xg_predictions_synced` |
+| Shot Map | Half-pitch shots sized by xG, colored by outcome, custom xG overlay | `fct_shots_synced`, `fct_xg_predictions_v2_synced` |
 | Player Comparison | Per-90 metrics radar (1-3 players), incl. VAEP/90, percentile ranks | `fct_player_stats_synced`, `fct_player_percentiles_synced` |
 | Player Impact (VAEP) | VAEP rankings, action type breakdown, timeline | `fct_action_values_synced`, `fct_player_stats_synced` |
 | Player Similarity | pgvector nearest-neighbor search ("Find players like X"), radar overlay | `fct_player_embeddings_career_synced`, `fct_player_embeddings_season_synced`, `fct_player_stats_synced` |

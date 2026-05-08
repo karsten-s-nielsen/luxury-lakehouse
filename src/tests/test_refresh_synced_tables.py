@@ -79,8 +79,8 @@ def test_get_auth_headers_does_not_call_subprocess(monkeypatch: pytest.MonkeyPat
     _get_auth_headers()  # must not raise
 
 
-def test_synced_tables_list_has_41_entries() -> None:
-    """SYNCED_TABLES drift guard — should match the 41 tables in Terraform.
+def test_synced_tables_list_has_40_entries() -> None:
+    """SYNCED_TABLES drift guard — should match the 40 tables in Terraform.
 
     34 baseline + 3 pre-aggregated marts added 2026-04-17
     (fct_heatmap_agg, fct_vaep_breakdown_agg, fct_gk_actions_detail) + 1
@@ -91,11 +91,12 @@ def test_synced_tables_list_has_41_entries() -> None:
     and Row 2 red-card markers) + 1 Kimball conformed match dim added
     2026-04-20 (dim_matches_synced, ADR-011 PR 1) + 1 v2 xG mart added
     2026-04-22 (fct_xg_predictions_v2, ADR-013 PR 3 — first mart applying
-    the ML-inference-outputs-follow-dbt pattern).
+    the ML-inference-outputs-follow-dbt pattern) - 1 v1 xG mart removed
+    2026-05-07 (fct_xg_predictions, XG1-RETIRE per ADR-023).
     """
     from ingestion.refresh_synced_tables import SYNCED_TABLES
 
-    assert len(SYNCED_TABLES) == 41
+    assert len(SYNCED_TABLES) == 40
 
 
 def test_get_host_uses_workspace_client_not_env(monkeypatch: pytest.MonkeyPatch) -> None:
