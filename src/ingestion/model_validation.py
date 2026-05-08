@@ -126,7 +126,7 @@ def _load_scalar_baselines(
 
 
 # _validate_xg_predictions (v1) retired SK3-MIG-B 2026-05-03 per ADR-023.
-# v2 validation lives in src/tests/sk3_mig_b/test_xg_v2_post_retrain_smoke.py
+# v2 validation lives in tests/smoke_gates/sk3_mig_b/test_xg_v2_post_retrain_smoke.py
 # (calibration ECE, bounds, MC dropout CI band) — fired post-retrain by the
 # orchestrator's _run_smoke_gate. A follow-up may add a daily Databricks-side
 # v2 validator parallel to the other _validate_* functions in this module.

@@ -25,7 +25,7 @@ from analytics.ext_v2.harness import run_phase1_harness  # noqa: F401 — API-dr
 from analytics.ext_v2.holdout import holdout_split
 from analytics.ext_v2.producer import KDESmoothedProducer
 from analytics.ext_v2.transition import GridSpec
-from src.tests.sk3_mig_b.conftest import chunked_sql_to_pandas
+from tests.smoke_gates.sk3_mig_b.conftest import chunked_sql_to_pandas
 
 if TYPE_CHECKING:
     from databricks.sdk import WorkspaceClient

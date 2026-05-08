@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pytest
 
-from src.tests.sk3_mig_b.conftest import execute_sql
+from tests.smoke_gates.sk3_mig_b.conftest import execute_sql
 
 if TYPE_CHECKING:
     from databricks.sdk import WorkspaceClient

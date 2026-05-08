@@ -1,0 +1,75 @@
+name: Data Quality CI
+
+# Live-warehouse data quality tests that validate schema parity, FK resolution
+# rates, cross-reference invariants, and model prediction bounds. These tests
+# hit the real Databricks SQL warehouse and are deliberately excluded from
+# python-ci.yml (which tests code, not data state).
+#
+# Includes the former bronze-live-schema.yml scope (Mode 1 + Mode 4 gates)
+# plus Kimball contract, xref invariant, xg bounds, and PAUSA compliance tests.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/ingestion/**"
+      - "dbt_project/models/**"
+      - "tests/data_quality/**"
+      - "src/tests/coverage_utils.py"
+      - ".github/workflows/data-quality-ci.yml"
+  schedule:
+    # Daily at 08:00 UTC — after lakebase-grants.yml runs at 07:00 UTC so
+    # any index / grant drift is self-healed before the parity check runs.
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: data-quality-ci
+  cancel-in-progress: false
+
+jobs:
+  live-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
+
+      - name: Set up Python 3.10
+        run: uv python install 3.10
+
+      - name: Install dbt packages (force-include prerequisite)
+        env:
+          DATABRICKS_HOST: https://example.databricks.com
+          DATABRICKS_HTTP_PATH: /sql/1.0/warehouses/dummywarehouseid0
+          DATABRICKS_TOKEN: dummy
+        run: uvx --from "dbt-core>=1.10.0,<1.12.0" dbt deps --project-dir dbt_project --profiles-dir dbt_project
+
+      - name: Install dependencies
+        run: uv sync --frozen --extra analytics
+
+      # databricks-sql-connector is deliberately NOT in pyproject extras
+      # (test-only dep). Install ad-hoc so pytest.importorskip passes.
+      - name: Install databricks-sql-connector (ad-hoc, not in pyproject)
+        run: uv pip install databricks-sql-connector
+
+      - name: Run data quality tests
+        env:
+          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+          DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}  # pragma: allowlist secret
+          BRONZE_SCHEMA: soccer_analytics.bronze
+          STAGING_SCHEMA: soccer_analytics.dev_silver
+        run: |
+          uv run pytest \
+            tests/data_quality/ \
+            -v --tb=short --no-header
+
+      - name: Report
+        if: always()
+        run: echo "::notice::Data quality CI completed. Check pytest output above for violations."

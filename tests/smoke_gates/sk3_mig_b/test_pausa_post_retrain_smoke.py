@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from src.tests.sk3_mig_b.conftest import execute_sql
+from tests.smoke_gates.sk3_mig_b.conftest import execute_sql
 
 if TYPE_CHECKING:
     from databricks.sdk import WorkspaceClient

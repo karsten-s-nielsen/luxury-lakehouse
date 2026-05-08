@@ -1,7 +1,7 @@
 """Shared fixtures for SK3-MIG-B post-retrain smoke gates.
 
 Each gate runs after Champion promotion + mart write. The orchestrator invokes
-the gate via `pytest src/tests/sk3_mig_b/test_<item>_post_retrain_smoke.py -v`.
+the gate via `pytest tests/smoke_gates/sk3_mig_b/test_<item>_post_retrain_smoke.py -v`.
 Failure halts the orchestrator before Lakebase synced refresh fires (per spec §5.2).
 """
 

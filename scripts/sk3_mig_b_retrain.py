@@ -660,7 +660,7 @@ def _dispatch_trained_model(state: CycleState, cycle_item: str) -> str:
     if script is None:
         # ext_v2_p0 / ext_v2_p1 are local-only (no HF Job, no mart write). The
         # NLL threshold validation is the smoke gate — see
-        # src/tests/sk3_mig_b/test_ext_v2_p{0,1}_post_retrain_smoke.py — which
+        # tests/smoke_gates/sk3_mig_b/test_ext_v2_p{0,1}_post_retrain_smoke.py — which
         # fetches fct_action_values and calls run_phase{0,1}_harness directly.
         # Dispatch only smoke-imports the harness module to fail fast on import
         # drift; _run_cycle_item skips _trigger_mega_job_task for these (they
@@ -850,7 +850,7 @@ def _trigger_mega_job_task(state: CycleState, cycle_item: str) -> int:
 
 def _run_smoke_gate(cycle_item: str) -> bool:
     """Invoke pytest against the per-item smoke gate. Returns True on PASS."""
-    test_file = f"src/tests/sk3_mig_b/test_{cycle_item}_post_retrain_smoke.py"
+    test_file = f"tests/smoke_gates/sk3_mig_b/test_{cycle_item}_post_retrain_smoke.py"
     if not (_REPO_ROOT / test_file).exists():
         # Publish-only items have no smoke gate by design.
         return True

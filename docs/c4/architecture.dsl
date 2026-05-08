@@ -77,14 +77,14 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         hfJobs = softwareSystem "HuggingFace Jobs" "L40S GPU / cpu-basic compute for training and batch analytics" "External"
         openRouter = softwareSystem "OpenRouter" "LLM API: Claude Sonnet 4 (80%), Haiku 4.5 (20%) for Evolve mutations" "External"
 
-        githubActions = softwareSystem "GitHub Actions CI/CD" "Platform automation: Terraform, Python CI, dbt CI, Semgrep, Lakebase grants" {
+        githubActions = softwareSystem "GitHub Actions CI/CD" "Platform automation: Terraform, Python CI, dbt CI, Data Quality CI, Semgrep, Lakebase grants" {
             terraformApply = container "Terraform Apply" "Auto-apply on push to main. AWS OIDC + Databricks federation." ".github/workflows/"
             terraformPlan = container "Terraform Plan" "Plan on PR, posts diff. Human reviews before merge." ".github/workflows/"
             pythonCi = container "Python CI" "ruff, pyright, pytest, detect-secrets, pip-audit. Deploys wheel on main." ".github/workflows/"
             dbtCi = container "dbt CI" "dbt parse + slim CI for contract verification" ".github/workflows/"
             semgrepCi = container "Semgrep SAST" "OWASP-aligned static analysis on every push" ".github/workflows/"
             lakebaseGrantsWorkflow = container "Lakebase Grants" "Self-healing SELECT grants for Taipy SP (ADR-005)" ".github/workflows/"
-            bronzeLiveSchemaCi = container "Bronze Live Schema" "DESCRIBE parity + rowcount tests against live bronze" ".github/workflows/"
+            dataQualityCi = container "Data Quality CI" "Bronze schema parity, Kimball contracts, xref invariants, ADR-013 compliance" ".github/workflows/"
         }
 
         # Relationships - users
@@ -214,8 +214,8 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         terraformApply -> databricksApi "Applies TF resources" "OIDC"
         terraformPlan -> databricksApi "Reads state for diff" "OIDC"
         pythonCi -> bronzeSchema "Deploys wheel on main" "HTTPS"
-        bronzeLiveSchemaCi -> bronzeSchema "DESCRIBE + count parity" "SQL"
-        bronzeLiveSchemaCi -> databricksApi "Warehouse auto-resume" "HTTPS"
+        dataQualityCi -> bronzeSchema "DESCRIBE + count parity" "SQL"
+        dataQualityCi -> databricksApi "Warehouse auto-resume" "HTTPS"
         lakebaseGrantsWorkflow -> databricksApi "Gets PG credential" "HTTPS"
         lakebaseGrantsWorkflow -> lakebase "GRANT SELECT" "PostgreSQL"
         terraformApply -> lakebaseGrantsWorkflow "workflow_run trigger" "GH Actions"

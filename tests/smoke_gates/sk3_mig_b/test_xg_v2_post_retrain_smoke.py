@@ -29,7 +29,7 @@ import pytest
 if TYPE_CHECKING:
     from databricks.sdk import WorkspaceClient
 
-from src.tests.sk3_mig_b.conftest import execute_sql
+from tests.smoke_gates.sk3_mig_b.conftest import execute_sql
 
 # Eval fold size — large enough for stable ECE estimation, small enough for
 # fast smoke-gate dispatch. ~1k shots covers ~50 matches at typical 20 shots/match.

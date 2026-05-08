@@ -1,24 +1,17 @@
-"""PR 3 regression tests for fct_xg_predictions_v2 gold mart (ADR-013).
+"""Live data-quality checks for fct_xg_predictions_v2.
 
-Asserts after Phase 4 of PR 3:
-  - Mart SQL + staging SQL files exist and follow the ADR-013 pattern
-    (INNER JOIN fct_shots ON shot_id, contract enforced, clustered on match_key).
-  - Mart contract block in _marts__models.yml has all expected columns.
-  - `xg` source declares `xg_predictions_v2` table.
-  - (Live) fct_xg_predictions_v2 exposes match_key + competition_key and
-    does NOT expose legacy match_id.
-  - (Live) CI bound ordering: xg_ci_lower <= xg_set_encoder <= xg_ci_upper.
-  - (Live) INNER JOIN to fct_shots preserves every staging row.
+Validates CI bound ordering and staging-to-mart row preservation on the
+live warehouse. Static structural tests (file existence, contract block)
+live in src/tests/test_xg_v2_adr013_static.py and run in python-ci.
 
-Live tests skip gracefully when the mart isn't built (xg_v2_enabled default
-is false; flipped on in Databricks job config).
+Requires live Databricks SQL warehouse via DATABRICKS_HOST,
+DATABRICKS_HTTP_PATH, DATABRICKS_TOKEN. Skips when those are absent.
 """
 
 from __future__ import annotations
 
 import os
 from collections.abc import Iterator
-from pathlib import Path
 
 import pytest
 
@@ -42,57 +35,6 @@ def conn() -> Iterator[object]:
         yield c
     finally:
         c.close()
-
-
-# ---------------------------------------------------------------------------
-# Static tests
-# ---------------------------------------------------------------------------
-
-
-def test_mart_file_exists() -> None:
-    assert Path("dbt_project/models/marts/fct_xg_predictions_v2.sql").is_file()
-
-
-def test_staging_v2_file_exists() -> None:
-    assert Path("dbt_project/models/staging/xg/stg_xg__predictions_v2.sql").is_file()
-
-
-def test_v2_source_declared() -> None:
-    yml = Path("dbt_project/models/staging/xg/_xg__sources.yml").read_text(encoding="utf-8")
-    assert "- name: xg_predictions_v2" in yml, "xg.xg_predictions_v2 source not declared"
-
-
-def test_mart_sql_inner_joins_fct_shots_on_shot_id() -> None:
-    text = Path("dbt_project/models/marts/fct_xg_predictions_v2.sql").read_text(encoding="utf-8")
-    flat = " ".join(text.split())
-    assert "inner join {{ ref('fct_shots') }} s on p.shot_id = s.shot_id" in flat
-    assert "s.match_key" in flat
-    assert "s.competition_key" in flat
-    assert "'enforced': true" in flat
-    assert "liquid_clustered_by=['match_key']" in text
-
-
-def test_mart_contract_block_present() -> None:
-    yml = Path("dbt_project/models/marts/_marts__models.yml").read_text(encoding="utf-8")
-    assert "- name: fct_xg_predictions_v2" in yml
-    block_start = yml.index("- name: fct_xg_predictions_v2\n")
-    block = yml[block_start : block_start + 4000]
-    expected_cols = (
-        "shot_id",
-        "match_key",
-        "competition_key",
-        "competition_id",
-        "xg_set_encoder",
-        "xg_ci_lower",
-        "xg_ci_upper",
-    )
-    for col in expected_cols:
-        assert f"- name: {col}" in block, f"contract block missing column {col}"
-
-
-# ---------------------------------------------------------------------------
-# Live tests — require xg_v2_enabled=true at build time
-# ---------------------------------------------------------------------------
 
 
 @requires_databricks
