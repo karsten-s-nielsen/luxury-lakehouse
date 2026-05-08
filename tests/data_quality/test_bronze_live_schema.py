@@ -110,12 +110,14 @@ def _idsse_events_expected_cols() -> set[str]:
     """
     import pandas as pd
 
+    _repo_root = Path(__file__).resolve().parents[2]
+    _src_tests = _repo_root / "src" / "tests"
     # Make src importable when running via `uv run pytest`
-    sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
+    sys.path.insert(0, str(_repo_root / "src"))
     from ingestion.idsse import _parse_events_xml
 
-    # Reuse the coverage test's synthetic-XML generator
-    sys.path.insert(0, str(Path(__file__).parent.resolve()))
+    # Reuse the coverage test's synthetic-XML generator (lives in src/tests/)
+    sys.path.insert(0, str(_src_tests))
     from coverage_utils import load_attr_enumeration
 
     try:
@@ -123,7 +125,7 @@ def _idsse_events_expected_cols() -> set[str]:
     except ImportError:
         from tests.test_idsse_bronze_coverage import _generate_synthetic_xml  # type: ignore
 
-    fixture = Path(__file__).parent / "fixtures" / "idsse_dfl_event_attr_enumeration.json"
+    fixture = _src_tests / "fixtures" / "idsse_dfl_event_attr_enumeration.json"
     enum = load_attr_enumeration(fixture)
     xml_text = _generate_synthetic_xml(enum)
 
@@ -173,7 +175,7 @@ def test_idsse_events_live_schema_covers_parser(conn: object) -> None:
 @requires_databricks
 def test_idsse_tracking_live_schema_covers_parser(conn: object) -> None:
     """Every column the IDSSE tracking parser emits must exist in live Delta."""
-    sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
     from ingestion.idsse import _IDSSE_TRACKING_BRONZE_COLS
 
     expected = set(_IDSSE_TRACKING_BRONZE_COLS)
@@ -194,7 +196,7 @@ def test_idsse_tracking_live_schema_covers_parser(conn: object) -> None:
 
 @requires_databricks
 def test_metrica_tracking_live_schema_covers_parser(conn: object) -> None:
-    sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
     from ingestion.metrica_tracking import _METRICA_TRACKING_BRONZE_COLS
 
     expected = set(_METRICA_TRACKING_BRONZE_COLS)
@@ -269,7 +271,7 @@ def test_wyscout_teams_live_schema(conn: object) -> None:
 
 @requires_databricks
 def test_metrica_events_live_schema_covers_parser(conn: object) -> None:
-    sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
     from ingestion.metrica_events import _METRICA_EVENTS_BRONZE_COLS
 
     expected = set(_METRICA_EVENTS_BRONZE_COLS)
@@ -292,7 +294,7 @@ def test_wyscout_events_live_schema_covers_parser(conn: object) -> None:
     ``finalize_bronze_df`` is wired into ``wyscout._write_events_competition``,
     the expected-cols contract is machine-enforceable against live bronze.
     """
-    sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
     from ingestion.wyscout import _WYSCOUT_EVENTS_EXPECTED_COLS
 
     expected = set(_WYSCOUT_EVENTS_EXPECTED_COLS)
@@ -310,7 +312,7 @@ def test_wyscout_events_live_schema_covers_parser(conn: object) -> None:
 @requires_databricks
 def test_statsbomb_competitions_live_schema_covers_parser(conn: object) -> None:
     """Every StatsBomb competitions parser column must land in live Delta."""
-    sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
     from ingestion.statsbomb import _STATSBOMB_COMPETITIONS_EXPECTED_COLS
 
     expected = set(_STATSBOMB_COMPETITIONS_EXPECTED_COLS)
@@ -328,7 +330,7 @@ def test_statsbomb_competitions_live_schema_covers_parser(conn: object) -> None:
 @requires_databricks
 def test_statsbomb_matches_live_schema_covers_parser(conn: object) -> None:
     """Every StatsBomb matches parser column must land in live Delta."""
-    sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
     from ingestion.statsbomb import _STATSBOMB_MATCHES_EXPECTED_COLS
 
     expected = set(_STATSBOMB_MATCHES_EXPECTED_COLS)
@@ -346,7 +348,7 @@ def test_statsbomb_matches_live_schema_covers_parser(conn: object) -> None:
 @requires_databricks
 def test_statsbomb_events_live_schema_covers_parser(conn: object) -> None:
     """Every StatsBomb events parser column must land in live Delta (126 cols)."""
-    sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
     from ingestion.statsbomb import _STATSBOMB_EVENTS_EXPECTED_COLS
 
     expected = set(_STATSBOMB_EVENTS_EXPECTED_COLS)
@@ -363,7 +365,7 @@ def test_statsbomb_events_live_schema_covers_parser(conn: object) -> None:
 
 @requires_databricks
 def test_skillcorner_tracking_live_schema_covers_parser(conn: object) -> None:
-    sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
     from ingestion.skillcorner import _SKILLCORNER_TRACKING_BRONZE_COLS
 
     expected = set(_SKILLCORNER_TRACKING_BRONZE_COLS)
@@ -393,7 +395,7 @@ def test_pitch_control_values_live_schema_covers_writer(conn: object) -> None:
     so this test guards against the writer's bronze contract drifting
     from the live Delta schema.
     """
-    sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
     from ingestion.pitch_control_batch import _PITCH_CONTROL_BRONZE_COLS
 
     expected = set(_PITCH_CONTROL_BRONZE_COLS) - _AUDIT_COLS
@@ -424,7 +426,7 @@ def test_xg_predictions_v2_live_schema_covers_writer(conn: object) -> None:
     live may have EXTRA columns (e.g. legacy ``match_id`` pre-Phase-5.0-ALTER
     post-merge deploy). Test fails only if a writer-expected column is MISSING.
     """
-    sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
     from ingestion.xg_model_v2 import _XG_V2_BRONZE_COLS
 
     expected = set(_XG_V2_BRONZE_COLS)

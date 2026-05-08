@@ -34,7 +34,7 @@ against the unpivot baseline) — out of scope for this drop-safety sweep.
 
 Requires live Databricks. Skipped when ``DATABRICKS_{HOST,HTTP_PATH,TOKEN}``
 env vars are unset or ``databricks-sql-connector`` is not installed. The
-CI entry point is ``.github/workflows/bronze-live-schema.yml``.
+CI entry point is ``.github/workflows/data-quality-ci.yml``.
 
 Schema targets:
   Bronze tables live in ``soccer_analytics.bronze`` (single-env bronze —

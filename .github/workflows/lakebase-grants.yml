@@ -174,4 +174,4 @@ jobs:
       # via dashboard staleness instead of at deploy time.
       - name: Verify all synced tables online
         run: |
-          uv run pytest src/tests/test_synced_tables_online.py -v --tb=short --no-header
+          uv run pytest tests/data_quality/test_synced_tables_online.py -v --tb=short --no-header

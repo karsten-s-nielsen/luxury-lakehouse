@@ -1,13 +1,16 @@
 # ruff: noqa: S608 — SQL built from gold_schema fixture + module constants; no user input.
-"""F2V v1 post-retrain smoke gate. Spec §3 — Football2Vec paper recall@10.
+"""F2V v2 post-retrain smoke gate. Spec §3.
 
-Phase 0 finding overrides the plan-assumed schema:
-- Column is `behavioral_vector` (32-dim), NOT `embedding`.
-- Identity column is `canonical_player_id`, joined to dim_players via player_key.
-- data_source filter for v1 = StatsBomb-trained 32-dim Doc2Vec; the production
-  rows live under data_source IN ('statsbomb', 'wyscout'). The plan's
-  `data_source = 'f2v_v1'` filter would return zero rows.
-- Phase 9 prep verifies the exact data_source filter pre-runtime.
+v2 = the 192-dim variant. Per project memory `project_career_mart_v1_v2_dim_mismatch`
+the career mart has mixed-dim rows (32d v1 + 192d v2). The exact data_source
+value distinguishing v2 from v1 is reconciled at Phase 9 prep.
+
+Phase 0 schema findings:
+- Column is `behavioral_vector` (NOT `embedding`).
+- fct_player_embeddings.data_source distinct values: ['football2vec_360',
+  'statsbomb', 'wyscout']. None of these is explicitly v2 — Phase 9 prep
+  identifies the correct slice (could be 'football2vec_v2' if added by
+  this PR's retrain, or could be a separate mart variant).
 """
 
 from __future__ import annotations
@@ -17,23 +20,21 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pytest
 
-from src.tests.sk3_mig_b.conftest import execute_sql
+from tests.smoke_gates.sk3_mig_b.conftest import execute_sql
 
 if TYPE_CHECKING:
     from databricks.sdk import WorkspaceClient
 
 
-_EMBEDDING_DIM = 32
+_EMBEDDING_DIM = 192
 _TABLE_NAME = "fct_player_embeddings"
-# v1 = the StatsBomb-trained 32-dim Doc2Vec — production data_source values.
-# Verify at Phase 9 prep time that retrain emits rows under one of these
-# data_source values (NOT 'f2v_v1' as the plan assumed).
-_DATA_SOURCE_VALUES = ("statsbomb", "wyscout")
+# v2 marker — Phase 9 prep MUST verify the post-retrain data_source value.
+# Plan assumed 'f2v_v2'; actual production marker is TBD.
+# Suggested probe at Phase 9 prep:
+#   SELECT DISTINCT data_source FROM fct_player_embeddings
+#   WHERE size(behavioral_vector) = 192
+_DATA_SOURCE_FILTER_TBD = "football2vec_v2"  # adjust at Phase 9 prep
 _EVAL_FOLD_SIZE = 100
-
-
-def _data_source_in_clause() -> str:
-    return ", ".join(repr(s) for s in _DATA_SOURCE_VALUES)
 
 
 def test_dim_correct(
@@ -44,18 +45,18 @@ def test_dim_correct(
     sql = f"""
     SELECT size(behavioral_vector) AS dim
     FROM {gold_schema}.{_TABLE_NAME}
-    WHERE data_source IN ({_data_source_in_clause()})
+    WHERE data_source = '{_DATA_SOURCE_FILTER_TBD}'
     LIMIT 1
     """
     rows = execute_sql(workspace_client, warehouse_id, sql)
     if not rows:
-        pytest.skip(f"No rows for data_source IN {_DATA_SOURCE_VALUES} — skip until Phase 9 retrain")
-    actual_dim = int(rows[0][0])
-    if actual_dim != _EMBEDDING_DIM:
         pytest.skip(
-            f"F2V v1 dim = {actual_dim}, expected {_EMBEDDING_DIM} — "
-            "pre-retrain state; skip until Phase 9 retrain refreshes embeddings"
+            f"data_source = '{_DATA_SOURCE_FILTER_TBD}' returned no rows. "
+            "v2 marker not yet present in fct_player_embeddings; if this is "
+            "Phase 9 first-run pre-retrain, that's expected. "
+            "Reconcile data_source value at Phase 9 prep."
         )
+    assert int(rows[0][0]) == _EMBEDDING_DIM, f"F2V v2 dim = {rows[0][0]}, expected {_EMBEDDING_DIM}"
 
 
 def test_no_nan_embeddings(
@@ -66,11 +67,37 @@ def test_no_nan_embeddings(
     sql = f"""
     SELECT COUNT(*) AS n_with_nan
     FROM {gold_schema}.{_TABLE_NAME}
-    WHERE data_source IN ({_data_source_in_clause()})
+    WHERE data_source = '{_DATA_SOURCE_FILTER_TBD}'
       AND exists(behavioral_vector, x -> x IS NULL OR isnan(x))
     """
     rows = execute_sql(workspace_client, warehouse_id, sql)
+    if not rows:
+        pytest.skip(f"data_source = '{_DATA_SOURCE_FILTER_TBD}' filter returned 0 rows")
     assert int(rows[0][0]) == 0, f"{rows[0][0]} embeddings contain NaN"
+
+
+def test_l2_norms_unit_length(
+    workspace_client: WorkspaceClient,
+    warehouse_id: str,
+    gold_schema: str,
+) -> None:
+    sql = f"""
+    WITH norms AS (
+      SELECT sqrt(aggregate(behavioral_vector, 0.0D, (acc, x) -> acc + x * x)) AS n
+      FROM {gold_schema}.{_TABLE_NAME}
+      WHERE data_source = '{_DATA_SOURCE_FILTER_TBD}'
+      LIMIT 1000
+    )
+    SELECT COUNT(*) AS n_total,
+           SUM(CASE WHEN n < 0.95 OR n > 1.05 THEN 1 ELSE 0 END) AS n_out
+    FROM norms
+    """
+    rows = execute_sql(workspace_client, warehouse_id, sql)
+    if not rows or int(rows[0][0]) == 0:
+        pytest.skip(f"data_source = '{_DATA_SOURCE_FILTER_TBD}' filter returned 0 rows")
+    n_total = int(rows[0][0])
+    n_out = int(rows[0][1])
+    assert n_out == 0, f"{n_out}/{n_total} embeddings have L2 norm outside [0.95, 1.05]"
 
 
 def test_recall_at_10_above_threshold(
@@ -78,9 +105,6 @@ def test_recall_at_10_above_threshold(
     warehouse_id: str,
     gold_schema: str,
 ) -> None:
-    """Pull eval-fold embeddings via deterministic SQL; compute recall@10."""
-    # Eval fold: top-100 StatsBomb players by minutes played, ordered by
-    # canonical_player_id. Stable across retrains (Phase 0.4 finding).
     eval_fold_sql = f"""
     SELECT canonical_player_id
     FROM {gold_schema}.fct_player_stats
@@ -91,17 +115,10 @@ def test_recall_at_10_above_threshold(
     """
     fold_rows = execute_sql(workspace_client, warehouse_id, eval_fold_sql)
     if not fold_rows:
-        pytest.skip(
-            "fct_player_stats may use 'player_id' (int) instead of "
-            "'canonical_player_id' (string); reconcile at Phase 9 prep."
-        )
+        pytest.skip("Eval-fold lookup empty; reconcile at Phase 9 prep.")
     eval_ids = [str(r[0]) for r in fold_rows]
     quoted = ", ".join(repr(p) for p in eval_ids)
 
-    # NB: F2V v1 doesn't have explicit primary_position in the embedding mart.
-    # We approximate "same role" via dim_players join. If dim_players doesn't
-    # carry primary_position, the recall threshold may need adjustment at
-    # Phase 9 prep (consult docs/engineering/conventions.md → dim_players).
     sql = f"""
     SELECT e.canonical_player_id,
            COALESCE(p.primary_position, 'UNKNOWN') AS primary_position,
@@ -109,22 +126,17 @@ def test_recall_at_10_above_threshold(
     FROM {gold_schema}.{_TABLE_NAME} e
     LEFT JOIN {gold_schema}.dim_players p
       ON e.canonical_player_id = p.canonical_player_id
-    WHERE e.data_source IN ({_data_source_in_clause()})
+    WHERE e.data_source = '{_DATA_SOURCE_FILTER_TBD}'
       AND e.canonical_player_id IN ({quoted})
     """
     rows = execute_sql(workspace_client, warehouse_id, sql)
     if len(rows) < 50:
-        pytest.skip(
-            f"Eval fold returned only {len(rows)} embeddings "
-            "(need >=50 for recall@10). Likely a data_source filter mismatch — "
-            "reconcile at Phase 9 prep."
-        )
+        pytest.skip(f"Eval fold returned only {len(rows)} embeddings; reconcile data_source filter at Phase 9 prep.")
 
     by_id_pos: dict[str, str] = {}
     queries: list[tuple[str, np.ndarray]] = []
     for player_id, position, emb in rows:
         emb_array = np.asarray(emb, dtype=np.float64)
-        # L2 normalise here so cosine = dot product downstream
         norm = float(np.linalg.norm(emb_array))
         if norm > 0:
             emb_array = emb_array / norm
@@ -150,4 +162,4 @@ def test_recall_at_10_above_threshold(
         total += 10
 
     recall = correct / total if total > 0 else 0.0
-    assert recall > 0.7, f"F2V v1 recall@10 = {recall:.4f}, threshold 0.7"
+    assert recall > 0.7, f"F2V v2 recall@10 = {recall:.4f}, threshold 0.7"

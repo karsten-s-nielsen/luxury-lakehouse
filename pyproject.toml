@@ -41,8 +41,8 @@ analytics = [
     "optuna>=4.0",
     # PR-1.5 (SK3-MIG-B): Live Kimball contract tests require direct SQL
     # queries to dev_gold marts. The databricks-sql-connector provides the
-    # `databricks.sql` module used by test_marts_kimball_contracts.py +
-    # test_marts_live_schema.py + test_bronze_live_schema.py + ext_v2 harnesses.
+    # `databricks.sql` module used by tests/data_quality/ live tests and
+    # tests/smoke_gates/sk3_mig_b/ ext_v2 harnesses.
     "databricks-sql-connector>=4.0.0",
 ]
 dbt = [
@@ -164,6 +164,7 @@ select = [
 
 [tool.ruff.lint.per-file-ignores]
 "src/tests/**" = ["S101", "BLE001"]  # assert is standard in pytest; tests may catch broadly to assert error flow
+"tests/**" = ["S101", "BLE001"]  # data-quality + smoke-gate tests: same pytest exemptions as src/tests
 "hf_taipy_app/**" = ["E501", "S104", "F405", "RUF022", "RUF005"]  # Taipy app: long help text, 0.0.0.0, star imports, unsorted __all__, list concat
 "hf_taipy_app/src/test_*.py" = ["E501", "S101", "S105", "S106"]  # Taipy app tests: long lines, asserts, fake tokens in test fixtures
 "src/evolve/targets/*/seed_programs/**" = ["F821"]  # Seed programs are exec'd with torch/math injected in globals
@@ -371,7 +372,7 @@ dev = [
     "pandas-stubs>=2.2.3,<2.4",
     # cachetools is used by hf_taipy_app/src/cache.py (on the test sys.path
     # via pyright extraPaths). Several src/tests/test_queries_*.py and
-    # test_trigger_dbt_job.py + test_dbt_fct_action_values_minute.py tests
+    # test_trigger_dbt_job.py tests
     # transitively import it.
     "cachetools>=6.0.0",
     # NOTE: tests touching `databricks-sdk` (test_refresh_synced_tables,
