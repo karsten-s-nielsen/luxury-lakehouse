@@ -1,0 +1,16 @@
+-- assert_idsse_player_id_native_join_resolves.sql
+-- ADR-018 cross-table JOIN-coverage gate (PR-LL3 S2).
+
+{{ config(
+    tags=['post_deploy_only'],
+    enabled=var('include_post_deploy_tests', false),
+) }}
+
+select distinct b.player_id_native
+from {{ ref('stg_spadl__action_values') }} b
+left join {{ ref('dim_players') }} d
+    on b.player_id_native = d.native_player_id
+   and b.data_source = d.provider
+where b.data_source = 'idsse'
+  and b.player_id_native is not null
+  and d.player_key is null

@@ -346,8 +346,8 @@ class TestSpadlVaepWriterDdlParity:
         assert not mismatched, f"Metrica writer/DDL type drift {mismatched}"
 
     def test_spadl_ddl_includes_native_id_columns(self) -> None:
-        """LL2 Path B: 4 native (string) identifier columns aligning bronze.spadl_actions
-        with the ADR-011 dim_competitions Kimball pattern (provider + native_id)."""
+        """LL2 Path B + PR-LL3 S2: native (string) identifier columns aligning
+        bronze.spadl_actions with the ADR-011 dim_competitions Kimball pattern."""
         from ingestion import spadl_vaep
 
         ddl = _parse_ddl(spadl_vaep._SPADL_SCHEMA)
@@ -357,8 +357,9 @@ class TestSpadlVaepWriterDdlParity:
             ("competition_native_id", "string"),
             ("season_native_id", "string"),
             ("match_id_native", "string"),
+            ("player_id_native", "string"),
         ):
-            assert col in ddl, f"_SPADL_SCHEMA missing LL2 native-id column {col!r}"
+            assert col in ddl, f"_SPADL_SCHEMA missing native-id column {col!r}"
             assert ddl[col] == expected_type, (
                 f"_SPADL_SCHEMA {col!r} type drift: got {ddl[col]!r}, expected {expected_type!r}"
             )

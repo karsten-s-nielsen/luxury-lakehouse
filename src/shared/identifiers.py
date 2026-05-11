@@ -17,7 +17,7 @@ every new function needs a corresponding format-contract test in
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import Literal, NamedTuple
 
 # ---------------------------------------------------------------------------
 # IDSSE (DFL Bundesliga / Sportec)
@@ -124,3 +124,151 @@ def wyscout_native_match_id(raw_match_id: int) -> str:
     if not isinstance(raw_match_id, int) or raw_match_id <= 0:
         raise ValueError(f"invalid Wyscout match id: {raw_match_id!r} (expected positive int)")
     return str(raw_match_id)
+
+
+# ---------------------------------------------------------------------------
+# Player ID generators - PR-LL3 (S2, ADR-018)
+# ---------------------------------------------------------------------------
+
+
+def statsbomb_native_player_id(raw_player_id: int) -> str:
+    """Canonical StatsBomb native player id - stringified positive BIGINT."""
+    if not isinstance(raw_player_id, int) or raw_player_id <= 0:
+        raise ValueError(f"invalid StatsBomb player id: {raw_player_id!r} (expected positive int)")
+    return str(raw_player_id)
+
+
+def wyscout_native_player_id(raw_player_id: int) -> str:
+    """Canonical Wyscout native player id - stringified positive BIGINT."""
+    if not isinstance(raw_player_id, int) or raw_player_id <= 0:
+        raise ValueError(f"invalid Wyscout player id: {raw_player_id!r} (expected positive int)")
+    return str(raw_player_id)
+
+
+_IDSSE_PLAYER_ID_PATTERN = re.compile(r"^DFL-OBJ-[A-Z0-9]+$")
+
+
+def idsse_native_player_id(raw_dfl_player_id: str) -> str:
+    """Canonical IDSSE native player id - ``DFL-OBJ-XXXXXX``."""
+    if not _IDSSE_PLAYER_ID_PATTERN.match(raw_dfl_player_id):
+        raise ValueError(f"invalid IDSSE player id: {raw_dfl_player_id!r} (expected 'DFL-OBJ-XXXXXX' format)")
+    return raw_dfl_player_id
+
+
+_METRICA_PLAYER_ID_PATTERN = re.compile(r"^Player[0-9]+$")
+
+
+def metrica_native_player_id(raw_metrica_player_id: str) -> str:
+    """Canonical Metrica native player id - ``PlayerN`` (anonymous)."""
+    if not _METRICA_PLAYER_ID_PATTERN.match(raw_metrica_player_id):
+        raise ValueError(f"invalid Metrica player id: {raw_metrica_player_id!r} (expected 'PlayerN' format)")
+    return raw_metrica_player_id
+
+
+# ---------------------------------------------------------------------------
+# Team ID generators - PR-LL3 (S7, ADR-018)
+# ---------------------------------------------------------------------------
+# SB/WS team IDs are stringified positive BIGINTs (same shape as match/player).
+# IDSSE team IDs are DFL CLU strings: DFL-CLU-XXXXXX.
+# Metrica team IDs already have a generator (metrica_native_team_id above).
+
+
+def statsbomb_native_team_id(raw_team_id: int) -> str:
+    """Canonical StatsBomb native team id - stringified positive BIGINT."""
+    if not isinstance(raw_team_id, int) or raw_team_id <= 0:
+        raise ValueError(f"invalid StatsBomb team id: {raw_team_id!r} (expected positive int)")
+    return str(raw_team_id)
+
+
+def wyscout_native_team_id(raw_team_id: int) -> str:
+    """Canonical Wyscout native team id - stringified positive BIGINT."""
+    if not isinstance(raw_team_id, int) or raw_team_id <= 0:
+        raise ValueError(f"invalid Wyscout team id: {raw_team_id!r} (expected positive int)")
+    return str(raw_team_id)
+
+
+_IDSSE_TEAM_ID_PATTERN = re.compile(r"^DFL-CLU-[A-Z0-9]+$")
+
+
+def idsse_native_team_id(raw_dfl_team_id: str) -> str:
+    """Canonical IDSSE native team id - ``DFL-CLU-XXXXXX``."""
+    if not _IDSSE_TEAM_ID_PATTERN.match(raw_dfl_team_id):
+        raise ValueError(f"invalid IDSSE team id: {raw_dfl_team_id!r} (expected 'DFL-CLU-XXXXXX' format)")
+    return raw_dfl_team_id
+
+
+# ---------------------------------------------------------------------------
+# Type-safe identifier wrappers — PR-LL3 S7
+# ---------------------------------------------------------------------------
+# Non-breaking additions — existing bare-string functions remain. These
+# wrappers carry (provider, value) together for downstream type safety.
+# No Pydantic — src/shared/ is stdlib-only per CLAUDE.md.
+
+
+class NativeMatchId(NamedTuple):
+    """Type-safe wrapper for a native match identifier."""
+
+    provider: str
+    value: str
+
+    @classmethod
+    def statsbomb(cls, raw: int) -> NativeMatchId:
+        return cls(provider="statsbomb", value=statsbomb_native_match_id(raw))
+
+    @classmethod
+    def wyscout(cls, raw: int) -> NativeMatchId:
+        return cls(provider="wyscout", value=wyscout_native_match_id(raw))
+
+    @classmethod
+    def idsse(cls, raw: str) -> NativeMatchId:
+        return cls(provider="idsse", value=idsse_native_match_id(raw))
+
+    @classmethod
+    def metrica(cls, raw: str) -> NativeMatchId:
+        return cls(provider="metrica", value=metrica_native_match_id(raw))
+
+
+class NativePlayerId(NamedTuple):
+    """Type-safe wrapper for a native player identifier."""
+
+    provider: str
+    value: str
+
+    @classmethod
+    def statsbomb(cls, raw: int) -> NativePlayerId:
+        return cls(provider="statsbomb", value=statsbomb_native_player_id(raw))
+
+    @classmethod
+    def wyscout(cls, raw: int) -> NativePlayerId:
+        return cls(provider="wyscout", value=wyscout_native_player_id(raw))
+
+    @classmethod
+    def idsse(cls, raw: str) -> NativePlayerId:
+        return cls(provider="idsse", value=idsse_native_player_id(raw))
+
+    @classmethod
+    def metrica(cls, raw: str) -> NativePlayerId:
+        return cls(provider="metrica", value=metrica_native_player_id(raw))
+
+
+class NativeTeamId(NamedTuple):
+    """Type-safe wrapper for a native team identifier."""
+
+    provider: str
+    value: str
+
+    @classmethod
+    def statsbomb(cls, raw: int) -> NativeTeamId:
+        return cls(provider="statsbomb", value=statsbomb_native_team_id(raw))
+
+    @classmethod
+    def wyscout(cls, raw: int) -> NativeTeamId:
+        return cls(provider="wyscout", value=wyscout_native_team_id(raw))
+
+    @classmethod
+    def idsse(cls, raw: str) -> NativeTeamId:
+        return cls(provider="idsse", value=idsse_native_team_id(raw))
+
+    @classmethod
+    def metrica(cls, match_id: str, side: Literal["home", "away"]) -> NativeTeamId:
+        return cls(provider="metrica", value=metrica_native_team_id(match_id, side))

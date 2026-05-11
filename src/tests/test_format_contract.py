@@ -20,10 +20,17 @@ import yaml
 from shared.identifiers import (
     idsse_native_competition_id,
     idsse_native_match_id,
+    idsse_native_player_id,
+    idsse_native_team_id,
     metrica_native_competition_id,
     metrica_native_match_id,
+    metrica_native_player_id,
     metrica_native_season_id,
     metrica_native_team_id,
+    statsbomb_native_player_id,
+    statsbomb_native_team_id,
+    wyscout_native_player_id,
+    wyscout_native_team_id,
 )
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -116,9 +123,15 @@ class TestDimMatchesMetricaPassthrough:
 
 class TestMartLevelNotNullFilters:
     """Bug #5: PR #228 added where: filter at staging only; mart-level mirror
-    on the 5 fct_action_values not_null tests was missed."""
+    on fct_action_values not_null tests was missed. PR-LL3 S1 tightens
+    team_key/player_key to include 'idsse' (dim coverage verified).
 
-    _DEFERRED_COLUMNS: ClassVar[list[str]] = [
+    Legacy BIGINT cols (player_id, team_id) + VAEP values stay SB+WS only.
+    Kimball surrogates (team_key, player_key) are SB+WS+IDSSE (Metrica
+    excluded pending dim_players anonymous-ID coverage verification)."""
+
+    # Legacy BIGINT + VAEP: inherently NULL for IDSSE/Metrica
+    _SB_WS_ONLY_COLUMNS: ClassVar[list[str]] = [
         "player_id",
         "team_id",
         "vaep_value",
@@ -126,32 +139,106 @@ class TestMartLevelNotNullFilters:
         "defensive_value",
     ]
 
-    @pytest.mark.parametrize("col_name", _DEFERRED_COLUMNS)
-    def test_mart_not_null_filter_present(self, col_name: str) -> None:
-        """``_marts__models.yml`` must scope the deferred not_null tests on
-        ``fct_action_values`` to ``data_source IN ('statsbomb', 'wyscout')``
-        pending PR-LL3 player Kimball mapping."""
+    # Kimball surrogates: IDSSE now resolves via player_id_native/team_id_native
+    _SB_WS_IDSSE_COLUMNS: ClassVar[list[str]] = [
+        "team_key",
+        "player_key",
+    ]
+
+    @pytest.mark.parametrize("col_name", _SB_WS_ONLY_COLUMNS)
+    def test_mart_not_null_filter_sb_ws_only(self, col_name: str) -> None:
+        """Legacy BIGINT / VAEP not_null tests scoped to SB+WS only."""
+        where_clause = self._get_not_null_where(col_name)
+        assert "statsbomb" in where_clause and "wyscout" in where_clause, (
+            f"{col_name!r} not_null where: filter must scope to "
+            f"data_source IN ('statsbomb', 'wyscout'), got: {where_clause!r}"
+        )
+        assert "idsse" not in where_clause, f"{col_name!r}: legacy BIGINT/VAEP not_null should NOT include 'idsse'"
+
+    @pytest.mark.parametrize("col_name", _SB_WS_IDSSE_COLUMNS)
+    def test_mart_not_null_filter_sb_ws_idsse(self, col_name: str) -> None:
+        """Kimball surrogate not_null tests include IDSSE (PR-LL3 S1)."""
+        where_clause = self._get_not_null_where(col_name)
+        assert "statsbomb" in where_clause and "wyscout" in where_clause and "idsse" in where_clause, (
+            f"{col_name!r} not_null where: filter must scope to "
+            f"data_source IN ('statsbomb', 'wyscout', 'idsse'), got: {where_clause!r}"
+        )
+
+    @staticmethod
+    def _get_not_null_where(col_name: str) -> str:
         models_yml = _REPO_ROOT / "dbt_project" / "models" / "marts" / "_marts__models.yml"
         data = yaml.safe_load(models_yml.read_text())
         fct_av = next(m for m in data["models"] if m["name"] == "fct_action_values")
         col = next((c for c in fct_av["columns"] if c["name"] == col_name), None)
         assert col is not None, f"column {col_name!r} not found in fct_action_values"
         tests = col.get("data_tests", [])
-        # Find the not_null test entry — may be string 'not_null' or dict {'not_null': {...}}
         not_null_entry = None
         for t in tests:
             if t == "not_null" or (isinstance(t, dict) and "not_null" in t):
                 not_null_entry = t
                 break
-        assert not_null_entry is not None, f"Bug #5: {col_name!r} on fct_action_values has no not_null test"
-        # Bug #5 fix: not_null must be wrapped in a dict with config.where filter.
-        assert isinstance(not_null_entry, dict), (
-            f"Bug #5: {col_name!r} not_null must be a dict with where: filter "
-            f"`data_source IN ('statsbomb', 'wyscout')` pending PR-LL3"
-        )
+        assert not_null_entry is not None, f"{col_name!r} on fct_action_values has no not_null test"
+        assert isinstance(not_null_entry, dict), f"{col_name!r} not_null must be a dict with where: filter"
         cfg = not_null_entry["not_null"].get("config", {})
-        where_clause = cfg.get("where", "")
-        assert "statsbomb" in where_clause and "wyscout" in where_clause, (
-            f"Bug #5: {col_name!r} not_null where: filter must scope to "
-            f"data_source IN ('statsbomb', 'wyscout'), got: {where_clause!r}"
-        )
+        return cfg.get("where", "")
+
+
+# ---------------------------------------------------------------------------
+# Player ID format contracts (PR-LL3 S2, ADR-018)
+# ---------------------------------------------------------------------------
+
+
+class TestPlayerIdFormatContract:
+    """ADR-018: player_id_native generators produce the format that
+    dim_players.native_player_id expects per source."""
+
+    def test_statsbomb_native_player_id_valid(self) -> None:
+        assert statsbomb_native_player_id(3009) == "3009"
+
+    def test_statsbomb_native_player_id_rejects_zero(self) -> None:
+        with pytest.raises(ValueError):
+            statsbomb_native_player_id(0)
+
+    def test_wyscout_native_player_id_valid(self) -> None:
+        assert wyscout_native_player_id(25413) == "25413"
+
+    def test_wyscout_native_player_id_rejects_negative(self) -> None:
+        with pytest.raises(ValueError):
+            wyscout_native_player_id(-1)
+
+    def test_idsse_native_player_id_valid(self) -> None:
+        assert idsse_native_player_id("DFL-OBJ-002G1Q") == "DFL-OBJ-002G1Q"
+
+    def test_idsse_native_player_id_rejects_bad_format(self) -> None:
+        with pytest.raises(ValueError):
+            idsse_native_player_id("not-a-dfl-id")
+
+    def test_metrica_native_player_id_valid(self) -> None:
+        assert metrica_native_player_id("Player11") == "Player11"
+
+    def test_metrica_native_player_id_rejects_bad_format(self) -> None:
+        with pytest.raises(ValueError):
+            metrica_native_player_id("BadFormat")
+
+
+# ---------------------------------------------------------------------------
+# Team ID format contracts (PR-LL3 S7, ADR-018)
+# ---------------------------------------------------------------------------
+
+
+class TestTeamIdFormatContract:
+    """ADR-018: team_id generators produce the format that
+    dim_teams.native_team_id expects per source."""
+
+    def test_statsbomb_native_team_id_valid(self) -> None:
+        assert statsbomb_native_team_id(217) == "217"
+
+    def test_wyscout_native_team_id_valid(self) -> None:
+        assert wyscout_native_team_id(1610) == "1610"
+
+    def test_idsse_native_team_id_valid(self) -> None:
+        assert idsse_native_team_id("DFL-CLU-000002") == "DFL-CLU-000002"
+
+    def test_idsse_native_team_id_rejects_bad_format(self) -> None:
+        with pytest.raises(ValueError):
+            idsse_native_team_id("not-a-clu-id")

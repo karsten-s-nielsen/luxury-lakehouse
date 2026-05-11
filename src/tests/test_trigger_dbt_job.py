@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -83,6 +84,10 @@ def _sdk_run_mock(life_cycle: str, result_state: str | None, run_page_url: str =
     return MagicMock(state=state, run_page_url=run_page_url)
 
 
+_has_dbx_sdk = importlib.util.find_spec("databricks.sdk") is not None
+
+
+@pytest.mark.skipif(not _has_dbx_sdk, reason="databricks-sdk not installed (optional 'sdk' extra)")
 class TestPollRun:
     """Tests for the WorkspaceClient.jobs.get_run-based poll loop.
 

@@ -11,7 +11,7 @@ boundary, against OUR fixtures. Catches:
   changes; this test catches drift between bronze schema and silly-
   kicks's converter expectations)
 
-4 sources x 4 invariants = 16 tests.
+4 sources x 5 invariants = 20 tests.
 """
 
 from __future__ import annotations
@@ -259,3 +259,37 @@ def test_apply_spadl_enrichments_nan_player_id_safe(source, converter, fixture) 
     assert len(enriched) == len(actions_with_nan), (
         f"{source}: enrichment changed row count {len(actions_with_nan)} -> {len(enriched)}"
     )
+
+
+@_PARAMETRIZE
+def test_player_id_format_contract(source, converter, fixture) -> None:  # type: ignore[no-untyped-def]
+    """player_id output matches the format expected by identifiers.py generators.
+
+    PR-LL3 S2 (ADR-018): validates that silly-kicks converter output
+    player_id values, when stringified the same way the SPADL UDFs do,
+    pass the corresponding ``*_native_player_id`` validator. Catches
+    format drift between silly-kicks and our canonical ID generators.
+    """
+    from shared.identifiers import (
+        idsse_native_player_id,
+        metrica_native_player_id,
+        statsbomb_native_player_id,
+        wyscout_native_player_id,
+    )
+
+    df = pd.read_parquet(_FIXTURE_DIR / fixture)
+    adapted, hti = _adapt_input(source, df)
+    actions, _ = _call_converter(source, converter, adapted, hti, df)
+
+    non_null = actions["player_id"].dropna()
+    assert len(non_null) > 0, f"{source}: no non-null player_id values in fixture"
+
+    validator = {
+        "statsbomb": lambda v: statsbomb_native_player_id(int(v)),
+        "wyscout": lambda v: wyscout_native_player_id(int(v)),
+        "idsse": lambda v: idsse_native_player_id(str(v)),
+        "metrica": lambda v: metrica_native_player_id(str(v)),
+    }[source]
+
+    for val in non_null.head(10):
+        validator(val)  # raises ValueError on format mismatch

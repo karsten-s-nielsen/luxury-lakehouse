@@ -138,6 +138,7 @@ cleaned as (
         competition_native_id,
         season_native_id,
         match_id_native,
+        player_id_native,
 
         -- PR-Cycle-A.4 (2026-04-30, ADR-018 alignment): silly-kicks 2.5.0
         -- sportec tackle qualifier passthrough. ``<col>_native`` STRING +
