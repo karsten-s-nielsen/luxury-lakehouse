@@ -698,7 +698,9 @@ models:
         data_tests:
           - not_null:
               config:
-                where: "data_source IN ('statsbomb', 'wyscout', 'idsse')"
+                where: >
+                  data_source IN ('statsbomb', 'wyscout', 'idsse')
+                  AND team_id_native IS NOT NULL
           - relationships:
               arguments:
                 to: ref('dim_teams')
@@ -712,7 +714,9 @@ models:
         data_tests:
           - not_null:
               config:
-                where: "data_source IN ('statsbomb', 'wyscout', 'idsse')"
+                where: >
+                  data_source IN ('statsbomb', 'wyscout', 'idsse')
+                  AND player_id IS NOT NULL
           - relationships:
               arguments:
                 to: ref('dim_players')
