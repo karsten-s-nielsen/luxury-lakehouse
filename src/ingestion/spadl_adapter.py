@@ -213,11 +213,16 @@ def resolve_wyscout_home_team_ids(matches_pdf: pd.DataFrame) -> dict[int, int]:
 # the canonical shape silly-kicks 1.7.0+ ``silly_kicks.spadl.sportec.
 # convert_to_actions`` expects: required cols ``match_id, event_id,
 # event_type, period, timestamp_seconds, player_id, team, x, y`` are all
-# present natively (the DFL XML attribute names map identically). The
-# adapter therefore is a near-identity passthrough — it only ensures the
-# required columns are present + correctly typed. The match-level metadata
-# (competition_native_id, season_native_id, home_team_id_native, etc.) is
-# loaded from the bronze.idsse_events Path-B-added columns by the UDF.
+# present natively (the DFL XML attribute names map identically).
+#
+# However, DFL XML set-piece events (ThrowIn, FreeKick, GoalKick,
+# CornerKick) and Foul events store the acting team's DFL CLU id and the
+# acting player's DFL OBJ id in event-type-specific qualifier columns
+# (``play_team`` / ``throwin_team`` / ``foul_team_fouler`` for team;
+# ``play_player`` / ``foul_fouler`` for player) rather than the generic
+# ``team`` / ``player_id`` attributes — which carry ``'unknown'`` / ``''``
+# on those event types.  The adapter resolves these before handing off to
+# silly-kicks so the SPADL output has correct team/player attribution.
 #
 # Coordinate system: bronze.idsse_events stores ``x ∈ [0, 105], y ∈ [0, 68]``
 # already (corner-flag origin meters) — silly-kicks's converter clips to the
@@ -240,6 +245,14 @@ def adapt_idsse_events_for_silly_kicks(events_pdf: pd.DataFrame) -> pd.DataFrame
     via the DFL ``_RECOGNIZED_QUALIFIER_COLUMNS`` set). Returns a copy so
     silly-kicks's internal mutations don't leak back to the caller.
 
+    DFL XML set-piece / foul events store team/player attribution in
+    event-type-specific qualifier columns (``play_team``, ``throwin_team``,
+    ``foul_team_fouler``, ``play_player``, ``foul_fouler``) rather than the
+    generic ``team`` / ``player_id`` attributes.  This adapter resolves
+    ``team='unknown'`` and empty ``player_id`` from those qualifiers so that
+    silly-kicks receives proper values and the downstream SPADL output has
+    correct team/player attribution for all event types.
+
     Args:
         events_pdf: DataFrame read from the ``bronze.idsse_events`` Delta
             table.
@@ -251,7 +264,77 @@ def adapt_idsse_events_for_silly_kicks(events_pdf: pd.DataFrame) -> pd.DataFrame
     # silly-kicks's converter mutates+writes intermediate columns on its
     # input — return a copy to honor the "input not mutated" contract that
     # silly-kicks's own tests assert.
-    return events_pdf.copy()
+    df = events_pdf.copy()
+
+    _resolve_idsse_team_from_qualifiers(df)
+    _resolve_idsse_player_from_qualifiers(df)
+
+    return df
+
+
+# -- DFL qualifier column priority for team resolution --------------------
+# Each tuple: (qualifier_column, contains_dfl_clu_id).
+# Columns that carry a DFL CLU id need home/away resolution; columns that
+# already carry 'home'/'away' labels do not (none exist today, but the
+# structure supports it).
+_TEAM_QUALIFIER_PRIORITY: list[str] = [
+    "play_team",
+    "throwin_team",
+    "foul_team_fouler",
+]
+
+# -- DFL qualifier column priority for player resolution ------------------
+_PLAYER_QUALIFIER_PRIORITY: list[str] = [
+    "play_player",
+    "foul_fouler",
+]
+
+
+def _resolve_idsse_team_from_qualifiers(df: pd.DataFrame) -> None:
+    """Fill ``team`` from qualifier columns where it is ``'unknown'``.
+
+    DFL XML ThrowIn/FreeKick/GoalKick/CornerKick/Foul events store the
+    acting team's CLU id in qualifier columns.  This function resolves
+    the CLU id to ``'home'`` / ``'away'`` by comparing against the
+    match-level ``home_team_id_native`` / ``away_team_id_native``.
+
+    Mutates *df* in place.
+    """
+    for qual_col in _TEAM_QUALIFIER_PRIORITY:
+        if qual_col not in df.columns:
+            continue
+        still_unknown = (df["team"] == "unknown") & df[qual_col].notna() & (df[qual_col] != "")
+        if not still_unknown.any():
+            continue
+        is_home = still_unknown & (df[qual_col] == df["home_team_id_native"])
+        is_away = still_unknown & (df[qual_col] == df["away_team_id_native"])
+        df.loc[is_home, "team"] = "home"
+        df.loc[is_away, "team"] = "away"
+
+
+def _resolve_idsse_player_from_qualifiers(df: pd.DataFrame) -> None:
+    """Fill ``player_id`` from qualifier columns where it is empty/null.
+
+    DFL XML set-piece events store the acting player's OBJ id in
+    qualifier columns (``play_player``, ``foul_fouler``).
+
+    Mutates *df* in place.
+    """
+    mask = df["player_id"].isna() | (df["player_id"].astype(str) == "")
+    if not mask.any():
+        return
+
+    for qual_col in _PLAYER_QUALIFIER_PRIORITY:
+        if qual_col not in df.columns:
+            continue
+        still_empty = mask & (df["player_id"].isna() | (df["player_id"].astype(str) == ""))
+        if not still_empty.any():
+            break
+        qual_vals = df.loc[still_empty, qual_col]
+        has_qual = still_empty & qual_vals.notna() & (qual_vals != "")
+        if not has_qual.any():
+            continue
+        df.loc[has_qual, "player_id"] = df.loc[has_qual, qual_col]
 
 
 # ---------------------------------------------------------------------------

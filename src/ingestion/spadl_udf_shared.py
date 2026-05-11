@@ -27,12 +27,18 @@ def apply_player_id_native(
     ``player_id`` with pd.NA.
 
     StatsBomb/Wyscout: float64-with-NaN -> Int64 -> string (avoids "3009.0").
-    IDSSE/Metrica: already string-shaped -> direct string cast.
+    IDSSE/Metrica: already string-shaped -> direct string cast, with empty
+    strings normalised to pd.NA so dim_players JOINs produce NULL (not a
+    failed match on ``''``).
     """
+    import pandas as _pd
+
     if source in ("statsbomb", "wyscout"):
         actions["player_id_native"] = actions["player_id"].astype("Int64").astype("string")
     else:
-        actions["player_id_native"] = actions["player_id"].astype("string")
+        col = actions["player_id"].astype("string")
+        col = col.where(col != "", other=_pd.NA)
+        actions["player_id_native"] = col
     return actions
 
 
