@@ -178,7 +178,7 @@ actions_with_score as (
         -- Running score for game state derivation
         rs.home_score_after,
         rs.away_score_after,
-        rs.home_team_id                             as _rs_home_team_id,
+        rs.home_team_id_native                      as _rs_home_team_id_native,
 
         -- Rank to pick the most recent score milestone
         row_number() over (
@@ -202,7 +202,7 @@ actions_with_score as (
         on av.match_id_native = ma.native_match_id
         and av.data_source = ma.provider
     left join running_score rs
-        on rs.match_id = av.match_id
+        on rs.match_key = ma.match_key
         and (
             rs.period < av.period
             or (rs.period = av.period
@@ -214,11 +214,10 @@ actions_with_score as (
     left join {{ ref('dim_teams') }} dt
         on  dt.provider = av.data_source
        and dt.native_team_id = av.team_id_native
-    -- player_id_native is NOT yet on spadl_actions (PR-LL3); for IDSSE/
-    -- Metrica this JOIN resolves NULL until then.
+    -- PR-LL3 S2: player_id_native now on spadl_actions (all 4 sources).
     left join {{ ref('dim_players') }} dp
         on  dp.provider = av.data_source
-       and dp.native_player_id = cast(av.player_id as string)
+       and dp.native_player_id = av.player_id_native
     -- LL1 (silly-kicks 1.5.0+): resolve `possession_team_key` via dim_teams
     -- using the StatsBomb-native team ID. Same (provider, native_id) pattern
     -- as `team_key` / `player_key` above. NULL on non-StatsBomb sources where
@@ -287,21 +286,14 @@ final as (
         tackle_loser_player_key,
         tackle_loser_team_id_native,
         tackle_loser_team_key,
-        -- Game state — uses _rs_home_team_id (BIGINT from running_score) which
-        -- only resolves for SB/WS (numeric team_id). For IDSSE/Metrica where
-        -- team_id is NULL, comparison `team_id = _rs_home_team_id` is NULL,
-        -- so game_state falls into the 'drawing' default if scores tied else
-        -- the 'losing' branch. PR-LL3 should switch this to team_id_native
-        -- comparison via running_score's home_team_id_native (does not yet
-        -- exist on int_running_score). For now, IDSSE/Metrica game_state is
-        -- best-effort (mostly correct on tied/no-goals matches; biased away
-        -- from 'winning' on goals matches). Document in ADR-016.
+        -- PR-LL3 S4: game_state now uses native STRING team IDs — resolves
+        -- correctly for all 4 providers (SB/WS/IDSSE/Metrica).
         case
             when coalesce(home_score_after, 0) = coalesce(away_score_after, 0)
                 then 'drawing'
-            when (team_id = _rs_home_team_id
+            when (team_id_native = _rs_home_team_id_native
                       and home_score_after > away_score_after)
-                 or (team_id != _rs_home_team_id
+                 or (team_id_native != _rs_home_team_id_native
                       and away_score_after > home_score_after)
                 then 'winning'
             else 'losing'

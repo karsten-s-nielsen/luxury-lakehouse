@@ -4,7 +4,7 @@
     liquid_clustered_by=['match_key'],
     incremental_strategy='merge',
     on_schema_change='append_new_columns',
-    tags=['marts', 'input_mart']
+    tags=['marts', 'output_mart']
 ) }}
 -- fct_shots.sql
 -- Gold-layer shot fact table with xG features for ML model training.
@@ -110,7 +110,7 @@ shots_with_score as (
         -- Running score columns for game state derivation
         rs.home_score_after,
         rs.away_score_after,
-        rs.home_team_id as _rs_home_team_id,
+        rs.home_team_id_native as _rs_home_team_id_native,
 
         row_number() over (
             partition by unified_shots.event_id, unified_shots.data_source
@@ -171,9 +171,9 @@ final as (
         case
             when coalesce(home_score_after, 0) = coalesce(away_score_after, 0)
                 then 'drawing'
-            when (team_id = _rs_home_team_id
+            when (cast(team_id as string) = _rs_home_team_id_native
                       and home_score_after > away_score_after)
-                 or (team_id != _rs_home_team_id
+                 or (cast(team_id as string) != _rs_home_team_id_native
                       and away_score_after > home_score_after)
                 then 'winning'
             else 'losing'

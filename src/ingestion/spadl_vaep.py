@@ -80,6 +80,9 @@ _SPADL_SCHEMA = (
     # IDSSE/Metrica it's the original string ('J03WMX' / 'Sample_Game_1') while
     # the BIGINT match_id is its deterministic hash.
     "match_id_native STRING, "
+    # PR-LL3 S2: player_id_native - stringified source player identifier.
+    # SB/WS: stringified int; IDSSE: DFL-OBJ-XXXXXX; Metrica: PlayerN.
+    "player_id_native STRING, "
     # PR-Cycle-A.4 (2026-04-30, ADR-018): silly-kicks 2.5.0 sportec tackle
     # qualifier passthrough as ``<col>_native`` (STRING) + ``<col>_key``
     # (BIGINT surrogate via ``hash_native_id_to_bigint``) per LL2 Path B
@@ -116,6 +119,7 @@ _VAEP_SCHEMA = (
     "team_id_native STRING, home_team_id_native STRING, "
     "competition_native_id STRING, season_native_id STRING, "
     "match_id_native STRING, "
+    "player_id_native STRING, "
     # PR-Cycle-A.4 (2026-04-30, ADR-018): silly-kicks 2.5.0 sportec tackle
     # qualifier passthrough — ``<col>_native`` STRING + ``<col>_key`` BIGINT.
     # Carried through from spadl_actions; see _SPADL_SCHEMA for full rationale.

@@ -113,6 +113,10 @@ def test_orchestrator_flavor_map_matches_trainer_constants() -> None:
     rather than dictating. Catches PR-alpha-style downsizing where the orchestrator
     silently overrode a validated GPU flavor with a smaller one.
     """
+    # train_football2vec.py imports databricks-sdk at module level; guard so
+    # the test skips when only the default extras are installed (sdk is an
+    # optional extra in pyproject.toml).
+    pytest.importorskip("databricks.sdk", reason="databricks-sdk not installed (optional 'sdk' extra)")
     orch = _load_script_module(_ORCHESTRATOR_PATH, "sk3_mig_b_retrain")
     assert hasattr(orch, "_FLAVOR_MAP"), (
         "Orchestrator must expose `_FLAVOR_MAP` as a module-level dict (per spec §2.2)."
@@ -147,7 +151,8 @@ def test_seed_csv_subset_of_live_mega_job() -> None:
     Catches seed drift after a workflow-card rename / removal that hasn't been
     reflected in the seed yet. Skipped on forks / no-secrets PRs.
     """
-    from databricks.sdk import WorkspaceClient
+    databricks_sdk = pytest.importorskip("databricks.sdk", reason="databricks-sdk not installed (optional 'sdk' extra)")
+    WorkspaceClient = databricks_sdk.WorkspaceClient  # noqa: N806
 
     w = WorkspaceClient()
     jobs = list(w.jobs.list(name="soccer-analytics-ingestion-dev"))
@@ -232,6 +237,8 @@ def test_all_trainers_assert_silly_kicks_runtime_min() -> None:
     that the constant is actually consulted in `main()`. (Honest about what's
     mechanically testable — Q18 commitment.)
     """
+    # train_football2vec.py imports databricks-sdk at module level.
+    pytest.importorskip("databricks.sdk", reason="databricks-sdk not installed (optional 'sdk' extra)")
     missing: list[str] = []
     wrong_value: dict[str, object] = {}
     for item, path in _TRAINER_PATHS.items():

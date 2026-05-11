@@ -674,9 +674,8 @@ models:
       - name: player_id
         data_type: int
         description: >
-          Foreign key to dim_players. NULL for IDSSE/Metrica rows pending
-          PR-LL3 per-player Kimball mapping (ADR-016, S1/S2). Mart-level
-          where: filter mirrors the staging filter applied in PR #228.
+          Legacy BIGINT player_id. NULL for IDSSE/Metrica (string-native
+          sources); use player_key + player_id_native for those sources.
         data_tests:
           - not_null:
               config:
@@ -684,30 +683,36 @@ models:
       - name: team_id
         data_type: int
         description: >
-          Foreign key to dim_teams. NULL for IDSSE/Metrica rows (legacy
-          BIGINT space; use team_key + team_id_native for those sources).
+          Legacy BIGINT team_id. NULL for IDSSE/Metrica (string-native
+          sources); use team_key + team_id_native for those sources.
         data_tests:
           - not_null:
               config:
                 where: "data_source IN ('statsbomb', 'wyscout')"
       - name: team_key
         data_type: bigint
-        description: Kimball surrogate FK to dim_teams (PR 7 — populated for all SB+WS actions via dim_teams JOIN on (provider, native_team_id)).
+        description: >
+          Kimball surrogate FK to dim_teams. Populated for SB/WS/IDSSE
+          via dim_teams JOIN on (provider, team_id_native). Metrica excluded
+          pending dim_players coverage verification (anonymous PlayerN IDs).
         data_tests:
           - not_null:
               config:
-                where: "data_source IN ('statsbomb', 'wyscout')"
+                where: "data_source IN ('statsbomb', 'wyscout', 'idsse')"
           - relationships:
               arguments:
                 to: ref('dim_teams')
                 field: team_key
       - name: player_key
         data_type: bigint
-        description: Kimball surrogate FK to dim_players (PR 7 — populated for all SB+WS actions via dim_players JOIN on (provider, native_player_id)).
+        description: >
+          Kimball surrogate FK to dim_players. Populated for SB/WS/IDSSE
+          via dim_players JOIN on (provider, player_id_native). Metrica excluded
+          pending dim_players coverage verification (anonymous PlayerN IDs).
         data_tests:
           - not_null:
               config:
-                where: "data_source IN ('statsbomb', 'wyscout')"
+                where: "data_source IN ('statsbomb', 'wyscout', 'idsse')"
           - relationships:
               arguments:
                 to: ref('dim_players')

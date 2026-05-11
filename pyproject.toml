@@ -16,12 +16,12 @@ dependencies = [
     "PyYAML>=6.0",
     # HF Hub (cost tracking, dataset publishing, model weight sync)
     "huggingface_hub>=1.5.0",
-    "gitpython>=3.1.47",
+    "gitpython>=3.1.50",
 ]
 
 [project.optional-dependencies]
 spadl = [
-    "silly-kicks>=3.7.0,<4",
+    "silly-kicks>=3.11.0,<4",
 ]
 analytics = [
     "luxury-lakehouse[spadl]",

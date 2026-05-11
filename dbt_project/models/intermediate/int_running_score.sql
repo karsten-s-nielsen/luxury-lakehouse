@@ -70,35 +70,57 @@ ws_matches as (
 
 ),
 
+idsse_matches as (
+
+    select
+        native_match_id   as match_id,
+        'idsse'           as provider,
+        home_team_id      as home_team_id_native,
+        away_team_id      as away_team_id_native
+    from {{ ref('stg_idsse__matches') }}
+
+),
+
+metrica_matches as (
+
+    select
+        native_match_id   as match_id,
+        'metrica'         as provider,
+        concat('metrica_', native_match_id, '_home') as home_team_id_native,
+        concat('metrica_', native_match_id, '_away') as away_team_id_native
+    from {{ ref('stg_metrica__matches') }}
+
+),
+
 match_teams as (
 
-    select match_id, provider, home_team_id, away_team_id from sb_matches
+    select cast(match_id as string) as match_id, provider, cast(home_team_id as string) as home_team_id_native, cast(away_team_id as string) as away_team_id_native from sb_matches
     union all
-    select match_id, provider, home_team_id, away_team_id from ws_matches
+    select cast(match_id as string) as match_id, provider, cast(home_team_id as string) as home_team_id_native, cast(away_team_id as string) as away_team_id_native from ws_matches
+    union all
+    select match_id, provider, home_team_id_native, away_team_id_native from idsse_matches
+    union all
+    select match_id, provider, home_team_id_native, away_team_id_native from metrica_matches
 
 ),
 
 match_teams_keyed as (
 
     select
-        mt.match_id,
+        mt.match_id  as native_match_id,
         dm.match_key,
-        mt.home_team_id,
-        mt.away_team_id
+        mt.home_team_id_native,
+        mt.away_team_id_native
     from match_teams mt
     inner join {{ ref('dim_matches') }} dm
         on dm.provider = mt.provider
-       and dm.native_match_id = cast(mt.match_id as string)
+       and dm.native_match_id = mt.match_id
 
 ),
 
 goals as (
 
-    -- int_unified_shots emits match_key (not match_id) since PR 3. We pull
-    -- match_key here and recover match_id downstream via the match_teams_keyed
-    -- join so int_running_score's output schema stays backward compatible
-    -- (fct_action_values and fct_shots both consume it; fct_shots uses
-    -- match_key post-PR 3, fct_action_values still uses match_id until PR 4).
+    -- SB + WS goals from int_unified_shots.
     select
         s.match_key,
         s.team_id    as scoring_team_id,
@@ -110,27 +132,69 @@ goals as (
 
 ),
 
+spadl_goals as (
+
+    -- IDSSE + Metrica goals extracted from SPADL actions.
+    -- int_unified_shots only covers StatsBomb + Wyscout; this CTE fills
+    -- the gap for sources that lack dedicated shot staging models.
+    -- Note: like int_unified_shots, own goals are not tracked here
+    -- (SPADL codes them as action_type='shot' + action_result='success'
+    -- for the SCORING team, not the conceding team — consistent with
+    -- the existing "own goals are not tracked" limitation in the header).
+    select
+        dm.match_key,
+        av.team_id_native   as scoring_team_id_native,
+        av.period,
+        av.minute,
+        av.second
+    from {{ ref('stg_spadl__action_values') }} av
+    inner join {{ ref('dim_matches') }} dm
+        on dm.provider = av.data_source
+       and dm.native_match_id = av.match_id_native
+    where av.action_type = 'shot'
+      and av.action_result = 'success'
+      and av.data_source in ('idsse', 'metrica')
+
+),
+
+all_goals as (
+
+    -- SB + WS goals from int_unified_shots
+    select
+        g.match_key,
+        cast(g.scoring_team_id as string) as scoring_team_id_native,
+        g.period,
+        g.minute,
+        g.second
+    from goals g
+    union all
+    -- IDSSE + Metrica goals from SPADL actions
+    select match_key, scoring_team_id_native, period, minute, second
+    from spadl_goals
+
+),
+
 goals_with_scores as (
 
     select
-        mt.match_id,          -- recovered from match_teams_keyed; legacy consumer FK
+        mt.native_match_id,
         g.match_key,
-        mt.home_team_id,
-        mt.away_team_id,
+        mt.home_team_id_native,
+        mt.away_team_id_native,
         g.period,
         g.minute,
         g.second,
-        sum(case when g.scoring_team_id = mt.home_team_id then 1 else 0 end)
+        sum(case when g.scoring_team_id_native = mt.home_team_id_native then 1 else 0 end)
             over (partition by g.match_key
                   order by g.period, g.minute, g.second
                   rows between unbounded preceding and current row)
             as home_score_after,
-        sum(case when g.scoring_team_id = mt.away_team_id then 1 else 0 end)
+        sum(case when g.scoring_team_id_native = mt.away_team_id_native then 1 else 0 end)
             over (partition by g.match_key
                   order by g.period, g.minute, g.second
                   rows between unbounded preceding and current row)
             as away_score_after
-    from goals g
+    from all_goals g
     inner join match_teams_keyed mt on g.match_key = mt.match_key
 
 ),
@@ -138,10 +202,10 @@ goals_with_scores as (
 kickoffs as (
 
     select
-        match_id,
+        native_match_id,
         match_key,
-        home_team_id,
-        away_team_id,
+        home_team_id_native,
+        away_team_id_native,
         1    as period,
         0    as minute,
         0    as second,

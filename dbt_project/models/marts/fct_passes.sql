@@ -30,8 +30,9 @@
 --   * team_id / player_id / pass_recipient_id are NULL (source IDs
 --     are strings; cross-provider surrogate keys are a later PR).
 --   * end_x / end_y NULL for IDSSE (DFL <Play> row carries start only).
---   * home_score_after / away_score_after NULL — int_running_score is
---     SB+WS only; game_state defaults to 'drawing' for IDSSE/Metrica.
+--   * home_score_after / away_score_after — PR-LL3 S4 extended
+--     int_running_score to all 4 providers; game_state now resolves
+--     correctly for IDSSE/Metrica via team_id_native comparison.
 
 with unified_passes as (
 
@@ -76,6 +77,7 @@ passes_with_score as (
         unified_passes.match_key,
         unified_passes.player_id,
         unified_passes.team_id,
+        unified_passes.native_team_id,    -- PR-LL3 S4: for game_state derivation
         unified_passes.pass_recipient_id,
 
         -- PR 7 (ADR-011): Kimball surrogate FKs resolved via dim_teams /
@@ -133,7 +135,7 @@ passes_with_score as (
 
         rs.home_score_after,
         rs.away_score_after,
-        rs.home_team_id as _rs_home_team_id,
+        rs.home_team_id_native as _rs_home_team_id_native,
 
         row_number() over (
             partition by unified_passes.match_key,
@@ -207,9 +209,9 @@ final as (
         case
             when coalesce(home_score_after, 0) = coalesce(away_score_after, 0)
                 then 'drawing'
-            when (team_id = _rs_home_team_id
+            when (native_team_id = _rs_home_team_id_native
                       and home_score_after > away_score_after)
-                 or (team_id != _rs_home_team_id
+                 or (native_team_id != _rs_home_team_id_native
                       and away_score_after > home_score_after)
                 then 'winning'
             else 'losing'

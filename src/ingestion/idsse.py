@@ -51,6 +51,8 @@ if TYPE_CHECKING:
 
 from ingestion.utils import SparkAnalysisException as _SparkAnalysisException
 
+logger = logging.getLogger(__name__)
+
 
 class _IdsseGuard:
     """Skip guard + runtime chunk discovery for IDSSE ingestion.
@@ -130,7 +132,14 @@ _MATCH_COMPETITION: dict[str, str] = {
     "J03WR9": "DFL-COM-000002",
 }
 
-_SECTION_TO_PERIOD = {"firstHalf": 1, "secondHalf": 2}
+_SECTION_TO_PERIOD: dict[str, int] = {
+    "firstHalf": 1,
+    "secondHalf": 2,
+    "extraTimeFirstHalf": 3,
+    "extraTimeSecondHalf": 4,
+    "penaltyShootout": 5,
+}
+# Verified with synthetic fixture only - no production data exercises periods 3-5 yet.
 
 # Frame rate for all IDSSE matches (DFL position data is 25fps)
 _FRAME_RATE = 25
@@ -655,7 +664,7 @@ def _parse_positions_xml(
         Mapping of period number → list of row dicts. Each row carries all
         DFL tracking attributes per the bronze-completeness contract.
     """
-    rows_by_period: dict[int, list[dict[str, object]]] = {1: [], 2: []}
+    rows_by_period: dict[int, list[dict[str, object]]] = {p: [] for p in _SECTION_TO_PERIOD.values()}
     # PR-LL2 Path B close-out (2026-04-29): bronze.idsse_events.match_id /
     # bronze.idsse_tracking.match_id now use the bare DFL MatchId (e.g.
     # 'J03WMX'). Pre-close-out the format was 'idsse_J03WMX' which
@@ -685,6 +694,11 @@ def _parse_positions_xml(
         section = elem.get("GameSection", "")
         period = _SECTION_TO_PERIOD.get(section)
         if period is None:
+            logger.warning(
+                "Unrecognized GameSection %r in match %s — skipping FrameSet",
+                section,
+                match_id,
+            )
             elem.clear()
             continue
 
@@ -722,6 +736,11 @@ def _parse_positions_xml(
         section = elem.get("GameSection", "")
         period = _SECTION_TO_PERIOD.get(section)
         if period is None:
+            logger.warning(
+                "Unrecognized GameSection %r in match %s — skipping FrameSet",
+                section,
+                match_id,
+            )
             elem.clear()
             continue
 
@@ -1287,6 +1306,11 @@ def _scan_kickoff_times(event_path: str) -> dict[int, datetime]:
         section = first_child.get("GameSection", "")
         period = _SECTION_TO_PERIOD.get(section)
         if period is None:
+            logger.warning(
+                "Unrecognized GameSection %r in %s — skipping KickOff event",
+                section,
+                event_path,
+            )
             elem.clear()
             continue
 
