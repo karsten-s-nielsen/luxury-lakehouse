@@ -460,6 +460,7 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                 "competition_native_id",
                 "season_native_id",
                 "match_id_native",
+                "player_id_native",
                 # PR-LL2 Path B close-out (2026-04-29, ADR-018): silly-kicks 2.0.0
                 # sportec tackle qualifier columns carried through from spadl_actions.
                 "tackle_winner_player_id_native",
@@ -575,6 +576,7 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
                                 "competition_native_id",
                                 "season_native_id",
                                 "match_id_native",
+                                "player_id_native",
                                 # PR-LL2 Path B close-out (2026-04-30, ADR-018):
                                 # silly-kicks 2.0.0 sportec tackle qualifier
                                 # passthrough. Must be in this projection list
@@ -784,6 +786,7 @@ def run_pipeline(
             StructField("competition_native_id", StringType()),
             StructField("season_native_id", StringType()),
             StructField("match_id_native", StringType()),
+            StructField("player_id_native", StringType()),
             # PR-LL2 Path B close-out (2026-04-29): silly-kicks 2.0.0 sportec
             # tackle qualifier columns. NULL on non-sportec rows.
             StructField("tackle_winner_player_id_native", StringType()),
