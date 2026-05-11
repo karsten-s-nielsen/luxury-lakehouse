@@ -314,20 +314,20 @@ models:
       goal event with cumulative home/away scores. Ephemeral CTE consumed
       by mart models to derive per-action game state.
     columns:
-      - name: match_id
-        description: Native match identifier (BIGINT, StatsBomb/Wyscout only). Retained for pre-migration consumers (fct_shots, fct_action_values).
+      - name: native_match_id
+        description: Native match identifier (STRING, all providers). StatsBomb/Wyscout are stringified ints; IDSSE/Metrica are native string IDs.
         data_tests:
           - not_null
       - name: match_key
-        description: Kimball surrogate FK to dim_matches.match_key (bigint, added in PR 2 for match_key-migrated consumers).
+        description: Kimball surrogate FK to dim_matches.match_key (BIGINT).
         data_tests:
           - not_null
-      - name: home_team_id
-        description: Home team identifier
+      - name: home_team_id_native
+        description: Native home team identifier (STRING, all providers).
         data_tests:
           - not_null
-      - name: away_team_id
-        description: Away team identifier
+      - name: away_team_id_native
+        description: Native away team identifier (STRING, all providers).
         data_tests:
           - not_null
       - name: period
