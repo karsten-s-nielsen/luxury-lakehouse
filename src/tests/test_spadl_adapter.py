@@ -9,6 +9,9 @@ import pandas as pd
 import pytest
 
 from ingestion.spadl_adapter import (
+    _resolve_idsse_player_from_qualifiers,
+    _resolve_idsse_team_from_qualifiers,
+    adapt_idsse_events_for_silly_kicks,
     adapt_statsbomb_events,
     adapt_wyscout_events,
     resolve_statsbomb_home_team_ids,
@@ -217,6 +220,189 @@ class TestResolveWyscoutHomeTeamIds:
         matches = pd.DataFrame({"wyId": [1], "teamsData": ["{}"]})
         result = resolve_wyscout_home_team_ids(matches)
         assert 1 not in result
+
+
+# ---------------------------------------------------------------------------
+# IDSSE adapter — qualifier-based team/player resolution
+# ---------------------------------------------------------------------------
+
+
+class TestResolveIdsseTeamFromQualifiers:
+    """Test _resolve_idsse_team_from_qualifiers fills team from DFL qualifiers."""
+
+    @staticmethod
+    def _make_events(**overrides: object) -> pd.DataFrame:
+        defaults: dict = {
+            "team": ["unknown"],
+            "player_id": [""],
+            "event_type": ["ThrowIn"],
+            "home_team_id_native": ["DFL-CLU-HOME"],
+            "away_team_id_native": ["DFL-CLU-AWAY"],
+            "play_team": [None],
+            "throwin_team": [None],
+            "foul_team_fouler": [None],
+        }
+        defaults.update(overrides)
+        return pd.DataFrame(defaults)
+
+    def test_resolves_home_from_play_team(self) -> None:
+        df = self._make_events(play_team=["DFL-CLU-HOME"])
+        _resolve_idsse_team_from_qualifiers(df)
+        assert df["team"].iloc[0] == "home"
+
+    def test_resolves_away_from_play_team(self) -> None:
+        df = self._make_events(play_team=["DFL-CLU-AWAY"])
+        _resolve_idsse_team_from_qualifiers(df)
+        assert df["team"].iloc[0] == "away"
+
+    def test_resolves_from_throwin_team_when_play_team_missing(self) -> None:
+        df = self._make_events(throwin_team=["DFL-CLU-HOME"])
+        _resolve_idsse_team_from_qualifiers(df)
+        assert df["team"].iloc[0] == "home"
+
+    def test_resolves_from_foul_team_fouler(self) -> None:
+        df = self._make_events(foul_team_fouler=["DFL-CLU-AWAY"])
+        _resolve_idsse_team_from_qualifiers(df)
+        assert df["team"].iloc[0] == "away"
+
+    def test_play_team_takes_priority_over_throwin_team(self) -> None:
+        df = self._make_events(play_team=["DFL-CLU-HOME"], throwin_team=["DFL-CLU-AWAY"])
+        _resolve_idsse_team_from_qualifiers(df)
+        assert df["team"].iloc[0] == "home"
+
+    def test_stays_unknown_when_no_qualifiers(self) -> None:
+        df = self._make_events()
+        _resolve_idsse_team_from_qualifiers(df)
+        assert df["team"].iloc[0] == "unknown"
+
+    def test_skips_rows_already_resolved(self) -> None:
+        df = pd.DataFrame(
+            {
+                "team": ["home", "unknown"],
+                "home_team_id_native": ["DFL-CLU-HOME", "DFL-CLU-HOME"],
+                "away_team_id_native": ["DFL-CLU-AWAY", "DFL-CLU-AWAY"],
+                "play_team": [None, "DFL-CLU-AWAY"],
+            }
+        )
+        _resolve_idsse_team_from_qualifiers(df)
+        assert df["team"].iloc[0] == "home"
+        assert df["team"].iloc[1] == "away"
+
+    def test_noop_when_no_unknown_teams(self) -> None:
+        df = pd.DataFrame(
+            {
+                "team": ["home", "away"],
+                "home_team_id_native": ["DFL-CLU-HOME", "DFL-CLU-HOME"],
+                "away_team_id_native": ["DFL-CLU-AWAY", "DFL-CLU-AWAY"],
+                "play_team": [None, None],
+            }
+        )
+        _resolve_idsse_team_from_qualifiers(df)
+        assert list(df["team"]) == ["home", "away"]
+
+
+class TestResolveIdssePlayerFromQualifiers:
+    """Test _resolve_idsse_player_from_qualifiers fills player_id from DFL qualifiers."""
+
+    @staticmethod
+    def _make_events(**overrides: object) -> pd.DataFrame:
+        defaults: dict = {
+            "player_id": [""],
+            "play_player": [None],
+            "foul_fouler": [None],
+        }
+        defaults.update(overrides)
+        return pd.DataFrame(defaults)
+
+    def test_resolves_from_play_player(self) -> None:
+        df = self._make_events(play_player=["DFL-OBJ-ABC"])
+        _resolve_idsse_player_from_qualifiers(df)
+        assert df["player_id"].iloc[0] == "DFL-OBJ-ABC"
+
+    def test_resolves_from_foul_fouler(self) -> None:
+        df = self._make_events(foul_fouler=["DFL-OBJ-XYZ"])
+        _resolve_idsse_player_from_qualifiers(df)
+        assert df["player_id"].iloc[0] == "DFL-OBJ-XYZ"
+
+    def test_play_player_takes_priority_over_foul_fouler(self) -> None:
+        df = self._make_events(play_player=["DFL-OBJ-ABC"], foul_fouler=["DFL-OBJ-XYZ"])
+        _resolve_idsse_player_from_qualifiers(df)
+        assert df["player_id"].iloc[0] == "DFL-OBJ-ABC"
+
+    def test_stays_empty_when_no_qualifiers(self) -> None:
+        df = self._make_events()
+        _resolve_idsse_player_from_qualifiers(df)
+        assert df["player_id"].iloc[0] == ""
+
+    def test_skips_rows_already_populated(self) -> None:
+        df = pd.DataFrame(
+            {
+                "player_id": ["DFL-OBJ-EXISTING", ""],
+                "play_player": [None, "DFL-OBJ-NEW"],
+            }
+        )
+        _resolve_idsse_player_from_qualifiers(df)
+        assert df["player_id"].iloc[0] == "DFL-OBJ-EXISTING"
+        assert df["player_id"].iloc[1] == "DFL-OBJ-NEW"
+
+    def test_handles_null_player_id(self) -> None:
+        df = pd.DataFrame(
+            {
+                "player_id": [None],
+                "play_player": ["DFL-OBJ-ABC"],
+            }
+        )
+        _resolve_idsse_player_from_qualifiers(df)
+        assert df["player_id"].iloc[0] == "DFL-OBJ-ABC"
+
+
+class TestAdaptIdsseEventsForSillyKicks:
+    """Integration test: adapt_idsse_events_for_silly_kicks applies qualifier resolution."""
+
+    def test_resolves_team_and_player_on_set_piece(self) -> None:
+        events = pd.DataFrame(
+            {
+                "match_id": ["J03WR9"],
+                "event_id": ["18242100000792"],
+                "event_type": ["ThrowIn"],
+                "timestamp_seconds": [244.991],
+                "period": [2],
+                "player_id": [""],
+                "team": ["unknown"],
+                "x": [48.19],
+                "y": [0.0],
+                "home_team_id_native": ["DFL-CLU-HOME"],
+                "away_team_id_native": ["DFL-CLU-AWAY"],
+                "play_team": ["DFL-CLU-HOME"],
+                "play_player": ["DFL-OBJ-J01KJ5"],
+                "throwin_team": ["DFL-CLU-HOME"],
+            }
+        )
+        result = adapt_idsse_events_for_silly_kicks(events)
+        assert result["team"].iloc[0] == "home"
+        assert result["player_id"].iloc[0] == "DFL-OBJ-J01KJ5"
+
+    def test_does_not_mutate_input(self) -> None:
+        events = pd.DataFrame(
+            {
+                "match_id": ["J03WR9"],
+                "event_id": ["1"],
+                "event_type": ["ThrowIn"],
+                "timestamp_seconds": [10.0],
+                "period": [1],
+                "player_id": [""],
+                "team": ["unknown"],
+                "x": [50.0],
+                "y": [30.0],
+                "home_team_id_native": ["DFL-CLU-HOME"],
+                "away_team_id_native": ["DFL-CLU-AWAY"],
+                "play_team": ["DFL-CLU-HOME"],
+                "play_player": ["DFL-OBJ-ABC"],
+            }
+        )
+        _ = adapt_idsse_events_for_silly_kicks(events)
+        assert events["team"].iloc[0] == "unknown"
+        assert events["player_id"].iloc[0] == ""
 
 
 # ---------------------------------------------------------------------------

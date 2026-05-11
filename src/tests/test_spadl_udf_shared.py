@@ -15,6 +15,7 @@ from ingestion.spadl_conversion import (
     _make_sb_spadl_udf,
     _make_ws_spadl_udf,
 )
+from ingestion.spadl_udf_shared import apply_player_id_native
 
 _EXPECTED_COLUMNS = [
     "game_id",
@@ -80,3 +81,36 @@ def test_udf_empty_schema_matches_expected(source: str, factory) -> None:  # typ
         f"  Missing: {set(_EXPECTED_COLUMNS) - set(result.columns)}\n"
         f"  Extra:   {set(result.columns) - set(_EXPECTED_COLUMNS)}"
     )
+
+
+# ---------------------------------------------------------------------------
+# apply_player_id_native — empty-string normalization
+# ---------------------------------------------------------------------------
+
+
+class TestApplyPlayerIdNative:
+    """Verify empty-string player_id becomes pd.NA, not ''."""
+
+    def test_statsbomb_nan_becomes_na(self) -> None:
+        df = pd.DataFrame({"player_id": [5.0, float("nan")]})
+        result = apply_player_id_native(df, source="statsbomb")
+        assert result["player_id_native"].iloc[0] == "5"
+        assert pd.isna(result["player_id_native"].iloc[1])
+
+    def test_idsse_empty_string_becomes_na(self) -> None:
+        df = pd.DataFrame({"player_id": ["DFL-OBJ-ABC", ""]})
+        result = apply_player_id_native(df, source="idsse")
+        assert result["player_id_native"].iloc[0] == "DFL-OBJ-ABC"
+        assert pd.isna(result["player_id_native"].iloc[1])
+
+    def test_metrica_empty_string_becomes_na(self) -> None:
+        df = pd.DataFrame({"player_id": ["Player1", ""]})
+        result = apply_player_id_native(df, source="metrica")
+        assert result["player_id_native"].iloc[0] == "Player1"
+        assert pd.isna(result["player_id_native"].iloc[1])
+
+    def test_idsse_populated_values_pass_through(self) -> None:
+        df = pd.DataFrame({"player_id": ["DFL-OBJ-ABC", "DFL-OBJ-XYZ"]})
+        result = apply_player_id_native(df, source="idsse")
+        assert result["player_id_native"].iloc[0] == "DFL-OBJ-ABC"
+        assert result["player_id_native"].iloc[1] == "DFL-OBJ-XYZ"
