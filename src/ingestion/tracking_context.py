@@ -356,9 +356,12 @@ def _process_idsse(
         adapted_events = adapt_idsse_events_for_silly_kicks(events_pdf)
         home_start_left = derive_idsse_home_team_start_left(adapted_events, home_team_id)
 
+        # Map bronze columns to sportec EXPECTED_INPUT_COLUMNS schema
+        sportec_input = _bronze_idsse_to_sportec_input(trk_pdf)
+
         # Convert tracking to silly-kicks frames (105x68 LTR)
         frames, _report = convert_to_frames(
-            trk_pdf,
+            sportec_input,
             home_team_id=home_team_id,
             home_team_start_left=home_start_left,
             output_convention="ltr",
@@ -485,6 +488,122 @@ def _derive_velocities_savgol(
 
     # Compute speed from velocity (matches silly-kicks derive_velocities output)
     frames["speed"] = np.sqrt(frames["vx"] ** 2 + frames["vy"] ** 2)
+
+
+def _bronze_idsse_to_sportec_input(trk_pdf: pd.DataFrame) -> pd.DataFrame:
+    """Map bronze ``idsse_tracking`` columns to silly-kicks sportec input schema.
+
+    Bronze ``idsse_tracking`` stores one row per player per frame with ball
+    data denormalized as ``ball_x``/``ball_y``/``ball_z``/``ball_status``
+    columns on every player row.  ``convert_to_frames`` expects the sportec
+    ``EXPECTED_INPUT_COLUMNS`` schema which includes separate ball rows
+    (``is_ball=True``, ``player_id=NaN``, ``team_id=NaN``).
+
+    Column mapping (bronze → sportec input):
+
+    +--------------+--------------+--------------------------------------+
+    | Bronze       | Sportec      | Notes                                |
+    +--------------+--------------+--------------------------------------+
+    | match_id     | game_id      | rename                               |
+    | period       | period_id    | rename                               |
+    | frame        | frame_id     | rename                               |
+    | timestamp    | time_seconds | rename                               |
+    | x            | x_centered   | already DFL-centered (±52.5)         |
+    | y            | y_centered   | already DFL-centered (±34.0)         |
+    | s            | speed_native | rename                               |
+    | ball_status  | ball_state   | lowercase (``Alive`` → ``alive``)    |
+    | frame_rate   | frame_rate   | identity                             |
+    | player_id    | player_id    | identity                             |
+    | team_id      | team_id      | identity                             |
+    | is_goalkeeper| is_goalkeeper| identity                             |
+    +--------------+--------------+--------------------------------------+
+
+    Synthetic ball rows are created by deduplicating
+    ``(frame, period)`` and pivoting ``ball_x``/``ball_y``/``ball_z``
+    into ``x_centered``/``y_centered``/``z``.  Player rows get
+    ``z=NaN`` (DFL does not provide z for non-ball objects).
+    """
+    import pandas as pd
+
+    # ── Player rows ──────────────────────────────────────────────
+    players = trk_pdf.rename(
+        columns={
+            "match_id": "game_id",
+            "period": "period_id",
+            "frame": "frame_id",
+            "timestamp": "time_seconds",
+            "x": "x_centered",
+            "y": "y_centered",
+            "s": "speed_native",
+            "ball_status": "ball_state",
+        },
+    ).copy()
+    players["is_ball"] = False
+    players["z"] = np.nan
+
+    # ball_state: DFL uses capitalized "Alive"/"Dead"; sportec expects lowercase
+    bs = players["ball_state"]
+    players["ball_state"] = bs.str.lower().where(bs.notna(), other=None)
+
+    # ── Synthetic ball rows (one per frame) ──────────────────────
+    ball_src = trk_pdf[
+        [
+            "frame",
+            "period",
+            "timestamp",
+            "ball_x",
+            "ball_y",
+            "ball_z",
+            "ball_s",
+            "ball_status",
+            "match_id",
+            "frame_rate",
+        ]
+    ].copy()
+    ball_src = ball_src.drop_duplicates(subset=["frame", "period"])
+    ball_src.rename(
+        columns={
+            "match_id": "game_id",
+            "frame": "frame_id",
+            "period": "period_id",
+            "timestamp": "time_seconds",
+            "ball_x": "x_centered",
+            "ball_y": "y_centered",
+            "ball_z": "z",
+            "ball_s": "speed_native",
+            "ball_status": "ball_state",
+        },
+        inplace=True,
+    )
+    bs_ball = ball_src["ball_state"]
+    ball_src["ball_state"] = bs_ball.str.lower().where(bs_ball.notna(), other=None)
+    ball_src["player_id"] = None
+    ball_src["team_id"] = None
+    ball_src["is_ball"] = True
+    ball_src["is_goalkeeper"] = False
+
+    # ── Combine and select only EXPECTED_INPUT_COLUMNS ───────────
+    expected_cols = [
+        "game_id",
+        "period_id",
+        "frame_id",
+        "time_seconds",
+        "frame_rate",
+        "player_id",
+        "team_id",
+        "is_ball",
+        "is_goalkeeper",
+        "x_centered",
+        "y_centered",
+        "z",
+        "speed_native",
+        "ball_state",
+    ]
+    result = pd.concat(
+        [players[expected_cols], ball_src[expected_cols]],
+        ignore_index=True,
+    )
+    return result.sort_values(["frame_id", "is_ball"]).reset_index(drop=True)
 
 
 def _bronze_metrica_to_frames(trk_pdf: pd.DataFrame, game_id: int) -> pd.DataFrame:
