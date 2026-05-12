@@ -9,17 +9,9 @@
 #     "huggingface-hub>=1.5.0",
 # ]
 # ///
-"""Publish pitch-control tracking frames to HF Hub.
+"""Publish tracking context features (fct_tracking_context) to HF Hub.
 
-Migrated from the pitch-control cell of notebooks/publish_datasets.py per HF4
-(SK3-MIG-B). Inventory-only — NOT fired by SK3-MIG-B Group 3 republishes
-(tracking adapters pinned to absolute_frame; not coord-dependent).
-
-Dataset: luxury-lakehouse/pitch-control-tracking
-
-Note on flavor sizing: tracking frame counts can exceed cpu-basic 16 GB driver
-memory. If the publish fails OOM, escalate to a larger flavor (gpu-medium has
-~50 GB) — the dataset is single-shot, not in the SK3-MIG-B regular cycle.
+Dataset: luxury-lakehouse/spadl-tracking-context
 """
 
 from __future__ import annotations
@@ -44,26 +36,16 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 HF_ORG = "luxury-lakehouse"
-DATASET_REPO = f"{HF_ORG}/pitch-control-tracking"
+DATASET_REPO = f"{HF_ORG}/spadl-tracking-context"
 
-_TRACKING_SQL = """\
-SELECT t.tracking_id,
-       t.match_key, t.team_key, t.player_key,
-       t.match_id, t.player_id, t.team_id, t.team,
-       t.period, t.frame, t.timestamp_seconds,
-       t.x, t.y, t.ball_x, t.ball_y,
-       t.velocity_x, t.velocity_y, t.speed_ms,
-       pc.pitch_control_value,
-       t.source_provider, t.frame_rate
-FROM soccer_analytics.dev_gold.fct_tracking_frames t
-INNER JOIN soccer_analytics.dev_silver.stg_pitch_control__values pc
-    ON t.tracking_id = pc.tracking_id
+_TRACKING_CONTEXT_SQL = """\
+SELECT * FROM soccer_analytics.dev_gold.fct_tracking_context
 """
 
 _POLL_INTERVAL_S = 2.0
 _TIMEOUT_SUBMIT = (10, 120)
 _TIMEOUT_POLL = (10, 30)
-_TIMEOUT_CHUNK = (10, 300)
+_TIMEOUT_CHUNK = (10, 120)
 
 
 def query_databricks_sql(host: str, token: str, sql: str, warehouse_id: str) -> pd.DataFrame:
@@ -118,10 +100,10 @@ def publish_to_hf_hub(df: pd.DataFrame, hf_token: str) -> str:
     with tempfile.TemporaryDirectory() as tmpdir:
         staging_dir = Path(tmpdir) / "data"
         staging_dir.mkdir(parents=True, exist_ok=True)
-        for provider, sub_df in df.groupby("source_provider"):
-            partition_dir = staging_dir / f"source_provider={provider}"
+        for source, sub_df in df.groupby("data_source"):
+            partition_dir = staging_dir / f"data_source={source}"
             partition_dir.mkdir(parents=True, exist_ok=True)
-            sub_df.drop(columns=["source_provider"]).to_parquet(
+            sub_df.drop(columns=["data_source"]).to_parquet(
                 partition_dir / "data.parquet",
                 index=False,
                 engine="pyarrow",
@@ -150,15 +132,15 @@ def main() -> None:
     db_token = os.environ["DATABRICKS_TOKEN"]
     warehouse_id = os.environ["DATABRICKS_SQL_WAREHOUSE_ID"]
 
-    df = query_databricks_sql(host, db_token, _TRACKING_SQL, warehouse_id)
+    df = query_databricks_sql(host, db_token, _TRACKING_CONTEXT_SQL, warehouse_id)
     if df.empty:
-        raise RuntimeError("0 rows from fct_tracking_frames")
-    logger.info("Retrieved %s frames across %s providers", f"{len(df):,}", df["source_provider"].nunique())
+        raise RuntimeError("0 rows from fct_tracking_context — verify dbt build")
+    logger.info("Retrieved %s tracking context rows", f"{len(df):,}")
 
     url = publish_to_hf_hub(df, hf_token)
     upload_hf_readme(
         repo_id=DATASET_REPO,
-        readme_path=get_hf_card_path("pitch-control-tracking.md", kind="dataset"),
+        readme_path=get_hf_card_path("spadl-tracking-context.md", kind="dataset"),
         hf_token=hf_token,
     )
     logger.info("Pipeline complete: %s", url)

@@ -202,6 +202,11 @@ INDEXES: list[tuple[str, str, str]] = [
     # for mapping a surrogate back to the source-system native ID.
     ("idx_dim_matches_match_key", "dim_matches_synced", "match_key"),
     ("idx_dim_matches_provider_native", "dim_matches_synced", "provider, native_match_id"),
+    # ── fct_tracking_context_synced — TC-1 tracking features ──────────
+    # TC-1: match_key for per-match feature queries
+    ("idx_tracking_context_match_key", "fct_tracking_context_synced", "match_key"),
+    # TC-2: player_key for per-player feature aggregation
+    ("idx_tracking_context_player_key", "fct_tracking_context_synced", "player_key"),
 ]
 
 # pgvector HNSW index definitions: (index_name, table, using_clause)

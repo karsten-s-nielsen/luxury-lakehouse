@@ -4635,3 +4635,203 @@ models:
             combination_of_columns:
               - provider
               - native_match_id
+
+  # ── Tracking Context ──────────────────────────────────────────────────
+
+  - name: fct_tracking_context
+    config:
+      contract:
+        enforced: true
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Gold-layer unified tracking features per SPADL action. Grain: one row
+      per (match_key, action_id). Pure Kimball — no legacy BIGINT columns.
+      Covers IDSSE, Metrica, SkillCorner providers. 83 input columns with
+      Kimball FKs (match_key, team_key, player_key) resolved via dim JOINs.
+    columns:
+      - name: tracking_context_id
+        data_type: string
+        description: Surrogate key derived from (match_key, action_id).
+        data_tests:
+          - unique
+          - not_null
+      - name: match_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_matches.
+        data_tests:
+          - not_null
+      - name: team_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_teams.
+      - name: player_key
+        data_type: bigint
+        description: Kimball surrogate FK to dim_players.
+      - name: action_id
+        data_type: bigint
+        description: SPADL action index within match.
+        data_tests:
+          - not_null
+      - name: data_source
+        data_type: string
+        description: "Provider: idsse, metrica, skillcorner."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['idsse', 'metrica', 'skillcorner']
+      - name: period_id
+        data_type: bigint
+      - name: time_seconds
+        data_type: double
+      - name: type_name
+        data_type: string
+      - name: start_x
+        data_type: double
+      - name: start_y
+        data_type: double
+      - name: end_x
+        data_type: double
+      - name: end_y
+        data_type: double
+      - name: frame_id
+        data_type: bigint
+      - name: time_offset_seconds
+        data_type: double
+      - name: link_quality_score
+        data_type: double
+      - name: n_candidate_frames
+        data_type: bigint
+      - name: defending_gk_player_id
+        data_type: bigint
+      - name: gk_was_distributing
+        data_type: boolean
+      - name: gk_was_engaged
+        data_type: boolean
+      - name: gk_actions_in_possession
+        data_type: bigint
+      - name: pre_shot_gk_x
+        data_type: double
+      - name: pre_shot_gk_y
+        data_type: double
+      - name: pre_shot_gk_distance_to_goal
+        data_type: double
+      - name: pre_shot_gk_distance_to_shot
+        data_type: double
+      - name: pre_shot_gk_angle_to_shot_trajectory
+        data_type: double
+      - name: pre_shot_gk_angle_off_goal_line
+        data_type: double
+      - name: nearest_defender_distance
+        data_type: double
+      - name: actor_speed
+        data_type: double
+      - name: receiver_zone_density
+        data_type: bigint
+      - name: defenders_in_triangle_to_goal
+        data_type: bigint
+      - name: actor_arc_length_pre_window
+        data_type: double
+      - name: actor_displacement_pre_window
+        data_type: double
+      - name: pressure_on_actor__andrienko_oval
+        data_type: double
+      - name: pressure_on_actor__link_zones
+        data_type: double
+      - name: pressure_on_actor__bekkers_pi
+        data_type: double
+      - name: pitch_control_at_ball__spearman
+        data_type: double
+      - name: pitch_control_at_ball__fernandez_bornn
+        data_type: double
+      - name: pitch_control_at_ball__voronoi
+        data_type: double
+      - name: defensive_line_x
+        data_type: double
+      - name: back_line_high_x
+        data_type: double
+      - name: compactness_x
+        data_type: double
+      - name: lateral_width
+        data_type: double
+      - name: max_lateral_gap
+        data_type: double
+      - name: back_n_count
+        data_type: bigint
+      - name: line_break
+        data_type: boolean
+      - name: n_attackers_behind_line
+        data_type: bigint
+      - name: n_off_ball_runners_pre_window
+        data_type: bigint
+      - name: max_off_ball_run_displacement_pre_window
+        data_type: double
+      - name: mean_off_ball_run_speed_pre_window
+        data_type: double
+      - name: n_off_ball_runners_toward_goal_pre_window
+        data_type: bigint
+      - name: line_break__ward
+        data_type: boolean
+      - name: lines_broken__ward
+        data_type: bigint
+      - name: line_breaking_type__ward
+        data_type: string
+      - name: team_shape_centroid_x_attacking
+        data_type: double
+      - name: team_shape_centroid_y_attacking
+        data_type: double
+      - name: team_shape_convex_hull_area_attacking
+        data_type: double
+      - name: team_shape_team_length_attacking
+        data_type: double
+      - name: team_shape_team_width_attacking
+        data_type: double
+      - name: team_shape_stretch_index_attacking
+        data_type: double
+      - name: team_shape_n_outfield_players_attacking
+        data_type: bigint
+      - name: team_shape_centroid_x_defending
+        data_type: double
+      - name: team_shape_centroid_y_defending
+        data_type: double
+      - name: team_shape_convex_hull_area_defending
+        data_type: double
+      - name: team_shape_team_length_defending
+        data_type: double
+      - name: team_shape_team_width_defending
+        data_type: double
+      - name: team_shape_stretch_index_defending
+        data_type: double
+      - name: team_shape_n_outfield_players_defending
+        data_type: bigint
+      - name: das_team
+        data_type: double
+      - name: das_opponent
+        data_type: double
+      - name: das_diff
+        data_type: double
+      - name: gk_pitch_control_share_weighted
+        data_type: double
+      - name: gk_reachable_area_m2
+        data_type: double
+      - name: gk_closing_time_mean_s__six_yard_box
+        data_type: double
+      - name: gk_closing_time_min_s__six_yard_box
+        data_type: double
+      - name: n_blocked_receivers
+        data_type: bigint
+      - name: n_potential_receivers
+        data_type: bigint
+      - name: blocking_score
+        data_type: double
+      - name: blocked_threat_fraction
+        data_type: double
+      - name: max_single_defender_blocking_score
+        data_type: double
+      - name: sync_score_min
+        data_type: double
+      - name: sync_score_mean
+        data_type: double
+      - name: sync_score_high_quality_frac
+        data_type: double

@@ -1,0 +1,71 @@
+---
+name: Tracking Context Enrichment
+id: wf-tracking-context
+version: "1.0"
+status: production
+type: enrichment
+domain: tracking-features
+owners:
+  - karsten
+tags:
+  - tracking
+  - pitch-control
+  - team-shape
+  - line-breaking
+  - pressure
+  - gk-influence
+  - cover-shadows
+
+inputs:
+  datasets:
+    - id: "{catalog}.bronze.spadl_actions"
+      source: delta-table
+      description: "SPADL actions from all providers"
+    - id: "{catalog}.bronze.idsse_tracking"
+      source: delta-table
+      description: "IDSSE (Sportec) raw tracking data"
+    - id: "{catalog}.bronze.idsse_events"
+      source: delta-table
+      description: "IDSSE event data (for home_team_id derivation)"
+    - id: "{catalog}.bronze.metrica_tracking"
+      source: delta-table
+      description: "Metrica raw tracking data"
+    - id: "{catalog}.bronze.skillcorner_tracking"
+      source: delta-table
+      description: "SkillCorner raw tracking data"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.spadl_tracking_context"
+      destination: delta-table
+      description: "Per-action tracking features (83 columns)"
+
+execution:
+  enrichment:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: compute_tracking_context
+    module: ingestion.tracking_context
+    schedule: "daily 06:00 UTC"
+    timeout: "7200s"
+    environment: spadl
+
+dbt_model: fct_tracking_context
+
+idempotency:
+  strategy: skip-guard
+  key:
+    - match_id
+    - data_source
+
+performance:
+  memory_ceiling: "800 MB per UDF group (1 GB limit)"
+  compute_estimate: "2-5 min per match, 15-40 min total for 20 matches"
+---
+
+## Overview
+
+Compute all silly-kicks action-coupled tracking features in a single pass
+per match and write to bronze.spadl_tracking_context. Covers IDSSE, Metrica,
+and SkillCorner providers. 83-column output including pitch control, pressure,
+team shape, line-breaking, GK influence, cover shadows, and DAS.
