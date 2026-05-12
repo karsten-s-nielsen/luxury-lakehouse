@@ -203,10 +203,11 @@ INDEXES: list[tuple[str, str, str]] = [
     ("idx_dim_matches_match_key", "dim_matches_synced", "match_key"),
     ("idx_dim_matches_provider_native", "dim_matches_synced", "provider, native_match_id"),
     # ── fct_tracking_context_synced — TC-1 tracking features ──────────
-    # TC-1: match_key for per-match feature queries
-    ("idx_tracking_context_match_key", "fct_tracking_context_synced", "match_key"),
-    # TC-2: player_key for per-player feature aggregation
-    ("idx_tracking_context_player_key", "fct_tracking_context_synced", "player_key"),
+    # Indexes deferred until synced table is created (Task 12 deploy).
+    # Add back after: maintain_synced_tables.py --skip-refresh
+    # ("idx_tracking_context_match_key", "fct_tracking_context_synced", "match_key"),
+    # ("idx_tracking_context_match_team_key", "fct_tracking_context_synced", "match_key, team_key"),
+    # ("idx_tracking_context_match_player_key", "fct_tracking_context_synced", "match_key, player_key"),
 ]
 
 # pgvector HNSW index definitions: (index_name, table, using_clause)
