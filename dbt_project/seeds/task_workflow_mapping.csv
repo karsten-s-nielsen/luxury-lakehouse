@@ -12,6 +12,7 @@ compute_pausa,wf-obso-pausa
 compute_off_ball_xt,wf-off-ball-xt
 compute_pitch_control,wf-pitch-control
 compute_tracking_context,wf-tracking-context
+preflight_tracking_context,wf-tracking-context
 compute_spadl_vaep,wf-vaep
 compute_xg_model_v2,wf-xg-v2
 compute_expected_threat,wf-xt-grids

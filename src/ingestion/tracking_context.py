@@ -11,7 +11,7 @@ Architecture: "Read from bronze, compute, write to bronze."
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 
@@ -26,6 +26,60 @@ if TYPE_CHECKING:
     from silly_kicks.xthreat import ExpectedThreat
 
 _TABLE_NAME = "spadl_tracking_context"
+
+# ── Column projection constants ───────────────────────────────────────
+# Minimum Spark .select() set per provider. Each tuple matches the
+# corresponding _*_CONSUMED_COLS frozenset defined next to the converter
+# function. Parity enforced by test_tracking_context_column_projection.py.
+#
+# NOTE: Spark filter columns (match_id for all providers) do NOT need to be
+# in the select — Catalyst pushes predicates below projections.
+
+_IDSSE_TRACKING_SELECT_COLS: tuple[str, ...] = (
+    "match_id",
+    "period",
+    "frame",
+    "timestamp",
+    "x",
+    "y",
+    "s",
+    "ball_status",
+    "frame_rate",
+    "player_id",
+    "team_id",
+    "is_goalkeeper",
+    "ball_x",
+    "ball_y",
+    "ball_z",
+    "ball_s",
+)
+
+_METRICA_TRACKING_SELECT_COLS: tuple[str, ...] = (
+    "period",
+    "frame",
+    "timestamp",
+    "frame_rate",
+    "gk_jersey_numbers",
+    "home_players",
+    "away_players",
+    "ball_x",
+    "ball_y",
+)
+
+_SKILLCORNER_TRACKING_SELECT_COLS: tuple[str, ...] = (
+    "frame",
+    "period",
+    "timestamp",
+    "player_id",
+    "team",
+    "x",
+    "y",
+    "is_goalkeeper",
+    "frame_rate",
+    "home_team_id",
+    "ball_x",
+    "ball_y",
+)
 
 # ── Column ordering ────────────────────────────────────────────────────
 # Identity (12) + linkage (4) + features (66) + audit (1) = 83 columns.
@@ -320,6 +374,8 @@ def _process_idsse(
     new_ids: list[str],
 ) -> int:
     """Process IDSSE matches via sportec.convert_to_frames from bronze."""
+    import gc
+
     from pyspark.sql import functions as F  # noqa: N812
     from silly_kicks.tracking import PreprocessConfig
     from silly_kicks.tracking.sportec import convert_to_frames
@@ -334,8 +390,13 @@ def _process_idsse(
     for match_id in new_ids:
         logger.info("Processing IDSSE match %s", match_id)
 
-        # Load tracking frames from bronze
-        trk_pdf = spark.table(f"{catalog}.bronze.idsse_tracking").filter(F.col("match_id") == match_id).toPandas()
+        # Load tracking frames — project only consumed columns
+        trk_pdf = (
+            spark.table(f"{catalog}.bronze.idsse_tracking")
+            .filter(F.col("match_id") == match_id)
+            .select(*_IDSSE_TRACKING_SELECT_COLS)
+            .toPandas()
+        )
         if trk_pdf.empty:
             logger.warning("No tracking data for IDSSE match %s", match_id)
             continue
@@ -355,9 +416,11 @@ def _process_idsse(
         home_team_id = str(events_pdf["home_team_id_native"].dropna().iloc[0])
         adapted_events = adapt_idsse_events_for_silly_kicks(events_pdf)
         home_start_left = derive_idsse_home_team_start_left(adapted_events, home_team_id)
+        del events_pdf, adapted_events
 
         # Map bronze columns to sportec EXPECTED_INPUT_COLUMNS schema
         sportec_input = _bronze_idsse_to_sportec_input(trk_pdf)
+        del trk_pdf
 
         # Convert tracking to silly-kicks frames (105x68 LTR)
         frames, _report = convert_to_frames(
@@ -367,10 +430,10 @@ def _process_idsse(
             output_convention="ltr",
             preprocess=PreprocessConfig(derive_velocity=True),
         )
+        del sportec_input
 
         # Align game_id: sportec converter uses DFL string ID, but SPADL
-        # actions carry a BIGINT hash. Must match for aggregators that group
-        # by game_id (e.g. compute_defensive_line in batch mode).
+        # actions carry a BIGINT hash.
         frames["game_id"] = int(actions_pdf["game_id"].iloc[0])
 
         result = _enrich_match(
@@ -381,12 +444,10 @@ def _process_idsse(
             match_id_native=match_id,
             data_source="idsse",
         )
+        del frames, actions_pdf
 
-        # Write to bronze.
-        # NOTE: replace_where is Spark's .option("replaceWhere", ...) which
-        # accepts ONLY SQL string predicates — Column expressions are not supported.
-        # match_id comes from find_new_ids() (our own Delta tables), not user input.
         result_sdf = spark.createDataFrame(result)
+        del result
         written = write_delta_table(
             result_sdf,
             catalog,
@@ -396,6 +457,7 @@ def _process_idsse(
             logger=logger,
         )
         total += written
+        gc.collect()
 
     return total
 
@@ -490,6 +552,29 @@ def _derive_velocities_savgol(
     frames["speed"] = np.sqrt(frames["vx"] ** 2 + frames["vy"] ** 2)
 
 
+_IDSSE_CONSUMED_COLS: frozenset[str] = frozenset(
+    {
+        "match_id",
+        "period",
+        "frame",
+        "timestamp",
+        "x",
+        "y",
+        "s",
+        "ball_status",
+        "frame_rate",
+        "player_id",
+        "team_id",
+        "is_goalkeeper",
+        "ball_x",
+        "ball_y",
+        "ball_z",
+        "ball_s",
+    }
+)
+"""Columns consumed by _bronze_idsse_to_sportec_input from bronze.idsse_tracking."""
+
+
 def _bronze_idsse_to_sportec_input(trk_pdf: pd.DataFrame) -> pd.DataFrame:
     """Map bronze ``idsse_tracking`` columns to silly-kicks sportec input schema.
 
@@ -524,6 +609,9 @@ def _bronze_idsse_to_sportec_input(trk_pdf: pd.DataFrame) -> pd.DataFrame:
     ``z=NaN`` (DFL does not provide z for non-ball objects).
     """
     import pandas as pd
+
+    # Filter to consumed columns — runtime assertion against drift.
+    trk_pdf = trk_pdf[list(_IDSSE_CONSUMED_COLS)].copy()
 
     # ── Player rows ──────────────────────────────────────────────
     players = trk_pdf.rename(
@@ -606,6 +694,22 @@ def _bronze_idsse_to_sportec_input(trk_pdf: pd.DataFrame) -> pd.DataFrame:
     return result.sort_values(["frame_id", "is_ball"]).reset_index(drop=True)
 
 
+_METRICA_CONSUMED_COLS: frozenset[str] = frozenset(
+    {
+        "period",
+        "frame",
+        "timestamp",
+        "frame_rate",
+        "gk_jersey_numbers",
+        "home_players",
+        "away_players",
+        "ball_x",
+        "ball_y",
+    }
+)
+"""Columns consumed by _bronze_metrica_to_frames from bronze.metrica_tracking."""
+
+
 def _bronze_metrica_to_frames(trk_pdf: pd.DataFrame, game_id: int) -> pd.DataFrame:
     """Convert Metrica bronze tracking (frame-level JSON) to silly-kicks frames.
 
@@ -623,6 +727,9 @@ def _bronze_metrica_to_frames(trk_pdf: pd.DataFrame, game_id: int) -> pd.DataFra
     import json
 
     import pandas as pd
+
+    # Filter to consumed columns — runtime assertion against drift.
+    trk_pdf = trk_pdf[list(_METRICA_CONSUMED_COLS)].copy()
 
     # Parse GK jersey numbers (match-level constant)
     gk_jerseys: set[str] = set()
@@ -708,6 +815,28 @@ def _bronze_metrica_to_frames(trk_pdf: pd.DataFrame, game_id: int) -> pd.DataFra
     return frames.sort_values(["frame_id", "is_ball"]).reset_index(drop=True)
 
 
+_SKILLCORNER_CONSUMED_COLS: frozenset[str] = frozenset(
+    {
+        "frame",
+        "period",
+        "timestamp",
+        "player_id",
+        "team",
+        "x",
+        "y",
+        "is_goalkeeper",
+        "frame_rate",
+        "ball_x",
+        "ball_y",
+    }
+)
+"""Columns consumed by _bronze_skillcorner_to_frames from bronze.skillcorner_tracking.
+
+NOTE: ``home_team_id`` is consumed by ``_process_skillcorner`` (not the converter),
+so it appears in the projection constant but NOT here.
+"""
+
+
 def _bronze_skillcorner_to_frames(trk_pdf: pd.DataFrame, game_id: int) -> pd.DataFrame:
     """Convert SkillCorner bronze tracking (narrow) to silly-kicks frames.
 
@@ -723,6 +852,9 @@ def _bronze_skillcorner_to_frames(trk_pdf: pd.DataFrame, game_id: int) -> pd.Dat
     not 105x68 SPADL meters. silly-kicks TRACKING_CONSTRAINTS require (0,105)x(0,68).
     """
     import pandas as pd
+
+    # Filter to consumed columns — runtime assertion against drift.
+    trk_pdf = trk_pdf[list(_SKILLCORNER_CONSUMED_COLS)].copy()
 
     frame_rate = int(trk_pdf["frame_rate"].iloc[0]) if "frame_rate" in trk_pdf.columns else 10
 
@@ -793,12 +925,9 @@ def _process_metrica(
     xt: ExpectedThreat,
     new_ids: list[str],
 ) -> int:
-    """Process Metrica matches from bronze tables (NOT from internet).
+    """Process Metrica matches from bronze tables (NOT from internet)."""
+    import gc
 
-    Reads bronze.metrica_tracking (frame-level JSON) and converts to
-    silly-kicks TRACKING_FRAMES_COLUMNS via _bronze_metrica_to_frames().
-    home_team_id = "Home" (matches SPADL convention for Metrica).
-    """
     from pyspark.sql import functions as F  # noqa: N812
 
     from ingestion.utils import write_delta_table
@@ -807,13 +936,16 @@ def _process_metrica(
     for match_id in new_ids:
         logger.info("Processing Metrica match %s", match_id)
 
-        # Read tracking from bronze — no network dependency
-        trk_pdf = spark.table(f"{catalog}.bronze.metrica_tracking").filter(F.col("match_id") == match_id).toPandas()
+        trk_pdf = (
+            spark.table(f"{catalog}.bronze.metrica_tracking")
+            .filter(F.col("match_id") == match_id)
+            .select(*_METRICA_TRACKING_SELECT_COLS)
+            .toPandas()
+        )
         if trk_pdf.empty:
             logger.warning("No tracking data for Metrica match %s", match_id)
             continue
 
-        # Load SPADL actions from bronze
         actions_pdf = (
             spark.table(f"{catalog}.bronze.spadl_actions")
             .filter((F.col("match_id_native") == match_id) & (F.col("data_source") == "metrica"))
@@ -823,12 +955,10 @@ def _process_metrica(
             logger.warning("No SPADL actions for Metrica match %s", match_id)
             continue
 
-        # Convert bronze tracking → silly-kicks frames (105x68 LTR)
         game_id = int(actions_pdf["game_id"].iloc[0])
         frames = _bronze_metrica_to_frames(trk_pdf, game_id=game_id)
+        del trk_pdf
 
-        # home_team_id = "Home" — Metrica SPADL convention
-        # (matches adapt_metrica_events_for_silly_kicks → home_team_id="Home")
         home_team_id = "Home"
 
         result = _enrich_match(
@@ -839,8 +969,10 @@ def _process_metrica(
             match_id_native=match_id,
             data_source="metrica",
         )
+        del frames, actions_pdf
 
         result_sdf = spark.createDataFrame(result)
+        del result
         written = write_delta_table(
             result_sdf,
             catalog,
@@ -850,6 +982,7 @@ def _process_metrica(
             logger=logger,
         )
         total += written
+        gc.collect()
 
     return total
 
@@ -862,12 +995,9 @@ def _process_skillcorner(
     xt: ExpectedThreat,
     new_ids: list[str],
 ) -> int:
-    """Process SkillCorner matches from bronze tables (NOT from internet).
+    """Process SkillCorner matches from bronze tables (NOT from internet)."""
+    import gc
 
-    Reads bronze.skillcorner_tracking (narrow format) and converts to
-    silly-kicks TRACKING_FRAMES_COLUMNS via _bronze_skillcorner_to_frames().
-    home_team_id derived from bronze home_team_id column.
-    """
     from pyspark.sql import functions as F  # noqa: N812
 
     from ingestion.utils import write_delta_table
@@ -876,13 +1006,16 @@ def _process_skillcorner(
     for match_id in new_ids:
         logger.info("Processing SkillCorner match %s", match_id)
 
-        # Read tracking from bronze — no network dependency
-        trk_pdf = spark.table(f"{catalog}.bronze.skillcorner_tracking").filter(F.col("match_id") == match_id).toPandas()
+        trk_pdf = (
+            spark.table(f"{catalog}.bronze.skillcorner_tracking")
+            .filter(F.col("match_id") == match_id)
+            .select(*_SKILLCORNER_TRACKING_SELECT_COLS)
+            .toPandas()
+        )
         if trk_pdf.empty:
             logger.warning("No tracking data for SkillCorner match %s", match_id)
             continue
 
-        # Load SPADL actions from bronze
         actions_pdf = (
             spark.table(f"{catalog}.bronze.spadl_actions")
             .filter((F.col("match_id_native") == match_id) & (F.col("data_source") == "skillcorner"))
@@ -892,12 +1025,12 @@ def _process_skillcorner(
             logger.warning("No SPADL actions for SkillCorner match %s", match_id)
             continue
 
-        # Convert bronze tracking → silly-kicks frames (105x68 LTR)
+        # Derive home_team_id from projected bronze data BEFORE converter discards it
+        home_team_id = str(trk_pdf["home_team_id"].dropna().iloc[0])
+
         game_id = int(actions_pdf["game_id"].iloc[0])
         frames = _bronze_skillcorner_to_frames(trk_pdf, game_id=game_id)
-
-        # Derive home_team_id from bronze column
-        home_team_id = str(trk_pdf["home_team_id"].dropna().iloc[0])
+        del trk_pdf
 
         result = _enrich_match(
             actions=actions_pdf,
@@ -907,8 +1040,10 @@ def _process_skillcorner(
             match_id_native=match_id,
             data_source="skillcorner",
         )
+        del frames, actions_pdf
 
         result_sdf = spark.createDataFrame(result)
+        del result
         written = write_delta_table(
             result_sdf,
             catalog,
@@ -918,17 +1053,26 @@ def _process_skillcorner(
             logger=logger,
         )
         total += written
+        gc.collect()
 
     return total
 
 
 # ── Skip Guard ─────────────────────────────────────────────────────────
 
+_VALID_PROVIDERS: frozenset[str] = frozenset({"idsse", "metrica", "skillcorner"})
+
 
 class _TrackingContextGuard:
-    """SkipGuard adapter for tracking context pipeline."""
+    """SkipGuard adapter for tracking context pipeline.
+
+    chunk_sizes: per-provider match count per for_each_task iteration.
+    IDSSE = 1 match/iteration (~2.9 GB peak per match on 16 GB driver).
+    Metrica/SkillCorner = 2 matches/iteration (lighter data).
+    """
 
     workflow_id = "wf-tracking-context"
+    chunk_sizes: ClassVar[dict[str, int]] = {"idsse": 1, "metrica": 2, "skillcorner": 2}
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
         """Check each provider's tracking table for unprocessed matches."""
@@ -960,9 +1104,20 @@ class _TrackingContextGuard:
         if total == 0:
             return FilterResult(workflow_id=self.workflow_id, count=0)
 
+        # Build chunks: each inner list has one element "provider:id1,id2".
+        # main_preflight joins with "," -> same string (single element).
+        # for_each_task spawns one iteration per chunk string.
+        chunks: list[list[str]] = []
+        for provider, ids in [("idsse", idsse_ids), ("metrica", metrica_ids), ("skillcorner", skillcorner_ids)]:
+            chunk_size = self.chunk_sizes[provider]
+            for i in range(0, len(ids), chunk_size):
+                batch = ids[i : i + chunk_size]
+                chunks.append([f"{provider}:{','.join(batch)}"])
+
         return FilterResult(
             workflow_id=self.workflow_id,
             count=total,
+            chunks=chunks,
             metadata={
                 "idsse_ids": idsse_ids,
                 "metrica_ids": metrica_ids,
@@ -972,6 +1127,33 @@ class _TrackingContextGuard:
 
 
 skip_guard = _TrackingContextGuard()
+
+
+def _parse_tracking_match_ids_arg(raw: str | None) -> tuple[str, list[str]] | None:
+    """Parse ``--match-ids`` CLI value for tracking context iterations.
+
+    Format: ``"provider:id1,id2"`` (e.g. ``"idsse:J03WMX,J03WN1"``).
+    The provider prefix routes to the correct ``_process_*`` function.
+
+    Returns:
+        ``(provider, [id1, id2])`` tuple, or ``None`` when ``raw`` is empty.
+
+    Raises:
+        SystemExit: On missing provider prefix or unknown provider.
+    """
+    if raw is None or raw == "":
+        return None
+    if ":" not in raw:
+        raise SystemExit(
+            f"--match-ids must be 'provider:id1,id2' format, got {raw!r}. Valid providers: {sorted(_VALID_PROVIDERS)}"
+        )
+    provider, ids_str = raw.split(":", 1)
+    if provider not in _VALID_PROVIDERS:
+        raise SystemExit(f"Unknown provider {provider!r} in --match-ids. Valid providers: {sorted(_VALID_PROVIDERS)}")
+    ids = [mid.strip() for mid in ids_str.split(",") if mid.strip()]
+    if not ids:
+        return None
+    return (provider, ids)
 
 
 # ── Pipeline orchestration ─────────────────────────────────────────────
@@ -1046,12 +1228,80 @@ def run_pipeline(
     return total_written
 
 
-# ── Entry point ────────────────────────────────────────────────────────
+# ── Entry points ──────────────────────────────────────────────────────
+
+
+def _write_tracking_chunks_task_value(
+    chunks_for_inputs: list[str],
+    logger: logging.Logger,
+) -> None:
+    """Write discovered chunks as a Databricks task value.
+
+    The downstream ``compute_tracking_context`` for_each_task reads this
+    via ``"{{tasks.preflight_tracking_context.values.tracking_context_chunks}}"``.
+    Empty list -> 0 iterations spawned.
+    """
+    try:
+        from pyspark.dbutils import DBUtils  # type: ignore[import-not-found]
+        from pyspark.sql import SparkSession
+
+        spark = SparkSession.getActiveSession()
+        if spark is None:
+            logger.warning("No active SparkSession -- task value not written")
+            return
+        dbutils = DBUtils(spark)
+        dbutils.jobs.taskValues.set(key="tracking_context_chunks", value=chunks_for_inputs)
+        logger.info(
+            "Wrote task value 'tracking_context_chunks' (%d chunks)",
+            len(chunks_for_inputs),
+        )
+    except (ImportError, AttributeError, RuntimeError) as exc:
+        logger.warning("Task values not available (likely standalone mode) -- %s", exc)
+
+
+def main_preflight() -> None:
+    """CLI entry point for the tracking context preflight task.
+
+    Runs the skip guard, partitions discovered matches into fan-out chunks
+    (``provider:id1,id2`` format), and writes them as a Databricks task value
+    for the downstream ``compute_tracking_context`` ``for_each_task``.
+    """
+    args = parse_ingestion_args(
+        "Preflight: discover unprocessed tracking matches and emit chunks "
+        "as a Databricks task value for downstream for_each_task fan-out"
+    )
+    logger = configure_logging("tracking_context_preflight")
+    spark = get_spark_session()
+
+    from ingestion.bootstrap import bootstrap_hooks
+
+    bootstrap_hooks(spark, args.catalog, args.schema)
+
+    fr = timed_check(skip_guard, spark, args.catalog, args.schema)
+
+    # Serialize each chunk as a single string (inner list is always length 1)
+    chunks_for_inputs: list[str] = [",".join(chunk) for chunk in (fr.chunks or [])]
+
+    logger.info(
+        "Tracking context preflight: %d missing matches across %d chunks",
+        fr.count,
+        len(chunks_for_inputs),
+    )
+
+    _write_tracking_chunks_task_value(chunks_for_inputs, logger)
 
 
 def main() -> None:
-    """CLI entry point for tracking context enrichment."""
-    args = parse_ingestion_args("Compute action-coupled tracking features")
+    """CLI entry point for tracking context enrichment.
+
+    Without ``--match-ids``: runs all providers (legacy / standalone mode).
+    With ``--match-ids "provider:id1,id2"``: processes only the specified
+    provider and match IDs (for_each_task iteration mode).
+    """
+    args = parse_ingestion_args(
+        "Compute action-coupled tracking features",
+        extra_args=[("--match-ids", {"type": str, "default": None, "help": "provider:id1,id2 from for_each_task"})],
+    )
     logger = configure_logging("tracking_context")
     spark = get_spark_session()
 
@@ -1059,10 +1309,58 @@ def main() -> None:
 
     bootstrap_hooks(spark, args.catalog, args.schema)
 
-    filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
+    match_ids_parsed = _parse_tracking_match_ids_arg(getattr(args, "match_ids", None))
 
-    logger.info("Starting tracking context pipeline into %s.%s", args.catalog, args.schema)
-    run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
+    if match_ids_parsed is not None:
+        # for_each_task iteration mode: process one provider's chunk
+        provider, ids = match_ids_parsed
+        logger.info("Iteration mode: provider=%s, match_ids=%s", provider, ids)
+
+        # Fit xT per iteration (deterministic, ~2s, no accuracy impact).
+        # Value iteration on zone transition counts — row-order-independent.
+        from pyspark.sql import functions as F  # noqa: N812
+        from silly_kicks.xthreat import ExpectedThreat
+
+        spadl_pdf = (
+            spark.table(f"{args.catalog}.bronze.spadl_actions")
+            .filter(F.col("data_source").isin("idsse", "metrica", "skillcorner"))
+            .select(
+                "game_id",
+                "action_id",
+                "period_id",
+                "time_seconds",
+                "team_id",
+                "player_id",
+                "type_id",
+                "result_id",
+                "bodypart_id",
+                "start_x",
+                "start_y",
+                "end_x",
+                "end_y",
+                "original_event_id",
+            )
+            .toPandas()
+        )
+        xt = ExpectedThreat().fit(spadl_pdf)
+        del spadl_pdf
+        logger.info("xT model fitted (grid shape %s)", xt.xT.shape)
+
+        if provider == "idsse":
+            total = _process_idsse(spark, args.catalog, args.schema, logger, xt, ids)
+        elif provider == "metrica":
+            total = _process_metrica(spark, args.catalog, args.schema, logger, xt, ids)
+        elif provider == "skillcorner":
+            total = _process_skillcorner(spark, args.catalog, args.schema, logger, xt, ids)
+        else:
+            raise SystemExit(f"Unknown provider: {provider}")
+
+        logger.info("Iteration complete -- %d rows written for %s", total, provider)
+    else:
+        # Legacy / standalone mode: run full pipeline
+        filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
+        logger.info("Starting tracking context pipeline into %s.%s", args.catalog, args.schema)
+        run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
 
 
 if __name__ == "__main__":

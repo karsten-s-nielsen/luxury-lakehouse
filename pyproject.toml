@@ -1,6 +1,6 @@
 [project]
 name = "luxury-lakehouse"
-version = "0.3.43"
+version = "0.3.44"
 description = "Serverless soccer analytics platform built on Databricks Lakebase"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -122,6 +122,7 @@ compute_formations_shape_graph = "ingestion.formations_shape_graph:main_shape_gr
 compute_xg_model_v2 = "ingestion.xg_model_v2:main"
 compute_pitch_control = "ingestion.pitch_control_batch:main"
 compute_tracking_context = "ingestion.tracking_context:main"
+preflight_tracking_context = "ingestion.tracking_context:main_preflight"
 ingest_idsse_events = "ingestion.idsse_events:main"
 compute_elastic_sync = "ingestion.elastic_sync:main"
 compute_pausa = "ingestion.pausa:main"
@@ -218,6 +219,11 @@ known-first-party = ["analytics", "evolve", "ingestion", "shared", "workflows"]
 pythonVersion = "3.10"
 typeCheckingMode = "basic"
 reportMissingImports = "warning"  # pyspark only available in Databricks runtime
+# PyTorch re-exports public API (randint, zeros, allclose, etc.) from C
+# extensions via __init__.py; pyright stubs can't model this correctly and
+# flag torch.randint as "not exported from module torch". Disable globally
+# rather than adding 284 inline suppressions across torch test files.
+reportPrivateImportUsage = "none"
 # Test files under src/tests/ insert scripts/ and hf_taipy_app/src/ onto
 # sys.path at runtime to import scripts + Taipy modules that are NOT part
 # of any installed Python package. Declaring those directories as extraPaths

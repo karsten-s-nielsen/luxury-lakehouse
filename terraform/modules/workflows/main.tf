@@ -499,47 +499,44 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "analytics"
   }
 
-  # ── Task: Compute action-coupled tracking features (TC-1) ──────────────
+  # ── Task: Compute action-coupled tracking features (TC-1 fan-out) ──────
   # All 15 silly-kicks enrichments (pitch control, pressure, team shape,
   # line-breaking, GK influence, cover shadows, DAS) in a single pass per
   # match. Writes bronze.spadl_tracking_context (83 columns).
+  #
+  # TC-1 memory fix: fan-out via for_each_task so each match (IDSSE) or
+  # pair of matches (Metrica/SkillCorner) gets its own 16 GB serverless
+  # driver. Preflight emits chunks as "provider:id1,id2" strings.
   task {
-    task_key        = "compute_tracking_context"
-    timeout_seconds = 7200
-    max_retries     = 1
+    task_key = "compute_tracking_context"
 
-    # Reads bronze.spadl_actions (from compute_spadl_vaep) +
-    # bronze.idsse_tracking/idsse_events (from ingest_idsse/ingest_idsse_events) +
-    # bronze.metrica_tracking (from ingest_metrica) +
-    # bronze.skillcorner_tracking (from ingest_skillcorner).
-    # Order: alphabetical (test_workflows_tf_ordering enforcement).
     depends_on {
-      task_key = "compute_spadl_vaep"
-    }
-    depends_on {
-      task_key = "ingest_idsse"
-    }
-    depends_on {
-      task_key = "ingest_idsse_events"
-    }
-    depends_on {
-      task_key = "ingest_metrica"
-    }
-    depends_on {
-      task_key = "ingest_skillcorner"
+      task_key = "preflight_tracking_context"
     }
 
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "compute_tracking_context"
+    for_each_task {
+      inputs      = "{{tasks.preflight_tracking_context.values.tracking_context_chunks}}"
+      concurrency = 4
 
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze"
-      ]
+      task {
+        task_key        = "compute_tracking_context_iteration"
+        timeout_seconds = 1800
+        max_retries     = 1
+
+        python_wheel_task {
+          package_name = "luxury_lakehouse"
+          entry_point  = "compute_tracking_context"
+
+          parameters = [
+            "--catalog", var.catalog_name,
+            "--schema", "bronze",
+            "--match-ids", "{{input}}",
+          ]
+        }
+
+        environment_key = "analytics"
+      }
     }
-
-    environment_key = "analytics"
   }
 
   # ── Task: Score shots with xG v2 set encoder (Deep Sets + MC dropout) ──
@@ -936,6 +933,51 @@ resource "databricks_job" "data_ingestion" {
     python_wheel_task {
       package_name = "luxury_lakehouse"
       entry_point  = "preflight_idsse"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze",
+      ]
+    }
+
+    environment_key = "default"
+  }
+
+  # ── Task: Tracking-context preflight — discover matches + emit chunks ──
+  # TC-1 memory fix: discovers unprocessed matches across all three tracking
+  # providers (IDSSE, Metrica, SkillCorner) via skip_guard, partitions into
+  # chunks (IDSSE=1 match, Metrica/SkillCorner=2 matches per chunk), and
+  # writes the chunks as a Databricks task value `tracking_context_chunks`.
+  #
+  # The downstream `compute_tracking_context` for_each_task consumes via
+  # `{{tasks.preflight_tracking_context.values.tracking_context_chunks}}`.
+  task {
+    task_key        = "preflight_tracking_context"
+    timeout_seconds = 300
+    max_retries     = 1
+
+    # Same upstream deps as the old monolithic compute_tracking_context:
+    # needs SPADL + all tracking providers ingested before checking freshness.
+    # Order: alphabetical (test_workflows_tf_ordering enforcement).
+    depends_on {
+      task_key = "compute_spadl_vaep"
+    }
+    depends_on {
+      task_key = "ingest_idsse"
+    }
+    depends_on {
+      task_key = "ingest_idsse_events"
+    }
+    depends_on {
+      task_key = "ingest_metrica"
+    }
+    depends_on {
+      task_key = "ingest_skillcorner"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "preflight_tracking_context"
 
       parameters = [
         "--catalog", var.catalog_name,
