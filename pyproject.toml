@@ -1,6 +1,6 @@
 [project]
 name = "luxury-lakehouse"
-version = "0.3.44"
+version = "0.3.45"
 description = "Serverless soccer analytics platform built on Databricks Lakebase"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"

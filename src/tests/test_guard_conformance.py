@@ -868,6 +868,9 @@ class TestDirectGuardCall:
     _EXEMPT: ClassVar[set[str]] = {
         "ingestion.defcon_lite_360",
         "ingestion.defcon_lite_tracking",
+        # tracking_context.main() is a for_each_task iteration entry point;
+        # the guard runs in main_preflight() which the test already validates.
+        "ingestion.tracking_context",
     }
 
     def test_main_calls_skip_guard_directly(self) -> None:
