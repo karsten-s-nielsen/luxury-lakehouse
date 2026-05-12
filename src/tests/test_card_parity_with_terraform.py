@@ -164,6 +164,7 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     "compute_embeddings_360": "wf-football2vec-360",
     "compute_elastic_sync": "wf-elastic-sync",
     "compute_pausa": "wf-obso-pausa",
+    "compute_tracking_context": "wf-tracking-context",
     # PR-Cycle-B (2026-05-01): split out of wf-hf-sync into its own scheduled
     # Databricks task so wf-obso-pausa can declare an explicit dependency.
     "import_obso_results": "wf-import-obso",

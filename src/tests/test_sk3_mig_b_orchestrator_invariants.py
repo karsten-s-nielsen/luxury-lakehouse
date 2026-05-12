@@ -77,6 +77,23 @@ def _seed_task_keys() -> set[str]:
         return {row["task_key"] for row in reader}
 
 
+_TF_TASK_KEY_RE = re.compile(r'task_key\s*=\s*"([^"]+)"')
+_TF_WORKFLOW_MODULE = _REPO_ROOT / "terraform" / "modules" / "workflows" / "main.tf"
+
+
+def _terraform_task_keys() -> set[str]:
+    """Extract top-level task_keys from the TF daily-job resource.
+
+    Used to tolerate the merge window where seed + TF ship together but
+    TF Apply has not yet run. The regex is intentionally loose (matches
+    depends_on refs too) — the superset is harmless because we only
+    subtract tf_keys from orphan candidates.
+    """
+    if not _TF_WORKFLOW_MODULE.exists():
+        return set()
+    return set(_TF_TASK_KEY_RE.findall(_TF_WORKFLOW_MODULE.read_text(encoding="utf-8")))
+
+
 # ── §2.10.2 — orchestrator _TASK_KEY_MAP values ⊆ seed task_keys ────────────
 
 
@@ -150,6 +167,13 @@ def test_seed_csv_subset_of_live_mega_job() -> None:
 
     Catches seed drift after a workflow-card rename / removal that hasn't been
     reflected in the seed yet. Skipped on forks / no-secrets PRs.
+
+    Design: checks ``seed <= (live_keys | tf_keys)`` rather than the stricter
+    ``seed <= live_keys`` because seed + TF ship in the same commit while
+    TF Apply runs only after merge. A task_key present in TF but not yet
+    in the live job is pending deployment, not orphaned. Post-merge, TF
+    Apply promotes the key from tf_keys into live_keys — the tolerance is
+    self-healing.
     """
     databricks_sdk = pytest.importorskip("databricks.sdk", reason="databricks-sdk not installed (optional 'sdk' extra)")
     WorkspaceClient = databricks_sdk.WorkspaceClient  # noqa: N806
@@ -162,9 +186,13 @@ def test_seed_csv_subset_of_live_mega_job() -> None:
     assert settings is not None, "Mega-job has no settings — workspace API drift?"
     live_keys = {t.task_key for t in (settings.tasks or []) if t.task_key}
     seed_keys = _seed_task_keys()
-    orphan = sorted(seed_keys - live_keys)
+    # Tasks defined in TF but not yet applied to the live job are expected
+    # during the merge window (seed + TF ship together, TF Apply runs after
+    # merge). Tolerate them by also accepting TF-defined task_keys.
+    tf_keys = _terraform_task_keys()
+    orphan = sorted(seed_keys - live_keys - tf_keys)
     assert not orphan, (
-        f"Seed task_keys not present in live mega-job: {orphan}. "
+        f"Seed task_keys not present in live mega-job or TF: {orphan}. "
         f"Either re-derive the seed from `WorkspaceClient.jobs.get(...).settings.tasks` "
         f"or document the divergence as 'sub_operation_of'."
     )
