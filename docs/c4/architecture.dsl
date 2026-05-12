@@ -28,9 +28,9 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             dbtBuildAndRefresh = container "dbt_build_and_refresh.py" "Chains dbt build with synced table refresh" "Python, subprocess"
         }
 
-        pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "44 workflow-card-registered workflows. Centralized hooks, lifecycle tracking, three-tier cost tracking." {
+        pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "45 workflow-card-registered workflows. Centralized hooks, lifecycle tracking, three-tier cost tracking." {
             workflowFramework = container "Workflow Framework" "Registry, @workflow decorator, lifecycle runner with hook dispatch" "Python"
-            workflowCards = container "Workflow Cards" "44 YAML manifests: inputs, outputs, deps, cost estimates, provenance" "YAML" "Database"
+            workflowCards = container "Workflow Cards" "45 YAML manifests: inputs, outputs, deps, cost estimates, provenance" "YAML" "Database"
             costEstimateHook = container "CostEstimateHook" "Writes run state, entity_count, row_count, cost to Delta via MERGE" "Python, PySpark"
             hfCostRecorder = container "HFJobsCostRecorder" "Cost recorder for HF Jobs. Writes to HF Hub repos. 90-day pruning." "Python"
             guardRegistry = container "Guard Registry" "SkipGuard protocol, FilterResult, find_new_ids(), timed_check(), watermark guards (ADR-024)" "Python"

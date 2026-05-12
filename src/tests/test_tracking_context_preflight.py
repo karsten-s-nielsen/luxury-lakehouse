@@ -69,6 +69,27 @@ def test_chunk_encoding_round_trip() -> None:
     assert reconstructed == chunk_str
 
 
+def test_serialize_xt_grid_produces_valid_task_value() -> None:
+    """_serialize_xt_grid output is JSON-serializable with expected keys."""
+    import json
+
+    import numpy as np
+
+    from ingestion.tracking_context import _serialize_xt_grid
+
+    grid = np.ones((12, 16), dtype=np.float64)
+    data = _serialize_xt_grid(grid, grid_l=16, grid_w=12)
+
+    # Must be JSON-serializable (Databricks task values are JSON)
+    json_str = json.dumps(data)
+    restored = json.loads(json_str)
+
+    assert restored["l"] == 16
+    assert restored["w"] == 12
+    assert len(restored["xt_grid"]) == 12
+    assert len(restored["xt_grid"][0]) == 16
+
+
 def test_guard_chunk_sizes_are_set() -> None:
     """_TrackingContextGuard has provider-specific chunk sizes."""
     from ingestion.tracking_context import skip_guard
