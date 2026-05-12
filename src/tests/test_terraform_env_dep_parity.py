@@ -32,7 +32,7 @@ _TF = _REPO / "terraform" / "modules" / "workflows" / "main.tf"
 def _parse_dep_line(line: str) -> tuple[str | None, str | None]:
     """Parse ``'silly-kicks>=2.5.0,<3.0'`` → ``('silly-kicks', '>=2.5.0,<3.0')``."""
     line = line.strip().strip(",").strip('"')
-    m = re.match(r"^([A-Za-z0-9._-]+)\s*([<>=!~,\d\s.\w-]*)$", line)
+    m = re.match(r"^([A-Za-z0-9._-]+)(?:\[[^\]]*\])?\s*([<>=!~,\d\s.\w-]*)$", line)
     if not m:
         return None, None
     name = m.group(1).lower().replace("_", "-")

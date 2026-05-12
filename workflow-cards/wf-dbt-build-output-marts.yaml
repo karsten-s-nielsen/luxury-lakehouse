@@ -154,6 +154,9 @@ outputs:
     - id: "{catalog}.dev_gold.fct_workflow_costs"
       destination: delta-table
       dbt_model: fct_workflow_costs
+    - id: "{catalog}.dev_gold.fct_tracking_context"
+      destination: delta-table
+      dbt_model: fct_tracking_context
     - id: "{catalog}.dev_gold.fct_xg_predictions_v2"
       destination: delta-table
       dbt_model: fct_xg_predictions_v2
@@ -177,6 +180,7 @@ depends_on:
   - wf-line-breaking
   - wf-formations
   - wf-football2vec
+  - wf-tracking-context
 # Note: wf-model-validation deliberately omitted — validation reads from gold
 # marts that this stage produces, so gating mart refresh on validation only
 # checks yesterday's data. Validation is a quality signal, not a correctness

@@ -356,6 +356,7 @@ _GUARD_MODULES: list[str] = [
     "ingestion.sync_hf_costs",
     "ingestion.player_embeddings_v2",
     "ingestion.hf_sync",
+    "ingestion.tracking_context",
 ]
 
 

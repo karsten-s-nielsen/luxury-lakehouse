@@ -1,0 +1,41 @@
+version: 2
+
+models:
+  - name: stg_spadl__tracking_context
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Staging view for TC-1 tracking context. Deduplicates bronze data
+      by (match_id, action_id), keeping the most recent ingestion.
+      Renames match_id → native_match_id, player_id → player_id_native,
+      team_id → team_id_native for downstream Kimball FK resolution.
+    columns:
+      - name: native_match_id
+        description: Native match identifier (provider-specific string)
+        data_tests:
+          - not_null
+      - name: action_id
+        description: SPADL action index within match
+        data_tests:
+          - not_null
+      - name: data_source
+        description: "Provider: idsse, metrica, skillcorner"
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['idsse', 'metrica', 'skillcorner']
+      - name: line_breaking_type__ward
+        description: >
+          Ward line-breaking categorical. Values are "between_lines"
+          (pass crosses both defensive+midfield lines) or "around_line"
+          (pass crosses exactly one formation line). NULL when no
+          line-breaking detected.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['between_lines', 'around_line']
+              config:
+                where: "line_breaking_type__ward is not null"

@@ -9,16 +9,9 @@
 #     "huggingface-hub>=1.5.0",
 # ]
 # ///
-"""Publish Football2Vec player embeddings (career / season / per-match) to HF Hub.
+"""Publish tracking context features (fct_tracking_context) to HF Hub.
 
-Migrated from the embeddings cell of notebooks/publish_datasets.py per HF4
-(SK3-MIG-B). Fired by SK3-MIG-B Group 3 republishes after F2V v1/v2/360 retrain.
-
-Dataset: luxury-lakehouse/football2vec-player-embeddings
-
-Three sub-tables uploaded under data/career/, data/season/, data/per_match/.
-Each sub-table is its own parquet (no per-source partitioning — the
-data_sources column inside each row carries the array of source providers).
+Dataset: luxury-lakehouse/spadl-tracking-context
 """
 
 from __future__ import annotations
@@ -43,27 +36,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 HF_ORG = "luxury-lakehouse"
-DATASET_REPO = f"{HF_ORG}/football2vec-player-embeddings"
+DATASET_REPO = f"{HF_ORG}/spadl-tracking-context"
 
-_CAREER_SQL = """\
-SELECT e.canonical_player_id, p.player_name,
-       e.behavioral_vector, e.stat_vector,
-       e.total_matches, e.data_sources
-FROM soccer_analytics.dev_gold.fct_player_embeddings_career e
-LEFT JOIN soccer_analytics.dev_gold.dim_players p
-  ON e.canonical_player_id = p.canonical_player_id
-"""
-
-_SEASON_SQL = """\
-SELECT embedding_season_id, canonical_player_id, competition_id, season_id,
-       behavioral_vector, stat_vector, matches_in_sample, data_sources
-FROM soccer_analytics.dev_gold.fct_player_embeddings_season
-"""
-
-_PER_MATCH_SQL = """\
-SELECT embedding_id, canonical_player_id, match_id, data_source,
-       behavioral_vector, stat_vector
-FROM soccer_analytics.dev_gold.fct_player_embeddings
+_TRACKING_CONTEXT_SQL = """\
+SELECT * FROM soccer_analytics.dev_gold.fct_tracking_context
 """
 
 _POLL_INTERVAL_S = 2.0
@@ -116,28 +92,22 @@ def query_databricks_sql(host: str, token: str, sql: str, warehouse_id: str) -> 
     return pa.concat_tables(arrow_tables).to_pandas()
 
 
-def publish_to_hf_hub(
-    career_df: pd.DataFrame,
-    season_df: pd.DataFrame,
-    per_match_df: pd.DataFrame,
-    hf_token: str,
-) -> str:
+def publish_to_hf_hub(df: pd.DataFrame, hf_token: str) -> str:
     from huggingface_hub import HfApi
 
     api = HfApi(token=hf_token)
     api.create_repo(DATASET_REPO, exist_ok=True, repo_type="dataset", token=hf_token)
-
     with tempfile.TemporaryDirectory() as tmpdir:
         staging_dir = Path(tmpdir) / "data"
-        for sub_dir, sub_df in (
-            ("career", career_df),
-            ("season", season_df),
-            ("per_match", per_match_df),
-        ):
-            target_dir = staging_dir / sub_dir
-            target_dir.mkdir(parents=True, exist_ok=True)
-            sub_df.to_parquet(target_dir / "data.parquet", index=False, engine="pyarrow")
-            logger.info("Wrote %s/%s: %s rows", sub_dir, "data.parquet", f"{len(sub_df):,}")
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        for source, sub_df in df.groupby("data_source"):
+            partition_dir = staging_dir / f"data_source={source}"
+            partition_dir.mkdir(parents=True, exist_ok=True)
+            sub_df.drop(columns=["data_source"]).to_parquet(
+                partition_dir / "data.parquet",
+                index=False,
+                engine="pyarrow",
+            )
         api.upload_folder(
             folder_path=str(staging_dir),
             path_in_repo="data",
@@ -162,32 +132,18 @@ def main() -> None:
     db_token = os.environ["DATABRICKS_TOKEN"]
     warehouse_id = os.environ["DATABRICKS_SQL_WAREHOUSE_ID"]
 
-    logger.info("Querying career embeddings")
-    career_df = query_databricks_sql(host, db_token, _CAREER_SQL, warehouse_id)
-    logger.info("Querying season embeddings")
-    season_df = query_databricks_sql(host, db_token, _SEASON_SQL, warehouse_id)
-    logger.info("Querying per-match embeddings")
-    per_match_df = query_databricks_sql(host, db_token, _PER_MATCH_SQL, warehouse_id)
+    df = query_databricks_sql(host, db_token, _TRACKING_CONTEXT_SQL, warehouse_id)
+    if df.empty:
+        raise RuntimeError("0 rows from fct_tracking_context — verify dbt build")
+    logger.info("Retrieved %s tracking context rows", f"{len(df):,}")
 
-    if career_df.empty or season_df.empty or per_match_df.empty:
-        raise RuntimeError(
-            f"One or more embedding marts empty: career={len(career_df)} "
-            f"season={len(season_df)} per_match={len(per_match_df)}"
-        )
-
-    url = publish_to_hf_hub(career_df, season_df, per_match_df, hf_token)
+    url = publish_to_hf_hub(df, hf_token)
     upload_hf_readme(
         repo_id=DATASET_REPO,
-        readme_path=get_hf_card_path("football2vec-player-embeddings.md", kind="dataset"),
+        readme_path=get_hf_card_path("spadl-tracking-context.md", kind="dataset"),
         hf_token=hf_token,
     )
-    logger.info(
-        "Pipeline complete: %s (career=%s season=%s per_match=%s)",
-        url,
-        f"{len(career_df):,}",
-        f"{len(season_df):,}",
-        f"{len(per_match_df):,}",
-    )
+    logger.info("Pipeline complete: %s", url)
 
 
 if __name__ == "__main__":
