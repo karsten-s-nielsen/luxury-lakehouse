@@ -23,6 +23,7 @@
 #   compute_embeddings_v2 — Transformer (192d) player embeddings with adversarial debiasing (depends on entity resolution)
 #   compute_formations_efpi — EFPI template-matching formation detection (depends on pitch control)
 #   compute_formations_shape_graph — Shape graph geometric formation detection (depends on EFPI)
+#   compute_tracking_context — Action-coupled tracking features (depends on SPADL + all tracking providers)
 #   run_model_validation — Model drift detection (depends on compute_pausa)
 #   backfill_statsbomb_360 — Catchup 360 freeze frames for already-ingested matches (depends on statsbomb)
 #   hf_sync — Combined HF Hub imports + exports (depends on gate + compute tasks)
@@ -498,6 +499,49 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "analytics"
   }
 
+  # ── Task: Compute action-coupled tracking features (TC-1) ──────────────
+  # All 15 silly-kicks enrichments (pitch control, pressure, team shape,
+  # line-breaking, GK influence, cover shadows, DAS) in a single pass per
+  # match. Writes bronze.spadl_tracking_context (83 columns).
+  task {
+    task_key        = "compute_tracking_context"
+    timeout_seconds = 7200
+    max_retries     = 1
+
+    # Reads bronze.spadl_actions (from compute_spadl_vaep) +
+    # bronze.idsse_tracking/idsse_events (from ingest_idsse/ingest_idsse_events) +
+    # bronze.metrica_tracking (from ingest_metrica) +
+    # bronze.skillcorner_tracking (from ingest_skillcorner).
+    # Order: alphabetical (test_workflows_tf_ordering enforcement).
+    depends_on {
+      task_key = "compute_spadl_vaep"
+    }
+    depends_on {
+      task_key = "ingest_idsse"
+    }
+    depends_on {
+      task_key = "ingest_idsse_events"
+    }
+    depends_on {
+      task_key = "ingest_metrica"
+    }
+    depends_on {
+      task_key = "ingest_skillcorner"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "compute_tracking_context"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "analytics"
+  }
+
   # ── Task: Score shots with xG v2 set encoder (Deep Sets + MC dropout) ──
   # XG1-RETIRE (SK3-MIG-B 2026-05-03): the legacy compute_xg_model task was
   # removed; v2 is the only xG production scorer.
@@ -629,6 +673,7 @@ resource "databricks_job" "data_ingestion" {
     depends_on { task_key = "compute_off_ball_xt" }
     depends_on { task_key = "compute_pausa" }
     depends_on { task_key = "compute_pitch_control" }
+    depends_on { task_key = "compute_tracking_context" }
     depends_on { task_key = "compute_xg_model_v2" }
     depends_on { task_key = "dbt_build_intermediate_marts" }
     depends_on { task_key = "hf_sync" }
