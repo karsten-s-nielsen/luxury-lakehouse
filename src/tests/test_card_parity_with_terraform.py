@@ -138,6 +138,11 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     # Subordinate to wf-idsse; no independent methodology, no per-player
     # output.
     "preflight_idsse": None,
+    # TC-1 memory fix: Runtime chunk-discovery preflight feeding the
+    # `compute_tracking_context` for_each_task fan-out. Pure orchestration
+    # helper — writes a Databricks task value and exits.
+    # Subordinate to wf-tracking-context; no independent methodology.
+    "preflight_tracking_context": None,
     # Idempotent repair helper that refills _raw_extra_json where upstream
     # ingest left it NULL. Subordinate to wf-statsbomb; no independent
     # methodology or output.

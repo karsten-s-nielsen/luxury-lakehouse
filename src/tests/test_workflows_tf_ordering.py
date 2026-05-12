@@ -250,8 +250,10 @@ def test_data_ingestion_parser_count_anchor() -> None:
     # `compute_xg_model` (per ADR-023).
     # 32 → 31 in f2v-dim-fix (2026-05-07): removed `compute_embeddings_v1`
     # (v1 Doc2Vec deprecated — zero downstream consumers).
-    # 31 → 32 in TC-1 (2026-05-12): added `compute_tracking_context`.
-    assert len(task_keys) == 32, f"expected 32 task blocks on data_ingestion, parser found {len(task_keys)}"
+    # 31 → 33 in TC-1 (2026-05-12): added `preflight_tracking_context` +
+    # `compute_tracking_context_iteration` inner for_each_task block
+    # (existing `compute_tracking_context` becomes a for_each_task parent).
+    assert len(task_keys) == 33, f"expected 33 task blocks on data_ingestion, parser found {len(task_keys)}"
 
 
 if __name__ == "__main__":
