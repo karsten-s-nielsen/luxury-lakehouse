@@ -3,7 +3,7 @@ name: Tracking Context Enrichment
 id: wf-tracking-context
 version: "1.0"
 status: production
-type: enrichment
+type: heuristic
 domain: tracking-features
 owners:
   - karsten
@@ -57,6 +57,7 @@ idempotency:
   key:
     - match_id
     - data_source
+  description: "Skip guard checks bronze.spadl_tracking_context for existing (match_id, data_source) pairs."
 
 performance:
   memory_ceiling: "800 MB per UDF group (1 GB limit)"
