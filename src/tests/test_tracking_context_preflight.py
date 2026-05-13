@@ -98,3 +98,100 @@ def test_guard_chunk_sizes_are_set() -> None:
     assert skip_guard.chunk_sizes["idsse"] == 1
     assert skip_guard.chunk_sizes["metrica"] == 2
     assert skip_guard.chunk_sizes["skillcorner"] == 2
+
+
+def test_guard_excludes_tracking_without_spadl() -> None:
+    """Skip guard excludes tracking matches that have no paired SPADL actions.
+
+    SkillCorner has tracking data but no SPADL converter, so those match IDs
+    must not appear in the guard's output — otherwise they'd be rediscovered
+    on every run, wasting a serverless driver each time.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from ingestion.tracking_context import _TrackingContextGuard
+
+    guard = _TrackingContextGuard()
+    mock_spark = MagicMock()
+
+    # find_new_ids returns unprocessed tracking match IDs per provider
+    def mock_find_new_ids(_spark, source_table, _results_table, **_kw):
+        if "idsse" in source_table:
+            return ["J03WMX", "J03WN1"]
+        if "metrica" in source_table:
+            return ["Sample_Game_1"]
+        if "skillcorner" in source_table:
+            return ["sc_match_1", "sc_match_2"]
+        return []
+
+    # SPADL actions exist only for IDSSE and Metrica — not SkillCorner
+    mock_spadl_ids = {
+        "idsse": {"J03WMX", "J03WN1"},
+        "metrica": {"Sample_Game_1"},
+        # No "skillcorner" key — no SPADL actions
+    }
+
+    with (
+        patch("ingestion.guards.find_new_ids", side_effect=mock_find_new_ids),
+        patch("ingestion.tracking_context._spadl_match_ids_by_provider", return_value=mock_spadl_ids),
+        patch("ingestion.guards.ensure_table"),
+    ):
+        result = guard.check(mock_spark, "soccer_analytics", "bronze")
+
+    # Total should be 3 (2 IDSSE + 1 Metrica), NOT 5
+    assert result.count == 3
+    assert result.metadata["idsse_ids"] == ["J03WMX", "J03WN1"]
+    assert result.metadata["metrica_ids"] == ["Sample_Game_1"]
+    assert result.metadata["skillcorner_ids"] == []
+
+
+def test_guard_returns_zero_when_no_spadl_matches() -> None:
+    """Guard returns count=0 when tracking exists but no provider has SPADL."""
+    from unittest.mock import MagicMock, patch
+
+    from ingestion.tracking_context import _TrackingContextGuard
+
+    guard = _TrackingContextGuard()
+    mock_spark = MagicMock()
+
+    def mock_find_new_ids(_spark, source_table, _results_table, **_kw):
+        if "skillcorner" in source_table:
+            return ["sc_match_1"]
+        return []
+
+    with (
+        patch("ingestion.guards.find_new_ids", side_effect=mock_find_new_ids),
+        patch("ingestion.tracking_context._spadl_match_ids_by_provider", return_value={}),
+        patch("ingestion.guards.ensure_table"),
+    ):
+        result = guard.check(mock_spark, "soccer_analytics", "bronze")
+
+    assert result.count == 0
+
+
+def test_guard_partial_spadl_filters_correctly() -> None:
+    """Guard filters individual match IDs — keeps only those with SPADL."""
+    from unittest.mock import MagicMock, patch
+
+    from ingestion.tracking_context import _TrackingContextGuard
+
+    guard = _TrackingContextGuard()
+    mock_spark = MagicMock()
+
+    # IDSSE has 3 tracking matches, but only 2 have SPADL actions
+    def mock_find_new_ids(_spark, source_table, _results_table, **_kw):
+        if "idsse" in source_table:
+            return ["J03WMX", "J03WN1", "J03WN2"]
+        return []
+
+    mock_spadl_ids = {"idsse": {"J03WMX", "J03WN2"}}  # J03WN1 missing
+
+    with (
+        patch("ingestion.guards.find_new_ids", side_effect=mock_find_new_ids),
+        patch("ingestion.tracking_context._spadl_match_ids_by_provider", return_value=mock_spadl_ids),
+        patch("ingestion.guards.ensure_table"),
+    ):
+        result = guard.check(mock_spark, "soccer_analytics", "bronze")
+
+    assert result.count == 2
+    assert result.metadata["idsse_ids"] == ["J03WMX", "J03WN2"]

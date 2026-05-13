@@ -130,6 +130,8 @@ def _make_permissive_spark_mock() -> MagicMock:
             "player_id": "p1",
             "_join_id": "m1",
             "last_imported_sha": "mock_sha_1",
+            "provider": "idsse",
+            "data_source": "idsse",
         },
         {
             "match_id": "m2",
@@ -139,6 +141,8 @@ def _make_permissive_spark_mock() -> MagicMock:
             "player_id": "p2",
             "_join_id": "m2",
             "last_imported_sha": "mock_sha_2",
+            "provider": "metrica",
+            "data_source": "metrica",
         },
     ]
 
