@@ -48,7 +48,7 @@ merged = df_events.merge(df_sync, on=["match_id", "event_id"], how="inner")
 print(f"{len(merged)} events with frame alignment")
 ```
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 ## What Is This Dataset?
 
@@ -140,7 +140,7 @@ If you use this dataset, please cite the IDSSE and ELASTIC papers:
 
 ## More Information
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 - **License**: [MIT](https://opensource.org/licenses/MIT)
 - **Publish script**: `notebooks/publish_obso_data.py` (Databricks notebook)

@@ -42,7 +42,7 @@ df = ds["train"].to_pandas()
 print(f"{len(df):,} players, dim={len(df.loc[0, 'embedding'])}")
 ```
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 ## Schema
 

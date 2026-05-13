@@ -832,10 +832,9 @@ pl.scan_parquet("hf://datasets/luxury-lakehouse/spadl-vaep-action-values/**/*.pa
 
 #### Immediate low-effort wins (no Polars dependency)
 
-Even before the Polars branch merges, two things are actionable today:
+Even before the Polars branch merges, one thing is actionable today:
 
 1. **XET is already active** &mdash; our existing `HfApi().upload_folder()` calls already benefit from chunk-level dedup when updating published datasets. No code change needed.
-2. **Storage Buckets for demo data** &mdash; **DONE.** Demo data migrated to HF Bucket; `demo_space/app.py` reads from `hf://buckets/luxury-lakehouse/demo-data/`.
 
 ---
 
@@ -908,7 +907,6 @@ Desai's 4-layer architecture (Data &rarr; Semantics &rarr; AI/Agents &rarr; Deci
 |----------|---------------------|
 | **Match Insights page** (conversational analytics) | LLM needs to know which metric answers "how is our pressing?" without hardcoded mappings |
 | **ScoutGPT / evolve engine** | Code evolution agents need domain vocabulary to generate meaningful features |
-| **Multi-surface UX parity** | Taipy glossary and Gradio demo terms should derive from a single source |
 | **Future: cross-club benchmarking** | Shared definitions are prerequisite for any multi-party analytics |
 
 ### Implementation Options

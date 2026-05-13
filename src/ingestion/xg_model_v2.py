@@ -384,7 +384,11 @@ def run_pipeline(
     if v2_weights_bytes is None:
         v2_model_path = f"/Volumes/{catalog}/{DEFAULT_GOLD_SCHEMA}/model_weights/xg_model_v2/model_weights.json"
         try:
-            v2_weights_bytes = spark.read.format("binaryFile").load(v2_model_path).first()["content"]
+            row = spark.read.format("binaryFile").load(v2_model_path).first()
+            if row is None:
+                msg = f"UC Volume file is empty: {v2_model_path}"
+                raise RuntimeError(msg)
+            v2_weights_bytes = row["content"]
         except Exception as exc:
             msg = (
                 f"xG v2 weights not available at MLflow @Champion OR UC Volume {v2_model_path}. "
@@ -407,7 +411,11 @@ def run_pipeline(
         xgboost_bytes = xgboost_result
     else:
         model_dir = f"/Volumes/{catalog}/{DEFAULT_GOLD_SCHEMA}/model_weights/xg_model"
-        xgboost_bytes = spark.read.format("binaryFile").load(f"{model_dir}/xgboost_model.json").first()["content"]
+        xgboost_row = spark.read.format("binaryFile").load(f"{model_dir}/xgboost_model.json").first()
+        if xgboost_row is None:
+            msg = f"UC Volume file is empty: {model_dir}/xgboost_model.json"
+            raise RuntimeError(msg)
+        xgboost_bytes = xgboost_row["content"]
         # SEC2: verify artifact integrity from UC Volume sidecar (if any)
         verify_artifact_hash(
             data=xgboost_bytes,

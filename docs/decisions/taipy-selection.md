@@ -16,7 +16,7 @@ Migrate from Streamlit to Taipy 4.x, deployed on HF Spaces Docker SDK. Taipy's W
 | Option | Assessment |
 |--------|------------|
 | Streamlit (incumbent) | No WebSocket reactivity, no template architecture, drift inevitable at scale |
-| Gradio | Retained for demo Space; not suitable for 14-page analytics dashboard with sidebar filters |
+| Gradio | Was used for a lightweight demo Space (deprecated 2026-05); not suitable for 14-page analytics dashboard with sidebar filters |
 | Panel | Python-native, mature ecosystem, but more complex for non-Bokeh chart stacks |
 | Dash | React-based, stronger for production, but requires JavaScript for customization and has higher operational complexity |
 

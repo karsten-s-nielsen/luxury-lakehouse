@@ -37,7 +37,7 @@ print(f"First freeze frame: {len(row['freeze_frames'][0]['players'])} visible pl
 # freeze_frames and actions are parallel arrays — freeze_frames[i] corresponds to actions[i]
 ```
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 ## What Is This Dataset?
 
@@ -189,7 +189,7 @@ If you use this dataset, please cite the SPADL framework, the Football2Vec 360-E
 
 ## More Information
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 - **Model repo**: [`luxury-lakehouse/football2vec-360`](https://huggingface.co/luxury-lakehouse/football2vec-360)
 - **License**: [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/) (StatsBomb Open Data)

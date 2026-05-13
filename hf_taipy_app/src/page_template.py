@@ -463,10 +463,7 @@ class SubView:
     scope_vars: list[str] = field(default_factory=list)
 
 
-_FOOTER_CONTENT = (
-    "[Interactive Demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)"
-    " · [Published Datasets](https://huggingface.co/luxury-lakehouse)"
-)
+_FOOTER_CONTENT = "[Published Datasets](https://huggingface.co/luxury-lakehouse)"
 
 
 def _build_metric(m: Metric) -> str:

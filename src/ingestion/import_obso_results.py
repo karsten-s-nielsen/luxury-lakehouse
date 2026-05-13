@@ -263,7 +263,7 @@ def main() -> None:
             msg = f"Invalid {field_name} name '{value}': must match {IDENTIFIER_RE.pattern}"
             raise SystemExit(msg)
 
-    spark = SparkSession.builder.getOrCreate()
+    spark = SparkSession.builder.getOrCreate()  # type: ignore[attr-defined]
 
     from ingestion.bootstrap import bootstrap_hooks
 

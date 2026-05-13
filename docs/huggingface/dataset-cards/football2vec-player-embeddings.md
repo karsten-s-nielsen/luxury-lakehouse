@@ -40,7 +40,7 @@ vectors = np.array(df["behavioral_vector"].tolist())
 print(f"{vectors.shape[0]} players, {vectors.shape[1]}-dim embeddings")
 ```
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 ## What Are These Embeddings?
 
@@ -162,7 +162,7 @@ And the underlying SPADL/VAEP framework:
 
 ## More Information
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 - **Model repo**: [`luxury-lakehouse/football2vec-statsbomb-wyscout`](https://huggingface.co/luxury-lakehouse/football2vec-statsbomb-wyscout)
 - **License**: [MIT](https://opensource.org/licenses/MIT)

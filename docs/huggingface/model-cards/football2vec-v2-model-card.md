@@ -216,7 +216,7 @@ Model weights use the **safetensors** format &mdash; a tensor-only serialization
 
 Try the interactive [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) &mdash; search for similar players by 192-dim behavioral embedding on the Player Similarity page.
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 ## More Information
 

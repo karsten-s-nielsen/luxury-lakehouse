@@ -17,7 +17,7 @@ pinned: false
 
 Open-source soccer analytics platform built on **Databricks Lakebase** &mdash; replacing a 6-service traditional AWS pipeline with a unified lakehouse architecture that scales to zero. The Hugging Face Hub serves as the public distribution layer for models, datasets, and interactive demos.
 
-> **Try it now:** [Full Dashboard](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) &mdash; 16-page Taipy app with live data from 380+ matches across 5 providers. Or explore the [Gradio Demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) for a quick look.
+> **Try it now:** [Full Dashboard](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) &mdash; 16-page Taipy app with live data from 380+ matches across 5 providers.
 
 ---
 
@@ -88,7 +88,6 @@ All model serialization uses **JSON envelopes** &mdash; zero pickle files (banne
 | Space | What it is |
 |-------|-----------|
 | [**Soccer Analytics App**](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) | Full 16-page Taipy dashboard (Docker SDK) querying Lakebase PostgreSQL via Databricks OAuth. Live data from 380+ matches. Shot maps, pass networks, player comparison, GK analytics, tactical positions, pitch control, PAUSA pass timing, DEFCON defensive pressure, and more. |
-| [**Soccer Analytics Demo**](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) | Lightweight 6-tab Gradio explorer with pre-cached Parquet data. No database dependency &mdash; instant load for quick exploration. |
 
 ## Compute &amp; Bidirectional Sync
 

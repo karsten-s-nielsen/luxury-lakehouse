@@ -38,7 +38,7 @@ df = ds["train"].to_pandas()
 print(f"{len(df):,} player-match sequences, {df['player_id'].nunique():,} unique players")
 ```
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 ## What Is This Dataset?
 

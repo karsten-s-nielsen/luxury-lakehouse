@@ -19,10 +19,9 @@ Exclusions:
 
 - ``luxury-lakehouse/build-artifacts`` — this is the wheel-hosting repo;
   it does not carry a per-artifact README card.
-- Private / app Spaces (``soccer-analytics-app``, ``staging``,
-  ``soccer-analytics-demo``) — their README lives with the deployable
-  app source (``hf_taipy_app/`` or ``demo_space/``), not under
-  ``docs/huggingface/``.
+- Private / app Spaces (``soccer-analytics-app``, ``staging``) — their
+  README lives with the deployable app source (``hf_taipy_app/``), not
+  under ``docs/huggingface/``.
 
 Both exclusion sets are explicit constants below so the list of things
 "deliberately not enforced" stays visible to future readers.

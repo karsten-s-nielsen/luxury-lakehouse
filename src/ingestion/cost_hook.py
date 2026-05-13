@@ -248,7 +248,7 @@ class CostEstimateHook:
         }
         row.update(fields)
 
-        df = self._spark.createDataFrame([row], schema=_build_cost_live_schema())
+        df = self._spark.createDataFrame([row], schema=_build_cost_live_schema())  # type: ignore[call-overload]
         (
             DeltaTable.forName(self._spark, self._table)
             .alias("t")

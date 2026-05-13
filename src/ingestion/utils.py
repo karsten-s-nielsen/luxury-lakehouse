@@ -217,7 +217,7 @@ def get_spark_session() -> SparkSession:
     """Return the active Spark session (Databricks runtime provides it)."""
     from pyspark.sql import SparkSession as _SparkSession
 
-    return _SparkSession.builder.getOrCreate()
+    return _SparkSession.builder.getOrCreate()  # type: ignore[attr-defined]
 
 
 def add_audit_columns(df: DataFrame) -> DataFrame:

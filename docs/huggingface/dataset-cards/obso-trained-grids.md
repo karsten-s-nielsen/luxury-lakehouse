@@ -46,7 +46,7 @@ epv_matrix = epv_df.pivot(index="zone_y", columns="zone_x", values="epv_value")
 print(f"EPV grid shape: {epv_matrix.shape}")  # (50, 32)
 ```
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 ## What Is This Dataset?
 
@@ -167,7 +167,7 @@ If you use this dataset, please cite the underlying models:
 
 ## More Information
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 - **License**: [MIT](https://opensource.org/licenses/MIT)
 - **Publish script**: `scripts/compute_epv_transition_hf.py`

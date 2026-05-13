@@ -5,10 +5,14 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 import pytest
+
+if TYPE_CHECKING:
+    from unittest.mock import MagicMock
 
 from ingestion.idsse import IDSSE_MATCH_IDS, _parse_events_xml, _parse_positions_xml, _parse_teams, _smooth_tracking
 
@@ -1056,7 +1060,7 @@ class TestIdsseGuardChunks:
         self,
         tracking_ids: set[str],
         events_ids: set[str],
-    ) -> object:
+    ) -> MagicMock:
         """Build a MagicMock Spark whose `.table(...).select(...).distinct().collect()`
         returns rows with the configured match_ids per table name."""
         from unittest.mock import MagicMock

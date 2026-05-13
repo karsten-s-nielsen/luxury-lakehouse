@@ -40,7 +40,7 @@ df = ds["train"].to_pandas()
 top_players = df.groupby("player_id")["vaep_value"].sum().nlargest(10)
 ```
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 ## What is SPADL/VAEP?
 
@@ -142,7 +142,7 @@ And the silly-kicks library:
 
 ## More Information
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 ## PR 7 changelog (2026-04-27)
 
