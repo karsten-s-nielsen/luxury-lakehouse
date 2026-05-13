@@ -131,7 +131,7 @@ def test_frame_batch_constants() -> None:
     """Frame batch constants are consistent and sensible."""
     from ingestion.tracking_context import _ACTION_TIME_BUFFER_SECONDS, _FRAME_BATCH_SIZE
 
-    assert _FRAME_BATCH_SIZE == 5000
+    assert _FRAME_BATCH_SIZE == 250
     assert _ACTION_TIME_BUFFER_SECONDS == 0.5
 
 

@@ -28,11 +28,12 @@ _TABLE_NAME = "spadl_tracking_context"
 
 # ── Frame batching ────────────────────────────────────────────────────
 # IDSSE (match_id, period) groups are 1.5M-1.7M rows -- exceeds the 1 GB
-# Databricks serverless UDF group cap. Sub-batch by frame number to keep
-# groups at ~100K rows (~65 MB). silly-kicks `link_actions_to_frames` is
-# a simple nearest-timestamp merge (0.2s tolerance) with no cross-frame
-# temporal dependencies, so batching is semantically safe.
-_FRAME_BATCH_SIZE = 5000
+# Databricks serverless UDF group cap. Sub-batch by frame number.
+# IDSSE has ~30 entities/frame at 25fps => ~750 rows/frame.
+# 250 frames => ~18K rows/batch => peak ~200 MB with intermediate copies.
+# silly-kicks `link_actions_to_frames` is a nearest-timestamp merge
+# (0.2s tolerance) with no cross-frame dependencies -- batching is safe.
+_FRAME_BATCH_SIZE = 250
 
 # Tolerance (seconds) for buffering actions at batch edges.
 # Matches silly-kicks `link_actions_to_frames` default tolerance (0.2s),
