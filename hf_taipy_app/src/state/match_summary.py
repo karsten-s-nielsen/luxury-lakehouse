@@ -180,10 +180,6 @@ def ms_refresh(state: Any) -> None:
     state.ms_home_xg_delta = f"{home_score - home_xg:+.2f} vs actual"
     state.ms_away_xg_delta = f"{away_score - away_xg:+.2f} vs actual"
 
-    phrase, detail = derive_verdict(home_xg, away_xg, home_score, away_score)
-    state.ms_verdict_phrase = phrase
-    state.ms_verdict_detail = detail
-
     try:
         decisive = fetch_vaep_decisive_actions(int(match_id), n=3)
         # PR 3 (ADR-011): fetch_shots_timeline now keys on match_key (fct_shots migrated).
@@ -199,14 +195,33 @@ def ms_refresh(state: Any) -> None:
         )
         return
 
+    # Extract goal timeline for comeback detection (best-effort).
+    # shots is guaranteed in scope: the except branch above calls _clear_all + return.
+    goals = None
+    try:
+        if not shots.empty:
+            goal_rows = shots[shots["is_goal"].astype(bool)]
+            if not goal_rows.empty:
+                goals = [
+                    (int(row["minute"]), "home" if row["team_id"] == home_team_id_raw else "away")
+                    for _, row in goal_rows.iterrows()
+                ]
+    except Exception:  # best-effort editorial feature; page renders correctly with goals=None
+        logger.error("Comeback detection failed for match_key=%s", match_key, exc_info=True)
+
+    # Single verdict call — handles both goals=None (no comeback detection)
+    # and goals=[...] (adds comeback prefix + defensive masterclass).
+    phrase, detail = derive_verdict(home_xg, away_xg, home_score, away_score, goals=goals)
+    state.ms_verdict_phrase = phrase
+    state.ms_verdict_detail = detail
+
     # Discipline events are OPTIONAL — a missing sync or empty rowset should render
-    # the page without red cards, not fail it. Log at WARNING here because a missing
-    # fct_discipline_events_synced table on staging means the mart/sync hasn't been
-    # wired yet (expected during rollout), not a real outage.
+    # the page without red cards, not fail it.  ADR-002: ERROR-level so the failure
+    # is visible in error-log queries (warning-level is specifically forbidden).
     try:
         discipline = fetch_discipline_events(int(match_id))
     except Exception:
-        logger.warning(
+        logger.error(
             "Discipline events unavailable for match_id=%s; rendering without red cards",
             match_id,
             exc_info=True,

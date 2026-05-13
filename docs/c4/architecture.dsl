@@ -7,7 +7,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         operator = person "Platform Operator" "Triggers retrain cycles, reviews job runs, manages synced tables"
 
         taipyApp = softwareSystem "Taipy Dashboard" "16-page interactive analytics app on HF Spaces. Shot maps, player comparisons, defensive impact, workflow monitoring." {
-            guiLayer = container "Taipy GUI" "Root template with sidebar nav, glossary panels, page routing" "Python, Taipy 4.1"
+            guiLayer = container "Taipy GUI" "Root template with sidebar nav, glossary panels, page routing. CSP defense-in-depth via Flask after_request." "Python, Taipy 4.1"
             adminApi = container "Admin API" "Flask blueprint for cache clear and synced table refresh. HF org membership auth." "Python, Flask"
             templateEngine = container "Template Engine" "Three layout builders (standard, sub-view, dashboard). Typed PageConfig dataclasses." "Python"
             sidebarWidgets = container "Sidebar Widgets" "Filter cascade with progressive disclosure, debounce, help tooltips" "Python, Taipy"
@@ -18,7 +18,8 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             renderEngine = container "Render Engine" "Matplotlib/mplsoccer figure-to-PNG with cache-busting paths" "Python, mplsoccer"
             pitchControl = container "Pitch Control Engine" "Physics-based (Spearman 2017) and Voronoi surface computation" "Python, NumPy"
             configLayer = container "Config" "Pydantic settings from env vars and .env file" "Python, pydantic-settings"
-            guiExtensions = container "GUI Extensions (ll_ext)" "WAI-ARIA combobox, lightbox overlay. MUI/React UMD bundle." "TypeScript, React 18"
+            staticAssets = container "Static Assets" "lightbox.js IIFE (extracted from inline). Read at startup, injected via after_request." "JavaScript"
+            guiExtensions = container "GUI Extensions (ll_ext)" "WAI-ARIA combobox. MUI/React UMD bundle." "TypeScript, React 18"
         }
 
         deployPipeline = softwareSystem "Deploy Pipeline" "Scripts for Taipy app and wheel deployment" {
@@ -68,7 +69,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             observabilitySchema = container "Observability Schema" "workflow_cost_live, workflow_import_checksums, workflow_watermarks, definer's-rights views" "Delta Lake" "Database"
         }
 
-        lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL endpoint syncing 34 Delta tables (56 indexes: 50 btree + 6 HNSW)" "External"
+        lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL endpoint syncing 40 Delta tables (54 indexes: 48 btree + 6 HNSW)" "External"
         databricksApi = softwareSystem "Databricks REST API" "OAuth, synced table metadata, pipeline triggers, state polling" "External"
         databricksWorkflows = softwareSystem "Databricks Workflows" "32-task daily DAG: 5 ingest, 13 compute, 1 HF sync (10 sub-ops), dbt_build, refresh" "External"
         hfIdentity = softwareSystem "HuggingFace Identity API" "Token validation via /api/whoami-v2. Org membership check." "External"

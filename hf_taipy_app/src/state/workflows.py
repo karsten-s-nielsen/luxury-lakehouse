@@ -230,7 +230,7 @@ def _fetch_job_runs() -> dict[str, dict[str, Any]]:
         # Re-key from task_key to workflow_id using the reverse lookup
         return {_task_key_to_wf_id.get(k, k): v for k, v in runs.items()}
     except Exception:
-        logger.warning("Jobs API query failed \u2014 run data unavailable", exc_info=True)
+        logger.error("Jobs API query failed \u2014 run data unavailable", exc_info=True)
         return {}
 
 

@@ -418,7 +418,7 @@ def _render_snapshot(state: Any) -> None:
         else:
             match_avg_shape = shape  # fallback: no delta
     except Exception:
-        logger.warning("Could not fetch match averages for delta computation")
+        logger.error("Could not fetch match averages for delta computation", exc_info=True)
         match_avg_shape = shape
 
     # Build match label for title

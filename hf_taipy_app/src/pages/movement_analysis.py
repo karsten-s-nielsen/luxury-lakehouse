@@ -94,12 +94,14 @@ page_config = PageConfig(
                 Metric(
                     "Avg Off-Ball xT",
                     "ma_oxt_avg",
-                    "Cumulative expected threat from off-ball movement. Typical range: 0.001-0.01 per match.",
+                    "Average expected threat from off-ball movement. Measures Progression — "
+                    "how much players' movement improved territorial position. Typical range: 0.001-0.01.",
                 ),
                 Metric(
                     "Max Off-Ball xT",
                     "ma_oxt_max",
-                    "Highest cumulative off-ball xT by any single player. Typical range: 0.001-0.01 per match.",
+                    "Highest cumulative off-ball xT by any single player. Measures Progression. "
+                    "Typical range: 0.001-0.01.",
                 ),
             ],
         ),

@@ -14,6 +14,7 @@ RUN useradd -m -u 1000 appuser
 WORKDIR /app
 COPY --chown=appuser:appuser src/ src/
 COPY --chown=appuser:appuser workflow-cards/ workflow-cards/
+COPY --chown=appuser:appuser static/ static/
 
 ENV PYTHONPATH=/app/src
 

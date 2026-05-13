@@ -735,13 +735,16 @@ img {
 /* ===== Loading overlay ===== */
 
 .ll-loading-overlay {
+    display: none;  /* hidden by default — no positioning overhead when hidden */
+}
+.ll-loading-visible {
+    display: flex;
     position: fixed;
     top: 0;
     left: 300px;  /* sidebar width */
     right: 0;
     bottom: 0;
     background: rgba(14, 17, 23, 0.7);
-    display: flex;
     align-items: center;
     justify-content: center;
     z-index: 1200;
@@ -1643,6 +1646,11 @@ nav[class*="taipy"],
     /* Page header max-width 80% becomes 100% */
     .ll-page-header {
         max-width: 100% !important;
+    }
+
+    /* Loading overlay: full width when sidebar stacks above content */
+    .ll-loading-visible {
+        left: 0;
     }
 }
 

@@ -73,8 +73,9 @@ page_config = PageConfig(
             detail_var="ms_verdict_detail",
             help_text=(
                 "Editorial interpretation of whether the scoreline reflected the run of play, "
-                "by xG margin. Phrase set: Fully merited / Fair result / Fortunate / "
-                "Smash & grab / Flattered by scoreline."
+                "by xG margin. Phrases: Fully merited / Fair result / Fortunate / "
+                "Smash & grab / Flattered by scoreline / Defensive masterclass / "
+                "Comeback win (prefix). See glossary for each phrase."
             ),
         ),
     ],

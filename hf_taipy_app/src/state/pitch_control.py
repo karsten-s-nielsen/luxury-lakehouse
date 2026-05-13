@@ -15,7 +15,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -28,7 +27,6 @@ from scipy.spatial import Voronoi  # type: ignore[import-untyped]
 from analytics.pitch_control import compute_pitch_control_at_point, compute_pitch_control_frame
 from state.shared import get_tracking_match_id, register_page_refresher
 
-matplotlib.use("Agg")
 logger = logging.getLogger(__name__)
 
 # ── Team / ball colors ───────────────────────────────────────────────────────

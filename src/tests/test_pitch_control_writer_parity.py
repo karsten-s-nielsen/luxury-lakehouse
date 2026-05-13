@@ -23,8 +23,8 @@ import pytest
 
 _DDL_TYPE_TO_SPARK_NAME = {
     "STRING": "string",
-    "BIGINT": "long",
-    "INT": "integer",
+    "BIGINT": "bigint",
+    "INT": "int",
     "DOUBLE": "double",
     "FLOAT": "float",
     "TIMESTAMP": "timestamp",
@@ -111,7 +111,7 @@ class TestPitchControlWriterDdlParity:
             "PR 7 (ADR-011) requires data_source STRING in bronze.pitch_control_values "
             "to collapse stg_pitch_control__values' PR 6 prefix-CASE bridge."
         )
-        assert ddl.get("match_key") == "long", (
+        assert ddl.get("match_key") == "bigint", (
             "PR 7 (ADR-011) requires match_key BIGINT in bronze.pitch_control_values "
             "to collapse the PR 6 prefix-CASE-then-dim_matches-JOIN bridge."
         )

@@ -56,7 +56,9 @@ page_config = PageConfig(
                 Metric(
                     "Total VAEP",
                     "av_total_vaep",
-                    "Valuing Actions by Estimating Probabilities — how much each on-ball action changed the probability of scoring. Positive = helped, negative = hurt.",
+                    "Valuing Actions by Estimating Probabilities — how much each on-ball action changed "
+                    "the probability of scoring. Positive = helped, negative = hurt. "
+                    "Measures Decision Value (net of Survival and Progression).",
                 ),
                 Metric(
                     "Total Actions",
@@ -83,18 +85,26 @@ page_config = PageConfig(
                 Metric(
                     "Positive Actions",
                     "av_positive",
-                    "Actions with positive VAEP — contributed to scoring probability.",
+                    "Actions with positive VAEP — contributed to scoring probability. "
+                    "Reflects net Decision Value: Survival gain + Progression gain.",
                 ),
-                Metric("Negative Actions", "av_negative", "Actions with negative VAEP — reduced scoring probability."),
+                Metric(
+                    "Negative Actions",
+                    "av_negative",
+                    "Actions with negative VAEP — reduced scoring probability. "
+                    "Reflects net Decision Value: Survival cost exceeded Progression gain.",
+                ),
                 Metric(
                     "Net Match VAEP",
                     "av_net_vaep",
-                    "Sum of all VAEP values in a match — positive = team created more than conceded.",
+                    "Sum of all VAEP values in a match — positive = team created more than conceded. "
+                    "Aggregate Decision Value across all on-ball actions.",
                 ),
                 Metric(
                     "Most Valuable Action",
                     "av_most_valuable",
-                    "The single action that contributed most to scoring probability in this match.",
+                    "The single action that contributed most to scoring probability in this match. "
+                    "Highest absolute Decision Value.",
                 ),
             ],
         ),

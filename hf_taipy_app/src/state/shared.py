@@ -204,6 +204,10 @@ _LOADING_TEXTS: dict[str, str] = {
     "Team-Shape": "Loading team shape...",
     "Pass-Timing": "Loading PAUSA data...",
     "Defensive-Impact": "Loading defensive data...",
+    "Tactical-Positions": "Loading tactical data...",
+    "Goalkeeper-Analytics": "Loading goalkeeper data...",
+    "Conversion-Funnel": "Loading funnel data...",
+    "AI-ML-Workflows": "Loading workflow data...",
 }
 
 

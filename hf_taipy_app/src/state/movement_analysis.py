@@ -10,11 +10,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from filters import fetch_data_freshness, fetch_scope_label
+from filters import build_scope_label_plain, fetch_data_freshness
 from queries.tracking import fetch_physical_stats, fetch_ppda_data
 from render import AWAY_COLOR, GRAY, HOME_COLOR, PITCH_BG_COLOR, TEXT_COLOR, chart_to_file
 
@@ -24,7 +23,6 @@ from state.shared import (
     register_page_refresher,
 )
 
-matplotlib.use("Agg")
 logger = logging.getLogger(__name__)
 
 # ── Sub-view options ─────────────────────────────────────────────────────────
@@ -276,7 +274,8 @@ def _refresh_ppda(state: Any) -> None:
         return
 
     data = fetch_ppda_data(comp_id)
-    state.ma_ppda_scope_label = fetch_scope_label(comp_id, None)
+    comp_label = state.selected_competition or ""
+    state.ma_ppda_scope_label = build_scope_label_plain([("Competition", comp_label)])
 
     if data.empty:
         state.ma_ppda_avg_home = "0.0"

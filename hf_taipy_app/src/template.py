@@ -85,6 +85,14 @@ GLOSSARY: dict[str, str] = {
     ),
     "Spatial Selection": "Was the target location the best available? 1.0 = optimal target.",
     "OBSO": "Off-Ball Scoring Opportunity. Pitch Control \u00d7 Transition \u00d7 EPV (Spearman 2018).",
+    "Decision Value": (
+        "Was the implicit risk worth it? The composite VAEP score — net of Survival cost "
+        "and Progression gain. Positive = net benefit, negative = net cost."
+    ),
+    "Defensive masterclass": (
+        "The winning team conceded fewer than 0.5 expected goals — the opponent barely "
+        "threatened. This verdict takes priority over all other non-draw verdicts."
+    ),
     "DEFCON": (
         "Defensive Contribution framework (Kim et al. 2025). Quantifies how defenders "
         "affect an attacker's scoring probability via four credit categories."
@@ -94,6 +102,12 @@ GLOSSARY: dict[str, str] = {
     "Disturb": "DEFCON credit for disrupting possession without winning the ball.",
     "Deter": "DEFCON credit for preventing attacker progression through positioning.",
     "Conversion Rate": "The percentage of events at one funnel stage that progress to the next stage. Higher = more efficient progression through the attack.",
+    "Comeback win": (
+        "The eventual winner trailed (strictly behind) at some point during the match, "
+        "then came back to win. Applied as a prefix to the base verdict "
+        "(e.g., 'Comeback win — Fortunate'). Note: own goals (~3-5% of all goals) may be "
+        "misattributed due to SPADL recording conventions."
+    ),
     "Cosine Distance": "Player similarity measure. 0.0 = identical style, 1.0 = completely different.",
     "A3 Entry": "A successful action (pass, dribble, or carry) that crosses from outside the attacking third into the final 35 meters of the pitch. Measures territorial penetration.",
     "Behavioral Vector": (
@@ -112,6 +126,11 @@ GLOSSARY: dict[str, str] = {
         "A pass that penetrates at least one defensive line, detected via Ward clustering "
         "on StatsBomb 360 freeze-frame defender positions."
     ),
+    "Progression": (
+        "Was the state advanced? The offensive component of VAEP — change in own team's "
+        "scoring probability. Maps to xT zone delta for territorial actions. "
+        "Higher = more threatening."
+    ),
     "Progressive Pass": (
         "A pass moving the ball significantly closer to the opponent's goal \u2014 "
         "defined by a minimum distance threshold toward the goal line."
@@ -125,7 +144,7 @@ GLOSSARY: dict[str, str] = {
     ),
     "Our Verdict": (
         "Editorial interpretation of whether the scoreline reflected the run of play, "
-        "derived from xG margin. Closed set of five phrases mapped to xG-delta thresholds."
+        "derived from xG margin. Seven phrases mapped to xG-delta thresholds and match context."
     ),
     "Big Story": (
         "The single most decisive action of the match by VAEP impact \u2014 highlighted as "
@@ -182,6 +201,12 @@ GLOSSARY: dict[str, str] = {
     "Team Shape": "Spatial metrics describing how a team is spread across the pitch — length, width, hull area, stretch index.",
     "Convex Hull": "Smallest polygon enclosing all outfield players. Area indicates territorial extent (~1,000 m² defending, ~1,500 m² attacking).",
     "Stretch Index": "Mean distance of all outfield players from the team centroid (Bourbousson et al. 2010). Lower = more compact.",
+    "Survival": (
+        "Did the action protect against conceding? The defensive component of VAEP — "
+        "how much the action reduced opponent scoring probability. "
+        "Positive = opponent became less likely to score (safer). "
+        "Negative = opponent became more likely to score (riskier)."
+    ),
     "EFPI": "Elastic Formation and Position Identification — template matching algorithm for automatic formation detection (Bekkers & Dabadghao 2025).",
     "Shape Graph": "Delaunay-based geometric formation detection -- builds a stable proximity graph from player positions without formation templates (Sotudeh 2026).",
     "Defensive Line Height": "Average position of the defensive line as % of pitch length. 0% = own goal, 100% = opponent goal.",
@@ -266,8 +291,21 @@ PAGE_TERMS: dict[str, list[str]] = {
         "Fortunate",
         "Smash & grab",
         "Flattered by scoreline",
+        "Defensive masterclass",
+        "Comeback win",
+        "Decision Value",
     ],
-    "Player-Impact": ["VAEP", "VAEP/90", "Off. VAEP/90", "Def. VAEP/90", "SPADL", "Percentile Rank"],
+    "Player-Impact": [
+        "VAEP",
+        "VAEP/90",
+        "Off. VAEP/90",
+        "Def. VAEP/90",
+        "SPADL",
+        "Percentile Rank",
+        "Survival",
+        "Progression",
+        "Decision Value",
+    ],
     "Player-Comparison": [
         "Goals/90",
         "xG (Expected Goals)",
@@ -283,6 +321,9 @@ PAGE_TERMS: dict[str, list[str]] = {
         "DEFCON",
         "DEFCON/90",
         "Percentile Rank",
+        "Survival",
+        "Progression",
+        "Decision Value",
     ],
     "Player-Similarity": ["Cosine Distance", "Behavioral Vector", "Statistical Vector"],
     "Goalkeeper-Analytics": [
@@ -295,9 +336,18 @@ PAGE_TERMS: dict[str, list[str]] = {
         "Sweeper Distance",
         "Outside Box/90",
     ],
-    "Movement-Pressing": ["PPDA", "xT (Expected Threat)", "Off-Ball xT", "Pitch Control"],
+    "Movement-Pressing": ["PPDA", "xT (Expected Threat)", "Off-Ball xT", "Pitch Control", "Progression"],
     "Pitch-Control": ["Pitch Control"],
-    "Pass-Timing": ["PAUSA", "Temporal Judgment", "Spatial Selection", "OBSO", "Passes with Value"],
+    "Pass-Timing": [
+        "PAUSA",
+        "Temporal Judgment",
+        "Spatial Selection",
+        "OBSO",
+        "Passes with Value",
+        "Survival",
+        "Progression",
+        "Decision Value",
+    ],
     "Defensive-Impact": ["DEFCON", "Intercept", "Concede", "Disturb", "Deter", "Percentile Rank"],
     "Team-Shape": [
         "Team Shape",
@@ -1126,7 +1176,7 @@ def build_root_page(nav_md: str) -> str:
 {GETTING_STARTED}
 |>
 
-<|part|render={{is_loading}}|class_name=ll-loading-overlay|
+<|part|class_name={{"ll-loading-overlay ll-loading-visible" if is_loading else "ll-loading-overlay"}}|
 <|part|class_name=ll-loading-spinner|
 <span class="material-symbols-outlined ll-spin">progress_activity</span>
 

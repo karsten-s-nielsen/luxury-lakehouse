@@ -24,8 +24,8 @@ import pytest
 
 _DDL_TYPE_TO_SPARK_NAME = {
     "STRING": "string",
-    "BIGINT": "long",
-    "INT": "integer",
+    "BIGINT": "bigint",
+    "INT": "int",
     "DOUBLE": "double",
     "FLOAT": "float",
     "TIMESTAMP": "timestamp",
@@ -424,13 +424,13 @@ class TestSpadlVaepWriterDdlParity:
         ddl = _parse_ddl(spadl_vaep._SPADL_SCHEMA)
         for col, expected_type in (
             ("tackle_winner_player_id_native", "string"),
-            ("tackle_winner_player_key", "long"),
+            ("tackle_winner_player_key", "bigint"),
             ("tackle_winner_team_id_native", "string"),
-            ("tackle_winner_team_key", "long"),
+            ("tackle_winner_team_key", "bigint"),
             ("tackle_loser_player_id_native", "string"),
-            ("tackle_loser_player_key", "long"),
+            ("tackle_loser_player_key", "bigint"),
             ("tackle_loser_team_id_native", "string"),
-            ("tackle_loser_team_key", "long"),
+            ("tackle_loser_team_key", "bigint"),
         ):
             assert col in ddl, f"_SPADL_SCHEMA missing tackle qualifier column {col!r}"
             assert ddl[col] == expected_type, (
@@ -444,13 +444,13 @@ class TestSpadlVaepWriterDdlParity:
         ddl = _parse_ddl(spadl_vaep._VAEP_SCHEMA)
         for col, expected_type in (
             ("tackle_winner_player_id_native", "string"),
-            ("tackle_winner_player_key", "long"),
+            ("tackle_winner_player_key", "bigint"),
             ("tackle_winner_team_id_native", "string"),
-            ("tackle_winner_team_key", "long"),
+            ("tackle_winner_team_key", "bigint"),
             ("tackle_loser_player_id_native", "string"),
-            ("tackle_loser_player_key", "long"),
+            ("tackle_loser_player_key", "bigint"),
             ("tackle_loser_team_id_native", "string"),
-            ("tackle_loser_team_key", "long"),
+            ("tackle_loser_team_key", "bigint"),
         ):
             assert col in ddl, f"_VAEP_SCHEMA missing tackle qualifier column {col!r}"
             assert ddl[col] == expected_type, (
@@ -716,6 +716,7 @@ def _build_vaep_scoring_struct():  # type: ignore[no-untyped-def]
             StructField("gk_actions_in_possession", LongType()),
             StructField("defending_gk_player_id", LongType()),
             # LL2 Path B: native string identifiers carried through from spadl_actions.
+            StructField("player_id_native", StringType()),
             StructField("team_id_native", StringType()),
             StructField("home_team_id_native", StringType()),
             StructField("competition_native_id", StringType()),

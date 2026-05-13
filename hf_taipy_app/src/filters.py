@@ -877,33 +877,6 @@ def fetch_action_value_players(competition_id: int, team_id: int | None) -> list
 # ---------------------------------------------------------------------------
 
 
-@ttl_cache()
-def fetch_scope_label(comp_id: int, team_id: int | None) -> str:
-    """Build scope label string: 'Showing: Country — Competition · Team'."""
-    try:
-        comp_df = execute_query(
-            f"SELECT country, competition_name FROM {t('dim_competitions_synced')} "  # noqa: S608
-            f"WHERE competition_id = %s LIMIT 1",
-            (int(comp_id),),
-        )
-        if comp_df.empty:
-            return ""
-        country = comp_df.iloc[0]["country"]
-        comp_name = comp_df.iloc[0]["competition_name"]
-        label = f"Showing: {country} \u2014 {comp_name}" if country else f"Showing: {comp_name}"
-        if team_id is not None:
-            team_df = execute_query(
-                f"SELECT team_name FROM {t('dim_teams_synced')} "  # noqa: S608
-                f"WHERE team_id = %s LIMIT 1",
-                (int(team_id),),
-            )
-            if not team_df.empty:
-                label += f" \u00b7 {team_df.iloc[0]['team_name']}"
-        return label
-    except Exception:
-        return ""
-
-
 def build_scope_label_plain(pairs: list[tuple[str, str]]) -> str:
     """Render a plain-text scope label for alt attributes and screen readers.
 
