@@ -985,7 +985,7 @@ resource "databricks_job" "data_ingestion" {
       ]
     }
 
-    environment_key = "default"
+    environment_key = "analytics"
   }
 
   # ── Task: Refresh Lakebase synced tables (final stage) ───────────────
