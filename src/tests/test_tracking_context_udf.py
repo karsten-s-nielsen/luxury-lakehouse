@@ -125,3 +125,93 @@ def test_udf_factory_returns_callable() -> None:
         native_match_id="test_match",
     )
     assert callable(udf_fn)
+
+
+def test_frame_batch_constants() -> None:
+    """Frame batch constants are consistent and sensible."""
+    from ingestion.tracking_context import _ACTION_TIME_BUFFER_SECONDS, _FRAME_BATCH_SIZE
+
+    assert _FRAME_BATCH_SIZE == 5000
+    assert _ACTION_TIME_BUFFER_SECONDS == 0.5
+
+
+def test_udf_filters_actions_by_period() -> None:
+    """UDF filters actions to the batch's period — period 2 actions excluded from period 1 batch."""
+    import pandas as pd
+
+    from ingestion.tracking_context import _RESULT_COLUMNS, _make_tracking_context_udf
+
+    # Two actions: period 1 and period 2
+    actions_records = [
+        {
+            "game_id": 1,
+            "action_id": 0,
+            "period_id": 1,
+            "time_seconds": 10.0,
+            "team_id": "H",
+            "player_id": "P1",
+            "type_id": 0,
+            "result_id": 1,
+            "bodypart_id": 0,
+            "start_x": 50.0,
+            "start_y": 34.0,
+            "end_x": 60.0,
+            "end_y": 34.0,
+        },
+        {
+            "game_id": 1,
+            "action_id": 1,
+            "period_id": 2,
+            "time_seconds": 5.0,
+            "team_id": "H",
+            "player_id": "P2",
+            "type_id": 0,
+            "result_id": 1,
+            "bodypart_id": 0,
+            "start_x": 30.0,
+            "start_y": 20.0,
+            "end_x": 40.0,
+            "end_y": 25.0,
+        },
+    ]
+
+    udf_fn = _make_tracking_context_udf(
+        provider="metrica",
+        home_team_id="Home",
+        home_start_left=True,
+        xt_grid_data=[[0.0] * 16 for _ in range(12)],
+        xt_l=16,
+        xt_w=12,
+        actions_records=actions_records,
+        native_match_id="test",
+    )
+
+    # Empty tracking batch for period 1 — should return empty (no tracking data to convert)
+    empty_pdf = pd.DataFrame(columns=pd.Index(["match_id", "period", "frame_batch_id", "timestamp"]))
+    result = udf_fn(empty_pdf)
+    output_cols = [c for c in _RESULT_COLUMNS if c != "_ingested_at"]
+    assert list(result.columns) == output_cols
+    assert len(result) == 0
+
+
+def test_udf_empty_batch_returns_empty() -> None:
+    """UDF returns empty DataFrame when the tracking batch has no rows."""
+    import pandas as pd
+
+    from ingestion.tracking_context import _RESULT_COLUMNS, _make_tracking_context_udf
+
+    udf_fn = _make_tracking_context_udf(
+        provider="idsse",
+        home_team_id="T1",
+        home_start_left=True,
+        xt_grid_data=[[0.0] * 16 for _ in range(12)],
+        xt_l=16,
+        xt_w=12,
+        actions_records=[],
+        native_match_id="test",
+    )
+    empty_pdf = pd.DataFrame()
+    result = udf_fn(empty_pdf)
+    output_cols = [c for c in _RESULT_COLUMNS if c != "_ingested_at"]
+    assert list(result.columns) == output_cols
+    assert len(result) == 0

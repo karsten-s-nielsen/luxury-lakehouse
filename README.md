@@ -34,7 +34,7 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 
 ## Architecture
 
-> **[View interactive C4 diagrams](docs/c4/architecture.html)** &mdash; System Context and Container levels, generated from [Structurizr DSL](docs/c4/architecture.dsl) via the Structurizr &rarr; PlantUML rendering pipeline. Reflects post-SK3-MIG-B PR-1 (orchestrator hardening + Group 0 input-publish + ADR-012 §6 runtime SK guard) state (silly-kicks 3.0.1, wheel 0.3.32).
+> **[View interactive C4 diagrams](docs/c4/architecture.html)** &mdash; System Context and Container levels, generated from [Structurizr DSL](docs/c4/architecture.dsl) via the Structurizr &rarr; PlantUML rendering pipeline.
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|

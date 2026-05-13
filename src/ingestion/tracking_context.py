@@ -25,6 +25,19 @@ if TYPE_CHECKING:
 
 _TABLE_NAME = "spadl_tracking_context"
 
+# ── Frame batching ────────────────────────────────────────────────────
+# IDSSE (match_id, period) groups are 1.5M-1.7M rows -- exceeds the 1 GB
+# Databricks serverless UDF group cap. Sub-batch by frame number to keep
+# groups at ~100K rows (~65 MB). silly-kicks `link_actions_to_frames` is
+# a simple nearest-timestamp merge (0.2s tolerance) with no cross-frame
+# temporal dependencies, so batching is semantically safe.
+_FRAME_BATCH_SIZE = 5000
+
+# Tolerance (seconds) for buffering actions at batch edges.
+# Matches silly-kicks `link_actions_to_frames` default tolerance (0.2s),
+# plus a small margin to ensure edge actions always find their frame.
+_ACTION_TIME_BUFFER_SECONDS = 0.5
+
 # ── Column projection constants ───────────────────────────────────────
 # Minimum Spark .select() set per provider. Each tuple matches the
 # corresponding _*_CONSUMED_COLS frozenset defined next to the converter
@@ -343,16 +356,17 @@ def _make_tracking_context_udf(
         import pandas as _pd
         from silly_kicks.xthreat import ExpectedThreat as _ExpectedThreat
 
+        from ingestion.tracking_context import _ACTION_TIME_BUFFER_SECONDS, _RESULT_COLUMNS
+
         _logger = _logging.getLogger("tracking_context_udf")
 
         if pdf.empty:
-            from ingestion.tracking_context import _RESULT_COLUMNS
-
             output_cols = [c for c in _RESULT_COLUMNS if c != "_ingested_at"]
             return _pd.DataFrame(columns=_pd.Index(output_cols))
 
         match_id_val = pdf["match_id"].iloc[0]
         period_val = pdf["period"].iloc[0]
+        batch_id_val = pdf["frame_batch_id"].iloc[0] if "frame_batch_id" in pdf.columns else None
 
         # Row-count guardrail (observability, not a hard gate)
         if len(pdf) > 2_000_000:
@@ -368,8 +382,24 @@ def _make_tracking_context_udf(
             xt = _ExpectedThreat(l=xt_l, w=xt_w)
             xt.xT = _np.array(xt_grid_data, dtype=_np.float64)
 
-            # Reconstruct actions from records
-            actions = _pd.DataFrame(actions_records)
+            # Reconstruct actions, filter to this period
+            all_actions = _pd.DataFrame(actions_records)
+            actions = all_actions[all_actions["period_id"] == int(period_val)].copy()
+            del all_actions
+
+            # Further filter actions to this batch's time window (with buffer)
+            if "time_seconds" in actions.columns and "timestamp" in pdf.columns:
+                t_min = float(pdf["timestamp"].min()) - _ACTION_TIME_BUFFER_SECONDS
+                t_max = float(pdf["timestamp"].max()) + _ACTION_TIME_BUFFER_SECONDS
+                actions = actions[(actions["time_seconds"] >= t_min) & (actions["time_seconds"] <= t_max)].copy()
+
+            if actions.empty:
+                output_cols = [c for c in _RESULT_COLUMNS if c != "_ingested_at"]
+                return _pd.DataFrame(columns=_pd.Index(output_cols))
+
+            # Drop synthetic frame_batch_id before passing to converters
+            if "frame_batch_id" in pdf.columns:
+                pdf = pdf.drop(columns=["frame_batch_id"])
 
             # Provider-specific conversion (tracking -> silly-kicks frames)
             if provider == "idsse":
@@ -431,7 +461,10 @@ def _make_tracking_context_udf(
             return result
 
         except Exception as exc:
-            raise RuntimeError(f"tracking_context UDF failed for match_id={match_id_val}, period={period_val}") from exc
+            raise RuntimeError(
+                f"tracking_context UDF failed for match_id={match_id_val}, "
+                f"period={period_val}, frame_batch_id={batch_id_val}"
+            ) from exc
 
     return _udf
 
@@ -1376,6 +1409,14 @@ def main() -> None:
             )
             home_team_id = str(row["home_team_id"])
 
+        # ── Add frame_batch_id for sub-batching ──
+        # IDSSE groups are 1.5M-1.7M rows per (match_id, period), exceeding
+        # the 1 GB serverless UDF group cap. Sub-batch by frame number.
+        trk_sdf = trk_sdf.withColumn(
+            "frame_batch_id",
+            F.floor(F.col("frame") / F.lit(_FRAME_BATCH_SIZE)),
+        )
+
         # ── Build UDF and dispatch via applyInPandas ──
         udf_fn = _make_tracking_context_udf(
             provider=provider,
@@ -1388,7 +1429,9 @@ def main() -> None:
             native_match_id=match_id,
         )
 
-        result_sdf = trk_sdf.groupBy("match_id", "period").applyInPandas(udf_fn, schema=_get_result_schema())
+        result_sdf = trk_sdf.groupBy("match_id", "period", "frame_batch_id").applyInPandas(
+            udf_fn, schema=_get_result_schema()
+        )
 
         written = write_delta_table(
             result_sdf,
