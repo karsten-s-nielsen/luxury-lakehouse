@@ -14,14 +14,18 @@ import pytest
 def _make_synthetic_actions(n: int = 20) -> pd.DataFrame:
     """Minimal SPADL actions with game_id for silly-kicks compat."""
     rng = np.random.default_rng(42)
+    team_ids = rng.choice([100, 200], n)
+    player_ids = rng.choice([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], n)
     return pd.DataFrame(
         {
             "game_id": [1] * n,
             "action_id": list(range(n)),
             "period_id": [1] * n,
             "time_seconds": np.linspace(0, 90 * 60, n),
-            "team_id": rng.choice([100, 200], n),
-            "player_id": rng.choice([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], n),
+            "team_id": team_ids,
+            "player_id": player_ids,
+            "team_id_native": [str(t) for t in team_ids],
+            "player_id_native": [str(p) for p in player_ids],
             "type_id": rng.choice([0, 1, 2, 3], n),
             "result_id": rng.choice([0, 1], n),
             "bodypart_id": [0] * n,
