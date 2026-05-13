@@ -127,4 +127,4 @@ Outputs are published as the Delta table `{catalog}.bronze.pitch_control_values`
 - **License**: [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/) — inherited from open tracking data sources
 - **Source repository**: <https://github.com/karsten-s-nielsen/luxury-lakehouse>
 - **Workflow card**: [`workflow-cards/wf-pitch-control.yaml`](https://github.com/karsten-s-nielsen/luxury-lakehouse/blob/main/workflow-cards/wf-pitch-control.yaml)
-- **Demo**: [Soccer Analytics Explorer](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) — visualise pitch-control surfaces on open tracking data
+- **Demo**: [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) — visualise pitch-control surfaces on open tracking data

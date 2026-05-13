@@ -624,7 +624,6 @@ luxury-lakehouse/
 │       ├── test_scoutgpt_decoder.py  # ScoutGPT decoder architecture tests
 │       ├── test_scoutgpt_training.py # ScoutGPT E2E smoke tests (dataset, training, eval)
 │       ├── test_set_encoder.py       # Deep Sets encoder tests
-│       ├── test_setup_hf_buckets.py
 │       ├── test_shape_graph.py
 │       ├── test_shared_constants.py
 │       ├── test_skillcorner.py
@@ -680,7 +679,6 @@ luxury-lakehouse/
 │   ├── train_xg_model.py            # xG model training (logistic + XGBoost) + HF Hub publishing
 │   ├── sync_hf_weights.py           # Download model weights from HF Hub to UC Volume
 │   ├── publish_datasets.py           # Export Gold tables as Parquet to HF Hub
-│   ├── export_demo_data.py           # Export demo data for Gradio Space
 │   ├── import_obso_results.py        # Import OBSO results to bronze
 │   ├── publish_obso_data.py          # Publish OBSO data to HF Hub
 │   └── diag_defcon2.py               # DEFCON diagnostic notebook
@@ -689,7 +687,6 @@ luxury-lakehouse/
 │   ├── manage_space.py               # HF Space lifecycle: create/deploy/status/rebuild/teardown
 │   ├── bump_wheel.py                 # Sync wheel version from pyproject.toml to all static consumers (PEP 723, deploy.sh, Terraform)
 │   ├── deploy_wheel.py               # Downloads wheel from HF Hub build-artifacts → UC Volume for inference
-│   ├── setup_hf_buckets.py           # Initialize HF Buckets (demo-data) with versioned Parquet uploads
 │   ├── setup_lakebase_roles.py       # Manage Lakebase PG roles for service principals (databricks-sdk 0.102+)
 │   ├── create_indexes.py             # PG indexes on Lakebase synced tables (67 indexes, --verify + ANALYZE)
 │   ├── ensure_warehouse.py           # Verify SQL warehouse is RUNNING before dbt builds
@@ -727,10 +724,6 @@ luxury-lakehouse/
 │   ├── semgrep.yml                   # Semgrep SAST (p/python + p/security-audit)
 │   ├── terraform-plan.yml            # Plan on PR (OIDC auth)
 │   └── dbt-ci.yml                    # dbt slim CI (state:modified+, --empty, --defer)
-│
-├── demo_space/                      # Hugging Face Gradio demo Space (6 tabs: pass quality, pitch control, player similarity, shot map, DEFCON pressure, pass timing)
-│   ├── app.py                       # Gradio app with luxury flagship theme (dark surfaces, gold accents)
-│   └── pitch_control.py             # Pure NumPy pitch control (Spearman 2017) — no Spark dependency
 │
 └── docs/
     ├── c4/

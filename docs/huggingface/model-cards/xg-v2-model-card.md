@@ -324,9 +324,9 @@ If you use this model, please cite the Deep Sets architecture and the MC Dropout
 
 ## Demo
 
-Try the interactive [Soccer Analytics Explorer](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) &mdash; visualize shot maps with v2 xG values and uncertainty bands, and compare v1 vs v2 predictions side-by-side.
+Try the interactive [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) &mdash; visualize shot maps with v2 xG values and uncertainty bands, and compare v1 vs v2 predictions side-by-side.
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 ## More Information
 

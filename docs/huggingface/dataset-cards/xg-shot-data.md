@@ -49,7 +49,7 @@ df = ds["train"].to_pandas()
 df.groupby("shot_body_part")["is_goal"].mean().sort_values(ascending=False)
 ```
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 ## What Is This Dataset?
 
@@ -203,9 +203,9 @@ If you use this dataset, please cite the data providers:
 
 ## Demo
 
-Try the interactive [Soccer Analytics Explorer](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo) &mdash; explore shot maps with xG overlays, filter by competition, and compare custom xG against StatsBomb.
+Try the interactive [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) &mdash; explore shot maps with xG overlays, filter by competition, and compare custom xG against StatsBomb.
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 ## More Information
 

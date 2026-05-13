@@ -106,6 +106,7 @@ def get_sk3_mig_b_runs_struct_type() -> StructType:
     """
     from pyspark.sql.types import (
         BooleanType,
+        DataType,
         DoubleType,
         LongType,
         MapType,
@@ -115,7 +116,7 @@ def get_sk3_mig_b_runs_struct_type() -> StructType:
         TimestampType,
     )
 
-    type_map: dict[str, object] = {
+    type_map: dict[str, DataType] = {
         "STRING": StringType(),
         "TIMESTAMP": TimestampType(),
         "DOUBLE": DoubleType(),

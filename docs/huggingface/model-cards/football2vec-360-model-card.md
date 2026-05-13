@@ -240,7 +240,7 @@ Model weights use the **safetensors** format &mdash; a tensor-only serialization
 
 Try the interactive [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) &mdash; the Player Similarity page supports similarity search on 360-enriched embeddings for players with 360 match coverage.
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 ## More Information
 

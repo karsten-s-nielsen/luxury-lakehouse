@@ -39,7 +39,7 @@ xt_matrix = global_grid.pivot(index="zone_y", columns="zone_x", values="xt_value
 print(xt_matrix)
 ```
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 ## What Is This Dataset?
 
@@ -100,7 +100,7 @@ If you use this dataset, please cite the original xT blog post:
 
 ## More Information
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 - **License**: [MIT](https://opensource.org/licenses/MIT)
 - **Publish script**: `scripts/compute_xt_grid_hf.py`

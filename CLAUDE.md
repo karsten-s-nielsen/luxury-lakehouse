@@ -173,14 +173,13 @@ Taipy-specific rules (PageConfig template, StatCard, state-prefix conventions in
 
 ## UX Standards
 
-These rules prevent cognitive interface debt from accumulating. Derived from CHI-AUDIT-180 and CHI-AUDIT-190 (cognitive-interface-audit v1.8.0+, 15 frameworks). Every Taipy or Gradio code change must satisfy all of these.
+These rules prevent cognitive interface debt from accumulating. Derived from CHI-AUDIT-180 and CHI-AUDIT-190 (cognitive-interface-audit v1.8.0+, 15 frameworks). Every Taipy code change must satisfy all of these.
 
 - **Never silently substitute data**: If a fallback, default, or NaN-fill changes what the user sees, surface it with a visual indicator. The user must be able to tell what data source produced what they're looking at.
 - **Patterns applied to some pages must be applied to all**: When adding a cross-cutting pattern (captions, tooltips, help text, layout changes), apply it to ALL pages in the same commit. If a page is excluded, add a code comment explaining why.
 - **Model selectors need comparison affordance**: When adding a selector that switches between models/algorithms/views, consider the comparison workflow: side-by-side layout, delta indicators, or at minimum persist the previous selection's values visually. Users should not need to remember numbers across selector clicks.
 - **Navigation labels must be goal-oriented**: Page titles should describe the user's goal, not the implementation. "Player Comparison" not "Player Radar". "Defensive Impact" not "Def. Pressure".
 - **Raw IDs must never reach the user**: Never display `player_id`, `match_id`, or `team_id` in selectboxes, tables, or chart labels. Always join to dimension tables for human-readable names.
-- **Multi-surface UX parity**: When a Taipy page has glossary terms, help tooltips, scale references, or academic citations, the corresponding Gradio demo tab must have equivalents (e.g., `gr.Accordion("Glossary")` with per-tab filtered terms, axis labels with range/direction, `gr.Markdown` citations). A feature on one surface without its UX scaffolding on the other is incomplete.
 - **Computed metrics must show scale and direction**: Any displayed score on a 0–1 or non-obvious scale (PAUSA, OBSO, cosine distance, xT, VAEP) must include the range and direction in at least one of: axis label, chart title, tooltip, or adjacent caption. "0.347" alone is never acceptable — "0.347 (0–1, higher = better)" is.
 - **HF artifact link completeness**: When publishing a new HF dataset or model, update ALL locations that reference the artifact list: HF Space header, HF Space footer, `docs/huggingface/org-card.md`, and `README.md`. A checklist in the PR description prevents drift.
 

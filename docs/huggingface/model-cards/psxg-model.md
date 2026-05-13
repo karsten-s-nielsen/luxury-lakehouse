@@ -182,7 +182,7 @@ Model parameters use **JSON serialization** &mdash; a text-only format with zero
 
 Try the interactive [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) &mdash; explore goalkeeper shot-stopping metrics on the Defensive Impact page.
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 ## More Information
 

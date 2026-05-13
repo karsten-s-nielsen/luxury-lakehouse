@@ -54,7 +54,7 @@ df["height_zone"] = df["end_location_z"].apply(
 df.groupby("height_zone")["is_goal"].mean()
 ```
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 ## What Is This Dataset?
 
@@ -158,7 +158,7 @@ If you use this dataset, please cite:
 
 ## More Information
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 - **Model repo**: [`luxury-lakehouse/psxg-model`](https://huggingface.co/luxury-lakehouse/psxg-model)
 - **License**: [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/) (StatsBomb Open Data)

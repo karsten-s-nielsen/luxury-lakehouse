@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 
@@ -22,6 +22,7 @@ from ingestion.utils import configure_logging, get_spark_session, parse_ingestio
 if TYPE_CHECKING:
     import pandas as pd
     from pyspark.sql import SparkSession
+    from pyspark.sql.types import StructType
     from silly_kicks.xthreat import ExpectedThreat
 
 _TABLE_NAME = "spadl_tracking_context"
@@ -249,7 +250,7 @@ _TRACKING_CONTEXT_DDL = (
 )
 
 
-def _parse_ddl_to_struct_type(ddl: str) -> object:
+def _parse_ddl_to_struct_type(ddl: str) -> StructType:
     """Parse a Spark DDL column-list string into a StructType.
 
     Handles: STRING, BIGINT, DOUBLE, BOOLEAN, TIMESTAMP.
@@ -257,6 +258,7 @@ def _parse_ddl_to_struct_type(ddl: str) -> object:
     """
     from pyspark.sql.types import (
         BooleanType,
+        DataType,
         DoubleType,
         LongType,
         StringType,
@@ -265,7 +267,7 @@ def _parse_ddl_to_struct_type(ddl: str) -> object:
         TimestampType,
     )
 
-    type_map: dict[str, object] = {
+    type_map: dict[str, DataType] = {
         "STRING": StringType(),
         "BIGINT": LongType(),
         "DOUBLE": DoubleType(),
@@ -291,10 +293,10 @@ def _parse_ddl_to_struct_type(ddl: str) -> object:
     return StructType(fields)
 
 
-_RESULT_SCHEMA_CACHE: object | None = None
+_RESULT_SCHEMA_CACHE: StructType | None = None
 
 
-def _get_result_schema() -> object:
+def _get_result_schema() -> StructType:
     """Lazy accessor for the applyInPandas StructType schema.
 
     Deferred to avoid importing pyspark at module level (breaks CI where
@@ -337,7 +339,7 @@ def _make_tracking_context_udf(
     xt_grid_data: list[list[float]],
     xt_l: int,
     xt_w: int,
-    actions_records: list[dict[str, object]],
+    actions_records: list[dict[str, Any]],
     native_match_id: str,
 ) -> Callable[[pd.DataFrame], pd.DataFrame]:
     """Build the applyInPandas UDF closure for tracking context enrichment.
@@ -1525,7 +1527,7 @@ def main() -> None:
         if actions_pdf.empty:
             logger.warning("No SPADL actions for %s match %s", provider, match_id)
             continue
-        actions_records = actions_pdf.to_dict("records")
+        actions_records: list[dict[str, Any]] = actions_pdf.to_dict("records")  # type: ignore[assignment]
 
         # ── Resolve match-level metadata on driver (scalars) ──
         home_start_left = True  # default; only IDSSE overrides

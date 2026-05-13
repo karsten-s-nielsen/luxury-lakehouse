@@ -148,7 +148,7 @@ dbt_build = "ingestion.dbt_runner:main"
 [tool.ruff]
 target-version = "py310"
 line-length = 120
-exclude = ["demo_space", "notebooks"]
+exclude = ["notebooks"]
 
 [tool.ruff.lint]
 select = [
@@ -244,7 +244,6 @@ extraPaths = [
     "src/tests",
 ]
 exclude = [
-    "demo_space",
     "notebooks",
     # PEP 723 HF Jobs scripts (have `# /// script` headers; run on HF Jobs
     # infrastructure with their own inline dependency resolution; pandas/numpy

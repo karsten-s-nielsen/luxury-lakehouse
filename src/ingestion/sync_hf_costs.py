@@ -253,7 +253,7 @@ def run_pipeline(
     # MERGE into workflow_cost_live via PySpark
     from pyspark.sql import SparkSession
 
-    spark = SparkSession.builder.getOrCreate()
+    spark = SparkSession.builder.getOrCreate()  # type: ignore[attr-defined]
     target_table = f"{catalog}.{DEFAULT_OBSERVABILITY_SCHEMA}.{COST_TABLE_NAME}"
     source_df = spark.createDataFrame(rows)
 

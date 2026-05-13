@@ -134,7 +134,7 @@ cd hf_taipy_app && python src/main.py
 
 ## 5. Next Steps
 
-- **Try the live demo:** [Soccer Analytics Dashboard](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
+- **Interactive dashboard:** [Soccer Analytics Dashboard](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 - **Use pre-trained models:** See the [Hugging Face setup guide](huggingface-setup.md)
 - **Understand the architecture:** Read [ARCHITECTURE.md](../ARCHITECTURE.md)
 - **Contribute:** See [CONTRIBUTING.md](../CONTRIBUTING.md)

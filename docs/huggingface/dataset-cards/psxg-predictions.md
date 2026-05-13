@@ -46,7 +46,7 @@ gp = df.groupby("player_id").agg(
 print(gp.sort_values("psxg_faced", ascending=False).head(10))
 ```
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 ## What Is This Dataset?
 
@@ -134,7 +134,7 @@ If you use this dataset, please cite:
 
 ## More Information
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 - **Model repo**: [`luxury-lakehouse/psxg-model`](https://huggingface.co/luxury-lakehouse/psxg-model)
 - **License**: [CC-BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)

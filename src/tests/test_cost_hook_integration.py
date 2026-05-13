@@ -52,7 +52,7 @@ def spark():
 
     try:
         builder = (
-            SparkSession.builder.appName("test_cost_hook_integration")
+            SparkSession.builder.appName("test_cost_hook_integration")  # type: ignore[attr-defined]
             .config(
                 "spark.sql.extensions",
                 "io.delta.sql.DeltaSparkSessionExtension",

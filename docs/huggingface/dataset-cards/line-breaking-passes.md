@@ -30,7 +30,7 @@ lb_passes = df[df["is_line_breaking"] == True]
 print(f"{len(lb_passes)} line-breaking passes out of {len(df)} total")
 ```
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 ## What is a Line-Breaking Pass?
 
@@ -126,7 +126,7 @@ There is no formal paper for this dataset. If you use it, please cite the reposi
 
 ## More Information
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 ## PR 7 changelog (2026-04-27)
 

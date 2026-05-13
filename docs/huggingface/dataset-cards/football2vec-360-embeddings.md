@@ -41,7 +41,7 @@ sim = cosine_similarity(player_a, player_b)[0, 0]
 print(f"Cosine similarity: {sim:.4f}")
 ```
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 ## What Are These Embeddings?
 
@@ -143,7 +143,7 @@ If you use these embeddings, please cite the companion model and the Deep Sets a
 
 ## More Information
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 - **Model repo**: [`luxury-lakehouse/football2vec-360`](https://huggingface.co/luxury-lakehouse/football2vec-360)
 - **License**: [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/) (StatsBomb Open Data)

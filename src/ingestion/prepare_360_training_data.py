@@ -569,7 +569,7 @@ def main() -> None:
     _validate_identifier("catalog", catalog)
     _validate_identifier("schema", schema)
 
-    spark = SparkSession.builder.getOrCreate()
+    spark = SparkSession.builder.getOrCreate()  # type: ignore[attr-defined]
 
     from ingestion.bootstrap import bootstrap_hooks
 

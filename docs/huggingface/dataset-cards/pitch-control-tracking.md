@@ -30,7 +30,7 @@ home_control = df.groupby("match_id")["pitch_control_value"].mean()
 print(home_control.describe())
 ```
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 ## What is Pitch Control?
 
@@ -137,6 +137,6 @@ If you use this dataset, please cite the original pitch control paper:
 
 ## More Information
 
-> **Explore interactively:** [HF Space demo](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-demo)
+> **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 - **License**: [MIT](https://opensource.org/licenses/MIT)
