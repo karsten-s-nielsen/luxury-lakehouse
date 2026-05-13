@@ -11,6 +11,7 @@ Architecture: "Read from bronze, compute, write to bronze."
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
@@ -334,7 +335,7 @@ def _make_tracking_context_udf(
     xt_w: int,
     actions_records: list[dict[str, object]],
     native_match_id: str,
-) -> object:
+) -> Callable[[pd.DataFrame], pd.DataFrame]:
     """Build the applyInPandas UDF closure for tracking context enrichment.
 
     All arguments are Python scalar primitives — no ndarray, no DataFrame,
