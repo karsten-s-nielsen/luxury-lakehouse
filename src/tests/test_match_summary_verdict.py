@@ -24,13 +24,17 @@ VERDICT_CASES = [
     # Smash & grab — loser xG >= winner xG + 1.5
     (0.4, 2.1, 1, 0, "Smash & grab", "1.7"),
     (2.1, 0.4, 0, 1, "Smash & grab", "1.7"),
-    # Flattered by scoreline — winner xG >= 2 * winner goals (score 1-0, xG 2.5)
-    # Home wins 1-0 with home_xg 2.5 → winner_xg=2.5, winner_goals=1; 2.5 >= 2*1.
-    (2.5, 0.4, 1, 0, "Flattered by scoreline", "2.1"),
+    # Flattered by scoreline — winner xG >= 2 * winner goals AND loser xG >= 0.5
+    (2.5, 0.6, 1, 0, "Flattered by scoreline", "1.9"),
     # 0-0 with tiny xG gap — Fair result
     (0.3, 0.5, 0, 0, "Fair result", "0.2"),
     # 0-0 with large xG gap — still Fair result, detail carries the nuance
     (2.1, 0.4, 0, 0, "Fair result", "1.7"),
+    # Defensive masterclass — loser xG < 0.5
+    (2.0, 0.3, 2, 0, "Defensive masterclass", "1.7"),
+    (0.3, 2.0, 0, 2, "Defensive masterclass", "1.7"),  # symmetric — away winner
+    # Defensive masterclass — loser xG exactly 0.5 does NOT trigger (must be strictly <)
+    (2.0, 0.5, 2, 0, "Fully merited", "1.5"),
 ]
 
 
@@ -95,3 +99,54 @@ def test_flattered_requires_winner_goals_positive() -> None:
     """A 0-0 scoreline never routes to 'Flattered by scoreline' (no winner)."""
     phrase, _ = derive_verdict(3.5, 0.4, 0, 0)
     assert phrase == "Fair result"  # draw short-circuit wins
+
+
+def test_defensive_masterclass_trumps_smash_and_grab() -> None:
+    """Loser xG 0.4 < 0.5: Defensive masterclass fires before Smash & grab,
+    even though gap 1.6 > 1.5 would qualify for Smash & grab."""
+    phrase, _ = derive_verdict(2.0, 0.4, 1, 0)
+    assert phrase == "Defensive masterclass"
+
+
+def test_comeback_prefix_basic() -> None:
+    """Home trails 0-1, then wins 2-1 → Comeback win prefix."""
+    goals = [(10, "away"), (30, "home"), (60, "home")]
+    phrase, _ = derive_verdict(2.0, 1.0, 2, 1, goals=goals)
+    assert phrase.startswith("Comeback win")
+    assert "Fully merited" in phrase
+
+
+def test_comeback_equalized_then_won_is_not_comeback() -> None:
+    """Home leads 1-0, equalized 1-1, then wins 2-1. Never trailed → no comeback."""
+    goals = [(10, "home"), (30, "away"), (60, "home")]
+    phrase, _ = derive_verdict(2.0, 1.0, 2, 1, goals=goals)
+    assert phrase == "Fully merited"
+    assert "Comeback" not in phrase
+
+
+def test_comeback_plus_fortunate() -> None:
+    """Winner trailed AND winner xG < loser xG → Comeback win — Fortunate."""
+    goals = [(10, "away"), (30, "home"), (60, "home")]
+    phrase, _ = derive_verdict(0.8, 1.5, 2, 1, goals=goals)
+    assert phrase == "Comeback win — Fortunate"
+
+
+def test_defensive_masterclass_trumps_comeback() -> None:
+    """Loser xG < 0.5 AND winner trailed → Defensive masterclass wins."""
+    goals = [(10, "away"), (30, "home"), (60, "home")]
+    phrase, _ = derive_verdict(2.0, 0.3, 2, 1, goals=goals)
+    assert phrase == "Defensive masterclass"
+
+
+def test_backward_compat_goals_none() -> None:
+    """goals=None produces identical output to current behavior."""
+    without = derive_verdict(2.0, 1.0, 2, 1)
+    with_none = derive_verdict(2.0, 1.0, 2, 1, goals=None)
+    assert without == with_none
+
+
+def test_draw_still_fair_result_even_with_goals() -> None:
+    """Draws always → Fair result regardless of goals timeline."""
+    goals = [(10, "home"), (30, "away")]
+    phrase, _ = derive_verdict(1.0, 1.0, 1, 1, goals=goals)
+    assert phrase == "Fair result"

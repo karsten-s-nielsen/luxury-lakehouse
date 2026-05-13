@@ -734,7 +734,7 @@ The platform's current xT (`wf-xt-grids`) implements Singh-2018: an unconditiona
 
 ### Why the lakehouse cares
 
-xT is load-bearing in `fct_action_values` (every action-value surface), the D60–D63 pass-decision suite (TODO/On-Deck), the U6 three-axis VAEP/xT framing (TODO/On-Deck), and downstream consumers including ScoutGPT counterfactual evaluation and the planned Decision Optimality Score (D61). An xT v2 upgrade is not a drop-in — it changes the value table downstream models consume, requiring `fct_action_values` regen and re-validation of every dependent calibration. Worth doing well, not quickly.
+xT is load-bearing in `fct_action_values` (every action-value surface), the D60–D63 pass-decision suite (TODO/On-Deck), the U6 three-axis VAEP/xT framing (shipped 2026-05-12), and downstream consumers including ScoutGPT counterfactual evaluation and the planned Decision Optimality Score (D61). An xT v2 upgrade is not a drop-in — it changes the value table downstream models consume, requiring `fct_action_values` regen and re-validation of every dependent calibration. Worth doing well, not quickly.
 
 ### Reproduction posture
 

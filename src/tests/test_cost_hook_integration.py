@@ -31,25 +31,27 @@ from workflows.context import WorkflowContext
 def spark():
     """Local SparkSession with Delta Lake extensions.
 
-    Skips the test if pyspark or Delta is unavailable, or if local SparkSession
-    initialization fails. Suitable for CI environments that have Spark
-    installed and for skipping cleanly on developer workstations without it.
+    Requires the ``delta-spark`` Python package, which bundles the Delta JARs.
+    Without it, Spark's ``getOrCreate()`` silently ignores the missing
+    extension class and the first DDL call fails with a
+    ``ClassNotFoundException`` outside any skip guard.
     """
+    delta = pytest.importorskip("delta", reason="delta-spark package required for Delta integration tests")
+
     try:
         from pyspark.sql import SparkSession
     except ImportError:
         pytest.skip("pyspark not installed")
-        return  # unreachable but satisfies type checker
+        return
 
     from unittest.mock import MagicMock
 
     if isinstance(SparkSession, MagicMock):
-        # Autouse fixture from another file mocked pyspark.sql; bail out.
         pytest.skip("pyspark.sql is mocked in this test session")
         return
 
     try:
-        session = (
+        builder = (
             SparkSession.builder.appName("test_cost_hook_integration")
             .config(
                 "spark.sql.extensions",
@@ -60,8 +62,8 @@ def spark():
                 "org.apache.spark.sql.delta.catalog.DeltaCatalog",
             )
             .master("local[1]")
-            .getOrCreate()
         )
+        session = delta.pip_utils.configure_spark_with_delta_pip(builder).getOrCreate()
     except Exception as exc:
         pytest.skip(f"Local Spark/Delta not available: {exc}")
         return

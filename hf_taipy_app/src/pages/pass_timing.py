@@ -53,17 +53,24 @@ page_config = PageConfig(
         Metric(
             "Avg PAUSA",
             "pt_avg_pausa",
-            "Passing Ability Under Spatiotemporal Awareness. Composite of temporal judgment and spatial selection. Higher = better pass timing and target choice. (Lee et al., MIT Sloan 2026)",
+            "Passing Ability Under Spatiotemporal Awareness. Composite of "
+            "Survival (temporal judgment) and Progression (spatial selection). "
+            "Measures Decision Value of pass timing. Higher = better. "
+            "(Lee et al., MIT Sloan 2026)",
         ),
         Metric(
             "Avg Temporal Judgment",
             "pt_avg_temporal",
-            "Was the pass released at the optimal moment? Ratio of actual OBSO at release to peak OBSO in the \u00b13s/+1s window. 1.0 = perfect timing.",
+            "Was the pass released at the optimal moment? Ratio of actual OBSO at release "
+            "to peak OBSO in the \u00b13s/+1s window. 1.0 = perfect timing. Measures Survival \u2014 "
+            "releasing too early or late increases turnover risk.",
         ),
         Metric(
             "Avg Spatial Selection",
             "pt_avg_spatial",
-            "Was the target location the best available? Ratio of actual OBSO at target to maximum OBSO across all receivers. 1.0 = optimal target.",
+            "Was the target location the best available? Ratio of actual OBSO at target "
+            "to maximum OBSO across all receivers. 1.0 = optimal target. Measures Progression \u2014 "
+            "better targets advance the ball into more threatening territory.",
         ),
         Metric("Pass Count", "pt_pass_count", "Number of passes evaluated for PAUSA scoring."),
     ],

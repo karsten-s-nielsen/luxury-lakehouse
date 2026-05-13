@@ -188,6 +188,18 @@ vaep_value = vaep_offensive + vaep_defensive
 - **Scouting**: Compare players across leagues using a unified valuation framework
 - **Research**: Reproducible VAEP implementation on open data
 
+## Three-Axis Interpretation
+
+VAEP's two probability deltas map naturally to three cognitive axes for interpretation, borrowing framing from García de Marina's xR framework (SOCCHUB 2026):
+
+- **Survival** — the defensive component (`vaep_defensive`). How much did the action reduce the opponent's scoring probability? Positive = safer (opponent less likely to score). Negative = riskier (opponent more likely to score). Computed as `P(concedes)_before - P(concedes)_after` — the sign flip in the `vaep_defensive` computation ensures positive = good.
+
+- **Progression** — the offensive component (`vaep_offensive`). How much did the action advance the team's own scoring probability? Positive = more threatening. Computed as `P(scores)_after - P(scores)_before`.
+
+- **Decision Value** — the composite VAEP score (`vaep_value = vaep_offensive + vaep_defensive`). Was the implicit risk worth it? Positive = the action's Progression gain exceeded its Survival cost. Negative = the risk outweighed the benefit.
+
+This is a labeling convention, not a new model. The underlying probabilities and computation are unchanged. The xR model itself (which introduces additional axes like xR-score) is not implemented here.
+
 ## EU AI Act — Intended Use and Non-Use
 
 This model is published for **research and reproducibility** purposes on public, open-licensed match data. It is **not intended for, not validated for, and not supplied to** any use that would fall within Annex III §4 (Employment, workers management and access to self-employment) of Regulation (EU) 2024/1689 — including recruitment or selection of natural persons, decisions affecting work-related contractual relationships, promotion, termination, task allocation based on individual traits, or the monitoring and evaluation of performance and behaviour of workers for employment decisions.

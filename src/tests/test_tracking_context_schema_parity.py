@@ -10,8 +10,8 @@ import re
 
 _DDL_TYPE_TO_SPARK_NAME = {
     "STRING": "string",
-    "BIGINT": "long",
-    "INT": "integer",
+    "BIGINT": "bigint",
+    "INT": "int",
     "DOUBLE": "double",
     "FLOAT": "float",
     "TIMESTAMP": "timestamp",
