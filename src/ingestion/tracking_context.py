@@ -1166,6 +1166,31 @@ def _bronze_skillcorner_to_frames(trk_pdf: pd.DataFrame, game_id: int) -> pd.Dat
 _VALID_PROVIDERS: frozenset[str] = frozenset({"idsse", "metrica", "skillcorner"})
 
 
+def _spadl_match_ids_by_provider(spark: SparkSession, catalog: str) -> dict[str, set[str]]:
+    """Return {provider: {match_id, ...}} for providers with SPADL actions.
+
+    Used by the skip guard to exclude tracking matches that have no paired
+    SPADL actions (e.g. SkillCorner). Without this, the guard rediscovers
+    unpaired matches on every run, wasting a serverless driver per match.
+    """
+    from pyspark.sql import functions as F  # noqa: N812
+
+    rows = (
+        spark.table(f"{catalog}.bronze.spadl_actions")
+        .filter(F.col("data_source").isin(*_VALID_PROVIDERS))
+        .select(
+            F.col("data_source").alias("provider"),
+            F.col("match_id").cast("string").alias("match_id"),
+        )
+        .distinct()
+        .collect()
+    )
+    result: dict[str, set[str]] = {}
+    for row in rows:
+        result.setdefault(row["provider"], set()).add(row["match_id"])
+    return result
+
+
 class _TrackingContextGuard:
     """SkipGuard adapter for tracking context pipeline.
 
@@ -1183,6 +1208,12 @@ class _TrackingContextGuard:
 
         results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
         ensure_table(spark, results_table, _TRACKING_CONTEXT_DDL)
+
+        # Collect match IDs that have SPADL actions per provider.
+        # Tracking data without paired SPADL actions cannot be enriched —
+        # the pipeline would spin up a driver, find actions_pdf.empty,
+        # skip, and rediscover the same matches on the next run.
+        spadl_ids_by_provider = _spadl_match_ids_by_provider(spark, catalog)
 
         idsse_ids = find_new_ids(
             spark,
@@ -1202,6 +1233,11 @@ class _TrackingContextGuard:
             results_table,
             results_filter="data_source = 'skillcorner'",
         )
+
+        # Intersect with SPADL — only emit matches the pipeline can process.
+        idsse_ids = [m for m in idsse_ids if m in spadl_ids_by_provider.get("idsse", set())]
+        metrica_ids = [m for m in metrica_ids if m in spadl_ids_by_provider.get("metrica", set())]
+        skillcorner_ids = [m for m in skillcorner_ids if m in spadl_ids_by_provider.get("skillcorner", set())]
 
         total = len(idsse_ids) + len(metrica_ids) + len(skillcorner_ids)
         if total == 0:
