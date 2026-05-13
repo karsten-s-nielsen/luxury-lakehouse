@@ -45,8 +45,9 @@ _ACTION_TIME_BUFFER_SECONDS = 0.5
 # corresponding _*_CONSUMED_COLS frozenset defined next to the converter
 # function. Parity enforced by test_tracking_context_column_projection.py.
 #
-# NOTE: Spark filter columns (match_id for all providers) do NOT need to be
-# in the select — Catalyst pushes predicates below projections.
+# NOTE: match_id MUST be in every provider's select tuple — the
+# provider-agnostic groupBy("match_id", "period", "frame_batch_id")
+# at dispatch time requires it in the DataFrame.
 
 _IDSSE_TRACKING_SELECT_COLS: tuple[str, ...] = (
     "match_id",
@@ -68,6 +69,7 @@ _IDSSE_TRACKING_SELECT_COLS: tuple[str, ...] = (
 )
 
 _METRICA_TRACKING_SELECT_COLS: tuple[str, ...] = (
+    "match_id",
     "period",
     "frame",
     "timestamp",
@@ -80,6 +82,7 @@ _METRICA_TRACKING_SELECT_COLS: tuple[str, ...] = (
 )
 
 _SKILLCORNER_TRACKING_SELECT_COLS: tuple[str, ...] = (
+    "match_id",
     "frame",
     "period",
     "timestamp",
@@ -471,6 +474,93 @@ def _make_tracking_context_udf(
     return _udf
 
 
+# ── Identity resolution ───────────────────────────────────────────────
+
+
+def _resolve_enrichment_identity(
+    actions: pd.DataFrame,
+    *,
+    provider: str,
+    match_id_native: str,
+) -> pd.DataFrame:
+    """Replace null team_id/player_id with silly-kicks-compatible values.
+
+    Enrichment functions need team_id/player_id matching the tracking frame
+    format. IDSSE uses DFL CLU/OBJ strings natively. Metrica needs reverse-
+    mapping from lakehouse native IDs to "Home"/"Away" labels.
+
+    IMPORTANT — mutate-then-restore contract:
+    silly-kicks reads actions["team_id"] directly. This function overwrites
+    team_id/player_id with silly-kicks-compatible values BEFORE enrichment.
+    After enrichment, _restore_native_identity() overwrites them again with
+    native IDs for output. Do not add enrichment steps after the restore call.
+
+    Args:
+        actions: SPADL actions with team_id_native and player_id_native columns.
+        provider: "idsse", "metrica", or "skillcorner".
+        match_id_native: Native match ID for Metrica reverse mapping.
+
+    Returns:
+        actions with team_id and player_id overwritten to match frame format.
+
+    Raises:
+        ValueError: If team_id_native is entirely null (data quality gate).
+        NotImplementedError: If provider is "skillcorner" (no SPADL actions exist;
+            frames use "home"/"away" but home_team_id is a kloppy numeric ID).
+    """
+    if actions["team_id_native"].dropna().empty:
+        msg = f"team_id_native is entirely null for provider={provider} — cannot resolve enrichment identity"
+        raise ValueError(msg)
+
+    if provider == "idsse":
+        # DFL CLU/OBJ strings match both frames and home_team_id directly
+        actions["team_id"] = actions["team_id_native"]
+        actions["player_id"] = actions["player_id_native"]
+
+    elif provider == "metrica":
+        # Use canonical format generator for reverse mapping (identifiers.py
+        # is the single source of truth for metrica native team ID format).
+        from shared.identifiers import metrica_native_team_id
+
+        fwd = {
+            metrica_native_team_id(match_id_native, "home"): "Home",
+            metrica_native_team_id(match_id_native, "away"): "Away",
+        }
+        actions["team_id"] = actions["team_id_native"].map(fwd)
+        # player_id_native is "PlayerN" (kloppy convention) — matches
+        # frames player_id after converter normalization.
+        actions["player_id"] = actions["player_id_native"]
+
+    elif provider == "skillcorner":
+        # SkillCorner has no SPADL converter — no rows exist in
+        # bronze.spadl_actions. If SkillCorner SPADL is added, this must
+        # address the home_team_id format mismatch: frames use "home"/"away"
+        # (lowercase) but home_team_id is a kloppy numeric ID (e.g. "31").
+        raise NotImplementedError(
+            "SkillCorner identity resolution not implemented — "
+            "no SPADL actions exist for this provider. When adding SkillCorner "
+            "SPADL support, resolve the home_team_id vs frames team_id format "
+            "mismatch (frames='home'/'away', home_team_id=kloppy numeric ID)."
+        )
+
+    return actions
+
+
+def _restore_native_identity(actions: pd.DataFrame) -> pd.DataFrame:
+    """Restore native IDs for output (dim table joins via staging layer).
+
+    The staging model renames team_id -> team_id_native for dim_teams join.
+    Output must contain native IDs, not the silly-kicks-compatible values
+    used during enrichment.
+
+    IMPORTANT: This must be called AFTER all enrichment steps and BEFORE
+    building the output DataFrame. Do not add enrichment steps after this call.
+    """
+    actions["team_id"] = actions["team_id_native"]
+    actions["player_id"] = actions["player_id_native"]
+    return actions
+
+
 # ── Enrichment chain ──────────────────────────────────────────────────
 
 
@@ -512,6 +602,17 @@ def _enrich_match(
         add_team_shape,
         link_actions_to_frames,
         pitch_control_at_action,
+    )
+
+    # ── Resolve enrichment-compatible identity ─────────────────────
+    # MUTATE-THEN-RESTORE: team_id/player_id are overwritten here with
+    # silly-kicks-compatible values (matching frames format), then restored
+    # to native IDs by _restore_native_identity() in the output section.
+    # Do not reorder these calls or add enrichment steps after the restore.
+    actions = _resolve_enrichment_identity(
+        actions,
+        provider=data_source,
+        match_id_native=match_id_native,
     )
 
     # Step 0: Link actions to frames (keep links aside for sync_score)
@@ -558,10 +659,13 @@ def _enrich_match(
     # Step 11: Team shape
     actions = add_team_shape(actions, frames, home_team_id=home_team_id)
 
-    # Step 12: DAS (defensive wrapper — accessible-space can IndexError)
+    # Step 12: DAS (accessible-space)
+    # Narrow catch: IndexError on edge-case frame geometry degrades 3 DAS columns
+    # to NaN while preserving all other enrichments. Non-IndexError exceptions
+    # propagate to the UDF wrapper (ADR-002 §5 — group key in error message).
     try:
         actions = add_das(actions, frames)
-    except Exception:  # noqa: BLE001 — accessible-space IndexError on edge-case frames
+    except IndexError:
         actions["das_team"] = actions["das_opponent"] = actions["das_diff"] = np.nan
 
     # Step 13: GK influence
@@ -588,9 +692,11 @@ def _enrich_match(
         type_map = {i: name for i, name in enumerate(actiontypes)}
         out["type_name"] = out["type_id"].map(type_map)
 
-    # Cast team_id and player_id to string (output schema is STRING)
-    out["team_id"] = out["team_id"].astype(str)
-    out["player_id"] = out["player_id"].astype(str)
+    # Restore native IDs for dim table joins via staging layer.
+    # MUTATE-THEN-RESTORE: this completes the contract started by
+    # _resolve_enrichment_identity() above. Do not add enrichment steps
+    # after this call.
+    out = _restore_native_identity(out)
 
     # Select and order output columns (excluding _ingested_at — added by write_delta_table)
     output_cols = [c for c in _RESULT_COLUMNS if c != "_ingested_at"]
@@ -905,11 +1011,11 @@ def _bronze_metrica_to_frames(trk_pdf: pd.DataFrame, game_id: int) -> pd.DataFra
                             "frame_id": fid,
                             "period_id": pid,
                             "time_seconds": t,
-                            "player_id": f"{team_label}_{jersey}",
+                            "player_id": f"Player{jersey}",
                             "team_id": team_label,
                             "x": x_spadl,
                             "y": y_spadl,
-                            "is_goalkeeper": str(jersey) in gk_jerseys,
+                            "is_goalkeeper": jersey in gk_jerseys,
                             "is_ball": False,
                         }
                     )
