@@ -1180,7 +1180,7 @@ def _spadl_match_ids_by_provider(spark: SparkSession, catalog: str) -> dict[str,
         .filter(F.col("data_source").isin(*_VALID_PROVIDERS))
         .select(
             F.col("data_source").alias("provider"),
-            F.col("match_id").cast("string").alias("match_id"),
+            F.col("match_id_native").alias("match_id"),
         )
         .distinct()
         .collect()
