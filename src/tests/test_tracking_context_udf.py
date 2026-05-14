@@ -266,8 +266,19 @@ def _make_enrichment_patches(actions, mock_add_das):
 
     # pitch_control_at_action returns a Series (not DataFrame), so needs a
     # special mock that returns a named NaN series matching actions length.
-    def pc_passthrough(actions, frames, method="spearman"):
+    def pc_passthrough(actions, frames, method="spearman", **kwargs):
         return pd.Series(float("nan"), index=actions.index, name=f"pc_{method}")
+
+    # infer_ball_carrier returns an empty carrier DataFrame; derive_team_in_possession
+    # adds a NaN team_in_possession column. Both are mocked to isolate DAS tests
+    # from ball-carrier inference (which needs ball_state, is_ball, etc.).
+    def mock_infer_ball_carrier(frames, **kwargs):
+        return pd.DataFrame(columns=["game_id", "frame_id", "period_id", "carrier_player_id", "carrier_team_id"])
+
+    def mock_derive_tip(frames, carrier, **kwargs):
+        frames = frames.copy()
+        frames["team_in_possession"] = pd.NA
+        return frames
 
     return [
         patch("silly_kicks.tracking.link_actions_to_frames", return_value=(actions[["action_id"]], None)),
@@ -280,6 +291,8 @@ def _make_enrichment_patches(actions, mock_add_das):
         patch("silly_kicks.tracking.add_off_ball_context", passthrough),
         patch("silly_kicks.tracking.add_line_break", passthrough),
         patch("silly_kicks.tracking.add_team_shape", passthrough),
+        patch("silly_kicks.tracking.infer_ball_carrier", mock_infer_ball_carrier),
+        patch("silly_kicks.tracking.derive_team_in_possession", mock_derive_tip),
         patch("silly_kicks.tracking.add_das", mock_add_das),
         patch("silly_kicks.tracking.add_gk_influence", passthrough),
         patch("silly_kicks.tracking.add_cover_shadows", passthrough),
@@ -287,8 +300,10 @@ def _make_enrichment_patches(actions, mock_add_das):
     ]
 
 
-def test_das_index_error_degrades_gracefully() -> None:
-    """DAS IndexError fills 3 columns with NaN, preserving all other enrichments."""
+def test_das_index_error_degrades_gracefully(caplog) -> None:
+    """DAS IndexError fills 3 columns with NaN + logs ERROR (defense-in-depth)."""
+    import logging
+
     import numpy as np
 
     from ingestion.tracking_context import _enrich_match
@@ -296,49 +311,18 @@ def test_das_index_error_degrades_gracefully() -> None:
     actions = _make_minimal_actions()
     frames = _make_minimal_frames()
 
-    def mock_add_das(actions, frames):
+    def mock_add_das(actions, frames, **kwargs):
         raise IndexError("edge-case frame geometry")
 
     patches = _make_enrichment_patches(actions, mock_add_das)
     for p in patches:
         p.start()
     try:
-        result = _enrich_match(
-            actions=actions,
-            frames=frames,
-            xt=_make_dummy_xt(),  # type: ignore[arg-type]  # mocked chain never calls xt
-            home_team_id="DFL-CLU-000005",
-            match_id_native="test",
-            data_source="idsse",
-        )
-    finally:
-        for p in patches:
-            p.stop()
-
-    assert np.isnan(result["das_team"].iloc[0])
-    assert np.isnan(result["das_opponent"].iloc[0])
-    assert np.isnan(result["das_diff"].iloc[0])
-
-
-def test_das_non_index_error_propagates() -> None:
-    """Non-IndexError exceptions from DAS must propagate (ADR-002 section 5)."""
-    import pytest
-
-    from ingestion.tracking_context import _enrich_match
-
-    def mock_add_das(actions, frames):
-        raise ValueError("unexpected DAS failure")
-
-    actions = _make_minimal_actions()
-    patches = _make_enrichment_patches(actions, mock_add_das)
-    for p in patches:
-        p.start()
-    try:
-        with pytest.raises(ValueError, match="unexpected DAS failure"):
-            _enrich_match(
-                actions=_make_minimal_actions(),
-                frames=_make_minimal_frames(),
-                xt=_make_dummy_xt(),  # type: ignore[arg-type]  # mocked chain never calls xt
+        with caplog.at_level(logging.ERROR, logger="ingestion.tracking_context"):
+            result = _enrich_match(
+                actions=actions,
+                frames=frames,
+                xt=_make_dummy_xt(),  # type: ignore[arg-type]
                 home_team_id="DFL-CLU-000005",
                 match_id_native="test",
                 data_source="idsse",
@@ -346,6 +330,156 @@ def test_das_non_index_error_propagates() -> None:
     finally:
         for p in patches:
             p.stop()
+
+    assert np.isnan(result["das_team"].iloc[0])
+    assert np.isnan(result["das_opponent"].iloc[0])
+    assert np.isnan(result["das_diff"].iloc[0])
+    assert "DAS degraded" in caplog.text
+    assert "IndexError" in caplog.text
+
+
+def test_das_value_error_degrades_gracefully(caplog) -> None:
+    """ValueError in DAS chain degrades to NaN + logs ERROR (defense-in-depth).
+
+    Before TC-1c, ValueError propagated. Now it is caught because the
+    ball-carrier -> DAS chain can raise ValueError on missing prerequisites.
+    """
+    import logging
+
+    import numpy as np
+
+    from ingestion.tracking_context import _enrich_match
+
+    def mock_add_das(actions, frames, **kwargs):
+        raise ValueError("DAS prerequisite missing")
+
+    actions = _make_minimal_actions()
+    frames = _make_minimal_frames()
+    patches = _make_enrichment_patches(actions, mock_add_das)
+    for p in patches:
+        p.start()
+    try:
+        with caplog.at_level(logging.ERROR, logger="ingestion.tracking_context"):
+            result = _enrich_match(
+                actions=actions,
+                frames=frames,
+                xt=_make_dummy_xt(),  # type: ignore[arg-type]
+                home_team_id="DFL-CLU-000005",
+                match_id_native="test",
+                data_source="idsse",
+            )
+    finally:
+        for p in patches:
+            p.stop()
+
+    assert np.isnan(result["das_team"].iloc[0])
+    assert np.isnan(result["das_opponent"].iloc[0])
+    assert np.isnan(result["das_diff"].iloc[0])
+    assert "DAS degraded" in caplog.text
+    assert "ValueError" in caplog.text
+
+
+def test_das_uncaught_error_propagates() -> None:
+    """Exceptions NOT in the DAS catch list must propagate (ADR-002 section 5).
+
+    The defense-in-depth wrapper catches (IndexError, ValueError, RuntimeError).
+    TypeError is outside this list and must crash the UDF group loudly.
+    """
+    import pytest
+
+    from ingestion.tracking_context import _enrich_match
+
+    def mock_add_das(actions, frames, **kwargs):
+        raise TypeError("unexpected type error in DAS")
+
+    actions = _make_minimal_actions()
+    frames = _make_minimal_frames()
+    patches = _make_enrichment_patches(actions, mock_add_das)
+    for p in patches:
+        p.start()
+    try:
+        with pytest.raises(TypeError, match="unexpected type error in DAS"):
+            _enrich_match(
+                actions=actions,
+                frames=frames,
+                xt=_make_dummy_xt(),  # type: ignore[arg-type]
+                home_team_id="DFL-CLU-000005",
+                match_id_native="test",
+                data_source="idsse",
+            )
+    finally:
+        for p in patches:
+            p.stop()
+
+
+def test_udf_logs_error_on_exception(caplog) -> None:
+    """UDF wrapper logs ERROR with actual exception before re-raising (ADR-002)."""
+    import logging
+    from unittest.mock import patch
+
+    import pandas as pd
+    import pytest
+
+    from ingestion.tracking_context import _make_tracking_context_udf
+
+    udf_fn = _make_tracking_context_udf(
+        provider="idsse",
+        home_team_id="T1",
+        home_start_left=True,
+        xt_grid_data=[[0.0] * 16] * 12,
+        xt_l=16,
+        xt_w=12,
+        actions_records=[
+            {
+                "game_id": 1,
+                "action_id": 0,
+                "period_id": 1,
+                "time_seconds": 10.0,
+                "team_id": "T1",
+                "player_id": "P1",
+                "type_id": 0,
+                "result_id": 1,
+                "bodypart_id": 0,
+                "start_x": 50.0,
+                "start_y": 34.0,
+                "end_x": 60.0,
+                "end_y": 34.0,
+            }
+        ],
+        native_match_id="test_match",
+    )
+
+    # Non-empty DataFrame to get past empty-check, trigger conversion path
+    pdf = pd.DataFrame(
+        {
+            "match_id": ["test_match"],
+            "period": [1],
+            "frame_batch_id": [0],
+            "timestamp": [10.0],
+        }
+    )
+
+    mock_frames = pd.DataFrame({"game_id": [1], "frame_id": [0]})
+    with (
+        patch(
+            "ingestion.tracking_context._bronze_idsse_to_sportec_input",
+            return_value=pd.DataFrame({"col": [1]}),
+        ),
+        patch(
+            "silly_kicks.tracking.sportec.convert_to_frames",
+            return_value=(mock_frames, None),
+        ),
+        patch(
+            "ingestion.tracking_context._enrich_match",
+            side_effect=ValueError("test enrichment error"),
+        ),
+        caplog.at_level(logging.ERROR, logger="tracking_context_udf"),
+    ):
+        with pytest.raises(RuntimeError, match=r"(?s)tracking_context UDF failed.*ValueError.*test enrichment error"):
+            udf_fn(pdf)
+
+    assert "ValueError" in caplog.text, f"Expected 'ValueError' in log, got: {caplog.text}"
+    assert "test enrichment error" in caplog.text, f"Expected 'test enrichment error' in log, got: {caplog.text}"
 
 
 def test_udf_empty_batch_returns_empty() -> None:
