@@ -251,12 +251,18 @@ def _make_minimal_frames():
     )
 
 
-def _make_enrichment_patches(actions, mock_add_das):
+def _make_enrichment_patches(actions, mock_get_das_side_effect=None):
     """Build patch list for all silly-kicks enrichment functions in _enrich_match.
 
     Mocks all enrichment steps to pass through their first arg unchanged,
-    except add_das which uses the provided mock. Isolates DAS exception
+    except get_das which uses the provided side_effect. Isolates DAS exception
     handling from the 14 other enrichment steps.
+
+    Args:
+        actions: Actions DataFrame (used to build mock links).
+        mock_get_das_side_effect: Side effect for the get_das mock. If a
+            callable, it's called with (frames, **kwargs). If an exception
+            class/instance, it's raised. If None, returns an empty DataFrame.
     """
     from unittest.mock import patch
 
@@ -280,8 +286,28 @@ def _make_enrichment_patches(actions, mock_add_das):
         frames["team_in_possession"] = pd.NA
         return frames
 
+    # Default get_das mock returns empty result
+    if mock_get_das_side_effect is None:
+        mock_get_das_side_effect = lambda frames, **kwargs: pd.DataFrame(  # noqa: E731
+            columns=["game_id", "frame_id", "period_id", "player_id", "team_id", "is_ball", "DAS"]
+        )
+
+    # links must include frame_id — the new DAS code accesses links[["action_id", "frame_id"]]
+    # before calling get_das. frame_id=0 won't match any real frame rows, so das_frames will
+    # be empty after the inner merge. For error tests, get_das raises before processing the
+    # empty DataFrame. For the default case, DAS lookup is empty → all NaN.
+    mock_links = pd.DataFrame(
+        {
+            "action_id": actions["action_id"].values,
+            "frame_id": pd.array([0] * len(actions), dtype="Int64"),
+            "time_offset_seconds": [0.0] * len(actions),
+            "n_candidate_frames": [1] * len(actions),
+            "link_quality_score": [1.0] * len(actions),
+        }
+    )
+
     return [
-        patch("silly_kicks.tracking.link_actions_to_frames", return_value=(actions[["action_id"]], None)),
+        patch("silly_kicks.tracking.link_actions_to_frames", return_value=(mock_links, None)),
         patch("silly_kicks.spadl.utils.add_pre_shot_gk_context", passthrough),
         patch("silly_kicks.tracking.add_action_context", passthrough),
         patch("silly_kicks.tracking.add_actor_pre_window", passthrough),
@@ -293,11 +319,140 @@ def _make_enrichment_patches(actions, mock_add_das):
         patch("silly_kicks.tracking.add_team_shape", passthrough),
         patch("silly_kicks.tracking.infer_ball_carrier", mock_infer_ball_carrier),
         patch("silly_kicks.tracking.derive_team_in_possession", mock_derive_tip),
-        patch("silly_kicks.tracking.add_das", mock_add_das),
+        patch("silly_kicks.tracking._das.get_das", side_effect=mock_get_das_side_effect),
         patch("silly_kicks.tracking.add_gk_influence", passthrough),
         patch("silly_kicks.tracking.add_cover_shadows", passthrough),
         patch("silly_kicks.tracking.add_sync_score", passthrough),
     ]
+
+
+def test_das_uses_action_linked_frames_and_chunk_size(caplog) -> None:
+    """DAS calls get_das with only action-linked frame_ids and chunk_size=10."""
+    import logging
+    from unittest.mock import MagicMock, patch
+
+    import numpy as np
+    import pandas as pd
+
+    from ingestion.tracking_context import _enrich_match
+
+    actions = _make_minimal_actions()
+
+    # Create frames with multiple frame_ids — only frame 250 is action-linked
+    rows = []
+    for fid in [100, 200, 250, 300, 400]:
+        rows.append(
+            {
+                "game_id": 1,
+                "frame_id": fid,
+                "period_id": 1,
+                "time_seconds": fid / 25.0,
+                "player_id": "DFL-OBJ-0001LJ",
+                "team_id": "DFL-CLU-000005",
+                "x": 50.0,
+                "y": 34.0,
+                "vx": 0.0,
+                "vy": 0.0,
+                "speed": 0.0,
+                "ax": 0.0,
+                "ay": 0.0,
+                "is_goalkeeper": False,
+                "is_ball": False,
+                "source_provider": "idsse",
+            }
+        )
+    frames = pd.DataFrame(rows)
+
+    passthrough = lambda actions, *args, **kwargs: actions  # noqa: E731
+
+    def pc_passthrough(actions, frames, method="spearman", **kwargs):
+        return pd.Series(float("nan"), index=actions.index, name=f"pc_{method}")
+
+    # link_actions_to_frames: link action 0 to frame 250
+    def mock_link(actions, frames, **kwargs):
+        links = pd.DataFrame(
+            {
+                "action_id": actions["action_id"].values,
+                "frame_id": pd.array([250] * len(actions), dtype="Int64"),
+                "time_offset_seconds": [0.0] * len(actions),
+                "n_candidate_frames": [1] * len(actions),
+                "link_quality_score": [1.0] * len(actions),
+            }
+        )
+        return links, None
+
+    def mock_infer(frames, **kwargs):
+        return pd.DataFrame(columns=["game_id", "frame_id", "period_id", "carrier_player_id", "carrier_team_id"])
+
+    def mock_tip(frames, carrier, **kwargs):
+        f = frames.copy()
+        f["team_in_possession"] = pd.NA
+        return f
+
+    # Capture get_das call — return a plausible DAS result
+    mock_get_das = MagicMock()
+    mock_get_das.return_value = pd.DataFrame(
+        {
+            "game_id": [1, 1],
+            "frame_id": [250, 250],
+            "period_id": [1, 1],
+            "player_id": ["DFL-OBJ-0001LJ", "ball"],
+            "team_id": ["DFL-CLU-000005", pd.NA],
+            "is_ball": [False, True],
+            "DAS": [0.42, np.nan],
+        }
+    )
+
+    patches = [
+        patch("silly_kicks.tracking.link_actions_to_frames", mock_link),
+        patch("silly_kicks.spadl.utils.add_pre_shot_gk_context", passthrough),
+        patch("silly_kicks.tracking.add_action_context", passthrough),
+        patch("silly_kicks.tracking.add_actor_pre_window", passthrough),
+        patch("silly_kicks.tracking.add_pressure_on_actor", passthrough),
+        patch("silly_kicks.tracking.pitch_control_at_action", pc_passthrough),
+        patch("silly_kicks.tracking.add_defensive_line", passthrough),
+        patch("silly_kicks.tracking.add_off_ball_context", passthrough),
+        patch("silly_kicks.tracking.add_line_break", passthrough),
+        patch("silly_kicks.tracking.add_team_shape", passthrough),
+        patch("silly_kicks.tracking.infer_ball_carrier", mock_infer),
+        patch("silly_kicks.tracking.derive_team_in_possession", mock_tip),
+        patch("silly_kicks.tracking._das.get_das", mock_get_das),
+        patch("silly_kicks.tracking.add_gk_influence", passthrough),
+        patch("silly_kicks.tracking.add_cover_shadows", passthrough),
+        patch("silly_kicks.tracking.add_sync_score", passthrough),
+    ]
+    for p in patches:
+        p.start()
+    try:
+        with caplog.at_level(logging.ERROR, logger="ingestion.tracking_context"):
+            result = _enrich_match(
+                actions=actions,
+                frames=frames,
+                xt=_make_dummy_xt(),  # type: ignore[arg-type]
+                home_team_id="DFL-CLU-000005",
+                match_id_native="test",
+                data_source="idsse",
+            )
+    finally:
+        for p in patches:
+            p.stop()
+
+    # Verify get_das was called
+    mock_get_das.assert_called_once()
+
+    # Verify chunk_size=10 was passed
+    _, kwargs = mock_get_das.call_args
+    assert kwargs.get("chunk_size") == 10, f"Expected chunk_size=10, got {kwargs}"
+
+    # Verify get_das received only action-linked frame_ids (250), not all frames
+    das_frames_arg = mock_get_das.call_args[0][0]  # first positional arg
+    actual_frame_ids = sorted(das_frames_arg["frame_id"].unique().tolist())
+    assert actual_frame_ids == [250], f"Expected [250], got {actual_frame_ids}"
+
+    # Verify das columns exist in output
+    assert "das_team" in result.columns
+    assert "das_opponent" in result.columns
+    assert "das_diff" in result.columns
 
 
 def test_das_index_error_degrades_gracefully(caplog) -> None:
@@ -311,10 +466,10 @@ def test_das_index_error_degrades_gracefully(caplog) -> None:
     actions = _make_minimal_actions()
     frames = _make_minimal_frames()
 
-    def mock_add_das(actions, frames, **kwargs):
-        raise IndexError("edge-case frame geometry")
-
-    patches = _make_enrichment_patches(actions, mock_add_das)
+    patches = _make_enrichment_patches(
+        actions,
+        mock_get_das_side_effect=IndexError("edge-case frame geometry"),
+    )
     for p in patches:
         p.start()
     try:
@@ -350,12 +505,13 @@ def test_das_value_error_degrades_gracefully(caplog) -> None:
 
     from ingestion.tracking_context import _enrich_match
 
-    def mock_add_das(actions, frames, **kwargs):
-        raise ValueError("DAS prerequisite missing")
-
     actions = _make_minimal_actions()
     frames = _make_minimal_frames()
-    patches = _make_enrichment_patches(actions, mock_add_das)
+
+    patches = _make_enrichment_patches(
+        actions,
+        mock_get_das_side_effect=ValueError("DAS prerequisite missing"),
+    )
     for p in patches:
         p.start()
     try:
@@ -389,12 +545,13 @@ def test_das_uncaught_error_propagates() -> None:
 
     from ingestion.tracking_context import _enrich_match
 
-    def mock_add_das(actions, frames, **kwargs):
-        raise TypeError("unexpected type error in DAS")
-
     actions = _make_minimal_actions()
     frames = _make_minimal_frames()
-    patches = _make_enrichment_patches(actions, mock_add_das)
+
+    patches = _make_enrichment_patches(
+        actions,
+        mock_get_das_side_effect=TypeError("unexpected type error in DAS"),
+    )
     for p in patches:
         p.start()
     try:
@@ -503,3 +660,164 @@ def test_udf_empty_batch_returns_empty() -> None:
     output_cols = [c for c in _RESULT_COLUMNS if c != "_ingested_at"]
     assert list(result.columns) == output_cols
     assert len(result) == 0
+
+
+def test_bekkers_pi_degrades_on_missing_ball_rows(caplog) -> None:
+    """bekkers_pi degrades to NaN when frames lack ball rows; other methods compute."""
+    import logging
+    from unittest.mock import patch
+
+    import numpy as np
+    import pandas as pd
+
+    from ingestion.tracking_context import _enrich_match
+
+    actions = _make_minimal_actions()
+    frames = _make_minimal_frames()  # all is_ball=False, no ball rows
+
+    # Mock all enrichment steps EXCEPT pressure — let pressure run with real logic
+    passthrough = lambda actions, *args, **kwargs: actions  # noqa: E731
+
+    def pc_passthrough(actions, frames, method="spearman", **kwargs):
+        return pd.Series(float("nan"), index=actions.index, name=f"pc_{method}")
+
+    def mock_link(actions, frames, **kwargs):
+        links = pd.DataFrame(
+            {
+                "action_id": actions["action_id"].values,
+                "frame_id": pd.array([frames["frame_id"].iloc[0]] * len(actions), dtype="Int64"),
+                "time_offset_seconds": [0.0] * len(actions),
+                "n_candidate_frames": [1] * len(actions),
+                "link_quality_score": [1.0] * len(actions),
+            }
+        )
+        return links, None
+
+    def mock_infer_ball_carrier(frames, **kwargs):
+        return pd.DataFrame(columns=["game_id", "frame_id", "period_id", "carrier_player_id", "carrier_team_id"])
+
+    def mock_derive_tip(frames, carrier, **kwargs):
+        f = frames.copy()
+        f["team_in_possession"] = pd.NA
+        return f
+
+    patches = [
+        patch("silly_kicks.tracking.link_actions_to_frames", mock_link),
+        patch("silly_kicks.spadl.utils.add_pre_shot_gk_context", passthrough),
+        patch("silly_kicks.tracking.add_action_context", passthrough),
+        patch("silly_kicks.tracking.add_actor_pre_window", passthrough),
+        # add_pressure_on_actor is NOT mocked — it runs for real
+        patch("silly_kicks.tracking.pitch_control_at_action", pc_passthrough),
+        patch("silly_kicks.tracking.add_defensive_line", passthrough),
+        patch("silly_kicks.tracking.add_off_ball_context", passthrough),
+        patch("silly_kicks.tracking.add_line_break", passthrough),
+        patch("silly_kicks.tracking.add_team_shape", passthrough),
+        patch("silly_kicks.tracking.infer_ball_carrier", mock_infer_ball_carrier),
+        patch("silly_kicks.tracking.derive_team_in_possession", mock_derive_tip),
+        patch("silly_kicks.tracking._das.get_das", side_effect=ValueError("no TIP")),
+        patch("silly_kicks.tracking.add_gk_influence", passthrough),
+        patch("silly_kicks.tracking.add_cover_shadows", passthrough),
+        patch("silly_kicks.tracking.add_sync_score", passthrough),
+    ]
+    for p in patches:
+        p.start()
+    try:
+        with caplog.at_level(logging.ERROR, logger="ingestion.tracking_context"):
+            result = _enrich_match(
+                actions=actions,
+                frames=frames,
+                xt=_make_dummy_xt(),  # type: ignore[arg-type]
+                home_team_id="DFL-CLU-000005",
+                match_id_native="test",
+                data_source="idsse",
+            )
+    finally:
+        for p in patches:
+            p.stop()
+
+    # andrienko_oval and link_zones should have computed (even if NaN due to minimal data)
+    assert "pressure_on_actor__andrienko_oval" in result.columns
+    assert "pressure_on_actor__link_zones" in result.columns
+    # bekkers_pi should be NaN (degraded)
+    assert "pressure_on_actor__bekkers_pi" in result.columns
+    assert np.isnan(result["pressure_on_actor__bekkers_pi"].iloc[0])
+    # Should log the degradation
+    assert "bekkers_pi degraded" in caplog.text
+
+
+def test_bekkers_pi_unrelated_valueerror_propagates() -> None:
+    """ValueError NOT about is_ball=True must propagate (not silently caught)."""
+    from unittest.mock import patch
+
+    import pandas as pd
+    import pytest
+
+    from ingestion.tracking_context import _enrich_match
+
+    actions = _make_minimal_actions()
+    frames = _make_minimal_frames()
+
+    passthrough = lambda actions, *args, **kwargs: actions  # noqa: E731
+
+    def pc_passthrough(actions, frames, method="spearman", **kwargs):
+        return pd.Series(float("nan"), index=actions.index, name=f"pc_{method}")
+
+    def mock_link(actions, frames, **kwargs):
+        links = pd.DataFrame(
+            {
+                "action_id": actions["action_id"].values,
+                "frame_id": pd.array([1] * len(actions), dtype="Int64"),
+                "time_offset_seconds": [0.0] * len(actions),
+                "n_candidate_frames": [1] * len(actions),
+                "link_quality_score": [1.0] * len(actions),
+            }
+        )
+        return links, None
+
+    # Step 4a passes, step 4b raises unrelated ValueError
+    def mock_pressure(actions, frames, *, links=None, methods=("andrienko_oval",), **kwargs):
+        if "bekkers_pi" in methods:
+            raise ValueError("completely unrelated error")
+        return actions
+
+    def mock_infer(frames, **kwargs):
+        return pd.DataFrame(columns=["game_id", "frame_id", "period_id", "carrier_player_id", "carrier_team_id"])
+
+    def mock_tip(frames, carrier, **kwargs):
+        f = frames.copy()
+        f["team_in_possession"] = pd.NA
+        return f
+
+    patches = [
+        patch("silly_kicks.tracking.link_actions_to_frames", mock_link),
+        patch("silly_kicks.spadl.utils.add_pre_shot_gk_context", passthrough),
+        patch("silly_kicks.tracking.add_action_context", passthrough),
+        patch("silly_kicks.tracking.add_actor_pre_window", passthrough),
+        patch("silly_kicks.tracking.add_pressure_on_actor", mock_pressure),
+        patch("silly_kicks.tracking.pitch_control_at_action", pc_passthrough),
+        patch("silly_kicks.tracking.add_defensive_line", passthrough),
+        patch("silly_kicks.tracking.add_off_ball_context", passthrough),
+        patch("silly_kicks.tracking.add_line_break", passthrough),
+        patch("silly_kicks.tracking.add_team_shape", passthrough),
+        patch("silly_kicks.tracking.infer_ball_carrier", mock_infer),
+        patch("silly_kicks.tracking.derive_team_in_possession", mock_tip),
+        patch("silly_kicks.tracking._das.get_das", side_effect=ValueError("no TIP")),
+        patch("silly_kicks.tracking.add_gk_influence", passthrough),
+        patch("silly_kicks.tracking.add_cover_shadows", passthrough),
+        patch("silly_kicks.tracking.add_sync_score", passthrough),
+    ]
+    for p in patches:
+        p.start()
+    try:
+        with pytest.raises(ValueError, match="completely unrelated error"):
+            _enrich_match(
+                actions=actions,
+                frames=frames,
+                xt=_make_dummy_xt(),  # type: ignore[arg-type]
+                home_team_id="DFL-CLU-000005",
+                match_id_native="test",
+                data_source="idsse",
+            )
+    finally:
+        for p in patches:
+            p.stop()

@@ -607,7 +607,6 @@ def _enrich_match(
         add_action_context,
         add_actor_pre_window,
         add_cover_shadows,
-        add_das,
         add_defensive_line,
         add_gk_influence,
         add_line_break,
@@ -644,13 +643,32 @@ def _enrich_match(
     # Step 3: Actor pre-window
     actions = add_actor_pre_window(actions, frames, links=links)
 
-    # Step 4: Pressure (all 3 methods)
+    # Step 4a: Pressure — andrienko_oval + link_zones (no ball rows needed)
     actions = add_pressure_on_actor(
         actions,
         frames,
         links=links,
-        methods=("andrienko_oval", "link_zones", "bekkers_pi"),
+        methods=("andrienko_oval", "link_zones"),
     )
+
+    # Step 4b: Pressure — bekkers_pi (needs ball rows; degrade if absent)
+    try:
+        actions = add_pressure_on_actor(
+            actions,
+            frames,
+            links=links,
+            methods=("bekkers_pi",),
+        )
+    except ValueError as exc:
+        if "is_ball=True" in str(exc):
+            logger.error(
+                "bekkers_pi degraded to NaN for match_id=%s: %s",
+                match_id_native,
+                exc,
+            )
+            actions["pressure_on_actor__bekkers_pi"] = np.nan
+        else:
+            raise
 
     # Steps 5-7: Pitch control (3 methods, using Series API to avoid 3x copies)
     for method in ("spearman", "fernandez_bornn", "voronoi"):
@@ -672,16 +690,65 @@ def _enrich_match(
     # Step 11: Team shape
     actions = add_team_shape(actions, frames, links=links, home_team_id=home_team_id)
 
-    # Step 12: DAS (ball-carrier prerequisite + defense-in-depth wrapper)
-    # infer_ball_carrier derives team_in_possession from tracking frames — a
-    # mandatory DAS input. Defense-in-depth catches (IndexError, ValueError,
-    # RuntimeError) and degrades DAS columns to NaN with ERROR logging.
-    # This wrapper is permanent — DAS needs possession data by design.
+    # Step 12: DAS (action-linked frames + chunk_size=10)
+    # Bypasses add_das because _precompute_das_lookup does not expose chunk_size.
+    # TODO: Switch back to add_das once silly-kicks PR-S40 ships das_kwargs passthrough.
+    import pandas as pd
+    from silly_kicks.tracking._das import get_das
+
     try:
+        # ── Ball-carrier on ALL frames (contiguous → correct hysteresis) ──
         carrier = infer_ball_carrier(frames)
-        frames = derive_team_in_possession(frames, carrier)
+        frames_with_tip = derive_team_in_possession(frames, carrier)
         del carrier
-        actions = add_das(actions, frames, links=links)
+
+        # ── Filter to action-linked frame_ids only ──
+        # links has (action_id, frame_id) but no period_id — join via actions
+        linked = links[["action_id", "frame_id"]].dropna(subset=["frame_id"])
+        linked = linked.merge(actions[["action_id", "period_id"]], on="action_id", how="left")
+        linked_frame_ids = linked[["period_id", "frame_id"]].drop_duplicates()
+        das_frames = frames_with_tip.merge(linked_frame_ids, on=["period_id", "frame_id"], how="inner")
+        del linked, frames_with_tip
+
+        # ── Direct get_das with chunk_size=10 (bypasses add_das) ──
+        das_result = get_das(das_frames, use_progress_bar=False, chunk_size=10)
+        del das_frames
+
+        # ── Build (period_id, frame_id) -> {team_id: DAS} lookup ──
+        # Same logic as silly_kicks.tracking.features._precompute_das_lookup
+        player_rows = das_result[das_result["is_ball"] != True]  # noqa: E712
+        valid_rows = player_rows.dropna(subset=["DAS"])
+        das_lookup: dict[tuple, dict] = {}
+        for (pid, fid, tid), grp in valid_rows.groupby(["period_id", "frame_id", "team_id"]):
+            das_lookup.setdefault((pid, fid), {})[tid] = float(grp["DAS"].iloc[0])
+        del das_result, player_rows, valid_rows
+
+        # ── Map DAS to actions ──
+        # Same logic as silly_kicks.tracking.features._map_das_to_actions (numpy pattern)
+        pointer_lookup = links.set_index("action_id")
+        team_vals = np.full(len(actions), np.nan)
+        opp_vals = np.full(len(actions), np.nan)
+
+        for i, (_idx, row) in enumerate(actions.iterrows()):
+            aid = row["action_id"]
+            if aid not in pointer_lookup.index:
+                continue
+            fid_raw = pointer_lookup.at[aid, "frame_id"]
+            if pd.isna(fid_raw):
+                continue
+            key = (row["period_id"], int(float(fid_raw)))
+            if key not in das_lookup:
+                continue
+            team_id = row["team_id"]
+            team_vals[i] = das_lookup[key].get(team_id, np.nan)
+            opp = [v for k, v in das_lookup[key].items() if k != team_id]
+            if opp:
+                opp_vals[i] = opp[0]
+
+        actions["das_team"] = team_vals
+        actions["das_opponent"] = opp_vals
+        actions["das_diff"] = team_vals - opp_vals
+
     except (IndexError, ValueError, RuntimeError) as exc:
         logger.error(
             "DAS degraded to NaN for match_id=%s: %s: %s",
