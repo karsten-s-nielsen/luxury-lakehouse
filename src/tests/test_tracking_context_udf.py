@@ -348,6 +348,76 @@ def test_das_non_index_error_propagates() -> None:
             p.stop()
 
 
+def test_udf_logs_error_on_exception(caplog) -> None:
+    """UDF wrapper logs ERROR with actual exception before re-raising (ADR-002)."""
+    import logging
+    from unittest.mock import patch
+
+    import pandas as pd
+    import pytest
+
+    from ingestion.tracking_context import _make_tracking_context_udf
+
+    udf_fn = _make_tracking_context_udf(
+        provider="idsse",
+        home_team_id="T1",
+        home_start_left=True,
+        xt_grid_data=[[0.0] * 16] * 12,
+        xt_l=16,
+        xt_w=12,
+        actions_records=[
+            {
+                "game_id": 1,
+                "action_id": 0,
+                "period_id": 1,
+                "time_seconds": 10.0,
+                "team_id": "T1",
+                "player_id": "P1",
+                "type_id": 0,
+                "result_id": 1,
+                "bodypart_id": 0,
+                "start_x": 50.0,
+                "start_y": 34.0,
+                "end_x": 60.0,
+                "end_y": 34.0,
+            }
+        ],
+        native_match_id="test_match",
+    )
+
+    # Non-empty DataFrame to get past empty-check, trigger conversion path
+    pdf = pd.DataFrame(
+        {
+            "match_id": ["test_match"],
+            "period": [1],
+            "frame_batch_id": [0],
+            "timestamp": [10.0],
+        }
+    )
+
+    mock_frames = pd.DataFrame({"game_id": [1], "frame_id": [0]})
+    with (
+        patch(
+            "ingestion.tracking_context._bronze_idsse_to_sportec_input",
+            return_value=pd.DataFrame({"col": [1]}),
+        ),
+        patch(
+            "silly_kicks.tracking.sportec.convert_to_frames",
+            return_value=(mock_frames, None),
+        ),
+        patch(
+            "ingestion.tracking_context._enrich_match",
+            side_effect=ValueError("test enrichment error"),
+        ),
+        caplog.at_level(logging.ERROR, logger="tracking_context_udf"),
+    ):
+        with pytest.raises(RuntimeError, match=r"tracking_context UDF failed.*ValueError.*test enrichment error"):
+            udf_fn(pdf)
+
+    assert "ValueError" in caplog.text, f"Expected 'ValueError' in log, got: {caplog.text}"
+    assert "test enrichment error" in caplog.text, f"Expected 'test enrichment error' in log, got: {caplog.text}"
+
+
 def test_udf_empty_batch_returns_empty() -> None:
     """UDF returns empty DataFrame when the tracking batch has no rows."""
     import pandas as pd
