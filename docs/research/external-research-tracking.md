@@ -70,6 +70,19 @@
 - **Next review:** 2026-07-24.
 - **Status:** Active, passive watch (no expected near-term action).
 
+### T5 — Vidal-Codina et al. (2022): Automatic event detection from tracking data
+
+- **Paper:** Vidal-Codina F, Evans N, El Fakir B (2022) "Automatic event detection in football using tracking data." Sports Engineering 25:18. DOI: [10.1007/s12283-022-00381-6](https://doi.org/10.1007/s12283-022-00381-6).
+- **Surfaced:** Mills et al. (2026) "Automatic event detection in association football using broadcast-derived tracking data" (Sports Engineering, DOI: 10.1007/s12283-026-00549-4) — FIFA-funded study evaluating broadcast auto-eventing against TRACAB Gen5 + FIFA DCU ground truth. Vidal-Codina 2022 is the algorithm used.
+- **What it is:** A deterministic, rules-based algorithm that takes player x,y + ball x,y,z + ball status (live/dead) at 25 Hz and detects match events (set pieces, passes, shots, goals, saves) without human intervention. Uses the FIFA Football Language event definitions. Key mechanics: tunable possession-zone radius `pz`, set-piece detection via ball/player locations relative to pitch geometry, pass detection via possession changes + trajectory.
+- **Why the lakehouse cares:** Relevant to the own-footage pipeline (`project_own_footage_tracking.md`). If the lakehouse ever needs to generate events from raw tracking data without a commercial event data provider (e.g., own video → tracking → auto-events → SPADL), this algorithm is the starting point. Currently our architecture relies on provider event data (StatsBomb, DFL/IDSSE, Wyscout), so this is a "watch for when we need it" tracker, not an immediate action. Also: the Mills 2026 evaluation quantifies broadcast ball tracking accuracy at RMSE 3.5–16.2m — relevant context for SkillCorner data quality caveats.
+- **Mechanism:**
+  - Google Scholar alert on Vidal-Codina F, "automatic event detection football."
+  - Check for open-source implementations or follow-up papers at quarterly review.
+- **Last reviewed:** 2026-05-13 (initial).
+- **Next review:** 2026-07-24.
+- **Status:** Active, passive watch (no expected near-term action; own-footage pipeline trigger).
+
 ---
 
 ## Promotion log
