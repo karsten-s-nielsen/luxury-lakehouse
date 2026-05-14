@@ -28,8 +28,6 @@ All 9 Tier A pages now use the `scope_dims` + `alt_var` + `build_warning` canon.
 
 | # | Finding | Files | Framework | Target PR |
 |---|---------|-------|-----------|-----------|
-| 10 | Match Summary `depends_on="selected_team"` forces Team cascade even though `ms_refresh` only needs `match_id` | `hf_taipy_app/src/template.py` | Gulf of Execution | `ui/match-summary-cascade-decouple` (new branch) |
-| 31 | Shared `selected_match` widget lacks per-page optionality posture. The `match_lov` starts with `All`, so picking `All` is a valid state, but functionally Pass-Map/Pass-Network/Match-Summary produce empty/partial states without a specific match_id, while Conversion-Funnel now (D58) computes cross-match aggregates from `fct_funnel_stages_agg` and IS genuinely optional. Adding `required=False` to the shared widget would incorrectly tag 4 pages as optional; leaving it blank tags Conversion-Funnel as required. Same architectural problem PA1 hit with `selected_game_state`. Observed on staging matrix 2026-04-18. | `hf_taipy_app/src/template.py:399` | Gulf of Execution | `ui/match-widget-per-page-optionality` (new branch — requires either cloning the widget per page OR extending `SidebarWidget` with per-page required overrides) |
 | 32 | `selected_players_multi` (Player Comparison) has the same "load all 500 players into the browser" anti-pattern as the 8 single-select player dropdowns fixed in this cycle. Client-side filter only — no backend search input. With a 500-player LOV and multi-select UX, users either scroll a long list or mentally precompute an alpha prefix. Backend search for multi-select is more complex (need to preserve already-selected players across re-queries, avoid dropping them when the search narrows) so it was scoped out of the single-select cycle. | `hf_taipy_app/src/template.py:438`, `hf_taipy_app/src/state/shared.py` (`player_lov_multi`) | Pirolli & Card information foraging | `ui/multi-select-backend-search` (new branch) |
 
 ### Medium
@@ -44,4 +42,4 @@ All 9 Tier A pages now use the `scope_dims` + `alt_var` + `build_warning` canon.
 
 ## Last updated
 
-2026-05-12 — UI/UX bundle PR shipped findings #5, #11, #19, #22, #23, #24, #25, #26, #28. Remaining: #10, #21, #31, #32. (#11 ADR-002 sweep verified complete: all broad catches now use logger.exception or logger.error.)
+2026-05-14 — UI-2 bundle shipped findings #10 (conditional match reset), #31 (match_lov_required for required pages), plus slider hardening (GK tab gating, state-preservation, change_delay). Remaining: #21, #32.

@@ -9,6 +9,7 @@ selected_team = None
 team_lov = []
 selected_match = None
 match_lov = []
+match_lov_required = []
 selected_player = None
 player_lov = []
 selected_players_multi = []

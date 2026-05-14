@@ -314,16 +314,19 @@ def pt_on_player_search_change(state: Any, var_name: str, var_value: Any) -> Non
 
 def pt_on_min_passes_change(state: Any, var_name: str, var_value: Any) -> None:
     """Refilter aggregate rankings when slider changes."""
+    state.pt_min_passes_with_value = int(var_value)
     _refresh_data(state)
 
 
 def pt_on_min_minutes_change(state: Any, var_name: str, var_value: Any) -> None:
     """Refilter aggregate rankings when minutes slider changes."""
+    state.pt_min_minutes = int(var_value)
     _refresh_data(state)
 
 
 def pt_on_per_match_min_passes_change(state: Any, var_name: str, var_value: Any) -> None:
     """Refilter per-match rankings when slider changes."""
+    state.pt_per_match_min_passes = int(var_value)
     _refresh_data(state)
 
 
