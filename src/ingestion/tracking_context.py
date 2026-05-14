@@ -19,6 +19,8 @@ import numpy as np
 from ingestion.guards import FilterResult, timed_check
 from ingestion.utils import configure_logging, get_spark_session, parse_ingestion_args
 
+logger = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
     import pandas as pd
     from pyspark.sql import SparkSession
@@ -611,6 +613,8 @@ def _enrich_match(
         add_pressure_on_actor,
         add_sync_score,
         add_team_shape,
+        derive_team_in_possession,
+        infer_ball_carrier,
         link_actions_to_frames,
         pitch_control_at_action,
     )
@@ -626,64 +630,70 @@ def _enrich_match(
         match_id_native=match_id_native,
     )
 
-    # Step 0: Link actions to frames (keep links aside for sync_score)
+    # Step 0: Link actions to frames (single call, reused by all steps)
     links, _report = link_actions_to_frames(actions, frames)
 
-    # Step 1: GK resolution (events + tracking)
+    # Step 1: GK resolution (events + tracking) — no links kwarg (spadl.utils)
     actions = add_pre_shot_gk_context(actions, frames=frames)
 
-    # Step 2: Action context (provenance skip guard in 3.11.2+)
-    actions = add_action_context(actions, frames)
+    # Step 2: Action context
+    actions = add_action_context(actions, frames, links=links)
 
-    # Step 3: Actor pre-window (TF-3)
-    actions = add_actor_pre_window(actions, frames)
+    # Step 3: Actor pre-window
+    actions = add_actor_pre_window(actions, frames, links=links)
 
-    # Step 4: Pressure (TF-2, all 3 methods)
+    # Step 4: Pressure (all 3 methods)
     actions = add_pressure_on_actor(
         actions,
         frames,
+        links=links,
         methods=("andrienko_oval", "link_zones", "bekkers_pi"),
     )
 
     # Steps 5-7: Pitch control (3 methods, using Series API to avoid 3x copies)
-    # TODO: TC-2 — pre-link once, pass linked frames to avoid ~14x redundant
-    # link_actions_to_frames calls. Every aggregator (steps 1-14) re-links
-    # internally (~2-5s each on 3000 actions x 150k frames = 30-70s/match).
-    # At 20 matches, that's 10-20 min of pure overhead. Accepted for v1;
-    # silly-kicks upstream optimization to expose a pointers kwarg is tracked.
     for method in ("spearman", "fernandez_bornn", "voronoi"):
-        s = pitch_control_at_action(actions, frames, method=method)
+        s = pitch_control_at_action(actions, frames, links=links, method=method)
         actions[s.name] = s.values
 
     # Step 8: Defensive line
-    actions = add_defensive_line(actions, frames, home_team_id=home_team_id)
+    actions = add_defensive_line(actions, frames, links=links, home_team_id=home_team_id)
 
     # Step 9: Off-ball context (threshold line-break + 4 off-ball-run columns)
     # NOTE (M1): add_off_ball_context is an umbrella that ALSO adds the threshold
     # line_break + n_attackers_behind_line columns. Step 10 (add_line_break with
     # method="ward") is separate and adds the Ward-specific columns.
-    actions = add_off_ball_context(actions, frames, home_team_id=home_team_id)
+    actions = add_off_ball_context(actions, frames, links=links, home_team_id=home_team_id)
 
     # Step 10: Ward line-breaking
-    actions = add_line_break(actions, frames, method="ward", home_team_id=home_team_id)
+    actions = add_line_break(actions, frames, links=links, method="ward", home_team_id=home_team_id)
 
     # Step 11: Team shape
-    actions = add_team_shape(actions, frames, home_team_id=home_team_id)
+    actions = add_team_shape(actions, frames, links=links, home_team_id=home_team_id)
 
-    # Step 12: DAS (accessible-space)
-    # Narrow catch: IndexError on edge-case frame geometry degrades 3 DAS columns
-    # to NaN while preserving all other enrichments. Non-IndexError exceptions
-    # propagate to the UDF wrapper (ADR-002 §5 — group key in error message).
+    # Step 12: DAS (ball-carrier prerequisite + defense-in-depth wrapper)
+    # infer_ball_carrier derives team_in_possession from tracking frames — a
+    # mandatory DAS input. Defense-in-depth catches (IndexError, ValueError,
+    # RuntimeError) and degrades DAS columns to NaN with ERROR logging.
+    # This wrapper is permanent — DAS needs possession data by design.
     try:
-        actions = add_das(actions, frames)
-    except IndexError:
+        carrier = infer_ball_carrier(frames)
+        frames = derive_team_in_possession(frames, carrier)
+        del carrier
+        actions = add_das(actions, frames, links=links)
+    except (IndexError, ValueError, RuntimeError) as exc:
+        logger.error(
+            "DAS degraded to NaN for match_id=%s: %s: %s",
+            match_id_native,
+            type(exc).__name__,
+            exc,
+        )
         actions["das_team"] = actions["das_opponent"] = actions["das_diff"] = np.nan
 
     # Step 13: GK influence
-    actions = add_gk_influence(actions, frames, xt, home_team_id=home_team_id)
+    actions = add_gk_influence(actions, frames, xt, links=links, home_team_id=home_team_id)
 
     # Step 14: Cover shadows
-    actions = add_cover_shadows(actions, frames, xt, home_team_id=home_team_id)
+    actions = add_cover_shadows(actions, frames, xt, links=links, home_team_id=home_team_id)
 
     # Step 15: Sync score
     actions = add_sync_score(actions, links)
