@@ -475,7 +475,7 @@ def test_udf_logs_error_on_exception(caplog) -> None:
         ),
         caplog.at_level(logging.ERROR, logger="tracking_context_udf"),
     ):
-        with pytest.raises(RuntimeError, match=r"tracking_context UDF failed.*ValueError.*test enrichment error"):
+        with pytest.raises(RuntimeError, match=r"(?s)tracking_context UDF failed.*ValueError.*test enrichment error"):
             udf_fn(pdf)
 
     assert "ValueError" in caplog.text, f"Expected 'ValueError' in log, got: {caplog.text}"

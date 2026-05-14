@@ -470,18 +470,20 @@ def _make_tracking_context_udf(
             return result
 
         except Exception as exc:
+            import traceback as _tb
+
+            inner_tb = _tb.format_exc()
             _logger.error(
-                "UDF failed for match_id=%s, period=%s, batch=%s: %s: %s",
+                "UDF failed for match_id=%s, period=%s, batch=%s:\n%s",
                 match_id_val,
                 period_val,
                 batch_id_val,
-                type(exc).__name__,
-                exc,
+                inner_tb,
             )
             raise RuntimeError(
                 f"tracking_context UDF failed for match_id={match_id_val}, "
-                f"period={period_val}, frame_batch_id={batch_id_val}: "
-                f"{type(exc).__name__}: {exc}"
+                f"period={period_val}, frame_batch_id={batch_id_val}:\n"
+                f"{inner_tb}"
             ) from exc
 
     return _udf
