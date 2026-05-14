@@ -42,6 +42,7 @@ player_search_query: str = ""
 competition_lov: list[str] = []
 team_lov: list[str] = []
 match_lov: list[str] = []
+match_lov_required: list[str] = []  # Same as match_lov but without "All" (for match-required pages)
 player_lov: list[str] = []
 player_lov_multi: list[str] = []  # same as player_lov but without "All" (for multi-select)
 
@@ -87,6 +88,7 @@ __all__ = [
     "competition_lov",
     "team_lov",
     "match_lov",
+    "match_lov_required",
     "player_lov",
     "player_lov_multi",
     "selected_provider",
@@ -123,6 +125,11 @@ __all__ = [
     "on_min_minutes_change",
     "on_sub_view_change",
 ]
+
+# Page names where match selection is required (mirrors template.py _MATCH_REQUIRED_PAGES).
+# Used by on_team_change for page-aware fallback when the selected match drops
+# out of the narrowed LOV.  Defined here to avoid circular import from template.
+_MATCH_REQUIRED_PAGE_NAMES = frozenset(("Pass-Map", "Pass-Network", "Match-Summary"))
 
 # ---------------------------------------------------------------------------
 # Internal lookup maps (NOT exported — not bound to UI)
@@ -432,6 +439,7 @@ def on_competition_change(state: Any, var_name: str, var_value: Any) -> None:
         matches = fetch_matches(comp_key, None)
         _match_map = {label: (mk, mid) for label, mk, mid in matches}
         state.match_lov = [_ALL_LABEL] + [label for label, _mk, _mid in matches]
+        state.match_lov_required = [label for label, _mk, _mid in matches]
 
         # Full player list still drives _player_map (so any search-result selection
         # resolves to the right ID) and player_lov_multi (the dropdown_multi widget
@@ -464,7 +472,6 @@ def on_team_change(state: Any, var_name: str, var_value: Any) -> None:
     if comp_id is None or comp_key is None:
         return
 
-    state.selected_match = _ALL_LABEL
     state.selected_player = _ALL_LABEL
     state.selected_players_multi = []
     # Reset the player-search input — team narrows scope, so any prior typed
@@ -477,7 +484,19 @@ def on_team_change(state: Any, var_name: str, var_value: Any) -> None:
     try:
         matches = fetch_matches(comp_key, team_id)
         _match_map = {label: (mk, mid) for label, mk, mid in matches}
-        state.match_lov = [_ALL_LABEL] + [label for label, _mk, _mid in matches]
+        new_labels = [_ALL_LABEL] + [label for label, _mk, _mid in matches]
+        required_labels = [label for label, _mk, _mid in matches]
+        state.match_lov = new_labels
+        state.match_lov_required = required_labels
+
+        # Preserve match selection if still valid; page-aware fallback otherwise.
+        # On match-required pages "All" is not in the LOV, so fall back to the
+        # first available match.  On optional pages fall back to "All".
+        if state.selected_match not in new_labels:
+            if state.current_page in _MATCH_REQUIRED_PAGE_NAMES:
+                state.selected_match = required_labels[0] if required_labels else None
+            else:
+                state.selected_match = _ALL_LABEL
 
         # Full list -> _player_map + player_lov_multi (see on_competition_change comment).
         # Single-select player_lov is the top-50 slice of the same full list —
@@ -573,11 +592,13 @@ def on_xg_model_change(state: Any, var_name: str, var_value: Any) -> None:
 
 def on_min_passes_change(state: Any, var_name: str, var_value: Any) -> None:
     """Min passes slider changed — refresh current page."""
+    state.min_passes = int(var_value)
     _refresh_current_page(state)
 
 
 def on_min_minutes_change(state: Any, var_name: str, var_value: Any) -> None:
     """Min minutes slider changed — refresh current page."""
+    state.min_minutes = int(var_value)
     _refresh_current_page(state)
 
 

@@ -341,6 +341,7 @@ def on_ps_selected_competition_change(state: Any, var_name: str, var_value: Any)
 
 def on_ps_min_matches_change(state: Any, var_name: str, var_value: Any) -> None:
     """Min matches slider changed — reload player list."""
+    state.ps_min_matches = int(var_value)
     _clear_results(state)
     state.ps_selected_player = None
     _load_player_list(state)

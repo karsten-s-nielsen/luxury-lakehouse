@@ -11,7 +11,15 @@ from typing import Any
 from unittest.mock import patch
 
 import pandas as pd
+import pytest
 from filters import _escape_like, search_players
+
+
+@pytest.fixture(autouse=True)
+def _mock_table_helper() -> Any:
+    """Bypass get_settings() inside ``filters.t()`` — return ``schema.table``."""
+    with patch("filters.t", side_effect=lambda name, **kw: f"dev_gold.{name}"):
+        yield
 
 
 def _mock_df(rows: list[tuple[str, int]]) -> pd.DataFrame:
