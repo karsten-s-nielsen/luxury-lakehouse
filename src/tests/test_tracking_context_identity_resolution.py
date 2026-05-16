@@ -147,3 +147,43 @@ def test_resolve_rejects_all_null_native() -> None:
 
     with pytest.raises(ValueError, match="team_id_native"):
         _resolve_enrichment_identity(actions, provider="idsse", match_id_native="test")
+
+
+def test_mixed_null_team_native_resolves_non_null_only() -> None:
+    """Fix C: batch with BOTH null and non-null rows resolves only the non-null ones.
+
+    J03WN1/J03WOY have a single freekick_short with NULL team_id_native.
+    When mixed with non-null rows, the non-null rows must be resolved
+    while null rows retain NaN team_id/player_id.
+    """
+    import numpy as np
+    import pandas as pd
+
+    from ingestion.tracking_context import _resolve_enrichment_identity
+
+    actions = pd.DataFrame(
+        {
+            "team_id": pd.array([pd.NA, pd.NA, pd.NA], dtype="object"),
+            "player_id": pd.array([pd.NA, pd.NA, pd.NA], dtype="object"),
+            "team_id_native": pd.array(["DFL-CLU-000005", pd.NA, "DFL-CLU-000008"], dtype="string"),
+            "player_id_native": pd.array(["DFL-OBJ-0001LJ", pd.NA, "DFL-OBJ-0002HE"], dtype="string"),
+        }
+    )
+
+    resolved = _resolve_enrichment_identity(actions, provider="idsse", match_id_native="J03WN1")
+
+    # Non-null rows get resolved
+    assert resolved["team_id"].iloc[0] == "DFL-CLU-000005"
+    assert resolved["player_id"].iloc[0] == "DFL-OBJ-0001LJ"
+    assert resolved["team_id"].iloc[2] == "DFL-CLU-000008"
+    assert resolved["player_id"].iloc[2] == "DFL-OBJ-0002HE"
+
+    # Null row: team_id and player_id must still be NA (not resolved)
+    assert pd.isna(resolved["team_id"].iloc[1])
+    assert pd.isna(resolved["player_id"].iloc[1])
+    # Verify it's actually the original NA, not a string "nan" or similar
+    assert (
+        resolved["team_id"].iloc[1] is pd.NA
+        or resolved["team_id"].iloc[1] is None
+        or (isinstance(resolved["team_id"].iloc[1], float) and np.isnan(resolved["team_id"].iloc[1]))
+    )

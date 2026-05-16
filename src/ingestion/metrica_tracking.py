@@ -99,7 +99,7 @@ def _build_player_columns(
 
         if stripped in ("Period", "Frame", "Time [s]"):
             columns.append(stripped)
-        elif jersey == "Ball":
+        elif jersey == "Ball" or stripped == "Ball":
             # Ball columns: first is x, second (empty jersey) is y
             last_team = "Ball"
             last_player = ""
