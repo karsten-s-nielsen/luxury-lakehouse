@@ -14,8 +14,6 @@ schema drift). The test asserts:
 1. `_RESULTS_SCHEMA` SQL DDL declares `is_anonymized BOOLEAN`.
 2. IDSSE row builder emits `is_anonymized` on every row dict (False —
    IDSSE carries real player identity).
-3. SkillCorner row builder emits `is_anonymized` (False — kloppy open
-   data preserves real identity).
 
 Pure Python — no Databricks connection. Asserted at PR-CI time, not at
 nightly Bronze Live Schema scheduled run.
@@ -23,7 +21,6 @@ nightly Bronze Live Schema scheduled run.
 
 from __future__ import annotations
 
-import inspect
 import logging
 import os
 import tempfile
@@ -33,7 +30,6 @@ from ingestion.tracking_metadata import (
     _MATCH_COMPETITION,
     _RESULTS_SCHEMA,
     _extract_idsse_metadata,
-    _extract_skillcorner_metadata,
 )
 
 
@@ -108,24 +104,3 @@ def test_idsse_extractor_emits_is_anonymized() -> None:
             f"IDSSE is_anonymized={row['is_anonymized']!r}, expected False "
             f"(IDSSE carries real player identity, not anonymized)."
         )
-
-
-def test_skillcorner_extractor_source_emits_is_anonymized() -> None:
-    """`_extract_skillcorner_metadata` source body must contain
-    `\"is_anonymized\"` as a row-dict key.
-
-    SkillCorner extraction calls `kloppy.skillcorner.load_open_data` which
-    issues real HTTP requests; we cannot exercise it cheaply in unit tests.
-    Instead we source-inspect: the function body MUST literally contain
-    the string `"is_anonymized"` as a row-dict field.
-
-    Brittle to deliberate refactors but catches the most common drift —
-    someone adds the field to IDSSE's row dict but forgets SkillCorner's.
-    """
-    src = inspect.getsource(_extract_skillcorner_metadata)
-    assert '"is_anonymized"' in src, (
-        "_extract_skillcorner_metadata source does not contain "
-        "'\"is_anonymized\"' as a row-dict key. SkillCorner kloppy open "
-        'data preserves real player identity — add `"is_anonymized": False` '
-        "to the rows.append({...}) call."
-    )

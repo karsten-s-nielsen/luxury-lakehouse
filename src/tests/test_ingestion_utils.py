@@ -163,7 +163,9 @@ class TestFetchUrl:
             result = fetch_url("https://example.com/data.json")
 
         assert result == mock_response
-        mock_session.get.assert_called_once_with("https://example.com/data.json", timeout=(10, 30))
+        mock_session.get.assert_called_once_with(
+            "https://example.com/data.json", timeout=(10, 30), headers=None, stream=False
+        )
 
     @patch("ingestion.utils.time.sleep")
     def test_retries_on_429(self, mock_sleep: MagicMock) -> None:
@@ -228,7 +230,9 @@ class TestFetchUrl:
         with patch("ingestion.utils._get_session", return_value=mock_session):
             fetch_url("https://example.com/data.json", timeout=(5, 15))
 
-        mock_session.get.assert_called_once_with("https://example.com/data.json", timeout=(5, 15))
+        mock_session.get.assert_called_once_with(
+            "https://example.com/data.json", timeout=(5, 15), headers=None, stream=False
+        )
 
 
 # ---------------------------------------------------------------------------

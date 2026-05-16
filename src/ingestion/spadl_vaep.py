@@ -29,6 +29,7 @@ from ingestion.spadl_conversion import (
     _SPADL_TABLE,
     _convert_idsse_from_bronze,
     _convert_metrica_from_bronze,
+    _convert_skillcorner_from_bronze,
     _convert_statsbomb_from_bronze,
     _convert_wyscout_from_bronze,
     _read_existing_match_ids,
@@ -689,9 +690,10 @@ def run_pipeline(
     # (hashed to BIGINT inside their UDFs for spadl_actions compat).
     idsse_wrote = _convert_idsse_from_bronze(spark, catalog, schema, logger, existing_spadl_matches)
     metrica_wrote = _convert_metrica_from_bronze(spark, catalog, schema, logger, existing_spadl_matches)
+    sc_wrote = _convert_skillcorner_from_bronze(spark, catalog, schema, logger, existing_spadl_matches)
 
-    if not (sb_wrote or ws_wrote or idsse_wrote or metrica_wrote) and not existing_spadl_matches:
-        msg = "No SPADL actions produced from any source (StatsBomb / Wyscout / IDSSE / Metrica)"
+    if not (sb_wrote or ws_wrote or idsse_wrote or metrica_wrote or sc_wrote) and not existing_spadl_matches:
+        msg = "No SPADL actions produced from any source (StatsBomb / Wyscout / IDSSE / Metrica / SkillCorner)"
         logger.error(msg)
         raise RuntimeError(msg)
 

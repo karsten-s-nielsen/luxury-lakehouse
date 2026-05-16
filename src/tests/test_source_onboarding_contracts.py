@@ -23,6 +23,7 @@ _FIXTURE_DIR = Path(__file__).parent / "fixtures" / "silly_kicks_boundary"
         ("wyscout", "ws_match_2576335.parquet"),
         ("idsse", "idsse_J03WMX.parquet"),
         ("metrica", "metrica_sample_game_1.parquet"),
+        ("skillcorner", "sc_match_1886347.parquet"),
     ],
 )
 class TestSourceOnboardingContracts:
@@ -34,17 +35,22 @@ class TestSourceOnboardingContracts:
             _make_idsse_spadl_udf,
             _make_metrica_spadl_udf,
             _make_sb_spadl_udf,
+            _make_skillcorner_spadl_udf,
             _make_ws_spadl_udf,
         )
 
-        udf_map = {
-            "statsbomb": _make_sb_spadl_udf,
-            "wyscout": _make_ws_spadl_udf,
-            "idsse": _make_idsse_spadl_udf,
-            "metrica": _make_metrica_spadl_udf,
-        }
+        if source == "skillcorner":
+            match_metadata = {"id": "1886347", "pitch_length": 105, "pitch_width": 68, "home_team": {"id": 4177}}
+            udf = _make_skillcorner_spadl_udf(match_metadata=match_metadata)
+        else:
+            udf_map = {
+                "statsbomb": _make_sb_spadl_udf,
+                "wyscout": _make_ws_spadl_udf,
+                "idsse": _make_idsse_spadl_udf,
+                "metrica": _make_metrica_spadl_udf,
+            }
+            udf = udf_map[source]()
 
-        udf = udf_map[source]()
         empty_result = udf(pd.DataFrame())
         native_cols = {
             "team_id_native",
@@ -61,6 +67,7 @@ class TestSourceOnboardingContracts:
     def test_native_id_format_contract(self, source: str, fixture: str) -> None:
         """native player_id values follow the format contract in identifiers.py."""
         import silly_kicks.spadl.metrica
+        import silly_kicks.spadl.skillcorner
         import silly_kicks.spadl.sportec
         import silly_kicks.spadl.statsbomb
         import silly_kicks.spadl.wyscout
@@ -68,6 +75,7 @@ class TestSourceOnboardingContracts:
         from shared.identifiers import (
             idsse_native_player_id,
             metrica_native_player_id,
+            skillcorner_native_player_id,
             statsbomb_native_player_id,
             wyscout_native_player_id,
         )
@@ -101,6 +109,13 @@ class TestSourceOnboardingContracts:
                 home_team_id="home",
                 home_team_start_left=hsl,
             )
+        elif source == "skillcorner":
+            import json
+
+            meta_path = _FIXTURE_DIR / "sc_match_1886347_meta.json"
+            with open(meta_path) as f:
+                match_metadata = json.load(f)
+            actions, _ = silly_kicks.spadl.skillcorner.convert_to_actions(df, match_metadata)
         else:  # metrica
             from ingestion.spadl_adapter import (
                 adapt_metrica_events_for_silly_kicks,
@@ -120,6 +135,7 @@ class TestSourceOnboardingContracts:
             "wyscout": lambda v: wyscout_native_player_id(int(v)),
             "idsse": lambda v: idsse_native_player_id(str(v)),
             "metrica": lambda v: metrica_native_player_id(str(v)),
+            "skillcorner": lambda v: skillcorner_native_player_id(int(v)),
         }
 
         non_null = actions["player_id"].dropna()
@@ -136,17 +152,22 @@ class TestSourceOnboardingContracts:
             _make_idsse_spadl_udf,
             _make_metrica_spadl_udf,
             _make_sb_spadl_udf,
+            _make_skillcorner_spadl_udf,
             _make_ws_spadl_udf,
         )
 
-        udf_map = {
-            "statsbomb": _make_sb_spadl_udf,
-            "wyscout": _make_ws_spadl_udf,
-            "idsse": _make_idsse_spadl_udf,
-            "metrica": _make_metrica_spadl_udf,
-        }
+        if source == "skillcorner":
+            match_metadata = {"id": "1886347", "pitch_length": 105, "pitch_width": 68, "home_team": {"id": 4177}}
+            udf = _make_skillcorner_spadl_udf(match_metadata=match_metadata)
+        else:
+            udf_map = {
+                "statsbomb": _make_sb_spadl_udf,
+                "wyscout": _make_ws_spadl_udf,
+                "idsse": _make_idsse_spadl_udf,
+                "metrica": _make_metrica_spadl_udf,
+            }
+            udf = udf_map[source]()
 
-        udf = udf_map[source]()
         empty_result = udf(pd.DataFrame())
         udf_cols = set(empty_result.columns)
 

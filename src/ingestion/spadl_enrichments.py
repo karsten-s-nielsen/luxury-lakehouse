@@ -24,7 +24,7 @@ from typing import Final
 
 import pandas as pd
 
-_VALID_SOURCES: Final[frozenset[str]] = frozenset({"statsbomb", "wyscout", "idsse", "metrica"})
+_VALID_SOURCES: Final[frozenset[str]] = frozenset({"statsbomb", "wyscout", "idsse", "metrica", "skillcorner"})
 
 
 def apply_spadl_enrichments(

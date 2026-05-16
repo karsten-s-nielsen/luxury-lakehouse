@@ -10,7 +10,8 @@ models:
       Normalized SkillCorner broadcast tracking data. Transforms center-origin
       meter coordinates to the shared 120×80 pitch system. 10fps frame rate
       results in sparser velocity data than 25fps optical sources.
-      One row per player per frame.
+      One row per player per frame. Team affiliation resolved via JOIN to
+      stg_skillcorner__matches roster.
     columns:
       - name: tracking_id
         description: Surrogate key (match_id + period + frame + player_id)
@@ -18,7 +19,7 @@ models:
           - unique
           - not_null
       - name: match_id
-        description: Match identifier (prefixed with 'skillcorner_')
+        description: Raw native SkillCorner match ID (numeric string)
         data_tests:
           - not_null
       - name: period
@@ -46,12 +47,15 @@ models:
         data_tests:
           - not_null
       - name: team
-        description: Team affiliation (home or away)
+        description: Team affiliation (home or away), derived from match roster JOIN
         data_tests:
-          - not_null
           - accepted_values:
               arguments:
                 values: ['home', 'away']
+              config:
+                where: "team is not null"
+      - name: team_id
+        description: Team identifier resolved from stg_skillcorner__matches
       - name: source_provider
         description: Data source identifier (always 'skillcorner')
         data_tests:
@@ -59,6 +63,8 @@ models:
           - accepted_values:
               arguments:
                 values: ['skillcorner']
+      - name: is_goalkeeper
+        description: Whether the player is a goalkeeper (from match roster position)
       - name: x
         description: X coordinate scaled to 120-yard pitch
         data_tests:
@@ -91,19 +97,73 @@ models:
                 min_value: -10
                 max_value: 90
                 row_condition: "ball_y is not null"
-      - name: is_goalkeeper
-        description: Bronze passthrough — is_goalkeeper from skillcorner_tracking
       - name: home_team_id
-        description: Bronze passthrough — home_team_id from skillcorner_tracking
+        description: Home team identifier from match roster
       - name: away_team_id
-        description: Bronze passthrough — away_team_id from skillcorner_tracking
-      - name: ball_owning_team_id
-        description: Bronze passthrough — ball_owning_team_id from skillcorner_tracking
-      - name: ball_state
-        description: Bronze passthrough — ball_state from skillcorner_tracking
+        description: Away team identifier from match roster
       - name: ball_z
-        description: Bronze passthrough — ball_z from skillcorner_tracking
+        description: Bronze passthrough — ball height in meters
       - name: is_visible
-        description: Bronze passthrough — is_visible from skillcorner_tracking
+        description: Bronze passthrough — player visibility in broadcast frame
+      - name: ball_is_detected
+        description: Bronze passthrough — ball detection flag
+      - name: _ingested_at
+        description: Bronze passthrough — UTC audit timestamp from ingestion
+
+  - name: stg_skillcorner__events
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      SkillCorner dynamic events passthrough. Preserves all ~294 source columns
+      from the events CSV per bronze-completeness principle. Used by SPADL
+      conversion (applyInPandas UDF) and downstream event analytics.
+    columns:
+      - name: match_id
+        description: Raw native SkillCorner match ID (numeric string)
+        data_tests:
+          - not_null
+      - name: event_id
+        description: Unique event identifier within a match
+        data_tests:
+          - not_null
+      - name: event_type
+        description: Event type classification
+        data_tests:
+          - not_null
+
+  - name: stg_skillcorner__matches
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      SkillCorner match metadata in roster format (one row per player-match).
+      Contains player names, team names, competition info, and pitch dimensions.
+      Authoritative source for SkillCorner identity resolution in dimension models.
+    columns:
+      - name: match_id
+        description: Raw native SkillCorner match ID (numeric string)
+        data_tests:
+          - not_null
+      - name: player_id
+        description: Player identifier (numeric)
+        data_tests:
+          - not_null
+      - name: team_id
+        description: Team identifier for this player
+        data_tests:
+          - not_null
+      - name: player_name
+        description: Player short/display name
       - name: position_name
-        description: Bronze passthrough — position_name from skillcorner_tracking
+        description: Player position role (e.g. 'Midfielder', 'Goalkeeper')
+      - name: team_name
+        description: Full team name
+      - name: competition_id
+        description: Competition identifier (numeric)
+      - name: season_id
+        description: Season identifier (numeric)
+      - name: match_date
+        description: Match date-time in ISO 8601 format

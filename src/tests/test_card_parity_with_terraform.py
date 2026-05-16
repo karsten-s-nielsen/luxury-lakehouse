@@ -175,8 +175,8 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     "import_obso_results": "wf-import-obso",
     "run_model_validation": "wf-model-validation",
     # Metadata extraction plumbing — reads tracking player/team names from
-    # IDSSE DFL match info XMLs and SkillCorner kloppy metadata into a
-    # bronze Delta table for dbt resolution. No ML, no methodology.
+    # IDSSE DFL match info XMLs into a bronze Delta table for dbt resolution.
+    # No ML, no methodology.
     "extract_tracking_metadata": None,
     "hf_sync": "wf-hf-sync",
     # PR-Cycle-C PR-β (2026-05-02, ADR-019): single `dbt_build` task replaced

@@ -1,18 +1,20 @@
 """Extract tracking player metadata from source data files.
 
-Reads player names and team names from IDSSE DFL match info XMLs and
-SkillCorner match metadata via kloppy, writing to a bronze Delta table
-for downstream dbt resolution into fct_player_positions/fct_position_maps.
+Reads player names and team names from IDSSE DFL match info XMLs,
+writing to a bronze Delta table for downstream dbt resolution into
+fct_player_positions/fct_position_maps.
 
 Metrica matches are anonymised — no player names exist in the source data,
 so we rely on the COALESCE fallback (raw player_id) in the app queries.
+
+SkillCorner metadata is now handled by the dedicated skillcorner_matches.py
+parser and bronze.skillcorner_matches table (pining-for-the-data API).
 
 Usage (Databricks):
     extract_tracking_metadata --catalog soccer_analytics --schema bronze
 
 References:
     IDSSE: DFL_02_01 match information XML format.
-    SkillCorner: kloppy open data API.
 """
 
 from __future__ import annotations
@@ -69,25 +71,13 @@ class _TrackingMetadataGuard:
                 results_table=results_table,
             )
 
-        # Check SkillCorner matches
-        skillcorner_ids: list[str] = []
-        skillcorner_source = f"{catalog}.bronze.skillcorner_tracking"
-        if spark.catalog.tableExists(skillcorner_source):
-            skillcorner_ids = find_new_ids(
-                spark,
-                source_table=skillcorner_source,
-                results_table=results_table,
-            )
-
-        all_ids = sorted(set(idsse_ids) | set(skillcorner_ids))
-
-        if not all_ids:
+        if not idsse_ids:
             return FilterResult(workflow_id=self.workflow_id, count=0)
 
         return FilterResult(
             workflow_id=self.workflow_id,
-            count=len(all_ids),
-            metadata={"new_match_ids": all_ids},
+            count=len(idsse_ids),
+            metadata={"new_match_ids": idsse_ids},
         )
 
 
@@ -105,20 +95,6 @@ _MATCH_COMPETITION: dict[str, str] = {
     "J03WR9": "DFL-COM-000002",
 }
 _IDSSE_DATA_DIR = "/Volumes/soccer_analytics/bronze/libs/idsse_data"
-
-# SkillCorner match IDs (mirrors skillcorner.py)
-_SKILLCORNER_MATCH_IDS = [
-    "1886347",
-    "1899585",
-    "1925299",
-    "1953632",
-    "1996435",
-    "2006229",
-    "2011166",
-    "2013725",
-    "2015213",
-    "2017461",
-]
 
 
 # ---------------------------------------------------------------------------
@@ -232,76 +208,6 @@ def _extract_idsse_metadata(data_dir: str, logger: logging.Logger) -> list[dict[
 
 
 # ---------------------------------------------------------------------------
-# SkillCorner metadata extraction
-# ---------------------------------------------------------------------------
-
-
-def _extract_skillcorner_metadata(logger: logging.Logger) -> list[dict[str, object]]:
-    """Extract player + team metadata from SkillCorner via kloppy.
-
-    Uses ``dataset.metadata.teams[*].players`` to access player names
-    without iterating tracking frames.
-    """
-    from kloppy import skillcorner  # type: ignore[import-not-found]
-
-    rows: list[dict[str, object]] = []
-
-    for mid in _SKILLCORNER_MATCH_IDS:
-        match_id = f"skillcorner_{mid}"
-
-        try:
-            dataset = skillcorner.load_open_data(
-                match_id=mid,
-                coordinates="skillcorner",
-                include_empty_frames=False,
-            )
-        except Exception:
-            logger.warning("Could not load SkillCorner match %s via kloppy", mid, exc_info=True)
-            continue
-
-        teams = dataset.metadata.teams  # type: ignore[union-attr]
-        home_team = teams[0]
-        away_team = teams[1]
-
-        team_entries = [
-            (home_team, "home"),
-            (away_team, "away"),
-        ]
-
-        match_count = 0
-        for team_obj, team_side in team_entries:
-            team_name = getattr(team_obj, "name", None) or team_side.title()
-            players = getattr(team_obj, "players", []) or []
-
-            for player in players:
-                player_id = str(getattr(player, "player_id", ""))
-                if not player_id:
-                    continue
-
-                player_name = getattr(player, "name", None) or getattr(player, "full_name", None) or player_id
-
-                jersey = getattr(player, "jersey_no", None)
-
-                rows.append(
-                    {
-                        "match_id": match_id,
-                        "player_id": player_id,
-                        "player_display_name": player_name,
-                        "team_side": team_side,
-                        "team_display_name": team_name,
-                        "jersey_number": int(jersey) if jersey else None,
-                        "provider": "skillcorner",
-                        "is_anonymized": False,
-                    }
-                )
-                match_count += 1
-
-        logger.info("Extracted %d player metadata rows from SkillCorner match %s", match_count, match_id)
-
-    return rows
-
-
-# ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
 
@@ -332,9 +238,6 @@ def run_pipeline(
 
     logger.info("Extracting IDSSE metadata from %s", data_dir)
     all_rows.extend(_extract_idsse_metadata(data_dir, logger))
-
-    logger.info("Extracting SkillCorner metadata via kloppy")
-    all_rows.extend(_extract_skillcorner_metadata(logger))
 
     logger.info("Total metadata rows: %d", len(all_rows))
 

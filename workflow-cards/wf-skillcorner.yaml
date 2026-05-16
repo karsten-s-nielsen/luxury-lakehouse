@@ -1,7 +1,7 @@
 ---
-name: SkillCorner A-League Tracking Ingestion
+name: SkillCorner A-League Ingestion
 id: wf-skillcorner
-version: "1.0.0"
+version: "2.0.0"
 status: production
 type: ingestion
 domain: soccer-analytics
@@ -11,22 +11,27 @@ tags:
   - skillcorner
   - ingestion
   - tracking-data
+  - events-data
   - a-league
   - broadcast-tracking
 
 references:
-  - citation: "SkillCorner Open Data (MIT License). https://github.com/SkillCorner/opendata"
+  - citation: "SkillCorner Open Data via pining-for-the-data API"
     role: dataset
 
 inputs:
   datasets:
-    - id: "SkillCorner Open Data Repository"
+    - id: "pining-for-the-data API (SkillCorner provider)"
       source: huggingface
-      description: "Broadcast tracking data for 10 A-League matches via kloppy"
+      description: "Events, tracking, and match metadata for A-League matches via REST API"
 
 outputs:
   tables:
+    - id: "{catalog}.bronze.skillcorner_events"
+      destination: delta-table
     - id: "{catalog}.bronze.skillcorner_tracking"
+      destination: delta-table
+    - id: "{catalog}.bronze.skillcorner_matches"
       destination: delta-table
 
 execution:
@@ -44,7 +49,7 @@ depends_on: []
 idempotency:
   strategy: skip-guard
   key: match_id
-  description: "Checks existing matches in bronze before re-ingesting."
+  description: "API-based guard queries MAX(_ingested_at) and uses updatedSince filter. Per-match writes use replaceWhere on match_id."
 
 performance:
   inference_timeout: "900s"
@@ -63,10 +68,16 @@ monitoring:
 links:
   source_code:
     - "src/ingestion/skillcorner.py"
+    - "src/ingestion/skillcorner_common.py"
+    - "src/ingestion/skillcorner_events.py"
+    - "src/ingestion/skillcorner_tracking.py"
+    - "src/ingestion/skillcorner_matches.py"
 ---
 
 ## Overview
 
-Downloads broadcast tracking data for 10 A-League 2024/25 matches from the
-SkillCorner open data repository via the kloppy library. Converts frame objects
-to narrow format (one row per player per frame) with Savitzky-Golay smoothing.
+Ingests SkillCorner A-League match data (events, tracking, match metadata)
+from the pining-for-the-data REST API. API-driven match discovery via
+`updatedSince` filter. Three bronze tables written with `replaceWhere`
+idempotency. SPADL conversion wired via silly-kicks SkillCorner converter.
+Tracking context pipeline consumes the output.

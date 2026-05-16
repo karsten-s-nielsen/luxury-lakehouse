@@ -140,24 +140,21 @@ metrica_real_players as (
 
 skillcorner_players as (
 
-    -- PR 7 (ADR-011 close-out): SkillCorner onboarded into dim_players.
-    -- Real SkillCorner player_ids from bronze.skillcorner_tracking. Position
-    -- is the bronze position_name passthrough. No player_name in bronze
-    -- (SkillCorner broadcast tracking doesn't carry player names);
-    -- is_anonymized=true so consumers know name is unavailable.
+    -- SkillCorner players sourced from stg_skillcorner__matches (roster format).
+    -- Real player names available from match.json metadata via pining-for-the-data API.
     select
         cast(player_id as string)                       as native_player_id,
         cast(null as int)                               as player_id_legacy,
-        cast(null as string)                            as player_name,
-        cast(player_id as string)                       as player_display_name,
+        max(concat(first_name, ' ', last_name))         as player_name,
+        max(player_name)                                as player_display_name,
         max(position_name)                              as primary_position,
         'skillcorner'                                   as provider,
         false                                           as is_synthesized,
-        true                                            as is_anonymized,
-        'skillcorner_no_player_names_in_bronze'         as synthesis_reason,
+        false                                           as is_anonymized,
+        cast(null as string)                            as synthesis_reason,
         cast(null as string)                            as birth_date,
         cast(null as string)                            as nationality
-    from {{ ref('stg_skillcorner__tracking') }}
+    from {{ ref('stg_skillcorner__matches') }}
     where player_id is not null
     group by cast(player_id as string)
 
