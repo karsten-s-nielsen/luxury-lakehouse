@@ -3,9 +3,10 @@ version: 2
 sources:
   - name: skillcorner
     description: >
-      SkillCorner broadcast tracking data ingested into the bronze layer via
-      kloppy. Contains 10 A-League 2024/25 matches at 10 fps. Coordinates
-      are center-origin meters on a 105×68m pitch.
+      SkillCorner broadcast tracking + events + match metadata ingested into the
+      bronze layer via the pining-for-the-data REST API. Contains A-League 2024/25
+      matches at 10 fps. Coordinates are center-origin meters on a 105×68m pitch
+      (POSSESSION_PERSPECTIVE convention).
     database: soccer_analytics
     schema: bronze
     loader: aws_lambda
@@ -23,6 +24,8 @@ sources:
           x ∈ (-52.5, 52.5), y ∈ (-34, 34). Lower frame rate than optical
           tracking due to broadcast video source. Staging transforms to 120×80.
         columns:
+          - name: match_id
+            description: Raw native SkillCorner match ID (numeric string, e.g. '1886347')
           - name: period
             description: Match half (1 or 2)
           - name: frame
@@ -30,21 +33,15 @@ sources:
           - name: timestamp
             description: Timestamp in seconds from period start
           - name: player_id
-            description: Player identifier from SkillCorner
-          - name: team
-            description: Team affiliation ('home' / 'away' / 'unknown')
-          - name: home_team_id
-            description: >
-              SkillCorner team_id for the home team, denormalized onto every
-              row so a bronze-only query doesn't need a metadata join. Stable
-              across all frames of a match.
-          - name: away_team_id
-            description: >
-              SkillCorner team_id for the away team. See home_team_id.
+            description: Player identifier from SkillCorner (numeric)
           - name: x
             description: Player x-coordinate in center-origin meters (-52.5 to 52.5)
           - name: y
             description: Player y-coordinate in center-origin meters (-34 to 34)
+          - name: is_visible
+            description: >
+              True when the player is visible in the broadcast frame (renamed
+              from is_detected in raw API output by the tracking parser).
           - name: ball_x
             description: Ball x-coordinate in center-origin meters
           - name: ball_y
@@ -53,36 +50,86 @@ sources:
             description: >
               Ball height in meters. NULL for broadcast-source SkillCorner
               data (most frames); carried in schema for parity with optical
-              providers that emit 3D ball coordinates. Float64 nullable.
-          - name: ball_state
-            description: >
-              kloppy BallState value — 'alive' (ball in play) or 'dead'
-              (stoppage, foul, substitution, etc.). Derived from
-              frame.ball_state.value. NULL when kloppy's SkillCorner mapping
-              cannot determine the state for a frame.
-          - name: ball_owning_team_id
-            description: >
-              team_id of the team currently in possession when kloppy can
-              determine it (frame.ball_owning_team.team_id). NULL when
-              possession is contested or unknown.
-          - name: match_id
-            description: Match identifier prefixed with 'skillcorner_'
+              providers that emit 3D ball coordinates.
+          - name: ball_is_detected
+            description: Whether the ball position was detected in this frame
           - name: frame_rate
             description: Frame rate in fps (always 10 for SkillCorner)
-          - name: is_goalkeeper
-            description: >
-              True when the player is identified as a goalkeeper. Uses
-              kloppy starting_position.name == 'Goalkeeper' when available;
-              falls back to jersey_no == 1 when position is unknown.
+          - name: _ingested_at
+            description: UTC timestamp when the row was ingested
+
+      - name: skillcorner_events
+        description: >
+          Dynamic events CSV from pining-for-the-data API. One row per event.
+          Contains ~294 columns (all preserved per bronze-completeness principle).
+          Key columns: event_id, event_type, event_subtype, player_id, team_id,
+          period, time_start, time_end, x_start, y_start, x_end, y_end.
+        columns:
+          - name: match_id
+            description: Raw native SkillCorner match ID (numeric string)
+          - name: event_id
+            description: Unique event identifier within a match (e.g. '1_0')
+          - name: event_type
+            description: Event type (pass, shot, dribble, player_possession, etc.)
+          - name: player_id
+            description: Player identifier (numeric)
+          - name: team_id
+            description: Team identifier (numeric)
+          - name: period
+            description: Match half (1 or 2)
+          - name: _ingested_at
+            description: UTC timestamp when the row was ingested
+
+      - name: skillcorner_matches
+        description: >
+          Match metadata from pining-for-the-data API match.json artifact.
+          Roster format: one row per player-match with match-level metadata
+          denormalized. Contains player names, team names, competition info,
+          and pitch dimensions.
+        columns:
+          - name: match_id
+            description: Raw native SkillCorner match ID (numeric string)
+          - name: player_id
+            description: Player identifier (numeric)
+          - name: team_id
+            description: Team identifier for this player
+          - name: player_name
+            description: Player short name (e.g. 'A. Player')
+          - name: first_name
+            description: Player first name
+          - name: last_name
+            description: Player last name
+          - name: jersey_number
+            description: Player jersey/shirt number
           - name: position_name
-            description: >
-              Raw kloppy starting_position.name string (e.g. 'Goalkeeper',
-              'Defender', 'Midfielder', 'Attacker', 'Unknown'). NULL when
-              kloppy does not expose a starting position for the player.
-              Downstream models re-derive finer position roles.
-          - name: is_visible
-            description: >
-              True when the player is visible in the broadcast frame. NULL
-              when kloppy doesn't expose visibility for the provider
-              (SkillCorner open data currently does not). Carried for
-              parity with providers that do expose it.
+            description: Player position role (e.g. 'Midfielder', 'Goalkeeper')
+          - name: position_acronym
+            description: Position acronym (e.g. 'MF', 'GK', 'FW')
+          - name: team_name
+            description: Full team name
+          - name: team_short_name
+            description: Team short name / abbreviation
+          - name: home_team_id
+            description: SkillCorner team_id for the home team
+          - name: away_team_id
+            description: SkillCorner team_id for the away team
+          - name: competition_id
+            description: Competition identifier (numeric)
+          - name: competition_name
+            description: Competition name (e.g. 'A-League Men')
+          - name: season_id
+            description: Season identifier (numeric)
+          - name: season_name
+            description: Season name (e.g. '2024/2025')
+          - name: match_date
+            description: Match date-time in ISO 8601 format
+          - name: stadium_name
+            description: Stadium/venue name
+          - name: pitch_length
+            description: Pitch length in meters (typically 105)
+          - name: pitch_width
+            description: Pitch width in meters (typically 68)
+          - name: period_boundaries
+            description: JSON-serialized array of period start/end times
+          - name: _ingested_at
+            description: UTC timestamp when the row was ingested

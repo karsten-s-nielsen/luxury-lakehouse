@@ -121,7 +121,7 @@ def _make_permissive_spark_mock() -> MagicMock:
     _mock_pyspark_functions()
     spark = MagicMock()
 
-    rows: list[dict[str, str]] = [
+    rows: list[dict[str, object]] = [
         {
             "match_id": "m1",
             "matchId": "m1",
@@ -132,6 +132,7 @@ def _make_permissive_spark_mock() -> MagicMock:
             "last_imported_sha": "mock_sha_1",
             "provider": "idsse",
             "data_source": "idsse",
+            "max_ts": None,
         },
         {
             "match_id": "m2",
@@ -143,6 +144,7 @@ def _make_permissive_spark_mock() -> MagicMock:
             "last_imported_sha": "mock_sha_2",
             "provider": "metrica",
             "data_source": "metrica",
+            "max_ts": None,
         },
     ]
 
@@ -200,16 +202,21 @@ class TestGuardRegistry:
         duplicates = [wid for wid in ids if ids.count(wid) > 1]
         assert not duplicates, f"Duplicate workflow_ids: {set(duplicates)}"
 
-    def test_guard_check_returns_filter_result(self) -> None:
+    def test_guard_check_returns_filter_result(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Every guard.check() with a mocked Spark returns a FilterResult."""
-        for module_path in _GUARD_MODULES:
-            mod = importlib.import_module(module_path)
-            guard = mod.skip_guard
-            spark = _make_permissive_spark_mock()
-            result = guard.check(spark, "soccer_analytics", "dev_gold")
-            assert isinstance(result, FilterResult), (
-                f"{module_path}: check() returned {type(result).__name__}, expected FilterResult"
-            )
+        from unittest.mock import patch
+
+        # SkillCorner guard requires API token + HTTP calls — mock both
+        monkeypatch.setenv("PINING_FOR_THE_DATA_TOKEN", "test-token-guard-conformance")
+        with patch("ingestion.skillcorner.fetch_match_list", return_value=[]):
+            for module_path in _GUARD_MODULES:
+                mod = importlib.import_module(module_path)
+                guard = mod.skip_guard
+                spark = _make_permissive_spark_mock()
+                result = guard.check(spark, "soccer_analytics", "dev_gold")
+                assert isinstance(result, FilterResult), (
+                    f"{module_path}: check() returned {type(result).__name__}, expected FilterResult"
+                )
 
     def test_guard_check_signature(self) -> None:
         """Every guard.check() must accept (spark, catalog, schema) positional args."""
@@ -960,9 +967,8 @@ class TestStaticDatasetGuards:
         [
             ("ingestion.metrica", [("metrica_tracking", 3), ("metrica_events", 3)], None),
             ("ingestion.idsse", [("idsse_tracking", 7), ("idsse_events", 7)], "IDSSE_MATCH_IDS"),
-            ("ingestion.skillcorner", [("skillcorner_tracking", 10)], None),
         ],
-        ids=["metrica", "idsse", "skillcorner"],
+        ids=["metrica", "idsse"],
     )
     def test_static_guard_skips_when_complete(
         self,
@@ -1015,8 +1021,8 @@ class TestStaticDatasetGuards:
 
     @pytest.mark.parametrize(
         "module_path",
-        ["ingestion.metrica", "ingestion.idsse", "ingestion.skillcorner"],
-        ids=["metrica", "idsse", "skillcorner"],
+        ["ingestion.metrica", "ingestion.idsse"],
+        ids=["metrica", "idsse"],
     )
     def test_static_guard_runs_when_incomplete(self, module_path: str) -> None:
         """Mock tables with Exception (table missing), verify count > 0."""

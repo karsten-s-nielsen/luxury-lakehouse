@@ -679,8 +679,8 @@ resource "databricks_job" "data_ingestion" {
   }
 
   # ── Task: Extract tracking player metadata ─────────────────────────────
-  # Reads IDSSE DFL match info XMLs and SkillCorner kloppy metadata to
-  # populate tracking_player_metadata bronze table with player/team names.
+  # Reads IDSSE DFL match info XMLs to populate tracking_player_metadata
+  # bronze table with player/team names.
   task {
     task_key        = "extract_tracking_metadata"
     timeout_seconds = 900
@@ -688,10 +688,6 @@ resource "databricks_job" "data_ingestion" {
 
     depends_on {
       task_key = "ingest_idsse"
-    }
-
-    depends_on {
-      task_key = "ingest_skillcorner"
     }
 
     python_wheel_task {
@@ -704,7 +700,7 @@ resource "databricks_job" "data_ingestion" {
       ]
     }
 
-    environment_key = "tracking"
+    environment_key = "default"
   }
 
   # ── Task: HF Hub sync — combined imports + exports ───────────────────
@@ -872,7 +868,7 @@ resource "databricks_job" "data_ingestion" {
       ]
     }
 
-    environment_key = "tracking"
+    environment_key = "default"
   }
 
   # ── Task: Ingest StatsBomb data ──────────────────────────────────────────
@@ -1180,19 +1176,6 @@ resource "databricks_job" "data_ingestion" {
     }
   }
 
-  # ── Environment for SkillCorner tracking task (kloppy for open data download)
-  environment {
-    environment_key = "tracking"
-
-    spec {
-      client = "1"
-
-      dependencies = [
-        var.wheel_path,
-        "kloppy>=3.17.0,<4.0"
-      ]
-    }
-  }
 
   # ── Job-level settings ───────────────────────────────────────────────────
 

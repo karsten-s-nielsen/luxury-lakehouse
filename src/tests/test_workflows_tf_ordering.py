@@ -236,7 +236,10 @@ def test_data_ingestion_parser_count_anchor() -> None:
     text = tf_file.read_text(encoding="utf-8")
     env_keys = _extract_top_level_block_keys(text, "databricks_job", "data_ingestion", "environment", "environment_key")
     task_keys = _extract_top_level_block_keys(text, "databricks_job", "data_ingestion", "task", "task_key")
-    assert len(env_keys) == 7, f"expected 7 environment blocks on data_ingestion, parser found {len(env_keys)}"
+    # 7 → 6 in SkillCorner ingestion rewrite (2026-05-16): removed `tracking`
+    # environment block (was kloppy-only for SkillCorner open data); tasks
+    # moved to `default`.
+    assert len(env_keys) == 6, f"expected 6 environment blocks on data_ingestion, parser found {len(env_keys)}"
     # 29 → 30 in PR-Cycle-A (2026-04-30): added `preflight_idsse` for runtime
     # chunk discovery feeding the `ingest_idsse` for_each_task fan-out.
     # 30 → 31 in PR-Cycle-B (2026-05-01): split `import_obso_results` out of

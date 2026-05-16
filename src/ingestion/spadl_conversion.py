@@ -1440,3 +1440,320 @@ def _convert_metrica_from_bronze(
 
     logger.info("Metrica: SPADL conversion complete for %d matches", len(new_match_ids))
     return True
+
+
+# ---------------------------------------------------------------------------
+# SkillCorner SPADL conversion
+# ---------------------------------------------------------------------------
+
+
+def _make_skillcorner_replace_where(hashed_match_ids: list[int]) -> str:
+    """Build a replaceWhere predicate scoped to specific SkillCorner matches."""
+    if not hashed_match_ids:
+        msg = "replace_where predicate requires at least one match_id"
+        raise ValueError(msg)
+    ids_sql = ", ".join(str(int(h)) for h in sorted(hashed_match_ids))
+    return f"data_source = 'skillcorner' AND match_id IN ({ids_sql})"
+
+
+def _make_skillcorner_spadl_udf(*, match_metadata: dict[str, object]) -> object:
+    """Build the applyInPandas UDF closure for SkillCorner SPADL conversion.
+
+    The silly-kicks SkillCorner converter API differs from other providers:
+    - Takes (events, match_metadata) instead of (events, home_team_id)
+    - Uses POSSESSION_PERSPECTIVE convention (to_spadl_ltr is a no-op)
+    - No home_team_start_left kwarg needed
+
+    Args:
+        match_metadata: Dict with keys "id", "pitch_length", "pitch_width",
+            "home_team" (nested: {"id": int}). Built driver-side from
+            bronze.skillcorner_matches. Captured in closure for executors.
+    """
+    # CPython closure scoping: _match_meta is captured by value (reference to
+    # the dict object). The dict is frozen at UDF-construction time on the
+    # driver; Spark serializes it into each executor's closure. This is safe
+    # because we never mutate _match_meta inside the UDF.
+    _match_meta = match_metadata
+
+    def _udf(pdf: pd.DataFrame) -> pd.DataFrame:
+        """Convert one SkillCorner match's events to SPADL actions."""
+        import pandas as _pd
+
+        from ingestion.spadl_adapter import hash_native_id_to_bigint as _hash_id
+
+        _spadl_cols = _pd.Index(
+            [
+                "game_id",
+                "match_id",
+                "original_event_id",
+                "period_id",
+                "time_seconds",
+                "team_id",
+                "player_id",
+                "start_x",
+                "start_y",
+                "end_x",
+                "end_y",
+                "type_id",
+                "result_id",
+                "bodypart_id",
+                "action_id",
+                "competition_id",
+                "season_id",
+                "data_source",
+                "statsbomb_possession_id",
+                "statsbomb_possession_team_id",
+                "statsbomb_play_pattern",
+                "statsbomb_under_pressure",
+                "possession_id_heuristic",
+                "gk_role",
+                "gk_was_distributing",
+                "gk_was_engaged",
+                "gk_actions_in_possession",
+                "defending_gk_player_id",
+                "team_id_native",
+                "home_team_id_native",
+                "competition_native_id",
+                "season_native_id",
+                "match_id_native",
+                "player_id_native",
+                "tackle_winner_player_id_native",
+                "tackle_winner_player_key",
+                "tackle_winner_team_id_native",
+                "tackle_winner_team_key",
+                "tackle_loser_player_id_native",
+                "tackle_loser_player_key",
+                "tackle_loser_team_id_native",
+                "tackle_loser_team_key",
+            ]
+        )
+
+        if pdf.empty:
+            return _pd.DataFrame(columns=_spadl_cols)
+
+        import silly_kicks.spadl.skillcorner as _spadl_sc
+
+        match_id_str = str(pdf["match_id"].iloc[0])
+
+        try:
+            actions, _report = _spadl_sc.convert_to_actions(pdf, _match_meta)
+        except Exception as exc:
+            msg = f"SkillCorner SPADL conversion failed for match_id={match_id_str}"
+            raise RuntimeError(msg) from exc
+
+        if _report.unrecognized_counts:
+            # NOTE: Inside an applyInPandas UDF, Python logging routes to
+            # executor stderr (visible in Spark driver logs), NOT the structured
+            # JSON pipeline logger. This is acceptable for diagnostics.
+            _udf_logger = logging.getLogger(__name__)
+            _udf_logger.warning(
+                "SPADL conversion unrecognized event types for match %s: %s",
+                match_id_str,
+                _report.unrecognized_counts,
+            )
+
+        # ADR-018: native IDs via canonical generators
+        from shared.identifiers import (
+            skillcorner_native_match_id,
+            skillcorner_native_team_id,
+        )
+
+        actions["team_id_native"] = (
+            actions["team_id"]
+            .apply(lambda tid: skillcorner_native_team_id(tid) if _pd.notna(tid) else _pd.NA)
+            .astype("string")
+        )
+
+        from ingestion.spadl_udf_shared import (
+            apply_match_level_natives,
+            apply_player_id_native,
+            cast_enrichment_dtypes,
+            null_fill_statsbomb_columns,
+            null_fill_tackle_qualifiers,
+        )
+
+        # player_id_native MUST precede legacy BIGINT NULL-fill
+        actions = apply_player_id_native(actions, source="skillcorner")
+
+        # Hash match_id for legacy BIGINT; NULL-fill other legacy BIGINTs
+        match_id_hashed = _hash_id(match_id_str)
+        actions["match_id"] = match_id_hashed
+        actions["game_id"] = match_id_hashed
+        n = len(actions)
+        actions["team_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
+        actions["player_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
+        actions["competition_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
+        actions["season_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
+        actions["data_source"] = "skillcorner"
+
+        from ingestion.spadl_enrichments import apply_spadl_enrichments as _enrich
+
+        actions = _enrich(actions, source="skillcorner")
+        actions["original_event_id"] = actions["original_event_id"].astype(str)
+
+        actions = null_fill_statsbomb_columns(actions, n=n)
+        actions = cast_enrichment_dtypes(actions)
+        actions = apply_match_level_natives(
+            actions,
+            home_team_id_native=str(_match_meta["home_team"]["id"]),  # type: ignore[index]
+            competition_native_id=_pd.NA,  # type: ignore[arg-type]  # SkillCorner has no competition_native_id in events
+            season_native_id=_pd.NA,  # type: ignore[arg-type]
+            match_id_native=skillcorner_native_match_id(match_id_str),
+        )
+        actions = null_fill_tackle_qualifiers(actions, n=n)
+
+        return _pd.DataFrame(actions[_spadl_cols])
+
+    return _udf
+
+
+def _convert_skillcorner_from_bronze(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    logger: logging.Logger,
+    existing_matches: set[int],
+) -> bool:
+    """Read SkillCorner events from bronze, convert to SPADL, write Delta.
+
+    Unlike IDSSE/Metrica, the SkillCorner converter needs a match_metadata
+    dict built from bronze.skillcorner_matches. This is resolved driver-side
+    per match, then captured in the UDF closure.
+
+    Returns whether any data was written.
+    """
+    from pyspark.sql import functions as spark_fn
+    from pyspark.sql.types import (
+        BooleanType,
+        DoubleType,
+        LongType,
+        StringType,
+        StructField,
+        StructType,
+    )
+
+    from ingestion.spadl_adapter import hash_native_id_to_bigint
+    from ingestion.utils import tolerate_missing_table
+
+    events_table = f"{catalog}.{schema}.skillcorner_events"
+    matches_table = f"{catalog}.{schema}.skillcorner_matches"
+
+    # Check if events table exists
+    with tolerate_missing_table(logger, "SkillCorner events bronze table not found -- skipping SPADL"):
+        events_sdf = spark.table(events_table)
+
+    if "events_sdf" not in dir():  # tolerate_missing_table suppressed the error
+        return False
+
+    all_match_rows = events_sdf.select("match_id").distinct().collect()  # type: ignore[possibly-undefined]
+    all_match_ids: list[str] = [str(row["match_id"]) for row in all_match_rows]
+
+    new_match_ids: list[str] = [mid for mid in all_match_ids if hash_native_id_to_bigint(mid) not in existing_matches]
+
+    if not new_match_ids:
+        logger.info("SkillCorner: all %d matches already converted -- skipping", len(all_match_ids))
+        return False
+
+    logger.info("SkillCorner: converting %d new matches (of %d total)", len(new_match_ids), len(all_match_ids))
+
+    wrote_any = False
+    spadl_schema = StructType(
+        [
+            StructField("game_id", LongType()),
+            StructField("match_id", LongType()),
+            StructField("original_event_id", StringType()),
+            StructField("period_id", LongType()),
+            StructField("time_seconds", DoubleType()),
+            StructField("team_id", LongType()),
+            StructField("player_id", LongType()),
+            StructField("start_x", DoubleType()),
+            StructField("start_y", DoubleType()),
+            StructField("end_x", DoubleType()),
+            StructField("end_y", DoubleType()),
+            StructField("type_id", LongType()),
+            StructField("result_id", LongType()),
+            StructField("bodypart_id", LongType()),
+            StructField("action_id", LongType()),
+            StructField("competition_id", LongType()),
+            StructField("season_id", LongType()),
+            StructField("data_source", StringType()),
+            StructField("statsbomb_possession_id", LongType()),
+            StructField("statsbomb_possession_team_id", LongType()),
+            StructField("statsbomb_play_pattern", StringType()),
+            StructField("statsbomb_under_pressure", BooleanType()),
+            StructField("possession_id_heuristic", LongType()),
+            StructField("gk_role", StringType()),
+            StructField("gk_was_distributing", BooleanType()),
+            StructField("gk_was_engaged", BooleanType()),
+            StructField("gk_actions_in_possession", LongType()),
+            StructField("defending_gk_player_id", LongType()),
+            StructField("team_id_native", StringType()),
+            StructField("home_team_id_native", StringType()),
+            StructField("competition_native_id", StringType()),
+            StructField("season_native_id", StringType()),
+            StructField("match_id_native", StringType()),
+            StructField("player_id_native", StringType()),
+            StructField("tackle_winner_player_id_native", StringType()),
+            StructField("tackle_winner_player_key", LongType()),
+            StructField("tackle_winner_team_id_native", StringType()),
+            StructField("tackle_winner_team_key", LongType()),
+            StructField("tackle_loser_player_id_native", StringType()),
+            StructField("tackle_loser_player_key", LongType()),
+            StructField("tackle_loser_team_id_native", StringType()),
+            StructField("tackle_loser_team_key", LongType()),
+        ]
+    )
+
+    # TRADEOFF: This loops N applyInPandas calls (one per match) instead of
+    # batching all matches in a single groupBy("match_id").applyInPandas like
+    # IDSSE/Metrica. The overhead is ~1-2s Spark job-submission latency per match.
+    # Acceptable because: (a) A-League has ~27 matches/season, not thousands;
+    # (b) each match needs a unique match_metadata dict in the closure; (c)
+    # batching would require a UDF that dispatches on match_id at runtime,
+    # which is more complex for negligible gain at this scale.
+    for mid in new_match_ids:
+        # Build match_metadata from bronze.skillcorner_matches (driver-side)
+        matches_pdf = (
+            spark.table(matches_table)
+            .filter(spark_fn.col("match_id") == mid)
+            .select("match_id", "pitch_length", "pitch_width", "home_team_id")
+            .limit(1)
+            .toPandas()
+        )
+
+        if matches_pdf.empty:
+            logger.warning("SkillCorner: no match metadata for %s -- skipping SPADL", mid)
+            continue
+
+        row = matches_pdf.iloc[0]
+        match_metadata: dict[str, object] = {
+            "id": str(row["match_id"]),
+            "pitch_length": int(row["pitch_length"]),
+            "pitch_width": int(row["pitch_width"]),
+            "home_team": {"id": int(row["home_team_id"])},
+        }
+
+        # Build UDF with this match's metadata
+        udf_fn = _make_skillcorner_spadl_udf(match_metadata=match_metadata)
+
+        # Filter events for this match
+        match_events_sdf = events_sdf.filter(spark_fn.col("match_id") == mid)  # type: ignore[possibly-undefined]
+
+        spadl_sdf = match_events_sdf.groupBy("match_id").applyInPandas(
+            udf_fn,  # type: ignore[arg-type]
+            schema=spadl_schema,
+        )
+
+        hashed_id = hash_native_id_to_bigint(mid)
+        write_delta_table(
+            spadl_sdf,
+            catalog,
+            schema,
+            _SPADL_TABLE,
+            replace_where=_make_skillcorner_replace_where([hashed_id]),
+            logger=logger,
+        )
+        wrote_any = True
+        logger.info("SkillCorner: SPADL conversion complete for match %s", mid)
+
+    return wrote_any

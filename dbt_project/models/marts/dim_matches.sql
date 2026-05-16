@@ -89,19 +89,20 @@ metrica_matches as (
 
 skillcorner_matches as (
 
-    -- PR 7 (ADR-011 close-out): SkillCorner onboarded into dim_matches.
-    -- SkillCorner has tracking-only data (no separate matches/teams/players
-    -- staging models); identity derived from distinct match_ids in the
-    -- tracking staging. No competition/season/date metadata in bronze.
-    select distinct
-        cast(match_id as string)       as native_match_id,
-        'skillcorner'                  as provider,
-        cast(null as string)           as competition_id,
-        cast(null as string)           as season_id,
-        cast(null as date)             as match_date,
-        cast(null as string)           as home_team_name,
-        cast(null as string)           as away_team_name
-    from {{ ref('stg_skillcorner__tracking') }}
+    -- SkillCorner matches sourced from stg_skillcorner__matches (roster format).
+    -- Real competition/season/date metadata from match.json via pining-for-the-data API.
+    -- Aggregate across roster rows to get one row per match, resolving team names
+    -- by matching team_id to home_team_id / away_team_id.
+    select
+        cast(match_id as string)                                            as native_match_id,
+        'skillcorner'                                                       as provider,
+        cast(max(competition_id) as string)                                 as competition_id,
+        cast(max(season_id) as string)                                      as season_id,
+        cast(max(match_date) as date)                                       as match_date,
+        max(case when team_id = home_team_id then team_name end)            as home_team_name,
+        max(case when team_id = away_team_id then team_name end)            as away_team_name
+    from {{ ref('stg_skillcorner__matches') }}
+    group by match_id
 
 ),
 

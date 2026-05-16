@@ -11,7 +11,7 @@ boundary, against OUR fixtures. Catches:
   changes; this test catches drift between bronze schema and silly-
   kicks's converter expectations)
 
-4 sources x 5 invariants = 20 tests.
+5 sources x 5 invariants = 25 tests (+ 2 SkillCorner-specific = 27).
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 import silly_kicks.spadl.metrica
+import silly_kicks.spadl.skillcorner
 import silly_kicks.spadl.sportec
 import silly_kicks.spadl.statsbomb
 import silly_kicks.spadl.wyscout
@@ -38,6 +39,7 @@ _PARAMETRIZE = pytest.mark.parametrize(
         ("wyscout", silly_kicks.spadl.wyscout, "ws_match_2576335.parquet"),
         ("idsse", silly_kicks.spadl.sportec, "idsse_J03WMX.parquet"),
         ("metrica", silly_kicks.spadl.metrica, "metrica_sample_game_1.parquet"),
+        ("skillcorner", silly_kicks.spadl.skillcorner, "sc_match_1886347.parquet"),
     ],
 )
 
@@ -78,6 +80,10 @@ def _adapt_input(source: str, df: pd.DataFrame) -> tuple[pd.DataFrame, object]:
         from ingestion.spadl_adapter import adapt_metrica_events_for_silly_kicks
 
         return adapt_metrica_events_for_silly_kicks(df), "Home"
+    if source == "skillcorner":
+        # SkillCorner converter takes (events, match_metadata) — no adapter needed.
+        # Return raw df; _call_converter handles the match_metadata dict.
+        return df, None
     msg = f"unknown source {source!r}"
     raise ValueError(msg)
 
@@ -102,6 +108,14 @@ def _call_converter(source: str, converter, adapted: pd.DataFrame, hti, df: pd.D
 
         home_start_left = derive_metrica_home_team_start_left(adapted, home_team_value="Home")
         return converter.convert_to_actions(adapted, home_team_id=hti, home_team_start_left=home_start_left)
+    if source == "skillcorner":
+        import json
+        from pathlib import Path
+
+        meta_path = Path(__file__).parent / "fixtures" / "silly_kicks_boundary" / "sc_match_1886347_meta.json"
+        with open(meta_path) as f:
+            match_metadata = json.load(f)
+        return converter.convert_to_actions(adapted, match_metadata)
     return converter.convert_to_actions(adapted, home_team_id=hti)
 
 
@@ -123,6 +137,13 @@ def test_team_id_subset_of_input_team_or_team_id(source, converter, fixture) -> 
     elif source == "wyscout":
         input_teams = set(df["teamId"].dropna().astype(int).unique())
         assert out_teams <= input_teams
+    elif source == "skillcorner":
+        # SkillCorner converter outputs team_id as string; compare as strings
+        input_teams_str = set(str(int(v)) for v in df["team_id"].dropna().unique())
+        out_teams_str = set(str(v) for v in out_teams)
+        assert out_teams_str <= input_teams_str, (
+            f"skillcorner: output teams {out_teams_str - input_teams_str} not in input {input_teams_str}"
+        )
     else:
         # IDSSE + Metrica use string team labels in input
         input_teams_str = set(df["team"].dropna().astype(str).unique())
@@ -273,6 +294,7 @@ def test_player_id_format_contract(source, converter, fixture) -> None:  # type:
     from shared.identifiers import (
         idsse_native_player_id,
         metrica_native_player_id,
+        skillcorner_native_player_id,
         statsbomb_native_player_id,
         wyscout_native_player_id,
     )
@@ -289,6 +311,7 @@ def test_player_id_format_contract(source, converter, fixture) -> None:  # type:
         "wyscout": lambda v: wyscout_native_player_id(int(v)),
         "idsse": lambda v: idsse_native_player_id(str(v)),
         "metrica": lambda v: metrica_native_player_id(str(v)),
+        "skillcorner": lambda v: skillcorner_native_player_id(int(v)),
     }[source]
 
     for val in non_null.head(10):

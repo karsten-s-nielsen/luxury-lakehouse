@@ -71,7 +71,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
 
         lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL endpoint syncing 40 Delta tables (54 indexes: 48 btree + 6 HNSW)" "External"
         databricksApi = softwareSystem "Databricks REST API" "OAuth, synced table metadata, pipeline triggers, state polling" "External"
-        databricksWorkflows = softwareSystem "Databricks Workflows" "32-task daily DAG: 5 ingest, 13 compute, 1 HF sync (10 sub-ops), dbt_build, refresh" "External"
+        databricksWorkflows = softwareSystem "Databricks Workflows" "33-task daily DAG: 5 ingest, 13 compute, 1 HF sync (10 sub-ops), 3 dbt_build, refresh, preflight" "External"
         hfIdentity = softwareSystem "HuggingFace Identity API" "Token validation via /api/whoami-v2. Org membership check." "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds Dockerfile, serves port 7860." "External"
         hfHub = softwareSystem "HuggingFace Hub" "17 models, 19 datasets, build-artifacts wheel. READMEs via ADR-014." "External"

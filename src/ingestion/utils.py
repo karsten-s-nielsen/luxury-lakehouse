@@ -400,6 +400,9 @@ def fetch_url(
     url: str,
     timeout: tuple[int, int] = (10, 30),
     max_retries: int = 3,
+    *,
+    headers: dict[str, str] | None = None,
+    stream: bool = False,
 ) -> requests.Response:
     """Fetch a URL with HTTPS enforcement, SSL verification, and retry logic.
 
@@ -410,6 +413,8 @@ def fetch_url(
         url: The resource URL. Must use ``https://``.
         timeout: ``(connect, read)`` timeout in seconds.
         max_retries: Maximum number of retries for transient errors.
+        headers: Optional extra headers to include in the request.
+        stream: If True, don't eagerly download the response body.
 
     Returns:
         Successful :class:`requests.Response`.
@@ -426,7 +431,7 @@ def fetch_url(
     last_response: requests.Response | None = None
 
     for attempt in range(max_retries):
-        response = session.get(url, timeout=timeout)
+        response = session.get(url, timeout=timeout, headers=headers, stream=stream)
         last_response = response
 
         if response.status_code < 400:

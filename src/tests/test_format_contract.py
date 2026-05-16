@@ -18,6 +18,9 @@ import pytest
 import yaml
 
 from shared.identifiers import (
+    NativeMatchId,
+    NativePlayerId,
+    NativeTeamId,
     idsse_native_competition_id,
     idsse_native_match_id,
     idsse_native_player_id,
@@ -27,6 +30,9 @@ from shared.identifiers import (
     metrica_native_player_id,
     metrica_native_season_id,
     metrica_native_team_id,
+    skillcorner_native_match_id,
+    skillcorner_native_player_id,
+    skillcorner_native_team_id,
     statsbomb_native_player_id,
     statsbomb_native_team_id,
     wyscout_native_player_id,
@@ -242,3 +248,69 @@ class TestTeamIdFormatContract:
     def test_idsse_native_team_id_rejects_bad_format(self) -> None:
         with pytest.raises(ValueError):
             idsse_native_team_id("not-a-clu-id")
+
+
+# ---------------------------------------------------------------------------
+# SkillCorner — ADR-018 format contracts
+# ---------------------------------------------------------------------------
+
+
+class TestSkillCornerFormatContract:
+    def test_skillcorner_match_id_from_string(self) -> None:
+        assert skillcorner_native_match_id("1886347") == "1886347"
+
+    def test_skillcorner_match_id_from_int(self) -> None:
+        assert skillcorner_native_match_id(1886347) == "1886347"
+
+    def test_skillcorner_match_id_rejects_prefix(self) -> None:
+        with pytest.raises(ValueError, match="invalid SkillCorner match id"):
+            skillcorner_native_match_id("skillcorner_1886347")
+
+    def test_skillcorner_match_id_rejects_empty(self) -> None:
+        with pytest.raises(ValueError, match="invalid SkillCorner match id"):
+            skillcorner_native_match_id("")
+
+    def test_skillcorner_match_id_rejects_alpha(self) -> None:
+        with pytest.raises(ValueError, match="invalid SkillCorner match id"):
+            skillcorner_native_match_id("abc123")
+
+
+class TestSkillCornerPlayerIdFormatContract:
+    def test_skillcorner_native_player_id_valid(self) -> None:
+        assert skillcorner_native_player_id(38673) == "38673"
+
+    def test_skillcorner_native_player_id_string(self) -> None:
+        assert skillcorner_native_player_id("38673") == "38673"
+
+    def test_skillcorner_native_player_id_rejects_prefix(self) -> None:
+        with pytest.raises(ValueError):
+            skillcorner_native_player_id("player_38673")
+
+
+class TestSkillCornerTeamIdFormatContract:
+    def test_skillcorner_native_team_id_valid(self) -> None:
+        assert skillcorner_native_team_id(4177) == "4177"
+
+    def test_skillcorner_native_team_id_string(self) -> None:
+        assert skillcorner_native_team_id("4177") == "4177"
+
+    def test_skillcorner_native_team_id_rejects_prefix(self) -> None:
+        with pytest.raises(ValueError):
+            skillcorner_native_team_id("team_4177")
+
+
+class TestSkillCornerNamedTuples:
+    def test_native_match_id_skillcorner(self) -> None:
+        nid = NativeMatchId.skillcorner("1886347")
+        assert nid.provider == "skillcorner"
+        assert nid.value == "1886347"
+
+    def test_native_player_id_skillcorner(self) -> None:
+        nid = NativePlayerId.skillcorner("38673")
+        assert nid.provider == "skillcorner"
+        assert nid.value == "38673"
+
+    def test_native_team_id_skillcorner(self) -> None:
+        nid = NativeTeamId.skillcorner("4177")
+        assert nid.provider == "skillcorner"
+        assert nid.value == "4177"
