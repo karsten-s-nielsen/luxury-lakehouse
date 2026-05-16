@@ -16,6 +16,7 @@ KDD 2019.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -92,7 +93,7 @@ def _read_existing_match_ids(
 # ---------------------------------------------------------------------------
 
 
-def _make_sb_spadl_udf() -> object:
+def _make_sb_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
     """Build the ``applyInPandas`` UDF closure for StatsBomb SPADL conversion.
 
     All library imports happen inside the closure so they are available
@@ -423,7 +424,7 @@ def _convert_statsbomb_from_bronze(
 # ---------------------------------------------------------------------------
 
 
-def _make_ws_spadl_udf(goalkeeper_ids: set[int] | None = None) -> object:
+def _make_ws_spadl_udf(goalkeeper_ids: set[int] | None = None) -> Callable[[pd.DataFrame], pd.DataFrame]:
     """Build the ``applyInPandas`` UDF closure for Wyscout SPADL conversion.
 
     All library imports happen inside the closure so they are available
@@ -781,7 +782,7 @@ def _make_idsse_replace_where(hashed_match_ids: list[int]) -> str:
     return f"data_source = 'idsse' AND match_id IN ({ids_sql})"
 
 
-def _make_idsse_spadl_udf() -> object:
+def _make_idsse_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
     """Build the ``applyInPandas`` UDF closure for IDSSE SPADL conversion.
 
     All silly-kicks library imports happen inside the closure so they are
@@ -1163,7 +1164,7 @@ def _make_metrica_replace_where(hashed_match_ids: list[int]) -> str:
     return f"data_source = 'metrica' AND match_id IN ({ids_sql})"
 
 
-def _make_metrica_spadl_udf() -> object:
+def _make_metrica_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
     """Build the ``applyInPandas`` UDF closure for Metrica SPADL conversion.
 
     The UDF expects bronze.metrica_events rows with PR-LL2 Path B columns:
@@ -1456,7 +1457,7 @@ def _make_skillcorner_replace_where(hashed_match_ids: list[int]) -> str:
     return f"data_source = 'skillcorner' AND match_id IN ({ids_sql})"
 
 
-def _make_skillcorner_spadl_udf(*, match_metadata: dict[str, object]) -> object:
+def _make_skillcorner_spadl_udf(*, match_metadata: dict[str, object]) -> Callable[[pd.DataFrame], pd.DataFrame]:
     """Build the applyInPandas UDF closure for SkillCorner SPADL conversion.
 
     The silly-kicks SkillCorner converter API differs from other providers:
