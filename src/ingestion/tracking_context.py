@@ -212,7 +212,7 @@ _TRACKING_CONTEXT_DDL = (
     "start_x DOUBLE, start_y DOUBLE, end_x DOUBLE, end_y DOUBLE, "
     "frame_id BIGINT, time_offset_seconds DOUBLE, link_quality_score DOUBLE, "
     "n_candidate_frames BIGINT, "
-    "defending_gk_player_id DOUBLE, gk_was_distributing BOOLEAN, "
+    "defending_gk_player_id STRING, gk_was_distributing BOOLEAN, "
     "gk_was_engaged BOOLEAN, gk_actions_in_possession BIGINT, "
     "pre_shot_gk_x DOUBLE, pre_shot_gk_y DOUBLE, "
     "pre_shot_gk_distance_to_goal DOUBLE, pre_shot_gk_distance_to_shot DOUBLE, "

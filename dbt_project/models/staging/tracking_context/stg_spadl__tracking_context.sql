@@ -41,8 +41,8 @@ cleaned as (
         cast(time_offset_seconds as double) as time_offset_seconds,
         cast(link_quality_score as double)  as link_quality_score,
         cast(n_candidate_frames as bigint)  as n_candidate_frames,
-        -- GK resolution (DOUBLE in bronze → BIGINT for dim_players join)
-        cast(defending_gk_player_id as bigint) as defending_gk_player_id,
+        -- GK resolution (native player ID string)
+        defending_gk_player_id,
         cast(gk_was_distributing as boolean) as gk_was_distributing,
         cast(gk_was_engaged as boolean)     as gk_was_engaged,
         cast(gk_actions_in_possession as bigint) as gk_actions_in_possession,

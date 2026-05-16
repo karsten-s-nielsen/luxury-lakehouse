@@ -4704,7 +4704,7 @@ models:
       - name: n_candidate_frames
         data_type: bigint
       - name: defending_gk_player_id
-        data_type: bigint
+        data_type: string
       - name: gk_was_distributing
         data_type: boolean
       - name: gk_was_engaged
