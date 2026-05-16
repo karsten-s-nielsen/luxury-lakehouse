@@ -22,8 +22,8 @@ references:
 inputs:
   datasets:
     - id: "pining-for-the-data API (SkillCorner provider)"
-      source: rest-api
-      description: "Events, tracking, and match metadata for A-League matches"
+      source: huggingface
+      description: "Events, tracking, and match metadata for A-League matches via REST API"
 
 outputs:
   tables:
@@ -47,9 +47,9 @@ execution:
 depends_on: []
 
 idempotency:
-  strategy: replace-where
+  strategy: skip-guard
   key: match_id
-  description: "Uses replaceWhere on match_id for idempotent per-match writes. Guard queries MAX(_ingested_at) and uses updatedSince API filter."
+  description: "API-based guard queries MAX(_ingested_at) and uses updatedSince filter. Per-match writes use replaceWhere on match_id."
 
 performance:
   inference_timeout: "900s"
