@@ -435,7 +435,25 @@ def _make_tracking_context_udf(
                 from ingestion.tracking_context import _bronze_metrica_to_frames
 
                 game_id = int(actions["game_id"].iloc[0])
-                frames = _bronze_metrica_to_frames(pdf, game_id=game_id)
+                # Build jersey→player_id lookup from SPADL actions
+                _pid_col = "player_id"
+                _unique_pids = actions[_pid_col].dropna().unique()
+                _has_space = any(" " in str(p) for p in _unique_pids)
+                _fallback_fmt = "Player {}" if _has_space else "Player{}"
+                import re as _re
+
+                _jersey_re = _re.compile(r"Player\s*(\d+)")
+                _jersey_to_pid: dict[str, str] = {}
+                for _p in _unique_pids:
+                    _m = _jersey_re.match(str(_p))
+                    if _m:
+                        _jersey_to_pid[_m.group(1)] = str(_p)
+                frames = _bronze_metrica_to_frames(
+                    pdf,
+                    game_id=game_id,
+                    jersey_to_pid=_jersey_to_pid,
+                    fallback_fmt=_fallback_fmt,
+                )
                 del pdf
                 _gc.collect()
 
@@ -523,14 +541,21 @@ def _resolve_enrichment_identity(
         NotImplementedError: If provider is "skillcorner" (no SPADL actions exist;
             frames use "home"/"away" but home_team_id is a kloppy numeric ID).
     """
-    if actions["team_id_native"].dropna().empty:
+    non_null_mask = actions["team_id_native"].notna()
+    if not non_null_mask.any():
         msg = f"team_id_native is entirely null for provider={provider} — cannot resolve enrichment identity"
         raise ValueError(msg)
 
+    # Cast team_id/player_id to object so .loc can accept string values
+    # (incoming dtype is Int64 from Kimball surrogates).
+    actions["team_id"] = actions["team_id"].astype("object")
+    actions["player_id"] = actions["player_id"].astype("object")
+
     if provider == "idsse":
-        # DFL CLU/OBJ strings match both frames and home_team_id directly
-        actions["team_id"] = actions["team_id_native"]
-        actions["player_id"] = actions["player_id_native"]
+        # DFL CLU/OBJ strings match both frames and home_team_id directly.
+        # Only resolve non-null rows; null-team rows get NaN (graceful degradation).
+        actions.loc[non_null_mask, "team_id"] = actions.loc[non_null_mask, "team_id_native"]
+        actions.loc[non_null_mask, "player_id"] = actions.loc[non_null_mask, "player_id_native"]
 
     elif provider == "metrica":
         # Use canonical format generator for reverse mapping (identifiers.py
@@ -541,10 +566,10 @@ def _resolve_enrichment_identity(
             metrica_native_team_id(match_id_native, "home"): "Home",
             metrica_native_team_id(match_id_native, "away"): "Away",
         }
-        actions["team_id"] = actions["team_id_native"].map(fwd)
+        actions.loc[non_null_mask, "team_id"] = actions.loc[non_null_mask, "team_id_native"].map(fwd)
         # player_id_native is "PlayerN" (kloppy convention) — matches
         # frames player_id after converter normalization.
-        actions["player_id"] = actions["player_id_native"]
+        actions.loc[non_null_mask, "player_id"] = actions.loc[non_null_mask, "player_id_native"]
 
     elif provider == "skillcorner":
         # SkillCorner has no SPADL converter — no rows exist in
@@ -692,9 +717,11 @@ def _enrich_match(
 
     # Step 12: DAS (action-linked frames + chunk_size=10)
     # Bypasses add_das because _precompute_das_lookup does not expose chunk_size.
-    # TODO: Switch back to add_das once silly-kicks PR-S40 ships das_kwargs passthrough.
+    # TODO: Replace this inline bypass with direct call to _precompute_das_lookup
+    # once silly-kicks add_das supports kwargs passthrough. This bypass duplicates
+    # _precompute_das_lookup from silly_kicks.tracking.features.
     import pandas as pd
-    from silly_kicks.tracking._das import get_das
+    from silly_kicks.tracking._das import get_individual_das
 
     try:
         # ── Ball-carrier on ALL frames (contiguous → correct hysteresis) ──
@@ -710,17 +737,17 @@ def _enrich_match(
         das_frames = frames_with_tip.merge(linked_frame_ids, on=["period_id", "frame_id"], how="inner")
         del linked, frames_with_tip
 
-        # ── Direct get_das with chunk_size=10 (bypasses add_das) ──
-        das_result = get_das(das_frames, use_progress_bar=False, chunk_size=10)
+        # ── Direct get_individual_das with chunk_size=10 (bypasses add_das) ──
+        das_result = get_individual_das(das_frames, use_progress_bar=False, chunk_size=10)
         del das_frames
 
         # ── Build (period_id, frame_id) -> {team_id: DAS} lookup ──
-        # Same logic as silly_kicks.tracking.features._precompute_das_lookup
+        # Mirrors silly_kicks.tracking.features._precompute_das_lookup
         player_rows = das_result[das_result["is_ball"] != True]  # noqa: E712
         valid_rows = player_rows.dropna(subset=["DAS"])
         das_lookup: dict[tuple, dict] = {}
         for (pid, fid, tid), grp in valid_rows.groupby(["period_id", "frame_id", "team_id"]):
-            das_lookup.setdefault((pid, fid), {})[tid] = float(grp["DAS"].iloc[0])
+            das_lookup.setdefault((pid, fid), {})[tid] = float(grp["DAS"].sum())
         del das_result, player_rows, valid_rows
 
         # ── Map DAS to actions ──
@@ -749,7 +776,7 @@ def _enrich_match(
         actions["das_opponent"] = opp_vals
         actions["das_diff"] = team_vals - opp_vals
 
-    except (IndexError, ValueError, RuntimeError) as exc:
+    except (IndexError, ValueError, RuntimeError, TypeError) as exc:
         logger.error(
             "DAS degraded to NaN for match_id=%s: %s: %s",
             match_id_native,
@@ -1044,7 +1071,13 @@ _METRICA_CONSUMED_COLS: frozenset[str] = frozenset(
 """Columns consumed by _bronze_metrica_to_frames from bronze.metrica_tracking."""
 
 
-def _bronze_metrica_to_frames(trk_pdf: pd.DataFrame, game_id: int) -> pd.DataFrame:
+def _bronze_metrica_to_frames(
+    trk_pdf: pd.DataFrame,
+    game_id: int,
+    *,
+    jersey_to_pid: dict[str, str],
+    fallback_fmt: str,
+) -> pd.DataFrame:
     """Convert Metrica bronze tracking (frame-level JSON) to silly-kicks frames.
 
     Bronze schema: period, frame, timestamp, ball_x, ball_y,
@@ -1101,7 +1134,7 @@ def _bronze_metrica_to_frames(trk_pdf: pd.DataFrame, game_id: int) -> pd.DataFra
                             "frame_id": fid,
                             "period_id": pid,
                             "time_seconds": t,
-                            "player_id": f"Player{jersey}",
+                            "player_id": jersey_to_pid.get(jersey, fallback_fmt.format(jersey)),
                             "team_id": team_label,
                             "x": x_spadl,
                             "y": y_spadl,

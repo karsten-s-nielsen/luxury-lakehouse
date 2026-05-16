@@ -255,13 +255,13 @@ def _make_enrichment_patches(actions, mock_get_das_side_effect=None):
     """Build patch list for all silly-kicks enrichment functions in _enrich_match.
 
     Mocks all enrichment steps to pass through their first arg unchanged,
-    except get_das which uses the provided side_effect. Isolates DAS exception
-    handling from the 14 other enrichment steps.
+    except get_individual_das which uses the provided side_effect. Isolates DAS
+    exception handling from the 14 other enrichment steps.
 
     Args:
         actions: Actions DataFrame (used to build mock links).
-        mock_get_das_side_effect: Side effect for the get_das mock. If a
-            callable, it's called with (frames, **kwargs). If an exception
+        mock_get_das_side_effect: Side effect for the get_individual_das mock.
+            If a callable, it's called with (frames, **kwargs). If an exception
             class/instance, it's raised. If None, returns an empty DataFrame.
     """
     from unittest.mock import patch
@@ -319,7 +319,7 @@ def _make_enrichment_patches(actions, mock_get_das_side_effect=None):
         patch("silly_kicks.tracking.add_team_shape", passthrough),
         patch("silly_kicks.tracking.infer_ball_carrier", mock_infer_ball_carrier),
         patch("silly_kicks.tracking.derive_team_in_possession", mock_derive_tip),
-        patch("silly_kicks.tracking._das.get_das", side_effect=mock_get_das_side_effect),
+        patch("silly_kicks.tracking._das.get_individual_das", side_effect=mock_get_das_side_effect),
         patch("silly_kicks.tracking.add_gk_influence", passthrough),
         patch("silly_kicks.tracking.add_cover_shadows", passthrough),
         patch("silly_kicks.tracking.add_sync_score", passthrough),
@@ -327,7 +327,7 @@ def _make_enrichment_patches(actions, mock_get_das_side_effect=None):
 
 
 def test_das_uses_action_linked_frames_and_chunk_size(caplog) -> None:
-    """DAS calls get_das with only action-linked frame_ids and chunk_size=10."""
+    """DAS calls get_individual_das with only action-linked frame_ids and chunk_size=10."""
     import logging
     from unittest.mock import MagicMock, patch
 
@@ -389,7 +389,7 @@ def test_das_uses_action_linked_frames_and_chunk_size(caplog) -> None:
         f["team_in_possession"] = pd.NA
         return f
 
-    # Capture get_das call — return a plausible DAS result
+    # Capture get_individual_das call — return a plausible DAS result
     mock_get_das = MagicMock()
     mock_get_das.return_value = pd.DataFrame(
         {
@@ -416,7 +416,7 @@ def test_das_uses_action_linked_frames_and_chunk_size(caplog) -> None:
         patch("silly_kicks.tracking.add_team_shape", passthrough),
         patch("silly_kicks.tracking.infer_ball_carrier", mock_infer),
         patch("silly_kicks.tracking.derive_team_in_possession", mock_tip),
-        patch("silly_kicks.tracking._das.get_das", mock_get_das),
+        patch("silly_kicks.tracking._das.get_individual_das", mock_get_das),
         patch("silly_kicks.tracking.add_gk_influence", passthrough),
         patch("silly_kicks.tracking.add_cover_shadows", passthrough),
         patch("silly_kicks.tracking.add_sync_score", passthrough),
@@ -437,14 +437,14 @@ def test_das_uses_action_linked_frames_and_chunk_size(caplog) -> None:
         for p in patches:
             p.stop()
 
-    # Verify get_das was called
+    # Verify get_individual_das was called
     mock_get_das.assert_called_once()
 
     # Verify chunk_size=10 was passed
     _, kwargs = mock_get_das.call_args
     assert kwargs.get("chunk_size") == 10, f"Expected chunk_size=10, got {kwargs}"
 
-    # Verify get_das received only action-linked frame_ids (250), not all frames
+    # Verify get_individual_das received only action-linked frame_ids (250), not all frames
     das_frames_arg = mock_get_das.call_args[0][0]  # first positional arg
     actual_frame_ids = sorted(das_frames_arg["frame_id"].unique().tolist())
     assert actual_frame_ids == [250], f"Expected [250], got {actual_frame_ids}"
@@ -538,8 +538,8 @@ def test_das_value_error_degrades_gracefully(caplog) -> None:
 def test_das_uncaught_error_propagates() -> None:
     """Exceptions NOT in the DAS catch list must propagate (ADR-002 section 5).
 
-    The defense-in-depth wrapper catches (IndexError, ValueError, RuntimeError).
-    TypeError is outside this list and must crash the UDF group loudly.
+    The defense-in-depth wrapper catches (IndexError, ValueError, RuntimeError, TypeError).
+    KeyError is outside this list and must crash the UDF group loudly.
     """
     import pytest
 
@@ -550,12 +550,12 @@ def test_das_uncaught_error_propagates() -> None:
 
     patches = _make_enrichment_patches(
         actions,
-        mock_get_das_side_effect=TypeError("unexpected type error in DAS"),
+        mock_get_das_side_effect=KeyError("unexpected key error in DAS"),
     )
     for p in patches:
         p.start()
     try:
-        with pytest.raises(TypeError, match="unexpected type error in DAS"):
+        with pytest.raises(KeyError, match="unexpected key error in DAS"):
             _enrich_match(
                 actions=actions,
                 frames=frames,
@@ -714,7 +714,7 @@ def test_bekkers_pi_degrades_on_missing_ball_rows(caplog) -> None:
         patch("silly_kicks.tracking.add_team_shape", passthrough),
         patch("silly_kicks.tracking.infer_ball_carrier", mock_infer_ball_carrier),
         patch("silly_kicks.tracking.derive_team_in_possession", mock_derive_tip),
-        patch("silly_kicks.tracking._das.get_das", side_effect=ValueError("no TIP")),
+        patch("silly_kicks.tracking._das.get_individual_das", side_effect=ValueError("no TIP")),
         patch("silly_kicks.tracking.add_gk_influence", passthrough),
         patch("silly_kicks.tracking.add_cover_shadows", passthrough),
         patch("silly_kicks.tracking.add_sync_score", passthrough),
@@ -801,7 +801,7 @@ def test_bekkers_pi_unrelated_valueerror_propagates() -> None:
         patch("silly_kicks.tracking.add_team_shape", passthrough),
         patch("silly_kicks.tracking.infer_ball_carrier", mock_infer),
         patch("silly_kicks.tracking.derive_team_in_possession", mock_tip),
-        patch("silly_kicks.tracking._das.get_das", side_effect=ValueError("no TIP")),
+        patch("silly_kicks.tracking._das.get_individual_das", side_effect=ValueError("no TIP")),
         patch("silly_kicks.tracking.add_gk_influence", passthrough),
         patch("silly_kicks.tracking.add_cover_shadows", passthrough),
         patch("silly_kicks.tracking.add_sync_score", passthrough),

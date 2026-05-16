@@ -34,7 +34,12 @@ def test_converter_normalizes_jersey_to_player_prefix() -> None:
         }
     )
 
-    frames = _bronze_metrica_to_frames(trk_pdf, game_id=1)
+    frames = _bronze_metrica_to_frames(
+        trk_pdf,
+        game_id=1,
+        jersey_to_pid={"11": "Player11", "25": "Player25"},
+        fallback_fmt="Player{}",
+    )
     player_rows = frames[~frames["is_ball"]]
 
     player_ids = set(player_rows["player_id"].tolist())
@@ -70,7 +75,12 @@ def test_converter_gk_detection_with_player_prefix() -> None:
         }
     )
 
-    frames = _bronze_metrica_to_frames(trk_pdf, game_id=1)
+    frames = _bronze_metrica_to_frames(
+        trk_pdf,
+        game_id=1,
+        jersey_to_pid={"1": "Player1", "11": "Player11"},
+        fallback_fmt="Player{}",
+    )
     player_rows = frames[~frames["is_ball"]]
 
     gk_rows = player_rows[player_rows["player_id"] == "Player1"]

@@ -59,7 +59,7 @@ def _make_synthetic_frames(n_frames: int = 100) -> pd.DataFrame:
                     "period_id": 1,
                     "time_seconds": t,
                     "player_id": p,
-                    "team_id": 100 if p <= 11 else 200,
+                    "team_id": "100" if p <= 11 else "200",
                     "x": rng.uniform(0, 105),
                     "y": rng.uniform(0, 68),
                     "vx": rng.uniform(-5, 5),
@@ -127,7 +127,7 @@ class TestEnrichmentChain:
             actions=actions,
             frames=frames,
             xt=xt,
-            home_team_id=100,
+            home_team_id="100",
             match_id_native="test_match_1",
             data_source="idsse",
         )
@@ -158,7 +158,7 @@ class TestEnrichmentChain:
                 actions=actions,
                 frames=frames,
                 xt=xt,
-                home_team_id=100,
+                home_team_id="100",
                 match_id_native="test_match_1",
                 data_source="idsse",
             )
@@ -172,8 +172,8 @@ class TestEnrichmentChain:
             f"Expected link_actions_to_frames called once (pre-link), got {spy.call_count} calls"
         )
 
-    def test_das_columns_are_not_all_nan(self, actions: pd.DataFrame, frames: pd.DataFrame) -> None:
-        """With ball-carrier inference, DAS columns should have real values on synthetic data."""
+    def test_das_columns_exist_and_are_non_negative(self, actions: pd.DataFrame, frames: pd.DataFrame) -> None:
+        """DAS columns must exist; any non-NaN values must be non-negative."""
         pytest.importorskip("silly_kicks")
         from silly_kicks.xthreat import ExpectedThreat
 
@@ -186,15 +186,109 @@ class TestEnrichmentChain:
             actions=actions,
             frames=frames,
             xt=xt,
-            home_team_id=100,
+            home_team_id="100",
             match_id_native="test_match_1",
             data_source="idsse",
         )
 
-        # DAS columns must exist in the output. On synthetic data with random
-        # player positions, accessible-space may produce all-NaN values (the
-        # library needs realistic formations to compute DAS). The real DAS
-        # value validation is on Databricks with production tracking data.
         das_cols = ["das_team", "das_opponent", "das_diff"]
         for col in das_cols:
             assert col in result.columns, f"Missing column: {col}"
+        # Non-negativity check for team/opponent (das_diff can be negative)
+        for col in ["das_team", "das_opponent"]:
+            non_null = result[col].dropna()
+            if len(non_null) > 0:
+                assert (non_null >= 0).all(), f"{col} has negative values"
+
+
+class TestDasAggregation:
+    """Fix D: DAS aggregation must use .sum() (per-player), not .iloc[0] (per-frame scalar)."""
+
+    @pytest.fixture
+    def actions(self) -> pd.DataFrame:
+        """Reuse the existing 20-action synthetic fixture."""
+        return _make_synthetic_actions()
+
+    @pytest.fixture
+    def frames(self) -> pd.DataFrame:
+        """Reuse the existing 100-frame synthetic fixture (22 players + ball)."""
+        return _make_synthetic_frames()
+
+    def test_das_uses_sum_not_iloc0(self, actions: pd.DataFrame, frames: pd.DataFrame) -> None:
+        """With per-player DAS, .sum() and .iloc[0] produce different team totals.
+
+        Mock get_individual_das at the SOURCE module (silly_kicks.tracking._das)
+        because _enrich_match imports it function-locally — patching the consumer
+        module would raise AttributeError.
+
+        Mock returns known per-player values:
+        - Team 100: player 1 = 0.3, player 2 = 0.2 → sum = 0.5
+        - Team 200: player 12 = 0.15, player 13 = 0.10 → sum = 0.25
+        - .iloc[0] would give: Team100=0.3, Team200=0.15 (WRONG)
+        - .sum() would give:   Team100=0.5, Team200=0.25 (CORRECT)
+        """
+        pytest.importorskip("silly_kicks")
+        from unittest.mock import patch
+
+        from silly_kicks.xthreat import ExpectedThreat
+
+        from ingestion.tracking_context import _enrich_match
+
+        xt = ExpectedThreat(l=16, w=12)
+        xt.fit(actions)
+
+        # Map player_id -> DAS value. Use players from _make_synthetic_frames
+        # (players 1-11 on team 100, players 12-22 on team 200).
+        # Assign different values to first two players per team so
+        # .iloc[0] != .sum() for each team.
+        das_by_player = {
+            1: 0.3,
+            2: 0.2,  # team 100: .iloc[0]=0.3, .sum()=0.5
+            12: 0.15,
+            13: 0.10,  # team 200: .iloc[0]=0.15, .sum()=0.25
+        }
+
+        def mock_get_individual_das(das_frames, **kwargs):  # type: ignore[no-untyped-def]
+            result = das_frames.copy()
+            das_values = []
+            for _, row in result.iterrows():
+                if row["is_ball"]:
+                    das_values.append(np.nan)
+                else:
+                    das_values.append(das_by_player.get(row["player_id"], 0.0))
+            result["DAS"] = das_values
+            result["AS"] = das_values  # AS not used but returned by real API
+            return result
+
+        # Patch at SOURCE module — function-local imports resolve from there
+        with patch("silly_kicks.tracking._das.get_individual_das", mock_get_individual_das):
+            result = _enrich_match(
+                actions=actions,
+                frames=frames,
+                xt=xt,
+                home_team_id="100",
+                match_id_native="test_das",
+                data_source="idsse",
+            )
+
+        # DAS columns must exist
+        assert "das_team" in result.columns
+        assert "das_opponent" in result.columns
+        assert "das_diff" in result.columns
+
+        # Non-null check: mock guarantees DAS values exist for linked frames
+        das_non_null = result["das_team"].dropna()
+        assert len(das_non_null) > 0, "das_team is all NaN — mock was not called"
+
+        das_opp_non_null = result["das_opponent"].dropna()
+        assert len(das_opp_non_null) > 0, "das_opponent is all NaN — mock was not called"
+
+        # Asymmetry: with .sum(), team totals differ (0.5 vs 0.25)
+        both = result[["das_team", "das_opponent"]].dropna()
+        assert (both["das_team"] != both["das_opponent"]).any(), (
+            "das_team == das_opponent everywhere — old symmetry bug"
+        )
+
+        # Non-negativity
+        assert (das_non_null >= 0).all(), "das_team has negative values"
+        assert (das_opp_non_null >= 0).all(), "das_opponent has negative values"
