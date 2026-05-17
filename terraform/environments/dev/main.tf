@@ -129,6 +129,11 @@ import {
   id = "pining|||008b207b-96a8-4d54-b185-a77479a55abe"
 }
 
+import {
+  to = databricks_permissions.vaep_experiment_acl
+  id = "/experiments/1644169474913777"
+}
+
 # ── Module: Catalog (Medallion Schemas) ──────────────────────────────────────
 # Creates bronze / silver / gold schemas inside the soccer_analytics catalog.
 # Also manages Unity Catalog grants for the ingestion and app service principals.
@@ -333,6 +338,43 @@ resource "databricks_permissions" "lakebase_project_acl" {
     # for database-projects. Precondition for SEC4 admins-group removal.
     service_principal_name = module.service_principals.terraform_ci_sp_application_id
     permission_level       = "CAN_MANAGE"
+  }
+}
+
+# ── MLflow Experiments: Ingestion SP Read Access ──────────────────────────────
+# The ingestion SP loads @Champion models (VAEP, xG v2) at scoring time.
+# Unity Catalog grants cover the registered model alias, but artifact-hash
+# verification (ADR-012 §2) calls mlflow.get_run() which requires CAN_READ
+# on the backing workspace experiment. Without this, the hash check silently
+# skips — defeating integrity verification.
+#
+# databricks_permissions is authoritative per experiment — every non-inherited
+# ACL must be declared. The deployer IS_OWNER is inherited (experiment creator)
+# and does not need to be re-declared.
+
+data "databricks_mlflow_experiment" "vaep" {
+  name = "/soccer_analytics/vaep_model"
+}
+
+data "databricks_mlflow_experiment" "xg_v2" {
+  name = "/soccer_analytics/xg_model_v2"
+}
+
+resource "databricks_permissions" "vaep_experiment_acl" {
+  experiment_id = data.databricks_mlflow_experiment.vaep.id
+
+  access_control {
+    service_principal_name = module.service_principals.ingestion_sp_application_id
+    permission_level       = "CAN_READ"
+  }
+}
+
+resource "databricks_permissions" "xg_v2_experiment_acl" {
+  experiment_id = data.databricks_mlflow_experiment.xg_v2.id
+
+  access_control {
+    service_principal_name = module.service_principals.ingestion_sp_application_id
+    permission_level       = "CAN_READ"
   }
 }
 
