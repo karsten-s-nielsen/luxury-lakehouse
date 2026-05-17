@@ -88,6 +88,27 @@ module "service_principals" {
   workspace_id      = var.databricks_workspace_id
 }
 
+# ── Module: Secret Scopes ───────────────────────────────────────────────────��
+# Creates Databricks secret scopes and grants READ to the ingestion SP.
+# Secret VALUES must be populated manually after apply:
+#   databricks secrets put-secret --scope hf --key token
+#   databricks secrets put-secret --scope pining --key token
+
+module "secret_scopes" {
+  source = "../../modules/secret_scopes"
+
+  scopes = {
+    hf = {
+      keys         = ["token"]
+      read_acl_sps = [module.service_principals.ingestion_sp_application_id]
+    }
+    pining = {
+      keys         = ["token"]
+      read_acl_sps = [module.service_principals.ingestion_sp_application_id]
+    }
+  }
+}
+
 # ── Module: Catalog (Medallion Schemas) ──────────────────────────────────────
 # Creates bronze / silver / gold schemas inside the soccer_analytics catalog.
 # Also manages Unity Catalog grants for the ingestion and app service principals.
@@ -137,7 +158,7 @@ module "workflows" {
   source = "../../modules/workflows"
 
   catalog_name             = module.workspace.catalog_name
-  wheel_path               = "${module.catalog.libs_volume_path}/luxury_lakehouse-0.3.56-py3-none-any.whl"
+  wheel_path               = "${module.catalog.libs_volume_path}/luxury_lakehouse-0.3.57-py3-none-any.whl"
   environment              = var.environment
   notification_emails      = var.notification_emails
   run_as_sp_application_id = module.service_principals.ingestion_sp_application_id

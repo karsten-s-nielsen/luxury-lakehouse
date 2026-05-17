@@ -70,7 +70,7 @@ class _SkillcornerGuard:
                 ts: datetime = row["max_ts"]
                 if ts.tzinfo is None:
                     ts = ts.replace(tzinfo=timezone.utc)
-                updated_since = ts.isoformat()
+                updated_since = ts.strftime("%Y-%m-%dT%H:%M:%SZ")
 
         matches = fetch_match_list(token, updated_since=updated_since)
         if not matches:

@@ -30,7 +30,15 @@
 #
 # HF Hub tasks use the "hf" environment (huggingface_hub + wheel).
 # Write tasks require HF_TOKEN from Databricks secret scope "hf", key "token".
-# Setup: databricks secrets put-secret --scope hf --key token
+# SkillCorner ingestion requires pining-for-the-data API token in scope "pining", key "token".
+#
+# Secret scope setup (one-time per workspace):
+#   databricks secrets create-scope pining
+#   databricks secrets put-secret --scope pining --key token
+#   databricks secrets put-acl --scope pining --principal <sp-application-id> --permission READ
+#   databricks secrets create-scope hf
+#   databricks secrets put-secret --scope hf --key token
+#   databricks secrets put-acl --scope hf --principal <sp-application-id> --permission READ
 #
 # Schedule: Daily at 06:00 UTC (before business hours in US/EU timezones)
 #
@@ -853,6 +861,8 @@ resource "databricks_job" "data_ingestion" {
   }
 
   # ── Task: Ingest SkillCorner A-League tracking data ────────────────────
+  # Requires secret scope "pining", key "token" (pining-for-the-data API bearer token).
+  # Token source: pining-for-the-data repo terraform/environments/dev/terraform.tfvars
   task {
     task_key        = "ingest_skillcorner"
     timeout_seconds = 1200

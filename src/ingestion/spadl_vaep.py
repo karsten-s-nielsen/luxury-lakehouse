@@ -181,8 +181,14 @@ class _VaepGuard:
             spadl_table=spadl_table,
             data_source="metrica",
         )
+        sc_new = self._diff_hashed_source_against_spadl(
+            spark,
+            bronze_table=f"{catalog}.{schema}.skillcorner_events",
+            spadl_table=spadl_table,
+            data_source="skillcorner",
+        )
 
-        new_spadl = sorted(set(sb_new) | set(ws_new) | set(idsse_new) | set(metrica_new))
+        new_spadl = sorted(set(sb_new) | set(ws_new) | set(idsse_new) | set(metrica_new) | set(sc_new))
 
         # Stage 2: SPADL actions not yet scored with VAEP
         unscored = find_new_ids(
@@ -223,59 +229,42 @@ class _VaepGuard:
         spadl_table: str,
         data_source: str,
     ) -> list[str]:
-        """LL2 Path B: count new matches for a string-match_id source (IDSSE / Metrica).
+        """Count new matches for a hashed-ID source (IDSSE / Metrica / SkillCorner).
 
-        Bronze tables for IDSSE / Metrica use STRING match_ids. spadl_actions
-        uses BIGINT (deterministically hashed via ``hash_native_id_to_bigint``).
-        ``find_new_ids`` does string-cast comparison; for hashed-source tables
-        that produces nonsense ('idsse_J03WMX' != '12345'). Instead: hash all
-        bronze strings, scope spadl_actions to the source via ``data_source``
-        filter, return the BIGINT diff as strings (matching find_new_ids
-        return type for downstream union compatibility).
+        Bronze tables use STRING match_ids. spadl_actions uses BIGINT
+        (deterministically hashed via ``hash_native_id_to_bigint``).
+        Hashes all bronze strings, scopes spadl_actions to the source via
+        ``data_source`` filter, returns the BIGINT diff as strings.
 
-        Returns the new match_id BIGINTs (as strings, for union with
-        find_new_ids output), or empty list if bronze table is missing.
+        Raises if the bronze table does not exist — a missing source table
+        is a deployment error that must surface immediately, not be silently
+        swallowed.
         """
         from ingestion.spadl_adapter import hash_native_id_to_bigint
-        from ingestion.utils import tolerate_missing_table
 
-        _logger = logging.getLogger(__name__)
-
-        bronze_strings: list[str] = []
-        with tolerate_missing_table(_logger, f"Bronze table {bronze_table} missing — no new {data_source} matches"):
-            bronze_rows = spark.table(bronze_table).select("match_id").distinct().collect()
-            bronze_strings = [str(row["match_id"]) for row in bronze_rows if row["match_id"] is not None]
+        bronze_rows = spark.table(bronze_table).select("match_id").distinct().collect()
+        bronze_strings = [str(row["match_id"]) for row in bronze_rows if row["match_id"] is not None]
 
         if not bronze_strings:
             return []
 
         bronze_hashed: set[int] = {hash_native_id_to_bigint(s) for s in bronze_strings}
 
-        # spadl_actions BIGINT match_ids for this source. SQL string filter
-        # (not Column expression) so this method doesn't require pyspark to
-        # be importable in the test env.
-        # tolerate_missing_table is overkill here (spadl_table was just
-        # ensure_table'd) but kept for symmetry with the bronze read above.
+        # spadl_actions BIGINT match_ids for this source (spadl_table was
+        # ensure_table'd by the caller, so it always exists).
+        ds_quoted = data_source.replace("'", "''")
+        spadl_rows = (
+            spark.table(spadl_table).filter(f"data_source = '{ds_quoted}'").select("match_id").distinct().collect()
+        )
         in_spadl: set[int] = set()
-        with tolerate_missing_table(_logger, f"spadl_actions table {spadl_table} missing"):
-            # Quote single-quotes in data_source defensively even though
-            # callers pass module-controlled values ('idsse', 'metrica').
-            ds_quoted = data_source.replace("'", "''")
-            spadl_rows = (
-                spark.table(spadl_table).filter(f"data_source = '{ds_quoted}'").select("match_id").distinct().collect()
-            )
-            for row in spadl_rows:
-                v = row["match_id"]
-                if v is None:
-                    continue
-                # Tests may mock spark with non-numeric match_ids; production
-                # bronze.spadl_actions.match_id is BIGINT. Skip non-numeric
-                # values gracefully — they cannot collide with the hashed
-                # bronze BIGINTs anyway.
-                try:
-                    in_spadl.add(int(v))
-                except (TypeError, ValueError):
-                    continue
+        for row in spadl_rows:
+            v = row["match_id"]
+            if v is None:
+                continue
+            try:
+                in_spadl.add(int(v))
+            except (TypeError, ValueError):
+                continue
 
         return [str(h) for h in sorted(bronze_hashed - in_spadl)]
 
