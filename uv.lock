@@ -3724,7 +3724,7 @@ wheels = [
 
 [[package]]
 name = "silly-kicks"
-version = "3.15.1"
+version = "3.15.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
@@ -3732,9 +3732,9 @@ dependencies = [
     { name = "scikit-learn" },
     { name = "scipy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/44/5d/dfcd19cd0a50401612a1b87659ec7b3b6c5f2448a5189a43901845a42f0d/silly_kicks-3.15.1.tar.gz", hash = "sha256:5da988ee1c5c107e55024699398317618336de6f22bbd65ae039eabcea630005", size = 13008772, upload-time = "2026-05-15T21:36:45.348Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ac/27/36f3f0acb76691e0700399b6e6f5a5ad813d4199e9ed481c4e4d2f3cfd0a/silly_kicks-3.15.2.tar.gz", hash = "sha256:eaa533384bbb4f3fe8993f353bf575b47615ac0df99c1397d92c79de399f9bb1", size = 13010998, upload-time = "2026-05-17T15:31:48.028Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/23/35/d123916186c0f84260c4dea2dde2ba83ffb26b6eb132f4d566fe734f6cb8/silly_kicks-3.15.1-py3-none-any.whl", hash = "sha256:2245f98d0b789d46b760ae043d73d3b13a8f9d9204fd2fc9e702a94ef626ea95", size = 289478, upload-time = "2026-05-15T21:36:43.387Z" },
+    { url = "https://files.pythonhosted.org/packages/d1/73/d7b2df4bf23e677589fec9cd81b92bcec5ab98555373c71c1a986dd3e6ac/silly_kicks-3.15.2-py3-none-any.whl", hash = "sha256:65bf8769d8edab1031a761753d471967466790a9feab44a5f90eecf67be3350b", size = 290194, upload-time = "2026-05-17T15:31:46.259Z" },
 ]
 
 [package.optional-dependencies]

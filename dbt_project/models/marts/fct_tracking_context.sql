@@ -30,7 +30,7 @@ with tracking_raw as (
         time_offset_seconds,
         link_quality_score,
         n_candidate_frames,
-        defending_gk_player_id,
+        defending_gk_player_id_native,
         gk_was_distributing,
         gk_was_engaged,
         gk_actions_in_possession,
@@ -106,6 +106,7 @@ keyed as (
         dm.match_key,
         dt.team_key,
         dp.player_key,
+        dp_gk.player_key as defending_gk_player_key,
         tr.*
     from tracking_raw tr
     inner join {{ ref('dim_matches') }} dm
@@ -117,6 +118,9 @@ keyed as (
     left join {{ ref('dim_players') }} dp
         on dp.provider = tr.data_source
        and dp.native_player_id = tr.player_id_native
+    left join {{ ref('dim_players') }} dp_gk
+        on dp_gk.provider = tr.data_source
+       and dp_gk.native_player_id = tr.defending_gk_player_id_native
 
 ),
 
@@ -127,6 +131,7 @@ final as (
         match_key,
         team_key,
         player_key,
+        defending_gk_player_key,
         action_id,
         data_source,
         period_id,
@@ -140,7 +145,7 @@ final as (
         time_offset_seconds,
         link_quality_score,
         n_candidate_frames,
-        defending_gk_player_id,
+        defending_gk_player_id_native,
         gk_was_distributing,
         gk_was_engaged,
         gk_actions_in_possession,

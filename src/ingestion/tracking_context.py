@@ -123,7 +123,7 @@ _RESULT_COLUMNS: list[str] = [
     "link_quality_score",
     "n_candidate_frames",
     # GK resolution (event-based)
-    "defending_gk_player_id",
+    "defending_gk_player_id_native",
     "gk_was_distributing",
     "gk_was_engaged",
     "gk_actions_in_possession",
@@ -212,7 +212,7 @@ _TRACKING_CONTEXT_DDL = (
     "start_x DOUBLE, start_y DOUBLE, end_x DOUBLE, end_y DOUBLE, "
     "frame_id BIGINT, time_offset_seconds DOUBLE, link_quality_score DOUBLE, "
     "n_candidate_frames BIGINT, "
-    "defending_gk_player_id STRING, gk_was_distributing BOOLEAN, "
+    "defending_gk_player_id_native STRING, gk_was_distributing BOOLEAN, "
     "gk_was_engaged BOOLEAN, gk_actions_in_possession BIGINT, "
     "pre_shot_gk_x DOUBLE, pre_shot_gk_y DOUBLE, "
     "pre_shot_gk_distance_to_goal DOUBLE, pre_shot_gk_distance_to_shot DOUBLE, "
@@ -815,6 +815,11 @@ def _enrich_match(
     # after this call.
     out = _restore_native_identity(out)
 
+    # Rename defending_gk_player_id → defending_gk_player_id_native (ADR-018 convention).
+    # add_pre_shot_gk_context emits "defending_gk_player_id"; bronze output uses "_native" suffix.
+    if "defending_gk_player_id" in out.columns:
+        out = out.rename(columns={"defending_gk_player_id": "defending_gk_player_id_native"})
+
     # Select and order output columns (excluding _ingested_at — added by write_delta_table)
     output_cols = [c for c in _RESULT_COLUMNS if c != "_ingested_at"]
     for col in output_cols:
@@ -1318,15 +1323,17 @@ class _TrackingContextGuard:
     """SkipGuard adapter for tracking context pipeline.
 
     chunk_sizes: per-provider match count per for_each_task iteration.
-    IDSSE = 1 match/iteration (~2.9 GB peak per match on 16 GB driver).
+    IDSSE = 1 half (match+period) per iteration to stay within 30-min timeout.
     Metrica/SkillCorner = 2 matches/iteration (lighter data).
     """
 
     workflow_id = "wf-tracking-context"
-    chunk_sizes: ClassVar[dict[str, int]] = {"idsse": 1, "metrica": 2, "skillcorner": 2}
+    chunk_sizes: ClassVar[dict[str, int]] = {"metrica": 2, "skillcorner": 2}
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
-        """Check each provider's tracking table for unprocessed matches."""
+        """Check each provider's tracking table for unprocessed matches/periods."""
+        from pyspark.sql import functions as F  # noqa: N812
+
         from ingestion.guards import ensure_table, find_new_ids
 
         results_table = f"{catalog}.{schema}.{_TABLE_NAME}"
@@ -1338,12 +1345,50 @@ class _TrackingContextGuard:
         # skip, and rediscover the same matches on the next run.
         spadl_ids_by_provider = _spadl_match_ids_by_provider(spark, catalog)
 
-        idsse_ids = find_new_ids(
-            spark,
-            f"{catalog}.bronze.idsse_tracking",
-            results_table,
-            results_filter="data_source = 'idsse'",
-        )
+        # ── IDSSE: discover (match_id, period) pairs not yet in results ──
+        # Full-match iterations were timing out (~30 min). Split by period
+        # so each iteration processes one half (~15 min).
+        idsse_source_pairs: list[tuple[str, int]] = []
+        try:
+            _raw_pairs = (
+                spark.table(f"{catalog}.bronze.idsse_tracking")
+                .select(
+                    F.col("match_id").cast("string").alias("match_id"),
+                    F.col("period").cast("bigint").alias("period"),
+                )
+                .distinct()
+                .collect()
+            )
+            idsse_source_pairs = [(str(r["match_id"]), int(r["period"])) for r in _raw_pairs]
+        except (KeyError, TypeError):
+            pass  # Table missing expected columns — skip IDSSE period discovery.
+        idsse_done_pairs: set[tuple[str, int]] = set()
+        from ingestion.utils import tolerate_missing_table
+
+        with tolerate_missing_table(logger, "results table empty/missing — all IDSSE pairs are new"):
+            done_rows = (
+                spark.table(results_table)
+                .filter(F.col("data_source") == "idsse")
+                .select(
+                    F.col("match_id").cast("string"),
+                    F.col("period_id").cast("bigint").alias("period"),
+                )
+                .distinct()
+                .collect()
+            )
+            try:
+                idsse_done_pairs = {(str(r["match_id"]), int(r["period"])) for r in done_rows}
+            except (KeyError, TypeError):
+                pass  # Results table schema mismatch — treat as empty.
+
+        idsse_spadl = spadl_ids_by_provider.get("idsse", set())
+        idsse_half_chunks: list[str] = [
+            f"idsse:{mid}:{period}"
+            for mid, period in idsse_source_pairs
+            if mid in idsse_spadl and (mid, period) not in idsse_done_pairs
+        ]
+
+        # ── Metrica / SkillCorner: whole-match discovery (lightweight) ──
         metrica_ids = find_new_ids(
             spark,
             f"{catalog}.bronze.metrica_tracking",
@@ -1357,20 +1402,20 @@ class _TrackingContextGuard:
             results_filter="data_source = 'skillcorner'",
         )
 
-        # Intersect with SPADL — only emit matches the pipeline can process.
-        idsse_ids = [m for m in idsse_ids if m in spadl_ids_by_provider.get("idsse", set())]
         metrica_ids = [m for m in metrica_ids if m in spadl_ids_by_provider.get("metrica", set())]
         skillcorner_ids = [m for m in skillcorner_ids if m in spadl_ids_by_provider.get("skillcorner", set())]
 
-        total = len(idsse_ids) + len(metrica_ids) + len(skillcorner_ids)
+        total = len(idsse_half_chunks) + len(metrica_ids) + len(skillcorner_ids)
         if total == 0:
             return FilterResult(workflow_id=self.workflow_id, count=0)
 
-        # Build chunks: each inner list has one element "provider:id1,id2".
-        # main_preflight joins with "," -> same string (single element).
-        # for_each_task spawns one iteration per chunk string.
+        # Build chunks: each inner list has one element for for_each_task.
+        # IDSSE: "idsse:match_id:period" (one half per iteration).
+        # Metrica/SkillCorner: "provider:id1,id2" (multiple matches per iteration).
         chunks: list[list[str]] = []
-        for provider, ids in [("idsse", idsse_ids), ("metrica", metrica_ids), ("skillcorner", skillcorner_ids)]:
+        for chunk_str in idsse_half_chunks:
+            chunks.append([chunk_str])
+        for provider, ids in [("metrica", metrica_ids), ("skillcorner", skillcorner_ids)]:
             chunk_size = self.chunk_sizes[provider]
             for i in range(0, len(ids), chunk_size):
                 batch = ids[i : i + chunk_size]
@@ -1381,7 +1426,7 @@ class _TrackingContextGuard:
             count=total,
             chunks=chunks,
             metadata={
-                "idsse_ids": idsse_ids,
+                "idsse_halves": idsse_half_chunks,
                 "metrica_ids": metrica_ids,
                 "skillcorner_ids": skillcorner_ids,
             },
@@ -1391,14 +1436,15 @@ class _TrackingContextGuard:
 skip_guard = _TrackingContextGuard()
 
 
-def _parse_tracking_match_ids_arg(raw: str | None) -> tuple[str, list[str]] | None:
+def _parse_tracking_match_ids_arg(raw: str | None) -> tuple[str, list[str], int | None] | None:
     """Parse ``--match-ids`` CLI value for tracking context iterations.
 
-    Format: ``"provider:id1,id2"`` (e.g. ``"idsse:J03WMX,J03WN1"``).
-    The provider prefix routes to the correct ``_process_*`` function.
+    Formats:
+        ``"provider:id1,id2"`` — multiple matches, no period filter (metrica/skillcorner).
+        ``"provider:id:period"`` — single match + period (idsse half-game chunks).
 
     Returns:
-        ``(provider, [id1, id2])`` tuple, or ``None`` when ``raw`` is empty.
+        ``(provider, [id1, ...], period_or_None)`` tuple, or ``None`` when ``raw`` is empty.
 
     Raises:
         SystemExit: On missing provider prefix or unknown provider.
@@ -1407,15 +1453,28 @@ def _parse_tracking_match_ids_arg(raw: str | None) -> tuple[str, list[str]] | No
         return None
     if ":" not in raw:
         raise SystemExit(
-            f"--match-ids must be 'provider:id1,id2' format, got {raw!r}. Valid providers: {sorted(_VALID_PROVIDERS)}"
+            f"--match-ids must be 'provider:id1,id2' or 'provider:id:period' format, got {raw!r}. "
+            f"Valid providers: {sorted(_VALID_PROVIDERS)}"
         )
-    provider, ids_str = raw.split(":", 1)
+    parts = raw.split(":")
+    provider = parts[0]
     if provider not in _VALID_PROVIDERS:
         raise SystemExit(f"Unknown provider {provider!r} in --match-ids. Valid providers: {sorted(_VALID_PROVIDERS)}")
+
+    # Detect "provider:match_id:period" format (3 parts, last is numeric)
+    if len(parts) == 3 and parts[2].strip().isdigit():
+        match_id = parts[1].strip()
+        period = int(parts[2].strip())
+        if not match_id:
+            return None
+        return (provider, [match_id], period)
+
+    # Standard "provider:id1,id2" format
+    ids_str = ":".join(parts[1:])  # rejoin in case match_id contains colons (unlikely)
     ids = [mid.strip() for mid in ids_str.split(",") if mid.strip()]
     if not ids:
         return None
-    return (provider, ids)
+    return (provider, ids, None)
 
 
 # ── Entry points ──────────────────────────────────────────────────────
@@ -1548,8 +1607,8 @@ def main() -> None:
     if match_ids_parsed is None:
         raise SystemExit("--match-ids is required (for_each_task iteration mode only)")
 
-    provider, ids = match_ids_parsed
-    logger.info("Iteration mode: provider=%s, match_ids=%s", provider, ids)
+    provider, ids, period_filter = match_ids_parsed
+    logger.info("Iteration mode: provider=%s, match_ids=%s, period=%s", provider, ids, period_filter)
 
     # Deserialize preflight xT from task value
     try:
@@ -1610,7 +1669,12 @@ def main() -> None:
     total_written = 0
 
     for match_id in ids:
-        logger.info("Processing %s match %s", provider, match_id)
+        logger.info(
+            "Processing %s match %s%s",
+            provider,
+            match_id,
+            f" period {period_filter}" if period_filter else "",
+        )
 
         # ── Read tracking (stays as Spark DataFrame — NO .toPandas()) ──
         if provider == "idsse":
@@ -1633,6 +1697,10 @@ def main() -> None:
             )
         else:
             raise SystemExit(f"Unknown provider: {provider}")
+
+        # Apply period filter (IDSSE half-game chunks).
+        if period_filter is not None:
+            trk_sdf = trk_sdf.filter(F.col("period") == period_filter)
 
         # Quick existence check (count on Spark, not .toPandas())
         if trk_sdf.limit(1).count() == 0:
@@ -1700,12 +1768,18 @@ def main() -> None:
             udf_fn, schema=_get_result_schema()
         )
 
+        # Period-scoped replaceWhere for half-game chunks; whole-match for others.
+        if period_filter is not None:
+            rw = f"match_id = '{match_id}' AND period_id = {period_filter}"
+        else:
+            rw = f"match_id = '{match_id}'"
+
         written = write_delta_table(
             result_sdf,
             catalog,
             schema,
             _TABLE_NAME,
-            replace_where=f"match_id = '{match_id}'",
+            replace_where=rw,
             logger=logger,
         )
         total_written += written

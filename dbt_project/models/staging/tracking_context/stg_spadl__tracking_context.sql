@@ -42,7 +42,7 @@ cleaned as (
         cast(link_quality_score as double)  as link_quality_score,
         cast(n_candidate_frames as bigint)  as n_candidate_frames,
         -- GK resolution (native player ID string)
-        defending_gk_player_id,
+        defending_gk_player_id_native,
         cast(gk_was_distributing as boolean) as gk_was_distributing,
         cast(gk_was_engaged as boolean)     as gk_was_engaged,
         cast(gk_actions_in_possession as bigint) as gk_actions_in_possession,

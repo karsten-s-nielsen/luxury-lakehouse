@@ -2,6 +2,34 @@
 
 from __future__ import annotations
 
+import sys
+from unittest.mock import MagicMock
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _mock_pyspark_modules():
+    """Inject mock pyspark modules so guard imports succeed without real pyspark."""
+    pyspark_mod = MagicMock()
+    pyspark_sql_mod = MagicMock()
+    pyspark_sql_functions_mod = MagicMock()
+    pyspark_sql_mod.functions = pyspark_sql_functions_mod
+
+    # F.col(...).cast(...).alias(...) must chain correctly
+    mock_col = MagicMock()
+    pyspark_sql_functions_mod.col.return_value = mock_col
+
+    sys.modules.setdefault("pyspark", pyspark_mod)
+    sys.modules.setdefault("pyspark.sql", pyspark_sql_mod)
+    sys.modules.setdefault("pyspark.sql.functions", pyspark_sql_functions_mod)
+    sys.modules.setdefault("pyspark.sql.types", MagicMock())
+    sys.modules.setdefault("pyspark.dbutils", MagicMock())
+
+    yield
+
+    # conftest._restore_pyspark_modules handles cleanup
+
 
 def test_parse_tracking_match_ids_arg_none() -> None:
     """None input returns None (no filter)."""
@@ -18,12 +46,12 @@ def test_parse_tracking_match_ids_arg_empty() -> None:
 
 
 def test_parse_tracking_match_ids_arg_valid() -> None:
-    """Comma-separated string returns parsed (provider, ids) tuple."""
+    """Comma-separated string returns parsed (provider, ids, None) tuple."""
     from ingestion.tracking_context import _parse_tracking_match_ids_arg
 
     result = _parse_tracking_match_ids_arg("idsse:J03WMX,J03WN1")
     assert result is not None
-    assert result == ("idsse", ["J03WMX", "J03WN1"])
+    assert result == ("idsse", ["J03WMX", "J03WN1"], None)
 
 
 def test_parse_tracking_match_ids_arg_single() -> None:
@@ -32,7 +60,18 @@ def test_parse_tracking_match_ids_arg_single() -> None:
 
     result = _parse_tracking_match_ids_arg("metrica:match_001")
     assert result is not None
-    assert result == ("metrica", ["match_001"])
+    assert result == ("metrica", ["match_001"], None)
+
+
+def test_parse_tracking_match_ids_arg_with_period() -> None:
+    """IDSSE half-game format parses period correctly."""
+    from ingestion.tracking_context import _parse_tracking_match_ids_arg
+
+    result = _parse_tracking_match_ids_arg("idsse:J03WMX:1")
+    assert result == ("idsse", ["J03WMX"], 1)
+
+    result = _parse_tracking_match_ids_arg("idsse:J03WMX:2")
+    assert result == ("idsse", ["J03WMX"], 2)
 
 
 def test_parse_tracking_match_ids_arg_bad_format() -> None:
@@ -41,7 +80,7 @@ def test_parse_tracking_match_ids_arg_bad_format() -> None:
 
     from ingestion.tracking_context import _parse_tracking_match_ids_arg
 
-    with pytest.raises(SystemExit, match="must be 'provider:id1,id2'"):
+    with pytest.raises(SystemExit, match="must be"):
         _parse_tracking_match_ids_arg("J03WMX,J03WN1")
 
 
@@ -59,13 +98,26 @@ def test_chunk_encoding_round_trip() -> None:
     """Chunk string 'provider:id1,id2' round-trips through parse."""
     from ingestion.tracking_context import _parse_tracking_match_ids_arg
 
-    chunk_str = "idsse:J03WMX,J03WN1"
+    # Metrica multi-match format
+    chunk_str = "metrica:Game1,Game2"
     result = _parse_tracking_match_ids_arg(chunk_str)
     assert result is not None
-    provider, ids = result
-    assert provider == "idsse"
-    assert ids == ["J03WMX", "J03WN1"]
+    provider, ids, period = result
+    assert provider == "metrica"
+    assert ids == ["Game1", "Game2"]
+    assert period is None
     reconstructed = f"{provider}:{','.join(ids)}"
+    assert reconstructed == chunk_str
+
+    # IDSSE half-game format
+    chunk_str = "idsse:J03WMX:1"
+    result = _parse_tracking_match_ids_arg(chunk_str)
+    assert result is not None
+    provider, ids, period = result
+    assert provider == "idsse"
+    assert ids == ["J03WMX"]
+    assert period == 1
+    reconstructed = f"{provider}:{ids[0]}:{period}"
     assert reconstructed == chunk_str
 
 
@@ -91,11 +143,11 @@ def test_serialize_xt_grid_produces_valid_task_value() -> None:
 
 
 def test_guard_chunk_sizes_are_set() -> None:
-    """_TrackingContextGuard has provider-specific chunk sizes."""
+    """_TrackingContextGuard has provider-specific chunk sizes for non-IDSSE."""
     from ingestion.tracking_context import skip_guard
 
     assert hasattr(skip_guard, "chunk_sizes")
-    assert skip_guard.chunk_sizes["idsse"] == 1
+    # IDSSE uses half-game chunking (no chunk_sizes entry needed)
     assert skip_guard.chunk_sizes["metrica"] == 2
     assert skip_guard.chunk_sizes["skillcorner"] == 2
 
@@ -104,9 +156,9 @@ def test_guard_excludes_tracking_without_spadl() -> None:
     """Skip guard excludes tracking matches that have no paired SPADL actions.
 
     SkillCorner has tracking data but no SPADL converter, so those match IDs
-    must not appear in the guard's output — otherwise they'd be rediscovered
-    on every run, wasting a serverless driver each time.
+    must not appear in the guard's output.
     """
+    from contextlib import nullcontext
     from unittest.mock import MagicMock, patch
 
     from ingestion.tracking_context import _TrackingContextGuard
@@ -114,10 +166,15 @@ def test_guard_excludes_tracking_without_spadl() -> None:
     guard = _TrackingContextGuard()
     mock_spark = MagicMock()
 
-    # find_new_ids returns unprocessed tracking match IDs per provider
+    idsse_source_rows = [
+        {"match_id": "J03WMX", "period": 1},
+        {"match_id": "J03WMX", "period": 2},
+        {"match_id": "J03WN1", "period": 1},
+        {"match_id": "J03WN1", "period": 2},
+    ]
+
+    # find_new_ids for metrica/skillcorner
     def mock_find_new_ids(_spark, source_table, _results_table, **_kw):
-        if "idsse" in source_table:
-            return ["J03WMX", "J03WN1"]
         if "metrica" in source_table:
             return ["Sample_Game_1"]
         if "skillcorner" in source_table:
@@ -128,31 +185,56 @@ def test_guard_excludes_tracking_without_spadl() -> None:
     mock_spadl_ids = {
         "idsse": {"J03WMX", "J03WN1"},
         "metrica": {"Sample_Game_1"},
-        # No "skillcorner" key — no SPADL actions
     }
+
+    def table_side_effect(table_name):
+        mock_t = MagicMock()
+        mock_t.filter.return_value = mock_t
+        mock_t.select.return_value = mock_t
+        mock_t.distinct.return_value = mock_t
+        if "idsse_tracking" in table_name:
+            mock_t.collect.return_value = idsse_source_rows
+        else:
+            # Results table — nothing done yet
+            mock_t.collect.return_value = []
+        return mock_t
+
+    mock_spark.table.side_effect = table_side_effect
 
     with (
         patch("ingestion.guards.find_new_ids", side_effect=mock_find_new_ids),
         patch("ingestion.tracking_context._spadl_match_ids_by_provider", return_value=mock_spadl_ids),
         patch("ingestion.guards.ensure_table"),
+        patch("ingestion.utils.tolerate_missing_table", return_value=nullcontext()),
     ):
         result = guard.check(mock_spark, "soccer_analytics", "bronze")
 
-    # Total should be 3 (2 IDSSE + 1 Metrica), NOT 5
-    assert result.count == 3
-    assert result.metadata["idsse_ids"] == ["J03WMX", "J03WN1"]
+    # IDSSE: 4 halves + Metrica: 1 match = 5, SkillCorner excluded (no SPADL)
+    assert result.count == 5
+    assert "idsse_halves" in result.metadata
     assert result.metadata["metrica_ids"] == ["Sample_Game_1"]
     assert result.metadata["skillcorner_ids"] == []
 
 
 def test_guard_returns_zero_when_no_spadl_matches() -> None:
     """Guard returns count=0 when tracking exists but no provider has SPADL."""
+    from contextlib import nullcontext
     from unittest.mock import MagicMock, patch
 
     from ingestion.tracking_context import _TrackingContextGuard
 
     guard = _TrackingContextGuard()
     mock_spark = MagicMock()
+
+    def table_side_effect(table_name):
+        mock_t = MagicMock()
+        mock_t.filter.return_value = mock_t
+        mock_t.select.return_value = mock_t
+        mock_t.distinct.return_value = mock_t
+        mock_t.collect.return_value = []
+        return mock_t
+
+    mock_spark.table.side_effect = table_side_effect
 
     def mock_find_new_ids(_spark, source_table, _results_table, **_kw):
         if "skillcorner" in source_table:
@@ -163,6 +245,7 @@ def test_guard_returns_zero_when_no_spadl_matches() -> None:
         patch("ingestion.guards.find_new_ids", side_effect=mock_find_new_ids),
         patch("ingestion.tracking_context._spadl_match_ids_by_provider", return_value={}),
         patch("ingestion.guards.ensure_table"),
+        patch("ingestion.utils.tolerate_missing_table", return_value=nullcontext()),
     ):
         result = guard.check(mock_spark, "soccer_analytics", "bronze")
 
@@ -171,6 +254,7 @@ def test_guard_returns_zero_when_no_spadl_matches() -> None:
 
 def test_guard_partial_spadl_filters_correctly() -> None:
     """Guard filters individual match IDs — keeps only those with SPADL."""
+    from contextlib import nullcontext
     from unittest.mock import MagicMock, patch
 
     from ingestion.tracking_context import _TrackingContextGuard
@@ -178,20 +262,42 @@ def test_guard_partial_spadl_filters_correctly() -> None:
     guard = _TrackingContextGuard()
     mock_spark = MagicMock()
 
-    # IDSSE has 3 tracking matches, but only 2 have SPADL actions
-    def mock_find_new_ids(_spark, source_table, _results_table, **_kw):
-        if "idsse" in source_table:
-            return ["J03WMX", "J03WN1", "J03WN2"]
-        return []
+    # IDSSE has 3 tracking matches (6 halves), but only 2 have SPADL actions
+    idsse_source_rows = [
+        {"match_id": "J03WMX", "period": 1},
+        {"match_id": "J03WMX", "period": 2},
+        {"match_id": "J03WN1", "period": 1},
+        {"match_id": "J03WN1", "period": 2},
+        {"match_id": "J03WN2", "period": 1},
+        {"match_id": "J03WN2", "period": 2},
+    ]
 
     mock_spadl_ids = {"idsse": {"J03WMX", "J03WN2"}}  # J03WN1 missing
+
+    def table_side_effect(table_name):
+        mock_t = MagicMock()
+        mock_t.filter.return_value = mock_t
+        mock_t.select.return_value = mock_t
+        mock_t.distinct.return_value = mock_t
+        if "idsse_tracking" in table_name:
+            mock_t.collect.return_value = idsse_source_rows
+        else:
+            mock_t.collect.return_value = []
+        return mock_t
+
+    mock_spark.table.side_effect = table_side_effect
+
+    def mock_find_new_ids(_spark, source_table, _results_table, **_kw):
+        return []
 
     with (
         patch("ingestion.guards.find_new_ids", side_effect=mock_find_new_ids),
         patch("ingestion.tracking_context._spadl_match_ids_by_provider", return_value=mock_spadl_ids),
         patch("ingestion.guards.ensure_table"),
+        patch("ingestion.utils.tolerate_missing_table", return_value=nullcontext()),
     ):
         result = guard.check(mock_spark, "soccer_analytics", "bronze")
 
-    assert result.count == 2
-    assert result.metadata["idsse_ids"] == ["J03WMX", "J03WN2"]
+    # J03WMX (2 halves) + J03WN2 (2 halves) = 4
+    assert result.count == 4
+    assert len(result.metadata["idsse_halves"]) == 4

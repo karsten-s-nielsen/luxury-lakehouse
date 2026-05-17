@@ -4703,8 +4703,10 @@ models:
         data_type: double
       - name: n_candidate_frames
         data_type: bigint
-      - name: defending_gk_player_id
+      - name: defending_gk_player_id_native
         data_type: string
+      - name: defending_gk_player_key
+        data_type: bigint
       - name: gk_was_distributing
         data_type: boolean
       - name: gk_was_engaged
