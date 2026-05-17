@@ -109,6 +109,26 @@ module "secret_scopes" {
   }
 }
 
+import {
+  to = module.secret_scopes.databricks_secret_scope.scope["hf"]
+  id = "hf"
+}
+
+import {
+  to = module.secret_scopes.databricks_secret_scope.scope["pining"]
+  id = "pining"
+}
+
+import {
+  to = module.secret_scopes.databricks_secret_acl.read["hf-008b207b-96a8-4d54-b185-a77479a55abe"]
+  id = "hf|||008b207b-96a8-4d54-b185-a77479a55abe"
+}
+
+import {
+  to = module.secret_scopes.databricks_secret_acl.read["pining-008b207b-96a8-4d54-b185-a77479a55abe"]
+  id = "pining|||008b207b-96a8-4d54-b185-a77479a55abe"
+}
+
 # ── Module: Catalog (Medallion Schemas) ──────────────────────────────────────
 # Creates bronze / silver / gold schemas inside the soccer_analytics catalog.
 # Also manages Unity Catalog grants for the ingestion and app service principals.
