@@ -366,9 +366,9 @@ def test_statsbomb_events_live_schema_covers_parser(conn: object) -> None:
 @requires_databricks
 def test_skillcorner_tracking_live_schema_covers_parser(conn: object) -> None:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
-    from ingestion.skillcorner import _SKILLCORNER_TRACKING_BRONZE_COLS
+    from ingestion.skillcorner_tracking import _TRACKING_DTYPE_OVERRIDES
 
-    expected = set(_SKILLCORNER_TRACKING_BRONZE_COLS)
+    expected = set(_TRACKING_DTYPE_OVERRIDES.keys()) | {"match_id"}
     actual = _live_bronze_cols(conn, "skillcorner_tracking") - _AUDIT_COLS
     missing = expected - actual
     if missing:
