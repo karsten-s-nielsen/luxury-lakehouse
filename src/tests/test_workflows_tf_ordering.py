@@ -256,7 +256,11 @@ def test_data_ingestion_parser_count_anchor() -> None:
     # 31 → 33 in TC-1 (2026-05-12): added `preflight_tracking_context` +
     # `compute_tracking_context_iteration` inner for_each_task block
     # (existing `compute_tracking_context` becomes a for_each_task parent).
-    assert len(task_keys) == 33, f"expected 33 task blocks on data_ingestion, parser found {len(task_keys)}"
+    # 33 → 34 in SPADL-VAEP-chunked (2026-05-17): added `preflight_spadl_vaep`
+    # + `compute_spadl_vaep_iteration` inner for_each_task block. Net +1
+    # because old monolithic `compute_spadl_vaep` becomes the for_each_task
+    # parent (no new top-level key for it) but `preflight_spadl_vaep` is new.
+    assert len(task_keys) == 34, f"expected 34 task blocks on data_ingestion, parser found {len(task_keys)}"
 
 
 if __name__ == "__main__":

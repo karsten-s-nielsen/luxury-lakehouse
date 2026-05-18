@@ -248,11 +248,13 @@ class TestVaepGuardMetadata:
         ):
             result = _VaepGuard().check(mock_spark, "soccer_analytics", "dev_gold")
 
-        # count = len(new_spadl) + len(unscored) = 3 + 0
+        # count = len(sb_new) + len(ws_new) + len(idsse_new) + len(metrica_new) + len(sc_new) + len(unscored) = 3 + 0
         assert result.count == 3
-        assert result.metadata["new_spadl_match_ids"] == ["3754348", "3754349", "3754350"]
-        # LL2: pure Stage-2 diff (was unioned with new_spadl pre-LL2). run_pipeline
-        # does the consumer-side union — see ``run_pipeline``'s ``unscored_ids`` build.
+        assert result.metadata["sb_new"] == ["3754348", "3754349", "3754350"]
+        assert result.metadata["ws_new"] == []
+        assert result.metadata["idsse_new"] == []
+        assert result.metadata["metrica_new"] == []
+        assert result.metadata["sc_new"] == []
         assert result.metadata["unscored_vaep_match_ids"] == []
 
     def test_disjoint_union_both_sources_contribute(self) -> None:
@@ -274,10 +276,13 @@ class TestVaepGuardMetadata:
         ):
             result = _VaepGuard().check(mock_spark, "cat", "sch")
 
-        # count = len(new_spadl) + len(unscored) = 2 + 2
+        # count = len(sb_new) + len(ws_new) + ... + len(unscored) = 1 + 1 + 0 + 0 + 0 + 2
         assert result.count == 4
-        assert result.metadata["new_spadl_match_ids"] == ["sb1", "ws1"]
-        # LL2: pure Stage-2 diff (was sorted union of new_spadl + unscored pre-LL2).
+        assert result.metadata["sb_new"] == ["sb1"]
+        assert result.metadata["ws_new"] == ["ws1"]
+        assert result.metadata["idsse_new"] == []
+        assert result.metadata["metrica_new"] == []
+        assert result.metadata["sc_new"] == []
         assert result.metadata["unscored_vaep_match_ids"] == ["existing1", "existing2"]
 
     def test_unscored_only_no_new_events(self) -> None:
@@ -302,7 +307,11 @@ class TestVaepGuardMetadata:
             result = _VaepGuard().check(mock_spark, "cat", "sch")
 
         assert result.count == 2
-        assert result.metadata["new_spadl_match_ids"] == []
+        assert result.metadata["sb_new"] == []
+        assert result.metadata["ws_new"] == []
+        assert result.metadata["idsse_new"] == []
+        assert result.metadata["metrica_new"] == []
+        assert result.metadata["sc_new"] == []
         assert result.metadata["unscored_vaep_match_ids"] == ["leftover1", "leftover2"]
 
     def test_skip_path_when_both_empty(self) -> None:

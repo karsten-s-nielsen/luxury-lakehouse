@@ -269,6 +269,7 @@ def _convert_statsbomb_from_bronze(
     schema: str,
     logger: logging.Logger,
     existing_matches: set[int],
+    match_id_filter: set[int] | None = None,
 ) -> bool:
     """Read StatsBomb events from bronze, adapt, convert to SPADL, write Delta.
 
@@ -302,6 +303,8 @@ def _convert_statsbomb_from_bronze(
     all_game_rows = events_sdf.select("match_id").distinct().collect()
     all_game_ids = [int(row["match_id"]) for row in all_game_rows]
     new_game_ids = [gid for gid in all_game_ids if gid not in existing_matches]
+    if match_id_filter is not None:
+        new_game_ids = [gid for gid in new_game_ids if gid in match_id_filter]
 
     if not new_game_ids:
         logger.info("StatsBomb: all %d games already converted — skipping", len(all_game_ids))
@@ -571,6 +574,7 @@ def _convert_wyscout_from_bronze(
     schema: str,
     logger: logging.Logger,
     existing_matches: set[int],
+    match_id_filter: set[int] | None = None,
 ) -> bool:
     """Read Wyscout events from bronze, adapt, convert to SPADL, write Delta.
 
@@ -605,6 +609,8 @@ def _convert_wyscout_from_bronze(
     all_game_rows = spark.table(events_table).select(match_id_col).distinct().collect()
     all_game_ids = [int(row[match_id_col]) for row in all_game_rows]
     new_game_ids = [gid for gid in all_game_ids if gid not in existing_matches]
+    if match_id_filter is not None:
+        new_game_ids = [gid for gid in new_game_ids if gid in match_id_filter]
 
     if not new_game_ids:
         logger.info("Wyscout: all %d games already converted — skipping", len(all_game_ids))
@@ -1028,6 +1034,7 @@ def _convert_idsse_from_bronze(
     schema: str,
     logger: logging.Logger,
     existing_matches: set[int],
+    match_id_filter: set[int] | None = None,
 ) -> bool:
     """Read IDSSE events from bronze, adapt, convert to SPADL via silly-kicks 1.7.0 sportec, write Delta.
 
@@ -1064,6 +1071,8 @@ def _convert_idsse_from_bronze(
     # existing_matches contains hashed BIGINT match_ids from
     # bronze.spadl_actions; hash IDSSE strings the same way for comparison.
     new_match_ids: list[str] = [mid for mid in all_match_ids if hash_native_id_to_bigint(mid) not in existing_matches]
+    if match_id_filter is not None:
+        new_match_ids = [mid for mid in new_match_ids if hash_native_id_to_bigint(mid) in match_id_filter]
 
     if not new_match_ids:
         logger.info("IDSSE: all %d matches already converted — skipping", len(all_match_ids))
@@ -1332,6 +1341,7 @@ def _convert_metrica_from_bronze(
     schema: str,
     logger: logging.Logger,
     existing_matches: set[int],
+    match_id_filter: set[int] | None = None,
 ) -> bool:
     """Read Metrica events from bronze, adapt, convert to SPADL, write Delta.
 
@@ -1365,6 +1375,8 @@ def _convert_metrica_from_bronze(
     all_match_ids: list[str] = [str(row["match_id"]) for row in all_match_rows]
 
     new_match_ids: list[str] = [mid for mid in all_match_ids if hash_native_id_to_bigint(mid) not in existing_matches]
+    if match_id_filter is not None:
+        new_match_ids = [mid for mid in new_match_ids if hash_native_id_to_bigint(mid) in match_id_filter]
 
     if not new_match_ids:
         logger.info("Metrica: all %d matches already converted — skipping", len(all_match_ids))
@@ -1614,6 +1626,7 @@ def _convert_skillcorner_from_bronze(
     schema: str,
     logger: logging.Logger,
     existing_matches: set[int],
+    match_id_filter: set[int] | None = None,
 ) -> bool:
     """Read SkillCorner events from bronze, convert to SPADL, write Delta.
 
@@ -1650,6 +1663,8 @@ def _convert_skillcorner_from_bronze(
     all_match_ids: list[str] = [str(row["match_id"]) for row in all_match_rows]
 
     new_match_ids: list[str] = [mid for mid in all_match_ids if hash_native_id_to_bigint(mid) not in existing_matches]
+    if match_id_filter is not None:
+        new_match_ids = [mid for mid in new_match_ids if hash_native_id_to_bigint(mid) in match_id_filter]
 
     if not new_match_ids:
         logger.info("SkillCorner: all %d matches already converted -- skipping", len(all_match_ids))

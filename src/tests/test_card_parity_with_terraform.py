@@ -151,6 +151,11 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     # the 360 code path was added. Subordinate to wf-statsbomb; no
     # independent methodology.
     "backfill_statsbomb_360": None,
+    # SPADL/VAEP chunked execution: Runtime chunk-discovery preflight feeding
+    # the `compute_spadl_vaep` for_each_task fan-out. Pure orchestration
+    # helper — writes Databricks task values and exits.
+    # Subordinate to wf-vaep; no independent methodology.
+    "preflight_spadl_vaep": None,
     "compute_spadl_vaep": "wf-vaep",
     "compute_expected_threat": "wf-xt-grids",
     # compute_xg_model retired SK3-MIG-B 2026-05-03 (XG1-RETIRE per ADR-023).
