@@ -537,3 +537,34 @@ class TestVaepTrainingFeatureExtractionErrorPropagation:
         assert x.empty
         assert y_scores.empty
         assert y_concedes.empty
+
+
+# ---------------------------------------------------------------------------
+# Structural regression guard: team_id must never be NULL-filled
+# ---------------------------------------------------------------------------
+
+
+class TestSpadlConversionNeverNullTeamId:
+    """Guard against reverting the team_id hash fix for tracking providers.
+
+    This test greps the production source for the old NULL-fill pattern
+    (`actions["team_id"] = _pd.array([_pd.NA]`). If that pattern reappears,
+    the fix has been reverted and VAEP scoring will silently produce NaN.
+    """
+
+    def test_no_null_team_id_pattern_in_spadl_conversion(self) -> None:
+        """spadl_conversion.py must not contain the NULL team_id fill pattern."""
+        import re
+        from pathlib import Path
+
+        spadl_path = Path(__file__).resolve().parent.parent / "ingestion" / "spadl_conversion.py"
+        source = spadl_path.read_text(encoding="utf-8")
+
+        # The old broken pattern: actions["team_id"] = _pd.array([_pd.NA] * n, ...)
+        null_fill_pattern = re.compile(r'actions\["team_id"\]\s*=\s*_pd\.array\(\[_pd\.NA\]')
+        matches = null_fill_pattern.findall(source)
+        assert not matches, (
+            f"Found {len(matches)} NULL team_id fill pattern(s) in spadl_conversion.py. "
+            f"Tracking providers must use hash_native_id_to_bigint(team_id_native) "
+            f"instead. See docs/superpowers/specs/2026-05-17-spadl-team-player-resolution-design.md"
+        )

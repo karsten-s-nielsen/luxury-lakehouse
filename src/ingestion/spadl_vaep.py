@@ -590,6 +590,14 @@ def _make_scoring_udf(scores_raw: bytes, concedes_raw: bytes) -> object:
             game_actions = _game_groups.get(game_id, _pd.DataFrame()).reset_index(drop=True)
             if len(game_actions) < 2:
                 continue
+            # Defense-in-depth: loud failure if NULL team_id reaches scoring
+            _null_team_count = game_actions["team_id"].isna().sum()
+            if _null_team_count:
+                raise RuntimeError(
+                    f"VAEP scoring received {_null_team_count} NULL team_id rows "
+                    f"for game_id={game_id}. "
+                    f"SPADL conversion must resolve team_id before scoring."
+                )
             try:
                 gamestates = _fs.gamestates(game_actions, nb_prev_actions=_nb_prev)  # type: ignore[arg-type]
                 x_game = _pd.concat([fn(gamestates) for fn in _feature_fns], axis=1)
