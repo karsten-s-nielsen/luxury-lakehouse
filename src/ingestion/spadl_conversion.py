@@ -805,6 +805,9 @@ def _make_idsse_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
         import pandas as _pd
 
         from ingestion.spadl_adapter import (
+            UNKNOWN_TEAM_SENTINEL as _SENTINEL,
+        )
+        from ingestion.spadl_adapter import (
             adapt_idsse_events_for_silly_kicks as _adapt,
         )
         from ingestion.spadl_adapter import (
@@ -957,13 +960,25 @@ def _make_idsse_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
         # silly-kicks's sportec converter emits ``game_id`` and ``team_id`` as
         # the input string values. luxury-lakehouse's bronze.spadl_actions
         # legacy BIGINTs require a deterministic hash for match_id+game_id;
-        # team_id / player_id / competition_id / season_id are NULL for IDSSE
+        # player_id / competition_id / season_id are NULL for IDSSE
         # (Kimball joins use the _native STRING columns instead).
         match_id_hashed = _hash_id(match_id_str)
         actions["match_id"] = match_id_hashed
         actions["game_id"] = match_id_hashed
         n = len(actions)
-        actions["team_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
+        # team_id: hash from team_id_native (populated via _team_label_to_dfl_id above).
+        # Edge case: silly-kicks emits non-"home"/"away" labels for some
+        # freekick_short events → NULL team_id_native. Fill with sentinel.
+        null_team_mask = actions["team_id_native"].isna()
+        if null_team_mask.any():
+            logger.warning(
+                "NULL team_id_native in %d rows for match_id=%s (type_ids=%s). Filling with sentinel hash.",
+                null_team_mask.sum(),
+                match_id_str,
+                actions.loc[null_team_mask, "type_id"].unique().tolist(),
+            )
+            actions.loc[null_team_mask, "team_id_native"] = _SENTINEL
+        actions["team_id"] = actions["team_id_native"].map(_hash_id).astype("Int64")
         actions["player_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
         actions["competition_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
         actions["season_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
@@ -1187,6 +1202,9 @@ def _make_metrica_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
         import pandas as _pd
 
         from ingestion.spadl_adapter import (
+            UNKNOWN_TEAM_SENTINEL as _SENTINEL,
+        )
+        from ingestion.spadl_adapter import (
             adapt_metrica_events_for_silly_kicks as _adapt,
         )
         from ingestion.spadl_adapter import (
@@ -1308,7 +1326,17 @@ def _make_metrica_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
         actions["match_id"] = match_id_hashed
         actions["game_id"] = match_id_hashed
         n = len(actions)
-        actions["team_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
+        # team_id: hash from team_id_native (populated via _team_label_to_native_id above).
+        null_team_mask = actions["team_id_native"].isna()
+        if null_team_mask.any():
+            logger.warning(
+                "NULL team_id_native in %d rows for match_id=%s (type_ids=%s). Filling with sentinel hash.",
+                null_team_mask.sum(),
+                match_id_str,
+                actions.loc[null_team_mask, "type_id"].unique().tolist(),
+            )
+            actions.loc[null_team_mask, "team_id_native"] = _SENTINEL
+        actions["team_id"] = actions["team_id_native"].map(_hash_id).astype("Int64")
         actions["player_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
         actions["competition_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
         actions["season_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
@@ -1492,7 +1520,12 @@ def _make_skillcorner_spadl_udf(*, match_metadata: dict[str, object]) -> Callabl
         """Convert one SkillCorner match's events to SPADL actions."""
         import pandas as _pd
 
-        from ingestion.spadl_adapter import hash_native_id_to_bigint as _hash_id
+        from ingestion.spadl_adapter import (
+            UNKNOWN_TEAM_SENTINEL as _SENTINEL,
+        )
+        from ingestion.spadl_adapter import (
+            hash_native_id_to_bigint as _hash_id,
+        )
 
         _spadl_cols = _pd.Index(
             [
@@ -1592,8 +1625,18 @@ def _make_skillcorner_spadl_udf(*, match_metadata: dict[str, object]) -> Callabl
         match_id_hashed = _hash_id(match_id_str)
         actions["match_id"] = match_id_hashed
         actions["game_id"] = match_id_hashed
+        null_team_mask = actions["team_id_native"].isna()
+        if null_team_mask.any():
+            _udf_logger = logging.getLogger(__name__)
+            _udf_logger.warning(
+                "NULL team_id_native in %d rows for match_id=%s (type_ids=%s). Filling with sentinel hash.",
+                null_team_mask.sum(),
+                match_id_str,
+                actions.loc[null_team_mask, "type_id"].unique().tolist(),
+            )
+            actions.loc[null_team_mask, "team_id_native"] = _SENTINEL
+        actions["team_id"] = actions["team_id_native"].map(_hash_id).astype("Int64")
         n = len(actions)
-        actions["team_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
         actions["player_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
         actions["competition_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
         actions["season_id"] = _pd.array([_pd.NA] * n, dtype="Int64")

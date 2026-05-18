@@ -37,6 +37,17 @@ import pandas as pd
 _HASH_HEX_CHARS = 15
 """Number of hex characters from SHA-256 to keep (60 bits → fits in BIGINT)."""
 
+UNKNOWN_TEAM_SENTINEL = "__UNKNOWN_TEAM__"
+"""Deterministic sentinel for rows where ``team_id_native`` is NULL.
+
+Used by tracking-provider SPADL UDFs (IDSSE, Metrica, SkillCorner) when
+silly-kicks emits a team label that the home/away mapper cannot resolve
+(e.g. freekick_short events). Hashed via ``hash_native_id_to_bigint`` to
+produce a stable BIGINT that differs from all real team hashes.
+
+Single source of truth — imported by all 3 UDFs and test assertions.
+"""
+
 
 def hash_native_id_to_bigint(value: str) -> int:
     """Deterministically hash a native string ID to a 60-bit BIGINT.
