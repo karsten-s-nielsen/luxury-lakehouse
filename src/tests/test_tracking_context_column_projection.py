@@ -37,17 +37,26 @@ def test_metrica_projection_covers_consumed() -> None:
     )
 
 
-def test_skillcorner_projection_covers_consumed() -> None:
-    """_SKILLCORNER_TRACKING_SELECT_COLS ⊇ _SKILLCORNER_CONSUMED_COLS."""
+def test_skillcorner_projection_plus_join_covers_consumed() -> None:
+    """_SKILLCORNER_TRACKING_SELECT_COLS + join-added cols ⊇ _SKILLCORNER_CONSUMED_COLS.
+
+    SkillCorner bronze tracking doesn't contain team/is_goalkeeper. These are
+    added via Spark join with bronze.skillcorner_matches at compute time.
+    The projection constant contains only bronze-native columns.
+    """
     from ingestion.tracking_context import (
         _SKILLCORNER_CONSUMED_COLS,
         _SKILLCORNER_TRACKING_SELECT_COLS,
     )
 
-    missing = _SKILLCORNER_CONSUMED_COLS - set(_SKILLCORNER_TRACKING_SELECT_COLS)
+    # Columns added by the Spark join with skillcorner_matches (see main() driver)
+    join_added_cols = {"team", "is_goalkeeper"}
+
+    missing = _SKILLCORNER_CONSUMED_COLS - set(_SKILLCORNER_TRACKING_SELECT_COLS) - join_added_cols
     assert not missing, (
-        f"_SKILLCORNER_TRACKING_SELECT_COLS missing columns from "
-        f"_SKILLCORNER_CONSUMED_COLS: {sorted(missing)}. Update the projection constant."
+        f"_SKILLCORNER_TRACKING_SELECT_COLS + join missing columns from "
+        f"_SKILLCORNER_CONSUMED_COLS: {sorted(missing)}. Update the projection "
+        f"constant or the matches join."
     )
 
 
@@ -101,9 +110,7 @@ def test_projection_is_not_wasteful() -> None:
     )
 
     # match_id is needed by groupBy(), not by the converters.
-    # home_team_id is consumed by _process_skillcorner, not the converter.
     groupby_extra = {"match_id"}
-    sc_process_extra = {"home_team_id"}
 
     for name, proj, consumed, process_extra in [
         ("IDSSE", _IDSSE_TRACKING_SELECT_COLS, _IDSSE_CONSUMED_COLS, set()),
@@ -111,8 +118,10 @@ def test_projection_is_not_wasteful() -> None:
         (
             "SkillCorner",
             _SKILLCORNER_TRACKING_SELECT_COLS,
-            _SKILLCORNER_CONSUMED_COLS,
-            groupby_extra | sc_process_extra,
+            # SkillCorner consumed cols include team + is_goalkeeper (join-added,
+            # not in projection). Only check bronze-native consumed cols.
+            _SKILLCORNER_CONSUMED_COLS - {"team", "is_goalkeeper"},
+            groupby_extra,
         ),
     ]:
         extra = set(proj) - consumed - process_extra

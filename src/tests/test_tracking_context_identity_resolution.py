@@ -78,24 +78,29 @@ def test_metrica_team_id_maps_to_home_away() -> None:
     assert resolved["player_id"].iloc[1] == "Player25"
 
 
-def test_skillcorner_raises_not_implemented() -> None:
-    """SkillCorner identity resolution raises NotImplementedError (no SPADL actions exist)."""
+def test_skillcorner_identity_resolution() -> None:
+    """SkillCorner: team_id/player_id set to stringified native IDs (matching frames)."""
     import pandas as pd
-    import pytest
 
     actions = pd.DataFrame(
         {
-            "team_id": pd.array([pd.NA], dtype="Int64"),
-            "player_id": pd.array([pd.NA], dtype="Int64"),
-            "team_id_native": ["sc_team_31"],
-            "player_id_native": ["sc_player_123"],
+            "team_id": pd.array([pd.NA, pd.NA], dtype="Int64"),
+            "player_id": pd.array([pd.NA, pd.NA], dtype="Int64"),
+            "team_id_native": ["31", "42"],
+            "player_id_native": ["101", "202"],
         }
     )
 
     from ingestion.tracking_context import _resolve_enrichment_identity
 
-    with pytest.raises(NotImplementedError, match="SkillCorner"):
-        _resolve_enrichment_identity(actions, provider="skillcorner", match_id_native="test")
+    resolved = _resolve_enrichment_identity(actions.copy(), provider="skillcorner", match_id_native="1886347")
+
+    # team_id must be the stringified native team ID (matching frame format)
+    assert resolved["team_id"].iloc[0] == "31"
+    assert resolved["team_id"].iloc[1] == "42"
+    # player_id must be the stringified native player ID
+    assert resolved["player_id"].iloc[0] == "101"
+    assert resolved["player_id"].iloc[1] == "202"
 
 
 def test_output_uses_native_ids() -> None:

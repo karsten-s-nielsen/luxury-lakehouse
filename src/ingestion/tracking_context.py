@@ -90,15 +90,16 @@ _SKILLCORNER_TRACKING_SELECT_COLS: tuple[str, ...] = (
     "period",
     "timestamp",
     "player_id",
-    "team",
     "x",
     "y",
-    "is_goalkeeper",
     "frame_rate",
-    "home_team_id",
     "ball_x",
     "ball_y",
 )
+"""Bronze-native columns only. ``team``, ``is_goalkeeper``, and ``home_team_id``
+are resolved at compute time via a Spark join with ``bronze.skillcorner_matches``
+(see ``main()`` driver). The tracking JSONL source does not contain these fields.
+"""
 
 # ── Column ordering ────────────────────────────────────────────────────
 # Identity (12) + linkage (4) + features (66) + audit (1) = 83 columns.
@@ -436,7 +437,7 @@ def _make_tracking_context_udf(
 
                 game_id = int(actions["game_id"].iloc[0])
                 # Build jersey→player_id lookup from SPADL actions
-                _pid_col = "player_id"
+                _pid_col = "player_id_native"
                 _unique_pids = actions[_pid_col].dropna().unique()
                 _has_space = any(" " in str(p) for p in _unique_pids)
                 _fallback_fmt = "Player {}" if _has_space else "Player{}"
@@ -572,16 +573,11 @@ def _resolve_enrichment_identity(
         actions.loc[non_null_mask, "player_id"] = actions.loc[non_null_mask, "player_id_native"]
 
     elif provider == "skillcorner":
-        # SkillCorner has no SPADL converter — no rows exist in
-        # bronze.spadl_actions. If SkillCorner SPADL is added, this must
-        # address the home_team_id format mismatch: frames use "home"/"away"
-        # (lowercase) but home_team_id is a kloppy numeric ID (e.g. "31").
-        raise NotImplementedError(
-            "SkillCorner identity resolution not implemented — "
-            "no SPADL actions exist for this provider. When adding SkillCorner "
-            "SPADL support, resolve the home_team_id vs frames team_id format "
-            "mismatch (frames='home'/'away', home_team_id=kloppy numeric ID)."
-        )
+        # SkillCorner native IDs are stringified integers (e.g., "31" for team,
+        # "101" for player). Frames have the same format after the matches-join
+        # + string cast in _bronze_skillcorner_to_frames.
+        actions.loc[non_null_mask, "team_id"] = actions.loc[non_null_mask, "team_id_native"]
+        actions.loc[non_null_mask, "player_id"] = actions.loc[non_null_mask, "player_id_native"]
 
     return actions
 
@@ -962,7 +958,8 @@ def _bronze_idsse_to_sportec_input(trk_pdf: pd.DataFrame) -> pd.DataFrame:
     | x            | x_centered   | already DFL-centered (±52.5)         |
     | y            | y_centered   | already DFL-centered (±34.0)         |
     | s            | speed_native | rename                               |
-    | ball_status  | ball_state   | lowercase (``Alive`` → ``alive``)    |
+    | ball_status  | ball_state   | ``0``→``dead``, ``1``→``alive``,     |
+    |              |              | legacy ``Alive``/``Dead`` lowercased |
     | frame_rate   | frame_rate   | identity                             |
     | player_id    | player_id    | identity                             |
     | team_id      | team_id      | identity                             |
@@ -995,9 +992,12 @@ def _bronze_idsse_to_sportec_input(trk_pdf: pd.DataFrame) -> pd.DataFrame:
     players["is_ball"] = False
     players["z"] = np.nan
 
-    # ball_state: DFL uses capitalized "Alive"/"Dead"; sportec expects lowercase
+    # ball_state: DFL XML BallStatus is "0" (dead) / "1" (alive) in IDSSE;
+    # infer_ball_carrier checks `bs == "dead"`.  Map before lowercasing so
+    # both legacy "Alive"/"Dead" and IDSSE "0"/"1" resolve correctly.
+    _ball_status_map = {"0": "dead", "1": "alive"}
     bs = players["ball_state"]
-    players["ball_state"] = bs.str.lower().where(bs.notna(), other=None)
+    players["ball_state"] = bs.map(_ball_status_map).fillna(bs.str.lower()).where(bs.notna(), other=None)
 
     # ── Synthetic ball rows (one per frame) ──────────────────────
     ball_src = trk_pdf[
@@ -1030,7 +1030,9 @@ def _bronze_idsse_to_sportec_input(trk_pdf: pd.DataFrame) -> pd.DataFrame:
         inplace=True,
     )
     bs_ball = ball_src["ball_state"]
-    ball_src["ball_state"] = bs_ball.str.lower().where(bs_ball.notna(), other=None)
+    ball_src["ball_state"] = (
+        bs_ball.map(_ball_status_map).fillna(bs_ball.str.lower()).where(bs_ball.notna(), other=None)
+    )
     ball_src["player_id"] = None
     ball_src["team_id"] = None
     ball_src["is_ball"] = True
@@ -1232,6 +1234,9 @@ def _bronze_skillcorner_to_frames(trk_pdf: pd.DataFrame, game_id: int) -> pd.Dat
 
     # Player rows — rename to match TRACKING_FRAMES_COLUMNS
     players = trk_pdf[["frame", "period", "timestamp", "player_id", "team", "x", "y", "is_goalkeeper"]].copy()
+    # Convert player_id to string for identity-resolution consistency
+    # (SPADL player_id_native is stringified numeric — must match frames).
+    players["player_id"] = players["player_id"].astype(str)
     players.rename(
         columns={
             "frame": "frame_id",
@@ -1695,6 +1700,17 @@ def main() -> None:
                 .filter(F.col("match_id") == match_id)
                 .select(*_SKILLCORNER_TRACKING_SELECT_COLS)
             )
+            # Join with matches to add team, is_goalkeeper (not in tracking JSONL)
+            matches_meta = (
+                spark.table(f"{catalog}.bronze.skillcorner_matches")
+                .filter(F.col("match_id") == match_id)
+                .select(
+                    F.col("player_id"),
+                    F.col("team_id").cast("string").alias("team"),
+                    (F.col("position_acronym") == "GK").alias("is_goalkeeper"),
+                )
+            )
+            trk_sdf = trk_sdf.join(F.broadcast(matches_meta), on="player_id", how="left")
         else:
             raise SystemExit(f"Unknown provider: {provider}")
 
@@ -1734,9 +1750,10 @@ def main() -> None:
         elif provider == "metrica":
             home_team_id = "Home"
         elif provider == "skillcorner":
-            # One-row Spark query — driver never sees full tracking data
+            # Read home_team_id from matches (not tracking — tracking JSONL
+            # doesn't contain team metadata).
             row = (
-                spark.table(f"{catalog}.bronze.skillcorner_tracking")
+                spark.table(f"{catalog}.bronze.skillcorner_matches")
                 .filter(F.col("match_id") == match_id)
                 .select("home_team_id")
                 .limit(1)
