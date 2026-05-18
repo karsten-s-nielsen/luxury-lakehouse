@@ -292,3 +292,131 @@ class TestDasAggregation:
         # Non-negativity
         assert (das_non_null >= 0).all(), "das_team has negative values"
         assert (das_opp_non_null >= 0).all(), "das_opponent has negative values"
+
+
+class TestSkillCornerEnrichment:
+    """E2E: _enrich_match works with SkillCorner-shaped data (string IDs)."""
+
+    def test_skillcorner_enrichment_produces_output(self) -> None:
+        """SkillCorner identity resolution + enrichment chain produces valid output.
+
+        Uses synthetic data with SkillCorner conventions:
+        - team_id/player_id are stringified numeric IDs ("31", "101")
+        - home_team_id is stringified numeric ("31")
+        - data_source = "skillcorner"
+        """
+        pytest.importorskip("silly_kicks")
+        from silly_kicks.xthreat import ExpectedThreat
+
+        from ingestion.tracking_context import _RESULT_COLUMNS, _enrich_match
+
+        rng = np.random.default_rng(99)
+        n = 20
+        n_frames = 100
+
+        # Actions with SkillCorner string IDs
+        team_choices = ["31", "42"]
+        player_pool = {
+            "31": ["101", "102", "103", "104", "105", "106", "107", "108", "109", "110", "111"],
+            "42": ["201", "202", "203", "204", "205", "206", "207", "208", "209", "210", "211"],
+        }
+        team_ids = rng.choice(team_choices, n)
+        player_ids = [rng.choice(player_pool[t]) for t in team_ids]
+        actions = pd.DataFrame(
+            {
+                "game_id": [999] * n,
+                "action_id": list(range(n)),
+                "period_id": [1] * n,
+                "time_seconds": np.linspace(0, 90 * 60, n),
+                "team_id": team_ids,
+                "player_id": player_ids,
+                "team_id_native": team_ids,
+                "player_id_native": player_ids,
+                "type_id": rng.choice([0, 1, 2, 3], n),
+                "result_id": rng.choice([0, 1], n),
+                "bodypart_id": [0] * n,
+                "start_x": rng.uniform(0, 105, n),
+                "start_y": rng.uniform(0, 68, n),
+                "end_x": rng.uniform(0, 105, n),
+                "end_y": rng.uniform(0, 68, n),
+                "original_event_id": [f"evt_{i}" for i in range(n)],
+            }
+        )
+
+        # Frames with SkillCorner string IDs
+        rows = []
+        all_players = player_pool["31"] + player_pool["42"]
+        all_teams = ["31"] * 11 + ["42"] * 11
+        gk_pids = {"101", "201"}
+        for f in range(n_frames):
+            t = f * 0.1  # 10 fps (SkillCorner frame rate)
+            for pid, tid in zip(all_players, all_teams, strict=True):
+                rows.append(
+                    {
+                        "game_id": 999,
+                        "frame_id": f,
+                        "period_id": 1,
+                        "time_seconds": t,
+                        "player_id": pid,
+                        "team_id": tid,
+                        "x": rng.uniform(0, 105),
+                        "y": rng.uniform(0, 68),
+                        "vx": rng.uniform(-5, 5),
+                        "vy": rng.uniform(-5, 5),
+                        "is_goalkeeper": pid in gk_pids,
+                        "is_ball": False,
+                    }
+                )
+            rows.append(
+                {
+                    "game_id": 999,
+                    "frame_id": f,
+                    "period_id": 1,
+                    "time_seconds": t,
+                    "player_id": None,
+                    "team_id": None,
+                    "x": rng.uniform(0, 105),
+                    "y": rng.uniform(0, 68),
+                    "vx": 0.0,
+                    "vy": 0.0,
+                    "is_goalkeeper": False,
+                    "is_ball": True,
+                }
+            )
+
+        frames = pd.DataFrame(rows)
+        frames["source_provider"] = "skillcorner"
+        frames["is_goalkeeper_source"] = "native"
+        frames["frame_rate"] = 10.0
+        frames["z"] = np.nan
+        frames["speed"] = np.sqrt(frames["vx"] ** 2 + frames["vy"] ** 2)
+        frames["speed_source"] = "derived"
+        frames["ball_state"] = None
+        frames["team_attacking_direction"] = None
+        frames["confidence"] = None
+        frames["visibility"] = None
+
+        xt = ExpectedThreat(l=16, w=12)
+        xt.fit(actions)
+
+        result = _enrich_match(
+            actions=actions,
+            frames=frames,
+            xt=xt,
+            home_team_id="31",
+            match_id_native="1886347",
+            data_source="skillcorner",
+        )
+
+        # Must produce the full column set
+        expected = set(_RESULT_COLUMNS) - {"_ingested_at"}
+        actual = set(result.columns)
+        missing = expected - actual
+        assert not missing, f"Missing columns: {sorted(missing)}"
+
+        # Must have rows
+        assert len(result) > 0, "SkillCorner enrichment produced 0 rows"
+
+        # Identity columns must be native string IDs (not NULL)
+        assert result["team_id"].notna().all(), "team_id has NaN after enrichment"
+        assert result["player_id"].notna().all(), "player_id has NaN after enrichment"

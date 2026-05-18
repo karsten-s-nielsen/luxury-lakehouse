@@ -158,3 +158,97 @@ def test_metrica_frames_player_id_fallback_for_unknown_jersey() -> None:
     )
     player_ids = frames[~frames["is_ball"]]["player_id"].tolist()
     assert "Player 99" in player_ids, f"Expected 'Player 99' (spaced fallback) in {player_ids}"
+
+
+def test_metrica_jersey_lookup_uses_player_id_native() -> None:
+    """PR #289 residual: jersey lookup must read player_id_native, not player_id.
+
+    Metrica SPADL actions have player_id=NULL (ADR-016 Kimball surrogates)
+    and player_id_native="Player 10" (kloppy convention). The UDF builds
+    jersey_to_pid from actions[_pid_col]. If _pid_col="player_id", the
+    dict is empty and frames get wrong format (no-space fallback).
+
+    Structural regression test: AST-scans the UDF closure source to verify
+    _pid_col is assigned "player_id_native" (not "player_id").
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    from ingestion.tracking_context import _make_tracking_context_udf
+
+    src = inspect.getsource(_make_tracking_context_udf)
+    src = textwrap.dedent(src)
+    tree = ast.parse(src)
+
+    # Find all assignments to _pid_col
+    pid_col_values: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "_pid_col":
+                    if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                        pid_col_values.append(node.value.value)
+
+    assert len(pid_col_values) == 1, f"Expected 1 _pid_col assignment, found {len(pid_col_values)}"
+    assert pid_col_values[0] == "player_id_native", (
+        f'_pid_col must be "player_id_native" (not "{pid_col_values[0]}"). '
+        f"Metrica actions have NULL player_id (ADR-016); only player_id_native has values."
+    )
+
+
+def test_skillcorner_to_frames_basic() -> None:
+    """SkillCorner converter produces valid frames with string player_id and team_id."""
+    import pandas as pd
+
+    from ingestion.tracking_context import _bronze_skillcorner_to_frames
+
+    # Synthetic bronze data with team and is_goalkeeper (from matches join)
+    trk_pdf = pd.DataFrame(
+        {
+            "frame": [1, 1, 1, 2, 2, 2],
+            "period": [1, 1, 1, 1, 1, 1],
+            "timestamp": [0.0, 0.0, 0.0, 0.1, 0.1, 0.1],
+            "player_id": [101, 202, 303, 101, 202, 303],
+            "team": ["31", "31", "42", "31", "31", "42"],
+            "x": [-10.0, -5.0, 8.0, -9.5, -4.5, 8.5],
+            "y": [0.0, 10.0, -5.0, 0.5, 10.5, -4.5],
+            "is_goalkeeper": [True, False, False, True, False, False],
+            "frame_rate": [10, 10, 10, 10, 10, 10],
+            "ball_x": [0.0, 0.0, 0.0, 0.5, 0.5, 0.5],
+            "ball_y": [0.0, 0.0, 0.0, 0.2, 0.2, 0.2],
+        }
+    )
+
+    frames = _bronze_skillcorner_to_frames(trk_pdf, game_id=999)
+
+    # player_id must be string (for identity resolution matching)
+    player_rows = frames[~frames["is_ball"]]
+    assert player_rows["player_id"].dtype == object, (
+        f"player_id should be string (object), got {player_rows['player_id'].dtype}"
+    )
+    assert set(player_rows["player_id"].unique()) == {"101", "202", "303"}
+
+    # team_id must be string (renamed from 'team')
+    assert "team_id" in frames.columns
+    non_ball = frames[~frames["is_ball"]]
+    assert set(non_ball["team_id"].unique()) == {"31", "42"}
+
+    # Ball rows must exist
+    ball_rows = frames[frames["is_ball"]]
+    assert len(ball_rows) > 0
+
+    # Coordinates must be SPADL 105x68 (center-origin + offset)
+    assert player_rows["x"].min() > 0
+    assert player_rows["x"].max() < 105
+    assert player_rows["y"].min() > 0
+    assert player_rows["y"].max() < 68
+
+    # Must have velocity columns (Savitzky-Golay derived)
+    assert "vx" in frames.columns
+    assert "vy" in frames.columns
+
+    # Must have is_goalkeeper column
+    assert "is_goalkeeper" in frames.columns
+    gk_count = player_rows["is_goalkeeper"].sum()
+    assert gk_count > 0, "No goalkeeper flagged"

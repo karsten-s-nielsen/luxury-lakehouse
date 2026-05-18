@@ -216,7 +216,7 @@ Full catalogue with enforcement-test references and script interfaces in `docs/e
 
 | Area | Section |
 |------|---------|
-| `DATABRICKS_HTTP_PATH` double-slash quirk, `ensure_warehouse.py`, `dbt_build_and_refresh.py` | § Databricks Dev Flow |
+| `DATABRICKS_HTTP_PATH` double-slash quirk, `ensure_warehouse.py`, `dbt_build_and_refresh.py`, `patch_job_retries.py` ([ADR-025](docs/superpowers/adrs/ADR-025-post-apply-job-retry-patch.md)) | § Databricks Dev Flow |
 | `@workflow` decorator, observability schema, mandatory guard injection via `timed_check` | § Workflow Framework |
 | Workflow card YAML contracts — phase-parity, `dbt_model:` field, HF Jobs publish mapping, TF block ordering | § Workflow Cards |
 | Lakebase synced-table grants + maintenance standard pattern ([ADR-005](docs/superpowers/adrs/ADR-005-lakebase-synced-table-grants.md)) | § Lakebase Ops |
