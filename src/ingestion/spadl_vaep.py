@@ -188,8 +188,6 @@ class _VaepGuard:
             data_source="skillcorner",
         )
 
-        new_spadl = sorted(set(sb_new) | set(ws_new) | set(idsse_new) | set(metrica_new) | set(sc_new))
-
         # Stage 2: SPADL actions not yet scored with VAEP
         unscored = find_new_ids(
             spark,
@@ -197,27 +195,25 @@ class _VaepGuard:
             vaep_table,
         )
 
-        total_new = len(new_spadl) + len(unscored)
+        total_new = len(sb_new) + len(ws_new) + len(idsse_new) + len(metrica_new) + len(sc_new) + len(unscored)
 
         if total_new == 0:
             return FilterResult(workflow_id=self.workflow_id, count=0)
 
-        # LL2: store unscored_vaep_match_ids as the PURE Stage-2 diff (not
-        # unioned with new_spadl) so the test_guard_conformance contract
-        # (count == sum-of-metadata-list-lengths) holds for arbitrary mock
-        # data. run_pipeline computes the Stage-2 union at consumption time
-        # — see ``_compute_unscored_at_consumption`` below. Pre-LL2 stored
-        # the union here, which broke the contract once IDSSE/Metrica added
-        # match_ids that don't appear in mock-uniform unscored lists.
-        # Production invariant new_spadl ∩ unscored = ∅ (a match_id is
-        # EITHER in events∧¬spadl OR in spadl∧¬vaep, not both) means
-        # total_new = len(new_spadl) + len(unscored) is the correct work
-        # count; the run_pipeline union remains lossless.
+        # Per-provider keys satisfy the test_guard_conformance contract
+        # (count == sum-of-metadata-list-lengths) directly. run_pipeline
+        # unions them at consumption time so Stage 2 scores newly-converted
+        # match_ids in the same run. Production invariant: a match_id is
+        # EITHER in events∧¬spadl OR in spadl∧¬vaep, not both.
         return FilterResult(
             workflow_id=self.workflow_id,
             count=total_new,
             metadata={
-                "new_spadl_match_ids": sorted(new_spadl),
+                "sb_new": sb_new,
+                "ws_new": ws_new,
+                "idsse_new": idsse_new,
+                "metrica_new": metrica_new,
+                "sc_new": sc_new,
                 "unscored_vaep_match_ids": sorted(unscored),
             },
         )
@@ -270,6 +266,85 @@ class _VaepGuard:
 
 
 skip_guard = _VaepGuard()
+
+
+_VALID_CHUNK_PROVIDERS = frozenset({"statsbomb", "wyscout", "idsse", "metrica", "skillcorner", "score"})
+
+
+def _parse_vaep_match_ids_arg(raw: str | None) -> tuple[str, list[int]] | None:
+    """Parse a for_each_task chunk string into (provider, match_ids).
+
+    Chunk grammar:
+        convert_chunk := provider ":" match_id_list
+        score_chunk   := "score:" match_id_list
+        match_id_list := BIGINT ("," BIGINT)*
+
+    Returns None for None/empty input. Raises SystemExit on invalid format.
+    """
+    if not raw:
+        return None
+
+    if ":" not in raw:
+        raise SystemExit(f"--match-ids must be 'provider:id1,id2,...' — got '{raw}'")
+
+    provider, ids_str = raw.split(":", 1)
+
+    if provider not in _VALID_CHUNK_PROVIDERS:
+        raise SystemExit(f"Unknown provider '{provider}' — must be one of {sorted(_VALID_CHUNK_PROVIDERS)}")
+
+    try:
+        match_ids = [int(mid) for mid in ids_str.split(",")]
+    except ValueError as exc:
+        raise SystemExit(f"--match-ids contains non-integer IDs: {exc}") from exc
+
+    return (provider, match_ids)
+
+
+_CHUNK_SIZES: dict[str, int] = {
+    "statsbomb": 200,
+    "wyscout": 200,
+    "idsse": 50,
+    "metrica": 50,
+    "skillcorner": 50,
+    "score": 200,
+}
+
+_PROVIDER_METADATA_KEYS: dict[str, str] = {
+    "sb_new": "statsbomb",
+    "ws_new": "wyscout",
+    "idsse_new": "idsse",
+    "metrica_new": "metrica",
+    "sc_new": "skillcorner",
+}
+
+
+def _build_chunks(metadata: dict[str, Any]) -> list[str]:
+    """Build for_each_task chunk strings from guard metadata.
+
+    Each chunk is ``"provider:id1,id2,...,idN"`` for convert chunks
+    or ``"score:id1,id2,...,idN"`` for score-only chunks.
+    """
+    chunks: list[str] = []
+
+    # Convert chunks (per-provider) — direct access, guard always emits all keys
+    for meta_key, provider in _PROVIDER_METADATA_KEYS.items():
+        ids = metadata[meta_key]
+        if not ids:
+            continue
+        chunk_size = _CHUNK_SIZES[provider]
+        for i in range(0, len(ids), chunk_size):
+            batch = ids[i : i + chunk_size]
+            chunks.append(f"{provider}:{','.join(str(mid) for mid in batch)}")
+
+    # Score-only chunks (unscored matches already in spadl_actions)
+    unscored = metadata["unscored_vaep_match_ids"]
+    if unscored:
+        chunk_size = _CHUNK_SIZES["score"]
+        for i in range(0, len(unscored), chunk_size):
+            batch = unscored[i : i + chunk_size]
+            chunks.append(f"score:{','.join(str(mid) for mid in batch)}")
+
+    return chunks
 
 
 def _get_feature_fns() -> list[Any]:
@@ -653,17 +728,18 @@ def run_pipeline(
     if filter_result.count == 0:
         raise WorkflowSkippedError("No new work")
 
-    # LL2: union new_spadl_match_ids with unscored_vaep_match_ids at consumption
+    # Union per-provider new match IDs with unscored_vaep_match_ids at consumption
     # time so Stage 2 sees the match_ids Stage 1 is about to add to spadl_actions
     # in the same run. Production invariant: new_spadl ∩ unscored = ∅
     # (a match_id is EITHER in events∧¬spadl OR in spadl∧¬vaep, not both),
-    # so the union is lossless. Pre-LL2 the guard pre-unioned at metadata
-    # storage time, but that broke test_guard_conformance's
-    # ``count == sum-of-metadata-list-lengths`` contract once IDSSE/Metrica
-    # match_ids that don't appear in mock-uniform unscored lists were added.
+    # so the union is lossless.
     unscored_ids = sorted(
         set(filter_result.metadata["unscored_vaep_match_ids"])
-        | set(filter_result.metadata.get("new_spadl_match_ids", [])),
+        | set(filter_result.metadata["sb_new"])
+        | set(filter_result.metadata["ws_new"])
+        | set(filter_result.metadata["idsse_new"])
+        | set(filter_result.metadata["metrica_new"])
+        | set(filter_result.metadata["sc_new"]),
     )
 
     spadl_table = f"{catalog}.{schema}.{_SPADL_TABLE}"
@@ -728,68 +804,7 @@ def run_pipeline(
 
     unscored_sdf = spadl_sdf.filter(spark_fn.col("match_id").isin(unscored_match_ids))
 
-    # Define output schema for scored actions
-    from pyspark.sql.types import BooleanType, DoubleType, LongType, StringType, StructField, StructType
-
-    vaep_schema = StructType(
-        [
-            StructField("game_id", LongType()),
-            StructField("match_id", LongType()),
-            StructField("original_event_id", StringType()),
-            StructField("period_id", LongType()),
-            StructField("time_seconds", DoubleType()),
-            StructField("team_id", LongType()),
-            StructField("player_id", LongType()),
-            StructField("start_x", DoubleType()),
-            StructField("start_y", DoubleType()),
-            StructField("end_x", DoubleType()),
-            StructField("end_y", DoubleType()),
-            StructField("type_id", LongType()),
-            StructField("action_type", StringType()),
-            StructField("result_id", LongType()),
-            StructField("action_result", StringType()),
-            StructField("bodypart_id", LongType()),
-            StructField("bodypart", StringType()),
-            StructField("offensive_value", DoubleType()),
-            StructField("defensive_value", DoubleType()),
-            StructField("vaep_value", DoubleType()),
-            StructField("competition_id", LongType()),
-            StructField("season_id", LongType()),
-            StructField("data_source", StringType()),
-            # LL2: action_id carried through (closes pre-LL2 100%-NULL gap).
-            StructField("action_id", LongType()),
-            # PR-LL1 statsbomb_* — must be in this schema, otherwise applyInPandas
-            # silently drops them at the boundary. Closes the LL1 latent-bug class.
-            StructField("statsbomb_possession_id", LongType()),
-            StructField("statsbomb_possession_team_id", LongType()),
-            StructField("statsbomb_play_pattern", StringType()),
-            StructField("statsbomb_under_pressure", BooleanType()),
-            # LL2: 6 enrichment columns from apply_spadl_enrichments.
-            StructField("possession_id_heuristic", LongType()),
-            StructField("gk_role", StringType()),
-            StructField("gk_was_distributing", BooleanType()),
-            StructField("gk_was_engaged", BooleanType()),
-            StructField("gk_actions_in_possession", LongType()),
-            StructField("defending_gk_player_id", LongType()),
-            # LL2 Path B: native string identifiers carried through from spadl_actions.
-            StructField("team_id_native", StringType()),
-            StructField("home_team_id_native", StringType()),
-            StructField("competition_native_id", StringType()),
-            StructField("season_native_id", StringType()),
-            StructField("match_id_native", StringType()),
-            StructField("player_id_native", StringType()),
-            # PR-LL2 Path B close-out (2026-04-29): silly-kicks 2.0.0 sportec
-            # tackle qualifier columns. NULL on non-sportec rows.
-            StructField("tackle_winner_player_id_native", StringType()),
-            StructField("tackle_winner_player_key", LongType()),
-            StructField("tackle_winner_team_id_native", StringType()),
-            StructField("tackle_winner_team_key", LongType()),
-            StructField("tackle_loser_player_id_native", StringType()),
-            StructField("tackle_loser_player_key", LongType()),
-            StructField("tackle_loser_team_id_native", StringType()),
-            StructField("tackle_loser_team_key", LongType()),
-        ]
-    )
+    vaep_schema = _vaep_output_schema()
 
     scoring_udf = _make_scoring_udf(scores_raw, concedes_raw)
     # Group by match_id -- each match is ~1,600 SPADL actions (~5 MB), well
@@ -818,14 +833,287 @@ def run_pipeline(
 
 
 # ---------------------------------------------------------------------------
-# Entry point
+# VAEP output schema (shared by run_pipeline and _run_chunk)
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
-    """CLI entry point for SPADL conversion and VAEP action valuation."""
-    args = parse_ingestion_args("Compute SPADL actions and VAEP scores")
-    logger = configure_logging("spadl_vaep")
+def _vaep_output_schema() -> Any:
+    """Return the output StructType for VAEP scored actions.
+
+    Shared by run_pipeline (monolithic) and _run_chunk (for_each_task iteration).
+    """
+    from pyspark.sql.types import BooleanType, DoubleType, LongType, StringType, StructField, StructType
+
+    return StructType(
+        [
+            StructField("game_id", LongType()),
+            StructField("match_id", LongType()),
+            StructField("original_event_id", StringType()),
+            StructField("period_id", LongType()),
+            StructField("time_seconds", DoubleType()),
+            StructField("team_id", LongType()),
+            StructField("player_id", LongType()),
+            StructField("start_x", DoubleType()),
+            StructField("start_y", DoubleType()),
+            StructField("end_x", DoubleType()),
+            StructField("end_y", DoubleType()),
+            StructField("type_id", LongType()),
+            StructField("action_type", StringType()),
+            StructField("result_id", LongType()),
+            StructField("action_result", StringType()),
+            StructField("bodypart_id", LongType()),
+            StructField("bodypart", StringType()),
+            StructField("offensive_value", DoubleType()),
+            StructField("defensive_value", DoubleType()),
+            StructField("vaep_value", DoubleType()),
+            StructField("competition_id", LongType()),
+            StructField("season_id", LongType()),
+            StructField("data_source", StringType()),
+            StructField("action_id", LongType()),
+            StructField("statsbomb_possession_id", LongType()),
+            StructField("statsbomb_possession_team_id", LongType()),
+            StructField("statsbomb_play_pattern", StringType()),
+            StructField("statsbomb_under_pressure", BooleanType()),
+            StructField("possession_id_heuristic", LongType()),
+            StructField("gk_role", StringType()),
+            StructField("gk_was_distributing", BooleanType()),
+            StructField("gk_was_engaged", BooleanType()),
+            StructField("gk_actions_in_possession", LongType()),
+            StructField("defending_gk_player_id", LongType()),
+            StructField("team_id_native", StringType()),
+            StructField("home_team_id_native", StringType()),
+            StructField("competition_native_id", StringType()),
+            StructField("season_native_id", StringType()),
+            StructField("match_id_native", StringType()),
+            StructField("player_id_native", StringType()),
+            StructField("tackle_winner_player_id_native", StringType()),
+            StructField("tackle_winner_player_key", LongType()),
+            StructField("tackle_winner_team_id_native", StringType()),
+            StructField("tackle_winner_team_key", LongType()),
+            StructField("tackle_loser_player_id_native", StringType()),
+            StructField("tackle_loser_player_key", LongType()),
+            StructField("tackle_loser_team_id_native", StringType()),
+            StructField("tackle_loser_team_key", LongType()),
+        ]
+    )
+
+
+# ---------------------------------------------------------------------------
+# Chunked execution (for_each_task iteration)
+# ---------------------------------------------------------------------------
+
+_VAEP_MODEL_CACHE_BASE = "/Volumes/{catalog}/{schema}/model_weights/vaep_cache"
+
+
+def _cache_vaep_models_to_volume(
+    catalog: str,
+    schema: str,
+    logger: logging.Logger,
+) -> str | None:
+    """Download VAEP Champion models from MLflow and cache to UC Volume.
+
+    Writes scores.xgb + concedes.xgb to a run-scoped directory under the
+    existing model_weights Volume (Terraform-managed, ingestion SP has grants).
+    Returns the directory path, or None if no Champion model exists.
+
+    Prerequisite: UC Volume /Volumes/soccer_analytics/dev_gold/model_weights/
+    must exist. Already Terraform-managed (terraform/modules/catalog/main.tf:134-137)
+    with ingestion SP grants — no manual creation needed.
+    """
+    import os
+    import time
+
+    models = _load_models(catalog, schema, logger)
+    if models is None:
+        return None
+
+    model_scores, model_concedes = models
+
+    scores_raw = bytes(model_scores.get_booster().save_raw("json"))
+    concedes_raw = bytes(model_concedes.get_booster().save_raw("json"))
+
+    # Run-scoped directory prevents interference between concurrent preflights
+    run_id = os.environ.get("DATABRICKS_RUN_ID", str(int(time.time())))
+    base_path = _VAEP_MODEL_CACHE_BASE.format(catalog=catalog, schema="dev_gold")
+    model_dir = f"{base_path}/{run_id}"
+
+    # Write both model files
+    scores_path = f"{model_dir}/scores.xgb"
+    concedes_path = f"{model_dir}/concedes.xgb"
+
+    os.makedirs(model_dir, exist_ok=True)
+    with open(scores_path, "wb") as f:
+        f.write(scores_raw)
+    with open(concedes_path, "wb") as f:
+        f.write(concedes_raw)
+
+    logger.info(
+        "Cached VAEP models to %s (scores=%d bytes, concedes=%d bytes)",
+        model_dir,
+        len(scores_raw),
+        len(concedes_raw),
+    )
+
+    # Cleanup: remove directories older than 7 days (non-critical)
+    _cleanup_old_model_cache(base_path, max_age_days=7, logger=logger)
+
+    return model_dir
+
+
+def _cleanup_old_model_cache(base_path: str, max_age_days: int, logger: logging.Logger) -> None:
+    """Remove model cache directories older than max_age_days."""
+    import os
+    import shutil
+    import time
+
+    if not os.path.isdir(base_path):
+        return
+
+    cutoff = time.time() - (max_age_days * 86400)
+    for entry in os.listdir(base_path):
+        entry_path = os.path.join(base_path, entry)
+        if os.path.isdir(entry_path):
+            try:
+                mtime = os.path.getmtime(entry_path)
+                if mtime < cutoff:
+                    shutil.rmtree(entry_path)
+                    logger.info("Cleaned old model cache: %s", entry_path)
+            except OSError as exc:
+                logger.debug("Model cache cleanup skipped for %s: %s", entry_path, exc)
+
+
+def _load_model_path_from_task_value(spark: Any, logger: logging.Logger) -> str:
+    """Read vaep_model_path task value from preflight."""
+    try:
+        from pyspark.dbutils import DBUtils  # type: ignore[import-not-found]
+
+        dbutils = DBUtils(spark)
+        path = dbutils.jobs.taskValues.get(
+            taskKey="preflight_spadl_vaep",
+            key="vaep_model_path",
+        )
+        logger.info("Read model path from task value: %s", path)
+        return str(path)
+    except (ImportError, AttributeError, RuntimeError) as exc:
+        raise SystemExit(
+            "Cannot read vaep_model_path task value — "
+            "are you running outside for_each_task? Use monolithic mode (no --match-ids)."
+        ) from exc
+
+
+def _read_cached_models(model_dir: str, logger: logging.Logger) -> tuple[bytes, bytes]:
+    """Read cached XGBoost model bytes from UC Volume."""
+    scores_path = f"{model_dir}/scores.xgb"
+    concedes_path = f"{model_dir}/concedes.xgb"
+
+    with open(scores_path, "rb") as f:
+        scores_raw = f.read()
+    with open(concedes_path, "rb") as f:
+        concedes_raw = f.read()
+
+    logger.info(
+        "Loaded cached models: scores=%d bytes, concedes=%d bytes",
+        len(scores_raw),
+        len(concedes_raw),
+    )
+    return scores_raw, concedes_raw
+
+
+def _run_chunk(
+    spark: Any,
+    catalog: str,
+    schema: str,
+    logger: logging.Logger,
+    provider: str,
+    match_ids: list[int],
+) -> None:
+    """Execute one for_each_task iteration: convert (if needed) + score.
+
+    Args:
+        provider: One of the _VALID_CHUNK_PROVIDERS. "score" means skip conversion.
+        match_ids: BIGINT match IDs to process.
+    """
+    from pyspark.sql import functions as spark_fn
+
+    spadl_table = f"{catalog}.{schema}.{_SPADL_TABLE}"
+
+    # Phase A: Convert (unless this is a score-only chunk)
+    if provider != "score":
+        existing_spadl_matches = _read_existing_match_ids(spark, catalog, schema, _SPADL_TABLE, logger)
+        converters = {
+            "statsbomb": _convert_statsbomb_from_bronze,
+            "wyscout": _convert_wyscout_from_bronze,
+            "idsse": _convert_idsse_from_bronze,
+            "metrica": _convert_metrica_from_bronze,
+            "skillcorner": _convert_skillcorner_from_bronze,
+        }
+        convert_fn = converters[provider]
+        convert_fn(spark, catalog, schema, logger, existing_spadl_matches, match_id_filter=set(match_ids))
+        logger.info("Phase A complete: converted %s chunk (%d match_ids)", provider, len(match_ids))
+
+        # Post-conversion verification: ensure chunk match_ids landed in spadl_actions
+        converted_count = (
+            spark.table(spadl_table)
+            .filter(spark_fn.col("match_id").isin(match_ids))
+            .select("match_id")
+            .distinct()
+            .count()
+        )
+        if converted_count == 0:
+            raise RuntimeError(
+                f"Post-conversion check failed: 0 of {len(match_ids)} match_ids "
+                f"found in {spadl_table} after {provider} conversion"
+            )
+        if converted_count < len(match_ids):
+            logger.warning(
+                "Partial conversion: %d/%d match_ids found in %s",
+                converted_count,
+                len(match_ids),
+                spadl_table,
+            )
+        logger.info("Post-conversion: %d/%d match_ids in spadl_actions", converted_count, len(match_ids))
+
+    # Phase B: Score via VAEP
+    model_path = _load_model_path_from_task_value(spark, logger)
+    scores_raw, concedes_raw = _read_cached_models(model_path, logger)
+
+    unscored_sdf = spark.table(spadl_table).filter(spark_fn.col("match_id").isin(match_ids))
+
+    vaep_schema = _vaep_output_schema()
+    scoring_udf = _make_scoring_udf(scores_raw, concedes_raw)
+
+    scored_sdf = unscored_sdf.groupBy("match_id", "data_source").applyInPandas(
+        scoring_udf,  # type: ignore[arg-type]
+        schema=vaep_schema,
+    )
+
+    ids_sql = ", ".join(str(mid) for mid in match_ids)
+    write_delta_table(
+        scored_sdf,
+        catalog,
+        schema,
+        _VAEP_TABLE,
+        replace_where=f"match_id IN ({ids_sql})",
+        logger=logger,
+    )
+
+    logger.info("Chunk complete: provider=%s, %d matches scored", provider, len(match_ids))
+
+
+# ---------------------------------------------------------------------------
+# Entry points
+# ---------------------------------------------------------------------------
+
+
+def main_preflight() -> None:
+    """CLI entry point for SPADL/VAEP preflight (guard + chunk emission + model cache).
+
+    Runs the skip guard, builds chunk strings from per-provider match ID lists,
+    caches VAEP models to UC Volume, and emits both as Databricks task values
+    for downstream for_each_task iterations.
+    """
+    args = parse_ingestion_args("Preflight: discover unprocessed SPADL/VAEP matches and emit chunks")
+    logger = configure_logging("spadl_vaep_preflight")
     spark = get_spark_session()
 
     from ingestion.bootstrap import bootstrap_hooks
@@ -834,8 +1122,71 @@ def main() -> None:
 
     filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
 
-    logger.info("Starting SPADL/VAEP pipeline into %s.%s", args.catalog, args.schema)
-    run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
+    chunks = _build_chunks(filter_result.metadata) if filter_result.count > 0 else []
+    logger.info(
+        "VAEP preflight: %d matches across %d chunks",
+        filter_result.count,
+        len(chunks),
+    )
+
+    # Cache models to UC Volume (only if there's work to do)
+    model_path: str | None = None
+    if chunks:
+        model_path = _cache_vaep_models_to_volume(args.catalog, args.schema, logger)
+        if model_path is None:
+            raise SystemExit(
+                "No Champion VAEP model found in MLflow — cannot score. Run scripts/train_vaep_model_hf.py first."
+            )
+
+    # Emit task values
+    try:
+        from pyspark.dbutils import DBUtils  # type: ignore[import-not-found]
+
+        dbutils = DBUtils(spark)
+        dbutils.jobs.taskValues.set(key="spadl_vaep_chunks", value=chunks)
+        logger.info("Wrote task value 'spadl_vaep_chunks' (%d chunks)", len(chunks))
+        if model_path:
+            dbutils.jobs.taskValues.set(key="vaep_model_path", value=model_path)
+            logger.info("Wrote task value 'vaep_model_path' = %s", model_path)
+    except (ImportError, AttributeError, RuntimeError) as exc:
+        logger.warning("Task values not available (likely standalone mode) -- %s", exc)
+
+
+def main() -> None:
+    """CLI entry point for SPADL conversion and VAEP action valuation.
+
+    Two modes:
+    - **Chunk mode** (``--match-ids "provider:id1,id2"``): processes one chunk
+      from the for_each_task fan-out. Reads model from UC Volume task value.
+    - **Monolithic mode** (no ``--match-ids``): runs the full pipeline for all
+      providers. Preserved for local development and debugging.
+    """
+    args = parse_ingestion_args(
+        "Compute SPADL actions and VAEP scores",
+        extra_args=[("--match-ids", {"type": str, "default": None, "help": "provider:id1,id2 from for_each_task"})],
+    )
+    logger = configure_logging("spadl_vaep")
+    spark = get_spark_session()
+
+    from ingestion.bootstrap import bootstrap_hooks
+
+    bootstrap_hooks(spark, args.catalog, args.schema)
+
+    parsed = _parse_vaep_match_ids_arg(getattr(args, "match_ids", None))
+
+    if parsed is None:
+        # Monolithic mode (backward compat / local dev)
+        logger.warning(
+            "Running in monolithic mode (no --match-ids). Production uses preflight_spadl_vaep + for_each_task."
+        )
+        filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
+        logger.info("Starting SPADL/VAEP pipeline into %s.%s", args.catalog, args.schema)
+        run_pipeline(spark, args.catalog, args.schema, logger, filter_result=filter_result)
+    else:
+        # Chunk mode (for_each_task iteration)
+        provider, match_ids = parsed
+        logger.info("Chunk mode: provider=%s, %d match_ids", provider, len(match_ids))
+        _run_chunk(spark, args.catalog, args.schema, logger, provider, match_ids)
 
 
 if __name__ == "__main__":

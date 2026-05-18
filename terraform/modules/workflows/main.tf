@@ -467,44 +467,41 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "default"
   }
 
-  # ── Task: Compute SPADL actions and VAEP scores ─────────────────────────
+  # ── Task: Compute SPADL actions and VAEP scores (for_each_task fan-out) ──
+  # Each iteration processes one chunk: converts a single provider's matches
+  # to SPADL (scoped to chunk match_ids only), then scores with VAEP.
+  # Idempotent via replaceWhere.
   task {
     task_key        = "compute_spadl_vaep"
-    timeout_seconds = 1800
-    max_retries     = 0
+    timeout_seconds = 0
 
-    # PR-Cycle-B (2026-05-01): the 4-source SPADL union reads bronze events
-    # from ALL providers — statsbomb (covered via backfill_statsbomb_extra),
-    # wyscout, idsse_events, metrica. Without ingest_idsse_events +
-    # ingest_metrica edges, today's SPADL silently runs against yesterday's
-    # bronze.idsse_events / bronze.metrica_events (1-day lag class).
-    # Evidence: src/ingestion/spadl_vaep.py:169,174 +
-    # src/ingestion/spadl_conversion.py:1069,1379.
-    # Order: alphabetical (test_workflows_tf_ordering enforcement).
     depends_on {
-      task_key = "backfill_statsbomb_extra"
-    }
-    depends_on {
-      task_key = "ingest_idsse_events"
-    }
-    depends_on {
-      task_key = "ingest_metrica"
-    }
-    depends_on {
-      task_key = "ingest_wyscout"
+      task_key = "preflight_spadl_vaep"
     }
 
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "compute_spadl_vaep"
+    for_each_task {
+      inputs      = "{{tasks.preflight_spadl_vaep.values.spadl_vaep_chunks}}"
+      concurrency = 4
 
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze"
-      ]
+      task {
+        task_key        = "compute_spadl_vaep_iteration"
+        timeout_seconds = 1800
+        max_retries     = 0
+
+        python_wheel_task {
+          package_name = "luxury_lakehouse"
+          entry_point  = "compute_spadl_vaep"
+
+          parameters = [
+            "--catalog", var.catalog_name,
+            "--schema", "bronze",
+            "--match-ids", "{{input}}"
+          ]
+        }
+
+        environment_key = "analytics"
+      }
     }
-
-    environment_key = "analytics"
   }
 
   # ── Task: Compute action-coupled tracking features (TC-1 fan-out) ──────
@@ -947,6 +944,45 @@ resource "databricks_job" "data_ingestion" {
     }
 
     environment_key = "default"
+  }
+
+  # ── Task: Preflight SPADL/VAEP (guard + chunk emission + model cache) ────
+  # Discovers new matches per provider, caches VAEP models to UC Volume,
+  # emits chunk strings as task values for downstream for_each_task.
+  task {
+    task_key        = "preflight_spadl_vaep"
+    timeout_seconds = 300
+    max_retries     = 0
+
+    # Same dependencies as the old monolithic compute_spadl_vaep.
+    # Order: alphabetical.
+    depends_on {
+      task_key = "backfill_statsbomb_extra"
+    }
+    depends_on {
+      task_key = "ingest_idsse_events"
+    }
+    depends_on {
+      task_key = "ingest_metrica"
+    }
+    depends_on {
+      task_key = "ingest_skillcorner"
+    }
+    depends_on {
+      task_key = "ingest_wyscout"
+    }
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "preflight_spadl_vaep"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "analytics"
   }
 
   # ── Task: Tracking-context preflight — discover matches + emit chunks ──
