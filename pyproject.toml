@@ -11,6 +11,9 @@ dependencies = [
     # Do NOT pin them here — version conflicts break the Python kernel.
     "requests>=2.33.0",
     "requests-cache>=1.2.0",
+    # Transitive dep (requests, httpx, anyio). Pinned to >=3.15 to resolve
+    # CVE-2026-45409 (idna 3.11 vulnerability).
+    "idna>=3.15",
     # Workflow framework (card parsing + validation)
     "pydantic>=2.0",
     "PyYAML>=6.0",
