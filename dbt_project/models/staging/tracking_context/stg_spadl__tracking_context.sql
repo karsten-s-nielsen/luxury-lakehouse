@@ -30,7 +30,15 @@ cleaned as (
         cast(period_id as bigint)           as period_id,
         cast(time_seconds as double)        as time_seconds,
         cast(team_id as string)             as team_id_native,
-        cast(player_id as string)           as player_id_native,
+        -- Metrica player_id normalization: kloppy outputs "Player6" (games 1/2)
+        -- or "Player 6" (game 3), but dim_players uses synthesized format
+        -- "metrica_{match}_{side}_{jersey}". Derive the dim-compatible format
+        -- from team_id (already synthesized in bronze) + stripped jersey number.
+        case
+            when data_source = 'metrica'
+            then concat(team_id, '_', regexp_replace(player_id, '^Player ?', ''))
+            else cast(player_id as string)
+        end                                 as player_id_native,
         cast(type_name as string)           as type_name,
         cast(start_x as double)             as start_x,
         cast(start_y as double)             as start_y,
@@ -41,8 +49,17 @@ cleaned as (
         cast(time_offset_seconds as double) as time_offset_seconds,
         cast(link_quality_score as double)  as link_quality_score,
         cast(n_candidate_frames as bigint)  as n_candidate_frames,
-        -- GK resolution (native player ID string)
-        defending_gk_player_id_native,
+        -- GK resolution: defending GK is on the opposing team. For Metrica,
+        -- synthesize dim-compatible format from match_id + opposing side + jersey.
+        case
+            when data_source = 'metrica' and defending_gk_player_id_native is not null
+            then concat(
+                'metrica_', match_id, '_',
+                case when team_id like '%_home' then 'away' else 'home' end,
+                '_', regexp_replace(defending_gk_player_id_native, '^Player ?', '')
+            )
+            else defending_gk_player_id_native
+        end                                 as defending_gk_player_id_native,
         cast(gk_was_distributing as boolean) as gk_was_distributing,
         cast(gk_was_engaged as boolean)     as gk_was_engaged,
         cast(gk_actions_in_possession as bigint) as gk_actions_in_possession,

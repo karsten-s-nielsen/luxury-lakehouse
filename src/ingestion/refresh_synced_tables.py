@@ -183,6 +183,8 @@ SYNCED_TABLES: list[tuple[str, str | None]] = [
     ("dim_competitions_synced", None),
     # Kimball conformed match dimension added 2026-04-20 (ADR-011)
     ("dim_matches_synced", None),
+    # TC-1 tracking context — per-action tracking features (2026-05-18)
+    ("fct_tracking_context_synced", None),
 ]
 
 POLL_INTERVAL_S = 30
