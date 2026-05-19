@@ -29,6 +29,7 @@
 #   - fct_tracking_frames:  Tracking data (Metrica, IDSSE, SkillCorner) with velocity metrics
 #   - fct_formation_labels: Formation detection windows (EFPI + shape graph)
 #   - fct_goalkeeper_stats: Per-match goalkeeper statistics (saves, claims, xT, PSxG)
+#   - fct_tracking_context: Per-action tracking features (pitch control, pressure, DAS)
 #   - fct_line_breaking_results: Line-breaking detection per pass event
 #   - fct_off_ball_xt:      Off-ball expected threat per player per match
 #   - fct_pausa_rankings:   Player-level PAUSA aggregate rankings
@@ -512,6 +513,29 @@ resource "databricks_database_synced_database_table" "fct_space_creation" {
   spec = {
     source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_space_creation"
     primary_key_columns    = ["space_creation_id"]
+    scheduling_policy      = "SNAPSHOT"
+  }
+
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+# fct_tracking_context_synced — TC-1 tracking features (2026-05-18).
+# Per-action tracking features (pitch control, pressure, DAS, team shape,
+# line-breaking, GK influence, cover shadows). Pure Kimball grain
+# (match_key, action_id). Per ADR-005 Path A: create in the Databricks UI
+# first, then `terraform import`:
+#   terraform import 'module.synced_tables.databricks_database_synced_database_table.fct_tracking_context' \
+#     'soccer_analytics.dev_gold.fct_tracking_context_synced'
+resource "databricks_database_synced_database_table" "fct_tracking_context" {
+  name                   = "${var.catalog_name}.${var.gold_schema}.fct_tracking_context_synced"
+  database_instance_name = var.database_instance_name
+  logical_database_name  = "databricks_postgres"
+
+  spec = {
+    source_table_full_name = "${var.catalog_name}.${var.gold_schema}.fct_tracking_context"
+    primary_key_columns    = ["tracking_context_id"]
     scheduling_policy      = "SNAPSHOT"
   }
 

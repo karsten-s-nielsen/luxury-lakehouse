@@ -203,11 +203,12 @@ INDEXES: list[tuple[str, str, str]] = [
     ("idx_dim_matches_match_key", "dim_matches_synced", "match_key"),
     ("idx_dim_matches_provider_native", "dim_matches_synced", "provider, native_match_id"),
     # ── fct_tracking_context_synced — TC-1 tracking features ──────────
-    # Indexes deferred until synced table is created (Task 12 deploy).
-    # Add back after: maintain_synced_tables.py --skip-refresh
-    # ("idx_tracking_context_match_key", "fct_tracking_context_synced", "match_key"),
-    # ("idx_tracking_context_match_team_key", "fct_tracking_context_synced", "match_key, team_key"),
-    # ("idx_tracking_context_match_player_key", "fct_tracking_context_synced", "match_key, player_key"),
+    # 25K rows today (20 matches x ~1,200 actions). Primary access pattern:
+    # per-match feature retrieval (WHERE match_key = %s). Secondary:
+    # per-match-team (defensive shape) and per-match-player (actor speed).
+    ("idx_tracking_context_match_key", "fct_tracking_context_synced", "match_key"),
+    ("idx_tracking_context_match_team_key", "fct_tracking_context_synced", "match_key, team_key"),
+    ("idx_tracking_context_match_player_key", "fct_tracking_context_synced", "match_key, player_key"),
 ]
 
 # pgvector HNSW index definitions: (index_name, table, using_clause)
