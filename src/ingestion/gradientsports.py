@@ -113,31 +113,43 @@ def ingest_gradientsports(
             match.away,
         )
 
-        # 1. Events
+        # --- Phase 1: Download & parse both artifacts (no writes yet) ---
+        # Parse everything first so a failure in either artifact prevents
+        # partial writes. The guard watermark (MAX _ingested_at on events)
+        # only advances when BOTH artifacts are committed.
+
+        events_df = None
         for artifact_key in match.artifacts:
             if "event" in artifact_key.lower():
                 events_resp = fetch_artifact(mid, artifact_key, token)
                 events_df = parse_events(events_resp.text, match_id=mid)
-                write_events(spark, events_df, catalog, schema, mid, logger)
-                logger.info("Wrote %d event rows for match %s", len(events_df), mid)
-                del events_df
+                logger.info("Parsed %d event rows for match %s", len(events_df), mid)
                 break
         else:
             logger.warning("No event artifact found for match %s", mid)
 
-        # 2. Tracking
+        tracking_df = None
         for artifact_key in match.artifacts:
             if "track" in artifact_key.lower():
                 tracking_resp = fetch_artifact(mid, artifact_key, token, stream=True)
-                # Read full response — streaming not needed for data size
-                tracking_data = tracking_resp.text
-                tracking_df = parse_tracking(tracking_data, match_id=mid)
-                write_tracking(spark, tracking_df, catalog, schema, mid, logger)
-                logger.info("Wrote %d tracking rows for match %s", len(tracking_df), mid)
-                del tracking_df, tracking_data
+                tracking_bytes = tracking_resp.content
+                tracking_df = parse_tracking(tracking_bytes, match_id=mid)
+                logger.info("Parsed %d tracking rows for match %s", len(tracking_df), mid)
+                del tracking_bytes
                 break
         else:
             logger.warning("No tracking artifact found for match %s", mid)
+
+        # --- Phase 2: Write both atomically (all-or-nothing per match) ---
+        if events_df is not None:
+            write_events(spark, events_df, catalog, schema, mid, logger)
+            logger.info("Wrote %d event rows for match %s", len(events_df), mid)
+            del events_df
+
+        if tracking_df is not None:
+            write_tracking(spark, tracking_df, catalog, schema, mid, logger)
+            logger.info("Wrote %d tracking rows for match %s", len(tracking_df), mid)
+            del tracking_df
 
         gc.collect()
 

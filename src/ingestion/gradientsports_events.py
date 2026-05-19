@@ -1,12 +1,19 @@
 """Gradient Sports event ingestion — events artifact to bronze.
 
 Parses the event artifact from the pining-for-the-data API and writes to
-bronze.gradientsports_events. Format details discovered at runtime from
-the API response.
+bronze.gradientsports_events.
+
+Event schema (198 columns via json_normalize):
+  - Top-level scalars: gameId, gameEventId, possessionEventId, startTime,
+    endTime, duration, eventTime, sequence
+  - Nested dicts flattened: gameEvents.*, possessionEvents.*, grades.*,
+    fouls.*, initialTouch.*, stadiumMetadata.*
+  - List fields stored as JSON strings: homePlayers, awayPlayers, ball
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -20,6 +27,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# List-of-dict fields that json_normalize leaves as object dtype.
+# Serialize to JSON strings for reliable Delta storage.
+_LIST_FIELDS = ("homePlayers", "awayPlayers", "ball")
+
 
 def parse_events(source: str | dict | list, *, match_id: str) -> pd.DataFrame:
     """Parse Gradient Sports events into a DataFrame.
@@ -31,8 +42,6 @@ def parse_events(source: str | dict | list, *, match_id: str) -> pd.DataFrame:
     Returns:
         DataFrame with event columns + match_id + _ingested_at.
     """
-    import json
-
     if isinstance(source, str):
         data = json.loads(source)
     else:
@@ -45,6 +54,12 @@ def parse_events(source: str | dict | list, *, match_id: str) -> pd.DataFrame:
         events = data
 
     df = pd.json_normalize(events)  # type: ignore[arg-type]
+
+    # Serialize list-of-dict fields to JSON strings for Delta compatibility
+    for col in _LIST_FIELDS:
+        if col in df.columns:
+            df[col] = df[col].apply(lambda v: json.dumps(v) if isinstance(v, list) else v)
+
     df["match_id"] = match_id
     df["_ingested_at"] = datetime.now(timezone.utc)
     return df
