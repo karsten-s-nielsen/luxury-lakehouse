@@ -39,12 +39,12 @@ tracking as (
 
     -- PR 7 (ADR-011): tracking staging now surfaces team_id per Q1 (IDSSE
     -- real DFL TeamId from PR 5a; Metrica synthesized via dim_teams pattern;
-    -- SkillCorner via home_team_id/away_team_id CASE). The 15-column shared
-    -- schema includes team_id so dim_teams JOINs at mart layer resolve cleanly.
-    -- Revisit if any provider-specific column starts driving downstream logic.
+    -- SkillCorner via home_team_id/away_team_id CASE). The 14-column shared
+    -- schema excludes is_goalkeeper — TC-2 derives it from
+    -- int_tracking_goalkeepers (silly-kicks derive_goalkeepers() via TC-1).
     select
         tracking_id, match_id, period, frame, timestamp_seconds,
-        frame_rate, player_id, team, team_id, source_provider, is_goalkeeper,
+        frame_rate, player_id, team, team_id, source_provider,
         x, y, ball_x, ball_y
     from {{ ref('stg_metrica__tracking') }}
     {% if is_incremental() %}
@@ -53,7 +53,7 @@ tracking as (
     union all
     select
         tracking_id, match_id, period, frame, timestamp_seconds,
-        frame_rate, player_id, team, team_id, source_provider, is_goalkeeper,
+        frame_rate, player_id, team, team_id, source_provider,
         x, y, ball_x, ball_y
     from {{ ref('stg_idsse__tracking') }}
     {% if is_incremental() %}
@@ -62,7 +62,7 @@ tracking as (
     union all
     select
         tracking_id, match_id, period, frame, timestamp_seconds,
-        frame_rate, player_id, team, team_id, source_provider, is_goalkeeper,
+        frame_rate, player_id, team, team_id, source_provider,
         x, y, ball_x, ball_y
     from {{ ref('stg_skillcorner__tracking') }}
     {% if is_incremental() %}
@@ -145,7 +145,7 @@ final as (
         dt.team_key,
         wl.source_provider,
         wl.source_provider                              as data_source,
-        wl.is_goalkeeper,
+        gk.player_key is not null                          as is_goalkeeper,
         wl.frame_rate,
         wl.x,
         wl.y,
@@ -188,6 +188,9 @@ final as (
     left join {{ ref('dim_players') }} dp
         on  dp.provider = wl.source_provider
        and dp.native_player_id = cast(wl.player_id as string)
+    left join {{ ref('int_tracking_goalkeepers') }} gk
+        on  gk.match_key = dm.match_key
+       and gk.player_key = dp.player_key
 
 )
 

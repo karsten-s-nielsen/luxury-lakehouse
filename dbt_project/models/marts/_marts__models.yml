@@ -1323,9 +1323,11 @@ models:
       - name: is_goalkeeper
         data_type: boolean
         description: >
-          Whether this player is the goalkeeper. Derived from provider metadata:
-          IDSSE (PlayingPosition='TW'), SkillCorner (kloppy PositionType.Goalkeeper),
-          Metrica (EPTS PlayingPosition or jersey #1 heuristic).
+          Whether this player is the goalkeeper. TC-2: derived from
+          int_tracking_goalkeepers (silly-kicks derive_goalkeepers() 3-tier
+          identification via stg_spadl__tracking_context). Replaces legacy
+          per-provider heuristics (IDSSE TW, SkillCorner position_name,
+          Metrica jersey-#1).
         data_tests:
           - not_null
       - name: frame_rate
