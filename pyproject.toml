@@ -1,6 +1,6 @@
 [project]
 name = "luxury-lakehouse"
-version = "0.3.63"
+version = "0.3.64"
 description = "Serverless soccer analytics platform built on Databricks Lakebase"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -114,6 +114,7 @@ preflight_spadl_vaep = "ingestion.spadl_vaep:main_preflight"
 ingest_idsse = "ingestion.idsse:main"
 preflight_idsse = "ingestion.idsse:main_preflight"
 ingest_skillcorner = "ingestion.skillcorner:main"
+ingest_gradientsports = "ingestion.gradientsports:main"
 compute_line_breaking = "ingestion.line_breaking:main"
 compute_off_ball_xt = "ingestion.off_ball_xt:main"
 compute_defcon_lite = "ingestion.defcon_lite:main"
@@ -174,6 +175,7 @@ select = [
 "hf_taipy_app/**" = ["E501", "S104", "F405", "RUF022", "RUF005"]  # Taipy app: long help text, 0.0.0.0, star imports, unsorted __all__, list concat
 "hf_taipy_app/src/test_*.py" = ["E501", "S101", "S105", "S106"]  # Taipy app tests: long lines, asserts, fake tokens in test fixtures
 "src/evolve/targets/*/seed_programs/**" = ["F821"]  # Seed programs are exec'd with torch/math injected in globals
+"scripts/run_tc3_calibration.py" = ["S608", "N806", "BLE001", "B905"]  # SQL from validated env vars; ML convention X/X_train; diagnostic loops catch broadly with logging; zips from same source
 "src/evolve/targets/*/seed_programs_stage2/**" = ["F821"]  # EV2 stage-2 adversary seeds — same exec'd-with-globals pattern as Phase 1 seed_programs
 # BLE001 per-file ignores below: each is a deliberate, justified catch of broad
 # Exception. Per-line `# noqa: BLE001` comments (with explanation) are preferred
@@ -278,6 +280,9 @@ exclude = [
     "scripts/train_xg_model_hf.py",
     "scripts/train_xg_v2_hf.py",
     "scripts/train_xg_v2_hf_helpers.py",
+    # TC-3 calibration runner — depends on `databricks-sql-connector`
+    # (installed ad-hoc via `uv run --with`); pandas/numpy stub noise.
+    "scripts/run_tc3_calibration.py",
     "src/evolve/targets/*/seed_programs",
     "src/evolve/targets/*/seed_programs_stage2",
 ]

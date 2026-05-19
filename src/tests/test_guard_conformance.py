@@ -29,6 +29,7 @@ _METADATA_EXEMPT = {
     "wf-idsse",  # Static dataset, count-based guard
     "wf-idsse-events",  # Static dataset, count-based guard
     "wf-skillcorner",  # Static dataset, count-based guard
+    "wf-gradientsports",  # Static dataset, count-based guard
     "wf-wyscout",  # Static dataset, count-based guard
     "wf-import-obso",  # HF SHA guard — metadata is commit_sha string, not ID list
     "wf-import-psxg",  # HF SHA guard — metadata is commit_sha string, not ID list
@@ -206,9 +207,12 @@ class TestGuardRegistry:
         """Every guard.check() with a mocked Spark returns a FilterResult."""
         from unittest.mock import patch
 
-        # SkillCorner guard requires API token + HTTP calls — mock both
+        # SkillCorner + Gradient Sports guards require API token + HTTP calls — mock both
         monkeypatch.setenv("PINING_FOR_THE_DATA_TOKEN", "test-token-guard-conformance")
-        with patch("ingestion.skillcorner.fetch_match_list", return_value=[]):
+        with (
+            patch("ingestion.skillcorner.fetch_match_list", return_value=[]),
+            patch("ingestion.gradientsports.fetch_match_list", return_value=[]),
+        ):
             for module_path in _GUARD_MODULES:
                 mod = importlib.import_module(module_path)
                 guard = mod.skip_guard

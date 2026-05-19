@@ -22,7 +22,7 @@
 
 ## 1. Executive Summary
 
-A serverless soccer analytics platform built on the Databricks Lakebase architecture. The pipeline ingests open-source match data (StatsBomb, Metrica Sports, Wyscout, IDSSE, SkillCorner), transforms it through a medallion architecture (Bronze → Silver → Gold), synchronizes curated tables into Lakebase (PostgreSQL 17), and serves a Taipy dashboard for coaches and analysts.
+A serverless soccer analytics platform built on the Databricks Lakebase architecture. The pipeline ingests open-source match data (StatsBomb, Metrica Sports, Wyscout, IDSSE, SkillCorner, Gradient Sports), transforms it through a medallion architecture (Bronze → Silver → Gold), synchronizes curated tables into Lakebase (PostgreSQL 17), and serves a Taipy dashboard for coaches and analysts.
 
 **Why Lakebase over Traditional AWS?**
 
@@ -42,14 +42,14 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────────────────┐
-│                              DATA SOURCES (Open Source)                               │
-│  ┌───────────┐  ┌────────────────┐   ┌─────────┐  ┌───────────┐  ┌──────────────┐     │
-│  │ StatsBomb │  │ Metrica Sports │   │ Wyscout │  │   IDSSE   │  │ SkillCorner  │     │
-│  │ (JSON API)│  │ (CSV tracking) │   │ (JSON)  │  │   (XML)   │  │   (JSONL)    │     │
-│  └─────┬─────┘  └───────┬────────┘   └────┬────┘  └─────┬─────┘  └──────┬───────┘     │
-└────────┼────────────────┼─────────────────┼─────────────┼───────────────┼─────────────┘
-         │                │                 │             │               │
-         ▼                ▼                 ▼             ▼               ▼
+│                              DATA SOURCES (Open Source)                                            │
+│  ┌───────────┐  ┌────────────────┐   ┌─────────┐  ┌───────────┐  ┌──────────────┐  ┌────────────┐  │
+│  │ StatsBomb │  │ Metrica Sports │   │ Wyscout │  │   IDSSE   │  │ SkillCorner  │  │  Gradient  │  │
+│  │ (JSON API)│  │ (CSV tracking) │   │ (JSON)  │  │   (XML)   │  │   (JSONL)    │  │  Sports*   │  │
+│  └─────┬─────┘  └───────┬────────┘   └────┬────┘  └─────┬─────┘  └──────┬───────┘  └──────┬─────┘  │
+└────────┼────────────────┼─────────────────┼─────────────┼───────────────┼────────────────┼────────┘
+         │                │                 │             │               │                │
+         ▼                ▼                 ▼             ▼               ▼                ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
 │              DATABRICKS SERVERLESS WORKFLOWS                             │
 │  ┌──────────────────────────────────────────────────────────────────┐    │
@@ -59,6 +59,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • requests → Wyscout public JSON datasets                       │    │
 │  │  • xml.etree → IDSSE DFL position XML from UC Volume             │    │
 │  │  • kloppy → SkillCorner broadcast tracking from open data        │    │
+│  │  • pining-for-the-data → Gradient Sports events + tracking*      │    │
 │  │  • spadl_vaep → SPADL conversion + VAEP scoring from bronze      │    │
 │  │  • defcon_lite → DEFCON-lite defensive credit assignment         │    │
 │  │  • resolve_players → cross-source entity resolution              │    │
@@ -94,6 +95,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  │  • wyscout: events, matches, players                             │    │
 │  │  • idsse: tracking (7 Bundesliga matches, 25fps)                 │    │
 │  │  • skillcorner: tracking (10 A-League matches, 10fps)            │    │
+│  │  • gradientsports: events, tracking (64 matches, 25fps)*        │    │
 │  │  • spadl: actions, action_values                                 │    │
 │  │  • entity_resolution: player_xref_raw                            │    │
 │  │  • pitch_control_batch: pitch_control_values                     │    │
@@ -175,6 +177,8 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 │  └───────────────────────────────────────────────────────────────────┘    │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
+
+*\* Gradient Sports data is approved for internal calibration/training only. Not published to HF datasets, gold marts, synced tables, or Taipy UI until PFF license confirmed in writing.*
 
 ### Synced Tables (Gold → Lakebase)
 
@@ -423,7 +427,7 @@ docs/c4/
 | 2 | AWS us-east-1 | Consistent with existing infrastructure |
 | 3 | Dev only (single environment) | Simplifies structure; add prod later |
 | 4 | Under $100/month budget | Scale-to-zero mandatory everywhere |
-| 5 | All 5 data sources | StatsBomb, Metrica, Wyscout (Phase 2), IDSSE + SkillCorner (Phase 11/13) |
+| 5 | All 6 data sources | StatsBomb, Metrica, Wyscout (Phase 2), IDSSE + SkillCorner (Phase 11/13), Gradient Sports (TC-3, calibration-only*) |
 | 6 | Kloppy for multi-provider tracking | SkillCorner ingestion uses Kloppy for standardized tracking data parsing. Event data adapters remain direct (simpler for provider-specific JSON/XML). |
 | 7 | "Fetch Once, Fork Twice" | SPADL reads from bronze — no redundant API calls |
 | 8 | Synced tables via UI + import | Provider lacks project/branch fields; `lifecycle { ignore_changes = all }` |
