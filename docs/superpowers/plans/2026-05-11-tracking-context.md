@@ -2128,7 +2128,7 @@ configs:
 
 # SPADL Tracking Context
 
-Unified action-coupled tracking features for football matches. One row per SPADL action, enriched with 66 tracking-derived features from the [silly-kicks](https://github.com/ML-KULeuven/silly-kicks) library.
+Unified action-coupled tracking features for football matches. One row per SPADL action, enriched with 66 tracking-derived features from the [silly-kicks](https://github.com/karsten-s-nielsen/silly-kicks) library.
 
 ## Quick Start
 
