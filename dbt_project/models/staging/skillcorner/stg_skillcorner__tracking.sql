@@ -65,8 +65,10 @@ normalized as (
         timestamp                                       as timestamp_seconds,
         frame_rate,
 
-        -- Player identity
-        player_id,
+        -- Player identity — cast to string for type consistency across
+        -- the 3-provider UNION in fct_tracking_frames (IDSSE/Metrica already
+        -- produce string; SkillCorner bronze carries bigint from the API).
+        cast(player_id as string)                       as player_id,
 
         -- Team side derivation from match roster
         case
@@ -74,8 +76,8 @@ normalized as (
             when team_id = away_team_id then 'away'
         end                                             as team,
 
-        -- Team_id from match roster JOIN
-        team_id,
+        -- Team_id from match roster JOIN — cast to string (same reason).
+        cast(team_id as string)                         as team_id,
 
         -- Source provider
         'skillcorner'                                   as source_provider,
