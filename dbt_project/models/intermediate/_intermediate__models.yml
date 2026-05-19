@@ -345,6 +345,33 @@ models:
         data_tests:
           - not_null
 
+  - name: int_tracking_goalkeepers
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      GK player identities per match from tracking_context staging (TC-2).
+      Single source of truth for is_goalkeeper across all tracking providers,
+      powered by silly-kicks derive_goalkeepers() 3-tier identification.
+      Grain: one row per (match_key, player_key). Ephemeral — inlined as CTE
+      into fct_tracking_frames. INNER JOINs to dim_matches/dim_players for
+      Kimball surrogate key resolution; unresolved IDs guarded by
+      assert_unresolved_gk_player_ids.sql.
+    columns:
+      - name: match_key
+        description: Kimball surrogate FK to dim_matches.match_key (BIGINT).
+        data_tests:
+          - not_null
+      - name: player_key
+        description: Kimball surrogate FK to dim_players.player_key (BIGINT).
+        data_tests:
+          - not_null
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [match_key, player_key]
+
   - name: int_tracking__player_match_team_bridge
     description: >
       Per-(source_provider, match_id, player_id) → team_id bridge for tracking-derived
