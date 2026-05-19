@@ -38,10 +38,11 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             artifactDeploy = container "Artifact Deploy" "Training-to-production contract (ADR-012). MLflow + UC Volume helpers." "Python"
             hfPublish = container "HF Publish Helper" "README delivery (ADR-014). upload_hf_readme + get_hf_card_path." "Python"
             databricksSqlFetch = container "Databricks SQL Fetch" "HTTP helper for HF Jobs trainers querying gold marts (no Spark)" "Python, requests"
-            ingestionPipelines = container "Compute Pipelines" "37 @workflow-decorated Databricks pipelines across 5 providers" "Python, PySpark"
+            ingestionPipelines = container "Compute Pipelines" "38 @workflow-decorated Databricks pipelines across 6 providers" "Python, PySpark"
             refreshSyncedTables = container "Synced Table Refresh" "Triggers SNAPSHOT refresh on 41 Lakebase synced tables" "Python, databricks-sdk"
             dbtRunner = container "dbt Runner" "python_wheel_task entry point. OAuth token exchange, warehouse start." "Python, dbt-core"
             evolveEngine = container "Evolve Engine" "LLM-guided architecture search. AST validation, restricted exec." "Python, OpenEvolve"
+            calibrationRunner = container "TC-3 Calibration Runner" "Optuna TPE sweep for silly-kicks defaults: carrier params, k3, off-ball runs. Databricks SQL + ThreadPool." "Python, Optuna, XGBoost"
             analyticsLibrary = container "Analytics Library" "Pure-Python domain models: xG, xT, VAEP, OBSO, pitch control, embeddings" "Python, PyTorch"
             sharedLibrary = container "Shared Library" "Cross-package constants. Zero external deps." "Python"
         }
@@ -168,6 +169,11 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         extV2Gates -> goldSchema "Fetches action values" "Spark SQL"
         ciSentinels -> orchestratorScript "Validates config" "pytest"
         ciSentinels -> hfJobsTrainers "Validates trainer config" "pytest"
+
+        # Relationships - Calibration Runner
+        developer -> calibrationRunner "Runs calibration sweep" "CLI"
+        calibrationRunner -> bronzeSchema "Queries tracking + SPADL" "Databricks SQL"
+        calibrationRunner -> analyticsLibrary "Imports silly-kicks enrichment" ""
 
         # Relationships - Evolve Engine
         developer -> evolveEngine "Runs evolve CLI" "CLI"

@@ -346,6 +346,7 @@ _GUARD_MODULES: list[str] = [
     "ingestion.idsse",
     "ingestion.idsse_events",
     "ingestion.skillcorner",
+    "ingestion.gradientsports",
     "ingestion.import_obso_results",
     "ingestion.import_psxg_predictions",
     "ingestion.import_space_creation",
