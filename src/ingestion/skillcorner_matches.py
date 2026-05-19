@@ -32,6 +32,15 @@ _MATCHES_DTYPE_OVERRIDES: dict[str, str] = {
     "season_id": "Int64",
     "pitch_length": "Int64",
     "pitch_width": "Int64",
+    # Playing time fields (b.1 bronze-completeness fix)
+    "start_frame": "Int64",
+    "end_frame": "Int64",
+    "yellow_card": "Int64",
+    "red_card": "Int64",
+    "goal": "Int64",
+    "own_goal": "Int64",
+    "trackable_object": "Int64",
+    "team_player_id": "Int64",
 }
 
 
@@ -94,6 +103,23 @@ def parse_match_json(source: str, *, match_id: str) -> pd.DataFrame:
                 "pitch_length": data.get("pitch_length"),
                 "pitch_width": data.get("pitch_width"),
                 "period_boundaries": period_boundaries,
+                # b.1 bronze-completeness: playing_time + player-level metadata
+                "start_time": player.get("start_time", ""),
+                "end_time": player.get("end_time", ""),
+                "minutes_played": ((player.get("playing_time") or {}).get("total") or {}).get("minutes_played"),
+                "start_frame": ((player.get("playing_time") or {}).get("total") or {}).get("start_frame"),
+                "end_frame": ((player.get("playing_time") or {}).get("total") or {}).get("end_frame"),
+                "minutes_tip": ((player.get("playing_time") or {}).get("total") or {}).get("minutes_tip"),
+                "minutes_otip": ((player.get("playing_time") or {}).get("total") or {}).get("minutes_otip"),
+                "yellow_card": player.get("yellow_card"),
+                "red_card": player.get("red_card"),
+                "injured": player.get("injured"),
+                "goal": player.get("goal"),
+                "own_goal": player.get("own_goal"),
+                "trackable_object": player.get("trackable_object"),
+                "birthday": player.get("birthday", ""),
+                "gender": player.get("gender", ""),
+                "team_player_id": player.get("team_player_id"),
             }
         )
 

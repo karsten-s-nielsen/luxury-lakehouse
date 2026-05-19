@@ -131,5 +131,37 @@ sources:
             description: Pitch width in meters (typically 68)
           - name: period_boundaries
             description: JSON-serialized array of period start/end times
+          - name: start_time
+            description: Player start time within the match (e.g. '00:00:00')
+          - name: end_time
+            description: Player end time within the match
+          - name: minutes_played
+            description: Total minutes played by this player in the match
+          - name: start_frame
+            description: Frame number when the player entered the pitch
+          - name: end_frame
+            description: Frame number when the player left the pitch
+          - name: minutes_tip
+            description: Minutes the player was tracked in play (time in play)
+          - name: minutes_otip
+            description: Minutes the player was tracked out of play (time out of play)
+          - name: yellow_card
+            description: Number of yellow cards received (0 or 1)
+          - name: red_card
+            description: Number of red cards received (0 or 1)
+          - name: injured
+            description: Whether the player was injured during the match
+          - name: goal
+            description: Number of goals scored
+          - name: own_goal
+            description: Number of own goals scored
+          - name: trackable_object
+            description: SkillCorner internal trackable object identifier
+          - name: birthday
+            description: Player date of birth (ISO date string)
+          - name: gender
+            description: Player gender
+          - name: team_player_id
+            description: SkillCorner team-player mapping identifier
           - name: _ingested_at
             description: UTC timestamp when the row was ingested

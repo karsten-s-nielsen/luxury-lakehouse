@@ -73,7 +73,7 @@ resource "databricks_job" "data_ingestion" {
   task {
     task_key        = "backfill_statsbomb_360"
     timeout_seconds = 1800
-    max_retries     = 1  # external API — transient failures benefit from retry
+    max_retries     = 1 # external API — transient failures benefit from retry
 
     depends_on {
       task_key = "ingest_statsbomb"
@@ -101,7 +101,7 @@ resource "databricks_job" "data_ingestion" {
   task {
     task_key        = "backfill_statsbomb_extra"
     timeout_seconds = 2400
-    max_retries     = 1  # external API — transient failures benefit from retry
+    max_retries     = 1 # external API — transient failures benefit from retry
 
     depends_on {
       task_key = "ingest_statsbomb"
@@ -529,7 +529,7 @@ resource "databricks_job" "data_ingestion" {
         # Go omitempty zero-value bug: max_retries=0 is silently dropped by
         # the TF provider. scripts/patch_job_retries.py enforces this
         # post-apply via the REST API.
-        max_retries     = 0
+        max_retries = 0
 
         python_wheel_task {
           package_name = "luxury_lakehouse"
@@ -715,7 +715,7 @@ resource "databricks_job" "data_ingestion" {
   task {
     task_key        = "hf_sync"
     timeout_seconds = 600
-    max_retries     = 1  # HF Hub network calls — transient failures benefit from retry
+    max_retries     = 1 # HF Hub network calls — transient failures benefit from retry
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
@@ -755,7 +755,7 @@ resource "databricks_job" "data_ingestion" {
   task {
     task_key        = "import_obso_results"
     timeout_seconds = 600
-    max_retries     = 1  # HF Hub download — transient failures benefit from retry
+    max_retries     = 1 # HF Hub download — transient failures benefit from retry
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
@@ -798,7 +798,7 @@ resource "databricks_job" "data_ingestion" {
       task {
         task_key        = "ingest_idsse_iteration"
         timeout_seconds = 900
-        max_retries     = 1  # UC Volume I/O — transient failures benefit from retry
+        max_retries     = 1 # UC Volume I/O — transient failures benefit from retry
 
         python_wheel_task {
           package_name = "luxury_lakehouse"
@@ -822,7 +822,7 @@ resource "databricks_job" "data_ingestion" {
   task {
     task_key        = "ingest_idsse_events"
     timeout_seconds = 600
-    max_retries     = 1  # UC Volume I/O — transient failures benefit from retry
+    max_retries     = 1 # UC Volume I/O — transient failures benefit from retry
 
     depends_on {
       task_key = "ingest_idsse"
@@ -845,7 +845,7 @@ resource "databricks_job" "data_ingestion" {
   task {
     task_key        = "ingest_metrica"
     timeout_seconds = 600
-    max_retries     = 1  # external download — transient failures benefit from retry
+    max_retries     = 1 # external download — transient failures benefit from retry
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
@@ -866,7 +866,7 @@ resource "databricks_job" "data_ingestion" {
   task {
     task_key        = "ingest_skillcorner"
     timeout_seconds = 1200
-    max_retries     = 1  # external API — transient failures benefit from retry
+    max_retries     = 1 # external API — transient failures benefit from retry
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
@@ -885,7 +885,7 @@ resource "databricks_job" "data_ingestion" {
   task {
     task_key        = "ingest_statsbomb"
     timeout_seconds = 1200
-    max_retries     = 1  # external API — transient failures benefit from retry
+    max_retries     = 1 # external API — transient failures benefit from retry
 
     python_wheel_task {
       package_name = "luxury_lakehouse"
@@ -905,7 +905,7 @@ resource "databricks_job" "data_ingestion" {
   task {
     task_key        = "ingest_wyscout"
     timeout_seconds = 1200
-    max_retries     = 1  # UC Volume I/O — transient failures benefit from retry
+    max_retries     = 1 # UC Volume I/O — transient failures benefit from retry
 
     python_wheel_task {
       package_name = "luxury_lakehouse"

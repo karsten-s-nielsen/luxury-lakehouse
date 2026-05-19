@@ -330,3 +330,50 @@ models:
         description: Bronze passthrough — raw type column (club / national).
       - name: _ingested_at
         description: Bronze passthrough — _ingested_at UTC audit timestamp.
+
+  - name: stg_wyscout__lineups
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Per-player lineup participation extracted from stg_wyscout__matches.teams_data_parsed.
+      One row per (match_id, team_id, player_id). Pre-resolves minute_on/minute_off from
+      substitution events so downstream consumers compute minutes as
+      COALESCE(minute_off, match_end) - minute_on.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - match_id
+              - team_id
+              - player_id
+    columns:
+      - name: match_id
+        data_type: bigint
+        description: Wyscout native match ID
+        data_tests:
+          - not_null
+      - name: team_id
+        data_type: string
+        description: Wyscout team ID (MAP key from teams_data_parsed)
+        data_tests:
+          - not_null
+      - name: player_id
+        data_type: bigint
+        description: Wyscout player ID from lineup or bench array
+        data_tests:
+          - not_null
+      - name: is_starter
+        data_type: boolean
+        description: True for lineup players, false for substitutes entering
+        data_tests:
+          - not_null
+      - name: minute_on
+        data_type: int
+        description: Minute player entered (0 for starters, sub minute for subs)
+        data_tests:
+          - not_null
+      - name: minute_off
+        data_type: int
+        description: Minute player exited (NULL if played to end of match)

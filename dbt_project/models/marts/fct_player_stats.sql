@@ -239,6 +239,7 @@ base as (
         and coalesce(s.data_source, '') = coalesce(p.data_source, '')
     left join minutes m
         on coalesce(s.player_id, p.player_id) = m.player_id
+        and coalesce(s.data_source, p.data_source) = m.data_source
         and coalesce(s.competition_id, p.competition_id) = m.competition_id
         and coalesce(s.season_id, p.season_id) = m.season_id
     left join vaep_agg v

@@ -34,7 +34,57 @@
 
 with action_values as (
 
-    select * from {{ ref('stg_spadl__action_values') }}
+    select
+        match_id,
+        player_id,
+        team_id,
+        original_event_id,
+        action_id,
+        period,
+        time_seconds,
+        minute,
+        second,
+        start_x,
+        start_y,
+        end_x,
+        end_y,
+        type_id,
+        action_type,
+        result_id,
+        action_result,
+        bodypart_id,
+        bodypart,
+        offensive_value,
+        defensive_value,
+        vaep_value,
+        data_source,
+        competition_id,
+        season_id,
+        statsbomb_possession_id,
+        statsbomb_possession_team_id,
+        statsbomb_play_pattern,
+        statsbomb_under_pressure,
+        possession_id_heuristic,
+        gk_role,
+        gk_was_distributing,
+        gk_was_engaged,
+        gk_actions_in_possession,
+        defending_gk_player_id,
+        team_id_native,
+        home_team_id_native,
+        competition_native_id,
+        season_native_id,
+        match_id_native,
+        player_id_native,
+        tackle_winner_player_id_native,
+        tackle_winner_player_key,
+        tackle_winner_team_id_native,
+        tackle_winner_team_key,
+        tackle_loser_player_id_native,
+        tackle_loser_player_key,
+        tackle_loser_team_id_native,
+        tackle_loser_team_key
+    from {{ ref('stg_spadl__action_values') }}
     {% if is_incremental() %}
     where match_id not in (select distinct match_id from {{ this }} where match_id is not null)
     {% endif %}

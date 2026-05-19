@@ -266,25 +266,71 @@ models:
               arguments:
                 values: ['automated', 'manual_override']
 
+  - name: int_minutes_played_per_match
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Provider-agnostic per-match minutes played per player. Four provider legs:
+      StatsBomb (event-based), Wyscout (event-based), IDSSE (event-based from
+      tracking_context roster + substitution events), SkillCorner (metadata-direct
+      from pre-computed playing_time). Metrica excluded. Grain: one row per
+      (match_key, player_key). Materialized as view.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - match_key
+              - player_key
+    columns:
+      - name: match_key
+        description: FK to dim_matches (Kimball surrogate)
+        data_tests:
+          - not_null
+      - name: player_key
+        description: FK to dim_players (Kimball surrogate)
+        data_tests:
+          - not_null
+      - name: data_source
+        description: Provider name (statsbomb, wyscout, idsse, skillcorner)
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['statsbomb', 'wyscout', 'idsse', 'skillcorner']
+      - name: minutes_played
+        description: Minutes on pitch (0.0–130.0, extra time included)
+        data_tests:
+          - not_null
+
   - name: int_minutes_played
     config:
       meta:
         data_sensitivity: public
         contains_pii: false
     description: >
-      Approximate minutes played per player per competition per season,
-      derived from StatsBomb lineup and substitution event data.
-      Materialized as ephemeral (CTE).
+      Per-player per-competition per-season total minutes played, aggregated from
+      int_minutes_played_per_match. Provider-agnostic (StatsBomb, Wyscout, IDSSE,
+      SkillCorner). Materialized as ephemeral (CTE). Uses try_cast(... as bigint)
+      for player_id resolution — IDSSE DFL strings produce NULL (filtered out),
+      SkillCorner large numeric IDs are safe from INT overflow. No regression
+      from the previously StatsBomb-only implementation.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
             combination_of_columns:
               - player_id
+              - data_source
               - competition_id
               - season_id
     columns:
       - name: player_id
         description: Player identifier
+        data_tests:
+          - not_null
+      - name: data_source
+        description: Provider name (statsbomb, wyscout, idsse, skillcorner)
         data_tests:
           - not_null
       - name: competition_id

@@ -11,8 +11,8 @@
 --
 -- Aggregates DEFCON-lite credits by action_player_id (the real player
 -- who performed the action) rather than defender_player_id (synthetic
--- for 360 freeze-frame data). This provides a "pressure received" view:
--- how much defensive attention each attacker attracted.
+-- for 360 freeze-frame data). Powers the Defensive Impact page pressure
+-- view: how much defensive attention each attacker attracted.
 --
 -- Coordinate system: SPADL 105x68 meters.
 -- One row per attacker per match per data_source.
@@ -29,7 +29,16 @@
 
 with defcon as (
 
-    select * from {{ ref('stg_defcon__results') }}
+    select
+        match_id,
+        competition_id,
+        season_id,
+        action_player_id,
+        credit_type,
+        confidence,
+        defcon_value,
+        data_source
+    from {{ ref('stg_defcon__results') }}
     where action_player_id is not null
     {% if is_incremental() %}
     and match_id not in (select distinct match_id from {{ this }})

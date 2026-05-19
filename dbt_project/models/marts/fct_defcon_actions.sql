@@ -11,7 +11,7 @@
 --
 -- Contains the full granularity of DEFCON-lite results: one row per
 -- defender per credited action. Powers the Match Timeline view in
--- the Streamlit Defensive Valuation page.
+-- the Defensive Impact page.
 --
 -- Coordinate system: SPADL 105x68 meters.
 -- One row per defender per action.
@@ -29,7 +29,26 @@
 
 with defcon as (
 
-    select * from {{ ref('stg_defcon__results') }}
+    select
+        event_id,
+        match_id,
+        competition_id,
+        season_id,
+        defender_player_id,
+        defender_team_id,
+        defender_x,
+        defender_y,
+        action_player_id,
+        action_type,
+        action_x,
+        action_y,
+        credit_type,
+        confidence,
+        defcon_value,
+        dist_to_ball,
+        pitch_control_at_action,
+        data_source
+    from {{ ref('stg_defcon__results') }}
     {% if is_incremental() %}
     where match_id not in (select distinct match_id from {{ this }})
     {% endif %}
