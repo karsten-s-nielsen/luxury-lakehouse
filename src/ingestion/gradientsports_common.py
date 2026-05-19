@@ -1,4 +1,4 @@
-"""Gradient Sports (PFF) API client and shared data models.
+"""Gradient Sports API client and shared data models.
 
 Talks to the pining-for-the-data REST API to discover and retrieve
 Gradient Sports match artifacts (events, tracking).

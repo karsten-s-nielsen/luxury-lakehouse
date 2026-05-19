@@ -8,7 +8,7 @@
 | **TODO row** | TC-1 |
 | **silly-kicks version** | `>=3.11.2,<4` (with `[kloppy,das]` extras) |
 | **Providers** | IDSSE (Sportec), Metrica, SkillCorner |
-| **Excluded** | PFF (license pending), StatsBomb (no tracking converter) |
+| **Excluded** | Gradient Sports (license pending), StatsBomb (no tracking converter) |
 
 ## 1. Goal
 
@@ -368,7 +368,7 @@ These are confirmed follow-up cycles, not deferred work:
 
 - Wiring `fct_tracking_context` into VAEP training as additional features
 - Taipy UI pages consuming the new mart
-- PFF provider support (pending license)
+- Gradient Sports provider support (pending license)
 
 ### 14.1 Overlapping table deprecation
 

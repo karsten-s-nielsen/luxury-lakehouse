@@ -3,7 +3,7 @@
 Validates that every SPADL source satisfies the cross-source contracts
 established in PR-LL3. Fixture-based (offline CI, no Databricks).
 
-TODO: Add PFF parametrization when PFF ingestion ships.
+TODO: Add Gradient Sports parametrization when Gradient Sports ingestion ships.
 """
 
 from __future__ import annotations

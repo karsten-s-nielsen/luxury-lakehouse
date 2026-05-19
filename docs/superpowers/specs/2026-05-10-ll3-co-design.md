@@ -556,7 +556,7 @@ class TestSourceOnboardingContracts:
         """Output column set matches the canonical _SPADL_SCHEMA StructType."""
 ```
 
-**PFF:** Not included — add when PFF ingestion ships. A TODO comment in
+**Gradient Sports:** Not included — add when Gradient Sports ingestion ships. A TODO comment in
 the test module header is sufficient.
 
 **Test infrastructure:** Fixture-based (matching the established pattern in

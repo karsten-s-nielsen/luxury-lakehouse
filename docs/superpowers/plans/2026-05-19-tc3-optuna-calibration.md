@@ -98,7 +98,7 @@ Expected: FAIL with `ModuleNotFoundError: No module named 'ingestion.gradientspo
 Create `src/ingestion/gradientsports_common.py`:
 
 ```python
-"""Gradient Sports (PFF) API client and shared data models.
+"""Gradient Sports API client and shared data models.
 
 Talks to the pining-for-the-data REST API to discover and retrieve
 Gradient Sports WC 2022 match artifacts (events, tracking).
@@ -632,7 +632,7 @@ Coordinate system (preserved in bronze):
 
 LICENSE GATE: Data approved for internal calibration/training only.
 NOT published to HF datasets, gold marts, synced tables, or Taipy UI
-until PFF license confirmed in writing.
+until Gradient Sports license confirmed in writing.
 """
 
 from __future__ import annotations
@@ -768,7 +768,7 @@ git add src/ingestion/gradientsports.py pyproject.toml
 git commit -m "feat(tc3): add Gradient Sports ingestion orchestrator
 
 Discovers and ingests WC 2022 events + tracking via pining-for-the-data API.
-License gate: bronze/staging only until PFF confirms in writing.
+License gate: bronze/staging only until Gradient Sports license confirmed in writing.
 
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 ```

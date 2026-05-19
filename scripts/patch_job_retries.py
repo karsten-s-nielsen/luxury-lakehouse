@@ -59,6 +59,7 @@ _INGESTION_TASK_KEYS: frozenset[str] = frozenset(
         "backfill_statsbomb_extra",
         "hf_sync",
         "import_obso_results",
+        "ingest_gradientsports",
         # ingest_idsse is a for_each_task parent (no max_retries of its own)
         "ingest_idsse_iteration",
         "ingest_idsse_events",

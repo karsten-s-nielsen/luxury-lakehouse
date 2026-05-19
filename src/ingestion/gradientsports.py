@@ -12,7 +12,7 @@ Coordinate system (preserved in bronze):
 
 LICENSE GATE: Data approved for internal calibration/training only.
 NOT published to HF datasets, gold marts, synced tables, or Taipy UI
-until PFF license confirmed in writing.
+until Gradient Sports license confirmed in writing.
 """
 
 from __future__ import annotations

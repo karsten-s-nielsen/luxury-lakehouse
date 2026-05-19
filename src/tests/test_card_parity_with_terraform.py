@@ -127,6 +127,7 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     "ingest_metrica": "wf-metrica",
     "ingest_wyscout": "wf-wyscout",
     "ingest_idsse": "wf-idsse",
+    "ingest_gradientsports": "wf-gradientsports",
     "ingest_skillcorner": "wf-skillcorner",
     # Separate XML schema (DFL_03_02 events) subordinate to the IDSSE source
     # bundle already governed by wf-idsse. Pure data-relay helper with no

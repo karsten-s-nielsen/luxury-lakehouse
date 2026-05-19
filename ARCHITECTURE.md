@@ -178,7 +178,7 @@ A serverless soccer analytics platform built on the Databricks Lakebase architec
 └───────────────────────────────────────────────────────────────────────────┘
 ```
 
-*\* Gradient Sports data is approved for internal calibration/training only. Not published to HF datasets, gold marts, synced tables, or Taipy UI until PFF license confirmed in writing.*
+*\* Gradient Sports data is approved for internal calibration/training only. Not published to HF datasets, gold marts, synced tables, or Taipy UI until Gradient Sports license confirmed in writing.*
 
 ### Synced Tables (Gold → Lakebase)
 

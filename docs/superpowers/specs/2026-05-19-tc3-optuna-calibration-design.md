@@ -26,8 +26,8 @@ with provenance ("Optuna-calibrated against `<fold>` on `<date>`").
 
 - **Gradient Sports WC 2022** (64 matches, events + tracking): ingested into
   bronze/staging as part of this cycle and **used in the calibration sweep**.
-  License status: email sent to fchelp@pff.com, initial acknowledgement received,
-  no final written confirmation. Approved for internal training/calibration use.
+  License status: pending written confirmation from Gradient Sports.
+  Approved for internal training/calibration use.
   **NOT published** to HF datasets, gold marts, synced tables, or Taipy UI until
   license is confirmed in writing. The data stays in bronze/staging — the sweep
   reads directly from cached Parquet, not from gold-layer tables.
@@ -296,11 +296,10 @@ so trials survive interruptions. Script resumes with `study.optimize(n_trials=re
 
 Ingested into bronze/staging as part of this cycle. Used in calibration sweep.
 
-- **Data**: 64 WC 2022 matches, events + tracking (PFF / Gradient Sports)
+- **Data**: 64 WC 2022 matches, events + tracking (Gradient Sports)
 - **silly-kicks support**: `GRADIENTSPORTS_TRACKING_FRAMES_COLUMNS` exists;
   tracking module has `gradientsports` submodule
-- **License status**: email sent to fchelp@pff.com, initial acknowledgement received,
-  no final written confirmation.
+- **License status**: pending written confirmation from Gradient Sports.
 - **Approved for**: internal calibration/training (this sweep).
 - **NOT approved for**: HF dataset publication, gold marts, synced tables, Taipy UI.
   Data stays in bronze/staging until license confirmed in writing.

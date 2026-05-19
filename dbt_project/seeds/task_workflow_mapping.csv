@@ -24,6 +24,7 @@ preflight_idsse,wf-idsse
 ingest_idsse,wf-idsse
 ingest_idsse_events,wf-idsse-events
 ingest_skillcorner,wf-skillcorner
+ingest_gradientsports,wf-gradientsports
 hf_sync,wf-hf-sync
 backfill_statsbomb_extra,wf-backfill-extra
 backfill_statsbomb_360,wf-backfill-360

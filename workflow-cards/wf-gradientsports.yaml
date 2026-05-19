@@ -1,0 +1,82 @@
+---
+name: Gradient Sports Ingestion
+id: wf-gradientsports
+version: "1.0.0"
+status: production
+type: ingestion
+domain: soccer-analytics
+owners:
+  - karsten
+tags:
+  - gradientsports
+  - ingestion
+  - tracking-data
+  - events-data
+
+references:
+  - citation: "Gradient Sports open dataset via pining-for-the-data API"
+    role: dataset
+
+inputs:
+  datasets:
+    - id: "pining-for-the-data API (Gradient Sports provider)"
+      source: huggingface
+      description: "Events and tracking (25fps) for Gradient Sports matches via REST API"
+
+outputs:
+  tables:
+    - id: "{catalog}.bronze.gradientsports_events"
+      destination: delta-table
+    - id: "{catalog}.bronze.gradientsports_tracking"
+      destination: delta-table
+
+execution:
+  ingestion:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: ingest_gradientsports
+    module: ingestion.gradientsports
+    distribution: driver-bound
+    timeout: "1800s"
+    environment: analytics
+
+depends_on: []
+
+idempotency:
+  strategy: skip-guard
+  key: match_id
+  description: "API-based guard queries MAX(_ingested_at) and uses updatedSince filter. Per-match writes use replaceWhere on match_id."
+
+performance:
+  inference_timeout: "1800s"
+  memory_ceiling: "16 GB driver"
+
+cost:
+  ingestion:
+    runtime: databricks
+    sku: "jobs_serverless_compute_run_dbus"
+    typical_dbu: 80
+    typical_cost_usd: 5.6
+
+monitoring:
+  freshness_sla_hours: 168
+
+governance:
+  license_gate: "Calibration/training only until Gradient Sports license confirmed in writing. NOT published to HF datasets, gold marts, synced tables, or Taipy UI."
+
+links:
+  source_code:
+    - "src/ingestion/gradientsports.py"
+    - "src/ingestion/gradientsports_common.py"
+    - "src/ingestion/gradientsports_events.py"
+    - "src/ingestion/gradientsports_tracking.py"
+---
+
+## Overview
+
+Ingests Gradient Sports match data (events and 25fps tracking) from the
+pining-for-the-data REST API. API-driven match discovery via `updatedSince`
+filter. Two bronze tables written with `replaceWhere` idempotency per
+match_id. License gate: data approved for internal calibration/training
+only (TC-3 Optuna sweep). Not published downstream until Gradient Sports confirms
+license in writing.

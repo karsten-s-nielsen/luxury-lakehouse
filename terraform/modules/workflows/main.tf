@@ -601,6 +601,7 @@ resource "databricks_job" "data_ingestion" {
     depends_on { task_key = "backfill_statsbomb_360" }
     depends_on { task_key = "backfill_statsbomb_extra" }
     depends_on { task_key = "extract_tracking_metadata" }
+    depends_on { task_key = "ingest_gradientsports" }
     depends_on { task_key = "ingest_idsse" }
     depends_on { task_key = "ingest_idsse_events" }
     depends_on { task_key = "ingest_metrica" }
@@ -768,6 +769,28 @@ resource "databricks_job" "data_ingestion" {
     }
 
     environment_key = "hf"
+  }
+
+  # ── Task: Ingest Gradient Sports data ──────────────────────────────────
+  # Requires secret scope "pining", key "token" (pining-for-the-data API bearer token).
+  # License gate: calibration/training only, NOT published to HF/gold/synced
+  # until Gradient Sports license confirmed in writing.
+  task {
+    task_key        = "ingest_gradientsports"
+    timeout_seconds = 1800
+    max_retries     = 1 # external API — transient failures benefit from retry
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "ingest_gradientsports"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
+      ]
+    }
+
+    environment_key = "default"
   }
 
   # ── Task: Ingest IDSSE Bundesliga tracking data (for_each_task fan-out) ──
