@@ -82,6 +82,28 @@ class TestParseEvents:
         assert isinstance(df["homePlayers"].iloc[0], str)
         assert json.loads(df["homePlayers"].iloc[0])[0]["jerseyNum"] == 8
 
+    def test_int_columns_widened_to_float(self) -> None:
+        """Integer JSON values must become float64 so Spark always infers DOUBLE.
+
+        Regression test: match 10502 had startGameClock=0 (int64) while
+        match 10511 had startGameClock=0.0 (float64). Per-match replaceWhere
+        with mergeSchema cannot widen BIGINT → DOUBLE, causing
+        DELTA_FAILED_TO_MERGE_FIELDS on the second match.
+        """
+        from ingestion.gradientsports_events import parse_events
+
+        # Simulate match with integer value (would produce int64 without fix)
+        events_int = [{"gameId": 10502, "gameEventId": 1, "startGameClock": 0}]
+        df_int = parse_events(events_int, match_id="10502")
+
+        # Simulate match with float value (would produce float64)
+        events_float = [{"gameId": 10511, "gameEventId": 1, "startGameClock": 0.0}]
+        df_float = parse_events(events_float, match_id="10511")
+
+        # Both must produce the same dtype — float64
+        assert df_int["startGameClock"].dtype.name == "float64"
+        assert df_float["startGameClock"].dtype.name == "float64"
+
 
 class TestParseTracking:
     """Tests against the real Gradient Sports tracking schema (JSONL.bz2)."""
@@ -228,6 +250,16 @@ class TestParseTracking:
         assert len(df) == 15
         assert df["frame_num"].nunique() == 5
 
+    def test_int_columns_widened_to_float(self) -> None:
+        """Integer frame fields must become float64 to prevent cross-match schema conflicts."""
+        from ingestion.gradientsports_tracking import parse_tracking
+
+        # frameNum as int in JSON (json.loads("5366") → int)
+        compressed = self._compress_frames([self._make_frame(frame_num=5366)])
+        df = parse_tracking(compressed, match_id="10502")
+        assert df["frame_num"].dtype.name == "float64"
+        assert df["period"].dtype.name == "float64"
+
 
 def _make_match(mid: str = "10502") -> MatchInfo:
     """Build a MatchInfo with both event and tracking artifacts."""
@@ -245,7 +277,13 @@ def _make_match(mid: str = "10502") -> MatchInfo:
 
 
 class TestIngestAtomicity:
-    """Verify parse-both-then-write-both guarantees no partial writes."""
+    """Verify write ordering and parse-phase atomicity.
+
+    The skip guard reads MAX(_ingested_at) from the EVENTS table. Events
+    must always be the LAST write so the watermark only advances when both
+    artifacts are committed. If tracking succeeds but events fails, the
+    watermark stays put and the match is re-discovered on retry.
+    """
 
     @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
     @patch("ingestion.gradientsports.fetch_artifact")
@@ -253,7 +291,7 @@ class TestIngestAtomicity:
     @patch("ingestion.gradientsports.write_tracking")
     @patch("ingestion.gradientsports.parse_tracking")
     @patch("ingestion.gradientsports.parse_events")
-    def test_tracking_parse_failure_prevents_event_write(
+    def test_tracking_written_before_events(
         self,
         mock_parse_events: MagicMock,
         mock_parse_tracking: MagicMock,
@@ -262,13 +300,102 @@ class TestIngestAtomicity:
         mock_fetch_artifact: MagicMock,
         mock_token: MagicMock,
     ) -> None:
-        """If tracking parsing fails, events must NOT be written."""
+        """Tracking must be written BEFORE events (watermark ordering).
+
+        The skip guard derives its watermark from events._ingested_at.
+        If events were written first and tracking then failed, the watermark
+        would advance past the match, making it unrecoverable on retry.
+        """
+        import logging
+
+        import pandas as pd
+
+        from ingestion.gradientsports import ingest_gradientsports
+
+        call_order: list[str] = []
+        mock_fetch_artifact.return_value = MagicMock(text='[{"gameId": 1}]', content=b"data")
+        mock_parse_events.return_value = pd.DataFrame({"match_id": ["10502"]})
+        mock_parse_tracking.return_value = pd.DataFrame({"match_id": ["10502"]})
+        mock_write_tracking.side_effect = lambda *a, **kw: call_order.append("tracking")
+        mock_write_events.side_effect = lambda *a, **kw: call_order.append("events")
+
+        ingest_gradientsports(
+            spark=MagicMock(),
+            catalog="cat",
+            schema="bronze",
+            logger=logging.getLogger("test"),
+            matches=[_make_match()],
+        )
+
+        assert call_order == ["tracking", "events"], (
+            f"Write order must be tracking-first, events-last; got {call_order}"
+        )
+
+    @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
+    @patch("ingestion.gradientsports.fetch_artifact")
+    @patch("ingestion.gradientsports.write_events")
+    @patch("ingestion.gradientsports.write_tracking")
+    @patch("ingestion.gradientsports.parse_tracking")
+    @patch("ingestion.gradientsports.parse_events")
+    def test_tracking_write_failure_prevents_event_write(
+        self,
+        mock_parse_events: MagicMock,
+        mock_parse_tracking: MagicMock,
+        mock_write_tracking: MagicMock,
+        mock_write_events: MagicMock,
+        mock_fetch_artifact: MagicMock,
+        mock_token: MagicMock,
+    ) -> None:
+        """If tracking WRITE fails, events must NOT be written.
+
+        Since tracking is written first, a tracking write failure raises
+        before events write is reached. The guard watermark stays put.
+        """
+        import logging
+
+        import pandas as pd
+
+        from ingestion.gradientsports import ingest_gradientsports
+
+        mock_fetch_artifact.return_value = MagicMock(text='[{"gameId": 1}]', content=b"data")
+        mock_parse_events.return_value = pd.DataFrame({"match_id": ["10502"]})
+        mock_parse_tracking.return_value = pd.DataFrame({"match_id": ["10502"]})
+        mock_write_tracking.side_effect = RuntimeError("DELTA_FAILED_TO_MERGE_FIELDS")
+
+        with pytest.raises(RuntimeError, match="DELTA_FAILED_TO_MERGE_FIELDS"):
+            ingest_gradientsports(
+                spark=MagicMock(),
+                catalog="cat",
+                schema="bronze",
+                logger=logging.getLogger("test"),
+                matches=[_make_match()],
+            )
+
+        mock_write_tracking.assert_called_once()
+        mock_write_events.assert_not_called()
+
+    @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
+    @patch("ingestion.gradientsports.fetch_artifact")
+    @patch("ingestion.gradientsports.write_events")
+    @patch("ingestion.gradientsports.write_tracking")
+    @patch("ingestion.gradientsports.parse_tracking")
+    @patch("ingestion.gradientsports.parse_events")
+    def test_tracking_parse_failure_prevents_all_writes(
+        self,
+        mock_parse_events: MagicMock,
+        mock_parse_tracking: MagicMock,
+        mock_write_tracking: MagicMock,
+        mock_write_events: MagicMock,
+        mock_fetch_artifact: MagicMock,
+        mock_token: MagicMock,
+    ) -> None:
+        """If tracking parsing fails, neither artifact is written."""
         import logging
 
         from ingestion.gradientsports import ingest_gradientsports
 
         mock_fetch_artifact.return_value = MagicMock(text='[{"gameId": 1}]', content=b"bad")
-        mock_parse_events.return_value = MagicMock()  # events parse OK
+        mock_parse_events.return_value = MagicMock()
         mock_parse_tracking.side_effect = RuntimeError("bz2 decompress failed")
 
         with pytest.raises(RuntimeError, match="bz2 decompress failed"):
@@ -289,7 +416,7 @@ class TestIngestAtomicity:
     @patch("ingestion.gradientsports.write_tracking")
     @patch("ingestion.gradientsports.parse_tracking")
     @patch("ingestion.gradientsports.parse_events")
-    def test_event_parse_failure_prevents_tracking_write(
+    def test_event_parse_failure_prevents_all_writes(
         self,
         mock_parse_events: MagicMock,
         mock_parse_tracking: MagicMock,
@@ -298,14 +425,14 @@ class TestIngestAtomicity:
         mock_fetch_artifact: MagicMock,
         mock_token: MagicMock,
     ) -> None:
-        """If event parsing fails, tracking must NOT be written."""
+        """If event parsing fails, neither artifact is written."""
         import logging
 
         from ingestion.gradientsports import ingest_gradientsports
 
         mock_fetch_artifact.return_value = MagicMock(text="bad json", content=b"data")
         mock_parse_events.side_effect = json.JSONDecodeError("bad", "", 0)
-        mock_parse_tracking.return_value = MagicMock()  # tracking parse OK
+        mock_parse_tracking.return_value = MagicMock()
 
         with pytest.raises(json.JSONDecodeError):
             ingest_gradientsports(
@@ -318,42 +445,3 @@ class TestIngestAtomicity:
 
         mock_write_events.assert_not_called()
         mock_write_tracking.assert_not_called()
-
-    @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
-    @patch("ingestion.gradientsports.fetch_artifact")
-    @patch("ingestion.gradientsports.write_events")
-    @patch("ingestion.gradientsports.write_tracking")
-    @patch("ingestion.gradientsports.parse_tracking")
-    @patch("ingestion.gradientsports.parse_events")
-    def test_both_artifacts_written_on_success(
-        self,
-        mock_parse_events: MagicMock,
-        mock_parse_tracking: MagicMock,
-        mock_write_tracking: MagicMock,
-        mock_write_events: MagicMock,
-        mock_fetch_artifact: MagicMock,
-        mock_token: MagicMock,
-    ) -> None:
-        """When both parse successfully, both must be written."""
-        import logging
-
-        import pandas as pd
-
-        from ingestion.gradientsports import ingest_gradientsports
-
-        events_df = pd.DataFrame({"match_id": ["10502"]})
-        tracking_df = pd.DataFrame({"match_id": ["10502"]})
-        mock_fetch_artifact.return_value = MagicMock(text='[{"gameId": 1}]', content=b"data")
-        mock_parse_events.return_value = events_df
-        mock_parse_tracking.return_value = tracking_df
-
-        ingest_gradientsports(
-            spark=MagicMock(),
-            catalog="cat",
-            schema="bronze",
-            logger=logging.getLogger("test"),
-            matches=[_make_match()],
-        )
-
-        mock_write_events.assert_called_once()
-        mock_write_tracking.assert_called_once()

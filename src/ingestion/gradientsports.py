@@ -98,7 +98,9 @@ def ingest_gradientsports(
 ) -> None:
     """Download and ingest Gradient Sports data for discovered matches.
 
-    Processing order per match: events -> tracking.
+    Per-match order: parse both artifacts, then write tracking first,
+    events last.  The skip guard watermark lives on events._ingested_at,
+    so events must be the final commit.
     """
     token = resolve_pining_token()
 
@@ -140,16 +142,21 @@ def ingest_gradientsports(
         else:
             logger.warning("No tracking artifact found for match %s", mid)
 
-        # --- Phase 2: Write both atomically (all-or-nothing per match) ---
-        if events_df is not None:
-            write_events(spark, events_df, catalog, schema, mid, logger)
-            logger.info("Wrote %d event rows for match %s", len(events_df), mid)
-            del events_df
-
+        # --- Phase 2: Write tracking FIRST, events LAST ---
+        # The skip guard reads MAX(_ingested_at) from the EVENTS table to
+        # decide which matches need processing. Events must be the last
+        # write so the watermark only advances when both artifacts are
+        # committed. If tracking succeeds but events fails, the watermark
+        # stays put and the match is re-discovered on the next run.
         if tracking_df is not None:
             write_tracking(spark, tracking_df, catalog, schema, mid, logger)
             logger.info("Wrote %d tracking rows for match %s", len(tracking_df), mid)
             del tracking_df
+
+        if events_df is not None:
+            write_events(spark, events_df, catalog, schema, mid, logger)
+            logger.info("Wrote %d event rows for match %s", len(events_df), mid)
+            del events_df
 
         gc.collect()
 

@@ -778,7 +778,7 @@ resource "databricks_job" "data_ingestion" {
   task {
     task_key        = "ingest_gradientsports"
     timeout_seconds = 1800
-    max_retries     = 1 # external API — transient failures benefit from retry
+    max_retries     = 0 # guard-based task: retry masks failures as WorkflowSkippedError
 
     python_wheel_task {
       package_name = "luxury_lakehouse"

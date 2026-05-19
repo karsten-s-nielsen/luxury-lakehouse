@@ -60,6 +60,12 @@ def parse_events(source: str | dict | list, *, match_id: str) -> pd.DataFrame:
         if col in df.columns:
             df[col] = df[col].apply(lambda v: json.dumps(v) if isinstance(v, list) else v)
 
+    # Widen all integer columns to float64 so Spark always infers DOUBLE.
+    # JSON numbers like 0 vs 0.0 cause int64/float64 divergence across matches;
+    # per-match replaceWhere with mergeSchema cannot widen BIGINT → DOUBLE.
+    for col in df.select_dtypes(include=["int64", "int32"]).columns:
+        df[col] = df[col].astype("float64")
+
     df["match_id"] = match_id
     df["_ingested_at"] = datetime.now(timezone.utc)
     return df
