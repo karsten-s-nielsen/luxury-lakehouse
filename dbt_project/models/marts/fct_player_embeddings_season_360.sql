@@ -1,6 +1,7 @@
 {{ config(
     materialized='table',
     enabled=var('embeddings_enabled', false),
+    liquid_clustered_by=['canonical_player_id'],
     tags=['marts', 'output_mart']
 ) }}
 

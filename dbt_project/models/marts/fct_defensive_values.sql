@@ -31,7 +31,17 @@
 
 with defcon as (
 
-    select * from {{ ref('stg_defcon__results') }}
+    select
+        match_id,
+        competition_id,
+        season_id,
+        defender_player_id,
+        defender_team_id,
+        credit_type,
+        confidence,
+        defcon_value,
+        data_source
+    from {{ ref('stg_defcon__results') }}
     {% if is_incremental() %}
     where match_id not in (select distinct match_id from {{ this }})
     {% endif %}

@@ -29,17 +29,18 @@
 --     'wyscout' which map 1:1 to dim_matches.provider — no CASE needed).
 --   - gk_stat_id surrogate hash now includes data_source — existing IDs
 --     CHANGE on first --full-refresh rebuild.
---   - minutes CTE is StatsBomb-only by source (lineups + substitutions
---     come from stg_statsbomb__events); a 'statsbomb' literal data_source
---     is projected so the equality JOIN cleanly filters out non-SB GKs
---     (which legitimately have NULL minutes_played in this model).
+--   - minutes CTE replaced with provider-agnostic int_minutes_played_per_match
+--     (OPT-2 sub-item b.3). JOINs on (match_key, player_key, data_source).
+--   - player_key propagated through gk_players -> gk_actions -> gk_matches
+--     chain; redundant dim_players LEFT JOIN in final CTE removed.
 
 {% if var('goalkeeper_enabled', false) %}
 
 with gk_players as (
 
     select
-        player_id
+        player_id,
+        player_key
     from {{ ref('dim_players') }}
     where position_group = 'Goalkeeper'
 
@@ -52,6 +53,7 @@ gk_actions as (
         av.match_id,
         av.match_key,
         av.player_id,
+        gk.player_key,
         av.team_id,
         av.competition_id,
         av.season_id,
@@ -126,102 +128,16 @@ pass_stats as (
 
 ),
 
--- StatsBomb-only minutes derivation (lineups + substitutions are SB events).
-events as (
-
-    select * from {{ ref('stg_statsbomb__events') }}
-
-),
-
-lineups as (
-
-    select
-        match_id,
-        player_id
-    from {{ ref('stg_statsbomb__lineups') }}
-    where position_name is not null
-
-),
-
-match_duration as (
-
-    select
-        match_id,
-        max(minute) + 1                                                 as match_end_minute
-    from events
-    group by match_id
-
-),
-
-substitution_off as (
-
-    select
-        match_id,
-        player_id,
-        minute                                                          as off_minute
-    from events
-    where event_type = 'Substitution'
-
-),
-
-substitution_on as (
-
-    select
-        match_id,
-        cast(substitution_replacement_id as int)                        as player_id,
-        minute                                                          as on_minute
-    from events
-    where event_type = 'Substitution'
-      and substitution_replacement_id is not null
-
-),
-
-player_match_minutes as (
-
-    -- Starting XI
-    select
-        l.match_id,
-        l.player_id,
-        coalesce(so.off_minute, md.match_end_minute)                    as minutes_played
-    from lineups l
-    inner join match_duration md
-        on l.match_id = md.match_id
-    left join substitution_off so
-        on l.match_id = so.match_id
-        and l.player_id = so.player_id
-
-    union all
-
-    -- Substitutes coming on
-    select
-        son.match_id,
-        son.player_id,
-        coalesce(soff.off_minute, md.match_end_minute) - son.on_minute  as minutes_played
-    from substitution_on son
-    inner join match_duration md
-        on son.match_id = md.match_id
-    left join substitution_off soff
-        on son.match_id = soff.match_id
-        and son.player_id = soff.player_id
-
-),
-
+-- Provider-agnostic minutes from int_minutes_played_per_match.
+-- Surrogate-only: JOINs on (match_key, player_key).
 minutes as (
 
-    -- MAX() deduplicates: lineups can have multiple position entries per
-    -- player-match (formation changes), and UNION ALL can overlap with subs.
-    -- PR 6: project a 'statsbomb' data_source literal so the downstream
-    -- equality JOIN cleanly filters out non-SB GKs (which legitimately
-    -- have NULL minutes_played here — minutes derivation is SB-events-only).
     select
-        pmm.player_id,
-        pmm.match_id,
-        'statsbomb'                                                     as data_source,
-        max(pmm.minutes_played) as minutes_played
-    from player_match_minutes pmm
-    inner join gk_players gk
-        on pmm.player_id = gk.player_id
-    group by pmm.player_id, pmm.match_id
+        imp.match_key,
+        imp.player_key,
+        imp.data_source,
+        imp.minutes_played
+    from {{ ref('int_minutes_played_per_match') }} imp
 
 ),
 
@@ -259,6 +175,7 @@ gk_matches as (
         match_id,
         data_source,
         min(match_key)      as match_key,
+        min(player_key)     as player_key,
         min(team_id)        as team_id,
         min(competition_id) as competition_id,
         min(season_id)      as season_id
@@ -330,8 +247,8 @@ sweeper_stats as (
 
     from gk_actions ga
     inner join minutes m
-        on ga.player_id = m.player_id
-        and ga.match_id = m.match_id
+        on  ga.match_key = m.match_key
+        and ga.player_key = m.player_key
         and ga.data_source = m.data_source
     where ga.action_type in (
         'tackle', 'interception', 'clearance', 'block',
@@ -431,7 +348,7 @@ final as (
         -- PR 6 (ADR-011) Kimball surrogate FKs.
         gm.match_key,
         dt.team_key,
-        dp.player_key,
+        gm.player_key,
 
         coalesce(m.minutes_played, cast(null as double))                as minutes_played,
 
@@ -466,8 +383,8 @@ final as (
 
     from gk_matches gm
     left join minutes m
-        on gm.player_id = m.player_id
-        and gm.match_id = m.match_id
+        on  gm.match_key = m.match_key
+        and gm.player_key = m.player_key
         and gm.data_source = m.data_source
     left join save_stats ss
         on gm.player_id = ss.player_id
@@ -495,10 +412,6 @@ final as (
     left join {{ ref('dim_teams') }} dt
         on  dt.provider = gm.data_source
        and dt.native_team_id = cast(gm.team_id as string)
-    left join {{ ref('dim_players') }} dp
-        on  dp.provider = gm.data_source
-       and dp.native_player_id = cast(gm.player_id as string)
-
 )
 
 select * from final

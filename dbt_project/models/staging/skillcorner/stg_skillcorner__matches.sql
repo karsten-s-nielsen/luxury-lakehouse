@@ -34,5 +34,22 @@ select
     pitch_length,
     pitch_width,
     period_boundaries,
+    -- b.1 bronze-completeness: playing_time + player metadata
+    start_time,
+    end_time,
+    minutes_played,
+    start_frame,
+    end_frame,
+    minutes_tip,
+    minutes_otip,
+    yellow_card,
+    red_card,
+    injured,
+    goal,
+    own_goal,
+    trackable_object,
+    birthday,
+    gender,
+    team_player_id,
     _ingested_at
 from source

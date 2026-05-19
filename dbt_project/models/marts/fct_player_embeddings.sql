@@ -28,6 +28,7 @@
     enabled=var('embeddings_enabled', false),
     incremental_strategy='merge',
     on_schema_change='append_new_columns',
+    liquid_clustered_by=['canonical_player_id', 'match_key'],
     tags=['marts', 'output_mart']
 ) }}
 

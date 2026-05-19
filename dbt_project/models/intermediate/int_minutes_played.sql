@@ -1,129 +1,41 @@
 -- int_minutes_played.sql
--- Derive approximate minutes played per player per match from event data.
+-- Aggregate per-match minutes to per-player per-competition per-season totals.
 --
 -- Materialized as ephemeral (CTE).
+-- Consumes int_minutes_played_per_match (surrogate-only) and resolves native
+-- player_id via dim_players for downstream consumers that still JOIN on
+-- native IDs (fct_player_stats).
 --
--- Logic:
---   - Players who appear in the starting lineup start at minute 0
---   - Substitution On events mark when a substitute enters
---   - Substitution Off events mark when a player leaves
---   - Match duration defaults to 90 minutes if no explicit end found
---   - Aggregate by player/competition/season for downstream per-90 calculations
+-- Grain: one row per (player_id, data_source, competition_id, season_id).
+-- Note: IDSSE rows get player_id = NULL because IDSSE native player IDs are
+-- DFL strings (e.g. "DFL-OBJ-0028GH") that cannot be cast to BIGINT.
+-- try_cast returns NULL for non-numeric strings (safe); BIGINT avoids
+-- overflow for SkillCorner IDs that may exceed INT range (~2.1B).
+-- The WHERE filter drops NULL rows -- no regression since int_minutes_played
+-- was previously StatsBomb-only and had no IDSSE rows.
 
-with events as (
-
-    select * from {{ ref('stg_statsbomb__events') }}
-
-),
-
-matches as (
+with per_match as (
 
     select
-        match_id,
-        competition_id,
-        season_id
-    from {{ ref('stg_statsbomb__matches') }}
-
-),
-
-lineups as (
-
-    select
-        match_id,
-        player_id,
-        position_name
-    from {{ ref('stg_statsbomb__lineups') }}
-    where position_name is not null
-
-),
-
--- Find the last event minute per match as a proxy for match duration
-match_duration as (
-
-    select
-        match_id,
-        max(minute) + 1                                 as match_end_minute
-    from events
-    group by match_id
-
-),
-
--- Substitution events: the player_id on the Substitution event is the player
--- going OFF. The replacement (player coming ON) is in the nested
--- substitution:replacement:id field, extracted from the raw bronze source.
-substitution_off as (
-
-    select
-        match_id,
-        player_id,
-        minute                                          as off_minute
-    from events
-    where event_type = 'Substitution'
-
-),
-
-substitution_on as (
-
-    select
-        match_id,
-        cast(substitution_replacement_id as int)            as player_id,
-        minute                                              as on_minute
-    from events
-    where event_type = 'Substitution'
-      and substitution_replacement_id is not null
-
-),
-
--- Build minutes for each player
--- Starting players: on_minute = 0, off_minute = sub_off or match_end
--- Substitutes: on_minute = sub_on, off_minute = match_end
-player_minutes as (
-
-    -- Starting XI
-    select
-        l.match_id,
-        l.player_id,
-        0                                               as on_minute,
-        coalesce(so.off_minute, md.match_end_minute)    as off_minute,
-        coalesce(so.off_minute, md.match_end_minute)    as minutes_played
-    from lineups l
-    inner join match_duration md
-        on l.match_id = md.match_id
-    left join substitution_off so
-        on l.match_id = so.match_id
-        and l.player_id = so.player_id
-
-    union all
-
-    -- Substitutes coming on
-    select
-        son.match_id,
-        son.player_id,
-        son.on_minute,
-        coalesce(soff.off_minute, md.match_end_minute)  as off_minute,
-        coalesce(soff.off_minute, md.match_end_minute) - son.on_minute as minutes_played
-    from substitution_on son
-    inner join match_duration md
-        on son.match_id = md.match_id
-    left join substitution_off soff
-        on son.match_id = soff.match_id
-        and son.player_id = soff.player_id
-
-),
-
--- Aggregate by player, competition, season
-aggregated as (
-
-    select
-        pm.player_id,
-        m.competition_id,
-        m.season_id,
-        sum(pm.minutes_played)                          as total_minutes_played
-    from player_minutes pm
-    inner join matches m
-        on pm.match_id = m.match_id
-    group by pm.player_id, m.competition_id, m.season_id
+        try_cast(dp.native_player_id as bigint)            as player_id,
+        imp.data_source,
+        dm.competition_id,
+        dm.season_id,
+        imp.minutes_played
+    from {{ ref('int_minutes_played_per_match') }} imp
+    inner join {{ ref('dim_matches') }} dm
+        on imp.match_key = dm.match_key
+    inner join {{ ref('dim_players') }} dp
+        on imp.player_key = dp.player_key
 
 )
 
-select * from aggregated
+select
+    player_id,
+    data_source,
+    competition_id,
+    season_id,
+    sum(minutes_played) as total_minutes_played
+from per_match
+where player_id is not null
+group by player_id, data_source, competition_id, season_id

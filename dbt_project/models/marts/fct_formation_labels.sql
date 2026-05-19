@@ -40,7 +40,18 @@ existing_matches as (
 
 formation_labels as (
 
-    select * from {{ ref('stg_formations__labels') }}
+    select
+        match_id,
+        period,
+        team,
+        window_start_s,
+        window_end_s,
+        formation_label,
+        cost,
+        detector,
+        source_provider,
+        _ingested_at
+    from {{ ref('stg_formations__labels') }}
     {% if is_incremental() %}
     where match_id not in (select match_id from existing_matches)
     {% endif %}
