@@ -66,36 +66,42 @@ models:
       - name: is_goalkeeper
         description: Whether the player is a goalkeeper (from match roster position)
       - name: x
-        description: X coordinate scaled to 120-yard pitch
+        description: >
+          X coordinate scaled to 120-yard pitch. Broadcast tracking (SkillCorner)
+          produces outlier positions beyond the pitch boundary — players stepping
+          off-pitch, ball rolling past the line. Bounds are wider than the
+          [0, 120] pitch to accommodate these real-world observations.
         data_tests:
           - not_null
           - dbt_expectations.expect_column_values_to_be_between:
               arguments:
-                min_value: -10
-                max_value: 130
+                min_value: -15
+                max_value: 135
       - name: y
-        description: Y coordinate scaled to 80-yard pitch
+        description: >
+          Y coordinate scaled to 80-yard pitch. See x column description for
+          rationale on wider-than-pitch bounds for broadcast tracking.
         data_tests:
           - not_null
           - dbt_expectations.expect_column_values_to_be_between:
               arguments:
-                min_value: -10
-                max_value: 90
+                min_value: -15
+                max_value: 95
       - name: ball_x
-        description: Ball X coordinate scaled to 120-yard pitch
+        description: Ball X coordinate scaled to 120-yard pitch (wider bounds for broadcast tracking outliers)
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
               arguments:
-                min_value: -10
-                max_value: 130
+                min_value: -15
+                max_value: 135
                 row_condition: "ball_x is not null"
       - name: ball_y
-        description: Ball Y coordinate scaled to 80-yard pitch
+        description: Ball Y coordinate scaled to 80-yard pitch (wider bounds for broadcast tracking outliers)
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
               arguments:
-                min_value: -10
-                max_value: 90
+                min_value: -15
+                max_value: 95
                 row_condition: "ball_y is not null"
       - name: home_team_id
         description: Home team identifier from match roster

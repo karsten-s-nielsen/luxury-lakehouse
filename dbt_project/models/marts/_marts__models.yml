@@ -3095,12 +3095,12 @@ models:
           - not_null
       - name: match_id
         data_type: string
-        description: Match identifier (string, prefixed by tracking provider)
+        description: Native match identifier (bare numeric string per ADR-018 format contract)
         data_tests:
           - not_null
       - name: match_key
         data_type: bigint
-        description: Kimball surrogate FK to dim_matches (PR 7 — resolved via dim_matches JOIN on (provider, native_match_id) with provider derived from staging match_id prefix).
+        description: Kimball surrogate FK to dim_matches (PR 7 — resolved via dim_matches JOIN on (provider, native_match_id)).
         data_tests:
           - not_null
           - relationships:
@@ -3190,17 +3190,14 @@ models:
           - not_null
       - name: match_id
         data_type: string
-        description: Match identifier (string, prefixed by tracking provider)
+        description: Native match identifier (bare numeric string per ADR-018 format contract)
         data_tests:
           - not_null
       - name: match_key
         data_type: bigint
         description: Kimball surrogate FK to dim_matches (PR 7 — resolved via dim_matches JOIN on (provider, native_match_id)).
         data_tests:
-          # severity: warn until post-merge --full-refresh — stale-incremental.
-          - not_null:
-              config:
-                severity: warn
+          - not_null
           - relationships:
               arguments:
                 to: ref('dim_matches')

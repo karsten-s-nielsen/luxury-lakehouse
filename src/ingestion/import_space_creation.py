@@ -119,6 +119,23 @@ def run_pipeline(
     logger.info("Reading space creation values from %s", volume_file)
     df = spark.read.parquet(volume_file)
     df = df.withColumn("_ingested_at", spark_fn.current_timestamp())
+
+    # Derive source_provider from match_id format (ADR-018 conventions),
+    # then strip any legacy provider prefix so bronze stores bare native IDs.
+    df = df.withColumn(
+        "source_provider",
+        spark_fn.when(spark_fn.col("match_id").like("idsse_%"), spark_fn.lit("idsse"))
+        .when(spark_fn.col("match_id").like("Sample_Game_%"), spark_fn.lit("metrica"))
+        .when(spark_fn.col("match_id").rlike("^skillcorner_"), spark_fn.lit("skillcorner"))
+        .when(spark_fn.col("match_id").rlike("^[0-9]+$"), spark_fn.lit("skillcorner"))
+        .when(spark_fn.col("match_id").rlike("^[A-Z]"), spark_fn.lit("idsse"))
+        .otherwise(spark_fn.lit(None)),
+    )
+    df = df.withColumn(
+        "match_id",
+        spark_fn.regexp_replace(spark_fn.col("match_id"), "^(idsse_|skillcorner_)", ""),
+    )
+
     row_count = int(df.count())
     logger.info("Space creation row count: %d", row_count)
 
