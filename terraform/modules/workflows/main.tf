@@ -771,26 +771,44 @@ resource "databricks_job" "data_ingestion" {
     environment_key = "hf"
   }
 
-  # ── Task: Ingest Gradient Sports data ──────────────────────────────────
-  # Requires secret scope "pining", key "token" (pining-for-the-data API bearer token).
-  # License gate: calibration/training only, NOT published to HF/gold/synced
-  # until Gradient Sports license confirmed in writing.
+  # ── Task: Ingest Gradient Sports data (for_each_task fan-out) ───────────
+  # One iteration per match. Each iteration receives a JSON-serialized
+  # MatchInfo via {{input}} and ingests that single match (events + tracking).
+  # Parquet staging bypasses the 256 MB Spark Connect RPC limit.
+  #
+  # Downstream tasks reference this task as `ingest_gradientsports` (the
+  # parent); Databricks resolves dependencies against the for_each_task
+  # parent rather than individual iterations.
   task {
-    task_key        = "ingest_gradientsports"
-    timeout_seconds = 1800
-    max_retries     = 0 # guard-based task: retry masks failures as WorkflowSkippedError
+    task_key = "ingest_gradientsports"
 
-    python_wheel_task {
-      package_name = "luxury_lakehouse"
-      entry_point  = "ingest_gradientsports"
-
-      parameters = [
-        "--catalog", var.catalog_name,
-        "--schema", "bronze"
-      ]
+    depends_on {
+      task_key = "preflight_gradientsports"
     }
 
-    environment_key = "default"
+    for_each_task {
+      inputs      = "{{tasks.preflight_gradientsports.values.gradientsports_matches}}"
+      concurrency = 8
+
+      task {
+        task_key        = "ingest_gradientsports_iteration"
+        timeout_seconds = 900
+        max_retries     = 1 # API calls — transient failures benefit from retry
+
+        python_wheel_task {
+          package_name = "luxury_lakehouse"
+          entry_point  = "ingest_gradientsports"
+
+          parameters = [
+            "--catalog", var.catalog_name,
+            "--schema", "bronze",
+            "--match-json", "{{input}}",
+          ]
+        }
+
+        environment_key = "default"
+      }
+    }
   }
 
   # ── Task: Ingest IDSSE Bundesliga tracking data (for_each_task fan-out) ──
@@ -938,6 +956,32 @@ resource "databricks_job" "data_ingestion" {
         "--catalog", var.catalog_name,
         "--schema", "bronze",
         "--data-dir", "/Volumes/${var.catalog_name}/bronze/libs/wyscout"
+      ]
+    }
+
+    environment_key = "default"
+  }
+
+  # ── Task: Gradient Sports preflight (guard + match discovery) ───────────
+  # Runs the skip guard, discovers matches via the pining-for-the-data API,
+  # and emits each match as a JSON-serialized MatchInfo string in the task
+  # value array. Downstream for_each_task consumes via {{input}}.
+  #
+  # Behavior:
+  #   - 64 matches → 64-element JSON array → 64 iterations (concurrency=8)
+  #   - 0 matches  → [] → 0 iterations spawned
+  task {
+    task_key        = "preflight_gradientsports"
+    timeout_seconds = 300
+    max_retries     = 0
+
+    python_wheel_task {
+      package_name = "luxury_lakehouse"
+      entry_point  = "preflight_gradientsports"
+
+      parameters = [
+        "--catalog", var.catalog_name,
+        "--schema", "bronze"
       ]
     }
 

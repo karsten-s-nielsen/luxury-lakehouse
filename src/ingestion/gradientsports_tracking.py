@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from ingestion.utils import validate_dataframe, write_delta_table
+from ingestion.utils import ensure_volume_directory, validate_dataframe, write_delta_table
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -177,6 +177,17 @@ def _find_smoothed(
     return None
 
 
+def _staging_path(catalog: str, schema: str, match_id: str) -> str:
+    """UC Volume staging path for Parquet intermediates.
+
+    Args:
+        catalog: Unity Catalog catalog name.
+        schema: Schema name (flows from CLI args, not hardcoded).
+        match_id: Gradient Sports match ID.
+    """
+    return f"/Volumes/{catalog}/{schema}/_staging/gradientsports_tracking/{match_id}.parquet"
+
+
 def write_tracking(
     spark: SparkSession,
     df: pd.DataFrame,
@@ -185,21 +196,43 @@ def write_tracking(
     match_id: str,
     logger: logging.Logger,
 ) -> int:
-    """Write parsed tracking DataFrame to bronze.gradientsports_tracking."""
-    sdf = spark.createDataFrame(df)
-    row_count = validate_dataframe(
-        sdf,
-        ["match_id", "frame_num", "period"],
-        "gradientsports_tracking",
-        logger,
-    )
-    write_delta_table(
-        sdf,
-        catalog,
-        schema,
-        "gradientsports_tracking",
-        replace_where=f"match_id = '{match_id}'",
-        logger=logger,
-        row_count=row_count,
-    )
+    """Write parsed tracking DataFrame to bronze.gradientsports_tracking.
+
+    Uses Parquet staging via UC Volume to bypass the 256 MB Spark Connect
+    RPC serialization limit. pandas DF -> Parquet file -> spark.read.parquet().
+    """
+    import os
+
+    staging = _staging_path(catalog, schema, match_id)
+    ensure_volume_directory(os.path.dirname(staging))
+
+    df.to_parquet(staging, index=False)
+    logger.info("Staged %d tracking rows to %s", len(df), staging)
+
+    try:
+        sdf = spark.read.parquet(staging)
+        row_count = validate_dataframe(
+            sdf,
+            ["match_id", "frame_num", "period"],
+            "gradientsports_tracking",
+            logger,
+        )
+        write_delta_table(
+            sdf,
+            catalog,
+            schema,
+            "gradientsports_tracking",
+            replace_where=f"match_id = '{match_id}'",
+            logger=logger,
+            row_count=row_count,
+        )
+    finally:
+        try:
+            os.remove(staging)
+            logger.debug("Cleaned up staging file %s", staging)
+        except OSError:
+            # Best-effort cleanup. If FUSE delete fails, the file is
+            # overwritten on next run (idempotent by match_id path).
+            logger.debug("Staging cleanup failed for %s (will be overwritten on next run)", staging)
+
     return row_count

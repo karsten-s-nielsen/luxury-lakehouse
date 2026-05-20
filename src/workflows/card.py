@@ -47,7 +47,7 @@ SourceLiteral = Literal["huggingface", "delta-table", "uc-volume"]
 
 ModelDestinationLiteral = Literal["huggingface", "mlflow-registry", "uc-volume"]
 
-DistributionLiteral = Literal["applyInPandas", "driver-bound", "none"]
+DistributionLiteral = Literal["applyInPandas", "driver-bound", "fan-out", "none"]
 
 CostRuntimeLiteral = Literal["hf-jobs", "databricks"]
 
@@ -154,6 +154,7 @@ class InferenceExecution(BaseModel):
     module: str
     distribution: DistributionLiteral
     partition_key: str | None = None
+    concurrency: int | None = None
     schedule: str | None = None
     timeout: str
     environment: str | None = None

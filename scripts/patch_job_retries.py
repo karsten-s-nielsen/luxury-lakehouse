@@ -59,9 +59,9 @@ _INGESTION_TASK_KEYS: frozenset[str] = frozenset(
         "backfill_statsbomb_extra",
         "hf_sync",
         "import_obso_results",
-        # ingest_gradientsports intentionally excluded: guard-based retry
-        # masks failures as WorkflowSkippedError (max_retries=0 in TF)
+        # ingest_gradientsports is a for_each_task parent (no max_retries of its own)
         # ingest_idsse is a for_each_task parent (no max_retries of its own)
+        "ingest_gradientsports_iteration",
         "ingest_idsse_iteration",
         "ingest_idsse_events",
         "ingest_metrica",

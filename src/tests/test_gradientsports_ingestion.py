@@ -5,10 +5,13 @@ from __future__ import annotations
 import bz2
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+from ingestion.guards import FilterResult
 
 if TYPE_CHECKING:
     from ingestion.gradientsports_common import MatchInfo
@@ -42,6 +45,53 @@ class TestMatchInfo:
                 updated_at=datetime(2022, 1, 1, tzinfo=timezone.utc),
                 visibility="public",
             )
+
+
+class TestMatchInfoSerialization:
+    """Verify MatchInfo survives JSON round-trip via model_dump_json (spec §4.2 item 5)."""
+
+    def test_round_trip_preserves_all_fields(self) -> None:
+        """model_dump_json -> model_validate_json must produce an identical MatchInfo."""
+        from ingestion.gradientsports_common import MatchInfo
+
+        original = MatchInfo(
+            id="10508",
+            artifacts={"10508_events": "events.json", "10508_tracking": "tracking.jsonl.bz2"},
+            home="Morocco",
+            away="Spain",
+            date="2022-12-06",
+            updated_at=datetime(2022, 12, 6, 15, 30, 0, tzinfo=timezone.utc),
+            visibility="public",
+        )
+
+        json_str = original.model_dump_json()
+        restored = MatchInfo.model_validate_json(json_str)
+
+        assert restored == original
+
+    def test_model_dump_json_not_json_dumps(self) -> None:
+        """json.dumps(model_dump()) crashes on datetime; model_dump_json() must be used."""
+        from ingestion.gradientsports_common import MatchInfo
+
+        m = MatchInfo(
+            id="10508",
+            artifacts={},
+            home="Morocco",
+            away="Spain",
+            date="2022-12-06",
+            updated_at=datetime(2022, 12, 6, 15, 30, 0, tzinfo=timezone.utc),
+            visibility="public",
+        )
+
+        # model_dump_json works
+        json_str = m.model_dump_json()
+        assert isinstance(json_str, str)
+
+        # json.dumps(model_dump()) crashes on datetime
+        import json as json_mod
+
+        with pytest.raises(TypeError, match="not JSON serializable"):
+            json_mod.dumps(m.model_dump())
 
 
 class TestParseEvents:
@@ -445,3 +495,322 @@ class TestIngestAtomicity:
 
         mock_write_events.assert_not_called()
         mock_write_tracking.assert_not_called()
+
+
+class TestParquetStaging:
+    """Regression guards for the Parquet staging fix (spec §4.1)."""
+
+    def test_no_create_dataframe_in_tracking_module(self) -> None:
+        """AST guard: spark.createDataFrame must never appear in gradientsports_tracking.py.
+
+        The OOM fix replaces createDataFrame with Parquet staging. This test
+        prevents silent reintroduction of the RPC-bound path.
+        """
+        import ast
+
+        source_path = Path(__file__).resolve().parents[1] / "ingestion" / "gradientsports_tracking.py"
+        tree = ast.parse(source_path.read_text())
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr == "createDataFrame":
+                pytest.fail(
+                    f"spark.createDataFrame found at line {node.lineno} in gradientsports_tracking.py. "
+                    "Use Parquet staging via UC Volume instead (spec §2.1)."
+                )
+
+    def test_parquet_schema_round_trip(self, tmp_path: Path) -> None:
+        """Pandas DF -> Parquet -> Pandas preserves column names and dtypes.
+
+        Validates the pandas-to-Parquet layer. Spark's Parquet reader is
+        Spark's responsibility — this test catches int64/float64 widening
+        and string/object dtype issues at the boundary we control.
+        """
+        import numpy as np
+        import pandas as pd
+
+        n = 100
+        df = pd.DataFrame(
+            {
+                "match_id": ["10502"] * n,
+                "game_ref_id": [10502.0] * n,
+                "frame_num": np.arange(n, dtype="float64"),
+                "period": [1.0] * n,
+                "period_elapsed_time": np.random.default_rng(42).uniform(0, 5400, n),
+                "period_game_clock_time": np.random.default_rng(42).uniform(0, 5400, n),
+                "video_time_ms": np.random.default_rng(42).uniform(0, 5_400_000, n),
+                "version": ["4.1.0"] * n,
+                "generated_time": ["2023-07-12T07:26:52Z"] * n,
+                "smoothed_time": ["2024-02-02T14:01:56Z"] * n,
+                "game_event_id": [6629601.0] * n,
+                "possession_event_id": [6510902.0] * n,
+                "_game_event_json": ['{"type": "FIRSTKICKOFF"}'] * n,
+                "_possession_event_json": ['{"type": "PA"}'] * n,
+                "team_side": ["home"] * n,
+                "is_ball": [False] * n,
+                "jersey_num": ["8"] * n,
+                "confidence": ["HIGH"] * n,
+                "visibility": ["VISIBLE"] * n,
+                "x": np.random.default_rng(42).uniform(-55, 55, n),
+                "y": np.random.default_rng(42).uniform(-34, 34, n),
+                "z": [np.nan] * n,
+                "x_smoothed": np.random.default_rng(42).uniform(-55, 55, n),
+                "y_smoothed": np.random.default_rng(42).uniform(-34, 34, n),
+                "z_smoothed": [np.nan] * n,
+                "_ingested_at": pd.Timestamp.now(tz="UTC"),
+            }
+        )
+
+        parquet_path = tmp_path / "test.parquet"
+        df.to_parquet(parquet_path, index=False)
+        df_back = pd.read_parquet(parquet_path)
+
+        assert list(df_back.columns) == list(df.columns)
+        assert len(df_back) == len(df)
+        for col in ["frame_num", "period", "x", "y"]:
+            assert df_back[col].dtype.name == "float64", f"{col} dtype changed to {df_back[col].dtype}"
+
+    def test_staging_path_format(self) -> None:
+        """_staging_path produces the expected UC Volume path format."""
+        from ingestion.gradientsports_tracking import _staging_path
+
+        expected_1 = "/Volumes/cat/bronze/_staging/gradientsports_tracking/10502.parquet"
+        assert _staging_path("cat", "bronze", "10502") == expected_1
+        expected_2 = "/Volumes/soccer_analytics/dev_bronze/_staging/gradientsports_tracking/10508.parquet"
+        assert _staging_path("soccer_analytics", "dev_bronze", "10508") == expected_2
+
+    @patch("ingestion.gradientsports_tracking.write_delta_table")
+    @patch("ingestion.gradientsports_tracking.validate_dataframe")
+    @patch("ingestion.gradientsports_tracking.ensure_volume_directory")
+    def test_write_tracking_uses_parquet_staging(
+        self,
+        mock_ensure_dir: MagicMock,
+        mock_validate: MagicMock,
+        mock_write_delta: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """write_tracking() must stage via Parquet, not createDataFrame (spec §4.1 item 2)."""
+        import pandas as pd
+
+        from ingestion.gradientsports_tracking import write_tracking
+
+        mock_spark = MagicMock()
+        mock_validate.return_value = 5
+        df = pd.DataFrame({"match_id": ["10502"] * 5, "frame_num": [1.0] * 5, "period": [1.0] * 5})
+
+        staging_path = str(tmp_path / "staging" / "10502.parquet")
+        # Create parent directory manually — ensure_volume_directory is mocked out,
+        # but df.to_parquet() needs the directory to exist on the local filesystem.
+        (tmp_path / "staging").mkdir()
+        with patch("ingestion.gradientsports_tracking._staging_path", return_value=staging_path):
+            write_tracking(mock_spark, df, "cat", "bronze", "10502", MagicMock())
+
+        # createDataFrame must NOT be called
+        mock_spark.createDataFrame.assert_not_called()
+        # ensure_volume_directory must be called for the parent dir
+        mock_ensure_dir.assert_called_once()
+        # spark.read.parquet must be called with the staging path
+        mock_spark.read.parquet.assert_called_once_with(staging_path)
+        # Delta write must happen
+        mock_write_delta.assert_called_once()
+
+
+class TestWriteTaskValue:
+    """Tests for the shared write_task_value() helper in utils.py."""
+
+    def test_graceful_fallback_outside_databricks(self) -> None:
+        """write_task_value logs warning when DBUtils is unavailable (local/CI)."""
+        from ingestion.utils import write_task_value
+
+        mock_logger = MagicMock()
+        write_task_value("test_key", ["a", "b"], mock_logger)
+        # Outside Databricks, pyspark.dbutils ImportError fires → warning logged
+        mock_logger.warning.assert_called_once()
+        assert "not available" in str(mock_logger.warning.call_args)
+
+    def test_no_active_session_warns(self) -> None:
+        """write_task_value warns when SparkSession.getActiveSession() returns None."""
+        import sys
+
+        from ingestion.utils import write_task_value
+
+        # Temporarily make pyspark.dbutils importable but SparkSession returns None
+        mock_dbutils_mod = MagicMock()
+        mock_spark_mod = MagicMock()
+        mock_spark_mod.SparkSession.getActiveSession.return_value = None
+        mock_logger = MagicMock()
+
+        with patch.dict(sys.modules, {"pyspark.dbutils": mock_dbutils_mod, "pyspark.sql": mock_spark_mod}):
+            write_task_value("test_key", ["a", "b"], mock_logger)
+
+        mock_logger.warning.assert_called_once()
+        assert "No active SparkSession" in str(mock_logger.warning.call_args)
+
+
+class TestPreflight:
+    """Tests for main_preflight() — spec §4.2."""
+
+    @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
+    @patch("ingestion.gradientsports.fetch_match_list")
+    def test_preflight_emits_json_array(
+        self,
+        mock_fetch: MagicMock,
+        mock_token: MagicMock,
+    ) -> None:
+        """Preflight emits a JSON array where each element is a valid MatchInfo JSON string."""
+        from ingestion.gradientsports import main_preflight
+        from ingestion.gradientsports_common import MatchInfo
+
+        matches = [_make_match("10502"), _make_match("10503"), _make_match("10504")]
+        mock_fetch.return_value = matches
+
+        emitted: list[list[str]] = []
+
+        def capture_task_value(key: str, value: list[str], logger: object = None) -> None:
+            assert key == "gradientsports_matches"
+            emitted.append(value)
+
+        mock_spark = MagicMock()
+        with (
+            patch("ingestion.gradientsports.timed_check") as mock_check,
+            patch("ingestion.gradientsports.write_task_value", side_effect=capture_task_value),
+            patch("ingestion.gradientsports.get_spark_session", return_value=mock_spark),
+            patch("ingestion.gradientsports.configure_logging", return_value=MagicMock()),
+            patch("ingestion.gradientsports.parse_ingestion_args") as mock_args,
+            patch("ingestion.bootstrap.bootstrap_hooks"),
+        ):
+            mock_args.return_value = MagicMock(catalog="cat", schema="bronze")
+            mock_check.return_value = FilterResult(
+                workflow_id="wf-gradientsports",
+                count=3,
+                metadata={"matches": [m.model_dump() for m in matches]},
+            )
+            main_preflight()
+
+        assert len(emitted) == 1
+        task_value = emitted[0]
+        assert len(task_value) == 3
+
+        # Each element must be deserializable to MatchInfo
+        for json_str in task_value:
+            restored = MatchInfo.model_validate_json(json_str)
+            assert restored.id in {"10502", "10503", "10504"}
+
+    @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
+    @patch("ingestion.gradientsports.fetch_match_list", return_value=[])
+    def test_preflight_empty_guard_emits_empty_list(
+        self,
+        mock_fetch: MagicMock,
+        mock_token: MagicMock,
+    ) -> None:
+        """When guard finds no matches, preflight emits [] (spec §4.2 item 6)."""
+        from ingestion.gradientsports import main_preflight
+
+        emitted: list[list[str]] = []
+
+        def capture_task_value(key: str, value: list[str], logger: object = None) -> None:
+            emitted.append(value)
+
+        mock_spark = MagicMock()
+        with (
+            patch("ingestion.gradientsports.timed_check") as mock_check,
+            patch("ingestion.gradientsports.write_task_value", side_effect=capture_task_value),
+            patch("ingestion.gradientsports.get_spark_session", return_value=mock_spark),
+            patch("ingestion.gradientsports.configure_logging", return_value=MagicMock()),
+            patch("ingestion.gradientsports.parse_ingestion_args") as mock_args,
+            patch("ingestion.bootstrap.bootstrap_hooks"),
+        ):
+            mock_args.return_value = MagicMock(catalog="cat", schema="bronze")
+            mock_check.return_value = FilterResult(
+                workflow_id="wf-gradientsports",
+                count=0,
+            )
+            main_preflight()
+
+        assert len(emitted) == 1
+        assert emitted[0] == []
+
+
+class TestMatchJsonIteration:
+    """Tests for the --match-json single-match iteration mode (spec §4.3)."""
+
+    @patch("ingestion.gradientsports.write_events")
+    @patch("ingestion.gradientsports.write_tracking")
+    @patch("ingestion.gradientsports.fetch_artifact")
+    @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
+    @patch("ingestion.gradientsports.parse_tracking")
+    @patch("ingestion.gradientsports.parse_events")
+    def test_match_json_deserializes_and_ingests(
+        self,
+        mock_parse_events: MagicMock,
+        mock_parse_tracking: MagicMock,
+        mock_token: MagicMock,
+        mock_fetch_artifact: MagicMock,
+        mock_write_tracking: MagicMock,
+        mock_write_events: MagicMock,
+    ) -> None:
+        """--match-json mode deserializes MatchInfo and calls ingest_gradientsports."""
+        import pandas as pd
+
+        from ingestion.gradientsports import main
+
+        match = _make_match("10508")
+        match_json = match.model_dump_json()
+
+        mock_fetch_artifact.return_value = MagicMock(text='[{"gameId": 1}]', content=b"data")
+        mock_parse_events.return_value = pd.DataFrame({"match_id": ["10508"]})
+        mock_parse_tracking.return_value = pd.DataFrame({"match_id": ["10508"]})
+
+        with (
+            patch("ingestion.gradientsports.get_spark_session", return_value=MagicMock()),
+            patch("ingestion.gradientsports.configure_logging", return_value=MagicMock()),
+            patch("ingestion.gradientsports.parse_ingestion_args") as mock_args,
+            patch("ingestion.bootstrap.bootstrap_hooks"),
+        ):
+            mock_args.return_value = MagicMock(catalog="cat", schema="bronze", match_json=match_json)
+            main()
+
+        mock_write_tracking.assert_called_once()
+        mock_write_events.assert_called_once()
+
+    @patch("ingestion.gradientsports.write_events")
+    @patch("ingestion.gradientsports.write_tracking")
+    @patch("ingestion.gradientsports.fetch_artifact")
+    @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
+    @patch("ingestion.gradientsports.parse_tracking")
+    @patch("ingestion.gradientsports.parse_events")
+    def test_match_json_preserves_write_ordering(
+        self,
+        mock_parse_events: MagicMock,
+        mock_parse_tracking: MagicMock,
+        mock_token: MagicMock,
+        mock_fetch_artifact: MagicMock,
+        mock_write_tracking: MagicMock,
+        mock_write_events: MagicMock,
+    ) -> None:
+        """Write-ordering invariant: tracking before events, even in --match-json mode."""
+        import pandas as pd
+
+        from ingestion.gradientsports import main
+
+        call_order: list[str] = []
+        match = _make_match("10508")
+        match_json = match.model_dump_json()
+
+        mock_fetch_artifact.return_value = MagicMock(text='[{"gameId": 1}]', content=b"data")
+        mock_parse_events.return_value = pd.DataFrame({"match_id": ["10508"]})
+        mock_parse_tracking.return_value = pd.DataFrame({"match_id": ["10508"]})
+        mock_write_tracking.side_effect = lambda *a, **kw: call_order.append("tracking")
+        mock_write_events.side_effect = lambda *a, **kw: call_order.append("events")
+
+        with (
+            patch("ingestion.gradientsports.get_spark_session", return_value=MagicMock()),
+            patch("ingestion.gradientsports.configure_logging", return_value=MagicMock()),
+            patch("ingestion.gradientsports.parse_ingestion_args") as mock_args,
+            patch("ingestion.bootstrap.bootstrap_hooks"),
+        ):
+            mock_args.return_value = MagicMock(catalog="cat", schema="bronze", match_json=match_json)
+            main()
+
+        assert call_order == ["tracking", "events"], (
+            f"Write order must be tracking-first, events-last; got {call_order}"
+        )
