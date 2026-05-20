@@ -856,7 +856,7 @@ def ensure_volume_directory(volume_path: str) -> None:
                 dbutils.fs.mkdirs(volume_path)
                 _vol_logger.debug("Created volume directory via dbutils: %s", volume_path)
                 return
-        except Exception:  # noqa: BLE001 — best-effort dbutils fallback before os.makedirs
+        except (ImportError, AttributeError):
             _vol_logger.debug("dbutils unavailable, falling back to os.makedirs")
 
         _vol_logger.debug("No DATABRICKS_HOST/TOKEN and no dbutils — falling back to os.makedirs")
