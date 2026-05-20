@@ -50,10 +50,22 @@ class _GradientSportsGuard:
     workflow_id = "wf-gradientsports"
 
     def check(self, spark: SparkSession, catalog: str, schema: str) -> FilterResult:
-        """Discover new/modified Gradient Sports matches via API.
+        """Discover Gradient Sports matches that need ingestion.
 
-        Queries MAX(_ingested_at) from bronze.gradientsports_events to determine
-        the updatedSince cutoff. Calls the discovery API. Returns match count.
+        Two-phase discovery:
+          Phase A — find MISSING matches: fetch the full match list from the
+          API (no updatedSince filter), then anti-join against distinct
+          match_ids already in bronze.gradientsports_events. Any match_id
+          present in the API but absent from bronze is scheduled for ingestion.
+
+          Phase B — find UPDATED matches (only when Phase A found nothing):
+          if all API matches are already in bronze, re-query the API with
+          updatedSince = MAX(_ingested_at) from events to catch matches the
+          provider re-processed after our last complete ingestion.
+
+        This avoids the timestamp-domain mismatch that made the old guard
+        useless: _ingested_at is when WE wrote; updatedSince filters on when
+        the PROVIDER last modified the match.
         """
         import logging as _logging
         from datetime import datetime, timezone
@@ -61,8 +73,33 @@ class _GradientSportsGuard:
         _guard_logger = _logging.getLogger(__name__)
         token = resolve_pining_token()
 
+        # --- Phase A: fetch full match list, anti-join against bronze -------
+        all_matches = fetch_match_list(token, updated_since=None)
+        if not all_matches:
+            _guard_logger.info("API returned 0 matches — nothing to ingest")
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        ingested_ids: set[str] = set()
+        with tolerate_missing_table(_guard_logger, "Gradient Sports events table missing — full ingestion needed"):
+            rows = spark.table(f"{catalog}.bronze.gradientsports_events").select("match_id").distinct().collect()
+            ingested_ids = {str(r["match_id"]) for r in rows}
+
+        missing = [m for m in all_matches if m.id not in ingested_ids]
+        if missing:
+            _guard_logger.info(
+                "Phase A: %d of %d matches missing from bronze — scheduling ingestion",
+                len(missing),
+                len(all_matches),
+            )
+            return FilterResult(
+                workflow_id=self.workflow_id,
+                count=len(missing),
+                metadata={"matches": [m.model_dump() for m in missing]},
+            )
+
+        # --- Phase B: all matches ingested — check for provider updates -----
         updated_since: str | None = None
-        with tolerate_missing_table(_guard_logger, "Gradient Sports events table missing -- full ingestion needed"):
+        with tolerate_missing_table(_guard_logger, "Gradient Sports events table missing"):
             from pyspark.sql import functions as spark_fn
 
             row = (
@@ -76,14 +113,23 @@ class _GradientSportsGuard:
                     ts = ts.replace(tzinfo=timezone.utc)
                 updated_since = ts.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        matches = fetch_match_list(token, updated_since=updated_since)
-        if not matches:
+        if updated_since is None:
             return FilterResult(workflow_id=self.workflow_id, count=0)
 
+        updated_matches = fetch_match_list(token, updated_since=updated_since)
+        if not updated_matches:
+            _guard_logger.info("Phase B: all %d matches ingested, no provider updates", len(all_matches))
+            return FilterResult(workflow_id=self.workflow_id, count=0)
+
+        _guard_logger.info(
+            "Phase B: %d matches re-processed by provider since %s",
+            len(updated_matches),
+            updated_since,
+        )
         return FilterResult(
             workflow_id=self.workflow_id,
-            count=len(matches),
-            metadata={"matches": [m.model_dump() for m in matches]},
+            count=len(updated_matches),
+            metadata={"matches": [m.model_dump() for m in updated_matches]},
         )
 
 

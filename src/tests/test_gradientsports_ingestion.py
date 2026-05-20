@@ -814,3 +814,174 @@ class TestMatchJsonIteration:
         assert call_order == ["tracking", "events"], (
             f"Write order must be tracking-first, events-last; got {call_order}"
         )
+
+
+class TestGradientSportsGuard:
+    """Tests for the two-phase skip guard (anti-join + updatedSince)."""
+
+    def _make_matches(self, ids: list[str]) -> list:
+        """Build MatchInfo list for given IDs."""
+        from ingestion.gradientsports_common import MatchInfo
+
+        return [
+            MatchInfo(
+                id=mid,
+                artifacts={"events": "e.json", "tracking": "t.bz2"},
+                home="Home",
+                away="Away",
+                date="2022-11-20",
+                updated_at=datetime(2022, 11, 20, tzinfo=timezone.utc),
+                visibility="public",
+            )
+            for mid in ids
+        ]
+
+    @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
+    @patch("ingestion.gradientsports.fetch_match_list")
+    def test_phase_a_discovers_missing_matches(
+        self,
+        mock_fetch: MagicMock,
+        mock_token: MagicMock,
+    ) -> None:
+        """Phase A: matches in API but not in bronze are scheduled for ingestion."""
+        from ingestion.gradientsports import skip_guard
+
+        api_matches = self._make_matches(["10502", "10503", "10504"])
+        mock_fetch.return_value = api_matches
+
+        # Mock Spark: bronze has only match 10502
+        mock_spark = MagicMock()
+        mock_table = MagicMock()
+        mock_table.select.return_value.distinct.return_value.collect.return_value = [
+            {"match_id": "10502"},
+        ]
+        mock_spark.table.return_value = mock_table
+
+        result = skip_guard.check(mock_spark, "cat", "bronze")
+
+        assert result.count == 2
+        match_ids = {m["id"] for m in result.metadata["matches"]}
+        assert match_ids == {"10503", "10504"}
+        # fetch_match_list called once (Phase A only, no Phase B)
+        mock_fetch.assert_called_once_with("fake-token", updated_since=None)
+
+    @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
+    @patch("ingestion.gradientsports.fetch_match_list")
+    def test_phase_a_all_missing_when_table_absent(
+        self,
+        mock_fetch: MagicMock,
+        mock_token: MagicMock,
+    ) -> None:
+        """Phase A: if bronze table doesn't exist, all matches are scheduled."""
+        from ingestion.gradientsports import skip_guard
+
+        api_matches = self._make_matches(["10502", "10503"])
+        mock_fetch.return_value = api_matches
+
+        # Mock Spark: table query raises AnalysisException (table not found)
+        mock_spark = MagicMock()
+        mock_spark.table.side_effect = Exception(
+            "[TABLE_OR_VIEW_NOT_FOUND] The table or view `cat`.`bronze`.`gradientsports_events` cannot be found."
+        )
+
+        result = skip_guard.check(mock_spark, "cat", "bronze")
+
+        assert result.count == 2
+        match_ids = {m["id"] for m in result.metadata["matches"]}
+        assert match_ids == {"10502", "10503"}
+
+    @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
+    @patch("ingestion.gradientsports.fetch_match_list")
+    def test_phase_b_checks_updated_since(
+        self,
+        mock_fetch: MagicMock,
+        mock_token: MagicMock,
+    ) -> None:
+        """Phase B: when all matches ingested, uses updatedSince to find re-processed."""
+        import sys
+
+        from ingestion.gradientsports import skip_guard
+
+        api_matches = self._make_matches(["10502", "10503"])
+        updated_matches = self._make_matches(["10503"])
+
+        # First call (Phase A): return all matches
+        # Second call (Phase B with updatedSince): return re-processed match
+        mock_fetch.side_effect = [api_matches, updated_matches]
+
+        # Mock Spark: bronze has both matches (Phase A) + MAX(_ingested_at) (Phase B)
+        mock_spark = MagicMock()
+        mock_table = MagicMock()
+        mock_table.select.return_value.distinct.return_value.collect.return_value = [
+            {"match_id": "10502"},
+            {"match_id": "10503"},
+        ]
+
+        mock_max_table = MagicMock()
+        max_ts = datetime(2026, 5, 19, 12, 0, 0, tzinfo=timezone.utc)
+        mock_max_table.select.return_value.collect.return_value = [{"max_ts": max_ts}]
+
+        mock_spark.table.side_effect = [mock_table, mock_max_table]
+
+        # Mock pyspark.sql.functions so Phase B's `from pyspark.sql import functions` works
+        mock_pyspark_sql = MagicMock()
+        with patch.dict(sys.modules, {"pyspark": MagicMock(), "pyspark.sql": mock_pyspark_sql}):
+            result = skip_guard.check(mock_spark, "cat", "bronze")
+
+        assert result.count == 1
+        assert result.metadata["matches"][0]["id"] == "10503"
+        # Two fetch_match_list calls: Phase A (no filter) + Phase B (with updatedSince)
+        assert mock_fetch.call_count == 2
+        second_call_kwargs = mock_fetch.call_args_list[1]
+        assert "2026-05-19T12:00:00Z" in str(second_call_kwargs)
+
+    @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
+    @patch("ingestion.gradientsports.fetch_match_list")
+    def test_phase_b_no_updates_returns_zero(
+        self,
+        mock_fetch: MagicMock,
+        mock_token: MagicMock,
+    ) -> None:
+        """Phase B: no provider updates → count=0."""
+        import sys
+
+        from ingestion.gradientsports import skip_guard
+
+        api_matches = self._make_matches(["10502", "10503"])
+
+        # Phase A: all matches, Phase B: empty (no updates)
+        mock_fetch.side_effect = [api_matches, []]
+
+        mock_spark = MagicMock()
+        mock_table = MagicMock()
+        mock_table.select.return_value.distinct.return_value.collect.return_value = [
+            {"match_id": "10502"},
+            {"match_id": "10503"},
+        ]
+        mock_max_table = MagicMock()
+        max_ts = datetime(2026, 5, 19, 12, 0, 0, tzinfo=timezone.utc)
+        mock_max_table.select.return_value.collect.return_value = [{"max_ts": max_ts}]
+        mock_spark.table.side_effect = [mock_table, mock_max_table]
+
+        mock_pyspark_sql = MagicMock()
+        with patch.dict(sys.modules, {"pyspark": MagicMock(), "pyspark.sql": mock_pyspark_sql}):
+            result = skip_guard.check(mock_spark, "cat", "bronze")
+
+        assert result.count == 0
+
+    @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
+    @patch("ingestion.gradientsports.fetch_match_list", return_value=[])
+    def test_api_returns_empty_list(
+        self,
+        mock_fetch: MagicMock,
+        mock_token: MagicMock,
+    ) -> None:
+        """If API returns 0 matches, guard returns count=0 immediately."""
+        from ingestion.gradientsports import skip_guard
+
+        mock_spark = MagicMock()
+        result = skip_guard.check(mock_spark, "cat", "bronze")
+
+        assert result.count == 0
+        # Spark never queried
+        mock_spark.table.assert_not_called()
