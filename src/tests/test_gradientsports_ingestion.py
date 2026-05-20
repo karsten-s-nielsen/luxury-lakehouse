@@ -1097,9 +1097,7 @@ class TestEnsureVolumeDirectoryDbutils:
             os.environ.pop("DATABRICKS_TOKEN", None)
             ensure_volume_directory("/Volumes/cat/bronze/_staging/gradientsports_tracking")
 
-        mock_dbutils_instance.fs.mkdirs.assert_called_once_with(
-            "/Volumes/cat/bronze/_staging/gradientsports_tracking"
-        )
+        mock_dbutils_instance.fs.mkdirs.assert_called_once_with("/Volumes/cat/bronze/_staging/gradientsports_tracking")
 
     def test_os_makedirs_fallback_when_no_dbutils(self, tmp_path: Path) -> None:
         """Outside Databricks (no dbutils), os.makedirs is used."""
