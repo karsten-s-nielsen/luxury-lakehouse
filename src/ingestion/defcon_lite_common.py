@@ -21,6 +21,7 @@ __all__ = [
     "_ACTION_PREFIX",
     "_FF_PREFIX",
     "_TABLE_NAME",
+    "_VALUE_UDF_INPUT_COLS",
     "_make_values_udf",
     "_try_load_champion_defcon",
 ]
@@ -77,6 +78,31 @@ def _try_load_champion_defcon(
     except Exception:  # noqa: BLE001 — MLflow registry raises many unrelated exception types on missing Champion
         logger.info("DEFCON @Champion not found in MLflow registry — will use per-match training", exc_info=True)
         return None
+
+
+# Module-level column contract: the 18 columns Pass 2 receives from Pass 1
+# output (credits_schema). Guards against column-list drift between the join
+# output and what the UDF actually reads. Same LL1 latent-bug class as PR #230.
+_VALUE_UDF_INPUT_COLS: tuple[str, ...] = (
+    "event_id",
+    "match_id",
+    "competition_id",
+    "season_id",
+    "defender_player_id",
+    "defender_team_id",
+    "defender_x",
+    "defender_y",
+    "action_player_id",
+    "action_type",
+    "action_x",
+    "action_y",
+    "credit_type",
+    "confidence",
+    "dist_to_ball",
+    "pitch_control_at_action",
+    "offensive_value",
+    "vaep_target",
+)
 
 
 def _make_values_udf(

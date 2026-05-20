@@ -30,6 +30,30 @@ if TYPE_CHECKING:
 
     from analytics.defcon_lite import DefconLiteParams
 
+# Module-level column contract: the 18 columns the Pass 1 UDF reads from the
+# joined actions x tracking DataFrame. 10 act_* + 8 trk_* (trk_match_id
+# dropped by the join). Guards against column-list drift.
+_CREDITS_UDF_INPUT_COLS_TRACKING: tuple[str, ...] = (
+    "act_event_id",
+    "act_match_id",
+    "act_competition_id",
+    "act_season_id",
+    "act_player_id",
+    "act_team_id",
+    "act_action_type",
+    "act_start_x",
+    "act_start_y",
+    "act_offensive_value",
+    "trk_player_id",
+    "trk_team",
+    "trk_x",
+    "trk_y",
+    "trk_velocity_x",
+    "trk_velocity_y",
+    "trk_frame",
+    "trk_period",
+)
+
 _guard_logger = logging.getLogger(f"{__name__}.guard")
 
 
@@ -345,9 +369,13 @@ def process_tracking_matches(
         pitch_width=params.pitch_width,
     )
 
-    credits_sdf = joined.groupBy("act_match_id").applyInPandas(
-        credits_udf,  # type: ignore[arg-type]
-        schema=credits_schema,
+    credits_sdf = (
+        joined.select(*_CREDITS_UDF_INPUT_COLS_TRACKING)
+        .groupBy("act_match_id")
+        .applyInPandas(
+            credits_udf,  # type: ignore[arg-type]
+            schema=credits_schema,
+        )
     )
 
     # Pass 2: estimate DEFCON values per match on executors
@@ -376,7 +404,7 @@ def process_tracking_matches(
         ]
     )
 
-    from ingestion.defcon_lite_common import _make_values_udf
+    from ingestion.defcon_lite_common import _VALUE_UDF_INPUT_COLS, _make_values_udf
 
     values_udf = _make_values_udf(
         disturb_radius_m=params.disturb_radius_m,
@@ -387,9 +415,13 @@ def process_tracking_matches(
         champion_model_bytes=champion_model_bytes,
     )
 
-    valued_sdf = credits_sdf.groupBy("match_id").applyInPandas(
-        values_udf,  # type: ignore[arg-type]
-        schema=valued_schema,
+    valued_sdf = (
+        credits_sdf.select(*_VALUE_UDF_INPUT_COLS)
+        .groupBy("match_id")
+        .applyInPandas(
+            values_udf,  # type: ignore[arg-type]
+            schema=valued_schema,
+        )
     )
 
     # Build replaceWhere predicate for all new matches

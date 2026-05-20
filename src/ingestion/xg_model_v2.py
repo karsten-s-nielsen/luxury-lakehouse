@@ -3,7 +3,7 @@
 Loads the v2 set encoder weights from MLflow ``xg_model_v2@Champion`` (preferred)
 or UC Volume (fallback), plus v1 XGBoost model for tabular feature extraction.
 Scores all shots with freeze-frame context from ``fct_shots`` joined to
-``stg_statsbomb__events``, grouped by ``competition_id`` on Spark executors.
+``stg_statsbomb__events``, grouped by ``match_key`` on Spark executors.
 Writes predictions to ``{catalog}.{schema}.xg_predictions_v2`` with
 ``replaceWhere`` per ``competition_id``.
 """
@@ -185,6 +185,7 @@ def _load_shots_with_context(
                s.distance_to_goal, s.shot_angle, s.shot_body_part, s.shot_technique,
                s.shot_type, s.play_pattern, s.is_first_time, s.period, s.minute,
                s.is_goal, s.data_source,
+               s.match_key,
                e.shot_freeze_frame
         FROM {catalog}.{DEFAULT_GOLD_SCHEMA}.fct_shots s
         LEFT JOIN {catalog}.dev_silver.stg_statsbomb__events e
@@ -427,39 +428,35 @@ def run_pipeline(
     # 5. Build UDF and distribute scoring across executors
     scoring_udf = _make_v2_scoring_udf(v2_weights_bytes, xgboost_bytes)
 
+    # Defense-in-depth: NULL match_key would silently create one shared group
+    # containing all unmatched shots -- recreating the exact OOM this fix
+    # eliminates.  The dbt surrogate key macro guarantees non-NULL today, but
+    # this guard prevents silent reintroduction of the OOM class.
+    null_count = shots_filtered.where("match_key IS NULL").count()
+    if null_count > 0:
+        logger.error("match_key IS NULL for %d shots -- invariant broken", null_count)
+        raise RuntimeError(f"{null_count} shots have NULL match_key")
+
     output_schema = "shot_id STRING, competition_id INT, xg_set_encoder DOUBLE, xg_ci_lower DOUBLE, xg_ci_upper DOUBLE"
-    scored_df = shots_filtered.groupBy("competition_id").applyInPandas(
+    scored_df = shots_filtered.groupBy("match_key").applyInPandas(
         scoring_udf,  # type: ignore[arg-type]
         schema=output_schema,
     )
 
-    # 6. Materialize scored_df to avoid re-executing applyInPandas DAG per
-    # competition_id write (F-07 OPT-AUDIT-200).  Without this, each .filter()
-    # triggers a full re-run of the UDF across all groups.
-    _temp_table = f"{catalog}.{schema}._xg_v2_scored_temp"
-    scored_df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(_temp_table)
-    scored_materialized = spark.table(_temp_table)
-
-    for comp_id in new_comps:
-        partition = scored_materialized.filter(f"competition_id = {comp_id}")
-        row_count = write_delta_table(
-            partition,
-            catalog,
-            schema,
-            _TABLE_NAME,
-            replace_where=f"competition_id = {comp_id}",
-            logger=logger,
-        )
-        logger.info("Wrote %d v2 predictions for competition_id=%s", row_count, comp_id)
-
-    # Clean up temp table. Use DROP TABLE IF EXISTS so missing-table is a no-op;
-    # any other exception (permission denied, session dead) is logged at debug
-    # since the temp table will be cleaned up by the workspace garbage collector
-    # on session termination anyway.
-    try:
-        spark.sql(f"DROP TABLE IF EXISTS {_temp_table}")
-    except Exception:  # noqa: BLE001 — best-effort cleanup; session GC handles it if this fails
-        logger.debug("Could not drop temp table %s", _temp_table, exc_info=True)
+    # 6. Single bulk write for all new competitions (replaceWhere on competition_id).
+    # More atomic than the previous per-competition loop -- either the whole
+    # write succeeds or fails.  On failure, the guard re-discovers the same
+    # competition set on retry.
+    new_comp_list = ", ".join(str(c) for c in new_comps)
+    row_count = write_delta_table(
+        scored_df,
+        catalog,
+        schema,
+        _TABLE_NAME,
+        replace_where=f"competition_id IN ({new_comp_list})",
+        logger=logger,
+    )
+    logger.info("Wrote %d v2 predictions across %d competitions", row_count, len(new_comps))
     return 0
 
 
