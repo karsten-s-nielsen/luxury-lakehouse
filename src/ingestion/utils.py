@@ -868,6 +868,44 @@ def ensure_volume_directory(volume_path: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 8b. Databricks Task Value Writer
+# ---------------------------------------------------------------------------
+
+
+def write_task_value(key: str, value: list[str], logger: logging.Logger | None = None) -> None:
+    """Write a Databricks task value for downstream for_each_task consumption.
+
+    Wraps ``dbutils.jobs.taskValues.set()`` with graceful fallback:
+    outside the Databricks runtime (local dev, unit tests), the
+    ``pyspark.dbutils`` import fails and the function logs a warning
+    and returns cleanly so entry points remain testable.
+
+    This is the canonical helper for all preflight task-value emission.
+    Existing per-module copies (idsse, spadl_vaep, tracking_context) can
+    be migrated to this in a follow-up.
+
+    Args:
+        key: Task value key (e.g. ``"gradientsports_matches"``).
+        value: Task value payload — list of strings for for_each_task inputs.
+        logger: Optional logger. Falls back to module logger if not provided.
+    """
+    _log = logger or logging.getLogger(__name__)
+    try:
+        from pyspark.dbutils import DBUtils  # type: ignore[import-not-found]
+        from pyspark.sql import SparkSession
+
+        spark = SparkSession.getActiveSession()
+        if spark is None:
+            _log.warning("No active SparkSession -- task value '%s' not written", key)
+            return
+        dbutils = DBUtils(spark)
+        dbutils.jobs.taskValues.set(key=key, value=value)
+        _log.info("Wrote task value '%s' (%d elements)", key, len(value))
+    except (ImportError, AttributeError, RuntimeError) as exc:
+        _log.warning("Task values not available (likely standalone mode) -- %s", exc)
+
+
+# ---------------------------------------------------------------------------
 # 9. Artifact Hash Verification (SEC2 — SEC-AUDIT-v1.12.0 ML-02 / CWE-345)
 # ---------------------------------------------------------------------------
 #

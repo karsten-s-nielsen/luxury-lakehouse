@@ -157,6 +157,11 @@ _DIRECT_TASK_ENTRY_POINT_TO_CARD: dict[str, str | None] = {
     # helper — writes Databricks task values and exits.
     # Subordinate to wf-vaep; no independent methodology.
     "preflight_spadl_vaep": None,
+    # Gradient Sports fan-out: Runtime match-discovery preflight feeding
+    # the `ingest_gradientsports` for_each_task fan-out. Pure orchestration
+    # helper — writes a Databricks task value (`gradientsports_matches`)
+    # and exits. Subordinate to wf-gradientsports; no independent methodology.
+    "preflight_gradientsports": None,
     "compute_spadl_vaep": "wf-vaep",
     "compute_expected_threat": "wf-xt-grids",
     # compute_xg_model retired SK3-MIG-B 2026-05-03 (XG1-RETIRE per ADR-023).

@@ -261,7 +261,10 @@ def test_data_ingestion_parser_count_anchor() -> None:
     # because old monolithic `compute_spadl_vaep` becomes the for_each_task
     # parent (no new top-level key for it) but `preflight_spadl_vaep` is new.
     # 34 → 35 in Gradient Sports ingestion (2026-05-19): added `ingest_gradientsports`.
-    assert len(task_keys) == 35, f"expected 35 task blocks on data_ingestion, parser found {len(task_keys)}"
+    # 35 → 36 in Gradient Sports fan-out (2026-05-20): monolithic task split into
+    # `preflight_gradientsports` + `ingest_gradientsports` (for_each_task parent)
+    # + `ingest_gradientsports_iteration` (inner). Net +1 top-level block.
+    assert len(task_keys) == 36, f"expected 36 task blocks on data_ingestion, parser found {len(task_keys)}"
 
 
 if __name__ == "__main__":

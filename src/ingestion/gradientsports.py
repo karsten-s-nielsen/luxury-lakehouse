@@ -35,6 +35,7 @@ from ingestion.utils import (
     get_spark_session,
     parse_ingestion_args,
     tolerate_missing_table,
+    write_task_value,
 )
 from workflows import workflow
 from workflows.exceptions import WorkflowSkippedError
@@ -185,9 +186,70 @@ def run_pipeline(
 
 
 def main() -> None:
-    """CLI entry point for Gradient Sports data ingestion."""
-    args = parse_ingestion_args("Ingest Gradient Sports data into the bronze layer")
+    """CLI entry point for Gradient Sports data ingestion.
+
+    Two modes:
+        - ``--match-json <JSON>``: Single-match mode (for_each_task iteration).
+          Deserializes the JSON to MatchInfo and ingests that one match.
+        - No ``--match-json``: Legacy standalone mode. Runs the guard and
+          ingests all discovered matches sequentially. Kept for manual CLI
+          usage and backward compatibility.
+    """
+    args = parse_ingestion_args(
+        "Ingest Gradient Sports data into the bronze layer",
+        extra_args=[
+            (
+                "--match-json",
+                {
+                    "type": str,
+                    "default": None,
+                    "help": (
+                        "JSON-serialized MatchInfo for single-match iteration mode. "
+                        "Used by the Terraform for_each_task fan-out — each iteration "
+                        "receives one match via {{input}}. Omit to run guard + full "
+                        "sequential ingestion."
+                    ),
+                },
+            ),
+        ],
+    )
     _logger = configure_logging("gradientsports")
+    spark = get_spark_session()
+
+    from ingestion.bootstrap import bootstrap_hooks
+
+    bootstrap_hooks(spark, args.catalog, args.schema)
+
+    if args.match_json is not None:
+        # Single-match mode: for_each_task iteration
+        match = MatchInfo.model_validate_json(args.match_json)
+        _logger.info("Single-match mode: ingesting match %s (%s vs %s)", match.id, match.home, match.away)
+        ingest_gradientsports(spark, args.catalog, args.schema, _logger, [match])
+    else:
+        # Legacy standalone mode: guard + sequential ingestion
+        filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
+        _logger.info("Starting Gradient Sports ingestion into %s.%s", args.catalog, args.schema)
+        run_pipeline(spark, args.catalog, args.schema, _logger, filter_result=filter_result)
+
+    _logger.info("Gradient Sports ingestion complete")
+
+
+def main_preflight() -> None:
+    """CLI entry point for Gradient Sports preflight task.
+
+    Runs the skip guard to discover matches, serializes each MatchInfo
+    as a JSON string, and emits the list as a Databricks task value for
+    downstream for_each_task consumption.
+
+    Behavior:
+        - N matches found -> emits N-element JSON array
+        - 0 matches found -> emits [] (for_each_task spawns 0 iterations)
+    """
+    args = parse_ingestion_args(
+        "Preflight: discover Gradient Sports matches and emit "
+        "as a Databricks task value for downstream for_each_task fan-out"
+    )
+    _logger = configure_logging("gradientsports_preflight")
     spark = get_spark_session()
 
     from ingestion.bootstrap import bootstrap_hooks
@@ -196,9 +258,23 @@ def main() -> None:
 
     filter_result = timed_check(skip_guard, spark, args.catalog, args.schema)
 
-    _logger.info("Starting Gradient Sports ingestion into %s.%s", args.catalog, args.schema)
-    run_pipeline(spark, args.catalog, args.schema, _logger, filter_result=filter_result)
-    _logger.info("Gradient Sports ingestion complete")
+    if filter_result.count == 0:
+        _logger.info("No new Gradient Sports matches -- emitting empty task value")
+        write_task_value("gradientsports_matches", [], _logger)
+        return
+
+    raw_matches = filter_result.metadata.get("matches", [])  # type: ignore[union-attr]
+    matches = [MatchInfo.model_validate(m) for m in raw_matches]
+
+    # Serialize each MatchInfo as a JSON string for {{input}} consumption.
+    # Uses model_dump_json() — NOT json.dumps(model_dump()) which crashes on datetime.
+    match_jsons = [m.model_dump_json() for m in matches]
+
+    _logger.info(
+        "Gradient Sports preflight: %d matches discovered, emitting task value",
+        len(match_jsons),
+    )
+    write_task_value("gradientsports_matches", match_jsons, _logger)
 
 
 if __name__ == "__main__":

@@ -31,13 +31,22 @@ outputs:
       destination: delta-table
 
 execution:
+  preflight:
+    trigger: scheduled
+    runtime: databricks-workflow
+    entry_point: preflight_gradientsports
+    module: ingestion.gradientsports
+    distribution: driver-bound
+    timeout: "300s"
+    environment: analytics
   ingestion:
     trigger: scheduled
     runtime: databricks-workflow
     entry_point: ingest_gradientsports
     module: ingestion.gradientsports
-    distribution: driver-bound
-    timeout: "1800s"
+    distribution: fan-out
+    concurrency: 8
+    timeout: "900s"
     environment: analytics
 
 depends_on: []
@@ -48,7 +57,7 @@ idempotency:
   description: "API-based guard queries MAX(_ingested_at) and uses updatedSince filter. Per-match writes use replaceWhere on match_id."
 
 performance:
-  inference_timeout: "1800s"
+  inference_timeout: "900s"
   memory_ceiling: "16 GB driver"
 
 cost:
