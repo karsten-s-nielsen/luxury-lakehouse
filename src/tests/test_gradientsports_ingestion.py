@@ -406,7 +406,6 @@ class TestIngestAtomicity:
     watermark stays put and the match is re-discovered on retry.
     """
 
-    @patch("ingestion.utils.ensure_volume_directory")
     @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
     @patch("ingestion.gradientsports.fetch_artifact")
     @patch("ingestion.gradientsports.write_events")
@@ -421,7 +420,6 @@ class TestIngestAtomicity:
         mock_write_events: MagicMock,
         mock_fetch_artifact: MagicMock,
         mock_token: MagicMock,
-        mock_ensure_dir: MagicMock,
     ) -> None:
         """Tracking must be written BEFORE events (watermark ordering).
 
@@ -453,7 +451,6 @@ class TestIngestAtomicity:
             f"Write order must be tracking-first, events-last; got {call_order}"
         )
 
-    @patch("ingestion.utils.ensure_volume_directory")
     @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
     @patch("ingestion.gradientsports.fetch_artifact")
     @patch("ingestion.gradientsports.write_events")
@@ -468,7 +465,6 @@ class TestIngestAtomicity:
         mock_write_events: MagicMock,
         mock_fetch_artifact: MagicMock,
         mock_token: MagicMock,
-        mock_ensure_dir: MagicMock,
     ) -> None:
         """If tracking WRITE fails, events must NOT be written.
 
@@ -497,7 +493,6 @@ class TestIngestAtomicity:
         mock_write_tracking.assert_called_once()
         mock_write_events.assert_not_called()
 
-    @patch("ingestion.utils.ensure_volume_directory")
     @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
     @patch("ingestion.gradientsports.fetch_artifact")
     @patch("ingestion.gradientsports.write_events")
@@ -512,7 +507,6 @@ class TestIngestAtomicity:
         mock_write_events: MagicMock,
         mock_fetch_artifact: MagicMock,
         mock_token: MagicMock,
-        mock_ensure_dir: MagicMock,
     ) -> None:
         """If tracking streaming fails, neither artifact is written."""
         import logging
@@ -535,7 +529,6 @@ class TestIngestAtomicity:
         mock_write_events.assert_not_called()
         mock_write_tracking.assert_not_called()
 
-    @patch("ingestion.utils.ensure_volume_directory")
     @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
     @patch("ingestion.gradientsports.fetch_artifact")
     @patch("ingestion.gradientsports.write_events")
@@ -550,7 +543,6 @@ class TestIngestAtomicity:
         mock_write_events: MagicMock,
         mock_fetch_artifact: MagicMock,
         mock_token: MagicMock,
-        mock_ensure_dir: MagicMock,
     ) -> None:
         """If event parsing fails, neither artifact is written."""
         import logging
@@ -809,7 +801,6 @@ class TestPreflight:
 class TestMatchJsonIteration:
     """Tests for the --match-json single-match iteration mode (spec §4.3)."""
 
-    @patch("ingestion.utils.ensure_volume_directory")
     @patch("ingestion.gradientsports.write_events")
     @patch("ingestion.gradientsports.write_tracking")
     @patch("ingestion.gradientsports.fetch_artifact")
@@ -824,7 +815,6 @@ class TestMatchJsonIteration:
         mock_fetch_artifact: MagicMock,
         mock_write_tracking: MagicMock,
         mock_write_events: MagicMock,
-        mock_ensure_dir: MagicMock,
     ) -> None:
         """--match-json mode deserializes MatchInfo and calls ingest_gradientsports."""
         import pandas as pd
@@ -849,7 +839,6 @@ class TestMatchJsonIteration:
         mock_write_tracking.assert_called_once()
         mock_write_events.assert_called_once()
 
-    @patch("ingestion.utils.ensure_volume_directory")
     @patch("ingestion.gradientsports.write_events")
     @patch("ingestion.gradientsports.write_tracking")
     @patch("ingestion.gradientsports.fetch_artifact")
@@ -864,7 +853,6 @@ class TestMatchJsonIteration:
         mock_fetch_artifact: MagicMock,
         mock_write_tracking: MagicMock,
         mock_write_events: MagicMock,
-        mock_ensure_dir: MagicMock,
     ) -> None:
         """Write-ordering invariant: tracking before events, even in --match-json mode."""
         import pandas as pd
