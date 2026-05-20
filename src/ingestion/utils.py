@@ -843,9 +843,23 @@ def ensure_volume_directory(volume_path: str) -> None:
     token = os.environ.get("DATABRICKS_TOKEN", "")
 
     if not host or not token:
-        # Fallback to FUSE mkdir when running outside Databricks
-        # (e.g. local testing with a mounted Volume).
-        _vol_logger.debug("No DATABRICKS_HOST/TOKEN — falling back to os.makedirs")
+        # On Databricks serverless, DATABRICKS_HOST/TOKEN are not set as env vars
+        # but dbutils is available. Try dbutils.fs.mkdirs first (handles UC Volumes
+        # natively), then fall back to os.makedirs for local dev/testing.
+        try:
+            from pyspark.dbutils import DBUtils  # type: ignore[import-not-found]
+            from pyspark.sql import SparkSession  # type: ignore[import-not-found]
+
+            spark = SparkSession.getActiveSession()
+            if spark is not None:
+                dbutils = DBUtils(spark)
+                dbutils.fs.mkdirs(volume_path)
+                _vol_logger.debug("Created volume directory via dbutils: %s", volume_path)
+                return
+        except Exception:  # noqa: BLE001 — best-effort dbutils fallback before os.makedirs
+            _vol_logger.debug("dbutils unavailable, falling back to os.makedirs")
+
+        _vol_logger.debug("No DATABRICKS_HOST/TOKEN and no dbutils — falling back to os.makedirs")
         os.makedirs(volume_path, exist_ok=True)
         return
 

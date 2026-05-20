@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import bz2
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -406,6 +407,7 @@ class TestIngestAtomicity:
     watermark stays put and the match is re-discovered on retry.
     """
 
+    @patch("ingestion.utils.ensure_volume_directory")
     @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
     @patch("ingestion.gradientsports.fetch_artifact")
     @patch("ingestion.gradientsports.write_events")
@@ -420,6 +422,7 @@ class TestIngestAtomicity:
         mock_write_events: MagicMock,
         mock_fetch_artifact: MagicMock,
         mock_token: MagicMock,
+        mock_ensure_dir: MagicMock,
     ) -> None:
         """Tracking must be written BEFORE events (watermark ordering).
 
@@ -451,6 +454,7 @@ class TestIngestAtomicity:
             f"Write order must be tracking-first, events-last; got {call_order}"
         )
 
+    @patch("ingestion.utils.ensure_volume_directory")
     @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
     @patch("ingestion.gradientsports.fetch_artifact")
     @patch("ingestion.gradientsports.write_events")
@@ -465,6 +469,7 @@ class TestIngestAtomicity:
         mock_write_events: MagicMock,
         mock_fetch_artifact: MagicMock,
         mock_token: MagicMock,
+        mock_ensure_dir: MagicMock,
     ) -> None:
         """If tracking WRITE fails, events must NOT be written.
 
@@ -493,6 +498,7 @@ class TestIngestAtomicity:
         mock_write_tracking.assert_called_once()
         mock_write_events.assert_not_called()
 
+    @patch("ingestion.utils.ensure_volume_directory")
     @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
     @patch("ingestion.gradientsports.fetch_artifact")
     @patch("ingestion.gradientsports.write_events")
@@ -507,6 +513,7 @@ class TestIngestAtomicity:
         mock_write_events: MagicMock,
         mock_fetch_artifact: MagicMock,
         mock_token: MagicMock,
+        mock_ensure_dir: MagicMock,
     ) -> None:
         """If tracking streaming fails, neither artifact is written."""
         import logging
@@ -529,6 +536,7 @@ class TestIngestAtomicity:
         mock_write_events.assert_not_called()
         mock_write_tracking.assert_not_called()
 
+    @patch("ingestion.utils.ensure_volume_directory")
     @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
     @patch("ingestion.gradientsports.fetch_artifact")
     @patch("ingestion.gradientsports.write_events")
@@ -543,6 +551,7 @@ class TestIngestAtomicity:
         mock_write_events: MagicMock,
         mock_fetch_artifact: MagicMock,
         mock_token: MagicMock,
+        mock_ensure_dir: MagicMock,
     ) -> None:
         """If event parsing fails, neither artifact is written."""
         import logging
@@ -801,6 +810,7 @@ class TestPreflight:
 class TestMatchJsonIteration:
     """Tests for the --match-json single-match iteration mode (spec §4.3)."""
 
+    @patch("ingestion.utils.ensure_volume_directory")
     @patch("ingestion.gradientsports.write_events")
     @patch("ingestion.gradientsports.write_tracking")
     @patch("ingestion.gradientsports.fetch_artifact")
@@ -815,6 +825,7 @@ class TestMatchJsonIteration:
         mock_fetch_artifact: MagicMock,
         mock_write_tracking: MagicMock,
         mock_write_events: MagicMock,
+        mock_ensure_dir: MagicMock,
     ) -> None:
         """--match-json mode deserializes MatchInfo and calls ingest_gradientsports."""
         import pandas as pd
@@ -839,6 +850,7 @@ class TestMatchJsonIteration:
         mock_write_tracking.assert_called_once()
         mock_write_events.assert_called_once()
 
+    @patch("ingestion.utils.ensure_volume_directory")
     @patch("ingestion.gradientsports.write_events")
     @patch("ingestion.gradientsports.write_tracking")
     @patch("ingestion.gradientsports.fetch_artifact")
@@ -853,6 +865,7 @@ class TestMatchJsonIteration:
         mock_fetch_artifact: MagicMock,
         mock_write_tracking: MagicMock,
         mock_write_events: MagicMock,
+        mock_ensure_dir: MagicMock,
     ) -> None:
         """Write-ordering invariant: tracking before events, even in --match-json mode."""
         import pandas as pd
@@ -1051,3 +1064,52 @@ class TestGradientSportsGuard:
         assert result.count == 0
         # Spark never queried
         mock_spark.table.assert_not_called()
+
+
+class TestEnsureVolumeDirectoryDbutils:
+    """Tests for the dbutils fallback path in ensure_volume_directory."""
+
+    def test_dbutils_fallback_when_no_env_vars(self) -> None:
+        """On serverless (no DATABRICKS_HOST/TOKEN), dbutils.fs.mkdirs is used."""
+        import sys
+
+        from ingestion.utils import ensure_volume_directory
+
+        mock_dbutils_mod = MagicMock()
+        mock_spark_mod = MagicMock()
+        mock_spark = MagicMock()
+        mock_spark_mod.SparkSession.getActiveSession.return_value = mock_spark
+
+        mock_dbutils_cls = MagicMock()
+        mock_dbutils_instance = MagicMock()
+        mock_dbutils_cls.return_value = mock_dbutils_instance
+        mock_dbutils_mod.DBUtils = mock_dbutils_cls
+
+        with (
+            patch.dict(os.environ, {}, clear=False),
+            patch.dict(
+                sys.modules,
+                {"pyspark.dbutils": mock_dbutils_mod, "pyspark.sql": mock_spark_mod},
+            ),
+        ):
+            # Ensure DATABRICKS_HOST/TOKEN are absent
+            os.environ.pop("DATABRICKS_HOST", None)
+            os.environ.pop("DATABRICKS_TOKEN", None)
+            ensure_volume_directory("/Volumes/cat/bronze/_staging/gradientsports_tracking")
+
+        mock_dbutils_instance.fs.mkdirs.assert_called_once_with(
+            "/Volumes/cat/bronze/_staging/gradientsports_tracking"
+        )
+
+    def test_os_makedirs_fallback_when_no_dbutils(self, tmp_path: Path) -> None:
+        """Outside Databricks (no dbutils), os.makedirs is used."""
+        from ingestion.utils import ensure_volume_directory
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("DATABRICKS_HOST", None)
+            os.environ.pop("DATABRICKS_TOKEN", None)
+            # Use a real path but trick the validator
+            with patch("ingestion.utils.os.makedirs") as mock_makedirs:
+                ensure_volume_directory("/Volumes/cat/bronze/_staging")
+
+            mock_makedirs.assert_called_once_with("/Volumes/cat/bronze/_staging", exist_ok=True)

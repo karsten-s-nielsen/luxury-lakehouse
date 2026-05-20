@@ -187,6 +187,9 @@ def ingest_gradientsports(
         for artifact_key in match.artifacts:
             if "track" in artifact_key.lower():
                 tracking_resp = fetch_artifact(mid, artifact_key, token, stream=True)
+                from ingestion.utils import ensure_volume_directory
+
+                ensure_volume_directory(staging_path.rsplit("/", 1)[0])
                 tracking_row_count = stream_tracking_to_parquet(
                     tracking_resp,
                     match_id=mid,
