@@ -365,7 +365,15 @@ def _run_shape_graph(
 
     # Split shape graph results into formation rows and position rows
     sg_formation_df = sg_combined_df.filter(F.col("_row_type") == "formation").select(
-        "match_id", "period", "team", "window_start_s", "window_end_s", "formation_label", "cost", "detector"
+        "match_id",
+        "period",
+        "team",
+        "window_start_s",
+        "window_end_s",
+        "formation_label",
+        "cost",
+        "detector",
+        "source_provider",
     )
     sg_position_df = sg_combined_df.filter(F.col("_row_type") == "position").select(
         "match_id",

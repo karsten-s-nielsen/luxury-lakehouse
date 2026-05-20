@@ -127,6 +127,7 @@ def _make_formation_udf(
         match_id = str(pdf["match_id"].iloc[0])
         period = int(pdf["period"].iloc[0])
         team = str(pdf["team"].iloc[0])
+        source_provider = str(pdf["source_provider"].iloc[0]) if "source_provider" in pdf.columns else None
 
         params = FormationParams(
             window_seconds=_window_seconds,
@@ -154,6 +155,7 @@ def _make_formation_udf(
         if len(result) > 0:
             result = result.copy()
             result["detector"] = "efpi"
+            result["source_provider"] = source_provider
             return _pd.DataFrame(result[_result_columns])
         return _empty
 
@@ -235,6 +237,7 @@ def _run_efpi(
             StructField("formation_label", StringType(), nullable=False),
             StructField("cost", DoubleType(), nullable=True),
             StructField("detector", StringType(), nullable=False),
+            StructField("source_provider", StringType(), nullable=True),
         ]
     )
 

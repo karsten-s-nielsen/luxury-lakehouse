@@ -3,7 +3,7 @@
 --
 -- Dedup: ROW_NUMBER partitioned by (player_id, match_id, source_provider),
 -- latest _ingested_at wins. source_provider is written at bronze ingestion
--- time (PR-1.5 fix) — no more derivation from match_id patterns.
+-- time — no derivation from match_id patterns.
 
 with source as (
 
@@ -34,25 +34,12 @@ cleaned as (
     -- dim-compatible form).
     select
         coalesce(mtp.native_player_id, cast(deduplicated.player_id as string)) as player_id,
-        -- Strip the `idsse_` prefix at staging boundary so mart-side JOINs to
-        -- dim_matches.native_match_id match. Legacy data may still have the
-        -- prefix; new ingestion writes clean match_id without prefix.
-        regexp_replace(cast(deduplicated.match_id as string), '^idsse_', '') as match_id,
+        cast(deduplicated.match_id as string) as match_id,
         cast(total_off_ball_xt as double)  as total_off_ball_xt,
         cast(avg_off_ball_xt as double)    as avg_off_ball_xt,
         cast(frames_sampled as int)        as frames_sampled,
 
-        -- source_provider: read directly from bronze (written at ingestion).
-        -- Legacy fallback for rows ingested before PR-1.5: derive from match_id
-        -- pattern. NULL-safe: if source_provider is NULL, apply legacy derivation.
-        coalesce(
-            deduplicated.source_provider,
-            case
-                when deduplicated.match_id like 'idsse_%'        then 'idsse'
-                when deduplicated.match_id like 'Sample_Game_%'  then 'metrica'
-                else 'skillcorner'
-            end
-        )                                  as source_provider
+        cast(deduplicated.source_provider as string) as source_provider
 
     from deduplicated
     -- LEFT JOIN per-match-side team_players for Metrica synth player_id resolution.

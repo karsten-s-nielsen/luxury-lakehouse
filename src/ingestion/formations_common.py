@@ -28,7 +28,8 @@ from shared.constants import DEFAULT_GOLD_SCHEMA
 
 _FORMATION_LABELS_SCHEMA = (
     "match_id STRING, period INT, team STRING, window_start_s DOUBLE, window_end_s DOUBLE, "
-    "formation_label STRING, cost DOUBLE, _ingested_at TIMESTAMP, detector STRING"
+    "formation_label STRING, cost DOUBLE, detector STRING, source_provider STRING, "
+    "_ingested_at TIMESTAMP"
 )
 _POSITIONS_SCHEMA = (
     "match_id STRING, frame_id BIGINT, player_id STRING, team STRING, "
@@ -53,6 +54,7 @@ RESULT_COLUMNS = [
     "formation_label",
     "cost",
     "detector",
+    "source_provider",
 ]
 
 POSITION_COLUMNS = [
