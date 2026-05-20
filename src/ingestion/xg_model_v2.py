@@ -1,7 +1,7 @@
 """Batch xG v2 scoring pipeline -- set encoder with MC dropout uncertainty.
 
 Loads the v2 set encoder weights from MLflow ``xg_model_v2@Champion`` (preferred)
-or UC Volume (fallback), plus v1 XGBoost model for tabular feature extraction.
+or UC Volume (fallback).
 Scores all shots with freeze-frame context from ``fct_shots`` joined to
 ``stg_statsbomb__events``, grouped by ``match_key`` on Spark executors.
 Writes predictions to ``{catalog}.{schema}.xg_predictions_v2`` with
@@ -125,50 +125,6 @@ def _try_load_champion_xg_v2(
         return None
 
 
-def _try_load_champion_xgboost(
-    log: logging.Logger,
-    catalog: str,
-    schema: str,
-) -> bytes | None:
-    """Try to load v1 XGBoost model bytes from MLflow @Champion.
-
-    The v2 UDF needs XGBoost to build tabular features (``build_features``
-    requires the XGBoost booster's feature names).  Returns serialized bytes
-    or None if MLflow is unavailable.
-    """
-    try:
-        mlflow_sklearn = importlib.import_module("mlflow.sklearn")
-    except (ImportError, ModuleNotFoundError):
-        log.info("mlflow not available — will load XGBoost model from UC Volume")
-        return None
-
-    model_name = mlflow_model_uri(catalog, schema, "xg_model")
-    try:
-        model_uri = f"models:/{model_name}@Champion"
-        log.info("Loading XGBoost @Champion from %s", model_uri)
-        champion_model = mlflow_sklearn.load_model(model_uri)
-
-        from analytics.xg_model import serialize_xgboost_model
-
-        xgboost_bytes = serialize_xgboost_model(champion_model)  # type: ignore[arg-type]
-
-        # SEC2: verify artifact integrity against recorded MLflow tag (if any)
-        mlflow_tracking = importlib.import_module("mlflow.tracking")
-        client = mlflow_tracking.MlflowClient()
-        verify_artifact_hash(
-            data=xgboost_bytes,
-            expected_sha256=_load_mlflow_artifact_hash(client, model_name, alias="Champion"),
-            artifact_label=f"{model_name}_xgboost_for_v2",
-            logger=log,
-        )
-
-        log.info("Loaded XGBoost @Champion from MLflow (%d bytes)", len(xgboost_bytes))
-        return xgboost_bytes
-    except Exception:  # noqa: BLE001 — MLflow registry raises many unrelated exception types on missing Champion
-        log.info("XGBoost @Champion not found in MLflow registry — will load from UC Volume", exc_info=True)
-        return None
-
-
 def _load_shots_with_context(
     spark: Any,
     catalog: str,
@@ -245,13 +201,12 @@ def _parse_v2_envelope_features(v2_weights_bytes: bytes) -> tuple[list[str], int
 
 def _make_v2_scoring_udf(
     v2_weights_bytes: bytes,
-    xgboost_bytes: bytes,
 ) -> Callable[..., pd.DataFrame]:
     """Build ``applyInPandas`` UDF for v2 set encoder scoring.
 
-    The UDF deserializes both the v2 set encoder weights and the v1 XGBoost
-    model (needed for ``build_features`` feature names) once per executor
-    via the ``_model_cache`` pattern.  For each shot with a non-null
+    The UDF deserializes the v2 set encoder weights once per executor via
+    the ``_model_cache`` pattern.  Feature names come from the v2 envelope's
+    ``feature_names`` field (ADR-012 §2).  For each shot with a non-null
     freeze frame, it encodes the player set and runs MC dropout inference.
     Shots without freeze frames produce NaN predictions.
     """
@@ -268,7 +223,6 @@ def _make_v2_scoring_udf(
         from analytics.xg_model import (
             XGModelConfig,
             build_features,
-            deserialize_xgboost_model,
             parse_freeze_frame,
         )
 
@@ -278,12 +232,6 @@ def _make_v2_scoring_udf(
         cache: dict[str, Any] = _udf._model_cache  # type: ignore[attr-defined]
         if "v2_weights" not in cache:
             cache["v2_weights"] = deserialize_set_encoder_weights(v2_weights_bytes)
-            cache["xgboost"] = deserialize_xgboost_model(xgboost_bytes)
-            # SK3-MIG (2026-05-02): the v2 envelope's ``feature_names`` is the
-            # only source for tabular reindex. ADR-012 §2 grace-period for the
-            # v1-XGBoost-feature-list fallback expired (~17 wheel releases past
-            # the 2026-04-22 v2 retrain that ships ``feature_names``); legacy
-            # envelopes now raise via _parse_v2_envelope_features.
             cache["v2_features"], _ = _parse_v2_envelope_features(v2_weights_bytes)
 
         # Build tabular features for the set encoder's tabular input,
@@ -406,27 +354,8 @@ def run_pipeline(
         )
         logger.info("Loaded xG v2 weights from UC Volume (%d bytes)", len(v2_weights_bytes))
 
-    # 4. Load v1 XGBoost model (needed for tabular feature extraction)
-    xgboost_result = _try_load_champion_xgboost(logger, catalog, DEFAULT_GOLD_SCHEMA)
-    if xgboost_result is not None:
-        xgboost_bytes = xgboost_result
-    else:
-        model_dir = f"/Volumes/{catalog}/{DEFAULT_GOLD_SCHEMA}/model_weights/xg_model"
-        xgboost_row = spark.read.format("binaryFile").load(f"{model_dir}/xgboost_model.json").first()
-        if xgboost_row is None:
-            msg = f"UC Volume file is empty: {model_dir}/xgboost_model.json"
-            raise RuntimeError(msg)
-        xgboost_bytes = xgboost_row["content"]
-        # SEC2: verify artifact integrity from UC Volume sidecar (if any)
-        verify_artifact_hash(
-            data=xgboost_bytes,
-            expected_sha256=_load_volume_sidecar_hash(f"{model_dir}/xgboost_model.json"),
-            artifact_label="xg_model_xgboost_volume_for_v2",
-            logger=logger,
-        )
-
-    # 5. Build UDF and distribute scoring across executors
-    scoring_udf = _make_v2_scoring_udf(v2_weights_bytes, xgboost_bytes)
+    # 4. Build UDF and distribute scoring across executors
+    scoring_udf = _make_v2_scoring_udf(v2_weights_bytes)
 
     # Defense-in-depth: NULL match_key would silently create one shared group
     # containing all unmatched shots -- recreating the exact OOM this fix

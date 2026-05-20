@@ -1854,7 +1854,7 @@ wheels = [
 
 [[package]]
 name = "luxury-lakehouse"
-version = "0.3.69"
+version = "0.3.70"
 source = { editable = "." }
 dependencies = [
     { name = "gitpython" },

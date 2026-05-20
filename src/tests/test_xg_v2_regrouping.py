@@ -118,29 +118,19 @@ class TestUdfPreservesCompetitionId:
 
     def test_competition_id_preserved_per_shot(self) -> None:
         """Every shot's competition_id must survive the UDF round-trip."""
-        from analytics.xg_model import (
-            XGModelConfig,
-            build_features,
-            serialize_xgboost_model,
-            train_xgboost_model,
-        )
-
-        # Train a tiny XGBoost model for the UDF
-        train_shots = _make_synthetic_shots(100, random_state=0)
-        config = XGModelConfig()
-        x, y = build_features(train_shots, config)
-        model = train_xgboost_model(x, y, config)
-        xgboost_bytes = serialize_xgboost_model(model)
-
-        # Build dummy v2 weights using the production serializer
         import json
 
         from analytics.set_encoder import SetEncoderConfig, serialize_set_encoder_weights
+        from analytics.xg_model import XGModelConfig, build_features
         from ingestion.xg_model_v2 import _make_v2_scoring_udf
 
-        cc = next(iter(model.calibrated_classifiers_))
-        xgb_features = list(cc.estimator.get_booster().feature_names)  # type: ignore[union-attr]
-        tabular_dim = len(xgb_features)
+        # Discover the actual feature names by running build_features on
+        # synthetic data (same approach the v2 trainer uses).
+        train_shots = _make_synthetic_shots(100, random_state=0)
+        config = XGModelConfig()
+        x, _ = build_features(train_shots, config)
+        tabular_dim = x.shape[1]
+        feature_names = list(x.columns)
 
         enc_config = SetEncoderConfig()
         rng_w = np.random.default_rng(42)
@@ -163,11 +153,11 @@ class TestUdfPreservesCompetitionId:
         )
         weight_bytes = serialize_set_encoder_weights(weights_dict)
         envelope = json.loads(weight_bytes.decode("utf-8"))
-        envelope["feature_names"] = [f"feat_{i}" for i in range(tabular_dim)]
+        envelope["feature_names"] = feature_names
         envelope["tabular_dim"] = tabular_dim
         v2_weights_bytes = json.dumps(envelope).encode("utf-8")
 
-        scoring_udf = _make_v2_scoring_udf(v2_weights_bytes, xgboost_bytes)
+        scoring_udf = _make_v2_scoring_udf(v2_weights_bytes)
 
         # Build a test DataFrame: 3 competitions, 2 matches each, ~5 shots/match
         test_shots = _make_synthetic_shots(30, random_state=99)

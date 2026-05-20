@@ -11,8 +11,6 @@ import pytest
 from analytics.xg_model import (
     XGModelConfig,
     build_features,
-    serialize_xgboost_model,
-    train_xgboost_model,
 )
 
 # ---------------------------------------------------------------------------
@@ -56,28 +54,12 @@ def _make_synthetic_shots(n: int = 500, *, random_state: int = 42) -> pd.DataFra
     )
 
 
-def _train_xgboost_and_serialize() -> bytes:
-    """Train XGBoost model and serialize to bytes."""
+def _get_tabular_dim_and_features() -> tuple[int, list[str]]:
+    """Get the tabular feature column count and names after one-hot encoding."""
     shots = _make_synthetic_shots(100)
     config = XGModelConfig()
-    x, y = build_features(shots, config)
-    model = train_xgboost_model(x, y, config)
-    return serialize_xgboost_model(model)
-
-
-def _get_tabular_dim() -> int:
-    """Get the number of tabular feature columns after one-hot encoding.
-
-    Uses the same training data as ``_train_xgboost_and_serialize`` to ensure
-    the XGBoost expected features align with the dummy weight dimensions.
-    """
-    shots = _make_synthetic_shots(100)
-    config = XGModelConfig()
-    x, y = build_features(shots, config)
-    model = train_xgboost_model(x, y, config)
-    cc = next(iter(model.calibrated_classifiers_))
-    xgb_features = list(cc.estimator.get_booster().feature_names)  # type: ignore[union-attr]
-    return len(xgb_features)
+    x, _ = build_features(shots, config)
+    return x.shape[1], list(x.columns)
 
 
 def _make_dummy_v2_weights(tabular_dim: int, feature_names: list[str] | None = None) -> bytes:
@@ -139,24 +121,22 @@ class TestMakeV2ScoringUdf:
     """Test the v2 applyInPandas UDF factory."""
 
     def test_udf_returns_callable(self) -> None:
-        xgboost_bytes = _train_xgboost_and_serialize()
-        tabular_dim = _get_tabular_dim()
+        tabular_dim, _ = _get_tabular_dim_and_features()
         v2_bytes = _make_dummy_v2_weights(tabular_dim)
 
         from ingestion.xg_model_v2 import _make_v2_scoring_udf
 
-        udf = _make_v2_scoring_udf(v2_bytes, xgboost_bytes)
+        udf = _make_v2_scoring_udf(v2_bytes)
         assert callable(udf)
 
     def test_udf_output_columns(self) -> None:
         """Output should have exactly shot_id, competition_id, xg_set_encoder, xg_ci_lower, xg_ci_upper."""
-        xgboost_bytes = _train_xgboost_and_serialize()
-        tabular_dim = _get_tabular_dim()
+        tabular_dim, _ = _get_tabular_dim_and_features()
         v2_bytes = _make_dummy_v2_weights(tabular_dim)
 
         from ingestion.xg_model_v2 import _make_v2_scoring_udf
 
-        udf = _make_v2_scoring_udf(v2_bytes, xgboost_bytes)
+        udf = _make_v2_scoring_udf(v2_bytes)
 
         shots = _make_synthetic_shots(10)
         shots["shot_id"] = [f"shot_{i}" for i in range(len(shots))]
@@ -176,13 +156,12 @@ class TestMakeV2ScoringUdf:
 
     def test_udf_with_freeze_frame_populates_v2(self) -> None:
         """V2 columns should be populated when weights + freeze frame present."""
-        xgboost_bytes = _train_xgboost_and_serialize()
-        tabular_dim = _get_tabular_dim()
+        tabular_dim, _ = _get_tabular_dim_and_features()
         v2_bytes = _make_dummy_v2_weights(tabular_dim)
 
         from ingestion.xg_model_v2 import _make_v2_scoring_udf
 
-        udf = _make_v2_scoring_udf(v2_bytes, xgboost_bytes)
+        udf = _make_v2_scoring_udf(v2_bytes)
 
         shots = _make_synthetic_shots(10)
         shots["shot_id"] = [f"shot_{i}" for i in range(len(shots))]
@@ -211,13 +190,12 @@ class TestMakeV2ScoringUdf:
 
     def test_udf_nan_for_missing_freeze_frame(self) -> None:
         """V2 columns should be NaN for shots without freeze frame JSON."""
-        xgboost_bytes = _train_xgboost_and_serialize()
-        tabular_dim = _get_tabular_dim()
+        tabular_dim, _ = _get_tabular_dim_and_features()
         v2_bytes = _make_dummy_v2_weights(tabular_dim)
 
         from ingestion.xg_model_v2 import _make_v2_scoring_udf
 
-        udf = _make_v2_scoring_udf(v2_bytes, xgboost_bytes)
+        udf = _make_v2_scoring_udf(v2_bytes)
 
         shots = _make_synthetic_shots(10)
         shots["shot_id"] = [f"shot_{i}" for i in range(len(shots))]
@@ -231,13 +209,12 @@ class TestMakeV2ScoringUdf:
 
     def test_udf_nan_for_nan_freeze_frame(self) -> None:
         """V2 columns should be NaN when freeze frame is float NaN."""
-        xgboost_bytes = _train_xgboost_and_serialize()
-        tabular_dim = _get_tabular_dim()
+        tabular_dim, _ = _get_tabular_dim_and_features()
         v2_bytes = _make_dummy_v2_weights(tabular_dim)
 
         from ingestion.xg_model_v2 import _make_v2_scoring_udf
 
-        udf = _make_v2_scoring_udf(v2_bytes, xgboost_bytes)
+        udf = _make_v2_scoring_udf(v2_bytes)
 
         shots = _make_synthetic_shots(5)
         shots["shot_id"] = [f"shot_{i}" for i in range(len(shots))]
@@ -251,13 +228,12 @@ class TestMakeV2ScoringUdf:
 
     def test_udf_mixed_freeze_frame(self) -> None:
         """Shots with and without freeze frames should both be handled."""
-        xgboost_bytes = _train_xgboost_and_serialize()
-        tabular_dim = _get_tabular_dim()
+        tabular_dim, _ = _get_tabular_dim_and_features()
         v2_bytes = _make_dummy_v2_weights(tabular_dim)
 
         from ingestion.xg_model_v2 import _make_v2_scoring_udf
 
-        udf = _make_v2_scoring_udf(v2_bytes, xgboost_bytes)
+        udf = _make_v2_scoring_udf(v2_bytes)
 
         shots = _make_synthetic_shots(6)
         shots["shot_id"] = [f"shot_{i}" for i in range(len(shots))]
@@ -307,70 +283,6 @@ class TestTryLoadChampionXgV2:
         with patch.dict("sys.modules", {"mlflow": mock_mlflow, "mlflow.tracking": mock_tracking}):
             result = _try_load_champion_xg_v2(logging.getLogger("test"), "catalog", "schema")
         assert result is None
-
-
-# ---------------------------------------------------------------------------
-# MLflow Champion loading — XGBoost (for v2 feature extraction)
-# ---------------------------------------------------------------------------
-
-
-class TestTryLoadChampionXgboost:
-    """Test _try_load_champion_xgboost fallback behavior."""
-
-    def test_returns_none_when_mlflow_not_importable(self) -> None:
-        """Should return None gracefully when mlflow is not available."""
-        import logging
-        import sys
-        from unittest.mock import patch
-
-        from ingestion.xg_model_v2 import _try_load_champion_xgboost
-
-        with patch.dict(sys.modules, {"mlflow.sklearn": None}):
-            result = _try_load_champion_xgboost(logging.getLogger("test"), "soccer_analytics", "dev_gold")
-        assert result is None
-
-    def test_returns_none_when_champion_not_found(self) -> None:
-        """Should return None when mlflow is available but Champion not registered."""
-        import logging
-        from unittest.mock import MagicMock, patch
-
-        from ingestion.xg_model_v2 import _try_load_champion_xgboost
-
-        mock_sklearn = MagicMock()
-        mock_sklearn.load_model.side_effect = Exception("Model not found")
-
-        with patch.dict("sys.modules", {"mlflow.sklearn": mock_sklearn}):
-            result = _try_load_champion_xgboost(logging.getLogger("test"), "soccer_analytics", "dev_gold")
-        assert result is None
-
-    def test_returns_bytes_when_champion_found(self) -> None:
-        """Should return serialized XGBoost bytes when Champion exists."""
-        import logging
-        from unittest.mock import MagicMock, patch
-
-        from ingestion.xg_model_v2 import _try_load_champion_xgboost
-
-        # Create real trained model for serialization
-        shots = _make_synthetic_shots(100)
-        config = XGModelConfig()
-        x, y = build_features(shots, config)
-        xgboost_model = train_xgboost_model(x, y, config)
-
-        mock_sklearn = MagicMock()
-        mock_sklearn.load_model.return_value = xgboost_model
-
-        mock_tracking = MagicMock()
-        mock_tracking.MlflowClient.return_value.get_run.return_value.data.tags = {}
-
-        with patch.dict(
-            "sys.modules",
-            {"mlflow.sklearn": mock_sklearn, "mlflow.tracking": mock_tracking},
-        ):
-            result = _try_load_champion_xgboost(logging.getLogger("test"), "soccer_analytics", "dev_gold")
-
-        assert result is not None
-        assert isinstance(result, bytes)
-        assert len(result) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -478,11 +390,10 @@ class TestV2EnvelopeFeatureNames:
     """
 
     def test_udf_uses_envelope_feature_names_when_present(self) -> None:
-        """When v2 envelope has feature_names, UDF caches + uses them (not xgb_features)."""
+        """When v2 envelope has feature_names, UDF caches + uses them."""
         import json
 
-        xgboost_bytes = _train_xgboost_and_serialize()
-        tabular_dim = _get_tabular_dim()
+        tabular_dim, _ = _get_tabular_dim_and_features()
         v2_bytes = _make_dummy_v2_weights(tabular_dim)
 
         # Inject feature_names into the envelope. Use a marker list we can
@@ -496,7 +407,7 @@ class TestV2EnvelopeFeatureNames:
 
         from ingestion.xg_model_v2 import _make_v2_scoring_udf
 
-        udf = _make_v2_scoring_udf(v2_bytes_with_features, xgboost_bytes)
+        udf = _make_v2_scoring_udf(v2_bytes_with_features)
 
         # Call the UDF once to trigger cache population. Use no freeze frames
         # so we exercise the cache path but don't depend on the matmul
@@ -603,11 +514,11 @@ class TestMlflowLookupsUseGoldSchema:
             "(logger, catalog, schema)`. Use DEFAULT_GOLD_SCHEMA instead."
         )
 
-    def test_v1_xgboost_champion_lookup_uses_default_gold_schema(self) -> None:
-        """The v1 XGBoost lookup was already correct — lock it in."""
+    def test_v1_xgboost_removed(self) -> None:
+        """v1 XGBoost dependency was removed — _try_load_champion_xgboost must not exist."""
         from pathlib import Path
 
         source = (Path(__file__).resolve().parents[1] / "ingestion" / "xg_model_v2.py").read_text(encoding="utf-8")
-        assert "_try_load_champion_xgboost(logger, catalog, DEFAULT_GOLD_SCHEMA)" in source, (
-            "xg_model_v2.run_pipeline must call _try_load_champion_xgboost with DEFAULT_GOLD_SCHEMA, not `schema`."
+        assert "_try_load_champion_xgboost" not in source, (
+            "v1 XGBoost loading was retired — _try_load_champion_xgboost must not appear in xg_model_v2.py."
         )

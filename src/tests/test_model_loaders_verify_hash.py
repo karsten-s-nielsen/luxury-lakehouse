@@ -59,8 +59,8 @@ def test_loader_calls_verify_artifact_hash(module_name: str, description: str) -
     ("module_name", "expected_min_call_sites"),
     [
         # xg_model.py (v1) retired SK3-MIG-B 2026-05-03 per ADR-023.
-        # xg_model_v2.py: MLflow v2 (1) + MLflow v1 xgb (1) + Volume v2 (1) + Volume v1 (1) = 4
-        ("xg_model_v2.py", 4),
+        # xg_model_v2.py: MLflow v2 (1) + Volume v2 (1) = 2 (v1 XGBoost loading removed)
+        ("xg_model_v2.py", 2),
         # spadl_vaep.py: scores + concedes = 2 calls
         ("spadl_vaep.py", 2),
         # defcon_lite_common.py: single regressor = 1 call
