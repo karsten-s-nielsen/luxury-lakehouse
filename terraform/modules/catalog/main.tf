@@ -74,6 +74,19 @@ resource "databricks_volume" "libs" {
   comment      = "Python wheel packages for serverless job environments"
 }
 
+# ── Volume: Ephemeral staging for streaming Parquet intermediates ───────────
+# Used by gradientsports_tracking (and potentially other providers) to stage
+# Parquet files written by PyArrow before Spark reads them into Delta.
+# Files are deleted immediately after the Delta write completes.
+
+resource "databricks_volume" "staging" {
+  catalog_name = var.catalog_name
+  schema_name  = databricks_schema.bronze.name
+  name         = "_staging"
+  volume_type  = "MANAGED"
+  comment      = "Ephemeral Parquet staging for streaming ingestion pipelines"
+}
+
 # ── Unity Catalog Grants: Ingestion Service Principal ────────────────────────
 # Least-privilege access for the ingestion job: catalog traversal, schema
 # read/write on bronze, and volume access for wheel storage.
@@ -249,6 +262,15 @@ resource "databricks_grant" "ingestion_sp_libs_volume" {
 
   principal  = var.ingestion_sp_application_id
   privileges = ["READ_VOLUME"]
+}
+
+resource "databricks_grant" "ingestion_sp_staging_volume" {
+  count = var.enable_ingestion_sp_grants ? 1 : 0
+
+  volume = "${var.catalog_name}.${databricks_schema.bronze.name}.${databricks_volume.staging.name}"
+
+  principal  = var.ingestion_sp_application_id
+  privileges = ["READ_VOLUME", "WRITE_VOLUME"]
 }
 
 # ── Unity Catalog Grants: MLflow model access ────────────────────────────────
