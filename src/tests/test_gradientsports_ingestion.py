@@ -311,6 +311,77 @@ class TestParseTracking:
         assert df["period"].dtype.name == "float64"
 
 
+class TestStreamTrackingToParquet:
+    """Tests for the streaming bz2→Parquet path (production OOM fix)."""
+
+    @staticmethod
+    def _make_frame(frame_num: int = 5366) -> dict:
+        return TestParseTracking._make_frame(frame_num=frame_num)
+
+    def test_multi_chunk_bz2_round_trip(self, tmp_path: Path) -> None:
+        """Multi-frame bz2 stream → Parquet → read-back preserves rows and schema."""
+        import pyarrow.parquet as pq
+
+        from ingestion.gradientsports_tracking import (
+            _ARROW_SCHEMA,
+            stream_tracking_to_parquet,
+        )
+
+        frames = [self._make_frame(frame_num=i) for i in range(25)]
+        jsonl = "\n".join(json.dumps(f) for f in frames)
+        compressed = bz2.compress(jsonl.encode("utf-8"))
+
+        # Simulate streaming response with small chunks to exercise multi-chunk path
+        chunk_size = 64
+        chunks = [compressed[i : i + chunk_size] for i in range(0, len(compressed), chunk_size)]
+        mock_response = MagicMock()
+        mock_response.iter_content.return_value = iter(chunks)
+
+        parquet_path = str(tmp_path / "test.parquet")
+        import logging
+
+        total_rows = stream_tracking_to_parquet(
+            mock_response,
+            match_id="10502",
+            parquet_path=parquet_path,
+            log=logging.getLogger("test"),
+        )
+
+        # 25 frames x 3 entities (1 home + 1 away + 1 ball) = 75 rows
+        assert total_rows == 75
+
+        # Read back and verify schema + data
+        table = pq.read_table(parquet_path)
+        assert table.num_rows == 75
+        assert table.schema.equals(_ARROW_SCHEMA)
+        assert set(table.column("match_id").to_pylist()) == {"10502"}
+        assert len(set(table.column("frame_num").to_pylist())) == 25
+
+    def test_empty_stream_produces_empty_parquet(self, tmp_path: Path) -> None:
+        """An empty bz2 stream produces a valid but empty Parquet file."""
+        import pyarrow.parquet as pq
+
+        from ingestion.gradientsports_tracking import stream_tracking_to_parquet
+
+        compressed = bz2.compress(b"")
+        mock_response = MagicMock()
+        mock_response.iter_content.return_value = iter([compressed])
+
+        parquet_path = str(tmp_path / "empty.parquet")
+        import logging
+
+        total_rows = stream_tracking_to_parquet(
+            mock_response,
+            match_id="10502",
+            parquet_path=parquet_path,
+            log=logging.getLogger("test"),
+        )
+
+        assert total_rows == 0
+        table = pq.read_table(parquet_path)
+        assert table.num_rows == 0
+
+
 def _make_match(mid: str = "10502") -> MatchInfo:
     """Build a MatchInfo with both event and tracking artifacts."""
     from ingestion.gradientsports_common import MatchInfo
@@ -335,20 +406,22 @@ class TestIngestAtomicity:
     watermark stays put and the match is re-discovered on retry.
     """
 
+    @patch("ingestion.utils.ensure_volume_directory")
     @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
     @patch("ingestion.gradientsports.fetch_artifact")
     @patch("ingestion.gradientsports.write_events")
     @patch("ingestion.gradientsports.write_tracking")
-    @patch("ingestion.gradientsports.parse_tracking")
+    @patch("ingestion.gradientsports.stream_tracking_to_parquet", return_value=100)
     @patch("ingestion.gradientsports.parse_events")
     def test_tracking_written_before_events(
         self,
         mock_parse_events: MagicMock,
-        mock_parse_tracking: MagicMock,
+        mock_stream_tracking: MagicMock,
         mock_write_tracking: MagicMock,
         mock_write_events: MagicMock,
         mock_fetch_artifact: MagicMock,
         mock_token: MagicMock,
+        mock_ensure_dir: MagicMock,
     ) -> None:
         """Tracking must be written BEFORE events (watermark ordering).
 
@@ -363,9 +436,8 @@ class TestIngestAtomicity:
         from ingestion.gradientsports import ingest_gradientsports
 
         call_order: list[str] = []
-        mock_fetch_artifact.return_value = MagicMock(text='[{"gameId": 1}]', content=b"data")
+        mock_fetch_artifact.return_value = MagicMock(text='[{"gameId": 1}]')
         mock_parse_events.return_value = pd.DataFrame({"match_id": ["10502"]})
-        mock_parse_tracking.return_value = pd.DataFrame({"match_id": ["10502"]})
         mock_write_tracking.side_effect = lambda *a, **kw: call_order.append("tracking")
         mock_write_events.side_effect = lambda *a, **kw: call_order.append("events")
 
@@ -381,20 +453,22 @@ class TestIngestAtomicity:
             f"Write order must be tracking-first, events-last; got {call_order}"
         )
 
+    @patch("ingestion.utils.ensure_volume_directory")
     @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
     @patch("ingestion.gradientsports.fetch_artifact")
     @patch("ingestion.gradientsports.write_events")
     @patch("ingestion.gradientsports.write_tracking")
-    @patch("ingestion.gradientsports.parse_tracking")
+    @patch("ingestion.gradientsports.stream_tracking_to_parquet", return_value=100)
     @patch("ingestion.gradientsports.parse_events")
     def test_tracking_write_failure_prevents_event_write(
         self,
         mock_parse_events: MagicMock,
-        mock_parse_tracking: MagicMock,
+        mock_stream_tracking: MagicMock,
         mock_write_tracking: MagicMock,
         mock_write_events: MagicMock,
         mock_fetch_artifact: MagicMock,
         mock_token: MagicMock,
+        mock_ensure_dir: MagicMock,
     ) -> None:
         """If tracking WRITE fails, events must NOT be written.
 
@@ -407,9 +481,8 @@ class TestIngestAtomicity:
 
         from ingestion.gradientsports import ingest_gradientsports
 
-        mock_fetch_artifact.return_value = MagicMock(text='[{"gameId": 1}]', content=b"data")
+        mock_fetch_artifact.return_value = MagicMock(text='[{"gameId": 1}]')
         mock_parse_events.return_value = pd.DataFrame({"match_id": ["10502"]})
-        mock_parse_tracking.return_value = pd.DataFrame({"match_id": ["10502"]})
         mock_write_tracking.side_effect = RuntimeError("DELTA_FAILED_TO_MERGE_FIELDS")
 
         with pytest.raises(RuntimeError, match="DELTA_FAILED_TO_MERGE_FIELDS"):
@@ -424,29 +497,31 @@ class TestIngestAtomicity:
         mock_write_tracking.assert_called_once()
         mock_write_events.assert_not_called()
 
+    @patch("ingestion.utils.ensure_volume_directory")
     @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
     @patch("ingestion.gradientsports.fetch_artifact")
     @patch("ingestion.gradientsports.write_events")
     @patch("ingestion.gradientsports.write_tracking")
-    @patch("ingestion.gradientsports.parse_tracking")
+    @patch("ingestion.gradientsports.stream_tracking_to_parquet")
     @patch("ingestion.gradientsports.parse_events")
-    def test_tracking_parse_failure_prevents_all_writes(
+    def test_tracking_stream_failure_prevents_all_writes(
         self,
         mock_parse_events: MagicMock,
-        mock_parse_tracking: MagicMock,
+        mock_stream_tracking: MagicMock,
         mock_write_tracking: MagicMock,
         mock_write_events: MagicMock,
         mock_fetch_artifact: MagicMock,
         mock_token: MagicMock,
+        mock_ensure_dir: MagicMock,
     ) -> None:
-        """If tracking parsing fails, neither artifact is written."""
+        """If tracking streaming fails, neither artifact is written."""
         import logging
 
         from ingestion.gradientsports import ingest_gradientsports
 
-        mock_fetch_artifact.return_value = MagicMock(text='[{"gameId": 1}]', content=b"bad")
+        mock_fetch_artifact.return_value = MagicMock(text='[{"gameId": 1}]')
         mock_parse_events.return_value = MagicMock()
-        mock_parse_tracking.side_effect = RuntimeError("bz2 decompress failed")
+        mock_stream_tracking.side_effect = RuntimeError("bz2 decompress failed")
 
         with pytest.raises(RuntimeError, match="bz2 decompress failed"):
             ingest_gradientsports(
@@ -460,29 +535,30 @@ class TestIngestAtomicity:
         mock_write_events.assert_not_called()
         mock_write_tracking.assert_not_called()
 
+    @patch("ingestion.utils.ensure_volume_directory")
     @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
     @patch("ingestion.gradientsports.fetch_artifact")
     @patch("ingestion.gradientsports.write_events")
     @patch("ingestion.gradientsports.write_tracking")
-    @patch("ingestion.gradientsports.parse_tracking")
+    @patch("ingestion.gradientsports.stream_tracking_to_parquet", return_value=100)
     @patch("ingestion.gradientsports.parse_events")
     def test_event_parse_failure_prevents_all_writes(
         self,
         mock_parse_events: MagicMock,
-        mock_parse_tracking: MagicMock,
+        mock_stream_tracking: MagicMock,
         mock_write_tracking: MagicMock,
         mock_write_events: MagicMock,
         mock_fetch_artifact: MagicMock,
         mock_token: MagicMock,
+        mock_ensure_dir: MagicMock,
     ) -> None:
         """If event parsing fails, neither artifact is written."""
         import logging
 
         from ingestion.gradientsports import ingest_gradientsports
 
-        mock_fetch_artifact.return_value = MagicMock(text="bad json", content=b"data")
+        mock_fetch_artifact.return_value = MagicMock(text="bad json")
         mock_parse_events.side_effect = json.JSONDecodeError("bad", "", 0)
-        mock_parse_tracking.return_value = MagicMock()
 
         with pytest.raises(json.JSONDecodeError):
             ingest_gradientsports(
@@ -602,7 +678,7 @@ class TestParquetStaging:
         # but df.to_parquet() needs the directory to exist on the local filesystem.
         (tmp_path / "staging").mkdir()
         with patch("ingestion.gradientsports_tracking._staging_path", return_value=staging_path):
-            write_tracking(mock_spark, df, "cat", "bronze", "10502", MagicMock())
+            write_tracking(mock_spark, "cat", "bronze", "10502", MagicMock(), df=df)
 
         # createDataFrame must NOT be called
         mock_spark.createDataFrame.assert_not_called()
@@ -733,20 +809,22 @@ class TestPreflight:
 class TestMatchJsonIteration:
     """Tests for the --match-json single-match iteration mode (spec §4.3)."""
 
+    @patch("ingestion.utils.ensure_volume_directory")
     @patch("ingestion.gradientsports.write_events")
     @patch("ingestion.gradientsports.write_tracking")
     @patch("ingestion.gradientsports.fetch_artifact")
     @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
-    @patch("ingestion.gradientsports.parse_tracking")
+    @patch("ingestion.gradientsports.stream_tracking_to_parquet", return_value=100)
     @patch("ingestion.gradientsports.parse_events")
     def test_match_json_deserializes_and_ingests(
         self,
         mock_parse_events: MagicMock,
-        mock_parse_tracking: MagicMock,
+        mock_stream_tracking: MagicMock,
         mock_token: MagicMock,
         mock_fetch_artifact: MagicMock,
         mock_write_tracking: MagicMock,
         mock_write_events: MagicMock,
+        mock_ensure_dir: MagicMock,
     ) -> None:
         """--match-json mode deserializes MatchInfo and calls ingest_gradientsports."""
         import pandas as pd
@@ -756,9 +834,8 @@ class TestMatchJsonIteration:
         match = _make_match("10508")
         match_json = match.model_dump_json()
 
-        mock_fetch_artifact.return_value = MagicMock(text='[{"gameId": 1}]', content=b"data")
+        mock_fetch_artifact.return_value = MagicMock(text='[{"gameId": 1}]')
         mock_parse_events.return_value = pd.DataFrame({"match_id": ["10508"]})
-        mock_parse_tracking.return_value = pd.DataFrame({"match_id": ["10508"]})
 
         with (
             patch("ingestion.gradientsports.get_spark_session", return_value=MagicMock()),
@@ -772,20 +849,22 @@ class TestMatchJsonIteration:
         mock_write_tracking.assert_called_once()
         mock_write_events.assert_called_once()
 
+    @patch("ingestion.utils.ensure_volume_directory")
     @patch("ingestion.gradientsports.write_events")
     @patch("ingestion.gradientsports.write_tracking")
     @patch("ingestion.gradientsports.fetch_artifact")
     @patch("ingestion.gradientsports.resolve_pining_token", return_value="fake-token")
-    @patch("ingestion.gradientsports.parse_tracking")
+    @patch("ingestion.gradientsports.stream_tracking_to_parquet", return_value=100)
     @patch("ingestion.gradientsports.parse_events")
     def test_match_json_preserves_write_ordering(
         self,
         mock_parse_events: MagicMock,
-        mock_parse_tracking: MagicMock,
+        mock_stream_tracking: MagicMock,
         mock_token: MagicMock,
         mock_fetch_artifact: MagicMock,
         mock_write_tracking: MagicMock,
         mock_write_events: MagicMock,
+        mock_ensure_dir: MagicMock,
     ) -> None:
         """Write-ordering invariant: tracking before events, even in --match-json mode."""
         import pandas as pd
@@ -796,9 +875,8 @@ class TestMatchJsonIteration:
         match = _make_match("10508")
         match_json = match.model_dump_json()
 
-        mock_fetch_artifact.return_value = MagicMock(text='[{"gameId": 1}]', content=b"data")
+        mock_fetch_artifact.return_value = MagicMock(text='[{"gameId": 1}]')
         mock_parse_events.return_value = pd.DataFrame({"match_id": ["10508"]})
-        mock_parse_tracking.return_value = pd.DataFrame({"match_id": ["10508"]})
         mock_write_tracking.side_effect = lambda *a, **kw: call_order.append("tracking")
         mock_write_events.side_effect = lambda *a, **kw: call_order.append("events")
 

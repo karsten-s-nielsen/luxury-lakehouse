@@ -28,7 +28,11 @@ from ingestion.gradientsports_common import (
     resolve_pining_token,
 )
 from ingestion.gradientsports_events import parse_events, write_events
-from ingestion.gradientsports_tracking import parse_tracking, write_tracking
+from ingestion.gradientsports_tracking import (
+    _staging_path,
+    stream_tracking_to_parquet,
+    write_tracking,
+)
 from ingestion.guards import FilterResult, timed_check
 from ingestion.utils import (
     configure_logging,
@@ -177,14 +181,22 @@ def ingest_gradientsports(
         else:
             logger.warning("No event artifact found for match %s", mid)
 
-        tracking_df = None
+        tracking_staged = False
+        tracking_row_count = 0
+        staging_path = _staging_path(catalog, schema, mid)
         for artifact_key in match.artifacts:
             if "track" in artifact_key.lower():
                 tracking_resp = fetch_artifact(mid, artifact_key, token, stream=True)
-                tracking_bytes = tracking_resp.content
-                tracking_df = parse_tracking(tracking_bytes, match_id=mid)
-                logger.info("Parsed %d tracking rows for match %s", len(tracking_df), mid)
-                del tracking_bytes
+                from ingestion.utils import ensure_volume_directory
+
+                ensure_volume_directory(staging_path.rsplit("/", 1)[0])
+                tracking_row_count = stream_tracking_to_parquet(
+                    tracking_resp,
+                    match_id=mid,
+                    parquet_path=staging_path,
+                    log=logger,
+                )
+                tracking_staged = True
                 break
         else:
             logger.warning("No tracking artifact found for match %s", mid)
@@ -195,10 +207,9 @@ def ingest_gradientsports(
         # write so the watermark only advances when both artifacts are
         # committed. If tracking succeeds but events fails, the watermark
         # stays put and the match is re-discovered on the next run.
-        if tracking_df is not None:
-            write_tracking(spark, tracking_df, catalog, schema, mid, logger)
-            logger.info("Wrote %d tracking rows for match %s", len(tracking_df), mid)
-            del tracking_df
+        if tracking_staged:
+            write_tracking(spark, catalog, schema, mid, logger, staging_parquet=staging_path)
+            logger.info("Wrote %d tracking rows for match %s", tracking_row_count, mid)
 
         if events_df is not None:
             write_events(spark, events_df, catalog, schema, mid, logger)

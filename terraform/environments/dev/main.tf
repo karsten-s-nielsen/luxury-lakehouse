@@ -183,7 +183,7 @@ module "workflows" {
   source = "../../modules/workflows"
 
   catalog_name             = module.workspace.catalog_name
-  wheel_path               = "${module.catalog.libs_volume_path}/luxury_lakehouse-0.3.67-py3-none-any.whl"
+  wheel_path               = "${module.catalog.libs_volume_path}/luxury_lakehouse-0.3.68-py3-none-any.whl"
   environment              = var.environment
   notification_emails      = var.notification_emails
   run_as_sp_application_id = module.service_principals.ingestion_sp_application_id
