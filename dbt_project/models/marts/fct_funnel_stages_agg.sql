@@ -54,9 +54,13 @@
 --   extend the heuristic to also emit possession_team via
 --   ``add_possessions_with_team`` and let this filter narrow further.
 --
--- Other invariants (V04, V09):
+-- Other invariants (V04, V09, V10):
 --   INNER JOIN to fct_match_summary drops any orphaned action rows (V04: 0 in current data).
 --   opponent_team_id derivation assumes home_team_id != away_team_id (V09: 0 violations).
+--   competition_id IS NOT NULL filter (V10): excludes Metrica rows lacking competition
+--     metadata — these rows have NULL competition_id and NULL home/away team IDs in
+--     fct_match_summary, producing NULL opponent_team_id. The funnel page requires
+--     competition_id for season-mode queries, so these rows are not useful.
 
 with base as (
 
@@ -84,6 +88,7 @@ with base as (
     inner join {{ ref('fct_match_summary') }} ms using (match_key)
     where av.team_id is not null
       and av.game_state is not null
+      and av.competition_id is not null
 
 ),
 
