@@ -2031,6 +2031,42 @@ def _make_gradientsports_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
     return _udf
 
 
+def _gs_needed_bronze_columns() -> set[str]:
+    """Return the set of GS bronze column names needed by the SPADL UDF.
+
+    The GS bronze table has ~264 columns with literal dots in their names
+    (e.g. ``gameEvents.gameEventType``).  Spark interprets dots as struct
+    navigation, so only columns needed by the UDF are projected via
+    backtick quoting before ``applyInPandas``.
+
+    Sources:
+    - ``_GS_BRONZE_TO_SNAKE`` keys: 1:1 renames (~35 columns)
+    - Derived columns read by ``adapt_gradientsports_events``
+    - Metadata columns read by ``extract_gradientsports_match_metadata``
+    - ``ball`` (JSON string parsed to ball_x/ball_y)
+    - ``match_id`` (ingestion-added groupBy key)
+    """
+    from ingestion.spadl_adapter import _GS_BRONZE_TO_SNAKE
+
+    return {
+        *_GS_BRONZE_TO_SNAKE.keys(),
+        # Derived columns (adapt_gradientsports_events)
+        "gameEventId",
+        "gameEvents.period",
+        "gameEvents.startGameClock",
+        "gameEvents.playerId",
+        "gameEvents.teamId",
+        "gameEvents.setpieceType",
+        # Metadata columns (extract_gradientsports_match_metadata)
+        "gameEvents.homeTeam",
+        "stadiumMetadata.homeTeamStartLeft",
+        "stadiumMetadata.homeTeamStartLeftExtraTime",
+        # Ball JSON + groupBy key
+        "ball",
+        "match_id",
+    }
+
+
 def _convert_gradientsports_from_bronze(
     spark: SparkSession,
     catalog: str,
@@ -2080,6 +2116,15 @@ def _convert_gradientsports_from_bronze(
     logger.info("GS: converting %d new matches (of %d total)", len(new_match_ids), len(all_match_ids))
 
     new_events_sdf = events_sdf.filter(spark_fn.col("match_id").isin(new_match_ids))
+
+    # Project only needed columns with backtick quoting.  The bronze table has
+    # 264 columns, many with literal dots (e.g. "gameEvents.gameEventType").
+    # Spark interprets dots as struct navigation; backticks force literal
+    # column-name resolution.  Without this projection, applyInPandas fails
+    # with UNRESOLVED_COLUMN on Databricks serverless.
+    needed = _gs_needed_bronze_columns()
+    _bronze_field_names = {f.name for f in events_sdf.schema.fields}
+    new_events_sdf = new_events_sdf.select([spark_fn.col(f"`{c}`") for c in sorted(needed) if c in _bronze_field_names])
 
     spadl_schema = StructType(
         [

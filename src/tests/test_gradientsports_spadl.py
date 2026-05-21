@@ -512,6 +512,327 @@ class TestExtraTimeIntegration:
             udf_fn(pdf)
 
 
+class TestDotNotationColumnProjection:
+    """Validate the _gs_needed_bronze_columns() set covers all columns the UDF reads.
+
+    These tests run WITHOUT PySpark — they verify that the column set
+    constructed in ``_convert_gradientsports_from_bronze`` is complete
+    relative to what ``adapt_gradientsports_events`` and
+    ``extract_gradientsports_match_metadata`` actually read from the
+    bronze DataFrame.
+
+    The canonical source is ``_gs_needed_bronze_columns()`` in
+    ``spadl_conversion.py``; tests import it to avoid duplication.
+    """
+
+    def test_needed_cols_cover_rename_map(self) -> None:
+        """Every _GS_BRONZE_TO_SNAKE key is in the needed-columns set."""
+        from ingestion.spadl_adapter import _GS_BRONZE_TO_SNAKE
+        from ingestion.spadl_conversion import _gs_needed_bronze_columns
+
+        missing = set(_GS_BRONZE_TO_SNAKE.keys()) - _gs_needed_bronze_columns()
+        assert not missing, f"Rename-map keys missing from needed cols: {sorted(missing)}"
+
+    def test_needed_cols_cover_derived_columns(self) -> None:
+        """All derived columns (gameEventId, gameEvents.*) are in the needed set."""
+        from ingestion.spadl_conversion import _gs_needed_bronze_columns
+
+        derived = {
+            "gameEventId",
+            "gameEvents.period",
+            "gameEvents.startGameClock",
+            "gameEvents.playerId",
+            "gameEvents.teamId",
+            "gameEvents.setpieceType",
+        }
+        needed = _gs_needed_bronze_columns()
+        assert derived <= needed, f"Derived columns missing: {derived - needed}"
+
+    def test_needed_cols_cover_metadata_columns(self) -> None:
+        """All metadata columns are in the needed set."""
+        from ingestion.spadl_conversion import _gs_needed_bronze_columns
+
+        metadata = {
+            "gameEvents.homeTeam",
+            "gameEvents.teamId",
+            "stadiumMetadata.homeTeamStartLeft",
+            "stadiumMetadata.homeTeamStartLeftExtraTime",
+        }
+        needed = _gs_needed_bronze_columns()
+        assert metadata <= needed, f"Metadata columns missing: {metadata - needed}"
+
+    def test_needed_cols_cover_fixture_columns(self) -> None:
+        """Every column in the synthetic bronze fixture is in the needed set."""
+        from ingestion.spadl_conversion import _gs_needed_bronze_columns
+
+        fixture_cols = set(_make_gs_bronze_df(n=1).columns)
+        needed = _gs_needed_bronze_columns()
+        missing = fixture_cols - needed
+        assert not missing, f"Fixture columns not in needed set: {sorted(missing)}"
+
+    def test_udf_succeeds_with_only_needed_cols(self) -> None:
+        """UDF produces valid output when given ONLY the projected columns.
+
+        Simulates the backtick-projection step: build a pandas DataFrame
+        with only the columns in _gs_needed_bronze_columns(), then run
+        the UDF.  This catches any column the UDF reads that we forgot
+        to include.
+        """
+        from ingestion.spadl_conversion import (
+            _gs_needed_bronze_columns,
+            _make_gradientsports_spadl_udf,
+        )
+
+        needed = _gs_needed_bronze_columns()
+
+        # Build full fixture, then restrict to only needed columns
+        full_pdf = _make_gs_bronze_df(n=5)
+        projected_cols = sorted(needed & set(full_pdf.columns))
+        projected_pdf = full_pdf[projected_cols]
+
+        udf_fn = _make_gradientsports_spadl_udf()
+        result = udf_fn(projected_pdf)
+        assert len(result) > 0, "UDF must produce actions from projected columns"
+        assert (result["data_source"] == "gradientsports").all()
+
+
+class TestSparkDotNotationColumns:
+    """PySpark integration: dot-notation bronze column names require backtick quoting.
+
+    Spark interprets `gameEvents.gameEventType` as struct navigation
+    (gameEvents → gameEventType).  The GS bronze table stores these as flat
+    column names with literal dots.  Backtick quoting forces literal
+    column-name resolution.
+
+    These tests exercise the EXACT column-projection + applyInPandas path
+    used in ``_convert_gradientsports_from_bronze`` to catch
+    UNRESOLVED_COLUMN errors before deployment.
+    """
+
+    @pytest.fixture
+    def spark(self):
+        """Local SparkSession for dot-notation column tests."""
+        delta = pytest.importorskip("delta", reason="delta-spark required")
+        try:
+            from pyspark.sql import SparkSession
+        except ImportError:
+            pytest.skip("pyspark not installed")
+            return
+
+        from unittest.mock import MagicMock
+
+        if isinstance(SparkSession, MagicMock):
+            pytest.skip("pyspark.sql is mocked in this test session")
+            return
+
+        try:
+            builder = (
+                SparkSession.builder.appName("test_gs_dot_notation")  # type: ignore[attr-defined]
+                .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+                .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+                .master("local[1]")
+            )
+            session = delta.pip_utils.configure_spark_with_delta_pip(builder).getOrCreate()
+        except Exception as exc:
+            pytest.skip(f"Local Spark/Delta not available: {exc}")
+            return
+        yield session
+        session.stop()
+
+    def test_backtick_select_resolves_dot_columns(self, spark) -> None:
+        """spark_fn.col('`gameEvents.gameEventType`') resolves a flat dot-named column."""
+        from pyspark.sql import functions as spark_fn
+
+        pdf = _make_gs_bronze_df(n=3)
+        sdf = spark.createDataFrame(pdf)
+
+        # Verify the schema has literal dot-named columns (not nested structs)
+        dot_cols = [f.name for f in sdf.schema.fields if "." in f.name]
+        assert len(dot_cols) > 0, "Fixture must have dot-notation columns"
+
+        # Select with backtick quoting — must not raise UNRESOLVED_COLUMN
+        selected = sdf.select([spark_fn.col(f"`{c}`") for c in dot_cols])
+        assert selected.count() == 3
+
+    def test_backtick_select_covers_needed_cols(self, spark) -> None:
+        """The _gs_needed_bronze_columns() set intersects correctly with bronze schema."""
+        from pyspark.sql import functions as spark_fn
+
+        from ingestion.spadl_conversion import _gs_needed_bronze_columns
+
+        needed = _gs_needed_bronze_columns()
+
+        pdf = _make_gs_bronze_df(n=2)
+        sdf = spark.createDataFrame(pdf)
+        bronze_field_names = {f.name for f in sdf.schema.fields}
+
+        # All needed columns that exist in the fixture must be selectable
+        cols_to_select = sorted(needed & bronze_field_names)
+        assert len(cols_to_select) > 10, "Fixture too sparse — need >10 columns"
+
+        selected = sdf.select([spark_fn.col(f"`{c}`") for c in cols_to_select])
+        assert selected.count() == 2
+
+    def test_apply_in_pandas_with_dot_columns(self, spark) -> None:
+        """groupBy().applyInPandas() succeeds on DataFrames with dot-notation columns.
+
+        This is the exact failure mode that caused UNRESOLVED_COLUMN on Databricks:
+        Spark tries to resolve all input columns in the execution plan for
+        applyInPandas, and dot-notation columns fail without backtick quoting.
+        """
+        from pyspark.sql import functions as spark_fn
+        from pyspark.sql.types import (
+            LongType,
+            StringType,
+            StructField,
+            StructType,
+        )
+
+        from ingestion.spadl_conversion import _gs_needed_bronze_columns
+
+        needed = _gs_needed_bronze_columns()
+
+        # Create fixture with 2 matches (5 rows each)
+        rows_a = [_make_gs_bronze_row(match_id="10502") for _ in range(5)]
+        rows_b = [_make_gs_bronze_row(match_id="10503") for _ in range(5)]
+        pdf = pd.DataFrame(rows_a + rows_b)
+        sdf = spark.createDataFrame(pdf)
+
+        # Project with backtick quoting (the fix under test)
+        bronze_field_names = {f.name for f in sdf.schema.fields}
+        projected = sdf.select([spark_fn.col(f"`{c}`") for c in sorted(needed) if c in bronze_field_names])
+
+        # Minimal output schema for the identity UDF
+        out_schema = StructType(
+            [
+                StructField("match_id", StringType()),
+                StructField("row_count", LongType()),
+            ]
+        )
+
+        def count_rows(pdf: pd.DataFrame) -> pd.DataFrame:
+            return pd.DataFrame({"match_id": [pdf["match_id"].iloc[0]], "row_count": [len(pdf)]})
+
+        # This must NOT raise UNRESOLVED_COLUMN
+        result = projected.groupBy("match_id").applyInPandas(count_rows, out_schema)
+        rows = result.collect()
+        assert len(rows) == 2
+        assert {r["match_id"] for r in rows} == {"10502", "10503"}
+        assert all(r["row_count"] == 5 for r in rows)
+
+    def test_full_gs_udf_via_spark(self, spark) -> None:
+        """End-to-end: GS UDF produces valid SPADL output via Spark applyInPandas.
+
+        Exercises the complete path: backtick projection → groupBy → UDF →
+        SPADL output schema.  This is the integration test that would have
+        caught the UNRESOLVED_COLUMN production failure.
+        """
+        from pyspark.sql import functions as spark_fn
+        from pyspark.sql.types import (
+            BooleanType,
+            DoubleType,
+            LongType,
+            StringType,
+            StructField,
+            StructType,
+        )
+
+        from ingestion.spadl_conversion import (
+            _gs_needed_bronze_columns,
+            _make_gradientsports_spadl_udf,
+        )
+
+        needed = _gs_needed_bronze_columns()
+
+        # Build 2-match fixture (to test groupBy dispatches per-match)
+        rows_a = []
+        rows_b = []
+        for i in range(5):
+            rows_a.append(
+                _make_gs_bronze_row(
+                    match_id="10502",
+                    game_event_id=6498520.0 + i,
+                    start_game_clock=2800.0 + i * 10,
+                )
+            )
+            rows_b.append(
+                _make_gs_bronze_row(
+                    match_id="10503",
+                    game_event_id=7498520.0 + i,
+                    start_game_clock=2800.0 + i * 10,
+                    team_id=361.0,
+                    home_team=False,
+                )
+            )
+        pdf = pd.DataFrame(rows_a + rows_b)
+        sdf = spark.createDataFrame(pdf)
+
+        # Project with backtick quoting
+        bronze_field_names = {f.name for f in sdf.schema.fields}
+        projected = sdf.select([spark_fn.col(f"`{c}`") for c in sorted(needed) if c in bronze_field_names])
+
+        # SPADL output schema (same as in _convert_gradientsports_from_bronze)
+        spadl_schema = StructType(
+            [
+                StructField("game_id", LongType()),
+                StructField("match_id", LongType()),
+                StructField("original_event_id", StringType()),
+                StructField("period_id", LongType()),
+                StructField("time_seconds", DoubleType()),
+                StructField("team_id", LongType()),
+                StructField("player_id", LongType()),
+                StructField("start_x", DoubleType()),
+                StructField("start_y", DoubleType()),
+                StructField("end_x", DoubleType()),
+                StructField("end_y", DoubleType()),
+                StructField("type_id", LongType()),
+                StructField("result_id", LongType()),
+                StructField("bodypart_id", LongType()),
+                StructField("action_id", LongType()),
+                StructField("competition_id", LongType()),
+                StructField("season_id", LongType()),
+                StructField("data_source", StringType()),
+                StructField("statsbomb_possession_id", LongType()),
+                StructField("statsbomb_possession_team_id", LongType()),
+                StructField("statsbomb_play_pattern", StringType()),
+                StructField("statsbomb_under_pressure", BooleanType()),
+                StructField("possession_id_heuristic", LongType()),
+                StructField("gk_role", StringType()),
+                StructField("gk_was_distributing", BooleanType()),
+                StructField("gk_was_engaged", BooleanType()),
+                StructField("gk_actions_in_possession", LongType()),
+                StructField("defending_gk_player_id", LongType()),
+                StructField("team_id_native", StringType()),
+                StructField("home_team_id_native", StringType()),
+                StructField("competition_native_id", StringType()),
+                StructField("season_native_id", StringType()),
+                StructField("match_id_native", StringType()),
+                StructField("player_id_native", StringType()),
+                StructField("tackle_winner_player_id_native", StringType()),
+                StructField("tackle_winner_player_key", LongType()),
+                StructField("tackle_winner_team_id_native", StringType()),
+                StructField("tackle_winner_team_key", LongType()),
+                StructField("tackle_loser_player_id_native", StringType()),
+                StructField("tackle_loser_player_key", LongType()),
+                StructField("tackle_loser_team_id_native", StringType()),
+                StructField("tackle_loser_team_key", LongType()),
+            ]
+        )
+
+        udf_fn = _make_gradientsports_spadl_udf()
+        result_sdf = projected.groupBy("match_id").applyInPandas(udf_fn, spadl_schema)  # type: ignore[arg-type]
+        result_rows = result_sdf.collect()
+
+        assert len(result_rows) > 0, "UDF must produce at least 1 SPADL action"
+        assert all(r["data_source"] == "gradientsports" for r in result_rows)
+        # Coordinates in SPADL range
+        for r in result_rows:
+            if r["start_x"] is not None:
+                assert 0 <= r["start_x"] <= 105
+            if r["start_y"] is not None:
+                assert 0 <= r["start_y"] <= 68
+
+
 class TestDirectionOfPlay:
     """Direction-of-play normalization coverage."""
 
