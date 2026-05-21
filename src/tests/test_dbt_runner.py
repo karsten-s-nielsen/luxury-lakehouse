@@ -160,3 +160,32 @@ def test_main_raises_on_failure(mock_runner_cls: MagicMock, _mock_ensure: MagicM
 
     with pytest.raises(RuntimeError, match="dbt build failed"):
         main()
+
+
+@patch("ingestion.dbt_runner._ensure_databricks_env_vars")
+@patch("ingestion.dbt_runner.dbtRunner")
+def test_no_watermark_bypasses_guard_and_strips_flag(mock_runner_cls: MagicMock, _mock_ensure: MagicMock) -> None:
+    """--no-watermark must bypass the watermark guard and NOT be forwarded to dbt."""
+    mock_runner = MagicMock()
+    mock_runner.invoke.return_value = _make_runner_result(success=True, node_count=5)
+    mock_runner_cls.return_value = mock_runner
+
+    from ingestion.dbt_runner import main
+
+    with patch("sys.argv", ["dbt_build", "--select", "tag:output_mart", "--no-watermark"]):
+        with patch("ingestion.dbt_runner.get_spark_session") as mock_spark:
+            # Mock the watermark recording path (Spark is lazy-initialized for recording)
+            mock_spark.return_value = MagicMock()
+            with patch("ingestion.dbt_runner.resolve_upstream_tables_from_card", return_value=[]):
+                with patch("ingestion.dbt_runner.record_watermarks"):
+                    result = main()
+
+    assert result == 0
+    # dbt was actually invoked (not skipped by watermark guard)
+    mock_runner.invoke.assert_called_once()
+    # --no-watermark must NOT appear in the args forwarded to dbt
+    dbt_args = mock_runner.invoke.call_args.args[0]
+    assert "--no-watermark" not in dbt_args
+    # --select tag:output_mart must still be forwarded
+    assert "--select" in dbt_args
+    assert "tag:output_mart" in dbt_args

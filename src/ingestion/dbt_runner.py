@@ -316,6 +316,11 @@ def main() -> int:
     for a diagnostic single-model build). The Databricks ``python_wheel_task``
     `parameters` array becomes ``sys.argv[1:]`` when the wheel entry point runs.
 
+    Supports ``--no-watermark`` to bypass the watermark guard — required for
+    schema migrations (e.g. BIGINT sweeps where physical tables were dropped and
+    need recreation) and manual full-refresh runs.  The flag is consumed by this
+    function and NOT forwarded to dbt.
+
     Returns 0 on success. On failure, the underlying ``RuntimeError`` from
     ``run_pipeline`` propagates out of this function — Databricks treats an
     uncaught exception in a ``python_wheel_task`` as task failure, but a
@@ -328,7 +333,13 @@ def main() -> int:
     metadata reads (DESCRIBE HISTORY + watermarks table).
     """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    extra_args = sys.argv[1:] if len(sys.argv) > 1 else None
+    raw_args = sys.argv[1:] if len(sys.argv) > 1 else []
+
+    # --no-watermark: bypass the watermark guard (consumed here, not forwarded to dbt).
+    skip_watermark = "--no-watermark" in raw_args
+    extra_args = [a for a in raw_args if a != "--no-watermark"] or None
+    if skip_watermark:
+        logger.info("--no-watermark: watermark guard bypassed")
 
     # Resolve selector from args to find matching workflow card
     selector_str = ""
@@ -347,7 +358,7 @@ def main() -> int:
 
     card_id = _SELECTOR_TO_CARD.get(frozenset(selector_str.split()) if selector_str else frozenset())
     spark: SparkSession | None = None
-    if card_id is not None:
+    if card_id is not None and not skip_watermark:
         spark = get_spark_session()
         watermark_guard = _DbtWatermarkGuard(card_id)
         fr = timed_check(watermark_guard, spark, "soccer_analytics", "dev_gold")
@@ -362,7 +373,9 @@ def main() -> int:
     # outside wheel and source tree), the dbt build already succeeded and
     # should not be marked as failed.  Next run re-processes (same as first
     # run).  All other exceptions (Spark, Delta) propagate — ADR-002.
-    if card_id is not None and spark is not None:
+    if card_id is not None:
+        if spark is None:
+            spark = get_spark_session()
         try:
             upstream = resolve_upstream_tables_from_card(card_id, "soccer_analytics", "dev_gold")
             record_watermarks(spark, "soccer_analytics", card_id, upstream)

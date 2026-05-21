@@ -45,7 +45,9 @@ Upstream table lists are derived from existing sources — workflow card `inputs
 
 ### Neutral
 
-- Operator runbook for manual re-run: `DELETE FROM observability.workflow_watermarks WHERE workflow_id = '<id>'` forces next execution.
+- Operator runbook for manual re-run (two options):
+  1. **Preferred:** Pass `--no-watermark` in the task's `parameters` array via the SDK (e.g. `['--select', 'tag:output_mart', '--no-watermark']`). The flag is consumed by `dbt_runner.main()` and not forwarded to dbt. Watermarks are still recorded after a successful build, so the next normal run resumes skip behavior. Required for schema migrations where physical tables are dropped and recreated (e.g. BIGINT column sweeps).
+  2. **Alternative:** `DELETE FROM observability.workflow_watermarks WHERE workflow_id = '<id>'` forces next execution (requires MODIFY permission on the watermarks table).
 - StatsBomb guard separately hardened to anti-join pattern (not watermark) since it checks a live external API.
 
 ## Related
