@@ -2503,10 +2503,10 @@ models:
               config:
                 severity: warn
       - name: statsbomb_player_id
-        data_type: int
+        data_type: bigint
         description: SB native ID when row is SB; otherwise NULL.
       - name: wyscout_player_id
-        data_type: int
+        data_type: bigint
         description: WS native ID when row is WS; otherwise NULL.
       - name: idsse_player_id
         data_type: string
