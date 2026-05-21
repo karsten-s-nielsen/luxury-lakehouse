@@ -139,7 +139,7 @@ base as (
         coalesce(s.data_source, p.data_source)          as data_source,
 
         -- Minutes played from int_minutes_played
-        m.total_minutes_played                          as minutes_played,
+        cast(m.total_minutes_played as bigint)          as minutes_played,
 
         -- Raw shooting stats
         coalesce(s.total_shots, 0)                      as total_shots,
@@ -160,33 +160,33 @@ base as (
         end                                             as pass_completion_pct,
 
         -- Per-90 rates (NULL when minutes_played is not available)
-        case
+        cast(case
             when m.total_minutes_played > 0
             then round((coalesce(s.total_goals, 0) * 1.0 / m.total_minutes_played) * {{ var('minutes_per_match') }}, 2)
-        end                                             as goals_per_90,
+        end as decimal(28,2))                           as goals_per_90,
         cast(null as double)                            as assists_per_90,
         case
             when m.total_minutes_played > 0
             then round((coalesce(s.total_xg, 0) / m.total_minutes_played) * {{ var('minutes_per_match') }}, 2)
         end                                             as xg_per_90,
-        case
+        cast(case
             when m.total_minutes_played > 0
             then round((coalesce(p.total_passes, 0) * 1.0 / m.total_minutes_played) * {{ var('minutes_per_match') }}, 2)
-        end                                             as passes_per_90,
-        case
+        end as decimal(28,2))                           as passes_per_90,
+        cast(case
             when m.total_minutes_played > 0
             then round((coalesce(p.progressive_passes, 0) * 1.0 / m.total_minutes_played) * {{ var('minutes_per_match') }}, 2)
-        end                                             as progressive_passes_per_90,
+        end as decimal(28,2))                           as progressive_passes_per_90,
 
         -- xG overperformance (goals - xG, positive = clinical finisher)
         coalesce(s.total_goals, 0) - coalesce(s.total_xg, 0) as xg_overperformance,
 
         -- Line-breaking passes
         coalesce(p.line_breaking_passes, 0)              as line_breaking_passes,
-        case
+        cast(case
             when m.total_minutes_played > 0
             then round((coalesce(p.line_breaking_passes, 0) * 1.0 / m.total_minutes_played) * {{ var('minutes_per_match') }}, 2)
-        end                                             as line_breaking_per_90,
+        end as decimal(28,2))                           as line_breaking_per_90,
 
         -- VAEP action valuation
         coalesce(v.total_vaep, 0)                       as total_vaep,
@@ -225,7 +225,7 @@ base as (
         {% else %}
         ,
         cast(null as double)                                as total_defcon,
-        cast(null as int)                                   as defcon_credits,
+        cast(null as bigint)                                as defcon_credits,
         cast(null as double)                                as defcon_per_90,
         cast(null as double)                                as intercept_per_90,
         cast(null as double)                                as deter_per_90
