@@ -2158,11 +2158,7 @@ def _convert_gradientsports_from_bronze(
     _bronze_field_names = {f.name for f in events_sdf.schema.fields}
     dot_to_safe = _gs_dot_to_safe_rename()
     new_events_sdf = new_events_sdf.select(
-        [
-            spark_fn.col(f"`{c}`").alias(dot_to_safe.get(c, c))
-            for c in sorted(needed)
-            if c in _bronze_field_names
-        ]
+        [spark_fn.col(f"`{c}`").alias(dot_to_safe.get(c, c)) for c in sorted(needed) if c in _bronze_field_names]
     )
 
     spadl_schema = StructType(

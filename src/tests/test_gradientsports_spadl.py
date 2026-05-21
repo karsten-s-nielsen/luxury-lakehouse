@@ -747,11 +747,7 @@ class TestSparkDotNotationColumns:
         # Project with backtick quoting + rename (the fix under test)
         bronze_field_names = {f.name for f in sdf.schema.fields}
         projected = sdf.select(
-            [
-                spark_fn.col(f"`{c}`").alias(dot_to_safe.get(c, c))
-                for c in sorted(needed)
-                if c in bronze_field_names
-            ]
+            [spark_fn.col(f"`{c}`").alias(dot_to_safe.get(c, c)) for c in sorted(needed) if c in bronze_field_names]
         )
 
         # Verify no dots remain in the projected schema
@@ -828,11 +824,7 @@ class TestSparkDotNotationColumns:
         # Project with backtick quoting + dot→safe rename
         bronze_field_names = {f.name for f in sdf.schema.fields}
         projected = sdf.select(
-            [
-                spark_fn.col(f"`{c}`").alias(dot_to_safe.get(c, c))
-                for c in sorted(needed)
-                if c in bronze_field_names
-            ]
+            [spark_fn.col(f"`{c}`").alias(dot_to_safe.get(c, c)) for c in sorted(needed) if c in bronze_field_names]
         )
 
         # SPADL output schema (same as in _convert_gradientsports_from_bronze)
