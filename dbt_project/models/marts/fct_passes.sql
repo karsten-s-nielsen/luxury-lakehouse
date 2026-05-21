@@ -78,10 +78,10 @@ passes_with_score as (
         ]) }}                                           as pass_id,
 
         unified_passes.match_key,
-        unified_passes.player_id,
-        unified_passes.team_id,
+        cast(unified_passes.player_id as bigint)            as player_id,
+        cast(unified_passes.team_id as bigint)              as team_id,
         unified_passes.native_team_id,    -- PR-LL3 S4: for game_state derivation
-        unified_passes.pass_recipient_id,
+        cast(unified_passes.pass_recipient_id as bigint)    as pass_recipient_id,
 
         -- PR 7 (ADR-011): Kimball surrogate FKs resolved via dim_teams /
         -- dim_players JOINs on (provider, native_id). Coexists with legacy
