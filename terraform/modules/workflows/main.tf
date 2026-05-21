@@ -1030,6 +1030,9 @@ resource "databricks_job" "data_ingestion" {
       task_key = "backfill_statsbomb_extra"
     }
     depends_on {
+      task_key = "ingest_gradientsports"
+    }
+    depends_on {
       task_key = "ingest_idsse_events"
     }
     depends_on {

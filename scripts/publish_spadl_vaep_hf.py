@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.11"
 # dependencies = [
-#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.79-py3-none-any.whl",
+#     "luxury-lakehouse @ https://huggingface.co/luxury-lakehouse/build-artifacts/resolve/main/luxury_lakehouse-0.3.80-py3-none-any.whl",
 #     "numpy>=1.24",
 #     "pandas>=2.0",
 #     "pyarrow>=14.0",
@@ -94,6 +94,9 @@ SELECT
     original_event_id,
     data_source
 FROM soccer_analytics.dev_gold.fct_action_values
+    -- HF license gate: GS data computed internally but not published
+    -- until license secured. Remove this filter when license is in place.
+WHERE data_source != 'gradientsports'
 """
 
 # Databricks SQL Statement Execution API polling interval (seconds)

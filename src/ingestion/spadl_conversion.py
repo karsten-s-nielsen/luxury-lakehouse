@@ -1816,3 +1816,333 @@ def _convert_skillcorner_from_bronze(
         logger.info("SkillCorner: SPADL conversion complete for match %s", mid)
 
     return wrote_any
+
+
+# ---------------------------------------------------------------------------
+# Gradient Sports SPADL conversion
+# ---------------------------------------------------------------------------
+
+
+def _make_gradientsports_replace_where(hashed_match_ids: list[int]) -> str:
+    """Build a replaceWhere predicate scoped to specific Gradient Sports matches."""
+    if not hashed_match_ids:
+        msg = "replace_where predicate requires at least one match_id"
+        raise ValueError(msg)
+    ids_sql = ", ".join(str(int(h)) for h in sorted(hashed_match_ids))
+    return f"data_source = 'gradientsports' AND match_id IN ({ids_sql})"
+
+
+def _make_gradientsports_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
+    """Build the applyInPandas UDF closure for Gradient Sports SPADL conversion.
+
+    Follows the IDSSE batch pattern: metadata extracted from bronze columns
+    at execution time (no per-match closure). Tackle qualifier mapping uses
+    the IDSSE pattern (_native/_key pairs), NOT null_fill_tackle_qualifiers.
+    """
+
+    def _udf(pdf: pd.DataFrame) -> pd.DataFrame:
+        import logging as _logging
+
+        import pandas as _pd
+
+        _udf_logger = _logging.getLogger(__name__)
+
+        from ingestion.spadl_adapter import (
+            UNKNOWN_TEAM_SENTINEL as _SENTINEL,
+        )
+        from ingestion.spadl_adapter import (
+            adapt_gradientsports_events as _adapt,
+        )
+        from ingestion.spadl_adapter import (
+            extract_gradientsports_match_metadata as _extract_meta,
+        )
+        from ingestion.spadl_adapter import (
+            hash_native_id_to_bigint as _hash_id,
+        )
+        from shared.identifiers import gradientsports_native_match_id as _gs_match_id
+
+        # Column list must stay in sync with the IDSSE UDF's _spadl_cols.
+        # Any column added there must be added here too, or the final
+        # reindex will KeyError.
+        _spadl_cols = _pd.Index(
+            [
+                "game_id",
+                "match_id",
+                "original_event_id",
+                "period_id",
+                "time_seconds",
+                "team_id",
+                "player_id",
+                "start_x",
+                "start_y",
+                "end_x",
+                "end_y",
+                "type_id",
+                "result_id",
+                "bodypart_id",
+                "action_id",
+                "competition_id",
+                "season_id",
+                "data_source",
+                "statsbomb_possession_id",
+                "statsbomb_possession_team_id",
+                "statsbomb_play_pattern",
+                "statsbomb_under_pressure",
+                "possession_id_heuristic",
+                "gk_role",
+                "gk_was_distributing",
+                "gk_was_engaged",
+                "gk_actions_in_possession",
+                "defending_gk_player_id",
+                "team_id_native",
+                "home_team_id_native",
+                "competition_native_id",
+                "season_native_id",
+                "match_id_native",
+                "player_id_native",
+                "tackle_winner_player_id_native",
+                "tackle_winner_player_key",
+                "tackle_winner_team_id_native",
+                "tackle_winner_team_key",
+                "tackle_loser_player_id_native",
+                "tackle_loser_player_key",
+                "tackle_loser_team_id_native",
+                "tackle_loser_team_key",
+            ]
+        )
+
+        if pdf.empty:
+            return _pd.DataFrame(columns=_spadl_cols)
+
+        import silly_kicks.spadl.gradientsports as _spadl_gs
+
+        # Match-level metadata from bronze columns (IDSSE batch pattern).
+        match_id_str = str(pdf["match_id"].iloc[0])
+        metadata = _extract_meta(pdf)
+
+        try:
+            adapted = _adapt(pdf)
+            actions, _report = _spadl_gs.convert_to_actions(
+                adapted,
+                home_team_id=metadata["home_team_id"],
+                home_team_start_left=metadata["home_team_start_left"],
+                home_team_start_left_extratime=metadata["home_team_start_left_extratime"],
+            )
+        except Exception as exc:
+            msg = f"GS SPADL conversion failed for match_id={match_id_str}"
+            raise RuntimeError(msg) from exc
+
+        if _report.unrecognized_counts:
+            _udf_logger.warning(
+                "SPADL conversion unrecognized event types for GS match %s: %s",
+                match_id_str,
+                _report.unrecognized_counts,
+            )
+
+        from ingestion.spadl_udf_shared import (
+            apply_match_level_natives as _apply_match_natives,
+        )
+        from ingestion.spadl_udf_shared import (
+            apply_player_id_native as _apply_pid_native,
+        )
+        from ingestion.spadl_udf_shared import (
+            cast_enrichment_dtypes as _cast_enrichment,
+        )
+        from ingestion.spadl_udf_shared import (
+            null_fill_statsbomb_columns as _null_fill_sb,
+        )
+
+        # player_id_native -- GS player_ids are Int64, else branch
+        # in apply_player_id_native handles .astype("string") correctly.
+        actions = _apply_pid_native(actions, source="gradientsports")
+
+        # Hash match_id and team_id to legacy BIGINTs.
+        match_id_hashed = _hash_id(match_id_str)
+        actions["match_id"] = match_id_hashed
+        actions["game_id"] = match_id_hashed
+        n = len(actions)
+
+        # team_id: GS converter outputs numeric team_id. Map to native string + hash.
+        actions["team_id_native"] = actions["team_id"].astype("Int64").astype("string")
+        null_team_mask = actions["team_id_native"].isna() | (actions["team_id_native"] == "<NA>")
+        if null_team_mask.any():
+            _udf_logger.warning(
+                "NULL team_id_native in %d rows for GS match_id=%s. Filling with sentinel hash.",
+                null_team_mask.sum(),
+                match_id_str,
+            )
+            actions.loc[null_team_mask, "team_id_native"] = _SENTINEL
+        actions["team_id"] = actions["team_id_native"].map(_hash_id).astype("Int64")
+
+        # NULL-fill legacy BIGINTs
+        actions["player_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
+        actions["competition_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
+        actions["season_id"] = _pd.array([_pd.NA] * n, dtype="Int64")
+
+        # data_source
+        actions["data_source"] = "gradientsports"
+
+        # enrichments
+        from ingestion.spadl_enrichments import apply_spadl_enrichments as _enrich
+
+        actions = _enrich(actions, source="gradientsports")
+
+        # original_event_id to string
+        actions["original_event_id"] = actions["original_event_id"].astype(str)
+
+        # null-fill SB columns + cast enrichment dtypes
+        actions = _null_fill_sb(actions, n=n)
+        actions = _cast_enrichment(actions)
+
+        # match-level natives
+        actions = _apply_match_natives(
+            actions,
+            home_team_id_native=str(metadata["home_team_id"]),
+            competition_native_id=_pd.NA,  # type: ignore[arg-type]  # GS has no competition_native_id in events
+            season_native_id=_pd.NA,  # type: ignore[arg-type]
+            match_id_native=_gs_match_id(match_id_str),
+        )
+
+        # Tackle qualifier mapping (IDSSE pattern, NOT null_fill_tackle_qualifiers).
+        # GS converter outputs 4 Int64 tackle columns on challenge events.
+        from typing import Any as _Any
+
+        def _hash_or_na(v: _Any) -> _Any:
+            if v is None or _pd.isna(v):
+                return _pd.NA
+            s = str(v)
+            return _hash_id(s) if s else _pd.NA
+
+        for native_col, key_col, sk_col in (
+            ("tackle_winner_player_id_native", "tackle_winner_player_key", "tackle_winner_player_id"),
+            ("tackle_winner_team_id_native", "tackle_winner_team_key", "tackle_winner_team_id"),
+            ("tackle_loser_player_id_native", "tackle_loser_player_key", "tackle_loser_player_id"),
+            ("tackle_loser_team_id_native", "tackle_loser_team_key", "tackle_loser_team_id"),
+        ):
+            if sk_col in actions.columns:
+                actions[native_col] = actions[sk_col].astype("string")
+                actions[key_col] = actions[native_col].map(_hash_or_na).astype("Int64")
+            else:
+                actions[native_col] = _pd.array([_pd.NA] * len(actions), dtype="string")
+                actions[key_col] = _pd.array([_pd.NA] * len(actions), dtype="Int64")
+
+        return _pd.DataFrame(actions[_spadl_cols])
+
+    return _udf
+
+
+def _convert_gradientsports_from_bronze(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    logger: logging.Logger,
+    existing_matches: set[int],
+    match_id_filter: set[int] | None = None,
+) -> bool:
+    """Read GS events from bronze, convert to SPADL via silly-kicks, write Delta.
+
+    IDSSE batch pattern: 1 Spark job for all matches via groupBy.applyInPandas.
+    Returns whether any data was written.
+    """
+    from pyspark.sql import functions as spark_fn
+    from pyspark.sql.types import (
+        BooleanType,
+        DoubleType,
+        LongType,
+        StringType,
+        StructField,
+        StructType,
+    )
+
+    from ingestion.spadl_adapter import hash_native_id_to_bigint
+
+    events_table = f"{catalog}.{schema}.gradientsports_events"
+
+    try:
+        events_sdf = spark.table(events_table)
+    except Exception:
+        logger.exception("Cannot read GS events bronze table")
+        return False
+
+    # match_id in bronze is a string (e.g. "10502"); spadl_actions.match_id is
+    # a BIGINT via hash_native_id_to_bigint.  We compare hashed values here.
+    all_match_rows = events_sdf.select("match_id").distinct().collect()
+    all_match_ids: list[str] = [str(row["match_id"]) for row in all_match_rows]
+
+    new_match_ids: list[str] = [mid for mid in all_match_ids if hash_native_id_to_bigint(mid) not in existing_matches]
+    if match_id_filter is not None:
+        new_match_ids = [mid for mid in new_match_ids if hash_native_id_to_bigint(mid) in match_id_filter]
+
+    if not new_match_ids:
+        logger.info("GS: all %d matches already converted -- skipping", len(all_match_ids))
+        return False
+
+    logger.info("GS: converting %d new matches (of %d total)", len(new_match_ids), len(all_match_ids))
+
+    new_events_sdf = events_sdf.filter(spark_fn.col("match_id").isin(new_match_ids))
+
+    spadl_schema = StructType(
+        [
+            StructField("game_id", LongType()),
+            StructField("match_id", LongType()),
+            StructField("original_event_id", StringType()),
+            StructField("period_id", LongType()),
+            StructField("time_seconds", DoubleType()),
+            StructField("team_id", LongType()),
+            StructField("player_id", LongType()),
+            StructField("start_x", DoubleType()),
+            StructField("start_y", DoubleType()),
+            StructField("end_x", DoubleType()),
+            StructField("end_y", DoubleType()),
+            StructField("type_id", LongType()),
+            StructField("result_id", LongType()),
+            StructField("bodypart_id", LongType()),
+            StructField("action_id", LongType()),
+            StructField("competition_id", LongType()),
+            StructField("season_id", LongType()),
+            StructField("data_source", StringType()),
+            StructField("statsbomb_possession_id", LongType()),
+            StructField("statsbomb_possession_team_id", LongType()),
+            StructField("statsbomb_play_pattern", StringType()),
+            StructField("statsbomb_under_pressure", BooleanType()),
+            StructField("possession_id_heuristic", LongType()),
+            StructField("gk_role", StringType()),
+            StructField("gk_was_distributing", BooleanType()),
+            StructField("gk_was_engaged", BooleanType()),
+            StructField("gk_actions_in_possession", LongType()),
+            StructField("defending_gk_player_id", LongType()),
+            StructField("team_id_native", StringType()),
+            StructField("home_team_id_native", StringType()),
+            StructField("competition_native_id", StringType()),
+            StructField("season_native_id", StringType()),
+            StructField("match_id_native", StringType()),
+            StructField("player_id_native", StringType()),
+            StructField("tackle_winner_player_id_native", StringType()),
+            StructField("tackle_winner_player_key", LongType()),
+            StructField("tackle_winner_team_id_native", StringType()),
+            StructField("tackle_winner_team_key", LongType()),
+            StructField("tackle_loser_player_id_native", StringType()),
+            StructField("tackle_loser_player_key", LongType()),
+            StructField("tackle_loser_team_id_native", StringType()),
+            StructField("tackle_loser_team_key", LongType()),
+        ]
+    )
+
+    udf_fn = _make_gradientsports_spadl_udf()
+    spadl_sdf = new_events_sdf.groupBy("match_id").applyInPandas(
+        udf_fn,  # type: ignore[arg-type]
+        schema=spadl_schema,
+    )
+
+    hashed_new_ids = [hash_native_id_to_bigint(mid) for mid in new_match_ids]
+    write_delta_table(
+        spadl_sdf,
+        catalog,
+        schema,
+        _SPADL_TABLE,
+        replace_where=_make_gradientsports_replace_where(hashed_new_ids),
+        logger=logger,
+    )
+
+    logger.info("GS: SPADL conversion complete for %d matches", len(new_match_ids))
+    return True

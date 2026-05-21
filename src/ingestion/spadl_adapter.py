@@ -6,10 +6,11 @@ serialized bronze column layout and the DataFrame shape that silly-kicks'
 ``convert_to_actions()`` functions expect.
 
 Supported sources:
-  - StatsBomb (``adapt_statsbomb_events``, ``resolve_statsbomb_home_team_ids``)
-  - Wyscout   (``adapt_wyscout_events``,   ``resolve_wyscout_home_team_ids``)
-  - IDSSE     (``adapt_idsse_events_for_silly_kicks``)
-  - Metrica   (``adapt_metrica_events_for_silly_kicks``)
+  - StatsBomb        (``adapt_statsbomb_events``, ``resolve_statsbomb_home_team_ids``)
+  - Wyscout          (``adapt_wyscout_events``,   ``resolve_wyscout_home_team_ids``)
+  - IDSSE            (``adapt_idsse_events_for_silly_kicks``)
+  - Metrica          (``adapt_metrica_events_for_silly_kicks``)
+  - Gradient Sports  (``adapt_gradientsports_events``, ``extract_gradientsports_match_metadata``)
 """
 
 from __future__ import annotations
@@ -532,3 +533,219 @@ def derive_metrica_home_team_start_left(
         f"events with non-null start_x."
     )
     raise RuntimeError(msg)
+
+
+# ---------------------------------------------------------------------------
+# Gradient Sports adapter (WC2022 PFF open dataset)
+# ---------------------------------------------------------------------------
+
+# Bronze uses json_normalize dot-notation (e.g., "possessionEvents.passType").
+# silly-kicks expects 47 snake_case columns (EXPECTED_INPUT_COLUMNS).
+#
+# CRITICAL: The bronze schema was verified via DESCRIBE (264 columns).
+# Several columns live under gameEvents.*, NOT possessionEvents.*:
+#   gameEventId (top-level) -> event_id
+#   gameEvents.period -> period_id
+#   gameEvents.startGameClock -> time_seconds
+#   gameEvents.playerId -> player_id
+#   gameEvents.teamId -> team_id
+#   gameEvents.setpieceType -> set_piece_type
+# Ball coordinates are in a JSON string column `ball`, NOT possessionEvents.ballX/Y.
+# challenger_team_id / challenge_winner_team_id DO NOT EXIST in bronze
+# (the converter tolerates NaN for these).
+#
+# 1:1 renames (possessionEvents.*, fouls.*, gameEvents.gameEventType, gameId):
+_GS_BRONZE_TO_SNAKE: dict[str, str] = {
+    # Top-level scalars
+    "gameId": "game_id",
+    "possessionEventId": "possession_event_id",
+    # possessionEvents.* -> snake_case (direct 1:1 renames)
+    "possessionEvents.possessionEventType": "possession_event_type",
+    "possessionEvents.passType": "pass_type",
+    "possessionEvents.passOutcomeType": "pass_outcome_type",
+    "possessionEvents.crossType": "cross_type",
+    "possessionEvents.crossOutcomeType": "cross_outcome_type",
+    "possessionEvents.crossZoneType": "cross_zone_type",
+    "possessionEvents.shotType": "shot_type",
+    "possessionEvents.shotOutcomeType": "shot_outcome_type",
+    "possessionEvents.shotNatureType": "shot_nature_type",
+    "possessionEvents.shotInitialHeightType": "shot_initial_height_type",
+    "possessionEvents.touchType": "touch_type",
+    "possessionEvents.touchOutcomeType": "touch_outcome_type",
+    "possessionEvents.challengeType": "challenge_type",
+    "possessionEvents.challengeOutcomeType": "challenge_outcome_type",
+    "possessionEvents.challengeWinnerPlayerId": "challenge_winner_player_id",
+    "possessionEvents.challengerPlayerId": "challenger_player_id",
+    "possessionEvents.tackleAttemptType": "tackle_attempt_type",
+    "possessionEvents.bodyType": "body_type",
+    "possessionEvents.ballHeightType": "ball_height_type",
+    "possessionEvents.clearanceOutcomeType": "clearance_outcome_type",
+    "possessionEvents.ballCarryOutcome": "ball_carry_outcome",
+    "possessionEvents.carryType": "carry_type",
+    "possessionEvents.carryIntent": "carry_intent",
+    "possessionEvents.carryDefenderPlayerId": "carry_defender_player_id",
+    "possessionEvents.keeperTouchType": "keeper_touch_type",
+    "possessionEvents.saveHeightType": "save_height_type",
+    "possessionEvents.saveReboundType": "save_rebound_type",
+    "possessionEvents.reboundOutcomeType": "rebound_outcome_type",
+    "possessionEvents.incompletionReasonType": "incompletion_reason_type",
+    # gameEvents.* (only gameEventType is a 1:1 rename; period/playerId/
+    # teamId/setpieceType are derived, not renamed — see _DERIVED_COLUMNS below)
+    "gameEvents.gameEventType": "game_event_type",
+    # fouls.*
+    "fouls.foulType": "foul_type",
+    "fouls.onFieldFoulOutcomeType": "on_field_foul_outcome_type",
+    "fouls.finalFoulOutcomeType": "final_foul_outcome_type",
+    "fouls.onFieldOffenseType": "on_field_offense_type",
+    "fouls.finalOffenseType": "final_offense_type",
+}
+
+
+def _parse_ball_json(ball_series: pd.Series) -> tuple[pd.Series, pd.Series]:  # type: ignore[type-arg]
+    """Parse GS bronze `ball` JSON string column to (ball_x, ball_y) float Series.
+
+    Bronze format: '[{"visibility": "VISIBLE", "x": 18.5, "y": -21.33, "z": 0.0}]'
+    Always a single-element JSON array. Returns (NaN, NaN) for null/malformed rows.
+    """
+    import json as _json
+
+    def _extract(val: object) -> tuple[float, float]:
+        if val is None or (isinstance(val, float) and pd.isna(val)):
+            return (float("nan"), float("nan"))
+        try:
+            parsed = _json.loads(str(val))
+            if isinstance(parsed, list) and len(parsed) > 0:
+                return (float(parsed[0]["x"]), float(parsed[0]["y"]))
+        except (ValueError, KeyError, TypeError, IndexError):
+            pass
+        return (float("nan"), float("nan"))
+
+    pairs = ball_series.map(_extract)
+    ball_x = pairs.map(lambda p: p[0])
+    ball_y = pairs.map(lambda p: p[1])
+    return ball_x, ball_y
+
+
+def adapt_gradientsports_events(pdf: pd.DataFrame) -> pd.DataFrame:
+    """Rename + derive bronze columns to match silly-kicks EXPECTED_INPUT_COLUMNS.
+
+    Three transformation categories:
+    1. Direct 1:1 renames via _GS_BRONZE_TO_SNAKE (~35 columns)
+    2. Derived columns from gameEvents.* namespace (6 columns):
+       gameEventId -> event_id, gameEvents.period -> period_id,
+       gameEvents.startGameClock -> time_seconds, gameEvents.playerId -> player_id,
+       gameEvents.teamId -> team_id, gameEvents.setpieceType -> set_piece_type
+    3. Ball JSON parsing: ball -> ball_x, ball_y
+
+    Args:
+        pdf: Raw bronze DataFrame from ``gradientsports_events``.
+
+    Returns:
+        DataFrame with all 47 ``EXPECTED_INPUT_COLUMNS`` present.
+        Missing optional columns are NaN-filled.
+    """
+    from silly_kicks.spadl.gradientsports import EXPECTED_INPUT_COLUMNS
+
+    if pdf.empty:
+        return pd.DataFrame(columns=sorted(EXPECTED_INPUT_COLUMNS))
+
+    # Step 1: Apply 1:1 renames
+    rename_map = {k: v for k, v in _GS_BRONZE_TO_SNAKE.items() if k in pdf.columns}
+    adapted = pdf.rename(columns=rename_map)
+
+    # Step 2: Derived columns from gameEvents.* namespace
+    # These columns live under gameEvents.*, NOT possessionEvents.*
+    derived_columns: dict[str, str] = {
+        "gameEventId": "event_id",
+        "gameEvents.period": "period_id",
+        "gameEvents.startGameClock": "time_seconds",
+        "gameEvents.playerId": "player_id",
+        "gameEvents.teamId": "team_id",
+        "gameEvents.setpieceType": "set_piece_type",
+    }
+    for bronze_col, snake_col in derived_columns.items():
+        if bronze_col in adapted.columns:
+            adapted[snake_col] = adapted[bronze_col]
+        elif bronze_col in pdf.columns:
+            adapted[snake_col] = pdf[bronze_col]
+    # Drop source columns to avoid polluting output with dot-notation leftovers
+    adapted = adapted.drop(
+        columns=[k for k in derived_columns if k in adapted.columns],
+        errors="ignore",
+    )
+
+    # Step 3: Parse ball JSON string -> ball_x, ball_y
+    # (O(n) Python loop per match — fine for 64 WC2022 matches; revisit if scaling)
+    if "ball" in adapted.columns:
+        adapted["ball_x"], adapted["ball_y"] = _parse_ball_json(adapted["ball"])
+        adapted = adapted.drop(columns=["ball"], errors="ignore")
+    elif "ball" in pdf.columns:
+        adapted["ball_x"], adapted["ball_y"] = _parse_ball_json(pdf["ball"])
+
+    # Step 4: NaN-fill any remaining missing expected columns
+    # (e.g., challenger_team_id, challenge_winner_team_id which don't exist in bronze)
+    for col in EXPECTED_INPUT_COLUMNS:
+        if col not in adapted.columns:
+            adapted[col] = pd.NA
+
+    return adapted
+
+
+def extract_gradientsports_match_metadata(pdf: pd.DataFrame) -> dict:
+    """Extract match-level metadata from GS bronze rows.
+
+    GS bronze denormalizes match metadata into every event row.
+    ``home_team_id`` is derived from ``gameEvents.homeTeam`` (boolean) +
+    ``gameEvents.teamId`` because ``stadiumMetadata.homeTeamId`` does NOT
+    exist in the bronze schema.
+
+    Args:
+        pdf: Raw bronze DataFrame (pre-rename, dot-notation columns).
+
+    Returns:
+        Dict with ``home_team_id`` (int), ``home_team_start_left`` (bool),
+        ``home_team_start_left_extratime`` (bool | None).
+
+    Raises:
+        ValueError: If pdf is empty or no homeTeam=True rows found.
+    """
+    if pdf.empty:
+        raise ValueError("Cannot extract metadata from empty DataFrame")
+
+    # Derive home_team_id: find the first row where gameEvents.homeTeam is True
+    home_mask = pdf["gameEvents.homeTeam"] == True  # noqa: E712 — bronze may return string "true"
+    if not home_mask.any():
+        # Fallback: try string comparison for Spark-serialized booleans
+        home_mask = pdf["gameEvents.homeTeam"].astype(str).str.lower() == "true"
+    if not home_mask.any():
+        raise ValueError("No rows with gameEvents.homeTeam=True found — cannot derive home_team_id")
+
+    home_team_id = int(float(pdf.loc[home_mask, "gameEvents.teamId"].iloc[0]))
+
+    # Direction flag
+    row = pdf.iloc[0]
+    htsl_val = row["stadiumMetadata.homeTeamStartLeft"]
+    if isinstance(htsl_val, str):
+        home_team_start_left = htsl_val.lower() == "true"
+    else:
+        home_team_start_left = bool(htsl_val)
+
+    # Extra-time direction flag -- may be absent or null
+    et_col = "stadiumMetadata.homeTeamStartLeftExtraTime"
+    if et_col in pdf.columns:
+        et_val = row[et_col]
+        if pd.notna(et_val):
+            if isinstance(et_val, str):
+                home_team_start_left_extratime: bool | None = et_val.lower() == "true"
+            else:
+                home_team_start_left_extratime = bool(et_val)
+        else:
+            home_team_start_left_extratime = None
+    else:
+        home_team_start_left_extratime = None
+
+    return {
+        "home_team_id": home_team_id,
+        "home_team_start_left": home_team_start_left,
+        "home_team_start_left_extratime": home_team_start_left_extratime,
+    }

@@ -6,7 +6,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         developer = person "Developer" "Deploys updates, triggers pipeline runs, monitors costs"
         operator = person "Platform Operator" "Triggers retrain cycles, reviews job runs, manages synced tables"
 
-        taipyApp = softwareSystem "Taipy Dashboard" "16-page interactive analytics app on HF Spaces. Shot maps, player comparisons, defensive impact, workflow monitoring." {
+        taipyApp = softwareSystem "Taipy Dashboard" "18-page interactive analytics app on HF Spaces. Shot maps, player comparisons, defensive impact, workflow monitoring." {
             guiLayer = container "Taipy GUI" "Root template with sidebar nav, glossary panels, page routing. CSP defense-in-depth via Flask after_request." "Python, Taipy 4.1"
             adminApi = container "Admin API" "Flask blueprint for cache clear and synced table refresh. HF org membership auth." "Python, Flask"
             templateEngine = container "Template Engine" "Three layout builders (standard, sub-view, dashboard). Typed PageConfig dataclasses." "Python"
@@ -31,7 +31,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
 
         pipelinePlatform = softwareSystem "AI/ML Pipeline Platform" "45 workflow-card-registered workflows. Centralized hooks, lifecycle tracking, three-tier cost tracking." {
             workflowFramework = container "Workflow Framework" "Registry, @workflow decorator, lifecycle runner with hook dispatch" "Python"
-            workflowCards = container "Workflow Cards" "45 YAML manifests: inputs, outputs, deps, cost estimates, provenance" "YAML" "Database"
+            workflowCards = container "Workflow Cards" "46 YAML manifests: inputs, outputs, deps, cost estimates, provenance" "YAML" "Database"
             costEstimateHook = container "CostEstimateHook" "Writes run state, entity_count, row_count, cost to Delta via MERGE" "Python, PySpark"
             hfCostRecorder = container "HFJobsCostRecorder" "Cost recorder for HF Jobs. Writes to HF Hub repos. 90-day pruning." "Python"
             guardRegistry = container "Guard Registry" "SkipGuard protocol, FilterResult, find_new_ids(), timed_check(), watermark guards (ADR-024)" "Python"
@@ -70,9 +70,9 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             observabilitySchema = container "Observability Schema" "workflow_cost_live, workflow_import_checksums, workflow_watermarks, definer's-rights views" "Delta Lake" "Database"
         }
 
-        lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL endpoint syncing 41 Delta tables (66 indexes: 60 btree + 6 HNSW)" "External"
+        lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL endpoint syncing 40 Delta tables (72 indexes: 66 btree + 6 HNSW)" "External"
         databricksApi = softwareSystem "Databricks REST API" "OAuth, synced table metadata, pipeline triggers, state polling" "External"
-        databricksWorkflows = softwareSystem "Databricks Workflows" "33-task daily DAG: 5 ingest, 13 compute, 1 HF sync (10 sub-ops), 3 dbt_build, refresh, preflight" "External"
+        databricksWorkflows = softwareSystem "Databricks Workflows" "40-task daily DAG: 9 ingest, 16 compute, 1 HF sync, 3 dbt_build, 4 preflight, refresh, resolve, validate" "External"
         hfIdentity = softwareSystem "HuggingFace Identity API" "Token validation via /api/whoami-v2. Org membership check." "External"
         hfSpaces = softwareSystem "HuggingFace Spaces" "Docker SDK hosting. Builds Dockerfile, serves port 7860." "External"
         hfHub = softwareSystem "HuggingFace Hub" "16 models, 20 datasets, build-artifacts wheel. READMEs via ADR-014." "External"
