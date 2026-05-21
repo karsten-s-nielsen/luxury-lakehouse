@@ -4,7 +4,10 @@
     liquid_clustered_by=['match_key'],
     incremental_strategy='merge',
     on_schema_change='append_new_columns',
-    tags=['marts', 'intermediate_mart']
+    tags=['marts', 'intermediate_mart'],
+    tblproperties={
+        'delta.enableChangeDataFeed': 'true',
+    }
 ) }}
 -- fct_action_values.sql
 -- Gold-layer SPADL action values with VAEP scores, possession context,

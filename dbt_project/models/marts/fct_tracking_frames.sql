@@ -4,7 +4,10 @@
     liquid_clustered_by=['match_key'],
     incremental_strategy='merge',
     on_schema_change='append_new_columns',
-    tags=['marts', 'input_mart']
+    tags=['marts', 'input_mart'],
+    tblproperties={
+        'delta.enableChangeDataFeed': 'true',
+    }
 ) }}
 -- fct_tracking_frames.sql
 -- Enriched tracking data from all providers (Metrica, IDSSE, SkillCorner).
