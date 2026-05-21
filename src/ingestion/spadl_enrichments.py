@@ -1,8 +1,9 @@
 """SPADL post-conversion enrichment stage.
 
 Provider-agnostic helpers from silly-kicks applied to the canonical SPADL
-output of any per-provider converter. Establishes the named architectural
-home for these enrichments — see ADR-016 for the design rationale.
+output of any per-provider converter (StatsBomb, Wyscout, IDSSE, Metrica,
+SkillCorner, Gradient Sports). Establishes the named architectural home
+for these enrichments — see ADR-016 for the design rationale.
 
 First occupants (LL2):
     - silly_kicks.spadl.utils.add_possessions      → possession_id_heuristic
@@ -24,7 +25,9 @@ from typing import Final
 
 import pandas as pd
 
-_VALID_SOURCES: Final[frozenset[str]] = frozenset({"statsbomb", "wyscout", "idsse", "metrica", "skillcorner"})
+_VALID_SOURCES: Final[frozenset[str]] = frozenset(
+    {"statsbomb", "wyscout", "idsse", "metrica", "skillcorner", "gradientsports"}
+)
 
 
 def apply_spadl_enrichments(

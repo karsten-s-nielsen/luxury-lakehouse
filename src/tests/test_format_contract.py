@@ -21,6 +21,9 @@ from shared.identifiers import (
     NativeMatchId,
     NativePlayerId,
     NativeTeamId,
+    gradientsports_native_match_id,
+    gradientsports_native_player_id,
+    gradientsports_native_team_id,
     idsse_native_competition_id,
     idsse_native_match_id,
     idsse_native_player_id,
@@ -313,4 +316,70 @@ class TestSkillCornerNamedTuples:
     def test_native_team_id_skillcorner(self) -> None:
         nid = NativeTeamId.skillcorner("4177")
         assert nid.provider == "skillcorner"
+        assert nid.value == "4177"
+
+
+# ---------------------------------------------------------------------------
+# Gradient Sports -- ADR-018 format contracts
+# ---------------------------------------------------------------------------
+
+
+class TestGradientSportsFormatContract:
+    def test_gradientsports_match_id_from_string(self) -> None:
+        assert gradientsports_native_match_id("10502") == "10502"
+
+    def test_gradientsports_match_id_from_int(self) -> None:
+        assert gradientsports_native_match_id(10502) == "10502"
+
+    def test_gradientsports_match_id_rejects_prefix(self) -> None:
+        with pytest.raises(ValueError, match="invalid Gradient Sports match id"):
+            gradientsports_native_match_id("gs_10502")
+
+    def test_gradientsports_match_id_rejects_empty(self) -> None:
+        with pytest.raises(ValueError, match="invalid Gradient Sports match id"):
+            gradientsports_native_match_id("")
+
+    def test_gradientsports_match_id_rejects_alpha(self) -> None:
+        with pytest.raises(ValueError, match="invalid Gradient Sports match id"):
+            gradientsports_native_match_id("abc123")
+
+
+class TestGradientSportsPlayerIdFormatContract:
+    def test_gradientsports_native_player_id_valid(self) -> None:
+        assert gradientsports_native_player_id(38673) == "38673"
+
+    def test_gradientsports_native_player_id_string(self) -> None:
+        assert gradientsports_native_player_id("38673") == "38673"
+
+    def test_gradientsports_native_player_id_rejects_prefix(self) -> None:
+        with pytest.raises(ValueError):
+            gradientsports_native_player_id("player_38673")
+
+
+class TestGradientSportsTeamIdFormatContract:
+    def test_gradientsports_native_team_id_valid(self) -> None:
+        assert gradientsports_native_team_id(4177) == "4177"
+
+    def test_gradientsports_native_team_id_string(self) -> None:
+        assert gradientsports_native_team_id("4177") == "4177"
+
+    def test_gradientsports_native_team_id_rejects_prefix(self) -> None:
+        with pytest.raises(ValueError):
+            gradientsports_native_team_id("team_4177")
+
+
+class TestGradientSportsNamedTuples:
+    def test_native_match_id_gradientsports(self) -> None:
+        nid = NativeMatchId.gradientsports("10502")
+        assert nid.provider == "gradientsports"
+        assert nid.value == "10502"
+
+    def test_native_player_id_gradientsports(self) -> None:
+        nid = NativePlayerId.gradientsports("38673")
+        assert nid.provider == "gradientsports"
+        assert nid.value == "38673"
+
+    def test_native_team_id_gradientsports(self) -> None:
+        nid = NativeTeamId.gradientsports("4177")
+        assert nid.provider == "gradientsports"
         assert nid.value == "4177"

@@ -38,13 +38,13 @@ Two services. Zero-ETL. Scale-to-zero. Automatic OAuth. Right luxury.
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| **Ingestion** | Databricks Serverless Workflows | Fetch data from StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner |
+| **Ingestion** | Databricks Serverless Workflows | Fetch data from StatsBomb, Metrica, Wyscout, IDSSE, SkillCorner, Gradient Sports |
 | **Storage** | Delta Lake on Unity Catalog | Medallion architecture (Bronze → Silver → Gold) |
 | **Transformation** | dbt-databricks on Serverless SQL | Flatten nested JSON, compute xG/xT metrics |
-| **Synchronization** | Lakeflow Synced Tables | Zero-ETL continuous sync from Gold → Lakebase |
+| **Synchronization** | Lakeflow Synced Tables | Zero-ETL continuous sync from Gold → Lakebase (40 tables) |
 | **Serving** | Lakebase PostgreSQL 17 (Autoscaling) | Sub-10ms OLTP queries, native pgvector, scale-to-zero |
-| **Application** | [Taipy on Hugging Face Spaces](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) | 16-page interactive dashboard (Docker SDK, Lakebase PostgreSQL) |
-| **ML Artifacts** | [Hugging Face Hub](https://huggingface.co/luxury-lakehouse) | Publish [17 models](https://huggingface.co/luxury-lakehouse) + [19 datasets](https://huggingface.co/luxury-lakehouse), GPU training on HF Jobs. Every artifact's README is auto-uploaded from the in-repo source of truth by `ingestion.hf_publish` (ADR-014). |
+| **Application** | [Taipy on Hugging Face Spaces](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) | 18-page interactive dashboard (Docker SDK, Lakebase PostgreSQL) |
+| **ML Artifacts** | [Hugging Face Hub](https://huggingface.co/luxury-lakehouse) | Publish [16 models](https://huggingface.co/luxury-lakehouse) + [20 datasets](https://huggingface.co/luxury-lakehouse), GPU training on HF Jobs. Every artifact's README is auto-uploaded from the in-repo source of truth by `ingestion.hf_publish` (ADR-014). |
 | **Security** | OAuth M2M + OIDC Federation + KMS | Zero-secret CI, least-privilege SPs, encrypted state |
 | **Infrastructure** | Terraform + Databricks Provider | Everything as code |
 
@@ -61,6 +61,7 @@ This project is a solo-maintained research artifact operating on publicly licens
 | [Wyscout](https://figshare.com/collections/Soccer_match_event_dataset/4415000) | Event streams | JSON | CC-BY-NC 4.0 | Top 5 leagues |
 | [IDSSE (Bundesliga)](https://figshare.com/collections/DFL_-_Bundesliga_Data_Shootout/5830772) | DFL tracking (25 fps) + events | XML | CC-BY 4.0 | 7 matches |
 | [SkillCorner](https://github.com/SkillCorner/opendata) | Broadcast tracking (10 fps) | JSONL | MIT | 10 A-League matches |
+| [Gradient Sports (PFF)](https://huggingface.co/datasets/pining-for-the-data/gradient-sports-world-cup-2022) | Events + tracking (25 fps) | JSON | Pending | 64 WC2022 matches |
 | *Respo.Vision* (planned) | 3D pose tracking | JSON | Own footage | Own recordings |
 
 ## Analytics

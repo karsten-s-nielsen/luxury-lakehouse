@@ -144,12 +144,12 @@ models:
               config:
                 where: "data_source IN ('statsbomb', 'wyscout')"
       - name: data_source
-        description: Data provider (statsbomb, wyscout, idsse, metrica, skillcorner)
+        description: Data provider (statsbomb, wyscout, idsse, metrica, skillcorner, gradientsports)
         data_tests:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner']
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner', 'gradientsports']
       - name: competition_id
         description: Competition identifier
       - name: season_id

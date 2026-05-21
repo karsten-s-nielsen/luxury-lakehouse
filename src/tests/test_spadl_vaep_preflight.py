@@ -87,6 +87,7 @@ def test_build_chunks_statsbomb_200_per_chunk() -> None:
         "idsse_new": [],
         "metrica_new": [],
         "sc_new": [],
+        "gs_new": [],
         "unscored_vaep_match_ids": [],
     }
     chunks = _build_chunks(metadata)
@@ -109,6 +110,7 @@ def test_build_chunks_multiple_providers() -> None:
         "idsse_new": ["100"],
         "metrica_new": [],
         "sc_new": [],
+        "gs_new": [],
         "unscored_vaep_match_ids": ["500", "501"],
     }
     chunks = _build_chunks(metadata)
@@ -130,6 +132,7 @@ def test_build_chunks_unscored_uses_score_prefix() -> None:
         "idsse_new": [],
         "metrica_new": [],
         "sc_new": [],
+        "gs_new": [],
         "unscored_vaep_match_ids": ["1", "2", "3"],
     }
     chunks = _build_chunks(metadata)
@@ -147,6 +150,7 @@ def test_build_chunks_empty_metadata() -> None:
         "idsse_new": [],
         "metrica_new": [],
         "sc_new": [],
+        "gs_new": [],
         "unscored_vaep_match_ids": [],
     }
     chunks = _build_chunks(metadata)
@@ -163,6 +167,7 @@ def test_build_chunks_idsse_50_per_chunk() -> None:
         "idsse_new": [str(i) for i in range(120)],
         "metrica_new": [],
         "sc_new": [],
+        "gs_new": [],
         "unscored_vaep_match_ids": [],
     }
     chunks = _build_chunks(metadata)

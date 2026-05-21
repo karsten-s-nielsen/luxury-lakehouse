@@ -27,6 +27,7 @@ import pandas as pd
 from ingestion.guards import FilterResult, timed_check
 from ingestion.spadl_conversion import (
     _SPADL_TABLE,
+    _convert_gradientsports_from_bronze,
     _convert_idsse_from_bronze,
     _convert_metrica_from_bronze,
     _convert_skillcorner_from_bronze,
@@ -187,6 +188,12 @@ class _VaepGuard:
             spadl_table=spadl_table,
             data_source="skillcorner",
         )
+        gs_new = self._diff_hashed_source_against_spadl(
+            spark,
+            bronze_table=f"{catalog}.{schema}.gradientsports_events",
+            spadl_table=spadl_table,
+            data_source="gradientsports",
+        )
 
         # Stage 2: SPADL actions not yet scored with VAEP
         unscored = find_new_ids(
@@ -195,7 +202,9 @@ class _VaepGuard:
             vaep_table,
         )
 
-        total_new = len(sb_new) + len(ws_new) + len(idsse_new) + len(metrica_new) + len(sc_new) + len(unscored)
+        total_new = (
+            len(sb_new) + len(ws_new) + len(idsse_new) + len(metrica_new) + len(sc_new) + len(gs_new) + len(unscored)
+        )
 
         if total_new == 0:
             return FilterResult(workflow_id=self.workflow_id, count=0)
@@ -214,6 +223,7 @@ class _VaepGuard:
                 "idsse_new": idsse_new,
                 "metrica_new": metrica_new,
                 "sc_new": sc_new,
+                "gs_new": gs_new,
                 "unscored_vaep_match_ids": sorted(unscored),
             },
         )
@@ -225,7 +235,7 @@ class _VaepGuard:
         spadl_table: str,
         data_source: str,
     ) -> list[str]:
-        """Count new matches for a hashed-ID source (IDSSE / Metrica / SkillCorner).
+        """Count new matches for a hashed-ID source (IDSSE / Metrica / SkillCorner / GradientSports).
 
         Bronze tables use STRING match_ids. spadl_actions uses BIGINT
         (deterministically hashed via ``hash_native_id_to_bigint``).
@@ -268,7 +278,9 @@ class _VaepGuard:
 skip_guard = _VaepGuard()
 
 
-_VALID_CHUNK_PROVIDERS = frozenset({"statsbomb", "wyscout", "idsse", "metrica", "skillcorner", "score"})
+_VALID_CHUNK_PROVIDERS = frozenset(
+    {"statsbomb", "wyscout", "idsse", "metrica", "skillcorner", "gradientsports", "score"}
+)
 
 
 def _parse_vaep_match_ids_arg(raw: str | None) -> tuple[str, list[int]] | None:
@@ -306,6 +318,7 @@ _CHUNK_SIZES: dict[str, int] = {
     "idsse": 50,
     "metrica": 50,
     "skillcorner": 50,
+    "gradientsports": 50,
     "score": 200,
 }
 
@@ -315,6 +328,7 @@ _PROVIDER_METADATA_KEYS: dict[str, str] = {
     "idsse_new": "idsse",
     "metrica_new": "metrica",
     "sc_new": "skillcorner",
+    "gs_new": "gradientsports",
 }
 
 
@@ -747,7 +761,8 @@ def run_pipeline(
         | set(filter_result.metadata["ws_new"])
         | set(filter_result.metadata["idsse_new"])
         | set(filter_result.metadata["metrica_new"])
-        | set(filter_result.metadata["sc_new"]),
+        | set(filter_result.metadata["sc_new"])
+        | set(filter_result.metadata["gs_new"]),
     )
 
     spadl_table = f"{catalog}.{schema}.{_SPADL_TABLE}"
@@ -764,9 +779,11 @@ def run_pipeline(
     idsse_wrote = _convert_idsse_from_bronze(spark, catalog, schema, logger, existing_spadl_matches)
     metrica_wrote = _convert_metrica_from_bronze(spark, catalog, schema, logger, existing_spadl_matches)
     sc_wrote = _convert_skillcorner_from_bronze(spark, catalog, schema, logger, existing_spadl_matches)
+    gs_wrote = _convert_gradientsports_from_bronze(spark, catalog, schema, logger, existing_spadl_matches)
 
-    if not (sb_wrote or ws_wrote or idsse_wrote or metrica_wrote or sc_wrote) and not existing_spadl_matches:
-        msg = "No SPADL actions produced from any source (StatsBomb / Wyscout / IDSSE / Metrica / SkillCorner)"
+    any_wrote = sb_wrote or ws_wrote or idsse_wrote or metrica_wrote or sc_wrote or gs_wrote
+    if not any_wrote and not existing_spadl_matches:
+        msg = "No SPADL actions produced from any source (SB / WS / IDSSE / Metrica / SC / GS)"
         logger.error(msg)
         raise RuntimeError(msg)
 
@@ -1054,6 +1071,7 @@ def _run_chunk(
             "idsse": _convert_idsse_from_bronze,
             "metrica": _convert_metrica_from_bronze,
             "skillcorner": _convert_skillcorner_from_bronze,
+            "gradientsports": _convert_gradientsports_from_bronze,
         }
         convert_fn = converters[provider]
         convert_fn(spark, catalog, schema, logger, existing_spadl_matches, match_id_filter=set(match_ids))

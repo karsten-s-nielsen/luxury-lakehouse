@@ -1,5 +1,5 @@
 """Single source of truth for native identifier format generators across all
-5 SPADL data sources (StatsBomb, Wyscout, IDSSE, Metrica, SkillCorner).
+6 SPADL data sources (StatsBomb, Wyscout, IDSSE, Metrica, SkillCorner, Gradient Sports).
 
 ADR-018 — cross-table format-contract testing — requires that every value
 flowing into a ``(provider, native_id)`` JOIN key has a single canonical
@@ -229,6 +229,39 @@ def skillcorner_native_team_id(raw_team_id: str | int) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Gradient Sports (PFF WC2022 open dataset)
+# ---------------------------------------------------------------------------
+# GS IDs are numeric strings -- same shape as SkillCorner. Reuse the same
+# regex pattern.
+
+_GRADIENTSPORTS_NUMERIC_ID_PATTERN = re.compile(r"^[0-9]+$")
+
+
+def gradientsports_native_match_id(raw_match_id: str | int) -> str:
+    """Canonical Gradient Sports native match id -- stringified positive integer."""
+    s = str(raw_match_id)
+    if not _GRADIENTSPORTS_NUMERIC_ID_PATTERN.match(s):
+        raise ValueError(f"invalid Gradient Sports match id: {raw_match_id!r} (expected numeric string)")
+    return s
+
+
+def gradientsports_native_player_id(raw_player_id: str | int) -> str:
+    """Canonical Gradient Sports native player id -- stringified positive integer."""
+    s = str(raw_player_id)
+    if not _GRADIENTSPORTS_NUMERIC_ID_PATTERN.match(s):
+        raise ValueError(f"invalid Gradient Sports player id: {raw_player_id!r} (expected numeric string)")
+    return s
+
+
+def gradientsports_native_team_id(raw_team_id: str | int) -> str:
+    """Canonical Gradient Sports native team id -- stringified positive integer."""
+    s = str(raw_team_id)
+    if not _GRADIENTSPORTS_NUMERIC_ID_PATTERN.match(s):
+        raise ValueError(f"invalid Gradient Sports team id: {raw_team_id!r} (expected numeric string)")
+    return s
+
+
+# ---------------------------------------------------------------------------
 # Type-safe identifier wrappers — PR-LL3 S7
 # ---------------------------------------------------------------------------
 # Non-breaking additions — existing bare-string functions remain. These
@@ -262,6 +295,10 @@ class NativeMatchId(NamedTuple):
     def skillcorner(cls, raw: str | int) -> NativeMatchId:
         return cls(provider="skillcorner", value=skillcorner_native_match_id(raw))
 
+    @classmethod
+    def gradientsports(cls, raw: str | int) -> NativeMatchId:
+        return cls(provider="gradientsports", value=gradientsports_native_match_id(raw))
+
 
 class NativePlayerId(NamedTuple):
     """Type-safe wrapper for a native player identifier."""
@@ -289,6 +326,10 @@ class NativePlayerId(NamedTuple):
     def skillcorner(cls, raw: str | int) -> NativePlayerId:
         return cls(provider="skillcorner", value=skillcorner_native_player_id(raw))
 
+    @classmethod
+    def gradientsports(cls, raw: str | int) -> NativePlayerId:
+        return cls(provider="gradientsports", value=gradientsports_native_player_id(raw))
+
 
 class NativeTeamId(NamedTuple):
     """Type-safe wrapper for a native team identifier."""
@@ -315,3 +356,7 @@ class NativeTeamId(NamedTuple):
     @classmethod
     def skillcorner(cls, raw: str | int) -> NativeTeamId:
         return cls(provider="skillcorner", value=skillcorner_native_team_id(raw))
+
+    @classmethod
+    def gradientsports(cls, raw: str | int) -> NativeTeamId:
+        return cls(provider="gradientsports", value=gradientsports_native_team_id(raw))
