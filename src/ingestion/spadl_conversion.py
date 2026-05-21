@@ -1859,7 +1859,13 @@ def _make_gradientsports_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
         from ingestion.spadl_adapter import (
             hash_native_id_to_bigint as _hash_id,
         )
+        from ingestion.spadl_conversion import _gs_safe_to_dot_rename
         from shared.identifiers import gradientsports_native_match_id as _gs_match_id
+
+        # Reverse the Spark-level dot→safe rename so the adapter receives
+        # the original dot-notation column names it expects.
+        _safe_to_dot = _gs_safe_to_dot_rename()
+        pdf = pdf.rename(columns=_safe_to_dot)
 
         # Column list must stay in sync with the IDSSE UDF's _spadl_cols.
         # Any column added there must be added here too, or the final
@@ -2031,6 +2037,17 @@ def _make_gradientsports_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
     return _udf
 
 
+_GS_DOT_REPLACEMENT = "___"
+"""Separator used to replace literal dots in GS bronze column names.
+
+Spark interprets dots in column names as struct navigation inside
+``applyInPandas`` execution plans.  We rename ``foo.bar`` → ``foo___bar``
+at the Spark level, then reverse the rename at the top of the UDF so the
+pandas adapter (``adapt_gradientsports_events``) receives the original
+dot-notation names it expects.
+"""
+
+
 def _gs_needed_bronze_columns() -> set[str]:
     """Return the set of GS bronze column names needed by the SPADL UDF.
 
@@ -2065,6 +2082,20 @@ def _gs_needed_bronze_columns() -> set[str]:
         "ball",
         "match_id",
     }
+
+
+def _gs_dot_to_safe_rename() -> dict[str, str]:
+    """Build ``{dot_name: safe_name}`` rename map for all GS dot-notation columns.
+
+    Only columns that actually contain a dot are renamed.  Columns like
+    ``match_id`` and ``ball`` pass through unchanged.
+    """
+    return {c: c.replace(".", _GS_DOT_REPLACEMENT) for c in _gs_needed_bronze_columns() if "." in c}
+
+
+def _gs_safe_to_dot_rename() -> dict[str, str]:
+    """Inverse of :func:`_gs_dot_to_safe_rename` — ``{safe_name: dot_name}``."""
+    return {v: k for k, v in _gs_dot_to_safe_rename().items()}
 
 
 def _convert_gradientsports_from_bronze(
@@ -2117,14 +2148,22 @@ def _convert_gradientsports_from_bronze(
 
     new_events_sdf = events_sdf.filter(spark_fn.col("match_id").isin(new_match_ids))
 
-    # Project only needed columns with backtick quoting.  The bronze table has
-    # 264 columns, many with literal dots (e.g. "gameEvents.gameEventType").
-    # Spark interprets dots as struct navigation; backticks force literal
-    # column-name resolution.  Without this projection, applyInPandas fails
-    # with UNRESOLVED_COLUMN on Databricks serverless.
+    # Project only needed columns with backtick quoting, then RENAME
+    # dot-notation columns to use '___' as separator.  Spark interprets
+    # dots as struct navigation inside applyInPandas execution plans —
+    # backtick quoting fixes the .select() but NOT the subsequent
+    # FlatMapGroupsInPandas resolution pass.  Renaming at the Spark level
+    # makes the schema dot-free; the UDF reverses the rename at the top.
     needed = _gs_needed_bronze_columns()
     _bronze_field_names = {f.name for f in events_sdf.schema.fields}
-    new_events_sdf = new_events_sdf.select([spark_fn.col(f"`{c}`") for c in sorted(needed) if c in _bronze_field_names])
+    dot_to_safe = _gs_dot_to_safe_rename()
+    new_events_sdf = new_events_sdf.select(
+        [
+            spark_fn.col(f"`{c}`").alias(dot_to_safe.get(c, c))
+            for c in sorted(needed)
+            if c in _bronze_field_names
+        ]
+    )
 
     spadl_schema = StructType(
         [

@@ -533,6 +533,35 @@ class TestDotNotationColumnProjection:
         missing = set(_GS_BRONZE_TO_SNAKE.keys()) - _gs_needed_bronze_columns()
         assert not missing, f"Rename-map keys missing from needed cols: {sorted(missing)}"
 
+    def test_dot_to_safe_rename_round_trips(self) -> None:
+        """dot→safe→dot rename round-trips to the original column name."""
+        from ingestion.spadl_conversion import (
+            _gs_dot_to_safe_rename,
+            _gs_safe_to_dot_rename,
+        )
+
+        dot_to_safe = _gs_dot_to_safe_rename()
+        safe_to_dot = _gs_safe_to_dot_rename()
+
+        # Every dot-notation column round-trips
+        for orig, safe in dot_to_safe.items():
+            assert "." not in safe, f"Safe name still has dot: {safe}"
+            assert safe_to_dot[safe] == orig, f"Round-trip failed: {orig} → {safe} → {safe_to_dot.get(safe)}"
+
+        # Sizes match
+        assert len(dot_to_safe) == len(safe_to_dot)
+
+    def test_dot_to_safe_rename_covers_all_dot_columns(self) -> None:
+        """Every dot-notation column in needed set has a safe rename."""
+        from ingestion.spadl_conversion import (
+            _gs_dot_to_safe_rename,
+            _gs_needed_bronze_columns,
+        )
+
+        dot_cols = {c for c in _gs_needed_bronze_columns() if "." in c}
+        rename_keys = set(_gs_dot_to_safe_rename().keys())
+        assert dot_cols == rename_keys
+
     def test_needed_cols_cover_derived_columns(self) -> None:
         """All derived columns (gameEventId, gameEvents.*) are in the needed set."""
         from ingestion.spadl_conversion import _gs_needed_bronze_columns
@@ -573,12 +602,12 @@ class TestDotNotationColumnProjection:
     def test_udf_succeeds_with_only_needed_cols(self) -> None:
         """UDF produces valid output when given ONLY the projected columns.
 
-        Simulates the backtick-projection step: build a pandas DataFrame
-        with only the columns in _gs_needed_bronze_columns(), then run
-        the UDF.  This catches any column the UDF reads that we forgot
-        to include.
+        Simulates the full Spark-level path: project needed columns, then
+        rename dot-notation to safe names (as Spark does before applyInPandas),
+        then run the UDF (which reverses the rename internally).
         """
         from ingestion.spadl_conversion import (
+            _gs_dot_to_safe_rename,
             _gs_needed_bronze_columns,
             _make_gradientsports_spadl_udf,
         )
@@ -590,6 +619,11 @@ class TestDotNotationColumnProjection:
         projected_cols = sorted(needed & set(full_pdf.columns))
         projected_pdf = full_pdf[projected_cols]
 
+        # Apply the same dot→safe rename that Spark does before applyInPandas.
+        # The UDF must reverse this rename internally.
+        dot_to_safe = _gs_dot_to_safe_rename()
+        projected_pdf = projected_pdf.rename(columns=dot_to_safe)
+
         udf_fn = _make_gradientsports_spadl_udf()
         result = udf_fn(projected_pdf)
         assert len(result) > 0, "UDF must produce actions from projected columns"
@@ -597,15 +631,18 @@ class TestDotNotationColumnProjection:
 
 
 class TestSparkDotNotationColumns:
-    """PySpark integration: dot-notation bronze column names require backtick quoting.
+    """PySpark integration: dot-notation bronze column names require rename.
 
     Spark interprets `gameEvents.gameEventType` as struct navigation
     (gameEvents → gameEventType).  The GS bronze table stores these as flat
-    column names with literal dots.  Backtick quoting forces literal
-    column-name resolution.
+    column names with literal dots.  Backtick quoting fixes .select() but
+    NOT applyInPandas (which re-resolves columns from the schema).
 
-    These tests exercise the EXACT column-projection + applyInPandas path
-    used in ``_convert_gradientsports_from_bronze`` to catch
+    The fix: backtick-quoted .select() + .alias() to rename dots → '___',
+    then the UDF reverses the rename at the top.
+
+    These tests exercise the EXACT column-projection + rename + applyInPandas
+    path used in ``_convert_gradientsports_from_bronze`` to catch
     UNRESOLVED_COLUMN errors before deployment.
     """
 
@@ -674,11 +711,16 @@ class TestSparkDotNotationColumns:
         assert selected.count() == 2
 
     def test_apply_in_pandas_with_dot_columns(self, spark) -> None:
-        """groupBy().applyInPandas() succeeds on DataFrames with dot-notation columns.
+        """groupBy().applyInPandas() succeeds after dot→safe rename.
 
         This is the exact failure mode that caused UNRESOLVED_COLUMN on Databricks:
         Spark tries to resolve all input columns in the execution plan for
-        applyInPandas, and dot-notation columns fail without backtick quoting.
+        applyInPandas.  Backtick quoting alone is NOT sufficient — the
+        FlatMapGroupsInPandas operator re-resolves column names from the
+        schema, interpreting dots as struct navigation.
+
+        The fix: .select() with backtick quoting + .alias() to rename dots
+        to '___'.  The UDF reverses the rename at the top.
         """
         from pyspark.sql import functions as spark_fn
         from pyspark.sql.types import (
@@ -688,9 +730,13 @@ class TestSparkDotNotationColumns:
             StructType,
         )
 
-        from ingestion.spadl_conversion import _gs_needed_bronze_columns
+        from ingestion.spadl_conversion import (
+            _gs_dot_to_safe_rename,
+            _gs_needed_bronze_columns,
+        )
 
         needed = _gs_needed_bronze_columns()
+        dot_to_safe = _gs_dot_to_safe_rename()
 
         # Create fixture with 2 matches (5 rows each)
         rows_a = [_make_gs_bronze_row(match_id="10502") for _ in range(5)]
@@ -698,9 +744,19 @@ class TestSparkDotNotationColumns:
         pdf = pd.DataFrame(rows_a + rows_b)
         sdf = spark.createDataFrame(pdf)
 
-        # Project with backtick quoting (the fix under test)
+        # Project with backtick quoting + rename (the fix under test)
         bronze_field_names = {f.name for f in sdf.schema.fields}
-        projected = sdf.select([spark_fn.col(f"`{c}`") for c in sorted(needed) if c in bronze_field_names])
+        projected = sdf.select(
+            [
+                spark_fn.col(f"`{c}`").alias(dot_to_safe.get(c, c))
+                for c in sorted(needed)
+                if c in bronze_field_names
+            ]
+        )
+
+        # Verify no dots remain in the projected schema
+        dot_cols = [f.name for f in projected.schema.fields if "." in f.name]
+        assert dot_cols == [], f"Schema still has dot-notation columns: {dot_cols}"
 
         # Minimal output schema for the identity UDF
         out_schema = StructType(
@@ -723,9 +779,9 @@ class TestSparkDotNotationColumns:
     def test_full_gs_udf_via_spark(self, spark) -> None:
         """End-to-end: GS UDF produces valid SPADL output via Spark applyInPandas.
 
-        Exercises the complete path: backtick projection → groupBy → UDF →
-        SPADL output schema.  This is the integration test that would have
-        caught the UNRESOLVED_COLUMN production failure.
+        Exercises the complete path: backtick projection → dot→safe rename →
+        groupBy → UDF (reverses rename) → SPADL output schema.
+        This is the integration test that catches UNRESOLVED_COLUMN failures.
         """
         from pyspark.sql import functions as spark_fn
         from pyspark.sql.types import (
@@ -738,11 +794,13 @@ class TestSparkDotNotationColumns:
         )
 
         from ingestion.spadl_conversion import (
+            _gs_dot_to_safe_rename,
             _gs_needed_bronze_columns,
             _make_gradientsports_spadl_udf,
         )
 
         needed = _gs_needed_bronze_columns()
+        dot_to_safe = _gs_dot_to_safe_rename()
 
         # Build 2-match fixture (to test groupBy dispatches per-match)
         rows_a = []
@@ -767,9 +825,15 @@ class TestSparkDotNotationColumns:
         pdf = pd.DataFrame(rows_a + rows_b)
         sdf = spark.createDataFrame(pdf)
 
-        # Project with backtick quoting
+        # Project with backtick quoting + dot→safe rename
         bronze_field_names = {f.name for f in sdf.schema.fields}
-        projected = sdf.select([spark_fn.col(f"`{c}`") for c in sorted(needed) if c in bronze_field_names])
+        projected = sdf.select(
+            [
+                spark_fn.col(f"`{c}`").alias(dot_to_safe.get(c, c))
+                for c in sorted(needed)
+                if c in bronze_field_names
+            ]
+        )
 
         # SPADL output schema (same as in _convert_gradientsports_from_bronze)
         spadl_schema = StructType(
