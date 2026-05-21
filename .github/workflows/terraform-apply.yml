@@ -51,9 +51,26 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform init
 
+      # ── Synced-table state-drift guard ──────────────────────────────────
+      # Synced tables are UI-created and imported into state. The Databricks
+      # provider occasionally drops them during refresh (transient API 404),
+      # which causes TF to plan a "create" that fails with "Database instance
+      # is not found" (Autoscaling projects don't support the create API).
+      # This guard catches the symptom and aborts with a clear re-import hint
+      # instead of auto-approving a doomed create.
+      - name: Terraform Plan (synced-table drift guard)
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          terraform plan -no-color -out=tfplan 2>&1 | tee plan.log
+          if grep -q 'synced_database_table.*will be created' plan.log; then
+            echo "::error::Synced table(s) dropped from TF state during refresh. Re-import required — see terraform/modules/synced_tables/main.tf header."
+            grep 'synced_database_table.*will be created' plan.log
+            exit 1
+          fi
+
       - name: Terraform Apply
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform apply -auto-approve -no-color
+        run: terraform apply -no-color tfplan
 
       # ── Post-apply: enforce max_retries via REST API ──────────────────────
       # The Databricks TF provider (Go omitempty) silently drops max_retries=0.

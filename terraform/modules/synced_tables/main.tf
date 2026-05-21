@@ -19,6 +19,19 @@
 # The lifecycle block uses `ignore_changes = all` because the provider does
 # not support updates to synced tables ("Update is not yet implemented").
 #
+# STATE DRIFT: The Databricks provider occasionally drops synced tables from
+# state during refresh (transient API 404). The terraform-apply.yml workflow
+# has a "synced-table drift guard" step that aborts if any synced table is
+# planned for creation. To fix, re-import the missing table(s) locally:
+#
+#   cd terraform/environments/dev
+#   terraform import 'module.synced_tables.databricks_database_synced_database_table.<resource>' \
+#     'soccer_analytics.dev_gold.<table_name>'
+#
+# Then re-run the CI workflow. Incident: 2026-05-21, 4 tables (fct_action_values,
+# fct_heatmap_agg, fct_vaep_breakdown_agg, fct_funnel_stages_agg) dropped from
+# state between two CI runs despite no intervening TF apply.
+#
 # Fact tables (events and metrics):
 #   - fct_shots:            Shot events with xG, outcome, body part
 #   - fct_passes:           Pass events with success rate, distance, angle
