@@ -38,9 +38,9 @@ flattened as (
         timestamp,
 
         -- Team and player (already extracted by ingestion)
-        cast(team_id as int)                            as team_id,
+        cast(team_id as bigint)                         as team_id,
         team                                            as team_name,
-        cast(player_id as int)                          as player_id,
+        cast(player_id as bigint)                       as player_id,
         player                                          as player_name,
 
         -- Location (parse JSON string "[x, y]" into separate columns)
@@ -49,7 +49,7 @@ flattened as (
 
         -- Possession context (already flat)
         possession,
-        cast(possession_team_id as int)                 as possession_team_id,
+        cast(possession_team_id as bigint)              as possession_team_id,
 
         -- Play pattern (already a flat string)
         play_pattern,
@@ -84,7 +84,7 @@ flattened as (
         pass_through_ball,
 
         -- Pass recipient (for pass network edges)
-        cast(pass_recipient_id as int)                  as pass_recipient_id,
+        cast(pass_recipient_id as bigint)               as pass_recipient_id,
         pass_recipient                                  as pass_recipient_name,
 
         -- Pass attribute flags (already flat booleans in bronze — PR 1.5 expansion).

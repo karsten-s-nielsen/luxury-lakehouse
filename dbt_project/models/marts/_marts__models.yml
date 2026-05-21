@@ -34,13 +34,13 @@ models:
         data_type: bigint
         description: Kimball surrogate FK to dim_competitions.competition_key (ADR-011, PR 2). fct_shots always populates this (source set is SB+WS only; both providers have competition_id populated).
       - name: player_id
-        data_type: int
-        description: Foreign key to dim_players
+        data_type: bigint
+        description: Foreign key to dim_players (BIGINT for hashed SkillCorner IDs).
         data_tests:
           - not_null
       - name: team_id
-        data_type: int
-        description: Foreign key to dim_teams
+        data_type: bigint
+        description: Foreign key to dim_teams (BIGINT for hashed SkillCorner IDs).
         data_tests:
           - not_null
       - name: team_key
@@ -206,11 +206,11 @@ models:
         data_type: bigint
         description: Kimball surrogate FK to dim_competitions.competition_key (ADR-011, PR 2). NULL for Metrica (no competition metadata).
       - name: player_id
-        data_type: int
-        description: Foreign key to dim_players (NULL for IDSSE/Metrica — see stg_*__passes).
+        data_type: bigint
+        description: Foreign key to dim_players (BIGINT for hashed SkillCorner/IDSSE/Metrica IDs; NULL for string-native sources without legacy INT mapping).
       - name: team_id
-        data_type: int
-        description: Foreign key to dim_teams (NULL for IDSSE/Metrica — see stg_*__passes).
+        data_type: bigint
+        description: Foreign key to dim_teams (BIGINT for hashed SkillCorner/IDSSE/Metrica IDs; NULL for string-native sources without legacy INT mapping).
       - name: team_key
         data_type: bigint
         description: >
@@ -363,7 +363,7 @@ models:
         data_type: boolean
         description: Whether the pass was a through ball
       - name: pass_recipient_id
-        data_type: int
+        data_type: bigint
         description: Foreign key to dim_players — player who received the pass (NULL for Wyscout and incomplete passes)
         data_tests:
           - relationships:
@@ -443,12 +443,12 @@ models:
         data_type: bigint
         description: Kimball surrogate FK to dim_teams.team_key. Nullable — aggregate spans teams.
       - name: player_id
-        data_type: int
+        data_type: bigint
         description: >
-          LEGACY native player identifier. 1 NULL outlier (match 3825894)
-          previously warn-suppressed; closed in PR 5a via INNER JOIN to
-          dim_players. Retained for the coordinated 2026-07-22 dual-column
-          sunset per ADR-011.
+          LEGACY native player identifier (BIGINT for hashed SkillCorner IDs).
+          1 NULL outlier (match 3825894) previously warn-suppressed; closed in
+          PR 5a via INNER JOIN to dim_players. Retained for the coordinated
+          2026-07-22 dual-column sunset per ADR-011.
         data_tests:
           - not_null
       - name: data_source
@@ -672,19 +672,21 @@ models:
                 enabled: "{{ var('include_post_deploy_tests', false) }}"
                 tags: ['post_deploy_only']
       - name: player_id
-        data_type: int
+        data_type: bigint
         description: >
-          Legacy BIGINT player_id. NULL for IDSSE/Metrica (string-native
-          sources); use player_key + player_id_native for those sources.
+          Legacy BIGINT player_id. NULL for IDSSE/Metrica/SkillCorner
+          (string-native sources); use player_key + player_id_native for
+          those sources.
         data_tests:
           - not_null:
               config:
                 where: "data_source IN ('statsbomb', 'wyscout')"
       - name: team_id
-        data_type: int
+        data_type: bigint
         description: >
           Legacy BIGINT team_id. NULL for IDSSE/Metrica (string-native
-          sources); use team_key + team_id_native for those sources.
+          sources); hashed BIGINT for SkillCorner. Use team_key +
+          team_id_native for dimension lookups.
         data_tests:
           - not_null:
               config:
@@ -1102,11 +1104,11 @@ models:
         data_type: int
         description: Season identifier (NULL for IDSSE/Metrica).
       - name: home_team_id
-        data_type: int
-        description: Foreign key to dim_teams (NULL for non-StatsBomb rows in PR 2).
+        data_type: bigint
+        description: Foreign key to dim_teams (NULL for non-StatsBomb rows in PR 2, BIGINT for consistency).
       - name: away_team_id
-        data_type: int
-        description: Foreign key to dim_teams (NULL for non-StatsBomb rows in PR 2).
+        data_type: bigint
+        description: Foreign key to dim_teams (NULL for non-StatsBomb rows in PR 2, BIGINT for consistency).
       - name: home_team_key
         data_type: bigint
         description: Kimball surrogate FK to dim_teams (home team) — PR 7 hotfix #3 extended resolution to all providers via int_tracking__match_side_team_bridge for tracking-derived providers (IDSSE/Metrica/SkillCorner); SB/WS continue via event-team-id pivot.
@@ -2481,10 +2483,11 @@ models:
         data_tests:
           - not_null
       - name: player_id
-        data_type: int
+        data_type: bigint
         description: >
-          Legacy native integer (StatsBomb + Wyscout only). Dual-column window
-          through 2026-07-22 per ADR-011. NULL for IDSSE/Metrica rows.
+          Legacy native integer (StatsBomb + Wyscout only, BIGINT for consistency
+          with fact tables). Dual-column window through 2026-07-22 per ADR-011.
+          NULL for IDSSE/Metrica/SkillCorner rows.
       - name: player_name
         data_type: string
       - name: player_display_name
@@ -3773,8 +3776,8 @@ models:
           - unique
           - not_null
       - name: player_id
-        data_type: int
-        description: Foreign key to dim_players (goalkeeper only)
+        data_type: bigint
+        description: Foreign key to dim_players (goalkeeper only, BIGINT for hashed SkillCorner IDs).
         data_tests:
           - not_null
       - name: match_id
@@ -3783,8 +3786,8 @@ models:
         data_tests:
           - not_null
       - name: team_id
-        data_type: int
-        description: "GK's team in this match (min team_id from SPADL actions)"
+        data_type: bigint
+        description: "GK's team in this match (min team_id from SPADL actions, BIGINT for hashed SkillCorner IDs)."
       - name: competition_id
         data_type: int
         description: Foreign key to dim_competitions
@@ -4139,8 +4142,8 @@ models:
         data_tests:
           - not_null
       - name: team_id
-        data_type: int
-        description: Acting team (legacy INT).
+        data_type: bigint
+        description: Acting team (BIGINT for hashed SkillCorner IDs).
         data_tests:
           - not_null
       - name: team_key
@@ -4154,7 +4157,7 @@ models:
                 config:
                   where: "team_key IS NOT NULL"
       - name: opponent_team_id
-        data_type: int
+        data_type: bigint
         description: >
           The other team in the match (derived from fct_match_summary home/away).
           Wyscout rows previously NULL (~7,587 of ~21,000). PR 5a closed the
@@ -4240,8 +4243,8 @@ models:
         data_tests:
           - not_null
       - name: team_id
-        data_type: int
-        description: Foreign key to dim_teams.
+        data_type: bigint
+        description: Foreign key to dim_teams (BIGINT for hashed SkillCorner IDs).
         data_tests:
           - not_null
       - name: team_key
@@ -4297,16 +4300,16 @@ models:
         data_tests:
           - not_null
       - name: team_id
-        data_type: int
-        description: Foreign key to dim_teams.
+        data_type: bigint
+        description: Foreign key to dim_teams (BIGINT for hashed SkillCorner IDs).
         data_tests:
           - not_null
       - name: team_key
         data_type: bigint
         description: Kimball surrogate FK to dim_teams (PR 7 — passthrough from upstream fct_action_values).
       - name: player_id
-        data_type: int
-        description: Foreign key to dim_players.
+        data_type: bigint
+        description: Foreign key to dim_players (BIGINT for hashed SkillCorner IDs).
         data_tests:
           - not_null
       - name: player_key
@@ -4373,13 +4376,13 @@ models:
         data_type: int
         description: Season identifier.
       - name: team_id
-        data_type: int
-        description: Team the goalkeeper played for in this match.
+        data_type: bigint
+        description: Team the goalkeeper played for in this match (BIGINT for hashed SkillCorner IDs).
         data_tests:
           - not_null
       - name: player_id
-        data_type: int
-        description: Foreign key to dim_players (goalkeeper).
+        data_type: bigint
+        description: Foreign key to dim_players (goalkeeper, BIGINT for hashed SkillCorner IDs).
         data_tests:
           - not_null
       - name: period
@@ -4511,14 +4514,14 @@ models:
         data_type: int
         description: Seconds within minute.
       - name: player_id
-        data_type: int
-        description: Foreign key to dim_players (the carded player).
+        data_type: bigint
+        description: Foreign key to dim_players (the carded player, BIGINT for future multi-source support).
       - name: player_key
         data_type: bigint
         description: Kimball surrogate FK to dim_players (PR 7 — resolved via dim_players JOIN, provider='statsbomb').
       - name: team_id
-        data_type: int
-        description: Team the carded player played for.
+        data_type: bigint
+        description: Team the carded player played for (BIGINT for future multi-source support).
         data_tests:
           - not_null
       - name: team_key

@@ -80,7 +80,7 @@ idsse_players as (
     -- name variation across matches.
     select
         cast(player_id as string)                       as native_player_id,
-        cast(null as int)                               as player_id_legacy,
+        cast(null as bigint)                            as player_id_legacy,
         max(player_display_name)                        as player_name,
         max(player_display_name)                        as player_display_name,
         cast(null as string)                            as primary_position,
@@ -101,7 +101,7 @@ metrica_anon_players as (
 
     select distinct
         native_player_id,
-        cast(null as int)                               as player_id_legacy,
+        cast(null as bigint)                            as player_id_legacy,
         concat('Metrica ', match_id, ' ', initcap(side), ' ', player_key_in_map) as player_name,
         player_key_in_map                               as player_display_name,
         cast(null as string)                            as primary_position,
@@ -122,7 +122,7 @@ metrica_real_players as (
     -- Forward-compat zero-row branch for future subscription data.
     select distinct
         native_player_id,
-        cast(null as int)                               as player_id_legacy,
+        cast(null as bigint)                            as player_id_legacy,
         cast(null as string)                            as player_name,
         player_key_in_map                               as player_display_name,
         cast(null as string)                            as primary_position,
@@ -144,7 +144,7 @@ skillcorner_players as (
     -- Real player names available from match.json metadata via pining-for-the-data API.
     select
         cast(player_id as string)                       as native_player_id,
-        cast(null as int)                               as player_id_legacy,
+        cast(null as bigint)                            as player_id_legacy,
         max(concat(first_name, ' ', last_name))         as player_name,
         max(player_name)                                as player_display_name,
         max(position_name)                              as primary_position,

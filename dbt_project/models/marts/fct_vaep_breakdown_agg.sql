@@ -58,9 +58,9 @@ final as (
 
     select
         cast(competition_id as int)                   as competition_id,
-        cast(team_id as int)                          as team_id,
+        cast(team_id as bigint)                       as team_id,
         team_key,
-        cast(player_id as int)                        as player_id,
+        cast(player_id as bigint)                     as player_id,
         player_key,
         cast(action_type as string)                   as action_type,
         cast(total_vaep as double)                    as total_vaep,

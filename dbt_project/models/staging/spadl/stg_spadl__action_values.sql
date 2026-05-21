@@ -56,8 +56,8 @@ cleaned as (
     select
         -- Identifiers
         game_id                                         as match_id,
-        cast(player_id as int)                          as player_id,
-        cast(team_id as int)                            as team_id,
+        cast(player_id as bigint)                       as player_id,
+        cast(team_id as bigint)                         as team_id,
         original_event_id,
         action_id,
 
@@ -161,7 +161,7 @@ cleaned as (
       -- Same pattern as int_unified_passes (PR #215) and int_unified_shots
       -- (PR #217). Drop here at the staging boundary so dim_players LEFT JOIN
       -- in fct_action_values resolves 100% on every Wyscout row.
-      and not (d.data_source = 'wyscout' and (d.player_id is null or cast(d.player_id as int) = 0))
+      and not (d.data_source = 'wyscout' and (d.player_id is null or cast(d.player_id as bigint) = 0))
 
 )
 

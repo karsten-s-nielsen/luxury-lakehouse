@@ -94,7 +94,7 @@ final as (
 
     select
         cast(competition_id as int)                  as competition_id,
-        cast(team_id as int)                         as team_id,
+        cast(team_id as bigint)                      as team_id,
         team_key,
         cast(action_type as string)                  as action_type,
         cast(x_bin as int)                           as x_bin,

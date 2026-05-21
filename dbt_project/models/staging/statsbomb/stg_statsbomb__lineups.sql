@@ -38,7 +38,7 @@ flattened as (
         team_name,
 
         -- Player info (already flat columns)
-        cast(player_id as int)                              as player_id,
+        cast(player_id as bigint)                           as player_id,
         player_name,
         player_nickname,
         cast(jersey_number as int)                          as jersey_number,

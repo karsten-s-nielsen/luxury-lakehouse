@@ -24,9 +24,9 @@ with statsbomb_passes as (
         cast(event_id as string)                                as event_id,
         cast(match_id as string)                                as native_match_id,
         'statsbomb'                                             as provider,
-        cast(player_id as int)                                  as player_id,
-        cast(team_id as int)                                    as team_id,
-        cast(pass_recipient_id as int)                          as pass_recipient_id,
+        cast(player_id as bigint)                               as player_id,
+        cast(team_id as bigint)                                 as team_id,
+        cast(pass_recipient_id as bigint)                       as pass_recipient_id,
         -- PR 7 (ADR-011): native_* STRING columns surfaced for dim_teams /
         -- dim_players JOINs in fct_passes. SB native IDs are real BIGINTs;
         -- cast to string preserves identity. NULL passthrough preserved.
@@ -67,9 +67,9 @@ wyscout_passes as (
         cast(event_sk as string)                                as event_id,
         cast(match_id as string)                                as native_match_id,
         'wyscout'                                               as provider,
-        cast(player_id as int)                                  as player_id,
-        cast(team_id as int)                                    as team_id,
-        cast(null as int)                                       as pass_recipient_id,
+        cast(player_id as bigint)                               as player_id,
+        cast(team_id as bigint)                                 as team_id,
+        cast(null as bigint)                                    as pass_recipient_id,
         -- PR 7 (ADR-011): WS open-data has no recipient field (kloppy strips
         -- it). team / player native IDs are real BIGINTs cast to string.
         cast(team_id as string)                                 as native_team_id,
@@ -114,9 +114,9 @@ idsse_passes as (
         cast(event_id as string)                                as event_id,
         cast(match_id as string)                                as native_match_id,
         'idsse'                                                 as provider,
-        cast(player_id as int)                                  as player_id,
-        cast(team_id as int)                                    as team_id,
-        cast(pass_recipient_id as int)                          as pass_recipient_id,
+        cast(player_id as bigint)                               as player_id,
+        cast(team_id as bigint)                                 as team_id,
+        cast(pass_recipient_id as bigint)                       as pass_recipient_id,
         -- PR 7 (ADR-011): IDSSE legacy INT IDs are forced NULL upstream
         -- (DFL native IDs are STRING). Surface the real DFL identifiers
         -- (CLU / OBJ) for dim_teams + dim_players JOINs in fct_passes.
@@ -151,9 +151,9 @@ metrica_passes as (
         cast(event_id as string)                                as event_id,
         cast(match_id as string)                                as native_match_id,
         'metrica'                                               as provider,
-        cast(player_id as int)                                  as player_id,
-        cast(team_id as int)                                    as team_id,
-        cast(pass_recipient_id as int)                          as pass_recipient_id,
+        cast(player_id as bigint)                               as player_id,
+        cast(team_id as bigint)                                 as team_id,
+        cast(pass_recipient_id as bigint)                       as pass_recipient_id,
         -- PR 7 (ADR-011): Metrica anonymised — synthesize native IDs that
         -- match the dim_teams.metrica_anon_teams + dim_players.metrica_anon_players
         -- patterns from PR 5a (concat('metrica_', match_id, '_', side, ...)).
