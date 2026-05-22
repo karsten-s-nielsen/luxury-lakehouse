@@ -211,10 +211,13 @@ class TestDeriveUpstreamTables:
     def test_strips_synced_suffix_default_schema(self) -> None:
         # Monkeypatch SYNCED_TABLES to a known list for isolation
         import ingestion.refresh_synced_tables as mod
-        from ingestion.refresh_synced_tables import _derive_upstream_tables
+        from ingestion.refresh_synced_tables import SyncedTableConfig, _derive_upstream_tables
 
         original = mod.SYNCED_TABLES
-        mod.SYNCED_TABLES = [("fct_shots_synced", None), ("dim_players_synced", None)]
+        mod.SYNCED_TABLES = [
+            SyncedTableConfig("fct_shots_synced", "fct_shots", ("shot_id",)),
+            SyncedTableConfig("dim_players_synced", "dim_players", ("player_id",)),
+        ]
         try:
             result = _derive_upstream_tables("cat", "gold")
         finally:
@@ -224,12 +227,17 @@ class TestDeriveUpstreamTables:
 
     def test_applies_schema_override(self) -> None:
         import ingestion.refresh_synced_tables as mod
-        from ingestion.refresh_synced_tables import _derive_upstream_tables
+        from ingestion.refresh_synced_tables import SyncedTableConfig, _derive_upstream_tables
 
         original = mod.SYNCED_TABLES
         mod.SYNCED_TABLES = [
-            ("workflow_cost_live_synced", "observability"),
-            ("fct_shots_synced", None),
+            SyncedTableConfig(
+                "workflow_cost_live_synced",
+                "workflow_cost_live",
+                ("run_id",),
+                schema_override="observability",
+            ),
+            SyncedTableConfig("fct_shots_synced", "fct_shots", ("shot_id",)),
         ]
         try:
             result = _derive_upstream_tables("cat", "gold")
