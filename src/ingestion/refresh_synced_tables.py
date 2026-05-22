@@ -61,6 +61,35 @@ else:
     except ImportError:
         WorkspaceClient = None  # type: ignore[assignment, misc]
 
+from dataclasses import dataclass
+from typing import Literal
+
+_SCHEDULING_POLICIES = ("SNAPSHOT", "TRIGGERED")
+
+
+@dataclass(frozen=True)
+class SyncedTableConfig:
+    """Single source of truth for a Lakebase synced table definition.
+
+    All consumers — create, delete, refresh, grants, indexes — read from the
+    ``SYNCED_TABLES`` list of these configs. No metadata split between TF and Python.
+    """
+
+    name: str  # e.g. "fct_shots_synced"
+    source_table: str  # e.g. "fct_shots"
+    primary_key_columns: tuple[str, ...]
+    scheduling_policy: Literal["SNAPSHOT", "TRIGGERED"] = "SNAPSHOT"
+    schema_override: str | None = None  # None -> DEFAULT_SCHEMA ("dev_gold")
+
+    def __post_init__(self) -> None:
+        if self.scheduling_policy not in _SCHEDULING_POLICIES:
+            msg = (
+                f"Invalid scheduling_policy {self.scheduling_policy!r} for {self.name}. "
+                f"Must be one of {_SCHEDULING_POLICIES}"
+            )
+            raise ValueError(msg)
+
+
 DEFAULT_CATALOG = "soccer_analytics"
 DEFAULT_SCHEMA = "dev_gold"
 
@@ -134,57 +163,82 @@ def _get_host() -> str:
     return _CACHED_HOST
 
 
-# Synced tables: (table_name, schema_override or None for DEFAULT_SCHEMA).
-# Tables in non-default schemas (e.g., observability) use the override.
-SYNCED_TABLES: list[tuple[str, str | None]] = [
-    ("fct_shots_synced", None),
-    # v2 xG mart added 2026-04-22 (PR 3, ADR-013): first mart applying the
-    # ML-inference-outputs pattern (bronze raw → dbt staging → gold mart).
-    ("fct_xg_predictions_v2_synced", None),
-    ("fct_passes_synced", None),
-    ("fct_player_stats_synced", None),
-    ("fct_match_summary_synced", None),
-    ("fct_player_embeddings_synced", None),
-    ("fct_action_values_synced", None),
-    ("fct_tracking_frames_synced", None),
-    ("fct_physical_stats_synced", None),
-    ("fct_defensive_values_synced", None),
-    ("fct_defcon_actions_synced", None),
-    ("fct_defcon_pressure_synced", None),
-    ("fct_workflow_costs_synced", None),
-    ("fct_formation_labels_synced", None),
-    ("fct_player_positions_synced", None),
-    ("fct_position_maps_synced", None),
-    ("fct_player_embeddings_career_synced", None),
-    ("fct_player_embeddings_season_synced", None),
-    ("fct_line_breaking_results_synced", None),
-    ("fct_pausa_rankings_synced", None),
-    ("fct_player_percentiles_synced", None),
-    ("fct_off_ball_xt_synced", None),
-    ("fct_goalkeeper_stats_synced", None),
-    ("fct_player_embeddings_career_360_synced", None),
-    ("fct_player_embeddings_season_360_synced", None),
-    ("fct_space_creation_synced", None),
-    ("fct_pausa_values_synced", None),
-    ("fct_pass_timing_synced", None),
-    ("fct_tracking_avg_positions_synced", None),
-    ("fct_tracking_shape_timeline_synced", None),
-    # Pre-aggregated marts added 2026-04-17 (perf/base-case-query-bottlenecks)
-    ("fct_heatmap_agg_synced", None),
-    ("fct_vaep_breakdown_agg_synced", None),
-    ("fct_gk_actions_detail_synced", None),
-    # Pre-aggregated mart added 2026-04-18 (perf/conversion-funnel, D58)
-    ("fct_funnel_stages_agg_synced", None),
-    # Match Summary redesign 2026-04-19 — discipline events for Row 1 / Row 2
-    ("fct_discipline_events_synced", None),
-    ("workflow_cost_live_synced", "observability"),
-    ("dim_players_synced", None),
-    ("dim_teams_synced", None),
-    ("dim_competitions_synced", None),
-    # Kimball conformed match dimension added 2026-04-20 (ADR-011)
-    ("dim_matches_synced", None),
-    # TC-1 tracking context — per-action tracking features (2026-05-18)
-    ("fct_tracking_context_synced", None),
+SYNCED_TABLES: list[SyncedTableConfig] = [
+    # ── Fact tables ──────────────────────────────────────────────────────────
+    SyncedTableConfig("fct_shots_synced", "fct_shots", ("shot_id",)),
+    SyncedTableConfig("fct_xg_predictions_v2_synced", "fct_xg_predictions_v2", ("shot_id",)),
+    SyncedTableConfig("fct_passes_synced", "fct_passes", ("pass_id",), "TRIGGERED"),
+    SyncedTableConfig("fct_player_stats_synced", "fct_player_stats", ("player_stats_id",)),
+    SyncedTableConfig("fct_match_summary_synced", "fct_match_summary", ("match_id",)),
+    SyncedTableConfig("fct_player_embeddings_synced", "fct_player_embeddings", ("embedding_id",), "TRIGGERED"),
+    SyncedTableConfig("fct_action_values_synced", "fct_action_values", ("action_value_id",), "TRIGGERED"),
+    SyncedTableConfig("fct_tracking_frames_synced", "fct_tracking_frames", ("tracking_id",), "TRIGGERED"),
+    SyncedTableConfig("fct_physical_stats_synced", "fct_physical_stats", ("physical_stats_id",)),
+    SyncedTableConfig("fct_defensive_values_synced", "fct_defensive_values", ("defensive_value_id",), "TRIGGERED"),
+    SyncedTableConfig("fct_defcon_actions_synced", "fct_defcon_actions", ("defcon_action_id",), "TRIGGERED"),
+    SyncedTableConfig("fct_defcon_pressure_synced", "fct_defcon_pressure", ("pressure_id",), "TRIGGERED"),
+    SyncedTableConfig("fct_workflow_costs_synced", "fct_workflow_costs", ("task_key", "usage_date", "job_run_id")),
+    SyncedTableConfig("fct_formation_labels_synced", "fct_formation_labels", ("formation_label_id",)),
+    SyncedTableConfig("fct_player_positions_synced", "fct_player_positions", ("position_id",)),
+    SyncedTableConfig("fct_position_maps_synced", "fct_position_maps", ("position_map_id",)),
+    SyncedTableConfig("fct_player_embeddings_career_synced", "fct_player_embeddings_career", ("canonical_player_id",)),
+    SyncedTableConfig("fct_player_embeddings_season_synced", "fct_player_embeddings_season", ("embedding_season_id",)),
+    SyncedTableConfig(
+        "fct_line_breaking_results_synced",
+        "fct_line_breaking_results",
+        ("line_breaking_id",),
+        "TRIGGERED",
+    ),
+    SyncedTableConfig("fct_pausa_rankings_synced", "fct_pausa_rankings", ("player_id",)),
+    SyncedTableConfig(
+        "fct_player_percentiles_synced",
+        "fct_player_percentiles",
+        ("player_id", "competition_id", "season_id"),
+    ),
+    SyncedTableConfig("fct_off_ball_xt_synced", "fct_off_ball_xt", ("off_ball_xt_id",), "TRIGGERED"),
+    SyncedTableConfig("fct_goalkeeper_stats_synced", "fct_goalkeeper_stats", ("gk_stat_id",)),
+    SyncedTableConfig(
+        "fct_player_embeddings_career_360_synced",
+        "fct_player_embeddings_career_360",
+        ("canonical_player_id",),
+    ),
+    SyncedTableConfig(
+        "fct_player_embeddings_season_360_synced",
+        "fct_player_embeddings_season_360",
+        ("embedding_season_360_id",),
+    ),
+    SyncedTableConfig("fct_space_creation_synced", "fct_space_creation", ("space_creation_id",), "TRIGGERED"),
+    SyncedTableConfig("fct_pausa_values_synced", "fct_pausa_values", ("pass_id",), "TRIGGERED"),
+    SyncedTableConfig("fct_pass_timing_synced", "fct_pass_timing", ("player_id", "match_id")),
+    SyncedTableConfig("fct_tracking_avg_positions_synced", "fct_tracking_avg_positions", ("avg_position_id",)),
+    SyncedTableConfig(
+        "fct_tracking_shape_timeline_synced",
+        "fct_tracking_shape_timeline",
+        ("shape_timeline_id",),
+        "TRIGGERED",
+    ),
+    # Pre-aggregated marts
+    SyncedTableConfig(
+        "fct_heatmap_agg_synced",
+        "fct_heatmap_agg",
+        ("competition_id", "team_id", "action_type", "x_bin", "y_bin"),
+    ),
+    SyncedTableConfig(
+        "fct_vaep_breakdown_agg_synced",
+        "fct_vaep_breakdown_agg",
+        ("competition_id", "team_id", "player_id", "action_type"),
+    ),
+    SyncedTableConfig("fct_gk_actions_detail_synced", "fct_gk_actions_detail", ("gk_action_id",)),
+    SyncedTableConfig("fct_funnel_stages_agg_synced", "fct_funnel_stages_agg", ("match_id", "team_id", "game_state")),
+    SyncedTableConfig("fct_discipline_events_synced", "fct_discipline_events", ("event_id",)),
+    SyncedTableConfig("fct_tracking_context_synced", "fct_tracking_context", ("tracking_context_id",)),
+    # ── Cost / Observability ─────────────────────────────────────────────────
+    SyncedTableConfig("workflow_cost_live_synced", "workflow_cost_live", ("run_id",), schema_override="observability"),
+    # ── Dimension tables ─────────────────────────────────────────────────────
+    SyncedTableConfig("dim_players_synced", "dim_players", ("player_id",)),
+    SyncedTableConfig("dim_teams_synced", "dim_teams", ("team_id",)),
+    SyncedTableConfig("dim_competitions_synced", "dim_competitions", ("competition_id",)),
+    SyncedTableConfig("dim_matches_synced", "dim_matches", ("match_key",)),
 ]
 
 POLL_INTERVAL_S = 30
@@ -215,24 +269,23 @@ def _get_auth_headers() -> dict[str, str]:
 
 def _get_pipeline_id(
     table: str,
-    headers: dict[str, str],
     *,
     catalog: str,
     schema: str,
 ) -> str:
-    """Fetch the pipeline_id backing a synced table.
+    """Fetch the pipeline_id backing a synced table via the SDK postgres API.
 
     catalog/schema are required keyword args — never reads module state.
     """
     full_name = f"{catalog}.{schema}.{table}"
-    resp = requests.get(
-        f"{_get_host()}/api/2.0/database/synced_tables/{full_name}",
-        headers=headers,
-        verify=True,
-        timeout=(10, 30),
-    )
-    resp.raise_for_status()
-    return resp.json()["data_synchronization_status"]["pipeline_id"]
+    ws = _get_workspace_client()
+    meta = ws.postgres.get_synced_table(name=f"synced_tables/{full_name}")
+    status = getattr(meta, "status", None)
+    pid = getattr(status, "pipeline_id", None) if status else None
+    if not pid:
+        msg = f"Synced table {full_name} has no pipeline_id in status"
+        raise RuntimeError(msg)
+    return pid
 
 
 def _trigger_refresh(pipeline_id: str, headers: dict[str, str]) -> tuple[str, bool]:
@@ -496,23 +549,23 @@ def wait_until_online(
     if not IDENTIFIER_RE.match(table_fqn.split(".")[-1]):
         raise ValueError(f"Invalid table_fqn last-segment: {table_fqn!r}")
 
-    headers = _get_auth_headers()
-    url = f"{_get_host()}/api/2.0/database/synced_tables/{table_fqn}"
+    ws = _get_workspace_client()
 
     start = time.monotonic()
     last_state: str | None = None
     while True:
-        resp = requests.get(url, headers=headers, verify=True, timeout=(10, 30))
-        resp.raise_for_status()
-        body = resp.json()
-        detailed_state = body.get("status", {}).get("detailed_state")
-        last_state = detailed_state
+        meta = ws.postgres.get_synced_table(name=f"synced_tables/{table_fqn}")
+        status = getattr(meta, "status", None)
+        raw_state = getattr(status, "detailed_state", None) if status else None
+        # SDK returns SyncedTableState enum; extract .value for string comparison
+        detailed_state_str = raw_state.value if raw_state else "UNKNOWN"
+        last_state = detailed_state_str
 
-        if detailed_state == SYNCED_TABLE_ONLINE_STATE:
+        if detailed_state_str == SYNCED_TABLE_ONLINE_STATE:
             return
 
-        if detailed_state in _SYNCED_TABLE_TERMINAL_FAILURE_STATES:
-            raise RuntimeError(f"Synced table {table_fqn} reached terminal failure state {detailed_state!r}")
+        if detailed_state_str in _SYNCED_TABLE_TERMINAL_FAILURE_STATES:
+            raise RuntimeError(f"Synced table {table_fqn} reached terminal failure state {detailed_state_str!r}")
 
         elapsed = time.monotonic() - start
         if elapsed > timeout_s:
@@ -537,14 +590,13 @@ class _RefreshSyncedTablesGuard:
 def _derive_upstream_tables(catalog: str, default_schema: str) -> list[str]:
     """Derive upstream Delta table FQNs from SYNCED_TABLES.
 
-    For each ``(table_name, schema_override)`` tuple, strips the ``_synced``
-    suffix and qualifies with the override schema (or default).
+    For each ``SyncedTableConfig``, uses ``source_table`` and qualifies with
+    the override schema (or default).
     """
     tables: list[str] = []
-    for synced_name, schema_override in SYNCED_TABLES:
-        base = synced_name.removesuffix("_synced")
-        effective_schema = schema_override or default_schema
-        tables.append(f"{catalog}.{effective_schema}.{base}")
+    for config in SYNCED_TABLES:
+        effective_schema = config.schema_override or default_schema
+        tables.append(f"{catalog}.{effective_schema}.{config.source_table}")
     return tables
 
 
@@ -637,14 +689,14 @@ def main() -> None:
         print("Spark unavailable for watermark check — proceeding with refresh", file=sys.stderr)
         spark = None
 
-    # Build lookup: table_name -> schema (per-table override beats CLI default)
-    table_schema_map: dict[str, str] = {name: (override or args.schema) for name, override in SYNCED_TABLES}
-    all_table_names = list(table_schema_map.keys())
+    # Build lookup: table_name -> config
+    table_config_map: dict[str, SyncedTableConfig] = {c.name: c for c in SYNCED_TABLES}
+    all_table_names = list(table_config_map.keys())
 
     if args.tables:
         selected = [t.strip() for t in args.tables.split(",") if t.strip()]
         for t in selected:
-            if t not in table_schema_map:
+            if t not in table_config_map:
                 print(f"ERROR: Unknown table '{t}'. Valid: {', '.join(all_table_names)}")
                 sys.exit(1)
     else:
@@ -659,8 +711,9 @@ def main() -> None:
 
     for i, table in enumerate(selected, 1):
         try:
-            schema = table_schema_map[table]
-            pipeline_id = _get_pipeline_id(table, headers, catalog=args.catalog, schema=schema)
+            config = table_config_map[table]
+            schema = config.schema_override or args.schema
+            pipeline_id = _get_pipeline_id(table, catalog=args.catalog, schema=schema)
 
             # Pre-check event_log ownership — ownership drift here has already
             # caused a multi-day outage once (2026-04-02→2026-04-14, 33 of 34

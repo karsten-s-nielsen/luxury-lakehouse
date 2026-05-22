@@ -288,29 +288,21 @@ def _get_host_and_headers(ws: WorkspaceClient) -> tuple[str, dict[str, str]]:
 
 def _get_pipeline_id(
     *,
-    host: str,
-    headers: dict[str, str],
+    ws: WorkspaceClient,
     catalog: str,
     schema: str,
     table: str,
 ) -> str:
-    """Fetch the pipeline_id backing a synced table via the REST API.
+    """Fetch the pipeline_id backing a synced table via the SDK postgres API.
 
     The returned pipeline_id is validated against the canonical UUID-36
-    format before being returned to the caller — the value is later
-    interpolated into SQL strings (via ``_event_log_table_name``) and URL
-    paths (via ``_trigger_pipeline_update`` / ``_poll_pipeline_refresh``),
-    so trusting the API output unchecked would be a latent injection risk.
+    format before being returned — the value is later interpolated into SQL
+    strings and URL paths.
     """
     full_name = f"{catalog}.{schema}.{table}"
-    resp = requests.get(
-        f"{host}/api/2.0/database/synced_tables/{full_name}",
-        headers=headers,
-        verify=True,
-        timeout=_TIMEOUT_DEFAULT,
-    )
-    resp.raise_for_status()
-    pipeline_id = resp.json().get("data_synchronization_status", {}).get("pipeline_id")
+    meta = ws.postgres.get_synced_table(name=f"synced_tables/{full_name}")
+    status = getattr(meta, "status", None)
+    pipeline_id = getattr(status, "pipeline_id", None) if status else None
     if not pipeline_id:
         msg = f"synced_tables API returned no pipeline_id for {full_name}"
         raise RuntimeError(msg)
@@ -757,7 +749,7 @@ def _select_tables(args: argparse.Namespace) -> dict[str, str]:
     ``args.schema`` otherwise. If ``args.tables`` is set, filters to that
     subset (and aborts on any unknown name).
     """
-    table_schema_map: dict[str, str] = {name: (override or args.schema) for name, override in SYNCED_TABLES}
+    table_schema_map: dict[str, str] = {c.name: (c.schema_override or args.schema) for c in SYNCED_TABLES}
     if not args.tables:
         return table_schema_map
 
@@ -804,8 +796,7 @@ def main(argv: list[str] | None = None) -> int:
     for table_name, schema in selected.items():
         try:
             pid = _get_pipeline_id(
-                host=host,
-                headers=headers,
+                ws=ws,
                 catalog=args.catalog,
                 schema=schema,
                 table=table_name,

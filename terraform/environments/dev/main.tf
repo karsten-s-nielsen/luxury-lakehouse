@@ -183,24 +183,16 @@ module "workflows" {
   source = "../../modules/workflows"
 
   catalog_name             = module.workspace.catalog_name
-  wheel_path               = "${module.catalog.libs_volume_path}/luxury_lakehouse-0.3.91-py3-none-any.whl"
+  wheel_path               = "${module.catalog.libs_volume_path}/luxury_lakehouse-0.3.92-py3-none-any.whl"
   environment              = var.environment
   notification_emails      = var.notification_emails
   run_as_sp_application_id = module.service_principals.ingestion_sp_application_id
 }
 
-# ── Module: Synced Tables ────────────────────────────────────────────────────
-# Mirrors gold-layer Delta tables into Lakebase for low-latency app queries.
-
-module "synced_tables" {
-  source = "../../modules/synced_tables"
-
-  catalog_name           = module.workspace.catalog_name
-  database_instance_name = module.lakebase.instance_name
-  environment            = var.environment
-  gold_schema            = "${var.environment}_gold"
-  observability_schema   = "observability"
-}
+# ── Synced Tables (removed — ADR-026) ───────────────────────────────────────
+# Synced tables are now SDK-managed via scripts/migrate_synced_tables.py.
+# The terraform/modules/synced_tables/ module was removed.
+# State cleanup: terraform state rm 'module.synced_tables.*' (run before apply).
 
 # ── Databricks App (DEPRECATED) ──────────────────────────────────────────────
 # Streamlit dashboard migrated to HF Spaces (luxury-lakehouse/soccer-analytics-app).

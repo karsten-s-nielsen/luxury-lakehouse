@@ -39,7 +39,8 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             hfPublish = container "HF Publish Helper" "README delivery (ADR-014). upload_hf_readme + get_hf_card_path." "Python"
             databricksSqlFetch = container "Databricks SQL Fetch" "HTTP helper for HF Jobs trainers querying gold marts (no Spark)" "Python, requests"
             ingestionPipelines = container "Compute Pipelines" "38 @workflow-decorated Databricks pipelines across 6 providers" "Python, PySpark"
-            refreshSyncedTables = container "Synced Table Refresh" "Triggers SNAPSHOT refresh on 41 Lakebase synced tables" "Python, databricks-sdk"
+            refreshSyncedTables = container "Synced Table Refresh" "Triggers SNAPSHOT refresh on 41 Lakebase synced tables via SDK postgres API" "Python, databricks-sdk"
+            migrateSyncedTables = container "Synced Table Migration" "SDK-managed lifecycle: delete, CDF enable, create, wait (ADR-026). Replaces Terraform module." "Python, databricks-sdk"
             dbtRunner = container "dbt Runner" "python_wheel_task entry point. OAuth token exchange, warehouse start." "Python, dbt-core"
             evolveEngine = container "Evolve Engine" "LLM-guided architecture search. AST validation, restricted exec." "Python, OpenEvolve"
             calibrationRunner = container "TC-3 Calibration Runner" "Optuna TPE sweep for silly-kicks defaults: carrier params, k3, off-ball runs. Databricks SQL + ThreadPool." "Python, Optuna, XGBoost"
@@ -70,7 +71,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             observabilitySchema = container "Observability Schema" "workflow_cost_live, workflow_import_checksums, workflow_watermarks, definer's-rights views" "Delta Lake" "Database"
         }
 
-        lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL endpoint syncing 40 Delta tables (72 indexes: 66 btree + 6 HNSW)" "External"
+        lakebase = softwareSystem "Databricks Lakebase" "PostgreSQL endpoint syncing 41 Delta tables (72 indexes: 66 btree + 6 HNSW). SDK-managed (ADR-026)." "External"
         databricksApi = softwareSystem "Databricks REST API" "OAuth, synced table metadata, pipeline triggers, state polling" "External"
         databricksWorkflows = softwareSystem "Databricks Workflows" "40-task daily DAG: 9 ingest, 16 compute, 1 HF sync, 3 dbt_build, 4 preflight, refresh, resolve, validate" "External"
         hfIdentity = softwareSystem "HuggingFace Identity API" "Token validation via /api/whoami-v2. Org membership check." "External"
@@ -144,8 +145,12 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
         ingestionPipelines -> guardRegistry "Calls timed_check()" ""
         guardRegistry -> hfHub "Fetches commit SHA" "HTTPS"
         guardRegistry -> observabilitySchema "Reads/writes checksums + watermarks" "PySpark/Delta"
-        refreshSyncedTables -> databricksApi "Triggers SNAPSHOT" "HTTPS"
+        refreshSyncedTables -> databricksApi "Triggers SNAPSHOT via SDK postgres API" "HTTPS"
         refreshSyncedTables -> sharedLibrary "Imports IDENTIFIER_RE" ""
+        operator -> migrateSyncedTables "Runs migration/recreation" "CLI"
+        migrateSyncedTables -> databricksApi "SDK create/delete/get synced tables" "HTTPS"
+        migrateSyncedTables -> lakebase "Verifies PG row count" "PostgreSQL"
+        migrateSyncedTables -> refreshSyncedTables "Imports SyncedTableConfig, SYNCED_TABLES" ""
         refreshSyncedTables -> guardRegistry "Watermark check gold tables" ""
         refreshSyncedTables -> observabilitySchema "Records watermarks after refresh" "PySpark/Delta"
         dbtBuildAndRefresh -> refreshSyncedTables "Subprocess after dbt" "subprocess"
@@ -380,7 +385,7 @@ workspace "Luxury Lakehouse" "Serverless soccer analytics platform on Databricks
             dbtRunner -> observabilitySchema "Record watermarks"
             databricksWorkflows -> refreshSyncedTables "Final task"
             refreshSyncedTables -> guardRegistry "Watermark check gold tables"
-            refreshSyncedTables -> databricksApi "SNAPSHOT 41 tables"
+            refreshSyncedTables -> databricksApi "SNAPSHOT 41 tables via SDK"
             refreshSyncedTables -> observabilitySchema "Record watermarks"
             autoLayout
         }

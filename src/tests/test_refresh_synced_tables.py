@@ -80,24 +80,121 @@ def test_get_auth_headers_does_not_call_subprocess(monkeypatch: pytest.MonkeyPat
 
 
 def test_synced_tables_list_has_41_entries() -> None:
-    """SYNCED_TABLES drift guard — should match the 41 tables in Terraform.
-
-    34 baseline + 3 pre-aggregated marts added 2026-04-17
-    (fct_heatmap_agg, fct_vaep_breakdown_agg, fct_gk_actions_detail) + 1
-    pre-aggregated mart added 2026-04-18 (fct_funnel_stages_agg, D58) to
-    eliminate the season-mode Parallel Seq Scan + LIMIT 500000 truncation
-    on the Conversion Funnel page + 1 discipline-events mart added
-    2026-04-19 (fct_discipline_events, for Match Summary Row 1 auto-include
-    and Row 2 red-card markers) + 1 Kimball conformed match dim added
-    2026-04-20 (dim_matches_synced, ADR-011 PR 1) + 1 v2 xG mart added
-    2026-04-22 (fct_xg_predictions_v2, ADR-013 PR 3 — first mart applying
-    the ML-inference-outputs-follow-dbt pattern) - 1 v1 xG mart removed
-    2026-05-07 (fct_xg_predictions, XG1-RETIRE per ADR-023) + 1 TC-1
-    tracking context added 2026-05-18 (fct_tracking_context_synced).
-    """
-    from ingestion.refresh_synced_tables import SYNCED_TABLES
+    """SYNCED_TABLES drift guard — 41 SyncedTableConfig entries."""
+    from ingestion.refresh_synced_tables import SYNCED_TABLES, SyncedTableConfig
 
     assert len(SYNCED_TABLES) == 41
+    assert all(isinstance(c, SyncedTableConfig) for c in SYNCED_TABLES)
+
+
+def test_synced_table_config_is_frozen_dataclass() -> None:
+    """SyncedTableConfig must be a frozen dataclass with the expected fields."""
+    from dataclasses import fields
+
+    from ingestion.refresh_synced_tables import SyncedTableConfig
+
+    cfg = SyncedTableConfig(
+        name="fct_test_synced",
+        source_table="fct_test",
+        primary_key_columns=("test_id",),
+    )
+    assert cfg.name == "fct_test_synced"
+    assert cfg.source_table == "fct_test"
+    assert cfg.primary_key_columns == ("test_id",)
+    assert cfg.scheduling_policy == "SNAPSHOT"
+    assert cfg.schema_override is None
+
+    field_names = {f.name for f in fields(cfg)}
+    assert field_names == {"name", "source_table", "primary_key_columns", "scheduling_policy", "schema_override"}
+
+    # frozen — assignment must raise
+    with pytest.raises(AttributeError):
+        cfg.name = "mutated"  # type: ignore[misc]
+
+
+def test_synced_table_config_triggered() -> None:
+    """SyncedTableConfig with TRIGGERED policy."""
+    from ingestion.refresh_synced_tables import SyncedTableConfig
+
+    cfg = SyncedTableConfig(
+        name="fct_passes_synced",
+        source_table="fct_passes",
+        primary_key_columns=("pass_id",),
+        scheduling_policy="TRIGGERED",
+    )
+    assert cfg.scheduling_policy == "TRIGGERED"
+
+
+def test_synced_table_config_schema_override() -> None:
+    """SyncedTableConfig with schema_override for observability tables."""
+    from ingestion.refresh_synced_tables import SyncedTableConfig
+
+    cfg = SyncedTableConfig(
+        name="workflow_cost_live_synced",
+        source_table="workflow_cost_live",
+        primary_key_columns=("run_id",),
+        schema_override="observability",
+    )
+    assert cfg.schema_override == "observability"
+
+
+def test_synced_table_config_rejects_invalid_scheduling_policy() -> None:
+    """SyncedTableConfig.__post_init__ must reject typos like TRIGGRED."""
+    from ingestion.refresh_synced_tables import SyncedTableConfig
+
+    with pytest.raises(ValueError, match="Invalid scheduling_policy"):
+        SyncedTableConfig(
+            name="fct_bad_synced",
+            source_table="fct_bad",
+            primary_key_columns=("id",),
+            scheduling_policy="TRIGGRED",  # type: ignore[arg-type]
+        )
+
+
+def test_synced_tables_scheduling_policy_distribution() -> None:
+    """12 TRIGGERED + 29 SNAPSHOT = 41 total."""
+    from ingestion.refresh_synced_tables import SYNCED_TABLES
+
+    triggered = [c for c in SYNCED_TABLES if c.scheduling_policy == "TRIGGERED"]
+    snapshot = [c for c in SYNCED_TABLES if c.scheduling_policy == "SNAPSHOT"]
+    assert len(triggered) == 12, f"Expected 12 TRIGGERED, got {len(triggered)}: {[c.name for c in triggered]}"
+    assert len(snapshot) == 29, f"Expected 29 SNAPSHOT, got {len(snapshot)}: {[c.name for c in snapshot]}"
+
+
+def test_synced_tables_all_have_primary_keys() -> None:
+    """Every SyncedTableConfig must have at least one PK column."""
+    from ingestion.refresh_synced_tables import SYNCED_TABLES
+
+    for config in SYNCED_TABLES:
+        assert len(config.primary_key_columns) >= 1, f"{config.name} has no PK columns"
+
+
+def test_synced_tables_names_end_with_synced() -> None:
+    """Every synced table name must end with _synced."""
+    from ingestion.refresh_synced_tables import SYNCED_TABLES
+
+    for config in SYNCED_TABLES:
+        assert config.name.endswith("_synced"), f"{config.name} does not end with _synced"
+
+
+def test_synced_tables_source_table_matches_name() -> None:
+    """source_table must equal name with _synced suffix stripped."""
+    from ingestion.refresh_synced_tables import SYNCED_TABLES
+
+    for config in SYNCED_TABLES:
+        assert config.source_table == config.name.removesuffix("_synced"), (
+            f"{config.name}: source_table={config.source_table!r} does not match name without _synced suffix"
+        )
+
+
+def test_synced_tables_only_one_observability_override() -> None:
+    """Only workflow_cost_live_synced uses schema_override."""
+    from ingestion.refresh_synced_tables import SYNCED_TABLES
+
+    overrides = [c for c in SYNCED_TABLES if c.schema_override is not None]
+    assert len(overrides) == 1
+    assert overrides[0].name == "workflow_cost_live_synced"
+    assert overrides[0].schema_override == "observability"
 
 
 def test_get_host_uses_workspace_client_not_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -151,32 +248,23 @@ def test_get_host_caches_result(monkeypatch: pytest.MonkeyPatch) -> None:
     assert call_count[0] == 1, "WorkspaceClient should be instantiated exactly once"
 
 
-def test_get_pipeline_id_uses_provided_catalog_and_schema(monkeypatch: pytest.MonkeyPatch) -> None:
-    """_get_pipeline_id must build the URL from caller-provided catalog/schema, never module state."""
-    captured: dict[str, str] = {}
+def test_get_pipeline_id_uses_postgres_sdk(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_get_pipeline_id must use ws.postgres.get_synced_table, not raw REST."""
+    import ingestion.refresh_synced_tables as mod
 
-    def mock_get(url: str, **_kwargs: object) -> MagicMock:
-        captured["url"] = url
-        resp = MagicMock()
-        resp.json.return_value = {"data_synchronization_status": {"pipeline_id": "pipe-xyz"}}
-        resp.raise_for_status = MagicMock()
-        return resp
-
-    monkeypatch.setattr("ingestion.refresh_synced_tables.requests.get", mock_get)
-    # _get_host() reads DATABRICKS_HOST at runtime; mock it to avoid env dependence in CI
-    monkeypatch.setattr("ingestion.refresh_synced_tables._get_host", lambda: "https://test.databricks.com")
+    mock_ws = MagicMock()
+    mock_meta = MagicMock()
+    mock_meta.status.pipeline_id = "test-pipeline-uuid"
+    mock_ws.postgres.get_synced_table.return_value = mock_meta
+    monkeypatch.setattr(mod, "WorkspaceClient", lambda: mock_ws)
 
     from ingestion.refresh_synced_tables import _get_pipeline_id
 
-    pipeline_id = _get_pipeline_id(
-        "fct_shots_synced",
-        {"Authorization": "Bearer x"},
-        catalog="alt_catalog",
-        schema="alt_schema",
+    result = _get_pipeline_id("fct_shots_synced", catalog="soccer_analytics", schema="dev_gold")
+    assert result == "test-pipeline-uuid"
+    mock_ws.postgres.get_synced_table.assert_called_once_with(
+        name="synced_tables/soccer_analytics.dev_gold.fct_shots_synced"
     )
-
-    assert pipeline_id == "pipe-xyz"
-    assert "alt_catalog.alt_schema.fct_shots_synced" in captured["url"]
 
 
 def test_main_rejects_invalid_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -447,37 +535,48 @@ def test_check_event_log_ownership_prod_group() -> None:
 
 
 class TestWaitUntilOnline:
-    """Tests for ingestion.refresh_synced_tables.wait_until_online (PR 4b G1)."""
+    """Tests for ingestion.refresh_synced_tables.wait_until_online (SDK postgres path)."""
+
+    @staticmethod
+    def _make_sdk_meta(detailed_state_value: str) -> MagicMock:
+        """Create a mock SyncedTable with a status.detailed_state enum-like."""
+        meta = MagicMock()
+        meta.status.detailed_state.value = detailed_state_value
+        return meta
 
     @patch("ingestion.refresh_synced_tables.time.sleep", new=MagicMock())
-    @patch("ingestion.refresh_synced_tables.requests.get")
-    def test_returns_on_online_state(self, mock_get: MagicMock) -> None:
-        from ingestion import refresh_synced_tables as refresh
+    def test_returns_on_online_state(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import ingestion.refresh_synced_tables as refresh
 
-        mock_get.side_effect = [
-            _stub_response(200, {"status": {"detailed_state": "SYNCED_TABLE_PENDING"}}),
-            _stub_response(200, {"status": {"detailed_state": "SYNCED_TABLE_ONLINE_NO_PENDING_UPDATE"}}),
+        mock_ws = MagicMock()
+        mock_ws.postgres.get_synced_table.side_effect = [
+            self._make_sdk_meta("SYNCED_TABLE_PENDING"),
+            self._make_sdk_meta("SYNCED_TABLE_ONLINE_NO_PENDING_UPDATE"),
         ]
+        monkeypatch.setattr(refresh, "WorkspaceClient", lambda: mock_ws)
+
         refresh.wait_until_online(
             "soccer_analytics.dev_gold.fct_action_values_synced",
             timeout_s=60,
             poll_interval_s=1,
         )
-        assert mock_get.call_count == 2
+        assert mock_ws.postgres.get_synced_table.call_count == 2
 
     @patch("ingestion.refresh_synced_tables.time.sleep", new=MagicMock())
     @patch("ingestion.refresh_synced_tables.time.monotonic")
-    @patch("ingestion.refresh_synced_tables.requests.get")
     def test_timeout_raises_with_context(
         self,
-        mock_get: MagicMock,
         mock_mono: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from ingestion import refresh_synced_tables as refresh
+        import ingestion.refresh_synced_tables as refresh
+
+        mock_ws = MagicMock()
+        mock_ws.postgres.get_synced_table.return_value = self._make_sdk_meta("SYNCED_TABLE_PENDING")
+        monkeypatch.setattr(refresh, "WorkspaceClient", lambda: mock_ws)
 
         # monotonic called: start, after-poll #1, after-poll #2, ...
         mock_mono.side_effect = [0.0, 10.0, 700.0]
-        mock_get.return_value = _stub_response(200, {"status": {"detailed_state": "SYNCED_TABLE_PENDING"}})
 
         with pytest.raises(TimeoutError) as excinfo:
             refresh.wait_until_online(
@@ -490,11 +589,13 @@ class TestWaitUntilOnline:
         assert "SYNCED_TABLE_PENDING" in msg
 
     @patch("ingestion.refresh_synced_tables.time.sleep", new=MagicMock())
-    @patch("ingestion.refresh_synced_tables.requests.get")
-    def test_terminal_failure_raises(self, mock_get: MagicMock) -> None:
-        from ingestion import refresh_synced_tables as refresh
+    def test_terminal_failure_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import ingestion.refresh_synced_tables as refresh
 
-        mock_get.return_value = _stub_response(200, {"status": {"detailed_state": "SYNCED_TABLE_OFFLINE_FAILED"}})
+        mock_ws = MagicMock()
+        mock_ws.postgres.get_synced_table.return_value = self._make_sdk_meta("SYNCED_TABLE_OFFLINE_FAILED")
+        monkeypatch.setattr(refresh, "WorkspaceClient", lambda: mock_ws)
+
         with pytest.raises(RuntimeError) as excinfo:
             refresh.wait_until_online(
                 "soccer_analytics.dev_gold.fct_action_values_synced",
@@ -504,17 +605,14 @@ class TestWaitUntilOnline:
         assert "SYNCED_TABLE_OFFLINE_FAILED" in str(excinfo.value)
 
     @patch("ingestion.refresh_synced_tables.time.sleep", new=MagicMock())
-    @patch("ingestion.refresh_synced_tables.requests.get")
-    def test_http_404_propagates(self, mock_get: MagicMock) -> None:
-        import requests as req
+    def test_sdk_exception_propagates(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import ingestion.refresh_synced_tables as refresh
 
-        from ingestion import refresh_synced_tables as refresh
+        mock_ws = MagicMock()
+        mock_ws.postgres.get_synced_table.side_effect = RuntimeError("NOT_FOUND")
+        monkeypatch.setattr(refresh, "WorkspaceClient", lambda: mock_ws)
 
-        resp = _stub_response(404, {"error_code": "NOT_FOUND"})
-        resp.raise_for_status.side_effect = req.HTTPError("404")  # type: ignore[attr-defined]
-        mock_get.return_value = resp
-
-        with pytest.raises(req.HTTPError):
+        with pytest.raises(RuntimeError, match="NOT_FOUND"):
             refresh.wait_until_online(
                 "soccer_analytics.dev_gold.does_not_exist_synced",
                 timeout_s=60,
