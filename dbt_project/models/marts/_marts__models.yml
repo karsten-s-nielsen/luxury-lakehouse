@@ -453,12 +453,12 @@ models:
           - not_null
       - name: data_source
         data_type: string
-        description: Provider origin (statsbomb/wyscout/idsse/metrica) — part of the grain post-PR-5a.
+        description: Provider origin (statsbomb/wyscout/idsse/metrica/gradientsports) — part of the grain post-PR-5a.
         data_tests:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb', 'wyscout', 'idsse', 'metrica']
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'gradientsports']
       - name: competition_id
         data_type: int
         description: Foreign key to dim_competitions
@@ -876,12 +876,12 @@ models:
                 severity: warn
       - name: data_source
         data_type: string
-        description: Data provider (statsbomb, wyscout, idsse, metrica) — LL2 Path B expanded to 4 sources.
+        description: Data provider (statsbomb, wyscout, idsse, metrica, gradientsports) — LL2 Path B expanded to 5 sources.
         data_tests:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb', 'wyscout', 'idsse', 'metrica']
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'gradientsports']
       - name: original_event_id
         data_type: string
         description: Original event ID from source data (NULL for synthetic dribbles)
@@ -2534,7 +2534,7 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner']
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner', 'gradientsports']
 
   - name: dim_teams
     config:
@@ -3852,7 +3852,7 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb', 'wyscout']
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'gradientsports']
       - name: match_key
         data_type: bigint
         description: >
