@@ -261,6 +261,14 @@ def gradientsports_native_team_id(raw_team_id: str | int) -> str:
     return s
 
 
+def gradientsports_native_competition_id(raw_competition_id: str | int) -> str:
+    """Canonical Gradient Sports native competition id -- stringified positive integer."""
+    s = str(raw_competition_id)
+    if not _GRADIENTSPORTS_NUMERIC_ID_PATTERN.match(s):
+        raise ValueError(f"invalid Gradient Sports competition id: {raw_competition_id!r} (expected numeric string)")
+    return s
+
+
 # ---------------------------------------------------------------------------
 # Type-safe identifier wrappers — PR-LL3 S7
 # ---------------------------------------------------------------------------

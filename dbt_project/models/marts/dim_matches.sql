@@ -3,7 +3,7 @@
     tags=['marts', 'dimension']
 ) }}
 -- dim_matches.sql
--- Conformed match dimension unifying StatsBomb, Wyscout, IDSSE, and Metrica.
+-- Conformed match dimension unifying StatsBomb, Wyscout, IDSSE, Metrica, SkillCorner, and Gradient Sports.
 --
 -- PRIMARY KEY: match_key (BIGINT surrogate, deterministic hash).
 -- UNIQUE: (provider, native_match_id).
@@ -106,6 +106,20 @@ skillcorner_matches as (
 
 ),
 
+gradientsports_matches as (
+
+    select
+        cast(match_id as string)       as native_match_id,
+        'gradientsports'               as provider,
+        competition_id,
+        season_id,
+        cast(match_date as date)       as match_date,
+        home_team_name,
+        away_team_name
+    from {{ ref('stg_gradientsports__metadata') }}
+
+),
+
 unioned as (
 
     select * from statsbomb_matches
@@ -117,6 +131,8 @@ unioned as (
     select * from metrica_matches
     union all
     select * from skillcorner_matches
+    union all
+    select * from gradientsports_matches
 
 ),
 

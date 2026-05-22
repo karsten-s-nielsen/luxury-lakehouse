@@ -1,11 +1,13 @@
 """Gradient Sports ingestion orchestrator.
 
 Discovers matches via the pining-for-the-data REST API,
-downloads events + tracking, and writes to bronze.
+downloads events + tracking + metadata + roster, and writes to bronze.
 
 Bronze tables produced:
-  - gradientsports_events   (raw events)
-  - gradientsports_tracking (narrow format: one row per player per frame)
+  - gradientsports_events    (raw events)
+  - gradientsports_tracking  (narrow format: one row per player per frame)
+  - gradientsports_metadata  (match metadata: one row per match)
+  - gradientsports_roster    (player roster: one row per player per match)
 
 Coordinate system (preserved in bronze):
   Center-origin meters. silly-kicks convert_to_frames handles the final transform.
@@ -28,6 +30,8 @@ from ingestion.gradientsports_common import (
     resolve_pining_token,
 )
 from ingestion.gradientsports_events import parse_events, write_events
+from ingestion.gradientsports_metadata import parse_metadata, write_metadata
+from ingestion.gradientsports_roster import parse_roster, write_roster
 from ingestion.gradientsports_tracking import (
     _staging_path,
     stream_tracking_to_parquet,
@@ -166,11 +170,7 @@ def ingest_gradientsports(
             match.away,
         )
 
-        # --- Phase 1: Download & parse both artifacts (no writes yet) ---
-        # Parse everything first so a failure in either artifact prevents
-        # partial writes. The guard watermark (MAX _ingested_at on events)
-        # only advances when BOTH artifacts are committed.
-
+        # --- Phase 1: Download & parse all artifacts (no writes yet) ---
         events_df = None
         for artifact_key in match.artifacts:
             if "event" in artifact_key.lower():
@@ -201,15 +201,34 @@ def ingest_gradientsports(
         else:
             logger.warning("No tracking artifact found for match %s", mid)
 
-        # --- Phase 2: Write tracking FIRST, events LAST ---
-        # The skip guard reads MAX(_ingested_at) from the EVENTS table to
-        # decide which matches need processing. Events must be the last
-        # write so the watermark only advances when both artifacts are
-        # committed. If tracking succeeds but events fails, the watermark
-        # stays put and the match is re-discovered on the next run.
+        metadata_df = None
+        for artifact_key in match.artifacts:
+            if "metadata" in artifact_key.lower():
+                metadata_resp = fetch_artifact(mid, artifact_key, token)
+                metadata_df = parse_metadata(metadata_resp.text, match_id=mid)
+                logger.info("Parsed metadata for match %s", mid)
+                break
+
+        roster_df = None
+        for artifact_key in match.artifacts:
+            if "roster" in artifact_key.lower():
+                roster_resp = fetch_artifact(mid, artifact_key, token)
+                roster_df = parse_roster(roster_resp.text, match_id=mid)
+                logger.info("Parsed %d roster rows for match %s", len(roster_df), mid)
+                break
+
+        # --- Phase 2: Write tracking -> metadata -> roster -> events ---
         if tracking_staged:
             write_tracking(spark, catalog, schema, mid, logger, staging_parquet=staging_path)
             logger.info("Wrote %d tracking rows for match %s", tracking_row_count, mid)
+
+        if metadata_df is not None:
+            write_metadata(spark, metadata_df, catalog, schema, mid, logger)
+            logger.info("Wrote metadata for match %s", mid)
+
+        if roster_df is not None:
+            write_roster(spark, roster_df, catalog, schema, mid, logger)
+            logger.info("Wrote %d roster rows for match %s", len(roster_df), mid)
 
         if events_df is not None:
             write_events(spark, events_df, catalog, schema, mid, logger)
@@ -242,6 +261,56 @@ def run_pipeline(
     return 0
 
 
+def _backfill_artifacts(
+    spark: SparkSession,
+    catalog: str,
+    schema: str,
+    logger: logging.Logger,
+) -> None:
+    """Backfill metadata + roster artifacts for matches already in bronze.
+
+    Skips the guard entirely. Reads the match ID list from existing
+    bronze.gradientsports_events, fetches metadata + roster from the API
+    (NOT events or tracking), and writes to the new bronze tables.
+    """
+    token = resolve_pining_token()
+
+    rows = spark.sql(
+        f"SELECT DISTINCT match_id FROM {catalog}.{schema}.gradientsports_events"  # noqa: S608 — catalog/schema are validated identifiers
+    ).collect()
+    match_ids = [str(r["match_id"]) for r in rows]
+    logger.info("Backfill: %d matches to process", len(match_ids))
+
+    all_matches = fetch_match_list(token, updated_since=None)
+    match_map = {m.id: m for m in all_matches}
+
+    for i, mid in enumerate(sorted(match_ids)):
+        match = match_map.get(mid)
+        if match is None:
+            logger.warning("Backfill: match %s not in API match list — skipping", mid)
+            continue
+
+        logger.info("Backfill match %s (%d/%d)", mid, i + 1, len(match_ids))
+
+        for artifact_key in match.artifacts:
+            if "metadata" in artifact_key.lower():
+                resp = fetch_artifact(mid, artifact_key, token)
+                df = parse_metadata(resp.text, match_id=mid)
+                write_metadata(spark, df, catalog, schema, mid, logger)
+                logger.info("Wrote metadata for match %s", mid)
+                break
+
+        for artifact_key in match.artifacts:
+            if "roster" in artifact_key.lower():
+                resp = fetch_artifact(mid, artifact_key, token)
+                df = parse_roster(resp.text, match_id=mid)
+                write_roster(spark, df, catalog, schema, mid, logger)
+                logger.info("Wrote %d roster rows for match %s", len(df), mid)
+                break
+
+    logger.info("Backfill complete: %d matches processed", len(match_ids))
+
+
 def main() -> None:
     """CLI entry point for Gradient Sports data ingestion.
 
@@ -268,6 +337,17 @@ def main() -> None:
                     ),
                 },
             ),
+            (
+                "--backfill-artifacts",
+                {
+                    "action": "store_true",
+                    "default": False,
+                    "help": (
+                        "Backfill metadata + roster artifacts for matches already in "
+                        "bronze. Skips the guard, fetches only metadata + roster."
+                    ),
+                },
+            ),
         ],
     )
     _logger = configure_logging("gradientsports")
@@ -276,6 +356,11 @@ def main() -> None:
     from ingestion.bootstrap import bootstrap_hooks
 
     bootstrap_hooks(spark, args.catalog, args.schema)
+
+    if args.backfill_artifacts:
+        _logger.info("Backfill mode: ingesting metadata + roster for existing matches")
+        _backfill_artifacts(spark, args.catalog, args.schema, _logger)
+        return
 
     if args.match_json is not None:
         # Single-match mode: for_each_task iteration

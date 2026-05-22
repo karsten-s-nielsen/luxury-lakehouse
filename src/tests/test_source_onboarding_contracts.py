@@ -2,8 +2,6 @@
 
 Validates that every SPADL source satisfies the cross-source contracts
 established in PR-LL3. Fixture-based (offline CI, no Databricks).
-
-TODO: Add Gradient Sports parametrization when Gradient Sports ingestion ships.
 """
 
 from __future__ import annotations
@@ -24,6 +22,7 @@ _FIXTURE_DIR = Path(__file__).parent / "fixtures" / "silly_kicks_boundary"
         ("idsse", "idsse_J03WMX.parquet"),
         ("metrica", "metrica_sample_game_1.parquet"),
         ("skillcorner", "sc_match_1886347.parquet"),
+        ("gradientsports", "gs_match_10502.parquet"),
     ],
 )
 class TestSourceOnboardingContracts:
@@ -32,6 +31,7 @@ class TestSourceOnboardingContracts:
     def test_native_id_columns_present(self, source: str, fixture: str) -> None:
         """SPADL output must include all 6 native ID columns."""
         from ingestion.spadl_conversion import (
+            _make_gradientsports_spadl_udf,
             _make_idsse_spadl_udf,
             _make_metrica_spadl_udf,
             _make_sb_spadl_udf,
@@ -42,6 +42,8 @@ class TestSourceOnboardingContracts:
         if source == "skillcorner":
             match_metadata = {"id": "1886347", "pitch_length": 105, "pitch_width": 68, "home_team": {"id": 4177}}
             udf = _make_skillcorner_spadl_udf(match_metadata=match_metadata)
+        elif source == "gradientsports":
+            udf = _make_gradientsports_spadl_udf(gs_comp_season=None)
         else:
             udf_map = {
                 "statsbomb": _make_sb_spadl_udf,
@@ -73,6 +75,7 @@ class TestSourceOnboardingContracts:
         import silly_kicks.spadl.wyscout
 
         from shared.identifiers import (
+            gradientsports_native_player_id,
             idsse_native_player_id,
             metrica_native_player_id,
             skillcorner_native_player_id,
@@ -116,6 +119,22 @@ class TestSourceOnboardingContracts:
             with open(meta_path) as f:
                 match_metadata = json.load(f)
             actions, _ = silly_kicks.spadl.skillcorner.convert_to_actions(df, match_metadata)
+        elif source == "gradientsports":
+            import silly_kicks.spadl.gradientsports
+
+            from ingestion.spadl_adapter import (
+                adapt_gradientsports_events,
+                extract_gradientsports_match_metadata,
+            )
+
+            metadata = extract_gradientsports_match_metadata(df)
+            adapted = adapt_gradientsports_events(df)
+            actions, _ = silly_kicks.spadl.gradientsports.convert_to_actions(
+                adapted,
+                home_team_id=metadata["home_team_id"],
+                home_team_start_left=metadata["home_team_start_left"],
+                home_team_start_left_extratime=metadata["home_team_start_left_extratime"],
+            )
         else:  # metrica
             from ingestion.spadl_adapter import (
                 adapt_metrica_events_for_silly_kicks,
@@ -136,6 +155,7 @@ class TestSourceOnboardingContracts:
             "idsse": lambda v: idsse_native_player_id(str(v)),
             "metrica": lambda v: metrica_native_player_id(str(v)),
             "skillcorner": lambda v: skillcorner_native_player_id(int(v)),
+            "gradientsports": lambda v: gradientsports_native_player_id(int(v)),
         }
 
         non_null = actions["player_id"].dropna()
@@ -149,6 +169,7 @@ class TestSourceOnboardingContracts:
     def test_spadl_schema_parity(self, source: str, fixture: str) -> None:
         """Output column set matches the canonical _SPADL_SCHEMA DDL."""
         from ingestion.spadl_conversion import (
+            _make_gradientsports_spadl_udf,
             _make_idsse_spadl_udf,
             _make_metrica_spadl_udf,
             _make_sb_spadl_udf,
@@ -159,6 +180,8 @@ class TestSourceOnboardingContracts:
         if source == "skillcorner":
             match_metadata = {"id": "1886347", "pitch_length": 105, "pitch_width": 68, "home_team": {"id": 4177}}
             udf = _make_skillcorner_spadl_udf(match_metadata=match_metadata)
+        elif source == "gradientsports":
+            udf = _make_gradientsports_spadl_udf(gs_comp_season=None)
         else:
             udf_map = {
                 "statsbomb": _make_sb_spadl_udf,

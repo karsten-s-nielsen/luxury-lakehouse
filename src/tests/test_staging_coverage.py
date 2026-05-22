@@ -87,6 +87,10 @@ PROVIDER_COVERAGE: dict[str, list[tuple[str, str]]] = {
     "tracking_context": [
         ("spadl_tracking_context", "stg_spadl__tracking_context"),
     ],
+    "gradientsports": [
+        ("gradientsports_metadata", "stg_gradientsports__metadata"),
+        ("gradientsports_roster", "stg_gradientsports__roster"),
+    ],
 }
 
 
@@ -139,6 +143,31 @@ RENAMES: dict[tuple[str, str], dict[str, str]] = {
         "match_id": "native_match_id",
         "team_id": "team_id_native",
         "player_id": "player_id_native",
+    },
+    ("gradientsports", "gradientsports_metadata"): {
+        "homeTeam.id": "home_team_id",
+        "homeTeam.name": "home_team_name",
+        "homeTeam.shortName": "home_team_short_name",
+        "awayTeam.id": "away_team_id",
+        "awayTeam.name": "away_team_name",
+        "awayTeam.shortName": "away_team_short_name",
+        "competition.id": "competition_id",
+        "competition.name": "competition_name",
+        "season": "season_id",
+        "date": "match_date",
+        "stadium.id": "stadium_id",
+        "stadium.name": "stadium_name",
+        "homeTeamStartLeft": "home_team_start_left",
+        "homeTeamStartLeftExtraTime": "home_team_start_left_extra_time",
+        "week": "matchweek",
+    },
+    ("gradientsports", "gradientsports_roster"): {
+        "player.id": "player_id",
+        "player.nickname": "player_nickname",
+        "team.id": "team_id",
+        "team.name": "team_name",
+        "positionGroupType": "position_group",
+        "shirtNumber": "shirt_number",
     },
 }
 

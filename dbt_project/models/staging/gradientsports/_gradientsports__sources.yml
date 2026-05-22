@@ -1,0 +1,83 @@
+version: 2
+
+sources:
+  - name: gradientsports
+    description: >
+      Gradient Sports (PFF) WC2022 open dataset via pining-for-the-data API.
+      Center-origin meters coordinate system. 64 matches, all 4 artifact types.
+    database: soccer_analytics
+    schema: bronze
+    loader: aws_lambda
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: {count: 30, period: day}
+
+    tables:
+      - name: gradientsports_metadata
+        description: >
+          Match metadata (one row per match). Contains team identities,
+          competition, season, date, stadium, direction flags, fps, period
+          timestamps. json_normalize flattened from API response.
+        columns:
+          - name: match_id
+            description: Native match ID (numeric string, e.g. '10502')
+          - name: homeTeam.id
+            description: Home team numeric ID
+          - name: homeTeam.name
+            description: Home team name
+          - name: homeTeam.shortName
+            description: Home team short name (3-letter code)
+          - name: awayTeam.id
+            description: Away team numeric ID
+          - name: awayTeam.name
+            description: Away team name
+          - name: awayTeam.shortName
+            description: Away team short name (3-letter code)
+          - name: competition.id
+            description: Competition numeric ID (38 = FIFA WC)
+          - name: competition.name
+            description: Competition name
+          - name: season
+            description: Season identifier (e.g. '2022')
+          - name: date
+            description: ISO 8601 UTC match timestamp
+          - name: stadium.id
+            description: Stadium numeric ID
+          - name: stadium.name
+            description: Stadium name
+          - name: homeTeamStartLeft
+            description: Whether home team started on the left side
+          - name: homeTeamStartLeftExtraTime
+            description: Direction flag for extra time (nullable)
+          - name: fps
+            description: Frame rate (29.97)
+          - name: week
+            description: Matchweek number
+          - name: _ingested_at
+            description: UTC timestamp when the row was ingested
+
+      - name: gradientsports_roster
+        description: >
+          Match roster (one row per player per match, ~51 rows/match).
+          Contains player identity, team, position, shirt number, starter flag.
+          json_normalize flattened from API response.
+        columns:
+          - name: match_id
+            description: Native match ID (numeric string, e.g. '10502')
+          - name: player.id
+            description: Player numeric ID (e.g. '3861')
+          - name: player.nickname
+            description: Player display name
+          - name: team.id
+            description: Team numeric ID
+          - name: team.name
+            description: Team name
+          - name: positionGroupType
+            description: Position group code (GK, CB, AM, CF, etc.)
+          - name: shirtNumber
+            description: Shirt number (string)
+          - name: started
+            description: Whether player was in the starting lineup
+          - name: _ingested_at
+            description: UTC timestamp when the row was ingested
