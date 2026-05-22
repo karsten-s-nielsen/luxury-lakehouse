@@ -321,6 +321,16 @@ def main() -> int:
     need recreation) and manual full-refresh runs.  The flag is consumed by this
     function and NOT forwarded to dbt.
 
+    Supports ``--dbt-full-refresh <true|false>`` — a Databricks job-level
+    parameter (``{{job.parameters.dbt_full_refresh}}``, default ``"false"``)
+    that injects ``--full-refresh`` into the dbt CLI args when ``"true"``.
+    Trigger via::
+
+        databricks jobs run-now <id> --json '{"job_parameters":{"dbt_full_refresh":"true"}}'
+
+    The flag pair is consumed by this function; only ``--full-refresh`` (when
+    active) is forwarded to dbt.
+
     Returns 0 on success. On failure, the underlying ``RuntimeError`` from
     ``run_pipeline`` propagates out of this function — Databricks treats an
     uncaught exception in a ``python_wheel_task`` as task failure, but a
@@ -337,7 +347,33 @@ def main() -> int:
 
     # --no-watermark: bypass the watermark guard (consumed here, not forwarded to dbt).
     skip_watermark = "--no-watermark" in raw_args
-    extra_args = [a for a in raw_args if a != "--no-watermark"] or None
+
+    # --dbt-full-refresh <true|false>: job-level parameter that injects
+    # --full-refresh into the dbt command when "true". Consumed here, not
+    # forwarded to dbt. Allows one-off full-refresh runs via:
+    #   databricks jobs run-now <id> --json '{"job_parameters":{"dbt_full_refresh":"true"}}'
+    full_refresh = False
+    filtered_args: list[str] = []
+    skip_next = False
+    for i, arg in enumerate(raw_args):
+        if skip_next:
+            skip_next = False
+            continue
+        if arg == "--no-watermark":
+            continue
+        if arg == "--dbt-full-refresh":
+            if i + 1 < len(raw_args):
+                full_refresh = raw_args[i + 1].lower() == "true"
+                skip_next = True
+            continue
+        filtered_args.append(arg)
+
+    if full_refresh:
+        filtered_args.append("--full-refresh")
+        logger.info("--dbt-full-refresh=true: injecting --full-refresh into dbt args")
+
+    extra_args = filtered_args or None
+
     if skip_watermark:
         logger.info("--no-watermark: watermark guard bypassed")
 

@@ -189,3 +189,96 @@ def test_no_watermark_bypasses_guard_and_strips_flag(mock_runner_cls: MagicMock,
     # --select tag:output_mart must still be forwarded
     assert "--select" in dbt_args
     assert "tag:output_mart" in dbt_args
+
+
+@patch("ingestion.dbt_runner._ensure_databricks_env_vars")
+@patch("ingestion.dbt_runner.dbtRunner")
+def test_dbt_full_refresh_true_injects_flag(mock_runner_cls: MagicMock, _mock_ensure: MagicMock) -> None:
+    """--dbt-full-refresh true must inject --full-refresh into dbt args."""
+    mock_runner = MagicMock()
+    mock_runner.invoke.return_value = _make_runner_result(success=True, node_count=5)
+    mock_runner_cls.return_value = mock_runner
+
+    from ingestion.dbt_runner import main
+
+    argv = [
+        "dbt_build", "--select", "+tag:input_mart", "+tag:dimension",
+        "--dbt-full-refresh", "true",
+    ]
+    with patch("sys.argv", argv):
+        with patch("ingestion.dbt_runner.get_spark_session") as mock_spark:
+            mock_spark.return_value = MagicMock()
+            with patch("ingestion.dbt_runner.timed_check") as mock_timed:
+                mock_timed.return_value = MagicMock(count=1)
+                with patch("ingestion.dbt_runner.resolve_upstream_tables_from_card", return_value=[]):
+                    with patch("ingestion.dbt_runner.record_watermarks"):
+                        result = main()
+
+    assert result == 0
+    dbt_args = mock_runner.invoke.call_args.args[0]
+    # --full-refresh must be present in args forwarded to dbt
+    assert "--full-refresh" in dbt_args
+    # --dbt-full-refresh and its value must NOT be forwarded
+    assert "--dbt-full-refresh" not in dbt_args
+    assert "true" not in dbt_args
+    # --select args must still be present
+    assert "+tag:input_mart" in dbt_args
+
+
+@patch("ingestion.dbt_runner._ensure_databricks_env_vars")
+@patch("ingestion.dbt_runner.dbtRunner")
+def test_dbt_full_refresh_false_does_not_inject_flag(mock_runner_cls: MagicMock, _mock_ensure: MagicMock) -> None:
+    """--dbt-full-refresh false (the default) must NOT inject --full-refresh."""
+    mock_runner = MagicMock()
+    mock_runner.invoke.return_value = _make_runner_result(success=True, node_count=5)
+    mock_runner_cls.return_value = mock_runner
+
+    from ingestion.dbt_runner import main
+
+    argv = [
+        "dbt_build", "--select", "+tag:input_mart", "+tag:dimension",
+        "--dbt-full-refresh", "false",
+    ]
+    with patch("sys.argv", argv):
+        with patch("ingestion.dbt_runner.get_spark_session") as mock_spark:
+            mock_spark.return_value = MagicMock()
+            with patch("ingestion.dbt_runner.timed_check") as mock_timed:
+                mock_timed.return_value = MagicMock(count=1)
+                with patch("ingestion.dbt_runner.resolve_upstream_tables_from_card", return_value=[]):
+                    with patch("ingestion.dbt_runner.record_watermarks"):
+                        result = main()
+
+    assert result == 0
+    dbt_args = mock_runner.invoke.call_args.args[0]
+    # --full-refresh must NOT be present
+    assert "--full-refresh" not in dbt_args
+    # --dbt-full-refresh and its value must NOT be forwarded
+    assert "--dbt-full-refresh" not in dbt_args
+
+
+@patch("ingestion.dbt_runner._ensure_databricks_env_vars")
+@patch("ingestion.dbt_runner.dbtRunner")
+def test_dbt_full_refresh_combined_with_no_watermark(mock_runner_cls: MagicMock, _mock_ensure: MagicMock) -> None:
+    """--dbt-full-refresh true + --no-watermark must both work together."""
+    mock_runner = MagicMock()
+    mock_runner.invoke.return_value = _make_runner_result(success=True, node_count=5)
+    mock_runner_cls.return_value = mock_runner
+
+    from ingestion.dbt_runner import main
+
+    with patch(
+        "sys.argv",
+        ["dbt_build", "--select", "tag:output_mart", "--no-watermark", "--dbt-full-refresh", "true"],
+    ):
+        with patch("ingestion.dbt_runner.get_spark_session") as mock_spark:
+            mock_spark.return_value = MagicMock()
+            with patch("ingestion.dbt_runner.resolve_upstream_tables_from_card", return_value=[]):
+                with patch("ingestion.dbt_runner.record_watermarks"):
+                    result = main()
+
+    assert result == 0
+    dbt_args = mock_runner.invoke.call_args.args[0]
+    assert "--full-refresh" in dbt_args
+    assert "--no-watermark" not in dbt_args
+    assert "--dbt-full-refresh" not in dbt_args
+    assert "tag:output_mart" in dbt_args

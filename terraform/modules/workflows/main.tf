@@ -59,6 +59,14 @@ resource "databricks_job" "data_ingestion" {
     }
   }
 
+  # ── Job-level parameters ────────────────────────────────────────────────
+  # Accessible in task configs as {{job.parameters.<name>}}.
+  # Override at run-now time via job_parameters JSON.
+  parameter {
+    name    = "dbt_full_refresh"
+    default = "false"
+  }
+
   # ── Schedule: Daily at 6am UTC ───────────────────────────────────────────
   schedule {
     quartz_cron_expression = "0 0 6 * * ?"
@@ -592,7 +600,7 @@ resource "databricks_job" "data_ingestion" {
     python_wheel_task {
       package_name = "luxury_lakehouse"
       entry_point  = "dbt_build"
-      parameters   = ["--select", "+tag:input_mart", "+tag:dimension"]
+      parameters   = ["--select", "+tag:input_mart", "+tag:dimension", "--dbt-full-refresh", "{{job.parameters.dbt_full_refresh}}"]
     }
 
     # All ingest tasks + ingest-helper compute tasks (extract_tracking_metadata,
@@ -628,7 +636,7 @@ resource "databricks_job" "data_ingestion" {
     python_wheel_task {
       package_name = "luxury_lakehouse"
       entry_point  = "dbt_build"
-      parameters   = ["--select", "+tag:intermediate_mart"]
+      parameters   = ["--select", "+tag:intermediate_mart", "--dbt-full-refresh", "{{job.parameters.dbt_full_refresh}}"]
     }
 
     # Sequential edge to stage 1 + the phase-1 compute task that writes
@@ -661,7 +669,7 @@ resource "databricks_job" "data_ingestion" {
     python_wheel_task {
       package_name = "luxury_lakehouse"
       entry_point  = "dbt_build"
-      parameters   = ["--select", "tag:output_mart"]
+      parameters   = ["--select", "tag:output_mart", "--dbt-full-refresh", "{{job.parameters.dbt_full_refresh}}"]
     }
 
     # Stage 2 sequential edge + every phase-2 compute task that writes
