@@ -202,8 +202,12 @@ def test_dbt_full_refresh_true_injects_flag(mock_runner_cls: MagicMock, _mock_en
     from ingestion.dbt_runner import main
 
     argv = [
-        "dbt_build", "--select", "+tag:input_mart", "+tag:dimension",
-        "--dbt-full-refresh", "true",
+        "dbt_build",
+        "--select",
+        "+tag:input_mart",
+        "+tag:dimension",
+        "--dbt-full-refresh",
+        "true",
     ]
     with patch("sys.argv", argv):
         with patch("ingestion.dbt_runner.get_spark_session") as mock_spark:
@@ -236,8 +240,12 @@ def test_dbt_full_refresh_false_does_not_inject_flag(mock_runner_cls: MagicMock,
     from ingestion.dbt_runner import main
 
     argv = [
-        "dbt_build", "--select", "+tag:input_mart", "+tag:dimension",
-        "--dbt-full-refresh", "false",
+        "dbt_build",
+        "--select",
+        "+tag:input_mart",
+        "+tag:dimension",
+        "--dbt-full-refresh",
+        "false",
     ]
     with patch("sys.argv", argv):
         with patch("ingestion.dbt_runner.get_spark_session") as mock_spark:
