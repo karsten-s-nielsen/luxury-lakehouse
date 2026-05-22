@@ -697,12 +697,15 @@ models:
           Kimball surrogate FK to dim_teams. Populated for SB/WS/IDSSE
           via dim_teams JOIN on (provider, team_id_native). Metrica excluded
           pending dim_players coverage verification (anonymous PlayerN IDs).
+          Rows with team_id_native = '__UNKNOWN_TEAM__' (IDSSE freekick_short
+          sentinel) are excluded — the sentinel does not resolve in dim_teams.
         data_tests:
           - not_null:
               config:
                 where: >
                   data_source IN ('statsbomb', 'wyscout', 'idsse')
                   AND team_id_native IS NOT NULL
+                  AND team_id_native != '__UNKNOWN_TEAM__'
           - relationships:
               arguments:
                 to: ref('dim_teams')
@@ -876,12 +879,12 @@ models:
                 severity: warn
       - name: data_source
         data_type: string
-        description: Data provider (statsbomb, wyscout, idsse, metrica, gradientsports) — LL2 Path B expanded to 5 sources.
+        description: Data provider (statsbomb, wyscout, idsse, metrica, skillcorner, gradientsports) — LL2 Path B expanded to 6 sources.
         data_tests:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'gradientsports']
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner', 'gradientsports']
       - name: original_event_id
         data_type: string
         description: Original event ID from source data (NULL for synthetic dribbles)
