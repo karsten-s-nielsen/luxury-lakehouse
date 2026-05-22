@@ -370,7 +370,7 @@ def main() -> int:
 
     if full_refresh:
         filtered_args.append("--full-refresh")
-        logger.info("--dbt-full-refresh=true: injecting --full-refresh into dbt args")
+        logger.info("--dbt-full-refresh=true: injecting --full-refresh + bypassing watermark guard")
 
     extra_args = filtered_args or None
 
@@ -394,7 +394,7 @@ def main() -> int:
 
     card_id = _SELECTOR_TO_CARD.get(frozenset(selector_str.split()) if selector_str else frozenset())
     spark: SparkSession | None = None
-    if card_id is not None and not skip_watermark:
+    if card_id is not None and not skip_watermark and not full_refresh:
         spark = get_spark_session()
         watermark_guard = _DbtWatermarkGuard(card_id)
         fr = timed_check(watermark_guard, spark, "soccer_analytics", "dev_gold")

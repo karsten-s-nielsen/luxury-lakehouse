@@ -225,6 +225,8 @@ def test_dbt_full_refresh_true_injects_flag(mock_runner_cls: MagicMock, _mock_en
     # --dbt-full-refresh and its value must NOT be forwarded
     assert "--dbt-full-refresh" not in dbt_args
     assert "true" not in dbt_args
+    # Watermark guard must be bypassed when full_refresh=true
+    mock_timed.assert_not_called()
     # --select args must still be present
     assert "+tag:input_mart" in dbt_args
 
