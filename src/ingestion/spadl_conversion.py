@@ -1832,13 +1832,24 @@ def _make_gradientsports_replace_where(hashed_match_ids: list[int]) -> str:
     return f"data_source = 'gradientsports' AND match_id IN ({ids_sql})"
 
 
-def _make_gradientsports_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
+def _make_gradientsports_spadl_udf(
+    gs_comp_season: dict[str, tuple[str, str]] | None = None,
+) -> Callable[[pd.DataFrame], pd.DataFrame]:
     """Build the applyInPandas UDF closure for Gradient Sports SPADL conversion.
 
     Follows the IDSSE batch pattern: metadata extracted from bronze columns
     at execution time (no per-match closure). Tackle qualifier mapping uses
     the IDSSE pattern (_native/_key pairs), NOT null_fill_tackle_qualifiers.
+
+    Parameters
+    ----------
+    gs_comp_season
+        Lookup of match_id → (competition_id, season) from the metadata
+        bronze table. When provided, the UDF populates competition_native_id
+        and season_native_id on the output SPADL rows. When None (metadata
+        table not yet created), both columns are set to pd.NA.
     """
+    _gs_comp_season = gs_comp_season
 
     def _udf(pdf: pd.DataFrame) -> pd.DataFrame:
         import logging as _logging
@@ -1860,6 +1871,7 @@ def _make_gradientsports_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
             hash_native_id_to_bigint as _hash_id,
         )
         from ingestion.spadl_conversion import _gs_safe_to_dot_rename
+        from shared.identifiers import gradientsports_native_competition_id as _gs_comp_id
         from shared.identifiers import gradientsports_native_match_id as _gs_match_id
 
         # Reverse the Spark-level dot→safe rename so the adapter receives
@@ -2000,12 +2012,16 @@ def _make_gradientsports_spadl_udf() -> Callable[[pd.DataFrame], pd.DataFrame]:
         actions = _null_fill_sb(actions, n=n)
         actions = _cast_enrichment(actions)
 
-        # match-level natives
+        # match-level natives — competition/season from metadata bronze lookup
+        comp_id_str, season_str = ("", "")
+        if _gs_comp_season and match_id_str in _gs_comp_season:
+            comp_id_str, season_str = _gs_comp_season[match_id_str]
+
         actions = _apply_match_natives(
             actions,
             home_team_id_native=str(metadata["home_team_id"]),
-            competition_native_id=_pd.NA,  # type: ignore[arg-type]  # GS has no competition_native_id in events
-            season_native_id=_pd.NA,  # type: ignore[arg-type]
+            competition_native_id=_gs_comp_id(comp_id_str) if comp_id_str else _pd.NA,  # type: ignore[arg-type]
+            season_native_id=season_str if season_str else _pd.NA,  # type: ignore[arg-type]
             match_id_native=_gs_match_id(match_id_str),
         )
 
@@ -2208,7 +2224,20 @@ def _convert_gradientsports_from_bronze(
         ]
     )
 
-    udf_fn = _make_gradientsports_spadl_udf()
+    # Read competition/season from metadata bronze (populated by backfill).
+    metadata_table = f"{catalog}.{schema}.gradientsports_metadata"
+    gs_comp_season: dict[str, tuple[str, str]] = {}
+    from ingestion.utils import tolerate_missing_table
+
+    with tolerate_missing_table(logger, "GS metadata table not yet created — competition/season will be NULL"):
+        meta_rows = spark.table(metadata_table).select("match_id", "`competition.id`", "season").collect()
+        for row in meta_rows:
+            mid = str(row["match_id"])
+            comp_id = str(row["competition.id"]) if row["competition.id"] is not None else ""
+            season = str(row["season"]) if row["season"] is not None else ""
+            gs_comp_season[mid] = (comp_id, season)
+
+    udf_fn = _make_gradientsports_spadl_udf(gs_comp_season=gs_comp_season or None)
     spadl_sdf = new_events_sdf.groupBy("match_id").applyInPandas(
         udf_fn,  # type: ignore[arg-type]
         schema=spadl_schema,

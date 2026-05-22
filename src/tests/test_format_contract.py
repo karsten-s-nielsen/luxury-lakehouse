@@ -383,3 +383,27 @@ class TestGradientSportsNamedTuples:
         nid = NativeTeamId.gradientsports("4177")
         assert nid.provider == "gradientsports"
         assert nid.value == "4177"
+
+
+class TestGradientSportsCompetitionIdFormatContract:
+    def test_gradientsports_native_competition_id_valid_string(self) -> None:
+        from shared.identifiers import gradientsports_native_competition_id
+
+        assert gradientsports_native_competition_id("38") == "38"
+
+    def test_gradientsports_native_competition_id_valid_int(self) -> None:
+        from shared.identifiers import gradientsports_native_competition_id
+
+        assert gradientsports_native_competition_id(38) == "38"
+
+    def test_gradientsports_native_competition_id_rejects_alpha(self) -> None:
+        from shared.identifiers import gradientsports_native_competition_id
+
+        with pytest.raises(ValueError, match="invalid Gradient Sports competition id"):
+            gradientsports_native_competition_id("abc")
+
+    def test_gradientsports_native_competition_id_rejects_empty(self) -> None:
+        from shared.identifiers import gradientsports_native_competition_id
+
+        with pytest.raises(ValueError, match="invalid Gradient Sports competition id"):
+            gradientsports_native_competition_id("")

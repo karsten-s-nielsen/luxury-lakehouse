@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 
 # On Windows, jaxlib native extensions fail to load if pandas/matplotlib
@@ -43,3 +44,68 @@ def _restore_pyspark_modules() -> object:
             del sys.modules[k]
         else:
             sys.modules[k] = pyspark_entries[k]
+
+
+# ---------------------------------------------------------------------------
+# Gradient Sports bronze fixture helpers (shared across test modules)
+# ---------------------------------------------------------------------------
+
+
+def _make_gs_bronze_row(
+    *,
+    match_id: str = "10502",
+    game_id: float = 10502.0,
+    game_event_id: float = 6498520.0,
+    period: float = 1.0,
+    start_game_clock: float = 2800.0,
+    player_id: float = 12345.0,
+    team_id: float = 366.0,
+    home_team: bool = True,
+    possession_event_id: float = 8001.0,
+    game_event_type: str = "OTB",
+    possession_event_type: str = "PA",
+    pass_type: str = "Short",  # noqa: S107 — not a password; GS event attribute
+    pass_outcome_type: str = "Complete",  # noqa: S107 — not a password
+    setpiece_type: str = "O",
+    home_team_start_left: bool = True,
+    home_team_start_left_extratime: object = None,
+    ball_x: float = 10.5,
+    ball_y: float = 20.3,
+    **overrides: object,
+) -> dict:
+    """Build a single synthetic bronze row with actual GS dot-notation columns.
+
+    Column names match the real bronze schema (DESCRIBE verified):
+    - gameEventId (top-level), NOT possessionEvents.eventId
+    - gameEvents.period, NOT possessionEvents.periodId
+    - gameEvents.startGameClock, NOT possessionEvents.timeSeconds
+    - gameEvents.playerId, NOT possessionEvents.playerId
+    - gameEvents.teamId, NOT possessionEvents.teamId
+    - gameEvents.setpieceType (lowercase p)
+    - gameEvents.homeTeam (boolean) -- used to derive home_team_id
+    - ball (JSON string) -- NOT possessionEvents.ballX/ballY
+    """
+    row: dict = {
+        "match_id": match_id,
+        "gameId": game_id,
+        "gameEventId": game_event_id,
+        "possessionEventId": possession_event_id,
+        "gameEvents.gameEventType": game_event_type,
+        "gameEvents.period": period,
+        "gameEvents.startGameClock": start_game_clock,
+        "gameEvents.playerId": player_id,
+        "gameEvents.teamId": team_id,
+        "gameEvents.homeTeam": home_team,
+        "gameEvents.setpieceType": setpiece_type,
+        "possessionEvents.possessionEventType": possession_event_type,
+        "possessionEvents.passType": pass_type,
+        "possessionEvents.passOutcomeType": pass_outcome_type,
+        # ball is a JSON string in bronze (serialized by gradientsports_events.py)
+        "ball": json.dumps([{"visibility": "VISIBLE", "x": ball_x, "y": ball_y, "z": 0.0}]),
+        "stadiumMetadata.homeTeamStartLeft": home_team_start_left,
+    }
+    # Only include ET column when explicitly provided (it's absent for most matches)
+    if home_team_start_left_extratime is not None:
+        row["stadiumMetadata.homeTeamStartLeftExtraTime"] = home_team_start_left_extratime
+    row.update(overrides)
+    return row

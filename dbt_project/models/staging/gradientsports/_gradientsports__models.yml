@@ -1,0 +1,101 @@
+version: 2
+
+models:
+  - name: stg_gradientsports__metadata
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Staging view over bronze.gradientsports_metadata. One row per match.
+      Typed columns from json_normalize output. Feeds dim_matches,
+      dim_teams, dim_competitions.
+    columns:
+      - name: match_id
+        description: Native match ID (numeric string)
+        data_tests:
+          - not_null
+      - name: home_team_id
+        description: Home team ID (cast to string)
+        data_tests:
+          - not_null
+      - name: home_team_name
+        description: Home team name
+        data_tests:
+          - not_null
+      - name: home_team_short_name
+        description: Home team short name (3-letter code)
+      - name: away_team_id
+        description: Away team ID (cast to string)
+        data_tests:
+          - not_null
+      - name: away_team_name
+        description: Away team name
+        data_tests:
+          - not_null
+      - name: away_team_short_name
+        description: Away team short name (3-letter code)
+      - name: competition_id
+        description: Competition ID (cast to string)
+        data_tests:
+          - not_null
+      - name: competition_name
+        description: Competition name
+        data_tests:
+          - not_null
+      - name: season_id
+        description: Season identifier
+      - name: match_date
+        description: ISO 8601 UTC match timestamp
+      - name: stadium_id
+        description: Stadium ID (cast to string)
+      - name: stadium_name
+        description: Stadium name
+      - name: home_team_start_left
+        description: Home team direction flag
+      - name: home_team_start_left_extra_time
+        description: Extra-time direction flag (nullable)
+      - name: fps
+        description: Frame rate
+      - name: matchweek
+        description: Matchweek number
+      - name: _ingested_at
+        description: UTC ingestion timestamp
+
+  - name: stg_gradientsports__roster
+    config:
+      meta:
+        data_sensitivity: public
+        contains_pii: false
+    description: >
+      Staging view over bronze.gradientsports_roster. One row per player
+      per match (~51 rows/match). Feeds dim_players.
+    columns:
+      - name: match_id
+        description: Native match ID (numeric string)
+        data_tests:
+          - not_null
+      - name: player_id
+        description: Player ID (cast to string)
+        data_tests:
+          - not_null
+      - name: player_nickname
+        description: Player display name
+        data_tests:
+          - not_null
+      - name: team_id
+        description: Team ID (cast to string)
+        data_tests:
+          - not_null
+      - name: team_name
+        description: Team name
+        data_tests:
+          - not_null
+      - name: position_group
+        description: Position group code (GK, CB, AM, CF, etc.)
+      - name: shirt_number
+        description: Shirt number (string)
+      - name: started
+        description: Whether player was in starting lineup
+      - name: _ingested_at
+        description: UTC ingestion timestamp

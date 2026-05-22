@@ -755,7 +755,9 @@ class TestPreflight:
             patch("ingestion.gradientsports.parse_ingestion_args") as mock_args,
             patch("ingestion.bootstrap.bootstrap_hooks"),
         ):
-            mock_args.return_value = MagicMock(catalog="cat", schema="bronze")
+            mock_args.return_value = MagicMock(
+                catalog="cat", schema="bronze", match_json=None, backfill_artifacts=False
+            )
             mock_check.return_value = FilterResult(
                 workflow_id="wf-gradientsports",
                 count=3,
@@ -796,7 +798,9 @@ class TestPreflight:
             patch("ingestion.gradientsports.parse_ingestion_args") as mock_args,
             patch("ingestion.bootstrap.bootstrap_hooks"),
         ):
-            mock_args.return_value = MagicMock(catalog="cat", schema="bronze")
+            mock_args.return_value = MagicMock(
+                catalog="cat", schema="bronze", match_json=None, backfill_artifacts=False
+            )
             mock_check.return_value = FilterResult(
                 workflow_id="wf-gradientsports",
                 count=0,
@@ -844,7 +848,9 @@ class TestMatchJsonIteration:
             patch("ingestion.gradientsports.parse_ingestion_args") as mock_args,
             patch("ingestion.bootstrap.bootstrap_hooks"),
         ):
-            mock_args.return_value = MagicMock(catalog="cat", schema="bronze", match_json=match_json)
+            mock_args.return_value = MagicMock(
+                catalog="cat", schema="bronze", match_json=match_json, backfill_artifacts=False
+            )
             main()
 
         mock_write_tracking.assert_called_once()
@@ -887,7 +893,9 @@ class TestMatchJsonIteration:
             patch("ingestion.gradientsports.parse_ingestion_args") as mock_args,
             patch("ingestion.bootstrap.bootstrap_hooks"),
         ):
-            mock_args.return_value = MagicMock(catalog="cat", schema="bronze", match_json=match_json)
+            mock_args.return_value = MagicMock(
+                catalog="cat", schema="bronze", match_json=match_json, backfill_artifacts=False
+            )
             main()
 
         assert call_order == ["tracking", "events"], (

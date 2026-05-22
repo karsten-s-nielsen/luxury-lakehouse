@@ -3,7 +3,7 @@
     tags=['marts', 'dimension']
 ) }}
 -- dim_teams.sql
--- Conformed team dimension unifying StatsBomb, Wyscout, IDSSE, and Metrica.
+-- Conformed team dimension unifying StatsBomb, Wyscout, IDSSE, Metrica, SkillCorner, and Gradient Sports.
 --
 -- PRIMARY KEY: team_key (BIGINT surrogate, xxhash64 of provider|native_team_id
 --              via generate_team_key macro per ADR-011 PR 5a).
@@ -155,6 +155,30 @@ skillcorner_teams as (
 
 ),
 
+gradientsports_teams as (
+
+    -- Gradient Sports teams sourced from stg_gradientsports__metadata.
+    -- Home + away teams unioned and deduplicated via GROUP BY.
+    select
+        'gradientsports'                                as provider,
+        native_team_id,
+        cast(null as bigint)                            as team_id_legacy,
+        max(team_name)                                  as team_name,
+        false                                           as is_synthesized,
+        false                                           as is_anonymized,
+        cast(null as string)                            as synthesis_reason
+    from (
+        select home_team_id as native_team_id, home_team_name as team_name
+        from {{ ref('stg_gradientsports__metadata') }}
+        union all
+        select away_team_id as native_team_id, away_team_name as team_name
+        from {{ ref('stg_gradientsports__metadata') }}
+    )
+    where native_team_id is not null
+    group by native_team_id
+
+),
+
 unioned as (
 
     select * from statsbomb_teams
@@ -170,6 +194,8 @@ unioned as (
     select * from metrica_real_teams
     union all
     select * from skillcorner_teams
+    union all
+    select * from gradientsports_teams
 
 ),
 

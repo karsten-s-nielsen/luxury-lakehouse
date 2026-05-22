@@ -9,74 +9,10 @@ Bronze column mapping verified against:
 
 from __future__ import annotations
 
-import json
-
 import pandas as pd
 import pytest
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
-def _make_gs_bronze_row(
-    *,
-    match_id: str = "10502",
-    game_id: float = 10502.0,
-    game_event_id: float = 6498520.0,
-    period: float = 1.0,
-    start_game_clock: float = 2800.0,
-    player_id: float = 12345.0,
-    team_id: float = 366.0,
-    home_team: bool = True,
-    possession_event_id: float = 8001.0,
-    game_event_type: str = "OTB",
-    possession_event_type: str = "PA",
-    pass_type: str = "Short",  # noqa: S107 — not a password; GS event attribute
-    pass_outcome_type: str = "Complete",  # noqa: S107 — not a password
-    setpiece_type: str = "O",
-    home_team_start_left: bool = True,
-    home_team_start_left_extratime: object = None,
-    ball_x: float = 10.5,
-    ball_y: float = 20.3,
-    **overrides: object,
-) -> dict:
-    """Build a single synthetic bronze row with actual GS dot-notation columns.
-
-    Column names match the real bronze schema (DESCRIBE verified):
-    - gameEventId (top-level), NOT possessionEvents.eventId
-    - gameEvents.period, NOT possessionEvents.periodId
-    - gameEvents.startGameClock, NOT possessionEvents.timeSeconds
-    - gameEvents.playerId, NOT possessionEvents.playerId
-    - gameEvents.teamId, NOT possessionEvents.teamId
-    - gameEvents.setpieceType (lowercase p)
-    - gameEvents.homeTeam (boolean) -- used to derive home_team_id
-    - ball (JSON string) -- NOT possessionEvents.ballX/ballY
-    """
-    row: dict = {
-        "match_id": match_id,
-        "gameId": game_id,
-        "gameEventId": game_event_id,
-        "possessionEventId": possession_event_id,
-        "gameEvents.gameEventType": game_event_type,
-        "gameEvents.period": period,
-        "gameEvents.startGameClock": start_game_clock,
-        "gameEvents.playerId": player_id,
-        "gameEvents.teamId": team_id,
-        "gameEvents.homeTeam": home_team,
-        "gameEvents.setpieceType": setpiece_type,
-        "possessionEvents.possessionEventType": possession_event_type,
-        "possessionEvents.passType": pass_type,
-        "possessionEvents.passOutcomeType": pass_outcome_type,
-        # ball is a JSON string in bronze (serialized by gradientsports_events.py)
-        "ball": json.dumps([{"visibility": "VISIBLE", "x": ball_x, "y": ball_y, "z": 0.0}]),
-        "stadiumMetadata.homeTeamStartLeft": home_team_start_left,
-    }
-    # Only include ET column when explicitly provided (it's absent for most matches)
-    if home_team_start_left_extratime is not None:
-        row["stadiumMetadata.homeTeamStartLeftExtraTime"] = home_team_start_left_extratime
-    row.update(overrides)
-    return row
+from tests.conftest import _make_gs_bronze_row
 
 
 def _make_gs_bronze_df(n: int = 5, **kwargs: object) -> pd.DataFrame:
@@ -903,3 +839,70 @@ class TestDirectionOfPlay:
         # Coordinates must still be in SPADL range after direction normalization
         assert result["start_x"].dropna().between(0, 105).all()
         assert result["start_y"].dropna().between(0, 68).all()
+
+
+# ---------------------------------------------------------------------------
+# Competition/season injection from metadata bronze lookup
+# ---------------------------------------------------------------------------
+
+
+class TestCompetitionSeasonInjection:
+    """Verify SPADL UDF injects competition/season from metadata lookup."""
+
+    def test_competition_native_id_populated_when_metadata_available(self) -> None:
+        from ingestion.spadl_conversion import _make_gradientsports_spadl_udf
+
+        gs_comp_season = {"10502": ("38", "2022")}
+        udf_fn = _make_gradientsports_spadl_udf(gs_comp_season=gs_comp_season)
+
+        rows = [
+            _make_gs_bronze_row(
+                match_id="10502",
+                game_event_type="PA",
+                possession_event_type="PA",
+                pass_type="Short",  # noqa: S106
+                pass_outcome_type="Complete",  # noqa: S106
+            ),
+            _make_gs_bronze_row(
+                match_id="10502",
+                game_event_type="PA",
+                possession_event_type="PA",
+                pass_type="Short",  # noqa: S106
+                pass_outcome_type="Incomplete",  # noqa: S106
+                game_event_id=6498521.0,
+                possession_event_id=8002.0,
+                start_game_clock=2810.0,
+            ),
+        ]
+        df = pd.DataFrame(rows)
+
+        result = udf_fn(df)
+        assert "competition_native_id" in result.columns
+        non_null = result["competition_native_id"].dropna()
+        assert len(non_null) > 0, "Expected competition_native_id to be populated from gs_comp_season"
+        assert non_null.iloc[0] == "38"
+
+        season_vals = result["season_native_id"].dropna()
+        assert len(season_vals) > 0
+        assert season_vals.iloc[0] == "2022"
+
+    def test_competition_native_id_na_when_no_metadata(self) -> None:
+        from ingestion.spadl_conversion import _make_gradientsports_spadl_udf
+
+        udf_fn = _make_gradientsports_spadl_udf(gs_comp_season=None)
+
+        rows = [
+            _make_gs_bronze_row(
+                match_id="10502",
+                game_event_type="PA",
+                possession_event_type="PA",
+                pass_type="Short",  # noqa: S106
+                pass_outcome_type="Complete",  # noqa: S106
+            ),
+        ]
+        df = pd.DataFrame(rows)
+
+        result = udf_fn(df)
+        assert "competition_native_id" in result.columns
+        assert result["competition_native_id"].iloc[0] is pd.NA
+        assert result["season_native_id"].iloc[0] is pd.NA

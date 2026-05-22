@@ -1,5 +1,6 @@
 -- dim_players.sql
--- Conformed player dimension (ADR-011 PR 5a).
+-- Conformed player dimension (ADR-011 PR 5a). Unifies StatsBomb, Wyscout,
+-- IDSSE, Metrica, SkillCorner, and Gradient Sports.
 --
 -- Grain: one row per (provider, native_player_id).
 --
@@ -160,6 +161,29 @@ skillcorner_players as (
 
 ),
 
+gradientsports_players as (
+
+    -- Gradient Sports players sourced from stg_gradientsports__roster.
+    -- One row per (match, player) in roster; GROUP BY collapses to one row
+    -- per native_player_id, with MAX picking a stable display name.
+    select
+        cast(player_id as string)                       as native_player_id,
+        cast(null as bigint)                            as player_id_legacy,
+        max(player_nickname)                            as player_name,
+        max(player_nickname)                            as player_display_name,
+        max(position_group)                             as primary_position,
+        'gradientsports'                                as provider,
+        false                                           as is_synthesized,
+        false                                           as is_anonymized,
+        cast(null as string)                            as synthesis_reason,
+        cast(null as string)                            as birth_date,
+        cast(null as string)                            as nationality
+    from {{ ref('stg_gradientsports__roster') }}
+    where player_id is not null
+    group by cast(player_id as string)
+
+),
+
 unioned as (
 
     select * from statsbomb_players
@@ -173,6 +197,8 @@ unioned as (
     select * from metrica_real_players
     union all
     select * from skillcorner_players
+    union all
+    select * from gradientsports_players
 
 ),
 

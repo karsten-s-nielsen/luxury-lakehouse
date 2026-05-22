@@ -2443,7 +2443,7 @@ models:
         data_sensitivity: public
         contains_pii: false
     description: >
-      Conformed player dimension (ADR-011 PR 5a). 4-provider union with Kimball
+      Conformed player dimension (ADR-011 PR 5a). 6-provider union with Kimball
       surrogate player_key + preserved canonical_player_id legacy hash (for
       Hyrum's Law compat across 57 downstream files + HF datasets).
       canonical_player_key collapses xref-matched pairs per entity resolution.
@@ -2476,7 +2476,7 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner']
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner', 'gradientsports']
       - name: native_player_id
         data_type: string
         description: Stringified native provider ID (real for SB/WS/IDSSE; synthesised for Metrica anonymised).
@@ -2545,7 +2545,7 @@ models:
         contains_pii: false
     description: >
       Conformed team dimension (ADR-011 PR 5a). Kimball surrogate team_key
-      across StatsBomb / Wyscout / IDSSE / Metrica. Synthesis flags mark
+      across StatsBomb / Wyscout / IDSSE / Metrica / SkillCorner / Gradient Sports. Synthesis flags mark
       Metrica anonymised + Wyscout unresolved-teamsdata fallback rows.
       team_name populated for Wyscout real rows from Figshare teams.json
       (ingestion gap closed in PR 5a).
@@ -2563,7 +2563,7 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner']
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner', 'gradientsports']
       - name: native_team_id
         data_type: string
         data_tests:
@@ -2606,14 +2606,14 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner']
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner', 'gradientsports']
       - name: team_data_source
         data_type: string
         data_tests:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner']
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner', 'gradientsports']
 
   - name: dim_competitions
     config:
@@ -2623,8 +2623,8 @@ models:
         data_sensitivity: public
         contains_pii: false
     description: >
-      Conformed competition dimension unifying StatsBomb + Wyscout + IDSSE
-      + Metrica competitions. PR 2 (ADR-011) added `competition_key` as
+      Conformed competition dimension unifying StatsBomb, Wyscout, IDSSE,
+      Metrica, SkillCorner, and Gradient Sports competitions. PR 2 (ADR-011) added `competition_key` as
       the surrogate primary key. PR 5a added a synthetic Metrica
       pseudo-competition row (native_competition_id='metrica-sample',
       provider='metrica') so anonymised sample-data matches surface in
@@ -2653,14 +2653,14 @@ models:
         data_type: string
         description: >
           Data source that produced this competition (statsbomb, wyscout,
-          idsse, metrica). PR 5a added a 'metrica' pseudo-competition row
-          (native_competition_id='metrica-sample') so Metrica passes
-          surface in the Pass Map competition cascade.
+          idsse, metrica, skillcorner, gradientsports). PR 5a added a
+          'metrica' pseudo-competition row (native_competition_id='metrica-sample')
+          so Metrica passes surface in the Pass Map competition cascade.
         data_tests:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb', 'wyscout', 'idsse', 'metrica']
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner', 'gradientsports']
       - name: native_competition_id
         data_type: string
         description: >
@@ -4564,8 +4564,8 @@ models:
         data_sensitivity: public
         contains_pii: false
     description: >
-      Conformed match dimension unifying all four providers (StatsBomb,
-      Wyscout, IDSSE, Metrica). Primary key is `match_key` — a deterministic
+      Conformed match dimension unifying all providers (StatsBomb,
+      Wyscout, IDSSE, Metrica, SkillCorner, Gradient Sports). Primary key is `match_key` — a deterministic
       BIGINT surrogate generated via `generate_match_key(provider, native_match_id)`.
       Natural keys are preserved as attributes for lineage.
 
@@ -4597,7 +4597,7 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner']
+                values: ['statsbomb', 'wyscout', 'idsse', 'metrica', 'skillcorner', 'gradientsports']
       - name: native_match_id
         data_type: string
         description: >

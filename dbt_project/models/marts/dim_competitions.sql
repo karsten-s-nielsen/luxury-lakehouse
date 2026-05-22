@@ -3,9 +3,8 @@
     tags=['marts', 'dimension']
 ) }}
 -- dim_competitions.sql
--- Conformed competition dimension. Unifies StatsBomb + Wyscout + IDSSE
--- competitions. Metrica is intentionally absent — its open-data is
--- anonymised and carries no competition metadata.
+-- Conformed competition dimension. Unifies StatsBomb, Wyscout, IDSSE,
+-- Metrica, SkillCorner, and Gradient Sports competitions.
 --
 -- PRIMARY KEY: competition_key (BIGINT surrogate, deterministic hash of
 -- (provider, native_competition_id) via `generate_competition_key` macro).
@@ -94,6 +93,37 @@ metrica_competitions as (
 
 ),
 
+skillcorner_competitions as (
+
+    -- SkillCorner competitions sourced from stg_skillcorner__matches.
+    -- Real competition metadata from match.json via pining-for-the-data API.
+    select distinct
+        'skillcorner'                      as provider,
+        cast(competition_id as string)     as native_competition_id,
+        cast(null as int)                  as competition_id_legacy,
+        max(competition_name)              as competition_name
+
+    from {{ ref('stg_skillcorner__matches') }}
+    where competition_id is not null
+    group by cast(competition_id as string)
+
+),
+
+gradientsports_competitions as (
+
+    -- Gradient Sports competitions sourced from stg_gradientsports__metadata.
+    -- WC2022 dataset: competition_id=38 (FIFA World Cup).
+    select distinct
+        'gradientsports'                   as provider,
+        competition_id                     as native_competition_id,
+        cast(null as int)                  as competition_id_legacy,
+        competition_name
+
+    from {{ ref('stg_gradientsports__metadata') }}
+    where competition_id is not null
+
+),
+
 all_competitions as (
 
     select * from statsbomb_competitions
@@ -103,6 +133,10 @@ all_competitions as (
     select * from idsse_competitions
     union all
     select * from metrica_competitions
+    union all
+    select * from skillcorner_competitions
+    union all
+    select * from gradientsports_competitions
 
 ),
 
@@ -152,6 +186,7 @@ final as (
             s.country,
             case
                 when d.provider = 'idsse' then 'Germany'
+                when d.provider = 'gradientsports' then 'International'
                 when d.provider = 'metrica' then cast(null as string)  -- Anonymised; no real country
             end
         ) as country,
@@ -159,6 +194,7 @@ final as (
             s.gender,
             case
                 when d.provider = 'idsse' then 'male'
+                when d.provider = 'gradientsports' then 'male'
                 when d.provider = 'metrica' then cast(null as string)  -- Anonymised; no real gender
             end
         ) as gender
