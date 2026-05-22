@@ -117,13 +117,50 @@ with_derived as (
 
 ),
 
+-- Spike detection: NULL all derived kinematics when speed_ms exceeds the
+-- physical maximum for a human player (15 m/s ≈ 54 km/h). SkillCorner data
+-- exhibits coordinate teleportation where all 22 players jump simultaneously
+-- on camera-switch / model-reset frames, producing speeds up to 747 m/s.
+-- Raw x/y coordinates are preserved (source data); only computed derivatives
+-- are NULLed since they are meaningless on spike frames.
+with_spike_flag as (
+
+    select
+        *,
+        speed_ms <= {{ var('speed_spike_threshold_ms', 15) }}
+            or speed_ms is null                                     as _coords_valid
+    from with_derived
+
+),
+
+with_spike_cleaned as (
+
+    select
+        tracking_id, match_id, period, frame, timestamp_seconds,
+        frame_rate, player_id, team, team_id, source_provider,
+        x, y, ball_x, ball_y,
+        prev_x, prev_y,
+
+        _coords_valid,
+
+        case when _coords_valid then velocity_x    else null end as velocity_x,
+        case when _coords_valid then velocity_y    else null end as velocity_y,
+        case when _coords_valid then speed         else null end as speed,
+        case when _coords_valid then velocity_x_ms else null end as velocity_x_ms,
+        case when _coords_valid then velocity_y_ms else null end as velocity_y_ms,
+        case when _coords_valid then speed_ms      else null end as speed_ms
+
+    from with_spike_flag
+
+),
+
 -- Second LAG pass to get previous speed_ms for acceleration computation.
 with_lag_2 as (
 
     select
         *,
         lag(speed_ms) over (partition by match_id, player_id, period order by frame) as prev_speed_ms
-    from with_derived
+    from with_spike_cleaned
 
 ),
 
@@ -155,10 +192,11 @@ final as (
         wl.ball_x,
         wl.ball_y,
 
-        -- Distance to ball (Euclidean, SB coordinate units)
-        sqrt(
+        -- Distance to ball (Euclidean, SB coordinate units).
+        -- NULLed on spike frames where player coordinates are unreliable.
+        case when wl._coords_valid then sqrt(
             power(wl.x - wl.ball_x, 2) + power(wl.y - wl.ball_y, 2)
-        )                                               as distance_to_ball,
+        ) else null end                                 as distance_to_ball,
 
         -- Velocity in SB coordinate units/second (backward compat)
         wl.velocity_x,

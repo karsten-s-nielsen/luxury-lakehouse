@@ -1296,7 +1296,11 @@ models:
       Enriched tracking data from all providers (Metrica, IDSSE, SkillCorner).
       Contains spatial analysis outputs including player speeds, distance to
       ball, and velocity components. Supports mixed frame rates (25fps
-      Metrica/IDSSE, 10fps SkillCorner). One row per player per frame.
+      Metrica/IDSSE, 10fps SkillCorner). Spike detection NULLs all derived
+      kinematics (speed, velocity, acceleration, distance_to_ball) on frames
+      where speed_ms exceeds 15 m/s — caused by coordinate teleportation in
+      optical tracking data. Raw x/y coordinates are preserved.
+      One row per player per frame.
     columns:
       - name: tracking_id
         data_type: string
@@ -1394,7 +1398,8 @@ models:
         description: >
           Player speed in m/s. Uses anisotropic scaling (x*105/120, y*68/80)
           since StatsBomb x and y scales differ. NULL for the first frame of
-          each (match_id, player_id, period) partition.
+          each (match_id, player_id, period) partition and for spike frames
+          where the raw speed exceeded 15 m/s (coordinate teleportation).
         data_tests:
           - dbt_expectations.expect_column_values_to_be_between:
               arguments:
