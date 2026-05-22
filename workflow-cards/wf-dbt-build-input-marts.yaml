@@ -61,6 +61,12 @@ inputs:
     - id: "{catalog}.bronze.tracking_player_metadata"
       source: delta-table
       description: "Tracking player metadata"
+    - id: "{catalog}.bronze.gradientsports_metadata"
+      source: delta-table
+      description: "Gradient Sports match metadata"
+    - id: "{catalog}.bronze.gradientsports_roster"
+      source: delta-table
+      description: "Gradient Sports player rosters"
 
 outputs:
   tables:
@@ -105,6 +111,7 @@ depends_on:
   - wf-metrica
   - wf-idsse
   - wf-skillcorner
+  - wf-gradientsports
   - wf-entity-resolution
 
 idempotency:

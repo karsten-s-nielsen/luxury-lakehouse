@@ -25,6 +25,10 @@ inputs:
 
 outputs:
   tables:
+    - id: "{catalog}.bronze.gradientsports_metadata"
+      destination: delta-table
+    - id: "{catalog}.bronze.gradientsports_roster"
+      destination: delta-table
     - id: "{catalog}.bronze.gradientsports_events"
       destination: delta-table
     - id: "{catalog}.bronze.gradientsports_tracking"
@@ -78,6 +82,8 @@ links:
     - "src/ingestion/gradientsports.py"
     - "src/ingestion/gradientsports_common.py"
     - "src/ingestion/gradientsports_events.py"
+    - "src/ingestion/gradientsports_metadata.py"
+    - "src/ingestion/gradientsports_roster.py"
     - "src/ingestion/gradientsports_tracking.py"
 ---
 
