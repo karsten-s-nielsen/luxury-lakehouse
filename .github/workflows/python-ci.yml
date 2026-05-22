@@ -159,6 +159,7 @@ jobs:
         # PYSEC-2024-277 (joblib 1.5.3): transitive dep via scikit-learn. Not exploitable — no untrusted pickle loading. Revisit when scikit-learn bumps joblib.
         # PYSEC-2026-113 (pyarrow 19.0.1): fix in 23.0.1. Pinned by databricks-connect/pyspark compatibility. Not exploitable — all Parquet files are self-authored via bronze writers. Revisit when databricks-connect supports pyarrow 23+.
         # PYSEC-2025-183 (pyjwt 2.12.1): transitive dep. Not exploitable — no JWT validation in pipeline code; only Databricks SDK uses it for auth. Revisit when upstream bumps.
+        # PYSEC-2026-161 (starlette 0.52.1): transitive dep via Gradio/Taipy. Fix in 1.0.1. Not exploitable — starlette is not used directly; only as ASGI server inside HF Spaces. Revisit when Gradio bumps starlette.
         run: >-
           uv run pip-audit
           --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-0545 --ignore-vuln CVE-2026-33866
@@ -166,6 +167,7 @@ jobs:
           --ignore-vuln CVE-2026-44307
           --ignore-vuln PYSEC-2024-271 --ignore-vuln PYSEC-2024-277
           --ignore-vuln PYSEC-2026-113 --ignore-vuln PYSEC-2025-183
+          --ignore-vuln PYSEC-2026-161
 
       - name: Generate SBOM (CycloneDX)
         run: >-
@@ -175,6 +177,7 @@ jobs:
           --ignore-vuln CVE-2026-44307
           --ignore-vuln PYSEC-2024-271 --ignore-vuln PYSEC-2024-277
           --ignore-vuln PYSEC-2026-113 --ignore-vuln PYSEC-2025-183
+          --ignore-vuln PYSEC-2026-161
           -o sbom.json
 
       - name: Upload SBOM artifact
