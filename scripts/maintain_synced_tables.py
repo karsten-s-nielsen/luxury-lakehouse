@@ -110,7 +110,7 @@ def main() -> int:
 
     # ── Step 0: Grant SP permissions on database project + pipelines ─────────
     # Idempotent. Required so the staging Taipy admin endpoint and the daily
-    # Databricks job task can call /api/2.0/database/synced_tables/{name} and
+    # Databricks job task can call w.postgres.get_synced_table() and
     # /api/2.0/pipelines/{id}/updates as the hf_app_v2 / ingestion SPs. Must
     # be re-run after any synced table recreation (pipeline_ids may change).
     if not args.skip_grants:

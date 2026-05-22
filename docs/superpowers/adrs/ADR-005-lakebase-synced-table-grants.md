@@ -81,6 +81,10 @@ The existing "Lakebase grants survive synced table recreation" bullet under *Pro
 - **Tests:** (follow-up) `src/tests/test_lakebase_grants_task_present.py` to enforce the daily-job task remains wired up.
 - **External references:** PostgreSQL docs on `ALTER DEFAULT PRIVILEGES` — [`FOR ROLE target_role`](https://www.postgresql.org/docs/current/sql-alterdefaultprivileges.html) requires current user to own or be member of `target_role`.
 
+## Updates
+
+**2026-05-22 (ADR-026):** Synced tables are now SDK-managed via `w.postgres.create_synced_table()`. The "create in Databricks UI, then terraform import" workflow is replaced by `scripts/migrate_synced_tables.py`. Grants and event_log ownership procedures are unchanged — they operate on PG-side objects and DLT pipelines regardless of creation path.
+
 ## Notes
 
 Full evidence gathered during investigation (queries, role memberships, SP SCIM lookups) is in the session transcript at

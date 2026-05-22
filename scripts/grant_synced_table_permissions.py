@@ -135,20 +135,36 @@ def _resolve_database_project_name(ws: WorkspaceClient, synced_table_full_name: 
     UID synced-table metadata exposes as effective_database_project_id. This
     helper bridges the two via ws.postgres.list_projects().
 
-    The synced-table metadata is fetched via ws.api_client.do('GET', ...)
-    rather than the typed ws.database.get_synced_database_table() because the
-    current databricks-sdk (v0.x) SyncedDatabaseTable schema does not expose
-    effective_database_project_id, even though the underlying API returns it.
+    The typed SDK ``SyncedTable`` does NOT expose ``effective_database_project_id``
+    (verified against databricks-sdk 0.110.0 — fields are: create_time, name,
+    spec, status, uid). However, ``SyncedTableSyncedTableStatus.project`` may
+    contain the project reference directly.
 
-    Raises RuntimeError if:
-      - the synced-table response has no effective_database_project_id, or
-      - no Lakebase project has a matching uid, or
-      - a matching project has an unexpected name format (lacks 'projects/' prefix).
+    Strategy (execute in order, stop at first success):
+    1. Try ``meta.status.project`` — if it returns a project slug like
+       ``"projects/soccer-analytics-dev"``, strip the prefix and return.
+    2. Fall back to raw ``ws.api_client.do("GET", ...)`` against the
+       ``/api/2.0/postgres/synced_tables/`` path to get
+       ``effective_database_project_id``, then resolve via ``list_projects()``.
     """
-    raw = ws.api_client.do("GET", f"/api/2.0/database/synced_tables/{synced_table_full_name}")
+    # Attempt 1: typed SDK status.project field
+    meta = ws.postgres.get_synced_table(name=f"synced_tables/{synced_table_full_name}")
+    status = getattr(meta, "status", None)
+    project_ref = getattr(status, "project", None) if status else None
+    if project_ref and isinstance(project_ref, str) and project_ref.startswith(_PROJECT_NAME_PREFIX):
+        return project_ref[len(_PROJECT_NAME_PREFIX) :]
+
+    # Attempt 2: raw API for effective_database_project_id
+    raw = ws.api_client.do(
+        "GET",
+        f"/api/2.0/postgres/synced_tables/synced_tables/{synced_table_full_name}",
+    )
     uid = raw.get("effective_database_project_id") if isinstance(raw, dict) else None
     if not uid:
-        msg = f"Synced table {synced_table_full_name} has no effective_database_project_id"
+        msg = (
+            f"Synced table {synced_table_full_name} has no project ref in "
+            f"status or effective_database_project_id in raw API"
+        )
         raise RuntimeError(msg)
     for project in ws.postgres.list_projects():
         if project.uid == uid:
@@ -167,16 +183,16 @@ def _enumerate_pipelines(ws: WorkspaceClient) -> list[tuple[str, str, str]]:
     failure — no silent drops.
     """
     resolved: list[tuple[str, str, str]] = []
-    for table_name, schema_override in SYNCED_TABLES:
-        schema = schema_override or DEFAULT_SCHEMA
-        full = f"{DEFAULT_CATALOG}.{schema}.{table_name}"
-        meta = ws.database.get_synced_database_table(full)
-        dss = getattr(meta, "data_synchronization_status", None)
-        pid = getattr(dss, "pipeline_id", None) if dss else None
+    for config in SYNCED_TABLES:
+        schema = config.schema_override or DEFAULT_SCHEMA
+        full = f"{DEFAULT_CATALOG}.{schema}.{config.name}"
+        meta = ws.postgres.get_synced_table(name=f"synced_tables/{full}")
+        status = getattr(meta, "status", None)
+        pid = getattr(status, "pipeline_id", None) if status else None
         if not pid:
-            msg = f"Synced table {full} has no pipeline_id in data_synchronization_status"
+            msg = f"Synced table {full} has no pipeline_id in status"
             raise RuntimeError(msg)
-        resolved.append((table_name, schema, pid))
+        resolved.append((config.name, schema, pid))
     return resolved
 
 
@@ -328,7 +344,8 @@ def main() -> int:
     sp_targets: set[tuple[str, str]] = {(hf_app_name, hf_app_sp), (ingestion_name, ingestion_sp)}
     _log("sps_resolved", sps={label: app_id for label, app_id in sp_targets})
 
-    sample_full = f"{DEFAULT_CATALOG}.{DEFAULT_SCHEMA}.{SYNCED_TABLES[0][0]}"
+    sample_config = SYNCED_TABLES[0]
+    sample_full = f"{DEFAULT_CATALOG}.{sample_config.schema_override or DEFAULT_SCHEMA}.{sample_config.name}"
     project_name = _resolve_database_project_name(ws, sample_full)
     _log("project_resolved", project_name=project_name)
 

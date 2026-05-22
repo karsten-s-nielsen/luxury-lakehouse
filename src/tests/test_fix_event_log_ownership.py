@@ -9,9 +9,8 @@ controller runs after static checks.
 from __future__ import annotations
 
 import sys
-from collections.abc import Mapping
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -285,91 +284,85 @@ def test_event_log_fqn_observability_schema() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _stub_response(payload: Mapping[str, object]) -> MagicMock:
-    """Return a MagicMock that looks like a requests.Response with .json() + .raise_for_status()."""
-    resp = MagicMock()
-    resp.status_code = 200
-    resp.json.return_value = payload
-    resp.raise_for_status.return_value = None
-    return resp
+def _stub_sdk_meta(pipeline_id: str | None) -> MagicMock:
+    """Return a MagicMock that looks like a SyncedTable with status.pipeline_id."""
+    meta = MagicMock()
+    if pipeline_id is not None:
+        meta.status.pipeline_id = pipeline_id
+    else:
+        meta.status = None
+    return meta
 
 
 def test_get_pipeline_id_accepts_valid_uuid() -> None:
-    """Happy path: API returns a canonical UUID — function returns it."""
-    payload = {
-        "data_synchronization_status": {
-            "pipeline_id": "4ea189db-aa43-4144-8825-da54cf965b7f",
-        },
-    }
-    with patch.object(fix_mod.requests, "get", return_value=_stub_response(payload)):
-        pid = fix_mod._get_pipeline_id(
-            host="https://example.cloud.databricks.com",
-            headers={"Authorization": "Bearer test"},
+    """Happy path: SDK returns a canonical UUID — function returns it."""
+    mock_ws = MagicMock()
+    mock_ws.postgres.get_synced_table.return_value = _stub_sdk_meta(
+        "4ea189db-aa43-4144-8825-da54cf965b7f",
+    )
+    pid = fix_mod._get_pipeline_id(
+        ws=mock_ws,
+        catalog="soccer_analytics",
+        schema="dev_gold",
+        table="dim_competitions_synced",
+    )
+    assert pid == "4ea189db-aa43-4144-8825-da54cf965b7f"
+    mock_ws.postgres.get_synced_table.assert_called_once_with(
+        name="synced_tables/soccer_analytics.dev_gold.dim_competitions_synced",
+    )
+
+
+def test_get_pipeline_id_rejects_non_uuid() -> None:
+    """Defensive guard: SDK returned a non-UUID string — RuntimeError."""
+    mock_ws = MagicMock()
+    mock_ws.postgres.get_synced_table.return_value = _stub_sdk_meta("not-a-uuid")
+    with pytest.raises(RuntimeError, match="non-UUID pipeline_id"):
+        fix_mod._get_pipeline_id(
+            ws=mock_ws,
             catalog="soccer_analytics",
             schema="dev_gold",
             table="dim_competitions_synced",
         )
-    assert pid == "4ea189db-aa43-4144-8825-da54cf965b7f"
-
-
-def test_get_pipeline_id_rejects_non_uuid() -> None:
-    """Defensive guard: API returned a non-UUID string — RuntimeError."""
-    payload = {
-        "data_synchronization_status": {
-            "pipeline_id": "not-a-uuid",
-        },
-    }
-    with patch.object(fix_mod.requests, "get", return_value=_stub_response(payload)):
-        with pytest.raises(RuntimeError, match="non-UUID pipeline_id"):
-            fix_mod._get_pipeline_id(
-                host="https://example.cloud.databricks.com",
-                headers={"Authorization": "Bearer test"},
-                catalog="soccer_analytics",
-                schema="dev_gold",
-                table="dim_competitions_synced",
-            )
 
 
 def test_get_pipeline_id_rejects_sql_injection_in_pipeline_id() -> None:
     """A pipeline_id containing backticks / semicolons must not pass through."""
-    payload = {
-        "data_synchronization_status": {
-            "pipeline_id": "abc-def`; DROP TABLE x; --",
-        },
-    }
-    with patch.object(fix_mod.requests, "get", return_value=_stub_response(payload)):
-        with pytest.raises(RuntimeError, match="non-UUID pipeline_id"):
-            fix_mod._get_pipeline_id(
-                host="https://example.cloud.databricks.com",
-                headers={"Authorization": "Bearer test"},
-                catalog="soccer_analytics",
-                schema="dev_gold",
-                table="dim_competitions_synced",
-            )
+    mock_ws = MagicMock()
+    mock_ws.postgres.get_synced_table.return_value = _stub_sdk_meta(
+        "abc-def`; DROP TABLE x; --",
+    )
+    with pytest.raises(RuntimeError, match="non-UUID pipeline_id"):
+        fix_mod._get_pipeline_id(
+            ws=mock_ws,
+            catalog="soccer_analytics",
+            schema="dev_gold",
+            table="dim_competitions_synced",
+        )
 
 
 def test_get_pipeline_id_missing_pipeline_id() -> None:
-    """API returned no pipeline_id at all — RuntimeError with 'no pipeline_id' message."""
-    payload = {"data_synchronization_status": {}}
-    with patch.object(fix_mod.requests, "get", return_value=_stub_response(payload)):
-        with pytest.raises(RuntimeError, match="no pipeline_id"):
-            fix_mod._get_pipeline_id(
-                host="https://example.cloud.databricks.com",
-                headers={"Authorization": "Bearer test"},
-                catalog="soccer_analytics",
-                schema="dev_gold",
-                table="dim_competitions_synced",
-            )
+    """SDK returned status with no pipeline_id — RuntimeError."""
+    mock_ws = MagicMock()
+    meta = MagicMock()
+    meta.status.pipeline_id = None
+    mock_ws.postgres.get_synced_table.return_value = meta
+    with pytest.raises(RuntimeError, match="no pipeline_id"):
+        fix_mod._get_pipeline_id(
+            ws=mock_ws,
+            catalog="soccer_analytics",
+            schema="dev_gold",
+            table="dim_competitions_synced",
+        )
 
 
-def test_get_pipeline_id_missing_data_synchronization_status() -> None:
-    """API returned an empty body — RuntimeError with 'no pipeline_id' message."""
-    with patch.object(fix_mod.requests, "get", return_value=_stub_response({})):
-        with pytest.raises(RuntimeError, match="no pipeline_id"):
-            fix_mod._get_pipeline_id(
-                host="https://example.cloud.databricks.com",
-                headers={"Authorization": "Bearer test"},
-                catalog="soccer_analytics",
-                schema="dev_gold",
-                table="dim_competitions_synced",
-            )
+def test_get_pipeline_id_missing_status() -> None:
+    """SDK returned no status object — RuntimeError."""
+    mock_ws = MagicMock()
+    mock_ws.postgres.get_synced_table.return_value = _stub_sdk_meta(None)
+    with pytest.raises(RuntimeError, match="no pipeline_id"):
+        fix_mod._get_pipeline_id(
+            ws=mock_ws,
+            catalog="soccer_analytics",
+            schema="dev_gold",
+            table="dim_competitions_synced",
+        )

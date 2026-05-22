@@ -385,6 +385,29 @@ class TestGradientSportsNamedTuples:
         assert nid.value == "4177"
 
 
+class TestNativeCompetitionIdWrappers:
+    def test_native_competition_id_idsse(self) -> None:
+        from shared.identifiers import NativeCompetitionId
+
+        nid = NativeCompetitionId.idsse("DFL-COM-000001")
+        assert nid.provider == "idsse"
+        assert nid.value == "DFL-COM-000001"
+
+    def test_native_competition_id_metrica(self) -> None:
+        from shared.identifiers import NativeCompetitionId
+
+        nid = NativeCompetitionId.metrica()
+        assert nid.provider == "metrica"
+        assert nid.value == "metrica-sample"
+
+    def test_native_competition_id_gradientsports(self) -> None:
+        from shared.identifiers import NativeCompetitionId
+
+        nid = NativeCompetitionId.gradientsports("38")
+        assert nid.provider == "gradientsports"
+        assert nid.value == "38"
+
+
 class TestGradientSportsCompetitionIdFormatContract:
     def test_gradientsports_native_competition_id_valid_string(self) -> None:
         from shared.identifiers import gradientsports_native_competition_id

@@ -368,3 +368,22 @@ class NativeTeamId(NamedTuple):
     @classmethod
     def gradientsports(cls, raw: str | int) -> NativeTeamId:
         return cls(provider="gradientsports", value=gradientsports_native_team_id(raw))
+
+
+class NativeCompetitionId(NamedTuple):
+    """Type-safe wrapper for a native competition identifier."""
+
+    provider: str
+    value: str
+
+    @classmethod
+    def idsse(cls, raw: str) -> NativeCompetitionId:
+        return cls(provider="idsse", value=idsse_native_competition_id(raw))
+
+    @classmethod
+    def metrica(cls) -> NativeCompetitionId:
+        return cls(provider="metrica", value=metrica_native_competition_id())
+
+    @classmethod
+    def gradientsports(cls, raw: str | int) -> NativeCompetitionId:
+        return cls(provider="gradientsports", value=gradientsports_native_competition_id(raw))

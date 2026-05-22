@@ -87,7 +87,7 @@ def main() -> None:
     # Step 1: Delete synced table via Databricks SDK
     print(f"\n[1/2] Deleting synced table: {full_name}")
     try:
-        ws.database.delete_synced_database_table(name=full_name)
+        ws.postgres.delete_synced_table(name=f"synced_tables/{full_name}")
         print("  OK — synced table deleted")
     except Exception as exc:
         print(f"  ERROR: {exc}")
@@ -119,7 +119,7 @@ def main() -> None:
         print("  You may need to drop it manually via psql.")
         sys.exit(1)
 
-    print(f"\nDone. Now recreate {table_name} via Databricks UI (Lakeflow Connect).")
+    print(f"\nDone. Recreate {table_name} via scripts/migrate_synced_tables.py or SDK.")
 
 
 if __name__ == "__main__":
