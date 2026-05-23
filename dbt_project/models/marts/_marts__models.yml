@@ -4599,8 +4599,7 @@ models:
         data_type: string
         description: >
           Data source that produced this match. One of: statsbomb, wyscout,
-          idsse, metrica, skillcorner (PR 7 onboarded SkillCorner for
-          tracking-only data).
+          idsse, metrica, skillcorner, gradientsports.
         data_tests:
           - not_null
           - accepted_values:
@@ -4639,6 +4638,18 @@ models:
           Away team display name. Populated for StatsBomb and IDSSE.
           NULL for Wyscout (staging doesn't expose names). Constant 'Away'
           for Metrica (anonymised open-data).
+      - name: home_team_id_native
+        data_type: string
+        description: >
+          Provider-native home team ID, stringified. Resolved from
+          staging events for StatsBomb/Wyscout, from staging match
+          metadata for IDSSE/Metrica/SkillCorner/GradientSports.
+          NULL when the staging model lacks team IDs (rare).
+      - name: away_team_id_native
+        data_type: string
+        description: >
+          Provider-native away team ID, stringified. Same resolution
+          strategy as home_team_id_native.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:

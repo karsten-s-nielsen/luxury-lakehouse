@@ -19,37 +19,80 @@
 --   - metrica:   3 matches
 --
 -- Note on coverage: StatsBomb staging exposes home_team_name / away_team_name
--- (from flattened statsbombpy output) but NO team IDs. Wyscout staging exposes
--- neither team names nor team IDs at this layer. IDSSE has names from
--- stg_tracking__player_metadata. Metrica is anonymised. team_id columns are
--- therefore omitted from this dim; downstream consumers that need team IDs
--- should join the per-provider dimension (e.g., dim_players → teams).
+-- (from flattened statsbombpy output) but NO team IDs in the staging model.
+-- Wyscout staging exposes neither team names nor team IDs at this layer.
+-- For StatsBomb, home/away team IDs are resolved from stg_statsbomb__events
+-- via team_name→team_id lookup. For Wyscout, min/max team_id per match
+-- gives a deterministic (though arbitrary home/away) assignment.
+-- IDSSE, Metrica, SkillCorner, and GradientSports all have team IDs in
+-- their staging match models.
 
-with statsbomb_matches as (
+-- StatsBomb: resolve team IDs from events (matches staging has names only).
+with sb_event_team_ids as (
+
+    select distinct
+        match_id,
+        team_id,
+        team_name
+    from {{ ref('stg_statsbomb__events') }}
+    where team_id is not null
+
+),
+
+statsbomb_matches as (
 
     select
-        cast(match_id as string)       as native_match_id,
+        cast(m.match_id as string)     as native_match_id,
         'statsbomb'                    as provider,
-        cast(competition_id as string) as competition_id,
-        cast(season_id as string)      as season_id,
-        cast(match_date as date)       as match_date,
-        home_team_name,
-        away_team_name
-    from {{ ref('stg_statsbomb__matches') }}
+        cast(m.competition_id as string) as competition_id,
+        cast(m.season_id as string)    as season_id,
+        cast(m.match_date as date)     as match_date,
+        m.home_team_name,
+        m.away_team_name,
+        cast(htm.team_id as string)    as home_team_id_native,
+        cast(atm.team_id as string)    as away_team_id_native
+    from {{ ref('stg_statsbomb__matches') }} m
+    left join sb_event_team_ids htm
+        on m.match_id = htm.match_id and m.home_team_name = htm.team_name
+    left join sb_event_team_ids atm
+        on m.match_id = atm.match_id and m.away_team_name = atm.team_name
+
+),
+
+-- Wyscout: resolve team IDs from events (matches staging has neither
+-- names nor IDs). min/max gives a deterministic but arbitrary assignment.
+ws_event_team_ids as (
+
+    select distinct
+        match_id,
+        team_id
+    from {{ ref('stg_wyscout__events') }}
+    where team_id is not null
 
 ),
 
 wyscout_matches as (
 
     select
-        cast(match_id as string)       as native_match_id,
+        cast(m.match_id as string)     as native_match_id,
         'wyscout'                      as provider,
-        cast(competition_id as string) as competition_id,
-        cast(season_id as string)      as season_id,
-        cast(match_date as date)       as match_date,
+        cast(m.competition_id as string) as competition_id,
+        cast(m.season_id as string)    as season_id,
+        cast(m.match_date as date)     as match_date,
         cast(null as string)           as home_team_name,
-        cast(null as string)           as away_team_name
-    from {{ ref('stg_wyscout__matches') }}
+        cast(null as string)           as away_team_name,
+        cast(ws.home_team_id as string) as home_team_id_native,
+        cast(ws.away_team_id as string) as away_team_id_native
+    from {{ ref('stg_wyscout__matches') }} m
+    left join (
+        select
+            match_id,
+            min(team_id) as home_team_id,
+            max(team_id) as away_team_id
+        from ws_event_team_ids
+        group by match_id
+        having count(distinct team_id) = 2
+    ) ws on m.match_id = ws.match_id
 
 ),
 
@@ -62,7 +105,9 @@ idsse_matches as (
         cast(null as string)           as season_id,
         cast(null as date)             as match_date,
         home_team_name,
-        away_team_name
+        away_team_name,
+        home_team_id                   as home_team_id_native,
+        away_team_id                   as away_team_id_native
     from {{ ref('stg_idsse__matches') }}
 
 ),
@@ -75,6 +120,8 @@ metrica_matches as (
     -- dim_competitions has the matching row — without this passthrough,
     -- generate_competition_key returns NULL for all Metrica rows, breaking
     -- fct_action_values.competition_key resolution.
+    -- Metrica is anonymized — synthesize home/away team IDs to match the
+    -- 'metrica_{match_id}_{home|away}' convention from SPADL conversion.
     select
         native_match_id,
         provider,
@@ -82,7 +129,9 @@ metrica_matches as (
         cast(null as string)           as season_id,
         cast(null as date)             as match_date,
         home_team_name,
-        away_team_name
+        away_team_name,
+        concat('metrica_', native_match_id, '_home') as home_team_id_native,
+        concat('metrica_', native_match_id, '_away') as away_team_id_native
     from {{ ref('stg_metrica__matches') }}
 
 ),
@@ -92,7 +141,7 @@ skillcorner_matches as (
     -- SkillCorner matches sourced from stg_skillcorner__matches (roster format).
     -- Real competition/season/date metadata from match.json via pining-for-the-data API.
     -- Aggregate across roster rows to get one row per match, resolving team names
-    -- by matching team_id to home_team_id / away_team_id.
+    -- and team IDs by matching team_id to home_team_id / away_team_id.
     select
         cast(match_id as string)                                            as native_match_id,
         'skillcorner'                                                       as provider,
@@ -100,7 +149,9 @@ skillcorner_matches as (
         cast(max(season_id) as string)                                      as season_id,
         cast(max(match_date) as date)                                       as match_date,
         max(case when team_id = home_team_id then team_name end)            as home_team_name,
-        max(case when team_id = away_team_id then team_name end)            as away_team_name
+        max(case when team_id = away_team_id then team_name end)            as away_team_name,
+        cast(max(home_team_id) as string)                                   as home_team_id_native,
+        cast(max(away_team_id) as string)                                   as away_team_id_native
     from {{ ref('stg_skillcorner__matches') }}
     group by match_id
 
@@ -115,7 +166,9 @@ gradientsports_matches as (
         season_id,
         cast(match_date as date)       as match_date,
         home_team_name,
-        away_team_name
+        away_team_name,
+        home_team_id                   as home_team_id_native,
+        away_team_id                   as away_team_id_native
     from {{ ref('stg_gradientsports__metadata') }}
 
 ),
@@ -149,7 +202,9 @@ final as (
         season_id,
         match_date,
         home_team_name,
-        away_team_name
+        away_team_name,
+        home_team_id_native,
+        away_team_id_native
 
     from unioned
 

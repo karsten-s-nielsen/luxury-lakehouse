@@ -14,107 +14,20 @@
 -- in int_unified_shots with shot_outcome='Goal', so the running score may
 -- be inaccurate in matches with own goals (~3-5% of all goals).
 --
--- Team ID resolution: StatsBomb matches have team names but no IDs; we
--- resolve via a team_name→team_id lookup from events. Wyscout matches
--- lack team names entirely; we assign the lower team_id as "home"
--- (arbitrary but deterministic).
+-- Match teams sourced from dim_matches (home_team_id_native / away_team_id_native).
+-- Provider-agnostic: any new provider added to dim_matches automatically
+-- gets game_state resolution without modifying this file.
 
-with sb_match_team_ids as (
-
-    select distinct
-        match_id,
-        team_id,
-        team_name
-    from {{ ref('stg_statsbomb__events') }}
-    where team_id is not null
-
-),
-
-sb_matches as (
+with match_teams as (
 
     select
-        m.match_id,
-        'statsbomb'    as provider,
-        htm.team_id    as home_team_id,
-        atm.team_id    as away_team_id
-    from {{ ref('stg_statsbomb__matches') }} m
-    left join sb_match_team_ids htm
-        on m.match_id = htm.match_id and m.home_team_name = htm.team_name
-    left join sb_match_team_ids atm
-        on m.match_id = atm.match_id and m.away_team_name = atm.team_name
-    where htm.team_id is not null
-      and atm.team_id is not null
-
-),
-
-ws_match_team_ids as (
-
-    select distinct
-        match_id,
-        team_id
-    from {{ ref('stg_wyscout__events') }}
-    where team_id is not null
-
-),
-
-ws_matches as (
-
-    select
-        match_id,
-        'wyscout'    as provider,
-        min(team_id) as home_team_id,
-        max(team_id) as away_team_id
-    from ws_match_team_ids
-    group by match_id
-    having count(distinct team_id) = 2
-
-),
-
-idsse_matches as (
-
-    select
-        native_match_id   as match_id,
-        'idsse'           as provider,
-        home_team_id      as home_team_id_native,
-        away_team_id      as away_team_id_native
-    from {{ ref('stg_idsse__matches') }}
-
-),
-
-metrica_matches as (
-
-    select
-        native_match_id   as match_id,
-        'metrica'         as provider,
-        concat('metrica_', native_match_id, '_home') as home_team_id_native,
-        concat('metrica_', native_match_id, '_away') as away_team_id_native
-    from {{ ref('stg_metrica__matches') }}
-
-),
-
-match_teams as (
-
-    select cast(match_id as string) as match_id, provider, cast(home_team_id as string) as home_team_id_native, cast(away_team_id as string) as away_team_id_native from sb_matches
-    union all
-    select cast(match_id as string) as match_id, provider, cast(home_team_id as string) as home_team_id_native, cast(away_team_id as string) as away_team_id_native from ws_matches
-    union all
-    select match_id, provider, home_team_id_native, away_team_id_native from idsse_matches
-    union all
-    select match_id, provider, home_team_id_native, away_team_id_native from metrica_matches
-
-),
-
-match_teams_keyed as (
-
-    select
-        mt.match_id  as native_match_id,
-        dm.match_key,
-        mt.home_team_id_native,
-        mt.away_team_id_native
-    from match_teams mt
-    inner join {{ ref('dim_matches') }} dm
-        on dm.provider = mt.provider
-       and dm.native_match_id = mt.match_id
+        native_match_id,
+        match_key,
+        home_team_id_native,
+        away_team_id_native
+    from {{ ref('dim_matches') }}
+    where home_team_id_native is not null
+      and away_team_id_native is not null
 
 ),
 
@@ -134,9 +47,9 @@ goals as (
 
 spadl_goals as (
 
-    -- IDSSE + Metrica goals extracted from SPADL actions.
+    -- Goals from all SPADL-sourced providers (IDSSE, Metrica, GradientSports, etc.).
     -- int_unified_shots only covers StatsBomb + Wyscout; this CTE fills
-    -- the gap for sources that lack dedicated shot staging models.
+    -- the gap for every other provider via stg_spadl__action_values.
     -- Note: like int_unified_shots, own goals are not tracked here
     -- (SPADL codes them as action_type='shot' + action_result='success'
     -- for the SCORING team, not the conceding team — consistent with
@@ -153,7 +66,7 @@ spadl_goals as (
        and dm.native_match_id = av.match_id_native
     where av.action_type = 'shot'
       and av.action_result = 'success'
-      and av.data_source in ('idsse', 'metrica')
+      and av.data_source not in ('statsbomb', 'wyscout')
 
 ),
 
@@ -168,7 +81,7 @@ all_goals as (
         g.second
     from goals g
     union all
-    -- IDSSE + Metrica goals from SPADL actions
+    -- All other SPADL-sourced provider goals
     select match_key, scoring_team_id_native, period, minute, second
     from spadl_goals
 
@@ -195,7 +108,7 @@ goals_with_scores as (
                   rows between unbounded preceding and current row)
             as away_score_after
     from all_goals g
-    inner join match_teams_keyed mt on g.match_key = mt.match_key
+    inner join match_teams mt on g.match_key = mt.match_key
 
 ),
 
@@ -211,7 +124,7 @@ kickoffs as (
         0    as second,
         0    as home_score_after,
         0    as away_score_after
-    from match_teams_keyed
+    from match_teams
 
 )
 
