@@ -27,13 +27,18 @@ uv run pytest src/tests/ -v               # Unit tests
 
 If a check fails, the command output will tell you exactly what to fix. `ruff check --fix` can auto-fix most lint issues.
 
-## Pull Request Process
+## Outside Contributions
 
-1. Fork the repository and create a feature branch
-2. Make your changes, ensuring all checks pass
-3. Write descriptive commit messages (see git history for style)
-4. Open a PR with a clear title and description of what and why
+This project is **open-source and open to forking and issues**, but is not currently accepting outside pull requests. The codebase is under active solo development with strict architectural conventions, and PRs from external contributors would be difficult to review productively at this stage.
+
+**What you can do:**
+
+- **Fork** the repository and adapt it for your own use (Apache 2.0 license)
+- **Open issues** for bugs, questions, or feature suggestions
+- **Star** the repo if you find it useful
+
+This policy will be revisited as the project matures.
 
 ## Questions?
 
-Open a [GitHub Discussion](https://github.com/karsten-s-nielsen/luxury-lakehouse/discussions) or reach out via the project's [Hugging Face community](https://huggingface.co/luxury-lakehouse).
+Open a [GitHub Issue](https://github.com/karsten-s-nielsen/luxury-lakehouse/issues) or reach out via the project's [Hugging Face community](https://huggingface.co/luxury-lakehouse).
