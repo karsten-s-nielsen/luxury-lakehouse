@@ -126,9 +126,9 @@ def _load_expected_synced_tables() -> list[tuple[str, str]]:
     from ingestion.refresh_synced_tables import SYNCED_TABLES
 
     expected: list[tuple[str, str]] = []
-    for name, schema_override in SYNCED_TABLES:
-        schema = schema_override or "dev_gold"
-        expected.append((schema, name))
+    for config in SYNCED_TABLES:
+        schema = config.schema_override or "dev_gold"
+        expected.append((schema, config.name))
     return expected
 
 

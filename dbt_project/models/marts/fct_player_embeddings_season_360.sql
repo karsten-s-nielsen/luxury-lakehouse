@@ -43,8 +43,9 @@ select
     player_key,
     cast(competition_id as bigint) as competition_id,
     cast(season_id as bigint) as season_id,
+    -- 208d = hidden_dim(192) + context_dim(16) per Football2Vec360Config.
     transform(
-        sequence(0, 143),
+        sequence(0, 207),
         i -> aggregate(
             behavioral_vectors,
             cast(0.0 as double),

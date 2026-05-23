@@ -169,7 +169,7 @@ SYNCED_TABLES: list[SyncedTableConfig] = [
     SyncedTableConfig("fct_xg_predictions_v2_synced", "fct_xg_predictions_v2", ("shot_id",)),
     SyncedTableConfig("fct_passes_synced", "fct_passes", ("pass_id",), "TRIGGERED"),
     SyncedTableConfig("fct_player_stats_synced", "fct_player_stats", ("player_stats_id",)),
-    SyncedTableConfig("fct_match_summary_synced", "fct_match_summary", ("match_id",)),
+    SyncedTableConfig("fct_match_summary_synced", "fct_match_summary", ("match_key",)),
     SyncedTableConfig("fct_player_embeddings_synced", "fct_player_embeddings", ("embedding_id",), "TRIGGERED"),
     SyncedTableConfig("fct_action_values_synced", "fct_action_values", ("action_value_id",), "TRIGGERED"),
     SyncedTableConfig("fct_tracking_frames_synced", "fct_tracking_frames", ("tracking_id",), "TRIGGERED"),
@@ -235,8 +235,8 @@ SYNCED_TABLES: list[SyncedTableConfig] = [
     # ── Cost / Observability ─────────────────────────────────────────────────
     SyncedTableConfig("workflow_cost_live_synced", "workflow_cost_live", ("run_id",), schema_override="observability"),
     # ── Dimension tables ─────────────────────────────────────────────────────
-    SyncedTableConfig("dim_players_synced", "dim_players", ("player_id",)),
-    SyncedTableConfig("dim_teams_synced", "dim_teams", ("team_id",)),
+    SyncedTableConfig("dim_players_synced", "dim_players", ("player_key",)),
+    SyncedTableConfig("dim_teams_synced", "dim_teams", ("team_key",)),
     SyncedTableConfig("dim_competitions_synced", "dim_competitions", ("competition_id",)),
     SyncedTableConfig("dim_matches_synced", "dim_matches", ("match_key",)),
 ]

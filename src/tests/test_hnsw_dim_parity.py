@@ -112,6 +112,31 @@ def test_360_behavioral_hnsw_matches_360_dim() -> None:
         )
 
 
+def test_360_dbt_sequence_matches_360_dim() -> None:
+    """dbt 360 mart ``sequence(0, N)`` must equal ``_V360_BEHAVIORAL_DIM - 1``.
+
+    The EV1 hidden_dim promotion from 128→192 on 2026-04-19 changed the 360
+    output from 144d (128+16) to 208d (192+16). The dbt models were left at
+    ``sequence(0, 143)`` which silently truncated vectors. This test prevents
+    the same class of drift from recurring.
+    """
+    dbt_project_dir = Path(__file__).resolve().parents[2] / "dbt_project" / "models" / "marts"
+    seq_pattern = re.compile(r"sequence\(0,\s*(\d+)\)")
+    for model_name in ("fct_player_embeddings_career_360", "fct_player_embeddings_season_360"):
+        sql_path = dbt_project_dir / f"{model_name}.sql"
+        assert sql_path.exists(), f"{model_name}.sql not found at {sql_path}"
+        sql_src = sql_path.read_text(encoding="utf-8")
+        matches = seq_pattern.findall(sql_src)
+        assert matches, f"No sequence(0, N) found in {model_name}.sql"
+        for seq_end in matches:
+            dim = int(seq_end) + 1  # sequence(0, 207) produces 208 elements
+            assert dim == _V360_BEHAVIORAL_DIM, (
+                f"{model_name}.sql uses sequence(0, {seq_end}) → {dim}d but "
+                f"_V360_BEHAVIORAL_DIM={_V360_BEHAVIORAL_DIM}. "
+                f"Update the dbt model to sequence(0, {_V360_BEHAVIORAL_DIM - 1})."
+            )
+
+
 def test_career_knn_verify_query_matches_index_dim() -> None:
     """``VERIFY_QUERIES`` kNN cast for career behavioral must use the same
     dim as the index. Drift here causes pgvector ``expected N dimensions,

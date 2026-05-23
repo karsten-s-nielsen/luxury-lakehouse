@@ -23,8 +23,9 @@ select
     {{ dbt_utils.generate_surrogate_key(['canonical_player_id']) }} as embedding_career_360_id,
     canonical_player_id,
     player_key,
+    -- 208d = hidden_dim(192) + context_dim(16) per Football2Vec360Config.
     transform(
-        sequence(0, 143),
+        sequence(0, 207),
         i -> aggregate(
             behavioral_vectors,
             cast(0.0 as double),

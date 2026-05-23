@@ -541,7 +541,7 @@ luxury-lakehouse/
 │   │   ├── pitch_control_batch.py    # Pitch control batch pipeline (applyInPandas + frame_batch_id)
 │   │   ├── player_embeddings_common.py # Shared embedding constants and stat features
 │   │   ├── player_embeddings_v1.py   # Doc2Vec (gensim) player embeddings (v1 baseline)
-│   │   ├── player_embeddings_v2.py   # Transformer (128d) player embeddings with adversarial debiasing
+│   │   ├── player_embeddings_v2.py   # Transformer (192d) player embeddings with adversarial debiasing
 │   │   ├── prepare_360_training_data.py # SPADL + 360 freeze frame export to HF Hub
 │   │   ├── skillcorner.py            # SkillCorner A-League broadcast tracking (10 matches, kloppy)
 │   │   ├── spadl_adapter.py          # Bronze-to-SPADL-converter format adapters
