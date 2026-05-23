@@ -1105,6 +1105,50 @@ The premature-adoption failure mode is real — a Vespa cluster you don't fully 
 
 ---
 
+## Tracking Data Imputation (Diffusion-Based Trajectory Completion)
+
+**Status:** Research watch (external research tracker T6)
+**Blocked on:** Own-footage pipeline delivering broadcast-quality tracking data with gaps; or SkillCorner data quality audit surfacing systematic position gaps.
+
+Broadcast-based tracking (SkillCorner, own-footage pipeline) has inherent position gaps: player occlusion from camera angle, unreliable ball position, dropped frames. Current handling is naive (drop incomplete frames or propagate last-known position). A principled imputation stage with calibrated uncertainty would improve every downstream model that consumes tracking data.
+
+### What exists externally
+
+Capellera et al. (Kognia Sports Intelligence / CSIC-UPC) have a consistent publication stream on diffusion-based multi-agent trajectory completion:
+
+| Paper | Venue | Key contribution |
+|-------|-------|-----------------|
+| TranSPORTmer | ACCV 2024 | Holistic trajectory understanding |
+| U2Diff | CVPR 2025 | Fast uncertainty-aware trajectory completion |
+| U2Diffine | IEEE TPAMI 2026 | Full heteroscedastic uncertainty via Taylor-propagated covariance; RankNN mode ranking |
+| JointDiff | ICLR 2026 | Joint trajectory + possession event generation |
+
+U2Diffine on Soccer-U (22 players + ball, broadcast tracking): minSADE₂₀ = 50.65 px (49% over baseline), AccRate &gt;95%, RankNN Spearman &rho; = 0.78.
+
+### Where it would fit in the lakehouse
+
+```
+bronze.tracking (with gaps)
+    → imputation stage (U2Diffine or successor)
+    → bronze.tracking_imputed (with per-position uncertainty ellipses)
+        → pitch control (propagate uncertainty)
+        → OBSO / PAUSA (calibrated confidence)
+```
+
+### Prerequisites before implementation
+
+1. **Data volume:** Need sufficient tracking matches to train or fine-tune a diffusion model on our coordinate conventions (SPADL LTR, meters). Soccer-U uses SoccerTrack pixel coordinates &mdash; not directly transferable.
+2. **Gap characterization:** Audit SkillCorner and own-footage tracking to quantify gap frequency, duration, and spatial distribution. If gaps are rare and short, linear interpolation may suffice and this is unnecessary.
+3. **Inference budget:** U2Diffine at ~31-59ms/mode &times; 20 modes = 0.6-1.2s per frame. At 25 fps &times; 5400s = 135K frames/match, batch imputation of a single match would take 22-45 GPU-hours. U2Diff (~4&times; faster) or future efficiency improvements needed for production scale.
+4. **Schema design:** Imputed positions need a provenance flag (`is_imputed: bool`) and uncertainty columns (`uncertainty_semi_major`, `uncertainty_semi_minor`, `uncertainty_angle`) per player per frame.
+
+### Revisit when
+
+- Own-footage pipeline ships and gap frequency is quantified.
+- SkillCorner ingestion audit reveals systematic position gaps affecting pitch control quality.
+- Kognia releases pre-trained weights or a lighter inference variant.
+- A competing approach (e.g., state-space model, graph-based imputation) achieves comparable quality at lower inference cost.
+
 ## Other Ideas (Unscheduled)
 
 - [ ] Voronoi area persistence &mdash; pre-compute in dbt (lower priority if Phase 11 replaces Voronoi)

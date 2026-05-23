@@ -83,6 +83,23 @@
 - **Next review:** 2026-07-24.
 - **Status:** Active, passive watch (no expected near-term action; own-footage pipeline trigger).
 
+### T6 — Kognia Sports Intelligence: diffusion-based trajectory completion with uncertainty (Capellera et al.)
+
+- **Group:** Guillem Capellera, Antonio Rubio, Luis Ferraz, Antonio Agudo — Institut de Robòtica i Informàtica Industrial (CSIC-UPC) + Kognia Sports Intelligence, Barcelona. Publishing consistently at top CV/ML venues on sports trajectory modeling.
+- **Surfaced:** LinkedIn post by Capellera, 2026-05-18 (TPAMI acceptance announcement).
+- **What it is:** A research stream producing diffusion-based models for multi-agent trajectory tasks in sports:
+  - **TranSPORTmer** (ACCV 2024) — holistic trajectory understanding in multi-agent sports.
+  - **U2Diff** (CVPR 2025) — uncertainty-aware diffusion for trajectory completion (~4× faster variant).
+  - **U2Diffine** (IEEE TPAMI 2026, [arXiv:2605.10717](https://arxiv.org/abs/2605.10717)) — full model with heteroscedastic uncertainty via Taylor-propagated covariance through the reverse diffusion process. Evaluated on Soccer-U (SoccerTrack, 22 players + ball, broadcast tracking): minSADE₂₀ = 50.65 px (49% improvement over UniTraj), AccRate >95% at 95% confidence. RankNN post-processor ranks generated modes by error probability (Spearman ρ = 0.78 with true SADE on Soccer-U). Two variants: U2Diffine (calibrated uncertainty, ~31-59ms/mode) and U2Diff (comparable displacement error, ~8-14ms/mode).
+  - **JointDiff** (ICLR 2026, [project page](https://guillem-cf.github.io/JointDiff/)) — joint generation of continuous trajectories + discrete possession events; introduces CrossGuid conditioning for multi-agent domains.
+- **Why the lakehouse cares:** Trajectory completion (imputing missing player/ball positions in tracking data) is an unsolved gap in the lakehouse. SkillCorner broadcast tracking has inherent position gaps; the planned own-footage pipeline will face the same class of missing data. U2Diffine's calibrated uncertainty ellipses could propagate through pitch control → OBSO → PAUSA, giving calibrated confidence on the entire downstream chain. JointDiff's joint trajectory + event generation could enable counterfactual analysis. No pre-trained soccer model released yet — would require training on our data.
+- **Mechanism:**
+  - Google Scholar alert on Guillem Capellera.
+  - GitHub watch on [guillem-cf](https://github.com/guillem-cf) (code releases for U2Diffine, JointDiff, FootBots).
+- **Last reviewed:** 2026-05-23 (initial).
+- **Next review:** 2026-07-24.
+- **Status:** Active, passive watch (no near-term action; own-footage pipeline trigger).
+
 ---
 
 ## Promotion log
