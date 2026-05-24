@@ -93,7 +93,7 @@ Together, these allow downstream pipelines to compute pitch control at the exact
 
 | Source | Matches | License |
 |--------|---------|---------|
-| [IDSSE Open Data](https://www.nature.com/articles/s41597-025-04507-0) | ~3 | CC-BY 4.0 |
+| [IDSSE Open Data](https://www.nature.com/articles/s41597-025-04507-0) | 7 | CC-BY 4.0 |
 
 The IDSSE (Integrated Dataset of Spatiotemporal and Event Data in Elite Soccer) provides synchronized event and tracking data from German Bundesliga matches.
 
@@ -106,7 +106,7 @@ The IDSSE (Integrated Dataset of Spatiotemporal and Event Data in Elite Soccer) 
 
 ## Limitations
 
-- **Small sample**: Only ~3 Bundesliga matches from the IDSSE open data release. Results may not generalize across leagues or tactical systems.
+- **Small sample**: Only 7 Bundesliga matches from the IDSSE open data release. Results may not generalize across leagues or tactical systems.
 - **ELASTIC alignment accuracy**: Synchronization quality depends on event timing precision in the source data. Events with ambiguous timestamps may have lower `alignment_confidence`.
 - **DFL event taxonomy**: Event types follow DFL conventions, which differ from StatsBomb or Opta taxonomies. Cross-provider comparisons require mapping.
 - **No ball tracking in events**: Event coordinates represent player position at the moment of action, not ball trajectory.
@@ -143,4 +143,4 @@ If you use this dataset, please cite the IDSSE and ELASTIC papers:
 > **Explore interactively:** [Soccer Analytics App](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)
 
 - **License**: [MIT](https://opensource.org/licenses/MIT)
-- **Publish script**: `notebooks/publish_obso_data.py` (Databricks notebook)
+- **Publish script**: `scripts/publish_obso_pausa_inputs_hf.py`

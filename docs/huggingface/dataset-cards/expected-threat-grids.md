@@ -20,7 +20,7 @@ configs:
 
 # Expected Threat (xT) Grids
 
-Markov chain expected threat grids computed via value iteration &mdash; **96 cells per competition** on a 12&times;8 grid. Each cell quantifies the probability that a possession starting in that zone will end in a goal, derived from observed transition and shot frequencies across ~4,900 matches.
+Markov chain expected threat grids computed via value iteration &mdash; **192 cells per competition** on a 12&times;16 grid. Each cell quantifies the probability that a possession starting in that zone will end in a goal, derived from observed transition and shot frequencies across ~4,900 matches.
 
 Part of the (Right! Luxury!) Lakehouse soccer analytics platform.
 
@@ -33,7 +33,7 @@ import pandas as pd
 ds = load_dataset("luxury-lakehouse/expected-threat-grids")
 df = ds["train"].to_pandas()
 
-# Pivot the global grid into a 12x8 matrix (attacking direction left-to-right)
+# Pivot the global grid into a 12x16 matrix (attacking direction left-to-right)
 global_grid = df[df["competition_id"] == "global"]
 xt_matrix = global_grid.pivot(index="zone_y", columns="zone_x", values="xt_value")
 print(xt_matrix)
@@ -43,9 +43,9 @@ print(xt_matrix)
 
 ## What Is This Dataset?
 
-**Expected Threat (xT)** is a Markov chain model that assigns a goal-scoring threat value to every zone on the pitch. The pitch is discretized into a 12&times;8 grid (96 cells), and transition probabilities between zones are estimated from observed event data. Value iteration propagates goal-scoring probability backward from the opponent goal to produce an expected threat surface.
+**Expected Threat (xT)** is a Markov chain model that assigns a goal-scoring threat value to every zone on the pitch. The pitch is discretized into a 12&times;16 grid (192 cells), and transition probabilities between zones are estimated from observed event data. Value iteration propagates goal-scoring probability backward from the opponent goal to produce an expected threat surface.
 
-Each cell represents a ~8.75m &times; 8.5m pitch zone. A player who receives the ball in a zone with xT = 0.05 is in a location from which possessions historically result in a goal 5% of the time.
+Each cell represents a ~8.75m &times; 4.25m pitch zone. A player who receives the ball in a zone with xT = 0.05 is in a location from which possessions historically result in a goal 5% of the time.
 
 > Singh, K. (2018). **Introducing Expected Threat (xT).** [karun.in/blog/expected-threat.html](https://karun.in/blog/expected-threat.html)
 
@@ -54,13 +54,13 @@ Each cell represents a ~8.75m &times; 8.5m pitch zone. A player who receives the
 | Column | Type | Description |
 |--------|------|-------------|
 | `zone_x` | `int` | Grid x-coordinate (0&ndash;11, left-to-right in attacking direction) |
-| `zone_y` | `int` | Grid y-coordinate (0&ndash;7, pitch width) |
+| `zone_y` | `int` | Grid y-coordinate (0&ndash;15, pitch width) |
 | `xt_value` | `float` | Expected threat value (0&ndash;1, higher = more threatening) |
 | `competition_id` | `string` | Competition identifier, or `"global"` for the cross-competition aggregate |
 
 ### Coordinate System
 
-The grid maps to the **SPADL academic standard**: 105&times;68 meters. Each of the 96 cells covers approximately 8.75m (length) &times; 8.5m (width). `zone_x = 0` is the defending goal line; `zone_x = 11` is nearest the attacking goal. `zone_y = 0` is the left touchline; `zone_y = 7` is the right touchline.
+The grid maps to the **SPADL academic standard**: 105&times;68 meters. Each of the 192 cells covers approximately 8.75m (length) &times; 4.25m (width). `zone_x = 0` is the defending goal line; `zone_x = 11` is nearest the attacking goal. `zone_y = 0` is the left touchline; `zone_y = 15` is the right touchline.
 
 ## Data Sources
 
@@ -80,7 +80,7 @@ All event data is converted to SPADL format before transition/shot frequency est
 
 ## Limitations
 
-- **Spatial resolution**: The 12&times;8 grid is deliberately coarse. Sub-zone variation (e.g., center vs. wing within a cell) is averaged away.
+- **Spatial resolution**: The 12&times;16 grid is deliberately coarse. Sub-zone variation (e.g., center vs. wing within a cell) is averaged away.
 - **Competition-agnostic global grid**: The `"global"` grid pools all competitions. Tactical differences between leagues (e.g., Bundesliga pressing vs. Serie A low-block) are smoothed out.
 - **Static model**: xT values are computed from full-season aggregates. They do not adapt to in-game state (score, time, personnel).
 - **Open data only**: Trained on publicly available StatsBomb and Wyscout data. Commercial datasets with richer coverage may yield different threat surfaces.

@@ -17,7 +17,7 @@ pinned: false
 
 Open-source soccer analytics platform built on **Databricks Lakebase** &mdash; replacing a 6-service traditional AWS pipeline with a unified lakehouse architecture that scales to zero. The Hugging Face Hub serves as the public distribution layer for models, datasets, and interactive demos.
 
-> **Try it now:** [Full Dashboard](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) &mdash; 16-page Taipy app with live data from 380+ matches across 5 providers.
+> **Try it now:** [Full Dashboard](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) &mdash; 17-page Taipy app with live data from ~444+ matches across 6 providers.
 
 ---
 
@@ -26,11 +26,11 @@ Open-source soccer analytics platform built on **Databricks Lakebase** &mdash; r
 The infrastructure uses a **Medallion architecture** (Bronze &rarr; Silver &rarr; Gold) provisioned entirely via Terraform IaC, unifying multi-vendor event and tracking data into a single analytical layer.
 
 - **38M+ tracking frames** ingested from three optical tracking providers (25fps and 10fps)
-- **5 distinct data sources** unified: StatsBomb, Wyscout, Metrica Sports, IDSSE (Bundesliga), and SkillCorner (A-League)
-- **[16 Taipy dashboard pages](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)** deployed on Hugging Face Spaces (Docker SDK), querying Lakebase PostgreSQL via Databricks OAuth
+- **6 distinct data sources** unified: StatsBomb, Wyscout, Metrica Sports, IDSSE (Bundesliga), SkillCorner (A-League), and Gradient Sports (WC 2022)
+- **[17 Taipy dashboard pages](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app)** deployed on Hugging Face Spaces (Docker SDK), querying Lakebase PostgreSQL via Databricks OAuth
 - **41 synced tables** with Zero-ETL continuous sync from Gold Delta Lake to Lakebase PostgreSQL 17
-- **67 PostgreSQL indexes** (61 btree + 6 HNSW vector indexes: 4x192d + 2x208d) for sub-10ms OLTP queries
-- Pipeline reliability enforced through **1,118+ unit tests** and **381+ dbt data tests**
+- **72 PostgreSQL indexes** (66 btree + 6 HNSW vector indexes: 4x192d + 2x208d) for sub-10ms OLTP queries
+- Pipeline reliability enforced through **2,712+ unit tests** and **862+ dbt data tests**
 
 ## The Hugging Face Footprint
 
@@ -68,7 +68,7 @@ All model serialization uses **JSON envelopes** &mdash; zero pickle files (banne
 | [football2vec-player-embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-player-embeddings) | 114K vectors | Pre-computed behavioral (192-d transformer) + statistical (13-d) player vectors. **Dual-column schema through 2026-07-22** &mdash; legacy `canonical_player_id` sunset then; migrate to `player_key`. |
 | [football2vec-training-data](https://huggingface.co/datasets/luxury-lakehouse/football2vec-training-data) | ~114K sequences | Tokenized SPADL action sequences for transformer training. **Dual-column schema through 2026-07-22** &mdash; legacy `canonical_player_id` sunset then; migrate to `player_key`. |
 | [pitch-control-tracking](https://huggingface.co/datasets/luxury-lakehouse/pitch-control-tracking) | 38M frames | Per-player per-frame Spearman (2017) physics-based pitch control. **Dual-column schema through 2026-07-22** &mdash; legacy `match_id` sunset then; migrate to `match_key`. |
-| [expected-threat-grids](https://huggingface.co/datasets/luxury-lakehouse/expected-threat-grids) | 12x8 grid | Data-driven Expected Threat values computed from 2.2M SPADL actions |
+| [expected-threat-grids](https://huggingface.co/datasets/luxury-lakehouse/expected-threat-grids) | 12x16 grid | Data-driven Expected Threat values computed from 2.2M SPADL actions |
 | [obso-pausa-inputs](https://huggingface.co/datasets/luxury-lakehouse/obso-pausa-inputs) | 7 matches | ELASTIC-synced event-tracking inputs for OBSO/PAUSA computation |
 | [obso-pausa-values](https://huggingface.co/datasets/luxury-lakehouse/obso-pausa-values) | 1,627 passes (7 IDSSE matches) | PAUSA pass timing scores with OBSO temporal/spatial decomposition. Provider scope: continuous-tracking + frame-aligned events &mdash; today IDSSE only; Metrica is the next candidate. **Dual-column schema through 2026-07-22** &mdash; legacy `match_id` sunset then; migrate to `match_key`. |
 | [obso-trained-grids](https://huggingface.co/datasets/luxury-lakehouse/obso-trained-grids) | 8 competitions + global | Data-driven ball reachability (100&times;64) + EPV (50&times;32) grids for OBSO |
@@ -81,13 +81,14 @@ All model serialization uses **JSON envelopes** &mdash; zero pickle files (banne
 | [football2vec-statsbomb-wyscout](https://huggingface.co/datasets/luxury-lakehouse/football2vec-statsbomb-wyscout) | 114K vectors | Per-match v2 transformer (192-dim) raw embeddings with adversarial competition debiasing. **Dual-column schema through 2026-07-22** &mdash; legacy `canonical_player_id` sunset then; migrate to `player_key`. |
 | [football2vec-360-embeddings](https://huggingface.co/datasets/luxury-lakehouse/football2vec-360-embeddings) | ~4K players | 208-dim player embeddings from 360-enriched model. **Dual-column schema through 2026-07-22** &mdash; legacy `canonical_player_id` sunset then; migrate to `player_key`. |
 | [scoutgpt-training-data](https://huggingface.co/datasets/luxury-lakehouse/scoutgpt-training-data) | 894K episodes | SPADL possession episodes with per-action player attribution (Hong et al. 2025) |
+| [spadl-tracking-context](https://huggingface.co/datasets/luxury-lakehouse/spadl-tracking-context) | 25,322 actions | Per-action tracking-derived features (66 columns) from 20 matches across IDSSE, Metrica, and SkillCorner |
 | [pining-for-the-data](https://huggingface.co/datasets/luxury-lakehouse/pining-for-the-data) | 10 matches | SkillCorner open tracking data (V3 format) redistributed under MIT |
 
 ### Interactive Spaces
 
 | Space | What it is |
 |-------|-----------|
-| [**Soccer Analytics App**](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) | Full 16-page Taipy dashboard (Docker SDK) querying Lakebase PostgreSQL via Databricks OAuth. Live data from 380+ matches. Shot maps, pass networks, player comparison, GK analytics, tactical positions, pitch control, PAUSA pass timing, DEFCON defensive pressure, and more. |
+| [**Soccer Analytics App**](https://huggingface.co/spaces/luxury-lakehouse/soccer-analytics-app) | Full 17-page Taipy dashboard (Docker SDK) querying Lakebase PostgreSQL via Databricks OAuth. Live data from ~444+ matches. Shot maps, pass networks, player comparison, GK analytics, tactical positions, pitch control, PAUSA pass timing, DEFCON defensive pressure, and more. |
 
 ## Compute &amp; Bidirectional Sync
 
@@ -109,7 +110,7 @@ Every analytics module is grounded in peer-reviewed research, cited directly in 
 
 | Module | Foundation |
 |--------|-----------|
-| **Pitch Control** | Spearman, "Beyond Expected Goals" (2017) |
+| **Pitch Control** | Spearman, "Physics-Based Modeling of Pass Probabilities in Soccer" (2017) |
 | **Expected Threat** | Karun Singh (2018), Markov chain value iteration |
 | **VAEP** | Decroos et al., "Actions Speak Louder than Goals" (2019) |
 | **DEFCON** | Kim et al., defensive contribution framework (2025) |
@@ -128,7 +129,7 @@ The platform maintains professional-grade engineering standards:
 
 - **Security**: OAuth M2M everywhere, HTTPS-only, zero secrets in code, input validation on all identifiers, SSL verification enforced, JSON-only model serialization
 - **Type safety**: Pyright basic mode, Pydantic models for configuration
-- **Testing**: 1,118+ pytest unit tests (including performance benchmarks), 381+ dbt data quality tests
+- **Testing**: 2,712+ pytest unit tests (including performance benchmarks), 862+ dbt data quality tests
 - **CI/CD**: GitHub Actions with OIDC federation (zero-secret CI), ruff linting, import-linter boundary enforcement, pre-commit hooks
 - **UX discipline**: 71 of 78 findings resolved across two cognitive interface audits (CHI-AUDIT-180, CHI-AUDIT-190), grounded in 15 HCI frameworks including Norman, Sweller, Gergle, Kahneman, and Cleveland &amp; McGill. Every metric has a help tooltip, every page has academic citations, and every analytics term is defined in a context-sensitive glossary.
 - **AI governance**: The project is assessed against Regulation (EU) 2024/1689 (the EU AI Act). Under the current operating posture &mdash; a solo research project on public data, not sold or licensed to clubs, not used for employment decisions &mdash; none of the thirteen per-player evaluative ML systems is classified as high-risk. Every model card carries an explicit intended-use / non-use stanza; the full gap analysis, conformity-assessment mapping, and re-classification triggers live in [`AI_GOVERNANCE.md`](https://github.com/karsten-s-nielsen/luxury-lakehouse/blob/main/AI_GOVERNANCE.md). Enforcement is via [`src/tests/test_ai_governance_md.py`](https://github.com/karsten-s-nielsen/luxury-lakehouse/blob/main/src/tests/test_ai_governance_md.py), which fails CI if the document drifts from the workflow-card inventory or if the annual review date goes more than 30 days stale.

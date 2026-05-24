@@ -74,9 +74,9 @@ The underlying grid maps to the **SPADL 105&times;68 meters** pitch. Grid resolu
 
 | Source | Matches | License |
 |--------|---------|---------|
-| [IDSSE Open Data](https://www.nature.com/articles/s41597-025-04507-0) | ~3 | CC-BY 4.0 |
+| [IDSSE Open Data](https://www.nature.com/articles/s41597-025-04507-0) | 7 | CC-BY 4.0 |
 
-Computed from IDSSE 25fps tracking data via the ELASTIC event-tracking synchronization pipeline and differential OBSO computation.
+Computed from 7 IDSSE 25fps tracking matches via the ELASTIC event-tracking synchronization pipeline and differential OBSO computation.
 
 ## Companion Resources
 
@@ -88,7 +88,7 @@ Computed from IDSSE 25fps tracking data via the ELASTIC event-tracking synchroni
 
 ## Limitations
 
-- **Small sample**: Only ~3 Bundesliga matches from the IDSSE open data release. Player-level aggregates should not be interpreted as career profiles.
+- **Small sample**: Only 7 Bundesliga matches from the IDSSE open data release. Player-level aggregates should not be interpreted as career profiles.
 - **1fps sampling**: Frames are sampled at 1fps (every 25th frame). Rapid positional changes between samples are not captured.
 - **Differential assumption**: Removing a player and recomputing OBSO does not account for how teammates would reposition in that player's absence. The counterfactual is "same formation minus one player," not "adjusted formation."
 - **No opponent reaction modeling**: The model assumes opponents do not adjust their positioning in response to the removed player.

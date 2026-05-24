@@ -86,9 +86,9 @@ All coordinates use the **StatsBomb 120&times;80 yards** scale. The origin (0, 0
 
 | Source | Matches | License |
 |--------|---------|---------|
-| [IDSSE Open Data](https://www.nature.com/articles/s41597-025-04507-0) | ~3 | CC-BY 4.0 |
+| [IDSSE Open Data](https://www.nature.com/articles/s41597-025-04507-0) | 7 | CC-BY 4.0 |
 
-Computed from IDSSE tracking data via ELASTIC event-tracking synchronization. Event coordinates are normalized to the StatsBomb scale during the OBSO pipeline.
+Computed from 7 IDSSE tracking matches via ELASTIC event-tracking synchronization. Event coordinates are normalized to the StatsBomb scale during the OBSO pipeline.
 
 **PR 7 (ADR-013 second application — 2026-04-27):** the gold mart `fct_pausa_values` is now built by dbt with `contract: enforced: true` from `bronze.pausa_values` (the writer `src/ingestion/pausa.py` retargets bronze; previously wrote gold directly). The mart inherits Kimball surrogate FKs (`match_key`, `team_key`, `player_key`) via `INNER JOIN fct_passes ON pass_id`. The HF dataset payload itself remains as-published by `scripts/compute_obso_hf.py` (a pre-mart compute output) and does **not** carry surrogate keys — per ADR-013, ML inference outputs are joined back to identity facts at the mart layer. Consumers querying the lakehouse should join `fct_pausa_values` directly; consumers reading this HF dataset should join via `pass_id` to the published `line-breaking-passes` dataset (which carries `match_key`/`team_key`/`passer_player_key` post-PR-7).
 
@@ -102,7 +102,7 @@ Computed from IDSSE tracking data via ELASTIC event-tracking synchronization. Ev
 
 ## Limitations
 
-- **IDSSE matches only**: Approximately 3 Bundesliga matches from the IDSSE open data release. The sample is too small to draw league-wide conclusions.
+- **IDSSE matches only**: 7 Bundesliga matches from the IDSSE open data release. The sample is too small to draw league-wide conclusions.
 - **ELASTIC alignment accuracy**: OBSO values depend on correct event-tracking synchronization. Events with low `alignment_confidence` may have pitch control computed at the wrong frame.
 - **Relative scores**: PAUSA temporal judgment and spatial selection are ratios, not absolute quality measures. A temporal judgment of 0.8 means 80% of the peak opportunity was captured &mdash; whether 0.8 is "good" depends on the difficulty of the pass context.
 - **Ghost trajectory assumption**: The ghost window assumes players continue their current velocity for 3 seconds before the event. Sudden direction changes or stops are not modeled.
