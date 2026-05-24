@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -14,6 +15,7 @@ if TYPE_CHECKING:
 class TestValidateGradientSports:
     def _make_match_data(
         self,
+        tmp_path: Path,
         *,
         n_frames: int = 26_000,  # Just above 25K gate; failure tests use 500
         n_gk: int = 2,
@@ -50,6 +52,9 @@ class TestValidateGradientSports:
             frames.loc[mask, "x"] = np.nan
             frames.loc[mask, "y"] = np.nan
 
+        frames_path = tmp_path / "frames.parquet"
+        frames.to_parquet(frames_path)
+
         teams = ["team_a", "team_b"][:n_teams]
         actions = pd.DataFrame(
             {
@@ -61,29 +66,29 @@ class TestValidateGradientSports:
             match_id="test_99999",
             provider="gradientsports",
             actions=actions,
-            frames=frames,
+            frames_path=frames_path,
             home_team_id="team_a",
             home_start_left=True,
         )
 
-    def test_valid_match_passes(self) -> None:
+    def test_valid_match_passes(self, tmp_path: Path) -> None:
         from run_tc3_calibration import _validate_gradient_sports
 
-        m = self._make_match_data()
+        m = self._make_match_data(tmp_path)
         result = _validate_gradient_sports([m])
         assert len(result) == 1
 
-    def test_low_frame_count_excluded(self) -> None:
+    def test_low_frame_count_excluded(self, tmp_path: Path) -> None:
         from run_tc3_calibration import _validate_gradient_sports
 
-        m = self._make_match_data(n_frames=500)
+        m = self._make_match_data(tmp_path, n_frames=500)
         result = _validate_gradient_sports([m])
         assert len(result) == 0
 
-    def test_missing_gk_excluded(self) -> None:
+    def test_missing_gk_excluded(self, tmp_path: Path) -> None:
         from run_tc3_calibration import _validate_gradient_sports
 
-        m = self._make_match_data(n_gk=1)
+        m = self._make_match_data(tmp_path, n_gk=1)
         result = _validate_gradient_sports([m])
         assert len(result) == 0
 
